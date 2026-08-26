@@ -131,6 +131,7 @@ test.describe("colonna di progetto: altezza delle sezioni aperte", () => {
   test.afterAll(() => { rmSync(POCO, { recursive: true, force: true }); });
 
   test("AUTOH-1: con poco contenuto la sezione non tiene più l'altezza fissa, e sta sotto il tetto", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "AUTOH-01" });
     const win = await apri(page, request, POCO);
 
     // Il contenitore delle sezioni: è lui la base del tetto `1/N`.
@@ -160,6 +161,7 @@ test.describe("colonna di progetto: altezza delle sezioni aperte", () => {
   });
 
   test("AUTOH-2: il tetto tiene, e Files non viene schiacciata", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "AUTOH-01" });
     const win = await apri(page, request, POCO);
     const colonna = win.locator('[data-testid="project-sidebar"]');
     const cb = (await colonna.boundingBox())!;

@@ -92,6 +92,7 @@ test.describe("Handoff: adottare una sessione Claude Code viva", () => {
 
 
   test("ADOPT-01: the endpoint binds the session and imports its history", async ({ request }) => {
+    test.info().annotations.push({ type: "spec", description: "EXTSESS-04" });
     await waitForCensus(request, API_SID);
 
     const res = await request.post(`${BASE}/api/topics/adopt-claude`, { data: { sessionId: API_SID } });

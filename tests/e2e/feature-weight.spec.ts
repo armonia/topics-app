@@ -72,6 +72,7 @@ async function conFlotta(page: import('@playwright/test').Page, fleet?: unknown)
 
 test.describe('inventario del peso per funzionalita', () => {
   test('il pannello dice COSA tiene il numero, non solo quanto', async ({ page }) => {
+    test.info().annotations.push({ type: 'spec', description: 'RES-ATTR-11' });
     await conFlotta(page);
     await page.goto('/');
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
@@ -100,6 +101,7 @@ test.describe('inventario del peso per funzionalita', () => {
   });
 
   test('le due nature restano distinte: conteggi e MB non si mescolano', async ({ page }) => {
+    test.info().annotations.push({ type: 'spec', description: 'RES-ATTR-11' });
     await conFlotta(page);
     await page.goto('/');
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
@@ -170,6 +172,7 @@ test.describe('inventario del peso per funzionalita', () => {
   });
 
   test('l\'ordine mette il misurato davanti: sono MB veri', async ({ page }) => {
+    test.info().annotations.push({ type: 'spec', description: 'RES-ATTR-11' });
     await conFlotta(page);
     await page.goto('/');
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
@@ -189,6 +192,7 @@ test.describe('inventario del peso per funzionalita', () => {
   });
 
   test('il recap si legge anche dalla BARRA, senza aprire niente', async ({ page }) => {
+    test.info().annotations.push({ type: 'spec', description: 'RES-ATTR-11' });
     await conFlotta(page);
     await page.goto('/');
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
@@ -219,6 +223,7 @@ test.describe('inventario del peso per funzionalita', () => {
   });
 
   test('senza flotta il pannello non mostra una sezione vuota di zeri', async ({ page }) => {
+    test.info().annotations.push({ type: 'spec', description: 'RES-ATTR-11' });
     // Nessuna flotta: le voci misurate spariscono. Le trattenute restano (l'app
     // ha comunque delle schede), ma nessuna riga deve comparire a «0 MB» — uno
     // zero che sembra una misura.
@@ -283,6 +288,7 @@ test.describe('il consumo sulla TAB', () => {
   }
 
   test('una chat con messaggi dice quanti ne tiene, non solo cosa non e\'', async ({ page }) => {
+    test.info().annotations.push({ type: 'spec', description: 'RES-ATTR-11' });
     await conFlotta(page);
     const chat = await chatConMessaggi(page, 7);
     await page.goto('/');
@@ -307,6 +313,7 @@ test.describe('il consumo sulla TAB', () => {
   });
 
   test('ogni tab aperta ha un tooltip che parla di consumo, nessuna resta muta', async ({ page }) => {
+    test.info().annotations.push({ type: 'spec', description: 'RES-ATTR-11' });
     await conFlotta(page);
     await chatConMessaggi(page, 3);
     await page.goto('/');

@@ -386,6 +386,7 @@ test.describe("Sidebar col dito — audit misurato", () => {
    * «SIDEBAR-SURFACES-01», a 1280×800.
    */
   test("SIDEBAR-CHROME-01: la colonna, la fascia e il piano delle pane sono lo stesso pixel", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "SIDETOUCH-01" });
     await openSidebarOnPhone(page);
 
     const chrome = await bg(page, SIDEBAR);
@@ -451,6 +452,7 @@ test.describe("Sidebar col dito — audit misurato", () => {
    * ogni cambio di tipo, e la colonna del testo è una.
    */
   test("SIDEBAR-CHROME-02: tutte le righe hanno la stessa altezza (44) e lo stesso bordo sinistro", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "SIDETOUCH-01" });
     await openSidebarOnPhone(page);
     const rows = page.locator(`${SIDEBAR} [role="treeitem"]`);
     await expect(rows.first()).toBeVisible({ timeout: 10_000 });
@@ -478,6 +480,7 @@ test.describe("Sidebar col dito — audit misurato", () => {
    * l'ultimo messaggio.
    */
   test("SIDEBAR-SUBLINE-01: a sessione ferma sotto al nome c'è l'ultimo messaggio", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "SIDETOUCH-01" });
     await openSidebarOnPhone(page);
     const row = page.getByRole("treeitem", { name: topicName });
     await expect(row).toBeVisible({ timeout: 10_000 });
@@ -494,6 +497,7 @@ test.describe("Sidebar col dito — audit misurato", () => {
    * finestra) che da iPhone erano semplicemente IRRAGGIUNGIBILI.
    */
   test("SIDEBAR-TOUCH-01: tenere premuto apre il menu completo, non un suo sottoinsieme", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "SIDETOUCH-01" });
     await openSidebarOnPhone(page);
     const row = page.getByRole("treeitem", { name: topicName });
     await expect(row).toBeVisible({ timeout: 10_000 });
@@ -526,6 +530,7 @@ test.describe("Sidebar col dito — audit misurato", () => {
    * (Fissa, Archivia), che sono la prova che togliendolo non si è perso nulla.
    */
   test("SIDEBAR-TOUCH-02: col dito il «…» non c'è, e il gesto apre comunque il menu intero", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "SIDETOUCH-01" });
     await openSidebarOnPhone(page);
     const row = page.getByRole("treeitem", { name: topicName });
     await expect(row).toBeVisible({ timeout: 10_000 });
@@ -576,6 +581,7 @@ test.describe("Sidebar col dito — audit misurato", () => {
    * proprio quella che il brief chiama in causa.
    */
   test("SIDEBAR-TOUCH-03: ogni bersaglio col dito colpisce sé stesso", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "SIDETOUCH-01" });
     await openSidebarOnPhone(page);
     const row = page.getByRole("treeitem", { name: topicName });
     await expect(row).toBeVisible({ timeout: 10_000 });
@@ -659,6 +665,7 @@ test.describe("Sidebar col dito — audit misurato", () => {
    *     invisibile o fuori schermo.
    */
   test("SIDEBAR-TOUCH-04: il gesto chiede la micro-vibrazione, senza elementi di servizio nascosti", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "SIDETOUCH-01" });
     await page.addInitScript(() => {
       const w = window as unknown as { __vibrate: number[]; __hadVibrate: boolean };
       w.__vibrate = [];
@@ -756,6 +763,7 @@ test.describe("Sidebar col dito — audit misurato", () => {
    * Si misura l'APPARTENENZA e l'ORDINE, non le classi.
    */
   test("SIDEBAR-TOUCH-06: in alto solo il titolo, i comandi nella fila in fondo", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "SIDETOUCH-01" });
     await openSidebarOnPhone(page);
 
     const albero = (await page.locator(`${SIDEBAR} [data-testid="sidebar-topic-list"]`).boundingBox())!;
@@ -816,6 +824,7 @@ test.describe("Sidebar col dito — audit misurato", () => {
    * metà del «non sta funzionando come desktop, va male» (Attilio, 07/08).
    */
   test("SIDEBAR-TOUCH-07: tenendo premuto si solleva una tessera, e trascinandola la si riordina", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "SIDETOUCH-01" });
     const a = await createTopic(request, `E2E-Drag-A-${Date.now()}`);
     const b = await createTopic(request, `E2E-Drag-B-${Date.now()}`);
     await request.put(`${BASE}/api/ui-state/sidebar-state`, {

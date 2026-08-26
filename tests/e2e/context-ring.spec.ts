@@ -64,6 +64,7 @@ test.describe.serial("Context ring — contesto reale + avviso accanto all'anell
   });
 
   test("con la misura reale il ring mostra quella, e sopra soglia la pastiglia", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "USAGE-09" });
     // Quante volte l'app va a prendere i dati dell'envelope. Serve a provare
     // che la sezione di diagnostica, da CHIUSA, non costa una richiesta: si
     // conta invece di ispezionare il DOM perche' e' il costo vero, e perche'
@@ -183,6 +184,7 @@ test.describe.serial("Context ring — contesto reale + avviso accanto all'anell
    * ripaghi a ogni chiamata; il perché sta nel tooltip dell'anello.
    */
   test("sopra i token assoluti l'avviso parla di COSTO, non di capienza", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "USAGE-09" });
     await page.route("**/api/context/live*", (route) =>
       route.fulfill({
         status: 200,
@@ -230,6 +232,7 @@ test.describe.serial("Context ring — contesto reale + avviso accanto all'anell
    * punto di tutto il cambiamento: il segnale non va più barattato con la pace.
    */
   test("anche il costo a livello warn si vede: la pastiglia non interrompe", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "USAGE-09" });
     await page.route("**/api/context/live*", (route) =>
       route.fulfill({
         status: 200,

@@ -35,6 +35,7 @@ function sameOrigin(): string {
 
 test.describe("LAN-OPEN-01 · gate d'origine", () => {
   test("una mutazione da un'origine forestiera è respinta con 403", async ({ request }) => {
+    test.info().annotations.push({ type: "spec", description: "LANGATE-01" });
     const res = await request.post(`${E2E_BASE}/api/topics`, {
       headers: { Origin: FOREIGN, "Content-Type": "application/json" },
       data: { title: "csrf" },
@@ -48,6 +49,7 @@ test.describe("LAN-OPEN-01 · gate d'origine", () => {
   });
 
   test("una mutazione same-origin passa il gate", async ({ request }) => {
+    test.info().annotations.push({ type: "spec", description: "LANGATE-01" });
     const res = await request.post(`${E2E_BASE}/api/topics`, {
       headers: { Origin: sameOrigin(), "Content-Type": "application/json" },
       data: { title: `lan-same-origin ${process.pid}` },
@@ -72,6 +74,7 @@ test.describe("LAN-OPEN-01 · gate d'origine", () => {
   });
 
   test("una GET senza token e senza Origin passa: nessun 401 è sopravvissuto", async ({ request }) => {
+    test.info().annotations.push({ type: "spec", description: "LANGATE-01" });
     // È il cuore della change: prima questa stessa richiesta, da un peer non
     // loopback, tornava 401 «pairing token required for remote access».
     const res = await request.get(`${E2E_BASE}/api/topics`, { failOnStatusCode: false });
@@ -80,6 +83,7 @@ test.describe("LAN-OPEN-01 · gate d'origine", () => {
   });
 
   test("una mutazione SENZA header Origin passa: non è un browser", async ({ request }) => {
+    test.info().annotations.push({ type: "spec", description: "LANGATE-01" });
     // CLI, tool MCP, hook HTTP, sendBeacon di teardown. Il CSRF è un attacco da
     // browser, e un browser manda sempre Origin su una mutazione cross-origin.
     const res = await request.post(`${E2E_BASE}/api/topics`, {
@@ -93,6 +97,7 @@ test.describe("LAN-OPEN-01 · gate d'origine", () => {
   });
 
   test("il patto del CORS: una GET cross-origin NON riceve Access-Control-Allow-Origin", async ({ request }) => {
+    test.info().annotations.push({ type: "spec", description: "LANGATE-01" });
     // Il gate lascia passare la GET; a rendere illeggibile la risposta è solo
     // questa assenza. Se un giorno qualcuno emettesse l'header per far
     // funzionare qualcosa, ogni /api diventerebbe leggibile da qualunque sito:
@@ -108,6 +113,7 @@ test.describe("LAN-OPEN-01 · gate d'origine", () => {
   });
 
   test("un upgrade WS da un'origine forestiera è respinto, da una same-origin no", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LANGATE-01" });
     // L'handshake WS non è raggiungibile con l'APIRequestContext: l'Origin lo
     // mette il browser, e coincide con quella del documento. Si prova quindi da
     // due documenti diversi — uno sull'origine del server, uno su un'origine

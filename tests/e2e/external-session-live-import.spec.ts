@@ -144,6 +144,7 @@ test.describe("Sessione adottata: i turni dal terminale continuano ad arrivare",
   });
 
   test("a terminal turn appears in the adopted chat within one sweep", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "EXTSESS-04" });
     await waitForCensus(request, SID);
 
     const topicId = await adoptAndOpen(page, request, CWD, SID);
@@ -190,6 +191,7 @@ test.describe("Sessione adottata: la chat SEGUE il fork del transcript", () => {
   });
 
   test("il resume riparte da un NUOVO file: la chat non si ricongela", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "EXTSESS-04" });
     await waitForCensus(request, SID);
 
     const topicId = await adoptAndOpen(page, request, CWD, SID);

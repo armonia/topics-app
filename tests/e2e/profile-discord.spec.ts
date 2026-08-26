@@ -76,6 +76,7 @@ test.describe("Profile — statistiche vere e stato Discord", () => {
     request,
     settingsPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "DISCORD-01" });
     seminaConsumo(6);
 
     await page.goto("/");

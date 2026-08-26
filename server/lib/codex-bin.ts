@@ -18,17 +18,46 @@ import { join } from "path";
  * (`providers/codex.ts`, `codex exec`) and the interactive PTY route
  * (`routes/terminal.ts`) so the two never disagree on where codex lives.
  */
-const HOME = process.env.HOME || "";
+// `$HOME` does not exist on Windows — it is `%USERPROFILE%` there. Reading only
+// HOME made every candidate collapse to a relative path `existsSync` resolves
+// against the server's cwd, so on Windows the probe could only return null.
+const HOME = process.env.HOME || process.env.USERPROFILE || "";
 
-const CANDIDATES = [
-  "/opt/homebrew/bin/codex",
-  "/usr/local/bin/codex",
-  "/Applications/Codex.app/Contents/Resources/codex",
-  join(HOME, "Applications/Codex.app/Contents/Resources/codex"),
-  join(HOME, ".bun/bin/codex"),
-  join(HOME, ".local/bin/codex"),
-  join(HOME, ".npm-global/bin/codex"),
-];
+const IS_WINDOWS = process.platform === "win32";
+
+/**
+ * The names a CLI can have on this platform. On Windows an executable carries its
+ * extension, and which one depends on the install method: a real `.exe` for a
+ * native installer, a `.cmd` shim for an npm/bun global. The bare name matches
+ * neither. See the twin note in `claude-bin.ts` — the two must never disagree.
+ */
+function names(base: string): string[] {
+  return IS_WINDOWS ? [`${base}.exe`, `${base}.cmd`, `${base}.bat`, base] : [base];
+}
+
+function candidates(base: string, dirs: string[]): string[] {
+  const out: string[] = [];
+  for (const dir of dirs) for (const n of names(base)) out.push(join(dir, n));
+  return out;
+}
+
+const CANDIDATES = IS_WINDOWS
+  ? candidates("codex", [
+      join(HOME, ".local/bin"),
+      join(HOME, ".bun/bin"),
+      join(process.env.APPDATA || join(HOME, "AppData/Roaming"), "npm"),
+      join(HOME, "AppData/Local/Microsoft/WinGet/Links"),
+      join(HOME, "AppData/Local/Programs/codex"),
+    ])
+  : [
+      "/opt/homebrew/bin/codex",
+      "/usr/local/bin/codex",
+      "/Applications/Codex.app/Contents/Resources/codex",
+      join(HOME, "Applications/Codex.app/Contents/Resources/codex"),
+      join(HOME, ".bun/bin/codex"),
+      join(HOME, ".local/bin/codex"),
+      join(HOME, ".npm-global/bin/codex"),
+    ];
 
 let cached: string | null = null;
 

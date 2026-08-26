@@ -87,6 +87,7 @@ import { ConfirmProvider } from './hooks/useConfirm';
 import { CompletionNotifierBridge } from './hooks/useCompletionNotifier';
 import { PendingActionProvider, enqueuePendingAction, tickPendingAction, cancelPendingAction, flushPendingActions } from './contexts/PendingActionContext';
 import { DRAG_REGION, NO_DRAG_REGION } from './lib/shell/dragRegion';
+import { WindowControls } from './components/Shared/WindowControls';
 import { flushPaneStoreNow, flushLocalPaneStoreNow } from './state/pane/middleware';
 import { usePaneStore } from './state/pane/store';
 import { useShallow } from 'zustand/react/shallow';
@@ -1537,6 +1538,13 @@ function App() {
           >
             {sidebarSearchButton}
             {sidebarAddMenu}
+            {/* The window commands, and ONLY on Windows: there the system frame
+                is off (the app draws its own) and without these there would be
+                no way left to minimise, maximise or close except through the
+                taskbar. On macOS the component renders nothing: those commands
+                are the traffic lights, which the shell already paints over this
+                very row. */}
+            <WindowControls />
           </div>}
         </div>
 

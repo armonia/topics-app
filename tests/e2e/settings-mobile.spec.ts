@@ -100,6 +100,7 @@ test.beforeEach(async ({ page }) => {
 const SCHEDE = ["Aspetto", "Notifiche", "Provider AI", "Profilo", "Piano"];
 
 test("a 390px il pannello sta nello schermo e non ha bersagli sotto i 44px", async ({ page }) => {
+  test.info().annotations.push({ type: "spec", description: "SETMOB-01" });
   await apriImpostazioni(page);
   await didascalia(page, "Impostazioni a 390px");
   await beat(page);
@@ -176,6 +177,7 @@ test("a 390px il pannello sta nello schermo e non ha bersagli sotto i 44px", asy
 });
 
 test("nessun <select> di sistema in pagina, e la lingua si cambia col menu dell'app", async ({ page }) => {
+  test.info().annotations.push({ type: "spec", description: "SETMOB-01" });
   await apriImpostazioni(page);
 
   // Il difetto segnalato, misurato: zero `<select>` nativi renderizzati.
@@ -226,6 +228,7 @@ test("nessun <select> di sistema in pagina, e la lingua si cambia col menu dell'
 });
 
 test("i comandi sui pannelli non compaiono dove non ci sono pannelli", async ({ page }) => {
+  test.info().annotations.push({ type: "spec", description: "SETMOB-01" });
   const menu = page.getByTestId("sidebar-topics-menu");
 
   // A 390px: assenti. Non grigi — ASSENTI: la condizione che li sbloccherebbe

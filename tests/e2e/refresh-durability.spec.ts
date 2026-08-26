@@ -35,6 +35,7 @@ const PIXEL = resolve(__dirname, "fixtures/pixel.png");
 
 test.describe.serial("Durabilita' al ricaricamento", () => {
   test("il testo non spedito del composer RESTA", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "DURAB-CHAT-01" });
     await goToApp(page);
     const composer = await openTestChat(page);
 
@@ -54,6 +55,7 @@ test.describe.serial("Durabilita' al ricaricamento", () => {
   });
 
   test("un allegato del composer RESTA, come il testo che lo accompagna", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "DURAB-CHAT-01" });
     await goToApp(page);
     const composer = await openTestChat(page);
 
@@ -107,6 +109,7 @@ test.describe.serial("Durabilita' al ricaricamento", () => {
   });
 
   test("la posizione di scroll della chat NON resta, ed e' voluto", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "DURAB-CHAT-01" });
     // Il contrario di un difetto: la chiave `pane-store-scroll-offsets` e'
     // stata TOLTA il 06/08/2026. Questa riga difende quella decisione.
     await goToApp(page);

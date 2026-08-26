@@ -27,6 +27,7 @@ hermetic(test);
 
 test.describe("consumo per scheda nel tooltip", () => {
   test("una scheda senza processo proprio lo dichiara, e non mostra uno zero", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "RES-ATTR-03" });
     // Una chat vive nel renderer condiviso insieme a topic, kanban, file ed
     // editor: nessun `ps` può separarle. La sola cosa onesta è dirlo — uno zero
     // sarebbe un numero inventato con l'aria di una misura.
@@ -54,6 +55,7 @@ test.describe("consumo per scheda nel tooltip", () => {
   });
 
   test("il tooltip sta sul nome della scheda, non sul contenitore della tab", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "RES-ATTR-03" });
     // REGRESSIONE DI DESIGN, non un dettaglio: il contenitore della tab usa
     // apposta `aria-label` e non `title` (commento in `PaneTabBar.tsx`), perché
     // un title là duplicherebbe il nome già scritto accanto e litigherebbe coi

@@ -200,6 +200,7 @@ test.describe("@nightly BENCH - AI response time, our overhead separated from th
   });
 
   test("measures send overhead, delivery overhead, and the model's share @nightly", async ({ page, request }, testInfo) => {
+    test.info().annotations.push({ type: "spec", description: "LAT-AI-03" });
     // EXACTLY one pane. Anything an earlier spec left open is one more resident
     // chat competing for the same main thread, and every number here is a
     // main-thread number.

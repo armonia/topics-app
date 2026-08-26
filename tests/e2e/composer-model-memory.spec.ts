@@ -37,6 +37,7 @@ test.describe.serial("Composer — memoria del modello sulle chat nuove", () => 
   }
 
   test("la scelta resta sulla bozza e la eredita la chat nuova dopo", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-DEF-04" });
     await goToApp(page);
     await page.keyboard.press("Escape");
 

@@ -353,6 +353,7 @@ test.describe("Top bar della kanban — si legge da sola", () => {
    * both of them the case does not come up.
    */
   test("TOPBAR-12: i chip progetto hanno una sola larghezza e un solo rientro", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-12" });
     // The icon on ONE project only. The fallback (no icon) stays on the other
     // three: it is the comparison between the two branches that made the defect
     // visible.
@@ -602,6 +603,7 @@ test.describe("Top bar della kanban — si legge da sola", () => {
    * one of the wrappers, not only on the bar.
    */
   test("TOPBAR-13: sotto la barra non c'e' nessun filetto", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-12" });
     await stubProbes(page, { running: 1 });
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/");
@@ -678,6 +680,7 @@ test.describe("Top bar della kanban — si legge da sola", () => {
    * board; with it open, exactly one is.
    */
   test("TOPBAR-14: alle impostazioni si entra da un posto solo, e lo stato ha una copia sola", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-12" });
     await stubProbes(page, { running: 1 });
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/");

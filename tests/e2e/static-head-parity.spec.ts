@@ -61,6 +61,7 @@ async function parity(request: import("@playwright/test").APIRequestContext, pat
 
 test.describe("Statici: HEAD risponde come GET, senza corpo", () => {
   test("la shell (/ e /index.html) e un asset con hash hanno parità GET/HEAD", async ({ request }) => {
+    test.info().annotations.push({ type: "spec", description: "HEADPAR-01" });
     // La shell. È il `HEAD /` → 404 del rapporto.
     const shell = await parity(request, "/");
     await parity(request, "/index.html");
@@ -77,12 +78,14 @@ test.describe("Statici: HEAD risponde come GET, senza corpo", () => {
   });
 
   test("una navigazione client (/task/<uuid>) risponde a HEAD come a GET", async ({ request }) => {
+    test.info().annotations.push({ type: "spec", description: "HEADPAR-01" });
     // Il ramo SPA-fallback: un link checker che chiede «questo permalink esiste?»
     // deve leggere lo stesso 200 di chi lo apre.
     await parity(request, "/task/d8ea2ff3-d412-4771-810d-401faa1d1754", "text/html,application/xhtml+xml");
   });
 
   test("HEAD non inventa 200: un asset inesistente resta 404 come su GET", async ({ request }) => {
+    test.info().annotations.push({ type: "spec", description: "HEADPAR-01" });
     // Il contrario del guasto — montare HEAD non deve trasformare il verbo in un
     // «esiste sempre», altrimenti la sonda mente nell'altro verso.
     const path = "/assets/questo-file-non-esiste-mai.js";

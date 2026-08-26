@@ -65,6 +65,7 @@ test.describe("Corse di tool nel transcript", () => {
   });
 
   test("sei azioni in sei messaggi collassano in UNA riga di gruppo", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-TOOL-02" });
     await goToApp(page);
     await openTopic(page, new RegExp(topicName));
 
@@ -85,6 +86,7 @@ test.describe("Corse di tool nel transcript", () => {
   });
 
   test("la corsa è UN item: sei azioni non portano sei bolle di messaggio", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-TOOL-02" });
     // Il vuoto fra le righe non veniva dai margini della riga di tool: veniva
     // dal fatto che ogni azione era un MESSAGGIO, e ogni messaggio si porta
     // dietro bolla, margini e la riga dell'orario. Fusa la corsa, il vestito si
@@ -169,6 +171,7 @@ test.describe("Il colore di una corsa di tool", () => {
   });
 
   test("una fallita su cinque lascia il titolo neutro, tre su tre lo fanno rosso", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-TOOL-02" });
     await goToApp(page);
     await openTopic(page, new RegExp(topicName));
 

@@ -461,6 +461,7 @@ test.describe("Done non mente: lo stato di atterraggio sta sulla card", () => {
   });
 
   test("LANDING-01: la card in Done dichiara «non su main» e nomina il ramo", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAND-07" });
     const text = `Non landato ${Date.now()}`;
     await seedDoneTask(page.request, text, {
       branch: UNLANDED_BRANCH,
@@ -490,6 +491,7 @@ test.describe("Done non mente: lo stato di atterraggio sta sulla card", () => {
   });
 
   test("LANDING-02: il drawer lo ripete e OFFRE l'azione che lo risolve", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAND-07" });
     const text = `Drawer non landato ${Date.now()}`;
     await seedDoneTask(page.request, text, {
       branch: UNLANDED_BRANCH,
@@ -521,6 +523,7 @@ test.describe("Done non mente: lo stato di atterraggio sta sulla card", () => {
   });
 
   test("LANDING-03: controllo negativo — un done LANDATO non porta allarmi", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAND-07" });
     const text = `Landato ${Date.now()}`;
     await seedDoneTask(page.request, text, {
       branch: "topics/ramo-landato",

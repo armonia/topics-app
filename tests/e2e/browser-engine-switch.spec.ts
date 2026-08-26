@@ -45,6 +45,7 @@ test.describe("Engine switch (54601eeb) — web pane Native↔Chromium toggle", 
   });
 
   test("toggle is HIDDEN when the server reports the capability disabled", async ({ page, browserProcessPageV2, request }) => {
+    test.info().annotations.push({ type: "spec", description: "ENGSW-02" });
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
     await browserProcessPageV2.mockWebrtcPeer(); // streaming surface = WebRTC <video>
     await browserProcessPageV2.mockBrowserContexts([]);
@@ -69,6 +70,7 @@ test.describe("Engine switch (54601eeb) — web pane Native↔Chromium toggle", 
   });
 
   test("enabled → toggle shows Nativo, click switches to Chromium (badge + WS remount) and back", async ({ page, browserProcessPageV2, request }) => {
+    test.info().annotations.push({ type: "spec", description: "ENGSW-02" });
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
     await browserProcessPageV2.mockBrowserContexts([]);
     await browserProcessPageV2.mockRemoteBrowserPane({

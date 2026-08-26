@@ -150,6 +150,7 @@ test.describe("Il cassetto mobile sta sotto il dito", () => {
   });
 
   test("APERTURA: il bordo del cassetto è dove è il dito, per tutta la corsa", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "FINGER-01" });
     await apriApp(page, true);
 
     // Si parte dai 5px di bordo: è la striscia da cui iOS fa partire il suo
@@ -173,6 +174,7 @@ test.describe("Il cassetto mobile sta sotto il dito", () => {
   });
 
   test("CHIUSURA: la colonna scorre col dito e se ne va con lui", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "FINGER-01" });
     await apriApp(page, false);
     const larghezza = page.viewportSize()!.width;
 
@@ -194,6 +196,7 @@ test.describe("Il cassetto mobile sta sotto il dito", () => {
   });
 
   test("AL RILASCIO decide il gesto: corsa breve e LENTA non apre niente", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "FINGER-01" });
     await apriApp(page, true);
 
     // 90px su uno schermo da 390 sono meno di un quarto, e 120ms per passo
@@ -224,6 +227,7 @@ test.describe("I fissati non scattano quando la sidebar scorre", () => {
   });
 
   test("scorrimento + un render a metà: le tessere restano dove sono", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "FINGER-01" });
     // Tre fissati su una riga, e abbastanza righe sotto perché la colonna abbia
     // davvero qualcosa da scorrere.
     // La chiave di un fissato è l'id nudo del topic: è la stessa che scrive il

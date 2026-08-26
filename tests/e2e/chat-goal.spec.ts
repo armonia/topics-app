@@ -70,6 +70,7 @@ test.describe("Obiettivo della chat", () => {
   }
 
   test("/goal dichiara, entra nell'envelope e sopravvive al reload", async ({ page, request, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "CTX-GOAL-01" });
     await openChat(page, chatPage);
     await runCommand(page, chatPage.messageInput, "/goal Sistemare il login");
 
@@ -97,6 +98,7 @@ test.describe("Obiettivo della chat", () => {
   });
 
   test("i passi del piano arrivano nella barra senza reload e nel contesto", async ({ page, request, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "CTX-GOAL-01" });
     const created = await (
       await request.put(`/api/topics/${topicId}/goal`, { data: { content: "Portare a verde la suite" } })
     ).json();
@@ -127,6 +129,7 @@ test.describe("Obiettivo della chat", () => {
   });
 
   test("/goal fatto chiude: via la barra, via il blocco dal contesto", async ({ page, request, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "CTX-GOAL-01" });
     await request.put(`/api/topics/${topicId}/goal`, { data: { content: "Chiudere questo giro" } });
 
     await openChat(page, chatPage);

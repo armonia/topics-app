@@ -144,6 +144,7 @@ test.describe("Fissati: il confine della griglia si attraversa col dito", () => 
   });
 
   test("SFISSA: la tessera trascinata sulla lista perde il pin", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "PINDRAG-01" });
     const nome = `Sfissa col dito ${Date.now()}`;
     const topic = await createTopic(request, nome);
     creati.push(topic.id);
@@ -169,6 +170,7 @@ test.describe("Fissati: il confine della griglia si attraversa col dito", () => 
   });
 
   test("FISSA: la riga trascinata dentro la griglia prende il pin", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "PINDRAG-01" });
     const ancora = await createTopic(request, `Ancora ${Date.now()}`);
     const nome = `Fissa col dito ${Date.now()}`;
     const topic = await createTopic(request, nome);

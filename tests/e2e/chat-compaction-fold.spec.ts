@@ -43,6 +43,7 @@ test.describe("Chat compaction summary fold", () => {
   });
 
   test("folds the compaction recap; before-content stays visible; expands on click", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-COMPACT-03" });
     const content = `${BEFORE}\n\n${PREAMBLE}. Summary: ${SUMMARY_MARKER} ${"lorem ipsum ".repeat(200)}`;
     await page.route(/\/api\/history\//, async (route) => {
       if (route.request().method() !== "POST") return route.fallback();

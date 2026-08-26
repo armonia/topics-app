@@ -42,6 +42,7 @@ test.describe.serial("Effort — una sola superficie, uno slider", () => {
   });
 
   test("il picker del modello non offre più i bottoni dell'effort", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "EFFORTUI-01" });
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
@@ -71,6 +72,7 @@ test.describe.serial("Effort — una sola superficie, uno slider", () => {
   });
 
   test("lo slider nel pannello di sessione scrive l'override sulla topic", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "EFFORTUI-01" });
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
@@ -104,6 +106,7 @@ test.describe.serial("Effort — una sola superficie, uno slider", () => {
   });
 
   test("l'effort si VEDE sul controllo che lo cambia, sempre", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "EFFORTUI-01" });
     // Il difetto segnalato: «un tasto per l'effort che cambia la label dall'altra
     // select». L'override finiva scritto nel bottone del MODELLO — che apre la
     // lista dei modelli — mentre a cambiarlo era il pannello di sessione, che al
@@ -136,6 +139,7 @@ test.describe.serial("Effort — una sola superficie, uno slider", () => {
   });
 
   test("cambiare effort non sposta di un pixel la barra del composer", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "EFFORTUI-01" });
     // Il layout shift segnalato. Le sigle dei tier hanno lunghezze diverse (LOW 3,
     // MEDIUM 6, XHIGH 5): a larghezza libera ogni cambio allargava o stringeva il
     // bottone e trascinava con sé quello che gli sta intorno. Qui si MISURA, non
@@ -195,6 +199,7 @@ test.describe.serial("Effort — una sola superficie, uno slider", () => {
   });
 
   test("la finestra del modello si legge in un badge, non in un suffisso tagliato", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "EFFORTUI-01" });
     // `claude-opus-5[1m]` finiva dentro uno span `truncate` accanto al nome: su
     // una pane stretta veniva tagliato via proprio il suffisso, cioè l'unica cosa
     // che distingue 200k da 1M. Ora la modalità è un badge a sé.
@@ -214,6 +219,7 @@ test.describe.serial("Effort — una sola superficie, uno slider", () => {
   });
 
   test("la finestra c'è per OGNI modello, non solo per quelli a 1M", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "EFFORTUI-01" });
     // Il difetto segnalato: «il conteggio del contesto non c'è per tutti». Il
     // badge compariva solo sulle varianti col suffisso `[1m]`, quindi la sua
     // assenza non distingueva «questo modello non ha la finestra lunga» da «di

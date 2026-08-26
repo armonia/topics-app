@@ -92,6 +92,7 @@ test.describe("comandi nascosti dietro l'hover, col dito", () => {
    * asserzione è quindi sul CONTESTO, non sull'app.
    */
   test("HOVER-TOUCH-00: il contesto è davvero senza puntatore", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "HOVERTOUCH-01" });
     await page.goto("/");
     const segnali = await page.evaluate(() => ({
       hasHover: window.matchMedia("(hover: hover)").matches,
@@ -107,6 +108,7 @@ test.describe("comandi nascosti dietro l'hover, col dito", () => {
     fileExplorerPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "HOVERTOUCH-01" });
     await fileExplorerPage.gotoProject(tmpDir, topicName);
     await apriGit(page);
     await apriRami(page);
@@ -129,6 +131,7 @@ test.describe("comandi nascosti dietro l'hover, col dito", () => {
     fileExplorerPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "HOVERTOUCH-01" });
     await fileExplorerPage.gotoProject(tmpDir, topicName);
     await apriGit(page);
     await apriRami(page);

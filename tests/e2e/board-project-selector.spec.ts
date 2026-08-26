@@ -206,6 +206,7 @@ test.describe("Selettore progetto della board", () => {
   });
 
   test("PROJSEL-03: il filtro progetto della kanban è lo STESSO picker (ricerca + icone + multi)", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-12" });
     await page.goto("/");
     await openGlobalBoard(page);
     const board = page.getByTestId("kanban-board");

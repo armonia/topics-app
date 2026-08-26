@@ -32,6 +32,7 @@ hermetic(test);
  */
 test.describe.serial("Composer — autonomia su una chat nuova", () => {
   test("scegliere «Libero» su una bozza non dà errore e resta scelto", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-DEF-04" });
     await goToApp(page);
     await page.keyboard.press("Escape");
 

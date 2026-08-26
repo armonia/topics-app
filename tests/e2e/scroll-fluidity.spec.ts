@@ -359,6 +359,7 @@ test.describe("Banco della fluidita' dello scorrimento", () => {
   });
 
   test("misura i frame persi scorrendo il trascritto", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "SCROLLFLU-01" });
     await resetPaneStore(request, [topicId]);
 
     // Calibrazione su una pagina VUOTA e SEPARATA: `addInitScript` e' per-pagina,

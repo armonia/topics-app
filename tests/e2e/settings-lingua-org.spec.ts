@@ -27,6 +27,7 @@ test.describe("Impostazioni · lingua e organizzazioni", () => {
   test.describe.configure({ timeout: 60_000 });
 
   test("SET-LINGUA: il menu delle impostazioni è in italiano", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "SETORG-01" });
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
     await page.keyboard.press("Meta+Comma");
@@ -48,6 +49,7 @@ test.describe("Impostazioni · lingua e organizzazioni", () => {
   });
 
   test("SET-BANNER: il banner da mettere su GitHub si copia gia' scritto", async ({ page, context }) => {
+    test.info().annotations.push({ type: "spec", description: "SETORG-01" });
     // «Ci deve potere essere il banner da mettere sul mio profilo di github.»
     // Il banner c'era gia' (/api/profile/banner.svg, SVG vero con i numeri
     // veri), ma l'unico gesto offerto era «apri»: poi tocca salvare, cercare
@@ -92,6 +94,7 @@ test.describe("Impostazioni · lingua e organizzazioni", () => {
   });
 
   test("SET-ORG: le organizzazioni si trovano dalle impostazioni", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "SETORG-01" });
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
     await page.keyboard.press("Meta+Comma");

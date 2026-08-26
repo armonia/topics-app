@@ -134,6 +134,7 @@ function reportAndAssert(label: string, probe: FrameProbe) {
 
 test.describe("perf: app a riposo", () => {
   test("niente pompa di rAF/ResizeObserver quando non succede niente", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "IDLE-01" });
     await installFrameProbe(page);
     await goToApp(page);
     // Boot, animazioni d'ingresso e primo assestamento del layout non contano.
@@ -148,6 +149,7 @@ test.describe("perf: app a riposo", () => {
   // assestarsi e TACERE — se torna a battere a ogni frame, questo è il test che
   // se ne accorge.
   test("chat aperta e ferma: la lista virtualizzata si assesta e tace", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "IDLE-01" });
     await installFrameProbe(page);
     await goToApp(page);
     await openTestChat(page);
@@ -167,6 +169,7 @@ test.describe("perf: app a riposo", () => {
   // resto. Prima di questo caso, un IntersectionObserver per terminale e un
   // coalescer che si ri-armava a vuoto sarebbero passati inosservati.
   test("terminale aperto e fermo: nessun frame chiesto a vuoto", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "IDLE-01" });
     const session = await createTerminalSession(request, { cwd: "/tmp", name: "idle-probe" });
     const paneId = `terminal:${session.id}`;
     try {
@@ -327,6 +330,7 @@ async function installTauriInvokeProbe(page: Page) {
 
 test.describe("perf: guscio nativo a riposo", () => {
   test("finestra nascosta: i due drain IPC della pane browser tacciono, e al ritorno recuperano", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "IDLE-01" });
     const paneId = "browser:idle-drain-probe";
     await seedPaneStore(request, () => ({
       panes: {

@@ -92,6 +92,7 @@ test.describe("Il marchio dell'organizzazione sulla tab di progetto", () => {
   });
 
   test("SHAREORG-01: la tab porta il marchio, e il titolo dice CON CHI", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "PROJECT-04" });
     await goToApp(page);
     const tab = page.getByTestId(TAB).first();
     await expect(tab, "la tab del progetto deve essere aperta").toBeVisible({ timeout: 15000 });
@@ -109,6 +110,7 @@ test.describe("Il marchio dell'organizzazione sulla tab di progetto", () => {
   });
 
   test("SHAREORG-02: marcato incognito il marchio sparisce, e torna, senza ricaricare", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "PROJECT-04" });
     await goToApp(page);
     const mark = page.getByTestId(TAB).first().getByTestId("pane-tab-shared-org");
     await expect(mark).toBeVisible({ timeout: 15000 });
@@ -130,6 +132,7 @@ test.describe("Il marchio dell'organizzazione sulla tab di progetto", () => {
   });
 
   test("SHAREORG-03: tolta l'altra persona, il progetto non è più condiviso con nessuno", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "PROJECT-04" });
     // The rule this file defends, seen from outside: the organisation stays on
     // the project — `org_id` does not change — and the mark goes away anyway,
     // because there is nobody left to read it.

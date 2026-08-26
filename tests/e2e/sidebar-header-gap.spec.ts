@@ -126,6 +126,7 @@ async function misura(page: Page): Promise<Misura> {
 
 for (const s of SCHERMI) {
   test(`HEADER-GAP a ${s.w}px: sotto l'header c'è UN passo, non due`, async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "HDRGAP-01" });
     await page.setViewportSize({ width: s.w, height: s.h });
     await goToApp(page);
     await expect(page.locator(".sidebar-column").first()).toBeVisible({ timeout: 15000 });

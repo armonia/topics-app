@@ -41,6 +41,7 @@ test.describe.serial("Providers snapshot sync (cross-window)", () => {
   });
 
   test("snapshot REST returns valid shape", async ({ request }) => {
+    test.info().annotations.push({ type: "spec", description: "SNAPSYNC-01" });
     const resp = await request.get("/api/providers/snapshot");
     expect(resp.ok()).toBeTruthy();
     const data = await resp.json();
@@ -58,6 +59,7 @@ test.describe.serial("Providers snapshot sync (cross-window)", () => {
   });
 
   test("snapshot/refresh accepts empty body and {provider}", async ({ request }) => {
+    test.info().annotations.push({ type: "spec", description: "SNAPSYNC-01" });
     const a = await request.post("/api/providers/snapshot/refresh", { data: {} });
     expect(a.ok()).toBeTruthy();
     const b = await request.post("/api/providers/snapshot/refresh", { data: { provider: "claude-code" } });
@@ -65,6 +67,7 @@ test.describe.serial("Providers snapshot sync (cross-window)", () => {
   });
 
   test("two pages receive the same snapshot via WS without polling", async ({ browser }) => {
+    test.info().annotations.push({ type: "spec", description: "SNAPSYNC-01" });
     const ctxA = await browser.newContext({ ignoreHTTPSErrors: true });
     const ctxB = await browser.newContext({ ignoreHTTPSErrors: true });
     const pageA = await ctxA.newPage();

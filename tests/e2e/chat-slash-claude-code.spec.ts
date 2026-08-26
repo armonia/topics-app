@@ -45,6 +45,7 @@ test.describe("Chat slash commands (claude-code)", () => {
   }
 
   test("/model, /effort, /reasoning no longer 400 on claude-code", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "CMD-06" });
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));

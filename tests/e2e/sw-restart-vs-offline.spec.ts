@@ -137,6 +137,7 @@ test.describe("service worker: riavvio-server non serve la shell vecchia", () =>
     page,
     context,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "SWCACHE-01" });
     await bootWithControllingSW(page);
     await seedStaleShell(page);
 
@@ -177,6 +178,7 @@ test.describe("service worker: riavvio-server non serve la shell vecchia", () =>
     page,
     context,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "SWCACHE-01" });
     await bootWithControllingSW(page);
     await seedStaleShell(page);
     const navRetries = await swNavRetries(page);
@@ -205,6 +207,7 @@ test.describe("service worker: riavvio-server non serve la shell vecchia", () =>
     page,
     context,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "SWCACHE-01" });
     // Il caso d'uso originale della PWA, con la cosa vera invece di
     // un'intercettazione: niente rete, la app si apre lo stesso.
     await bootWithControllingSW(page);

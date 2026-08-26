@@ -181,6 +181,7 @@ test.describe("Dimentica questo sito — pane condivisa", () => {
   });
 
   test("si elenca il silo, si preme, e il sito non ti riconosce più", async ({ request }) => {
+    test.info().annotations.push({ type: "spec", description: "FORGET-03" });
     const origine = sito!.origine;
     await resetPaneStore(request, []);
     const topic = await createTopic(request, `E2E-FORGET-${Date.now()}`);

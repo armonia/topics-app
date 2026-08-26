@@ -48,6 +48,7 @@ test.describe("sidebar progetto: la rail collassata", () => {
   });
 
   test("chiusa, la barra è una fila di card DENTRO la riga delle tab", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "PRAIL-01" });
     await resetPaneStore(request, []);
     await seedProjectPane(request, PROJ);
     await waitForPaneStoreQuiet(request);
@@ -236,6 +237,7 @@ test.describe("sidebar progetto: la rail collassata", () => {
   });
 
   test("la riga «File» chiusa ha il suo bordo, e Processi si apre su qualcosa", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "PRAIL-01" });
     await resetPaneStore(request, []);
     await seedProjectPane(request, PROJ);
     await waitForPaneStoreQuiet(request);
@@ -286,6 +288,7 @@ test.describe("sidebar progetto: la rail collassata", () => {
   });
 
   test("la barra si ridimensiona dal bordo, e il doppio click la riporta al default", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "PRAIL-01" });
     await resetPaneStore(request, []);
     await seedProjectPane(request, PROJ);
     await waitForPaneStoreQuiet(request);
@@ -330,6 +333,7 @@ test.describe("sidebar progetto: la rail collassata", () => {
   });
 
   test("in modalità fluttuante la maniglia resta trasparente e i divisori veri no", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "PRAIL-01" });
     await resetPaneStore(request, []);
     await seedProjectPane(request, PROJ);
     await waitForPaneStoreQuiet(request);

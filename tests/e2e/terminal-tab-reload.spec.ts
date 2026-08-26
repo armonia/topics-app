@@ -66,6 +66,7 @@ test.describe.serial("Terminal tab reload", () => {
   test("POST /reload restarts a shell session in place (same id, still active)", async ({
     request,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "TERM-02" });
     const created = await createTerminalSession(request, {
       cwd: projectPath,
       type: "shell",
@@ -93,6 +94,7 @@ test.describe.serial("Terminal tab reload", () => {
   });
 
   test("POST /reload on an unknown session returns 404", async ({ request }) => {
+    test.info().annotations.push({ type: "spec", description: "TERM-02" });
     const { status } = await reloadTerminalSession(
       request,
       `nope-${Date.now()}`
@@ -104,6 +106,7 @@ test.describe.serial("Terminal tab reload", () => {
     page,
     terminalPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "TERM-02" });
     await navigateAndOpenTerminal(page, terminalPage);
 
     // The terminal pane tab carries data-testid `pane-tab-terminal:<sessionId>`.
@@ -140,6 +143,7 @@ test.describe.serial("Terminal tab reload", () => {
     page,
     request,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "TERM-02" });
     // Use a dedicated STANDALONE chat here. The describe's shared topic is
     // project-linked (projectPath=/tmp), and a project-nested topic can't be
     // surfaced as a standalone sidebar treeitem — usePanelLifecycle purges

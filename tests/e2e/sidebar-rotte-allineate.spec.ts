@@ -69,6 +69,7 @@ test.describe("Sidebar · le rotte partono dalla stessa colonna", () => {
   });
 
   test("ROTTE-01: il nome di un progetto senza favicon parte dalla stessa x di uno che ce l'ha", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "ROWALIGN-01" });
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
 

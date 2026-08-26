@@ -75,6 +75,7 @@ test.describe("Chat /compact — il comando si trova", () => {
   });
 
   test("`/help` elenca /compact", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "CMD-06" });
     const input = chatPage.messageInput;
     await expect(input).toBeVisible({ timeout: 30_000 });
     await input.click();

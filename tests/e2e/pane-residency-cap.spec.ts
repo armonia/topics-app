@@ -134,6 +134,7 @@ test.describe("Tetto di residenza delle pane", () => {
   }
 
   test("RESIDENCY-01: visitare venti chat non lascia venti pane montate", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LEAK-01" });
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
     await expect(shells(page).first()).toBeAttached({ timeout: 15000 });

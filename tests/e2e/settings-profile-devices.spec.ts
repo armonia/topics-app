@@ -55,6 +55,7 @@ async function apriImpostazioni(page: Page) {
 
 test.describe("Impostazioni: profilo e dispositivi sono due domande", () => {
   test("SETTINGS-01: Profile e Devices sono due voci distinte", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "APPSET-03" });
     await page.goto("/");
     const pannello = await apriImpostazioni(page);
     await expect(pannello.getByRole("button", { name: "Profilo", exact: true })).toBeVisible();
@@ -63,6 +64,7 @@ test.describe("Impostazioni: profilo e dispositivi sono due domande", () => {
   });
 
   test("SETTINGS-02: le due voci mostrano contenuti diversi", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "APPSET-03" });
     // Two labels over the SAME panel would be the earlier flaw with one extra
     // name on it: the proof they are separate is what sits inside them.
     await page.goto("/");
@@ -78,6 +80,7 @@ test.describe("Impostazioni: profilo e dispositivi sono due domande", () => {
   });
 
   test("SETTINGS-03: il chip dei dispositivi apre i DISPOSITIVI, non il profilo", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "APPSET-03" });
     // THIS is the original bug: `onOpenDevices` (the identity row at the
     // bottom of the sidebar) and `onOpenProfile` (the Topics menu) BOTH pointed
     // at `devices`. Two different doors opening onto the same room.
@@ -130,6 +133,7 @@ test.describe("Impostazioni: profilo e dispositivi sono due domande", () => {
   });
 
   test("SETTINGS-04: dalla riga d'identità si arriva al pane Profilo", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "APPSET-03" });
     // The other half of the same decision: the row talks about you, so it leads
     // where you go to look at who you are. Before, nothing led there at all,
     // and the profile could only be found from the "Topics" menu.

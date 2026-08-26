@@ -24,6 +24,7 @@ hermetic(test);
  */
 test.describe("dev bundle: prompt to reload, never auto-reload", () => {
   test("stale signal shows the toast and does not navigate; clicking Ricarica reloads", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "BUNDLE-TOAST-01" });
     await goToApp(page);
 
     // Sentinel that only survives if the page is NOT reloaded.
@@ -54,6 +55,7 @@ test.describe("dev bundle: prompt to reload, never auto-reload", () => {
   });
 
   test("the toast can be dismissed and re-surfaces on a new stale signal", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "BUNDLE-TOAST-01" });
     await goToApp(page);
 
     await page.evaluate(() => window.dispatchEvent(new CustomEvent("topics:bundle-stale")));

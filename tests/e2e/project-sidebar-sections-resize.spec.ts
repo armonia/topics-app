@@ -163,6 +163,7 @@ test.describe("sidebar progetto: i divisori fra le sezioni", () => {
   }
 
   test("RESIZE-1: tirando in ALTO il divisore, cresce ciò che gli sta SOTTO (Processi)", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "PRESIZE-01" });
     const { divisore, boxGit, boxProcessi } = await apri(page, request);
 
     const primaGit = await riquadro(boxGit, "git");
@@ -196,6 +197,7 @@ test.describe("sidebar progetto: i divisori fra le sezioni", () => {
   });
 
   test("RESIZE-2: la coppia è CONSERVATA — il tetto di Git non si muove", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "PRESIZE-01" });
     const { divisore, boxGit, boxProcessi } = await apri(page, request);
 
     const primaGit = await riquadro(boxGit, "git");
@@ -221,6 +223,7 @@ test.describe("sidebar progetto: i divisori fra le sezioni", () => {
   });
 
   test("RESIZE-3: e tirando in BASSO succede l'opposto, senza deriva", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "PRESIZE-01" });
     const { divisore, boxGit, boxProcessi } = await apri(page, request);
 
     const primaGit = await riquadro(boxGit, "git");
@@ -243,6 +246,7 @@ test.describe("sidebar progetto: i divisori fra le sezioni", () => {
   });
 
   test("RESIZE-4: al minimo ci si FERMA — nessuno spinge fuori il vicino", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "PRESIZE-01" });
     const { divisore, boxGit, boxProcessi } = await apri(page, request);
 
     const primaGit = await riquadro(boxGit, "git");
@@ -274,6 +278,7 @@ test.describe("sidebar progetto: i divisori fra le sezioni", () => {
   });
 
   test("RESIZE-5: contro Files il fermo è Files stessa — non si può cancellarla tirando", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "PRESIZE-01" });
     const { divisoreFiles, files, boxFiles } = await apri(page, request);
     await expect(divisoreFiles).toHaveAttribute("data-resize-active", "true");
 

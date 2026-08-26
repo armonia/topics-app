@@ -34,6 +34,7 @@ hermetic(test);
 
 test.describe('pannello prestazioni', () => {
   test('si apre dalla barra di stato e mostra numeri, non chiavi', async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "PERFPANEL-01" });
     await page.goto('/');
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
 
@@ -66,6 +67,7 @@ test.describe('pannello prestazioni', () => {
   });
 
   test('col footprint quasi tutto in swap, il pannello lo DICE invece di lasciarlo credere', async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "PERFPANEL-01" });
     // I numeri sono quelli misurati sulla finestra dell'utente: 1.788 MB di
     // footprint contro 517 residenti. Prima di questo lavoro il pannello
     // mostrava «1,8 GB» e nient'altro — la sola riga che parlava di swap si
@@ -106,6 +108,7 @@ test.describe('pannello prestazioni', () => {
   });
 
   test('sotto PRESSIONE vera dice la cosa opposta: chiudi qualcosa', async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "PERFPANEL-01" });
     // L'altro ramo, e il motivo per cui le righe sono due invece di una. Qui la
     // memoria compressa e' tanta in valore ASSOLUTO (2,9 GB), cioe' la macchina
     // sta davvero paginando: il consiglio di chiudere qualcosa e' azionabile.
@@ -141,6 +144,7 @@ test.describe('pannello prestazioni', () => {
   });
 
   test('la BARRA dice quanta memoria e\' davvero occupata, senza aprire il pannello', async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "PERFPANEL-01" });
     // Il numero che l'utente vede per primo è quello della barra, non quello
     // del pannello: fino al 2026-08-20 la spiegazione stava due clic più in là,
     // e chi leggeva «1,8 GB» restava con un numero che significa altro.
@@ -173,6 +177,7 @@ test.describe('pannello prestazioni', () => {
   });
 
   test('una misura PARZIALE non produce nessuna riga, invece di inventarne una', async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "PERFPANEL-01" });
     // `partial: true` = la shell non ha potuto misurare tutti i processi (e' il
     // caso non-macOS, che il payload dichiara invece di fingere). Una
     // percentuale calcolata su una misura parziale sarebbe una piccola bugia

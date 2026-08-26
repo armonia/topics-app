@@ -527,6 +527,7 @@ test.describe.serial("@nightly BENCH — what a streamed chunk costs", () => {
   });
 
   test("absorbs a burst into a long transcript @nightly", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "STREAMB-03" });
     await measureTranscript(page, request, {
       topicId: longTopic.id,
       topicName: longTopic.name,
@@ -537,6 +538,7 @@ test.describe.serial("@nightly BENCH — what a streamed chunk costs", () => {
   });
 
   test("absorbs the same burst into a short one @nightly", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "STREAMB-03" });
     await measureTranscript(page, request, {
       topicId: shortTopic.id,
       topicName: shortTopic.name,
@@ -547,6 +549,7 @@ test.describe.serial("@nightly BENCH — what a streamed chunk costs", () => {
   });
 
   test("writes the report @nightly", async () => {
+    test.info().annotations.push({ type: "spec", description: "STREAMB-03" });
     const payload = buildStreamingReport({
       on2UsPerMessage: ON2_US_PER_MESSAGE,
       machine: {

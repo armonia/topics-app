@@ -151,6 +151,7 @@ test.describe("Sfratto dei trascritti", () => {
   });
 
   test("TRANSCRIPT-RESIDENCY-02: un trascritto sfrattato rientra intatto", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LEAK-01" });
     await boot(page);
 
     // Apri la prima chat: da qui il suo trascritto è in memoria.

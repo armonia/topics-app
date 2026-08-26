@@ -8583,7 +8583,9 @@ async fn window_detach(
     .min_inner_size(480.0, 400.0)
     .resizable(true)
     .transparent(true)
-    .decorations(true)
+    // Same reason as the main window: on Windows the app draws its own bar, so a
+    // native one on top of it is a second bar. See the note in `window_detach_space`.
+    .decorations(cfg!(not(target_os = "windows")))
     .disable_drag_drop_handler(); // mandatory: HTML5 DnD dies without it under wry
 
     #[cfg(target_os = "macos")]
@@ -8748,7 +8750,15 @@ async fn window_detach_space(
                 .min_inner_size(480.0, 400.0)
                 .resizable(true)
                 .transparent(true)
-                .decorations(true)
+                // WINDOWS: no system title bar. The app draws its own (App.tsx,
+                // `app-drag-region`), so leaving `decorations(true)` there stacks a
+                // second, native bar on top of it — reported 2026-08-26, "the
+                // Windows build has the system bar we had removed".
+                //
+                // macOS keeps decorations ON: there the bar is not chrome, it holds
+                // the traffic lights, and `TitleBarStyle::Overlay` + `hidden_title`
+                // already blend it into the app's own row.
+                .decorations(cfg!(not(target_os = "windows")))
                 .disable_drag_drop_handler(); // mandatory: HTML5 DnD dies without it under wry
 
             #[cfg(target_os = "macos")]
@@ -9005,6 +9015,55 @@ fn window_close_self(window: tauri::Window) {
     let _ = no_abort("window_close_self", || {
         window.close().map_err(|e| e.to_string())
     });
+}
+
+/// Minimise / maximise-restore / close, for a window that has NO system title bar.
+///
+/// On Windows the app draws its own bar and the native one is switched off (see
+/// the note in `setup`), which also takes away the three buttons the user reaches
+/// for. Without these commands a window would be unminimisable, unmaximisable and
+/// unclosable except through the taskbar — which is not "we removed the chrome",
+/// it is "we removed the controls".
+///
+/// One command with an action instead of three: the three cases share the whole
+/// preamble (find the window, `no_abort`, report the outcome), and three copies of
+/// it would be three places to keep in step.
+///
+/// `no_abort` for the same reason as the other window commands: these calls go
+/// through the window dispatcher, whose poisoned mutex aborts the process rather
+/// than returning an error.
+#[tauri::command]
+fn window_control(window: tauri::Window, action: String) -> bool {
+    no_abort("window_control", || {
+        match action.as_str() {
+            "minimize" => window.minimize().map_err(|e| e.to_string())?,
+            "maximize" => {
+                // A single "maximize" that cannot restore is a button that works
+                // once. The state is asked of the window, never remembered here:
+                // the user can also maximise by double-clicking the bar or with a
+                // keyboard chord, and a remembered flag would drift from reality.
+                if window.is_maximized().map_err(|e| e.to_string())? {
+                    window.unmaximize().map_err(|e| e.to_string())?
+                } else {
+                    window.maximize().map_err(|e| e.to_string())?
+                }
+            }
+            "close" => window.close().map_err(|e| e.to_string())?,
+            other => return Err(format!("unknown window action: {other}")),
+        }
+        Ok(true)
+    })
+    .unwrap_or(false)
+}
+
+/// Is this window maximised right now? The client needs it to draw the correct
+/// glyph (maximise vs restore) on its own title bar.
+#[tauri::command]
+fn window_is_maximized(window: tauri::Window) -> bool {
+    no_abort("window_is_maximized", || {
+        window.is_maximized().map_err(|e| e.to_string())
+    })
+    .unwrap_or(false)
 }
 
 // ───────────────────────── Dev hot-reload (disk-serve) ─────────────────────────
@@ -10467,6 +10526,33 @@ pub fn run() {
                 });
             }
 
+            // WINDOWS: no system title bar on the main window either.
+            //
+            // The main window is declared in `tauri.conf.json`, which has no
+            // per-platform branch: `decorations: true` there is right for macOS
+            // (the bar holds the traffic lights and `titleBarStyle: Overlay`
+            // blends it into the app's own row) and wrong for Windows, where the
+            // app draws its own bar (App.tsx, `app-drag-region`) and the native
+            // one simply stacks on top. Reported 2026-08-26: "the Windows build
+            // has the system bar we had removed".
+            //
+            // Done HERE and not in the config because the config cannot say
+            // "except on Windows". Failing is not fatal: a window with one bar too
+            // many is worse-looking, a window that fails to open is worse.
+            #[cfg(target_os = "windows")]
+            {
+                use tauri::Manager;
+                for (label, win) in app.webview_windows() {
+                    if let Err(e) = win.set_decorations(false) {
+                        eprintln!("[chrome] {label}: set_decorations(false) failed: {e}");
+                    }
+                    // Without a native frame Windows also drops the drop shadow and
+                    // the rounded corners; the shadow is what separates the window
+                    // from whatever is behind it. `set_shadow` puts it back.
+                    let _ = win.set_shadow(true);
+                }
+            }
+
             // Traffic lights hidden by default — revealed on demand when the
             // Topics menu opens (parity with the Electron shell).
             #[cfg(target_os = "macos")]
@@ -10783,6 +10869,8 @@ pub fn run() {
             window_close_label,
             app_reload_all,
             window_close_self,
+            window_control,
+            window_is_maximized,
             os_open::take_os_open_paths
         ])
         .build(tauri::generate_context!())

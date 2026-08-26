@@ -324,6 +324,7 @@ test.describe("@nightly Kanban drag - frame time bench", () => {
   // times has no business on the pull-request path; it is the gate script that
   // runs it, on demand.
   test("measures frame time while a card is dragged across columns @nightly", async ({ page }, testInfo) => {
+    test.info().annotations.push({ type: "spec", description: "DRAGFR-01" });
     await resetPaneStore(page.request, ["__board__"]);
 
     // Calibration on a SEPARATE blank page: `addInitScript` is per-page, so the

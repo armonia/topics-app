@@ -219,6 +219,7 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
 
   // ── RIGA 1 ────────────────────────────────────────────────────────────────
   test("RIGA 1: il filtro di testo della board RESTA, e resta APPLICATO", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "DURAB-BOARD-01" });
     await goToApp(page);
     await apriBoardGenerale(page);
     const board = page.getByTestId("kanban-board");
@@ -252,6 +253,7 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
 
   // ── RIGA 2 ────────────────────────────────────────────────────────────────
   test("RIGA 2: i pannelli chiusi del drawer (descrizione, sottotask, consegna) RESTANO chiusi", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "DURAB-BOARD-01" });
     await goToApp(page);
     await apriBoardGenerale(page);
     let drawer = await apriDrawer(page, CARD_DRAWER);
@@ -296,6 +298,7 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
 
   // ── RIGA 3 ────────────────────────────────────────────────────────────────
   test("RIGA 3: il drawer largo (board:taskDetailWide) RESTA largo", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "DURAB-BOARD-01" });
     await goToApp(page);
     await apriBoardGenerale(page);
     let drawer = await apriDrawer(page, CARD_DRAWER);
@@ -326,6 +329,7 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
 
   // ── RIGA 4 ────────────────────────────────────────────────────────────────
   test("RIGA 4: lo Spazio di lavoro chiuso (board:taskWorkspaceOpen) RESTA chiuso", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "DURAB-BOARD-01" });
     await goToApp(page);
     await apriBoardGenerale(page);
     let drawer = await apriDrawer(page, CARD_DRAWER);
@@ -357,6 +361,7 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
 
   // ── RIGA 5 ────────────────────────────────────────────────────────────────
   test("RIGA 5: la bozza del composer dei task RESTA (e sta sul SERVER, non nel browser)", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "DURAB-BOARD-01" });
     // La bozza vive in `ui-state`: senza azzerarla il test riparte dal residuo
     // di un altro file e `toHaveValue` misurerebbe quello.
     await page.request.delete(`${BASE}/api/ui-state/board-composer-draft`).catch(() => {});
@@ -397,6 +402,7 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
 
   // ── RIGA 6 ────────────────────────────────────────────────────────────────
   test("RIGA 6: sezioni e larghezza della colonna di progetto RESTANO nella STESSA scheda", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "DURAB-BOARD-01" });
     await seedProjectPane(page.request, PROJ);
     await goToApp(page);
     const win = await apriProgetto(page);
@@ -431,6 +437,7 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
 
   // ── RIGA 7 ────────────────────────────────────────────────────────────────
   test("RIGA 7: una SECONDA scheda eredita la colonna di progetto, non riparte dal default", async ({ page, context }) => {
+    test.info().annotations.push({ type: "spec", description: "DURAB-BOARD-01" });
     // Il rovescio della riga 6, e la ragione per cui la riga 6 da sola inganna.
     // `page.reload()` NON distingue sessionStorage da localStorage: li conserva
     // entrambi, quindi una riga che si ferma al reload da' il verde a un dato
@@ -522,6 +529,7 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
 
   // ── RIGA 9 ────────────────────────────────────────────────────────────────
   test("RIGA 9: il file aperto nell'editor RESTA aperto", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "DURAB-BOARD-01" });
     await seedProjectPane(page.request, PROJ);
     await goToApp(page);
     const win = await apriProgetto(page);

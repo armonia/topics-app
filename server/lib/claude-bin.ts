@@ -17,17 +17,50 @@ import { join } from "path";
  * claude-code tab (the caller falls back to the bare name, which still surfaces the
  * "command not found" plainly rather than pretending).
  */
-const HOME = process.env.HOME || "";
+// `$HOME` does not exist on Windows — it is `%USERPROFILE%` there. Reading only
+// HOME made every candidate below collapse to a relative path like
+// `.local/bin/claude`, which `existsSync` resolves against the server's cwd and
+// never finds: on Windows the probe could only ever return null.
+const HOME = process.env.HOME || process.env.USERPROFILE || "";
 
-const CANDIDATES = [
-  join(HOME, ".local/bin/claude"),        // native installer (modern default)
-  join(HOME, ".claude/local/claude"),     // native installer (legacy location)
-  "/opt/homebrew/bin/claude",             // Homebrew (Apple Silicon)
-  "/usr/local/bin/claude",                // Homebrew (Intel) / manual
-  join(HOME, ".bun/bin/claude"),          // bun global
-  join(HOME, ".npm-global/bin/claude"),   // npm global (custom prefix)
-  join(HOME, ".local/share/claude/bin/claude"),
-];
+const IS_WINDOWS = process.platform === "win32";
+
+/**
+ * The names a CLI can have on this platform. On Windows an executable carries its
+ * extension, and which one depends on how it was installed: the native installer
+ * ships a real `.exe`, while an npm/bun global installs a `.cmd` shim. Probing the
+ * bare name finds neither.
+ *
+ * Verified on Windows 11 on 2026-08-26: `claude` lives at
+ * `%USERPROFILE%\.local\bin\claude.exe`.
+ */
+function names(base: string): string[] {
+  return IS_WINDOWS ? [`${base}.exe`, `${base}.cmd`, `${base}.bat`, base] : [base];
+}
+
+/** The install locations, expanded to every name this platform accepts. */
+function candidates(base: string, dirs: string[]): string[] {
+  const out: string[] = [];
+  for (const dir of dirs) for (const n of names(base)) out.push(join(dir, n));
+  return out;
+}
+
+const CANDIDATES = IS_WINDOWS
+  ? candidates("claude", [
+      join(HOME, ".local/bin"),                          // native installer
+      join(HOME, ".bun/bin"),                            // bun global
+      join(process.env.APPDATA || join(HOME, "AppData/Roaming"), "npm"), // npm global
+      join(HOME, "AppData/Local/Microsoft/WinGet/Links"),
+    ])
+  : [
+      join(HOME, ".local/bin/claude"),        // native installer (modern default)
+      join(HOME, ".claude/local/claude"),     // native installer (legacy location)
+      "/opt/homebrew/bin/claude",             // Homebrew (Apple Silicon)
+      "/usr/local/bin/claude",                // Homebrew (Intel) / manual
+      join(HOME, ".bun/bin/claude"),          // bun global
+      join(HOME, ".npm-global/bin/claude"),   // npm global (custom prefix)
+      join(HOME, ".local/share/claude/bin/claude"),
+    ];
 
 let cached: string | null = null;
 

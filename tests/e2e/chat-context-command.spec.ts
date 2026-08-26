@@ -37,6 +37,7 @@ test.describe("Chat /context command", () => {
   });
 
   test("shows a token/budget breakdown banner", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "CMD-06" });
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));

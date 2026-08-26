@@ -39,6 +39,7 @@ test.describe("la riga dei comandi del progetto e ciò che le sta sotto", () => 
   test.afterAll(() => { rmSync(PROJ, { recursive: true, force: true }); });
 
   test("RAILGAP-1: fra i comandi e il contenuto non resta una fascia vuota", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "RAILGAP-01" });
     await resetPaneStore(request, []);
     await seedProjectPane(request, PROJ);
     await waitForPaneStoreQuiet(request);
@@ -98,6 +99,7 @@ test.describe("la riga dei comandi del progetto e ciò che le sta sotto", () => 
   });
 
   test("RAILGAP-2: da APERTA, fra il trigger e «File» passa un passo solo", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "RAILGAP-01" });
     // «Trigger aperto e File hanno distanza non conforme, forse perche' prima
     // c'era un bordo li'» (Attilio, 10/08). Non era un bordo: erano due passi
     // sommati. L'intestazione chiude con `md:pb-[6px]` — il passo PIENO — e la
@@ -135,6 +137,7 @@ test.describe("la riga dei comandi del progetto e ciò che le sta sotto", () => 
   });
 
   test("RAILGAP-3: da APERTA il contenuto NON risale sotto la barra di vetro", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "RAILGAP-01" });
     // La contro-prova di RAILGAP-1, ed e' il difetto che la sua correzione ha
     // introdotto: `CHROME_BAR_CONSUMED` azzera il rientro delle celle perche' la
     // riga dei comandi ha gia' scavalcato la barra — ma quella riga esiste solo

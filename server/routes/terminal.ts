@@ -1715,6 +1715,38 @@ async function createSession(id: string, name: string, cwd: string, command?: st
     env = { PATH: augmentPath(), HOME: realHome() };
   }
 
+  // IS THE CLI ACTUALLY THERE? If not, say so HERE.
+  //
+  // The branches above fall back to the bare name (`?? 'claude'`) counting on a
+  // "command not found" the user reads in the terminal. On macOS that line does
+  // arrive, because the shell prints it. On Windows it does not: the process
+  // never starts, the PTY hits EOF the instant it opens, and the user sees a tab
+  // that appears and stays empty — exactly the reported defect ("it opens Claude
+  // Code as a tab, but nothing actually opens", 2026-08-26).
+  //
+  // A missing agent is not a fault: it is the normal state of a fresh machine,
+  // and it deserves to be named along with how to install it. The check is on the
+  // RESOLVED path, not on a spawn attempt: if the resolver found nothing and the
+  // branch fell back to the bare name, `Bun.which` is the last word before
+  // actually trying.
+  if (sessionType !== 'shell' && !command) {
+    const bare = !file.includes('/') && !file.includes('\\');
+    if (bare && !Bun.which(file)) {
+      const howToInstall: Record<string, string> = {
+        'claude': 'https://claude.com/product/claude-code',
+        'codex': 'npm i -g @openai/codex',
+        'opencode': 'npm i -g opencode-ai',
+      };
+      const base = file.replace(/\.(exe|cmd|bat)$/i, '');
+      const hint = howToInstall[base];
+      throw new Error(
+        `"${base}" is not installed on this machine` +
+        (hint ? `. Install it with: ${hint}` : '') +
+        `. Topics runs the CLI you already have; it does not bundle it.`,
+      );
+    }
+  }
+
   // Await the bridge's ack before populating in-memory + DB. If the
   // bridge can't actually spawn (broken native addon, missing
   // binary, lost session context), throw — the API handler returns

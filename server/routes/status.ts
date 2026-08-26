@@ -7,6 +7,7 @@ import { getFleetUsage } from "../lib/fleet-usage";
 import { unknownPricedModels } from "../usage/pricing";
 import { getProvider } from "../providers";
 import { checkGatewayHealth as pingGateway } from "../providers/health";
+import { detectAgents } from "../lib/detect-agents";
 import { computePresenceCounts } from "../services/profile-stats";
 import { countBusyAgentTerminals } from "./terminal";
 
@@ -219,6 +220,22 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
         ctx.externalSessionsCount?.() ?? 0,
         ctx.externalSessionsWorking?.() ?? 0,
       ));
+    }
+
+    /**
+     * WHICH AGENTS ARE ACTUALLY INSTALLED on this machine.
+     *
+     * Topics runs the CLIs the user already has. Nothing asked this before
+     * trying, so a missing agent produced a tab that opened and stayed empty —
+     * on Windows without even a "command not found" to read, because the process
+     * never started (reported 2026-08-26: "it opens Claude Code as a tab, but
+     * nothing actually opens").
+     *
+     * Read-only and cheap: `Bun.which` plus a handful of `existsSync` on known
+     * install locations. No spawn, no install, nothing touched.
+     */
+    if (method === "GET" && pathname === "/api/system/agents") {
+      return json({ agents: detectAgents() });
     }
 
     if (method === "GET" && pathname === "/api/system/status") {

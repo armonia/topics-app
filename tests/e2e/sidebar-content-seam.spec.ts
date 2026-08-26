@@ -23,6 +23,7 @@ hermetic(test);
 
 test.describe("giunzione sidebar / contenuto", () => {
   test("SEAM-1: senza pane flottanti la sidebar porta un filo, non un'ombra", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "SEAMLINE-01" });
     await goToApp(page);
     const sidebar = page.locator('[aria-label="Topics sidebar"]');
     await expect(sidebar).toBeVisible({ timeout: 15000 });

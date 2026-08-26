@@ -43,6 +43,7 @@ test.describe.serial("Provider/Model picker keyboard navigation", () => {
   });
 
   test("ArrowDown/Enter selects the second row", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-DEF-03" });
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));

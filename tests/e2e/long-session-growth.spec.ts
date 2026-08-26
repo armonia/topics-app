@@ -195,6 +195,7 @@ test.describe("@nightly Long session - heap, DOM and listener growth", () => {
   // this suite carries it. Ten minutes of cycles do not belong on the
   // pull-request path; the gate script runs this on demand.
   test("does not grow across fifty cycles of the same interaction @nightly", async ({ page }, testInfo) => {
+    test.info().annotations.push({ type: "spec", description: "LEAK-01" });
     await resetPaneStore(page.request, [topicA.id, topicB.id]);
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 20_000 });

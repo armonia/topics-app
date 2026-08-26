@@ -178,6 +178,7 @@ test.describe("Scelte sempre presenti sulla card", () => {
   });
 
   test("quattro stati, quattro decisioni in un click — senza scrivere niente", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-02" });
     await page.goto("/");
     await openProjectBoard(page);
 

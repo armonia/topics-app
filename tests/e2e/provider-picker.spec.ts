@@ -42,6 +42,7 @@ test.describe.serial("Provider/Model picker", () => {
   // duplicate it here.
 
   test("selecting a provider/model adds it to the chat payload", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-DEF-03" });
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));

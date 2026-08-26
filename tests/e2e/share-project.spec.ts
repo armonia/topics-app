@@ -41,6 +41,7 @@ test.describe("Condividere un progetto", () => {
   });
 
   test("SHAREPRJ-01: il tasto destro sul progetto offre di condividerlo", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "PRJSHARE-01" });
     await goToApp(page);
     const riga = projectRow(page, new RegExp(PROJECT_NAME));
     await expect(riga).toBeVisible({ timeout: 15000 });
@@ -53,6 +54,7 @@ test.describe("Condividere un progetto", () => {
   });
 
   test("SHAREPRJ-02: la voce apre il pannello, e il pannello è quello di sempre", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "PRJSHARE-01" });
     // Lo stesso `ShareControl` di un task e di una chat: un secondo pannello
     // scritto per l'occasione divergerebbe dal primo alla prima modifica.
     await goToApp(page);

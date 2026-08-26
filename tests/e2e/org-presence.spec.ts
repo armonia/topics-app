@@ -93,6 +93,7 @@ async function stubIdentita(
 
 test.describe("presence dell'organizzazione, a schermo", () => {
   test("PRESENCE-01: due colleghi visti ora diventano due facce sul chip dell'org", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
     const ora = Date.now();
     await stubIdentita(page, [
       membro("io", "Io", ora),          // you do not count yourself
@@ -114,6 +115,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
   });
 
   test("PRESENCE-02: da solo, il chip resta ed è il solo logo", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
     // "0 online" is noise you learn to skip: with nobody around the chip is
     // just the logo, and the emptiness is already the answer. The chip stays,
     // though, because it is also the door to managing THAT organisation.
@@ -125,6 +127,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
   });
 
   test("PRESENCE-03: un membro senza dispositivi vivi vale null, non il 1970", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
     // `lastSeenAt: null` means "unknown", and when sorting by last seen a zero
     // would end up at the bottom together with people who really were here. A
     // null read as 0 would not change the count, but a `null` treated as a date
@@ -179,6 +182,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
   });
 
   test("PRESENCE-05: la riga degli amici mostra chi è online e apre gli amici", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
     const ora = Date.now();
     await stubIdentita(page, [
       membro("io", "Io", ora),
@@ -215,6 +219,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
    * in the picture at all.
    */
   test("PRESENCE-08: i tre glifi della fascia partono dalla stessa riga verticale", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
     // SOMETHING ABOVE THE BAND. It is not needed for the measurement - the
     // glyphs sit at the bottom and do not move - but it is needed for the
     // EVIDENCE: the earlier shot was withdrawn by the verifier because it
@@ -355,6 +360,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
   });
 
   test("PRESENCE-07: senza nessuno la riga amici resta, dice «Persone» e zero", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
     // It used to disappear. A row that exists only when it has good news
     // leaves "but where are the friends?" unanswered for the very person who
     // has nobody yet, the only one who needs to get in to begin.
