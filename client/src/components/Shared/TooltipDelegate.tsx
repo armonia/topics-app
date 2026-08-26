@@ -216,7 +216,20 @@ export function TooltipDelegate() {
       ref={tipRef}
       role="tooltip"
       data-testid="app-tooltip"
-      className="pointer-events-none fixed z-[100] max-w-sm whitespace-pre-line rounded-lg border border-app-border bg-app-panel px-2.5 py-1.5 text-[11px] leading-snug text-app-text shadow-lg"
+      // `bg-elevated` and NOT `bg-app-panel`, which is the reason this tooltip
+      // read as "you cannot see it".
+      //
+      // `--bg-panel` is `#1e1e1e` in the LIGHT theme too, and deliberately dark:
+      // it serves code blocks, which have to stand off the text (its own
+      // declaration says so: "not the shortcut to a light background"). With
+      // `text-app-text` on top — nearly black in the light theme — the result,
+      // measured on Windows 11, was `rgb(26,27,28)` text on a `rgb(30,30,30)`
+      // background: an empty black rectangle, painted, opaque, inside the window,
+      // and unreadable.
+      //
+      // `--bg-elevated` follows the theme (light in light, dark in dark), which is
+      // what a surface carrying app text needs.
+      className="pointer-events-none fixed z-[100] max-w-sm whitespace-pre-line rounded-lg border border-app-border bg-elevated px-2.5 py-1.5 text-[11px] leading-snug text-app-text shadow-lg"
       style={{
         top: pos?.top ?? -9999,
         left: pos?.left ?? -9999,

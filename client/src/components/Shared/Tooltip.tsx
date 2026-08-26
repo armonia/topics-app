@@ -143,7 +143,12 @@ export function Tooltip({ content, children, side = 'bottom', disabled = false }
           data-testid="app-tooltip"
           // `pointer-events-none`: il tooltip non deve mai rubare il mouse al
           // bottone che c'è sotto, o un click sul bordo non arriva.
-          className="pointer-events-none fixed z-[100] max-w-xs rounded-lg border border-app-border bg-app-panel px-2.5 py-1.5 text-[11px] leading-snug text-app-text shadow-lg"
+          // `bg-elevated`, not `bg-app-panel`: that token is `#1e1e1e` in the
+          // light theme too (it is for code blocks, which must stay dark) and with
+          // `text-app-text` on top it gave nearly black text on a nearly black
+          // background. Same fix, same reason as `TooltipDelegate`: the two must
+          // look identical or they read as two different components.
+          className="pointer-events-none fixed z-[100] max-w-xs rounded-lg border border-app-border bg-elevated px-2.5 py-1.5 text-[11px] leading-snug text-app-text shadow-lg"
           style={{
             top: pos?.top ?? -9999,
             left: pos?.left ?? -9999,
