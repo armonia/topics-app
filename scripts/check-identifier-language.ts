@@ -148,6 +148,11 @@ export const PROJECT_WORDS = new Set([
   // `cfg`, `msg` and `ctx` above it: spelling it out would not make the name
   // more English, only longer.
   "unix", "sep",
+  // `spawnable` is coined English of the kind this list already carries
+  // (`dedupe`, `stringify`, `nullable`): "can be spawned", said of an agent the
+  // machine could actually start. No dictionary has it and no rename improves
+  // it — `startable` would be the same word with a worse root.
+  "spawnable",
 ]);
 
 function trackedFiles(): string[] {

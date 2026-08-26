@@ -31,21 +31,21 @@ export function WindowControls() {
   // wrong glyph on the button.
   useEffect(() => {
     if (!isTauriWindows) return;
-    let vivo = true;
-    const leggi = () => {
+    let alive = true;
+    const read = () => {
       void tauriInvoke<boolean>('window_is_maximized')
-        .then((v) => { if (vivo) setMaximized(Boolean(v)); })
+        .then((v) => { if (alive) setMaximized(Boolean(v)); })
         .catch(() => { /* the window is closing: there is nothing to update */ });
     };
-    leggi();
+    read();
     // `resize` covers every route: mouse, keyboard, snap, display change.
-    window.addEventListener('resize', leggi);
-    return () => { vivo = false; window.removeEventListener('resize', leggi); };
+    window.addEventListener('resize', read);
+    return () => { alive = false; window.removeEventListener('resize', read); };
   }, []);
 
   if (!isTauriWindows) return null;
 
-  const comanda = (action: 'minimize' | 'maximize' | 'close') => {
+  const command = (action: 'minimize' | 'maximize' | 'close') => {
     void tauriInvoke<boolean>('window_control', { action }).catch(() => {});
     if (action === 'maximize') setMaximized((v) => !v);
   };
@@ -54,7 +54,7 @@ export function WindowControls() {
   // background is transparent and lights up on hover, except for close, which goes
   // to the system red — it is the one of the three that cannot be undone, and it
   // shows.
-  const bottone =
+  const cellClass =
     'h-8 w-[46px] inline-flex items-center justify-center text-app-text/80 ' +
     'transition-colors hover:bg-black/10 dark:hover:bg-white/10 cursor-pointer';
 
@@ -67,13 +67,13 @@ export function WindowControls() {
       role="group"
       aria-label="Window controls"
     >
-      <button type="button" className={bottone} onClick={() => comanda('minimize')}
+      <button type="button" className={cellClass} onClick={() => command('minimize')}
               aria-label="Minimize" title="Minimize" data-testid="win-minimize">
         <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
           <path d="M0 5h10" stroke="currentColor" strokeWidth="1" />
         </svg>
       </button>
-      <button type="button" className={bottone} onClick={() => comanda('maximize')}
+      <button type="button" className={cellClass} onClick={() => command('maximize')}
               aria-label={maximized ? 'Restore' : 'Maximize'}
               title={maximized ? 'Restore' : 'Maximize'} data-testid="win-maximize">
         {maximized ? (
@@ -89,8 +89,8 @@ export function WindowControls() {
         )}
       </button>
       <button type="button"
-              className={`${bottone} hover:!bg-[#c42b1c] hover:text-white`}
-              onClick={() => comanda('close')}
+              className={`${cellClass} hover:!bg-[#c42b1c] hover:text-white`}
+              onClick={() => command('close')}
               aria-label="Close" title="Close" data-testid="win-close">
         <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
           <path d="M0 0l10 10M10 0L0 10" stroke="currentColor" strokeWidth="1" />
