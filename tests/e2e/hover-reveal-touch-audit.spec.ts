@@ -116,9 +116,12 @@ test.describe("comandi nascosti dietro l'hover, col dito", () => {
     // Il gesto standard dell'app. `openContextMenuAt` sintetizza il
     // `contextmenu` che l'handler della riga già ascolta: è LO STESSO menu del
     // tasto destro, non un secondo da tenere allineato.
-    await longPress(page, `[data-testid="branch-row"][data-branch="${ALTRO_BRANCH}"]`);
-
     const voce = page.locator('[data-testid="branch-menu-delete"]');
+    // The finger stays down until the menu is THERE, instead of a flat 750 ms:
+    // the app arms the gesture at 500 ms on the SAME thread that renders, so
+    // under load that timer fires late and a timed hold has already let go —
+    // the cause of `board-card-stop`'s red on 26/08.
+    await longPress(page, `[data-testid="branch-row"][data-branch="${ALTRO_BRANCH}"]`, { until: voce });
     await expect(voce).toBeVisible({ timeout: 5000 });
     await voce.click();
 

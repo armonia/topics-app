@@ -195,6 +195,12 @@ test.describe("Fermare un task senza archiviarlo", () => {
 
   test("col dito: il long-press apre lo STESSO menu, e «Ferma» fa la stessa cosa", async ({ page, request, isMobile }) => {
     test.skip(!isMobile, "serve il dito (progetto chromium-touch-wide)");
-    await stopFlow(page, request, async (sel) => { await longPress(page, sel); });
+    // The finger stays down until the menu is ON SCREEN, not for a fixed 750 ms:
+    // the app arms the gesture at 500 ms on the SAME main thread the board is
+    // rendering on, so under a loaded shard that timer fires late and a timed
+    // hold has already let go. This test went red exactly that way on 26/08.
+    await stopFlow(page, request, async (sel) => {
+      await longPress(page, sel, { until: page.getByRole("menuitem", { name: "Ferma" }) });
+    });
   });
 });

@@ -459,12 +459,8 @@
       "dopoIlBottone",
       "dopoInvio",
       "gesto",
-      "held",
       "primo",
       "secondo"
-    ],
-    "client/src/components/Chat/scrollAuthority.ts": [
-      "held"
     ],
     "client/src/components/Chat/selectLatestTodo.test.ts": [
       "asstWith",
@@ -1188,8 +1184,7 @@
       "vociTrattenuteVisibili"
     ],
     "client/src/components/Sidebar/PinnedTile.tsx": [
-      "LucideIcon",
-      "rgb"
+      "LucideIcon"
     ],
     "client/src/components/Sidebar/PinnedTiles.tsx": [
       "aperta",
@@ -1436,7 +1431,6 @@
       "utente"
     ],
     "client/src/hooks/liveTurn.ts": [
-      "held",
       "oldest"
     ],
     "client/src/hooks/messageCacheWrite.test.ts": [
@@ -1509,7 +1503,6 @@
       "clearStreamTimeout",
       "correnti",
       "durevole",
-      "held",
       "idemKey",
       "liveDeltaRafRef",
       "passaAncheAlMittente",
@@ -1657,7 +1650,6 @@
       "closedProjectRec",
       "closingTopic",
       "focusLoc",
-      "held",
       "loc",
       "onUnarchive",
       "unsub",
@@ -1828,9 +1820,6 @@
       "releaseMic",
       "ttsAudioRef",
       "vadRef"
-    ],
-    "client/src/hooks/useTalkGesture.ts": [
-      "held"
     ],
     "client/src/hooks/useTauriBrowser.ts": [
       "agentOpsInFlightRef",
@@ -2248,12 +2237,7 @@
     "client/src/lib/i18n.ts": [
       "chiaviDelCatalogo"
     ],
-    "client/src/lib/iconTint.test.ts": [
-      "RGB",
-      "rgb"
-    ],
     "client/src/lib/iconTint.ts": [
-      "RGB",
       "img"
     ],
     "client/src/lib/imageCrop.ts": [
@@ -2615,7 +2599,6 @@
     ],
     "client/src/state/chatQueue.ts": [
       "enqueueTurn",
-      "isHeld",
       "readback",
       "rec",
       "requeueFront",
@@ -2801,8 +2784,7 @@
       "seq"
     ],
     "client/src/state/pane/residency/registry.ts": [
-      "__residencyDebug",
-      "held"
+      "__residencyDebug"
     ],
     "client/src/state/pane/selectors.ts": [
       "selectSyncableSnapshot"
@@ -4795,9 +4777,6 @@
       "puntata",
       "ripiego"
     ],
-    "server/lib/orphan-park-policy.ts": [
-      "held"
-    ],
     "server/lib/os-open-path.ts": [
       "vcsRoots"
     ],
@@ -4829,8 +4808,7 @@
       "buf",
       "oldest",
       "timeoutMs",
-      "ttl",
-      "wasHeld"
+      "ttl"
     ],
     "server/lib/permission-paint.ts": [
       "arr"
@@ -7074,19 +7052,14 @@
       "agentiVivi",
       "atteso",
       "buildFanoutKickoff",
-      "capHeldNoted",
       "chiusa",
       "dep",
       "detta",
       "dietro",
-      "externallyHeldNoted",
       "fermi",
       "fila",
       "gcap",
       "gia",
-      "heavyHeldNoted",
-      "heldForLoad",
-      "heldForMs",
       "inDiretta",
       "langFor",
       "lavoroNonCommittato",
@@ -7349,7 +7322,6 @@
       "figli",
       "firma",
       "giaRimessi",
-      "held",
       "ins",
       "lettura",
       "marcate",
@@ -7610,7 +7582,6 @@
     ],
     "shared/board.test.ts": [
       "carico",
-      "held",
       "leggera",
       "mai",
       "multi",
@@ -8928,7 +8899,6 @@
     "tests/e2e/global-setup.ts": [
       "BUNDLE_FRESH_TIMEOUT_MS",
       "checkpointBaseline",
-      "runLockHeld",
       "stato"
     ],
     "tests/e2e/global-teardown.ts": [

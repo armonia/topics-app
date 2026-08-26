@@ -153,6 +153,11 @@ export const PROJECT_WORDS = new Set([
   // machine could actually start. No dictionary has it and no rename improves
   // it — `startable` would be the same word with a worse root.
   "spawnable",
+  // `held` is plain English — the past participle of "hold" — and web2 carries
+  // `hold` but not it, exactly like `seen`, `known` and `was` a few lines up.
+  // `rgb` and `hsl` are the colour spaces CSS itself names, siblings of `css`
+  // and `svg` already on this list.
+  "held", "rgb", "hsl",
 ]);
 
 function trackedFiles(): string[] {
