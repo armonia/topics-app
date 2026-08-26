@@ -4,7 +4,6 @@
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
-      "KeyboardShortcuts",
       "enqueueAndTick",
       "handleStandaloneAddPane",
       "panelLifecycle",
@@ -1016,11 +1015,6 @@
       "ConfirmDialog",
       "ConfirmDialogProps"
     ],
-    "client/src/components/Shared/KeyboardShortcuts.tsx": [
-      "KeyboardShortcuts",
-      "KeyboardShortcutsProps",
-      "shortcuts"
-    ],
     "client/src/components/Shared/MorphText.test.tsx": [
       "sorgente"
     ],
@@ -1615,11 +1609,9 @@
       "vivo"
     ],
     "client/src/hooks/useKeyboardShortcuts.ts": [
-      "UseKeyboardShortcutsArgs",
       "disarmRightCmdTap",
       "evt",
-      "rightCmdTapAt",
-      "useKeyboardShortcuts"
+      "rightCmdTapAt"
     ],
     "client/src/hooks/useMemory.ts": [
       "unsub"
@@ -2267,7 +2259,6 @@
     ],
     "client/src/lib/loopbackAlive.ts": [
       "PROBE_TIMEOUT_MS",
-      "ctrl",
       "loopbackAlive"
     ],
     "client/src/lib/missions.test.ts": [
@@ -3528,7 +3519,6 @@
       "corpo",
       "costUsd",
       "cred",
-      "ctrl",
       "dTok",
       "perche",
       "primoTurno",
@@ -6016,9 +6006,6 @@
       "gettone",
       "servizio"
     ],
-    "server/routes/machines.ts": [
-      "stripCtrl"
-    ],
     "server/routes/media.test.ts": [
       "attivo",
       "ext",
@@ -6099,7 +6086,6 @@
     "server/routes/projects.ts": [
       "esistente",
       "osservatore",
-      "stripCtrl",
       "visibile"
     ],
     "server/routes/public-profile.ts": [
@@ -6280,9 +6266,6 @@
       "corpo",
       "langField",
       "testo"
-    ],
-    "server/routes/worktrees.ts": [
-      "stripCtrl"
     ],
     "server/schemas/chat-ws-inbound.ts": [
       "typingSchema"
@@ -6909,7 +6892,6 @@
     ],
     "server/services/review-checks.test.ts": [
       "conRosso",
-      "ctrl",
       "nonPartito",
       "rosso",
       "rotto",
@@ -8009,9 +7991,6 @@
       "testo"
     ],
     "shared/shortcuts.ts": [
-      "SHORTCUT_GROUPS",
-      "Shortcut",
-      "ShortcutGroup",
       "byCodepoint",
       "forwardedCmdChars"
     ],

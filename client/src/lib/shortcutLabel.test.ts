@@ -9,6 +9,8 @@
  * The captions are how shortcuts are LEARNED, and they are the first thing on the
  * welcome screen. A caption that names the wrong key does not slow you down: it
  * teaches you something false.
+ *
+ * @covers CMD-01
  */
 import { describe, expect, it } from 'bun:test';
 

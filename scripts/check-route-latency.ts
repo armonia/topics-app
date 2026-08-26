@@ -665,7 +665,7 @@ async function main(): Promise<void> {
   log(`Banco rotte · porta ${port} · DATA_DIR ${dataDir} · ${samples} campioni x 2 passate`);
 
   if (!(await waitForPortFree(port, 10_000))) {
-    log(`  la ${port} e' ancora occupata dopo 10s: se e' il banco di prima, non si e' spento.`);
+    log(`  port ${port} is still taken after 10s: if that is the previous bench, it never stopped.`);
   }
 
   const child = spawn("bash", [resolve(REPO_ROOT, "scripts/start-test-server.sh")], {

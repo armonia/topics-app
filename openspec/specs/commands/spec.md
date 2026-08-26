@@ -13,6 +13,22 @@ Common preconditions shared across scenarios:
 
 The system SHALL provide a command palette accessible via keyboard shortcut for topic search, file search, message search, and action execution; a keyboard shortcuts help modal; theme switching with persistence; and a settings panel with font size, message density, and push notification controls.
 
+La DIDASCALIA di una scorciatoia SHALL nominare un tasto che esiste su QUELLA
+tastiera. Il gesto funzionava gia' ovunque — chi ascolta accetta `metaKey ||
+ctrlKey` — ma su Windows l'interfaccia scriveva `⌘K`, e il tasto mela li' non
+c'e': segnalato il 2026-08-26 sulla build installata, dove `Ctrl+K` apriva la
+palette mentre la scritta indicava altro. Le didascalie sono il modo in cui le
+scorciatoie si IMPARANO, e sono la prima cosa sulla schermata di benvenuto: una
+che nomina il tasto sbagliato non rallenta, insegna una cosa falsa.
+
+Il separatore SHALL seguire la convenzione del sistema: nessuno fra i glifi di
+macOS (`⌘⇧C`, che sono simboli e affiancati si leggono), il piu' fra le parole di
+Windows (`Ctrl+Shift+C`, perche' `CtrlShiftC` non si legge).
+
+#### Scenario: la didascalia su una tastiera senza tasto mela
+- **GIVEN** un sistema che non ha il tasto Command
+- **THEN** la didascalia SHALL nominare `Ctrl`, e SHALL separare i tasti col piu'
+
 #### Scenario: Open command palette with keyboard shortcut
 - **GIVEN** the application is loaded with no modals open
 - **WHEN** the user presses Cmd+K

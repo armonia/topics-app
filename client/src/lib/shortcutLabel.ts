@@ -43,7 +43,10 @@ export const MOD = usesCtrl ? 'Ctrl' : '\u2318';
 export const SHIFT = usesCtrl ? 'Shift' : '\u21e7';
 /** Alt / Option. */
 export const ALT = usesCtrl ? 'Alt' : '\u2325';
-/** Return. */
+/** Return.
+ *  @knipignore used via `await import()` in shortcutLabel.test.ts, which reloads
+ *  the module with `navigator.platform` simulated and reads its members through a
+ *  namespace (`m.ENTER`): the reference is not static and knip cannot see it. */
 export const ENTER = usesCtrl ? 'Enter' : '\u21b5';
 
 /**

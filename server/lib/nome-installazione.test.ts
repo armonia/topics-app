@@ -65,8 +65,8 @@ describe("nome dell'installazione", () => {
     // above do, on explicit inputs, on every machine. The live hostname is
     // reported instead of asserted, so a Mac that stopped answering `.local`
     // stays readable in the log without turning into a false failure.
-    const suffisso = hostname().toLowerCase().endsWith(".local");
-    console.log(`[nome-installazione] hostname di questa macchina finisce per .local: ${suffisso}`);
+    const hasLocalSuffix = hostname().toLowerCase().endsWith(".local");
+    console.log(`[nome-installazione] hostname di questa macchina finisce per .local: ${hasLocalSuffix}`);
   });
 
   test("la pulizia toglie i caratteri di controllo e taglia a 64", () => {

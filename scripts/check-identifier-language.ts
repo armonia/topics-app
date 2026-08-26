@@ -158,6 +158,10 @@ export const PROJECT_WORDS = new Set([
   // `rgb` and `hsl` are the colour spaces CSS itself names, siblings of `css`
   // and `svg` already on this list.
   "held", "rgb", "hsl",
+  // The two words of shortcuts. `shortcut` is plain English that web2 does not
+  // carry (it has `short` and `cut` separately), and `ctrl` is the name the
+  // keyboard gives itself — it belongs next to `cmd` and `alt` for that reason.
+  "shortcut", "shortcuts", "ctrl",
 ]);
 
 function trackedFiles(): string[] {
