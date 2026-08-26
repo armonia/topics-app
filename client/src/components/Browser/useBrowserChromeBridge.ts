@@ -23,7 +23,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { publishBrowserPaneChrome, retireBrowserPaneChrome, type BrowserPaneCommands } from '../../state/browserPaneChrome';
 import { isRealUrl } from '../../state/pane/browserPaneUrl';
-import { hasReceivedServerHydrate } from '../../state/pane/middleware/serverHydrated';
+import { useServerHydrated } from '../../state/pane/middleware/serverHydrated';
 import type { DeviceMode } from './browserDevTypes';
 
 export interface BrowserChromeBridgeInput {
@@ -178,7 +178,17 @@ export function useBrowserChromeBridge(
    * sides means what it says. What it can no longer do is answer a question the
    * store has not been asked yet.
    */
-  const storeHasSpoken = hasReceivedServerHydrate();
+  // `useServerHydrated` and NOT `hasReceivedServerHydrate()`: the second is a
+  // plain read, and read during a render it gives the value of that instant. The
+  // flag flips AFTER the mount — that is the normal order, and the whole reason
+  // this third state exists — so nothing told React to render again and the row
+  // stayed on screen for the rest of the session.
+  //
+  // The cure below was right and is untouched; what was missing is that a third
+  // state has to be OBSERVED, not sampled. Measured on 2026-08-26: three failures
+  // out of four in `browser-tab-chrome.spec.ts` under `--workers=4`, and the same
+  // red in CI on a four-shard run.
+  const storeHasSpoken = useServerHydrated();
   const showChrome = revealed || (storeHasSpoken && !isRealUrl(url) && !isRealUrl(input.knownUrl));
 
   const {

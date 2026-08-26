@@ -283,11 +283,41 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
 
     // From here on the pane store answers LATE: it is the delay that under
     // four shards happens on its own, made repeatable.
+    //
+    // BOTH ROADS, and this is what the first version of this test missed.
+    // Hydration reaches the tab two ways: the `/api/ui-state` GET (the bootstrap
+    // fallback) and the `ui-state:init` / `:updated` frames on the WebSocket
+    // (`syncWS.ts`, three separate `markServerHydrated()` calls). Delaying only
+    // the GET leaves the WebSocket free, the flag flips within milliseconds, and
+    // the case measures a page that HAS been hydrated — i.e. not the case it
+    // claims to cover.
+    //
+    // Measured on 2026-08-26 with a probe: with the GET delayed, 12 requests
+    // intercepted and still 1 `ui-state` frame delivered over the socket. That is
+    // why the red persisted after the third-state fix landed: the fix is right,
+    // the harness was only holding one of the two doors.
     let hits = 0;
     await page.route("**/api/ui-state**", async (route) => {
       hits++;
       await new Promise((r) => setTimeout(r, 4_000));
       await route.continue();
+    });
+    // The socket carries more than hydration (terminal output, presence): only
+    // the `ui-state` frames are dropped, so the rest of the app keeps working and
+    // this stays a test about hydration rather than about a broken connection.
+    await page.addInitScript(() => {
+      const OrigWS = window.WebSocket;
+      class FiltroIdratazione extends OrigWS {
+        constructor(url: string | URL, protocols?: string | string[]) {
+          super(url, protocols);
+          this.addEventListener('message', (ev: MessageEvent) => {
+            if (typeof ev.data === 'string' && ev.data.includes('"ui-state:')) {
+              ev.stopImmediatePropagation();
+            }
+          }, true);
+        }
+      }
+      window.WebSocket = FiltroIdratazione as unknown as typeof WebSocket;
     });
 
     await goToApp(page);

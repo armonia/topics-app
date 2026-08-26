@@ -34,7 +34,7 @@ import BrowserKeyboardCapture, { type BrowserKeyboardCaptureHandle } from './Bro
 import { useBrowserChromeBridge } from './useBrowserChromeBridge';
 import { openExternalOnce } from '../../lib/openExternal';
 import type { DeviceMode } from './browserDevTypes';
-import { getBrowserPaneUrl } from '../../state/pane/browserPaneUrl';
+import { useBrowserPaneUrl, isRealUrl } from '../../state/pane/browserPaneUrl';
 
 // T1 DOM co-browse — the native rrweb reconstruction view. Lazy so rrweb + its CSS
 // only load when a pane actually switches to DOM mode (default video path is free).
@@ -374,11 +374,15 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
     toggleShare: onToggleShare,
     forgetSite: canForget ? () => setForgetOpen(true) : undefined,
   }), [browser, canForget, onToggleShare, backToSpawner]);
+  // Subscribed, not sampled: on a restored pane this address lands AFTER the
+  // mount, and a plain read would never tell React about it. See
+  // `useBrowserPaneUrl`.
+  const paneUrlNoto = useBrowserPaneUrl(`browser:${contextId}`);
   const chromeBridge = useBrowserChromeBridge(contextId, {
     url: browser.url,
     // The store's url, which on a restored pane is already right while
     // `browser.url` is still `about:blank`. See `showChrome`.
-    knownUrl: getBrowserPaneUrl(`browser:${contextId}`),
+    knownUrl: paneUrlNoto,
     faviconUrl: browser.faviconUrl,
     loading: browser.loading,
     canGoBack: browser.canGoBack ?? true,
@@ -435,15 +439,29 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   // visible again while still empty; a pane with a page loaded keeps focus
   // wherever the user put it. The 50ms defer lets BrowserToolbar register
   // its focus fn (onRegisterFocus) after first paint.
+  //
+  // AND "EMPTY" IS ABOUT THE PANE, NOT ABOUT THIS INSTANT. A RESTORED pane is
+  // `about:blank` for the few instants before its page loads, so the live url
+  // alone called it fresh, focus-revealed the address row, and `revealed` is
+  // sticky: the row the tab had replaced came back and stayed. `knownUrl` is
+  // what the pane store already knows about this pane, and it is the same
+  // distinction `showChrome` makes a few lines down — this effect was the one
+  // place still asking the old question.
+  //
+  // Measured on 2026-08-26 under `--workers=4`: with hydration and the render
+  // paths already fixed the bar was STILL up, and the probe showed a single
+  // reveal coming from here, `storeHasSpoken: true` and
+  // `knownUrl: http://…/rapporto`. Nothing was racing: it was being opened on
+  // purpose, on the wrong question.
   const urlBarAutoFocusedRef = useRef(false);
   useEffect(() => {
-    const empty = !browser.url || browser.url === 'about:blank';
+    const empty = !isRealUrl(browser.url) && !isRealUrl(paneUrlNoto);
     if (!isVisible || !empty) { urlBarAutoFocusedRef.current = false; return; }
     if (urlBarAutoFocusedRef.current) return;
     urlBarAutoFocusedRef.current = true;
     const t = setTimeout(() => focusUrlBar(), 50);
     return () => clearTimeout(t);
-  }, [isVisible, browser.url, focusUrlBar]);
+  }, [isVisible, browser.url, paneUrlNoto, focusUrlBar]);
 
   // Keyboard shortcuts (Chrome parity), mirroring the Electron native panel:
   // Cmd+L focus url · Cmd+R reload · Cmd+[ back · Cmd+] forward · Cmd+F find ·
@@ -738,11 +756,15 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     toggleShare: onToggleShare,
     forgetSite: sharedCanForget ? () => setForgetOpen(true) : undefined,
   }), [browser, sharedCanForget, onToggleShare, backToSpawner]);
+  // Subscribed, not sampled: on a restored pane this address lands AFTER the
+  // mount, and a plain read would never tell React about it. See
+  // `useBrowserPaneUrl`.
+  const paneUrlNoto = useBrowserPaneUrl(`browser:${contextId}`);
   const chromeBridge = useBrowserChromeBridge(contextId, {
     url: browser.url,
     // The store's url, which on a restored pane is already right while
     // `browser.url` is still `about:blank`. See `showChrome`.
-    knownUrl: getBrowserPaneUrl(`browser:${contextId}`),
+    knownUrl: paneUrlNoto,
     loading: browser.loading,
     canGoBack: true,
     canGoForward: true,
@@ -757,13 +779,13 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   // comment there. Wired through the toolbar's onRegisterFocus below.
   const urlBarAutoFocusedRef = useRef(false);
   useEffect(() => {
-    const empty = !browser.url || browser.url === 'about:blank';
+    const empty = !isRealUrl(browser.url) && !isRealUrl(paneUrlNoto);
     if (!isVisible || !empty) { urlBarAutoFocusedRef.current = false; return; }
     if (urlBarAutoFocusedRef.current) return;
     urlBarAutoFocusedRef.current = true;
     const t = setTimeout(() => focusUrlBar(), 50);
     return () => clearTimeout(t);
-  }, [isVisible, browser.url, focusUrlBar]);
+  }, [isVisible, browser.url, paneUrlNoto, focusUrlBar]);
 
   // Seed a blank server context with the pane's persisted URL (initialUrl). A
   // browser pane's page can live entirely on ANOTHER client — most notably the
@@ -1017,6 +1039,15 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
       // specs stub `/api/browsers/*`, get no `framable` key back, and so take
       // the streaming path, which had the anchor.
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden" data-testid="browser-pane" data-browser-pane={contextId}>
+        {/* AND THE SAME CONDITION AS THE OTHER TWO PATHS: the address row goes
+            away once the tab carries the address. The other two render paths
+            gated on `showChrome`, this one did not, so on a framable site the
+            row stayed put — the trade the tab was selling only held on two
+            thirds of the app. Measured on 2026-08-26: with the pane restored
+            under four shards the bar was still there while the store had the
+            right URL and `useBrowserPaneUrl` returned it, because the component
+            reading them was not the one on screen. */}
+        {chromeBridge.showChrome && (
         <BrowserToolbar
           url={browser.url}
           onUrlChange={browser.navigate}
@@ -1035,7 +1066,17 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           shared={shared}
           shareMode={shareMode}
           onToggleShare={onToggleShare}
+          // The three hooks the other two paths already passed. Without
+          // `onDismiss` the row, once revealed from the tab menu, had no way
+          // back; without `onRegisterFocus` "edit address" opened a row that
+          // never took the caret. Hiding the row makes them load-bearing: the
+          // toolbar is no longer permanent scenery, so its way in and its way
+          // out both have to be wired.
+          onRegisterFocus={chromeBridge.registerFocus}
+          onDismiss={chromeBridge.hideChrome}
+          downloadsRequestOpen={chromeBridge.downloadsRequestOpen}
         />
+        )}
         <div className="flex-1 min-h-0 overflow-hidden bg-surface relative">
           <iframe
             src={browser.url}

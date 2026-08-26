@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from 'react';
+
 /**
  * Module-level flag tracking whether this tab has received an authoritative
  * server hydrate signal since boot. Used by `bootstrap.ts` to decide whether
@@ -81,6 +83,40 @@ export function onServerHydrated(listener: () => void): () => void {
   }
   listeners.add(listener);
   return () => { listeners.delete(listener); };
+}
+
+/**
+ * The same flag, but as something REACT CAN SEE CHANGE.
+ *
+ * `hasReceivedServerHydrate()` is a plain read: called during a render it gives
+ * the value of that instant and nothing more. If the flag flips afterwards —
+ * which is the normal order when hydration lands after the mount — React has no
+ * reason to re-render, so whoever gated on it stays frozen on "not yet" for the
+ * rest of the session.
+ *
+ * That is not theory. `useBrowserChromeBridge` read it that way, and under a
+ * four-shard load the browser address bar stayed on screen: measured on
+ * 2026-08-26 in CI and reproduced locally with `--workers=4`, three failures out
+ * of four in `browser-tab-chrome.spec.ts`. The fix for the third state was right
+ * and is untouched; what was missing is that the third state has to be OBSERVED,
+ * not sampled.
+ *
+ * `useSyncExternalStore` is the shape React provides for exactly this: a store
+ * outside React, a subscription, a snapshot. The subscribe here is one-shot by
+ * construction (`onServerHydrated` removes the listener when it fires, and there
+ * is no un-hydrate during a session), which is fine: after the single flip the
+ * snapshot is constant and React stops asking.
+ *
+ * The server snapshot returns `true`: server-side rendering has no boot to wait
+ * for, and gating a surface on "not yet" there would ship markup that contradicts
+ * the first client render.
+ */
+export function useServerHydrated(): boolean {
+  return useSyncExternalStore(
+    onServerHydrated,
+    hasReceivedServerHydrate,
+    () => true,
+  );
 }
 
 /** Test-only — reset the flag back to false. Not exported via the barrel. */

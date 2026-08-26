@@ -34,6 +34,34 @@ export function isRealUrl(url: string | undefined | null): url is string {
 // supersedes (and clears) the seed.
 const initialUrlSeeds = new Map<string, string>();
 
+/**
+ * The same URL, but as something REACT CAN SEE CHANGE.
+ *
+ * `getBrowserPaneUrl` is a plain `getState()` read: called during a render it
+ * gives the value of that instant and never speaks again. On a RESTORED pane the
+ * order is exactly the inconvenient one — the pane mounts with `url` still
+ * `about:blank`, and the store snapshot with the real address lands a few
+ * instants later. Nothing subscribed, so nothing re-rendered: the address bar
+ * that should have disappeared stayed on screen for the rest of the session.
+ *
+ * Measured on 2026-08-26 under `--workers=4`: `browser-url-input` resolved to 1
+ * element for 34 consecutive polls across a 30s timeout, in the restored-pane
+ * case of `browser-tab-chrome.spec.ts`. Same class of defect as
+ * `useServerHydrated`, one level up: a value that arrives late has to be
+ * OBSERVED, not sampled.
+ *
+ * The seed fallback stays a plain read on purpose: seeds are written by the
+ * force-open handler BEFORE the pane mounts, so there is no later arrival to
+ * miss. And unlike `getBrowserPaneUrl` this hook does not delete the seed —
+ * mutating a module Map during render is exactly the kind of side effect that
+ * makes a double-invoked render mean two different things.
+ */
+export function useBrowserPaneUrl(paneId: string): string | undefined {
+  const stored = usePaneStore((s) => s.panes[paneId]?.url);
+  if (isRealUrl(stored)) return stored;
+  return initialUrlSeeds.get(paneId);
+}
+
 /** Seed the URL a not-yet-mounted browser pane must open at (force-open). */
 export function seedBrowserPaneInitialUrl(paneId: string, url: string): void {
   if (isRealUrl(url)) initialUrlSeeds.set(paneId, url);
