@@ -38,7 +38,7 @@
  *   bun run scripts/build-uat-index.ts --report r.json # with real outcomes
  */
 import { copyFileSync, existsSync, linkSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dir, "..");
 /**
@@ -345,6 +345,16 @@ function linkByFile(): void {
     }
   }
 
+  // `spec.file` nel report e' relativo a `config.rootDir` (il testDir), i claim della mappa sono
+  // relativi alla radice del repo. Il manifest deve parlare la lingua dei claim, o il toolkit non
+  // trovera' MAI una corrispondenza — e lo fara' in silenzio, con 278 sessioni pubblicate e zero
+  // collegate. E' successo il 26/08/2026: stesso inciampo gia' evitato in readPlaywrightOutcomes.
+  let prefix = "";
+  try {
+    const cfgRoot = (JSON.parse(readFileSync(report, "utf8")) as { config?: { rootDir?: string } }).config?.rootDir;
+    if (cfgRoot) prefix = relative(ROOT, cfgRoot).replaceAll("\\", "/");
+  } catch { /* nessun prefisso: le chiavi restano quelle del report */ }
+
   const destDir = join(VIDEOS_DIR, "_sessioni");
   mkdirSync(destDir, { recursive: true });
   const manifest: Record<string, Array<{ titolo: string; slug: string; esito: string }>> = {};
@@ -352,13 +362,13 @@ function linkByFile(): void {
   for (const { file, titolo, esito, trace } of allSpecs(report)) {
     if (!fileDaCoprire.has(file) || !trace || !existsSync(trace)) continue;
     const base = file.replace(/\.spec\.ts$/, "");
-    const n = (manifest[file] ?? []).length;
+    const n = (manifest[prefix ? `${prefix}/${file}` : file] ?? []).length;
     const slug = `${base}__${n}`;
     const dest = join(destDir, slug + ".zip");
     if (!existsSync(dest)) {
       try { linkSync(trace, dest); } catch { try { copyFileSync(trace, dest); } catch { continue; } }
     }
-    (manifest[file] ??= []).push({ titolo, slug, esito });
+    (manifest[prefix ? `${prefix}/${file}` : file] ??= []).push({ titolo, slug, esito });
     linked++;
   }
   writeFileSync(join(destDir, "INDEX.json"), JSON.stringify(manifest, null, 1) + "\n");
