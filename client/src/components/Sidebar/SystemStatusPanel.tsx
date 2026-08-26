@@ -31,7 +31,7 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
   const { status, loading, error, refresh } = useSystemStatus(enabled, 30000);
   const openclawAvailable = useOpenClawAvailable();
   const [restarting, setRestarting] = useState(false);
-  /** Il motivo dell'ultimo riavvio fallito. `null` = non e' fallito niente. */
+  /** The reason for the last failed restart. `null` = nothing failed. */
   const [erroreRiavvio, setErroreRiavvio] = useState<string | null>(null);
   const [confirmingRestart, setConfirmingRestart] = useState(false);
   // Local spinner state for the manual refresh: useSystemStatus's `loading` only
@@ -48,9 +48,10 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
     }
   };
 
-  // "Aggiornato X fa" — the real last-fetch time. Every status update (manual
-  // refresh OR the 30s auto-poll) lands a new object, so this resets then. A 1s
-  // ticker re-renders so the counter actually counts up live (it was frozen).
+  // "Aggiornato X fa" — the real last-fetch time.  allow-italian: quoted UI string
+  // Every status update (manual refresh OR the 30s auto-poll) lands a new
+  // object, so this resets then. A 1s ticker re-renders so the counter actually
+  // counts up live (it was frozen).
   const [lastRefreshedAt, setLastRefreshedAt] = useState<number | null>(null);
   useEffect(() => { if (status) setLastRefreshedAt(Date.now()); }, [status]);
   const [, setTick] = useState(0);
@@ -98,11 +99,11 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
           {/* Memory lives in the PerfSection block above (full per-process
               breakdown + server RSS) — not repeated here. */}
 
-          {/* Modelli senza prezzo. Compare SOLO quando ce n'e' uno: e' un
-              avviso, non un contatore, e uno «0» permanente sarebbe rumore che
-              si impara a ignorare. I turni di quei modelli vengono contati a
-              costo zero — indistinguibile da «gratis» — quindi il totale della
-              spesa e' in difetto finche' la riga resta. */}
+          {/* Models with no price. Shows up ONLY when there is one: it is a
+              warning, not a counter, and a permanent «0» would be noise one
+              learns to ignore. The turns of those models are counted at zero
+              cost — indistinguishable from «free» — so the spend total is
+              understated for as long as the row stays. */}
           {(status.server.unpricedModels?.length ?? 0) > 0 && (
             <StatusRow
               icon={<DollarSign size={12} />}
@@ -173,12 +174,12 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
               }
               setConfirmingRestart(false);
               setRestarting(true);
-              // STESSO DIFETTO DELLA «Ricarica» DI UNA TAB TERMINALE, e stessa
-              // cura: il `catch {}` vuoto ingoiava ogni rifiuto, e il bottone
-              // tornava da «Riavvio…» a «Riavvia» come se fosse andata bene.
-              // Chi guarda non ha modo di distinguere un riavvio riuscito da
-              // uno che non e' mai partito — e la mossa successiva delle due e'
-              // opposta: aspettare, oppure andare a vedere perche'.
+              // SAME DEFECT AS THE «Ricarica» OF A TERMINAL TAB, and the same  allow-italian: quoted UI string
+              // cure: the empty `catch {}` swallowed every refusal, and the
+              // button went back from «Riavvio…» to «Riavvia» as if it had gone  allow-italian: quoted UI string
+              // fine. Whoever is watching has no way to tell a restart that
+              // worked from one that never started — and the next move of the
+              // two is the opposite: wait, or go and see why.
               try {
                 await openclawControlApi.restart();
                 setTimeout(refresh, 3000);
@@ -199,10 +200,10 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
           </button>
         )}
       </div>
-      {/* Un riavvio fallito ha una RIGA, non un silenzio. Sta qui e non in un
-          toast perche' questo pannello vive nella colonna: il toast lo
-          coprirebbe la colonna stessa, e comunque il fatto va letto ACCANTO al
-          bottone che lo ha prodotto. */}
+      {/* A failed restart gets a ROW, not a silence. It lives here and not in a
+          toast because this panel lives in the column: the toast would cover
+          the column itself, and anyway the fact has to be read NEXT TO the
+          button that produced it. */}
       {erroreRiavvio && (
         <div
           data-testid="system-restart-error"

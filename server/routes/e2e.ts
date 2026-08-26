@@ -99,14 +99,14 @@ export function e2eRoutesEnabled(env: NodeJS.ProcessEnv = process.env): boolean 
   return env.TOPICS_E2E === "1";
 }
 
-/** Dove vive la fotografia fra un riavvio e l'altro. */
+/** Where the snapshot lives between one restart and the next. */
 export function baselinePath(env: NodeJS.ProcessEnv = process.env): string {
   return join(env.DATA_DIR || "/tmp/topics-test-data", "e2e-baseline.json");
 }
 
 export function createE2eRouter(ctx: AppContext): RouteHandler {
   const { db, json } = ctx;
-  /** Copia calda: evita di rileggere e riparsare il JSON a ogni file di spec. */
+  /** Hot copy: avoids re-reading and re-parsing the JSON for every spec file. */
   let cached: DbSnapshot | null = null;
 
   function loadBaseline(): DbSnapshot | null {
@@ -124,12 +124,13 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
   return async function e2eRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
     if (!e2eRoutesEnabled()) return null;
 
-    // POST /api/test/route-fault — arma o disarma il guasto di latenza, a caldo.
+    // POST /api/test/route-fault — arms or disarms the latency fault, hot.
     //
-    // Serve all'autoprova di `check:route-latency`: senza, il guasto si arma solo dall'ambiente
-    // al boot, quindi la misura sana e quella guasta vengono da due processi DIVERSI e la
-    // differenza non prova niente sul cancello. Da qui vengono dallo stesso.
-    // Body: {"delayMs": 40, "pathPrefix": "/api/topics"} per armare, {} o null per disarmare.
+    // It serves the self-proof of `check:route-latency`: without it the fault can only be armed
+    // from the environment at boot, so the healthy measurement and the faulty one come from two
+    // DIFFERENT processes and the difference proves nothing about the gate. From here they come
+    // from the same one.
+    // Body: {"delayMs": 40, "pathPrefix": "/api/topics"} to arm, {} or null to disarm.
     if (method === "POST" && pathname === "/api/test/route-fault") {
       const body = (await req.json().catch(() => null)) as { delayMs?: unknown; pathPrefix?: unknown } | null;
       const delayMs = Number(body?.delayMs);

@@ -1,47 +1,46 @@
 /**
- * Ritardo SINTETICO su una rotta, per far diventare rosso il cancello sulle
- * latenze (`bun run check:rotte`).
+ * SYNTHETIC delay on one route, so the latency gate (`bun run check:rotte`) can
+ * be seen going red.
  *
- * PERCHE' esiste. Un cancello che non si e' mai visto fallire non e' un
- * cancello: e' una riga di CI che dice sempre di si'. Per le soglie di byte
- * (`scripts/check-bundle-size.ts`) il rosso si costruisce con una fixture, un
- * file finto che pesa troppo. Per una latenza no: il numero non nasce da un
- * file, nasce dal server mentre risponde. L'unico modo di provare che il
- * cancello sa dire "questa rotta e' peggiorata" e' peggiorare DAVVERO una
- * rotta, e poi rimetterla a posto.
+ * WHY it exists. A gate that has never been seen failing is not a gate: it is a
+ * line of CI that always says yes. For byte thresholds
+ * (`scripts/check-bundle-size.ts`) the red is built with a fixture, a fake file
+ * that weighs too much. For a latency, no: the number is not born in a file, it
+ * is born in the server while it answers. The only way to prove that the gate
+ * can say "this route got worse" is to make a route REALLY worse, and then put
+ * it back.
  *
- * Abbassare la soglia nella baseline non lo prova: dimostrerebbe che il
- * confronto sa fare una sottrazione, non che la MISURA vede il rallentamento.
- * Sono due guasti diversi, e quello che fa passare una regressione vera e' il
- * secondo (una misura che guarda il posto sbagliato resta verde per sempre).
+ * Lowering the threshold in the baseline does not prove it: it would show that
+ * the comparison can do a subtraction, not that the MEASUREMENT sees the
+ * slowdown. They are two different faults, and the one that lets a real
+ * regression through is the second (a measurement looking at the wrong place
+ * stays green forever).
  *
- * PERCHE' non puo' toccare la produzione. Due condizioni, non una:
- *   1. `TOPICS_E2E=1`, che esiste SOLO nel server di prova
- *      (`scripts/start-test-server.sh` e' l'unico posto che lo esporta, come
- *      gia' fa per le rotte distruttive di `/api/test/*`);
- *   2. `TOPICS_ROTTE_FAULT_MS` con un numero positivo.
- * Il server di produzione non ha ne' l'una ne' l'altra, quindi qui
- * {@link ROUTE_FAULT} vale `null` e il chiamante non arriva nemmeno a chiamare
- * la funzione: e' un test di verita' su una costante letta una volta al
- * caricamento del modulo, non una lettura di `process.env` per richiesta.
+ * WHY it cannot touch production. Two conditions, not one:
+ *   1. `TOPICS_E2E=1`, which exists ONLY in the test server
+ *      (`scripts/start-test-server.sh` is the only place that exports it, as it
+ *      already does for the destructive routes of `/api/test/*`);
+ *   2. `TOPICS_ROTTE_FAULT_MS` with a positive number.
+ * The production server has neither of the two, so here {@link ROUTE_FAULT} is
+ * `null` and the caller does not even reach the call: it is a truth test on a
+ * constant read once at module load, not a `process.env` lookup per request.
  *
- * Uso:
+ * Usage:
  *   TOPICS_ROTTE_FAULT_MS=40 bun run scripts/check-rotte.ts
  *   TOPICS_ROTTE_FAULT_MS=40 TOPICS_ROTTE_FAULT_PATH=/api/all-boards/tasks …
  */
 
 export interface RouteFault {
-  /** Millisecondi di attesa aggiunti alla rotta. */
+  /** Milliseconds of waiting added to the route. */
   delayMs: number;
-  /** Prefisso del path colpito: tutto cio' che inizia cosi' rallenta. */
+  /** Prefix of the hit path: everything starting like this gets slower. */
   pathPrefix: string;
 }
 
-/** Legge l'armamento dall'ambiente. Esportata pura per i test. */
+/** Reads the arming out of the environment. Exported pure for the tests. */
 export function readRouteFault(env: Record<string, string | undefined>): RouteFault | null {
-  // Il primo cancello e' l'ambiente di prova, non il ritardo: cosi' una
-  // variabile lasciata per sbaglio in una shell non puo' rallentare nulla di
-  // vivo.
+  // The first gate is the test environment, not the delay: this way a variable
+  // left behind by mistake in a shell cannot slow down anything alive.
   if (env.TOPICS_E2E !== "1") return null;
   const delayMs = Number(env.TOPICS_ROTTE_FAULT_MS);
   if (!Number.isFinite(delayMs) || delayMs <= 0) return null;
@@ -50,34 +49,34 @@ export function readRouteFault(env: Record<string, string | undefined>): RouteFa
 }
 
 /**
- * L'armamento corrente. Letto dall'ambiente al caricamento del modulo, e da li' in poi
- * MODIFICABILE a runtime da `setRouteFault`.
+ * The current arming. Read from the environment at module load, and from there on
+ * CHANGEABLE at runtime by `setRouteFault`.
  *
- * Perche' non basta l'ambiente: armare un guasto via env obbliga a riavviare il server, quindi la
- * misura "sana" e quella "guasta" vengono da DUE processi diversi. Un'autoprova costruita cosi'
- * non dimostra che il cancello sappia diventare rosso — dimostra che due processi diversi hanno
- * numeri diversi, che e' vero anche senza guasto.
+ * Why the environment alone is not enough: arming a fault via env forces a server restart, so the
+ * "healthy" measurement and the "faulty" one come from TWO different processes. A self-proof built
+ * that way does not show that the gate knows how to go red — it shows that two different processes
+ * have different numbers, which is true even with no fault at all.
  *
- * Il server lo usa come interruttore sincrono, cosi' da spento il costo per richiesta resta un
- * confronto con `null` e non una promessa allocata a vuoto.
+ * The server uses it as a synchronous switch, so that when it is off the per-request cost stays a
+ * comparison against `null` and not a promise allocated for nothing.
  */
 let armed: RouteFault | null = readRouteFault(process.env);
 
-/** L'armamento in vigore adesso. */
+/** The arming in force right now. */
 export function currentRouteFault(): RouteFault | null {
   return armed;
 }
 
 /**
- * Arma o disarma a caldo. Chiamabile SOLO dalla rotta di prova, che e' gia' dietro
- * `TOPICS_E2E=1`: fuori da li' nessuno puo' raggiungerla, e in produzione `armed` nasce null e
- * nessuno la tocca.
+ * Arms or disarms hot. Callable ONLY from the test route, which is already behind
+ * `TOPICS_E2E=1`: outside of there nobody can reach it, and in production `armed` is born null and
+ * nobody touches it.
  */
 export function setRouteFault(fault: RouteFault | null): void {
   armed = fault;
 }
 
-/** Aspetta, se questo path e' quello colpito. */
+/** Waits, if this path is the one being hit. */
 export async function applyRouteFault(pathname: string, fault: RouteFault | null = armed): Promise<void> {
   if (!fault) return;
   if (!pathname.startsWith(fault.pathPrefix)) return;

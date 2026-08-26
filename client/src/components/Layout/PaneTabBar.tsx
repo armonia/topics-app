@@ -1713,21 +1713,22 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               onClick={() => {
                 const sid = getTerminalSessionFromPaneId(ctxMenu.paneId);
                 if (sid) {
-                  // Show a "Riavvio…" overlay over the pane during the kill→respawn
-                  // gap (cleared on WS reconnect); safety-clear if it never comes back.
+                  // Show a "Riavvio…" overlay over the pane during the  allow-italian: quoted UI string
+                  // kill→respawn gap (cleared on WS reconnect); safety-clear if
+                  // it never comes back.
                   //
-                  // UN RIFIUTO NON E' UN'ATTESA. Prima il risultato della POST
-                  // veniva buttato via — nessun controllo su `ok`, e un
-                  // `.catch(() => {})` che ingoiava tutto. Il server pero'
-                  // rifiuta in tre modi (409 se un reload e' gia' in corso, 404
-                  // se la sessione non c'e', 500 se lo spawn fallisce:
-                  // `routes/terminal.ts`), e in tutti e tre l'interfaccia
-                  // mostrava «Riavvio…» per QUINDICI SECONDI e poi lo toglieva
-                  // in silenzio. E' esattamente la forma di «non va, o si
-                  // blocca»: sembra che stia lavorando, e non sta succedendo
-                  // niente. Il tetto dei 15s e' la rete di sicurezza per il
-                  // caso in cui la riconnessione non arrivi, non il modo
-                  // normale di sapere che e' andata male.
+                  // A REFUSAL IS NOT A WAIT. Before, the result of the POST was
+                  // thrown away — no check on `ok`, and a `.catch(() => {})`
+                  // that swallowed everything. But the server refuses in three
+                  // ways (409 if a reload is already under way, 404 if the
+                  // session is not there, 500 if the spawn fails:
+                  // `routes/terminal.ts`), and in all three the interface showed
+                  // «Riavvio…» for FIFTEEN SECONDS and then took it away  allow-italian: quoted UI string
+                  // in silence. That is exactly the shape of "it doesn't work,
+                  // or it hangs": it looks like it is working, and nothing is
+                  // happening. The 15s cap is the safety net for the case where
+                  // the reconnect never arrives, not the normal way of finding
+                  // out that it went wrong.
                   restartTerminalSession(sid, toast, tr);
                 }
                 setCtxMenu(null);
@@ -1739,12 +1740,12 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               <span className="flex-1 text-left">Ricarica</span>
             </button>
           )}
-          {/* "Rinomina" — inline editor (Enter saves, Esc cancels). Terminal
-              tabs PATCH the session name (name_source='user'); chat tabs route
-              through the host's topic-update path; browser tabs pin pane.title
-              (titleSource='user'). The chat/browser entries hide when the host
-              doesn't wire the matching callback (e.g. project-inner bars that
-              don't thread onRenameChat). */}
+          {/* "Rinomina" — inline editor (Enter saves, Esc cancels).  allow-italian: quoted UI string
+              Terminal tabs PATCH the session name (name_source='user'); chat
+              tabs route through the host's topic-update path; browser tabs pin
+              pane.title (titleSource='user'). The chat/browser entries hide
+              when the host doesn't wire the matching callback (e.g.
+              project-inner bars that don't thread onRenameChat). */}
           {(() => {
             const ctxPane = panes.find(p => p.id === ctxMenu.paneId);
             const canRename = isTerminalPaneId(ctxMenu.paneId)

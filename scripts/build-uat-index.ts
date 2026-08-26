@@ -42,9 +42,9 @@ import { join, relative, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dir, "..");
 /**
- * Le cartelle degli artefatti: `test-results/artifacts` piu' le `artifacts-<porta>` che lo
- * sharder crea, una per shard (vedi `outputDir` in playwright.config.ts). Leggerne una sola
- * farebbe sparire dall'indice tutto cio' che hanno prodotto gli altri shard.
+ * The artifact folders: `test-results/artifacts` plus the `artifacts-<port>` ones the
+ * sharder creates, one per shard (see `outputDir` in playwright.config.ts). Reading only
+ * one of them would drop from the index everything the other shards produced.
  */
 function artifactRoots(): string[] {
   const base = join(ROOT, "test-results");
@@ -59,7 +59,7 @@ const VIDEOS_DIR = join(ROOT, "videos");
 const INDEX = join(VIDEOS_DIR, "INDEX.md");
 
 interface Entry {
-  /** Da quale cartella-artefatti viene: ce n'e' una per shard. */
+  /** Which artifact folder it comes from: there is one per shard. */
   root: string;
   /** The artifact folder, which Playwright names after the test title. */
   folder: string;
@@ -119,15 +119,15 @@ function outcomesFromReport(path: string): Map<string, { title: string; outcome:
 }
 
 /**
- * `--only-requirements`: NON collegare un'evidenza per ogni cartella-artefatto.
+ * `--only-requirements`: do NOT link one piece of evidence per artifact folder.
  *
- * Il perche' e' un numero. La corsa completa del 25/08 ha prodotto 1201 video e
- * `publish-uat` li ha caricati tutti — 85 MB — ma la living-doc ne puo' aprire solo quelli
- * legati a un requisito, che erano 121. Millecento file caricati che nessuno puo' raggiungere
- * non sono prudenza, sono banda e spazio spesi per niente, e rendono ogni pubblicazione lenta
- * in proporzione a quanto NON si vede.
+ * The why is a number. The full run of 25/08 produced 1201 videos and `publish-uat`
+ * uploaded every one of them — 85 MB — but the living-doc can only open the ones tied to
+ * a requirement, which were 121. Eleven hundred uploaded files nobody can reach are not
+ * prudence, they are bandwidth and space spent for nothing, and they make every publish
+ * slow in proportion to what is NOT seen.
  *
- * Il default resta invariato: `uat.html` in locale vive di quella passata.
+ * The default is unchanged: `uat.html` locally lives off that pass.
  */
 const ONLY_REQUIREMENTS = process.argv.includes("--only-requirements");
 
@@ -183,15 +183,15 @@ export function outcomeOf(fromReport: Entry["outcome"] | undefined): Entry["outc
 function main(): void {
   const entries = collect();
   if (ONLY_REQUIREMENTS) {
-    // Nessun indice per-cartella e nessun INDEX.md: qui si collega solo cio' che un
-    // requisito puo' aprire, e quello lo fa `linkByRequirement`.
+    // No per-folder index and no INDEX.md: only what a requirement can open gets
+    // linked here, and that is `linkByRequirement`'s job.
     if (!process.argv.includes("--by-requirement")) {
       console.error("[uat-index] --only-requirements senza --by-requirement non collega niente.");
       process.exit(1);
     }
     linkByRequirement();
-    // Le sessioni per file vivono nello stesso giro: la catena passa sempre `--only-requirements`,
-    // e senza questa riga `--by-file` non verrebbe mai eseguito in produzione.
+    // The per-file sessions live in the same round: the chain always passes `--only-requirements`,
+    // and without this line `--by-file` would never run in production.
     if (process.argv.includes("--by-file")) linkByFile();
     return;
   }
@@ -308,18 +308,18 @@ function linkByRequirement(): void {
 }
 
 /**
- * `--by-file`: le sessioni dei FILE che dichiarano un requisito senza provarlo per-test.
+ * `--by-file`: the sessions of the FILES that declare a requirement without proving it per-test.
  *
- * Un requisito dichiarato con `@covers` da un file e2e non puo' avere una sessione SUA — il
- * legame passa dall'annotazione, e il file ne contiene molte. Mostrarne una a caso sarebbe
- * spacciare per prova un filmato che magari non c'entra. Quello che si puo' fare onestamente e'
- * cambiare la promessa: non «ecco la prova», ma «il file che lo dichiara ha queste N sessioni».
- * Materiale da guardare, non un verdetto — ed e' per questo che stanno in un canale separato
- * (`fileSessions`) e non in `traceUrl`.
+ * A requirement declared with `@covers` by an e2e file cannot have a session of its OWN — the
+ * link runs through the annotation, and the file holds many of them. Showing a random one would
+ * be passing off as evidence a recording that may have nothing to do with it. What can be done
+ * honestly is to change the promise: not "here is the proof", but "the file that declares it has
+ * these N sessions". Material to watch, not a verdict — and that is why they sit in a separate
+ * channel (`fileSessions`) and not in `traceUrl`.
  *
- * Si linkano SOLO i file che dichiarano almeno un requisito privo di prova per-test: gli altri
- * hanno gia' la loro sessione, e duplicarla costerebbe peso senza aggiungere niente.
- * Misura del 26/08/2026: 70 file, 278 sessioni, ~41 MB.
+ * ONLY the files declaring at least one requirement with no per-test evidence are linked: the
+ * others already have their session, and duplicating it would cost weight and add nothing.
+ * Measured 2026-08-26: 70 files, 278 sessions, ~41 MB.
  */
 function linkByFile(): void {
   const iReport = process.argv.indexOf("--report");
@@ -331,36 +331,37 @@ function linkByFile(): void {
     process.exit(1);
   }
   type Claim = { file?: string; channel?: string };
-  const mappa = JSON.parse(readFileSync(join(ROOT, mapPath), "utf8")) as {
+  const coverageMap = JSON.parse(readFileSync(join(ROOT, mapPath), "utf8")) as {
     requirements?: Record<string, { claims?: Claim[] }>;
   };
-  // Quali requisiti hanno gia' una prova per-test? Quelli non servono.
-  const conProva = new Set<string>();
-  for (const { specIds } of specAttachments(report)) for (const id of specIds) conProva.add(id);
-  const fileDaCoprire = new Set<string>();
-  for (const [id, rec] of Object.entries(mappa.requirements ?? {})) {
-    if (conProva.has(id)) continue;
+  // Which requirements already have per-test evidence? Those are not needed.
+  const withEvidence = new Set<string>();
+  for (const { specIds } of specAttachments(report)) for (const id of specIds) withEvidence.add(id);
+  const filesToCover = new Set<string>();
+  for (const [id, rec] of Object.entries(coverageMap.requirements ?? {})) {
+    if (withEvidence.has(id)) continue;
     for (const c of rec.claims ?? []) {
-      if (c.file && c.file.includes("/e2e/")) fileDaCoprire.add(c.file.split("/").pop()!);
+      if (c.file && c.file.includes("/e2e/")) filesToCover.add(c.file.split("/").pop()!);
     }
   }
 
-  // `spec.file` nel report e' relativo a `config.rootDir` (il testDir), i claim della mappa sono
-  // relativi alla radice del repo. Il manifest deve parlare la lingua dei claim, o il toolkit non
-  // trovera' MAI una corrispondenza — e lo fara' in silenzio, con 278 sessioni pubblicate e zero
-  // collegate. E' successo il 26/08/2026: stesso inciampo gia' evitato in readPlaywrightOutcomes.
+  // `spec.file` in the report is relative to `config.rootDir` (the testDir), while the map's
+  // claims are relative to the repo root. The manifest has to speak the claims' language, or the
+  // toolkit will NEVER find a match — and it will fail silently, with 278 sessions published and
+  // zero linked. It happened on 2026-08-26: the same stumble already avoided in
+  // readPlaywrightOutcomes.
   let prefix = "";
   try {
-    const cfgRoot = (JSON.parse(readFileSync(report, "utf8")) as { config?: { rootDir?: string } }).config?.rootDir;
-    if (cfgRoot) prefix = relative(ROOT, cfgRoot).replaceAll("\\", "/");
-  } catch { /* nessun prefisso: le chiavi restano quelle del report */ }
+    const configRoot = (JSON.parse(readFileSync(report, "utf8")) as { config?: { rootDir?: string } }).config?.rootDir;
+    if (configRoot) prefix = relative(ROOT, configRoot).replaceAll("\\", "/");
+  } catch { /* no prefix: the keys stay the report's own */ }
 
   const destDir = join(VIDEOS_DIR, "_sessioni");
   mkdirSync(destDir, { recursive: true });
   const manifest: Record<string, Array<{ titolo: string; slug: string; esito: string }>> = {};
   let linked = 0;
   for (const { file, titolo, esito, trace } of allSpecs(report)) {
-    if (!fileDaCoprire.has(file) || !trace || !existsSync(trace)) continue;
+    if (!filesToCover.has(file) || !trace || !existsSync(trace)) continue;
     const base = file.replace(/\.spec\.ts$/, "");
     const n = (manifest[prefix ? `${prefix}/${file}` : file] ?? []).length;
     const slug = `${base}__${n}`;
@@ -372,10 +373,10 @@ function linkByFile(): void {
     linked++;
   }
   writeFileSync(join(destDir, "INDEX.json"), JSON.stringify(manifest, null, 1) + "\n");
-  console.log(`[uat-index] per file: ${linked} sessioni collegate sotto videos/_sessioni/, da ${Object.keys(manifest).length} file su ${fileDaCoprire.size} da coprire`);
+  console.log(`[uat-index] per file: ${linked} sessioni collegate sotto videos/_sessioni/, da ${Object.keys(manifest).length} file su ${filesToCover.size} da coprire`);
 }
 
-/** Ogni spec del report: file, titolo, esito e trace — annotazione o no. */
+/** Every spec of the report: file, title, outcome and trace — annotated or not. */
 function allSpecs(report: string): Array<{ file: string; titolo: string; esito: string; trace: string | null }> {
   const out: Array<{ file: string; titolo: string; esito: string; trace: string | null }> = [];
   let doc: unknown;
@@ -386,8 +387,8 @@ function allSpecs(report: string): Array<{ file: string; titolo: string; esito: 
       for (const test of (spec.tests as Record<string, unknown>[] | undefined) ?? []) {
         const results = (test.results as Record<string, unknown>[] | undefined) ?? [];
         const r = results[results.length - 1];
-        const att = (r?.attachments as Record<string, unknown>[] | undefined) ?? [];
-        const a = att.find((x) => x.name === "trace" && typeof x.path === "string");
+        const attachments = (r?.attachments as Record<string, unknown>[] | undefined) ?? [];
+        const a = attachments.find((x) => x.name === "trace" && typeof x.path === "string");
         out.push({
           file,
           titolo: typeof spec.title === "string" ? spec.title : "",
@@ -420,9 +421,9 @@ function specAttachments(report: string): Array<{ specIds: string[]; video: stri
           .flatMap((a) => String(a.description).split(/[,\s/]+/))
           .filter((x) => /^[A-Z][A-Z0-9-]*-\d+[a-z]?$/.test(x));
         if (specIds.length === 0) continue;
-        const att = (r?.attachments as Record<string, unknown>[] | undefined) ?? [];
+        const attachments = (r?.attachments as Record<string, unknown>[] | undefined) ?? [];
         const pathOf = (n: string) => {
-          const a = att.find((x) => x.name === n && typeof x.path === "string");
+          const a = attachments.find((x) => x.name === n && typeof x.path === "string");
           return a ? (a.path as string) : null;
         };
         out.push({ specIds: [...new Set(specIds)], video: pathOf("video"), trace: pathOf("trace"), poster: pathOf("screenshot") });

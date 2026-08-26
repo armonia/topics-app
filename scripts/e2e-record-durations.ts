@@ -1,31 +1,32 @@
 #!/usr/bin/env bun
 /**
- * Registra quanto ha impiegato OGNI file di spec, per bilanciare gli shard.
+ * Records how long EVERY spec file took, so the shards can be balanced.
  *
- * PERCHÉ SERVE. `--shard=i/N` di Playwright distribuisce i file per NUMERO DI
- * TEST, non per durata — non ha modo di sapere quanto costano. Misurato sulla
- * run del 30/07 a 4 shard: 193s, 326s, 186s, 209s. Il wall-clock è il massimo,
- * quindi la suite finiva in 326 secondi mentre tre macchine su quattro
- * aspettavano ferme. Con le durate note il pacchettamento LPT
- * (`e2e-plan-shards.ts`) porta gli shard a pochi secondi l'uno dall'altro.
+ * WHY IT IS NEEDED. Playwright's `--shard=i/N` splits the files by TEST COUNT,
+ * not by duration - it has no way of knowing what they cost. Measured on the
+ * 30/07 run over 4 shards: 193s, 326s, 186s, 209s. Wall-clock is the maximum,
+ * so the suite took 326 seconds while three machines out of four sat idle
+ * waiting. With the durations known, LPT packing (`e2e-plan-shards.ts`) brings
+ * the shards to within a few seconds of one another.
  *
- * COME SI USA
+ * HOW TO USE IT
  *   bun run scripts/e2e-record-durations.ts "$TMPDIR"/topics-e2e-shards/report-*.json
  *   bun run scripts/e2e-record-durations.ts test-results/uat-report.json
  *
- * ATTENZIONE AL PERCORSO. Fino al 25/08 questa riga diceva
- * `test-results/shard-*\/results.json`, che `e2e-shards.sh` non scrive piu' — ma
- * quei file ESISTONO ANCORA, vecchi di giorni. Seguire la vecchia riga non
- * fallisce: ribilancia il piano su misure di un'altra corsa, e lo sbilanciamento
- * che ne esce sembra rumore della macchina.
+ * MIND THE PATH. Until 25/08 this line read
+ * `test-results/shard-*\/results.json`, which `e2e-shards.sh` no longer writes -
+ * but those files STILL EXIST, days old. Following the old line does not fail:
+ * it rebalances the plan on measurements from a different run, and the
+ * imbalance that comes out of it looks like noise from the machine.
  *
- * Scrive `scripts/e2e-durations.json`, che è COMMITTATO: senza, il piano
- * ripartirebbe da zero a ogni checkout e il primo che lancia la suite pagherebbe
- * di nuovo lo sbilanciamento. È un'euristica, non un contratto — un file
- * mancante o stantìo non rompe niente (vedi il fallback in `e2e-plan-shards.ts`).
+ * Writes `scripts/e2e-durations.json`, which IS COMMITTED: without it the plan
+ * would restart from scratch at every checkout and whoever launched the suite
+ * first would pay the imbalance all over again. It is a heuristic, not a
+ * contract - a missing or stale file breaks nothing (see the fallback in
+ * `e2e-plan-shards.ts`).
  *
- * DA UN RUN PARZIALE: i file non presenti nel JSON conservano la durata che
- * avevano. Registrare una passata su cinque spec non cancella le altre 103.
+ * FROM A PARTIAL RUN: files not present in the JSON keep the duration they
+ * already had. Recording one pass over five specs does not erase the other 103.
  */
 
 import { readFileSync, writeFileSync, existsSync } from "fs";
@@ -45,7 +46,7 @@ type PwSuite = {
   }>;
 };
 
-/** Somma per file i millisecondi di TUTTI i tentativi (i retry costano tempo reale). */
+/** Sums per file the milliseconds of EVERY attempt (retries cost real time). */
 function collect(json: PlaywrightJson, into: Map<string, number>): void {
   const walk = (suite: PwSuite) => {
     for (const child of suite.suites ?? []) walk(child);
@@ -89,13 +90,13 @@ if (read === 0 || totals.size === 0) {
   process.exit(1);
 }
 
-// Merge sul file esistente: una run parziale aggiorna solo i file che ha visto.
+// Merge onto the existing file: a partial run updates only the files it saw.
 const previous: Record<string, number> = existsSync(OUT)
   ? (JSON.parse(readFileSync(OUT, "utf8")) as Record<string, number>)
   : {};
 
 const merged: Record<string, number> = { ...previous };
-for (const [file, ms] of totals) merged[file] = Math.round(ms / 100) / 10; // secondi, 1 decimale
+for (const [file, ms] of totals) merged[file] = Math.round(ms / 100) / 10; // seconds, 1 decimal
 
 const sorted = Object.fromEntries(
   Object.entries(merged).sort(([a], [b]) => a.localeCompare(b)),

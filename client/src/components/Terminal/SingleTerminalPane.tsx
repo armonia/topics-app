@@ -167,7 +167,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   // refs so the (sessionId-keyed) xterm mount effect never re-runs on a list
   // change.
   const t = useT();
-  // Il rifiuto di un riavvio va DETTO: prima finiva in un `.catch(() => {})`.
+  // A refused restart has to be SAID: before, it ended in a `.catch(() => {})`.
   const toast = useToast();
   const terminalSessions = useTerminalSessions();
   const sessionListed = useMemo(

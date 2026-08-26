@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-08-25",
+  "generated": "2026-08-26",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -2681,7 +2681,6 @@
       "rec"
     ],
     "client/src/state/pane/adapters/closedTabRecord.test.ts": [
-      "newest",
       "rec"
     ],
     "client/src/state/pane/adapters/closedTabRecord.ts": [
@@ -3466,7 +3465,6 @@
       "argv",
       "countFds",
       "ctl",
-      "lsof",
       "proc"
     ],
     "scripts/fix-node-pty-exec-bit.ts": [
@@ -3603,7 +3601,6 @@
       "cred",
       "misure",
       "mosso",
-      "newest",
       "nuovi",
       "righe",
       "rumore",
@@ -3617,7 +3614,6 @@
       "buf",
       "cfg",
       "cred",
-      "newest",
       "nota"
     ],
     "scripts/mcp-cap-bench/real-context-curve.ts": [
@@ -3664,7 +3660,6 @@
       "fmtMB",
       "info",
       "libc",
-      "lsofCwdOut",
       "lsofTcpOut",
       "mio",
       "mtime",
@@ -4129,7 +4124,6 @@
       "EmbeddedMigration"
     ],
     "server/db/notification-log.test.ts": [
-      "newest",
       "notifica"
     ],
     "server/db/notification-log.ts": [
@@ -5457,8 +5451,7 @@
       "useTls"
     ],
     "server/providers/claude-models.ts": [
-      "buf",
-      "newestOfFamily"
+      "buf"
     ],
     "server/providers/claude/args.test.ts": [
       "agente",
@@ -6482,7 +6475,6 @@
       "righe"
     ],
     "server/services/delivery-sheet.ts": [
-      "escapeXml",
       "ins",
       "larghezza",
       "passi",
@@ -8953,8 +8945,6 @@
     "tests/e2e/global-setup.ts": [
       "BUNDLE_FRESH_TIMEOUT_MS",
       "checkpointBaseline",
-      "newest",
-      "newestClientSource",
       "runLockHeld",
       "stato"
     ],
@@ -10368,7 +10358,6 @@
       "PreviewManagerDeps",
       "cmdOut",
       "deps",
-      "lsofBin",
       "mgr",
       "proc",
       "realDeps",

@@ -1,25 +1,25 @@
 /**
  * @covers PRESENCE-13
  *
- * DUE SUPERFICI, UN NUMERO — il banco che mancava.
+ * TWO SURFACES, ONE NUMBER — the bench that was missing.
  *
- * Il difetto (task bbf68c9c): la presenza Discord diceva «16 sessioni aperte»
- * contando righe di `topics WHERE archived = 0`, che sono CONTENITORI; la barra
- * di stato mostrava le sessioni della flotta, che sono PROCESSI con un pid. E le
- * sessioni Claude che Topics non ha avviato non comparivano in nessuna delle
- * due. Nessuno dei due numeri era sbagliato per conto suo, ed e' esattamente per
- * questo che nessun test poteva prenderlo: ognuno era coerente con se' stesso.
+ * The defect (task bbf68c9c): Discord presence said "16 open sessions" by
+ * counting rows of `topics WHERE archived = 0`, which are CONTAINERS; the
+ * status bar showed fleet sessions, which are PROCESSES with a pid. And the
+ * Claude sessions Topics did not start appeared in neither. Neither number was
+ * wrong on its own, and that is exactly why no test could catch it: each one
+ * was consistent with itself.
  *
- * La cura su main non e' un terzo contatore, e' una fonte SOLA
- * (`computePresenceCounts`) letta da entrambe. Il che rende la garanzia
- * STRUTTURALE, e questo file la pianta: non «i due numeri sono uguali oggi» —
- * quello si prova solo accendendo Discord — ma «i due non possono divergere,
- * perche' chiamano la stessa funzione con gli stessi ingressi».
+ * The cure on main is not a third counter, it is ONE source
+ * (`computePresenceCounts`) read by both. That makes the guarantee STRUCTURAL,
+ * and this file plants it: not "the two numbers are equal today" — that can
+ * only be proved with Discord switched on — but "the two cannot diverge,
+ * because they call the same function with the same inputs".
  *
- * Il caso che lo rende non vacuo e' l'ultimo: cerca il pattern DIVERGENTE, cioe'
- * qualcuno che riconti i topic aperti per conto suo fuori dalla fonte. E' il
- * modo in cui il difetto tornerebbe, e senza quel caso questo file
- * sopravviverebbe alla sua stessa regressione.
+ * The case that keeps it non-vacuous is the last one: it looks for the
+ * DIVERGENT pattern, i.e. someone recounting open topics on their own outside
+ * the source. That is how the defect would come back, and without that case
+ * this file would survive its own regression.
  */
 import { describe, test, expect } from "bun:test";
 import { readFileSync, readdirSync, statSync } from "fs";
@@ -29,24 +29,24 @@ const ROOT = join(import.meta.dir, "..", "..");
 const SERVER = readFileSync(join(ROOT, "server.ts"), "utf8");
 const STATUS = readFileSync(join(ROOT, "server/routes/status.ts"), "utf8");
 
-/** Gli argomenti della chiamata, normalizzati: e' il confronto che conta. */
-function argomenti(src: string): string | null {
+/** The call arguments, normalised: the comparison is what matters. */
+function callArguments(src: string): string | null {
   const i = src.indexOf("computePresenceCounts(");
   if (i < 0) return null;
-  let livello = 0;
+  let depth = 0;
   for (let j = i + "computePresenceCounts".length; j < src.length; j++) {
-    if (src[j] === "(") livello++;
+    if (src[j] === "(") depth++;
     else if (src[j] === ")") {
-      livello--;
-      if (livello === 0) {
+      depth--;
+      if (depth === 0) {
         return src
           .slice(i + "computePresenceCounts(".length, j)
           .replace(/\/\*[\s\S]*?\*\//g, "")
           .replace(/\/\/[^\n]*/g, "")
           .replace(/\s+/g, "")
-          // `status.ts:57` destruttura `{ db, activeStreams } = ctx`, `server.ts`
-          // scrive `ctx.db`: e' lo STESSO oggetto, e un confronto che va rosso
-          // su quel prefisso segnalerebbe una cosmesi invece di una divergenza.
+          // `status.ts:57` destructures `{ db, activeStreams } = ctx`, `server.ts`
+          // writes `ctx.db`: it is the SAME object, and a comparison that goes red
+          // on that prefix would report cosmetics instead of a divergence.
           .replace(/\bctx\./g, "")
           .replace(/,$/, "");
       }
@@ -57,42 +57,42 @@ function argomenti(src: string): string | null {
 
 describe("presence · due superfici, un numero", () => {
   test("la barra di stato legge computePresenceCounts", () => {
-    expect(argomenti(STATUS), "la barra ha smesso di leggere la fonte comune").not.toBeNull();
+    expect(callArguments(STATUS), "la barra ha smesso di leggere la fonte comune").not.toBeNull();
   });
 
   test("la presenza Discord legge la STESSA funzione", () => {
-    expect(argomenti(SERVER), "la presenza Discord ha smesso di leggere la fonte comune").not.toBeNull();
+    expect(callArguments(SERVER), "la presenza Discord ha smesso di leggere la fonte comune").not.toBeNull();
   });
 
   test("IL PATTO: le due superfici passano gli STESSI ingressi", () => {
-    expect(argomenti(SERVER)).toBe(argomenti(STATUS)!);
+    expect(callArguments(SERVER)).toBe(callArguments(STATUS)!);
   });
 
   test("il pattern DIVERGENTE non e' tornato: nessuno riconta i topic aperti fuori dalla fonte", () => {
-    // `archived = 0` su `topics` era il conteggio della presenza Discord, ed e'
-    // la forma esatta in cui il difetto si ripresenterebbe. Vive UNA volta, in
-    // `profile-stats.ts`, che E' la fonte.
-    const colpevoli: string[] = [];
-    const visita = (dir: string) => {
-      for (const voce of readdirSync(dir)) {
-        if (voce === "node_modules" || voce.startsWith(".")) continue;
-        const p = join(dir, voce);
-        if (statSync(p).isDirectory()) { visita(p); continue; }
+    // `archived = 0` on `topics` was the Discord presence count, and it is the
+    // exact shape the defect would come back in. It lives ONCE, in
+    // `profile-stats.ts`, which IS the source.
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of readdirSync(dir)) {
+        if (name === "node_modules" || name.startsWith(".")) continue;
+        const p = join(dir, name);
+        if (statSync(p).isDirectory()) { walk(p); continue; }
         if (!p.endsWith(".ts") || p.includes(".test.")) continue;
         const src = readFileSync(p, "utf8");
-        // CONTA, non «legge». La prima versione cercava qualunque
-        // `FROM topics ... archived = 0` e pescava
-        // `ui-state-orphan-cleanup.ts`, che seleziona degli id per fare
-        // pulizia: quello non e' un secondo contatore, e un cancello che lo
-        // chiama tale insegna a ignorarlo.
+        // COUNTS, not "reads". The first version looked for any
+        // `FROM topics ... archived = 0` and caught
+        // `ui-state-orphan-cleanup.ts`, which selects ids in order to clean
+        // up: that is not a second counter, and a gate that calls it one
+        // teaches people to ignore it.
         if (/COUNT\([\s\S]{0,40}?FROM\s+topics\b[\s\S]{0,120}?archived\s*=\s*0/i.test(src)) {
-          colpevoli.push(p.slice(ROOT.length + 1));
+          offenders.push(p.slice(ROOT.length + 1));
         }
       }
     };
-    visita(join(ROOT, "server"));
+    walk(join(ROOT, "server"));
     expect(
-      colpevoli,
+      offenders,
       "un secondo conteggio dei topic aperti: e' la forma in cui le due superfici tornano a divergere",
     ).toEqual(["server/services/profile-stats.ts"]);
   });

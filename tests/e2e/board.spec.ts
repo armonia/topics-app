@@ -26,8 +26,8 @@ import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
 
-// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
-// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+// Hermetic boundary: this file restarts from the globalSetup baseline, not from
+// the state left behind by the specs before it. See fixtures/hermetic.ts.
 hermetic(test);
 
 const BASE = E2E_BASE;
@@ -60,11 +60,11 @@ async function openTestProject(page: Page) {
   const btn = projectRow(page, /e2e-board/);
   await expect(btn).toBeVisible({ timeout: 10000 });
   await btn.click();
-  // Ancora sulla FINESTRA DI PROGETTO, non su `panel-tab-bar`: quella testid la
-  // porta anche la barra standalone, quindi l'asserzione passava con il
-  // workspace vuoto e non provava nulla — poi openProjectBoard falliva piu'
-  // avanti con "no + menu with a Board (kanban) entry found", a 10 s di
-  // distanza dal punto in cui il problema era gia' visibile.
+  // Anchored on the PROJECT WINDOW, not on `panel-tab-bar`: the standalone bar
+  // carries that testid too, so the assertion passed on an empty workspace and
+  // proved nothing — then openProjectBoard failed further on with "no + menu
+  // with a Board (kanban) entry found", 10 s away from the point where the
+  // problem was already visible.
   await expect(page.getByTestId("project-window")).toBeVisible({ timeout: 10000 });
 }
 
@@ -108,11 +108,11 @@ test.describe("Kanban board", () => {
   test.beforeAll(async ({ request }) => {
     mkdirSync(PROJECT_PATH, { recursive: true });
     writeFileSync(`${PROJECT_PATH}/package.json`, JSON.stringify({ name: "e2e-board" }, null, 2));
-    // Una favicon VERA, perché dall'08/08 la riga della board mostra soltanto i
-    // progetti che ne hanno una (niente nome, niente monogrammi: l'icona È
-    // l'identità, e chi non ce l'ha finisce nel «+N»). Senza questo file BOARD-14
-    // non avrebbe nessuna pastiglia da misurare — e sarebbe rosso per il setup,
-    // non per la regola. PNG 1×1 valido, il più piccolo che decodifica davvero.
+    // A REAL favicon, because since 08/08 the board row shows only the projects
+    // that have one (no name, no monograms: the icon IS the identity, and
+    // whoever lacks it ends up inside the «+N»). Without this file BOARD-14      allow-italian: quoted UI string
+    // would have no chip to measure — and would be red for the setup, not for
+    // the rule. A valid 1×1 PNG, the smallest one that really decodes.
     writeFileSync(
       `${PROJECT_PATH}/favicon.png`,
       Buffer.from(
@@ -133,25 +133,25 @@ test.describe("Kanban board", () => {
     rmSync(PROJECT_PATH, { recursive: true, force: true });
   });
 
-  // Workspace ermetico per OGNI test: si azzerano ENTRAMBI i canali di stato,
-  // poi si riapre solo la finestra del progetto e2e.
+  // A hermetic workspace for EVERY test: BOTH state channels are cleared, then
+  // only the e2e project window is reopened.
   //
-  // Servono entrambi perche' sono due cose diverse. `resetPaneStore` azzera lo
-  // store GLOBALE dei pane; il layout INTERNO della finestra di progetto e'
-  // invece una chiave `ui_state` a se' (`topics-project-panes-<hash>`), vive
-  // sul SERVER e sopravvive sia al reset globale sia a un context Playwright
-  // nuovo. Il "+" del progetto filtra via i tipi di pane SINGLETON gia'
-  // presenti nel gruppo (useProjectLayout.availableTypesForGroup), quindi la
-  // board lasciata li' dentro da un test faceva sparire la voce "Board" a
-  // quello dopo. Provato: lo screenshot del fallimento mostra i tab
-  // `Topics · Board Test · Files · Processes · Board Test` — gia' aperta, DUE
-  // volte — e l'errore era il fuorviante "no + menu with a Board (kanban)
+  // Both are needed because they are two different things. `resetPaneStore`
+  // clears the GLOBAL pane store; the INTERNAL layout of the project window is
+  // instead a `ui_state` key of its own (`topics-project-panes-<hash>`), it
+  // lives on the SERVER and survives both the global reset and a fresh
+  // Playwright context. The project's "+" filters out the SINGLETON pane types
+  // already present in the group (useProjectLayout.availableTypesForGroup), so
+  // a board left in there by one test made the "Board" entry disappear for the
+  // next one. Proven: the failure screenshot shows the tabs
+  // `Topics · Board Test · Files · Processes · Board Test` — already open,
+  // TWICE — and the error was the misleading "no + menu with a Board (kanban)
   // entry found".
   //
-  // Niente `.catch(() => {})` sui reset/seed: un seed che non attecchisce deve
-  // far fallire il beforeEach, dove il problema e' leggibile, invece di
-  // riemergere 10 s dopo travestito da elemento mancante. (C'erano anche due
-  // beforeEach separati con lo stesso reset: fusi qui.)
+  // No `.catch(() => {})` on the resets/seeds: a seed that does not take hold
+  // must fail the beforeEach, where the problem is readable, instead of
+  // resurfacing 10 s later disguised as a missing element. (There were also two
+  // separate beforeEach hooks with the same reset: merged here.)
   test.beforeEach(async ({ page }) => {
     await resetPaneStore(page.request, []);
     await resetProjectPanes(page.request, PROJECT_PATH);
@@ -166,9 +166,9 @@ test.describe("Kanban board", () => {
     for (const status of ["backlog", "todo", "in_progress", "review", "done"]) {
       await expect(page.getByTestId(`kanban-column-${status}`)).toBeVisible();
     }
-    // Il ▾ accanto al titolo — che era un SECONDO ingresso alle stesse
-    // impostazioni, con una copia propria dello stato — e' stato tolto in
-    // 2f5be1ef6. Resta UNA porta sola: il ⚙, titolo `board.toolbar.dispatchSettings`.
+    // The ▾ next to the title — a SECOND way into the same settings, carrying a
+    // copy of the state of its own — was taken out in 2f5be1ef6. ONE door is
+    // left: the ⚙, title `board.toolbar.dispatchSettings`.
     const dispatchMenu = page.getByTitle(/Impostazioni auto-dispatch/);
     await expect(dispatchMenu).toBeVisible();
     await dispatchMenu.click();
@@ -289,9 +289,9 @@ test.describe("Kanban board", () => {
     await page.goto("/");
     await openProjectBoard(page);
 
-    // Stessa porta unica di BOARD-01 (il ▾ e' sparito in 2f5be1ef6). Il
-    // COMPORTAMENTO sotto esame non cambia: un solo interruttore GLOBALE per
-    // ogni board, il cui stato sopravvive al giro attraverso il server.
+    // The same single door as BOARD-01 (the ▾ went away in 2f5be1ef6). The
+    // BEHAVIOUR under test does not change: one GLOBAL switch for every board,
+    // whose state survives the round trip through the server.
     const dispatchMenu = page.getByTitle(/Impostazioni auto-dispatch/);
     await expect(dispatchMenu).toBeVisible({ timeout: 10000 });
     await dispatchMenu.click();
@@ -554,14 +554,15 @@ test.describe("Kanban board", () => {
     await drawer.getByPlaceholder("+ sottotask…").press("Enter");
     await expect(drawer.getByTestId("task-detail-subtasks").getByText(subText)).toBeVisible({ timeout: 10000 });
 
-    // Il padre porta lo step ADDOSSO, e lo step NON e' una card sua —
-    // i sottotask sono la checklist del padre (albero del drawer), mai card.
+    // The parent carries the step ON ITSELF, and the step is NOT a card of its
+    // own — subtasks are the parent's checklist (drawer tree), never cards.
     //
-    // Il chip compatto `↳ fatti/totale` non e' piu' cio' che si vede qui: da
-    // quando la card disegna la checklist (fino a cinque righe, il resto dietro
-    // «Vedi tutti»), quel chip e' la RICADUTA per la card i cui figli non sono
-    // ancora arrivati. Con i figli caricati — che e' il caso, l'asserzione
-    // sopra li ha appena visti nel drawer — si vede la RIGA.
+    // The compact `↳ done/total` chip is no longer what shows up here: ever
+    // since the card draws the checklist itself (up to five rows, the rest
+    // behind «Vedi tutti»), that chip is the FALLBACK for a card whose children  allow-italian: quoted UI string
+    // have not arrived yet. With the children loaded — which is the case here,
+    // the assertion above has just seen them in the drawer — what shows is the
+    // ROW.
     const parentCard = page.getByTestId("kanban-column-in_progress").locator("div.group", { hasText: text });
     await expect(parentCard.getByText(subText)).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("kanban-column-backlog").getByText(subText)).not.toBeVisible();

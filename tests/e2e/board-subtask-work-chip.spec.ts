@@ -1,18 +1,18 @@
 /**
- * board-subtask-work-chip.spec.ts — un sottotask «in corso» senza agente suo
- * dice CHI lo lavora, e cambia quando smette di lavorarlo qualcuno.
+ * board-subtask-work-chip.spec.ts — a subtask «in corso» with no agent of its    allow-italian: quoted UI string
+ * own says WHO is working it, and changes when somebody stops working it.
  *
- * Il caso: una card `in_progress` senza `assigned_topic_id` e senza chip di
- * dispatch è ambigua. O la lavora un antenato dentro il proprio turno — il
- * flusso voluto, e la norma schiacciante (243 step chiusi così in un giorno) —
- * oppure è rimasta lì e non la lavora nessuno. Il recupero orfani non vede né
- * l'una né l'altra: filtra sul chip di dispatch, che in questa forma non c'è.
- * Il segnale è DERIVATO dalla catena dei padri, senza nessuna colonna nuova.
+ * The case: an `in_progress` card with no `assigned_topic_id` and no dispatch
+ * chip is ambiguous. Either an ancestor is working it inside its own turn — the
+ * intended flow, and the overwhelming norm (243 steps closed that way in a
+ * day) — or it was left there and nobody is working it. Orphan recovery sees
+ * neither: it filters on the dispatch chip, which in this shape is absent. The
+ * signal is DERIVED from the chain of parents, with no new column at all.
  *
- * È anche la clip di consegna, e serve un VIDEO perché la cosa da dimostrare
- * sono DUE STATI sulla stessa riga: il padre lavora → «nel turno del padre»; il
- * padre molla il turno → «nessuno la lavora», in rosso, senza ricaricare niente.
- * Uno screenshot proverebbe metà del comportamento.
+ * It is also the delivery clip, and it takes a VIDEO because what has to be
+ * shown is TWO STATES on the same row: the parent works → «nel turno del        allow-italian: quoted UI string
+ * padre»; the parent drops the turn → «nessuno la lavora», in red, without      allow-italian: quoted UI string
+ * reloading anything. A screenshot would prove half the behaviour.
  *
  * @covers KANBAN-08
  */
@@ -52,9 +52,9 @@ const patch = async (request: any, id: string, data: Record<string, unknown>) =>
 };
 
 /**
- * Mette il padre dentro un turno come ce lo mette il dispatcher: topic legato e
- * `dispatch_state`. Sono le due colonne che scrive solo lui — la rotta di test
- * passa dal servizio vero, non da una UPDATE a mano.
+ * Puts the parent inside a turn the way the dispatcher does: bound topic and
+ * `dispatch_state`. Those are the two columns only it writes — the test route
+ * goes through the real service, not through a hand-written UPDATE.
  */
 const bindTopic = async (request: any, id: string, topicId: string | null, dispatchState: string | null) => {
   const res = await request.post(`${BASE}/api/test/tasks/${id}/bind-topic`, {
@@ -90,7 +90,7 @@ async function openProjectBoard(page: Page) {
   await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 10000 });
 }
 
-/** Pausa che serve SOLO alla clip di consegna (E2E_EVIDENCE=1). Zero a suite normale. */
+/** A pause that serves ONLY the delivery clip (E2E_EVIDENCE=1). Zero on a normal suite. */
 const beat = (page: Page, ms = 1400) =>
   process.env.E2E_EVIDENCE === "1" ? page.waitForTimeout(ms) : Promise.resolve();
 
@@ -105,7 +105,7 @@ test.describe("Sottotask senza agente suo · chi lo lavora", () => {
   });
 
   test.afterAll(async ({ request }) => {
-    // In ordine INVERSO: il figlio prima del padre.
+    // In REVERSE order: the child before the parent.
     for (const key of [...createdTasks].reverse()) {
       const [pid, tid] = key.split(":");
       await deleteTask(request, pid, tid);
@@ -121,12 +121,12 @@ test.describe("Sottotask senza agente suo · chi lo lavora", () => {
   });
 
   test("il padre lo lavora nel suo turno; quando molla, la riga passa a «nessuno la lavora»", async ({ page, request }) => {
-    // Il padre al lavoro con il suo agente, e uno step della sua checklist:
-    // figlio, in corso, MAI dispacciato — niente topic, niente chip. È la forma
-    // ambigua, quella che finora non diceva niente.
+    // The parent at work with its own agent, and one step off its checklist:
+    // child, in progress, NEVER dispatched — no topic, no chip. That is the
+    // ambiguous shape, the one that so far said nothing.
     const epica = await createTask(request, { text: EPICA });
-    // La descrizione rende la riga APRIBILE nell'albero (`openable`): serve al
-    // terzo passo della clip, non al segnale.
+    // The description makes the row OPENABLE in the tree (`openable`): it serves
+    // the third step of the clip, not the signal.
     const step = await createTask(request, { text: STEP, parentTaskId: epica.id, description: "Bucket nuovo, path invariati." });
     await patch(request, epica.id, { status: "in_progress" });
     await bindTopic(request, epica.id, projectTopicId!, "working");
@@ -135,53 +135,52 @@ test.describe("Sottotask senza agente suo · chi lo lavora", () => {
     await page.goto("/");
     await openProjectBoard(page);
 
-    // Lo step NON è una card: le colonne mostrano solo le radici. Si vede
-    // aprendo il padre — ed è lì che il segnale deve stare.
+    // The step is NOT a card: the columns show roots only. It shows up by
+    // opening the parent — and that is where the signal has to live.
     const card = page.locator(`[data-task-card="${epica.id}"]`);
     await expect(card).toBeVisible({ timeout: 10000 });
     await expect(page.locator("[data-task-card]")).toHaveCount(1);
 
-    // Il TITOLO, non il centro della card: al centro di una card con dei
-    // controlli in riga ci sta un bottone, dentro un contenitore che ferma la
-    // propagazione, e il click non arriva mai alla card.
+    // The TITLE, not the centre of the card: at the centre of a card carrying
+    // in-line controls sits a button, inside a container that stops propagation,
+    // and the click never reaches the card.
     await card.getByText(EPICA).click();
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
 
-    // (a) Il padre tiene il turno: la riga dello step lo dice, in silenzio.
+    // (a) The parent holds the turn: the step's row says so, quietly.
     //
-    // Si asserisce SUBITO, prima di ogni pausa: il padre qui è un agente finto
-    // — topic legato e chip `working` senza nessuna sessione viva dietro — e il
-    // recupero del server fa il suo mestiere parcheggiandolo. Con `slowMo` (la
-    // modalità clip) quella finestra si allarga fino a superarlo, e il test
-    // diventava rosso su un comportamento CORRETTO del server.
+    // The assertion comes AT ONCE, before any pause: the parent here is a fake
+    // agent — bound topic and a `working` chip with no live session behind it —
+    // and the server's recovery does its job by parking it. With `slowMo` (clip
+    // mode) that window widens until it overtakes the assertion, and the test
+    // went red on CORRECT server behaviour.
     const row = drawer.getByTestId(`subtask-work-${step.id}`);
     await expect(row).toHaveAttribute("data-kind", "parent-turn", { timeout: 10000 });
     await expect(row).toHaveAttribute("title", new RegExp(EPICA));
     await beat(page, 2400);
 
-    // Il padre molla il turno — il caso misurato sul DB vivo: torna in backlog
-    // e il chip di dispatch si spegne. Nessuno tocca lo step, che resta byte per
-    // byte quello di prima: è la CATENA a cambiare, non la riga.
+    // The parent drops the turn — the case measured on the live DB: it goes back
+    // to backlog and the dispatch chip goes out. Nobody touches the step, which
+    // stays byte for byte what it was: it is the CHAIN that changes, not the row.
     await patch(request, epica.id, { status: "backlog" });
     await bindTopic(request, epica.id, projectTopicId!, null);
 
-    // (b) Stessa riga, stesso step: ora dice che non la lavora nessuno. Il
-    // segnale è derivato, quindi cambia da sé — nessun reload, nessuna scrittura
-    // sullo step.
+    // (b) Same row, same step: now it says nobody is working it. The signal is
+    // derived, so it changes on its own — no reload, no write on the step.
     await expect(row).toHaveAttribute("data-kind", "unattended", { timeout: 15000 });
     await expect(row).toContainText("nessuno la lavora");
 
-    // Solo per la clip di consegna: la card della board la rimpicciolisce a
-    // 268px, e a quella larghezza un chip da 10px sparisce. Qui si annota DOVE
-    // guardare, così il ritaglio è misurato invece che indovinato.
+    // Delivery clip only: the board card shrinks it down to 268px, and at that
+    // width a 10px chip disappears. Here we record WHERE to look, so the crop is
+    // measured instead of guessed.
     if (process.env.E2E_EVIDENCE === "1") {
       const [d, r] = [await drawer.boundingBox(), await row.boundingBox()];
       if (d && r) writeFileSync("/tmp/e2e-subwork-crop.json", JSON.stringify({ drawer: d, row: r }));
     }
     await beat(page, 2600);
 
-    // E aprendo lo step, il chip in riga nel suo drawer dice la stessa cosa.
+    // And on opening the step, the in-line chip in its drawer says the same thing.
     await drawer.getByTestId(`subtask-open-${step.id}`).click();
     const chip = page.getByTestId("task-subtask-work-chip");
     await expect(chip).toHaveAttribute("data-kind", "unattended", { timeout: 10000 });

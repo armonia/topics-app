@@ -11,22 +11,22 @@ hermetic(test);
 const BASE = E2E_BASE;
 
 /**
- * La coda del turno: quello che succede a un messaggio scritto MENTRE l'agente
- * sta ancora rispondendo.
+ * The turn queue: what happens to a message typed WHILE the agent is still
+ * answering.
  *
- * Il guasto che questo file inchioda: **«ferma» faceva partire.** Il drain
- * viveva in un effetto di `ChatPane` la cui unica condizione era «non sta più
- * streammando» — e lo stop è esattamente questo. Si premeva stop per fermare
- * l'agente e partiva il messaggio successivo, senza che nessuno l'avesse
- * chiesto. Gli altri che si provano qui: un comando col cancelletto scritto
- * durante lo streaming finiva in coda e poi partiva come TESTO, chi scriveva
- * dopo uno stop scavalcava quello che aveva scritto prima, e la coda si drenava
- * UNO ALLA VOLTA — tre righe scritte di fila diventavano tre turni, e il primo
- * partiva senza aver mai visto gli altri due.
+ * The fault this file nails down: **"stop" made things start.** The drain lived
+ * in a `ChatPane` effect whose only condition was "it is no longer streaming" —
+ * and a stop is exactly that. You pressed stop to halt the agent and the next
+ * message went out, with nobody having asked for it. The others exercised here:
+ * a slash command typed during streaming ended up in the queue and then went
+ * out as TEXT, whoever typed after a stop jumped ahead of what they had typed
+ * before, and the queue drained ONE AT A TIME — three lines typed in a row
+ * became three turns, and the first one went out having never seen the other
+ * two.
  *
- * È COMPORTAMENTO, non layout: video acceso, il .webm è la prova.
- * La logica pura sta in `client/src/state/chatQueue.ts` coi suoi test di unità;
- * qui si verifica che in pagina succeda davvero.
+ * It is BEHAVIOUR, not layout: video on, the .webm is the proof. The pure logic
+ * lives in `client/src/state/chatQueue.ts` with its own unit tests; what gets
+ * checked here is that it really happens on the page.
  */
 test.use({ video: "on" });
 
@@ -488,25 +488,26 @@ test.describe.serial("Coda dei messaggi", () => {
     await chatPage.messageInput.press("Enter");
     await expect(chatPage.streamingIndicator).toBeVisible({ timeout: 15_000 });
 
-    // Lo spazio in coda chiude il menù di completamento: senza, Invio
-    // selezionerebbe la voce evidenziata invece di mandare.
+    // The trailing space closes the completion menu: without it, Enter would
+    // pick the highlighted entry instead of sending.
     await chatPage.messageInput.fill("/help ");
     await chatPage.messageInput.press("Enter");
 
-    // Il comando ha risposto sul posto. La riga è quella che `/help` stampa
-    // davvero (`SLASH_COMMANDS_HELP` in ChatPane): la si cita per intero, così
-    // un elenco che smette di nominare `/status` fa rumore.
+    // The command answered on the spot. The line is the one `/help` really
+    // prints (`SLASH_COMMANDS_HELP` in ChatPane): it is quoted in full, so that
+    // a list which stops naming `/status` makes noise.
     //
-    // Il testo è INGLESE, e non è una svista di questa riga: dal 646269bf9
-    // `/help` è DERIVATO da `SLASH_COMMANDS` (`ChatInput`) invece di essere un
-    // secondo elenco scritto a mano che era andato alla deriva. Le descrizioni
-    // di quell'array non passano da `tr()` — le stesse che si leggono nel menu
-    // del composer. Che una superficie in italiano stampi inglese è un difetto
-    // suo, non di questa prova: qui si cita CIÒ CHE SI VEDE, e il giorno che
-    // quelle stringhe vengono tradotte questa riga diventa rossa e lo dice.
+    // The text is ENGLISH, and that is not a slip on this line: since 646269bf9
+    // `/help` is DERIVED from `SLASH_COMMANDS` (`ChatInput`) instead of being a
+    // second hand-written list that had drifted. The descriptions in that array
+    // do not go through `tr()` — the same ones read in the composer menu. That
+    // an Italian surface prints English is a defect of its own, not of this
+    // proof: what is quoted here is WHAT ONE SEES, and the day those strings get
+    // translated this line goes red and says so.
     await expect(page.getByText("/status: Show session status").first())
       .toBeVisible({ timeout: 10_000 });
-    // …e non è finito in coda, dove sarebbe poi partito come testo verso il modello.
+    // …and it did not end up in the queue, from where it would then have gone out
+    // to the model as text.
     await expect(queuedBubbles(page)).toHaveCount(0);
 
     // Che non sia partito NEMMENO PIÙ TARDI non si prova aspettando mezzo

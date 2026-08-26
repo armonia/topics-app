@@ -250,23 +250,23 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
   });
 
   /**
-   * LO STESSO PATTO, CON L'IDRATAZIONE IN RITARDO — e questo e' il caso che
-   * cade sul serio.
+   * THE SAME TRADE, WITH HYDRATION ARRIVING LATE — and this is the case that
+   * really falls over.
    *
-   * Il test qui sopra e' rosso circa una volta su tre sotto quattro shard, e
-   * verde sempre da solo: 34 letture consecutive del locator con l'elemento
-   * ancora li', su 30 secondi. Non arriva tardi, non arriva. Il motivo e'
-   * l'ORDINE: `knownUrl` legge il negozio delle pane in modo SINCRONO
-   * (`getBrowserPaneUrl`), e finche' l'idratazione dal server non e' arrivata
-   * quel negozio non sa niente. `showChrome` chiedeva «nessuna delle due e'
-   * reale?» e su un «non lo so ancora» rispondeva SI'.
+   * The test above is red about one run in three under four shards, and always
+   * green on its own: 34 consecutive reads of the locator with the element
+   * still there, across 30 seconds. It does not arrive late, it does not
+   * arrive. The reason is the ORDER: `knownUrl` reads the pane store
+   * SYNCHRONOUSLY (`getBrowserPaneUrl`), and until hydration from the server
+   * has landed that store knows nothing. `showChrome` was asking "is neither of
+   * the two real?" and to an "I do not know yet" it answered YES.
    *
-   * Qui il ritardo si INIETTA invece di aspettare che il carico lo produca:
-   * l'idratazione arriva dopo il montaggio, sempre. Cosi' il difetto ha un
-   * rosso deterministico, e la cura ha un verde che significa qualcosa.
+   * Here the delay is INJECTED instead of waiting for load to produce it:
+   * hydration arrives after mount, every time. That way the defect gets a
+   * deterministic red, and the cure gets a green that means something.
    *
-   * «Non lo so ancora» non e' «non e' reale»: finche' il negozio non ha
-   * parlato, la barra non e' una risposta.
+   * "I do not know yet" is not "it is not real": until the store has spoken,
+   * the bar is not an answer.
    */
   test("con l'idratazione IN RITARDO la barra non torna: «non lo so ancora» non e' «non e' reale»", async ({ page, request }) => {
     const origin = site!.origin;
@@ -281,25 +281,26 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     await mountPane(page, topic.id, `${origin}/rapporto`);
     await expect(tabDelBrowser(page)).toContainText(label, { timeout: 60_000 });
 
-    // Da qui in poi il negozio delle pane risponde TARDI: e' il ritardo che
-    // sotto quattro shard capita da solo, reso ripetibile.
-    let colpi = 0;
+    // From here on the pane store answers LATE: it is the delay that under
+    // four shards happens on its own, made repeatable.
+    let hits = 0;
     await page.route("**/api/ui-state**", async (route) => {
-      colpi++;
+      hits++;
       await new Promise((r) => setTimeout(r, 4_000));
       await route.continue();
     });
 
     await goToApp(page);
     await mountPane(page, topicId, `${origin}/rapporto`);
-    // Il ritardo deve stare SUL PERCORSO CRITICO, o questo caso e' verde su
-    // niente: senza questa riga la prova successiva passerebbe anche su una
-    // pagina che non ha mai chiesto l'idratazione.
-    expect(colpi, "il ritardo non ha intercettato nessuna richiesta di idratazione").toBeGreaterThan(0);
+    // The delay has to sit ON THE CRITICAL PATH, or this case is green on
+    // nothing: without this line the proof below would pass even on a page that
+    // never asked for hydration.
+    expect(hits, "il ritardo non ha intercettato nessuna richiesta di idratazione").toBeGreaterThan(0);
     await expect(tabDelBrowser(page)).toContainText(label, { timeout: 60_000 });
 
-    // La barra NON deve tornare mentre il negozio tace. Il tetto e' sotto il
-    // ritardo iniettato, o si finirebbe per misurare il dopo invece del durante.
+    // The bar must NOT come back while the store stays silent. The cap is
+    // below the injected delay, or one would measure the after instead of the
+    // during.
     await expect(
       page.getByTestId("browser-url-input"),
       "la barra e' tornata mentre il negozio non aveva ancora parlato",

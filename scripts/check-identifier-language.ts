@@ -132,6 +132,15 @@ export const PROJECT_WORDS = new Set([
   // Discord itself calls the application whose name it returns (`appName`, from
   // `applicationName`), and web2 carries neither.
   "darwin", "ack", "acks", "app", "apps",
+  // The vocabulary of shards and system probes. Not this project's jargon:
+  // these are the names the tools give themselves. `lsof` and `pgid` are
+  // printed by the operating system (`pgids` is just their plural), `xml` and
+  // `junit` are the format and the schema of the report Playwright writes, and
+  // `selftest` is what this repo has called the proof that a gate can go red
+  // for as long as it has had gates. `newest` and `overlapping` are plain
+  // English: web2 carries `new` and `overlap` but not those forms, and
+  // renaming them would make the name worse, not more English.
+  "lsof", "pgid", "pgids", "xml", "junit", "selftest", "newest", "overlapping",
 ]);
 
 function trackedFiles(): string[] {

@@ -22,15 +22,15 @@ import { readRouteFault, applyRouteFault, currentRouteFault, setRouteFault } fro
 import { baselineEnvKey, baselineCandidates, pickBaselinePath } from "./route-latency-baseline-pick";
 
 /**
- * Il cancello sulle latenze, provato sui numeri invece che sul server.
+ * The latency gate, exercised on the numbers instead of on the server.
  *
- * Ogni prova qui sotto risponde a una domanda sola: «in quale caso questo
- * cancello mente?». Sono tre modi diversi di mentire, e vanno chiusi tutti e
- * tre:
- *   1. resta VERDE mentre una rotta e' peggiorata davvero;
- *   2. diventa ROSSO per il tremolio della macchina, e allora lo si spegne;
- *   3. confronta due misure prese su quantita' di dati diverse, e allora il
- *      numero non vuol dire niente in nessuna delle due direzioni.
+ * Every check below answers one single question: "in which case does this gate
+ * lie?". There are three different ways of lying, and all three have to be
+ * closed:
+ *   1. it stays GREEN while a route really did get worse;
+ *   2. it goes RED because of the machine's jitter, and then it gets turned off;
+ *   3. it compares two measurements taken over different amounts of data, and
+ *      then the number means nothing in either direction.
  */
 
 const baseline: Baseline = {
@@ -54,8 +54,8 @@ const at = (v: Partial<Record<RouteKey, number>>): Record<RouteKey, number> =>
 
 describe("median", () => {
   test("un solo giro lento non sposta il numero", () => {
-    // E' l'intera ragione per cui si usa la mediana e non la media: su questi
-    // campioni la media fa 21,4 ms e accuserebbe una regressione che non c'e'.
+    // This is the whole reason the median is used and not the mean: on these
+    // samples the mean is 21.4 ms and would accuse a regression that is not there.
     const samples = [3.0, 3.1, 3.0, 2.9, 3.2, 3.1, 3.0, 2.8, 3.1, 190];
     expect(median(samples)).toBeLessThan(3.3);
     const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
@@ -74,8 +74,8 @@ describe("median", () => {
 
 describe("budgetMs", () => {
   test("sotto il millisecondo comanda il pavimento, non la percentuale", () => {
-    // 0,5 ms + 40% = 0,7 ms: qualunque macchina lo supera per caso. Il pavimento
-    // porta il tetto a 2,0 ms, che e' l'unica soglia con un significato.
+    // 0.5 ms + 40% = 0.7 ms: any machine goes past that by chance. The floor
+    // brings the cap to 2.0 ms, which is the only threshold that means anything.
     expect(budgetMs(0.5, 40, 1.5)).toBeCloseTo(2.0, 5);
   });
 
@@ -94,8 +94,8 @@ describe("regressions", () => {
   });
 
   test("ROSSO quando una rotta prende 40 ms in piu'", () => {
-    // E' esattamente cio' che fa il guasto sintetico del server
-    // (TOPICS_ROTTE_FAULT_MS=40): la prova che il cancello sa dire di no.
+    // This is exactly what the server's synthetic fault does
+    // (TOPICS_ROTTE_FAULT_MS=40): the proof that the gate can say no.
     const bad = regressions(at({ topics: 43 }), baseline);
     expect(bad).toHaveLength(1);
     expect(bad[0]).toContain("topics");
@@ -103,25 +103,25 @@ describe("regressions", () => {
   });
 
   test("ROSSO su una rotta che raddoppia, anche se sono pochi millisecondi", () => {
-    // 12 → 25 ms: nessun pavimento la salva, ed e' la forma di una query
-    // diventata N+1 su una conversazione lunga.
+    // 12 -> 25 ms: no floor saves it, and this is the shape of a query gone
+    // N+1 over a long conversation.
     expect(regressions(at({ topic_messages: 25 }), baseline)).toHaveLength(1);
   });
 
   test("il guasto su /api/topics accende ENTRAMBE le rotte che iniziano cosi'", () => {
-    // Il prefisso del guasto e' `/api/topics`, che comprende anche
-    // `/api/topics/:id/messages`: il cancello deve nominarle tutte e due, non
-    // fermarsi alla prima.
+    // The fault prefix is `/api/topics`, which also covers
+    // `/api/topics/:id/messages`: the gate has to name both of them, not stop
+    // at the first one.
     const bad = regressions(at({ topics: 43, topic_messages: 52 }), baseline);
     expect(bad).toHaveLength(2);
   });
 
   test("una rotta senza baseline leggibile si DENUNCIA, non si salta", () => {
-    // Il contratto e' cambiato, e con una ragione misurata: prima qui c'era
-    // `if (base === undefined) continue`, e bastava rinominare una chiave,
-    // metterla a null o QUOTARE il numero ("0.36") perche' quella rotta
-    // smettesse di essere giudicata e il cancello uscisse 0. Una baseline che
-    // non si sa leggere non e' «nessuna regressione»: e' un cancello disarmato.
+    // The contract changed, and for a measured reason: this used to read
+    // `if (base === undefined) continue`, so renaming a key, setting it to null
+    // or QUOTING the number ("0.36") was enough for that route to stop being
+    // judged and for the gate to exit 0. A baseline that cannot be read is not
+    // "no regression": it is a disarmed gate.
     const lame = { ...baseline, routes: { ...baseline.routes } } as Baseline;
     delete (lame.routes as Record<string, unknown>).topics;
     const said = regressions(at({ topics: 900 }), lame);
@@ -130,8 +130,8 @@ describe("regressions", () => {
   });
 
   test("un numero QUOTATO nella baseline non spegne la rotta in silenzio", () => {
-    // E' la forma piu' insidiosa: il JSON resta valido, la chiave c'e', e
-    // `got > NaN` e' false per qualunque misura.
+    // The most insidious shape of all: the JSON stays valid, the key is there,
+    // and `got > NaN` is false for any measurement whatsoever.
     const quoted = { ...baseline, routes: { ...baseline.routes } } as Baseline;
     (quoted.routes as Record<string, unknown>).topics = { median_ms: "0.36" };
     const said = regressions(at({ topics: 900 }), quoted);
@@ -141,22 +141,22 @@ describe("regressions", () => {
 });
 
 describe("il tubo e' il metro: quando salta lui, non si misura niente", () => {
-  // Il quarto modo di mentire, quello che mancava: la macchina e' lenta per
-  // TUTTA la corsa, quindi le due passate si somigliano benissimo e il cancello
-  // chiama regressione un numero che parla del portatile. Successo davvero il
-  // 2026-08-14: `all_boards_tasks` a 8 ms contro 0,75 di baseline, identico su
-  // un albero PRECEDENTE a ogni modifica di quel giorno.
+  // The fourth way of lying, the one that was missing: the machine is slow for
+  // the WHOLE run, so the two passes resemble each other perfectly and the gate
+  // calls a regression a number that is talking about the laptop. It really
+  // happened on 2026-08-14: `all_boards_tasks` at 8 ms against a baseline of
+  // 0.75, identical on a tree PRIOR to every change made that day.
 
   test("tubo a posto: non scatta, e una rotta peggiorata resta ROSSA", () => {
-    // La meta' che conta: il guardiano non deve diventare una scusa. Con il tubo
-    // dove deve stare, il giudizio sulle altre rotte e' quello di prima.
+    // The half that matters: the guard must not turn into an excuse. With the
+    // pipe where it belongs, the verdict on the other routes is the one before.
     expect(calibrationOutOfScale(at({}), baseline)).toBeNull();
     expect(calibrationOutOfScale(at({ topics: 43 }), baseline)).toBeNull();
     expect(regressions(at({ topics: 43 }), baseline)).toHaveLength(1);
   });
 
   test("tubo fuori scala: scatta, e riporta misura, tetto e baseline", () => {
-    // baseline 1 ms, tolleranza 40%, pavimento 1,5 ms -> tetto 2,5 ms.
+    // baseline 1 ms, tolerance 40%, floor 1.5 ms -> cap 2.5 ms.
     const outOfScale = calibrationOutOfScale(at({ [CALIBRATION_KEY]: 9 }), baseline);
     expect(outOfScale).not.toBeNull();
     expect(outOfScale!.measuredMs).toBe(9);
@@ -171,30 +171,31 @@ describe("il tubo e' il metro: quando salta lui, non si misura niente", () => {
   });
 
   test("il metro si legge anche in RAPPORTO: il caso vero della CI del 15/08", () => {
-    // I numeri sono quelli del runner, riscalati sulla baseline finta di questo
-    // file. Su CI: dispatch_capacity 0,87 contro baseline 0,18 = 4,8x, sotto il
-    // suo tetto di 1,68 perche' il pavimento assoluto di 1,5 ms su una baseline
-    // piccola concede 9,3 volte se stessa. Nella stessa corsa all_boards_tasks
-    // faceva 4,1x ed e' uscita rossa: il cancello accusava il prodotto di un
-    // rallentamento MINORE di quello che il suo stesso metro dichiarava.
+    // The numbers are the runner's, rescaled onto this file's fake baseline. On
+    // CI: dispatch_capacity 0.87 against a baseline of 0.18 = 4.8x, under its
+    // own cap of 1.68 because the absolute floor of 1.5 ms over a small baseline
+    // grants 9.3 times itself. In that same run all_boards_tasks was at 4.1x and
+    // came out red: the gate was accusing the product of a slowdown SMALLER than
+    // the one its own ruler was declaring.
     //
-    // Qui: baseline del tubo = 1 ms, tetto = 2,5 ms. A 2,6 ms il tubo e' 2,6x e
-    // deve scattare, anche se contro il tetto ci passerebbe per un soffio.
+    // Here: pipe baseline = 1 ms, cap = 2.5 ms. At 2.6 ms the pipe is at 2.6x
+    // and has to fire, even though against the cap it would squeak through.
     const cap = budgetMs(1, baseline.tolerance_pct, baseline.floor_ms);
-    expect(cap).toBe(2.5); // se cambia, i due numeri qui sotto vanno rifatti
+    expect(cap).toBe(2.5); // if this changes, the two numbers below must be redone
     const sopra = calibrationOutOfScale(at({ [CALIBRATION_KEY]: 2.6 }), baseline);
     expect(sopra, "2,6x la baseline e' una macchina che si e' allargata, non un prodotto peggiorato").not.toBeNull();
-    // …e NON scatta appena sotto, altrimenti una rotta che peggiora da sola
-    // smetterebbe di uscire rossa, che e' il modo in cui questo cancello mente.
+    // ...and it does NOT fire just below, otherwise a route getting worse on its
+    // own would stop coming out red, which is how this gate lies.
     expect(calibrationOutOfScale(at({ [CALIBRATION_KEY]: 2.4 }), baseline)).toBeNull();
   });
 
   test("una macchina lenta alza TUTTO, e la risposta e' 2 e non 1", () => {
-    // La forma vera del guasto: ogni rotta gonfiata, tubo compreso. Prima
-    // usciva 1 («regressione») su tre rotte; ora il tubo dice che non si misura.
+    // The real shape of the fault: every route inflated, the pipe included. It
+    // used to exit 1 ("regression") on three routes; now the pipe says nothing
+    // is measurable.
     const loaded = at({ topics: 9, topic_messages: 30, all_boards_tasks: 12, dispatch_capacity: 6 });
-    expect(regressions(loaded, baseline).length).toBeGreaterThan(0); // il vecchio verdetto
-    expect(calibrationOutOfScale(loaded, baseline)).not.toBeNull(); // ma il metro e' saltato
+    expect(regressions(loaded, baseline).length).toBeGreaterThan(0); // the old verdict
+    expect(calibrationOutOfScale(loaded, baseline)).not.toBeNull(); // but the ruler broke
   });
 });
 
@@ -210,10 +211,10 @@ describe("unstableRoutes", () => {
   });
 
   test("un guasto COSTANTE non passa per instabilita': le due passate concordano", () => {
-    // La differenza fra «la macchina trema» e «la rotta e' lenta» e' tutta qui.
-    // Con il ritardo sintetico armato entrambe le passate misurano lo stesso
-    // numero alto, quindi il cancello deve dire regressione (uscita 1), non
-    // «non confrontabile» (uscita 2).
+    // The difference between "the machine is shaking" and "the route is slow" is
+    // all right here. With the synthetic delay armed, both passes measure the
+    // same high number, so the gate has to say regression (exit 1), not
+    // "not comparable" (exit 2).
     const a = at({ topics: 43.1 });
     const b = at({ topics: 43.4 });
     expect(unstableRoutes(a, b, 60, 1.5)).toEqual([]);
@@ -227,8 +228,8 @@ describe("corpusMismatch", () => {
   });
 
   test("un database quasi vuoto non si confronta con una baseline piena", () => {
-    // E' il modo piu' facile di certificare un verde che non e' mai stato
-    // misurato: la semina fallisce a meta' e le rotte rispondono su niente.
+    // The easiest way of certifying a green that was never measured: seeding
+    // fails halfway through and the routes answer over nothing.
     const gap = corpusMismatch({ topics: 24, messages: 0, tasks: 40, description_chars: 1200 }, baseline.corpus);
     expect(gap).toContain("messages");
   });
@@ -242,7 +243,7 @@ describe("benchPortFor", () => {
       expect(p).toBeLessThan(ROUTE_BENCH_PORT_BASE + ROUTE_BENCH_PORT_SPAN);
       expect(p).not.toBe(3333);
       expect(p).not.toBe(13334);
-      // La banda degli shard e' 13500-13899, i loro tunnel 14334 e 14500-14899.
+      // The shard band is 13500-13899, their tunnels 14334 and 14500-14899.
       expect(p).toBeGreaterThan(14899);
     }
   });
@@ -258,7 +259,7 @@ describe("benchPortFor", () => {
 
 describe("route-fault", () => {
   test("senza TOPICS_E2E il guasto NON si arma, per quanto lo si chieda", () => {
-    // La condizione che tiene il ritardo lontano dal server di produzione.
+    // The condition that keeps the delay away from the production server.
     expect(readRouteFault({ TOPICS_ROTTE_FAULT_MS: "40" })).toBeNull();
     expect(readRouteFault({ TOPICS_E2E: "0", TOPICS_ROTTE_FAULT_MS: "40" })).toBeNull();
   });
@@ -280,15 +281,16 @@ describe("route-fault", () => {
   });
 
   test("si arma a CALDO, senza riavviare: e' quello che rende l'autoprova una prova", async () => {
-    // Armare dall'ambiente obbliga a far ripartire il server, quindi la misura sana e quella
-    // guasta vengono da due processi DIVERSI — che hanno numeri diversi anche senza guasto.
-    // Da qui vengono dallo stesso, ed e' l'unica forma in cui la differenza dice qualcosa.
+    // Arming from the environment forces a server restart, so the healthy measurement and the
+    // faulty one come from two DIFFERENT processes - which have different numbers even with no
+    // fault. This way they come from the same one, the only shape in which the difference says
+    // anything.
     const prima = currentRouteFault();
     try {
       setRouteFault({ delayMs: 30, pathPrefix: "/api/topics" });
       expect(currentRouteFault()).toEqual({ delayMs: 30, pathPrefix: "/api/topics" });
 
-      // Il default di applyRouteFault segue l'armamento vivo, non una copia del boot.
+      // applyRouteFault's default follows the live arming, not a copy taken at boot.
       const t0 = performance.now();
       await applyRouteFault("/api/topics/abc/messages");
       expect(performance.now() - t0).toBeGreaterThanOrEqual(25);
@@ -321,16 +323,16 @@ describe("route-fault", () => {
 });
 
 describe("la baseline non si registra da una macchina carica", () => {
-  // Il guasto e' stato RIPRODOTTO, non temuto: con load average 5,32 su questo
-  // Mac il banco ha scritto `all_boards_tasks` a 9,87 ms dove a macchina ferma
-  // sta a 0,75. Tredici volte, e le due passate erano d'accordo - quindi la
-  // guardia sull'instabilita' taceva. Il confronto A-contro-B vede il tremolio,
-  // non il carico UNIFORME, e una baseline gonfiata disarma il cancello per
-  // sempre invece di allargarlo un po'.
+  // The fault was REPRODUCED, not feared: with a load average of 5.32 on this
+  // Mac the bench wrote `all_boards_tasks` at 9.87 ms where on an idle machine
+  // it sits at 0.75. Thirteen times over, and the two passes agreed - so the
+  // instability guard stayed quiet. The A-against-B comparison sees the jitter,
+  // not the UNIFORM load, and an inflated baseline disarms the gate forever
+  // instead of widening it a little.
   test("sopra mezzo core occupato si rifiuta", () => {
-    expect(machineTooLoaded(5.32, 12)).toBe(false);   // 0,44: sotto, e infatti quella run passo'
-    expect(machineTooLoaded(7.0, 12)).toBe(true);     // 0,58
-    expect(machineTooLoaded(6.0, 4)).toBe(true);      // 1,5
+    expect(machineTooLoaded(5.32, 12)).toBe(false);   // 0.44: under, and indeed that run went through
+    expect(machineTooLoaded(7.0, 12)).toBe(true);     // 0.58
+    expect(machineTooLoaded(6.0, 4)).toBe(true);      // 1.5
   });
 
   test("una macchina ferma non viene mai fermata", () => {
@@ -339,17 +341,17 @@ describe("la baseline non si registra da una macchina carica", () => {
   });
 
   test("zero core non fa esplodere il conto (divisione per zero)", () => {
-    expect(machineTooLoaded(1, 0)).toBe(true);        // 1/1: si rifiuta, non NaN
+    expect(machineTooLoaded(1, 0)).toBe(true);        // 1/1: refuses, not NaN
     expect(machineTooLoaded(0.1, 0)).toBe(false);
   });
 });
 
 describe("il pavimento lo detta il RUMORE, non una costante", () => {
-  // Il conto che l'avversario aveva fatto sulla prima versione: con 1,5 ms
-  // uguali per tutti, `/api/topics` (0,36 ms) prendeva un tetto di 1,86, cioe'
-  // poteva peggiorare 5,17 volte restando verde, e `dispatch_capacity` (0,18)
-  // arrivava a 9,33 volte. Un pavimento assoluto su rotte sotto il millisecondo
-  // non e' una soglia larga: e' una soglia che non puo' scattare.
+  // The arithmetic the adversary ran on the first version: with 1.5 ms the same
+  // for everyone, `/api/topics` (0.36 ms) got a cap of 1.86, meaning it could
+  // get 5.17 times worse and stay green, and `dispatch_capacity` (0.18) reached
+  // 9.33 times. An absolute floor over sub-millisecond routes is not a wide
+  // threshold: it is a threshold that cannot fire.
   const withNoise = (median: number, noise: number): Baseline => ({
     ...baseline,
     routes: { ...baseline.routes, topics: { median_ms: median, noise_ms: noise } },
@@ -357,17 +359,17 @@ describe("il pavimento lo detta il RUMORE, non una costante", () => {
 
   test("una rotta STABILE prende un tetto stretto", () => {
     const b = withNoise(0.36, 0.01);
-    // La fixture tollera il 40%: 0,36 x 1,4 = 0,504. Il pavimento del rumore
-    // vale 2 x 0,01 = 0,02, sotto il minimo di 0,05, quindi 0,36 + 0,05 = 0,41:
-    // vince la percentuale, ed e' giusto cosi'.
+    // The fixture tolerates 40%: 0.36 x 1.4 = 0.504. The noise floor is worth
+    // 2 x 0.01 = 0.02, under the minimum of 0.05, so 0.36 + 0.05 = 0.41: the
+    // percentage wins, and rightly so.
     expect(regressions(at({ topics: 0.5 }), b)).toEqual([]);
     expect(regressions(at({ topics: 0.51 }), b)).toHaveLength(1);
-    // Col vecchio pavimento fisso questa misura era VERDE fino a 1,86.
+    // With the old fixed floor this measurement was GREEN all the way to 1.86.
     expect(budgetMs(0.36, 60, 1.5)).toBeCloseTo(1.86, 2);
   });
 
   test("una rotta BALLERINA se lo allarga da sola, e solo lei", () => {
-    const b = withNoise(0.36, 0.4);   // pavimento 0,8
+    const b = withNoise(0.36, 0.4);   // floor 0.8
     expect(regressions(at({ topics: 1.1 }), b)).toEqual([]);
     expect(regressions(at({ topics: 1.2 }), b)).toHaveLength(1);
   });
@@ -379,11 +381,11 @@ describe("il pavimento lo detta il RUMORE, non una costante", () => {
 });
 
 describe("un costo costante aggiunto a monte non passa piu' inosservato", () => {
-  // Il caso che il banco DICE di voler prendere e che la prima versione lasciava
-  // passare: un middleware nuovo nella porta unica (auth, audit, rate-limit) che
-  // costa +1,4 ms a ogni richiesta. Col pavimento assoluto da 1,5 ms restava
-  // sotto il tetto di TUTTE e quattro le rotte insieme, cioe' il difetto piu'
-  // sistemico del server era esattamente quello invisibile.
+  // The case the bench SAYS it wants to catch and that the first version let
+  // through: a new middleware in the single door (auth, audit, rate-limit)
+  // costing +1.4 ms on every request. With the absolute floor of 1.5 ms it
+  // stayed under the cap of ALL four routes at once, meaning the server's most
+  // systemic defect was exactly the invisible one.
   const stable: Baseline = {
     ...baseline,
     routes: {
@@ -405,7 +407,7 @@ describe("un costo costante aggiunto a monte non passa piu' inosservato", () => 
   });
 
   test("col vecchio pavimento fisso NON lo vedeva: e' il conto che lo dimostra", () => {
-    // Tre rotte su quattro restavano sotto `mediana + 1,5`.
+    // Three routes out of four stayed under `median + 1.5`.
     for (const [base, measured] of [[0.36, 1.76], [0.75, 2.15], [0.18, 1.58]] as const) {
       expect(measured).toBeLessThanOrEqual(budgetMs(base, 40, 1.5));
     }
@@ -413,16 +415,16 @@ describe("un costo costante aggiunto a monte non passa piu' inosservato", () => 
 });
 
 /**
- * QUALE BASELINE SI CONFRONTA, che e' la domanda che questo cancello per giorni
- * ha risposto male senza dirlo.
+ * WHICH BASELINE GETS COMPARED, which is the question this gate answered wrong
+ * for days without saying so.
  *
- * Con un file solo, ogni corsa chiedeva «questa macchina e' veloce quanto l'M2
- * Max scarico su cui il numero fu registrato?». Sulla postazione dell'utente,
- * misurato il 2026-08-20 a load 24-27, questo significava `topic_messages`
- * 27,29 contro 15,18 ms fra due passate consecutive: non una regressione, Dia
- * all'86% di un core. Il commento di `calibrationOutOfScale` indicava gia' il
- * rimedio — «una baseline registrata SUL runner e scelta per macchina» — e
- * queste sono le funzioni che lo tengono.
+ * With a single file, every run was asking "is this machine as fast as the idle
+ * M2 Max the number was recorded on?". On the user's workstation, measured on
+ * 2026-08-20 at load 24-27, that meant `topic_messages` at 27.29 against 15.18
+ * ms between two consecutive passes: not a regression, but Dia eating 86% of a
+ * core. The comment on `calibrationOutOfScale` already pointed at the remedy -
+ * "a baseline recorded ON the runner and chosen per machine" - and these are the
+ * functions that hold it.
  */
 describe("scelta della baseline per ambiente", () => {
   test("in CI si sceglie la baseline del runner", () => {
@@ -432,8 +434,9 @@ describe("scelta della baseline per ambiente", () => {
 
   test("su una postazione si sceglie quella locale", () => {
     expect(baselineEnvKey({} as NodeJS.ProcessEnv)).toBe("local");
-    // `CI` valorizzato a qualcos'altro non e' CI: solo la stringa "true" conta,
-    // perche' un `CI=0` ereditato da uno script altrui non deve cambiare metro.
+    // `CI` set to something else is not CI: only the string "true" counts,
+    // because a `CI=0` inherited from someone else's script must not change the
+    // ruler.
     expect(baselineEnvKey({ CI: "0" } as NodeJS.ProcessEnv)).toBe("local");
   });
 
@@ -444,8 +447,8 @@ describe("scelta della baseline per ambiente", () => {
   });
 
   test("senza il file dell'ambiente si RIPIEGA sullo storico, invece di fallire", () => {
-    // E' cio' che tiene il cancello uguale a prima per chi non ha ancora
-    // registrato il suo: un errore qui avrebbe rotto una barra che funzionava.
+    // This is what keeps the gate the same as before for anyone who has not
+    // recorded their own yet: an error here would have broken a working bar.
     const solaStorica = (p: string) => p.endsWith("route-latency-baseline.json");
     expect(pickBaselinePath("local", solaStorica, "/r")).toBe("/r/scripts/route-latency-baseline.json");
   });
@@ -456,8 +459,8 @@ describe("scelta della baseline per ambiente", () => {
   });
 
   test("senza NESSUNA baseline risponde null, e chi chiama decide", () => {
-    // Non un percorso inventato: `null` costringe il chiamante a dire cosa fare,
-    // che qui e' «scrivi dove andresti a scrivere».
+    // Not an invented path: `null` forces the caller to say what to do, which
+    // here is "write where you would have written".
     expect(pickBaselinePath("ci", () => false, "/r")).toBeNull();
   });
 });

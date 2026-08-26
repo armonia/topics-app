@@ -1,16 +1,16 @@
 /**
- * board-blocked-chip.spec.ts — «aspetta: …» si vede anche quando il bloccante
- * non è nella lista della board.
+ * board-blocked-chip.spec.ts — «aspetta: …» shows up even when the blocker is   allow-italian: quoted UI string
+ * not in the board's list.
  *
- * Il caso che rompeva: la card disegnava il chip cercando il bloccante fra i
- * task fetchati — un progetto, `rootsOnly`, non archiviati. Un bloccante fuori
- * da quel taglio (qui: un SOTTOTASK, che per contratto non è mai una card) non
- * si trovava, il chip spariva, e la card sembrava libera di partire mentre il
- * dispatcher la teneva ferma. Ora il bloccante lo risolve il server
- * (`task.blockedBy`) e il chip nasce dal LINK.
+ * The case that used to break: the card drew the chip by hunting for the
+ * blocker among the fetched tasks — one project, `rootsOnly`, not archived. A
+ * blocker outside that cut (here: a SUBTASK, which by contract is never a card)
+ * was not found, the chip disappeared, and the card looked free to start while
+ * the dispatcher was holding it still. The blocker is now resolved by the
+ * server (`task.blockedBy`) and the chip is born from the LINK.
  *
- * È anche la clip di consegna: card → drawer → picker → il bloccante chiude e
- * il chip si spegne. Un comportamento, non uno screenshot.
+ * It is also the delivery clip: card → drawer → picker → the blocker closes and
+ * the chip goes out. A behaviour, not a screenshot.
  */
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";
@@ -70,7 +70,7 @@ async function openProjectBoard(page: Page) {
   await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 10000 });
 }
 
-/** Pausa che serve SOLO alla clip di consegna (E2E_EVIDENCE=1). Zero a suite normale. */
+/** A pause that serves ONLY the delivery clip (E2E_EVIDENCE=1). Zero on a normal suite. */
 const beat = (page: Page, ms = 1400) =>
   process.env.E2E_EVIDENCE === "1" ? page.waitForTimeout(ms) : Promise.resolve();
 
@@ -85,7 +85,7 @@ test.describe("Chip «aspetta: …» · bloccante fuori dalla lista", () => {
   });
 
   test.afterAll(async ({ request }) => {
-    // In ordine INVERSO: il figlio prima del padre, il bloccato prima del bloccante.
+    // In REVERSE order: the child before the parent, the blocked before the blocker.
     for (const key of [...createdTasks].reverse()) {
       const [pid, tid] = key.split(":");
       await deleteTask(request, pid, tid);
@@ -103,8 +103,9 @@ test.describe("Chip «aspetta: …» · bloccante fuori dalla lista", () => {
   test("il chip c'è anche se il bloccante è un sottotask, e si spegne quando chiude", async ({ page, request }) => {
 
     test.info().annotations.push({ type: "spec", description: "KANBAN-26" });
-    // Un'epica con un suo step: lo step NON è mai una card (la board fetcha
-    // rootsOnly), quindi il client non ce l'ha in mano. È il caso che rompeva.
+    // An epic with a step of its own: the step is NEVER a card (the board
+    // fetches rootsOnly), so the client does not hold it. That is the case that
+    // used to break.
     const epica = await createTask(request, { text: EPICA, status: "in_progress" });
     const step = await createTask(request, { text: STEP, parentTaskId: epica.id });
     const dipendente = await createTask(request, { text: DIPENDENTE, status: "todo", blockedByTaskId: step.id });
@@ -114,19 +115,21 @@ test.describe("Chip «aspetta: …» · bloccante fuori dalla lista", () => {
 
     const card = page.locator(`[data-task-card="${dipendente.id}"]`);
     await expect(card).toBeVisible({ timeout: 10000 });
-    // Sulla board ci sono DUE card (l'epica e la dipendente): il bloccante non è
-    // fra i task fetchati, eppure il chip lo nomina — cioè non viene da lì.
+    // The board carries TWO cards (the epic and the dependent one): the blocker
+    // is not among the fetched tasks, and yet the chip names it — i.e. it does
+    // not come from there.
     await expect(page.locator("[data-task-card]")).toHaveCount(2);
     await expect(card.getByTestId("card-blocked-by")).toContainText(`aspetta: ${STEP}`);
     await beat(page, 2200);
 
-    // Nel drawer il chip sta IN RIGA, non sepolto nel menu ⋯, e apre il picker.
+    // In the drawer the chip sits IN LINE, not buried in the ⋯ menu, and it
+    // opens the picker.
     //
-    // Si clicca il TITOLO, non la card. `card.click()` colpisce il centro
-    // geometrico, e su una card bloccata lì ci sta il bottone «sblocca»
-    // (`task-choice-unblock`, dentro un contenitore che ferma la propagazione):
-    // il drawer non si apriva, e il click PATCHava il task — cioè il gesto
-    // sbloccava proprio ciò che il test doveva ancora osservare bloccato.
+    // What gets clicked is the TITLE, not the card. `card.click()` lands on the
+    // geometric centre, and on a blocked card the «sblocca» button sits right   allow-italian: quoted UI string
+    // there (`task-choice-unblock`, inside a container that stops propagation):
+    // the drawer did not open, and the click PATCHed the task — i.e. the gesture
+    // unblocked the very thing the test still had to observe blocked.
     await card.getByText(DIPENDENTE).click();
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
@@ -140,8 +143,8 @@ test.describe("Chip «aspetta: …» · bloccante fuori dalla lista", () => {
     await page.keyboard.press("Escape");
     await expect(drawer).toBeHidden({ timeout: 5000 });
 
-    // Lo step chiude: il bloccante non blocca più e il chip si spegne da solo
-    // (stesso predicato del gate di dispatch, che ora fa partire il task).
+    // The step closes: the blocker no longer blocks and the chip goes out on its
+    // own (the same predicate as the dispatch gate, which now starts the task).
     const done = await request.patch(`${BASE}/api/boards/${PROJECT_ID}/tasks/${step.id}`, {
       data: { status: "done" },
     });

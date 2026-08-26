@@ -1,89 +1,88 @@
 #!/usr/bin/env bun
 /**
- * check-route-latency.ts: RATCHET sulle latenze delle rotte calde.
+ * check-route-latency.ts: RATCHET on the latency of the hot routes.
  *
- * Lo stesso mestiere di `scripts/check-bundle-size.ts`, su un'altra grandezza:
- * quello mette un pavimento sotto i byte del bundle, questo sotto i
- * millisecondi delle quattro rotte che la app chiama di continuo. Finora sulla
- * latenza non c'era nessun cancello: una query che diventa N+1, un `readFileSync`
- * dentro un ciclo, una tabella che cresce senza indice non lo dice nessuno
- * finche' non lo dice un utente.
+ * The same trade as `scripts/check-bundle-size.ts`, on a different quantity:
+ * that one puts a floor under the bundle's bytes, this one under the
+ * milliseconds of the four routes the app calls non-stop. Until now there was no
+ * gate at all on latency: a query that turns N+1, a `readFileSync` inside a
+ * loop, a table that grows without an index - nobody says a word about any of
+ * them until a user does.
  *
- * LE QUATTRO ROTTE. Sono quelle che si pagano a ogni caricamento e a ogni
- * apertura di chat, non quelle che sembrano importanti:
+ * THE FOUR ROUTES. They are the ones paid on every load and on every chat
+ * opening, not the ones that look important:
  *
- *   topics             GET /api/topics, l'albero completo dei topic. La prima
- *                      chiamata di ogni avvio, e quella che cresce con l'uso.
- *   topic_messages     GET /api/topics/:id/messages?limit=200, la conversazione
- *                      di una sessione. Legge, filtra e affetta TUTTI i messaggi
- *                      della sessione per restituirne 200: e' la rotta dove una
- *                      regressione si sente davvero, perche' il costo cresce con
- *                      la lunghezza della chat.
- *   all_boards_tasks   GET /api/all-boards/tasks, il feed dei task di tutte le
- *                      board. La board lo richiama a ogni evento.
- *   dispatch_capacity  GET /api/system/dispatch-capacity: quasi zero lavoro
- *                      (legge core, RAM e load). Serve proprio per questo: e' la
- *                      misura del TUBO, cioe' di quanto costa una richiesta
- *                      prima di arrivare al gestore. Se peggiora lei, e'
- *                      peggiorato qualcosa a monte che le altre tre pagano tutte.
+ *   topics             GET /api/topics, the complete topic tree. The first call
+ *                      of every startup, and the one that grows with use.
+ *   topic_messages     GET /api/topics/:id/messages?limit=200, the conversation
+ *                      of one session. It reads, filters and slices ALL of that
+ *                      session's messages to hand back 200: the route where a
+ *                      regression is really felt, because the cost grows with
+ *                      the length of the chat.
+ *   all_boards_tasks   GET /api/all-boards/tasks, the task feed of every board.
+ *                      The board calls it again on every event.
+ *   dispatch_capacity  GET /api/system/dispatch-capacity: almost zero work
+ *                      (reads cores, RAM and load). That is exactly what it is
+ *                      for: it measures the PIPE, meaning what a request costs
+ *                      before it reaches the handler. If this one gets worse,
+ *                      something upstream got worse that the other three all pay
+ *                      for.
  *
- * COME MISURA, e perche' cosi'.
+ * HOW IT MEASURES, and why this way.
  *
- * · Server ISOLATO, non quello di produzione sulla 3333. Lo avvia lui con
- *   `scripts/start-test-server.sh`, su una porta derivata dal path del checkout
- *   e con un DB suo, buttato via alla fine. Misurare la 3333 vorrebbe dire
- *   misurare quanti agenti stanno girando in quel momento.
+ * · ISOLATED server, not the production one on 3333. It starts it itself with
+ *   `scripts/start-test-server.sh`, on a port derived from the checkout path and
+ *   with a DB of its own, thrown away at the end. Measuring 3333 would mean
+ *   measuring how many agents happen to be running at that moment.
  *
- * · Corpus FISSO e seminato da zero. La latenza di `/api/topics` dipende da
- *   quanti topic ci sono: una baseline presa su un DB vuoto e confrontata con un
- *   DB pieno non vuol dire niente. Il corpus e' dichiarato qui sotto, e' scritto
- *   nella baseline, e il cancello RIFIUTA di confrontare se i due non coincidono.
+ * · FIXED corpus, seeded from scratch. The latency of `/api/topics` depends on
+ *   how many topics there are: a baseline taken on an empty DB and compared with
+ *   a full DB means nothing. The corpus is declared below, it is written into
+ *   the baseline, and the gate REFUSES to compare when the two do not match.
  *
- * · MEDIANA, non media. Un giro lento capita sempre (GC, un altro processo che
- *   si sveglia, lo scheduler). Sulla media quel giro sposta il numero, sulla
- *   mediana no: serve che sia lenta META' delle chiamate perche' si muova.
+ * · MEDIAN, not mean. A slow round always happens (GC, another process waking
+ *   up, the scheduler). On the mean that round moves the number, on the median
+ *   it does not: HALF the calls have to be slow before it budges.
  *
- * · DUE passate, e il cancello si controlla da solo. Le stesse chiamate vengono
- *   fatte due volte, in due gruppi separati. Se le due mediane della stessa
- *   rotta non si somigliano, questa macchina in questo momento non e' un
- *   ambiente di misura: esce 2 (NON CONFRONTABILE) invece di 1 (regressione).
- *   E' la stessa scelta di `check-bundle-size` quando trova due build
- *   sovrapposte in `public/`: dire "questa misura non vuol dire niente" invece
- *   di accusare l'ultimo commit. Un cancello che grida a caso viene spento.
+ * · TWO passes, and the gate polices itself. The same calls are made twice, in
+ *   two separate groups. If the two medians of the same route do not resemble
+ *   each other, this machine at this moment is not a measuring environment: it
+ *   exits 2 (NOT COMPARABLE) instead of 1 (regression). It is the same choice
+ *   `check-bundle-size` makes when it finds two overlapping builds in `public/`:
+ *   saying "this measurement means nothing" instead of accusing the last commit.
+ *   A gate that shouts at random gets turned off.
  *
- * · Chiamate a giro (round robin), non 30 di seguito sulla stessa rotta: cosi'
- *   un rallentamento passeggero della macchina si spalma su tutte e quattro
- *   invece di incastrarne una sola.
+ * · Calls go round robin, not 30 in a row on the same route: that way a passing
+ *   slowdown of the machine spreads over all four instead of pinning one alone.
  *
- * · Soglia doppia: percentuale E pavimento assoluto. Una rotta da mezzo
- *   millisecondo che va a otto decimi e' cresciuta del 60% e non e' successo
- *   niente. `floor_ms` assorbe il tremolio che nessuna percentuale puo'
- *   distinguere dal segnale. Questo cancello e' fatto per prendere il salto (la
- *   query che diventa N+1, il file letto dentro un ciclo: 5x, 50x), non la
- *   deriva di mezzo millisecondo. Chi vuole prendere anche quella deve prima
- *   dare al banco una macchina ferma, e questa non lo e'.
+ * · Double threshold: percentage AND absolute floor. A half-millisecond route
+ *   that goes to eight tenths grew by 60% and nothing happened. `floor_ms`
+ *   absorbs the jitter that no percentage can tell apart from the signal. This
+ *   gate is built to catch the jump (the query turning N+1, the file read inside
+ *   a loop: 5x, 50x), not a half-millisecond drift. Anyone who wants that one
+ *   too has to hand the bench an idle machine first, and this is not one.
  *
- * · Ogni risposta viene GUARDATA, non solo cronometrata: 200 e forma attesa. Una
- *   404 e' velocissima, e un banco che cronometra 404 resta verde per sempre
- *   mentre la rotta non esiste piu'.
+ * · Every response is LOOKED AT, not merely timed: 200 and the expected shape. A
+ *   404 is blazing fast, and a bench that times 404s stays green forever while
+ *   the route no longer exists.
  *
- * · Il banco misura IL SERVER CHE HA AVVIATO LUI, e lo dimostra: `waitForPort` da
- *   solo e' contento se risponde CHIUNQUE, quindi un server rimasto vivo da una
- *   corsa precedente verrebbe cronometrato al posto di questo, contro la baseline
- *   di un altro codice. Due testimoni: EADDRINUSE nel log del figlio, e il gruppo
- *   di processi di chi ascolta sulla porta.
+ * · The bench measures THE SERVER IT STARTED ITSELF, and proves it: `waitForPort`
+ *   on its own is happy if ANYBODY answers, so a server left alive by a previous
+ *   run would get timed in its place, against the baseline of different code. Two
+ *   witnesses: EADDRINUSE in the child's log, and the process group of whoever
+ *   is listening on the port.
  *
- * · `--selftest` prova che il cancello sa diventare rosso, nello STESSO processo
- *   appena misurato: arma un guasto a caldo, rimisura, e pretende il rosso.
+ * · `--selftest` proves the gate can go red, inside the SAME process just
+ *   measured: it arms a fault hot, measures again, and demands the red.
  *
- * Uso:
+ * Usage:
  *   bun run check:route-latency
- *   bun run check:route-latency -- --update-baseline     registra i numeri nuovi
- *   bun run check:route-latency -- --samples=25          piu' campioni, meno rumore
- *   bun run check:route-latency -- --selftest            prova che sa diventare rosso
- *   TOPICS_ROTTE_FAULT_MS=40 bun run check:route-latency    guasto armato dall'ambiente
+ *   bun run check:route-latency -- --update-baseline     record the new numbers
+ *   bun run check:route-latency -- --samples=25          more samples, less noise
+ *   bun run check:route-latency -- --selftest            prove it can go red
+ *   TOPICS_ROTTE_FAULT_MS=40 bun run check:route-latency    fault armed from the env
  *
- * Uscite:  0 = dentro il budget · 1 = regressione · 2 = non misurabile
+ * Exits:  0 = within budget · 1 = regression · 2 = not measurable
  */
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -93,8 +92,9 @@ import { connect } from "node:net";
 import { cpus, loadavg } from "node:os";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Parte PURA: nessuna rete, nessun processo. E' quella che prova
-// scripts/check-route-latency.test.ts, compreso il caso in cui deve dire rosso.
+// The PURE part: no network, no processes. This is what
+// scripts/check-route-latency.test.ts exercises, including the case where it
+// has to say red.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const ROUTE_KEYS = [
@@ -106,26 +106,26 @@ export const ROUTE_KEYS = [
 export type RouteKey = (typeof ROUTE_KEYS)[number];
 
 /**
- * La rotta che fa da METRO alla macchina, non al prodotto.
+ * The route that acts as a RULER for the machine, not for the product.
  *
- * `dispatch_capacity` legge core, RAM e load e basta: il suo numero e' il costo
- * di una richiesta PRIMA di arrivare al gestore. Quando lei e' fuori scala,
- * ogni altra cifra della stessa corsa se lo porta dentro, e non c'e' modo di
- * distinguere una macchina lenta da una regressione a monte. Vedi il controllo
- * in fondo a `main()`.
+ * `dispatch_capacity` reads cores, RAM and load and nothing else: its number is
+ * the cost of a request BEFORE it reaches the handler. When this one is out of
+ * scale, every other figure of the same run carries that inside it, and there is
+ * no way of telling a slow machine from an upstream regression. See the check at
+ * the bottom of `main()`.
  */
 export const CALIBRATION_KEY: RouteKey = "dispatch_capacity";
 
 /**
- * Il tubo e' fuori scala? Se si', questa corsa non misura il prodotto.
+ * Is the pipe out of scale? If it is, this run is not measuring the product.
  *
- * Pura e a parte perche' e' la decisione che va provata nei DUE versi: che scatti
- * quando il metro e' saltato, e che NON scatti quando il metro sta a posto, cosi'
- * una rotta che peggiora da sola continua a uscire rossa. Provarla dal banco vero
- * richiederebbe una macchina lenta a comando.
+ * Pure and kept apart because this is the decision that has to be proven BOTH
+ * ways: that it fires when the ruler has broken, and that it does NOT fire when
+ * the ruler is fine, so a route getting worse on its own keeps coming out red.
+ * Proving it from the real bench would take a machine that goes slow on command.
  *
- * Torna `null` quando si puo' misurare, altrimenti il numero misurato e il suo
- * tetto, cioe' quello che serve per scrivere il messaggio.
+ * Returns `null` when measuring is possible, otherwise the measured number and
+ * its cap, which is what writing the message takes.
  */
 export function calibrationOutOfScale(
   measured: Record<RouteKey, number>,
@@ -136,23 +136,24 @@ export function calibrationOutOfScale(
   const measuredMs = measured[CALIBRATION_KEY];
   if (measuredMs > capMs) return { measuredMs, capMs, baselineMs };
   /**
-   * …e il metro si legge anche in RAPPORTO, non solo contro il suo tetto.
+   * ...and the ruler is also read as a RATIO, not only against its own cap.
    *
-   * Il tetto e' `baseline +60%` OPPURE `+1,5 ms`, il piu' generoso. Su una
-   * baseline piccola vince il pavimento assoluto, enorme in rapporto: 0,18 ms di
-   * baseline con tetto 1,68 sono 9,3 volte se stessa, contro le 3,0 di una rotta
-   * da 0,75. Il metro piu' permissivo della corsa e' proprio il giudice.
+   * The cap is `baseline +60%` OR `+1.5 ms`, whichever is more generous. On a
+   * small baseline the absolute floor wins, and in ratio it is enormous: a
+   * baseline of 0.18 ms with a cap of 1.68 is 9.3 times itself, against the 3.0
+   * of a route at 0.75. The most permissive ruler of the run is the judge.
    *
-   * 2026-08-15, prima corsa su CI (prima il job si fermava su `check:deadcode`,
-   * `bash -e`): il runner ha fatto `dispatch_capacity` 0,87 ms = 4,8x senza far
-   * scattare la calibrazione (0,87 < 1,68), mentre `all_boards_tasks` a 4,1x, MENO
-   * di quanto la macchina si fosse allargata, e' uscita rossa. 2,5x e non 1,6x:
-   * sotto, una macchina un po' piu' lenta deve ancora dare un rosso.
+   * 2026-08-15, first run on CI (before that the job stopped at `check:deadcode`,
+   * `bash -e`): the runner did `dispatch_capacity` at 0.87 ms = 4.8x without
+   * tripping the calibration (0.87 < 1.68), while `all_boards_tasks` at 4.1x,
+   * LESS than the machine had stretched, came out red. 2.5x and not 1.6x: below
+   * that, a slightly slower machine still has to give a red.
    *
-   * NON risolve il fondo: la baseline viene da un M2 Max e il runner e' una VM
-   * condivisa, quindi in CI uscira' quasi sempre 2. E' onesto, non e' protezione:
-   * per quella serve una baseline registrata SUL runner e scelta per macchina,
-   * come fa la sonda della memoria coi suoi `memory-<piattaforma>-<data>.json`.
+   * It does NOT fix the bottom of the problem: the baseline comes from an M2 Max
+   * and the runner is a shared VM, so on CI it will exit 2 nearly every time.
+   * That is honest, it is not protection: for protection you need a baseline
+   * recorded ON the runner and chosen per machine, the way the memory probe does
+   * with its `memory-<platform>-<date>.json`.
    */
   const RAPPORTO_MAX = 2.5;
   const rapporto = baselineMs > 0 ? measuredMs / baselineMs : 0;
@@ -184,20 +185,20 @@ export interface Baseline {
   corpus: Corpus;
   routes: Record<RouteKey, {
     median_ms: number;
-    /** Lo SCARTO fra le due passate quando la baseline e' stata scritta: e' il
-     *  rumore vero di quella rotta su questa macchina, e da li' esce il suo
-     *  pavimento (vedi `floorFor`). Assente sulle baseline vecchie: allora si
-     *  ricade sul pavimento generale. */
+    /** The GAP between the two passes when the baseline was written: it is the
+     *  real noise of that route on this machine, and its floor comes out of it
+     *  (see `floorFor`). Absent on older baselines: those fall back on the
+     *  general floor. */
     noise_ms?: number;
   }>;
 }
 
 /**
- * La mediana. Su un numero pari di campioni prende il piu' BASSO dei due
- * centrali invece di farne la media: qui i campioni sono millisecondi di una
- * distribuzione con la coda tutta a destra (niente e' piu' veloce del minimo,
- * tutto puo' essere piu' lento), e la media dei due centrali si lascia tirare
- * su dalla coda proprio come farebbe la media di tutti.
+ * The median. On an even number of samples it takes the LOWER of the two middle
+ * ones instead of averaging them: the samples here are milliseconds from a
+ * distribution whose tail is entirely on the right (nothing is faster than the
+ * minimum, everything can be slower), and the mean of the two middle ones gets
+ * pulled up by that tail exactly as the mean of all of them would.
  */
 export function median(xs: number[]): number {
   if (xs.length === 0) throw new Error("mediana di zero campioni");
@@ -206,43 +207,42 @@ export function median(xs: number[]): number {
 }
 
 /**
- * Il tetto per una rotta: la percentuale O il pavimento, quello che concede di
- * piu'. Senza il pavimento una rotta da mezzo millisecondo fallirebbe per il
- * tremolio dello scheduler; senza la percentuale una rotta da 200 ms potrebbe
- * raddoppiare senza che nessuno se ne accorga.
+ * The cap for one route: the percentage OR the floor, whichever grants more.
+ * Without the floor a half-millisecond route would fail on scheduler jitter;
+ * without the percentage a 200 ms route could double without anyone noticing.
  *
- * IL PAVIMENTO E' PER-ROTTA E LO DETTA IL RUMORE, non una costante. Con 1,5 ms
- * uguali per tutti — la prima versione — il conto era questo: `/api/topics` sta
- * a 0,36 ms, quindi il tetto usciva 1,86 e la rotta poteva peggiorare 5,17
- * volte restando verde; `dispatch_capacity` a 0,18 ms arrivava a 9,33 volte. Un
- * pavimento assoluto su rotte sotto il millisecondo NON e' una soglia larga: e'
- * una soglia che non puo' scattare.
+ * THE FLOOR IS PER-ROUTE AND THE NOISE DICTATES IT, not a constant. With 1.5 ms
+ * the same for everyone - the first version - the arithmetic ran like this:
+ * `/api/topics` sits at 0.36 ms, so the cap came out at 1.86 and the route could
+ * get 5.17 times worse and stay green; `dispatch_capacity` at 0.18 ms reached
+ * 9.33 times. An absolute floor over sub-millisecond routes is NOT a wide
+ * threshold: it is a threshold that cannot fire.
  *
- * Il rumore vero questo banco lo misura gia', ed e' lo scarto fra le due
- * passate: `noise_ms` nella baseline lo porta rotta per rotta. Il pavimento e'
- * il doppio di quello scarto, con un minimo di 0,05 ms perche' una rotta
- * perfettamente stabile non deve avere tetto zero. Su `/api/topics` (scarto
- * misurato 0,01 ms) il tetto scende da 1,86 a 0,58: da 5,17x a 1,6x.
+ * The real noise is something this bench already measures, and it is the gap
+ * between the two passes: `noise_ms` in the baseline carries it route by route.
+ * The floor is twice that gap, with a minimum of 0.05 ms because a perfectly
+ * stable route must not end up with a cap of zero. On `/api/topics` (measured
+ * gap 0.01 ms) the cap drops from 1.86 to 0.58: from 5.17x to 1.6x.
  */
 export function budgetMs(baseMs: number, tolerancePct: number, floorMs: number): number {
   return Math.max(baseMs * (1 + tolerancePct / 100), baseMs + Math.max(0.05, floorMs));
 }
 
-/** Il pavimento di UNA rotta: due volte il rumore che la sua misura ha mostrato. */
+/** The floor of ONE route: twice the noise its own measurement showed. */
 export function floorFor(baseline: Baseline, key: RouteKey): number {
   const noise = baseline.routes[key]?.noise_ms;
   return Math.max(0.05, typeof noise === "number" && Number.isFinite(noise) ? noise * 2 : baseline.floor_ms);
 }
 
-/** Arrotonda a 2 decimali: sotto il centesimo di ms non c'e' segnale. */
+/** Rounds to 2 decimals: below a hundredth of a ms there is no signal. */
 export function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
 /**
- * Le due passate si somigliano? Se no la macchina si sta muovendo sotto la
- * misura, e nessuno dei due numeri e' confrontabile con una baseline presa
- * ieri. Stessa soglia doppia del budget, per lo stesso motivo.
+ * Do the two passes resemble each other? If not, the machine is moving underneath
+ * the measurement, and neither of the two numbers is comparable with a baseline
+ * taken yesterday. Same double threshold as the budget, for the same reason.
  */
 export function unstableRoutes(
   passA: Record<RouteKey, number>,
@@ -265,9 +265,10 @@ export function unstableRoutes(
 }
 
 /**
- * Il corpus misurato e' quello della baseline? Se no il confronto e' fra due
- * cose diverse e va fermato prima di dire qualsiasi cosa: e' il modo piu'
- * facile di scrivere in una baseline un numero preso su un database vuoto.
+ * Is the measured corpus the baseline's one? If not, the comparison is between
+ * two different things and has to be stopped before saying anything at all: it
+ * is the easiest way to write into a baseline a number taken on an empty
+ * database.
  */
 export function corpusMismatch(measured: Corpus, base: Corpus): string | null {
   const diffs = (Object.keys(base) as Array<keyof Corpus>)
@@ -276,7 +277,7 @@ export function corpusMismatch(measured: Corpus, base: Corpus): string | null {
   return diffs.length ? diffs.join("; ") : null;
 }
 
-/** Le rotte peggiorate oltre il budget. Vuoto = verde. */
+/** The routes that got worse beyond budget. Empty = green. */
 export function regressions(
   measured: Record<RouteKey, number>,
   baseline: Baseline,
@@ -285,11 +286,11 @@ export function regressions(
   for (const key of ROUTE_KEYS) {
     const got = measured[key];
     const base = baseline.routes[key]?.median_ms;
-    // FALLIRE CHIUSO. Prima qui c'era `if (base === undefined) continue`, e
-    // bastava rinominare una chiave, metterla a null o QUOTARE il numero
-    // ("0.36") perche' quella rotta smettesse di essere giudicata e il cancello
-    // uscisse 0. Una baseline che non si sa leggere non e' «nessuna
-    // regressione»: e' un cancello disarmato, e va detto a voce alta.
+    // FAIL CLOSED. This used to read `if (base === undefined) continue`, so
+    // renaming a key, setting it to null or QUOTING the number ("0.36") was
+    // enough for that route to stop being judged and for the gate to exit 0. A
+    // baseline that cannot be read is not "no regression": it is a disarmed
+    // gate, and that has to be said out loud.
     if (typeof base !== "number" || !Number.isFinite(base)) {
       out.push(`${key}: la baseline non porta un numero leggibile (${JSON.stringify(base)}): il cancello non puo' giudicare questa rotta`);
       continue;
@@ -310,13 +311,13 @@ export function regressions(
 }
 
 /**
- * La porta del banco, derivata dal path del checkout.
+ * The bench's port, derived from the checkout path.
  *
- * Non un numero fisso: due worktree che lanciano il banco insieme si
- * ammazzerebbero il server a vicenda, ed e' un guasto gia' pagato dalla suite
- * E2E (il perche' per esteso sta in tests/e2e/helpers/worktree-port.ts). La
- * banda 15200-15299 sta fuori sia dalla 13334 e dalla finestra 13500-13899
- * degli shard, sia dai loro tunnel (+1000), sia dalla 3333 di produzione.
+ * Not a fixed number: two worktrees launching the bench together would kill each
+ * other's server, and that is a fault the E2E suite has already paid for (the
+ * reason at length lives in tests/e2e/helpers/worktree-port.ts). The 15200-15299
+ * band sits clear of 13334 and of the shards' 13500-13899 window, of their
+ * tunnels (+1000), and of production's 3333.
  */
 export const ROUTE_BENCH_PORT_BASE = 15200;
 export const ROUTE_BENCH_PORT_SPAN = 100;
@@ -332,52 +333,51 @@ export function benchPortFor(checkoutRoot: string): number {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Il banco vero.
+// The real bench.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 
-// Quale baseline si legge e quale si scrive: `route-latency-baseline-pick.ts`.
+// Which baseline is read and which is written: `route-latency-baseline-pick.ts`.
 const { envKey: ENV_KEY, read: BASELINE_PATH, write: BASELINE_WRITE_PATH } =
   resolveBaselinePaths(REPO_ROOT, existsSync);
 
 /**
- * Quanto materiale c'e' nel database mentre si misura. Cambiarlo INVALIDA la
- * baseline (il cancello se ne accorge da solo e lo dice): si cambia insieme al
- * numero, nello stesso commit.
+ * How much material sits in the database while measuring. Changing it INVALIDATES
+ * the baseline (the gate notices on its own and says so): it gets changed
+ * together with the number, in the same commit.
  *
- * I numeri sono grossi APPOSTA. La prima taratura usava 24 topic, 300 messaggi
- * e 40 task: tutte e quattro le rotte rispondevano fra 0,18 e 0,64 ms, cioe'
- * dentro il rumore della macchina. Con una baseline li' sotto, il pavimento
- * assoluto (`floor_ms`) da solo concede quasi dieci volte il valore misurato, e
- * una rotta puo' peggiorare di brutto restando verde. Un cancello tarato su un
- * database giocattolo non e' un cancello: e' una misura di quanto costa il
- * `fetch`. Servono quantita' da utente vero, dove il costo del GESTORE supera
- * quello del tubo.
+ * The numbers are big ON PURPOSE. The first calibration used 24 topics, 300
+ * messages and 40 tasks: all four routes answered between 0.18 and 0.64 ms,
+ * meaning inside the machine's noise. With a baseline down there, the absolute
+ * floor (`floor_ms`) on its own grants nearly ten times the measured value, and
+ * a route can get badly worse while staying green. A gate calibrated on a toy
+ * database is not a gate: it is a measurement of what `fetch` costs. It takes
+ * real-user quantities, where the HANDLER's cost outweighs the pipe's.
  */
 const CORPUS: Corpus = { topics: 150, messages: 3000, tasks: 150, description_chars: 1200 };
 
-/** Chiamate cronometrate per rotta e per passata. */
+/** Timed calls per route and per pass. */
 const DEFAULT_SAMPLES = 25;
-/** Giri buttati via prima di cronometrare: la prima chiamata paga la cache fredda. */
+/** Rounds thrown away before timing: the first call pays for the cold cache. */
 const WARMUP = 5;
 
 /**
- * Quanto carico per core si tollera mentre si REGISTRA una baseline.
+ * How much load per core is tolerated while RECORDING a baseline.
  *
- * 0,5 non e' un numero di gusto: e' la meta' dei core occupati, cioe' il punto
- * oltre il quale su questo Mac la mediana ha iniziato a salire di un ordine di
- * grandezza (misurato: 0,75 -> 9,87 ms su `all_boards_tasks` con load 5,32 su
- * 12 core). Sul GIUDIZIO invece non si applica: li' un carico alto produce un
- * rosso, e un rosso in piu' si guarda, mentre una baseline gonfiata non si
- * guarda mai piu'.
+ * 0.5 is not a matter of taste: it is half the cores busy, meaning the point past
+ * which the median on this Mac started climbing by an order of magnitude
+ * (measured: 0.75 -> 9.87 ms on `all_boards_tasks` with load 5.32 over 12 cores).
+ * On the JUDGEMENT it does not apply: there a high load produces a red, and one
+ * red too many gets looked at, whereas an inflated baseline never gets looked at
+ * again.
  */
 const MAX_LOAD_PER_CORE = 0.5;
 
 /**
- * La macchina e' troppo carica per REGISTRARE una baseline? Pura, cosi' il caso
- * si prova senza dover davvero caricare un Mac: e' l'unico modo di vedere
- * questa guardia diventare rossa in un test.
+ * Is the machine too loaded to RECORD a baseline? Pure, so the case can be
+ * exercised without actually loading a Mac down: it is the only way to see this
+ * guard go red inside a test.
  */
 export function machineTooLoaded(load1: number, cores: number): boolean {
   const perCore = load1 / Math.max(1, cores);
@@ -387,7 +387,7 @@ export function machineTooLoaded(load1: number, cores: number): boolean {
 interface Probe {
   key: RouteKey;
   path: string;
-  /** Rifiuta una risposta che non e' quella attesa: una 404 e' velocissima. */
+  /** Rejects a response that is not the expected one: a 404 is blazing fast. */
   ok: (body: any) => boolean;
 }
 
@@ -456,7 +456,7 @@ async function api(base: string, path: string, init?: RequestInit): Promise<any>
   return text ? JSON.parse(text) : null;
 }
 
-/** Esegue i lavori a gruppi: seminare 300 messaggi uno alla volta costa piu' del banco. */
+/** Runs the work in groups: seeding 300 messages one at a time costs more than the bench. */
 async function inBatches<T>(items: T[], size: number, fn: (item: T, i: number) => Promise<void>): Promise<void> {
   for (let i = 0; i < items.length; i += size) {
     await Promise.all(items.slice(i, i + size).map((it, j) => fn(it, i + j)));
@@ -464,10 +464,10 @@ async function inBatches<T>(items: T[], size: number, fn: (item: T, i: number) =
 }
 
 async function seed(base: string): Promise<{ topicId: string }> {
-  // PRIMA di creare qualsiasi task: l'interruttore dell'auto-dispatch e' GLOBALE
-  // (riga '*' di board_settings, ci si arriva da qualunque board). Senza questo
-  // il banco creerebbe 40 task che il server prova a dispacciare come agenti
-  // veri: il "carico" misurato sarebbe il suo.
+  // BEFORE creating any task: the auto-dispatch switch is GLOBAL (the '*' row of
+  // board_settings, reachable from any board). Without this the bench would
+  // create 40 tasks that the server tries to dispatch as real agents: the "load"
+  // being measured would be its own.
   await api(base, "/api/boards/bench-route-latency/settings", {
     method: "PATCH",
     body: JSON.stringify({ autoDispatch: false, maxAgents: 1 }),
@@ -486,9 +486,9 @@ async function seed(base: string): Promise<{ topicId: string }> {
     },
   );
 
-  // Il topic misurato e' il PRIMO creato, non uno a caso: la mediana di
-  // `topic_messages` dipende da quanti messaggi ha la sessione, e deve essere
-  // sempre lo stesso numero fra una run e l'altra.
+  // The topic being measured is the FIRST one created, not a random one: the
+  // median of `topic_messages` depends on how many messages the session has, and
+  // it has to be the same number from one run to the next.
   const first = await api(base, "/api/topics");
   const sorted = Object.values(first.topics as Record<string, any>).sort((a: any, b: any) =>
     String(a.name).localeCompare(String(b.name)),
@@ -504,8 +504,8 @@ async function seed(base: string): Promise<{ topicId: string }> {
         body: JSON.stringify({
           sessionKey: target.sessionKey,
           role: i % 2 === 0 ? "user" : "assistant",
-          // Un contenuto realistico: la rotta serializza cio' che trova, e
-          // misurarla su stringhe di tre lettere misurerebbe un'altra cosa.
+          // Realistic content: the route serialises whatever it finds, and
+          // measuring it over three-letter strings would measure something else.
           content: `Messaggio ${i} del banco. `.repeat(12),
           sortOrder: i,
         }),
@@ -533,7 +533,7 @@ async function seed(base: string): Promise<{ topicId: string }> {
   return { topicId: target.id };
 }
 
-/** Conta cio' che c'e' davvero, per non certificare mai una misura su un DB vuoto. */
+/** Counts what is actually there, so a measurement on an empty DB is never certified. */
 async function measuredCorpus(base: string, topicId: string): Promise<Corpus> {
   const topics = await api(base, "/api/topics");
   const msgs = await api(base, `/api/topics/${topicId}/messages?limit=200`);
@@ -550,8 +550,8 @@ async function measuredCorpus(base: string, topicId: string): Promise<Corpus> {
 }
 
 /**
- * Una passata: `samples` chiamate per rotta, a giro fra le rotte, con i primi
- * `WARMUP` giri buttati. Ritorna la mediana per rotta.
+ * One pass: `samples` calls per route, round robin across the routes, with the
+ * first `WARMUP` rounds thrown away. Returns the median per route.
  */
 async function runPass(base: string, probes: Probe[], samples: number): Promise<Record<RouteKey, number>> {
   const acc = new Map<RouteKey, number[]>(probes.map((p) => [p.key, []]));
@@ -560,7 +560,7 @@ async function runPass(base: string, probes: Probe[], samples: number): Promise<
     for (const probe of probes) {
       const t0 = performance.now();
       const res = await fetch(`${base}${probe.path}`);
-      const text = await res.text(); // il corpo va SCARICATO, o si cronometra mezza risposta
+      const text = await res.text(); // the body must be DRAINED, or half a response gets timed
       const dt = performance.now() - t0;
 
       if (res.status !== 200) die(`✗ ${probe.path} ha risposto ${res.status}: la rotta non e' misurabile.`, 2);
@@ -590,21 +590,21 @@ async function runPass(base: string, probes: Probe[], samples: number): Promise<
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const update = args.includes("--update-baseline");
-  // `--selftest`: prova che questo cancello SA diventare rosso. Vedi in fondo a main().
+  // `--selftest`: proves this gate CAN go red. See the bottom of main().
   const selftest = args.includes("--selftest");
   if (update && selftest) die("✗ --update-baseline e --selftest non stanno insieme: uno scrive la baseline, l'altro la usa per giudicare.", 2);
   const samples = Number(args.find((a) => a.startsWith("--samples="))?.split("=")[1]) || DEFAULT_SAMPLES;
   const portArg = Number(args.find((a) => a.startsWith("--port="))?.split("=")[1]);
-  // LE `TOPICS_ROTTE_*` RESTANO COL NOME VECCHIO, ed e' una scelta.
-  // `TOPICS_ROTTE_FAULT_MS` e `TOPICS_ROTTE_FAULT_PATH` non le legge questo file:
-  // le legge `server/lib/route-fault.ts`, cioe' il server sotto misura. Sono un
-  // contratto fra due processi, e rinominarle a meta' significa un guasto
-  // sintetico che si arma qui e non si arma la'. Vanno rinominate tutte e tre
-  // insieme, nello stesso edit che tocca `server/lib/route-fault.ts`.
+  // THE `TOPICS_ROTTE_*` KEEP THEIR OLD NAME, and that is a choice.
+  // `TOPICS_ROTTE_FAULT_MS` and `TOPICS_ROTTE_FAULT_PATH` are not read by this
+  // file: they are read by `server/lib/route-fault.ts`, meaning the server under
+  // measurement. They are a contract between two processes, and renaming them
+  // halfway means a synthetic fault that arms here and does not arm there. All
+  // three go together, in the same edit that touches `server/lib/route-fault.ts`.
   const port = portArg || Number(process.env.TOPICS_ROTTE_PORT) || benchPortFor(REPO_ROOT);
 
-  // Nessun banco tocchera' mai il server vero: la 3333 e' il suo, e la sua
-  // latenza dipende da quanti agenti stanno girando in quel momento.
+  // No bench will ever touch the real server: 3333 is its port, and its latency
+  // depends on how many agents happen to be running at that moment.
   if (port === 3333) die("✗ La 3333 e' il server di produzione. Il banco misura solo un server suo.", 2);
 
   const faultMs = Number(process.env.TOPICS_ROTTE_FAULT_MS);
@@ -615,8 +615,8 @@ async function main(): Promise<void> {
       `⚠ GUASTO SINTETICO ARMATO: +${faultMs} ms su ${target} (TOPICS_ROTTE_FAULT_MS).\n` +
         `  Questa run serve a PROVARE che il cancello sa diventare rosso, non a misurare niente.`,
     );
-    // La baseline non si registra mai da una misura truccata: sarebbe il modo
-    // piu' rapido di rendere il cancello cieco per sempre.
+    // A baseline is never recorded from a rigged measurement: it would be the
+    // quickest way of blinding the gate forever.
     if (update) die("✗ --update-baseline e' rifiutato mentre il guasto e' armato.", 2);
   }
 
@@ -625,7 +625,7 @@ async function main(): Promise<void> {
   }
 
   const dataDir = `/tmp/topics-route-latency-bench-${port}`;
-  rmSync(dataDir, { recursive: true, force: true }); // DB nuovo: il corpus dev'essere solo il nostro
+  rmSync(dataDir, { recursive: true, force: true }); // fresh DB: the corpus has to be ours alone
 
   log(`Banco rotte · porta ${port} · DATA_DIR ${dataDir} · ${samples} campioni x 2 passate`);
 
@@ -639,9 +639,9 @@ async function main(): Promise<void> {
       DATA_DIR: dataDir,
       TOPICS_HOME: `${dataDir}/.topics-home`,
       OPENCLAW_DIR: `${dataDir}/.openclaw`,
-      // Socket dedicati: senza, il server del banco li deriverebbe dalla cwd,
-      // che condivide con quello di sviluppo, e il suo riconcilio vedrebbe le
-      // PTY vive dello sviluppo come orfane, ammazzandole.
+      // Dedicated sockets: without them the bench server would derive them from
+      // the cwd, which it shares with the development one, and its reconcile
+      // would see development's live PTYs as orphans and kill them.
       TOPICS_PTY_SOCKET: `/tmp/topics-pty-bridge-route-latency-${port}.sock`,
       TOPICS_AI_BRIDGE_SOCKET: `/tmp/topics-ai-bridge-route-latency-${port}.sock`,
       NO_TLS: "1",
@@ -652,15 +652,15 @@ async function main(): Promise<void> {
   child.stdout?.on("data", (d: Buffer) => { serverLog += d.toString(); });
   child.stderr?.on("data", (d: Buffer) => { serverLog += d.toString(); });
 
-  // Una sola pulizia, agganciata anche a `exit`: `die()` esce con
-  // `process.exit`, che NON fa girare i `finally`. Senza questo aggancio un
-  // banco che si ferma a meta' lascerebbe un server vivo su quella porta, e la
-  // run dopo troverebbe la porta occupata da se stessa.
+  // One single cleanup, hooked onto `exit` as well: `die()` leaves through
+  // `process.exit`, which does NOT run the `finally` blocks. Without this hook a
+  // bench that stops halfway would leave a live server on that port, and the next
+  // run would find the port taken by itself.
   let cleaned = false;
   const stop = () => {
     if (cleaned) return;
     cleaned = true;
-    try { if (child.pid) process.kill(-child.pid, "SIGTERM"); } catch { /* gia' morto */ }
+    try { if (child.pid) process.kill(-child.pid, "SIGTERM"); } catch { /* already dead */ }
     rmSync(dataDir, { recursive: true, force: true });
   };
   process.on("exit", stop);
@@ -681,10 +681,10 @@ async function main(): Promise<void> {
       log(`⚠ Non ho potuto leggere chi ascolta sulla ${port} (lsof assente): resta un testimone in meno.`);
     } else {
       const mine = child.pid ?? -1;
-      const estranei = pgids.filter((g) => g !== mine);
-      if (estranei.length > 0) {
+      const foreign = pgids.filter((g) => g !== mine);
+      if (foreign.length > 0) {
         die(
-          `✗ Sulla ${port} ascolta un processo che non e' del banco (gruppo ${estranei.join(", ")}, il mio e' ${mine}).\n` +
+          `✗ Sulla ${port} ascolta un processo che non e' del banco (gruppo ${foreign.join(", ")}, il mio e' ${mine}).\n` +
             `  Misurarlo vorrebbe dire confrontare la baseline di questo codice con un altro server.`,
           2,
         );
@@ -712,18 +712,18 @@ async function main(): Promise<void> {
 
     const passA = await runPass(base, probes, samples);
     const passB = await runPass(base, probes, samples);
-    // Fra le due passate si tiene la PEGGIORE: se una rotta e' lenta anche solo
-    // in una delle due, e' lenta. Cosi' il banco non puo' guadagnarci a
-    // ripetersi finche' non gli va bene.
+    // Between the two passes the WORST one is kept: if a route is slow in even
+    // one of them, it is slow. That way the bench gains nothing from repeating
+    // itself until the answer suits it.
     const measured = {} as Record<RouteKey, number>;
     for (const key of ROUTE_KEYS) measured[key] = Math.max(passA[key]!, passB[key]!);
 
     if (update) {
       const prev = existsSync(BASELINE_WRITE_PATH) ? JSON.parse(readFileSync(BASELINE_WRITE_PATH, "utf8")) : {};
-      // Anche la REGISTRAZIONE passa dal controllo di stabilita'. Una baseline
-      // presa su una macchina che tremava e' un numero gonfiato che poi nessuna
-      // regressione riuscira' piu' a superare: il cancello resterebbe verde per
-      // sempre senza che nessuno se ne accorga.
+      // RECORDING goes through the stability check too. A baseline taken on a
+      // machine that was shaking is an inflated number that no regression will
+      // ever manage to exceed afterwards: the gate would stay green forever
+      // without anyone noticing.
       const shaky = unstableRoutes(passA, passB, prev.noise_guard_pct ?? 60, prev.floor_ms ?? 1.5);
       if (shaky.length > 0) {
         die(
@@ -732,13 +732,13 @@ async function main(): Promise<void> {
           2,
         );
       }
-      // NON SI REGISTRA UNA BASELINE DA UNA MACCHINA CARICA, ed e' un guasto
-      // che ho riprodotto invece di temerlo: con `load average` a 5,32 su questo
-      // Mac il banco ha scritto `all_boards_tasks` a 9,87 ms dove a macchina
-      // ferma sta a 0,75 — tredici volte. Le due passate erano d'accordo, quindi
-      // `unstableRoutes` taceva: il confronto A-contro-B vede il tremolio, non
-      // il carico UNIFORME. Un numero cosi' non alza la soglia di un po', la
-      // disarma per sempre.
+      // A BASELINE IS NOT RECORDED FROM A LOADED MACHINE, and this is a fault
+      // that was reproduced rather than feared: with `load average` at 5.32 on
+      // this Mac the bench wrote `all_boards_tasks` at 9.87 ms where on an idle
+      // machine it sits at 0.75 - thirteen times over. The two passes agreed, so
+      // `unstableRoutes` stayed quiet: the A-against-B comparison sees the
+      // jitter, not the UNIFORM load. A number like that does not widen the
+      // threshold a little, it disarms it for good.
       const cores = Math.max(1, cpus().length);
       const load1 = loadavg()[0] ?? 0;
       if (machineTooLoaded(load1, cores)) {
@@ -751,8 +751,8 @@ async function main(): Promise<void> {
       }
       const next = {
         ...prev,
-        /** Sotto che carico e' stato preso questo numero: senza, «0,75 ms» non
-         *  si sa se e' la rotta o la macchina. */
+        /** Under what load this number was taken: without it, "0.75 ms" gives no
+         *  way of knowing whether it is the route or the machine. */
         taken_under: { load1: round2(load1), cores },
         $schema: "route-latency-baseline-v1",
         updated: new Date().toISOString().slice(0, 10),
@@ -761,11 +761,10 @@ async function main(): Promise<void> {
         floor_ms: prev.floor_ms ?? 1.5,
         noise_guard_pct: prev.noise_guard_pct ?? 60,
         corpus: CORPUS,
-        // Accanto alla mediana si registra il RUMORE di quella rotta, cioe' lo
-        // scarto fra le due passate di questo giro. E' il numero da cui esce il
-        // suo pavimento: una rotta stabile prende un tetto stretto, una
-        // ballerina se lo allarga da sola, e nessuna delle due dipende da una
-        // costante scelta a mano.
+        // Alongside the median, that route's NOISE is recorded, meaning the gap
+        // between this run's two passes. It is the number its floor comes out
+        // of: a stable route gets a tight cap, a jumpy one widens its own, and
+        // neither of them depends on a constant picked by hand.
         routes: Object.fromEntries(ROUTE_KEYS.map((k) => [k, {
           median_ms: round2(measured[k]!),
           noise_ms: round2(Math.abs((passA[k] ?? 0) - (passB[k] ?? 0))),
@@ -778,7 +777,7 @@ async function main(): Promise<void> {
     }
 
     const baseline = JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as Baseline;
-    // Quale baseline si sta confrontando: vedi `resolveBaselinePaths`.
+    // Which baseline is being compared against: see `resolveBaselinePaths`.
     log(`baseline: ${basename(BASELINE_PATH)} (ambiente: ${ENV_KEY})`);
 
     const gap = corpusMismatch(CORPUS, baseline.corpus);
@@ -811,29 +810,29 @@ async function main(): Promise<void> {
       return;
     }
 
-    // ── IL TUBO E' IL METRO ──────────────────────────────────────────────────
+    // ── THE PIPE IS THE RULER ────────────────────────────────────────────────
     //
-    // `dispatch_capacity` non e' una rotta come le altre: non fa quasi niente
-    // (legge core, RAM e load), quindi il suo numero e' il costo di una
-    // RICHIESTA prima di arrivare al gestore. Il commento in testa a questo file
-    // lo dice gia': «se peggiora lei, e' peggiorato qualcosa a monte che le altre
-    // tre pagano tutte». Fin qui pero' quel numero si stampava e basta.
+    // `dispatch_capacity` is not a route like the others: it does almost nothing
+    // (reads cores, RAM and load), so its number is the cost of a REQUEST before
+    // it reaches the handler. The comment at the top of this file already says
+    // it: "if this one gets worse, something upstream got worse that the other
+    // three all pay for". Up to now, though, that number was merely printed.
     //
-    // Serve perche' il controllo delle due passate non vede una macchina
-    // UNIFORMEMENTE lenta: se il carico c'e' per tutta la corsa, le due passate
-    // si somigliano benissimo e sono d'accordo su un numero che parla del
-    // portatile. Misurato il 2026-08-14 su questa macchina, con Spotify, un
-    // decoder video e due browser addosso: `all_boards_tasks` 8 ms contro una
-    // baseline di 0,75, e lo stesso identico numero su un albero PRECEDENTE a
-    // ogni modifica di quel giorno (8,68 ms). Non era una regressione, e il
-    // cancello la chiamava cosi'.
+    // It is needed because the two-pass check does not see a UNIFORMLY slow
+    // machine: if the load is there for the whole run, the two passes resemble
+    // each other perfectly and agree on a number that is talking about the
+    // laptop. Measured on 2026-08-14 on this machine, with Spotify, a video
+    // decoder and two browsers on top of it: `all_boards_tasks` at 8 ms against a
+    // baseline of 0.75, and the very same number on a tree PRIOR to every change
+    // of that day (8.68 ms). It was not a regression, and the gate was calling it
+    // one.
     //
-    // Quando il tubo sfonda il suo tetto nessun numero di quella corsa separa
-    // «macchina lenta» da «regressione a monte»: sono la stessa curva. L'unica
-    // risposta onesta e' 2, cioe' NON MISURABILE, che e' la stessa scelta di
-    // `check:scroll-fluidity` con la sua calibrazione a riposo. Una rotta singola che
-    // peggiora mentre il tubo sta a posto continua a uscire 1, ed e' provato dal
-    // guasto sintetico (`TOPICS_ROTTE_FAULT_MS=40`).
+    // When the pipe breaks through its own cap, no number from that run separates
+    // "slow machine" from "upstream regression": they are the same curve. The
+    // only honest answer is 2, meaning NOT MEASURABLE, which is the same choice
+    // `check:scroll-fluidity` makes with its at-rest calibration. A single route
+    // getting worse while the pipe is fine keeps exiting 1, and the synthetic
+    // fault proves it (`TOPICS_ROTTE_FAULT_MS=40`).
     const pipe = calibrationOutOfScale(measured, baseline);
     if (pipe) {
       console.error(
@@ -862,38 +861,39 @@ async function main(): Promise<void> {
       return;
     }
 
-    // ── L'AUTOPROVA ──────────────────────────────────────────────────────────
+    // ── THE SELF-TEST ────────────────────────────────────────────────────────
     //
-    // Un cancello che nessuno ha mai visto fallire non e' un cancello. Qui la prova si fa nello
-    // STESSO processo appena misurato: si arma un guasto di 40 ms sulle rotte dei topic, si
-    // rimisura, e si pretende un rosso. Se resta verde, il cancello e' cieco — e lo dice invece
-    // di lasciarti credere il contrario.
+    // A gate nobody has ever seen fail is not a gate. Here the proof is made inside the SAME
+    // process just measured: a 40 ms fault is armed on the topic routes, the measurement is
+    // taken again, and a red is demanded. If it stays green, the gate is blind - and it says so
+    // instead of letting you believe otherwise.
     //
-    // Armare via ambiente non basterebbe: obbligherebbe a riavviare, e allora la misura sana e
-    // quella guasta verrebbero da due processi diversi, che hanno numeri diversi comunque.
+    // Arming through the environment would not do: it would force a restart, and then the
+    // healthy measurement and the faulty one would come from two different processes, which
+    // have different numbers anyway.
     if (selftest) {
-      const arma = async (body: unknown) =>
+      const arm = async (body: unknown) =>
         fetch(`${base}/api/test/route-fault`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(body),
         });
-      const armed = await arma({ delayMs: 40, pathPrefix: "/api/topics" });
+      const armed = await arm({ delayMs: 40, pathPrefix: "/api/topics" });
       if (!armed.ok) {
         die(`✗ Non ho potuto armare il guasto (${armed.status}): senza, l'autoprova non prova niente.`, 2);
       }
       log("\n▸ autoprova: guasto di 40 ms armato su /api/topics — mi aspetto un ROSSO.");
-      const guastoA = await runPass(base, probes, samples);
-      const guastoB = await runPass(base, probes, samples);
-      const guasto = {} as Record<RouteKey, number>;
-      for (const key of ROUTE_KEYS) guasto[key] = Math.max(guastoA[key]!, guastoB[key]!);
-      await arma(null).catch(() => {});
+      const faultPassA = await runPass(base, probes, samples);
+      const faultPassB = await runPass(base, probes, samples);
+      const faultMeasured = {} as Record<RouteKey, number>;
+      for (const key of ROUTE_KEYS) faultMeasured[key] = Math.max(faultPassA[key]!, faultPassB[key]!);
+      await arm(null).catch(() => {});
 
-      const rosso = regressions(guasto, baseline);
+      const red = regressions(faultMeasured, baseline);
       for (const key of ROUTE_KEYS) {
-        log(`  ${key.padEnd(18)} ${String(round2(guasto[key]!)).padStart(7)} ms (era ${round2(measured[key]!)})`);
+        log(`  ${key.padEnd(18)} ${String(round2(faultMeasured[key]!)).padStart(7)} ms (era ${round2(measured[key]!)})`);
       }
-      if (rosso.length === 0) {
+      if (red.length === 0) {
         console.error(
           `\n✗ AUTOPROVA FALLITA: con 40 ms di guasto su /api/topics il cancello e' rimasto VERDE.\n` +
             `  Vuol dire che i tetti sono cosi' larghi da non poter piu' vedere niente: una\n` +
@@ -903,7 +903,7 @@ async function main(): Promise<void> {
         exitCode = 1;
         return;
       }
-      log(`\n✓ Autoprova: il cancello e' diventato rosso su ${rosso.length} rotta/e. Sa mordere.`);
+      log(`\n✓ Autoprova: il cancello e' diventato rosso su ${red.length} rotta/e. Sa mordere.`);
     }
 
     const won = ROUTE_KEYS.filter((k) => measured[k]! < baseline.routes[k]!.median_ms * 0.7);

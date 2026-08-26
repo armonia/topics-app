@@ -1,36 +1,36 @@
 #!/usr/bin/env bun
 /**
- * Riepilogo unico degli shard E2E.
+ * One single summary of the E2E shards.
  *
- * Ogni shard di `e2e-shards.sh` scrive il suo report JSON; qui li si rilegge
- * tutti e si stampa UNA lista dei falliti. Serve perché l'esito di un run
- * Playwright, letto dal terminale, è inaffidabile: l'exit code confonde
- * "test rosso" con "teardown andato storto", e il riepilogo finale viene mangiato
- * dalle sequenze ANSI del reporter `line`. Il JSON no: dice esattamente quale
- * test, in quale file, con quale errore.
+ * Every shard of `e2e-shards.sh` writes its own JSON report; here they are all
+ * read back and ONE list of the failures is printed. It is needed because the
+ * outcome of a Playwright run, read off the terminal, is unreliable: the exit
+ * code confuses "red test" with "teardown gone wrong", and the final summary
+ * gets eaten by the ANSI sequences of the `line` reporter. The JSON does not:
+ * it says exactly which test, in which file, with which error.
  *
- * DUE MODI DI LEGGERE UNA CORSA CHE NON C'È, entrambi visti:
+ * TWO WAYS OF READING A RUN THAT IS NOT THERE, both of them seen:
  *
- * 1. Il posto sbagliato. Fino al 25/08 questo script apriva
- *    `test-results/shard-N/results.json`, che `e2e-shards.sh` non scrive più:
- *    leggeva file di CINQUE GIORNI prima e ne riportava i rossi con la stessa
- *    sicurezza di un verdetto fresco. Misurato: «500 passati, 1 fallito» su una
- *    corsa che ne aveva appena eseguiti 1113 e nessun rosso.
- * 2. Il file sopravvissuto. `$TMPDIR/topics-e2e-shards/` NON si svuota fra una
- *    corsa e l'altra: uno shard che muore prima di scrivere lascia in piedi il
- *    report della corsa PRECEDENTE, e quello si legge come suo. Da qui il
- *    confronto sulle date: un report molto più vecchio del più recente non è un
- *    verdetto, è un residuo, e va contato fra gli shard rotti.
+ * 1. The wrong place. Until 25/08 this script opened
+ *    `test-results/shard-N/results.json`, which `e2e-shards.sh` no longer
+ *    writes: it read files FIVE DAYS old and reported their reds with the same
+ *    confidence as a fresh verdict. Measured: "500 passed, 1 failed" on a run
+ *    that had just executed 1113 of them and had no reds at all.
+ * 2. The surviving file. `$TMPDIR/topics-e2e-shards/` is NOT emptied between
+ *    one run and the next: a shard that dies before writing leaves the report
+ *    of the PREVIOUS run standing, and that one gets read as its own. Hence the
+ *    comparison on the dates: a report much older than the most recent one is
+ *    not a verdict, it is a leftover, and it counts among the broken shards.
  */
 
-export {}; // top-level await → il file dev'essere un modulo
+export {}; // top-level await -> the file has to be a module
 
 const shards = Number(process.argv[2] || 4);
-/** Dove `e2e-shards.sh:41` scrive. UNA sola sorgente, e senza ripieghi: un ripiego sul vecchio
- *  `test-results/shard-N/results.json` e' esattamente come si legge una corsa di cinque giorni fa
- *  credendola di adesso. Meglio dire «nessun report» che rispondere con l'archivio. */
+/** Where `e2e-shards.sh:41` writes. ONE single source, and no fallbacks: a fallback onto the old
+ *  `test-results/shard-N/results.json` is exactly how a five-day-old run gets read as if it were
+ *  the current one. Better to say "no report" than to answer with the archive. */
 const OUT_DIR = process.env.E2E_SHARDS_OUT_DIR ?? `${process.env.TMPDIR ?? "/tmp"}/topics-e2e-shards`;
-/** Oltre questo scarto dal report più recente, un file è di un'altra corsa. */
+/** Past this gap from the most recent report, a file belongs to a different run. */
 const STALE_MS = 30 * 60_000;
 
 async function shardReport(i: number): Promise<{ path: string; mtimeMs: number } | null> {
@@ -52,7 +52,7 @@ type Spec = {
   tests: Array<{
     status: string; // "expected" | "unexpected" | "flaky" | "skipped"
     results: Array<{ error?: { message?: string } }>;
-    /** Dove Playwright mette il motivo di `test.skip(cond, "perche'")`. */
+    /** Where Playwright puts the reason given to `test.skip(cond, "why")`. */
     annotations?: Array<{ type?: string; description?: string }>;
   }>;
 };
@@ -67,28 +67,28 @@ function collectSpecs(suite: Suite, out: Spec[] = []): Spec[] {
 const failures: Array<{ shard: number; spec: Spec; message: string }> = [];
 const flaky: Array<{ shard: number; spec: Spec }> = [];
 /**
- * I SALTATI, CON IL LORO MOTIVO.
+ * THE SKIPPED ONES, WITH THEIR REASON.
  *
- * Un `skipped` contato e basta e' la stessa bugia di uno shard morto, in
- * piccolo: la riga finale resta verde mentre un pezzo di suite non ha girato, e
- * nessuno sa che cosa manchi. Misurato il 18/08/2026: due test della dettatura
- * col microfono vero saltavano perche' l'unica chiave STT del server di test
- * risponde 401, e dal riepilogo si leggeva soltanto «2 skippati».
+ * A `skipped` that is merely counted is the same lie as a dead shard, in
+ * miniature: the final line stays green while a piece of the suite never ran,
+ * and nobody knows what is missing. Measured on 18/08/2026: two dictation tests
+ * driving the real microphone were skipping because the test server's only STT
+ * key answers 401, and all the summary said was "2 skipped".
  *
- * Il motivo lo scrive gia' chi salta — `test.skip(cond, "perche'")` finisce
- * nelle annotazioni del report. Qui si limita a NON buttarlo via.
+ * The reason is already written down by whoever skips - `test.skip(cond, "why")`
+ * ends up in the report annotations. All this does is NOT throw it away.
  */
 const skips: Array<{ shard: number; spec: Spec; why: string }> = [];
 /**
- * Shard che NON hanno prodotto un verdetto: results.json assente, zero spec
- * eseguite, o un errore a livello di report (globalSetup che esplode, un modulo
- * che non si carica). Vanno tenuti separati dai test rossi perché il modo in cui
- * mentono è opposto: un test rosso si conta, uno shard morto **non compare nei
- * conteggi affatto** — e "244 passati, 0 falliti" con due shard morti su quattro
- * è la riga più rassicurante che questo script possa stampare mentre metà suite
- * non ha girato. È esattamente il caso visto in locale il 30/07 (uno shard col
- * server oltre il timeout, uno con la cache di trasformazione in contesa). Da qui
- * in poi il problema sta nella PRIMA riga, non in una nota dopo i conteggi.
+ * Shards that produced NO verdict: results.json missing, zero specs executed,
+ * or a report-level error (globalSetup blowing up, a module that fails to
+ * load). They have to be kept apart from red tests because the way they lie is
+ * the opposite one: a red test gets counted, a dead shard **does not show up in
+ * the counts at all** - and "244 passed, 0 failed" with two shards dead out of
+ * four is the most reassuring line this script can print while half the suite
+ * never ran. It is exactly the case seen locally on 30/07 (one shard with the
+ * server past the timeout, one with the transform cache under contention). From
+ * here on the problem goes in the FIRST line, not in a note after the counts.
  */
 const brokenShards: Array<{ shard: number; why: string; detail?: string }> = [];
 let passed = 0;
@@ -113,9 +113,9 @@ for (let i = 1; i <= shards; i++) {
   const file = Bun.file(path);
   const report = (await file.json()) as { suites?: Suite[]; errors?: Array<{ message?: string }> };
 
-  // Errori a livello di report: non sono test rossi, sono lo shard che non è mai
-  // arrivato a eseguire. Playwright li mette qui e i conteggi per-spec non li
-  // vedono.
+  // Report-level errors: these are not red tests, they are the shard never
+  // getting as far as executing. Playwright puts them here and the per-spec
+  // counts do not see them.
   const reportErrors = report.errors ?? [];
   const specCount = (report.suites ?? []).reduce((n, s) => n + collectSpecs(s).length, 0);
   if (reportErrors.length || specCount === 0) {
@@ -157,8 +157,8 @@ const reporting = shards - brokenShards.length;
 
 console.log("═".repeat(78));
 if (brokenShards.length) {
-  // Prima riga = il problema. Un conteggio che sembra verde non deve mai essere
-  // la prima cosa che si legge quando parte della suite non ha girato.
+  // First line = the problem. A count that looks green must never be the first
+  // thing read when part of the suite did not run.
   console.log(
     `E2E — INCOMPLETO: ${brokenShards.length}/${shards} shard non hanno eseguito test ` +
       `(i conteggi sotto coprono solo ${reporting}/${shards} shard)`,
@@ -191,9 +191,9 @@ if (brokenShards.length) {
 
 if (skips.length) {
   console.log("\nSALTATI (non hanno girato — il motivo lo dice il test stesso):");
-  // Raggruppati per motivo: quasi sempre e' UNA causa d'ambiente che ne ferma
-  // parecchi, e vederla una volta sola dice subito che cosa manca su questa
-  // macchina invece di far leggere N righe uguali.
+  // Grouped by reason: it is nearly always ONE environment cause stopping a
+  // good number of them, and seeing it once says straight away what is missing
+  // on this machine instead of making someone read N identical lines.
   const perMotivo = new Map<string, typeof skips>();
   for (const s of skips) {
     if (!perMotivo.has(s.why)) perMotivo.set(s.why, []);
@@ -214,9 +214,9 @@ if (flaky.length) {
 
 if (failures.length) {
   console.log("\nFALLITI:");
-  // Raggruppati per file: i rossi di questa suite arrivano quasi sempre a
-  // grappolo dallo stesso file (stato condiviso), e vederli insieme è ciò che
-  // distingue "un bug" da "una spec che si è portata dietro lo stato".
+  // Grouped by file: the reds of this suite nearly always arrive in a cluster
+  // from the same file (shared state), and seeing them together is what
+  // distinguishes "a bug" from "a spec that dragged the state along with it".
   const byFile = new Map<string, typeof failures>();
   for (const f of failures) {
     if (!byFile.has(f.spec.file)) byFile.set(f.spec.file, []);

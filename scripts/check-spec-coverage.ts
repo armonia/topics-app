@@ -83,7 +83,7 @@ type Requirement = {
 };
 type FileTest = { path: string; covers: string[]; annotated: string[]; titles: { id: string; title: string }[] };
 
-/** Annotazioni `spec` che non nominano nessun requisito: raccolte da R7 invece che scartate. */
+/** `spec` annotations that name no requirement at all: collected by R7 instead of discarded. */
 const muteAnnotations: { file: string; desc: string }[] = [];
 
 function walk(dir: string, out: string[] = []): string[] {
@@ -182,18 +182,19 @@ function readTests(): FileTest[] {
       //    declared twice.
       //  - bun test: `test.info()` does not exist, so for unit tests the link
       //    is a `@covers` in the header comment, at FILE granularity.
-      // R7: un'annotazione `spec` che non contiene NESSUN id valido non dichiara niente, e
-      // finora spariva qui dentro senza una parola. Un test che scrive
-      // `description: "FILE-EDITOR-ABORT"` crede di aver dichiarato un requisito: non colora
-      // nulla nella living-doc, non compare fra i penzolanti (R1 vede solo cio' che passa il
-      // filtro), e supera `check-untraced-tests` che guardava la sola FORMA dell'annotazione.
-      // Nove casi su cinque file, misurati il 26/08/2026, tutti invisibili a entrambi i cancelli.
+      // R7: a `spec` annotation carrying NO valid id declares nothing, and until now it
+      // vanished in here without a word. A test that writes
+      // `description: "FILE-EDITOR-ABORT"` believes it declared a requirement: it colours
+      // nothing in the living-doc, it does not show up among the dangling ones (R1 only sees
+      // what passes the filter), and it clears `check-untraced-tests`, which looked at the
+      // SHAPE of the annotation alone. Nine cases across five files, measured 2026-08-26,
+      // all invisible to both gates.
       const fromAnnotation: string[] = [];
       for (const m of text.matchAll(/type:\s*["']spec["']\s*,\s*description:\s*["'`]([^"'`]+)["'`]/g)) {
-        const validi = m[1]!.split(/[,\s/]+/).filter((s: string) => /^[A-Z][A-Z0-9-]*-\d+[a-z]?$/.test(s));
-        // Una descrizione puo' portare l'id piu' del testo libero ("KANBAN-12 (flatten group)"):
-        // basta UN id valido perche' il resto sia prosa, non un errore.
-        if (validi.length) fromAnnotation.push(...validi);
+        const valid = m[1]!.split(/[,\s/]+/).filter((s: string) => /^[A-Z][A-Z0-9-]*-\d+[a-z]?$/.test(s));
+        // A description may carry the id plus free text ("KANBAN-12 (flatten group)"): ONE
+        // valid id is enough for the rest to be prose rather than a mistake.
+        if (valid.length) fromAnnotation.push(...valid);
         else muteAnnotations.push({ file: f.slice(ROOT.length), desc: m[1]! });
       }
       const fromCovers = [...text.matchAll(/@covers\s+([A-Z0-9,\s-]+)/g)]
@@ -295,23 +296,24 @@ for (const t of fileTest) {
  * that also passed judgement on the same data.
  */
 /**
- * Esiti per FILE da un report JUnit (`bun test --reporter=junit --reporter-outfile=...`).
+ * Per-FILE outcomes from a JUnit report (`bun test --reporter=junit --reporter-outfile=...`).
  *
- * Perche' serve. Il report Playwright non contiene i test unitari, quindi la living-doc leggeva
- * "coperto, non eseguito qui" su 583 requisiti su 742 — requisiti che in realta' girano a ogni
- * `bun run test:unit`. Senza questo passaggio la pagina dice che quasi tutto e' fermo, e la cosa
- * piu' facile da concludere guardandola e' che la suite non esista.
+ * WHY IT IS NEEDED. The Playwright report does not contain the unit tests, so the living-doc
+ * read "covered, not run here" on 583 requirements out of 742 — requirements that in fact run
+ * on every `bun run test:unit`. Without this step the page says almost everything is stalled,
+ * and the easiest thing to conclude while looking at it is that the suite does not exist.
  *
- * Il legame resta PER FILE — `bun:test` non ha annotazioni per-test come Playwright — quindi
- * l'esito dice "i test di questo file sono verdi", non "questo requisito e' provato". La pagina
- * lo dipinge con un colore suo apposta: prometterne di piu' sarebbe un verde comprato a sconto.
+ * The link stays PER FILE — `bun:test` has no per-test annotations like Playwright — so the
+ * outcome says "this file's tests are green", not "this requirement is proven". The page paints
+ * it in a colour of its own on purpose: promising more would be a green bought at a discount.
  */
 function readJUnitOutcomes(path: string): Map<string, { outcome: "passed" | "failed"; tests: number }> {
   const out = new Map<string, { outcome: "passed" | "failed"; tests: number }>();
   if (!existsSync(path)) return out;
   const xml = readFileSync(path, "utf8");
-  // Si contano i <testcase>, non i <testsuite>: bun annida un testsuite per ogni describe, tutti
-  // con lo stesso attributo file=, e sommarli conterebbe lo stesso test piu' volte.
+  // The <testcase> elements are counted, not the <testsuite> ones: bun nests one testsuite per
+  // describe, all carrying the same file= attribute, and summing them would count the same test
+  // more than once.
   const re = /<testcase\b([^>]*?)(\/?)>/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(xml))) {
@@ -319,7 +321,7 @@ function readJUnitOutcomes(path: string): Map<string, { outcome: "passed" | "fai
     const fileM = /\bfile="([^"]*)"/.exec(attrs);
     if (!fileM) continue;
     const file = fileM[1]!.replace(/^\.\//, "").replace(/^\//, "");
-    // Auto-chiuso = passato. Altrimenti il corpo dice se e' <failure> o <skipped>.
+    // Self-closed = passed. Otherwise the body says whether it is <failure> or <skipped>.
     let failed = false;
     if (m[2] !== "/") {
       const end = xml.indexOf("</testcase>", re.lastIndex);
@@ -333,17 +335,17 @@ function readJUnitOutcomes(path: string): Map<string, { outcome: "passed" | "fai
 }
 
 /**
- * Esiti per FILE dal report JSON di Playwright.
+ * Per-FILE outcomes from Playwright's JSON report.
  *
- * Gemello di readJUnitOutcomes, per l'altra meta' della suite. Un requisito dichiarato con
- * `@covers` da un file e2e che passa INTERO ha la stessa forza di prova di uno dichiarato da un
- * file unitario verde: per file, non per requisito. Senza questo, i 43 requisiti che topics-app
- * copre solo cosi' restavano «non eseguito qui» anche dopo aver lanciato la suite intera — perche'
- * l'esito per-requisito nasce dalle annotazioni per-test, e quei file non ne hanno.
+ * The twin of readJUnitOutcomes, for the other half of the suite. A requirement declared with
+ * `@covers` by an e2e file that passes WHOLE has the same evidential force as one declared by a
+ * green unit file: per file, not per requirement. Without this, the 43 requirements topics-app
+ * covers only that way stayed "not run here" even after running the entire suite — because the
+ * per-requirement outcome is born from the per-test annotations, and those files have none.
  *
- * `spec.file` nel report e' relativo a `config.rootDir` (il testDir), mentre i claim della mappa
- * sono relativi alla radice del repo: senza ricomporre il prefisso nessuna chiave combacerebbe, in
- * silenzio e senza un errore da nessuna parte.
+ * `spec.file` in the report is relative to `config.rootDir` (the testDir), while the map's claims
+ * are relative to the repo root: without rebuilding the prefix no key would match, silently and
+ * with an error nowhere.
  */
 function readPlaywrightOutcomes(path: string): Map<string, { outcome: "passed" | "failed"; tests: number }> {
   const out = new Map<string, { outcome: "passed" | "failed"; tests: number }>();
@@ -356,8 +358,8 @@ function readPlaywrightOutcomes(path: string): Map<string, { outcome: "passed" |
   }
   const r = report as { config?: { rootDir?: string }; suites?: unknown[] };
   const rootDir = r.config?.rootDir ?? "";
-  // relative() da cwd: se il report viene da un'altra macchina il prefisso non risolve e si
-  // preferisce nessun esito a un esito attaccato al file sbagliato.
+  // relative() from cwd: if the report comes from another machine the prefix does not resolve,
+  // and no outcome is preferred over an outcome attached to the wrong file.
   const prefix = rootDir ? relative(process.cwd(), rootDir).replaceAll("\\", "/") : "";
   type Spec = { file?: string; tests?: Array<{ status?: string }> };
   const specs: Spec[] = [];
@@ -369,9 +371,9 @@ function readPlaywrightOutcomes(path: string): Map<string, { outcome: "passed" |
   for (const sp of specs) {
     if (!sp.file) continue;
     const file = prefix ? `${prefix}/${sp.file}` : sp.file;
-    // "flaky" = caduto e poi passato al retry: l'esito finale e' passato, come fa il toolkit
-    // quando legge l'ultimo tentativo. "skipped" non e' un fallimento e non e' una prova: conta
-    // come test eseguito ma non sposta l'esito.
+    // "flaky" = failed and then passed on retry: the final outcome is passed, the way the
+    // toolkit reads it when it looks at the last attempt. "skipped" is neither a failure nor
+    // evidence: it counts as a test run but does not move the outcome.
     const failed = (sp.tests ?? []).some((t) => t.status === "unexpected");
     const prev = out.get(file) ?? { outcome: "passed" as const, tests: 0 };
     out.set(file, { outcome: failed ? "failed" : prev.outcome, tests: prev.tests + (sp.tests?.length ?? 0) });
@@ -390,8 +392,8 @@ function writeCoverageMap(dest: string): void {
   const junitFlag = process.argv.indexOf("--junit");
   const pwFlag = process.argv.indexOf("--pw-report");
   const outcomes = junitFlag >= 0 ? readJUnitOutcomes(process.argv[junitFlag + 1] ?? "") : new Map();
-  // I due runner non si sovrappongono (bun:test non gira tests/e2e), ma se mai lo facessero vince
-  // il rosso: un file verde sotto un runner e rotto sotto l'altro e' rotto.
+  // The two runners do not overlap (bun:test does not run tests/e2e), but were they ever to,
+  // red wins: a file green under one runner and broken under the other is broken.
   if (pwFlag >= 0) {
     for (const [file, o] of readPlaywrightOutcomes(process.argv[pwFlag + 1] ?? "")) {
       const prev = outcomes.get(file);

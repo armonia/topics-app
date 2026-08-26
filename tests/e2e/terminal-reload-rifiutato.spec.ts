@@ -1,27 +1,27 @@
 /**
  * @covers RESTART-SAY-01
  *
- * UN RIAVVIO RIFIUTATO NON E' UN'ATTESA.
+ * A REFUSED RESTART IS NOT A WAIT.
  *
- * Segnalato: «riavvio sessione non va o si blocca». Non era un blocco: era un
- * silenzio che gli somiglia. Il gesto «Ricarica» su una tab terminale mandava la
- * POST e ne buttava via il risultato — nessun controllo su `ok`, e un
- * `.catch(() => {})` che ingoiava tutto. Il server pero' rifiuta in tre modi
- * (409 se un reload e' gia' in corso, 404 se la sessione non c'e', 500 se lo
- * spawn fallisce: `server/routes/terminal.ts`), e in tutti e tre l'interfaccia
- * mostrava «Riavvio…» per QUINDICI SECONDI e poi lo toglieva senza dire niente.
+ * Reported: "session restart does not work, or it hangs". It was not a hang: it
+ * was a silence that looks like one. The «Ricarica» gesture on a terminal tab   allow-italian: quoted UI string
+ * fired the POST and threw its result away — no check on `ok`, and a
+ * `.catch(() => {})` that swallowed everything. But the server refuses in three
+ * ways (409 if a reload is already running, 404 if the session is gone, 500 if
+ * the spawn fails: `server/routes/terminal.ts`), and in all three the UI showed
+ * «Riavvio…» for FIFTEEN SECONDS and then took it away without a word.         allow-italian: quoted UI string
  *
- * Il tetto dei 15s e' la rete di sicurezza per la riconnessione che non arriva,
- * non il modo di sapere che e' andata male. Qui si prova la differenza: su un
- * rifiuto la pane torna utilizzabile SUBITO, e il motivo si legge.
+ * The 15s cap is the safety net for a reconnection that never arrives, not the
+ * way to learn it went wrong. What is proved here is the difference: on a
+ * refusal the pane becomes usable AGAIN AT ONCE, and the reason is readable.
  *
- * Il rifiuto si INIETTA (`page.route`) invece di provocarlo: un 409 vero
- * richiederebbe due reload in corsa, che e' una gara e non una prova.
+ * The refusal is INJECTED (`page.route`) instead of provoked: a real 409 would
+ * take two reloads racing, which is a race and not a proof.
  *
- * La shell si APRE davvero, con la stessa procedura di `terminal.spec.ts`: la
- * prima stesura dava per scontata una tab terminale gia' a schermo, e in un'app
- * pulita non ce n'e' nessuna — trenta secondi di attesa e un timeout che
- * parlava del setup, non del gesto.
+ * The shell is really OPENED, with the same procedure as `terminal.spec.ts`: the
+ * first draft took for granted a terminal tab already on screen, and a clean app
+ * has none — thirty seconds of waiting and a timeout that talked about the
+ * setup, not about the gesture.
  */
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/terminal.fixture";
@@ -33,10 +33,10 @@ import {
 } from "./helpers/terminal-workspace";
 import { hermetic } from "./fixtures/hermetic";
 
-// Il confine ermetico si dichiara anche qui, come in terminal.spec.ts: usare la fixture del
-// terminale non lo porta con se'. Il presidio tests/unit/e2e-hermetic-coverage.test.ts esiste
-// perche' dimenticarlo non rompe NIENTE in questo file — il conto arriva quaranta test piu'
-// avanti, su una spec che trova un workspace che nessuno le ha promesso.
+// The hermetic boundary is declared here too, as in terminal.spec.ts: using the terminal
+// fixture does not bring it along. The guard tests/unit/e2e-hermetic-coverage.test.ts exists
+// because forgetting it breaks NOTHING in this file — the bill arrives forty tests further
+// on, in a spec that finds a workspace nobody ever promised it.
 hermetic(test);
 
 test.describe.serial("Ricarica di una tab terminale · il rifiuto si vede", () => {
@@ -55,35 +55,35 @@ test.describe.serial("Ricarica di una tab terminale · il rifiuto si vede", () =
 
   test("un rifiuto del server toglie SUBITO «Riavvio…» e dice il motivo", async ({ page, terminalPage }) => {
     test.info().annotations.push({ type: "spec", description: "RESTART-SAY-01" });
-    const MOTIVO = "Reload already in progress for this session";
+    const REASON = "Reload already in progress for this session";
 
     await page.route("**/api/terminal/sessions/*/reload", (route) =>
-      route.fulfill({ status: 409, contentType: "text/plain", body: MOTIVO }),
+      route.fulfill({ status: 409, contentType: "text/plain", body: REASON }),
     );
 
     await navigateAndOpenTerminal(page, terminalPage, topicName);
 
-    // Il gesto vive nel menu contestuale della tab terminale appena aperta.
+    // The gesture lives in the context menu of the terminal tab just opened.
     const tab = page.locator('[data-pane-id^="terminal:"]').first();
     await expect(tab, "serve una tab terminale su cui provare il gesto").toBeVisible({ timeout: 15_000 });
     await tab.click({ button: "right" });
 
-    // DENTRO il menu contestuale: la barra di stato della sidebar ha un suo
-    // «Ricarica» (ricarica l'app), e un locator che li prende entrambi fallisce
-    // in strict mode invece di provare il gesto.
-    const ricarica = page.getByRole("menu").getByRole("button", { name: /Ricarica/ });
-    await expect(ricarica).toBeVisible({ timeout: 10_000 });
-    await ricarica.click();
+    // INSIDE the context menu: the sidebar status bar has a «Ricarica» of its   allow-italian: quoted UI string
+    // own (which reloads the app), and a locator that catches both fails in
+    // strict mode instead of trying the gesture.
+    const reloadItem = page.getByRole("menu").getByRole("button", { name: /Ricarica/ });
+    await expect(reloadItem).toBeVisible({ timeout: 10_000 });
+    await reloadItem.click();
 
-    // IL PUNTO. Il tetto e' 3 secondi, cioe' MOLTO sotto i 15 della rete di
-    // sicurezza: se questo passasse aspettando quella, non proverebbe niente.
+    // THE POINT. The cap is 3 seconds, i.e. WELL under the 15 of the safety
+    // net: were this to pass by waiting for that one, it would prove nothing.
     await expect(
       page.getByTestId("terminal-reloading-overlay"),
       "«Riavvio…» e' rimasto su un riavvio che il server ha rifiutato",
     ).toHaveCount(0, { timeout: 3_000 });
 
     await expect(
-      page.getByText(MOTIVO),
+      page.getByText(REASON),
       "il rifiuto e' stato ingoiato: chi guarda non sa perche' non e' successo niente",
     ).toBeVisible({ timeout: 5_000 });
   });

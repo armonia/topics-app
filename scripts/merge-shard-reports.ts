@@ -87,8 +87,8 @@ writeFileSync(OUT, JSON.stringify(merged));
 for (const line of perShard) console.log(`  ${line}`);
 console.log(`merge-shard-reports -> ${OUT}: ${files.length} shard, ${seen.size} spec distinte.`);
 if (duplicates > 0) {
-  // Non e' un dettaglio: due SHARD che hanno eseguito lo stesso test significa che il piano si e'
-  // sovrapposto, e ogni conteggio a valle e' gonfiato di quel tanto.
+  // Not a detail: two SHARDS having run the same test means the plan overlapped, and every count
+  // downstream is inflated by exactly that much.
   console.error(`merge-shard-reports: ${duplicates} spec eseguite da PIU' shard — il piano si e' sovrapposto, i conteggi non sono affidabili.`);
   for (const d of [...overlapping].slice(0, 10)) console.error(`  - ${d}`);
   process.exit(1);
