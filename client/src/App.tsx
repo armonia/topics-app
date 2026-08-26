@@ -106,6 +106,7 @@ import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
 import { NotificationHistoryButton } from './components/Sidebar/NotificationHistoryButton';
 import { MobileChromeBar } from './components/Sidebar/MobileChromeBar';
 import { shortcut, usesCtrl } from './lib/shortcutLabel';
+import { useSidebarBottomInset } from './hooks/useSidebarBottomInset';
 
 // Lazy-load components that are only shown on demand
 const NewTopicModal = lazy(() => import('./components/Modals/NewTopicModal').then(m => ({ default: m.NewTopicModal })));
@@ -366,6 +367,8 @@ function App() {
   // in ONE reflow (terminals settle once) then slides a transform at 60fps regardless of N,
   // with nothing hidden/held. In FLOATING-SPLITS mode the expanded pad gets the same inter-card
   // gap (2×--float-gap = 4px) the floating sidebar card uses, matching the split-card gaps.
+  const sidebarBottomInset = useSidebarBottomInset();
+
   const FLOAT_SIDEBAR_GAP = 4; // px — keep in sync with index.css --float-gap (2px) ×2
   const expandedPad = sidebarWidth + (appSettings.floatingSplits ? FLOAT_SIDEBAR_GAP : 0);
   // Refs for the FLIP: #main-content owns the committed paddingLeft (imperative, so the layout
@@ -1734,10 +1737,21 @@ function App() {
           WKWebView panes trail the sidebar flush on the content side and would
           eat any hover/click past the edge. z-50 + wide band: same lesson as
           the SplitTree dividers. Hidden while collapsed — the edge is gone. */}
+      {/* AND IT STOPS WHERE THE SIDEBAR HAS SOMETHING TO CLICK. The band is
+          biased 8px INTO the sidebar (see above) and used to run the full
+          height, so at the bottom it sat on top of the identity block, whose
+          rightmost controls end exactly under it. Measured 2026-08-26:
+          `org-chip` (the organisation chip, x 241-249) could not be clicked at
+          all — on macOS as much as elsewhere — with Playwright naming the
+          culprit, "`div.cursor-col-resize` intercepts pointer events". Nothing
+          had caught it because no test ever clicked that chip.
+          The end is asked of the DOM (`identity-block`) and not written as a
+          number: a fixed inset would be right today and wrong the first time a
+          line is added down there, and it would be wrong in silence. */}
       {!isMobile && !sidebarCollapsed && (
         <div
-          className="group fixed inset-y-0 z-50 cursor-col-resize"
-          style={{ left: sidebarWidth - 8, width: 10 }}
+          className="group fixed z-50 cursor-col-resize"
+          style={{ left: sidebarWidth - 8, width: 10, top: 0, bottom: sidebarBottomInset }}
           onMouseDown={handleSidebarResizeStart}
           onDoubleClick={handleSidebarDoubleClick}
         >

@@ -19,7 +19,7 @@ import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
 
 for (const [nome, platform] of [["Mac", "MacIntel"], ["non-Mac", "Linux x86_64"]] as const) {
-  test(`SIDEBAR-FIT: su ${nome} la campanella resta cliccabile`, async ({ page }) => {
+  test(`SIDEBAR-FIT: on ${nome} the bell stays clickable`, async ({ page }) => {
     await page.addInitScript((p) => {
       Object.defineProperty(navigator, "platform", { get: () => p });
       Object.defineProperty(navigator, "userAgentData", {
@@ -36,17 +36,48 @@ for (const [nome, platform] of [["Mac", "MacIntel"], ["non-Mac", "Linux x86_64"]
       const sopra = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
       return { sporge: Math.round(r.right - gruppo.right), riceveIlClick: b.contains(sopra) };
     });
-    expect(misura, "la campanella deve esistere nella riga").not.toBeNull();
+    expect(misura, "the bell must exist in the row").not.toBeNull();
 
-    // Il click arriva al bottone e non a cio' che gli sta sopra: e' la
-    // proprieta' che serve, e la sola che un utente noterebbe.
-    expect(misura!.riceveIlClick, "qualcosa copre la campanella").toBe(true);
-    // E non sporge dal gruppo che la contiene: e' la CAUSA, e tenerla misurata
-    // fa fallire il test dove il difetto nasce invece che dove si vede.
-    expect(misura!.sporge, "la campanella esce dal suo gruppo").toBeLessThanOrEqual(0);
+    // The click reaches the button and not what sits on top of it: that is the
+    // property that matters, and the only one a user would notice.
+    expect(misura!.riceveIlClick, "something covers the bell").toBe(true);
+    // And it does not stick out of the group holding it: that is the CAUSE, and
+    // measuring it fails the test where the defect starts, not where it shows.
+    expect(misura!.sporge, "the bell sticks out of its group").toBeLessThanOrEqual(0);
 
-    // La prova finale e' il gesto: se il pannello si apre, il click e' passato.
+    // The final proof is the gesture: if the panel opens, the click got through.
     await page.getByTestId("notification-history-button").click({ timeout: 8_000 });
     await expect(page.getByTestId("notification-history-panel")).toBeVisible({ timeout: 8_000 });
   });
 }
+
+/**
+ * AND THE OTHER END OF THE SAME COLUMN: the resize handle must not sit on the
+ * commands at the bottom.
+ *
+ * The handle is a 10px band deliberately biased INTO the sidebar (native panes
+ * on the content side would eat anything past the edge) and it used to run the
+ * full height. At the bottom that put it on top of the identity block, whose
+ * rightmost control — the organisation chip — ends exactly under it: not
+ * clickable at all, on every platform, and no test had ever tried.
+ */
+test("SIDEBAR-FIT: the resize handle does not cover the commands at the bottom", async ({ page }) => {
+  await goToApp(page);
+  const chip = page.getByTestId("org-chip");
+  // With no organisations the chip does not exist: the case has no subject,
+  // and saying so beats passing for show.
+  test.skip(await chip.count() === 0, "this installation has no organisations");
+
+  // `trial` attempts the click WITHOUT performing it: what matters is whether
+  // the pointer LANDS, not what the panel opens.
+  await chip.first().click({ trial: true, timeout: 8_000 });
+
+  // And the handle must stay grabbable where it is needed, i.e. above: a cure
+  // that switched it off entirely would pass this test and break the resize.
+  const maniglia = page.locator(".cursor-col-resize").first();
+  await expect(maniglia).toBeAttached();
+  const box = await maniglia.boundingBox();
+  expect(box, "the handle must have a box").not.toBeNull();
+  expect(box!.height, "the handle must not vanish").toBeGreaterThan(200);
+});
+
