@@ -2,6 +2,279 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.174 — 2026-08-27
+
+### Novità
+- **specflow** · gli esiti dei test unitari arrivano nella living-doc
+- **specflow** · esiti per file anche dai test e2e, non solo dal JUnit
+- **specflow** · --by-file collega le sessioni dei file dichiaranti, e la mappa passa prima dell'indice
+- **evidenza** · E2E_SHOT=1 cattura un fotogramma per test, per le anteprime delle card
+
+### Correzioni
+- **tracciabilita** · un'annotazione che non nomina niente ora lo dice
+- **uat-index** · il manifest delle sessioni usa il percorso dalla radice, o i claim non combaciano mai
+
+### Sotto il cofano
+- Un handshake senza READY non prova che l'app non sia tua
+- Su macOS il socket di Discord non sta dove dice $TMPDIR
+- Lo stesso id diceva due cose, e nessuno dei due era controllato
+- Un test che passa contro il database di produzione passa lo stesso
+- Il cancello puro rifiutava, e nessuno controllava che la rotta glielo chiedesse
+- Il grafico dei token del cruscotto non ha mai funzionato
+- Il filtro sulla trasparenza scartava il rosso puro
+- Un rifiuto che scrive lo stesso, e un rinomino che non si rilegge
+- I test c'erano gia': 46 requisiti scoperti diventano 27
+- Il README della suite dichiarava 68 file quando sono 262
+- Gli id che significavano due cose adesso sono zero
+- Le notifiche push: lo stato era provato, il rilevamento no
+- Un id che nomina cinque test non nomina niente
+- Ogni requisito a debito ora dice perche', e quattro sono fantasmi
+- I quattro buchi veri sono chiusi, e gli otto restanti dicono di non esistere
+- Quattro requisiti kanban erano costruiti e non stavano scritti da nessuna parte
+- La lista del debito di tracciabilita' e' vuota, e ci e' arrivata
+- Due voci del menu comandi non andavano da nessuna parte
+- Dove ricominciare, se /pause si vuole davvero: la meta' server esiste gia'
+- Le superfici che Topics eredita da Claude Code adesso stanno scritte
+- Due buchi che gli agenti avevano onestamente lasciati aperti, ora chiusi
+- /help era fermo a dieci comandi, e /rewind non diceva niente
+- Una quarta formulazione dell'autonomia che nessuno leggeva
+- Sei test dicevano una cosa gia' detta, e trentacinque attese aspettavano l'orologio invece della condizione
+- /status diceva quattro cose, e tre erano gia' sullo schermo
+- Il JSON di token-live aveva perso l'involucro, e nessuno se n'era accorto
+- La parita' fra badge e sidebar torna a casa: era un file per un test solo
+- Il cancello sugli hook git si autodenunciava, ed era rosso da giorni
+- Due byte sopra il tetto, e la cura non era ne' alzarlo ne' togliere le chiavi
+- Una e2e da 210 righe era rimasta su un ramo, e adesso e' nella suite
+- L'ottava voce della card e' arrivata: sulla pane ripristinata la barra se ne va
+- Il ponte del terminale diceva «nessun log» anche quando non era mai nato
+- Il budget del bundle misurava la build di ieri, e la sonda Discord non aveva porta
+- Il rastrello della lingua: 857 righe di commento e 444 nomi tornano in inglese
+- Quattro controlli meccanici su un rapporto di consegna, e il banco sono le carte riaperte
+- I tre criteri della topbar hanno un test, e il banco dei rapporti dice il vero
+- `Agent` si rendeva come un blocco di JSON, e `Task` — lo stesso tool — no
+- La status line aveva otto file di test e zero requisiti
+- Il debito di parita' e' zero: i sette tool che erano JSON grezzo adesso hanno una riga
+- I quattro controlli sono cablati: annotano la consegna, non la fermano
+- Nove test di tool-detail non potevano fallire, e uno di loro copriva WebSearch
+- Lo stesso difetto cercato su tutte le 958 suite: ne restava uno
+- Il banco sui leak esisteva, funzionava, e nessun requisito lo nominava
+- la direzione che mancava — dai test verso le spec
+- Tornare indietro di un turno ti lasciava il repo in detached HEAD
+- Una run E2E respinta dal lock uccideva il server della run che il lock proteggeva
+- Due difetti nelle spec che solo la tracciabilita' poteva far uscire
+- R6 sui doppioni di id nelle spec, e ha morso me entro un minuto
+- Cinque dichiarazioni puntavano al requisito sbagliato, e la colpa e' mia
+- 391 file di test adesso dicono cosa provano, e hanno fatto uscire tre requisiti fantasma
+- Un progetto condiviso lo dice sulla sua tab
+- L'audit delle consegne accusava il proprio cronometro
+- Il chip «in coda» si spegneva, il suo motivo no
+- L'atterraggio esisteva solo nei test: adesso è scritto
+- La spazzata dei worktree adesso è descritta, non solo eseguita
+- Il ritiro: cosa resta di un task quando la tab si chiude
+- Il filo di una card: quattro specie, uno slot, due rivendicazioni
+- Il fan-out: N strade sullo stesso task, e nessuna privilegiata
+- I quattro cancelli che nessuna spec nominava
+- Discord, le buste del relay, e i consensi sugli strumenti
+- Etichette, archivio, stallo sui sottotask, e la persona nel repo
+- Le domande, e come nasce un task
+- Anteprima, modello, percorsi, impostazioni, consumo
+- Turno di notte e profilo: due capability che i test avevano gia'
+- Le note di servizio: THREAD-05, e la riga che non si piega mai
+- Le e2e delle nove famiglie dichiarano, e tre erano dichiarate male
+- Relay, tab dei task, cancelli sul codice distribuito: gli ultimi cinque
+- Una chat che non stai guardando non alzava il badge del dock
+- Il pianificatore degli shard esisteva, e nessuno lo chiamava
+- I video degli E2E c'erano gia': mancava l'elenco che spec-flow legge
+- Due difetti dell'estrattore, e la misura era nella posa sbagliata
+- Le sessioni che vivono fuori da Topics, e la coda del turno
+- Il turno che si ferma: interruzioni, attesa umana, ripresa al riavvio
+- Git dentro l'IDE, e i terminali che restano accesi a vuoto
+- I test che misuravano il carico, e gli interruttori dell'evidenza
+- Chi puo' vedere e toccare cosa: quattro confini, quattro modi di sbagliarli
+- Account, gruppi, licenza e le cose che tengono su il server
+- Permessi, piani, trascritti e il ponte: nove file, sette requisiti
+- Spazzate, orfani, lingue: otto file e la regola dei tre censimenti
+- Filo, dita e dettatura: tre capability nuove e tredici file dichiarati
+- Il motore, il protocollo e la riga di comando: 55 file dichiarati
+- Board, chat e chrome: 89 spec e2e dichiarate, 46 requisiti nuovi
+- Rotte, componenti e stato del client: 90 file dichiarati, 45 requisiti
+- I cancelli meta: 62 file di tests/unit dichiarati, capability `releasing`
+- Integrazione e servizi: 53 file dichiarati, e il peso di un carico diventa un budget
+- Il centro di una card e' un bottone, e sette e2e rosse lo dicevano
+- I banchi, i copioni e il codice condiviso dicono cosa provano: 27 file, 26 requisiti
+- Il server dice cosa prova: 49 file, 47 requisiti, e tre incidenti veri messi per iscritto
+- Il debito di tracciabilita' e' ZERO: gli ultimi 42 file, 44 requisiti
+- La suite e2e scriveva nella cartella VIVA, e la sua pulizia uccideva gli altri shard
+- La barra dell'indirizzo tornava perche' «non lo so ancora» rispondeva «non e' reale»
+- Il banco che mancava a bbf68c9c: due superfici non possono divergere per costruzione
+- Un riavvio rifiutato non e' un'attesa: era silenzio, e somigliava a un blocco
+- Le 742 specifiche arrivano su specflow.armonia.io, con chi le prova
+- Il riavvio di un terminale era in TRE copie, e ne avevo curata una
+- Il banco delle rotte misura il SUO server, e sa provare di mordere
+- Il riepilogo degli shard leggeva una corsa di cinque giorni prima
+- L'evidenza pubblicata e' il TRACE, e solo quella che un requisito puo' aprire
+- Il trace pubblicato pesa 152 KB invece di 9 MB, e dice le stesse cose
+- La catena si costruisce il bundle, e non pubblica il nulla
+- RESTART-SAY-01: il gesto ha UNA implementazione, e la spec lo dice
+- il giro che aggiorna la pagina, senza rilanciare tutto
+- Ogni shard ha la SUA cartella di artefatti
+- La spec del riavvio dichiara il suo confine ermetico
+- Durate degli shard ri-registrate dalla corsa col solo trace
+- Con SKIP_E2E=1 NON si rifondono i report degli shard
+- **e2e** · durate aggiornate dalla corsa del 26/08 (le usa e2e-plan-shards per bilanciare)
+- **e2e** · durate dalla corsa intera del 26/08 (264 file misurati, 2424s)
+- **e2e** · durate dalla corsa del 26/08 con le sessioni per file
+- ignora il manifest delle sessioni per file, rigenerato a ogni corsa
+- **specflow** · la catena cattura i poster per default (E2E_SHOT=0 per spegnerli)
+- ignora i poster delle card e aggiorna le durate dalla corsa del 26/08
+- L'elenco dei comandi esce dal file del composer
+- Il rastrello della lingua: 222 righe e 22 nomi tornano in inglese
+- La barra diceva VERDE su un cancello che la CI blocca
+- Su Windows la finestra di Topics si apriva vuota, e compilava benissimo
+- Durate degli shard dalla corsa del 26/08 (1113 spec, 1356s)
+- La barra torna verde: 35 righe del fix Windows e due mie
+- Su Windows i terminali di Topics non esistevano: il bridge PTY ora parla named pipe
+- Il porting Windows del bridge parla inglese, come chiede il cancello
+- La cache della flotta faceva la valanga: venti chiamanti, quaranta `ps`
+- Un passaggio di consegne fra sessioni era finito in un repo PUBBLICO
+- Registra il bridge PTY cresciuto per Windows, e togli due righe morte
+- Dentro un terminale di Topics su Windows, `ping` non esisteva
+- Il PATH dei figli ha un requisito, e tre change chiuse vanno in archivio
+- Il conto del debito segue il file che ho spostato
+- Durate dalla corsa del 26/08, seconda passata (1101 verdi, 1307s)
+- Su Windows il terminale riceveva 16 byte e si fermava per sempre
+- via la barra doppia, e gli agenti mancanti ora lo dicono
+- Rimetti verde main: il predicato Windows esce dai componenti, il terminale cresciuto si registra
+- Quattro nomi tornano in inglese, e `spawnable` entra fra le parole del progetto
+- Il numero di versione nella sidebar diceva v0.0.0 su ogni build installata
+- I tooltip erano un rettangolo NERO: testo quasi nero su fondo quasi nero
+- La banda grigia riaprendo la sidebar: il layer si stringeva PRIMA di scorrere
+- Accessibilita': tre difetti critici e sei testi sotto la soglia di contrasto
+- Topics e jcode sparicono dall'elenco degli AI provider: sono RUNTIME
+- Il long-press aspetta il MENU, non l'orologio
+- Il contrasto ha un requisito: si calcola, e un token vale in tutti e due i temi
+- Il segno era invertito: la banda grigia si copre con delta NEGATIVO
+- Due banchi leggevano l'albero per POSIZIONE, e un ruolo nuovo li ha rotti
+- Durate dalla corsa delle 18:08 (1100 verdi, 2 rossi da carico)
+- Il banco del meta viewport fissava una direttiva tolta per accessibilita'
+- Su Windows le scorciatoie dicevano di premere un tasto che non esiste
+- Due test verdi su ogni Mac e rossi in CI: dipendevano dalla macchina
+- Il cancello delle latenze non e' MAI stato armabile sul runner, e nessuno poteva accorgersene
+- Le scorciatoie hanno un requisito, e `ENTER` non e' codice morto
+- Il sorvegliante uccideva il server mentre nasceva, e non poteva piu' smettere
+- Il banco del timeout dava un rosso a sorteggio: ora la posa se la impone
+- La cartella degli artefatti degli shard ha un requisito, e un banco che lo prova
+- Il banco delle latenze teneva rossa la notturna per una macchina senza CLI
+- La nota sulla soglia degli skip va in inglese: il cancello la contava come debito nuovo
+- Il badge di non-letto ricresceva sulle topic archiviate: 475 fantasmi
+- Il cancello del pacchetto certificava build vecchie senza dirlo
+- Il cancello della lingua era rosso su main da 96f9659e
+- La barra dell'indirizzo restava sulla pane ripristinata: quattro cause, non una
+- I pulsanti finestra su Windows compaiono col menu Topics, come i semafori
+- Gli stessi fatti in 19 righe di commento in meno
+- La baseline del runner veniva scritta a ogni giro e buttata via a ogni giro
+- Proposta di primo avvio, con i cinque bivi lasciati aperti
+- La baseline del runner esiste: il cancello smette di misurare un Mac
+- Due e2e pretendevano una barra che ora si nasconde
+- Quattro selettori e due tasti cercavano il Mac su una macchina Linux
+- Su Windows e Linux la campanella non si poteva cliccare: mancavano 37px
+- La maniglia della sidebar copriva un bottone: non era cliccabile su nessun sistema
+- Lo skip nuovo spariva dove nessuno guarda: il bersaglio si sceglie, non si salta
+- Il test della simmetria misurava una scorciatoia che ora non c'e' sempre
+- Un test cercava "OK" e lo trovava nel nome della cartella temporanea
+- Il file nuovo non chiamava hermetic(): il cancello aveva ragione
+
+## 2.2.173 — 2026-08-24
+
+### Sotto il cofano
+- L'astensione del banco delle latenze non deve piu' sembrare un verde
+- Il banco delle latenze non esercita l'anteprima delle descrizioni, e ora lo dice
+- Il banco non vedeva l'anteprima delle descrizioni: ora la vede, e ritarato
+- Il telefono non entrava piu' da casa, e diceva che il computer era spento
+- Il telefono si appaiava, e restava fuori lo stesso: la sessione cadeva in un vicolo
+- La radice senza biscotto era un 404 muto, e la schermata lampeggiava
+- Le barre del browser mangiavano il fondo della schermata, e sotto non si arrivava
+- Le cinque scelte che tengono in piedi la schermata ora hanno un guardiano
+- Un filo gia' morto spegneva l'applicazione intera, e la suite non lo sapeva
+- «Collegato» voleva dire che il filo era aperto, non che qualcuno rispondesse
+- Meta' dello sfratto non era coperta da niente, e l'avevo dichiarata verificata
+- «Autorizza questo dispositivo» non diceva a CHI lo stavi autorizzando
+- Chi approva leggeva un indirizzo IP, e doveva dedurre da solo se fidarsi
+- Il cancello dei commenti era rosso per un file appena nato
+- Una `fetch` sostituita e mai rimessa faceva cadere otto test di un altro pacchetto
+- «Nessuna macchina agganciata» non e' un invio fallito, e leggerlo cosi' spegneva tutto
+- Registra relay/ponte.test.ts a 801 righe, una sopra la soglia
+- Il push pubblica la storia, e non c'era niente che lo guardasse
+- Un 403 che non dice QUALE host e' un rifiuto da indovinare
+- Il guscio scambiato a mano diceva di essere una versione che non era
+- Il 403 colpiva il nome di rete della propria macchina
+- Il punto finale di un FQDN non e' un altro computer
+- La schermata di pairing leggeva la prosa invece del codice
+- L'anteprima di una card e' uno stato, non una pila di commenti
+- Una card in review si sentiva ancora dire «riprendo il task»
+- Una corsa morta e una consegna avevano lo stesso chip verde
+- I nomi che ho introdotto stasera erano in italiano
+- Un cancello che chiede se il nome e' INGLESE, invece di indovinare se e' italiano
+- Il cancello dei nomi ha bocciato per primo se stesso
+- Lo standard dell'accordion non c'era: era un copia-incolla in cinque copie
+- Lo slot non riconosceva le parole con cui l'avevo scritto io ieri
+- Porta la sessione dell'agente fuori dalle fette: era illeggibile dentro al thread
+- Lo slot dell'anteprima era diventato una lista, il suo test controllava ancora una parola
+- Quindici card verdi in review non avevano niente da mostrare
+- Un file locale finiva su un host che non esiste: si chiamava «api»
+- Una foto riuscita puo' essere una pagina bianca, e nessuno la guardava
+- Il vocabolario del cancello non conosceva 'byte'
+- Nel test avevo scritto la home vera, su un repo pubblico
+- Uno script per puntare la presence a un'altra app Discord
+- Le sessioni aperte fuori da Topics entrano nel conteggio, senza falsare quello che c'era
+- L'etichetta dice cio' che il numero conta: chat, non sessioni
+- Lo script provato anche quando RIESCE, ed e' li' che si rompeva
+- Il ritiro dell'anteprima non era collegato, e non sopravviveva al riavvio
+- Dire quante sessioni esterne LAVORANO, non solo quante sono
+- La fascia in fondo alla sidebar era storta da entrambi i lati
+- «Nessun agente al lavoro» mentre uno lavora fuori da Topics
+- Il censimento diventa multi-provider: jcode entra, e il prossimo e' una riga
+- Nella fila dei chip progetto c'erano due larghezze e due rientri
+- La card cambiava forma passando di colonna
+- Codex nel censimento: il registro dei provider passa il suo primo esame
+- La presence diceva "0 al lavoro" avendone quattro sotto il naso
+- Sidebar identity band: one inline flow, work numbers in the profile chip
+- Record the one new bloat offender so the gate answers again
+- Un test teneva una copia a mano della frase, e la copia era vecchia
+- Il test riusa lo SNAPSHOT che gia' alimenta il servizio
+- Two red lint lines that came in with main, answered
+- A tracked file named the person who runs the machine
+- Le sessioni jcode non sapevano a quale progetto appartenevano
+- Due commenti dicevano la causa sbagliata: corretti dove stanno
+- La prova della fascia era vera e non si vedeva: mancava cosa fotografare
+- Il passo manuale sul portale non serviva: era una diagnosi mai verificata
+- L'anteprima diceva "Topics" mentre la card vera dice "Jarvis"
+- I test ereditavano gli hook git della macchina, e uno di quelli chiama la 3333
+- Gli altri undici file che pagavano l'hook a ogni commit
+- L'isolamento git copre tutta la corsa, non solo il primo file
+- L'identita' git non va nel preload: mascherava un test che prova un guasto vero
+- Tre cancelli che avevo sfondato io, e nessuno me l'aveva detto
+- La card della board ha la stessa forma in ogni colonna, e le misure stanno nel piede
+- La barra della board: una porta sola alle impostazioni, e i progetti col loro selettore
+- Il test dei chip leggeva il file sbagliato: segue la regola, non l'indirizzo
+- Una riga morta nel relay teneva rosso il lint di chiunque
+- I 2 byte sopra il tetto sono 443 byte di grasso, e ora c'e' scritto quali
+- Il test guardava fra due eventi e li trattava come uno
+- Avevo scritto "risolto" e non lo era: il rosso e' di un test diverso
+- Due daemon "Listening" sullo stesso socket: la finestra fra listen e il pid
+- Il commento diceva 'non attribuito': ora lo e'
+- Una guardia per il diciottesimo file, e il diciottesimo c'era gia'
+- Gli amici diventano follower, il profilo diventa una tab, e la fascia identita' resta dov'e'
+- La tab del browser diventa il chrome, e l'ancora della pane sta su tutti e tre i rami
+- Il manifest incorporato va rigenerato DOPO il merge, non prima
+- I commenti che ho scritto io vanno in inglese, come tutto il resto
+- Il chevron non era storto: il test lo misurava a meta' rotazione
+- Due asserzioni di presence puntavano ancora alla stanza vecchia
+- Una riga del commento precedente era rimasta in italiano
+- Il download si annunciava a una toolbar che stava nascendo in quel momento
+- Il riallineamento aveva lasciato PRESENCE-09 in doppia copia
+- 2.2.173
+
 ## 2.2.172 — 2026-08-21
 
 ### Sotto il cofano

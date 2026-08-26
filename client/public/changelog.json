@@ -1,5 +1,1349 @@
 [
   {
+    "version": "2.2.174",
+    "date": "2026-08-27",
+    "sections": {
+      "new": [
+        {
+          "it": "gli esiti dei test unitari arrivano nella living-doc",
+          "en": "",
+          "scope": "specflow",
+          "breaking": false
+        },
+        {
+          "it": "esiti per file anche dai test e2e, non solo dal JUnit",
+          "en": "",
+          "scope": "specflow",
+          "breaking": false
+        },
+        {
+          "it": "--by-file collega le sessioni dei file dichiaranti, e la mappa passa prima dell'indice",
+          "en": "",
+          "scope": "specflow",
+          "breaking": false
+        },
+        {
+          "it": "E2E_SHOT=1 cattura un fotogramma per test, per le anteprime delle card",
+          "en": "",
+          "scope": "evidenza",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "un'annotazione che non nomina niente ora lo dice",
+          "en": "",
+          "scope": "tracciabilita",
+          "breaking": false
+        },
+        {
+          "it": "il manifest delle sessioni usa il percorso dalla radice, o i claim non combaciano mai",
+          "en": "",
+          "scope": "uat-index",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un handshake senza READY non prova che l'app non sia tua",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Su macOS il socket di Discord non sta dove dice $TMPDIR",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo stesso id diceva due cose, e nessuno dei due era controllato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un test che passa contro il database di produzione passa lo stesso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello puro rifiutava, e nessuno controllava che la rotta glielo chiedesse",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il grafico dei token del cruscotto non ha mai funzionato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il filtro sulla trasparenza scartava il rosso puro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un rifiuto che scrive lo stesso, e un rinomino che non si rilegge",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I test c'erano gia': 46 requisiti scoperti diventano 27",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il README della suite dichiarava 68 file quando sono 262",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Gli id che significavano due cose adesso sono zero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le notifiche push: lo stato era provato, il rilevamento no",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un id che nomina cinque test non nomina niente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ogni requisito a debito ora dice perche', e quattro sono fantasmi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I quattro buchi veri sono chiusi, e gli otto restanti dicono di non esistere",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Quattro requisiti kanban erano costruiti e non stavano scritti da nessuna parte",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La lista del debito di tracciabilita' e' vuota, e ci e' arrivata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due voci del menu comandi non andavano da nessuna parte",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dove ricominciare, se /pause si vuole davvero: la meta' server esiste gia'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le superfici che Topics eredita da Claude Code adesso stanno scritte",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due buchi che gli agenti avevano onestamente lasciati aperti, ora chiusi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "/help era fermo a dieci comandi, e /rewind non diceva niente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una quarta formulazione dell'autonomia che nessuno leggeva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sei test dicevano una cosa gia' detta, e trentacinque attese aspettavano l'orologio invece della condizione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "/status diceva quattro cose, e tre erano gia' sullo schermo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il JSON di token-live aveva perso l'involucro, e nessuno se n'era accorto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La parita' fra badge e sidebar torna a casa: era un file per un test solo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello sugli hook git si autodenunciava, ed era rosso da giorni",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due byte sopra il tetto, e la cura non era ne' alzarlo ne' togliere le chiavi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una e2e da 210 righe era rimasta su un ramo, e adesso e' nella suite",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'ottava voce della card e' arrivata: sulla pane ripristinata la barra se ne va",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il ponte del terminale diceva «nessun log» anche quando non era mai nato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il budget del bundle misurava la build di ieri, e la sonda Discord non aveva porta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il rastrello della lingua: 857 righe di commento e 444 nomi tornano in inglese",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Quattro controlli meccanici su un rapporto di consegna, e il banco sono le carte riaperte",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I tre criteri della topbar hanno un test, e il banco dei rapporti dice il vero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "`Agent` si rendeva come un blocco di JSON, e `Task` — lo stesso tool — no",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La status line aveva otto file di test e zero requisiti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il debito di parita' e' zero: i sette tool che erano JSON grezzo adesso hanno una riga",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I quattro controlli sono cablati: annotano la consegna, non la fermano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nove test di tool-detail non potevano fallire, e uno di loro copriva WebSearch",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo stesso difetto cercato su tutte le 958 suite: ne restava uno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il banco sui leak esisteva, funzionava, e nessun requisito lo nominava",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "la direzione che mancava — dai test verso le spec",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Tornare indietro di un turno ti lasciava il repo in detached HEAD",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una run E2E respinta dal lock uccideva il server della run che il lock proteggeva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due difetti nelle spec che solo la tracciabilita' poteva far uscire",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "R6 sui doppioni di id nelle spec, e ha morso me entro un minuto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cinque dichiarazioni puntavano al requisito sbagliato, e la colpa e' mia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "391 file di test adesso dicono cosa provano, e hanno fatto uscire tre requisiti fantasma",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un progetto condiviso lo dice sulla sua tab",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'audit delle consegne accusava il proprio cronometro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il chip «in coda» si spegneva, il suo motivo no",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'atterraggio esisteva solo nei test: adesso è scritto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La spazzata dei worktree adesso è descritta, non solo eseguita",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il ritiro: cosa resta di un task quando la tab si chiude",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il filo di una card: quattro specie, uno slot, due rivendicazioni",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il fan-out: N strade sullo stesso task, e nessuna privilegiata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I quattro cancelli che nessuna spec nominava",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Discord, le buste del relay, e i consensi sugli strumenti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Etichette, archivio, stallo sui sottotask, e la persona nel repo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le domande, e come nasce un task",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Anteprima, modello, percorsi, impostazioni, consumo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Turno di notte e profilo: due capability che i test avevano gia'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le note di servizio: THREAD-05, e la riga che non si piega mai",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le e2e delle nove famiglie dichiarano, e tre erano dichiarate male",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Relay, tab dei task, cancelli sul codice distribuito: gli ultimi cinque",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una chat che non stai guardando non alzava il badge del dock",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pianificatore degli shard esisteva, e nessuno lo chiamava",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I video degli E2E c'erano gia': mancava l'elenco che spec-flow legge",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due difetti dell'estrattore, e la misura era nella posa sbagliata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le sessioni che vivono fuori da Topics, e la coda del turno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il turno che si ferma: interruzioni, attesa umana, ripresa al riavvio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Git dentro l'IDE, e i terminali che restano accesi a vuoto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I test che misuravano il carico, e gli interruttori dell'evidenza",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chi puo' vedere e toccare cosa: quattro confini, quattro modi di sbagliarli",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Account, gruppi, licenza e le cose che tengono su il server",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Permessi, piani, trascritti e il ponte: nove file, sette requisiti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Spazzate, orfani, lingue: otto file e la regola dei tre censimenti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Filo, dita e dettatura: tre capability nuove e tredici file dichiarati",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il motore, il protocollo e la riga di comando: 55 file dichiarati",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Board, chat e chrome: 89 spec e2e dichiarate, 46 requisiti nuovi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rotte, componenti e stato del client: 90 file dichiarati, 45 requisiti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I cancelli meta: 62 file di tests/unit dichiarati, capability `releasing`",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Integrazione e servizi: 53 file dichiarati, e il peso di un carico diventa un budget",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il centro di una card e' un bottone, e sette e2e rosse lo dicevano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I banchi, i copioni e il codice condiviso dicono cosa provano: 27 file, 26 requisiti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il server dice cosa prova: 49 file, 47 requisiti, e tre incidenti veri messi per iscritto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il debito di tracciabilita' e' ZERO: gli ultimi 42 file, 44 requisiti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La suite e2e scriveva nella cartella VIVA, e la sua pulizia uccideva gli altri shard",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La barra dell'indirizzo tornava perche' «non lo so ancora» rispondeva «non e' reale»",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il banco che mancava a bbf68c9c: due superfici non possono divergere per costruzione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un riavvio rifiutato non e' un'attesa: era silenzio, e somigliava a un blocco",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le 742 specifiche arrivano su specflow.armonia.io, con chi le prova",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il riavvio di un terminale era in TRE copie, e ne avevo curata una",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il banco delle rotte misura il SUO server, e sa provare di mordere",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il riepilogo degli shard leggeva una corsa di cinque giorni prima",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'evidenza pubblicata e' il TRACE, e solo quella che un requisito puo' aprire",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il trace pubblicato pesa 152 KB invece di 9 MB, e dice le stesse cose",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La catena si costruisce il bundle, e non pubblica il nulla",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "RESTART-SAY-01: il gesto ha UNA implementazione, e la spec lo dice",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "il giro che aggiorna la pagina, senza rilanciare tutto",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Ogni shard ha la SUA cartella di artefatti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La spec del riavvio dichiara il suo confine ermetico",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Durate degli shard ri-registrate dalla corsa col solo trace",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Con SKIP_E2E=1 NON si rifondono i report degli shard",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "durate aggiornate dalla corsa del 26/08 (le usa e2e-plan-shards per bilanciare)",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "durate dalla corsa intera del 26/08 (264 file misurati, 2424s)",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "durate dalla corsa del 26/08 con le sessioni per file",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "ignora il manifest delle sessioni per file, rigenerato a ogni corsa",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "la catena cattura i poster per default (E2E_SHOT=0 per spegnerli)",
+          "en": "",
+          "scope": "specflow",
+          "breaking": false
+        },
+        {
+          "it": "ignora i poster delle card e aggiorna le durate dalla corsa del 26/08",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "L'elenco dei comandi esce dal file del composer",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il rastrello della lingua: 222 righe e 22 nomi tornano in inglese",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La barra diceva VERDE su un cancello che la CI blocca",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Su Windows la finestra di Topics si apriva vuota, e compilava benissimo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Durate degli shard dalla corsa del 26/08 (1113 spec, 1356s)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La barra torna verde: 35 righe del fix Windows e due mie",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Su Windows i terminali di Topics non esistevano: il bridge PTY ora parla named pipe",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il porting Windows del bridge parla inglese, come chiede il cancello",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La cache della flotta faceva la valanga: venti chiamanti, quaranta `ps`",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un passaggio di consegne fra sessioni era finito in un repo PUBBLICO",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra il bridge PTY cresciuto per Windows, e togli due righe morte",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dentro un terminale di Topics su Windows, `ping` non esisteva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il PATH dei figli ha un requisito, e tre change chiuse vanno in archivio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il conto del debito segue il file che ho spostato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Durate dalla corsa del 26/08, seconda passata (1101 verdi, 1307s)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Su Windows il terminale riceveva 16 byte e si fermava per sempre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "via la barra doppia, e gli agenti mancanti ora lo dicono",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Rimetti verde main: il predicato Windows esce dai componenti, il terminale cresciuto si registra",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Quattro nomi tornano in inglese, e `spawnable` entra fra le parole del progetto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il numero di versione nella sidebar diceva v0.0.0 su ogni build installata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I tooltip erano un rettangolo NERO: testo quasi nero su fondo quasi nero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La banda grigia riaprendo la sidebar: il layer si stringeva PRIMA di scorrere",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Accessibilita': tre difetti critici e sei testi sotto la soglia di contrasto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Topics e jcode sparicono dall'elenco degli AI provider: sono RUNTIME",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il long-press aspetta il MENU, non l'orologio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il contrasto ha un requisito: si calcola, e un token vale in tutti e due i temi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il segno era invertito: la banda grigia si copre con delta NEGATIVO",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due banchi leggevano l'albero per POSIZIONE, e un ruolo nuovo li ha rotti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Durate dalla corsa delle 18:08 (1100 verdi, 2 rossi da carico)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il banco del meta viewport fissava una direttiva tolta per accessibilita'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Su Windows le scorciatoie dicevano di premere un tasto che non esiste",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due test verdi su ogni Mac e rossi in CI: dipendevano dalla macchina",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello delle latenze non e' MAI stato armabile sul runner, e nessuno poteva accorgersene",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le scorciatoie hanno un requisito, e `ENTER` non e' codice morto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il sorvegliante uccideva il server mentre nasceva, e non poteva piu' smettere",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il banco del timeout dava un rosso a sorteggio: ora la posa se la impone",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La cartella degli artefatti degli shard ha un requisito, e un banco che lo prova",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il banco delle latenze teneva rossa la notturna per una macchina senza CLI",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La nota sulla soglia degli skip va in inglese: il cancello la contava come debito nuovo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il badge di non-letto ricresceva sulle topic archiviate: 475 fantasmi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello del pacchetto certificava build vecchie senza dirlo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello della lingua era rosso su main da 96f9659e",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La barra dell'indirizzo restava sulla pane ripristinata: quattro cause, non una",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I pulsanti finestra su Windows compaiono col menu Topics, come i semafori",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Gli stessi fatti in 19 righe di commento in meno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La baseline del runner veniva scritta a ogni giro e buttata via a ogni giro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Proposta di primo avvio, con i cinque bivi lasciati aperti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La baseline del runner esiste: il cancello smette di misurare un Mac",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due e2e pretendevano una barra che ora si nasconde",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Quattro selettori e due tasti cercavano il Mac su una macchina Linux",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Su Windows e Linux la campanella non si poteva cliccare: mancavano 37px",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La maniglia della sidebar copriva un bottone: non era cliccabile su nessun sistema",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo skip nuovo spariva dove nessuno guarda: il bersaglio si sceglie, non si salta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test della simmetria misurava una scorciatoia che ora non c'e' sempre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un test cercava \"OK\" e lo trovava nel nome della cartella temporanea",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il file nuovo non chiamava hermetic(): il cancello aveva ragione",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.173",
+    "date": "2026-08-24",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "L'astensione del banco delle latenze non deve piu' sembrare un verde",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il banco delle latenze non esercita l'anteprima delle descrizioni, e ora lo dice",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il banco non vedeva l'anteprima delle descrizioni: ora la vede, e ritarato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il telefono non entrava piu' da casa, e diceva che il computer era spento",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il telefono si appaiava, e restava fuori lo stesso: la sessione cadeva in un vicolo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La radice senza biscotto era un 404 muto, e la schermata lampeggiava",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le barre del browser mangiavano il fondo della schermata, e sotto non si arrivava",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le cinque scelte che tengono in piedi la schermata ora hanno un guardiano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un filo gia' morto spegneva l'applicazione intera, e la suite non lo sapeva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Collegato» voleva dire che il filo era aperto, non che qualcuno rispondesse",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Meta' dello sfratto non era coperta da niente, e l'avevo dichiarata verificata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Autorizza questo dispositivo» non diceva a CHI lo stavi autorizzando",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chi approva leggeva un indirizzo IP, e doveva dedurre da solo se fidarsi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello dei commenti era rosso per un file appena nato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una `fetch` sostituita e mai rimessa faceva cadere otto test di un altro pacchetto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Nessuna macchina agganciata» non e' un invio fallito, e leggerlo cosi' spegneva tutto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra relay/ponte.test.ts a 801 righe, una sopra la soglia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il push pubblica la storia, e non c'era niente che lo guardasse",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un 403 che non dice QUALE host e' un rifiuto da indovinare",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il guscio scambiato a mano diceva di essere una versione che non era",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il 403 colpiva il nome di rete della propria macchina",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il punto finale di un FQDN non e' un altro computer",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La schermata di pairing leggeva la prosa invece del codice",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'anteprima di una card e' uno stato, non una pila di commenti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una card in review si sentiva ancora dire «riprendo il task»",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una corsa morta e una consegna avevano lo stesso chip verde",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I nomi che ho introdotto stasera erano in italiano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un cancello che chiede se il nome e' INGLESE, invece di indovinare se e' italiano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello dei nomi ha bocciato per primo se stesso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo standard dell'accordion non c'era: era un copia-incolla in cinque copie",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo slot non riconosceva le parole con cui l'avevo scritto io ieri",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Porta la sessione dell'agente fuori dalle fette: era illeggibile dentro al thread",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo slot dell'anteprima era diventato una lista, il suo test controllava ancora una parola",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Quindici card verdi in review non avevano niente da mostrare",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un file locale finiva su un host che non esiste: si chiamava «api»",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una foto riuscita puo' essere una pagina bianca, e nessuno la guardava",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il vocabolario del cancello non conosceva 'byte'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nel test avevo scritto la home vera, su un repo pubblico",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Uno script per puntare la presence a un'altra app Discord",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le sessioni aperte fuori da Topics entrano nel conteggio, senza falsare quello che c'era",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'etichetta dice cio' che il numero conta: chat, non sessioni",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo script provato anche quando RIESCE, ed e' li' che si rompeva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il ritiro dell'anteprima non era collegato, e non sopravviveva al riavvio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dire quante sessioni esterne LAVORANO, non solo quante sono",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La fascia in fondo alla sidebar era storta da entrambi i lati",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Nessun agente al lavoro» mentre uno lavora fuori da Topics",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il censimento diventa multi-provider: jcode entra, e il prossimo e' una riga",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nella fila dei chip progetto c'erano due larghezze e due rientri",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La card cambiava forma passando di colonna",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Codex nel censimento: il registro dei provider passa il suo primo esame",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La presence diceva \"0 al lavoro\" avendone quattro sotto il naso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sidebar identity band: one inline flow, work numbers in the profile chip",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Record the one new bloat offender so the gate answers again",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un test teneva una copia a mano della frase, e la copia era vecchia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test riusa lo SNAPSHOT che gia' alimenta il servizio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Two red lint lines that came in with main, answered",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A tracked file named the person who runs the machine",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le sessioni jcode non sapevano a quale progetto appartenevano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due commenti dicevano la causa sbagliata: corretti dove stanno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La prova della fascia era vera e non si vedeva: mancava cosa fotografare",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il passo manuale sul portale non serviva: era una diagnosi mai verificata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'anteprima diceva \"Topics\" mentre la card vera dice \"Jarvis\"",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I test ereditavano gli hook git della macchina, e uno di quelli chiama la 3333",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Gli altri undici file che pagavano l'hook a ogni commit",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'isolamento git copre tutta la corsa, non solo il primo file",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'identita' git non va nel preload: mascherava un test che prova un guasto vero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tre cancelli che avevo sfondato io, e nessuno me l'aveva detto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La card della board ha la stessa forma in ogni colonna, e le misure stanno nel piede",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La barra della board: una porta sola alle impostazioni, e i progetti col loro selettore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test dei chip leggeva il file sbagliato: segue la regola, non l'indirizzo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una riga morta nel relay teneva rosso il lint di chiunque",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I 2 byte sopra il tetto sono 443 byte di grasso, e ora c'e' scritto quali",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test guardava fra due eventi e li trattava come uno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Avevo scritto \"risolto\" e non lo era: il rosso e' di un test diverso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due daemon \"Listening\" sullo stesso socket: la finestra fra listen e il pid",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il commento diceva 'non attribuito': ora lo e'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una guardia per il diciottesimo file, e il diciottesimo c'era gia'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Gli amici diventano follower, il profilo diventa una tab, e la fascia identita' resta dov'e'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La tab del browser diventa il chrome, e l'ancora della pane sta su tutti e tre i rami",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il manifest incorporato va rigenerato DOPO il merge, non prima",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I commenti che ho scritto io vanno in inglese, come tutto il resto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il chevron non era storto: il test lo misurava a meta' rotazione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due asserzioni di presence puntavano ancora alla stanza vecchia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una riga del commento precedente era rimasta in italiano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il download si annunciava a una toolbar che stava nascendo in quel momento",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il riallineamento aveva lasciato PRESENCE-09 in doppia copia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "2.2.173",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.172",
     "date": "2026-08-21",
     "sections": {
