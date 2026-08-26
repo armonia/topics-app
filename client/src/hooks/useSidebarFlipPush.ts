@@ -76,6 +76,10 @@ export function useSidebarFlipPush(
     // eslint-disable-next-line react-hooks/immutability
     layer.style.transition = 'none';
     layer.style.transform = 'none';
+    // Any width left by a previous slide goes BEFORE measuring Last: measuring a
+    // layer that is still wearing the last toggle's extra width gives a delta that
+    // is wrong by that amount, and a rapid collapse→expand would accumulate it.
+    layer.style.width = '';
 
     // No animation on first mount, when disabled (web / non-overlay desktop), or for a pure
     // width resize (collapsed unchanged): just settle at the target pad instantly.
@@ -94,8 +98,30 @@ export function useSidebarFlipPush(
     if (delta === 0) { layer.style.willChange = ''; return; } // nothing to animate
 
     // (4) Invert — appear where it visually was (pre-paint; transition is already 'none').
+    //
+    // AND WIDEN IT BY THE SAME AMOUNT, which is the part that was missing.
+    //
+    // The layer is a flex child: committing the pad in step (2) SHRINKS it by
+    // `expandedPad` before it is shifted. Shifting a narrower box left therefore
+    // uncovers a strip on the RIGHT, of exactly the width still to travel — and
+    // what shows through is the page background, i.e. the grey band reported on
+    // 2026-08-26 ("reopening the sidebar, a grey appears on the right while it
+    // closes"). Measured through CDP on the installed Windows build: at +45ms of
+    // the reveal the layer was 1000px wide inside a 1400px window with its right
+    // edge at 1230 — 170 uncovered pixels, shrinking to 0 as the slide ended.
+    //
+    // `overflow:hidden` on the parent (see the note at #main-content) clips what
+    // OVERFLOWS; it cannot fill what is not painted. Growing the layer by `delta`
+    // for the duration of the slide makes its right edge land on the window edge
+    // from the first frame: nothing to uncover, and the extra width goes away with
+    // the same transition that carries the shift.
+    //
+    // Only on the reveal (`delta > 0`). On collapse the layer GROWS and its right
+    // edge is already at the window edge; adding width there would push content
+    // out to be clipped, which is the opposite mistake.
     layer.style.willChange = 'transform';
     layer.style.transform = `translateX(${delta}px)`;
+    if (delta > 0) layer.style.width = `calc(100% + ${delta}px)`;
     void layer.getBoundingClientRect(); // flush the inverted transform before arming Play
 
     // (5) Play — next frame, slide translateX → 0 on the compositor, matching the sidebar's
@@ -103,15 +129,22 @@ export function useSidebarFlipPush(
     playRaf.current = requestAnimationFrame(() => {
       const l = flipLayer.current;
       if (!l) return;
-      l.style.transition = `transform ${SLIDE_MS}ms ease`;
+      // `width` rides the same transition as `transform`: the extra width has to
+      // disappear exactly as the shift does, or the last frames would go back to
+      // uncovering the strip they were added to cover.
+      l.style.transition = `transform ${SLIDE_MS}ms ease, width ${SLIDE_MS}ms ease`;
       l.style.transform = 'translateX(0)';
+      l.style.width = '';
     });
 
     // Drop will-change after the slide — never pin a GPU layer (all N terminal canvases)
     // for the whole session (MDN guidance).
     cleanupTimer.current = window.setTimeout(() => {
       const l = flipLayer.current;
-      if (l) { l.style.willChange = ''; l.style.transition = ''; }
+      // `width` cleared here too: an inline width left behind would pin the layer
+      // for the rest of the session, and the next window resize would find it
+      // stuck at a size that no longer means anything.
+      if (l) { l.style.willChange = ''; l.style.transition = ''; l.style.width = ''; }
     }, SLIDE_MS + 60);
 
     return () => { window.clearTimeout(cleanupTimer.current); cancelAnimationFrame(playRaf.current); };
