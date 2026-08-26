@@ -288,13 +288,13 @@ function linkByRequirement(): void {
   }
   const capOf = capabilityById();
   let linked = 0, orphan = 0;
-  for (const { specIds, video, trace } of specAttachments(report)) {
+  for (const { specIds, video, trace, poster } of specAttachments(report)) {
     for (const id of specIds) {
       const cap = capOf.get(id);
       if (!cap) { orphan++; continue; }
       const destDir = join(VIDEOS_DIR, cap);
       mkdirSync(destDir, { recursive: true });
-      for (const [src, ext] of [[video, ".webm"], [trace, ".zip"]] as const) {
+      for (const [src, ext] of [[video, ".webm"], [trace, ".zip"], [poster, ".png"]] as const) {
         if (!src || !existsSync(src)) continue;
         const dest = join(destDir, id + ext);
         if (existsSync(dest)) continue;
@@ -403,8 +403,8 @@ function allSpecs(report: string): Array<{ file: string; titolo: string; esito: 
 }
 
 /** Per spec of the report: the requirement ids it declares, plus its video and trace paths. */
-function specAttachments(report: string): Array<{ specIds: string[]; video: string | null; trace: string | null }> {
-  const out: Array<{ specIds: string[]; video: string | null; trace: string | null }> = [];
+function specAttachments(report: string): Array<{ specIds: string[]; video: string | null; trace: string | null; poster: string | null }> {
+  const out: Array<{ specIds: string[]; video: string | null; trace: string | null; poster: string | null }> = [];
   let doc: unknown;
   try { doc = JSON.parse(readFileSync(report, "utf8")); } catch { return out; }
   const visit = (suite: Record<string, unknown>): void => {
@@ -425,7 +425,7 @@ function specAttachments(report: string): Array<{ specIds: string[]; video: stri
           const a = att.find((x) => x.name === n && typeof x.path === "string");
           return a ? (a.path as string) : null;
         };
-        out.push({ specIds: [...new Set(specIds)], video: pathOf("video"), trace: pathOf("trace") });
+        out.push({ specIds: [...new Set(specIds)], video: pathOf("video"), trace: pathOf("trace"), poster: pathOf("screenshot") });
       }
     }
     for (const s of (suite.suites as Record<string, unknown>[] | undefined) ?? []) visit(s);

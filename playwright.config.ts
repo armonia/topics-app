@@ -201,7 +201,11 @@ export default defineConfig({
 
     baseURL: E2E_BASE,
     video: EVIDENCE && VIDEO ? "on" : "retain-on-failure",
-    screenshot: "only-on-failure",
+    // `E2E_SHOT=1`: uno screenshot alla fine di OGNI test, non solo sui rossi. Serve alle
+    // ANTEPRIME delle card della living-doc: senza, la card mostra un rettangolo grigio col nome
+    // dell'esito, perche' il trace con `screenshots: false` non contiene nessun fotogramma da
+    // estrarre e i video sono spenti.
+    screenshot: EVIDENCE && process.env.E2E_SHOT === "1" ? "on" : "only-on-failure",
     // In evidenza il trace si accende SU TUTTI, anche sui verdi: e' quello che
     // si pubblica. Fuori dall'evidenza resta al primo ritentativo, dove serve a
     // diagnosticare e non a raccontare.
