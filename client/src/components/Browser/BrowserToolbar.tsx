@@ -14,6 +14,7 @@ import { openExternalOnce } from '../../lib/openExternal';
 import { useMobile } from '../../hooks/useMobile';
 import { useLongPress, type LongPressBinding } from '../../hooks/useLongPress';
 import { useT } from '../../hooks/useT';
+import { shortcut } from '../../lib/shortcutLabel';
 
 /** Split a URL into scheme / host / rest for Chrome-style emphasis (host bold,
  *  the rest muted). Falls back to the raw string for non-URLs (about:blank,
@@ -647,7 +648,7 @@ export function BrowserToolbar({
             <button
               onClick={onToggleDevTools}
               className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary transition-colors"
-              title="Toggle DevTools (⌥⌘I)"
+              title={`Toggle DevTools (${shortcut('I', { alt: true })})`}
               data-testid="browser-devtools-button"
             >
               <Code2 size={14} />

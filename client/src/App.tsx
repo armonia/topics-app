@@ -105,6 +105,7 @@ import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
 import { NotificationHistoryButton } from './components/Sidebar/NotificationHistoryButton';
 import { MobileChromeBar } from './components/Sidebar/MobileChromeBar';
+import { shortcut } from './lib/shortcutLabel';
 
 // Lazy-load components that are only shown on demand
 const NewTopicModal = lazy(() => import('./components/Modals/NewTopicModal').then(m => ({ default: m.NewTopicModal })));
@@ -1125,7 +1126,7 @@ function App() {
       onClick={() => { setSearchScope('all'); setShowSearch(true); }}
       className={`edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7'} flex items-center gap-1.5 rounded-lg ${RAISED_CONTROL} text-app-text transition-colors flex-shrink-0 cursor-pointer app-no-drag`} {...NO_DRAG_REGION}
       style={{ pointerEvents: 'auto', ...(isMobile ? null : GLYPH_KBD_PADDING) }}
-      title="Search (⌘K)"
+      title={`Search (${shortcut('K')})`}
       aria-label="Search, open the command palette"
     >
       {/* 16 e non 14: accanto a un'icona di sistema (il «+» di WhatsApp è il
@@ -1145,9 +1146,9 @@ function App() {
       presentation="palette"
       onNewChat={() => handleQuickCreateTopic()}
       onAddPane={handleStandaloneAddPane}
-      triggerTitle="New (⌘N)"
+      triggerTitle={`New (${shortcut('N')})`}
       triggerVariant="header"
-      triggerKbd="⌘N"
+      triggerKbd={shortcut('N')}
     />
   );
 
@@ -1746,7 +1747,7 @@ function App() {
               e `--bg-surface` sotto i 768px COLLASSA sul chrome (index.css):
               l'unico modo di riaprire la colonna quando non c'è nessuna pane
               spariva nel fondo proprio sul telefono. */}
-          <SidebarToggleButton onClick={toggleSidebar} title="Expand sidebar (⌘B)" size="action" className={`edge-lit ${RAISED_CONTROL} rounded-lg shadow-sm`} />
+          <SidebarToggleButton onClick={toggleSidebar} title={`Expand sidebar (${shortcut('B')})`} size="action" className={`edge-lit ${RAISED_CONTROL} rounded-lg shadow-sm`} />
         </div>
       )}
 

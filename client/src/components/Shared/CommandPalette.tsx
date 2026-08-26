@@ -32,6 +32,7 @@ import { pagesSnapshot, subscribeSites } from '../../state/browserSiteHistory';
 import { BrowserFavicon } from '../Browser/BrowserFavicon';
 import { AddMenuIcon } from './AddMenuIcon';
 import type { PaneType } from '../../types';
+import { shortcut } from '../../lib/shortcutLabel';
 
 export interface CommandAction {
   id: string;
@@ -157,7 +158,7 @@ export function CommandPalette({
       label: item.label,
       icon: <AddMenuIcon item={item} size={14} />,
       category: 'action' as const,
-      shortcut: item.id === 'new-chat' && isDesktop ? '⌘N' : undefined,
+      shortcut: item.id === 'new-chat' && isDesktop ? shortcut('N') : undefined,
       testId: `cmdk-add-${item.id}`,
       action: () => { item.run(); onClose(); },
     })),
@@ -325,7 +326,7 @@ export function CommandPalette({
         // The undo shortcut belongs to the most recent TAB, which is the only
         // thing ⇧⌘T reopens: pinning it on a page row would promise a key that
         // does something else.
-        shortcut: i === 0 && row.kind === 'tab' ? '⇧⌘T' : undefined,
+        shortcut: i === 0 && row.kind === 'tab' ? shortcut('T', { shift: true }) : undefined,
         titleOverride: row.url || record?.terminal?.cwd || record?.projectPath || undefined,
         action: () => {
           if (row.kind === 'tab' && record && onReopenClosedTab) onReopenClosedTab(record);
@@ -769,7 +770,7 @@ export function CommandPalette({
               ⌘N è legato senza condizioni (useKeyboardShortcuts) ma ci ARRIVA
               solo nel guscio desktop: in una scheda del browser il tasto se lo
               tiene il browser. Per questo l'hint è gated su `isDesktop`. */}
-          <ActionPill isMobile={isMobile} icon={<Settings size={12} />} label="Settings" shortcut="⌘," onClick={() => { onOpenSettings(); onClose(); }} />
+          <ActionPill isMobile={isMobile} icon={<Settings size={12} />} label="Settings" shortcut={shortcut(',')} onClick={() => { onOpenSettings(); onClose(); }} />
           <ActionPill
             isMobile={isMobile}
             icon={themeMode === 'dark' ? <Sun size={12} /> : <Moon size={12} />}

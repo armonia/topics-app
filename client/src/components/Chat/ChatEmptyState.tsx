@@ -3,6 +3,7 @@ import { useT } from '../../hooks/useT';
 import { contextBits } from './emptyStateContext';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { resolveEffectiveProvider } from '../../lib/effortTiers';
+import { shortcut } from '../../lib/shortcutLabel';
 
 /**
  * Il vuoto di una chat: il nome, l'invito, quattro spunte da cui partire.
@@ -131,7 +132,7 @@ export function ChatEmptyState({
       )}
       {showHints && (
         <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 justify-center text-[11px] text-app-text-faint">
-          <span className="flex items-center gap-1.5"><kbd className="kbd">⌘K</kbd> commands</span>
+          <span className="flex items-center gap-1.5"><kbd className="kbd">{shortcut('K')}</kbd> commands</span>
           <span className="flex items-center gap-1.5"><kbd className="kbd">/</kbd> slash commands</span>
           {topic.projectPath && <span className="flex items-center gap-1.5"><kbd className="kbd">@</kbd> mention file</span>}
           {/* ⌘/ e non ⌘?: la scorciatoia ne accetta due (`useKeyboardShortcuts`
@@ -139,7 +140,7 @@ export function ChatEmptyState({
               scrive uguale su tastiere diverse. Su una tastiera italiana il `?`
               è Shift+', cioè un tasto che il promemoria non nominava: «vedo
               command punto interrogativo, ma io non ce l'ho da tastiera». */}
-          <span className="flex items-center gap-1.5"><kbd className="kbd">⌘/</kbd> all shortcuts</span>
+          <span className="flex items-center gap-1.5"><kbd className="kbd">{shortcut('/')}</kbd> all shortcuts</span>
         </div>
       )}
     </div>

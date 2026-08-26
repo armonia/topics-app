@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, FileCode, MessageSquarePlus, Trash2 } from '
 import type { DiffBundle, DiffFileStat } from '../../lib/board';
 import { parseDiffRows, isCommentable, anchorOf, noteKey, type DiffRow, type DiffNote } from './reviewNotes';
 import { buildFileRows, type DiffFileChunk } from './diffFileRows';
+import { shortcut } from '../../lib/shortcutLabel';
 
 /**
  * GitHub-style unified diff for a raw `git diff` patch (publish range or a task's
@@ -84,7 +85,7 @@ function NoteComposer({ onSave, onCancel }: { onSave: (body: string) => void; on
         <button onClick={onCancel} className="rounded px-2 py-0.5 font-sans text-[11px] text-app-text-secondary hover:text-app-text">
           {tr('common.cancel')}
         </button>
-        <span className="ml-auto font-sans text-[10px] text-app-text-faint">⌘↵</span>
+        <span className="ml-auto font-sans text-[10px] text-app-text-faint">{shortcut('\u21b5')}</span>
       </div>
     </div>
   );

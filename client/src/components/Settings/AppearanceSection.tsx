@@ -7,6 +7,7 @@ import { fetchOutputLanguage, pushOutputLanguage, type LocalePreference } from '
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { Select, type SelectOption } from '../Shared/Select';
 import { useT } from '@/hooks/useT';
+import { shortcut } from '../../lib/shortcutLabel';
 
 // Le etichette restano BILINGUI, per la ragione scritta accanto al controllo:
 // è l'unico posto che si deve poter leggere anche quando la lingua in vigore è
@@ -271,7 +272,7 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
           <span className="text-[12.5px] text-app-text">Scorciatoie da tastiera</span>
           {/* Vedi `shared/shortcuts.ts`: la chord ne accetta due, e questa è
               quella che si scrive uguale su ogni tastiera. */}
-          <kbd className="kbd ml-auto">⌘/</kbd>
+          <kbd className="kbd ml-auto">{shortcut('/')}</kbd>
           <ChevronRight size={13} className="flex-shrink-0 text-app-text-muted" />
         </button>
       )}

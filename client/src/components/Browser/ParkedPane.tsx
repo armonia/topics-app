@@ -11,6 +11,7 @@
 import { Unplug, RotateCw } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { loopbackDownText } from './navErrorMessage';
+import { shortcut } from '../../lib/shortcutLabel';
 
 interface ParkedPaneProps {
   url: string;
@@ -58,7 +59,7 @@ export function ParkedPane({ url, checkedAt, checking, onRetry }: ParkedPaneProp
         {/* La scheda si chiude con la scorciatoia che chiude qualunque pane: non
             serve un bottone in più, serve saperlo. */}
         <div className="mt-3 text-[11px] text-app-text-tertiary">
-          <kbd className="kbd">⌘W</kbd> {tr('parked.closesTab')}
+          <kbd className="kbd">{shortcut('W')}</kbd> {tr('parked.closesTab')}
         </div>
       </div>
     </div>

@@ -32,6 +32,7 @@ import { type LayoutNode } from '../../state/layout/layoutTree';
 import { buildShallowGridTree } from '../../state/layout/legacyAdapters';
 import { pxToWeightDelta, resizeWeights } from '../../state/layout/splitController';
 import type { SendMessageOptions } from '@/hooks/useChat';
+import { shortcut } from '../../lib/shortcutLabel';
 
 /**
  * Deep-clone a row preserving its optional `cellStacks` map. Drop handlers
@@ -2625,8 +2626,13 @@ export function PanelGrid({
               </p>
               {window.innerWidth >= 768 && (
                 <div className="flex flex-wrap gap-3 justify-center text-[12px] text-app-text-muted">
-                  <span className="flex items-center gap-1.5 bg-app-hover dark:bg-elevated px-3 py-1.5 rounded-lg"><kbd className="kbd">{'\u2318K'}</kbd> Search</span>
-                  <span className="flex items-center gap-1.5 bg-app-hover dark:bg-elevated px-3 py-1.5 rounded-lg"><kbd className="kbd">{'\u2318B'}</kbd> Sidebar</span>
+                  {/* `shortcut()` and not `⌘` written out: on Windows that glyph
+                      names a key the keyboard does not have, and this is the FIRST
+                      screen anyone sees. The binding is unchanged — the handlers
+                      accept `metaKey || ctrlKey` — only the caption follows the
+                      system. */}
+                  <span className="flex items-center gap-1.5 bg-app-hover dark:bg-elevated px-3 py-1.5 rounded-lg"><kbd className="kbd">{shortcut('K')}</kbd> Search</span>
+                  <span className="flex items-center gap-1.5 bg-app-hover dark:bg-elevated px-3 py-1.5 rounded-lg"><kbd className="kbd">{shortcut('B')}</kbd> Sidebar</span>
                 </div>
               )}
             </>

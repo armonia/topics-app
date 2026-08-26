@@ -29,6 +29,7 @@ import { ConfirmDialog } from '../Shared/ConfirmDialog';
 import { SECTION_CARD, SELECTED_SURFACE, SELECTED_SURFACE_SOFT, TREE_ROW_CARD } from '@/lib/selectionStyles';
 import { Spinner } from '../Shared/Spinner';
 import { SkeletonRows } from '../Shared/Skeleton';
+import { shortcut } from '../../lib/shortcutLabel';
 
 interface GitChangesProps {
   projectPath: string;
@@ -1192,7 +1193,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                       ) : (
                         <GitCommit size={10} />
                       )}
-                      <kbd className="kbd !text-white/50">⌘↩</kbd>
+                      <kbd className="kbd !text-white/50">{shortcut('\u21a9')}</kbd>
                     </button>
                   </div>
                   {/* Il commit rifiutato, con la ragione di git per esteso.
@@ -1537,7 +1538,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               ) : (
                 <GitCommit size={10} />
               )}
-              Commit <kbd className="kbd !text-white/50">⌘↩</kbd>
+              Commit <kbd className="kbd !text-white/50">{shortcut('\u21a9')}</kbd>
             </button>
           </div>
         )}

@@ -33,6 +33,7 @@ import { CHAT_STRIP } from '../../lib/chatStripStyles';
 import { AutonomyPicker } from './AutonomyPicker';
 import { fastModeUi } from '../../lib/fastMode';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
+import { shortcut } from '../../lib/shortcutLabel';
 
 // Lazily loaded — the inspector pulls in memory/openclaw hooks; keep it out of
 // the composer's initial bundle and only fetch it the first time the popover opens.
@@ -129,7 +130,7 @@ function AddMenu({
         >
           <Paperclip size={14} />
           Attach file
-          <span className="ml-auto text-[11px] text-app-text-muted">⌘U</span>
+          <span className="ml-auto text-[11px] text-app-text-muted">{shortcut('U')}</span>
         </button>
         {/* «Registra voce» NON sta qui: è il tasto col microfono in fondo alla
             riga, l'unico ammesso prima dell'invio. Due porte per lo stesso
@@ -148,7 +149,7 @@ function AddMenu({
           >
             {isCallActive ? <PhoneOff size={14} /> : <Phone size={14} />}
             {isCallActive ? 'End call' : 'Voice call'}
-            <span className="ml-auto text-[11px] text-app-text-muted">⌘⇧C</span>
+            <span className="ml-auto text-[11px] text-app-text-muted">{shortcut('C', { shift: true })}</span>
           </button>
         )}
         {sttSupported && !isCallActive && (
@@ -168,7 +169,7 @@ function AddMenu({
           >
             {isListening ? <MicOff size={14} /> : <MessageSquare size={14} />}
             {isListening ? 'Stop dictation' : 'Dictation mode'}
-            <span className="ml-auto text-[11px] text-app-text-muted">⌘⇧D</span>
+            <span className="ml-auto text-[11px] text-app-text-muted">{shortcut('D', { shift: true })}</span>
           </button>
         )}
         <button
@@ -183,7 +184,7 @@ function AddMenu({
         >
           {isSpeaking || autoTTS ? <Volume2 size={14} /> : <VolumeX size={14} />}
           {isSpeaking ? 'Stop speaking' : autoTTS ? 'Auto-TTS (ON)' : 'Auto-TTS'}
-          <span className="ml-auto text-[11px] text-app-text-muted">⌘⇧S</span>
+          <span className="ml-auto text-[11px] text-app-text-muted">{shortcut('S', { shift: true })}</span>
         </button>
         {onExport && (
           <button
@@ -1275,7 +1276,7 @@ export function ChatInput({
                   className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg transition-all ${
                     isRecording ? 'bg-red-500 text-white animate-pulse' : 'text-app-text-tertiary hover:text-app-text hover:bg-app-hover'
                   }`}
-                  title={isRecording ? 'Stop recording (⌘⇧R)' : 'Record voice (⌘⇧R)'}
+                  title={`${isRecording ? 'Stop recording' : 'Record voice'} (${shortcut('R', { shift: true })})`}
                   aria-label={isRecording ? 'Stop recording' : 'Record voice'}
                   disabled={currentStreaming || uploading}
                 >
