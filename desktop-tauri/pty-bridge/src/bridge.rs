@@ -6,11 +6,11 @@
 // already talks to the Node bridge; the server spawns whichever it's handed via
 // TOPICS_PTY_BRIDGE_BIN (set by desktop-tauri lib.rs). Zero Node dependency.
 //
-// Il TRASPORTO sta in `transport.rs`: un socket Unix su macOS/Linux, una named pipe
-// su Windows. Il protocollo e il resto del daemon sono gli stessi ovunque, quindi
-// questo file NON e' piu' unix-only: fino al 2026-08-26 lo era, e su Windows i
-// terminali - cioe' la ragione per cui esiste Topics - rispondevano 503 «terminals
-// not available in standalone mode». Entry point: run().
+// The TRANSPORT lives in `transport.rs`: a Unix socket on macOS/Linux, a named pipe
+// on Windows. The protocol and the rest of the daemon are the same everywhere, so
+// this file is NO LONGER unix-only: until 2026-08-26 it was, and on Windows terminals
+// - the very reason Topics exists - answered 503 "terminals not available in
+// standalone mode". Entry point: run().
 //
 // Protocol (JSON, one object per line):
 //   IN : create | write | resize | kill | list | buffer | ping
@@ -211,16 +211,16 @@ fn build_env(over: &[(String, Option<String>)]) -> Vec<(String, String)> {
         m.insert("PATH".into(), parts.join(":"));
     }
 
-    // Stessa idea su Windows, con i posti dove finiscono davvero i CLI degli
-    // agenti (`claude`, `codex`, `bun`) installati per utente: il PATH che il
-    // guscio eredita puo' non averli, e un `claude` che non si trova diventa una
-    // scheda che si apre e muore subito senza spiegare perche'.
+    // Same idea on Windows, with the places the agent CLIs (`claude`, `codex`,
+    // `bun`) actually land when installed per-user: the PATH the shell inherits may
+    // lack them, and a `claude` that cannot be found becomes a tab that opens and
+    // dies at once without saying why.
     //
-    // Il separatore e' `;` e le variabili d'ambiente su Windows sono
-    // CASE-INSENSITIVE: il valore ereditato puo' chiamarsi `Path`, e inserire
-    // `PATH` accanto senza togliere l'altro lascia due voci in conflitto, con il
-    // figlio che ne legge una a caso. Si toglie qualunque grafia prima di
-    // scrivere la nostra.
+    // The separator is `;`, and environment variables on Windows are
+    // CASE-INSENSITIVE: the inherited value may be spelled `Path`, and inserting
+    // `PATH` alongside without removing the other leaves two conflicting entries,
+    // with the child reading whichever it likes. Any spelling is removed before
+    // writing ours.
     #[cfg(windows)]
     {
         let home = m.get("HOME").cloned().unwrap_or_else(real_home);
@@ -414,15 +414,14 @@ fn kill_group(pid: u32) {
         }
     }
 }
-/// L'equivalente su Windows: `taskkill /T` chiude il processo e TUTTO il suo
-/// albero. E' la stessa idea (non basta il capo, va tolto anche chi tiene aperto
-/// il tty), realizzata con l'unico meccanismo che Windows offre senza tirare
-/// dentro le API dei job object.
+/// The Windows equivalent: `taskkill /T` ends the process and its WHOLE tree. Same
+/// idea (the leader is not enough, whoever holds the tty open has to go too), built
+/// on the only mechanism Windows offers without pulling in the job-object APIs.
 ///
-/// Un no-op qui non era neutro: `kill_group` e' l'escalation che chiude un
-/// processo che ha ignorato la richiesta gentile. Senza, un comando ostinato
-/// resterebbe vivo e invisibile, con la sua sessione bloccata per sempre in
-/// `killing` - la scheda del terminale non si riaprirebbe piu'.
+/// A no-op here was not neutral: `kill_group` is the escalation that ends a process
+/// which ignored the polite request. Without it a stubborn command would stay alive
+/// and invisible, its session stuck in `killing` forever - and that terminal tab
+/// would never open again.
 #[cfg(not(unix))]
 fn kill_group(pid: u32) {
     let _ = std::process::Command::new("taskkill")
@@ -673,16 +672,16 @@ fn pid_alive(pid: i32) -> bool {
         }
         std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
     }
-    // Su Windows questa tornava sempre `false`, e non era una semplificazione
-    // innocua: e' la domanda su cui si regge il monitor degli orfani ("il mio
-    // genitore e' ancora vivo?"). Rispondendo sempre "morto" il daemon si
-    // sarebbe creduto orfano dal primo istante; rispondendo sempre "vivo" non
-    // uscirebbe mai. Serve la risposta vera.
+    // On Windows this always returned `false`, and that was not a harmless
+    // simplification: it is the question the orphan monitor rests on ("is my parent
+    // still alive?"). Always answering "dead" would have the daemon believe itself
+    // abandoned from the first instant; always answering "alive" would keep it from
+    // ever exiting. The real answer is required.
     //
-    // Un processo si apre con SYNCHRONIZE (il diritto piu' debole che basta per
-    // interrogarne lo stato) e si guarda se l'oggetto e' segnalato: un processo
-    // segnalato e' un processo TERMINATO. Un handle che non si apre affatto vuol
-    // dire che il pid non esiste piu'.
+    // A process is opened with SYNCHRONIZE (the weakest right that still allows
+    // querying its state) and the object is checked for being signalled: a signalled
+    // process is a TERMINATED one. A handle that does not open at all means the pid
+    // is gone.
     #[cfg(windows)]
     {
         const SYNCHRONIZE: u32 = 0x0010_0000;
@@ -717,9 +716,9 @@ enum Probe {
 // layer has died responds {type:"error"} — exactly the case we MUST treat as "take
 // over". A bare ping would still pong from such a degraded bridge.
 fn probe_bridge(socket: &Path, timeout: Duration) -> Probe {
-    // «C'e' qualcosa a questo nome?» non e' la stessa domanda ovunque: su unix e'
-    // un file da cercare sul disco, su Windows `Path::exists` su `\\.\pipe\...`
-    // risponde sempre di no e avrebbe dichiarato morto ogni bridge sano.
+    // "Is there anything at this name?" is not the same question everywhere: on unix
+    // it is a file to look for on disk, while on Windows `Path::exists` on
+    // `\\.\pipe\...` always says no and would have declared every healthy bridge dead.
     if !transport::endpoint_exists(socket) {
         return Probe::Dead;
     }
@@ -736,9 +735,9 @@ fn probe_bridge(socket: &Path, timeout: Duration) -> Probe {
             .unwrap_or(0),
         std::process::id()
     );
-    // La cartella di lavoro della sonda: `/tmp` non esiste su Windows, e una cwd
-    // inesistente fa fallire lo spawn, cioe' fa leggere «degradato» a un bridge
-    // perfettamente sano - che verrebbe poi ucciso e sostituito, a ogni avvio.
+    // The probe's working directory: `/tmp` does not exist on Windows, and a
+    // nonexistent cwd makes the spawn fail - i.e. it reads "degraded" on a perfectly
+    // healthy bridge, which would then be killed and replaced, on every start.
     let probe_cwd = std::env::temp_dir();
     let create = json!({
         "type": "create", "id": probe_id, "shell": TRUE_PROG,
@@ -801,18 +800,18 @@ fn check_existing_bridge(socket: &Path, pid_path: &Path) -> bool {
             }
         }
     }
-    // Su unix il socket e' un file rimasto sul disco; su Windows la pipe non
-    // lascia niente e non c'e' nulla da togliere (vedi transport::cleanup).
+    // On unix the socket is a file left on disk; on Windows the pipe leaves nothing
+    // behind and there is nothing to remove (see transport::cleanup).
     transport::cleanup(socket);
     let _ = std::fs::remove_file(pid_path);
     false
 }
 
-/// La richiesta GENTILE a un proprietario degradato di farsi da parte, prima di
-/// passare alla maniera forte (`kill_group`). Su unix e' SIGTERM; su Windows non
-/// esiste un segnale equivalente per un processo di un'altra sessione, quindi si
-/// va direttamente all'albero - il proprietario e' gia' stato dichiarato
-/// degradato dalla sonda, quindi non c'e' un lavoro in corso da rispettare.
+/// The POLITE request to a degraded owner to step aside, before the hard way
+/// (`kill_group`). On unix that is SIGTERM; on Windows there is no equivalent signal
+/// for a process in another session, so it goes straight to the tree - the owner has
+/// already been declared degraded by the probe, so there is no work in flight to
+/// respect.
 #[cfg(unix)]
 fn terminate_degraded_owner(pid: i32) {
     unsafe {
@@ -948,14 +947,13 @@ fn spawn_orphan_monitor(shared: Arc<Shared>, initial_ppid: i32, parent_pid: Opti
             thread::sleep(tick);
             let orphaned = match parent_pid {
                 Some(pid) => !pid_alive(pid),
-                // Il ripiego per un daemon avviato a mano: su unix l'orfano si
-                // riconosce dal riparentamento a init (PPID 1). Windows non
-                // riparenta e non ha un PPID interrogabile a buon mercato,
-                // quindi li' NON si indovina: senza `--parent-pid` il monitor
-                // resta disarmato e il compito di ritirare il daemon tocca
-                // all'`idle_monitor` (nessun client e nessuna sessione). Il
-                // server passa sempre `--parent-pid`, quindi in produzione
-                // questo ramo non si percorre mai.
+                // The fallback for a hand-started daemon: on unix an orphan is
+                // recognised by reparenting to init (PPID 1). Windows neither
+                // reparents nor offers a cheap PPID query, so there it does NOT
+                // guess: without `--parent-pid` the monitor stays disarmed and
+                // retiring the daemon falls to the `idle_monitor` (no clients and no
+                // sessions). The server always passes `--parent-pid`, so in
+                // production this branch is never taken.
                 None => orphaned_by_reparenting(initial_ppid),
             };
             if !orphaned {
@@ -1008,9 +1006,9 @@ fn spawn_orphan_monitor(shared: Arc<Shared>, initial_ppid: i32, parent_pid: Opti
     });
 }
 
-/// L'euristica di ripiego quando nessuno ci ha detto chi ci ha avviati: su unix
-/// un processo orfano viene riparentato a init (PPID 1). Su Windows non esiste
-/// un equivalente, e un ripiego che indovina e' peggio di uno che si astiene.
+/// The fallback heuristic when nobody told us who launched us: on unix an orphaned
+/// process is reparented to init (PPID 1). Windows has no equivalent, and a fallback
+/// that guesses is worse than one that abstains.
 #[cfg(unix)]
 fn orphaned_by_reparenting(initial_ppid: i32) -> bool {
     (unsafe { libc::getppid() }) == 1 && initial_ppid != 1
@@ -1054,7 +1052,7 @@ fn socket_from_args() -> PathBuf {
         }
     }
     // The server always passes --socket; this is only a standalone fallback.
-    // Su Windows un percorso di /tmp non e' un nome valido per una pipe.
+    // On Windows a /tmp path is not a valid pipe name.
     #[cfg(windows)]
     {
         PathBuf::from(r"\\.\pipe\topics-pty-bridge")
@@ -1096,8 +1094,8 @@ pub fn run() {
     let parent_pid = parent_pid_from_args();
 
     let socket_path = socket_from_args();
-    // Il pidfile sta ACCANTO al socket su unix; su Windows il nome della pipe non
-    // e' un percorso del filesystem, quindi il file va altrove (vedi transport).
+    // The pidfile sits BESIDE the socket on unix; on Windows the pipe's name is not
+    // a filesystem path, so the file goes elsewhere (see transport).
     let pid_path = transport::pid_path_for(&socket_path);
 
     if check_existing_bridge(&socket_path, &pid_path) {
@@ -1139,9 +1137,9 @@ pub fn run() {
 
     let mut next_cid: u64 = 0;
     loop {
-        // `accept()` invece di `incoming()`: su Windows ogni connessione e'
-        // un'istanza di pipe creata al momento, non una derivazione di un
-        // listener unico, quindi non esiste un iteratore da consumare.
+        // `accept()` rather than `incoming()`: on Windows every connection is a
+        // pipe instance created on the spot, not a derivation of one listener, so
+        // there is no iterator to consume.
         let stream = match listener.accept() {
             Ok(s) => s,
             Err(e) => {

@@ -1,11 +1,11 @@
-// Entry point. Il daemon parla lo STESSO protocollo su tutte e tre le piattaforme;
-// cambia solo il tubo sotto (`transport`): un socket Unix su macOS e Linux, una
-// named pipe su Windows.
+// Entry point. The daemon speaks the SAME protocol on all three platforms; only the
+// pipe underneath differs (`transport`): a Unix socket on macOS and Linux, a named
+// pipe on Windows.
 //
-// Fino al 2026-08-26 questo file compilava a un no-op su Windows, e lo diceva:
-// «Windows keeps the pre-existing 503 "no terminals in standalone" path». Cioe'
-// su Windows Topics si installava, si apriva, e non poteva aprire un terminale
-// - in un'app il cui scopo e' far girare agenti da riga di comando.
+// Until 2026-08-26 this file compiled to a no-op on Windows, and said so: "Windows
+// keeps the pre-existing 503 'no terminals in standalone' path". Which meant Topics
+// on Windows installed, opened, and could not open a terminal - in an app whose whole
+// point is running command-line agents.
 
 mod bridge;
 mod transport;

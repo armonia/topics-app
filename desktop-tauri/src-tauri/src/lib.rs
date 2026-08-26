@@ -1277,17 +1277,17 @@ fn external_server_marker(app: &tauri::AppHandle) -> std::path::PathBuf {
 /// its exec bit, so we re-assert it — a non-executable bridge would fail to spawn and
 /// silently drop back to "no terminals".
 ///
-/// SU WINDOWS QUESTA TORNAVA SEMPRE `None`, perché fino al 2026-08-26 il sidecar era
-/// un no-op: il bridge parlava solo socket Unix. Il risultato era che su Windows
-/// Topics si installava, si apriva, e non poteva aprire NESSUN terminale (503
-/// «terminals not available in standalone mode») — in un'app il cui scopo è far
-/// girare agenti da riga di comando. Ora il bridge ha un trasporto a named pipe
-/// (pty-bridge/src/transport.rs) e su Windows si annuncia come altrove.
+/// ON WINDOWS THIS ALWAYS RETURNED `None`, because until 2026-08-26 the sidecar was
+/// a no-op: the bridge only spoke Unix sockets. The effect was that on Windows Topics
+/// installed, opened, and could not open a SINGLE terminal (503 "terminals not
+/// available in standalone mode") — in an app whose whole point is running
+/// command-line agents. The bridge now has a named-pipe transport
+/// (pty-bridge/src/transport.rs), so Windows advertises one like everywhere else.
 fn bundled_pty_bridge_bin() -> Option<std::path::PathBuf> {
     // Tauri places externalBin sidecars beside the app executable.
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
-    // Su Windows l'eseguibile ha l'estensione, e senza `exists()` fallisce.
+    // On Windows the executable carries its extension; without it `exists()` fails.
     let bin = if cfg!(windows) {
         dir.join("pty-bridge.exe")
     } else {
@@ -1466,7 +1466,7 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
                 Some(bin) => {
                     c = c.env("TOPICS_PTY_BRIDGE_BIN", bin.to_string_lossy().to_string());
                 }
-                // No bundled bridge (older bundle / dev build senza il sidecar):
+                // No bundled bridge (older bundle / dev build without the sidecar):
                 // keep the hard kill-switch — a virgin machine has no external
                 // bridge and Bun can't run one itself, so terminals answer 503.
                 None => {

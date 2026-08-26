@@ -1,24 +1,23 @@
-// Trasporto del bridge: un socket Unix su macOS/Linux, una named pipe su Windows.
+// The bridge's transport: a Unix socket on macOS/Linux, a named pipe on Windows.
 //
-// Il protocollo (JSON a righe) e tutto il resto del daemon non cambiano: cambia
-// solo il tubo. Windows non ha i socket di dominio Unix nel modo in cui li usa
-// il resto del file (`std::os::unix::net`), ma ha le named pipe, che hanno
-// esattamente la semantica che serve qui: un nome nello spazio del kernel, un
-// server che accetta più client, uno stream bidirezionale di byte.
+// The protocol (line-delimited JSON) and the rest of the daemon do not change:
+// only the pipe underneath does. Windows has no Unix-domain sockets in the shape
+// the rest of the file uses them (`std::os::unix::net`), but it has named pipes,
+// which carry exactly the semantics needed here: a name in the kernel namespace,
+// a server accepting several clients, a bidirectional byte stream.
 //
-// Perché una named pipe e non una porta TCP di loopback, che sarebbe stata più
-// facile da scrivere: una porta è raggiungibile da QUALUNQUE processo della
-// macchina, compresi quelli di un altro utente, e questo tubo accetta comandi
-// che avviano processi con l'ambiente dell'utente. Il perimetro di una named
-// pipe si dichiara nell'ACL. Il bridge non è un servizio di rete e non deve
-// diventarlo per una comodità di implementazione.
+// Why a named pipe and not a loopback TCP port, which would have been quicker to
+// write: a port is reachable by ANY process on the machine, including another
+// user's, and this pipe accepts commands that spawn processes with the user's own
+// environment. A named pipe's perimeter is declared in its ACL. The bridge is not
+// a network service and must not become one for implementation convenience.
 //
-// VERIFICATO sul PC di prova prima di scrivere il porting, perché l'assunzione
-// da cui dipende tutto non è ovvia: `bun` (che è il server) parla le named pipe
-// di Windows con `net.connect("\\\\.\\pipe\\nome")` e riceve la risposta.
-// Curiosità utile per il futuro: `node` sulla stessa macchina falliva con
-// ENOENT sullo stesso nome nello stesso istante — quindi la scelta del
-// trasporto è legata al runtime del server, non al sistema.
+// VERIFIED on the test PC before writing the port, because the assumption
+// everything rests on is not obvious: `bun` (which is the server) speaks Windows
+// named pipes via `net.connect("\\\\.\\pipe\\name")` and gets its reply. Useful
+// aside for the future: `node` on the same machine failed with ENOENT on the same
+// name in the same moment — so the transport choice is tied to the server's
+// runtime, not to the operating system.
 
 use std::io::{Read, Result as IoResult, Write};
 use std::path::{Path, PathBuf};
@@ -55,18 +54,18 @@ mod imp {
         }
     }
 
-    /// Il socket è un file: resta sul filesystem dopo un'uscita brutta e va tolto,
-    /// o il `bind` successivo trova il posto occupato.
+    /// The socket is a file: it survives a hard exit and has to be removed, or the
+    /// next `bind` finds the spot taken.
     pub fn cleanup(path: &Path) {
         let _ = std::fs::remove_file(path);
     }
 
-    /// Esiste qualcosa a quel nome? Su unix è una domanda sul filesystem.
+    /// Is there anything at that name? On unix that is a filesystem question.
     pub fn endpoint_exists(path: &Path) -> bool {
         path.exists()
     }
 
-    /// Il file dei pid sta accanto al socket.
+    /// The pidfile lives beside the socket.
     pub fn pid_path_for(socket: &Path) -> PathBuf {
         socket.with_extension("pid")
     }
@@ -104,13 +103,13 @@ mod imp {
     use super::*;
     use std::fs::OpenOptions;
     use std::os::windows::ffi::OsStrExt;
-    use std::os::windows::io::{AsRawHandle, FromRawHandle, IntoRawHandle, RawHandle};
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, RawHandle};
     use std::sync::{Arc, Mutex};
 
-    // Le poche chiamate di Win32 che servono. Dichiarate a mano invece di tirare
-    // dentro `windows-sys`: sono sei, la loro firma è stabile dal 1993, e una
-    // dipendenza in più su un crate che finisce in ogni installazione va
-    // giustificata con qualcosa di più di "era più comodo".
+    // The handful of Win32 calls that are needed. Declared by hand rather than
+    // pulling in `windows-sys`: there are six of them, their signatures have been
+    // stable since 1993, and one more dependency in every shipped install needs a
+    // better reason than "it was more convenient".
     type Handle = RawHandle;
     const INVALID_HANDLE_VALUE: Handle = -1isize as Handle;
     const PIPE_ACCESS_DUPLEX: u32 = 0x0000_0003;
@@ -146,23 +145,23 @@ mod imp {
         v
     }
 
-    /// Il listener tiene il NOME, non un handle: su Windows ogni connessione è
-    /// un'istanza di pipe a sé, creata al momento dell'accept. È la differenza
-    /// che conta rispetto a un socket unix, dove il listener è uno e le
-    /// connessioni ne discendono.
+    /// The listener holds the NAME, not a handle: on Windows every connection is a
+    /// pipe instance of its own, created at accept time. That is the difference
+    /// that matters against a Unix socket, where the listener is one object and
+    /// connections descend from it.
     ///
-    /// La prima istanza si crea subito, in `bind`, e con
-    /// `FILE_FLAG_FIRST_PIPE_INSTANCE`: è quella che dà l'unicità: se un altro
-    /// bridge ha già quel nome, la creazione fallisce invece di aggiungere una
-    /// seconda istanza in ascolto sullo stesso nome, che sarebbe due daemon che
-    /// si rubano i client a caso.
+    /// The first instance is created straight away, in `bind`, with
+    /// `FILE_FLAG_FIRST_PIPE_INSTANCE`: that flag is what gives uniqueness. If
+    /// another bridge already owns the name, creation FAILS instead of adding a
+    /// second listener on the same name — which would be two daemons stealing each
+    /// other's clients at random.
     pub struct Listener {
         name: PathBuf,
-        /// L'istanza già creata e non ancora consegnata a un client.
+        /// The instance already created and not yet handed to a client.
         pending: Mutex<Option<Handle>>,
     }
-    // Gli handle di Windows sono globali al processo e si possono usare da più
-    // thread; il Mutex protegge la sola staffetta fra bind e accept.
+    // Windows handles are process-global and usable from several threads; the
+    // mutex only guards the hand-off between bind and accept.
     unsafe impl Send for Listener {}
     unsafe impl Sync for Listener {}
 
@@ -176,12 +175,11 @@ mod imp {
         }
 
         pub fn accept(&self) -> IoResult<Stream> {
-            // Prendi l'istanza in attesa (o creane una nuova), aspetta che un
-            // client si colleghi, e SUBITO dopo prepara la prossima: fra la
-            // connessione e la creazione dell'istanza successiva il nome non
-            // deve mai restare senza nessuno in ascolto, o un client che arriva
-            // in quella finestra prende un "file not found" e il server
-            // conclude che il bridge è morto.
+            // Take the waiting instance (or make one), wait for a client, and
+            // IMMEDIATELY prepare the next one: between a connection and the
+            // creation of the following instance the name must never be left with
+            // nobody listening, or a client arriving in that window gets a
+            // "file not found" and the server concludes the bridge is dead.
             let h = {
                 let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
                 match pending.take() {
@@ -191,8 +189,8 @@ mod imp {
             };
             let connected = unsafe { ConnectNamedPipe(h, std::ptr::null_mut()) };
             if connected == 0 {
-                // Un client che si è collegato PRIMA della ConnectNamedPipe non
-                // è un errore: è la corsa normale, e Windows la segnala così.
+                // A client that connected BEFORE our ConnectNamedPipe is not an
+                // error: it is the normal race, and this is how Windows reports it.
                 let err = unsafe { GetLastError() } as i32;
                 if err != ERROR_PIPE_CONNECTED {
                     unsafe { CloseHandle(h) };
@@ -217,10 +215,10 @@ mod imp {
             CreateNamedPipeW(
                 name.as_ptr(),
                 open_mode,
-                // REJECT_REMOTE_CLIENTS: questa pipe è per il server che gira
-                // sulla stessa macchina. Senza, il nome sarebbe raggiungibile
-                // via SMB da un'altra macchina della rete, e questo tubo avvia
-                // processi.
+                // REJECT_REMOTE_CLIENTS: this pipe is for the server running on the
+                // same machine. Without it the name would be reachable over SMB
+                // from another machine on the network — and this pipe spawns
+                // processes.
                 PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
                 PIPE_UNLIMITED_INSTANCES,
                 64 * 1024,
@@ -235,9 +233,9 @@ mod imp {
         Ok(h)
     }
 
-    /// Un capo della pipe. `owned_server` distingue il lato server (che a fine
-    /// vita deve disconnettere l'istanza, non solo chiudere l'handle) dal lato
-    /// client, che è un file come un altro.
+    /// One end of the pipe. `owned_server` tells the server side (which at end of
+    /// life must disconnect the instance, not merely close the handle) from the
+    /// client side, which is a file like any other.
     pub struct Stream {
         file: Arc<std::fs::File>,
         owned_server: bool,
@@ -253,8 +251,8 @@ mod imp {
         }
 
         pub fn connect(path: &Path) -> IoResult<Self> {
-            // Tutte le istanze occupate ⇒ si aspetta un attimo che una si
-            // liberi, invece di dichiarare morto un bridge solo affollato.
+            // Every instance busy ⇒ wait a moment for one to free up, rather than
+            // declaring dead a bridge that is merely crowded.
             match OpenOptions::new().read(true).write(true).open(path) {
                 Ok(f) => Ok(Stream {
                     file: Arc::new(f),
@@ -277,8 +275,8 @@ mod imp {
             }
         }
 
-        /// Stesso capo, secondo riferimento: il daemon legge da un thread e
-        /// scrive dalla mappa dei client, come su unix con `try_clone`.
+        /// Same end, second reference: the daemon reads from one thread and writes
+        /// from the client map, as it does on unix with `try_clone`.
         pub fn try_clone(&self) -> IoResult<Stream> {
             Ok(Stream {
                 file: Arc::clone(&self.file),
@@ -286,22 +284,21 @@ mod imp {
             })
         }
 
-        /// Su unix serve a non restare appesi in `probe_bridge`. Su Windows la
-        /// pipe è sincrona e non c'è un timeout di lettura per handle: chi
-        /// sonda si protegge col proprio orologio (vedi `probe_bridge`), che è
-        /// il controllo che decide davvero.
+        /// On unix this keeps `probe_bridge` from hanging. On Windows the pipe is
+        /// synchronous and there is no per-handle read timeout: the prober guards
+        /// itself with its own clock (see `probe_bridge`), which is the check that
+        /// actually decides.
         pub fn set_read_timeout(&self, _d: Option<std::time::Duration>) -> IoResult<()> {
             Ok(())
         }
 
-        /// Su unix protegge `broadcast` da un client che smette di svuotare il
-        /// socket: senza, UNA app sospesa blocca la consegna di TUTTI i
-        /// terminali, perche' la scrittura avviene col lock dei client in mano.
-        /// Su Windows la pipe e' sincrona e non espone un timeout per handle;
-        /// il rischio resta, ed e' scritto qui invece di essere nascosto da un
-        /// `Ok(())` muto. Le pipe hanno pero' un buffer del kernel (64 KB,
-        /// dichiarato in `create_instance`), quindi un consumatore fermo si
-        /// blocca solo dopo averlo riempito.
+        /// On unix this protects `broadcast` from a client that stops draining its
+        /// socket: without it ONE suspended app blocks delivery for EVERY terminal,
+        /// because the write happens with the client lock held. On Windows the pipe
+        /// is synchronous and exposes no per-handle write timeout; the risk remains,
+        /// and it is written down here rather than hidden behind a silent `Ok(())`.
+        /// Pipes do have a kernel buffer (64 KB, declared in `create_instance`), so
+        /// a stalled consumer only blocks once it has filled that.
         pub fn set_write_timeout(&self, _d: Option<std::time::Duration>) -> IoResult<()> {
             Ok(())
         }
@@ -315,20 +312,20 @@ mod imp {
         }
     }
 
-    /// Una named pipe non lascia niente sul filesystem: sparisce quando l'ultimo
-    /// handle si chiude. Non c'è nulla da ripulire, ed è un caso in meno in cui
-    /// un residuo blocca l'avvio successivo.
+    /// A named pipe leaves nothing on the filesystem: it disappears when the last
+    /// handle closes. There is nothing to clean up, which is one fewer way for a
+    /// leftover to block the next start.
     pub fn cleanup(_path: &Path) {}
 
-    /// "C'è già un bridge?" su Windows si chiede provando ad aprire il nome:
-    /// `Path::exists` su `\\.\pipe\...` non risponde a questa domanda.
+    /// "Is a bridge already there?" is asked on Windows by trying to open the name:
+    /// `Path::exists` on `\\.\pipe\...` does not answer this question.
     pub fn endpoint_exists(path: &Path) -> bool {
         Stream::connect(path).is_ok()
     }
 
-    /// Il pidfile non può stare "accanto" a una pipe: il nome della pipe non è
-    /// un percorso del filesystem. Va in TEMP, con il nome della pipe dentro il
-    /// proprio, così due bridge con socket diversi non si sovrascrivono.
+    /// The pidfile cannot sit "beside" a pipe: the pipe's name is not a filesystem
+    /// path. It goes to TEMP, carrying the pipe's name inside its own, so two
+    /// bridges with different sockets never overwrite each other.
     pub fn pid_path_for(socket: &Path) -> PathBuf {
         let leaf = socket
             .to_string_lossy()
@@ -365,11 +362,6 @@ mod imp {
             (&*self.file).flush()
         }
     }
-
-    // `IntoRawHandle` non è usato, ma tenerlo importato documenta la parentela
-    // con `FromRawHandle` qui sopra.
-    #[allow(unused_imports)]
-    use IntoRawHandle as _;
 }
 
 pub use imp::{cleanup, endpoint_exists, pid_path_for, Listener, Stream};
