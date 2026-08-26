@@ -67,7 +67,7 @@
     "client/src/components/Board/TaskDetail.tsx": 3460,
     "server/routes/tasks.ts": 3337,
     "server/routes/chat.ts": 3171,
-    "server/routes/terminal.ts": 3012,
+    "server/routes/terminal.ts": 3178,
     "client/src/hooks/useChat.ts": 2960,
     "client/src/components/Layout/PanelGrid.tsx": 2882,
     "client/src/components/Sidebar/TopicTree.tsx": 2756,

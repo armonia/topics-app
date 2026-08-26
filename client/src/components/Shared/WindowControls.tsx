@@ -18,22 +18,9 @@
  * they look for them and recognises them without having to read.
  */
 import { useEffect, useState } from 'react';
-import { isTauri } from '../../lib/shell';
+import { isTauriWindows } from '../../lib/shell';
 import { tauriInvoke } from '../../lib/shell/tauri';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
-
-/** True only inside the Tauri shell on Windows: that is where the frame is gone. */
-export const isTauriWindows =
-  isTauri &&
-  typeof navigator !== 'undefined' &&
-  // `userAgentData.platform` is the modern way and `platform` the deprecated but
-  // still present one: both are read because WebView2 exposes both, and relying
-  // on a single one means being wrong on one of the two versions.
-  /Win/i.test(
-    (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ||
-      navigator.platform ||
-      '',
-  );
 
 export function WindowControls() {
   const [maximized, setMaximized] = useState(false);

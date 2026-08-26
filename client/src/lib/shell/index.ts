@@ -55,3 +55,27 @@ export const shellKind: ShellKind = detectShell();
 // branch desktop-vs-web nel resto del client discriminano già con isTauri/isDesktop.
 export const isTauri = shellKind === 'tauri';
 export const isDesktop = shellKind !== 'web';
+
+/**
+ * True only inside the Tauri shell ON WINDOWS: that is where the system frame is
+ * gone and the app has to draw its own controls.
+ *
+ * It lives here and not next to the component that first needed it
+ * (`WindowControls.tsx`) for the same reason `isTauri` does: it is a fact about
+ * the SHELL, not about a screen, and any Windows-specific branch elsewhere will
+ * want it. Exporting it from a file that also exports a component made React
+ * Fast Refresh give up on that file — a full page reload on every edit — and
+ * `react-refresh/only-export-components` said so as a lint error.
+ *
+ * `userAgentData.platform` is the modern way and `platform` the deprecated but
+ * still present one: both are read because WebView2 exposes both, and relying on
+ * a single one means being wrong on one of the two versions.
+ */
+export const isTauriWindows =
+  isTauri &&
+  typeof navigator !== 'undefined' &&
+  /Win/i.test(
+    (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ||
+      navigator.platform ||
+      '',
+  );
