@@ -78,7 +78,7 @@ export const DEBITO_NOME_PROPRIETARIO: readonly string[] = [
   "openspec/changes/autonomous-credential-store/specs/app-signing/spec.md",
   "openspec/changes/autonomous-credential-store/tasks.md",
   "openspec/changes/archive/2026-08-13-human-reopen-out-of-review/proposal.md",
-  "openspec/changes/kanban-agent-authoring/proposal.md",
+  "openspec/changes/archive/2026-07-14-kanban-agent-authoring/proposal.md",
   "openspec/changes/lan-open-same-origin/design.md",
   "openspec/changes/lan-open-same-origin/tasks.md",
   "openspec/changes/relay/tasks.md",
