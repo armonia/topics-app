@@ -105,7 +105,7 @@ import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
 import { NotificationHistoryButton } from './components/Sidebar/NotificationHistoryButton';
 import { MobileChromeBar } from './components/Sidebar/MobileChromeBar';
-import { shortcut } from './lib/shortcutLabel';
+import { shortcut, usesCtrl } from './lib/shortcutLabel';
 
 // Lazy-load components that are only shown on demand
 const NewTopicModal = lazy(() => import('./components/Modals/NewTopicModal').then(m => ({ default: m.NewTopicModal })));
@@ -1140,8 +1140,16 @@ function App() {
       {/* `shortcut('K')` and not the glyph written out: the `title` two lines up
           is already per-platform, this one was pinned to "⌘K" — so on Windows
           the button said "Ctrl+K" on hover and "⌘K" on its face, naming a key
-          that machine does not have. */}
-      {!isMobile && <kbd className="kbd flex-shrink-0 hidden md:inline">{shortcut('K')}</kbd>}
+          that machine does not have.
+          AND NOT SHOWN AT ALL WHERE THE MODIFIER IS Ctrl, because there the
+          hint costs more than the row has. The sidebar is 255px and the sums
+          are these: "⌘K"/"⌘N" leave 242px of content in 243 available, while
+          "Ctrl+K"/"Ctrl+N" ask for 280 — 37px that have to come from somewhere,
+          and they came from the notification bell, pushed out of its own group
+          and underneath the `z-50` one, where it stopped taking clicks (twelve
+          `notification-history` reds on Linux CI, measured 2026-08-26). The
+          `title` keeps saying it on hover, in full and in the right words. */}
+      {!isMobile && !usesCtrl && <kbd className="kbd flex-shrink-0 hidden md:inline">{shortcut('K')}</kbd>}
     </button>
   );
   const sidebarAddMenu = (
@@ -1152,7 +1160,9 @@ function App() {
       onAddPane={handleStandaloneAddPane}
       triggerTitle={`New (${shortcut('N')})`}
       triggerVariant="header"
-      triggerKbd={shortcut('N')}
+      // Same reason as the `<kbd>` of Search just above: where the modifier is
+      // Ctrl the hint does not fit in the row, and the `title` already says it.
+      triggerKbd={usesCtrl ? undefined : shortcut('N')}
     />
   );
 
@@ -1459,7 +1469,7 @@ function App() {
                 // `isMobile` e non `md:`: nell'header decide quel predicato,
                 // e due meccanismi nella stessa riga divergono (è il difetto
                 // appena tolto dalla barra delle tab).
-                className={`flex items-center ${isTauriMac ? 'gap-2' : 'gap-1'} ${ROW_PX} py-0.5 ${isMobile ? 'min-h-11' : 'min-h-7'} rounded-lg transition-colors cursor-pointer ${
+                className={`flex items-center min-w-0 ${isTauriMac ? 'gap-2' : 'gap-1'} ${ROW_PX} py-0.5 ${isMobile ? 'min-h-11' : 'min-h-7'} rounded-lg transition-colors cursor-pointer ${
                   // Rialzo in ALPHA, non `bg-app-hover`: questo bottone sta sul
                   // chrome, e un opaco tarato su `--bg-surface` lì va nel verso
                   // sbagliato in tema chiaro. Vedi SIDEBAR_HOVER.
@@ -1474,7 +1484,7 @@ function App() {
                 // di progetto hanno `project-toggle-*`.
                 data-testid="sidebar-topics-menu"
               >
-                <span className={`font-semibold text-app-text tracking-[-0.01em] ${isMobile ? 'text-[17px]' : 'text-[15px]'} ${isTauriMac && showTopicsMenu ? 'invisible' : ''}`}>Topics</span>
+                <span className={`font-semibold text-app-text tracking-[-0.01em] truncate ${isMobile ? 'text-[17px]' : 'text-[15px]'} ${isTauriMac && showTopicsMenu ? 'invisible' : ''}`}>Topics</span>
                 {/* 14, come il glifo di «Cerca» e del «+» che gli stanno accanto sulla
                     STESSA riga — misurato: era 12 contro i loro 14, e il raggio
                     6 contro 8. Tre elementi affiancati con tre forme diverse
