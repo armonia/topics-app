@@ -1,0 +1,73 @@
+{
+  "taken_under": {
+    "load1": 1.32,
+    "cores": 4
+  },
+  "$schema": "route-latency-baseline-v1",
+  "updated": "2026-08-26",
+  "samples": 40,
+  "tolerance_pct": 110,
+  "floor_ms": 1.5,
+  "noise_guard_pct": 60,
+  "corpus": {
+    "topics": 150,
+    "messages": 3000,
+    "tasks": 150,
+    "description_chars": 1200
+  },
+  "routes": {
+    "topics": {
+      "median_ms": 0.4
+    },
+    "topic_messages": {
+      "median_ms": 4.57
+    },
+    "all_boards_tasks": {
+      "median_ms": 3.07
+    },
+    "dispatch_capacity": {
+      "median_ms": 0.23
+    }
+  },
+  "_comment": [
+    "Baseline REGISTRATA SUL RUNNER (github-hosted, ubuntu-latest), non scritta a",
+    "mano: la produce il passo «Record CI route-latency baseline» e la porta fuori",
+    "l'artefatto route-latency-baseline-ci. Fino al 2026-08-26 quell'artefatto non",
+    "e' MAI uscito — la condizione dell'upload chiedeva che il file mancasse, e",
+    "`hashFiles` si risolve prima che il passo precedente lo scriva — quindi il",
+    "cancello ha sempre confrontato un runner Linux condiviso con la baseline di un",
+    "M2 Max: un rosso che descriveva l'hardware.",
+    "",
+    "IL LIMITE DI QUESTO FILE, misurato prima di committarlo. `topic_messages` su",
+    "sei run consecutive dello STESSO runner: 4,39 · 6,75 · 7,06 · 7,76 · 7,78 ·",
+    "7,94 ms. Escursione dell'81% senza che nessuno tocchi quella rotta: e' una VM",
+    "condivisa, e il vicino di casa non e' osservabile da qui. Questa registrazione",
+    "e' caduta sul giro piu' veloce dei sei (4,57 con 40 campioni), quindi il tetto",
+    "che ne deriverebbe al 60% e' 7,31 ms e TRE run su sei lo sforerebbero.",
+    "",
+    "Per questo `tolerance_pct` sale a 110 QUI e solo qui: 9,6 ms di tetto, che",
+    "sta sopra il massimo osservato e sotto il raddoppio. Le regressioni che questo",
+    "cancello deve prendere (query N+1, letture di file in un ciclo) valgono",
+    "multipli, non percentuali, e a 2x continuano a suonare. Una tolleranza stretta",
+    "su una macchina che oscilla dell'81% non e' un cancello severo: e' un cancello",
+    "che verra' spento entro un mese, e allora non protegge piu' niente.",
+    "",
+    "NIENTE `noise_ms` IN QUESTO FILE, e va detto perche' il banco lo scrive da se'.",
+    "`noise_ms` misura la distanza fra le DUE PASSATE di uno stesso giro, e su questo",
+    "runner vale 0,02-0,06 ms: da li' il pavimento per-rotta scenderebbe a 0,05 e",
+    "`dispatch_capacity` avrebbe un tetto di 0,48 ms. Sui quattro run osservati quella",
+    "rotta ha dato 0,21 · 0,45 · 0,46 · 0,56: il tetto sarebbe gia' sforato oggi, senza",
+    "nessuna regressione. La variabilita' che conta qui e' quella FRA giri, che un",
+    "singolo giro non puo' vedere — quindi si ricade sul pavimento generale (1,5 ms),",
+    "che e' il ripiego esplicito previsto da `floorFor`.",
+    "",
+    "Si stringe da sola quando il numero si stabilizza: ri-registrare a piu'",
+    "campioni su un runner meno mosso, e la tolleranza torna a 60."
+  ],
+  "declared_limits": {
+    "una_sola_registrazione": "Le mediane vengono da UN giro (40 campioni x 2 passate). Le due passate erano d'accordo, ma sei run consecutive dello stesso runner danno da 4,39 a 7,94 ms sulla stessa rotta: la variabilita' fra run e' molto maggiore di quella dentro una run, e questo file ne cattura solo la seconda.",
+    "solo_ubuntu_latest": "Registrata su ubuntu-latest github-hosted. Un runner diverso (self-hosted, larger) e' un'altra macchina e questo file non parla per lui.",
+    "not_covered": "Come la baseline locale: solo letture, seriali, un client alla volta, corpus fisso a 150/3000/150. Fuori restano scritture, concorrenza, WebSocket e regressioni superlineari.",
+    "tubo_al_limite": "`dispatch_capacity` e' il RIGHELLO (`calibrationOutOfScale`) e ha una soglia sua, 2,5x la propria baseline, che `tolerance_pct` non allenta: 0,23 x 2,5 = 0,58 ms. Sui quattro run osservati quella rotta ha dato 0,21 · 0,45 · 0,46 · 0,56 ms, quindi il righello e' a un soffio e ogni tanto il banco uscira' 2 («non misurabile») invece di dare un numero. E' il comportamento voluto — un rosso preso su una misura che non vale non e' credibile — e il workflow lo tratta gia' come warning, non come rosso. La causa e' che questa registrazione e' caduta sul giro piu' veloce: quando il file verra' ri-registrato su un giro tipico, la baseline sale e il righello si allarga con lei."
+  }
+}
