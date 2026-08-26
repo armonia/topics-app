@@ -9,8 +9,10 @@
 # desktop-tauri lib.rs bundled_pty_bridge_bin + server/routes/terminal.ts bundledBridge).
 #
 # macOS builds a UNIVERSAL binary (arm64 + x86_64 via lipo) to match the universal
-# .app. Windows compiles to a no-op stub (the bridge is Unix-socket only) purely so the
-# externalBin bundle resolves a binary for every target; lib.rs never spawns it there.
+# .app. Windows costruisce il bridge VERO: dal 2026-08-26 il trasporto e' una named
+# pipe li' e un socket Unix altrove (pty-bridge/src/transport.rs). Prima era uno stub
+# che usciva subito, e su Windows i terminali rispondevano 503 - in un'app che serve
+# a far girare agenti da riga di comando.
 #
 # Usage:
 #   scripts/build-pty-bridge.sh <os>       # os = macos | windows | linux (default: host)

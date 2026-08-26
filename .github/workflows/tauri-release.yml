@@ -165,8 +165,9 @@ jobs:
       # never open. A ~0.5 MB wire-compatible port of pty-bridge.mjs. See
       # scripts/build-pty-bridge.sh + desktop-tauri lib.rs bundled_pty_bridge_bin().
       # Must run BEFORE tauri build so the externalBin (tauri.conf.json) resolves.
-      # Windows compiles a no-op stub (bridge is Unix-socket only) just to satisfy the
-      # per-target externalBin bundle; lib.rs never spawns it there.
+      # Windows costruisce il bridge VERO (named pipe invece del socket Unix, vedi
+      # pty-bridge/src/transport.rs): fino al 2026-08-26 era uno stub e su Windows
+      # nessun terminale si apriva.
       - name: Build PTY bridge sidecar (macOS universal)
         if: runner.os == 'macOS'
         run: ./scripts/build-pty-bridge.sh macos

@@ -1273,19 +1273,26 @@ fn external_server_marker(app: &tauri::AppHandle) -> std::path::PathBuf {
 /// self-contained, wire-compatible port of pty-bridge.mjs that the compiled Bun
 /// sidecar spawns for terminals on a virgin install — Bun itself can't run node-pty.
 ///
-/// Returns `Some` only when the binary exists (macOS + Linux; on Windows the sidecar
-/// is a no-op stub and this returns None → standalone keeps its 503 kill-switch). On
-/// unix the packaged binary can lose its exec bit, so we re-assert it — a
-/// non-executable bridge would fail to spawn and silently drop back to "no terminals".
+/// Returns `Some` only when the binary exists. On unix the packaged binary can lose
+/// its exec bit, so we re-assert it — a non-executable bridge would fail to spawn and
+/// silently drop back to "no terminals".
+///
+/// SU WINDOWS QUESTA TORNAVA SEMPRE `None`, perché fino al 2026-08-26 il sidecar era
+/// un no-op: il bridge parlava solo socket Unix. Il risultato era che su Windows
+/// Topics si installava, si apriva, e non poteva aprire NESSUN terminale (503
+/// «terminals not available in standalone mode») — in un'app il cui scopo è far
+/// girare agenti da riga di comando. Ora il bridge ha un trasporto a named pipe
+/// (pty-bridge/src/transport.rs) e su Windows si annuncia come altrove.
 fn bundled_pty_bridge_bin() -> Option<std::path::PathBuf> {
-    // Windows ships only a no-op stub; don't advertise a bridge there.
-    if cfg!(windows) {
-        return None;
-    }
     // Tauri places externalBin sidecars beside the app executable.
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
-    let bin = dir.join("pty-bridge");
+    // Su Windows l'eseguibile ha l'estensione, e senza `exists()` fallisce.
+    let bin = if cfg!(windows) {
+        dir.join("pty-bridge.exe")
+    } else {
+        dir.join("pty-bridge")
+    };
     if !bin.exists() {
         return None;
     }
@@ -1459,9 +1466,9 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
                 Some(bin) => {
                     c = c.env("TOPICS_PTY_BRIDGE_BIN", bin.to_string_lossy().to_string());
                 }
-                // No bundled bridge (Windows stub / older bundle): keep the hard
-                // kill-switch — a virgin machine has no external bridge and Bun can't
-                // run one itself, so terminals answer 503.
+                // No bundled bridge (older bundle / dev build senza il sidecar):
+                // keep the hard kill-switch — a virgin machine has no external
+                // bridge and Bun can't run one itself, so terminals answer 503.
                 None => {
                     c = c.env("TOPICS_DISABLE_PTY_BRIDGE", "1");
                 }

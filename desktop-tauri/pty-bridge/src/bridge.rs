@@ -6,9 +6,11 @@
 // already talks to the Node bridge; the server spawns whichever it's handed via
 // TOPICS_PTY_BRIDGE_BIN (set by desktop-tauri lib.rs). Zero Node dependency.
 //
-// Transport is a filesystem Unix socket, so this module is unix-only (macOS + Linux).
-// Windows would need a named-pipe transport; until then the Windows sidecar keeps the
-// pre-existing 503 "no terminals" path (see src/main.rs + lib.rs). Entry point: run().
+// Il TRASPORTO sta in `transport.rs`: un socket Unix su macOS/Linux, una named pipe
+// su Windows. Il protocollo e il resto del daemon sono gli stessi ovunque, quindi
+// questo file NON e' piu' unix-only: fino al 2026-08-26 lo era, e su Windows i
+// terminali - cioe' la ragione per cui esiste Topics - rispondevano 503 «terminals
+// not available in standalone mode». Entry point: run().
 //
 // Protocol (JSON, one object per line):
 //   IN : create | write | resize | kill | list | buffer | ping
@@ -21,7 +23,6 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
@@ -30,6 +31,8 @@ use std::time::{Duration, Instant};
 use base64::Engine as _;
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde_json::{json, Value};
+
+use crate::transport::{self, Listener, Stream};
 
 const MAX_BUFFER_SIZE: usize = 100 * 1024; // 100 KB ring buffer per session
 const DEFAULT_ORPHAN_GRACE: Duration = Duration::from_secs(90);
@@ -101,7 +104,7 @@ fn real_home() -> String {
 }
 
 struct Shared {
-    clients: Mutex<HashMap<u64, UnixStream>>, // write-capable clones, keyed by client id
+    clients: Mutex<HashMap<u64, Stream>>, // write-capable clones, keyed by client id
     connected_at: Mutex<HashMap<u64, Instant>>, // when each client attached: a probe is not a server
     sessions: Mutex<HashMap<String, Session>>,
     /// Monotonic stamp handed to each new session, so a reader thread can tell
@@ -131,8 +134,8 @@ struct Session {
 }
 
 // ── Wire I/O ────────────────────────────────────────────────────────────────
-fn write_line(stream: &UnixStream, line: &str) {
-    let mut w: &UnixStream = stream;
+fn write_line(stream: &Stream, line: &str) {
+    let mut w: &Stream = stream;
     let _ = w.write_all(line.as_bytes());
 }
 
@@ -206,6 +209,45 @@ fn build_env(over: &[(String, Option<String>)]) -> Vec<(String, String)> {
             parts.push(current);
         }
         m.insert("PATH".into(), parts.join(":"));
+    }
+
+    // Stessa idea su Windows, con i posti dove finiscono davvero i CLI degli
+    // agenti (`claude`, `codex`, `bun`) installati per utente: il PATH che il
+    // guscio eredita puo' non averli, e un `claude` che non si trova diventa una
+    // scheda che si apre e muore subito senza spiegare perche'.
+    //
+    // Il separatore e' `;` e le variabili d'ambiente su Windows sono
+    // CASE-INSENSITIVE: il valore ereditato puo' chiamarsi `Path`, e inserire
+    // `PATH` accanto senza togliere l'altro lascia due voci in conflitto, con il
+    // figlio che ne legge una a caso. Si toglie qualunque grafia prima di
+    // scrivere la nostra.
+    #[cfg(windows)]
+    {
+        let home = m.get("HOME").cloned().unwrap_or_else(real_home);
+        let existing: Vec<String> = m
+            .keys()
+            .filter(|k| k.eq_ignore_ascii_case("PATH"))
+            .cloned()
+            .collect();
+        let mut current = String::new();
+        for k in existing {
+            if let Some(v) = m.remove(&k) {
+                if current.is_empty() {
+                    current = v;
+                }
+            }
+        }
+        let extra = [
+            format!("{home}\\.local\\bin"),
+            format!("{home}\\.bun\\bin"),
+            format!("{home}\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"),
+            format!("{home}\\AppData\\Roaming\\npm"),
+        ];
+        let mut parts: Vec<String> = extra.to_vec();
+        if !current.is_empty() {
+            parts.push(current);
+        }
+        m.insert("PATH".into(), parts.join(";"));
     }
 
     m.into_iter().collect()
@@ -372,8 +414,23 @@ fn kill_group(pid: u32) {
         }
     }
 }
+/// L'equivalente su Windows: `taskkill /T` chiude il processo e TUTTO il suo
+/// albero. E' la stessa idea (non basta il capo, va tolto anche chi tiene aperto
+/// il tty), realizzata con l'unico meccanismo che Windows offre senza tirare
+/// dentro le API dei job object.
+///
+/// Un no-op qui non era neutro: `kill_group` e' l'escalation che chiude un
+/// processo che ha ignorato la richiesta gentile. Senza, un comando ostinato
+/// resterebbe vivo e invisibile, con la sua sessione bloccata per sempre in
+/// `killing` - la scheda del terminale non si riaprirebbe piu'.
 #[cfg(not(unix))]
-fn kill_group(_pid: u32) {}
+fn kill_group(pid: u32) {
+    let _ = std::process::Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+}
 
 /// SIGHUP was sent; give the child a grace window, then take the group out —
 /// and if even that does not produce an EOF, force the entry out of the map.
@@ -616,7 +673,36 @@ fn pid_alive(pid: i32) -> bool {
         }
         std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
     }
-    #[cfg(not(unix))]
+    // Su Windows questa tornava sempre `false`, e non era una semplificazione
+    // innocua: e' la domanda su cui si regge il monitor degli orfani ("il mio
+    // genitore e' ancora vivo?"). Rispondendo sempre "morto" il daemon si
+    // sarebbe creduto orfano dal primo istante; rispondendo sempre "vivo" non
+    // uscirebbe mai. Serve la risposta vera.
+    //
+    // Un processo si apre con SYNCHRONIZE (il diritto piu' debole che basta per
+    // interrogarne lo stato) e si guarda se l'oggetto e' segnalato: un processo
+    // segnalato e' un processo TERMINATO. Un handle che non si apre affatto vuol
+    // dire che il pid non esiste piu'.
+    #[cfg(windows)]
+    {
+        const SYNCHRONIZE: u32 = 0x0010_0000;
+        const WAIT_TIMEOUT: u32 = 258;
+        extern "system" {
+            fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut std::ffi::c_void;
+            fn WaitForSingleObject(h: *mut std::ffi::c_void, ms: u32) -> u32;
+            fn CloseHandle(h: *mut std::ffi::c_void) -> i32;
+        }
+        unsafe {
+            let h = OpenProcess(SYNCHRONIZE, 0, pid as u32);
+            if h.is_null() {
+                return false;
+            }
+            let state = WaitForSingleObject(h, 0);
+            CloseHandle(h);
+            state == WAIT_TIMEOUT
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         false
     }
@@ -631,10 +717,13 @@ enum Probe {
 // layer has died responds {type:"error"} — exactly the case we MUST treat as "take
 // over". A bare ping would still pong from such a degraded bridge.
 fn probe_bridge(socket: &Path, timeout: Duration) -> Probe {
-    if !socket.exists() {
+    // «C'e' qualcosa a questo nome?» non e' la stessa domanda ovunque: su unix e'
+    // un file da cercare sul disco, su Windows `Path::exists` su `\\.\pipe\...`
+    // risponde sempre di no e avrebbe dichiarato morto ogni bridge sano.
+    if !transport::endpoint_exists(socket) {
         return Probe::Dead;
     }
-    let mut conn = match UnixStream::connect(socket) {
+    let mut conn = match Stream::connect(socket) {
         Ok(c) => c,
         Err(_) => return Probe::Dead,
     };
@@ -647,9 +736,13 @@ fn probe_bridge(socket: &Path, timeout: Duration) -> Probe {
             .unwrap_or(0),
         std::process::id()
     );
+    // La cartella di lavoro della sonda: `/tmp` non esiste su Windows, e una cwd
+    // inesistente fa fallire lo spawn, cioe' fa leggere «degradato» a un bridge
+    // perfettamente sano - che verrebbe poi ucciso e sostituito, a ogni avvio.
+    let probe_cwd = std::env::temp_dir();
     let create = json!({
         "type": "create", "id": probe_id, "shell": TRUE_PROG,
-        "args": TRUE_ARGS, "cwd": "/tmp", "cols": 80, "rows": 24
+        "args": TRUE_ARGS, "cwd": probe_cwd.to_string_lossy(), "cols": 80, "rows": 24
     });
     if conn.write_all(format!("{create}\n").as_bytes()).is_err() {
         return Probe::Dead;
@@ -700,23 +793,35 @@ fn check_existing_bridge(socket: &Path, pid_path: &Path) -> bool {
     // Unreachable or degraded — clean up so we can rebind.
     if let Some(pid) = recorded_pid {
         if pid != std::process::id() as i32 && pid_alive(pid) {
-            eprintln!("[PTY Bridge] Recorded owner {pid} is degraded — SIGTERM.");
-            #[cfg(unix)]
-            unsafe {
-                libc::kill(pid, libc::SIGTERM);
-            }
+            eprintln!("[PTY Bridge] Recorded owner {pid} is degraded — terminating.");
+            terminate_degraded_owner(pid);
             thread::sleep(Duration::from_secs(1));
             if pid_alive(pid) {
-                #[cfg(unix)]
-                unsafe {
-                    libc::kill(pid, libc::SIGKILL);
-                }
+                kill_group(pid as u32);
             }
         }
     }
-    let _ = std::fs::remove_file(socket);
+    // Su unix il socket e' un file rimasto sul disco; su Windows la pipe non
+    // lascia niente e non c'e' nulla da togliere (vedi transport::cleanup).
+    transport::cleanup(socket);
     let _ = std::fs::remove_file(pid_path);
     false
+}
+
+/// La richiesta GENTILE a un proprietario degradato di farsi da parte, prima di
+/// passare alla maniera forte (`kill_group`). Su unix e' SIGTERM; su Windows non
+/// esiste un segnale equivalente per un processo di un'altra sessione, quindi si
+/// va direttamente all'albero - il proprietario e' gia' stato dichiarato
+/// degradato dalla sonda, quindi non c'e' un lavoro in corso da rispettare.
+#[cfg(unix)]
+fn terminate_degraded_owner(pid: i32) {
+    unsafe {
+        libc::kill(pid, libc::SIGTERM);
+    }
+}
+#[cfg(not(unix))]
+fn terminate_degraded_owner(pid: i32) {
+    kill_group(pid as u32);
 }
 
 // Verify we can actually spawn a PTY before advertising the socket. If the platform
@@ -787,7 +892,7 @@ fn shutdown(shared: &Shared) -> ! {
             kill_group(*p);
         }
     }
-    let _ = std::fs::remove_file(&shared.socket_path);
+    transport::cleanup(&shared.socket_path);
     let _ = std::fs::remove_file(&shared.pid_path);
     std::process::exit(0);
 }
@@ -823,7 +928,6 @@ fn install_signal_handler(_shared: Arc<Shared>) {}
 // to make it read 1, which left the guard `initial_ppid != 1` false forever and the
 // monitor unable to ever arm. That is how the Node bridge accumulated 20 immortal
 // daemons (2026-08-14); the port carried the same hole.
-#[cfg(unix)]
 fn spawn_orphan_monitor(shared: Arc<Shared>, initial_ppid: i32, parent_pid: Option<i32>) {
     thread::spawn(move || {
         let grace = window_from_env("TOPICS_PTY_BRIDGE_ORPHAN_GRACE_MS", DEFAULT_ORPHAN_GRACE);
@@ -844,7 +948,15 @@ fn spawn_orphan_monitor(shared: Arc<Shared>, initial_ppid: i32, parent_pid: Opti
             thread::sleep(tick);
             let orphaned = match parent_pid {
                 Some(pid) => !pid_alive(pid),
-                None => (unsafe { libc::getppid() }) == 1 && initial_ppid != 1,
+                // Il ripiego per un daemon avviato a mano: su unix l'orfano si
+                // riconosce dal riparentamento a init (PPID 1). Windows non
+                // riparenta e non ha un PPID interrogabile a buon mercato,
+                // quindi li' NON si indovina: senza `--parent-pid` il monitor
+                // resta disarmato e il compito di ritirare il daemon tocca
+                // all'`idle_monitor` (nessun client e nessuna sessione). Il
+                // server passa sempre `--parent-pid`, quindi in produzione
+                // questo ramo non si percorre mai.
+                None => orphaned_by_reparenting(initial_ppid),
             };
             if !orphaned {
                 deadline = None;
@@ -895,8 +1007,18 @@ fn spawn_orphan_monitor(shared: Arc<Shared>, initial_ppid: i32, parent_pid: Opti
         }
     });
 }
+
+/// L'euristica di ripiego quando nessuno ci ha detto chi ci ha avviati: su unix
+/// un processo orfano viene riparentato a init (PPID 1). Su Windows non esiste
+/// un equivalente, e un ripiego che indovina e' peggio di uno che si astiene.
+#[cfg(unix)]
+fn orphaned_by_reparenting(initial_ppid: i32) -> bool {
+    (unsafe { libc::getppid() }) == 1 && initial_ppid != 1
+}
 #[cfg(not(unix))]
-fn spawn_orphan_monitor(_shared: Arc<Shared>, _initial_ppid: i32, _parent_pid: Option<i32>) {}
+fn orphaned_by_reparenting(_initial_ppid: i32) -> bool {
+    false
+}
 
 // The rope under the parent check: no clients AND no sessions for IDLE_EXIT means
 // nobody is coming back for us. A single live PTY holds us up regardless — that is
@@ -932,7 +1054,15 @@ fn socket_from_args() -> PathBuf {
         }
     }
     // The server always passes --socket; this is only a standalone fallback.
-    PathBuf::from("/tmp/topics-pty-bridge.sock")
+    // Su Windows un percorso di /tmp non e' un nome valido per una pipe.
+    #[cfg(windows)]
+    {
+        PathBuf::from(r"\\.\pipe\topics-pty-bridge")
+    }
+    #[cfg(not(windows))]
+    {
+        PathBuf::from("/tmp/topics-pty-bridge.sock")
+    }
 }
 
 /// Env seam for the two retirement windows, so they can be exercised without sitting
@@ -966,7 +1096,9 @@ pub fn run() {
     let parent_pid = parent_pid_from_args();
 
     let socket_path = socket_from_args();
-    let pid_path = socket_path.with_extension("pid");
+    // Il pidfile sta ACCANTO al socket su unix; su Windows il nome della pipe non
+    // e' un percorso del filesystem, quindi il file va altrove (vedi transport).
+    let pid_path = transport::pid_path_for(&socket_path);
 
     if check_existing_bridge(&socket_path, &pid_path) {
         eprintln!(
@@ -978,7 +1110,7 @@ pub fn run() {
 
     self_test();
 
-    let listener = match UnixListener::bind(&socket_path) {
+    let listener = match Listener::bind(&socket_path) {
         Ok(l) => l,
         Err(e) => {
             eprintln!("[PTY Bridge] listen error on {}: {e}", socket_path.display());
@@ -1006,10 +1138,17 @@ pub fn run() {
     spawn_idle_monitor(shared.clone());
 
     let mut next_cid: u64 = 0;
-    for stream in listener.incoming() {
-        let stream = match stream {
+    loop {
+        // `accept()` invece di `incoming()`: su Windows ogni connessione e'
+        // un'istanza di pipe creata al momento, non una derivazione di un
+        // listener unico, quindi non esiste un iteratore da consumare.
+        let stream = match listener.accept() {
             Ok(s) => s,
-            Err(_) => continue,
+            Err(e) => {
+                eprintln!("[PTY Bridge] accept error: {e}");
+                thread::sleep(Duration::from_millis(50));
+                continue;
+            }
         };
         let cid = next_cid;
         next_cid += 1;
@@ -1044,7 +1183,7 @@ pub fn run() {
     }
 }
 
-fn handle_client(cid: u64, stream: UnixStream, shared: &Arc<Shared>) {
+fn handle_client(cid: u64, stream: Stream, shared: &Arc<Shared>) {
     let reader = BufReader::new(stream);
     for line in reader.lines() {
         let line = match line {

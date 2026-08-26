@@ -8,6 +8,7 @@ import { shouldCompressFrame } from "../lib/ws-compression";
 import { createHash } from "crypto";
 import net from "net";
 import fs from "fs";
+import { tmpdir } from "os";
 import { augmentPath, realHome } from "../utils/path-env";
 import { timingSafeEqualStr } from "../utils";
 import { readState } from "../services/daemon-state";
@@ -494,6 +495,12 @@ function getSocketPath(): string {
   const dataDir = process.env.DATA_DIR;
   const basis = dataDir ? `${process.cwd()}\0${dataDir}` : process.cwd();
   const hash = createHash('md5').update(basis).digest('hex').slice(0, 8);
+  // Su Windows il tubo NON è un file: `/tmp/...` non esiste e `net.connect` su un
+  // percorso simile fallisce con ENOENT, che il resto di questo file legge come
+  // «nessun bridge» — cioè terminali che non si aprono mai. Il nome canonico di
+  // una named pipe è `\\.\pipe\<nome>`, e l'hash ci sta dentro identico, quindi
+  // l'isolamento fra istanze descritto qui sopra vale parola per parola.
+  if (process.platform === 'win32') return `\\\\.\\pipe\\topics-pty-bridge-${hash}`;
   return `/tmp/topics-pty-bridge-${hash}.sock`;
 }
 
@@ -534,7 +541,43 @@ registerFleetSessionSource(getFleetSessionRefs);
  * is survivable, failing to spawn the bridge is not.
  */
 function bridgeLogPath(): string {
+  // Su Windows il socket è una named pipe: il suo "nome" (`\\.\pipe\...`) non è
+  // una cartella del filesystem e non ci si può parcheggiare accanto un file.
+  // Il log va nella TEMP, con il nome della pipe dentro il proprio, così due
+  // istanze restano distinte esattamente come su unix.
+  if (process.platform === 'win32') {
+    const leaf = SOCKET_PATH.split('\\').pop() || 'topics-pty-bridge';
+    return join(tmpdir(), `${leaf}.log`);
+  }
   return join(dirname(SOCKET_PATH), `${basename(SOCKET_PATH, ".sock")}.log`);
+}
+
+/**
+ * Il file dei pid del bridge. Stessa storia del log: accanto al socket su unix,
+ * nella TEMP su Windows — e DEVE combaciare con `transport::pid_path_for` del
+ * bridge, che è chi lo scrive. Se le due metà scelgono percorsi diversi,
+ * `recycleBridge` non trova mai il proprietario da ritirare e un bridge
+ * degradato resta lì per sempre.
+ */
+function bridgePidPath(): string {
+  if (process.platform === 'win32') {
+    const leaf = SOCKET_PATH.split('\\').pop() || 'topics-pty-bridge';
+    return join(tmpdir(), `${leaf}.pid`);
+  }
+  return SOCKET_PATH.replace(/\.sock$/, '.pid');
+}
+
+/**
+ * «C'è già un bridge in ascolto?» — una domanda che su unix è sul filesystem
+ * (il socket è un file) e su Windows non lo è affatto: `existsSync` su
+ * `\\.\pipe\...` risponde SEMPRE falso, anche con un bridge sano dall'altra
+ * parte. Usata come guardia prima di connettersi, quella risposta significava
+ * «nessun bridge, mai» — cioè terminali che non si aprono. Su Windows la
+ * domanda si gira al tentativo di connessione, che è l'unico a saperlo.
+ */
+function socketMightExist(): boolean {
+  if (process.platform === 'win32') return true;
+  return fs.existsSync(SOCKET_PATH);
 }
 
 /**
@@ -553,7 +596,7 @@ let bridgeSpawnError: string | null = null;
 
 function openBridgeLog(): number | null {
   try {
-    fs.mkdirSync(dirname(SOCKET_PATH), { recursive: true });
+    fs.mkdirSync(dirname(bridgeLogPath()), { recursive: true });
     bridgeLogOpenError = null;
     return fs.openSync(bridgeLogPath(), "a");
   } catch (e) {
@@ -746,7 +789,7 @@ export async function ensureBridge(): Promise<void> {
       // Without this, every terminal opened on a broken install pays the full
       // three seconds to learn something already known at the first tick.
       if (bridgeSpawnError) break;
-      if (fs.existsSync(SOCKET_PATH)) {
+      if (socketMightExist()) {
         const ok = await tryConnect();
         if (ok) break;
       }
@@ -777,7 +820,7 @@ export async function ensureBridge(): Promise<void> {
 
 function tryConnect(): Promise<boolean> {
   return new Promise((resolve) => {
-    if (!fs.existsSync(SOCKET_PATH)) { resolve(false); return; }
+    if (!socketMightExist()) { resolve(false); return; }
 
     const socket = net.connect(SOCKET_PATH, () => {
       bridgeSocket = socket;
@@ -921,7 +964,7 @@ function recycleBridge(reason: string) {
   // Try to send a SIGTERM to whatever owns the pidfile — see bridge
   // checkExistingBridge for the same logic on the bridge side.
   try {
-    const pidPath = SOCKET_PATH.replace(/\.sock$/, '.pid');
+    const pidPath = bridgePidPath();
     if (fs.existsSync(pidPath)) {
       const pid = Number(fs.readFileSync(pidPath, 'utf8').trim());
       if (pid && pid !== process.pid) {
@@ -1631,6 +1674,17 @@ async function createSession(id: string, name: string, cwd: string, command?: st
     const parts = command.split(" ");
     file = parts[0];
     args = parts.slice(1);
+  } else if (process.platform === 'win32') {
+    // La shell di default su Windows. `/bin/zsh` non esiste, e senza questo la
+    // scheda «shell» chiedeva di avviare un file inesistente: il bridge
+    // rispondeva con un errore di spawn e la scheda moriva appena aperta.
+    //
+    // PowerShell e non `cmd.exe`: è la shell interattiva che un utente Windows
+    // si aspetta, e `-NoLogo` toglie l'intestazione di copyright che occuperebbe
+    // le prime righe di ogni terminale. `COMSPEC` resta il ripiego per una
+    // macchina senza PowerShell nel PATH.
+    file = process.env.TOPICS_SHELL || 'powershell.exe';
+    args = ['-NoLogo'];
   } else {
     file = process.env.SHELL || "/bin/zsh";
     args = ["-l"];

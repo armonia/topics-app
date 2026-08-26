@@ -1,18 +1,15 @@
-// Entry point. The bridge is a Unix-socket daemon (macOS + Linux); on Windows it
-// compiles to a no-op so the Tauri externalBin bundle still resolves a binary for
-// every target, while lib.rs simply never spawns it there (Windows keeps the
-// pre-existing 503 "no terminals in standalone" path).
+// Entry point. Il daemon parla lo STESSO protocollo su tutte e tre le piattaforme;
+// cambia solo il tubo sotto (`transport`): un socket Unix su macOS e Linux, una
+// named pipe su Windows.
+//
+// Fino al 2026-08-26 questo file compilava a un no-op su Windows, e lo diceva:
+// «Windows keeps the pre-existing 503 "no terminals in standalone" path». Cioe'
+// su Windows Topics si installava, si apriva, e non poteva aprire un terminale
+// - in un'app il cui scopo e' far girare agenti da riga di comando.
 
-#[cfg(unix)]
 mod bridge;
+mod transport;
 
-#[cfg(unix)]
 fn main() {
     bridge::run();
-}
-
-#[cfg(not(unix))]
-fn main() {
-    eprintln!("[PTY Bridge] Unix-socket transport unavailable on this platform; exiting.");
-    std::process::exit(0);
 }
