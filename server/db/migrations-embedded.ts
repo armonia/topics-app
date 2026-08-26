@@ -132,6 +132,7 @@ import m20260820235900_nota_senza_riassunto_visibile from "./migrations/20260820
 import m20260821000500_nota_senza_riassunto_ordine from "./migrations/20260821000500-nota-senza-riassunto-ordine.sql" with { type: "text" };
 import m20260821162529_follows_and_profile_privacy from "./migrations/20260821162529-follows-and-profile-privacy.sql" with { type: "text" };
 import m20260823210000_preview_rejected from "./migrations/20260823210000-preview-rejected.sql" with { type: "text" };
+import m20260826213000_unread_su_topic_archiviate from "./migrations/20260826213000-unread-su-topic-archiviate.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -268,4 +269,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260821000500, name: "20260821000500-nota-senza-riassunto-ordine.sql", sql: m20260821000500_nota_senza_riassunto_ordine },
   { version: 20260821162529, name: "20260821162529-follows-and-profile-privacy.sql", sql: m20260821162529_follows_and_profile_privacy },
   { version: 20260823210000, name: "20260823210000-preview-rejected.sql", sql: m20260823210000_preview_rejected },
+  { version: 20260826213000, name: "20260826213000-unread-su-topic-archiviate.sql", sql: m20260826213000_unread_su_topic_archiviate },
 ];

@@ -29,6 +29,12 @@ export interface UnreadDeps {
   loadUnread: () => UnreadData;
   saveUnread: (data: UnreadData) => void;
   broadcastToAll: (message: OutboundMessage) => void;
+  /**
+   * Whether this topic is archived. REQUIRED, and deliberately not optional:
+   * an optional predicate defaults to "no" at every call site that forgets it,
+   * which is the same silence this guard exists to end.
+   */
+  isArchived: (topicId: string) => boolean;
 }
 
 /**
@@ -40,6 +46,23 @@ export interface UnreadDeps {
  */
 export function bumpUnreadCount(deps: UnreadDeps, topicId: string): void {
   try {
+    // AN ARCHIVED TOPIC DOES NOT GROW A BADGE.
+    //
+    // Archiving already resets the counter (`archiveTopicFully`, and all three
+    // archive paths go through it), so the invariant looked closed. It was
+    // closed on the ARCHIVING edge only: nothing stopped a message arriving
+    // AFTERWARDS from raising the badge again on a topic nobody will open.
+    //
+    // Measured on 2026-08-26, three weeks after that fix landed:
+    //
+    //   select count(*) from unread u join topics t on t.id = u.topic_id
+    //   where u.unread_count > 0 and t.archived = 1;   -> 475
+    //
+    // with rows whose `last_read_at` runs to 23/08. A counter repaired only
+    // where it is written and never where it is incremented is repaired on the
+    // wrong edge.
+    if (deps.isArchived(topicId)) return;
+
     const unread = deps.loadUnread();
     if (!unread[topicId]) unread[topicId] = { lastReadAt: new Date().toISOString(), unreadCount: 0 };
     unread[topicId].unreadCount += 1;

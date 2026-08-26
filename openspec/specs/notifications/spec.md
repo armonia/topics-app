@@ -153,6 +153,27 @@ L'arrivo di un messaggio su un topic SHALL incrementare il suo non-letto,
 SEMPRE. Solo una lettura ESPLICITA — quella che il client manda dopo una
 permanenza continua sullo sguardo — SHALL azzerarlo.
 
+Con UNA eccezione, e la parola «SEMPRE» sopra vale dentro quel confine: un topic
+ARCHIVIATO NON SHALL prendere il badge, e il suo incremento NON SHALL essere
+ANNUNCIATO — un annuncio fa ridisegnare a ogni client un badge che non esiste.
+
+L'archiviazione azzera già il conteggio, quindi l'invariante sembrava chiusa: era
+chiusa sul bordo dell'ARCHIVIAZIONE soltanto. Un messaggio arrivato DOPO rialzava
+il badge su un topic che nessuno riaprirà. Misurato il 26/08/2026, tre settimane
+dopo quel lavoro: **475** topic archiviati con un badge appeso, con l'ultima
+lettura fino al 23/08. Un contatore riparato dove si scrive e mai dove si
+incrementa è riparato sul bordo sbagliato.
+
+La condizione «è archiviato» SHALL essere una dipendenza OBBLIGATORIA di chi
+incrementa, non facoltativa: una condizione facoltativa vale «no» in ogni punto
+di chiamata che la dimentica, ed è esattamente il silenzio che questa regola
+chiude.
+
+Un conteggio già accumulato su un topic archiviato NON SHALL essere ripulito da
+chi incrementa — quella è una cura sul bordo sbagliato una seconda volta. Il
+residuo storico si toglie una volta sola, e chi incrementa SHALL limitarsi a
+smettere di produrlo.
+
 NON SHALL esistere un cancello del tipo «se il topic è a fuoco, non contare».
 Quel cancello equivaleva a «presente = letto», senza nessuna nozione di tempo, e
 si rompeva in due modi:
@@ -179,6 +200,11 @@ all'incremento.
 
 Un errore di persistenza del non-letto NON SHALL propagare: il badge è
 accessorio, il messaggio no.
+
+#### Scenario: un messaggio su un topic archiviato
+- **GIVEN** un topic archiviato
+- **WHEN** arriva un messaggio
+- **THEN** il non-letto NON SHALL crescere, e NESSUN annuncio SHALL partire
 
 #### Scenario: messaggi a raffica
 - **GIVEN** più messaggi ravvicinati sullo stesso topic

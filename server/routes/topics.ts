@@ -542,7 +542,10 @@ export function createTopicsRouter(
 
   /** Politica di lettura e incremento: `server/lib/unread-count.ts`. */
   function updateUnreadCount(topicId: string) {
-    bumpUnreadCount({ loadUnread, saveUnread, broadcastToAll }, topicId);
+    bumpUnreadCount(
+      { loadUnread, saveUnread, broadcastToAll, isArchived: (id) => getTopicById(id)?.archived === true },
+      topicId,
+    );
   }
 
   // Track which topics already had a browser navigate this session to avoid duplicate triggers

@@ -12,13 +12,14 @@ import { describe, expect, it } from "bun:test";
 import { bumpUnreadCount, type UnreadDeps } from "./unread-count";
 import type { UnreadData } from "../../shared/types";
 
-function harness(initial: UnreadData = {}) {
+function harness(initial: UnreadData = {}, archived: string[] = []) {
   let store: UnreadData = structuredClone(initial);
   const broadcasts: Array<Record<string, unknown>> = [];
   const deps: UnreadDeps = {
     loadUnread: () => store,
     saveUnread: (d) => { store = d; },
     broadcastToAll: (m) => { broadcasts.push(m as unknown as Record<string, unknown>); },
+    isArchived: (id) => archived.includes(id),
   };
   return { deps, broadcasts, read: () => store };
 }
@@ -62,12 +63,50 @@ describe("bumpUnreadCount", () => {
     expect(h.broadcasts).toEqual([{ type: "unread:updated", topicId: "t1", unreadCount: 8 }]);
   });
 
+  // ─── la topic archiviata ────────────────────────────────────────────────
+  //
+  // Archiving already zeroes the counter, so the invariant looked closed. It
+  // was closed on the ARCHIVING edge only: nothing stopped a message arriving
+  // AFTERWARDS from raising the badge again. Measured 26/08/2026, three weeks
+  // after that fix: 475 archived topics carrying a badge, `last_read_at` up to
+  // 23/08. These cases exist so that edge cannot reopen in silence.
+
+  it("una topic archiviata NON prende il badge", () => {
+    const h = harness({}, ["t1"]);
+    bumpUnreadCount(h.deps, "t1");
+    expect(h.read().t1, "l'archiviata si e' presa una riga di non-letto").toBeUndefined();
+  });
+
+  it("e non annuncia niente: nessun client deve ridisegnare un badge che non esiste", () => {
+    const h = harness({}, ["t1"]);
+    bumpUnreadCount(h.deps, "t1");
+    expect(h.broadcasts).toEqual([]);
+  });
+
+  it("un conteggio gia' presente su un'archiviata resta com'e', non cresce", () => {
+    // Cleaning up here would be a cure on the wrong edge a second time: the
+    // historical residue is removed once by the migration, and this function
+    // only has to stop producing it.
+    const h = harness({ t1: { lastReadAt: "2026-08-01T00:00:00.000Z", unreadCount: 3 } }, ["t1"]);
+    bumpUnreadCount(h.deps, "t1");
+    expect(h.read().t1.unreadCount).toBe(3);
+  });
+
+  it("l'archiviazione di UNA topic non silenzia le altre", () => {
+    const h = harness({}, ["t1"]);
+    bumpUnreadCount(h.deps, "t1");
+    bumpUnreadCount(h.deps, "t2");
+    expect(h.read().t1).toBeUndefined();
+    expect(h.read().t2.unreadCount).toBe(1);
+  });
+
   it("un errore di persistenza non propaga: il badge è accessorio, il messaggio no", () => {
     const broadcasts: Array<Record<string, unknown>> = [];
     const deps: UnreadDeps = {
       loadUnread: () => { throw new Error("db locked"); },
       saveUnread: () => {},
       broadcastToAll: (m) => { broadcasts.push(m as unknown as Record<string, unknown>); },
+      isArchived: () => false,
     };
     expect(() => bumpUnreadCount(deps, "t1")).not.toThrow();
     expect(broadcasts).toEqual([]);
