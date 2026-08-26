@@ -40,12 +40,12 @@ import { join } from "node:path";
 const ROOT = join(import.meta.dir, "..", "..", "..", "..");
 const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
 
-const CHAT_INPUT = read("client/src/components/Chat/ChatInput.tsx");
+const SLASH_COMMANDS_SRC = read("client/src/components/Chat/slashCommands.ts");
 const CHAT_PANE = read("client/src/components/Chat/ChatPane.tsx");
 const ADAPT = read("server/context/adapt.ts");
 
 /** The commands the composer offers, from the `SLASH_COMMANDS` literal. */
-const offered: string[] = [...CHAT_INPUT.matchAll(/\{\s*cmd:\s*'\/([a-z-]+)'/g)].map((m) => m[1]!);
+const offered: string[] = [...SLASH_COMMANDS_SRC.matchAll(/\{\s*cmd:\s*'\/([a-z-]+)'/g)].map((m) => m[1]!);
 
 /** The names the server hands to the CLI untouched. */
 const naked: Set<string> = (() => {
@@ -105,7 +105,7 @@ describe("`/help` cannot fall behind the menu", () => {
     const line = CHAT_PANE.match(/const SLASH_COMMANDS_HELP\s*=\s*([^;]+);/)?.[1] ?? "";
     expect(line, "`/help` is a hand-written list again").toContain("SLASH_COMMANDS.map");
     expect(CHAT_PANE, "`ChatPane` must import the menu, not copy it").toContain(
-      "import { SLASH_COMMANDS } from './ChatInput'",
+      "import { SLASH_COMMANDS } from './slashCommands'",
     );
   });
 });

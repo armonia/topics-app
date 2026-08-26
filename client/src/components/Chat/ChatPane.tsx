@@ -17,7 +17,7 @@ import { sendFocusTopic } from '../../lib/focusMessaging';
 import type { MentionedFile } from './FileMentionMenu';
 import { PinnedMessages } from './PinnedMessages';
 import { MessageList } from './MessageList';
-import { SLASH_COMMANDS } from './ChatInput';
+import { SLASH_COMMANDS } from './slashCommands';
 import { ChatInput } from './ChatInput';
 import { CheckpointTimeline } from './CheckpointTimeline';
 import { TodoStrip } from './TodoStrip';

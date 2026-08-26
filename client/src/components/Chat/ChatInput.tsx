@@ -1,8 +1,9 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId, useMemo, lazy, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
-import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, Plus, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Play, FolderOpen, Globe, Download, Gauge, Info, Target, ChevronsDownUp } from 'lucide-react';
+import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, Plus, Zap, Download } from 'lucide-react';
 import { decideComposerAction } from './composerAction';
+import { SLASH_COMMANDS } from './slashCommands';
 import { canAnswerWithText, findPendingAsk } from '../../state/pendingAsk';
 import { useTopicLoading } from '../../state/signals';
 import { turnLooksUnanswered } from './turnError';
@@ -37,61 +38,6 @@ import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 // the composer's initial bundle and only fetch it the first time the popover opens.
 const ContextInspector = lazy(() => import('../Context/ContextInspector').then(m => ({ default: m.ContextInspector })));
 
-/**
- * The slash commands the composer offers.
- *
- * Exported because `/help` is BUILT FROM THIS LIST. It used to be a second
- * hand-written array in `ChatPane`, and the two drifted exactly the way two
- * hand-kept lists always do: `/help` named ten commands while the menu offered
- * more, so the one place a user goes to ask "what can I type here" gave the
- * shorter, older answer. Derived, they cannot disagree.
- *
- * `slashCommandRouting.test.ts` guards the other half: every entry here must
- * have somewhere to go.
- */
-export const SLASH_COMMANDS = [
-  // `Info` e non un lampo: qui non si accelera niente, si legge uno stato. Il
-  // lampo in questa app vuol dire UNA cosa sola — velocità — ed è del Fast Mode.
-  { cmd: '/status', label: 'Status', description: 'Show session status', icon: Info },
-  { cmd: '/context', label: 'Context', description: 'Show context-window usage (tokens, budget, sources)', icon: Gauge },
-  // La compattazione esisteva già e l'app ne disegna anche l'esito (i divider
-  // «context compacted», partitionMarkers.ts), ma l'UNICO modo di lanciarla era
-  // il bottone «Compact now» dentro l'avviso del contesto — che compare solo
-  // sopra soglia e sparisce appena lo si chiude. Non c'era nessun modo
-  // permanente di chiederla, e in `/help` non era nemmeno nominata.
-  //
-  // Non serve un gestore lato client: `handleSlashCommand` non lo intercetta,
-  // quindi il messaggio passa dritto alla CLI, che `/compact` lo conosce da sé.
-  // È esattamente quello che fa il bottone (`sendMessageDirect('/compact')`).
-  // Mettendolo qui diventa una voce di prima classe in tutte e due le
-  // superfici che questo elenco alimenta: l'autocompletamento con `/` e il
-  // menu overflow, che è sempre raggiungibile.
-  { cmd: '/compact', label: 'Compact', description: 'Compatta il contesto ora (riassume la storia e libera spazio)', icon: ChevronsDownUp },
-  { cmd: '/clear', label: 'Clear', description: 'Clear conversation', icon: Trash2 },
-  { cmd: '/model', label: 'Model', description: 'Change model (e.g. /model claude-opus-5[1m])', icon: Cpu },
-  { cmd: '/effort', label: 'Effort', description: 'Set reasoning effort (low|medium|high|xhigh|max)', icon: Brain },
-  { cmd: '/reasoning', label: 'Reasoning', description: 'Toggle reasoning (openclaw) / → /effort on claude-code', icon: Brain },
-  { cmd: '/agents', label: 'Agents', description: 'List agent profiles', icon: Users },
-  // `/pause` and `/assign` used to sit around this one, offering "Pause agent
-  // (@name)" and "Assign task (@name task)". Neither had a destination: no
-  // handler in `ChatPane`, and not in the server's `CLI_BUILTINS` allowlist
-  // either, so choosing one from the menu sent the literal text to the model as
-  // prose — with the whole context preamble in front of it. A menu entry that
-  // does nothing is worse than no entry, because it also spends the user's
-  // trust in the menu. `slashCommandRouting.test.ts` now makes the class
-  // impossible: every entry here must be handled or allowlisted.
-  //
-  // Half of `/pause` does exist, and this is where whoever builds it should
-  // start: `pauseSession` / `resumeSession` are declared on the provider
-  // interface (`server/providers/types.ts:590`) and implemented for openclaw
-  // (`providers/openclaw.ts:189`). Nothing calls either. The capability and
-  // the menu entry were built from opposite ends and never met.
-  { cmd: '/resume', label: 'Resume', description: 'Resume agent (@name)', icon: Play },
-  { cmd: '/project', label: 'Project', description: 'Create or open a project', icon: FolderOpen },
-  { cmd: '/browser', label: 'Browser', description: 'Open browser tab and navigate (e.g. /browser https://example.com)', icon: Globe },
-  { cmd: '/goal', label: 'Goal', description: "Obiettivo della chat: /goal <testo> · /goal fatto · /goal basta", icon: Target },
-  { cmd: '/help', label: 'Help', description: 'Show available commands', icon: HelpCircle },
-];
 
 /**
  * Il vestito della card del composer — bordo, fondo, ombra, angoli.
