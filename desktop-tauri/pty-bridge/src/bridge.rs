@@ -211,28 +211,39 @@ fn build_env(over: &[(String, Option<String>)]) -> Vec<(String, String)> {
         m.insert("PATH".into(), parts.join(":"));
     }
 
-    // Same idea on Windows, with the places the agent CLIs (`claude`, `codex`,
-    // `bun`) actually land when installed per-user: the PATH the shell inherits may
-    // lack them, and a `claude` that cannot be found becomes a tab that opens and
-    // dies at once without saying why.
+    // Same idea on Windows, with the places per-user agent CLI installs (`claude`,
+    // `codex`, `bun`) actually land: the PATH the shell inherits may lack them, and a
+    // `claude` that cannot be found becomes a tab that opens and dies at once without
+    // saying why.
     //
-    // The separator is `;`, and environment variables on Windows are
-    // CASE-INSENSITIVE: the inherited value may be spelled `Path`, and inserting
-    // `PATH` alongside without removing the other leaves two conflicting entries,
-    // with the child reading whichever it likes. Any spelling is removed before
-    // writing ours.
+    // Two things that are NOT the same as on unix, and each one broke a terminal:
+    //
+    //  • The separator is `;`. On Windows `:` is the drive letter's punctuation, so
+    //    splitting a PATH on it cuts EVERY entry in half. Measured on Windows 11 on
+    //    2026-08-26 (from the server's own augmentPath, same bug): the child ended up
+    //    with `C:\WINDOWS\system32` glued inside a longer nonexistent entry, and
+    //    `ping` answered "not recognized" in a Topics terminal.
+    //
+    //  • Environment variables are CASE-INSENSITIVE. The inherited value is usually
+    //    spelled `Path`, and inserting `PATH` beside it leaves two conflicting
+    //    entries with the child reading whichever it likes — so the SAME key the
+    //    parent used is reused, and any other spelling is dropped first.
     #[cfg(windows)]
     {
         let home = m.get("HOME").cloned().unwrap_or_else(real_home);
-        let existing: Vec<String> = m
+        // Keep the key the parent actually used (`Path`, `PATH`, …) and collapse any
+        // duplicate spelling into it.
+        let mut key = "PATH".to_string();
+        let mut current = String::new();
+        let spellings: Vec<String> = m
             .keys()
             .filter(|k| k.eq_ignore_ascii_case("PATH"))
             .cloned()
             .collect();
-        let mut current = String::new();
-        for k in existing {
-            if let Some(v) = m.remove(&k) {
-                if current.is_empty() {
+        for (i, k) in spellings.iter().enumerate() {
+            if let Some(v) = m.remove(k) {
+                if i == 0 {
+                    key = k.clone();
                     current = v;
                 }
             }
@@ -240,14 +251,27 @@ fn build_env(over: &[(String, Option<String>)]) -> Vec<(String, String)> {
         let extra = [
             format!("{home}\\.local\\bin"),
             format!("{home}\\.bun\\bin"),
-            format!("{home}\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"),
+            format!("{home}\\.cargo\\bin"),
             format!("{home}\\AppData\\Roaming\\npm"),
+            format!("{home}\\AppData\\Local\\Microsoft\\WinGet\\Links"),
         ];
-        let mut parts: Vec<String> = extra.to_vec();
-        if !current.is_empty() {
-            parts.push(current);
+        // De-duplicated, case-insensitively: Windows paths are, and a PATH that
+        // repeats an entry in two spellings only makes it longer.
+        let mut seen: Vec<String> = Vec::new();
+        let mut parts: Vec<String> = Vec::new();
+        for p in extra.iter().cloned().chain(current.split(';').map(str::to_string)) {
+            let t = p.trim().to_string();
+            if t.is_empty() {
+                continue;
+            }
+            let low = t.to_lowercase();
+            if seen.contains(&low) {
+                continue;
+            }
+            seen.push(low);
+            parts.push(t);
         }
-        m.insert("PATH".into(), parts.join(";"));
+        m.insert(key, parts.join(";"));
     }
 
     m.into_iter().collect()

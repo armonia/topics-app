@@ -38,24 +38,53 @@ export function realHome(): string {
 
 const HOME = realHome();
 
+/**
+ * The PATH separator, which is NOT the same everywhere: `:` on unix, `;` on
+ * Windows — where `:` is also the drive letter's own punctuation (`C:\...`).
+ *
+ * Splitting a Windows PATH on `:` does not merely fail to split: it CUTS EVERY
+ * ENTRY IN HALF at its drive letter, and joining the pieces back with `:`
+ * produces one long string the OS reads as a single, nonexistent directory.
+ * Measured on Windows 11 on 2026-08-26: the child's PATH came out holding
+ * `C:\Users\zorah/.local/bin:...:/sbin:C:\WINDOWS\system32;...`, so
+ * `C:\WINDOWS\system32` was no longer an entry of its own and `ping` — a plain
+ * system command — answered "not recognized" inside a Topics terminal.
+ */
+const SEP = process.platform === "win32" ? ";" : ":";
+
 // Order matters: earlier entries win. User-installed tools first, then
 // homebrew (Apple Silicon + Intel), then system defaults.
-export const EXTRA_PATHS: string[] = [
-  `${HOME}/.local/bin`,
-  `${HOME}/.bun/bin`,
-  `${HOME}/.cargo/bin`,
-  `${HOME}/.deno/bin`,
-  `${HOME}/.volta/bin`,
-  `${HOME}/.npm-global/bin`,
-  "/opt/homebrew/bin",
-  "/opt/homebrew/sbin",
-  "/usr/local/bin",
-  "/usr/local/sbin",
-  "/usr/bin",
-  "/bin",
-  "/usr/sbin",
-  "/sbin",
-];
+//
+// These are UNIX locations and only make sense there: on Windows they are four
+// nonexistent directories, and `/usr/bin`-style entries in a Windows PATH are
+// noise at best. The Windows list carries the places per-user installs actually
+// land — and NOT the system directories, which are already in the inherited
+// PATH and must not be duplicated ahead of it.
+export const EXTRA_PATHS: string[] =
+  process.platform === "win32"
+    ? [
+        `${HOME}\\.local\\bin`,
+        `${HOME}\\.bun\\bin`,
+        `${HOME}\\.cargo\\bin`,
+        `${HOME}\\AppData\\Roaming\\npm`,
+        `${HOME}\\AppData\\Local\\Microsoft\\WinGet\\Links`,
+      ]
+    : [
+        `${HOME}/.local/bin`,
+        `${HOME}/.bun/bin`,
+        `${HOME}/.cargo/bin`,
+        `${HOME}/.deno/bin`,
+        `${HOME}/.volta/bin`,
+        `${HOME}/.npm-global/bin`,
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+      ];
 
 /**
  * The user's REAL interactive PATH, captured by running their login shell.
@@ -105,12 +134,15 @@ export function loginShellPath(): string {
 export function augmentPath(currentPath: string = process.env.PATH || ""): string {
   const seen = new Set<string>();
   const parts: string[] = [];
-  for (const p of [...EXTRA_PATHS, ...loginShellPath().split(":"), ...currentPath.split(":")]) {
+  // `loginShellPath()` is unix-only (it asks a login shell) and returns "" on
+  // Windows, so its split never contributes there — but it is still split on the
+  // platform separator so the two halves can never disagree.
+  for (const p of [...EXTRA_PATHS, ...loginShellPath().split(SEP), ...currentPath.split(SEP)]) {
     if (!p || seen.has(p)) continue;
     seen.add(p);
     parts.push(p);
   }
-  return parts.join(":");
+  return parts.join(SEP);
 }
 
 /**
