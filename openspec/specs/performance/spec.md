@@ -500,6 +500,39 @@ SHALL avere un budget.
 - **GIVEN** la modalità che non chiama nessun modello
 - **THEN** SHALL essere riportato l'overhead nostro, dichiarando l'assenza del modello
 
+### Requirement: LAT-AI-04 — Un banco che misura un turno DICHIARA quando la macchina non può chiuderne uno
+
+La modalità che non chiama nessun modello è gratuita, ma non è priva di
+provider: ogni tratto si misura fra i fotogrammi di un turno, e un turno si
+chiude solo sul fotogramma finale. Sul banco isolato quel fotogramma arriva
+comunque — la CLI agente c'è, non è autenticata, e risponde «Not logged in» —
+ma su una macchina che quella CLI non ce l'ha non risponde nessuno.
+
+Su otto notti di fila il banco notturno è stato rosso per questo, prova e
+ritentativo, con l'errore «il turno non è mai finito». Un cancello rosso per una
+ragione ambientale insegna a ignorare i rossi, ed è precisamente quello che quel
+mese dimostra.
+
+Il banco SHALL riconoscere l'ambiente CHIEDENDOGLIELO — un invio solo, con un
+budget breve — e NON SHALL dedurlo da una variabile d'ambiente o da un elenco di
+provider «pronti»: pronto vuol dire configurato, non raggiungibile.
+
+Quando il server HA ACCETTATO il messaggio e NESSUN turno si è chiuso, il banco
+SHALL DICHIARARSI SALTATO con una riga che nomina la causa. Qualunque altra
+forma di fallimento — l'invio che non parte, il messaggio che non torna — è
+NOSTRA e SHALL restare rossa.
+
+Il riconoscimento SHALL basarsi sui FOTOGRAMMI osservati, non sul testo
+dell'errore: una formulazione non è un fatto sulla macchina.
+
+#### Scenario: runner senza CLI agente
+- **GIVEN** un messaggio accettato dal server e nessun turno che si chiude
+- **THEN** il banco SHALL risultare saltato, con la causa scritta
+
+#### Scenario: il nostro percorso di invio è rotto
+- **GIVEN** un messaggio che il server non conferma mai
+- **THEN** il banco SHALL restare rosso
+
 ### Requirement: STREAMB-03 — Un token che arriva costa uguale, per quanto lungo sia il trascritto
 
 Le altre misure guardano un trascritto FERMO o cronometrano un gesto. Nessuna

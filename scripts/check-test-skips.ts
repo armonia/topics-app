@@ -122,8 +122,24 @@ const SKIP_DIRS = new Set(["node_modules", "test-results"]);
  * del prodotto.
  * Resta un buco VERO da dire ad alta voce: la memoria del modello e' coperta
  * solo sulla macchina di chi sviluppa, mai in CI.
+ *
+ * 24 -> 25 il 26/08/2026: `bench-ai-latency.spec.ts` si dichiara saltato quando
+ * la macchina NON PUO' chiudere un turno. Ogni tratto di quel banco si misura
+ * fra i fotogrammi di un turno, e il fotogramma finale sul banco isolato arriva
+ * lo stesso — la CLI agente c'e', non e' loggata, e risponde «Not logged in».
+ * Su un runner che quella CLI non ce l'ha non risponde nessuno, e il banco ha
+ * tenuto rossa la notturna per OTTO notti di fila, prova e ritentativo, con «il
+ * turno non e' mai finito». Quel rosso non parlava del prodotto.
+ *
+ * Perche' e' onesto: la condizione non e' una variabile d'ambiente ne' un
+ * elenco di provider «pronti» (pronto = configurato, non raggiungibile). E'
+ * una domanda fatta alla macchina — un invio, budget 25s — e la risposta si
+ * legge sui FOTOGRAMMI: messaggio ACCETTATO dal server e nessun turno chiuso.
+ * Qualunque altra forma resta rossa, ed e' misurato: togliendo `message:new`
+ * dalla sonda il banco fallisce, togliendo `stream:end` si salta, e su questa
+ * macchina passa in 9,8s. Requisito LAT-AI-04.
  */
-const BASELINE = 24;
+const BASELINE = 25;
 
 /** `test.skip(` e `test.fixme(` — non `test.describe.skip`, che disattiva un blocco intero. */
 const SKIP_CALL = /\btest\.(skip|fixme)\s*\(/g;

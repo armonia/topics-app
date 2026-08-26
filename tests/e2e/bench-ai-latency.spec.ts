@@ -201,6 +201,7 @@ test.describe("@nightly BENCH - AI response time, our overhead separated from th
 
   test("measures send overhead, delivery overhead, and the model's share @nightly", async ({ page, request }, testInfo) => {
     test.info().annotations.push({ type: "spec", description: "LAT-AI-03" });
+    test.info().annotations.push({ type: "spec", description: "LAT-AI-04" });
     // EXACTLY one pane. Anything an earlier spec left open is one more resident
     // chat competing for the same main thread, and every number here is a
     // main-thread number.
@@ -240,9 +241,66 @@ test.describe("@nightly BENCH - AI response time, our overhead separated from th
     // One untimed send first. The very first POST of a page pays connection
     // setup and a cold code path in the composer; it is a real cost, but it is
     // "the first message of a session", not "sending a message".
-    const warmup = await sendOnce(page, panel, composer, promptFor(`bench-warmup-${stamp}`), `bench-warmup-${stamp}`, {
-      wantProviderEvent: REAL_MODE,
-    });
+    //
+    // IT IS ALSO THE ENVIRONMENT PROBE, and that is what keeps this bench from
+    // holding the nightly red for a reason that is not about the product.
+    //
+    // The default mode is free but it is NOT provider-free: every leg here is
+    // measured between frames of a turn, and a turn only closes on `stream:end`.
+    // On the isolated E2E server that frame arrives anyway — the agent CLI is
+    // there, unauthenticated, and answers "Not logged in" with model
+    // `<synthetic>` (see `reachedAModel`). On a runner with no agent CLI at all
+    // nothing answers, `stream:end` never comes, and this test spent 60s per
+    // attempt discovering it. Measured on the nightly: red 8 nights in a row,
+    // three runs (31925599726, 31968457939, 31970135356), test AND retry, every
+    // one of them "the turn for bench-warmup-… never ended".
+    //
+    // A red like that is not a finding, it is a machine without a CLI, and a
+    // gate that is red for an environmental reason teaches people to ignore
+    // reds — which is exactly what those eight nights show.
+    //
+    // The probe asks the environment instead of guessing at it. Checking an env
+    // var (`ANTHROPIC_API_KEY`) would be a proxy for the wrong thing: the
+    // default mode does not want a key, it wants something that answers. And
+    // `/api/providers/snapshot` lies by design — "ready" means "configured",
+    // not "reachable" (see `reachedAModel`). One send is the only honest
+    // question, and the shortened budget is what makes asking it cheap.
+    const PROBE_BUDGET_MS = 25_000;
+    let warmup: SendSample;
+    try {
+      warmup = await sendOnce(page, panel, composer, promptFor(`bench-warmup-${stamp}`), `bench-warmup-${stamp}`, {
+        wantProviderEvent: REAL_MODE,
+        endBudgetMs: REAL_MODE ? undefined : PROBE_BUDGET_MS,
+      });
+    } catch (err) {
+      // WHICH FAILURE IS ALLOWED TO EXCUSE THE RUN — asked of the frames, not of
+      // the error text. Matching on the message would tie this branch to the
+      // wording of a Playwright timeout, and a wording is not a fact about the
+      // machine.
+      //
+      // The fact is: the server ACCEPTED the message (`message:new` came back,
+      // so our whole send path worked) and no `stream:end` ever followed (so
+      // nothing on the other side answered, not even to refuse). That pair is
+      // an environment without an agent CLI. Any other shape — the POST never
+      // left, `message:new` never came back — is OURS, and it stays red.
+      const probe = await page.evaluate(() => {
+        const bench = window.__benchAi;
+        if (!bench) return null;
+        const state = bench.read();
+        return {
+          accepted: state.frames.some((f) => f.type === "message:new"),
+          ended: state.frames.some((f) => f.type === "stream:end"),
+        };
+      });
+      const nothingAnswered = probe !== null && probe.accepted && !probe.ended;
+      test.skip(
+        !REAL_MODE && nothingAnswered,
+        `il server ha accettato il messaggio ma nessun turno si e' chiuso entro ${PROBE_BUDGET_MS}ms: ` +
+          `su questa macchina non c'e' una CLI agente che risponda, nemmeno per rifiutare. ` +
+          `Non e' una misura del prodotto. Provider dichiarati pronti: ${providers.join(", ") || "nessuno"}.`,
+      );
+      throw err;
+    }
     turnModels.push(warmup.turnModel ?? "none");
 
     // In real mode, the warm-up is also the PROBE. If it never reached a model
@@ -405,7 +463,7 @@ async function sendOnce(
   composer: import("@playwright/test").Locator,
   text: string,
   marker: string,
-  opts: { wantProviderEvent: boolean },
+  opts: { wantProviderEvent: boolean; endBudgetMs?: number },
 ): Promise<SendSample> {
   // Typed with `fill`, which sets the value without a keydown: the interval has
   // to start at the Enter that sends, not at the typing. It also has to come
@@ -453,7 +511,7 @@ async function sendOnce(
   // model, and without that name a run cannot say whether it called one.
   await expect
     .poll(async () => (await read())?.endedAt !== null, {
-      timeout: opts.wantProviderEvent ? 180_000 : 60_000,
+      timeout: opts.endBudgetMs ?? (opts.wantProviderEvent ? 180_000 : 60_000),
       message: `the turn for ${marker} never ended`,
     })
     .toBe(true);

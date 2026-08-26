@@ -47,15 +47,15 @@ describe("cartella degli artefatti degli shard", () => {
   }, 60_000);
 
   it("senza identita' di shard resta la cartella storica", () => {
-    // La controprova: chi lancia la suite normalmente non deve vedere niente
-    // di diverso, altrimenti si cura un guasto che li' non esiste.
+    // The counter-proof: whoever runs the suite normally must see nothing
+    // different, or we would be curing a fault that does not exist there.
     expect(outputDirWith({})).toBe("test-results/artifacts");
   }, 60_000);
 
   it("e' lo script degli shard a dare quell'identita'", () => {
-    // Se domani lo script smettesse di esportare E2E_PORT, i tre casi sopra
-    // resterebbero verdi e il difetto tornerebbe: la config sarebbe corretta e
-    // nessuno la metterebbe piu' in condizione di esserlo.
+    // If the script stopped exporting E2E_PORT tomorrow, the three cases above
+    // would stay green and the defect would come back: the config would be
+    // correct and nobody would put it in a position to be so any more.
     const src = Bun.file(resolve(REPO_ROOT, "scripts/e2e-shards.sh"));
     return src.text().then((t) => {
       expect(t, "e2e-shards.sh non esporta piu' E2E_PORT").toContain('E2E_PORT="$port"');
