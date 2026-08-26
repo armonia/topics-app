@@ -21,7 +21,7 @@ import { it, expect } from "bun:test";
 const BUN_DEFAULT_MS = 5_000;
 
 it("dorme oltre il default di bun senza chiedere un timeout suo", async () => {
-  const partenza = Date.now();
+  const startedAt = Date.now();
   await Bun.sleep(BUN_DEFAULT_MS + 100);
-  expect(Date.now() - partenza).toBeGreaterThanOrEqual(BUN_DEFAULT_MS);
+  expect(Date.now() - startedAt).toBeGreaterThanOrEqual(BUN_DEFAULT_MS);
 });

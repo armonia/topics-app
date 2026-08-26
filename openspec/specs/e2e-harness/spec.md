@@ -308,6 +308,35 @@ insieme quei due posti, e toglierne uno riapre metà del difetto in silenzio.
 - **GIVEN** uno script senza il timeout dichiarato
 - **THEN** il banco SHALL fallire
 
+### Requirement: E2E-GATE-09 — Due shard non scrivono nella stessa cartella di artefatti
+
+Gli shard esistono per girare INSIEME: ognuno ha la sua porta, il suo
+`DATA_DIR`, il suo bundle e il suo tunnel. La cartella degli artefatti di
+Playwright era invece un percorso FISSO, quindi N processi creavano, spostavano
+e cancellavano dentro la stessa area di lavoro. Chi arrivava dopo trovava il
+file che un altro aveva appena spostato, e il risultato erano `ENOENT` su
+tracce e registrazioni di rete — errori che NOMINANO un file e non un difetto,
+e che a leggerli sembrano un guasto del prodotto.
+
+Il difetto non era possibile: era garantito, perché quello script nasce per
+lanciare più processi.
+
+La cartella degli artefatti SHALL DERIVARE dall'identità dello shard, e non
+SHALL essere un percorso fisso condiviso.
+
+Una corsa che non è uno shard — nessuna identità impostata — SHALL continuare a
+usare la cartella storica: rendere unica anche quella cambierebbe il
+comportamento di chi lancia la suite normalmente, per curare un guasto che lì
+non esiste.
+
+#### Scenario: due shard sulla stessa macchina
+- **GIVEN** due corsi con identità di shard diverse
+- **THEN** le cartelle degli artefatti SHALL essere diverse
+
+#### Scenario: una corsa singola, senza shard
+- **GIVEN** nessuna identità di shard
+- **THEN** la cartella SHALL restare quella storica
+
 ### Requirement: E2E-GATE-08 — Il banco notturno CHIUDE ciò che apre, e il lavoro di scrittura porta la propria identità
 
 Il flusso notturno SHALL CHIUDERE da sé la segnalazione che ha aperto, quando
