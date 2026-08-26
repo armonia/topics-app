@@ -57,9 +57,8 @@ const ciGates: Set<string> = new Set(
 );
 
 /**
- * The gates the bar runs. Read from the `for c in … ; do esegui "$c"` loop and
- * from the explicit `esegui <name>` lines, which is how the script itself
- * spells them.
+ * The gates the bar runs, read from its loop body and from its explicit
+ * `esegui <name>` lines — which is how the script itself spells them.  allow-italian: the shell function's own name
  */
 const barGates: Set<string> = new Set([
   ...[...BAR.matchAll(/(check:[a-z-]+)(?![a-z-])/g)]

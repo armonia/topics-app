@@ -9195,31 +9195,32 @@ fn percent_decode_lossy(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// L'origine da cui Tauri serve gli asset dell'app, che NON è la stessa su ogni
-/// sistema: su macOS/Linux è lo schema custom `tauri://localhost`, su Windows e
-/// Android wry non può registrare uno schema custom sul WebView2 e Tauri ripiega
-/// su `http://tauri.localhost` / `https://tauri.localhost`
+/// The origin Tauri serves the app's assets from, which is NOT the same on every
+/// system: on macOS/Linux it is the custom scheme `tauri://localhost`, while on
+/// Windows and Android wry cannot register a custom scheme on WebView2 and Tauri
+/// falls back to `http://tauri.localhost` / `https://tauri.localhost`
 /// (`AppManager::tauri_protocol_url`, `cfg!(windows)`).
 ///
-/// Tenerne UNA sola scritta a mano è ciò che ha lasciato Windows con la finestra
-/// vuota: tre punti diversi di questo file davano per scontato lo schema di macOS
-/// e su Windows sbagliavano tutti e tre insieme (guardia di navigazione, chiave
-/// dell'asset, header CORS).
+/// Hardcoding just ONE of them is what left Windows with an empty window: three
+/// different spots in this file assumed the macOS scheme, and on Windows all
+/// three of them got it wrong together (navigation guard, asset key, CORS
+/// header).
 const APP_ORIGINS: &[&str] = &[
     "tauri://localhost",
     "http://tauri.localhost",
     "https://tauri.localhost",
 ];
 
-/// L'origine che questo sistema usa davvero, per gli header (`Access-Control-Allow-Origin`)
-/// dove ne serve UNA e deve combaciare con quella del documento.
+/// The origin this system actually uses, for the headers (`Access-Control-Allow-Origin`)
+/// where exactly ONE is needed and it must match the document's own.
 #[cfg(windows)]
 const WINDOW_ORIGIN: &str = "http://tauri.localhost";
 #[cfg(not(windows))]
 const WINDOW_ORIGIN: &str = "tauri://localhost";
 
-/// Vero se l'URL è l'origine dell'app su QUESTO sistema (o su un altro: accettarle
-/// tutte non allarga il perimetro, perché nessuna delle tre è raggiungibile da fuori).
+/// True if the URL is the app origin on THIS system (or on another one: taking
+/// all three does not widen the perimeter, because none of the three is
+/// reachable from outside).
 fn is_app_origin(url: &tauri::Url) -> bool {
     let scheme = url.scheme();
     match url.host_str() {
@@ -9234,10 +9235,10 @@ fn is_app_origin(url: &tauri::Url) -> bool {
 /// percent-decode, drop a trailing '/', empty ⇒ "index.html", else strip a leading
 /// '/'. Mirrors AppManager::get_asset's front half so disk + embedded agree on keys.
 ///
-/// Il prefisso da togliere è quello di QUESTO sistema: su Windows la richiesta
-/// arriva come `http://tauri.localhost/index.html`, e togliendo solo la forma
-/// macOS la chiave diventava l'URL intero — nessun asset corrispondeva mai e la
-/// finestra restava vuota.
+/// The prefix to strip is the one for THIS system: on Windows the request comes
+/// in as `http://tauri.localhost/index.html`, and stripping only the macOS form
+/// turned the key into the whole URL — no asset ever matched and the window
+/// stayed empty.
 fn asset_request_path(uri: &str) -> String {
     let no_qf = uri.split(['?', '#']).next().unwrap_or(uri);
     let stripped = APP_ORIGINS
@@ -9513,9 +9514,9 @@ fn serve_tauri_asset(
     dev: Option<&DevServe>,
 ) -> tauri::http::Response<std::borrow::Cow<'static, [u8]>> {
     use tauri::http::{header::CONTENT_TYPE, StatusCode};
-    // The app origin for CORS — `tauri://localhost` su macOS/Linux,
-    // `http://tauri.localhost` su Windows (vedi WINDOW_ORIGIN): deve combaciare
-    // con l'origine VERA del documento, o il browser scarta ogni asset.
+    // The app origin for CORS — `tauri://localhost` on macOS/Linux,
+    // `http://tauri.localhost` on Windows (see WINDOW_ORIGIN): it must match the
+    // REAL origin of the document, or the browser discards every asset.
 
     // Panic-free fallback. This handler runs on WKURLSchemeHandler's SYNC callback —
     // the same non-unwind FFI boundary `no_abort` guards (a panic here abort()s the
@@ -11254,41 +11255,41 @@ mod screenshot_tests {
     }
 }
 
-/// L'origine dell'app NON è la stessa su ogni sistema, e questi test girano su
-/// una macchina sola: senza di loro il difetto si vede solo installando su
-/// Windows, dove il sintomo è una finestra completamente vuota — nessun errore,
-/// nessun log, niente da cui partire.
+/// The app origin is NOT the same on every system, and these tests run on a
+/// single machine: without them the defect only shows up once installed on
+/// Windows, where the symptom is a completely empty window — no error, no log,
+/// nothing to start from.
 ///
-/// Il 2026-08-26, sulla 2.2.172 installata su Windows 11, la finestra si apriva
-/// trasparente e restava così: wry su WebView2 non può registrare uno schema
-/// custom, quindi Tauri serve l'app da `http://tauri.localhost`, e tre punti di
-/// questo file davano per scontato `tauri://localhost`.
+/// On 2026-08-26, on the 2.2.172 installed on Windows 11, the window opened
+/// transparent and stayed that way: wry on WebView2 cannot register a custom
+/// scheme, so Tauri serves the app from `http://tauri.localhost`, and three
+/// spots in this file assumed `tauri://localhost`.
 #[cfg(test)]
 mod app_origin_tests {
     use super::{asset_request_path, is_app_origin};
 
-    /// La chiave dell'asset deve essere la stessa da qualunque delle due origini
-    /// arrivi la richiesta. Prima, su Windows, il prefisso non veniva tolto e la
-    /// chiave diventava l'URL intero: nessun asset corrispondeva MAI.
+    /// The asset key must be the same whichever of the two origins the request
+    /// arrives from. Before, on Windows, the prefix was not stripped and the key
+    /// became the whole URL: no asset EVER matched.
     #[test]
     fn asset_path_is_origin_independent() {
         for origin in ["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"] {
             assert_eq!(asset_request_path(&format!("{origin}/index.html")), "index.html");
             assert_eq!(asset_request_path(&format!("{origin}/assets/index-Aa.js")), "assets/index-Aa.js");
-            // Radice nuda ⇒ la SPA.
+            // Bare root ⇒ the SPA.
             assert_eq!(asset_request_path(&format!("{origin}/")), "index.html");
             assert_eq!(asset_request_path(origin), "index.html");
-            // Query e frammento non fanno parte della chiave (?topics=… della
-            // finestra staccata ci passa a ogni avvio).
+            // Query and fragment are not part of the key (the detached window's
+            // ?topics=… goes through here on every startup).
             assert_eq!(asset_request_path(&format!("{origin}/index.html?topics=abc")), "index.html");
             assert_eq!(asset_request_path(&format!("{origin}/index.html#x")), "index.html");
         }
     }
 
-    /// La guardia di navigazione deve lasciar passare l'origine dell'app su OGNI
-    /// sistema. Negarla è ciò che impediva alla finestra principale di caricare
-    /// il proprio documento su Windows: la navigazione veniva rifiutata in
-    /// silenzio e restava `about:blank`.
+    /// The navigation guard must let the app origin through on EVERY system.
+    /// Denying it is what kept the main window from loading its own document on
+    /// Windows: the navigation was refused silently and it stayed
+    /// `about:blank`.
     #[test]
     fn nav_guard_allows_every_app_origin() {
         for url in [
@@ -11301,15 +11302,15 @@ mod app_origin_tests {
         }
     }
 
-    /// E deve continuare a fermare tutto il resto: il punto della guardia è che
-    /// una navigazione esterna nella finestra principale la lascerebbe bianca
-    /// senza modo di tornare indietro se non riavviando.
+    /// And it must keep stopping everything else: the point of the guard is that
+    /// an external navigation in the main window would leave it blank with no way
+    /// back short of a restart.
     #[test]
     fn nav_guard_still_refuses_the_open_web() {
         for url in [
             "https://example.com/",
-            "http://localhost:3333/",       // il server di sviluppo NON è l'app
-            "https://localhost/index.html", // host giusto, schema che non esiste qui
+            "http://localhost:3333/",       // the dev server is NOT the app
+            "https://localhost/index.html", // right host, scheme that does not exist here
             "file:///etc/passwd",
             "tauri://evil.example.com/",
         ] {
