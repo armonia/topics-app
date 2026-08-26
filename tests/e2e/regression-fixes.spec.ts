@@ -105,7 +105,7 @@ test.describe("EditorTabs: rapid file opening does not show stale content", () =
   }) => {
     test.info().annotations.push({
       type: "spec",
-      description: "FILE-EDITOR-ABORT",
+      description: "FILE-01",
     });
 
     const pageErrors: string[] = [];
@@ -238,7 +238,7 @@ test.describe("PanelGrid: resize works after split", () => {
   }) => {
     test.info().annotations.push({
       type: "spec",
-      description: "LAYOUT-RESIZE-ATTR",
+      description: "LAYOUT-01",
     });
 
     const [idA, idB] = topicIds;
@@ -339,7 +339,7 @@ test.describe("Panel validation: archived topic panels are removed", () => {
   }) => {
     test.info().annotations.push({
       type: "spec",
-      description: "LAYOUT-PANEL-VALIDATION",
+      description: "TOPIC-01",
     });
 
     const topicName = "RF-Archive-" + Date.now();

@@ -82,7 +82,7 @@ test.describe("Sidebar — Unified Timeline", () => {
   }) => {
     test.info().annotations.push({
       type: "spec",
-      description: "SIDEBAR-AC1",
+      description: "TOPIC-02",
     });
 
     // Pre-open tabs so items appear in sidebar
@@ -135,7 +135,7 @@ test.describe("Sidebar — Unified Timeline", () => {
   }) => {
     test.info().annotations.push({
       type: "spec",
-      description: "SIDEBAR-AC1",
+      description: "TOPIC-09",
     });
 
     // Progetto DEDICATO, con un nome nuovo a ogni esecuzione. Non è vezzo: il
@@ -251,7 +251,7 @@ test.describe("Sidebar — Unified Timeline", () => {
   }) => {
     test.info().annotations.push({
       type: "spec",
-      description: "SIDEBAR-AC2",
+      description: "TOPIC-02",
     });
 
     // Il modo "per tipo" e' stato RIMOSSO (Attilio, 06/08): sapere che una cosa
@@ -386,7 +386,7 @@ test.describe("Sidebar — Unified Timeline", () => {
   }) => {
     test.info().annotations.push({
       type: "spec",
-      description: "SIDEBAR-AC1",
+      description: "TOPIC-02",
     });
 
     // Pre-open standalone chat tab so it appears in sidebar

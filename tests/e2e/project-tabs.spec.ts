@@ -481,7 +481,7 @@ test.describe("Project Tabs", () => {
   }) => {
     test.info().annotations.push({
       type: "spec",
-      description: "PROJECT-TABS-02-preview-focus",
+      description: "PROJECT-TABS-02",
     });
     await goToApp(page);
     await openTestProject(page);

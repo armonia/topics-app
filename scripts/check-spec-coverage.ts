@@ -83,6 +83,9 @@ type Requirement = {
 };
 type FileTest = { path: string; covers: string[]; annotated: string[]; titles: { id: string; title: string }[] };
 
+/** Annotazioni `spec` che non nominano nessun requisito: raccolte da R7 invece che scartate. */
+const muteAnnotations: { file: string; desc: string }[] = [];
+
 function walk(dir: string, out: string[] = []): string[] {
   let entries: string[];
   try {
@@ -179,9 +182,20 @@ function readTests(): FileTest[] {
       //    declared twice.
       //  - bun test: `test.info()` does not exist, so for unit tests the link
       //    is a `@covers` in the header comment, at FILE granularity.
-      const fromAnnotation = [...text.matchAll(/type:\s*["']spec["']\s*,\s*description:\s*["'`]([^"'`]+)["'`]/g)]
-        .flatMap((m) => m[1]!.split(/[,\s/]+/))
-        .filter((s: string) => /^[A-Z][A-Z0-9-]*-\d+[a-z]?$/.test(s));
+      // R7: un'annotazione `spec` che non contiene NESSUN id valido non dichiara niente, e
+      // finora spariva qui dentro senza una parola. Un test che scrive
+      // `description: "FILE-EDITOR-ABORT"` crede di aver dichiarato un requisito: non colora
+      // nulla nella living-doc, non compare fra i penzolanti (R1 vede solo cio' che passa il
+      // filtro), e supera `check-untraced-tests` che guardava la sola FORMA dell'annotazione.
+      // Nove casi su cinque file, misurati il 26/08/2026, tutti invisibili a entrambi i cancelli.
+      const fromAnnotation: string[] = [];
+      for (const m of text.matchAll(/type:\s*["']spec["']\s*,\s*description:\s*["'`]([^"'`]+)["'`]/g)) {
+        const validi = m[1]!.split(/[,\s/]+/).filter((s: string) => /^[A-Z][A-Z0-9-]*-\d+[a-z]?$/.test(s));
+        // Una descrizione puo' portare l'id piu' del testo libero ("KANBAN-12 (flatten group)"):
+        // basta UN id valido perche' il resto sia prosa, non un errore.
+        if (validi.length) fromAnnotation.push(...validi);
+        else muteAnnotations.push({ file: f.slice(ROOT.length), desc: m[1]! });
+      }
       const fromCovers = [...text.matchAll(/@covers\s+([A-Z0-9,\s-]+)/g)]
         .flatMap((m) => m[1]!.split(/[,\s]+/))
         .filter((s: string) => /^[A-Z][A-Z0-9-]*-\d+[a-z]?$/.test(s));
@@ -486,6 +500,12 @@ if (notUnique.length) {
   console.log("  → la convenzione per una variante dello stesso scenario e' il suffisso (TOPBAR-04 / TOPBAR-04b).");
 }
 
+if (muteAnnotations.length) {
+  red = true;
+  console.log(`\nR7 — annotazioni \`spec\` che non nominano nessun requisito (${muteAnnotations.length}):`);
+  for (const a of muteAnnotations) console.log(`  ${a.desc.padEnd(30)} in ${a.file}`);
+  console.log("  → non dichiarano niente e non lo dice nessuno: o l'id e' sbagliato, o va tolta l'annotazione.");
+}
 if (newDangling.length) {
   red = true;
   console.log(`\nR1 — un test dichiara un requisito che le spec non hanno (${newDangling.length} nuovi):`);

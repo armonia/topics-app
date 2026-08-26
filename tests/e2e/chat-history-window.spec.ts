@@ -38,7 +38,7 @@ test.describe("Chat history window", () => {
   });
 
   test("loads the full thread head for a >100-message topic", async ({ page, request }) => {
-    test.info().annotations.push({ type: "spec", description: "CHAT-HISTORY-WINDOW" });
+    test.info().annotations.push({ type: "spec", description: "CHAT-01" });
     test.setTimeout(120_000); // 120 sequential seeds + load + scroll-up poll
 
     const stamp = Date.now();

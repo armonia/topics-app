@@ -38,8 +38,19 @@ import { join } from "node:path";
 const ROOT = join(import.meta.dir, "..");
 const BASELINE = join(ROOT, "scripts", "untraced-tests-baseline.json");
 
-/** The two channels a test may declare a requirement through. */
-const DECLARES = /@covers\s+[A-Z]|type:\s*["']spec["']/;
+/**
+ * The two channels a test may declare a requirement through.
+ *
+ * The ID SHAPE is part of the rule, not decoration. This gate used to accept the mere FORM
+ * (`type: "spec"` anywhere in the file), while `check-spec-coverage` only counts ids matching
+ * `^[A-Z][A-Z0-9-]*-\d+[a-z]?$` and silently drops the rest. A file annotating
+ * `description: "SIDEBAR-AC1"` therefore passed HERE as "declares" and vanished THERE as
+ * "declares nothing" — traced by one gate, invisible to the other, and nobody sees the hole
+ * because neither gate is red. Measured on 2026-08-26: nine such annotations across five files.
+ *
+ * The two regexes must keep reading the same vocabulary. If one changes, the other changes.
+ */
+const DECLARES = /@covers\s+[A-Z][A-Z0-9-]*-\d+|type:\s*["']spec["']\s*,\s*description:\s*["'`][^"'`]*\b[A-Z][A-Z0-9-]*-\d+/;
 
 function testFiles(): string[] {
   // `--others --exclude-standard` includes files that are NOT YET tracked, and
