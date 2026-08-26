@@ -55,6 +55,28 @@ async function mountBrowserPaneViaEvent(
   await expect(page.locator('[data-browser-pane]').first()).toBeVisible({ timeout: 10000 });
 }
 
+/**
+ * Reveals the address row, because it is no longer always on screen.
+ *
+ * On a pane that has an address the tab carries it, and the toolbar hides: that
+ * is the trade `useBrowserChromeBridge` makes. The two cases below are about
+ * what the toolbar DOES (its buttons, its input), not about it being permanent
+ * scenery — so they open it the way a person does, from the tab menu, and then
+ * assert exactly what they asserted before.
+ *
+ * The three dots live in `opacity-0 group-hover:opacity-100`, so the hover goes
+ * on the TAB and not on the button: until the group is hovered the button is
+ * there but transparent, and the label on top of it takes the pointer.
+ */
+async function rivelaLaBarra(page: import("@playwright/test").Page): Promise<void> {
+  const barra = page.locator('[data-testid="browser-url-input"]');
+  if (await barra.count() > 0) return; // already open: a blank pane keeps it
+  await page.locator('[data-testid^="pane-tab-browser:"]').first().hover();
+  await page.locator('[data-testid="browser-tab-menu"]').first().click();
+  await page.locator('[data-testid="browser-tab-edit-address"]').click();
+  await expect(barra).toBeVisible({ timeout: 10_000 });
+}
+
 // ── ScriptRunner Tests (PROCESS-01..05: PASS, unchanged from phase 27) ──
 
 test.describe("ScriptRunner", () => {
@@ -289,15 +311,23 @@ test.describe("RemoteBrowserPanel", () => {
       await goToApp(page);
       await waitForTopicVisible(page, topic.id);
       await mountBrowserPaneViaEvent(page, topic.id);
+      await rivelaLaBarra(page);
 
       // Wait for toolbar buttons to appear. The toolbar is localized (IT): Back
       // → "Indietro", Forward → "Avanti" (both carry a variable suffix when the
       // nav-history menu is available, hence title^=). Refresh keeps its English
       // title. The old "Home" button was replaced by the conditional
       // back-to-spawner control; assert the always-present URL input instead.
-      await expect(page.locator('button[title^="Indietro"]')).toBeVisible({ timeout: 10000 });
-      await expect(page.locator('button[title^="Avanti"]')).toBeVisible();
-      await expect(page.locator('button[title="Refresh"]')).toBeVisible();
+      // Each with its OWN timeout, and this is why: the row is revealed on
+      // demand now, so the whole toolbar mounts in this instant instead of
+      // having been on screen since the pane opened. Only the first assertion
+      // carried a timeout, the others fell back to the 5s default, and under
+      // four workers "Avanti" lost that race about one run in five — measured
+      // 2026-08-26, and it is the one that failed.
+      const atteso = { timeout: 10_000 };
+      await expect(page.locator('button[title^="Indietro"]')).toBeVisible(atteso);
+      await expect(page.locator('button[title^="Avanti"]')).toBeVisible(atteso);
+      await expect(page.locator('button[title="Refresh"]')).toBeVisible(atteso);
       await expect(page.locator('[data-testid="browser-url-input"]')).toBeVisible();
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
@@ -330,6 +360,7 @@ test.describe("RemoteBrowserPanel", () => {
       await goToApp(page);
       await waitForTopicVisible(page, topic.id);
       await mountBrowserPaneViaEvent(page, topic.id);
+      await rivelaLaBarra(page);
 
       const urlInput = page.locator('[data-testid="browser-url-input"]');
       await expect(urlInput).toBeVisible({ timeout: 10000 });
