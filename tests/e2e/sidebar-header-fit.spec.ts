@@ -17,6 +17,12 @@
  */
 import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
+import { hermetic } from "./fixtures/hermetic";
+
+// Every spec starts from the same server state: `check-e2e-hermetic` demands it,
+// and it is right — a file that inherits what the previous one left behind goes
+// red somewhere else, on someone else's change.
+hermetic(test);
 
 for (const [nome, platform] of [["Mac", "MacIntel"], ["non-Mac", "Linux x86_64"]] as const) {
   test(`SIDEBAR-FIT: on ${nome} the bell stays clickable`, async ({ page }) => {
