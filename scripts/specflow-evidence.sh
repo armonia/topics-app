@@ -13,6 +13,7 @@
 #   SKIP_E2E=1 ./scripts/specflow-evidence.sh   # publish the report already on disk (~1-3 min)
 #   SHARDS=1 ./scripts/specflow-evidence.sh     # one shard, for a quiet machine
 #   SKIP_UNIT=1 ./scripts/specflow-evidence.sh  # reuse the JUnit report already on disk
+#   E2E_SHOT=0 ./scripts/specflow-evidence.sh   # senza poster (~20 MB in meno, card grigie)
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -69,7 +70,7 @@ if [ "$SKIP_E2E" != "1" ]; then
     step "suite E2E — $SHARDS shard, trace su tutti i test"
   fi
   t=$(date +%s)
-  E2E_EVIDENCE=1 TOPICS_E2E_BUNDLE_DIR="$BUNDLE" "$REPO_ROOT/scripts/e2e-shards.sh" "$SHARDS" "${SEL[@]}"
+  E2E_EVIDENCE=1 E2E_SHOT="${E2E_SHOT:-1}" TOPICS_E2E_BUNDLE_DIR="$BUNDLE" "$REPO_ROOT/scripts/e2e-shards.sh" "$SHARDS" "${SEL[@]}"
   rc=$?
   RAN=1
   since "$t"
