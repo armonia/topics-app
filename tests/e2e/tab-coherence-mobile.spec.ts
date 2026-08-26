@@ -232,12 +232,24 @@ test.describe("Le tre facce di una tab, sullo schermo dove collassano in una", (
     const passi = await page.evaluate(() => {
       const root = document.querySelector('[data-testid="sidebar-topic-list"]');
       if (!root) return null;
-      const righe = Array.from(root.querySelectorAll('[role="treeitem"]'))
+      const candidate = Array.from(root.querySelectorAll('[role="treeitem"]'))
         .filter((e) => !e.closest('[data-testid^="pinned-tile"]'))
-        .filter((e) => e.getBoundingClientRect().width > 100)
-        // Solo fratelli DIRETTI: due righe di livelli diversi non hanno un passo
-        // da rispettare fra loro.
-        .filter((e, _i, tutte) => tutte[0].parentElement === e.parentElement);
+        .filter((e) => e.getBoundingClientRect().width > 100);
+      // Only DIRECT siblings: two rows at different levels owe each other no
+      // step. The group is picked as the LARGEST set sharing a parent, not by
+      // trusting the first match's parent — on 26/08 `d4bcd2771` gave the board
+      // row a `role="treeitem"` it was missing (axe-core was right: it was the
+      // only direct child of a `role="tree"` without one), that row sorted
+      // first, it lives under a different parent, and anchoring on it filtered
+      // every real topic row away. The measurement then had nothing to measure
+      // and the test read as a layout regression, which it was not.
+      const perParent = new Map<Element, Element[]>();
+      for (const e of candidate) {
+        const p = e.parentElement;
+        if (!p) continue;
+        perParent.set(p, [...(perParent.get(p) ?? []), e]);
+      }
+      const righe = [...perParent.values()].sort((a, b) => b.length - a.length)[0] ?? [];
       const gaps: number[] = [];
       for (let i = 0; i + 1 < righe.length && i < 3; i++) {
         const a = righe[i].getBoundingClientRect();

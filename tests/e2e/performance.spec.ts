@@ -356,8 +356,16 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
   });
 
   test('Chat message list does not shift on new message', async ({ page }) => {
-    // Select a topic first
-    const topics = page.getByRole('treeitem');
+    // Select a topic first — and a TOPIC, not merely the first thing in the tree.
+    // On 26/08 `d4bcd2771` gave the board row a `role="treeitem"` it was missing
+    // (axe-core was right: a tree must contain treeitems). That row sorts first,
+    // so `.first()` started opening the BOARD, which has no composer, and this
+    // test failed ten seconds later on a `Message input` that was never going to
+    // appear — reading like a layout regression while nothing about layout had
+    // changed.
+    const topics = page
+      .getByRole('treeitem')
+      .and(page.locator(':not([data-testid="sidebar-board-generale"])'));
     await expect(topics.first()).toBeVisible({ timeout: 15_000 });
     await topics.first().click();
     await expect(page.locator('[data-testid="panel-tab-bar"]').first()).toBeVisible({
