@@ -90,16 +90,50 @@ describe("timeout di default dei test", () => {
   });
 
   /**
-   * L'unico test della suite che dorme apposta, e non e' un'asserzione a vuoto:
-   * e' la sola prova che il budget di QUESTO file supera davvero i 5 secondi,
-   * qualunque delle due leve glielo abbia dato. Lanciato da solo lo prova il
-   * preload, dentro `test:unit` lo prova il flag. Con una delle due staccate
-   * muore «after 5000ms», che e' esattamente il rosso da cui nasce il lavoro.
-   * Costa 5,1s su una suite di due minuti e mezzo.
+   * PROOF THAT THE LEVER REALLY RAISES THE TIMEOUT, not a red drawn by lot.
+   *
+   * This used to sleep 5.1s inline. It passed when bun happened to load THIS
+   * file first — the preload runs once per run and `setDefaultTimeout` applies
+   * only to the file being loaded — and died "after 5000ms" when it loaded a
+   * different one. That is: `bun test tests/unit/`, the shape you type to
+   * triage a red, produced one red out of 806 that named no defect and went
+   * away when the file was rerun alone. A red like that teaches people to
+   * ignore reds.
+   *
+   * The pose is no longer suffered, it is IMPOSED: a child `bun test` is run
+   * over a single file, and there the preload covers it by construction. The
+   * cost is the same sleep as before, paid in a separate process.
+   *
+   * The explicit timeout on these two cases is not an amnesty: they are child
+   * processes, and their budget has nothing to do with what they measure.
    */
-  it("un test puo' superare i 5 secondi senza chiedere un timeout suo", async () => {
-    const partenza = Date.now();
-    await Bun.sleep(DEFAULT_DI_BUN_MS + 100);
-    expect(Date.now() - partenza).toBeGreaterThanOrEqual(DEFAULT_DI_BUN_MS);
-  });
+  const FIXTURE = "./tests/fixtures/slow-default-timeout.ts";
+
+  /** Runs the child and returns its exit code. */
+  function childRun(env: Record<string, string> = {}): number {
+    const r = Bun.spawnSync(["bun", "test", FIXTURE], {
+      cwd: REPO_ROOT,
+      env: { ...process.env, ...env },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    return r.exitCode ?? -1;
+  }
+
+  it("un file lanciato da solo supera i 5 secondi senza chiedere un timeout suo", () => {
+    expect(
+      childRun(),
+      `${FIXTURE} e' morto sotto il default di bun: il preload di bunfig.toml non sta alzando niente`,
+    ).toBe(0);
+  }, 60_000);
+
+  it("e muore se la manopola scende sotto il sonno: la prova non e' a vuoto", () => {
+    // A command-line `--timeout` is NOT enough to kill it: bun applies the
+    // flag BEFORE the preloads, and the preload overwrites it. The knob, on the
+    // other hand, moves the preload itself, which is the lever under test.
+    expect(
+      childRun({ [variabileDichiarata]: "1000" }),
+      `${FIXTURE} e' sopravvissuto a un default di 1s: allora non dipende dal default, e il caso sopra non prova niente`,
+    ).not.toBe(0);
+  }, 60_000);
 });

@@ -1940,7 +1940,7 @@
     "tests/unit/sw-push-delivery.test.ts": 42,
     "tests/unit/sync-hydrate-guard.test.ts": 5,
     "tests/unit/task-empty-thread.test.ts": 18,
-    "tests/unit/test-default-timeout.test.ts": 22,
+    "tests/unit/test-default-timeout.test.ts": 16,
     "tests/unit/tests-read-tracked-files.test.ts": 35,
     "tests/unit/token-one-definition.test.ts": 34,
     "tests/unit/tool-call-detail-schema.test.ts": 4,

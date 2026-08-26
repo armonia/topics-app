@@ -29,13 +29,13 @@ const src = readFileSync(START_PROD, "utf8");
 /** Seconds below which a server counts as still being born. Mirrors start-prod.sh. */
 const BIRTH_GRACE_S = 25;
 
-type Azione = "rinvia" | "procedi" | "sparito";
+type Action = "rinvia" | "procedi" | "sparito";
 
 /**
  * What the watcher does when a reload event lands.
  * Direct mirror of the `while :;` gate in start-prod.sh.
  */
-function decidiSulReload(etaS: number, vivo: boolean, grazia = BIRTH_GRACE_S): Azione {
+function decideOnReload(etaS: number, vivo: boolean, grazia = BIRTH_GRACE_S): Action {
   if (etaS >= grazia) return "procedi";
   if (!vivo) return "sparito";
   return "rinvia";
@@ -43,29 +43,29 @@ function decidiSulReload(etaS: number, vivo: boolean, grazia = BIRTH_GRACE_S): A
 
 describe("cancello di nascita del ricaricamento a caldo", () => {
   it("un server appena spawnato fa RINVIARE, non uccidere", () => {
-    expect(decidiSulReload(0, true)).toBe("rinvia");
+    expect(decideOnReload(0, true)).toBe("rinvia");
   });
 
   it("un secondo prima della soglia si rinvia ancora", () => {
-    expect(decidiSulReload(BIRTH_GRACE_S - 1, true)).toBe("rinvia");
+    expect(decideOnReload(BIRTH_GRACE_S - 1, true)).toBe("rinvia");
   });
 
   it("alla soglia esatta si procede", () => {
-    expect(decidiSulReload(BIRTH_GRACE_S, true)).toBe("procedi");
+    expect(decideOnReload(BIRTH_GRACE_S, true)).toBe("procedi");
   });
 
   it("un server maturo che tace si procede a trattarlo come muto", () => {
-    expect(decidiSulReload(120, true)).toBe("procedi");
+    expect(decideOnReload(120, true)).toBe("procedi");
   });
 
   it("un server uscito da solo durante il rinvio interrompe l'attesa", () => {
-    expect(decidiSulReload(3, false)).toBe("sparito");
+    expect(decideOnReload(3, false)).toBe("sparito");
   });
 
   it("la finestra 15-20s dell'incidente del 26/08 cade dentro il rinvio", () => {
-    // Ogni ciclo dell'incidente moriva fra i 15 e i 21 secondi di vita.
+    // Every cycle of the incident died between 15 and 21 seconds of life.
     for (const eta of [15, 16, 17, 18, 20]) {
-      expect(decidiSulReload(eta, true), `eta ${eta}s`).toBe("rinvia");
+      expect(decideOnReload(eta, true), `eta ${eta}s`).toBe("rinvia");
     }
   });
 });
@@ -82,13 +82,13 @@ describe("start-prod.sh contiene davvero il cancello", () => {
   });
 
   it("il cancello sta PRIMA del SIGTERM dell'attesa di nascita", () => {
-    const cancello = src.indexOf("BIRTH_GRACE_S}s)");
-    // NON la frase da sola: il commento del cancello la cita, e indexOf
-    // troverebbe quella. Si ancora alla riga di echo che manda il SIGTERM.
-    const sigterm = src.indexOf("server source changed \u2192 graceful hot-reload");
-    expect(cancello, "messaggio del rinvio assente").toBeGreaterThan(-1);
-    expect(sigterm, "ramo del SIGTERM assente").toBeGreaterThan(-1);
-    expect(cancello).toBeLessThan(sigterm);
+    const gateAt = src.indexOf("BIRTH_GRACE_S}s)");
+    // NOT the phrase on its own: the gate's comment quotes it, and indexOf
+    // would find that one. Anchor to the echo line that sends the SIGTERM.
+    const killAt = src.indexOf("server source changed \u2192 graceful hot-reload");
+    expect(gateAt, "messaggio del rinvio assente").toBeGreaterThan(-1);
+    expect(killAt, "ramo del SIGTERM assente").toBeGreaterThan(-1);
+    expect(gateAt).toBeLessThan(killAt);
   });
 
   it("stampa l'eta misurata, non solo che sta rinviando", () => {
