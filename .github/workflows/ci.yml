@@ -772,6 +772,23 @@ jobs:
         run: cargo check
         working-directory: desktop-tauri/src-tauri
 
+      # `cargo check` COMPILA e basta: i test unitari del guscio non li esegue,
+      # su nessuna delle tre OS. Quindi finora `cargo test --lib` non girava mai
+      # in CI, e i test che riguardano le differenze fra sistemi — l'unica cosa
+      # per cui questa matrice esiste — non hanno mai misurato niente.
+      #
+      # E' il buco che ha lasciato uscire la 2.2.172 con la finestra VUOTA su
+      # Windows: wry non può registrare uno schema custom sul WebView2, Tauri
+      # serve l'app da `http://tauri.localhost` invece che da `tauri://localhost`,
+      # e tre punti del guscio davano per scontato lo schema di macOS. Compilava
+      # perfettamente su tutte e tre. Vedi `app_origin_tests`.
+      #
+      # Costa poco: il crate è già compilato dal passo sopra, questo aggiunge i
+      # soli test.
+      - name: Cargo test (guscio Tauri, per OS)
+        run: cargo test --lib
+        working-directory: desktop-tauri/src-tauri
+
       # Il sidecar PTY e un crate SEPARATO: il `cargo check` qui sopra non lo
       # sfiora, e finora niente lo compilava fuori dai tag `tauri-v*` — cioe si
       # scopriva rotto alla release. `cargo test` compila e misura: tests/orphan.rs
