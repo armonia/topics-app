@@ -141,10 +141,26 @@ test.describe("La riga di chrome sta SOPRA la pane, non prima di lei", () => {
     // Si misura l'ELEMENTO, non la variabile che dovrebbe alimentarlo: fra le
     // due c'è una regola condizionale (`.chat-under-chrome:first-child`), ed è
     // proprio lì che il varco può andare a zero senza che nessuno se ne accorga.
-    const rVarco = await page.getByTestId("chat-top-gutter").first().evaluate(
-      (el) => el.getBoundingClientRect().height,
-    );
-    expect(rVarco).toBeCloseTo(rBarra.height, 0);
+    // `expect.poll` and not a single read, and not generic patience: the gutter
+    // lives on a CSS variable switched on by a CONDITIONAL rule
+    // (`.chat-under-chrome:first-child`), so there is an instant — between the
+    // scroller mounting and the first style applying — where it is 0. On a Mac
+    // that instant is never seen; on a shared runner a bare read lands in it
+    // every so often. Measured 2026-08-26 in CI (run 33016943371): "Expected 40,
+    // Received 0" on the first attempt and green on the retry, against 16
+    // consecutive green runs locally.
+    //
+    // What the case protects does NOT change: the gutter has to be worth the
+    // height of the bar, and if it stays at zero this poll times out and the red
+    // arrives all the same. Proved by injecting the defect (`--chat-gutter: 0px`
+    // in the rule): the case fails with its own message. What it stops doing is
+    // measuring how fast the machine is.
+    await expect
+      .poll(
+        async () => page.getByTestId("chat-top-gutter").first().evaluate((el) => Math.round(el.getBoundingClientRect().height)),
+        { timeout: 10_000, message: "the top gutter never reached the height of the bar" },
+      )
+      .toBe(Math.round(rBarra.height));
   });
 
   test("OVERLAY-4: scorrendo, i messaggi passano DAVVERO sotto la barra", async ({ page, request }) => {
