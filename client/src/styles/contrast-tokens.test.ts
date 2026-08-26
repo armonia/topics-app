@@ -1,20 +1,20 @@
 /**
- * Contrasto dei token di testo: la soglia si CALCOLA, non si guarda.
+ * Contrast of the text tokens: the threshold is COMPUTED, not eyeballed.
  *
- * Questi controlli nascono da una passata di axe-core dentro Topics installato su
- * Windows 11 il 2026-08-26, che ha trovato sei elementi sotto la soglia. Non
- * erano casi limite: «No active items», «Persone», il numero di versione in fondo
- * alla colonna e le scritte dei tasti (`⌘K`, `⌘B`) — tutte scritte piccole,
- * 11-12px, cioè proprio quelle per cui il contrasto conta di più.
+ * These checks come from an axe-core pass inside Topics installed on Windows 11
+ * on 2026-08-26, which found six elements under the threshold. They were not edge
+ * cases: "No active items", "Persone", the version number at the bottom of the
+ * column and the key captions (`⌘K`, `⌘B`) — all small type, 11-12px, i.e.
+ * exactly the ones contrast matters most for.
  *
- * `--text-muted` dava 4,42 contro il fondo del chrome e `--kbd-text` 4,44 contro
- * il fondo dei tasti: sotto il 4,5 richiesto dal testo normale, e per una
- * differenza che a occhio non si vede. È esattamente il tipo di scarto che una
- * revisione a vista non trova e un calcolo trova sempre.
+ * `--text-muted` gave 4.42 against the chrome background and `--kbd-text` 4.44
+ * against the key background: under the 4.5 normal text requires, and by a margin
+ * the eye cannot see. It is precisely the kind of gap a visual review never finds
+ * and a calculation always does.
  *
- * Il test legge i token da `index.css` e rifà il conto. Non rende l'app: il
- * rapporto di contrasto è una funzione di due colori, e quei due colori sono
- * dichiarati lì.
+ * The test reads the tokens from `index.css` and redoes the maths. It does not
+ * render the app: a contrast ratio is a function of two colours, and those two
+ * colours are declared there.
  */
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'fs';
@@ -22,7 +22,7 @@ import { join } from 'path';
 
 const CSS = readFileSync(join(import.meta.dir, '..', 'index.css'), 'utf8');
 
-/** Il blocco `:root` (tema chiaro), che è quello dove i difetti stavano. */
+/** The `:root` block (light theme), which is where the defects were. */
 function rootBlock(): string {
   const i = CSS.indexOf(':root');
   const open = CSS.indexOf('{', i);
@@ -57,7 +57,7 @@ function toRgb(v: string): [number, number, number] {
   return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255)];
 }
 
-/** WCAG 2.1, la definizione esatta: nessuna approssimazione. */
+/** WCAG 2.1, the exact definition: no approximation. */
 function ratio(a: [number, number, number], b: [number, number, number]): number {
   const lum = ([r, g, b2]: [number, number, number]) => {
     const f = (c: number) => {

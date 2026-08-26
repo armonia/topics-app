@@ -219,7 +219,7 @@
     "client/src/components/Project/projectSidebarHeights.test.ts": 11,
     "client/src/components/Project/projectSidebarHeights.ts": 21,
     "client/src/components/ReloadedFlash.tsx": 19,
-    "client/src/components/Settings/AIProvidersSection.tsx": 98,
+    "client/src/components/Settings/AIProvidersSection.tsx": 37,
     "client/src/components/Settings/AccountSection.tsx": 26,
     "client/src/components/Settings/AgentRuntimeChoice.tsx": 29,
     "client/src/components/Settings/AppearanceSection.tsx": 78,

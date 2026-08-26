@@ -6,6 +6,7 @@ import { providersApi, appSettingsApi, type AppBehaviorSettings } from '../../li
 import { enabledToSelect, selectToEnabled } from './behaviorDefaults';
 import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from '../../../../shared/effort';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
+import { AGENT_RUNTIMES, DEFAULT_AGENT_RUNTIME } from '../../../../shared/types';
 import { PermissionsSection } from './PermissionsSection';
 import { SettingSelect } from './SettingSelect';
 import { AgentRuntimeChoice } from './AgentRuntimeChoice';
@@ -47,8 +48,24 @@ export function AIProvidersSection() {
   // used to do. Snapshot updates arrive via WS, so opening Settings in two
   // windows shows identical state without either window polling.
   const { snapshot, loading, error, refresh, retry } = useProvidersSnapshot();
+  // RUNTIMES ARE NOT PROVIDERS, and do not belong in this list.
+  //
+  // A provider answers "WHO answers" — Claude over the API, Claude Code, an ACP
+  // agent — and has a key, a model, an endpoint. A RUNTIME answers "HOW it is
+  // run": `cli` starts one CLI per session, `jcode` sends them to a shared daemon,
+  // `topics` keeps them inside this server. The server's registry holds both in
+  // the same map, for a legitimate reason of its own (either can serve a turn),
+  // but the Settings pane is not the registry: here "topics" among the providers
+  // reads as a model vendor it is not — reported 2026-08-26, "Topics is a runtime
+  // and shouldn't be listed as an AI provider".
+  //
+  // Choosing the runtime already has its place, at the top of this pane:
+  // `AgentRuntimeChoice`. Removing them from this list hides nothing; it puts each
+  // thing under the question it answers.
   const entries: ProviderSnapshotEntry[] = useMemo(
-    () => snapshot?.providers ?? [],
+    () => (snapshot?.providers ?? []).filter(
+      (p) => !(AGENT_RUNTIMES as readonly string[]).includes(p.name),
+    ),
     [snapshot],
   );
 
@@ -206,10 +223,16 @@ export function AIProvidersSection() {
           <AgentRuntimeChoice
             settings={settings}
             saving={saving}
-            // Il provider da cercare dipende dal runtime SCELTO: chiedere
-            // sempre di jcode diceva «non c'è» a chi sta sul runtime nativo, e
-            // viceversa. Il default (riga assente) è `topics`.
-            registered={entries.some((e) => e.name === (settings.agentRuntime ?? 'topics'))}
+            // Which provider to look for depends on the CHOSEN runtime: always
+            // asking about jcode said "it isn't there" to whoever is on the native
+            // runtime, and vice versa. The default (row absent) is `topics`.
+            //
+            // This reads the FULL list, not `entries`: that one has just had the
+            // runtimes removed (see the note above), so looking for them there
+            // would always say "not registered" — and this very line exists to say
+            // the opposite when they are. The same filter, asked a question that
+            // is not its own, becomes a lie.
+            registered={(snapshot?.providers ?? []).some((e) => e.name === (settings.agentRuntime ?? DEFAULT_AGENT_RUNTIME))}
             onSave={save}
           />
         )}
