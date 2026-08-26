@@ -2,7 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.2.174 — 2026-08-27
+## 2.2.175 — 2026-08-27
+
+### Sotto il cofano
+- OVERLAY-3 leggeva il varco una volta sola, e ogni tanto lo coglieva a zero
+
+## 2.2.174 — 2026-08-26
 
 ### Novità
 - **specflow** · gli esiti dei test unitari arrivano nella living-doc

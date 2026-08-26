@@ -1,7 +1,23 @@
 [
   {
-    "version": "2.2.174",
+    "version": "2.2.175",
     "date": "2026-08-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "OVERLAY-3 leggeva il varco una volta sola, e ogni tanto lo coglieva a zero",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.174",
+    "date": "2026-08-26",
     "sections": {
       "new": [
         {
