@@ -22,7 +22,7 @@ import { isTauriWindows } from '../../lib/shell';
 import { tauriInvoke } from '../../lib/shell/tauri';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 
-export function WindowControls() {
+export function WindowControls({ visible }: { visible: boolean }) {
   const [maximized, setMaximized] = useState(false);
 
   // The maximised state is ASKED of the window, never remembered: it can also be
@@ -45,6 +45,19 @@ export function WindowControls() {
 
   if (!isTauriWindows) return null;
 
+  // THESE SHOW WHEN THE macOS TRAFFIC LIGHTS SHOW — i.e. with the Topics menu open.
+  //
+  // On macOS the three lights stay hidden and appear only there
+  // (`useSidebarAndLayout`, show/hideTrafficLights): the top row is clean, and
+  // window commands are asked for. Keeping the three Windows buttons permanently
+  // visible was an inconsistency between the two platforms — the same app
+  // behaving in two ways depending on the system.
+  //
+  // They are NOT unmounted: they stay in the DOM with `aria-hidden` and out of
+  // the keyboard focus order, so appearing does not reflow the row (the "Topics"
+  // title would slide under the pointer mid-click) and Tab navigation does not
+  // land on them while they are invisible.
+
   const command = (action: 'minimize' | 'maximize' | 'close') => {
     void tauriInvoke<boolean>('window_control', { action }).catch(() => {});
     if (action === 'maximize') setMaximized((v) => !v);
@@ -57,10 +70,17 @@ export function WindowControls() {
   const cellClass =
     'h-8 w-[46px] inline-flex items-center justify-center text-app-text/80 ' +
     'transition-colors hover:bg-black/10 dark:hover:bg-white/10 cursor-pointer';
+  // `-1` while invisible: `aria-hidden` removes the name, but on its own it does
+  // not take the button out of the Tab order — and focus landing on something
+  // invisible is how a keyboard gets lost.
+  const tab = visible ? 0 : -1;
 
   return (
     <div
-      className="app-no-drag flex items-center flex-shrink-0 -mr-[6px]"
+      className={`app-no-drag flex items-center flex-shrink-0 -mr-[6px] transition-opacity duration-150 ${
+        visible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+      }`}
+      aria-hidden={!visible}
       {...NO_DRAG_REGION}
       // Not decoration: without a name, to assistive technology these are three
       // empty cells at the top of the window.
@@ -68,14 +88,14 @@ export function WindowControls() {
       aria-label="Window controls"
     >
       <button type="button" className={cellClass} onClick={() => command('minimize')}
-              aria-label="Minimize" title="Minimize" data-testid="win-minimize">
+              aria-label="Minimize" title="Minimize" data-testid="win-minimize" tabIndex={tab}>
         <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
           <path d="M0 5h10" stroke="currentColor" strokeWidth="1" />
         </svg>
       </button>
       <button type="button" className={cellClass} onClick={() => command('maximize')}
               aria-label={maximized ? 'Restore' : 'Maximize'}
-              title={maximized ? 'Restore' : 'Maximize'} data-testid="win-maximize">
+              title={maximized ? 'Restore' : 'Maximize'} data-testid="win-maximize" tabIndex={tab}>
         {maximized ? (
           // Restore: two offset rectangles, the way Windows draws them.
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1">
@@ -91,7 +111,7 @@ export function WindowControls() {
       <button type="button"
               className={`${cellClass} hover:!bg-[#c42b1c] hover:text-white`}
               onClick={() => command('close')}
-              aria-label="Close" title="Close" data-testid="win-close">
+              aria-label="Close" title="Close" data-testid="win-close" tabIndex={tab}>
         <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
           <path d="M0 0l10 10M10 0L0 10" stroke="currentColor" strokeWidth="1" />
         </svg>

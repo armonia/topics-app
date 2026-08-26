@@ -589,6 +589,46 @@ verifica un'opinione.
 - **GIVEN** nessun fallimento di avvio
 - **THEN** NON SHALL esserci ritardo
 
+### Requirement: BIRTH-01 — Non si uccide un server che non ha ancora finito di nascere
+
+Il ricaricamento a caldo chiede al server di riavviarsi da solo quando i turni
+finiscono, e solo se il server non risponde lo taglia con un SIGTERM. La
+domanda viaggia sulla porta HTTP: un server ancora dentro l'avvio quella porta
+non l'ha aperta, quindi non risponde — ed è VIVO, non muto.
+
+Trattare quel silenzio come rifiuto è una trappola che si autoalimenta: il
+rimpiazzo impiega più tempo a nascere di quanto ne passi fra due eventi, quindi
+l'evento successivo lo trova nella stessa finestra e lo uccide di nuovo. Il
+26/08: novecentonovantadue uscite nel registro e circa diciassette minuti con
+l'applicazione irraggiungibile, ogni ciclo chiuso da «SIGTERM received during
+init — nothing owned yet». Il pannello Kanban rispondeva ECONNREFUSED.
+
+Prima di decidere qualunque cosa su un server, il sorvegliante SHALL misurarne
+l'ETÀ, e un server più giovane di una soglia DICHIARATA SHALL essere
+considerato IN NASCITA, mai muto.
+
+Su un server in nascita il giro NON SHALL essere saltato — un ricaricamento
+perso è un server che gira con codice vecchio senza dirlo — bensì RINVIATO fino
+al compimento della soglia, e il rinvio SHALL essere STAMPATO con l'età
+misurata. Un server che esce da solo durante il rinvio SHALL interrompere
+l'attesa: non c'è più niente da ricaricare.
+
+Il SIGTERM SHALL restare raggiungibile per un server che tace ANCHE dopo aver
+superato la soglia: quello è davvero muto, e lì tagliare è la risposta giusta.
+
+#### Scenario: evento di ricaricamento su un server appena nato
+- **GIVEN** un server vivo da meno della soglia dichiarata
+- **THEN** il ricaricamento SHALL essere rinviato, e NON SHALL partire nessun SIGTERM
+
+#### Scenario: evento di ricaricamento su un server maturo che non risponde
+- **GIVEN** un server vivo da più della soglia dichiarata
+- **THEN** il sorvegliante SHALL procedere, e il SIGTERM SHALL restare disponibile
+
+#### Scenario: il server esce da solo mentre si aspetta la sua nascita
+- **GIVEN** un rinvio in corso
+- **WHEN** il processo sorvegliato termina
+- **THEN** l'attesa SHALL interrompersi
+
 ### Requirement: RESTORECAP-01 — Il riscaldamento all'avvio non può affamare il proprio mietitore
 
 Il ripristino dei contesti browser rilanciava con entusiasmo i più recenti a ogni

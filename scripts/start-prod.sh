@@ -204,6 +204,10 @@ fi
 # fswatch-on-every-save (no debounce → pane flap): fswatch is debounced 2s so a
 # multi-file merge coalesces into ONE graceful reload. Only server/** + server.ts
 # are watched (source-only; runtime writes go to data/, ai-bridge/, /tmp, public/).
+# Un server piu' giovane di questa soglia sta ancora dentro l'init: la porta
+# HTTP non e' aperta, quindi non puo' rispondere a `restart-when-idle`.
+BIRTH_GRACE_S=25
+
 if [ "${TOPICS_SERVER_WATCH:-0}" = "1" ]; then
   (
     fswatch -o -l 2 --event Updated --event Created --event Removed --event Renamed \
@@ -211,6 +215,33 @@ if [ "${TOPICS_SERVER_WATCH:-0}" = "1" ]; then
     | while read -r _; do
         SP=$(cat "$SERVER_PIDFILE" 2>/dev/null)
         if [ -n "$SP" ] && kill -0 "$SP" 2>/dev/null; then
+          # ─── Cancello di NASCITA (2026-08-26) ─────────────────────────────
+          # Vivo non vuol dire pronto. Il ramo in fondo a questo blocco conclude
+          # «non risponde nemmeno dopo l'attesa di nascita» e manda un SIGTERM
+          # secco: ma se il server e' dentro l'init la porta HTTP non e' ancora
+          # aperta, quindi NON POTEVA rispondere. Ucciderlo li' e' una trappola
+          # che si autoalimenta — il rimpiazzo ci mette 15-20s a nascere, e
+          # l'evento successivo lo trova nella stessa finestra, per sempre.
+          #
+          # Misurato il 26/08: 992 uscite nel log, ~17 minuti con l'app
+          # irraggiungibile, ogni ciclo chiuso da «SIGTERM received during init
+          # — nothing owned yet». La board non rispondeva: ECONNREFUSED.
+          #
+          # Qui il giro non si SALTA (una modifica persa e' un server che gira
+          # con codice vecchio senza dirlo): si RINVIA. Aspettando che il server
+          # compia BIRTH_GRACE_S si garantisce che l'attesa di nascita piu'
+          # sotto parta da un server che la porta l'ha gia' aperta, e il
+          # SIGTERM resta raggiungibile solo per un server davvero muto.
+          # mtime del pidfile = istante di nascita: la riga 542 lo riscrive a
+          # ogni rilancio, subito dopo lo spawn.
+          while :; do
+            _born=$(stat -f %m "$SERVER_PIDFILE" 2>/dev/null || echo 0)
+            _age=$(( $(date +%s) - _born ))
+            [ "$_age" -ge "$BIRTH_GRACE_S" ] && break
+            kill -0 "$SP" 2>/dev/null || break   # e' uscito da solo: niente da rinviare
+            echo "[start-prod] reload RINVIATO — il server ha ${_age}s, sta ancora nascendo (soglia ${BIRTH_GRACE_S}s)"
+            sleep 2
+          done
           # Cancello (2026-08-04): una modifica di più file è incoerente per
           # qualche secondo — l'import c'è, il modulo che lo soddisfa no. Far
           # ripartire il server proprio lì dentro l'ha già ucciso due volte il
