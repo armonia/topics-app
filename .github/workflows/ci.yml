@@ -420,8 +420,24 @@ jobs:
           fi
           exit 0
 
+      # E QUI LA CONDIZIONE ERA L'OPPOSTA DI QUELLA GIUSTA. `hashFiles` viene
+      # valutato PRIMA che il passo qui sopra giri (le espressioni `if` si
+      # risolvono all'inizio del passo, sul disco di quel momento), quindi
+      # «carica solo se il file MANCA» chiedeva di caricare un file che in quel
+      # momento non c'era ancora — e appena il passo precedente lo scriveva, la
+      # condizione era gia' stata letta come falsa. Misurato sulla run
+      # 33005189857: «Record CI route-latency baseline» success con «Baseline
+      # registrata» nel log, «Upload CI route-latency baseline» SKIPPED, e zero
+      # artefatti. Il file veniva prodotto a ogni giro e buttato via a ogni
+      # giro, quindi il cancello ha sempre confrontato il runner Linux con la
+      # baseline di un Mac: `topic_messages` 7-8,5 ms contro 3,57, un rosso che
+      # descrive l'hardware e non una regressione.
+      #
+      # Ora si carica quando il file C'E'. Resta da committarlo a mano una volta
+      # (l'artefatto e' il modo per tirarlo giu'), e da li' il cancello misura
+      # finalmente questa macchina contro se stessa.
       - name: Upload CI route-latency baseline
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' && (hashFiles('scripts/route-latency-baseline.ci.json') == '') }}
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: route-latency-baseline-ci
