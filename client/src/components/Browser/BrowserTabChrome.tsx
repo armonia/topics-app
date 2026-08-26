@@ -33,6 +33,8 @@ import {
 import { BrowserFavicon } from './BrowserFavicon';
 import { Menu } from '../Shared/Menu';
 import { useBrowserPaneChrome } from '../../state/browserPaneChrome';
+// Per-platform, not written out: on Windows there is no ⌘ and no ⌥.
+import { shortcut } from '../../lib/shortcutLabel';
 import type { DeviceMode } from './browserDevTypes';
 import { POPOVER_ITEM, POPOVER_ITEM_DANGER, POPOVER_DIVIDER, DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { prettyUrl } from '../../lib/browserNavUrl';
@@ -288,7 +290,7 @@ export function BrowserTabMenuButton({ paneId }: { paneId: string }) {
           <button type="button" className={POPOVER_ITEM} onClick={run(c.editAddress)} data-testid="browser-tab-edit-address">
             <Pencil size={13} className="shrink-0 text-app-text-tertiary" />
             <span className="flex-1 text-left">{t('browser.tab.editAddress')}</span>
-            <span className="text-app-text-faint tabular-nums">⌘L</span>
+            <span className="text-app-text-faint tabular-nums">{shortcut('L')}</span>
           </button>
         )}
 
@@ -316,7 +318,7 @@ export function BrowserTabMenuButton({ paneId }: { paneId: string }) {
           <button type="button" className={POPOVER_ITEM} onClick={run(c.toggleDevTools)} data-testid="browser-tab-devtools">
             <Code2 size={13} className="shrink-0 text-app-text-tertiary" />
             <span className="flex-1 text-left">DevTools</span>
-            <span className="text-app-text-faint tabular-nums">⌥⌘I</span>
+            <span className="text-app-text-faint tabular-nums">{shortcut('I', { alt: true })}</span>
           </button>
         )}
 

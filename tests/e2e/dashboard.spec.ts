@@ -220,7 +220,12 @@ test.describe("Dashboard & Analytics", () => {
     // la riga si chiama «Dashboard», come la tab che apre. Prima era
     // «Statistics» nel dropdown «Settings & Tools» — un secondo menu di
     // creazione con nomi propri.
-    await page.locator('button[title="New (⌘N)"]').click();
+    // By TESTID and not by title: the title carries the shortcut, which since
+    // 39db727c5 is written per platform — "⌘N" on a Mac, "Ctrl+N" on Windows and
+    // Linux. A selector looking for the Mac glyph finds a button only on the
+    // machine of whoever wrote it; on CI (Linux) it waits fifteen seconds for
+    // something that is not there. Measured: 0 elements found.
+    await page.getByTestId("pane-add-menu-trigger").click();
     const dashboardRow = page.getByTestId("pane-add-menu-dashboard");
     await expect(dashboardRow).toBeVisible({ timeout: 5000 });
     await dashboardRow.click();

@@ -89,7 +89,9 @@ export async function openAddMenuPane(
   page: Page,
   type: "dashboard" | "cron" | "board",
 ) {
-  await page.locator('button[title="New (⌘N)"]').click();
+  // By TESTID: the title contains the shortcut, which changes with the platform
+  // (⌘N on a Mac, Ctrl+N elsewhere). See the note in dashboard.spec.ts.
+  await page.getByTestId("pane-add-menu-trigger").click();
   const row = page.getByTestId(`pane-add-menu-${type}`);
   await row.waitFor({ state: "visible", timeout: 5000 });
   await row.click();

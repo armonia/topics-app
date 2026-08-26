@@ -1137,7 +1137,11 @@ function App() {
           riga dove ogni pixel orizzontale è conteso, e la lente da sola si
           legge. L'etichetta serviva alla barra in fondo, dove i due comandi
           erano soli in mezzo a una fascia larga. */}
-      {!isMobile && <kbd className="kbd flex-shrink-0 hidden md:inline">&#8984;K</kbd>}
+      {/* `shortcut('K')` and not the glyph written out: the `title` two lines up
+          is already per-platform, this one was pinned to "⌘K" — so on Windows
+          the button said "Ctrl+K" on hover and "⌘K" on its face, naming a key
+          that machine does not have. */}
+      {!isMobile && <kbd className="kbd flex-shrink-0 hidden md:inline">{shortcut('K')}</kbd>}
     </button>
   );
   const sidebarAddMenu = (
