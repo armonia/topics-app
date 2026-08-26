@@ -49,18 +49,39 @@ describe("i test non ereditano gli hook git della macchina", () => {
   });
 
   test("un commit vero riesce, senza identita' configurata sulla macchina", () => {
-    // The isolation must not break what it isolates: git refuses to commit
-    // without a `user.email`, so `gitEnv()` supplies a fake one.
+    // The isolation must not break what it isolates: git refuses to commit with
+    // no identity, so the test SUPPLIES one — with the two variables git reads
+    // before any config file.
+    //
+    // The comment here used to say `gitEnv()` provided it. It does not, and
+    // deliberately: the note above `isolateGitFromEnvironment` explains why an
+    // identity must not go into the preload (it would make
+    // `git-identity.test.ts`, which simulates a machine WITHOUT one, impossible
+    // to write) and even names the consequence — "the commit that on a runner
+    // with no identity exits 128".
+    //
+    // That is exactly what happened on 2026-08-26: green on every developer Mac,
+    // where git falls back to user@host, and red on the CI runner, which has no
+    // identity at all. The fault was not in the isolation: it was a test relying
+    // on a courtesy of the machine it was written on. Reproduced locally by
+    // taking that courtesy away (`user.useConfigOnly=true` plus no global
+    // config): exit 128, "no email was given and auto-detection is disabled".
     const d = mkdtempSync(join(tmpdir(), "guardia-hook-"));
-    Bun.spawnSync(["git", "-C", d, "init", "-q", "-b", "main"], { env: gitEnv() });
+    const env = gitEnv({
+      GIT_AUTHOR_NAME: "Prova", GIT_AUTHOR_EMAIL: "prova@example.invalid",
+      GIT_COMMITTER_NAME: "Prova", GIT_COMMITTER_EMAIL: "prova@example.invalid",
+    });
+    Bun.spawnSync(["git", "-C", d, "init", "-q", "-b", "main"], { env });
     writeFileSync(join(d, "f.txt"), "x");
-    Bun.spawnSync(["git", "-C", d, "add", "-A"], { env: gitEnv() });
+    Bun.spawnSync(["git", "-C", d, "add", "-A"], { env });
     const r = Bun.spawnSync(["git", "-C", d, "commit", "-q", "-m", "prova"], {
       stdout: "pipe",
       stderr: "pipe",
-      env: gitEnv(),
+      env,
     });
-    expect(r.exitCode).toBe(0);
+    // The message on failure, not just the number: `128` alone sends you to read
+    // git's source, while its own line says what is missing.
+    expect(`${r.exitCode} ${new TextDecoder().decode(r.stderr).split("\n")[0]}`.trim()).toBe("0");
   });
 
   test("gitEnv() accetta aggiunte senza perdere le chiavi di git", () => {

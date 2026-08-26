@@ -52,10 +52,21 @@ describe("nome dell'installazione", () => {
     expect(daHostname("qualcosa.LOCAL")).toBe("qualcosa");
     // ...and a name without the suffix does not shorten itself.
     expect(daHostname("fisso-in-studio")).toBe("fisso-in-studio");
-    // The case is real on this machine, and the day it stops being real that
-    // must be known rather than discovered.
-    expect(`hostname finisce per .local: ${hostname().toLowerCase().endsWith(".local")}`)
-      .toBe("hostname finisce per .local: true");
+
+    // WHETHER THIS MACHINE HAS THE SUFFIX IS A FACT ABOUT THE MACHINE, NOT A
+    // REQUIREMENT. The line here used to assert `.local: true`, which is true on
+    // a Mac and false on a Linux CI runner: the test went red on 2026-08-26 with
+    // nothing broken, on a run that had only touched Windows shell code. A check
+    // that fails depending on who runs it does not defend anything — it just
+    // teaches people to ignore a red.
+    //
+    // The intent it carried was right and is kept: the `.local` branch of
+    // `daHostname` must be EXERCISED, not assumed. That is what the two lines
+    // above do, on explicit inputs, on every machine. The live hostname is
+    // reported instead of asserted, so a Mac that stopped answering `.local`
+    // stays readable in the log without turning into a false failure.
+    const suffisso = hostname().toLowerCase().endsWith(".local");
+    console.log(`[nome-installazione] hostname di questa macchina finisce per .local: ${suffisso}`);
   });
 
   test("la pulizia toglie i caratteri di controllo e taglia a 64", () => {
