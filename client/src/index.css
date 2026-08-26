@@ -395,7 +395,14 @@
   --text: hsl(220 3.5% 10.6%);
   --text-secondary: hsl(220 2.8% 36.4%);
   --text-tertiary: hsl(220 2.8% 45.3%);
-  --text-muted: hsl(220 2.8% 43.2%);
+  /* 43.2% gave 4.42 against the chrome (#ecedee) — under the 4.5 normal text
+   * needs, and axe-core flagged it on three real elements: "No active items",
+   * "Persone", the version number. Not tool pedantry: those are all small, 11-12px,
+   * sitting on exactly that background.
+   * 42.5% is the LIGHTEST lightness that holds 4.5 on all three backgrounds this
+   * token appears on (chrome #ecedee 4.56, page #f4f5f5 4.89, white 5.34):
+   * computed, not eyeballed, so as to change as little as possible. */
+  --text-muted: hsl(220 2.8% 42.5%);
   --text-placeholder: hsl(220 2.8% 59.2%);
   --text-heading: hsl(220 3.1% 20.7%);
   --text-body: hsl(220 3.1% 27.6%);
@@ -415,7 +422,11 @@
   --code-inline-text: #374151;
   --blockquote-border: #d1d5db;
   --blockquote-text: #6b7280;
-  --kbd-text: #6b7280;
+  /* #6b7280 gave 4.44 on the key background (#f5f5f6): under the threshold, and
+   * key captions are the smallest type in the interface. #656a75 is the first grey
+   * of the same family that holds 4.5 on every background a `.kbd` lands on (4.63
+   * at worst). */
+  --kbd-text: #656a75;
   --disabled-bg: hsl(220 3.5% 80.7%);
   /* (I grigi qui sopra che restano in esadecimale — `#e5e7eb`, `#f3f4f6`,
    * `#d1d5db`, `#6b7280`, `#374151`, `#9ca3af` — sono la scala `gray` di

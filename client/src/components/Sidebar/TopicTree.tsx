@@ -1601,6 +1601,17 @@ export function TopicTree({
             type="button"
             onClick={() => { if (boardPress.consumeClick()) return; onOpenBoard(); }}
             data-testid="sidebar-board-generale"
+            // `role="treeitem"`, like every other row in the column (TopicItem,
+            // PinnedTile). Without it this was the only direct child of the
+            // `role="tree"` lacking one, and axe-core flagged it twice as
+            // critical: "aria-required-children" on the tree, because a tree must
+            // contain treeitems, and "aria-allowed-attr" here, because
+            // `aria-selected` on a role-less button means nothing.
+            //
+            // Not tool pedantry: to a screen reader a tree containing a plain
+            // button is not navigable with the tree's own keys, and this row's
+            // "open" state was not announced at all.
+            role="treeitem"
             aria-selected={boardOpen}
             {...boardPress.handlers}
             data-pressing={boardPress.pressed || undefined}
