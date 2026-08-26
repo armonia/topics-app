@@ -1545,7 +1545,7 @@ function App() {
                 taskbar. On macOS the component renders nothing: those commands
                 are the traffic lights, which the shell already paints over this
                 very row. */}
-            <WindowControls />
+            <WindowControls visible={showTopicsMenu} />
           </div>}
         </div>
 
