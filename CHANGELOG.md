@@ -2,7 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.2.175 — 2026-08-27
+## 2.2.176 — 2026-08-27
+
+### Sotto il cofano
+- Tre dei cinque bivi del primo avvio si chiudono da soli contro il codice
+
+## 2.2.175 — 2026-08-26
 
 ### Sotto il cofano
 - OVERLAY-3 leggeva il varco una volta sola, e ogni tanto lo coglieva a zero

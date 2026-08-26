@@ -1,7 +1,23 @@
 [
   {
-    "version": "2.2.175",
+    "version": "2.2.176",
     "date": "2026-08-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Tre dei cinque bivi del primo avvio si chiudono da soli contro il codice",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.175",
+    "date": "2026-08-26",
     "sections": {
       "new": [],
       "fixes": [],
