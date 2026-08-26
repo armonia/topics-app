@@ -374,9 +374,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
     toggleShare: onToggleShare,
     forgetSite: canForget ? () => setForgetOpen(true) : undefined,
   }), [browser, canForget, onToggleShare, backToSpawner]);
-  // Subscribed, not sampled: on a restored pane this address lands AFTER the
-  // mount, and a plain read would never tell React about it. See
-  // `useBrowserPaneUrl`.
+  // Subscribed, not sampled: on a restored pane this lands AFTER the mount.
   const paneUrlNoto = useBrowserPaneUrl(`browser:${contextId}`);
   const chromeBridge = useBrowserChromeBridge(contextId, {
     url: browser.url,
@@ -441,18 +439,11 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   // its focus fn (onRegisterFocus) after first paint.
   //
   // AND "EMPTY" IS ABOUT THE PANE, NOT ABOUT THIS INSTANT. A RESTORED pane is
-  // `about:blank` for the few instants before its page loads, so the live url
-  // alone called it fresh, focus-revealed the address row, and `revealed` is
-  // sticky: the row the tab had replaced came back and stayed. `knownUrl` is
-  // what the pane store already knows about this pane, and it is the same
-  // distinction `showChrome` makes a few lines down — this effect was the one
-  // place still asking the old question.
-  //
-  // Measured on 2026-08-26 under `--workers=4`: with hydration and the render
-  // paths already fixed the bar was STILL up, and the probe showed a single
-  // reveal coming from here, `storeHasSpoken: true` and
-  // `knownUrl: http://…/rapporto`. Nothing was racing: it was being opened on
-  // purpose, on the wrong question.
+  // `about:blank` for a few instants, so the live url alone called it fresh and
+  // revealed the address row — and `revealed` is sticky, so the row the tab had
+  // replaced came back and stayed. Same distinction `showChrome` makes below.
+  // Measured 2026-08-26 under `--workers=4`: one reveal, from here, with
+  // `storeHasSpoken` true and `knownUrl` set. Not a race: the wrong question.
   const urlBarAutoFocusedRef = useRef(false);
   useEffect(() => {
     const empty = !isRealUrl(browser.url) && !isRealUrl(paneUrlNoto);
@@ -756,9 +747,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     toggleShare: onToggleShare,
     forgetSite: sharedCanForget ? () => setForgetOpen(true) : undefined,
   }), [browser, sharedCanForget, onToggleShare, backToSpawner]);
-  // Subscribed, not sampled: on a restored pane this address lands AFTER the
-  // mount, and a plain read would never tell React about it. See
-  // `useBrowserPaneUrl`.
+  // Subscribed, not sampled: on a restored pane this lands AFTER the mount.
   const paneUrlNoto = useBrowserPaneUrl(`browser:${contextId}`);
   const chromeBridge = useBrowserChromeBridge(contextId, {
     url: browser.url,
@@ -1039,14 +1028,10 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
       // specs stub `/api/browsers/*`, get no `framable` key back, and so take
       // the streaming path, which had the anchor.
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden" data-testid="browser-pane" data-browser-pane={contextId}>
-        {/* AND THE SAME CONDITION AS THE OTHER TWO PATHS: the address row goes
-            away once the tab carries the address. The other two render paths
-            gated on `showChrome`, this one did not, so on a framable site the
-            row stayed put — the trade the tab was selling only held on two
-            thirds of the app. Measured on 2026-08-26: with the pane restored
-            under four shards the bar was still there while the store had the
-            right URL and `useBrowserPaneUrl` returned it, because the component
-            reading them was not the one on screen. */}
+        {/* SAME CONDITION AS THE OTHER TWO PATHS: the row goes away once the tab
+            carries the address. This path did not gate on `showChrome`, so on a
+            framable site the trade the tab was selling held on two thirds of
+            the app. */}
         {chromeBridge.showChrome && (
         <BrowserToolbar
           url={browser.url}
@@ -1066,12 +1051,8 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           shared={shared}
           shareMode={shareMode}
           onToggleShare={onToggleShare}
-          // The three hooks the other two paths already passed. Without
-          // `onDismiss` the row, once revealed from the tab menu, had no way
-          // back; without `onRegisterFocus` "edit address" opened a row that
-          // never took the caret. Hiding the row makes them load-bearing: the
-          // toolbar is no longer permanent scenery, so its way in and its way
-          // out both have to be wired.
+          // The three hooks the other two paths already passed: a hidden row
+          // needs a way in (`onRegisterFocus`) and a way out (`onDismiss`).
           onRegisterFocus={chromeBridge.registerFocus}
           onDismiss={chromeBridge.hideChrome}
           downloadsRequestOpen={chromeBridge.downloadsRequestOpen}
