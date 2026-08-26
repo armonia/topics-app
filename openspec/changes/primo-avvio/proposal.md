@@ -1,8 +1,18 @@
 # Change: primo-avvio
 
-> **Stato: PROPOSTA, non approvata.** Ci sono cinque bivi di prodotto che non
-> tocca a me chiudere; stanno in fondo, numerati, con la mia raccomandazione.
-> Nessuna riga di codice prima del tuo sì.
+> **Stato: PROPOSTA, non approvata.** Nessuna riga di codice prima del tuo sì.
+>
+> I cinque bivi in fondo restano decisioni tue, ma non sono più domande a vuoto:
+> per ognuno sono andato a cercare i fatti, e tre si sono chiusi da soli contro
+> il codice. **Google** e **la chiave GitHub** erano già stati considerati e
+> scartati, con la ragione scritta nei rispettivi file — non erano lacune, erano
+> scelte. **I modelli** sono una guardia che ha già prodotto un difetto silenzioso
+> quando è rimasta indietro, quindi aprirla è il contrario di una cura. Restano
+> aperti per davvero solo il **quando compare** (1) e l'**installare dall'app**
+> (2), che sono scelte di prodotto senza una risposta nel codice.
+>
+> Se sei d'accordo con le cinque raccomandazioni, basta un «vai» e passo alle
+> spec.
 
 ## Why
 
@@ -84,7 +94,15 @@ nessun campo nuovo nel DB a parte quel flag.
    qualcosa (nessuna chiave *e* nessun agente)?
    → *Consigliato: sempre alla prima apertura.* Una schermata che appare solo
    quando sei messo male è una schermata che vede solo chi è già in difficoltà,
-   e nessuno la può provare. Costa un «Salta» a chi ha tutto.
+   e nessuno la può provare: si rompe in silenzio, e se ne accorge esattamente
+   la persona meno attrezzata per capirlo. Costa un «Salta» a chi ha già tutto.
+
+   E «prima apertura» è già riconoscibile senza inventare niente: la migration
+   084 crea `installation` con un `created_at`, e la persona proprietaria nasce
+   col nome segnaposto `'Proprietario'`, che `GET /api/profile` già restituisce
+   (`server/routes/profile.ts:43`). Quindi il flag `firstRunDoneAt` serve solo a
+   ricordare che la schermata è stata VISTA — non a indovinare se l'installazione
+   è nuova.
 
 2. **Installare gli agenti da dentro l'app.** Il riquadro 2 può mostrare
    `npm i -g @openai/codex` da copiare, oppure avere un bottone «Installa» che
@@ -94,21 +112,71 @@ nessun campo nuovo nel DB a parte quel flag.
    in modi che non sappiamo ancora raccontare. Il bottone si aggiunge dopo, se
    la copia-incolla si rivela un attrito vero.
 
-3. **Login con Google.** L'avevi nominato. Oggi `server/lib/account.ts:60` dice
-   esplicitamente che il modello **non** è Google, e l'account è un aggancio
-   facoltativo via email + codice.
-   → *Consigliato: fuori da questo change.* Non è una schermata, è un fornitore
-   di identità in più con la sua superficie di sicurezza. Se lo vuoi, è una
-   change sua e viene dopo che il primo avvio esiste.
+   *Verificato sul Windows 11 reale il 2026-08-26*, chiamando l'endpoint dal
+   binario compilato: risponde `Claude Code installato=true` con il percorso
+   assoluto `C:\Users\zorah\.local\bin\claude.exe`, e `Codex`, `opencode`,
+   `Gemini CLI` a `false` con `path: null`. Cioè il riquadro 2 ha già tutti i
+   dati che gli servono — nome, presenza, percorso, comando di installazione,
+   URL — e non serve scrivere niente lato server per disegnarlo.
 
-4. **La chiave GitHub.** L'avevi nominata, e non ho trovato dove Topics la usi
-   oggi: c'è `github_login` sul profilo (migration 084) e un `profiloGitHub`,
-   che sono il *profilo* pubblico, non una chiave di lavoro.
-   → *Consigliato: dimmi a cosa serve.* Se è per clonare repo privati è una cosa,
-   se è per il profilo è già lì. È l'unico punto dove non ho abbastanza fatti
-   per raccomandare.
+3. **Login con Google.** L'avevi nominato, e non è che nessuno ci abbia pensato:
+   è stato considerato e scartato, con la ragione scritta in
+   `server/lib/account.ts`. Il codice via email è stato scelto contro DUE
+   alternative: non passkey (*«serve un autenticatore, e lega l'identità a un
+   ferro — che è esattamente ciò che questo modello smette di fare»*) e non
+   Google (*«un terzo che viene a sapere che questa installazione esiste, il
+   contrario di ORG-08»*).
 
-5. **I modelli del provider Topics.** Oggi sono una lista dichiarata a mano, e il
-   commento dice che è deliberato.
-   → *Consigliato: lasciarli lì.* Non è un problema di primo avvio, e mescolare
-   le due cose fa un change che non si riesce a rifiutare in un pezzo solo.
+   Nello stesso file: l'account non è un cancello, e la lettura del suo stato non
+   tocca la rete — *«un account collegato resta collegato mentre la rete non
+   c'è»*, e non esiste una funzione che ri-validi un collegamento contro il
+   servizio, perché *«una revalidazione è, per costruzione, un modo in cui un
+   servizio giù ti declassa»*.
+
+   → *Consigliato: FUORI, e la barra per rientrare è alta.* Aggiungere Google non
+   è aggiungere un bottone: è aggiungere un terzo che impara dell'esistenza di
+   ogni installazione, cioè ribaltare la proprietà su cui l'account è stato
+   costruito. Se lo vuoi lo stesso, va discusso come cambio di ORG-08, non come
+   riquadro di una schermata di benvenuto.
+
+4. **La chiave GitHub.** L'avevi nominata. Sono andato a vedere dove Topics
+   tocca GitHub, e i posti sono due, nessuno dei quali la vuole:
+   - `server/lib/github-profile.ts` legge il **profilo pubblico** di un login
+     (`GET /users/:login`), e il commento in cima è esplicito: *«NESSUN TOKEN, e
+     volutamente: qui si legge solo ciò che è pubblico. Chiedere all'utente un
+     personal access token per mostrare un avatar sarebbe chiedere una
+     credenziale in cambio di una decorazione.»* Il limite di 60 richieste/ora
+     senza autenticazione è già coperto da una cache a 6 ore che ricorda anche i
+     fallimenti.
+   - `git push` (`server/routes/tasks.ts`) usa il **git della macchina**, con
+     `GIT_TERMINAL_PROMPT=0` perché un push che avrebbe bisogno di credenziali
+     fallisca subito invece di appendere la richiesta. Le credenziali sono
+     quelle che l'utente ha già: SSH, il credential manager, `gh auth`.
+
+   → *Consigliato: FUORI, e non è un rinvio.* Non esiste oggi un punto dove una
+   chiave GitHub farebbe funzionare qualcosa che adesso non funziona. Chiederla
+   al primo avvio sarebbe raccogliere una credenziale potente «per dopo»: il
+   costo è concreto (un segreto da custodire, revocare, spiegare) e il beneficio
+   ancora ipotetico. Se il caso vero è «clonare repo privati dall'app», quello
+   e' un lavoro suo, con la sua superficie di sicurezza — e allora la strada
+   probabile non e' un PAT incollato in un campo, ma appoggiarsi al `git` che
+   sulla macchina e' gia' autenticato, esattamente come fa il push oggi.
+
+5. **I modelli del provider Topics.** Sono una lista dichiarata a mano
+   (`server/providers/native/provider.ts:149`), e sono andato a leggere perché.
+   Due ragioni, entrambe documentate lì:
+   - **L'API non ha un catalogo da interrogare** sull'endpoint OAuth, e chiedere
+     `/v1/models` con credenziali da abbonamento darebbe una lista che non
+     corrisponde a ciò che l'abbonamento copre davvero.
+   - **Quella lista è una GUARDIA, non una vetrina.** `routes/chat.ts` scarta i
+     modelli che non vi compaiono. Quando è rimasta indietro di una generazione,
+     ogni card che chiedeva `claude-opus-5` è girata in silenzio su
+     `claude-sonnet-4-6`: il picker diceva Opus 5, la barra diceva Opus 5, e il
+     turno era Sonnet. Gli id attuali sono *provati* uno per uno con una
+     richiesta da 1 token (19/08/2026), non dedotti.
+
+   → *Consigliato: lasciarli dichiarati, e fuori da questo change.* Il rilevamento
+   automatico qui non toglie lavoro: sostituisce una lista verificata con una
+   dedotta, sullo stesso punto che ha già prodotto un difetto silenzioso. Il
+   problema vero — «la lista invecchia e nessuno se ne accorge» — si risolve con
+   un controllo che AVVISA quando un id non risponde più, non aprendo la guardia.
