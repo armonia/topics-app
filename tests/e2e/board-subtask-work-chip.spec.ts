@@ -21,6 +21,7 @@ import { projectRow } from "./helpers/project-row";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane, deleteTask } from "./helpers/api-fixtures";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { initGitRepo } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
@@ -100,6 +101,7 @@ test.describe("Sottotask senza agente suo · chi lo lavora", () => {
   test.beforeAll(async ({ request }) => {
     mkdirSync(PROJECT_PATH, { recursive: true });
     writeFileSync(`${PROJECT_PATH}/package.json`, JSON.stringify({ name: "e2e-subwork" }, null, 2));
+    initGitRepo(PROJECT_PATH);
     const topic = await createTopic(request, "E2E-SubWork", { projectPath: PROJECT_PATH });
     projectTopicId = topic.id;
   });

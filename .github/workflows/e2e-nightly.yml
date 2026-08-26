@@ -308,6 +308,26 @@ jobs:
               await github.rest.issues.create({ ...context.repo, title, body, labels: ["e2e-nightly"] });
             }
 
+      # E POI FALLISCE, che è l'altra metà del mestiere.
+      #
+      # Fino a qui il job apriva l'issue e usciva `success`: la nightly risultava
+      # verde in ogni elenco, badge e API, mentre quattro shard su quattro erano
+      # rossi. Misurato il 2026-08-26: gli ultimi 8 run hanno `conclusion:
+      # failure` sugli shard e `success` su questo job, e il workflow nel suo
+      # insieme non ha MAI dato un verde in tutta la sua vita — cioè il segnale
+      # esisteva ma nessuno lo riceveva se non apriva la issue a mano.
+      #
+      # Un cancello che riassume un rosso in un verde non è indulgente, è muto:
+      # `gh run list` dice `failure` solo se qualcuno fallisce, e questo è
+      # l'unico job che sa l'esito complessivo.
+      - name: Il rosso resta rosso
+        if: needs.e2e-full.result != 'success'
+        env:
+          NIGHTLY_RESULT: ${{ needs.e2e-full.result }}
+        run: |
+          echo "::error title=E2E nightly non verde::Gli shard hanno chiuso '${NIGHTLY_RESULT}'. La segnalazione è nell'issue con label e2e-nightly."
+          exit 1
+
       - name: Chiudi la segnalazione se la nightly è tornata verde
         if: needs.e2e-full.result == 'success'
         uses: actions/github-script@v7
