@@ -21,6 +21,23 @@ const SERVER_START_TIME = Date.now();
 // chip reflects the current package.json the moment it's bumped.
 const PKG_PATH = join(import.meta.dir, "..", "..", "package.json");
 let _pkgCache: { mtimeMs: number; version: string } | null = null;
+
+/**
+ * The version BAKED at compile time, for the packaged build.
+ *
+ * `import.meta.dir` inside a `bun build --compile` binary points at a virtual
+ * path, and next to it there is no `package.json` at all: on a machine where the
+ * user simply INSTALLED Topics, the read below always threw and this endpoint
+ * answered `0.0.0`. That is what the version chip in the sidebar showed —
+ * reported 2026-08-26 on the Windows build, and it was never Windows-specific:
+ * any installed build, on any system, read the same.
+ *
+ * The build script passes the real number in (`scripts/build-server-sidecar.sh`);
+ * in a checkout the variable is absent and the file on disk stays the source of
+ * truth, which is what dev wants — it re-reads on every bump without recompiling.
+ */
+const BAKED_VERSION = (process.env.TOPICS_APP_VERSION || "").trim();
+
 function readAppVersion(): string {
   try {
     const mtimeMs = statSync(PKG_PATH).mtimeMs;
@@ -29,7 +46,10 @@ function readAppVersion(): string {
     _pkgCache = { mtimeMs, version };
     return version;
   } catch {
-    return _pkgCache?.version ?? "0.0.0";
+    // The file is unreadable: in a packaged build it is not there at all. The
+    // baked number is the answer, and `0.0.0` only when there is genuinely
+    // nothing to say — never as the shrug it used to be.
+    return _pkgCache?.version ?? (BAKED_VERSION || "0.0.0");
   }
 }
 

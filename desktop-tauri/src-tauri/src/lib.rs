@@ -1457,7 +1457,17 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
                 .env("TOPICS_DATA_DIR", data_dir.to_string_lossy().to_string())
                 .env("DATA_DIR", data_dir.join("data").to_string_lossy().to_string())
                 .env("TOPICS_HOME", data_dir.join("home").to_string_lossy().to_string())
-                .env("TOPICS_EMBEDDED", "1");
+                .env("TOPICS_EMBEDDED", "1")
+                // The version, told by WHOEVER KNOWS IT.
+                //
+                // The server read it from a `package.json` resolved next to its
+                // own source file: inside a compiled binary that file does not
+                // exist, so `/api/version` answered `0.0.0` on every installed
+                // build, and the little number at the bottom of the sidebar
+                // showed that. The shell carries it baked in
+                // (`CARGO_PKG_VERSION`, which tauri.conf and Cargo.toml keep in
+                // step), so it has nothing to read: it just passes it along.
+                .env("TOPICS_APP_VERSION", env!("CARGO_PKG_VERSION"));
             match &bridge_bin {
                 // Bundled Rust bridge present: hand the server the binary to spawn.
                 // This flips isPtyBridgeDisabled() to false (terminal.ts) so terminals
