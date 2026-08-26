@@ -65,6 +65,13 @@
         // mano quando si vuole vedere encode/trasporto dal vivo, nessuno la importa.
         "scripts/webrtc-probe.ts!",
         "scripts/e2e-shards-summary.ts!", // invoked by scripts/e2e-shards.sh:88
+        // `bun run scripts/merge-shard-reports.ts <dir> --out <file>` — fonde i
+        // report-N.json dei quattro shard in un report solo. Lo chiama
+        // `scripts/specflow-evidence.sh:90`, cioe' una riga di shell: knip legge
+        // gli import, non i comandi, quindi per lui questo file e' morto. Non lo
+        // e': senza, la catena che pubblica la living-doc non ha un report da
+        // caricare.
+        "scripts/merge-shard-reports.ts!",
         "scripts/gen-migrations-manifest.ts!", // run by hand to regenerate migrations-embedded.ts
         "scripts/new-migration.ts!",           // `bun run migration:new <slug>` — crea la migration col prefisso timestamp
         // Congela la coda di review dell'11/08 come fixture della derivazione

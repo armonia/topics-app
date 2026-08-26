@@ -18,8 +18,28 @@
 #   ./scripts/qa-gate.sh --veloce     salta E2E e unit (secondi)
 #   ./scripts/qa-gate.sh --senza-e2e  tutto tranne la suite E2E
 #
+# LA REGOLA DI APPARTENENZA, scritta perche' e' stata violata. Questa barra
+# deve essere un SOVRAINSIEME dei cancelli statici che la CI blocca, altrimenti
+# dice «verde» su una macchina dove la CI dira' rosso — ed e' esattamente cosa
+# e' successo: `check:identifier-language`, `check:spec-coverage` e
+# `check:deadcode-blindspots` erano in `ci.yml` e non qui, e il 26/08 il primo
+# era ROSSO mentre questo script stampava BARRA VERDE. Costano 0s, 0s e 4s:
+# non erano fuori per il prezzo, erano fuori perche' nessuno aveva confrontato
+# le due liste. Chi aggiunge un cancello statico a `ci.yml` lo aggiunge anche
+# qui, nello stesso commit.
+#
+# I due che restano fuori con un motivo, e non per dimenticanza:
+#   `check:bundle`       pretende `public/` gia' costruito (`bun run build:client`,
+#                        minuti): in CI viene dopo una build che qui non c'e'.
+#   `check:previews`     misura il DATABASE VIVO della board e la cartella media
+#                        di questo utente, non il checkout. In una barra deve
+#                        dare la stessa risposta su qualunque macchina; questo
+#                        darebbe la risposta del Mac di chi la lancia. Si lancia
+#                        a mano: `bun run check:previews`.
+#
 # COSA NON FA, di proposito: i cancelli di TEMPO (`check:ink`, `check:drag`,
-# `check:scroll-fluidity`, `check:growth`, `probe:boot-memory`) NON stanno qui.
+# `check:scroll-fluidity`, `check:growth`, `check:route-latency`,
+# `probe:boot-memory`) NON stanno qui.
 # Misurano millisecondi e frame, e su una macchina carica descrivono la
 # macchina invece del codice: la stessa passata ha gia' dato 13,9% e 1,7% di
 # frame persi a tre minuti di distanza, a codice fermo. Vanno lanciati a mano,
@@ -57,9 +77,10 @@ esegui() {
 
 echo "== guard rail statici =="
 for c in check:any check:any-budget check:ref-callbacks check:nul check:eslint-disable \
-         check:test-skips check:emdash check:bloat check:ui-language check:comment-language check:sleeps \
-         check:untraced-tests \
-         check:migrations check:security check:deadcode; do
+         check:test-skips check:emdash check:bloat check:ui-language check:comment-language \
+         check:identifier-language check:sleeps \
+         check:untraced-tests check:spec-coverage \
+         check:migrations check:security check:deadcode check:deadcode-blindspots; do
   esegui "$c" bun run "$c"
 done
 

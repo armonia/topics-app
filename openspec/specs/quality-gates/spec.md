@@ -336,6 +336,13 @@ modo opaco lo rende invisibile, e senza dirlo il verde non significa niente. Ogn
 punto cieco noto SHALL puntare a un file che esiste ancora e SHALL avere un
 motivo scritto; nessuna sonda SHALL restare dimenticata in un file tracciato.
 
+La BARRA locale — l'unico comando che un umano lancia per sapere «e' verde?» —
+NON SHALL essere un sottoinsieme dei cancelli STATICI su cui l'integrazione
+blocca: dire «verde» dove la CI dira' rosso e' la stessa bugia di un cancello che
+non gira, servita a chi sta per consegnare. Ogni esclusione SHALL essere scritta
+NEL file della barra, non altrove: un'esclusione argomentata solo nel banco e'
+indistinguibile da una dimenticanza per chi legge la barra.
+
 #### Scenario: un cancello nuovo mai cablato
 - **GIVEN** uno script di verifica che nessun flusso esegue
 - **THEN** il banco SHALL fallire
@@ -343,6 +350,11 @@ motivo scritto; nessuna sonda SHALL restare dimenticata in un file tracciato.
 #### Scenario: un referto messo in un flusso
 - **GIVEN** uno script che misura e racconta
 - **THEN** NON SHALL comparire in un flusso di verifica
+
+#### Scenario: un cancello statico che la CI blocca e la barra non esegue
+- **GIVEN** un `check:*` invocato da `.github/workflows/ci.yml`
+- **AND** assente dalla lista che `scripts/qa-gate.sh` esegue
+- **THEN** il banco SHALL fallire, a meno che la barra non ne scriva il motivo
 
 ### Requirement: SLOT-01 — Il semaforo dei cancelli esclude davvero, e non può MAI rifiutarsi di eseguire
 
