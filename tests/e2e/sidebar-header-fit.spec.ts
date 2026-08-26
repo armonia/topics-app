@@ -63,14 +63,21 @@ for (const [nome, platform] of [["Mac", "MacIntel"], ["non-Mac", "Linux x86_64"]
  */
 test("SIDEBAR-FIT: the resize handle does not cover the commands at the bottom", async ({ page }) => {
   await goToApp(page);
+  // NOT `test.skip` when there is no organisation. A skip that depends on the
+  // data makes the case disappear exactly where nobody is looking, and it costs
+  // the gate a number it has to justify. The subject here is not the chip: it is
+  // "whatever the sidebar shows at the bottom, the handle must not sit on it",
+  // and the identity block is always there.
+  //
+  // The bottom-most control is taken as it comes: the org chip when there is an
+  // organisation, otherwise the profile row, which never goes away.
   const chip = page.getByTestId("org-chip");
-  // With no organisations the chip does not exist: the case has no subject,
-  // and saying so beats passing for show.
-  test.skip(await chip.count() === 0, "this installation has no organisations");
+  const bersaglio = (await chip.count()) > 0 ? chip.first() : page.getByTestId("identity-me-profile").first();
+  await expect(bersaglio).toBeVisible({ timeout: 10_000 });
 
   // `trial` attempts the click WITHOUT performing it: what matters is whether
   // the pointer LANDS, not what the panel opens.
-  await chip.first().click({ trial: true, timeout: 8_000 });
+  await bersaglio.click({ trial: true, timeout: 8_000 });
 
   // And the handle must stay grabbable where it is needed, i.e. above: a cure
   // that switched it off entirely would pass this test and break the resize.
