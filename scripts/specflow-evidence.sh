@@ -104,31 +104,9 @@ if [ "$RAN" = "1" ]; then
   bun run scripts/e2e-record-durations.ts "$OUT_DIR"/report-*.json || true
 fi
 
-step "evidenza per requisito (e SOLO quella: il resto non e' raggiungibile dalla pagina)"
-# La cartella si svuota SOLO se la suite ha girato: i collegamenti sono duri e restano, quindi
-# senza svuotare si continuerebbe a caricare l'evidenza delle corse vecchie per sempre — ma
-# svuotarla con SKIP_E2E=1 butterebbe l'unica evidenza che c'e'.
-if [ "$RAN" = "1" ]; then
-  find videos -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} + 2>/dev/null || true
-fi
-bun run scripts/build-uat-index.ts --report "$MERGED" --by-requirement --only-requirements || exit 1
-EVID=$(find videos -type f \( -name '*.webm' -o -name '*.zip' \) | wc -l | tr -d ' ')
-echo "  videos/: $EVID file, $(du -sh videos 2>/dev/null | cut -f1)"
-
-# NON SI PUBBLICA UNA PAGINA SENZA EVIDENZA DOPO UNA CORSA CHE DOVEVA PRODURNE.
-#
-# E' successo, ed e' il motivo per cui queste righe esistono: gli shard sono morti nel setup
-# (bundle piu' vecchio dei sorgenti), la catena e' arrivata in fondo lo stesso e ha sostituito
-# una living-doc con 121 prove con una che non ne aveva nessuna. Un rosso nei test si pubblica,
-# e' la verita'. Una suite che non ha girato non e' una verita' su niente.
-if [ "$RAN" = "1" ] && [ "$EVID" -eq 0 ]; then
-  echo >&2
-  echo "✗ la suite ha girato e non ha prodotto NEMMENO UNA prova pubblicabile." >&2
-  echo "  Non si pubblica: sostituirebbe con il nulla l'evidenza che c'e' online." >&2
-  echo "  Guarda $OUT_DIR/shard-*.log — quasi sempre e' il setup, non i test." >&2
-  exit 1
-fi
-
+# ORDINE: la mappa di copertura viene PRIMA dell'indice, perche' `--by-file` la legge per
+# sapere quali file e2e dichiarano un requisito senza prova per-test. Al contrario userebbe la
+# mappa della corsa precedente — e alla primissima corsa non ne troverebbe nessuna.
 # La suite unitaria e' l'unica prova che 583 requisiti su 742 abbiano MAI girato: il report
 # Playwright non la contiene, e senza questo passo la pagina li chiama tutti «non eseguito qui».
 # Non blocca: un rosso unitario e' un'informazione da pubblicare, non un motivo per non pubblicare.
@@ -156,6 +134,31 @@ bun run scripts/check-spec-coverage.ts --json "$MAP" --junit "$JUNIT" --pw-repor
 gate=$?
 since "$t"
 [ "$gate" -ne 0 ] && echo "  ⚠ il cancello di tracciabilità è rosso: la mappa è comunque scritta, ma guardalo."
+
+step "evidenza per requisito (e SOLO quella: il resto non e' raggiungibile dalla pagina)"
+# La cartella si svuota SOLO se la suite ha girato: i collegamenti sono duri e restano, quindi
+# senza svuotare si continuerebbe a caricare l'evidenza delle corse vecchie per sempre — ma
+# svuotarla con SKIP_E2E=1 butterebbe l'unica evidenza che c'e'.
+if [ "$RAN" = "1" ]; then
+  find videos -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} + 2>/dev/null || true
+fi
+bun run scripts/build-uat-index.ts --report "$MERGED" --by-requirement --by-file --only-requirements || exit 1
+EVID=$(find videos -type f \( -name '*.webm' -o -name '*.zip' \) | wc -l | tr -d ' ')
+echo "  videos/: $EVID file, $(du -sh videos 2>/dev/null | cut -f1)"
+
+# NON SI PUBBLICA UNA PAGINA SENZA EVIDENZA DOPO UNA CORSA CHE DOVEVA PRODURNE.
+#
+# E' successo, ed e' il motivo per cui queste righe esistono: gli shard sono morti nel setup
+# (bundle piu' vecchio dei sorgenti), la catena e' arrivata in fondo lo stesso e ha sostituito
+# una living-doc con 121 prove con una che non ne aveva nessuna. Un rosso nei test si pubblica,
+# e' la verita'. Una suite che non ha girato non e' una verita' su niente.
+if [ "$RAN" = "1" ] && [ "$EVID" -eq 0 ]; then
+  echo >&2
+  echo "✗ la suite ha girato e non ha prodotto NEMMENO UNA prova pubblicabile." >&2
+  echo "  Non si pubblica: sostituirebbe con il nulla l'evidenza che c'e' online." >&2
+  echo "  Guarda $OUT_DIR/shard-*.log — quasi sempre e' il setup, non i test." >&2
+  exit 1
+fi
 
 step "cancello openspec"
 bun --bun spec-flow/scripts/lint-openspec.ts || {

@@ -190,6 +190,9 @@ function main(): void {
       process.exit(1);
     }
     linkByRequirement();
+    // Le sessioni per file vivono nello stesso giro: la catena passa sempre `--only-requirements`,
+    // e senza questa riga `--by-file` non verrebbe mai eseguito in produzione.
+    if (process.argv.includes("--by-file")) linkByFile();
     return;
   }
   if (entries.length === 0) {
@@ -224,6 +227,7 @@ function main(): void {
   // on the test title, which is how a scenario ends up showing somebody else's recording.
   // Hard links, so the second name costs no bytes.
   if (process.argv.includes("--by-requirement")) linkByRequirement();
+  if (process.argv.includes("--by-file")) linkByFile();
 
   const lines = [
     "# Video delle prove E2E",
@@ -301,6 +305,91 @@ function linkByRequirement(): void {
   }
   console.log(`[uat-index] per requisito: ${linked} video collegati sotto videos/<capability>/<REQ-ID>.webm` +
     (orphan ? `, ${orphan} annotazioni verso requisiti che non esistono` : ""));
+}
+
+/**
+ * `--by-file`: le sessioni dei FILE che dichiarano un requisito senza provarlo per-test.
+ *
+ * Un requisito dichiarato con `@covers` da un file e2e non puo' avere una sessione SUA — il
+ * legame passa dall'annotazione, e il file ne contiene molte. Mostrarne una a caso sarebbe
+ * spacciare per prova un filmato che magari non c'entra. Quello che si puo' fare onestamente e'
+ * cambiare la promessa: non «ecco la prova», ma «il file che lo dichiara ha queste N sessioni».
+ * Materiale da guardare, non un verdetto — ed e' per questo che stanno in un canale separato
+ * (`fileSessions`) e non in `traceUrl`.
+ *
+ * Si linkano SOLO i file che dichiarano almeno un requisito privo di prova per-test: gli altri
+ * hanno gia' la loro sessione, e duplicarla costerebbe peso senza aggiungere niente.
+ * Misura del 26/08/2026: 70 file, 278 sessioni, ~41 MB.
+ */
+function linkByFile(): void {
+  const iReport = process.argv.indexOf("--report");
+  const report = iReport >= 0 ? process.argv[iReport + 1] : null;
+  const iMap = process.argv.indexOf("--coverage-map");
+  const mapPath = iMap >= 0 ? process.argv[iMap + 1] : "openspec/coverage-map.json";
+  if (!report || !existsSync(report) || !existsSync(join(ROOT, mapPath))) {
+    console.error("[uat-index] --by-file richiede --report <json> e una coverage map leggibile.");
+    process.exit(1);
+  }
+  type Claim = { file?: string; channel?: string };
+  const mappa = JSON.parse(readFileSync(join(ROOT, mapPath), "utf8")) as {
+    requirements?: Record<string, { claims?: Claim[] }>;
+  };
+  // Quali requisiti hanno gia' una prova per-test? Quelli non servono.
+  const conProva = new Set<string>();
+  for (const { specIds } of specAttachments(report)) for (const id of specIds) conProva.add(id);
+  const fileDaCoprire = new Set<string>();
+  for (const [id, rec] of Object.entries(mappa.requirements ?? {})) {
+    if (conProva.has(id)) continue;
+    for (const c of rec.claims ?? []) {
+      if (c.file && c.file.includes("/e2e/")) fileDaCoprire.add(c.file.split("/").pop()!);
+    }
+  }
+
+  const destDir = join(VIDEOS_DIR, "_sessioni");
+  mkdirSync(destDir, { recursive: true });
+  const manifest: Record<string, Array<{ titolo: string; slug: string; esito: string }>> = {};
+  let linked = 0;
+  for (const { file, titolo, esito, trace } of allSpecs(report)) {
+    if (!fileDaCoprire.has(file) || !trace || !existsSync(trace)) continue;
+    const base = file.replace(/\.spec\.ts$/, "");
+    const n = (manifest[file] ?? []).length;
+    const slug = `${base}__${n}`;
+    const dest = join(destDir, slug + ".zip");
+    if (!existsSync(dest)) {
+      try { linkSync(trace, dest); } catch { try { copyFileSync(trace, dest); } catch { continue; } }
+    }
+    (manifest[file] ??= []).push({ titolo, slug, esito });
+    linked++;
+  }
+  writeFileSync(join(destDir, "INDEX.json"), JSON.stringify(manifest, null, 1) + "\n");
+  console.log(`[uat-index] per file: ${linked} sessioni collegate sotto videos/_sessioni/, da ${Object.keys(manifest).length} file su ${fileDaCoprire.size} da coprire`);
+}
+
+/** Ogni spec del report: file, titolo, esito e trace — annotazione o no. */
+function allSpecs(report: string): Array<{ file: string; titolo: string; esito: string; trace: string | null }> {
+  const out: Array<{ file: string; titolo: string; esito: string; trace: string | null }> = [];
+  let doc: unknown;
+  try { doc = JSON.parse(readFileSync(report, "utf8")); } catch { return out; }
+  const visit = (suite: Record<string, unknown>): void => {
+    for (const spec of (suite.specs as Record<string, unknown>[] | undefined) ?? []) {
+      const file = typeof spec.file === "string" ? spec.file : "";
+      for (const test of (spec.tests as Record<string, unknown>[] | undefined) ?? []) {
+        const results = (test.results as Record<string, unknown>[] | undefined) ?? [];
+        const r = results[results.length - 1];
+        const att = (r?.attachments as Record<string, unknown>[] | undefined) ?? [];
+        const a = att.find((x) => x.name === "trace" && typeof x.path === "string");
+        out.push({
+          file,
+          titolo: typeof spec.title === "string" ? spec.title : "",
+          esito: typeof test.status === "string" ? (test.status as string) : "unknown",
+          trace: a ? (a.path as string) : null,
+        });
+      }
+    }
+    for (const s of (suite.suites as Record<string, unknown>[] | undefined) ?? []) visit(s);
+  };
+  for (const s of ((doc as Record<string, unknown>)?.suites as Record<string, unknown>[] | undefined) ?? []) visit(s);
+  return out;
 }
 
 /** Per spec of the report: the requirement ids it declares, plus its video and trace paths. */
