@@ -227,6 +227,8 @@ videos/**/*.webm
 # li produce build-uat-index --by-requirement). Senza questa riga comparirebbero a decine
 # fra i non tracciati dopo ogni corsa con evidenza.
 videos/**/*.zip
+# Poster delle card: rigenerati a ogni corsa con E2E_SHOT=1, come i trace.
+videos/**/*.png
 videos/INDEX.md
 # Manifest delle sessioni per file: lo rigenera build-uat-index a ogni corsa, come i trace.
 videos/_sessioni/INDEX.json
