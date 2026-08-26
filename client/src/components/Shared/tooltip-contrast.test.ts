@@ -18,7 +18,9 @@
  * combination in itself, however it ends up being painted: it is checkable here,
  * it costs nothing, and it would have stopped this defect before it reached a
  * machine.
- */
+  *
+ * @covers CONTRAST-01
+*/
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'fs';
 import { join } from 'path';

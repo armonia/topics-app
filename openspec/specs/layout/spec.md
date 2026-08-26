@@ -615,6 +615,32 @@ una chiave di traduzione grezza.
 - **GIVEN** il suggerimento aperto
 - **THEN** SHALL chiudersi subito
 
+### Requirement: CONTRAST-01 — Il contrasto si CALCOLA, e un token vale in TUTTI e due i temi
+
+Il rapporto di contrasto del testo sui token dell'interfaccia SHALL essere
+CALCOLATO contro una soglia, non giudicato a occhio. E' la classe di difetti che
+una passata visiva non trova e un conto trova sempre: misurato il 2026-08-26 su
+Topics installata, `--text-muted` dava **4,42** contro il fondo del chrome e
+`--kbd-text` **4,44** contro il fondo del tasto — sotto il 4,5 che il testo
+normale richiede, e di un margine che l'occhio non vede. Le sei voci sotto soglia
+erano tutte tipo piccolo (11-12px): «No active items», «Persone», il numero di
+versione in fondo alla colonna, le didascalie dei tasti.
+
+Ogni token SHALL avere un valore VALIDO in ENTRAMBI i temi, e la prova SHALL
+guardarli tutti e due. Un token con un valore del tema scuro dentro il tema
+chiaro non degrada: sparisce. `--bg-panel` era `#1e1e1e` anche in chiaro, e il
+suggerimento risultava testo `rgb(26,27,28)` su `rgb(30,30,30)` — un rapporto di
+**1,03 su 21**, cioe' un rettangolo nero vuoto, mentre ogni altra proprieta'
+(opacita', posizione, dimensione) diceva che era a posto.
+
+#### Scenario: un token di testo sotto soglia
+- **GIVEN** un token di testo il cui rapporto calcolato e' sotto 4,5
+- **THEN** il banco SHALL fallire e SHALL nominare il token
+
+#### Scenario: un token valido in un tema solo
+- **GIVEN** un token che nel tema opposto porta il valore dell'altro
+- **THEN** il banco SHALL fallire
+
 ### Requirement: EMPTY-01 — Il vuoto è una PRIMITIVA, leggibile nelle sue varianti e nei due temi
 
 Lo stato VUOTO SHALL essere una primitiva condivisa, non scritto a mano da ogni

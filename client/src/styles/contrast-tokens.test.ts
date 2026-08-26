@@ -15,7 +15,9 @@
  * The test reads the tokens from `index.css` and redoes the maths. It does not
  * render the app: a contrast ratio is a function of two colours, and those two
  * colours are declared there.
- */
+  *
+ * @covers CONTRAST-01
+*/
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'fs';
 import { join } from 'path';
