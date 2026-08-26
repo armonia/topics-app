@@ -71,7 +71,12 @@ describe("check-any", () => {
     expect(out).toContain(gone);
     // The reader has to learn WHERE to fix it, and must not be told the run was clean.
     expect(out).toContain("TRACKED_FILES");
-    expect(out).not.toContain("OK");
+    // `[check-any] OK` and not the bare "OK": the temporary directory carries six
+    // random characters from `mkdtemp`, and one run in about 770 draws a name
+    // containing that pair — `check-any-pOKgRx` is the one that failed CI on
+    // 2026-08-26. A substring that short matches the SCENERY as easily as the
+    // thing under test; the success line is what this case is actually about.
+    expect(out).not.toContain("[check-any] OK");
   });
 
   test("a path passed on the command line gets the same treatment", async () => {
