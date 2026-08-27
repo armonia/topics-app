@@ -21,6 +21,7 @@ import { useCallback, useEffect, useMemo } from 'react';
 import type { Pane, PaneType, PaneGroupType, GroupLayoutRow, PaneGroup } from '../../types';
 import { RemoteBrowserPanel } from '../Browser/RemoteBrowserPanel';
 import { useTaskBrowserTabs, taskBrowserTabs, liveTabs, getTaskTabs, isPinnedTitle, type TaskBrowserTab } from '../../state/taskBrowserTabs';
+import { useTaskTabNavigate, clearTaskTabNavigate } from '../../state/taskTabNavigate';
 import { mediaPaneIdFor } from './constants';
 import {
   usePersistedTaskLayout,
@@ -156,6 +157,8 @@ export interface TaskBrowserGroupLayout {
 export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayoutInput): TaskBrowserGroupLayout {
   const { planActive, sessionActive, sessionTitle, mediaPaths, renderSurface, threadInline = false, openPaneInProject } = input;
   const tabsState = useTaskBrowserTabs(taskId);
+  // Pending "the agent re-opened this tab elsewhere" navigations (transient).
+  const navigates = useTaskTabNavigate();
   const persisted = usePersistedTaskLayout(taskId);
 
   const live = useMemo(() => liveTabs(tabsState), [tabsState]);
@@ -254,7 +257,12 @@ export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayou
   // derived thread/plan/media panes have no X (nonClosablePaneIds), so this is
   // only ever reached for browsers. Guard anyway.
   const onClosePane = useCallback((_groupId: string, paneId: string) => {
-    if (isBrowserPane(paneId)) taskBrowserTabs.closeTab(taskId, paneIdToContextId(paneId));
+    if (!isBrowserPane(paneId)) return;
+    const ctx = paneIdToContextId(paneId);
+    // Drop any navigation the pane never consumed: it would fire at the next
+    // un-park, on a page the agent asked for a long time ago.
+    clearTaskTabNavigate(ctx);
+    taskBrowserTabs.closeTab(taskId, ctx);
   }, [taskId]);
   const onAddPaneToGroup = useCallback((groupId: string) => {
     // Land the new tab in the bar the user clicked, then let reconcile place it.
@@ -278,6 +286,12 @@ export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayou
         <RemoteBrowserPanel
           contextId={ctx}
           initialUrl={pane.url}
+          // The agent re-opened this ALREADY MOUNTED tab on another URL:
+          // `initialUrl` is read at mount only, so the request rides the same
+          // `navigateUrl` channel the project window and the standalone chat
+          // have always used. Cleared on consume, so it fires once.
+          navigateUrl={navigates[ctx]}
+          onNavigateConsumed={() => clearTaskTabNavigate(ctx)}
           isVisible={isVisible}
           // Ignore `about:blank`: a failed navigation (dead/unreachable target)
           // reports about:blank, which would CLOBBER the seeded URL and strand
@@ -288,7 +302,7 @@ export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayou
         />
       </div>
     );
-  }, [taskId, renderSurface]);
+  }, [taskId, renderSurface, navigates]);
 
   const addBrowserTab = useCallback(() => { taskBrowserTabs.addTab(taskId, '', ''); }, [taskId]);
   const reopenTab = useCallback((ctx: string) => taskBrowserTabs.unparkTab(taskId, ctx), [taskId]);

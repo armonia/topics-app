@@ -21,6 +21,7 @@
 
 import { useSyncExternalStore, useEffect } from 'react';
 import { getTabId } from './pane/middleware/syncCrossTab';
+import { requestTaskTabNavigate } from './taskTabNavigate';
 
 /**
  * Chi ha deciso l'etichetta di una tab, in ordine di autorità crescente:
@@ -519,6 +520,23 @@ export const taskBrowserTabs = {
   reorder: (taskId: string, from: number, to: number) => commit(taskId, reorderTabs(getTaskTabs(taskId), from, to)),
   updateTab: (taskId: string, contextId: string, patch: { url?: string; title?: string; titleSource?: TaskTabTitleSource }) => commit(taskId, updateTab(getTaskTabs(taskId), contextId, patch)),
 };
+
+/**
+ * Apply a server `browser:open-task-tab` frame: upsert the record AND, when the
+ * tab was already there, ask its (possibly mounted) pane to navigate.
+ *
+ * The distinction is the whole point: a panel reads `initialUrl` once, at mount,
+ * so a brand-new tab lands on the right page by itself while an existing one
+ * would sit on its old page with the record claiming otherwise — which is how
+ * open_browser_pane could answer "Opened" over a tab that never moved. The
+ * request goes out BEFORE the upsert so a pane mounting in between cannot
+ * consume an empty channel.
+ */
+export function applyTaskTabOpen(taskId: string, contextId: string, url: string, title: string, titleSource: TaskTabTitleSource): void {
+  const known = getTaskTabs(taskId).tabs.some((t) => t.contextId === contextId);
+  if (known && url) requestTaskTabNavigate(contextId, url);
+  taskBrowserTabs.upsertTab(taskId, contextId, url, title, titleSource);
+}
 
 export function subscribeTaskTabs(listener: () => void): () => void {
   listeners.add(listener);

@@ -21,7 +21,7 @@ let tmpHome: string;
 tmpHome = mkdtempSync(join(tmpdir(), "topics-shot-test-"));
 process.env.TOPICS_HOME = tmpHome;
 
-import { writeAgentScreenshot } from "./browser-tools-handler";
+import { writeAgentScreenshot, handleBrowserObserve } from "./browser-tools-handler";
 import { dispatchBrowserToolCallByContext } from "./browser-tool-dispatcher";
 import { nativeDelegateRegistry } from "./browser-native-delegate";
 import type { BrowserService } from "./browser-service";
@@ -85,5 +85,79 @@ describe("dispatchBrowserToolCallByContext — native browser_screenshot", () =>
     expect("data" in result).toBe(false); // the whole point: no base64 blob
     expect(existsSync(result.path!)).toBe(true);
     expect(result.bytes).toBe(Buffer.from(TINY_PNG_B64, "base64").length);
+  });
+});
+
+describe("handleBrowserObserve — the opt-in capture is a file too", () => {
+  const CTX = "web-pane-observe";
+  // The web pane's annotator hands back base64; the handler must land it on disk
+  // and answer with the path, exactly like browser_screenshot does.
+  const service = {
+    broadcastAgentActive() {},
+    getOrCreate: async () => ({
+      page: {
+        evaluate: async () => ({
+          url: "https://example.test/",
+          title: "T",
+          scrollY: 0,
+          scrollMaxY: 0,
+          elements: [{ ref: 1, role: "button", name: "Go" }],
+          truncated: false,
+        }),
+      },
+    }),
+    extractIndexedElements: async () => [],
+    captureAnnotatedScreenshot: async () => TINY_PNG_B64,
+  } as unknown as BrowserService;
+
+  test("without screenshot:true nothing is captured", async () => {
+    const out = await handleBrowserObserve(service, CTX, { full: true });
+    expect(out.screenshot_path).toBeUndefined();
+    expect(out.snapshot).toContain("[1]");
+  });
+
+  test("with screenshot:true the response carries a path to a real file, no pixels", async () => {
+    const out = await handleBrowserObserve(service, CTX, { full: true, screenshot: true });
+    expect(typeof out.screenshot_path).toBe("string");
+    expect(out.screenshot_path!.startsWith(shotDir())).toBe(true);
+    expect(existsSync(out.screenshot_path!)).toBe(true);
+    // PNG in, .png out: the extension follows the bytes, it is not assumed.
+    expect(out.screenshot_path!.endsWith(".png")).toBe(true);
+    expect(out.screenshot_boxes).toBe(true);
+    expect(JSON.stringify(out)).not.toContain(TINY_PNG_B64);
+  });
+});
+
+describe("dispatchBrowserToolCallByContext — native browser_observe(screenshot:true)", () => {
+  const CTX = "native-pane-observe";
+
+  beforeAll(() => {
+    // The native executor answers a snapshot for observe and an image for the
+    // screenshot op — it has no annotator, which is the point of the test.
+    nativeDelegateRegistry.register(CTX, (msg) => {
+      const op = (msg as { tool?: string }).tool;
+      nativeDelegateRegistry.resolveOp({
+        opId: msg.opId,
+        result: op === "browser_screenshot"
+          ? { data: TINY_PNG_B64, mime: "image/png", encoding: "base64" }
+          : { url: "https://example.test/", title: "T", count: 1, snapshot: '[1] button "Go"', full: true },
+      });
+    });
+  });
+  afterAll(() => { nativeDelegateRegistry.unregister(CTX); });
+
+  test("the snapshot comes back WITH a captured file, and says the boxes are not drawn", async () => {
+    const service = { setAgentAction() {} } as unknown as BrowserService;
+    const out = (await dispatchBrowserToolCallByContext(
+      "browser_observe",
+      { full: true, screenshot: true },
+      CTX,
+      service,
+    )) as { snapshot?: string; screenshot_path?: string; screenshot_boxes?: boolean };
+
+    expect(out.snapshot).toContain("[1]");
+    expect(typeof out.screenshot_path).toBe("string");
+    expect(existsSync(out.screenshot_path!)).toBe(true);
+    expect(out.screenshot_boxes).toBe(false);
   });
 });

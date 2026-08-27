@@ -224,6 +224,44 @@ export const SNAPSHOT_FN = (opts?: { max?: number }): Snapshot => {
 const sig = (e: SnapElement): string =>
   `${e.role}|${e.name}|${e.value || ""}|${e.checked ? 1 : 0}|${e.disabled ? 1 : 0}`;
 
+/**
+ * "The ref is not on the page any more" - said the same way by both actors: the
+ * in-page ACT_FN above and the Playwright locator in server/browser-snapshot.ts.
+ * One phrase, one test for it, so the recovery below cannot drift from either.
+ */
+export const STALE_REF_MARK = "not found on the page";
+
+export function isStaleRefError(message: string | undefined): boolean {
+  return !!message && message.includes(STALE_REF_MARK);
+}
+
+/**
+ * Where the element that USED to carry `ref` lives in a fresher snapshot.
+ *
+ * A ref is a position in a listing, not an identity: a re-render renumbers in
+ * DOM order, so the button the caller aimed at is often still on the page under
+ * another number. Identity here is the diff's own signature (role, name, value,
+ * checked, disabled) - the same one that decides what counts as "changed", so
+ * an element the diff calls unchanged is an element this function can follow.
+ *
+ * Ambiguity is a NO: with two identical signatures (two "Delete" buttons in a
+ * table) picking either one would be guessing, and guessing which row to delete
+ * is exactly the click nobody wants retried. Returns undefined, and the caller
+ * hands back the fresh snapshot instead.
+ */
+export function refAfterResnapshot(
+  prev: Snapshot | undefined,
+  next: Snapshot,
+  ref: number,
+): number | undefined {
+  if (!prev || prev.url !== next.url) return undefined; // another page: no identity to follow
+  const was = prev.elements.find((e) => e.ref === ref);
+  if (!was) return undefined;
+  const target = sig(was);
+  const matches = next.elements.filter((e) => sig(e) === target);
+  return matches.length === 1 ? matches[0].ref : undefined;
+}
+
 const line = (e: SnapElement): string => {
   let s = `[${e.ref}] ${e.role}`;
   if (e.name) s += ` "${e.name}"`;

@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from "bun:test";
 import { serialize, diff, type Snapshot, type SnapElement } from "./browser-snapshot";
+import { isStaleRefError, refAfterResnapshot } from "../shared/browser-snapshot-core";
 
 function snap(elements: SnapElement[], over: Partial<Snapshot> = {}): Snapshot {
   return {
@@ -102,5 +103,49 @@ describe("diff", () => {
     const d = diff(prev, next);
     expect(d.navigated).toBe(true);
     expect(d.text).toContain("navigated -> https://example.com/next");
+  });
+});
+
+describe("refAfterResnapshot (following an element the page renumbered)", () => {
+  const before = snap([
+    { ref: 1, role: "link", name: "Home" },
+    { ref: 2, role: "button", name: "Submit" },
+  ]);
+
+  it("follows the element to its new number when the identity is unique", () => {
+    const after = snap([
+      { ref: 1, role: "button", name: "Close" },
+      { ref: 2, role: "link", name: "Home" },
+      { ref: 3, role: "button", name: "Submit" },
+    ]);
+    expect(refAfterResnapshot(before, after, 2)).toBe(3);
+  });
+
+  it("refuses to guess between two identical elements", () => {
+    const after = snap([
+      { ref: 1, role: "button", name: "Submit" },
+      { ref: 2, role: "button", name: "Submit" },
+    ]);
+    expect(refAfterResnapshot(before, after, 2)).toBeUndefined();
+  });
+
+  it("refuses across a navigation, an unknown ref, and with no previous snapshot", () => {
+    const elsewhere = snap([{ ref: 9, role: "button", name: "Submit" }], { url: "https://other.test/" });
+    expect(refAfterResnapshot(before, elsewhere, 2)).toBeUndefined();
+    expect(refAfterResnapshot(before, before, 42)).toBeUndefined();
+    expect(refAfterResnapshot(undefined, before, 2)).toBeUndefined();
+  });
+
+  it("a disabled-turned-enabled element is a DIFFERENT element for this purpose", () => {
+    const after = snap([{ ref: 1, role: "button", name: "Submit", disabled: true }]);
+    expect(refAfterResnapshot(before, after, 2)).toBeUndefined();
+  });
+});
+
+describe("isStaleRefError", () => {
+  it("recognizes the phrase both actors use, and nothing else", () => {
+    expect(isStaleRefError("ref 3 not found on the page (stale snapshot? ...)")).toBe(true);
+    expect(isStaleRefError("Timeout 15000ms exceeded")).toBe(false);
+    expect(isStaleRefError(undefined)).toBe(false);
   });
 });

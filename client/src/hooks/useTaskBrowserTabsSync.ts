@@ -29,6 +29,7 @@ import { useEffect } from 'react';
 import type { WSMessage } from '../types';
 import {
   taskBrowserTabs,
+  applyTaskTabOpen,
   applyRemoteTaskTabs,
   resyncTaskTabsFromServer,
   forgetTaskTabs,
@@ -52,8 +53,12 @@ export function useTaskBrowserTabsSync(
         // so a live drawer on this task surfaces the agent's browser immediately.
         // `title` è il nome prescritto dall'agente: entra come `agent`, cioè
         // pinnato contro il poll del titolo di pagina ma non contro una rinomina.
+        // `applyTaskTabOpen` upserts the record AND, for a tab that already
+        // exists (hence already mounted), pushes the navigation: a mounted panel
+        // reads `initialUrl` only at mount, so without it the tab kept showing
+        // the previous page while the record claimed the new URL.
         void taskBrowserTabs.ensureLoaded(taskId).then(() => {
-          taskBrowserTabs.upsertTab(taskId, contextId, url ?? '', title ?? '', title ? 'agent' : 'auto');
+          applyTaskTabOpen(taskId, contextId, url ?? '', title ?? '', title ? 'agent' : 'auto');
         });
         return;
       }
