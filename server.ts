@@ -2980,10 +2980,13 @@ const opzioniServer = {
     // Static files
     const isDevPort = PORT === 3330;
     if (isRead && (pathname === "/" || pathname === "/index.html")) {
-      // Last-known-good shell. /public is rewritten in place by the build-watch
-      // agent (com.armonia.topics-build-watch), so a page load that lands mid
-      // rebuild used to read a missing index.html, throw, and answer 500 — the
-      // app "doesn't open", for a window that has nothing to do with the app.
+      // Last-known-good shell. /public is rewritten while the server serves it:
+      // it was the build-watch agent (off since 2026-08-04, and staying off:
+      // docs/build-watch-decision.md), and it is now the one-shot
+      // `bun run build:client`, which EMPTIES public/ first. So a page load
+      // that lands mid rebuild used to read a missing index.html, throw, and
+      // answer 500 — the app "doesn't open", for a window that has nothing to
+      // do with the app.
       // Serving the previous shell instead turns a rebuild into something the
       // user never sees. The rev is cached WITH the html: re-deriving it from
       // a half-written /public would stamp an empty rev and trip the client's
