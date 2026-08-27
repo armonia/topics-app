@@ -1886,7 +1886,6 @@
     "tests/setup/bun-test-preload.ts": 51,
     "tests/unit/any-budget.test.ts": 21,
     "tests/unit/auth-errors-are-codes.test.ts": 29,
-    "tests/unit/auto-bump-gate.test.ts": 45,
     "tests/unit/auto-update-badge.test.ts": 30,
     "tests/unit/bench-specs-are-nightly.test.ts": 15,
     "tests/unit/browser-ws-messages.test.ts": 9,
