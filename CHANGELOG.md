@@ -2,6 +2,64 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.190 — 2026-08-27
+
+### Sotto il cofano
+- L'ultima leva mai provata: nascondere e rimostrare la finestra
+
+## 2.2.189 — 2026-08-27
+
+### Sotto il cofano
+- La finestra e' TRASPARENTE, e su Windows quella trasparenza non serve a niente
+
+## 2.2.188 — 2026-08-27
+
+### Sotto il cofano
+- Il JS gira: il renderer e' VIVO e non dipinge, quindi si forza il re-raster
+
+## 2.2.187 — 2026-08-27
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-08-27 [skip ci]
+- Ogni leva LATO HOST e' stata misurata e non morde: si prova quella lato pagina
+
+## 2.2.186 — 2026-08-27
+
+### Sotto il cofano
+- Rimbalzavo i bounds del controller sugli STESSI valori: un setter cosi' e' libero di non fare niente
+
+## 2.2.185 — 2026-08-27
+
+### Sotto il cofano
+- Il ciclo di visibilita' non basta: si ri-genitora. E il rimbalzo faceva CRESCERE la finestra
+- recompose_main_window esce da lib.rs: non e' setup del guscio, e' una riparazione
+
+## 2.2.184 — 2026-08-27
+
+### Sotto il cofano
+- L'aggancio stava dentro un blocco macOS: su Windows non esisteva proprio
+
+## 2.2.183 — 2026-08-27
+
+### Sotto il cofano
+- La prima cura non ha morso: non e' la finestra, e' la composizione di WebView2
+
+## 2.2.182 — 2026-08-27
+
+### Sotto il cofano
+- Il cancello dei nomi non aveva mai letto un nome in CI: adesso legge
+- La finestra grigia e' curata sull'artefatto vero: 503 -> 200, verificato installando
+- Il cancello dei nomi giudicava il sistema operativo, non il codice
+- Su Windows la finestra tornava dal minimize e la webview smetteva di dipingere
+- WINCTL-01: il requisito che il test provava gia', e il modulo che knip non vedeva
+- La finta copriva una porta su due, e quale porta contasse lo decideva la macchina
+- Il test passava DA SOLO e falliva nella suite: fingeva l'ospite, non il modulo
+
+## 2.2.181 — 2026-08-27
+
+### Sotto il cofano
+- I comandi finestra di Windows escono dal bottone Topics, dove escono quelli del Mac
+
 ## 2.2.180 — 2026-08-27
 
 ### Sotto il cofano
