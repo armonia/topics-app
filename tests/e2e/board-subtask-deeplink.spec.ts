@@ -152,7 +152,9 @@ test.describe("Sottotask · dall'id al drawer, a qualunque profondità", () => {
     await page.getByTestId("share-copy-link").click();
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()), { timeout: 5000 })
-      .toBe(`${BASE}/task/${step.id}`);
+      // L'id resta in CODA: e' quello che risolve. Lo slug davanti e'
+      // decorazione, quindi si asserisce il contratto e non la forma esatta.
+      .toMatch(new RegExp(`^${BASE}/task/(?:[a-z0-9-]+-)?${step.id}$`));
     await didascalia(page, "Aperto lo STEP (prima il drawer si chiudeva)");
     await beat(page, 2200);
 
