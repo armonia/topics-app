@@ -25,6 +25,8 @@
  *
  * The probe is injected, so what these assert is the counting, not the git
  * history of the day they run.
+ *
+ * @covers KANBAN-11
  */
 import { describe, it, expect } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
