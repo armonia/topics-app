@@ -566,9 +566,15 @@ function ChipOrg({ org, aperta, onToggle, onClose }: {
             by the chip being just a logo: an empty chip is already the answer,
             and it costs no word to read. It does not wrap any more either: on
             a single-line band a chip that grows downwards takes the whole band
-            with it, so past two faces the count carries the rest. */}
+            with it, so past two faces the count carries the rest.
+            Below `@[300px]` the faces go, at the SAME width where the "me" chip
+            drops its work signals. One threshold, not two: both are presence
+            DETAIL on top of an identity that has to stay readable, so they
+            leave together, and the band narrows by losing one class of thing
+            instead of fraying a bit everywhere. What goes is never lost: the
+            popover this chip opens lists the people by name. */}
         {org.online > 0 && (
-          <span data-testid="org-chip-online" className={`flex flex-none items-center ${SEGNALE_OK}`}>
+          <span data-testid="org-chip-online" className={`hidden flex-none items-center @[300px]/identity:flex ${SEGNALE_OK}`}>
             <Facce facce={org.facce} max={MAX_FACCE_ORG} totale={org.online} />
           </span>
         )}
