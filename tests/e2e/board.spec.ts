@@ -634,7 +634,8 @@ test.describe("Kanban board", () => {
     await page.getByTestId("share-copy-link").click();
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()), { timeout: 5000 })
-      .toBe(`${BASE}/task/${task.id}`);
+      // Same contract as the drawer: readable slug in front, uuid at the end.
+      .toMatch(new RegExp(`^${BASE}/task/(?:[a-z0-9-]+-)?${task.id}$`));
 
     // Il pannello di condivisione è aperto, e Escape chiude prima il popover in
     // cima alla pila: è la regola dell'app, non un incidente. Si chiude lui, e
