@@ -1,7 +1,48 @@
 [
   {
-    "version": "2.2.176",
+    "version": "2.2.177",
     "date": "2026-08-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Diagnosi temporanea: cosa puo' fare davvero il GITHUB_TOKEN sulle release",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Via la diagnosi: il 403 sulle release non c'e' piu'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La nightly rossa usciva verde, e una cartella senza git faceva 500 a raffica",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "BOARD-01 cadeva quando un altro file apriva il SUO progetto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il commento di BOARD-01 va in inglese, come vuole il cancello",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La nightly eseguiva WebKit senza averlo installato: 5 rossi su 13",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.176",
+    "date": "2026-08-26",
     "sections": {
       "new": [],
       "fixes": [],
