@@ -22,36 +22,42 @@
  * layout needs a browser: it belongs to the Windows harness in
  * `tests/manual/ui12-windows.js`, not here.
  */
-import { describe, test, expect, beforeAll } from 'bun:test';
+import { describe, test, expect, beforeAll, afterAll, mock } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { ComponentType } from 'react';
 
-// The shell facade decides Tauri-on-Windows ONCE, when its module is evaluated
-// (`shellKind` is a module constant), so the fake host has to be in place before
-// the import: hence the dynamic import inside `beforeAll` and not at the top.
+// ONE EXPORT IS OVERRIDDEN, and the rest of the facade is left ALONE. Faking the
+// host is not enough: `isTauriWindows` is a module CONSTANT, computed the first
+// time `lib/shell` is evaluated, and in a full `test:unit` run four other files
+// import that module before this one (`windowAwake`, `useRemoteBrowser.leak`,
+// `useTauriBrowser.polls`, `notificationPermission`). By then the constant is
+// already `false` and the component renders nothing: the file passed on its own
+// and failed in the suite, which is how it reached CI green-here-red-there twice.
+//
+// The spread is not decoration. `mock.module` REPLACES the module, so stubbing it
+// with a single key made every other importer fail with «Export named 'isTauri'
+// not found» - measured, four reds in the same run. Only the one export this file
+// needs to lie about is overridden.
+const shell = await import('../../lib/shell');
+mock.module('../../lib/shell', () => ({ ...shell, isTauriWindows: true }));
+
 let WindowControls: ComponentType<{ visible: boolean }>;
 
 beforeAll(async () => {
-  (globalThis as unknown as { window: unknown }).window = { __TAURI_INTERNALS__: {} };
-  // A WHOLE fake navigator, not a patched property. `isTauriWindows` reads
-  // `userAgentData.platform` FIRST and only falls back to `platform`, so faking
-  // just the second one leaves the verdict to whatever the host carries: on a
-  // Mac (Bun leaves `userAgentData` undefined) the fake won and the test passed,
-  // on ubuntu-latest the real `userAgentData` won and the component rendered
-  // nothing — the same commit green here and red in CI. Replacing the object
-  // closes both doors.
-  Object.defineProperty(globalThis, 'navigator', {
-    value: { platform: 'Win32', userAgentData: { platform: 'Windows' } },
-    configurable: true,
-  });
   // Destructured on purpose: `(await import(…)).member` makes the module OPAQUE
-  // to knip, which then reports every export of it as used — that is exactly the
-  // blind spot `check:deadcode-blindspots` refuses.
+  // to knip, which then reports every export of it as used - exactly the blind
+  // spot `check:deadcode-blindspots` refuses.
   const { WindowControls: Loaded } = await import('./WindowControls');
   WindowControls = Loaded;
 });
+
+// `mock.module` is process-wide, so the override would follow this file into
+// every later one. `shortcutLabel.ts` reads the same export, and its test is on
+// its way in: leaving `isTauriWindows` stuck on `true` would make that file pass
+// or fail depending on which order bun happened to pick.
+afterAll(() => { mock.restore(); });
 
 const order = (html: string) =>
   (html.match(/data-testid="win-(close|minimize|maximize)"/g) || [])
