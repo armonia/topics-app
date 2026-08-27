@@ -1,12 +1,12 @@
 /**
  * Client-side call to `POST /api/voice/intent` (see
- * `server/lib/intent-classifier.ts`). Kept as a plain type mirror instead of
- * importing the server module: the client bundle should not pull in server
- * code, and the shape is small enough that duplicating it is cheaper than a
- * shared import across the client/server boundary.
+ * `server/lib/intent-classifier.ts`). The intent itself is NOT redeclared
+ * here: it lives in `shared/voice-intent.ts` and is re-exported, so the client
+ * bundle still pulls in no server code and the two sides cannot drift apart.
  */
 
-export type VoiceIntent = 'approve' | 'feedback' | 'close';
+export type { VoiceIntent } from '../../../../shared/voice-intent';
+import type { VoiceIntent } from '../../../../shared/voice-intent';
 
 export interface VoiceIntentResult {
   intent: VoiceIntent;

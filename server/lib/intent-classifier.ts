@@ -18,7 +18,8 @@
  * has to keep answering even offline.
  */
 
-export type VoiceIntent = "approve" | "feedback" | "close";
+export type { VoiceIntent } from "../../shared/voice-intent";
+import type { VoiceIntent } from "../../shared/voice-intent";
 
 export interface ClassifyResult {
   intent: VoiceIntent;
