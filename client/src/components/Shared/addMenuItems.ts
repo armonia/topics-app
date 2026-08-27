@@ -17,7 +17,7 @@
 import {
   MessageSquare, TerminalSquare, Globe, GitBranch, Activity, BookOpen, Cpu, Kanban,
   BarChart3, LayoutGrid, FolderOpen, FolderTree, FileCode, Eye, Terminal,
-  Brain, Clock, UserRound, type LucideIcon,
+  Brain, Clock, UserRound, Bot, type LucideIcon,
 } from 'lucide-react';
 import { getPaneConfig, getAddableTypesForScope, type PaneScope } from '../../state/pane/adapters';
 import { ADD_MENU_MNEMONICS, type AddMenuItemId } from '../../state/pane/adapters/paneMnemonics';
@@ -38,7 +38,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
  *  gli si è dato un volto qui — che è esattamente il controllo che mancava. */
 const TERMINAL_AGENT_PRESENTATION: Record<
   TerminalAgentType,
-  { icon: 'terminal' | 'claude' | 'codex' | 'cpu'; color?: string }
+  { icon: 'terminal' | 'claude' | 'codex' | 'cpu' | 'bot'; color?: string }
 > = {
   // Viola dalla palette di PANE_CONFIG.terminal: Terminale e Claude Code sono
   // entrambe sessioni pty e devono leggersi come la stessa famiglia — la linea
@@ -50,6 +50,9 @@ const TERMINAL_AGENT_PRESENTATION: Record<
   // opencode → Cerebras GLM-4.7. Teal della dashboard di ripiego; la Cpu
   // ammicca al silicio Cerebras.
   opencode: { icon: 'cpu', color: '#0f8f80' },
+  // Kimi Code (Moonshot AI). No dedicated glyph like Claude/Codex yet, so a
+  // generic icon (Bot) with a blue distinct from the other three agents.
+  'kimi-code': { icon: 'bot', color: '#4C6FFF' },
 };
 
 /** Tre membri distinti e non `{kind:'claude'|'codex'}`: TypeScript non sa
@@ -131,6 +134,7 @@ function terminalAgentRow(agent: TerminalAgentType, onAddPane: (type: PaneType, 
       pres.icon === 'claude' ? { kind: 'claude' }
       : pres.icon === 'codex' ? { kind: 'codex' }
       : pres.icon === 'cpu' ? { kind: 'lucide', Component: Cpu, color: pres.color }
+      : pres.icon === 'bot' ? { kind: 'lucide', Component: Bot, color: pres.color }
       : { kind: 'lucide', Component: TerminalSquare, color: getPaneConfig('terminal').color },
   };
 }

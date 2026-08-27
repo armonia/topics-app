@@ -557,9 +557,17 @@ export const ROW_GLYPH_SLOT = 'w-[18px] shrink-0 flex items-center justify-cente
  * misaligned without anyone being able to say by how much.
  *
  * The box is EXACTLY the glyph, so the ink starts at the row inset ({@link
- * ROW_PX}) and nothing pads the space before the accordion. A row without an
- * accordion does not reserve this slot: its own content starts at that same
- * inset, which is the second half of "no dead space before the chevron".
+ * ROW_PX}) and nothing pads the space before the accordion.
+ *
+ * AND EVERY ROW RESERVES IT, accordion or not. The rule used to be the
+ * opposite ("a row without an accordion reserves nothing, its content starts at
+ * the inset"), and it bought 20px less dead space at the price of TWO
+ * alignments in one column: a chat without children began 12px of slot plus
+ * 8px of {@link ROW_GAP} left of its sister with children, in a list whose rows
+ * sit one on top of the other. A column is read down, not row by row: the
+ * saved air is invisible, the broken alignment is not. So a row with no
+ * chevron renders the same empty box, and everything after the accordion
+ * column starts at the same pixel.
  *
  * 12 and not 14: lucide draws in a 24 box with stroke 2, so at 12 the stroke is
  * exactly 1px — the same reasoning as {@link ROW_GLYPH}, one size down because

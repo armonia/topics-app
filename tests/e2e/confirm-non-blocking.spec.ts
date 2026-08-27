@@ -84,7 +84,13 @@ test.describe("ConfirmDialog non blocca il thread", () => {
     // `fill("/clear")` lascerebbe il menu slash chiuso e un Escape per chiuderlo
     // cadrebbe sul gestore globale che INTERROMPE il turno — svuotando la lista.
     await page.getByRole("button", { name: "Tools & commands" }).click();
-    await page.getByRole("button", { name: /Clear conversation/ }).click();
+    // Match the COMMAND `/clear`, not its description. The composer's slash
+    // entries render through `tr(cmd.descriptionKey)` since they were
+    // translated, and Italian is the base catalogue, so that row now reads
+    // «Svuota la conversazione» and a /Clear conversation/ locator finds
+    // nothing. The command is an identifier, not UI copy: it does not get
+    // translated, so it stays a stable hook.
+    await page.getByRole("button", { name: /\/clear/ }).click();
 
     // `/clear` è intercettato PRIMA dell'accodamento (ChatPane.tsx:825): apre il
     // dialog anche mentre il turno «ciao» è ancora in streaming.
