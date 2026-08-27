@@ -289,9 +289,9 @@ describe('one action, one word', () => {
 
   it('the choice row picks the no-agent tooltip from the CARD, not from a flag', () => {
     const aMano = task({ status: 'review', assignedTopicId: null });
-    const daAgente = task({ status: 'review', assignedTopicId: 't', deliveryBranch: 'task/abc' });
+    const fromAgent = task({ status: 'review', assignedTopicId: 't', deliveryBranch: 'task/abc' });
     expect(taskChoices(aMano).find((c) => c.id === 'redo')!.title).toBe(redoWord(false).title);
-    expect(taskChoices(daAgente).find((c) => c.id === 'send-back')!.title).toBe(sendBackWord('agent').title);
+    expect(taskChoices(fromAgent).find((c) => c.id === 'send-back')!.title).toBe(sendBackWord('agent').title);
   });
 
   it('«Approva comunque» is in the table, not loose next to it', () => {
@@ -631,14 +631,14 @@ describe('una frase scritta non e\' mai un verdetto', () => {
   // 8b97e432. Feedback typed in the card's field plus Enter merged the branch
   // into main and closed the task, because Enter ran `scelte[0]` and on a
   // delivery with a branch `scelte[0]` is «Landa su main».
-  const conRamo = task({ status: 'review', assignedTopicId: 'top-1', deliveryBranch: 'task/abc', deliveredBy: 'agent' });
+  const withBranch = task({ status: 'review', assignedTopicId: 'top-1', deliveryBranch: 'task/abc', deliveredBy: 'agent' });
   const aMano = task({ status: 'review', assignedTopicId: null, deliveryBranch: null });
   const mai = task({ status: 'review', assignedTopicId: 'top-1', deliveryBranch: 'task/abc', deliveredBy: 'system', deliveredReason: 'retries_exhausted' });
 
   it('sulla consegna col ramo il testo va indietro all\'agente, non su main', () => {
-    expect(taskChoiceState(conRamo)).toBe('review-branch');
-    expect(taskChoices(conRamo)[0]?.id).toBe('land');
-    expect(choiceForText(taskChoices(conRamo))?.id).toBe('send-back');
+    expect(taskChoiceState(withBranch)).toBe('review-branch');
+    expect(taskChoices(withBranch)[0]?.id).toBe('land');
+    expect(choiceForText(taskChoices(withBranch))?.id).toBe('send-back');
   });
 
   it('sulla review a mano il testo non approva', () => {
@@ -662,7 +662,7 @@ describe('una frase scritta non e\' mai un verdetto', () => {
   // somebody adds after me.
   it('nessuna forma di card offre un verdetto al testo', () => {
     const forme: ChoiceInput[] = [
-      conRamo, aMano, mai,
+      withBranch, aMano, mai,
       task({ status: 'todo' }),
       task({ status: 'in_progress', assignedTopicId: 't', dispatchState: 'working' }),
       task({ status: 'in_progress', assignedTopicId: 't', dispatchState: 'queued' }),

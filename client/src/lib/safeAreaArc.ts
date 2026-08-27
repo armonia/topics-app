@@ -64,7 +64,7 @@
  */
 
 /** Il rapporto fascia→raggio. Vedi il blocco sopra: sovrastima voluta. */
-const RAGGIO_PER_FASCIA = 1.6;
+const RADIUS_PER_BAND = 1.6;
 
 /**
  * Il raggio da usare per la fila, in pixel CSS.
@@ -76,7 +76,7 @@ const RAGGIO_PER_FASCIA = 1.6;
 export function raggioSchermo(fascia: number, override?: number): number {
   if (typeof override === 'number' && Number.isFinite(override) && override > 0) return override;
   if (!Number.isFinite(fascia) || fascia <= 0) return 0;
-  return Math.round(fascia * RAGGIO_PER_FASCIA);
+  return Math.round(fascia * RADIUS_PER_BAND);
 }
 
 /**
@@ -120,16 +120,16 @@ export function alzataCurva(distanza: number, raggio: number, curvatura: number)
 }
 
 /** Una scatola della fila: dove comincia e quanto è larga, in pixel CSS. */
-export interface ScatolaFila {
+export interface BoxQueue {
   x: number;
   larghezza: number;
 }
 
-export interface OpzioniFila {
+export interface OptionsQueue {
   /** Larghezza della fila (= dello schermo, se la fila è a tutta larghezza). */
   larghezza: number;
   /** Le scatole, in ordine di lettura. */
-  scatole: readonly ScatolaFila[];
+  scatole: readonly BoxQueue[];
   /** Il raggio degli angoli, da `raggioSchermo`. */
   raggio: number;
   /**
@@ -201,7 +201,7 @@ export function curvaturaEsterna(distanza: number, raggio: number, altezza: numb
  * L'ordine inverso — alzare per un angolo appuntito e poi arrotondarlo — è come
  * si finiva a stare 8px dentro il bordo invece che a filo.
  */
-export function formaFila({ larghezza, scatole, raggio, pavimento, altezza, standard }: OpzioniFila): FormaScatola[] {
+export function formaFila({ larghezza, scatole, raggio, pavimento, altezza, standard }: OptionsQueue): FormaScatola[] {
   return scatole.map((s) => {
     const daSinistra = s.x;
     const daDestra = larghezza - (s.x + s.larghezza);

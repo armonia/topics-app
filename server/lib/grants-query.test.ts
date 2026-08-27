@@ -69,7 +69,7 @@ function conSchema084(db: Database): Database {
  * Serve una tabella a parte perché SQLite non altera un CHECK in posto, ed è la
  * stessa ragione per cui `conSchema084` esiste sopra.
  */
-function conProgetti(db: Database): Database {
+function withProjects(db: Database): Database {
   db.run("DROP TABLE grants");
   db.run(`CREATE TABLE grants (
     id TEXT PRIMARY KEY,
@@ -85,7 +85,7 @@ function conProgetti(db: Database): Database {
 }
 
 /** Un task dentro un progetto: l'unico contenitore che oggi esiste. */
-function taskNelProgetto(db: Database, taskId: string, projectId: string): void {
+function taskInProject(db: Database, taskId: string, projectId: string): void {
   db.run(
     "INSERT INTO tasks (id, project_id, text, status, priority, kanban_order, created_at, updated_at)"
     + " VALUES (?, ?, 'x', 'todo', 2, 0, '2026-01-01', '2026-01-01')",
@@ -95,13 +95,13 @@ function taskNelProgetto(db: Database, taskId: string, projectId: string): void 
 
 describe("condividere un PROGETTO apre i suoi task", () => {
   let db: Database;
-  beforeEach(() => { db = conProgetti(dbFresco()); });
+  beforeEach(() => { db = withProjects(dbFresco()); });
 
   it("il task si vede attraverso il progetto che lo contiene", () => {
     // È il punto della card: la condivisione resta UNA riga sul progetto, e i
     // task la ereditano in lettura. Nessuna riga derivata da mantenere quando
     // un task nasce, si sposta o viene archiviato.
-    taskNelProgetto(db, "t1", "p1");
+    taskInProject(db, "t1", "p1");
     expect(hasGrant(db, deviceP("d1"), "task", "t1"), "prima: niente").toBe(false);
     putGrant(db, { kind: "device", id: "d1" }, "project", "p1", { grantedAt: 1 });
     expect(hasGrant(db, deviceP("d1"), "task", "t1"), "dopo: il progetto apre il task").toBe(true);
@@ -109,8 +109,8 @@ describe("condividere un PROGETTO apre i suoi task", () => {
 
   it("un task di un ALTRO progetto resta chiuso", () => {
     // Il caso che conta: un cancello che non nega non è un cancello.
-    taskNelProgetto(db, "t1", "p1");
-    taskNelProgetto(db, "t2", "p2");
+    taskInProject(db, "t1", "p1");
+    taskInProject(db, "t2", "p2");
     putGrant(db, { kind: "device", id: "d1" }, "project", "p1", { grantedAt: 1 });
     expect(hasGrant(db, deviceP("d1"), "task", "t2")).toBe(false);
   });
@@ -119,7 +119,7 @@ describe("condividere un PROGETTO apre i suoi task", () => {
     // «Questo progetto è condiviso, TRANNE questo task» dev'essere dicibile, o
     // condividere un progetto diventa una porta che non si può più chiudere su
     // un pezzo solo.
-    taskNelProgetto(db, "t1", "p1");
+    taskInProject(db, "t1", "p1");
     putGrant(db, { kind: "device", id: "d1" }, "project", "p1", { grantedAt: 1 });
     putGrant(db, { kind: "device", id: "d1" }, "task", "t1", { grantedAt: 2, level: "deny" });
     expect(hasGrant(db, deviceP("d1"), "task", "t1")).toBe(false);
@@ -135,7 +135,7 @@ describe("condividere un PROGETTO apre i suoi task", () => {
   it("la RAGIONE nomina il progetto, non lascia indovinare", () => {
     // Un elenco di ragioni che non nomina il contenitore lascerebbe chi guarda
     // a togliere un accesso che non è lì - e l'accesso resterebbe in piedi.
-    taskNelProgetto(db, "t1", "p1");
+    taskInProject(db, "t1", "p1");
     putGrant(db, { kind: "org", id: "o1" }, "project", "p1", { grantedAt: 1 });
     const ragioni = reasonsFor(db, [{ kind: "org", id: "o1" }], "task", "t1");
     expect(ragioni).toHaveLength(1);
@@ -148,7 +148,7 @@ describe("condividere un PROGETTO apre i suoi task", () => {
     // Il `via` esiste solo quando l'accesso arriva davvero da un contenitore:
     // marcarlo sempre renderebbe impossibile distinguere le due situazioni, che
     // si tolgono in due modi diversi.
-    taskNelProgetto(db, "t1", "p1");
+    taskInProject(db, "t1", "p1");
     putGrant(db, { kind: "device", id: "d1" }, "task", "t1", { grantedAt: 1 });
     const ragioni = reasonsFor(db, deviceP("d1"), "task", "t1");
     expect(ragioni).toHaveLength(1);

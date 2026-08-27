@@ -129,15 +129,15 @@ describe("budgetedDiff", () => {
     const out = budgetedDiff(d, 4000);
     // Il pezzo del file piccolo, non l'output intero: il grosso e' troncato di
     // proposito e il suo marcatore c'e' — e' quello che si vuole.
-    const pezzoPiccolo = splitDiffByFile(out).find(f => f.path === "a.ts")!;
-    expect(pezzoPiccolo.text).toContain("+riga 2 di a.ts");
-    expect(pezzoPiccolo.text).not.toContain("… (");
+    const smallPiece = splitDiffByFile(out).find(f => f.path === "a.ts")!;
+    expect(smallPiece.text).toContain("+riga 2 di a.ts");
+    expect(smallPiece.text).not.toContain("… (");
 
     // E l'avanzo del piccolo e' andato al grosso: senza redistribuzione avrebbe
     // avuto meta' budget (2000 caratteri), con la redistribuzione ha quasi
     // tutto cio' che il piccolo non ha usato.
-    const pezzoGrosso = splitDiffByFile(out).find(f => f.path === "enorme.ts")!;
-    expect(pezzoGrosso.text.length).toBeGreaterThan(3000);
+    const bigPiece = splitDiffByFile(out).find(f => f.path === "enorme.ts")!;
+    expect(bigPiece.text.length).toBeGreaterThan(3000);
   });
 
   test("chi tronca lo DICE, con quante righe ha omesso", () => {

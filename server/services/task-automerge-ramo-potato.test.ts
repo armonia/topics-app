@@ -51,7 +51,7 @@ function commit(repo: string, file: string, body: string, msg: string): string {
 
 /** Un repo dove il lavoro della card e' su main con un commit DIRETTO, e il suo
  *  ramo e' stato potato: la forma esatta del caso reale. */
-function repoConRamoPotato(titolo: string): string {
+function repoWithPrunedBranch(titolo: string): string {
   const repo = mkdtempSync(join(tmpdir(), "land-ramo-potato-"));
   git(repo, "init", "-q", "-b", "main");
   git(repo, "config", "user.email", "t@t.t");
@@ -72,7 +72,7 @@ describe("ramo potato, lavoro gia' su main", () => {
   const TITOLO = "Il dispatcher ripete lo stesso sollecito nella chat del task";
 
   test("riconosce il lavoro dal TITOLO e non accusa: «nothing», non «branch-missing»", async () => {
-    const repo = repoConRamoPotato(TITOLO);
+    const repo = repoWithPrunedBranch(TITOLO);
     try {
       const res = await land(repo, "topics/mai-esistito").tryMerge("t-1", TITOLO);
       // «nothing» = non c'e' niente da atterrare, ed e' la verita': il lavoro
@@ -86,7 +86,7 @@ describe("ramo potato, lavoro gia' su main", () => {
   test("un titolo che NON compare su main resta un rifiuto: la terza prova non indovina", async () => {
     // Il rischio della regola nuova e' l'opposto di quello che ripara: chiudere
     // una card il cui lavoro non c'e'. Il confronto e' sul soggetto ESATTO.
-    const repo = repoConRamoPotato("Tutt'altro lavoro, di un'altra card");
+    const repo = repoWithPrunedBranch("Tutt'altro lavoro, di un'altra card");
     try {
       const res = await land(repo, "topics/mai-esistito").tryMerge("t-2", TITOLO);
       expect(res.status).toBe("skipped");
@@ -101,7 +101,7 @@ describe("ramo potato, lavoro gia' su main", () => {
     // `git log --grep=` con una stringa vuota combacia con QUALSIASI commit: la
     // regola diventerebbe «chiudi sempre», che e' il difetto peggiore
     // dell'insieme. Il caso limite vale la riga di codice che lo esclude.
-    const repo = repoConRamoPotato(TITOLO);
+    const repo = repoWithPrunedBranch(TITOLO);
     try {
       const res = await land(repo, "topics/mai-esistito").tryMerge("t-3", "   ");
       expect(res.status).toBe("skipped");
@@ -115,7 +115,7 @@ describe("ramo potato, lavoro gia' su main", () => {
     // fosse una regex, un titolo con parentesi sbilanciate farebbe esplodere
     // git — e il land direbbe «non riuscito» per un motivo che non c'entra.
     const strano = "Fix (parziale) del [dispatcher]: 3.0 -> 3.1";
-    const repo = repoConRamoPotato(strano);
+    const repo = repoWithPrunedBranch(strano);
     try {
       const res = await land(repo, "topics/mai-esistito").tryMerge("t-4", strano);
       expect(res.status).toBe("nothing");

@@ -39,7 +39,7 @@ import {
   scriviChiusuraWs, scriviTestaWs, type ChiusuraWs,
 } from "../../shared/relay-ws";
 
-export interface RichiestaOspite {
+export interface RequestGuest {
   /** Cosa vuole. Una sola forma: «dammi la cosa di questo link».
    *
    *  Resta accanto al proxy e non al suo posto: la pagina dell'ospite servita
@@ -50,7 +50,7 @@ export interface RichiestaOspite {
   t: "fetch";
 }
 
-export interface RispostaOspite {
+export interface ReplyGuest {
   status: number;
   body: unknown;
 }
@@ -94,7 +94,7 @@ export interface RelayDeps {
   trovaLink(ref: string): LinkCondivisione | null;
   /** Il contenuto da servire. È la stessa strada dei dati locali: qui non si
    *  duplica nessuna regola di permesso. */
-  serviRisorsa(l: LinkCondivisione): Promise<RispostaOspite>;
+  serviRisorsa(l: LinkCondivisione): Promise<ReplyGuest>;
   /** Segna un'apertura. Non è statistica: è l'unico modo per accorgersi che un
    *  link è finito dove non doveva. */
   segnaApertura(ref: string): void;
@@ -165,7 +165,7 @@ export interface RelayDeps {
 const MAX_IN_VOLO = 32;
 /** Quante sessioni ospiti si tengono. Il `to` lo sceglie il relay, e un relay
  *  che ne inventasse infinite farebbe crescere questa mappa per sempre. */
-const MAX_SESSIONI = 64;
+const MAX_SESSIONS = 64;
 /**
  * Quanti posti restano comunque a un DISPOSITIVO appaiato.
  *
@@ -230,9 +230,9 @@ export type ApriSocketLocale = (
  *  e non come `WebSocket.CONNECTING` perché `apriSocketLocale` è iniettabile e
  *  un socket finto può non discendere dalla classe globale; il valore invece è
  *  quello in ogni implementazione, ed è parte del contratto. */
-const SOCKET_IN_APERTURA = 0;
+const SOCKET_IN_OPENING = 0;
 
-const apriSocketLocaleVero: ApriSocketLocale = (url, o) => {
+const openRealSocketLocale: ApriSocketLocale = (url, o) => {
   const opzioni: Record<string, unknown> = { headers: Object.fromEntries(o.intestazioni) };
   if (o.protocolli.length > 0) opzioni.protocols = o.protocolli;
   // Il tipo del DOM vuole i soli sottoprotocolli come secondo argomento; Bun
@@ -241,7 +241,7 @@ const apriSocketLocaleVero: ApriSocketLocale = (url, o) => {
   return new WebSocket(url, opzioni as unknown as string[]);
 };
 
-export interface ProxyTuboDeps {
+export interface ProxyPipeDeps {
   /** `null` = non configurata: si rifiuta in modo dichiarato. */
   portaTunnel: number | null;
   tunnelTls?: boolean;
@@ -298,7 +298,7 @@ interface SocketProxy {
   chiudiAllApertura: ChiusuraWs | null;
 }
 
-interface SessioneOspite {
+interface SessionGuest {
   /** Da quale porta del relay è entrata. Non si legge da niente che il capo
    *  abbia scritto: lo dichiara il relay, che lo sa dall'URL. */
   ruolo: RuoloSessione;
@@ -322,19 +322,19 @@ interface SessioneOspite {
   inApertura: Set<WebSocket>;
 }
 
-export function creaProxyTubo(deps: ProxyTuboDeps) {
+export function creaProxyTubo(deps: ProxyPipeDeps) {
   const max = deps.max ?? TUBO_BYTE_PER_FRAME;
   const maxInVolo = deps.maxInVolo ?? MAX_IN_VOLO;
   const maxSocket = deps.maxSocket ?? MAX_SOCKET;
-  const maxSessioni = deps.maxSessioni ?? MAX_SESSIONI;
+  const maxSessioni = deps.maxSessioni ?? MAX_SESSIONS;
   // La riserva non può mangiarsi il tetto intero: se lo facesse, nessun ospite
   // entrerebbe mai più e la condivisione di un link smetterebbe di funzionare
   // per una costante scritta storta.
   const riservaDevice = Math.min(Math.max(deps.riservaDevice ?? RISERVA_DEVICE, 0), Math.max(maxSessioni - 1, 0));
   const log = deps.log ?? (() => {});
   const f = deps.fetchLocale ?? fetch;
-  const apriSocketLocale = deps.apriSocketLocale ?? apriSocketLocaleVero;
-  const sessioni = new Map<string, SessioneOspite>();
+  const apriSocketLocale = deps.apriSocketLocale ?? openRealSocketLocale;
+  const sessioni = new Map<string, SessionGuest>();
 
   /**
    * Un frame verso una sessione.
@@ -377,7 +377,7 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
     return ruolo === "device" || sessioni.size < maxSessioni - riservaDevice;
   }
 
-  function nuovaSessione(ruolo: RuoloSessione): SessioneOspite {
+  function newSession(ruolo: RuoloSessione): SessionGuest {
     return {
       ruolo,
       rias: creaRiassemblatore({
@@ -401,7 +401,7 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
    * primo pezzo: una risposta piccola diventa UN frame invece di due, e su un
    * Durable Object che si paga a messaggio la differenza non è estetica.
    */
-  function apriUscita(sid: string, sOut: number, testa: string) {
+  function openExit(sid: string, sOut: number, testa: string) {
     let n = 0;
     let aperto = false;
     let pendente: string | null = null;
@@ -450,17 +450,17 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
   }
 
   /** Una risposta corta, tutta insieme: i rifiuti dichiarati. */
-  function rispondiSubito(sid: string, sess: SessioneOspite, re: number, stato: number, errore: string) {
+  function rispondiSubito(sid: string, sess: SessionGuest, re: number, stato: number, errore: string) {
     const corpo = new TextEncoder().encode(JSON.stringify({ error: errore }));
-    const u = apriUscita(sid, sess.prossimo(), scriviTesta({
+    const u = openExit(sid, sess.prossimo(), scriviTesta({
       re, s: stato, h: [["content-type", "application/json"]],
     }));
     for (const p of dividiBinario(corpo, max)) u.pezzo(p);
     u.finisci();
   }
 
-  async function serviRichiesta(
-    sid: string, sess: SessioneOspite, s: number,
+  async function serveRequest(
+    sid: string, sess: SessionGuest, s: number,
     testaGrezza: string | undefined, corpo: string | Uint8Array | undefined,
   ): Promise<void> {
     const t = leggiTestaRichiesta(testaGrezza);
@@ -511,7 +511,7 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
       }
       for (const c of res.headers.getSetCookie?.() ?? []) coppie.push(["set-cookie", c]);
 
-      const u = apriUscita(sid, sess.prossimo(), scriviTesta({
+      const u = openExit(sid, sess.prossimo(), scriviTesta({
         re: s, s: res.status, h: intestazioniRisposta(coppie),
       }));
 
@@ -560,7 +560,7 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
    *  ha solo una parola di un vocabolario che parla del TUBO: buttare via
    *  «1000 normale» contro «1011 errore» vorrebbe dire che da fuori rete ogni
    *  chiusura si legge uguale, e chi si riconnette non sa se deve. */
-  function dichiaraChiusura(sid: string, sess: SessioneOspite, sIn: number, c: ChiusuraWs) {
+  function dichiaraChiusura(sid: string, sess: SessionGuest, sIn: number, c: ChiusuraWs) {
     for (const fr of componiStream({
       s: sess.prossimo(), k: GENERE_WS_CHIUSO,
       h: scriviTestaWs({ w: sIn }), dati: scriviChiusuraWs(c), max,
@@ -577,7 +577,7 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
    * quella vera e la copre. Si vede solo come un motivo che sparisce.
    */
   function chiudiSocket(
-    sid: string, sess: SessioneOspite, sk: SocketProxy,
+    sid: string, sess: SessionGuest, sk: SocketProxy,
     opts: { chiusura?: ChiusuraWs; avvisa?: boolean; chiudiSu?: ChiusuraWs } = {},
   ) {
     if (sk.finito) return;
@@ -611,7 +611,7 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
     // altro lavoro, e sotto carico l'ospite chiude nel mezzo. Con la chiusura
     // immediata il codice arrivava o no a seconda del tempo — misurato, non
     // dedotto: 30ms di lavoro sincrono in mezzo bastano a farlo diventare 1006.
-    if (opts.chiudiSu && sk.su !== null && sk.su.readyState === SOCKET_IN_APERTURA) {
+    if (opts.chiudiSu && sk.su !== null && sk.su.readyState === SOCKET_IN_OPENING) {
       sk.chiudiAllApertura = opts.chiudiSu;
       sess.inApertura.add(sk.su);
     } else {
@@ -638,7 +638,7 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
     return true;
   }
 
-  function apriSocket(sid: string, sess: SessioneOspite, sIn: number, testaGrezza: string | undefined) {
+  function apriSocket(sid: string, sess: SessionGuest, sIn: number, testaGrezza: string | undefined) {
     const scarta = (motivo: MotivoStream) => {
       manda(sid, { f: "reset", s: sIn, motivo });
       sess.rias.dimentica(sIn);
@@ -754,7 +754,7 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
    *  è un codice che si può mandare. `1006` non lo si può — è quello che il
    *  browser produce da solo — e girarlo sarebbe un'eccezione al posto di una
    *  chiusura. */
-  function chiusuraDallOspite(sid: string, sess: SessioneOspite, s: number, testa: string | undefined, corpo: string | Uint8Array) {
+  function chiusuraDallOspite(sid: string, sess: SessionGuest, s: number, testa: string | undefined, corpo: string | Uint8Array) {
     const t = leggiTestaWsChiuso(testa);
     const c = leggiChiusuraWs(corpo);
     if (!t || !c) { manda(sid, { f: "reset", s, motivo: "bad-frame" }); return; }
@@ -768,7 +768,7 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
     });
   }
 
-  function fermaVolo(sess: SessioneOspite, s: number) {
+  function fermaVolo(sess: SessionGuest, s: number) {
     const c = sess.inVolo.get(s);
     if (!c) return;
     sess.inVolo.delete(s);
@@ -807,7 +807,7 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
       log(`[relay] sessione ${ruolo} rifiutata: ${sessioni.size} sessioni gia' aperte`);
       return;
     }
-    sessioni.set(sid, nuovaSessione(ruolo));
+    sessioni.set(sid, newSession(ruolo));
   }
 
   function ospiteUscito(sid: string): void {
@@ -845,7 +845,7 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
           deps.invia(sid, scriviFrame({ f: "reset", s: fr.s, motivo: "too-many-streams" }));
           return;
         }
-        sess = nuovaSessione("guest");
+        sess = newSession("guest");
         sessioni.set(sid, sess);
       }
 
@@ -856,7 +856,7 @@ export function creaProxyTubo(deps: ProxyTuboDeps) {
           // Un genere che non si conosce chiude QUELLO stream invece di far
           // cadere la sessione: è il punto di estensione del tubo.
           if (e.k !== GENERE_RICHIESTA) { manda(sid, { f: "reset", s: e.s, motivo: "bad-frame" }); return; }
-          void serviRichiesta(sid, sess, e.s, e.h, e.dati);
+          void serveRequest(sid, sess, e.s, e.h, e.dati);
           return;
         case "aperto":
           // Un canale è un socket, e uno stream normale una richiesta: le due
@@ -947,7 +947,7 @@ const ATTESE = [1_000, 2_000, 5_000, 15_000, 60_000];
  * "attached" from "connected to nobody". Whoever has not confirmed by then
  * never will, because `ready` is the FIRST thing the meeting point says.
  */
-const ATTESA_CONFERMA_MS = 10_000;
+const WAIT_CONFIRMATION_MS = 10_000;
 
 export function creaRelayClient(deps: RelayDeps) {
   const now = deps.now ?? (() => Date.now());
@@ -972,7 +972,7 @@ export function creaRelayClient(deps: RelayDeps) {
    */
   let confermato = false;
   /** The confirmation wait for the current thread, cleared when it ends. */
-  let timerConferma: ReturnType<typeof setTimeout> | null = null;
+  let timerConfirmation: ReturnType<typeof setTimeout> | null = null;
   let fermato = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -985,7 +985,7 @@ export function creaRelayClient(deps: RelayDeps) {
    * esiste ma è scaduto» è un'informazione che non si deve poter comprare
    * tirando a indovinare.
    */
-  async function servi(ref: string, bustaCifrata: string): Promise<{ chiave: string; risposta: RispostaOspite } | null> {
+  async function servi(ref: string, bustaCifrata: string): Promise<{ chiave: string; risposta: ReplyGuest } | null> {
     const l = deps.trovaLink(ref);
     if (!l) return null;
     if (l.revokedAt !== null || l.expiresAt <= now()) return null;
@@ -993,8 +993,8 @@ export function creaRelayClient(deps: RelayDeps) {
     const chiaro = await apri(l.key, bustaCifrata);
     if (chiaro === null) return null;
 
-    let richiesta: RichiestaOspite;
-    try { richiesta = JSON.parse(chiaro) as RichiestaOspite; } catch { return null; }
+    let richiesta: RequestGuest;
+    try { richiesta = JSON.parse(chiaro) as RequestGuest; } catch { return null; }
     if (richiesta?.t !== "fetch") return null;
 
     deps.segnaApertura(ref);
@@ -1058,7 +1058,7 @@ export function creaRelayClient(deps: RelayDeps) {
     if (!ref || !busta) return;
 
     const esito = await servi(ref, busta);
-    const risposta: RispostaOspite = esito?.risposta ?? { status: 404, body: { error: "non disponibile" } };
+    const risposta: ReplyGuest = esito?.risposta ?? { status: 404, body: { error: "non disponibile" } };
     // Anche il rifiuto viaggia cifrato quando si può: una risposta in chiaro
     // direbbe al relay che quel link non è valido, che è comunque qualcosa.
     const payload = esito
@@ -1074,9 +1074,9 @@ export function creaRelayClient(deps: RelayDeps) {
     // percorso né in un parametro: quelli finiscono nei registri di chi sta in
     // mezzo, e un segreto scritto in un log vive più a lungo della connessione
     // che lo usava. Il Worker lo verifica prima di svegliare qualsiasi cosa.
-    const apriIlFilo = deps.apriSocket
+    const openThread = deps.apriSocket
       ?? ((u: string, o: { headers: Record<string, string> }) => new WebSocket(u, o as never));
-    const s = apriIlFilo(url, { headers: { [INTESTAZIONE_SEGRETO]: deps.segreto } });
+    const s = openThread(url, { headers: { [INTESTAZIONE_SEGRETO]: deps.segreto } });
     ws = s;
 
     s.onopen = () => {
@@ -1089,13 +1089,13 @@ export function creaRelayClient(deps: RelayDeps) {
       //
       // `unref` because waiting for a confirmation must not keep the process
       // alive: at shutdown there is nothing left to confirm.
-      const attesaConferma = setTimeout(() => {
+      const waitConfirmation = setTimeout(() => {
         if (confermato || ws !== s) return;
         log(`[relay] nessuna conferma dal punto d'incontro: rifaccio il filo`);
         try { s.close(); } catch { /* already closed: `onclose` handles it */ }
-      }, ATTESA_CONFERMA_MS);
-      (attesaConferma as unknown as { unref?: () => void }).unref?.();
-      timerConferma = attesaConferma;
+      }, WAIT_CONFIRMATION_MS);
+      (waitConfirmation as unknown as { unref?: () => void }).unref?.();
+      timerConfirmation = waitConfirmation;
       // Un ANNUNCIO, non una credenziale: a questo punto il relay ha già
       // deciso, guardando l'intestazione, che siamo noi. `token` resta nel
       // protocollo perché è la forma del messaggio, ma non concede niente e
@@ -1117,7 +1117,7 @@ export function creaRelayClient(deps: RelayDeps) {
       ws = null;
       // The thread is over: its confirmation wait has nothing left to watch,
       // and leaving it armed would close the NEXT thread when it fires.
-      if (timerConferma) { clearTimeout(timerConferma); timerConferma = null; }
+      if (timerConfirmation) { clearTimeout(timerConfirmation); timerConfirmation = null; }
       confermato = false;
       // Le sessioni ospiti vivevano su QUESTO filo: alla riconnessione il relay
       // ne assegna di nuove, e tenere le vecchie vorrebbe dire leggere corpi
@@ -1138,7 +1138,7 @@ export function creaRelayClient(deps: RelayDeps) {
     ferma() {
       fermato = true;
       if (timer) clearTimeout(timer);
-      if (timerConferma) { clearTimeout(timerConferma); timerConferma = null; }
+      if (timerConfirmation) { clearTimeout(timerConfirmation); timerConfirmation = null; }
       proxy.chiudiTutto();
       try { ws?.close(); } catch { /* già chiusa */ }
       ws = null;

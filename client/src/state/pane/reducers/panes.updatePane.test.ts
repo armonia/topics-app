@@ -18,7 +18,7 @@ import { paneReducer } from './index';
 import type { PaneState } from '../types';
 import { DEFAULT_SPACE_ID } from '../types';
 
-function statoCon(pane: Record<string, unknown>): PaneState {
+function stateWith(pane: Record<string, unknown>): PaneState {
   return {
     panes: { p1: { id: 'p1', type: 'browser', ...pane } as never },
     groups: {}, closedStack: [], tombstones: {}, focusedPaneId: null,
@@ -29,7 +29,7 @@ function statoCon(pane: Record<string, unknown>): PaneState {
 
 describe("UPDATE_PANE — la guardia non perde aggiornamenti veri", () => {
   test("un campo DIVERSO passa", () => {
-    const s = statoCon({ title: 'vecchio' });
+    const s = stateWith({ title: 'vecchio' });
     paneReducer(s, { type: 'UPDATE_PANE', payload: { id: 'p1', updates: { title: 'nuovo' } } } as never);
     expect((s.panes.p1 as { title?: string }).title).toBe('nuovo');
   });
@@ -38,7 +38,7 @@ describe("UPDATE_PANE — la guardia non perde aggiornamenti veri", () => {
     // È la forma vera: `persistBrowserPaneTitle` manda `title` + `titleSource`
     // insieme, e quando la sorgente è già 'auto' solo il titolo cambia. Una
     // guardia che chiedesse «TUTTI diversi» perderebbe questo.
-    const s = statoCon({ title: 'vecchio', titleSource: 'auto' });
+    const s = stateWith({ title: 'vecchio', titleSource: 'auto' });
     paneReducer(s, {
       type: 'UPDATE_PANE',
       payload: { id: 'p1', updates: { title: 'nuovo', titleSource: 'auto' } },
@@ -51,7 +51,7 @@ describe("UPDATE_PANE — la guardia non perde aggiornamenti veri", () => {
   test("un campo che passa da ASSENTE a valorizzato passa", () => {
     // `undefined` contro un valore: `Object.is` li distingue, ma la patch
     // arriva su una pane che quel campo non ce l'ha proprio.
-    const s = statoCon({ title: 'x' });
+    const s = stateWith({ title: 'x' });
     paneReducer(s, { type: 'UPDATE_PANE', payload: { id: 'p1', updates: { url: 'https://a' } } } as never);
     expect((s.panes.p1 as { url?: string }).url).toBe('https://a');
   });
@@ -59,7 +59,7 @@ describe("UPDATE_PANE — la guardia non perde aggiornamenti veri", () => {
   test("tutto uguale: l'oggetto non viene sostituito (è ciò che ferma il ciclo)", () => {
     // L'IDENTITÀ è il punto, non il contenuto: un oggetto nuovo con gli stessi
     // valori fa salire `lastSeq` e fa partire un PUT da 75 KB.
-    const s = statoCon({ title: 'uguale', url: 'https://a' });
+    const s = stateWith({ title: 'uguale', url: 'https://a' });
     const prima = s.panes.p1;
     paneReducer(s, {
       type: 'UPDATE_PANE',
@@ -71,7 +71,7 @@ describe("UPDATE_PANE — la guardia non perde aggiornamenti veri", () => {
   test("`id` e `type` restano fuori dal confronto come dalla scrittura", () => {
     // Sono scartati prima: una patch che prova a cambiarli non deve nemmeno
     // contare come «qualcosa è cambiato», o rientrerebbe dalla finestra.
-    const s = statoCon({ title: 'uguale' });
+    const s = stateWith({ title: 'uguale' });
     const prima = s.panes.p1;
     paneReducer(s, {
       type: 'UPDATE_PANE',

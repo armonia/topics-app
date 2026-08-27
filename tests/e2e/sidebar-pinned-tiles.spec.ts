@@ -219,8 +219,8 @@ test.describe("Sidebar — tessere fissate", () => {
     fs.mkdirSync(senzaIcona, { recursive: true });
     // Tre su UNA riga: e' cosi' che la tessera diventa stretta abbastanza da
     // passare in forma quadrata, che e' la forma in cui il centraggio esiste.
-    const chiaveNuda = `project:${senzaIcona}`;
-    await setPins(page, [a.id, b.id, chiaveNuda], [[a.id, b.id, chiaveNuda]]);
+    const bareKey = `project:${senzaIcona}`;
+    await setPins(page, [a.id, b.id, bareKey], [[a.id, b.id, bareKey]]);
     await gotoSidebar(page);
 
     // L'INCHIOSTRO, non le scatole. Misurare i box dei figli non distingue il
@@ -239,14 +239,14 @@ test.describe("Sidebar — tessere fissate", () => {
     // caso restavano a zero. Un caso che non contiene il difetto non lo
     // ferma, ed e' il modo in cui questo test e' stato verde mentre lo
     // schermo era storto.
-    const senzaGlifo = await tiles(page).evaluateAll((els) =>
+    const withoutGlyph = await tiles(page).evaluateAll((els) =>
       els.filter((el) => !el.querySelector('img, svg:not([data-testid="pinned-expand-hint"])'))
          .map((el) => el.getAttribute("aria-label") ?? "?"),
     );
     // Non si asserisce che ce ne sia una (dipende da cosa e' fissato): si
     // asserisce che se c'e', e' misurata come le altre - il ciclo sotto le
     // prende tutte.
-    if (senzaGlifo.length) console.log(`[TILE-CENTRO] tessere senza glifo misurate: ${senzaGlifo.join(", ")}`);
+    if (withoutGlyph.length) console.log(`[TILE-CENTRO] tessere senza glifo misurate: ${withoutGlyph.join(", ")}`);
 
     const scarti = await tiles(page).evaluateAll((els) =>
       els.map((el) => {
@@ -759,12 +759,12 @@ test.describe("Sidebar — tessere fissate", () => {
       tile.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
       row.dispatchEvent(new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true, ...punto }));
       await attendi();
-      const mentreTrascini = due(row);
+      const whileDrag = due(row);
 
       row.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true, ...punto }));
       tile.dispatchEvent(new DragEvent("dragend", { dataTransfer: dt, bubbles: true }));
       await attendi();
-      return [mentreTrascini, due(row)];
+      return [whileDrag, due(row)];
     }, ids[2]);
 
     // L'anteprima e' gia' l'ordine finale…
@@ -1065,8 +1065,8 @@ test.describe("Sidebar — la tessera dice cosa fa", () => {
     // NON un prefisso dell'altro: `getByRole(name)` fa match per
     // SOTTOSTRINGA, e "…-affordance" pescherebbe anche "…-affordance-vuoto".
     const vuoto = "/tmp/e2e-tile-senza-tab";
-    const chatVuoto = await createTopic(request, `E2E-AffordVuoto-${Date.now()}`, { projectPath: vuoto });
-    created.push(chat.id, chatVuoto.id);
+    const emptyChat = await createTopic(request, `E2E-AffordVuoto-${Date.now()}`, { projectPath: vuoto });
+    created.push(chat.id, emptyChat.id);
 
     // Il primo progetto ha un figlio VISIBILE (la sua chat è fissata anche lei);
     // il secondo no, e la sua tab è chiusa.
@@ -1115,8 +1115,8 @@ test.describe("Sidebar — la tessera dice cosa fa", () => {
 
     // A ZERO TAB non c'è niente da aprire: niente segno e nessuna fascia vuota.
     // Una riga che dice «non c'è niente» è una riga in più per dire un vuoto.
-    const senzaTab = tileNamed(page, "e2e-tile-senza-tab");
-    await expect(senzaTab.getByTestId("pinned-expand-hint")).toHaveCount(0);
+    const withoutTab = tileNamed(page, "e2e-tile-senza-tab");
+    await expect(withoutTab.getByTestId("pinned-expand-hint")).toHaveCount(0);
   });
 });
 
@@ -1271,11 +1271,11 @@ test.describe("Sidebar — l'anteprima del drop e' la cosa, alle misure giuste",
       // (bordo a 6) — confrontare i due contenitori direbbe 6 di scarto che
       // sullo schermo non c'e'.
       const tessellaSopra = document.querySelectorAll('[data-pinned-tile]')[0] as HTMLElement;
-      const rigaSopra = document.querySelectorAll('[data-testid="pinned-row"]')[0] as HTMLElement;
+      const rowAbove = document.querySelectorAll('[data-testid="pinned-row"]')[0] as HTMLElement;
       const out = anteprima
         ? {
             trovata: true,
-            sopra: Math.round(anteprima.getBoundingClientRect().top - rigaSopra.getBoundingClientRect().bottom),
+            sopra: Math.round(anteprima.getBoundingClientRect().top - rowAbove.getBoundingClientRect().bottom),
             sinistra: Math.round(anteprima.getBoundingClientRect().left - tessellaSopra.getBoundingClientRect().left),
           }
         : { trovata: false, sopra: -1, sinistra: -1 };
@@ -1556,7 +1556,7 @@ test.describe("Sidebar — il riordino si vede muovere", () => {
   });
 
   /** Semina tre tessere su una riga e restituisce i loro id. */
-  async function treSuUnaRiga(page: Page, request: Parameters<typeof createTopic>[0], tag: string) {
+  async function threeOnOneRow(page: Page, request: Parameters<typeof createTopic>[0], tag: string) {
     const ids: string[] = [];
     for (const n of ["A", "B", "C"]) {
       const t = await createTopic(request, `E2E-${tag}-${n}-${Date.now()}`);
@@ -1623,7 +1623,7 @@ test.describe("Sidebar — il riordino si vede muovere", () => {
     // `animati.length` e' zero per costruzione e il rosso non dice niente sul
     // codice. Il fratello TILE-28b copre il ramo opposto.
     await page.emulateMedia({ reducedMotion: "no-preference" });
-    const ids = await treSuUnaRiga(page, request, "Flip");
+    const ids = await threeOnOneRow(page, request, "Flip");
     // C va in testa: A scivola di un posto a destra, e deve vedersi scivolare.
     const { frames, ordine } = await campiona(page, ids[2], ids[0]);
 
@@ -1649,7 +1649,7 @@ test.describe("Sidebar — il riordino si vede muovere", () => {
     // riordini precedenti — quindi qui si verifica che il RISULTATO arrivi
     // comunque, solo senza corsa.
     await page.emulateMedia({ reducedMotion: "reduce" });
-    const ids = await treSuUnaRiga(page, request, "NoFlip");
+    const ids = await threeOnOneRow(page, request, "NoFlip");
     const { frames, ordine } = await campiona(page, ids[2], ids[0]);
 
     // Il riordino c'e' stato lo stesso…
@@ -1703,7 +1703,7 @@ test.describe("Sidebar — quando una tessera è accesa", () => {
    * Con `conVicino` si fissa anche una chat ESTRANEA al progetto: serve solo a
    * portare via il fuoco, per guardare l'accensione che NON viene dal fuoco.
    */
-  async function progettoSenzaColore(
+  async function projectWithoutColor(
     page: Page,
     request: Parameters<typeof createTopic>[0],
     dir: string,
@@ -1726,7 +1726,7 @@ test.describe("Sidebar — quando una tessera è accesa", () => {
   }
 
   test("TILE-29: senza colore la cornice c'è lo stesso, con la stessa forma", async ({ page, request }) => {
-    const { tessera } = await progettoSenzaColore(page, request, "e2e-tessera-neutra");
+    const { tessera } = await projectWithoutColor(page, request, "e2e-tessera-neutra");
     const rim = cornice(tessera);
 
     // La cornice esiste PRIMA di accendersi: è sempre nel DOM, cambia solo
@@ -1765,7 +1765,7 @@ test.describe("Sidebar — quando una tessera è accesa", () => {
     // qui in due mosse — apri la fascia di un progetto, poi chiudi la sua ultima
     // tab — e prima la tessera restava accesa su una fascia che non c'era più,
     // senza nessun gesto che potesse spegnerla.
-    const { chat, vicino, tessera } = await progettoSenzaColore(page, request, "e2e-tessera-spenta", { conVicino: true });
+    const { chat, vicino, tessera } = await projectWithoutColor(page, request, "e2e-tessera-spenta", { conVicino: true });
     const rim = cornice(tessera);
     await expect(tessera.getByTestId("pinned-expand-hint"), "con una tab c'è da aprire").toHaveCount(1);
 
@@ -2233,8 +2233,8 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     const stretta = tileNamed(page, "e2e-tile-soglia");
     await expect(stretta).toBeVisible({ timeout: 15000 });
     await expect(stretta.locator("img"), "la favicon c'e'").toHaveCount(1, { timeout: 15000 });
-    const boxStretta = (await stretta.boundingBox())!;
-    expect(boxStretta.width, "cinque in riga: la tessera e' quasi quadrata").toBeLessThan(72);
+    const narrowBox = (await stretta.boundingBox())!;
+    expect(narrowBox.width, "cinque in riga: la tessera e' quasi quadrata").toBeLessThan(72);
     await expect(
       stretta.getByTestId("pinned-tile-name"),
       "e allora il titolo non si vede",
@@ -2266,8 +2266,8 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     await gotoSidebar(page);
     const larga = tileNamed(page, "e2e-tile-soglia");
     await expect(larga).toBeVisible({ timeout: 15000 });
-    const boxLarga = (await larga.boundingBox())!;
-    expect(boxLarga.width, "da sola in riga la tessera e' larga").toBeGreaterThan(72);
+    const wideBox = (await larga.boundingBox())!;
+    expect(wideBox.width, "da sola in riga la tessera e' larga").toBeGreaterThan(72);
     await expect(
       larga.getByTestId("pinned-tile-name"),
       "e allora il titolo torna, accanto all'icona",
@@ -2359,7 +2359,7 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     // dentro la tessera VERA: il contenitore misurato, la larghezza e la
     // regola sono quelli veri, e quel che si guarda e' dove lo mandano e se
     // sposta l'icona di un pixel.
-    const conConteggio = await tessera.evaluate((t: HTMLElement) => {
+    const withCount = await tessera.evaluate((t: HTMLElement) => {
       const img = t.querySelector("img")!;
       const before = img.getBoundingClientRect();
       const finto = document.createElement("span");
@@ -2381,11 +2381,11 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
         dentro: f.right <= b.right + 0.5 && f.top >= b.top - 0.5 && f.bottom <= b.bottom + 0.5,
       };
     });
-    expect(conConteggio.posizione, "il conteggio esce dal flusso").toBe("absolute");
-    expect(conConteggio.spostaIcona, "e non sposta l'icona di un pixel").toBeLessThanOrEqual(0.5);
-    expect(conConteggio.inAlto, "sta in alto").toBeLessThanOrEqual(4);
-    expect(conConteggio.aDestra, "e a destra").toBeLessThanOrEqual(4);
-    expect(conConteggio.dentro, "dentro la tessera, come tutto il resto").toBe(true);
+    expect(withCount.posizione, "il conteggio esce dal flusso").toBe("absolute");
+    expect(withCount.spostaIcona, "e non sposta l'icona di un pixel").toBeLessThanOrEqual(0.5);
+    expect(withCount.inAlto, "sta in alto").toBeLessThanOrEqual(4);
+    expect(withCount.aDestra, "e a destra").toBeLessThanOrEqual(4);
+    expect(withCount.dentro, "dentro la tessera, come tutto il resto").toBe(true);
 
     // -- NARROWER STILL: the rule does not change --------------------------
     // There used to be an exception under 54px (the chevron came back into the
@@ -2399,7 +2399,7 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     await gotoSidebar(page);
     const minuscola = tileNamed(page, "e2e-tile-centro");
     await expect(minuscola).toBeVisible({ timeout: 15000 });
-    const senzaSpazio = await minuscola.evaluate((t: HTMLElement) => {
+    const withoutSpace = await minuscola.evaluate((t: HTMLElement) => {
       const b = t.getBoundingClientRect();
       const img = t.querySelector("img")!.getBoundingClientRect();
       // THE SLOT, not the glyph inside it. The glyph is an <svg>, and an SVG
@@ -2415,11 +2415,11 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
         posizioneChevron: drawn ? getComputedStyle(slot!).position : null,
       };
     });
-    expect(senzaSpazio.larghezza, `sei in riga: sotto la soglia — ${JSON.stringify(senzaSpazio)}`).toBeLessThan(76);
-    expect(senzaSpazio.posizioneChevron, "sotto i 76px il segno se ne va: non ci sta").toBeNull();
+    expect(withoutSpace.larghezza, `sei in riga: sotto la soglia — ${JSON.stringify(withoutSpace)}`).toBeLessThan(76);
+    expect(withoutSpace.posizioneChevron, "sotto i 76px il segno se ne va: non ci sta").toBeNull();
     expect(
-      Math.abs(senzaSpazio.scarto),
-      `anche a ${senzaSpazio.larghezza}px l'icona resta al centro: ${JSON.stringify(senzaSpazio)}`,
+      Math.abs(withoutSpace.scarto),
+      `anche a ${withoutSpace.larghezza}px l'icona resta al centro: ${JSON.stringify(withoutSpace)}`,
     ).toBeLessThanOrEqual(1);
   });
 
@@ -2510,7 +2510,7 @@ test.describe("Sidebar — avanti e indietro fra lista e fissati", () => {
     await gotoSidebar(page);
     await expect(tiles(page)).toHaveCount(1, { timeout: 15000 });
 
-    const sullaLista = async () => page.evaluate(async (key) => {
+    const onList = async () => page.evaluate(async (key) => {
       const attendi = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
       const tile = document.querySelector(`[data-pinned-tile="${key}"]`) as HTMLElement;
       const lista = document.querySelector(".sidebar-scroll") as HTMLElement;
@@ -2523,7 +2523,7 @@ test.describe("Sidebar — avanti e indietro fra lista e fissati", () => {
       await attendi();
     }, t.id);
 
-    await sullaLista();
+    await onList();
     await expect(tiles(page)).toHaveCount(0, { timeout: 15000 });
 
     // LA COSA CHE CONTA: la riga e' nella lista, viva. Non archiviata, non
@@ -2555,7 +2555,7 @@ test.describe("Sidebar — avanti e indietro fra lista e fissati", () => {
     await gotoSidebar(page);
     await expect(tiles(page)).toHaveCount(1, { timeout: 15000 });
 
-    const fissaTrascinando = async (nome: string) => {
+    const fixedDragging = async (nome: string) => {
       const riga = page.getByRole("treeitem", { name: nome }).first();
       await expect(riga).toBeVisible({ timeout: 15000 });
       await riga.evaluate(async (src) => {
@@ -2590,7 +2590,7 @@ test.describe("Sidebar — avanti e indietro fra lista e fissati", () => {
 
     // Due giri interi: se lo stato si incastra, il secondo non passa.
     for (let giro = 0; giro < 2; giro++) {
-      await fissaTrascinando(t.name);
+      await fixedDragging(t.name);
       await expect(tiles(page), `giro ${giro}: fissata`).toHaveCount(2, { timeout: 15000 });
       await sfissaTrascinando(t.id);
       await expect(tiles(page), `giro ${giro}: sfissata`).toHaveCount(1, { timeout: 15000 });

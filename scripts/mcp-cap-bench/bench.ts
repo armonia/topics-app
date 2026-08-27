@@ -101,7 +101,7 @@ const LEVER = (flag("--lever", "cap") as "cap" | "prefix");
  * soprattutto token letti dalla cache, che costano un decimo. Resta la leva
  * più grossa in token, e non è la più grossa in dollari.
  */
-const ATTESO_PER_RICHIESTA = Number(flag("--atteso", "13176"));
+const EXPECTED_PER_REQUEST = Number(flag("--atteso", "13176"));
 /** Le due pagine di cui si chiede il marcatore: una grande (versata su file) e una piccola. */
 const ASK = [4, 10];
 
@@ -480,13 +480,13 @@ if (off && on) {
   // che la scala ha misurato un mondo diverso da quello del turno vero.
   let pass: boolean, previsto = 0;
   if (LEVER === "prefix") {
-    previsto = ATTESO_PER_RICHIESTA * on.requests;
+    previsto = EXPECTED_PER_REQUEST * on.requests;
     const saved = off.promptTokens - on.promptTokens;
     const dentro = saved >= previsto * 0.8;
     console.log(
       `\n  risparmio: ${saved.toLocaleString("it-IT")} token su ${on.requests} richieste ` +
         `(${Math.round(saved / Math.max(1, on.requests)).toLocaleString("it-IT")}/richiesta) · ` +
-        `previsti ${previsto.toLocaleString("it-IT")} (${ATTESO_PER_RICHIESTA.toLocaleString("it-IT")}/richiesta)`,
+        `previsti ${previsto.toLocaleString("it-IT")} (${EXPECTED_PER_REQUEST.toLocaleString("it-IT")}/richiesta)`,
     );
     console.log(`  token di prompt: ${(drop * 100).toFixed(1)}% in meno`);
     console.log(`  costo: ${(costDrop * 100).toFixed(1)}% in meno`);

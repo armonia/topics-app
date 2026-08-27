@@ -28,7 +28,7 @@ const FILE = `${PROJ}/f.txt`;
 
 const base = () => Array.from({ length: 40 }, (_, i) => `riga ${i + 1}\n`);
 
-function scriviTreBlocchi() {
+function writeThreeBlocks() {
   const l = base();
   l[2] = "riga 3 MODIFICATA\n";              // blocco in cima
   l.splice(10, 0, "riga NUOVA A\n");         // blocco in mezzo
@@ -53,7 +53,7 @@ test.describe("stage di un blocco alla volta", () => {
     // messa in stage una.
     git(["reset", "-q", "HEAD", "--", "."]);
     git(["checkout", "--", "."]);
-    scriviTreBlocchi();
+    writeThreeBlocks();
   });
   test.afterAll(() => rmSync(PROJ, { recursive: true, force: true }));
 

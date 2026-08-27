@@ -47,7 +47,7 @@ const RIGA = (n: number) => `export const valoreDistintivoNumeroDavveroLungoPerI
 let repo: string;
 let boardId = "";
 let commitAtterrato = "";
-let commitFuori = "";
+let commitOutside = "";
 
 beforeAll(() => {
   repo = mkdtempSync(join(tmpdir(), "landing-pass-"));
@@ -70,27 +70,27 @@ beforeAll(() => {
   // non una: sotto `RIGHE_MINIME` (3) il verdetto per contenuto si rifiuta di
   // decidere, e il test misurerebbe la propria fixture invece del codice.
   git(repo, "checkout", "-q", "-b", "topics/fuori", base);
-  commitFuori = commit(repo, "fuori.ts", [2, 3, 4, 5, 6].map(RIGA).join(""), "il lavoro rimasto fuori");
+  commitOutside = commit(repo, "fuori.ts", [2, 3, 4, 5, 6].map(RIGA).join(""), "il lavoro rimasto fuori");
   git(repo, "checkout", "-q", "main");
 });
 
 afterAll(() => rmSync(repo, { recursive: true, force: true }));
 
 /** La card come la vede il servizio task, con lo stato che l'audit riscrive. */
-interface CardFinta extends AuditTask {
+interface FakeCard extends AuditTask {
   landingState: LandingState | null;
 }
 
 interface Banco {
   wiring: AuditWiring;
-  card: CardFinta;
+  card: FakeCard;
   /** Ogni frame passato a `broadcast`, in ordine. */
-  annunci: Array<{ type?: string; projectId?: string; task?: CardFinta }>;
+  annunci: Array<{ type?: string; projectId?: string; task?: FakeCard }>;
   commenti: string[];
 }
 
-function banco(card: Partial<CardFinta> & { id: string }): Banco {
-  const piena: CardFinta = {
+function banco(card: Partial<FakeCard> & { id: string }): Banco {
+  const piena: FakeCard = {
     projectId: boardId,
     deliveryBranch: null,
     deliveryCommit: null,
@@ -151,7 +151,7 @@ describe("l'audit annuncia i verdetti che cambiano", () => {
   });
 
   test("una consegna davvero fuori da main viene annunciata, e detta nel thread", async () => {
-    const b = banco({ id: "card-fuori", deliveryBranch: "topics/fuori", deliveryCommit: commitFuori, landingState: null });
+    const b = banco({ id: "card-fuori", deliveryBranch: "topics/fuori", deliveryCommit: commitOutside, landingState: null });
 
     const esito = await runLandingAudit(b.wiring);
 

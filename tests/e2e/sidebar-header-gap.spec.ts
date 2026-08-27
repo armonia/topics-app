@@ -88,7 +88,7 @@ async function misura(page: Page): Promise<Misura> {
       return primo && !dipinge(el) ? scendi(primo) : el;
     };
     const candidati = Array.from(colonna.children).filter(dipinge);
-    const primoEl = candidati.length ? scendi(candidati[0]) : colonna.children[0];
+    const firstEl = candidati.length ? scendi(candidati[0]) : colonna.children[0];
     // Il passo di riferimento si prende fra due CARD, non fra due blocchi.
     //
     // Misurarlo fra i figli diretti della colonna darebbe 3: quei blocchi sono
@@ -98,14 +98,14 @@ async function misura(page: Page): Promise<Misura> {
     // intero. Le card si riconoscono dal rientro laterale, che in questa
     // colonna ce l'hanno solo loro (`mx-1.5` = ROW_INSET in `sidebarRowCard`).
     const card = Array.from(colonna.querySelectorAll('[class*="mx-1.5"]')).filter(dipinge);
-    const perGenitore = new Map<Element, Element[]>();
+    const perParent = new Map<Element, Element[]>();
     for (const c of card) {
       if (!c.parentElement) continue;
-      const lista = perGenitore.get(c.parentElement) ?? [];
+      const lista = perParent.get(c.parentElement) ?? [];
       lista.push(c);
-      perGenitore.set(c.parentElement, lista);
+      perParent.set(c.parentElement, lista);
     }
-    const fratelli = [...perGenitore.values()].find((v) => v.length >= 2) ?? [];
+    const fratelli = [...perParent.values()].find((v) => v.length >= 2) ?? [];
     const passi: number[] = [];
     for (let i = 1; i < Math.min(fratelli.length, 4); i++) {
       const a = fratelli[i - 1].getBoundingClientRect();
@@ -116,8 +116,8 @@ async function misura(page: Page): Promise<Misura> {
       headerBox: { bottom: Math.round(rh.bottom * 10) / 10 },
       inchiostroHeader: Math.round(inchiostroHeader * 10) / 10,
       primo: {
-        top: Math.round(primoEl.getBoundingClientRect().top * 10) / 10,
-        cls: (primoEl.className || "").toString().slice(0, 80),
+        top: Math.round(firstEl.getBoundingClientRect().top * 10) / 10,
+        cls: (firstEl.className || "").toString().slice(0, 80),
       },
       passi,
     };

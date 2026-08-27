@@ -102,7 +102,7 @@ describe('cacheBreakdown — la forma vera che il server salva', () => {
   // scritto in cache TUTTO a un'ora, quindi la quota a cinque minuti è zero.
   // È la forma che il footer mostra come «895k tokens · 816k da cache · 70k
   // nuovi», ed è quella che deve tornare al token.
-  const RIGA_VERA = {
+  const REAL_ROW = {
     promptTokens: 886_404,
     completionTokens: 8_216,
     cacheReadTokens: 816_213,
@@ -111,24 +111,24 @@ describe('cacheBreakdown — la forma vera che il server salva', () => {
   };
 
   test('le due voci mostrate sommano ESATTAMENTE al prompt', () => {
-    const bd = cacheBreakdown(RIGA_VERA);
+    const bd = cacheBreakdown(REAL_ROW);
     expect(bd.read).toBe(816_213);
     expect(bd.newTokens).toBe(70_191);
-    expect(bd.read + bd.newTokens).toBe(RIGA_VERA.promptTokens);
+    expect(bd.read + bd.newTokens).toBe(REAL_ROW.promptTokens);
     expect(bd.fresh).toBe(30);
   });
 
   test('la forma ANNIDATA che il server scriveva rompe la somma', () => {
     // Lo stesso turno com'era salvato prima del fix: il totale di scrittura
     // copiato pari pari anche nella quota a un'ora.
-    const bd = cacheBreakdown({ ...RIGA_VERA, cacheCreationTokens: 70_161 });
+    const bd = cacheBreakdown({ ...REAL_ROW, cacheCreationTokens: 70_161 });
     // Lo sforo è 70.131, non 70.161: la scrittura contata due volte vale
     // 70.161, ma 30 di quelli il clamp li recupera mangiandosi il fresco vero
     // (`fresh` va da 30 a 0). Cioè l'errore mostrato è la somma di DUE bugie
     // che si accorciano a vicenda, ed è il motivo per cui a occhio non si
     // vedeva: nessuna delle due voci sembrava assurda.
     expect(bd.fresh).toBe(0);
-    expect(bd.read + bd.newTokens - RIGA_VERA.promptTokens).toBe(70_131);
+    expect(bd.read + bd.newTokens - REAL_ROW.promptTokens).toBe(70_131);
   });
 });
 

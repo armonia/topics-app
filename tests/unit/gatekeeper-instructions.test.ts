@@ -26,7 +26,7 @@ import { join } from "node:path";
 const RADICE = join(import.meta.dir, "..", "..");
 
 /** I documenti che una persona legge PRIMA di riuscire ad aprire l'app. */
-const DOCUMENTI = ["README.md", "CONTRIBUTING.md", "landing/public/agents.md"];
+const DOCUMENTS = ["README.md", "CONTRIBUTING.md", "landing/public/agents.md"];
 
 /** Le forme in cui l'istruzione morta si presenta, in entrambe le lingue. */
 const MORTE = [
@@ -39,7 +39,7 @@ const MORTE = [
 const VIVA = /privacy\s*&?\s*security[\s\S]{0,120}open anyway/i;
 
 describe("Gatekeeper · nessun documento manda a perdere tempo", () => {
-  for (const doc of DOCUMENTI) {
+  for (const doc of DOCUMENTS) {
     it(`${doc} non dice di fare click destro → Apri`, () => {
       const p = join(RADICE, doc);
       expect(existsSync(p), `${doc} non c'è più: aggiorna questo elenco`).toBe(true);
@@ -84,7 +84,7 @@ describe("Gatekeeper · nessun documento manda a perdere tempo", () => {
   it("non si suggerisce di spegnere Gatekeeper per tutta la macchina", () => {
     // `spctl --master-disable` risolve un'app disarmando il sistema intero, ed è
     // una decisione che non si prende per conto di qualcun altro.
-    for (const doc of DOCUMENTI) {
+    for (const doc of DOCUMENTS) {
       const testo = readFileSync(join(RADICE, doc), "utf8");
       const m = /spctl\s+--master-disable/.exec(testo);
       const nega = m && /do not|non |mai /i.test(testo.slice(Math.max(0, m.index - 160), m.index));

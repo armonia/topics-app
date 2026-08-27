@@ -577,14 +577,14 @@ describe("cleanup del worktree — non buttare via i commit", () => {
  * a 1.800.0xx ms tondi sembravano pronti e non lo erano).
  */
 describe("storico: anche un dispatch singolo lascia la sua riga", () => {
-  const boardSemplice = (h: ReturnType<typeof harness>) => {
+  const simpleBoard = (h: ReturnType<typeof harness>) => {
     h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true });
     h.svc.setGlobalCap({ auto: false, max: 5 });
   };
 
   it("un lancio riuscito scrive UNA riga, legata al suo topic e al suo ramo", async () => {
     const h = harness();
-    boardSemplice(h);
+    simpleBoard(h);
     seedTask(h.db, { id: "t1", status: "todo" });
 
     await h.dispatcher.tick(PID);
@@ -612,7 +612,7 @@ describe("storico: anche un dispatch singolo lascia la sua riga", () => {
     // Il caso della card: due tentativi con agent_ms a 1.800.0xx, cioe' il
     // timeout tondo. Sembravano pronti perche' erano in review, e non lo erano.
     const h = harness();
-    boardSemplice(h);
+    simpleBoard(h);
     seedTask(h.db, { id: "t1", status: "todo" });
 
     await h.dispatcher.tick(PID);
@@ -635,7 +635,7 @@ describe("storico: anche un dispatch singolo lascia la sua riga", () => {
     // capo cinque volte» quando l'agente non ha mai smesso di lavorarci, ed e'
     // esattamente la domanda a cui lo storico deve rispondere.
     const h = harness();
-    boardSemplice(h);
+    simpleBoard(h);
     seedTask(h.db, { id: "t1", status: "todo" });
 
     await h.dispatcher.tick(PID);
@@ -669,7 +669,7 @@ describe("storico: anche un dispatch singolo lascia la sua riga", () => {
       runningCount: () => 0, select: () => null, clear: () => {},
     };
     const h = harness({ attempts: rotto as never });
-    boardSemplice(h);
+    simpleBoard(h);
     seedTask(h.db, { id: "t1", status: "todo" });
 
     await h.dispatcher.tick(PID);

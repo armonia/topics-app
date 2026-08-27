@@ -91,7 +91,7 @@ const PASSES = 5;
 const FRAME_BUDGET_FALLBACK_MS = 1000 / 60;
 
 /** La cadenza misurata, arrotondata al passo di refresh piu' vicino. */
-function budgetDaCalibrazione(calibrationGapMs: number): number {
+function budgetFromCalibration(calibrationGapMs: number): number {
   // Una calibrazione assurda (macchina in ginocchio, pagina che non consegna)
   // non deve ALLARGARE il proprio metro: sopra i 60 Hz nominali si ricade sul
   // ripiego, cosi' una misura storta non si autoassolve.
@@ -118,7 +118,7 @@ const OUT_PATH = resolve(
  */
 const JANK_MS = Number(process.env.TOPICS_FLUIDO_JANK_MS || 0);
 /** Millisecondi bruciati DENTRO ogni frame: la lentezza uniforme, senza buchi. */
-const JANK_UNIFORME_MS = Number(process.env.TOPICS_FLUIDO_JANK_UNIFORME_MS || 0);
+const UNIFORM_JANK_MS = Number(process.env.TOPICS_FLUIDO_JANK_UNIFORME_MS || 0);
 
 interface Passata {
   frames: number;
@@ -208,7 +208,7 @@ async function iniettaLentezzaUniforme(page: Page, ms: number): Promise<void> {
  * peggiora, e il cancello direbbe «non misurabile» proprio nel caso in cui deve
  * dire rosso. E' lo stesso errore di un freno che si divide per un carico vivo.
  */
-async function calibra(page: Page, frames: number): Promise<number> {
+async function calibrate(page: Page, frames: number): Promise<number> {
   return page.evaluate(async (n: number) => {
     const gaps: number[] = [];
     await new Promise<void>((resolve) => {
@@ -262,12 +262,12 @@ async function passata(
       // sempre: e' il modo tipico in cui una misura smette di misurare senza
       // dirlo. `data-index` e' l'indice che react-virtuoso scrive sull'item, e
       // vederlo cambiare e' la prova che la virtualizzazione sta lavorando.
-      const primoIndice = (): number => {
+      const firstIndex = (): number => {
         const item = el.querySelector("[data-index]");
         const v = item?.getAttribute("data-index");
         return v === null || v === undefined ? -1 : Number(v);
       };
-      let indicePrec = primoIndice();
+      let indicePrec = firstIndex();
       let churn = 0;
       let minTop = el.scrollTop;
       let maxTop = el.scrollTop;
@@ -278,7 +278,7 @@ async function passata(
         const tick = (t: number) => {
           gaps.push(t - last);
           last = t;
-          const idx = primoIndice();
+          const idx = firstIndex();
           if (idx !== indicePrec) {
             churn++;
             indicePrec = idx;
@@ -365,13 +365,13 @@ test.describe("Banco della fluidita' dello scorrimento", () => {
     // Calibrazione su una pagina VUOTA e SEPARATA: `addInitScript` e' per-pagina,
     // quindi qui la lentezza iniettata non arriva e questa misura resta cio' che
     // deve essere: un giudizio sulla macchina, non sull'app.
-    const paginaVuota = await page.context().newPage();
-    await paginaVuota.goto("about:blank");
-    const calibration_gap_ms = await calibra(paginaVuota, CALIBRATION_FRAMES);
-    await paginaVuota.close();
+    const emptyPage = await page.context().newPage();
+    await emptyPage.goto("about:blank");
+    const calibration_gap_ms = await calibrate(emptyPage, CALIBRATION_FRAMES);
+    await emptyPage.close();
 
     await iniettaLentezza(page, JANK_MS);
-    await iniettaLentezzaUniforme(page, JANK_UNIFORME_MS);
+    await iniettaLentezzaUniforme(page, UNIFORM_JANK_MS);
     await goToApp(page);
     await openTopic(page, new RegExp(topicName));
 
@@ -391,7 +391,7 @@ test.describe("Banco della fluidita' dello scorrimento", () => {
 
     // Riscaldamento SCARTATO: virtuoso misura le altezze vere degli item la
     // prima volta che ci passa sopra, e quel costo si paga una volta sola.
-    const budgetFrame = budgetDaCalibrazione(calibration_gap_ms);
+    const budgetFrame = budgetFromCalibration(calibration_gap_ms);
     await passata(scroller, FRAMES_PER_PASS, budgetFrame);
 
     const passate: Passata[] = [];
@@ -417,7 +417,7 @@ test.describe("Banco della fluidita' dello scorrimento", () => {
         frames_per_pass: FRAMES_PER_PASS,
         passes: PASSES,
         warmup_passes: 1,
-        frame_budget_ms: arrotonda(budgetDaCalibrazione(calibration_gap_ms), 3),
+        frame_budget_ms: arrotonda(budgetFromCalibration(calibration_gap_ms), 3),
         seeded_messages: SEED_MESSAGES,
       },
       calibration_gap_ms: arrotonda(calibration_gap_ms),

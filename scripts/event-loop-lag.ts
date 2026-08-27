@@ -17,13 +17,13 @@ const secondi = Number(arg.find((a) => /^\d+$/.test(a)) ?? 20);
 const baseIdx = arg.indexOf("--base");
 const BASE = baseIdx >= 0 ? arg[baseIdx + 1] : "https://localhost:3333";
 const SONDA = "/api/system/dispatch-capacity";
-const OGNI_MS = 50;
+const EVERY_MS = 50;
 
 const campioni: { t: number; ms: number }[] = [];
 const t0 = Date.now();
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
-console.log(`sondo ${BASE}${SONDA} ogni ${OGNI_MS}ms per ${secondi}s — ricarica la finestra ORA`);
+console.log(`sondo ${BASE}${SONDA} ogni ${EVERY_MS}ms per ${secondi}s — ricarica la finestra ORA`);
 while (Date.now() - t0 < secondi * 1000) {
   const s = Bun.nanoseconds();
   try {
@@ -31,7 +31,7 @@ while (Date.now() - t0 < secondi * 1000) {
   } catch { /* server giu': il campione vale comunque come attesa */ }
   const ms = (Bun.nanoseconds() - s) / 1e6;
   campioni.push({ t: Date.now() - t0, ms });
-  const resta = OGNI_MS - ms;
+  const resta = EVERY_MS - ms;
   if (resta > 0) await Bun.sleep(resta);
 }
 

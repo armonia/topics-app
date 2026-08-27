@@ -239,15 +239,15 @@ describe('la guardia protegge lo scroll che abbiamo forzato NOI', () => {
     // Virtuoso rimisura e abbassa `scrollTop` di qualche decina di pixel.
     // Contarlo come utente sganciava il pin appena messo: la vista tornava in
     // fondo e se ne staccava da sola un istante dopo.
-    const dopoIlBottone = reduceScroll(at({ anchored: false }), { type: 'scroll-to-bottom' }, T0);
-    expect(dopoIlBottone.state.guardUntil).toBe(T0 + SCROLL_GUARD_MS);
+    const afterButton = reduceScroll(at({ anchored: false }), { type: 'scroll-to-bottom' }, T0);
+    expect(afterButton.state.guardUntil).toBe(T0 + SCROLL_GUARD_MS);
     const assestamento = reduceScroll(
-      dopoIlBottone.state,
+      afterButton.state,
       { type: 'user-scrolled-up', streaming: false, distanceFromBottom: 400 },
       T0 + 100,
     );
     expect(assestamento.state.anchored).toBe(true);
-    expect(assestamento.state).toBe(dopoIlBottone.state);
+    expect(assestamento.state).toBe(afterButton.state);
   });
 
   it('durante lo stream la guardia NON copre: lì il pin alza e basta, un calo è l\'utente', () => {
@@ -260,9 +260,9 @@ describe('la guardia protegge lo scroll che abbiamo forzato NOI', () => {
   });
 
   it('scaduta la guardia, l\'utente torna a comandare anche fuori dallo stream', () => {
-    const dopoIlBottone = reduceScroll(at({ anchored: false }), { type: 'scroll-to-bottom' }, T0);
+    const afterButton = reduceScroll(at({ anchored: false }), { type: 'scroll-to-bottom' }, T0);
     const d = reduceScroll(
-      dopoIlBottone.state,
+      afterButton.state,
       { type: 'user-scrolled-up', streaming: false, distanceFromBottom: 400 },
       T0 + SCROLL_GUARD_MS + 1,
     );
@@ -277,16 +277,16 @@ describe('la guardia protegge lo scroll che abbiamo forzato NOI', () => {
    * che non voleva.
    */
   it('dentro la guardia: il GESTO sgancia, il calo di scrollTop no', () => {
-    const dopoIlBottone = reduceScroll(at({ anchored: false }), { type: 'scroll-to-bottom' }, T0);
+    const afterButton = reduceScroll(at({ anchored: false }), { type: 'scroll-to-bottom' }, T0);
     const gesto = reduceScroll(
-      dopoIlBottone.state,
+      afterButton.state,
       { type: 'user-scrolled-up', streaming: false, source: 'gesture', distanceFromBottom: 400 },
       T0 + 100,
     );
     expect(gesto.state.anchored, 'la rotellina è un gesto: l\'app non ne produce').toBe(false);
 
     const misura = reduceScroll(
-      dopoIlBottone.state,
+      afterButton.state,
       { type: 'user-scrolled-up', streaming: false, source: 'delta', distanceFromBottom: 400 },
       T0 + 100,
     );
@@ -294,9 +294,9 @@ describe('la guardia protegge lo scroll che abbiamo forzato NOI', () => {
   });
 
   it('senza sorgente dichiarata si assume la lettura prudente (delta)', () => {
-    const dopoIlBottone = reduceScroll(at({ anchored: false }), { type: 'scroll-to-bottom' }, T0);
+    const afterButton = reduceScroll(at({ anchored: false }), { type: 'scroll-to-bottom' }, T0);
     const d = reduceScroll(
-      dopoIlBottone.state,
+      afterButton.state,
       { type: 'user-scrolled-up', streaming: false, distanceFromBottom: 400 },
       T0 + 100,
     );
@@ -307,9 +307,9 @@ describe('la guardia protegge lo scroll che abbiamo forzato NOI', () => {
     // Un colpetto di rotellina mentre sei già in fondo non è «voglio leggere
     // indietro»: se sganciasse, comparirebbe la freccia «torna in fondo» su una
     // vista che è in fondo.
-    const dopoIlBottone = reduceScroll(at({ anchored: false }), { type: 'scroll-to-bottom' }, T0);
+    const afterButton = reduceScroll(at({ anchored: false }), { type: 'scroll-to-bottom' }, T0);
     const d = reduceScroll(
-      dopoIlBottone.state,
+      afterButton.state,
       { type: 'user-scrolled-up', streaming: false, source: 'gesture', distanceFromBottom: 10 },
       T0 + 100,
     );

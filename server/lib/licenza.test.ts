@@ -75,18 +75,18 @@ function firmaGrezza(privata: KeyObject, carico: Record<string, unknown>): strin
  * sola, che nessun'altra prova può porre: la chiave pubblica dentro
  * `CHIAVI_INTEGRATE` è davvero la metà di quella con cui firmiamo?
  */
-const GETTONE_TESTIMONE =
+const TOKEN_WITNESS =
   "eyJ2IjoxLCJpaWQiOiIwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJwbGFuIjoidGVhbSIsInNlYXRzIjo1LCJleHAiOjQ5Mzk5NzI4ODA4OTYsImlhdCI6MTc4NjM3Mjg4MDg5Niwia2lkIjoiYXJtb25pYS0xIn0" +
   ".mfxTxb8S4EHmBbRX5lHnUDYNOTiWLjb1rWvOaO9ByIORdLiJGxEmn9s_Fw8heZjsuPbMUFFN96PnALzCw9L9CQ";
 
 const servizio = nuovaCoppia();
-const ENV_CHIAVE = { TOPICS_LICENSE_PUBKEYS: `k1:${servizio.pubblicaB64}` };
-const chiaviBuone = () => caricaChiavi(ENV_CHIAVE, []);
+const ENV_KEY = { TOPICS_LICENSE_PUBKEYS: `k1:${servizio.pubblicaB64}` };
+const goodKeys = () => caricaChiavi(ENV_KEY, []);
 
 /** Ogni modo in cui una licenza può andare male, in una lista sola: è
  *  l'insieme su cui la proprietà «il locale resta» va provata tutta. */
 function ogniModoDiAndareMale(): Array<{ nome: string; e: Entitlement }> {
-  const chiavi = chiaviBuone();
+  const chiavi = goodKeys();
   const altro = nuovaCoppia();
   const v = (g: string, ora = 1_000) => verificaGettone(g, { chiavi, installationId: IID, ora });
   return [
@@ -174,7 +174,7 @@ describe("licenza · i posti governano l'INGRESSO, mai la permanenza", () => {
 describe("licenza · la firma si controlla OFFLINE", () => {
   it("un gettone buono apre l'accesso remoto e porta i suoi posti", () => {
     const e = verificaGettone(firma(servizio.privata, { seats: 7, exp: 9_000 }), {
-      chiavi: chiaviBuone(), installationId: IID, ora: 8_000,
+      chiavi: goodKeys(), installationId: IID, ora: 8_000,
     });
     expect(e).toEqual({
       piano: "team", posti: 7, accessoRemoto: true, scadeIl: 9_000,
@@ -189,18 +189,18 @@ describe("licenza · la firma si controlla OFFLINE", () => {
     const carico = JSON.parse(Buffer.from(p, "base64url").toString("utf8")) as CaricoGettone;
     carico.seats = 500;
     const manomesso = `${Buffer.from(JSON.stringify(carico)).toString("base64url")}.${s}`;
-    expect(verificaGettone(manomesso, { chiavi: chiaviBuone(), installationId: IID, ora: 1 }).motivo)
+    expect(verificaGettone(manomesso, { chiavi: goodKeys(), installationId: IID, ora: 1 }).motivo)
       .toBe("bad_signature");
   });
 
   it("il `kid` sbagliato non basta a rifiutare un gettone che la chiave verifica", () => {
     // Un'etichetta non è una firma: se la chiave regge, il gettone vale.
     const g = firma(servizio.privata, { kid: "nome-che-non-esiste" });
-    expect(verificaGettone(g, { chiavi: chiaviBuone(), installationId: IID, ora: 1 }).motivo).toBe("valid");
+    expect(verificaGettone(g, { chiavi: goodKeys(), installationId: IID, ora: 1 }).motivo).toBe("valid");
   });
 
   it("i posti dichiarati si tengono entro limiti sensati", () => {
-    const chiavi = chiaviBuone();
+    const chiavi = goodKeys();
     const v = (seats: number) =>
       verificaGettone(firma(servizio.privata, { seats }), { chiavi, installationId: IID, ora: 1 }).posti;
     expect(v(0)).toBe(POSTI_GRATUITI);
@@ -213,7 +213,7 @@ describe("licenza · la firma si controlla OFFLINE", () => {
     const storto = Buffer.from(JSON.stringify({ v: 1, iid: IID, plan: "team", seats: "cinque", exp: 9e12 }))
       .toString("base64url");
     const g = `${storto}.${sign(null, Buffer.from(storto, "ascii"), servizio.privata).toString("base64url")}`;
-    expect(verificaGettone(g, { chiavi: chiaviBuone(), installationId: IID, ora: 1 }).motivo).toBe("malformed");
+    expect(verificaGettone(g, { chiavi: goodKeys(), installationId: IID, ora: 1 }).motivo).toBe("malformed");
   });
 
   it("una VERSIONE o un PIANO che non conosciamo si rifiuta, non si reinterpreta", () => {
@@ -223,7 +223,7 @@ describe("licenza · la firma si controlla OFFLINE", () => {
     // cioè un gettone emesso per un altro contratto aprirebbe questo. La firma
     // qui è buona apposta: il rifiuto deve venire dal carico, non dalla
     // crittografia.
-    const chiavi = chiaviBuone();
+    const chiavi = goodKeys();
     const base = { iid: IID, plan: "team", seats: 5, exp: 9e12 };
     const v = (c: Record<string, unknown>) =>
       verificaGettone(firmaGrezza(servizio.privata, c), { chiavi, installationId: IID, ora: 1 });
@@ -241,8 +241,8 @@ describe("licenza · la firma si controlla OFFLINE", () => {
     // gettone verificherebbe lo stesso — cioè due stringhe diverse sarebbero lo
     // stesso gettone valido.
     const g = firma(servizio.privata, {});
-    expect(verificaGettone(g, { chiavi: chiaviBuone(), installationId: IID, ora: 1 }).motivo).toBe("valid");
-    expect(verificaGettone(`${g}.spazzatura`, { chiavi: chiaviBuone(), installationId: IID, ora: 1 }).motivo)
+    expect(verificaGettone(g, { chiavi: goodKeys(), installationId: IID, ora: 1 }).motivo).toBe("valid");
+    expect(verificaGettone(`${g}.spazzatura`, { chiavi: goodKeys(), installationId: IID, ora: 1 }).motivo)
       .toBe("malformed");
   });
 
@@ -252,7 +252,7 @@ describe("licenza · la firma si controlla OFFLINE", () => {
     // «questo non è nemmeno un gettone». Chi ha pagato e si ritrova una riga
     // troncata dagli appunti deve leggere la seconda.
     const [p] = firma(servizio.privata, {}).split(".") as [string, string];
-    expect(verificaGettone(`${p}.AAAA`, { chiavi: chiaviBuone(), installationId: IID, ora: 1 }).motivo)
+    expect(verificaGettone(`${p}.AAAA`, { chiavi: goodKeys(), installationId: IID, ora: 1 }).motivo)
       .toBe("malformed");
   });
 
@@ -261,7 +261,7 @@ describe("licenza · la firma si controlla OFFLINE", () => {
     // uguali: è la strada per cui una firma vale su un carico che non è quello.
     const g = firma(servizio.privata, {});
     const [p, s] = g.split(".") as [string, string];
-    expect(verificaGettone(`${p}!!.${s}`, { chiavi: chiaviBuone(), installationId: IID, ora: 1 }).motivo)
+    expect(verificaGettone(`${p}!!.${s}`, { chiavi: goodKeys(), installationId: IID, ora: 1 }).motivo)
       .toBe("malformed");
   });
 });
@@ -286,7 +286,7 @@ describe("licenza · le chiavi di verifica", () => {
     // una rotazione fatta a metà, un copia-incolla da un'altra generazione —
     // questo caso muore adesso, invece che alla prima licenza venduta, dove il
     // sintomo sarebbe `bad_signature` su un gettone che abbiamo emesso noi.
-    const esito = verificaGettone(GETTONE_TESTIMONE, {
+    const esito = verificaGettone(TOKEN_WITNESS, {
       chiavi: caricaChiavi({}, CHIAVI_INTEGRATE),
       installationId: "000000000000000000000000",
       // Un'ora fissa: la scadenza del testimone è lontana, ma un test non deve
@@ -301,7 +301,7 @@ describe("licenza · le chiavi di verifica", () => {
     // La rete di sicurezza del testimone stesso: è un gettone firmato di
     // verità, committato in chiaro. Non deve poter abilitare niente. Ciò che
     // glielo impedisce è `iid`, non il fatto che sia in un file di test.
-    const esito = verificaGettone(GETTONE_TESTIMONE, {
+    const esito = verificaGettone(TOKEN_WITNESS, {
       chiavi: caricaChiavi({}, CHIAVI_INTEGRATE),
       installationId: IID,
       ora: Date.UTC(2026, 7, 10),
@@ -326,7 +326,7 @@ describe("licenza · il servizio su disco", () => {
   beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "licenza-")); });
   afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
-  const crea = (env: Record<string, string | undefined> = ENV_CHIAVE, ora?: () => number) =>
+  const crea = (env: Record<string, string | undefined> = ENV_KEY, ora?: () => number) =>
     creaServizioLicenza({ stateDir: dir, env, installationId: IID, ora });
 
   it("senza file è il piano gratuito, e non è un errore", () => {
@@ -377,7 +377,7 @@ describe("licenza · il servizio su disco", () => {
 
   it("scade da solo mentre il server è su, senza riavvii", () => {
     let ora = 1_000;
-    const s = crea(ENV_CHIAVE, () => ora);
+    const s = crea(ENV_KEY, () => ora);
     s.installa(firma(servizio.privata, { exp: 5_000 }), ora);
     expect(s.stato().piano).toBe("team");
     ora = 5_001;
@@ -405,7 +405,7 @@ describe("licenza · il servizio su disco", () => {
 
   it("la variabile d'ambiente ha la precedenza sul file", () => {
     writeFileSync(percorsoGettone(dir), firma(servizio.privata, { seats: 2 }));
-    const s = crea({ ...ENV_CHIAVE, TOPICS_LICENSE_TOKEN: firma(servizio.privata, { seats: 8 }) });
+    const s = crea({ ...ENV_KEY, TOPICS_LICENSE_TOKEN: firma(servizio.privata, { seats: 8 }) });
     expect(s.stato(1_000).posti).toBe(8);
   });
 

@@ -36,13 +36,13 @@ const RADICE = join(import.meta.dir, "..", "..");
 const CSS = readFileSync(join(RADICE, "client", "src", "index.css"), "utf8");
 
 /** Estrae il valore di `--chrome-overlay-bg` dalla regola `:root { ... }` */
-function valoreChromeOverlay(css: string): string | null {
+function valueChromeOverlay(css: string): string | null {
   const m = css.match(/:root\s*\{[^}]*--chrome-overlay-bg\s*:\s*([^;}]+)/);
   return m ? m[1].trim() : null;
 }
 
 describe("project_veil-tint-must-equal-base", () => {
-  const valore = valoreChromeOverlay(CSS);
+  const valore = valueChromeOverlay(CSS);
 
   it("--chrome-overlay-bg e' dichiarato in :root", () => {
     expect(valore).not.toBeNull();

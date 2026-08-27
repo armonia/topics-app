@@ -29,20 +29,20 @@ import { PoliteKeyboardSensor, PoliteMouseSensor, PoliteTouchSensor } from './dn
  * il minimo che le soddisfa entrambe, senza montare un browser per una riga di
  * logica.
  */
-class ElementoFinto {
+class FakeElement {
   constructor(private readonly combacia: string | null) {}
-  closest(selettore: string): ElementoFinto | null {
+  closest(selettore: string): FakeElement | null {
     if (!this.combacia) return null;
     return selettore.includes(this.combacia) ? this : null;
   }
 }
 if (typeof (globalThis as { Element?: unknown }).Element === 'undefined') {
-  (globalThis as { Element?: unknown }).Element = ElementoFinto;
+  (globalThis as { Element?: unknown }).Element = FakeElement;
 }
 
 /** Un bersaglio finto con la catena `closest` che serve al sensore. */
 function bersaglio(selettoreCheCombacia: string | null): EventTarget {
-  return new ElementoFinto(selettoreCheCombacia) as unknown as EventTarget;
+  return new FakeElement(selettoreCheCombacia) as unknown as EventTarget;
 }
 
 function activatorOf(sensor: { activators: Array<{ handler: (...a: never[]) => boolean }> }) {

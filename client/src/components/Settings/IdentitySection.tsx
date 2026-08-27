@@ -82,7 +82,7 @@ type InModifica = { tipo: 'persona'; id: string } | { tipo: 'gruppo' } | null;
 const RUOLI: Ruolo[] = ['owner', 'admin', 'member'];
 
 /** `t()` passato come dato: è ciò che rende `TolliQueue` una funzione di props. */
-type Traduci = (key: string, vars?: Record<string, string | number>) => string;
+type Translate = (key: string, vars?: Record<string, string | number>) => string;
 
 /**
  * La coda dei TOLTI, e il gesto che li cancella davvero.
@@ -101,7 +101,7 @@ export function TolliQueue({ tolti, onDelete, inCorso, rifiuto, t }: {
   inCorso: boolean;
   /** La chiave della frase se l'ultima cancellazione è stata rifiutata. */
   rifiuto: string | null;
-  t: Traduci;
+  t: Translate;
 }) {
   if (tolti.length === 0) return null;
   return (
@@ -162,7 +162,7 @@ export function IdentitySection() {
     }
   }, []);
 
-  const caricaGruppi = useCallback(async () => {
+  const loadGroups = useCallback(async () => {
     try {
       const r = await fetch('/api/auth/orgs', { credentials: 'same-origin' });
       const b = r.ok ? (await r.json()) as { orgs?: Gruppo[] } : null;
@@ -171,7 +171,7 @@ export function IdentitySection() {
     } catch { setGruppi([]); return []; }
   }, []);
 
-  const caricaMembri = useCallback(async (orgId: string) => {
+  const loadMembers = useCallback(async (orgId: string) => {
     try {
       const r = await fetch(`/api/auth/orgs/${encodeURIComponent(orgId)}/members`, { credentials: 'same-origin' });
       const b = r.ok ? (await r.json()) as { members?: Membro[] } : null;
@@ -180,7 +180,7 @@ export function IdentitySection() {
     } catch { setMembri([]); }
   }, []);
 
-  useEffect(() => { void carica(); void caricaGruppi(); }, [carica, caricaGruppi]);
+  useEffect(() => { void carica(); void loadGroups(); }, [carica, loadGroups]);
 
   // La selezione parte dal gruppo dell'INSTALLAZIONE — quello che
   // `/api/auth/me` dichiara — e si sposta solo se quello scelto sparisce
@@ -192,13 +192,13 @@ export function IdentitySection() {
     });
   }, [gruppi, io?.org?.id]);
 
-  useEffect(() => { if (scelto) void caricaMembri(scelto); else setMembri([]); }, [scelto, caricaMembri]);
+  useEffect(() => { if (scelto) void loadMembers(scelto); else setMembri([]); }, [scelto, loadMembers]);
 
   const ricarica = async (orgId?: string | null) => {
     await carica();
-    await caricaGruppi();
+    await loadGroups();
     const id = orgId ?? scelto;
-    if (id) await caricaMembri(id);
+    if (id) await loadMembers(id);
   };
 
   const gruppo = gruppi.find((g) => g.id === scelto) ?? null;
@@ -297,7 +297,7 @@ export function IdentitySection() {
     } finally { setInCorso(false); }
   };
 
-  const cambiaRuolo = async (m: Membro, ruolo: Ruolo) => {
+  const changeRole = async (m: Membro, ruolo: Ruolo) => {
     if (!scelto || ruolo === m.role) return;
     setInCorso(true);
     try {
@@ -311,7 +311,7 @@ export function IdentitySection() {
     } finally { setInCorso(false); }
   };
 
-  const creaGruppo = async () => {
+  const createGroup = async () => {
     const nome = (nuovoGruppo ?? '').trim();
     if (!nome) { setNuovoGruppo(null); return; }
     setInCorso(true);
@@ -524,7 +524,7 @@ export function IdentitySection() {
                     value={m.role}
                     disabled={inCorso}
                     align="right"
-                    onChange={(r) => void cambiaRuolo(m, r)}
+                    onChange={(r) => void changeRole(m, r)}
                     ariaLabel={t('identity.roleOf', { nome: m.name })}
                     className="flex-shrink-0"
                     options={RUOLI.map((r) => ({ value: r, label: t(`identity.role.${r}`) }))}
@@ -642,14 +642,14 @@ export function IdentitySection() {
             autoFocus
             value={nuovoGruppo}
             onChange={(e) => setNuovoGruppo(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') void creaGruppo(); if (e.key === 'Escape') setNuovoGruppo(null); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') void createGroup(); if (e.key === 'Escape') setNuovoGruppo(null); }}
             aria-label={t('identity.newGroupNameLabel')}
             placeholder={t('identity.newGroupNameLabel')}
             className={campo}
           />
           <button
             disabled={inCorso}
-            onClick={() => void creaGruppo()}
+            onClick={() => void createGroup()}
             className="flex-shrink-0 rounded border border-app-border px-2 py-1 text-[11px] text-app-text hover:bg-app-hover disabled:opacity-50"
           >
             {t('identity.create')}

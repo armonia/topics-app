@@ -170,14 +170,14 @@ describe('decideCacheWrite: la riscrittura identica non parte', () => {
  * Prova la cosa da cui il WAL dipende, cioe' quanti byte lasciano il client, e
  * lo fa mettendo a confronto il vecchio percorso e il nuovo sugli stessi dati.
  */
-type FintoMessaggio = { id: string; content: string };
+type FakeMessage = { id: string; content: string };
 
 /**
  * Il percorso PRE-FIX, copiato riga per riga da `cacheMessages` com'era: dimezza
  * la coda, esce a `take = 1` senza ricontrollare, e scrive sempre. Vive qui e
  * solo qui, per avere un numero da confrontare invece di una stima.
  */
-function scritturaVecchia(settled: readonly FintoMessaggio[]): string {
+function oldWrite(settled: readonly FakeMessage[]): string {
   let take = Math.min(settled.length, MAX_MESSAGES);
   let payload = JSON.stringify(settled.slice(-take));
   while (take > 1 && payload.length > CAP) {
@@ -199,7 +199,7 @@ function banco() {
     get bytes() { return bytes; },
     get removes() { return removes; },
     /** Le sole mosse su storage che `cacheMessages` fa oggi. */
-    nuovo(settled: readonly FintoMessaggio[]) {
+    nuovo(settled: readonly FakeMessage[]) {
       const d = decideCacheWrite({
         settled,
         previous: store.get(KEY) ?? null,
@@ -213,8 +213,8 @@ function banco() {
       bytes += d.payload.length;
     },
     /** Quelle che faceva prima: una scrittura ogni chiamata, sempre. */
-    vecchio(settled: readonly FintoMessaggio[]) {
-      const payload = scritturaVecchia(settled);
+    vecchio(settled: readonly FakeMessage[]) {
+      const payload = oldWrite(settled);
       store.set(KEY, payload);
       writes++;
       bytes += payload.length;
@@ -240,7 +240,7 @@ describe('quanto scrive il client, contato', () => {
     // Il freno non deve mangiarsi le scritture legittime.
     const prima = banco();
     const adesso = banco();
-    const settled: FintoMessaggio[] = [];
+    const settled: FakeMessage[] = [];
     for (let i = 0; i < 20; i++) {
       settled.push(msg(`m${i}`, 4 * 1024));
       prima.vecchio(settled);
@@ -258,14 +258,14 @@ describe('quanto scrive il client, contato', () => {
     prima.vecchio([msg('vecchio', 1024)]);
     adesso.nuovo([msg('vecchio', 1024)]);
     const sanaPrima = prima.bytes;
-    const sanaAdesso = adesso.bytes;
+    const healthyNow = adesso.bytes;
 
     for (let i = 0; i < 10; i++) { prima.vecchio(gigante); adesso.nuovo(gigante); }
 
     // Prima: dieci blob fuori tetto, oltre 8 MB sul giornale.
     expect(prima.bytes - sanaPrima).toBeGreaterThan(8 * 1024 * 1024);
     // Adesso: nessun byte, e una sola rimozione, quella della voce vecchia.
-    expect(adesso.bytes).toBe(sanaAdesso);
+    expect(adesso.bytes).toBe(healthyNow);
     expect(adesso.removes).toBe(1);
   });
 });

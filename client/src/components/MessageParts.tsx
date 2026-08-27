@@ -117,8 +117,8 @@ export function TurnActivityIndicator({
       const adesso = Date.now();
       setNow(adesso);
       const origine = since != null && Number.isFinite(since) ? since : adesso;
-      const alProssimo = 1000 - ((adesso - origine) % 1000);
-      t = setTimeout(tick, alProssimo);
+      const atNext = 1000 - ((adesso - origine) % 1000);
+      t = setTimeout(tick, atNext);
     };
     tick();
     return () => clearTimeout(t);

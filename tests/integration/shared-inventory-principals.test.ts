@@ -130,7 +130,7 @@ function chiama(
  *  quando si risponde «è di un'altra persona», e l'unica da cui il difetto si
  *  vede. Le righe si scrivono a mano perché qui interessa lo stato finale, non
  *  il percorso che ci porta (quello è coperto in `auth-routes.test.ts`). */
-function ospiteConPersona(db: Database): { deviceId: string; personId: string } {
+function guestWithPerson(db: Database): { deviceId: string; personId: string } {
   const personId = "p-ospite";
   db.run(
     "INSERT INTO people (id, display_name, created_at, origin, rev, updated_at) VALUES (?,?,?,?,?,?)",
@@ -159,7 +159,7 @@ beforeEach(() => {
 describe("l'inventario dell'ospite parla degli stessi PRINCIPALI del cancello", () => {
   test("una chat condivisa con la sua PERSONA compare nell'inventario", async () => {
     const db = db084();
-    const { deviceId, personId } = ospiteConPersona(db);
+    const { deviceId, personId } = guestWithPerson(db);
     db.run(
       "INSERT INTO grants (id, subject_type, subject_id, resource_type, resource_id, level, granted_at) VALUES ('g1','person',?,'topic','c1','read',1)",
       [personId],
@@ -181,7 +181,7 @@ describe("l'inventario dell'ospite parla degli stessi PRINCIPALI del cancello", 
     // Le schede e le chat escono dalla stessa chiamata: se solo una delle due
     // fosse corretta, la rotta risponderebbe in due modi alla stessa domanda.
     const db = db084();
-    const { deviceId, personId } = ospiteConPersona(db);
+    const { deviceId, personId } = guestWithPerson(db);
     db.run(
       "INSERT INTO grants (id, subject_type, subject_id, resource_type, resource_id, level, granted_at) VALUES ('g1','person',?,'task','t1','read',1)",
       [personId],
@@ -192,7 +192,7 @@ describe("l'inventario dell'ospite parla degli stessi PRINCIPALI del cancello", 
 
   test("una chat condivisa con un'ORGANIZZAZIONE viva compare; con una revocata no", async () => {
     const db = db084();
-    const { deviceId, personId } = ospiteConPersona(db);
+    const { deviceId, personId } = guestWithPerson(db);
     db.run("INSERT INTO orgs (id, name, created_at, origin, rev, updated_at) VALUES ('o1','Squadra',1,'local',1,1)");
     db.run(
       "INSERT INTO org_members (org_id, person_id, role, joined_at, rev, updated_at) VALUES ('o1',?,'member',1,1,1)",
@@ -211,7 +211,7 @@ describe("l'inventario dell'ospite parla degli stessi PRINCIPALI del cancello", 
 
   test("una chat condivisa con un'ALTRA persona resta fuori", async () => {
     const db = db084();
-    const { deviceId } = ospiteConPersona(db);
+    const { deviceId } = guestWithPerson(db);
     db.run("INSERT INTO people (id, display_name, created_at, origin, rev, updated_at) VALUES ('p-altro','Estraneo',1,'local',1,1)");
     db.run("INSERT INTO grants (id, subject_type, subject_id, resource_type, resource_id, level, granted_at) VALUES ('g1','person','p-altro','topic','c1','read',1)");
     const b = await inventario(db, deviceId);
@@ -223,7 +223,7 @@ describe("l'inventario dell'ospite parla degli stessi PRINCIPALI del cancello", 
     // La strada vecchia non deve rompersi: `deviceP` era un sottoinsieme, non
     // una cosa diversa.
     const db = db084();
-    const { deviceId } = ospiteConPersona(db);
+    const { deviceId } = guestWithPerson(db);
     db.run(
       "INSERT INTO grants (id, subject_type, subject_id, resource_type, resource_id, level, granted_at) VALUES ('g1','device',?,'topic','c1','read',1)",
       [deviceId],
@@ -233,7 +233,7 @@ describe("l'inventario dell'ospite parla degli stessi PRINCIPALI del cancello", 
 
   test("senza identità non esce niente — non «tutto»", async () => {
     const db = db084();
-    ospiteConPersona(db);
+    guestWithPerson(db);
     expect(await inventario(db, null)).toEqual({ tasks: [], topics: [] });
   });
 });
@@ -265,7 +265,7 @@ async function elencoSchede(db: Database, deviceId: string): Promise<string[]> {
 describe("l'elenco delle schede di un ospite parla degli STESSI principali", () => {
   test("una scheda condivisa con la sua PERSONA compare nell'elenco", async () => {
     const db = db084();
-    const { deviceId, personId } = ospiteConPersona(db);
+    const { deviceId, personId } = guestWithPerson(db);
     db.run(
       "INSERT INTO grants (id, subject_type, subject_id, resource_type, resource_id, level, granted_at) VALUES ('g1','person',?,'task','t1','read',1)",
       [personId],
@@ -286,7 +286,7 @@ describe("l'elenco delle schede di un ospite parla degli STESSI principali", () 
     // Il controllo NEGATIVO: senza, «vede t1» sarebbe soddisfatto anche da un
     // filtro che non filtra niente.
     const db = db084();
-    const { deviceId, personId } = ospiteConPersona(db);
+    const { deviceId, personId } = guestWithPerson(db);
     seminaTask(db, "t2", "La scheda di un altro");
     db.run("INSERT INTO people (id, display_name, created_at, origin, rev, updated_at) VALUES ('p-altro','Estraneo',1,'local',1,1)");
     db.run(
@@ -300,7 +300,7 @@ describe("l'elenco delle schede di un ospite parla degli STESSI principali", () 
 
   test("una scheda condivisa con un'ORGANIZZAZIONE viva compare; con una revocata no", async () => {
     const db = db084();
-    const { deviceId, personId } = ospiteConPersona(db);
+    const { deviceId, personId } = guestWithPerson(db);
     db.run("INSERT INTO orgs (id, name, created_at, origin, rev, updated_at) VALUES ('o1','Squadra',1,'local',1,1)");
     db.run(
       "INSERT INTO org_members (org_id, person_id, role, joined_at, rev, updated_at) VALUES ('o1',?,'member',1,1,1)",
@@ -316,7 +316,7 @@ describe("l'elenco delle schede di un ospite parla degli STESSI principali", () 
 
   test("la concessione al DISPOSITIVO continua a valere", async () => {
     const db = db084();
-    const { deviceId } = ospiteConPersona(db);
+    const { deviceId } = guestWithPerson(db);
     db.run(
       "INSERT INTO grants (id, subject_type, subject_id, resource_type, resource_id, level, granted_at) VALUES ('g1','device',?,'task','t1','read',1)",
       [deviceId],
@@ -326,7 +326,7 @@ describe("l'elenco delle schede di un ospite parla degli STESSI principali", () 
 
   test("una scheda NON condivisa non compare", async () => {
     const db = db084();
-    const { deviceId } = ospiteConPersona(db);
+    const { deviceId } = guestWithPerson(db);
     expect(await elencoSchede(db, deviceId)).toEqual([]);
   });
 });

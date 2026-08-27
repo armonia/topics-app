@@ -37,7 +37,7 @@ export const KID_DEFAULT = "armonia-1";
 export const POSTI_MIN = 1;
 export const POSTI_MAX = 10_000;
 
-export type EsitoChiave =
+export type OutcomeKey =
   | { ok: true; chiave: KeyObject }
   | { ok: false; motivo: "assente" | "lunghezza" | "illeggibile" };
 
@@ -49,7 +49,7 @@ export type EsitoChiave =
  * perché a noi manca una variabile): entrambi vogliono un esito, non
  * un'eccezione che risale.
  */
-export function caricaPrivata(grezza: string | undefined | null): EsitoChiave {
+export function caricaPrivata(grezza: string | undefined | null): OutcomeKey {
   const s = (grezza ?? "").trim();
   if (!s) return { ok: false, motivo: "assente" };
   let seed: Buffer;
@@ -116,7 +116,7 @@ export function coniaGettone(o: OpzioniConio): string {
   return `${pCarico}.${firma.toString("base64url")}`;
 }
 
-export interface CaricoLetto {
+export interface ReadLoad {
   iid: string;
   seats: number;
   exp: number;
@@ -131,7 +131,7 @@ export interface CaricoLetto {
  * decisione che, se sbagliata, produce un gettone in più, non un permesso in
  * più. Per «è valido?» esiste `verificaGettone`, e non è questa funzione.
  */
-export function leggiCaricoNonVerificato(gettone: string): CaricoLetto | null {
+export function leggiCaricoNonVerificato(gettone: string): ReadLoad | null {
   const pezzi = (gettone ?? "").trim().split(".");
   if (pezzi.length !== 2 || !pezzi[0]) return null;
   try {

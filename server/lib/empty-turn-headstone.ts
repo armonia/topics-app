@@ -67,7 +67,7 @@ export interface RowToReuse {
 }
 
 /** An empty or absent JSON list. */
-function listaVuota(raw: string | null): boolean {
+function emptyList(raw: string | null): boolean {
   if (!raw) return true;
   const t = raw.trim();
   if (t === "" || t === "[]" || t === "null") return true;
@@ -81,7 +81,7 @@ function listaVuota(raw: string | null): boolean {
 
 /** Are the blocks ONLY the error notice, and nothing else? */
 function soloIlBloccoDErrore(raw: string | null): boolean {
-  if (listaVuota(raw)) return true;
+  if (emptyList(raw)) return true;
   try {
     const v = JSON.parse(String(raw));
     if (!Array.isArray(v)) return false;
@@ -104,7 +104,7 @@ export function isReusableHeadstone(
   if (riga.role !== "assistant") return false;
   if (riga.partial) return false;
   if (!riga.content.startsWith(HEADSTONE_PREFIX)) return false;
-  if (!listaVuota(riga.toolCallsJson)) return false;
+  if (!emptyList(riga.toolCallsJson)) return false;
   if (!soloIlBloccoDErrore(riga.blocksJson)) return false;
   const nata = Date.parse(riga.timestamp);
   if (!Number.isFinite(nata)) return false;

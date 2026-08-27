@@ -171,7 +171,7 @@ export function consentito(e: Entitlement, r: Richiesta): Esito {
 // Le chiavi con cui si controlla la firma
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface ChiavePubblica {
+export interface PublicKey {
   /** Identificativo della chiave: permette di ruotarla senza invalidare i
    *  gettoni già emessi con la precedente. */
   kid: string;
@@ -220,22 +220,22 @@ export const CHIAVI_INTEGRATE: readonly string[] = [
 export function caricaChiavi(
   env: Record<string, string | undefined>,
   integrate: readonly string[] = CHIAVI_INTEGRATE,
-): ChiavePubblica[] {
+): PublicKey[] {
   const grezze = [...integrate, ...(env.TOPICS_LICENSE_PUBKEYS ?? "").split(",")];
-  const out: ChiavePubblica[] = [];
+  const out: PublicKey[] = [];
   for (const riga of grezze) {
     const v = riga.trim();
     if (!v) continue;
     const i = v.indexOf(":");
     const kid = i >= 0 ? v.slice(0, i).trim() : "";
     const b64 = (i >= 0 ? v.slice(i + 1) : v).trim();
-    const chiave = costruisciChiave(b64);
+    const chiave = buildKey(b64);
     if (chiave) out.push({ kid, chiave });
   }
   return out;
 }
 
-function costruisciChiave(b64: string): KeyObject | null {
+function buildKey(b64: string): KeyObject | null {
   try {
     const raw = Buffer.from(b64, "base64");
     if (raw.length !== 32) return null;
@@ -274,7 +274,7 @@ export interface CaricoGettone {
 
 const B64URL = /^[A-Za-z0-9_-]+$/;
 
-function decodificaSegmento(s: string): Buffer | null {
+function decodeSegment(s: string): Buffer | null {
   // `Buffer.from` è indulgente e accetta anche caratteri fuori alfabeto
   // ignorandoli: senza questo controllo due gettoni diversi si decodificano
   // uguali, ed è la strada per cui una firma vale su un carico che non è
@@ -314,8 +314,8 @@ function leggiCarico(b: Buffer): CaricoGettone | null {
   };
 }
 
-export interface OpzioniVerifica {
-  chiavi: ChiavePubblica[];
+export interface OptionsVerify {
+  chiavi: PublicKey[];
   installationId: string;
   ora: number;
 }
@@ -327,9 +327,9 @@ export interface OpzioniVerifica {
  * ripagare la verifica — e che tiene una sola copia delle regole, invece di due
  * che col tempo si allontanano.
  */
-function verificaCarico(
+function verifyLoad(
   gettone: string,
-  o: { chiavi: ChiavePubblica[]; installationId: string },
+  o: { chiavi: PublicKey[]; installationId: string },
 ): { carico: CaricoGettone } | { motivo: MotivoLicenza } {
   const g = gettone.trim();
   if (!g) return { motivo: "no_token" };
@@ -338,10 +338,10 @@ function verificaCarico(
   if (pezzi.length !== 2) return { motivo: "malformed" };
   const [pCarico, pFirma] = pezzi as [string, string];
 
-  const bytesCarico = decodificaSegmento(pCarico);
-  const firma = decodificaSegmento(pFirma);
-  if (!bytesCarico || !firma || firma.length !== 64) return { motivo: "malformed" };
-  const carico = leggiCarico(bytesCarico);
+  const bytesLoad = decodeSegment(pCarico);
+  const firma = decodeSegment(pFirma);
+  if (!bytesLoad || !firma || firma.length !== 64) return { motivo: "malformed" };
+  const carico = leggiCarico(bytesLoad);
   if (!carico) return { motivo: "malformed" };
 
   // Senza chiavi non si crede a niente — e lo si DICE, invece di far passare
@@ -370,7 +370,7 @@ function verificaCarico(
 }
 
 /** Dal carico autentico all'entitlement, valutando la scadenza contro l'ora. */
-function daCarico(carico: CaricoGettone, installationId: string, ora: number): Entitlement {
+function fromLoad(carico: CaricoGettone, installationId: string, ora: number): Entitlement {
   if (carico.exp <= ora) return pianoGratuito(installationId, "expired");
   return {
     piano: "team",
@@ -391,10 +391,10 @@ function daCarico(carico: CaricoGettone, installationId: string, ora: number): E
  * stringhe diverse, e firmare l'oggetto invece del testo è il modo classico di
  * ritrovarsi con una firma che vale su un carico che nessuno ha firmato.
  */
-export function verificaGettone(gettone: string, o: OpzioniVerifica): Entitlement {
-  const r = verificaCarico(gettone, o);
+export function verificaGettone(gettone: string, o: OptionsVerify): Entitlement {
+  const r = verifyLoad(gettone, o);
   if ("motivo" in r) return pianoGratuito(o.installationId, r.motivo);
-  return daCarico(r.carico, o.installationId, o.ora);
+  return fromLoad(r.carico, o.installationId, o.ora);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -460,10 +460,10 @@ export interface OpzioniServizio {
 export function creaServizioLicenza(o: OpzioniServizio): ServizioLicenza {
   const orologio = o.ora ?? (() => Date.now());
   const chiavi = caricaChiavi(o.env);
-  let grezzoCache: string | null = null;
+  let rawCache: string | null = null;
   /** Il carico VERIFICATO, o `null` con il motivo del rifiuto. */
-  let caricoCache: CaricoGettone | null = null;
-  let motivoCache: MotivoLicenza = "no_token";
+  let loadCache: CaricoGettone | null = null;
+  let reasonCache: MotivoLicenza = "no_token";
   let primaVolta = true;
   /**
    * Il gettone VALIDO che non si è potuto scrivere sul disco, e che quindi vale
@@ -477,20 +477,20 @@ export function creaServizioLicenza(o: OpzioniServizio): ServizioLicenza {
 
   function aggiorna(): void {
     const grezzo = leggiGettoneGrezzo(o.env, o.stateDir) ?? soloInMemoria;
-    if (!primaVolta && grezzo === grezzoCache) return;
+    if (!primaVolta && grezzo === rawCache) return;
     primaVolta = false;
-    grezzoCache = grezzo;
-    if (!grezzo) { caricoCache = null; motivoCache = "no_token"; return; }
-    const r = verificaCarico(grezzo, { chiavi, installationId: o.installationId });
-    if ("motivo" in r) { caricoCache = null; motivoCache = r.motivo; return; }
-    caricoCache = r.carico;
-    motivoCache = "valid";
+    rawCache = grezzo;
+    if (!grezzo) { loadCache = null; reasonCache = "no_token"; return; }
+    const r = verifyLoad(grezzo, { chiavi, installationId: o.installationId });
+    if ("motivo" in r) { loadCache = null; reasonCache = r.motivo; return; }
+    loadCache = r.carico;
+    reasonCache = "valid";
   }
 
   function stato(ora = orologio()): Entitlement {
     aggiorna();
-    if (!caricoCache) return pianoGratuito(o.installationId, motivoCache);
-    return daCarico(caricoCache, o.installationId, ora);
+    if (!loadCache) return pianoGratuito(o.installationId, reasonCache);
+    return fromLoad(loadCache, o.installationId, ora);
   }
 
   return {
@@ -501,9 +501,9 @@ export function creaServizioLicenza(o: OpzioniServizio): ServizioLicenza {
       // ciò che permette, se il disco rifiuta, di rispondere con la licenza
       // appena verificata invece di andarla a ricercare dove non è stata
       // scritta.
-      const r = verificaCarico(g, { chiavi, installationId: o.installationId });
+      const r = verifyLoad(g, { chiavi, installationId: o.installationId });
       if ("motivo" in r) return pianoGratuito(o.installationId, r.motivo);
-      const e = daCarico(r.carico, o.installationId, ora);
+      const e = fromLoad(r.carico, o.installationId, ora);
       // Un gettone che non regge non si scrive sul disco: conservarlo darebbe
       // all'interfaccia una licenza «in attesa» che non diventerà mai valida, e
       // la macchina somiglierebbe a una che ha pagato e non funziona.
@@ -524,9 +524,9 @@ export function creaServizioLicenza(o: OpzioniServizio): ServizioLicenza {
         // rifiuto su un acquisto già andato a buon fine, ed è esattamente il
         // verso in cui questo modulo non deve mai sbagliare.
         soloInMemoria = g;
-        grezzoCache = g;
-        caricoCache = r.carico;
-        motivoCache = "valid";
+        rawCache = g;
+        loadCache = r.carico;
+        reasonCache = "valid";
         primaVolta = false;
         return e;
       }
@@ -542,8 +542,8 @@ export function creaServizioLicenza(o: OpzioniServizio): ServizioLicenza {
       // cartella non scrivibile non toglierebbe niente.
       soloInMemoria = null;
       primaVolta = true;
-      grezzoCache = null;
-      caricoCache = null;
+      rawCache = null;
+      loadCache = null;
       return stato();
     },
   };

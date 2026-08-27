@@ -29,7 +29,7 @@
 import type { PersonWithProfile } from '@/lib/api';
 import type { SessionState } from '@/lib/auth/session';
 
-export interface EtichettaIdentita {
+export interface LabelIdentity {
   /** La riga grossa: il nome della persona, o il ferro quando non c'è. */
   nome: string;
   /** La riga piccola: il ferro quando il nome è la persona, altrimenti niente
@@ -63,7 +63,7 @@ function nomeDelFerro(sessione: SessionState): string {
 export function etichettaIdentita(
   persona: Pick<PersonWithProfile, 'displayName' | 'github'> | null,
   sessione: SessionState,
-): EtichettaIdentita {
+): LabelIdentity {
   const ferro = nomeDelFerro(sessione);
   const nomePersona = persona?.displayName?.trim() ?? '';
   const avatarUrl = persona?.github?.avatarUrl ?? null;

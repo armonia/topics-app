@@ -97,7 +97,7 @@ export function leggiConfigStripe(env: Record<string, string | undefined>): Conf
   };
 }
 
-export interface StatoPubblicoStripe {
+export interface PublicStateStripe {
   /** Si può aprire un checkout: serve la chiave E il listino. */
   configured: boolean;
   /** I webhook si possono verificare. Indipendente dal precedente: una
@@ -114,7 +114,7 @@ export interface StatoPubblicoStripe {
  * risposta che, il giorno in cui la rotta smette di essere protetta, lo
  * consegna.
  */
-export function statoPubblico(c: ConfigStripe): StatoPubblicoStripe {
+export function statoPubblico(c: ConfigStripe): PublicStateStripe {
   return {
     configured: !!c.secretKey && !!c.priceId,
     webhookConfigured: !!c.webhookSecret,
@@ -131,7 +131,7 @@ export function statoPubblico(c: ConfigStripe): StatoPubblicoStripe {
  * «la firma non torna» è un evento da buttare, e chi legge i log deve poterli
  * distinguere senza indovinare.
  */
-export type MotivoFirma =
+export type ReasonSignature =
   | "no_secret"        // non configurato: non si accetta niente, e lo si dice
   | "missing_header"   // nessun `Stripe-Signature`
   | "malformed_header" // c'è ma non ha `t=` e almeno un `v1=`
@@ -145,9 +145,9 @@ export type MotivoFirma =
  *  butta eventi buoni consegnati in ritardo da una rete lenta. */
 export const TOLLERANZA_MS = 300_000;
 
-export type EsitoFirma =
+export type OutcomeSignature =
   | { ok: true }
-  | { ok: false; motivo: Exclude<MotivoFirma, "valid"> };
+  | { ok: false; motivo: Exclude<ReasonSignature, "valid"> };
 
 /**
  * Il carico su cui Stripe calcola l'HMAC: `${t}.${corpo grezzo}`.
@@ -159,14 +159,14 @@ export type EsitoFirma =
  * corpo che non è quello firmato. È lo stesso motivo per cui `licenza.ts` firma
  * i byte ASCII del segmento e non l'oggetto.
  */
-function caricoFirmato(t: string, corpoGrezzo: string): string {
+function signedLoad(t: string, corpoGrezzo: string): string {
   return `${t}.${corpoGrezzo}`;
 }
 
 /** Confronto a tempo costante fra due digest esadecimali. La lunghezza si
  *  controlla prima perché `timingSafeEqual` solleva su lunghezze diverse — e
  *  quella non è un'informazione segreta: il digest ha lunghezza fissa. */
-function ugualiSenzaTempi(a: string, b: string): boolean {
+function equalWithoutTimes(a: string, b: string): boolean {
   const ba = Buffer.from(a, "utf8");
   const bb = Buffer.from(b, "utf8");
   if (ba.length !== bb.length) return false;
@@ -194,7 +194,7 @@ export function verificaFirmaWebhook(
   segreto: string | null,
   ora: number,
   tolleranzaMs: number = TOLLERANZA_MS,
-): EsitoFirma {
+): OutcomeSignature {
   if (!segreto) return { ok: false, motivo: "no_secret" };
   if (!header || !header.trim()) return { ok: false, motivo: "missing_header" };
 
@@ -223,9 +223,9 @@ export function verificaFirmaWebhook(
   // Il segreto si usa INTERO, prefisso `whsec_` compreso: è la chiave HMAC per
   // come la usa Stripe. Toglierlo produce un digest che non torna mai, ed è
   // l'errore classico di chi reimplementa questa verifica.
-  const atteso = createHmac("sha256", segreto).update(caricoFirmato(t, corpoGrezzo), "utf8").digest("hex");
+  const atteso = createHmac("sha256", segreto).update(signedLoad(t, corpoGrezzo), "utf8").digest("hex");
   for (const f of firme) {
-    if (ugualiSenzaTempi(atteso, f.toLowerCase())) return { ok: true };
+    if (equalWithoutTimes(atteso, f.toLowerCase())) return { ok: true };
   }
   return { ok: false, motivo: "bad_signature" };
 }
@@ -242,7 +242,7 @@ export function verificaFirmaWebhook(
  * crescere un `switch` dentro un handler HTTP — che è il modo in cui un webhook
  * diventa il posto dove vive la metà nascosta delle regole.
  */
-export type AzioneEvento =
+export type ActionEvent =
   /** L'evento porta un gettone di licenza: si passa alla porta unica, che lo
    *  riverifica. Stripe non concede, consegna. */
   | { tipo: "install_token"; token: string }
@@ -253,12 +253,12 @@ export type AzioneEvento =
    *  parte degli eventi: Stripe ne manda molti più di quanti ce ne servano. */
   | { tipo: "ignore"; perche: string };
 
-export interface EventoStripe {
+export interface EventStripe {
   id: string;
   type: string;
   /** L'installazione a cui l'evento si riferisce, se l'evento lo dice. */
   installationId: string | null;
-  azione: AzioneEvento;
+  azione: ActionEvent;
 }
 
 function stringa(o: unknown): string | null {
@@ -283,7 +283,7 @@ function leggiInstallationId(dato: Record<string, unknown>): string | null {
     ?? (meta ? stringa(meta.installation_id) : null);
 }
 
-function leggiToken(dato: Record<string, unknown>): string | null {
+function readToken(dato: Record<string, unknown>): string | null {
   const meta = oggetto(dato.metadata);
   return meta ? stringa(meta.license_token) : null;
 }
@@ -306,7 +306,7 @@ const STATI_FINITI = new Set(["canceled", "unpaid", "incomplete_expired"]);
  * male a ciò che non gli interessa si trasforma in una coda di consegne fallite
  * che nasconde quelle vere.
  */
-export function interpretaEvento(corpo: unknown): EventoStripe | null {
+export function interpretaEvento(corpo: unknown): EventStripe | null {
   const e = oggetto(corpo);
   if (!e) return null;
   const id = stringa(e.id);
@@ -327,7 +327,7 @@ export function interpretaEvento(corpo: unknown): EventoStripe | null {
       if (stato && STATI_FINITI.has(stato)) {
         return { ...base, azione: { tipo: "remove_license" } };
       }
-      const token = leggiToken(dato);
+      const token = readToken(dato);
       if (token) return { ...base, azione: { tipo: "install_token", token } };
       // Pagato ma senza gettone: non è un guasto di questa macchina. Il
       // gettone lo conia il servizio che ha la chiave privata, e finché non
@@ -348,18 +348,18 @@ export function interpretaEvento(corpo: unknown): EventoStripe | null {
 // Aprire un checkout
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type CodiceCheckout =
+export type CodeCheckout =
   | "not_configured"   // manca la chiave o il listino: il caso normale
   | "no_installation"  // non sappiamo per chi stiamo comprando
   | "bad_seats"
   | "upstream_error"   // Stripe ha risposto male
   | "unreachable";     // non si è riusciti a parlare con Stripe
 
-export type EsitoCheckout =
+export type OutcomeCheckout =
   | { ok: true; url: string; id: string }
-  | { ok: false; codice: CodiceCheckout };
+  | { ok: false; codice: CodeCheckout };
 
-export interface OpzioniCheckout {
+export interface OptionsCheckout {
   config: ConfigStripe;
   installationId: string;
   posti: number;
@@ -385,7 +385,7 @@ export const POSTI_MAX_CHECKOUT = 500;
  * **Non solleva mai**: una rete che non risponde torna `unreachable`, non
  * un'eccezione che risale fino a far sembrare rotta l'applicazione.
  */
-export async function creaCheckout(o: OpzioniCheckout): Promise<EsitoCheckout> {
+export async function creaCheckout(o: OptionsCheckout): Promise<OutcomeCheckout> {
   const { config: c } = o;
   if (!c.secretKey || !c.priceId) return { ok: false, codice: "not_configured" };
   if (!o.installationId.trim()) return { ok: false, codice: "no_installation" };

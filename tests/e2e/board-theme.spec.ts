@@ -428,10 +428,10 @@ test.describe("Chrome — i segnali di stato nei due temi", () => {
         ).toBeGreaterThanOrEqual(AA_TESTO);
       }
 
-      const fondoChrome = await effectiveBgOf(page, "#chrome-harness");
+      const bottomChrome = await effectiveBgOf(page, "#chrome-harness");
       for (const c of GRAFICA) {
         const tinta = await effectiveBgOf(page, `[data-pallino="${c.nome}"]`);
-        const ratio = contrastRatio(tinta, fondoChrome);
+        const ratio = contrastRatio(tinta, bottomChrome);
         testInfo.annotations.push({
           type: "contrasto grafica",
           description: `${scheme} · ${c.nome} (${c.cls}): ${ratio.toFixed(2)}:1`,

@@ -54,7 +54,7 @@ function commit(repo: string, messaggio: string, quando: string): void {
   git(repo, ["commit", "-q", "-m", messaggio], quando);
 }
 
-function nuovoRepo(nome: string): string {
+function newRepo(nome: string): string {
   const repo = mkdtempSync(join(tmpdir(), `lverd-${nome}-`));
   creati.push(repo);
   git(repo, ["init", "-q", "-b", "main"]);
@@ -93,7 +93,7 @@ describe("isRigaDiSostanza", () => {
 
 describe("indiceRigheMain", () => {
   test("indicizza le righe lunghe di main e ignora le corte", async () => {
-    const repo = nuovoRepo("indice");
+    const repo = newRepo("indice");
     scrivi(repo, "src/a.ts", impronte("alfa", 2) + "let x = 1;\n");
     commit(repo, "roba", "2026-07-02T10:00:00+02:00");
 
@@ -118,7 +118,7 @@ describe("indiceRigheMain", () => {
 describe("contenutoGiaNellAlbero", () => {
   /** Il ramo in due commit, atterrato su main schiacciato in uno. */
   function repoSquashLandato(): string {
-    const repo = nuovoRepo("squash");
+    const repo = newRepo("squash");
     scrivi(repo, "src/a.ts", "let base = 0;\n");
     commit(repo, "prima", "2026-07-02T10:00:00+02:00");
     git(repo, ["checkout", "-q", "-b", "topics/ramo"]);
@@ -146,7 +146,7 @@ describe("contenutoGiaNellAlbero", () => {
   }, TEMPO_GIT);
 
   test("un ramo che ha ancora del suo NON è dentro", async () => {
-    const repo = nuovoRepo("debito");
+    const repo = newRepo("debito");
     git(repo, ["checkout", "-q", "-b", "topics/ramo"]);
     scrivi(repo, "src/b.ts", impronte("solo-sua", 4));
     commit(repo, "lavoro mai atterrato", "2026-07-03T10:00:00+02:00");
@@ -168,14 +168,14 @@ describe("contenutoGiaNellAlbero", () => {
   }, TEMPO_GIT);
 
   test("una gamma che git non sa leggere è «non lo so», non «non c'è»", async () => {
-    const repo = nuovoRepo("ignoto");
+    const repo = newRepo("ignoto");
     expect(await contenutoGiaNellAlbero(repo, "main...topics/mai-esistito")).toBeNull();
   }, TEMPO_GIT);
 });
 
 describe("classifyBranchLanding", () => {
   test("DENTRO quando ogni file toccato è identico su main (squash-land)", async () => {
-    const repo = nuovoRepo("identico");
+    const repo = newRepo("identico");
     scrivi(repo, "src/a.ts", "vecchio\n");
     commit(repo, "prima", "2026-07-02T10:00:00+02:00");
     git(repo, ["checkout", "-q", "-b", "topics/ramo"]);
@@ -195,7 +195,7 @@ describe("classifyBranchLanding", () => {
   }, TEMPO_GIT);
 
   test("DENTRO per contenuto quando le righe del ramo sono su main dentro un file EVOLUTO", async () => {
-    const repo = nuovoRepo("righe");
+    const repo = newRepo("righe");
     scrivi(repo, "src/a.ts", "vecchio\n");
     commit(repo, "prima", "2026-07-02T10:00:00+02:00");
     git(repo, ["checkout", "-q", "-b", "topics/ramo"]);
@@ -212,7 +212,7 @@ describe("classifyBranchLanding", () => {
   }, TEMPO_GIT);
 
   test("DENTRO anche se la riga è finita in un ALTRO file su main", async () => {
-    const repo = nuovoRepo("spostato");
+    const repo = newRepo("spostato");
     scrivi(repo, "src/a.ts", "vecchio\n");
     commit(repo, "prima", "2026-07-02T10:00:00+02:00");
     git(repo, ["checkout", "-q", "-b", "topics/ramo"]);
@@ -228,7 +228,7 @@ describe("classifyBranchLanding", () => {
   }, TEMPO_GIT);
 
   test("SUPERATO col commit e la data di chi lo ha superato", async () => {
-    const repo = nuovoRepo("superato");
+    const repo = newRepo("superato");
     scrivi(repo, "src/outline.ts", "prima versione\n");
     commit(repo, "prima", "2026-07-02T10:00:00+02:00");
     git(repo, ["checkout", "-q", "-b", "topics/ramo"]);
@@ -247,7 +247,7 @@ describe("classifyBranchLanding", () => {
   }, TEMPO_GIT);
 
   test("fra i candidati vince quello che tocca PIÙ file del ramo, non il più recente", async () => {
-    const repo = nuovoRepo("tiebreak");
+    const repo = newRepo("tiebreak");
     for (const f of ["src/a.ts", "src/b.ts", "src/c.ts"]) scrivi(repo, f, "prima\n");
     commit(repo, "prima", "2026-07-02T10:00:00+02:00");
     git(repo, ["checkout", "-q", "-b", "topics/ramo"]);
@@ -267,7 +267,7 @@ describe("classifyBranchLanding", () => {
   }, TEMPO_GIT);
 
   test("FUORI quando main non ha né le righe né ha rifatto quei file dopo", async () => {
-    const repo = nuovoRepo("fuori");
+    const repo = newRepo("fuori");
     scrivi(repo, "src/a.ts", "prima\n");
     // Main tocca il file PRIMA del ramo: non è supersessione, è solo il passato.
     commit(repo, "tocco di main, ma prima", "2026-07-19T20:34:00+02:00");
@@ -285,7 +285,7 @@ describe("classifyBranchLanding", () => {
     // Il falso positivo di `epic-chimera`, 12/08: 23 righe in coda a
     // CONTRIBUTING.md, main quel file l'ha toccato due volte dopo per tutt'altro.
     // Le sole date lo assolvevano; quella sezione su main non c'è ancora.
-    const repo = nuovoRepo("coda");
+    const repo = newRepo("coda");
     scrivi(repo, "docs/guida.md", `# Guida\n\n${impronte("vecchio", 6)}\n## Coda\n\nfine\n`);
     commit(repo, "prima", "2026-07-02T10:00:00+02:00");
     git(repo, ["checkout", "-q", "-b", "topics/ramo"]);
@@ -303,7 +303,7 @@ describe("classifyBranchLanding", () => {
   }, TEMPO_GIT);
 
   test("FUORI, non SUPERATO, se un file del ramo su main non esiste proprio", async () => {
-    const repo = nuovoRepo("assente");
+    const repo = newRepo("assente");
     scrivi(repo, "src/a.ts", "prima\n");
     commit(repo, "prima", "2026-07-02T10:00:00+02:00");
     git(repo, ["checkout", "-q", "-b", "topics/ramo"]);
@@ -322,7 +322,7 @@ describe("classifyBranchLanding", () => {
   }, TEMPO_GIT);
 
   test("NON DECIDIBILE quando non c'è nessuna riga lunga da cercare", async () => {
-    const repo = nuovoRepo("indeciso");
+    const repo = newRepo("indeciso");
     scrivi(repo, "src/a.ts", "let x = 1;\n");
     commit(repo, "prima", "2026-07-02T10:00:00+02:00");
     git(repo, ["checkout", "-q", "-b", "topics/ramo"]);
@@ -335,7 +335,7 @@ describe("classifyBranchLanding", () => {
   }, TEMPO_GIT);
 
   test("DENTRO quando il ramo tocca solo file generati", async () => {
-    const repo = nuovoRepo("rumore");
+    const repo = newRepo("rumore");
     scrivi(repo, "bun.lock", "prima\n");
     commit(repo, "prima", "2026-07-02T10:00:00+02:00");
     git(repo, ["checkout", "-q", "-b", "topics/ramo"]);
@@ -348,7 +348,7 @@ describe("classifyBranchLanding", () => {
   }, TEMPO_GIT);
 
   test("NON DECIDIBILE, non «fuori», quando il repo non ha il ramo d'integrazione", async () => {
-    const repo = nuovoRepo("senzamain");
+    const repo = newRepo("senzamain");
     git(repo, ["checkout", "-q", "-b", "topics/ramo"]);
     const v = await classifyBranchLanding(repo, "topics/ramo", { mainRef: "inesistente" });
     expect(v.esito).toBe("non-decidibile");
@@ -359,7 +359,7 @@ describe("classifyBranchLanding", () => {
     // Il caso `e40c3ad6`: 75/107 righe contando tutto (0,70, sotto soglia) e
     // 16/20 contando la sola sostanza (0,80). Il lavoro è atterrato, il commento
     // che lo spiegava l'ha riscritto qualcun altro dopo.
-    const repo = nuovoRepo("prosa");
+    const repo = newRepo("prosa");
     scrivi(repo, "src/a.ts", "prima\n");
     commit(repo, "prima", "2026-07-02T10:00:00+02:00");
     git(repo, ["checkout", "-q", "-b", "topics/ramo"]);
@@ -378,7 +378,7 @@ describe("classifyBranchLanding", () => {
   }, TEMPO_GIT);
 
   test("i commit EREDITATI da un altro ramo non contano come lavoro proprio", async () => {
-    const repo = nuovoRepo("eredita");
+    const repo = newRepo("eredita");
     scrivi(repo, "src/altrui.ts", "prima\n");
     commit(repo, "prima", "2026-07-02T10:00:00+02:00");
     // Un'altra sessione ha parcheggiato il suo lavoro sul checkout condiviso.
@@ -396,7 +396,7 @@ describe("classifyBranchLanding", () => {
 
 describe("classifyCommitLanding", () => {
   test("DENTRO sulla consegna RICOPIATA dal land, che la discendenza dà per fuori", async () => {
-    const repo = nuovoRepo("commit-dentro");
+    const repo = newRepo("commit-dentro");
     scrivi(repo, "src/a.ts", "prima\n");
     commit(repo, "prima", "2026-07-02T10:00:00+02:00");
     git(repo, ["checkout", "-q", "-b", "topics/ramo"]);
@@ -416,7 +416,7 @@ describe("classifyCommitLanding", () => {
   }, TEMPO_GIT);
 
   test("FUORI quando di quella consegna su main non c'è niente", async () => {
-    const repo = nuovoRepo("commit-fuori");
+    const repo = newRepo("commit-fuori");
     scrivi(repo, "src/a.ts", "prima\n");
     commit(repo, "prima", "2026-07-02T10:00:00+02:00");
     git(repo, ["checkout", "-q", "-b", "topics/ramo"]);
@@ -431,7 +431,7 @@ describe("classifyCommitLanding", () => {
   }, TEMPO_GIT);
 
   test("NON DECIDIBILE se il repo quel commit non ce l'ha più", async () => {
-    const repo = nuovoRepo("commit-sparito");
+    const repo = newRepo("commit-sparito");
     const v = await classifyCommitLanding(repo, "0".repeat(40));
     expect(v.esito).toBe("non-decidibile");
     expect(v.motivo).toContain("non ha più");

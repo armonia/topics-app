@@ -294,8 +294,8 @@ test.describe("Drawer del task — un solo scroll", () => {
       return b;
     };
     const drawerBox = await boxOf(drawer.locator("xpath=."));
-    let approvaBox = await boxOf(approva);
-    expect(approvaBox.y + approvaBox.height).toBeLessThanOrEqual(drawerBox.y + drawerBox.height + 1);
+    let approveBox = await boxOf(approva);
+    expect(approveBox.y + approveBox.height).toBeLessThanOrEqual(drawerBox.y + drawerBox.height + 1);
 
     // (3) Il brief SCORRE davvero, e scorrendo fino in fondo l'ultima sezione
     //     entra in vista — cioè lo scroll è quello vero, non un residuo.
@@ -306,8 +306,8 @@ test.describe("Drawer del task — un solo scroll", () => {
 
     // (4) …e dopo lo scroll i bottoni sono ANCORA lì. È il punto: scorrere il
     //     brief non porta via la decisione, perché la decisione non è nel brief.
-    approvaBox = await boxOf(approva);
-    expect(approvaBox.y + approvaBox.height).toBeLessThanOrEqual(drawerBox.y + drawerBox.height + 1);
+    approveBox = await boxOf(approva);
+    expect(approveBox.y + approveBox.height).toBeLessThanOrEqual(drawerBox.y + drawerBox.height + 1);
     await expect(approva).toBeVisible();
 
     // (5) L'anteprima è una FETTA del drawer, non il drawer: tetto in px, e in
@@ -426,8 +426,8 @@ test.describe("Drawer del task — un solo scroll", () => {
     const approva = drawer.getByRole("button", { name: /^Approva/ });
     await expect(approva).toBeVisible();
     const drawerBox = (await drawer.boundingBox())!;
-    const approvaBox = (await approva.boundingBox())!;
-    expect(approvaBox.y + approvaBox.height).toBeLessThanOrEqual(drawerBox.y + drawerBox.height + 1);
+    const approveBox = (await approva.boundingBox())!;
+    expect(approveBox.y + approveBox.height).toBeLessThanOrEqual(drawerBox.y + drawerBox.height + 1);
 
     // Ritorno a stretto: la seconda colonna sparisce dal DOM, non si nasconde.
     await drawer.getByTitle(/Riduci il drawer/).click();

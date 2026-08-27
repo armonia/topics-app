@@ -78,7 +78,7 @@ export function sheetSettle(corsa: number, altezza: number, velocita: number): S
  * La colonna che scorre fra il dito e il foglio, se c'è. Serve a rispondere a
  * una domanda sola: quel contenuto è già in cima?
  */
-function scorrevoleSotto(dito: Node | null, foglio: HTMLElement): HTMLElement | null {
+function scrollingBelow(dito: Node | null, foglio: HTMLElement): HTMLElement | null {
   let n: Node | null = dito;
   while (n && n !== foglio.parentNode) {
     if (n instanceof HTMLElement && n.scrollHeight > n.clientHeight + 1) {
@@ -236,7 +236,7 @@ export function useSheetDrag({ enabled, sheetRef, scrimRef, onClose }: SheetDrag
         // Il contenuto è già scorso: il dito lo sta scorrendo, non trascinando
         // il foglio. Riprendere da qui sarebbe rubargli il gesto a metà.
         const node = sheetRef.current;
-        const col = node ? scorrevoleSotto(t.target as Node, node) : null;
+        const col = node ? scrollingBelow(t.target as Node, node) : null;
         if (col && col.scrollTop > 0) { azzera(); return; }
         attivo = true;
         // Il conto NON riparte da qui, resta ancorato al `touchstart`: come nel

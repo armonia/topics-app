@@ -136,18 +136,18 @@ test.describe("Kanban board — letture del feed", () => {
     // invece di aspettare un tempo a caso.
     let letture = 0;
     let inVolo = 0;
-    let ultimaAttivita = Date.now();
+    let lastActivity = Date.now();
     let marcato = false;
     let corpo: { tasks: { id: string; text: string }[] } | null = null;
     await page.route(/\/api\/all-boards\/tasks(\?|$)/, async (route) => {
       letture++;
       inVolo++;
-      ultimaAttivita = Date.now();
+      lastActivity = Date.now();
       if (!corpo) corpo = (await (await route.fetch()).json()) as { tasks: { id: string; text: string }[] };
       const tasks = corpo.tasks.map((t) => (marcato && t.id === seme.id ? { ...t, text: marcatore } : t));
       await route.fulfill({ json: { tasks } });
       inVolo--;
-      ultimaAttivita = Date.now();
+      lastActivity = Date.now();
     });
 
     /**
@@ -164,9 +164,9 @@ test.describe("Kanban board — letture del feed", () => {
      * Non è un `waitForTimeout`: è una condizione su ciò che si osserva, e
      * scade in rosso se il feed non si ferma mai.
      */
-    const feedFermo = async () => {
+    const stoppedFeed = async () => {
       await expect
-        .poll(() => inVolo === 0 && Date.now() - ultimaAttivita > 3 * FINESTRA_MS, {
+        .poll(() => inVolo === 0 && Date.now() - lastActivity > 3 * FINESTRA_MS, {
           timeout: 15_000,
           intervals: [100],
           message: "il feed globale non smette di leggere",
@@ -187,7 +187,7 @@ test.describe("Kanban board — letture del feed", () => {
     await expect(board.getByText(testo)).toBeVisible({ timeout: 10000 });
 
     // Da qui si misura: le letture dell'avvio non sono la raffica.
-    await feedFermo();
+    await stoppedFeed();
     letture = 0;
     marcato = true;
     for (let i = 0; i < 10; i++) ws.send(taskUpdated(seme.id, "todo"));
@@ -195,7 +195,7 @@ test.describe("Kanban board — letture del feed", () => {
     await expect(board.getByText(marcatore)).toBeVisible({ timeout: 10000 });
     // La coda della raffica arriva DOPO la prima lettura: contare qui, appena
     // il marcatore compare, misurerebbe mezza raffica.
-    await feedFermo();
+    await stoppedFeed();
     // Il tetto è il punto del test. Il pavimento è ciò che gli impedisce di
     // essere vero per il motivo sbagliato: con i frame che questo test mandava
     // prima — senza il campo `task`, quindi scartati dalla validazione in

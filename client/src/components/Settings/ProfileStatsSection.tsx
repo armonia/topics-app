@@ -179,7 +179,7 @@ export function ProfileStatsSection() {
   }
 
   const s = stats;
-  const daQuando = s?.activity.firstSeen
+  const fromWhen = s?.activity.firstSeen
     ? new Date(s.activity.firstSeen).toLocaleDateString(undefined, { year: 'numeric', month: 'short' })
     : null;
 
@@ -189,7 +189,7 @@ export function ProfileStatsSection() {
         {t('profile.stats.title')}
       </h3>
       <p className="text-[11px] leading-relaxed text-app-text-tertiary">
-        {daQuando ? t('profile.stats.blurbSince', { data: daQuando }) : t('profile.stats.blurb')}
+        {fromWhen ? t('profile.stats.blurbSince', { data: fromWhen }) : t('profile.stats.blurb')}
       </p>
 
       <div className="space-y-3 rounded-lg border border-app-border px-3 py-3" data-testid="profile-stats">

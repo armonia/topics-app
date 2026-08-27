@@ -29,7 +29,7 @@ const GATE = join(REPO_ROOT, "scripts", "server-reload-gate.sh");
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 /** Struttura minima di APP_DIR che soddisfa il cancello. */
-function appDirFinto(opts: {
+function fakeAppDir(opts: {
   migrations?: Array<{ name: string; sql: string; applied?: boolean }>;
   withDb?: boolean;
 }): string {
@@ -105,7 +105,7 @@ afterEach(() => {
 
 describe("server-reload-gate.sh — cancello migration SQL", () => {
   it("A: migration pending ROTTA → exit 1, non tocca il DB vivo", () => {
-    const dir = appDirFinto({
+    const dir = fakeAppDir({
       migrations: [
         { name: "20260817120000-ok.sql", sql: "SELECT 1;", applied: true },
         { name: "20260817120001-broken.sql", sql: "THIS IS NOT SQL!!!", applied: false },
@@ -128,7 +128,7 @@ describe("server-reload-gate.sh — cancello migration SQL", () => {
   });
 
   it("B: nessuna migration pending → exit 0", () => {
-    const dir = appDirFinto({
+    const dir = fakeAppDir({
       migrations: [
         { name: "20260817120000-ok.sql", sql: "SELECT 1;", applied: true },
       ],
@@ -138,7 +138,7 @@ describe("server-reload-gate.sh — cancello migration SQL", () => {
   });
 
   it("C: migration pending VALIDA → exit 0", () => {
-    const dir = appDirFinto({
+    const dir = fakeAppDir({
       migrations: [
         { name: "20260817120000-ok.sql", sql: "SELECT 1;", applied: true },
         { name: "20260817120001-valid.sql", sql: "CREATE TABLE IF NOT EXISTS _gate_probe (id INTEGER PRIMARY KEY);", applied: false },
@@ -149,7 +149,7 @@ describe("server-reload-gate.sh — cancello migration SQL", () => {
   });
 
   it("D: DB non ancora creato → exit 0 (primo avvio)", () => {
-    const dir = appDirFinto({
+    const dir = fakeAppDir({
       withDb: false,
       migrations: [
         { name: "20260817120001-broken.sql", sql: "THIS IS NOT SQL!!!", applied: false },
@@ -162,7 +162,7 @@ describe("server-reload-gate.sh — cancello migration SQL", () => {
   });
 
   it("E: sqlite3 non trovato → exit 0 (degradazione silenziosa)", () => {
-    const dir = appDirFinto({
+    const dir = fakeAppDir({
       migrations: [
         { name: "20260817120001-broken.sql", sql: "THIS IS NOT SQL!!!", applied: false },
       ],
@@ -215,7 +215,7 @@ describe("server-reload-gate.sh — cancello migration SQL", () => {
     // trovava `if [ ! -f "$DB_PATH" ] → exit 0` e usciva verde senza guardare niente.
     // La correzione: se DATA_DIR non è nell'env, il default è <APP_DIR>/data,
     // identico a server/db.ts:17 — così il cancello guarda dove guarda il server.
-    const dir = appDirFinto({
+    const dir = fakeAppDir({
       migrations: [
         { name: "20260817120000-ok.sql", sql: "SELECT 1;", applied: true },
         { name: "20260817120001-broken.sql", sql: "CREATE TABEL rotta(", applied: false },

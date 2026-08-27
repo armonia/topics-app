@@ -139,7 +139,7 @@ export function PlanSection() {
   const bottone = 'flex-shrink-0 rounded border border-app-border px-2 py-1 text-[11px] text-app-text hover:bg-app-hover disabled:opacity-50 coarse:min-h-11 coarse:min-w-11';
 
   const giorni = giorniAllaScadenza(piano.expiresAt, Date.now());
-  const avvisaScadenza = scadenzaVicina(piano.expiresAt, Date.now());
+  const warnExpiry = scadenzaVicina(piano.expiresAt, Date.now());
 
   return (
     <div className="space-y-2">
@@ -165,7 +165,7 @@ export function PlanSection() {
 
         {/* La scadenza si nomina solo quando è vicina: un conto alla rovescia
             che parte da un anno è rumore, e il rumore addestra a non leggere. */}
-        {avvisaScadenza && giorni !== null && (
+        {warnExpiry && giorni !== null && (
           <p className="text-[11px] leading-relaxed text-app-text">
             {t(giorni < 0 ? 'plan.expiredSince' : 'plan.expiresIn', { giorni: String(Math.abs(giorni)) })}
           </p>

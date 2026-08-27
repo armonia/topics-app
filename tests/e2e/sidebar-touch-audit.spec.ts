@@ -407,13 +407,13 @@ test.describe("Sidebar col dito — audit misurato", () => {
     // contro 0,55). La fila dei comandi in fondo dipinge, ma è un FRATELLO
     // della colonna, non un suo figlio — ed è per questo che può.
     await expect(page.locator(`${SIDEBAR} [data-testid="sidebar-status-bar"]`)).toHaveCount(0);
-    const filaFuori = await page.evaluate(() => {
+    const queueOutside = await page.evaluate(() => {
       const colonna = document.querySelector('[role="navigation"][aria-label="Topics sidebar"]');
       const fila = document.querySelector('[data-testid="mobile-chrome-bar"]');
       return { esiste: !!fila, dentro: !!(colonna && fila && colonna.contains(fila)) };
     });
-    expect(filaFuori.esiste).toBe(true);
-    expect(filaFuori.dentro).toBe(false);
+    expect(queueOutside.esiste).toBe(true);
+    expect(queueOutside.dentro).toBe(false);
 
     // LA FASCIA DELLA SAFE-AREA È LO STESSO PIXEL DELLA SIDEBAR.
     // È il difetto che ha riaperto la questione: la striscia sotto la tacca è il

@@ -81,15 +81,15 @@ describe("deliverToReviewBySystem: porte di sistema annota review_needs_summary"
       "SELECT content, kind FROM task_comments WHERE task_id = ? ORDER BY created_at",
     ).all(taskId) as Array<{ content: string; kind: string }>;
     // Deve esserci la nota che annota la consegna muta.
-    const notaMuta = commenti.find((c) => c.content.includes("senza riassunto"));
-    expect(notaMuta, "nota 'senza riassunto' deve comparire nel thread").toBeTruthy();
+    const mutedNote = commenti.find((c) => c.content.includes("senza riassunto"));
+    expect(mutedNote, "nota 'senza riassunto' deve comparire nel thread").toBeTruthy();
 
     // E DEVE ARRIVARE FINO ALLA CARD, che e' il punto: come `kind: 'service'`
     // la card la scartava (`isThreadSpeech`) e restava scritta in un thread che
     // nessuno apre. A schermo si vedeva la sola contabilita' del fan-out, e chi
     // rivedeva doveva indovinare perche' non ci fosse un riassunto (20/08,
     // card 235afe11).
-    expect(notaMuta!.kind).toBe("comment");
+    expect(mutedNote!.kind).toBe("comment");
 
     // ED E' L'ULTIMA PAROLA, non una riga sepolta. La card mostra l'ultima del
     // thread: nata prima della chiusura del fan-out questa le finiva sotto, e
@@ -117,10 +117,10 @@ describe("deliverToReviewBySystem: porte di sistema annota review_needs_summary"
     const commenti = db.prepare(
       "SELECT content, kind FROM task_comments WHERE task_id = ?",
     ).all(taskId) as Array<{ content: string; kind: string }>;
-    const notaMuta = commenti.find(
+    const mutedNote = commenti.find(
       (c) => c.kind === "service" && c.content.includes("senza riassunto"),
     );
-    expect(notaMuta, "turno non muto: la nota non deve comparire").toBeFalsy();
+    expect(mutedNote, "turno non muto: la nota non deve comparire").toBeFalsy();
   });
 
   /**
@@ -184,7 +184,7 @@ describe("askParkedChildren: porta di sistema annota review_needs_summary", () =
    * Padre con un figlio parcheggiato in backlog: la condizione che spinge
    * `askParkedChildren` a portare il padre in review con la domanda.
    */
-  function seedPadreConFiglioFermo(svc: ReturnType<typeof createTaskService>): string {
+  function seedParentWithStoppedChild(svc: ReturnType<typeof createTaskService>): string {
     const padre = svc.create({ text: "il padre", projectId: "pX" });
     const figlio = svc.create({ text: "il figlio", projectId: "pX", parentTaskId: padre.id });
     db.prepare("UPDATE tasks SET status = 'backlog' WHERE id = ?").run(figlio.id);
@@ -201,7 +201,7 @@ describe("askParkedChildren: porta di sistema annota review_needs_summary", () =
 
   test("(a) padre muto con figlio parcheggiato: nota 'senza riassunto' visibile", () => {
     const svc = createTaskService(db);
-    const padreId = seedPadreConFiglioFermo(svc);
+    const padreId = seedParentWithStoppedChild(svc);
 
     const t = svc.askParkedChildren({ taskId: padreId, by: "dispatcher", evenIfLive: true });
 
@@ -210,15 +210,15 @@ describe("askParkedChildren: porta di sistema annota review_needs_summary", () =
     const commenti = db.prepare(
       "SELECT content, kind FROM task_comments WHERE task_id = ? ORDER BY created_at",
     ).all(padreId) as Array<{ content: string; kind: string }>;
-    const notaMuta = commenti.find(
+    const mutedNote = commenti.find(
       (c) => c.kind === "service" && c.content.includes("senza riassunto"),
     );
-    expect(notaMuta, "nota 'senza riassunto' deve comparire sotto askParkedChildren").toBeTruthy();
+    expect(mutedNote, "nota 'senza riassunto' deve comparire sotto askParkedChildren").toBeTruthy();
   });
 
   test("(b) padre con commento e figlio parcheggiato: nessuna nota di consegna muta", () => {
     const svc = createTaskService(db);
-    const padreId = seedPadreConFiglioFermo(svc);
+    const padreId = seedParentWithStoppedChild(svc);
     db.prepare(
       "INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES (?,?,?,?,?,?)",
     ).run("c-3", padreId, "agent-abc", "lavoro fatto", "comment", new Date().toISOString());
@@ -230,10 +230,10 @@ describe("askParkedChildren: porta di sistema annota review_needs_summary", () =
     const commenti = db.prepare(
       "SELECT content, kind FROM task_comments WHERE task_id = ?",
     ).all(padreId) as Array<{ content: string; kind: string }>;
-    const notaMuta = commenti.find(
+    const mutedNote = commenti.find(
       (c) => c.kind === "service" && c.content.includes("senza riassunto"),
     );
-    expect(notaMuta, "turno non muto: la nota non deve comparire").toBeFalsy();
+    expect(mutedNote, "turno non muto: la nota non deve comparire").toBeFalsy();
   });
 });
 

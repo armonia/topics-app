@@ -65,8 +65,8 @@ describe("catalogo dei modelli del runtime nativo", () => {
     // Senza questo caso, i controlli sopra resterebbero verdi anche se
     // `splitLongWindow` smettesse di riconoscere il suffisso, e nessuno lo
     // saprebbe finché non ricapita.
-    const catalogoVecchio = ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"];
-    const lunghi = catalogoVecchio.filter((m) => splitLongWindow(m).longWindow);
+    const oldCatalogue = ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"];
+    const lunghi = oldCatalogue.filter((m) => splitLongWindow(m).longWindow);
     expect(lunghi.length, "il catalogo 4-6 non aveva nessuna finestra lunga: è esattamente il caso da bocciare").toBe(0);
   });
 });

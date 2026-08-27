@@ -246,8 +246,8 @@ describe("la ragione della coda arriva dal server, con la card", () => {
 
     const r = db.prepare("SELECT status, dispatch_state, delivered_reason FROM tasks WHERE id = ?")
       .get(padre.id) as { status: string; dispatch_state: string; delivered_reason: string };
-    const escluseDallaSonda = r.status === "review" && r.delivered_reason === "parked_children";
-    expect(escluseDallaSonda).toBe(true);
+    const excludedFromProbe = r.status === "review" && r.delivered_reason === "parked_children";
+    expect(excludedFromProbe).toBe(true);
     expect(r.dispatch_state).toBe("needs_input");
     // «Non dice mai ferma» è la promessa, e regge anche ora che il chip porta il
     // numero: la testa resta la mossa, e `checklist_frozen` non compare.

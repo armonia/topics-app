@@ -35,7 +35,7 @@ export const RELAY_PROTOCOL_VERSION = 1;
 // ── Dalla MACCHINA al relay ────────────────────────────────────────────────
 
 /** «Sono questa installazione, sono viva.» Primo messaggio, sempre. */
-export interface RegistraInstallazione {
+export interface RecordInstall {
   t: "hello";
   v: number;
   /** Identifica l'installazione presso il relay. NON è il segreto della
@@ -58,7 +58,7 @@ export interface BustaVersoOspite {
 
 /** «Voglio parlare con questa installazione.» Il segreto del link NON compare:
  *  serve a decifrare, non a farsi instradare. */
-export interface ApriSessioneOspite {
+export interface OpenSessionGuest {
   t: "guest-open";
   v: number;
   installationId: string;
@@ -108,7 +108,7 @@ const RUOLI = new Set<string>(["guest", "device"]);
 
 /** Una sessione si è aperta o è finita. La macchina lo deve sapere per smettere
  *  di mandare buste a nessuno. */
-export interface OspiteCambiato {
+export interface ChangedGuest {
   t: "guest-joined" | "guest-left";
   sessionId: string;
   ruolo?: RuoloSessione;
@@ -127,10 +127,10 @@ export interface Rifiutato {
   motivo: "bad-version" | "bad-token" | "unknown-installation" | "expired" | "revoked" | "host-offline";
 }
 
-export type DaMacchina = RegistraInstallazione | BustaVersoOspite;
-export type DaOspite = ApriSessioneOspite | BustaVersoMacchina;
-export type DaRelay = Accolto | OspiteCambiato | Rifiutato | BustaVersoOspite | BustaVersoMacchina;
-export type MessaggioRelay = DaMacchina | DaOspite | DaRelay;
+export type FromMachine = RecordInstall | BustaVersoOspite;
+export type FromGuest = OpenSessionGuest | BustaVersoMacchina;
+export type DaRelay = Accolto | ChangedGuest | Rifiutato | BustaVersoOspite | BustaVersoMacchina;
+export type MessaggioRelay = FromMachine | FromGuest | DaRelay;
 
 /**
  * Cosa il relay può leggere di una busta: l'involucro, e basta.
@@ -297,7 +297,7 @@ export type LatoTubo = "host" | "guest";
 /** Come sono codificati i dati di un frame: testo così com'è, oppure byte in
  *  base64url. Uno stream non cambia idea a metà — mescolarli vorrebbe dire non
  *  sapere cosa si sta rimettendo insieme. */
-export type CodificaTubo = "u" | "b";
+export type EncodePipe = "u" | "b";
 
 /**
  * Perché uno stream finisce male. Vocabolario chiuso, come i motivi di
@@ -315,7 +315,7 @@ export type MotivoStream =
 /** «Apro uno stream.» Sempre `n: 0`. Può già portare il primo pezzo: una
  *  richiesta piccola diventa UN frame invece di due, e su un Durable Object
  *  che si paga a messaggio la differenza non è estetica. */
-export interface ApriStream {
+export interface OpenStream {
   f: "open";
   /** Identificatore dello stream. Pari = aperto dalla macchina, dispari
    *  dall'ospite. Cresce sempre: chi riceve rifiuta un numero già visto senza
@@ -328,7 +328,7 @@ export interface ApriStream {
   /** Testa dello stream: metadati che il destinatario sa leggere (metodo, path,
    *  intestazioni). Opaca anche questa. */
   h?: string;
-  e?: CodificaTubo;
+  e?: EncodePipe;
   d?: string;
   /** Non arriverà altro da questo capo per questo stream. */
   fin?: true;
@@ -355,11 +355,11 @@ export interface ApriStream {
 
 /** Un pezzo. `n` cresce di uno per volta: un buco vuol dire che qualcosa si è
  *  perso o è stato infilato, e in nessuno dei due casi si tira a indovinare. */
-export interface DatiStream {
+export interface DataStream {
   f: "data";
   s: number;
   n: number;
-  e: CodificaTubo;
+  e: EncodePipe;
   d: string;
   fin?: true;
   /**
@@ -397,7 +397,7 @@ export interface DatiStream {
  * sommano, mentre due totali si sovrascrivono e quello che arriva secondo
  * cancella il primo.
  */
-export interface RicaricaCredito {
+export interface ReloadCredit {
   f: "credit";
   s: number;
   c: number;
@@ -405,31 +405,31 @@ export interface RicaricaCredito {
 
 /** «Questo stream muore qui.» Vale in tutti e due i sensi e in qualsiasi
  *  momento, anche su uno stream che l'altro capo non conosce più. */
-export interface ChiudiStream {
+export interface CloseStream {
   f: "reset";
   s: number;
   motivo: MotivoStream;
 }
 
-export type FrameTubo = ApriStream | DatiStream | ChiudiStream | RicaricaCredito;
+export type FrameTubo = OpenStream | DataStream | CloseStream | ReloadCredit;
 
 // ── base64url, per i byte dentro il JSON ───────────────────────────────────
 // Sta qui e non importato da `relay-crypto` perché il tubo deve poter esistere
 // senza cifratura — nella rete di casa, dove non c'è nessun relay in mezzo, non
 // si paga una dipendenza che non serve.
 
-const B64_ALFABETO = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+const B64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
 export function aBase64url(b: Uint8Array): string {
   let s = "";
   for (let i = 0; i < b.length; i += 3) {
     const a = b[i]!, c = b[i + 1], d = b[i + 2];
-    s += B64_ALFABETO[a >> 2];
-    s += B64_ALFABETO[((a & 3) << 4) | ((c ?? 0) >> 4)];
+    s += B64_ALPHABET[a >> 2];
+    s += B64_ALPHABET[((a & 3) << 4) | ((c ?? 0) >> 4)];
     if (c === undefined) break;
-    s += B64_ALFABETO[((c & 15) << 2) | ((d ?? 0) >> 6)];
+    s += B64_ALPHABET[((c & 15) << 2) | ((d ?? 0) >> 6)];
     if (d === undefined) break;
-    s += B64_ALFABETO[d & 63];
+    s += B64_ALPHABET[d & 63];
   }
   return s;
 }
@@ -443,7 +443,7 @@ export function daBase64url(s: string): Uint8Array | null {
   const out = new Uint8Array(Math.floor((n * 3) / 4));
   let o = 0, acc = 0, bit = 0;
   for (let i = 0; i < n; i++) {
-    const v = B64_ALFABETO.indexOf(s[i]!);
+    const v = B64_ALPHABET.indexOf(s[i]!);
     if (v < 0) return null;
     acc = (acc << 6) | v;
     bit += 6;
@@ -457,13 +457,13 @@ export function daBase64url(s: string): Uint8Array | null {
 
 // ── Lettura stretta di un frame ────────────────────────────────────────────
 
-const MOTIVI_STREAM = new Set<string>(["aborted", "bad-frame", "overflow", "too-many-streams"]);
+const REASONS_STREAM = new Set<string>(["aborted", "bad-frame", "overflow", "too-many-streams"]);
 
-function idValido(v: unknown): v is number {
+function validId(v: unknown): v is number {
   return typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= Number.MAX_SAFE_INTEGER;
 }
 
-function datiValidi(m: Record<string, unknown>): boolean {
+function validData(m: Record<string, unknown>): boolean {
   const haD = "d" in m && m.d !== undefined;
   const haE = "e" in m && m.e !== undefined;
   // O tutti e due o nessuno dei due: dati senza codifica sono byte di cui non
@@ -484,7 +484,7 @@ function datiValidi(m: Record<string, unknown>): boolean {
 export function leggiFrame(raw: unknown): FrameTubo | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const m = raw as Record<string, unknown>;
-  if (!idValido(m.s)) return null;
+  if (!validId(m.s)) return null;
 
   switch (m.f) {
     case "open": {
@@ -493,7 +493,7 @@ export function leggiFrame(raw: unknown): FrameTubo | null {
       if ("fin" in m && m.fin !== undefined && m.fin !== true) return null;
       if ("c" in m && m.c !== undefined && m.c !== true) return null;
       if ("m" in m && m.m !== undefined && m.m !== true) return null;
-      if (!datiValidi(m)) return null;
+      if (!validData(m)) return null;
       const canale = m.c === true;
       // Un canale nasce vuoto e non nasce chiuso: qui l'apertura SA di essere
       // un canale, quindi le tre forme che non vogliono dire niente si fermano
@@ -502,15 +502,15 @@ export function leggiFrame(raw: unknown): FrameTubo | null {
       // Fuori da un canale i messaggi non esistono: un campo che non vuol dire
       // niente qui è un campo che un giorno vuol dire cose diverse ai due capi.
       if (!canale && m.m === true) return null;
-      const f: ApriStream = { f: "open", s: m.s, n: 0, k: m.k };
+      const f: OpenStream = { f: "open", s: m.s, n: 0, k: m.k };
       if (typeof m.h === "string") f.h = m.h;
-      if (typeof m.d === "string") { f.e = m.e as CodificaTubo; f.d = m.d; }
+      if (typeof m.d === "string") { f.e = m.e as EncodePipe; f.d = m.d; }
       if (m.fin === true) f.fin = true;
       if (canale) f.c = true;
       return f;
     }
     case "data": {
-      if (!idValido(m.n) || m.n < 1) return null;
+      if (!validId(m.n) || m.n < 1) return null;
       if (typeof m.d !== "string" || (m.e !== "u" && m.e !== "b")) return null;
       if (m.d.length > TUBO_DATI_MAX) return null;
       if ("fin" in m && m.fin !== undefined && m.fin !== true) return null;
@@ -520,13 +520,13 @@ export function leggiFrame(raw: unknown): FrameTubo | null {
       // canale `m` non esiste. Quale dei due sia lecito lo sa solo chi riceve,
       // che conosce lo stream; qui si ferma la coppia, che non lo è mai.
       if (m.fin === true && m.m === true) return null;
-      const f: DatiStream = { f: "data", s: m.s, n: m.n, e: m.e, d: m.d };
+      const f: DataStream = { f: "data", s: m.s, n: m.n, e: m.e, d: m.d };
       if (m.fin === true) f.fin = true;
       if (m.m === true) f.m = true;
       return f;
     }
     case "reset":
-      return typeof m.motivo === "string" && MOTIVI_STREAM.has(m.motivo)
+      return typeof m.motivo === "string" && REASONS_STREAM.has(m.motivo)
         ? { f: "reset", s: m.s, motivo: m.motivo as MotivoStream }
         : null;
     case "credit":
@@ -635,16 +635,16 @@ export function componiStream(opts: {
   const pezzi = opts.dati === undefined
     ? []
     : testo ? dividiTesto(opts.dati as string, max) : dividiBinario(opts.dati as Uint8Array, max);
-  const e: CodificaTubo = testo ? "u" : "b";
+  const e: EncodePipe = testo ? "u" : "b";
 
-  const apri: ApriStream = { f: "open", s: opts.s, n: 0, k: opts.k };
+  const apri: OpenStream = { f: "open", s: opts.s, n: 0, k: opts.k };
   if (opts.h !== undefined) apri.h = opts.h;
   if (pezzi.length > 0) { apri.e = e; apri.d = pezzi[0]!; }
   if (pezzi.length <= 1) apri.fin = true;
 
   const frames: FrameTubo[] = [apri];
   for (let i = 1; i < pezzi.length; i++) {
-    const d: DatiStream = { f: "data", s: opts.s, n: i, e, d: pezzi[i]! };
+    const d: DataStream = { f: "data", s: opts.s, n: i, e, d: pezzi[i]! };
     if (i === pezzi.length - 1) d.fin = true;
     frames.push(d);
   }
@@ -696,13 +696,13 @@ export interface OpzioniRiassemblatore {
   maxByteStream?: number;
 }
 
-interface StatoStream {
+interface StateStream {
   k: string;
   h?: string;
   /** Canale: i pezzi si consegnano a messaggi finiti, e lo stream non muore
    *  con il primo. */
   canale: boolean;
-  e: CodificaTubo | null;
+  e: EncodePipe | null;
   prossimo: number;
   byte: number;
   testo: string[];
@@ -719,18 +719,18 @@ interface StatoStream {
 export function creaRiassemblatore(opts: OpzioniRiassemblatore) {
   const maxStream = opts.maxStream ?? 64;
   const maxByte = opts.maxByteStream ?? 16 * 1024 * 1024;
-  const aperti = new Map<number, StatoStream>();
+  const aperti = new Map<number, StateStream>();
   /** Il più alto numero già visto. Basta questo per non riaccettare un
    *  identificatore riusato, senza tenere l'elenco di tutti quelli passati —
    *  che sarebbe memoria che cresce per tutta la durata della sessione. */
   let massimoVisto = -1;
 
-  const fallisci = (s: number, motivo: MotivoStream): EsitoTubo => {
+  const fail = (s: number, motivo: MotivoStream): EsitoTubo => {
     aperti.delete(s);
     return { esito: "errore", s, motivo };
   };
 
-  function accumula(st: StatoStream, e: CodificaTubo, d: string): MotivoStream | null {
+  function accumula(st: StateStream, e: EncodePipe, d: string): MotivoStream | null {
     if (st.e !== null && st.e !== e) return "bad-frame";
     st.e = e;
     if (e === "u") {
@@ -749,14 +749,14 @@ export function creaRiassemblatore(opts: OpzioniRiassemblatore) {
   }
 
   /** I byte accumulati, rimessi insieme una volta sola. */
-  function raccogli(st: StatoStream): Uint8Array {
+  function raccogli(st: StateStream): Uint8Array {
     const tot = new Uint8Array(st.byte);
     let o = 0;
     for (const p of st.binario) { tot.set(p, o); o += p.length; }
     return tot;
   }
 
-  function completa(s: number, st: StatoStream): EsitoTubo {
+  function completa(s: number, st: StateStream): EsitoTubo {
     aperti.delete(s);
     const comune = { esito: "completo" as const, s, k: st.k, ...(st.h !== undefined ? { h: st.h } : {}) };
     if (st.e === "b") return { ...comune, e: "b", dati: raccogli(st) };
@@ -765,7 +765,7 @@ export function creaRiassemblatore(opts: OpzioniRiassemblatore) {
 
   /** Un messaggio finito su un canale. Lo stream resta aperto e riparte
    *  pulito: un canale può portare testo e poi byte, come un WebSocket vero. */
-  function messaggio(s: number, st: StatoStream): EsitoTubo {
+  function messaggio(s: number, st: StateStream): EsitoTubo {
     const byte = st.byte;
     const binario = st.e === "b";
     const dati = binario ? raccogli(st) : st.testo.join("");
@@ -802,17 +802,17 @@ export function creaRiassemblatore(opts: OpzioniRiassemblatore) {
       // frame in cui è così — una ricarica sulla parità remota vorrebbe dire
       // che l'altro capo si sta dando credito da solo.
       if (f.f === "credit") {
-        if (latoDiStream(f.s) === opts.latoRemoto) return fallisci(f.s, "bad-frame");
+        if (latoDiStream(f.s) === opts.latoRemoto) return fail(f.s, "bad-frame");
         return { esito: "credito", s: f.s, c: f.c };
       }
 
-      if (latoDiStream(f.s) !== opts.latoRemoto) return fallisci(f.s, "bad-frame");
+      if (latoDiStream(f.s) !== opts.latoRemoto) return fail(f.s, "bad-frame");
 
       if (f.f === "open") {
-        if (aperti.has(f.s) || f.s <= massimoVisto) return fallisci(f.s, "bad-frame");
+        if (aperti.has(f.s) || f.s <= massimoVisto) return fail(f.s, "bad-frame");
         massimoVisto = f.s;
-        if (aperti.size >= maxStream) return fallisci(f.s, "too-many-streams");
-        const st: StatoStream = {
+        if (aperti.size >= maxStream) return fail(f.s, "too-many-streams");
+        const st: StateStream = {
           k: f.k, ...(f.h !== undefined ? { h: f.h } : {}),
           canale: f.c === true,
           e: null, prossimo: 1, byte: 0, testo: [], binario: [],
@@ -821,7 +821,7 @@ export function creaRiassemblatore(opts: OpzioniRiassemblatore) {
           // `leggiFrame` non lascerebbe passare un canale con dei dati addosso,
           // ma un frame costruito a mano sì — e qui il costo di fidarsi è
           // un'apertura che consegna un messaggio che nessuno ha dichiarato.
-          if (f.d !== undefined || f.fin) return fallisci(f.s, "bad-frame");
+          if (f.d !== undefined || f.fin) return fail(f.s, "bad-frame");
           aperti.set(f.s, st);
           return { esito: "aperto", s: f.s, k: f.k, ...(f.h !== undefined ? { h: f.h } : {}), canale: true };
         }
@@ -829,9 +829,9 @@ export function creaRiassemblatore(opts: OpzioniRiassemblatore) {
           // Dati senza codifica: `leggiFrame` non lo lascerebbe passare, ma un
           // frame costruito a mano sì — e un `!` qui sarebbe una promessa che
           // non ha nessuno che la mantiene.
-          if (f.e === undefined) return fallisci(f.s, "bad-frame");
+          if (f.e === undefined) return fail(f.s, "bad-frame");
           const male = accumula(st, f.e, f.d);
-          if (male) return fallisci(f.s, male);
+          if (male) return fail(f.s, male);
         }
         aperti.set(f.s, st);
         if (f.fin) return completa(f.s, st);
@@ -841,16 +841,16 @@ export function creaRiassemblatore(opts: OpzioniRiassemblatore) {
       const st = aperti.get(f.s);
       // Dati per uno stream che non è aperto: o non lo è mai stato, o era già
       // finito. In tutti e due i casi non c'è niente a cui attaccarli.
-      if (!st) return fallisci(f.s, "bad-frame");
-      if (f.n !== st.prossimo) return fallisci(f.s, "bad-frame");
+      if (!st) return fail(f.s, "bad-frame");
+      if (f.n !== st.prossimo) return fail(f.s, "bad-frame");
       // I due bit non si scambiano di posto: su un canale la fine è un `reset`
       // e mai un `fin`, fuori da un canale i messaggi non esistono. Accettarne
       // uno al posto dell'altro vorrebbe dire che i due capi hanno due idee
       // diverse di dove finisce la cosa che si stanno passando.
-      if (st.canale ? f.fin === true : f.m === true) return fallisci(f.s, "bad-frame");
+      if (st.canale ? f.fin === true : f.m === true) return fail(f.s, "bad-frame");
       st.prossimo++;
       const male = accumula(st, f.e, f.d);
-      if (male) return fallisci(f.s, male);
+      if (male) return fail(f.s, male);
       if (st.canale) return f.m ? messaggio(f.s, st) : { esito: "parziale", s: f.s, byte: st.byte };
       if (f.fin) return completa(f.s, st);
       return { esito: "parziale", s: f.s, byte: st.byte };
@@ -875,7 +875,7 @@ export function creaRiassemblatore(opts: OpzioniRiassemblatore) {
  * schermata di terminale sono chilobyte — e abbastanza poco da non lasciare
  * accumulare megabyte prima che il primo «fermati» abbia effetto.
  */
-export const CREDITO_INIZIALE = 512 * 1024;
+export const INITIAL_CREDIT = 512 * 1024;
 
 /**
  * Quanto si tiene in coda quando la finestra è chiusa, prima di arrendersi.
@@ -906,7 +906,7 @@ export type EsitoInvio =
   | "in-coda"   // la finestra è chiusa: parte quando arriva credito
   | "troppo";   // la coda ha sfondato il tetto: il canale non regge
 
-export interface CapoCanaleOpts {
+export interface HeadChannelOpts {
   /** Lo stream di QUESTO capo. Lo apre lui, quindi la parità è la sua. */
   s: number;
   /** Dove finisce un frame. È il solo contatto col trasporto. */
@@ -933,10 +933,10 @@ export interface CapoCanaleOpts {
  * giorno in cui un canale porta qualcos'altro — un file che scende, un flusso
  * audio — non c'è niente da riscrivere.
  */
-export function creaCapoCanale(opts: CapoCanaleOpts) {
+export function creaCapoCanale(opts: HeadChannelOpts) {
   const max = opts.max ?? TUBO_BYTE_PER_FRAME;
   const arretratoMax = opts.arretratoMax ?? ARRETRATO_MAX;
-  let credito = opts.credito ?? CREDITO_INIZIALE;
+  let credito = opts.credito ?? INITIAL_CREDIT;
   let n = 0;
   let aperto = false;
   let chiuso = false;
@@ -958,7 +958,7 @@ export function creaCapoCanale(opts: CapoCanaleOpts) {
   /** Un messaggio sul filo, spezzato, con `m` sull'ultimo pezzo. */
   function emetti(d: string | Uint8Array) {
     const testo = typeof d === "string";
-    const e: CodificaTubo = testo ? "u" : "b";
+    const e: EncodePipe = testo ? "u" : "b";
     const pezzi = testo ? dividiTesto(d, max) : dividiBinario(d, max);
     // Un messaggio vuoto è lecito su un WebSocket, e deve restare distinguibile
     // da «nessun messaggio»: un frame con dati vuoti lo dice, il silenzio no.
@@ -977,7 +977,7 @@ export function creaCapoCanale(opts: CapoCanaleOpts) {
     credito -= costoMessaggio(misura(d));
     for (let i = 0; i < pezzi.length; i++) {
       n += 1;
-      const f: DatiStream = { f: "data", s: opts.s, n, e, d: pezzi[i]! };
+      const f: DataStream = { f: "data", s: opts.s, n, e, d: pezzi[i]! };
       if (i === pezzi.length - 1) f.m = true;
       opts.invia(f);
     }
@@ -1050,6 +1050,6 @@ export function creaCapoCanale(opts: CapoCanaleOpts) {
 /** Il frame con cui chi LEGGE restituisce corsa a chi scrive. Una funzione e
  *  non un oggetto scritto a mano nei due capi: il costo di un messaggio lo
  *  decide `costoMessaggio`, e deve deciderlo in un posto solo. */
-export function ricaricaPer(s: number, byte: number): RicaricaCredito {
+export function ricaricaPer(s: number, byte: number): ReloadCredit {
   return { f: "credit", s, c: costoMessaggio(byte) };
 }

@@ -39,8 +39,8 @@ const PROJECT_ID = boardIdForPath(REPO);
 const T_RAMO = "Rifare la scheda prodotto";
 const T_PIANO = "Piano per il nuovo listino";
 const T_CORSO = "Migrare le foto sul bucket";
-const T_BLOCCANTE = "Scegliere il fornitore";
-const T_BLOCCATA = "Pubblicare la scheda nuova";
+const BLOCKING_T = "Scegliere il fornitore";
+const BLOCKED_T = "Pubblicare la scheda nuova";
 
 function git(cwd: string, args: string[]) {
   // L'identita' passata con `-c` e non presa dalla macchina: senza, `git commit`
@@ -160,8 +160,8 @@ test.describe("Scelte sempre presenti sulla card", () => {
     expect((await request.post(`${API}/test/tasks/${taskIds.corso}/dispatch-state`, { data: { state: "working" } })).ok()).toBe(true);
 
     // 4d. Card BLOCCATA da un'altra card aperta.
-    taskIds.bloccante = await createTask(request, { text: T_BLOCCANTE, status: "backlog" });
-    taskIds.bloccata = await createTask(request, { text: T_BLOCCATA, status: "backlog", blockedByTaskId: taskIds.bloccante });
+    taskIds.bloccante = await createTask(request, { text: BLOCKING_T, status: "backlog" });
+    taskIds.bloccata = await createTask(request, { text: BLOCKED_T, status: "backlog", blockedByTaskId: taskIds.bloccante });
   });
 
   test.afterAll(async ({ request }) => {
@@ -251,7 +251,7 @@ test.describe("Scelte sempre presenti sulla card", () => {
     // cui lo dice: il chip è passato da «in attesa di: X» ad «aspetta: X»
     // (12/08, vedi lib/board.ts) e un'asserzione sulla frase intera si rompeva
     // senza che niente fosse rotto.
-    await expect(bloccata.getByTestId("card-blocked-by")).toContainText(T_BLOCCANTE);
+    await expect(bloccata.getByTestId("card-blocked-by")).toContainText(BLOCKING_T);
     // Here too the choices live behind the `⋯` at the end of the chip row, and
     // for one reason more than the working card's: the row of buttons was the
     // LAST thing on the card, that is the geometric centre of a short one, so
@@ -260,7 +260,7 @@ test.describe("Scelte sempre presenti sulla card", () => {
     await expect(bloccata.getByTestId("task-choices")).toHaveCount(0);
     await bloccata.getByTestId("task-choices-menu").click();
     const choicesPanel = page.getByTestId("task-choices-panel");
-    await expect(choicesPanel.getByTestId("task-choice-unblock")).toHaveText(`Sblocca: ${T_BLOCCANTE}`);
+    await expect(choicesPanel.getByTestId("task-choice-unblock")).toHaveText(`Sblocca: ${BLOCKING_T}`);
     await expect(choicesPanel.getByTestId("task-choice-unlink")).toHaveText("Togli il legame");
     await beat(page);
     await choicesPanel.getByTestId("task-choice-unblock").click();

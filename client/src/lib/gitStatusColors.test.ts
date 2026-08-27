@@ -42,8 +42,8 @@ describe('gitStatusTextClass', () => {
     const modificato = gitStatusTextClass('M ');
     const cancellato = gitStatusTextClass(' D');
     const rinominato = gitStatusTextClass('R ');
-    const nonTracciato = gitStatusTextClass('??');
-    expect(new Set([aggiunto, modificato, cancellato, rinominato, nonTracciato]).size).toBe(5);
+    const notTracked = gitStatusTextClass('??');
+    expect(new Set([aggiunto, modificato, cancellato, rinominato, notTracked]).size).toBe(5);
   });
 
   // Un conflitto è l'unico stato che CHIEDE di fare qualcosa: deve leggersi

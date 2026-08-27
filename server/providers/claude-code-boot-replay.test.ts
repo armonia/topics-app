@@ -140,12 +140,12 @@ describe("boot · un solo replay dello store per sessione", () => {
   test("la sonda che PARCHEGGIA dimezza gli attach(0): 2 → 1, e risparmia un intero store", async () => {
     setEnv("TOPICS_CLAUDE_CLI_PATH", writeStoreCli("fake-bootstore.sh"));
     const keyPrima = "topic:boot-replay-prima";
-    const keyDopo = "topic:boot-replay-dopo";
+    const keyAfter = "topic:boot-replay-dopo";
     const storePrima = await seedSurvivingSession(keyPrima, "t-boot-prima");
-    const storeDopo = await seedSurvivingSession(keyDopo, "t-boot-dopo");
+    const storeAfter = await seedSurvivingSession(keyAfter, "t-boot-dopo");
     // Stesso figlio, stesso copione: gli store DEVONO essere identici, o i byte
     // delle due vie non sarebbero confrontabili.
-    expect(storeDopo).toBe(storePrima);
+    expect(storeAfter).toBe(storePrima);
     expect(storePrima).toBeGreaterThan(50_000);
 
     // Il contatore: ogni `attach` sul client del ponte, con i byte che il
@@ -178,11 +178,11 @@ describe("boot · un solo replay dello store per sessione", () => {
 
       // ── DOPO · la sonda PARCHEGGIA, la riadozione adotta ──────────────────
       const provDopo = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });
-      expect(await provDopo.brokerTurnState(keyDopo, { park: true })).toBe("open");
-      const hDopo = makeHandler();
-      const driveDopo = provDopo.reattach(keyDopo, hDopo.handler);
-      driveDopo.catch(() => {});
-      await waitFor(() => suDi(keyDopo).length >= 2, 10_000);
+      expect(await provDopo.brokerTurnState(keyAfter, { park: true })).toBe("open");
+      const hAfter = makeHandler();
+      const driveAfter = provDopo.reattach(keyAfter, hAfter.handler);
+      driveAfter.catch(() => {});
+      await waitFor(() => suDi(keyAfter).length >= 2, 10_000);
 
       // La misura, PRIMA delle asserzioni: quando la barra è rossa i numeri
       // sono la diagnosi, e un log che non esce perché l'expect è saltato
@@ -191,31 +191,31 @@ describe("boot · un solo replay dello store per sessione", () => {
       console.log(
         `[misura] store ${kb(storePrima)} · PRIMA ${replayIntegraliDi(keyPrima)} replay integrali, ` +
         `${suDi(keyPrima).length} attach, ${kb(byteDi(keyPrima))} · ` +
-        `DOPO ${replayIntegraliDi(keyDopo)} replay integrali, ${suDi(keyDopo).length} attach, ${kb(byteDi(keyDopo))} ` +
-        `(−${(100 * (1 - byteDi(keyDopo) / byteDi(keyPrima))).toFixed(0)}%)`,
+        `DOPO ${replayIntegraliDi(keyAfter)} replay integrali, ${suDi(keyAfter).length} attach, ${kb(byteDi(keyAfter))} ` +
+        `(−${(100 * (1 - byteDi(keyAfter) / byteDi(keyPrima))).toFixed(0)}%)`,
       );
 
       // LA BARRA. Prima: due replay integrali (sonda + fase 1) più l'attach
       // mirato della fase 2. Dopo: UNO solo, più lo stesso attach mirato.
       expect(replayIntegraliDi(keyPrima)).toBe(2);
-      expect(replayIntegraliDi(keyDopo)).toBe(1);
+      expect(replayIntegraliDi(keyAfter)).toBe(1);
       expect(suDi(keyPrima).length).toBe(3);
-      expect(suDi(keyDopo).length).toBe(2);
+      expect(suDi(keyAfter).length).toBe(2);
 
       // E in byte: la differenza è ESATTAMENTE un intero store, non un'inezia.
-      expect(byteDi(keyPrima) - byteDi(keyDopo)).toBe(storePrima);
+      expect(byteDi(keyPrima) - byteDi(keyAfter)).toBe(storePrima);
       // La fase 2 resta mirata su entrambe le vie: riparte da dopo l'ultimo
       // `result`, non da zero (altrimenti il risparmio se lo mangerebbe lei).
-      const fase2Dopo = suDi(keyDopo).find((a) => a.from > 0);
+      const fase2Dopo = suDi(keyAfter).find((a) => a.from > 0);
       expect(fase2Dopo).toBeDefined();
-      expect(fase2Dopo!.bytes).toBeLessThan(storeDopo / 4);
+      expect(fase2Dopo!.bytes).toBeLessThan(storeAfter / 4);
 
       // Il parcheggio non lascia niente dietro: lo scan è stato RECLAMATO dalla
       // riadozione, non è rimasto attaccato in un angolo.
       expect((provDopo as any).parkedScans.size).toBe(0);
     } finally {
       bridge.attach = vero;
-      for (const k of [keyPrima, keyDopo]) { try { bridge.kill(k); } catch { /* pulizia best-effort */ } }
+      for (const k of [keyPrima, keyAfter]) { try { bridge.kill(k); } catch { /* pulizia best-effort */ } }
     }
   }, 40_000);
 

@@ -87,13 +87,13 @@ const METODI = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTION
  *  tetto, la testa di uno stream è memoria che chiunque può far crescere. */
 const MAX_INTESTAZIONI = 100;
 const MAX_NOME = 256;
-const MAX_VALORE = 8 * 1024;
+const MAX_VALUE = 8 * 1024;
 const MAX_TESTA = 16 * 1024;
 
 /** Un nome di intestazione secondo la grammatica dei token HTTP. Tutto il
  *  resto — spazi, due punti, ritorni a capo — è ciò con cui si spezza in due
  *  una richiesta a valle. */
-const NOME_VALIDO = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+const VALID_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 
 /**
  * C'è un carattere di controllo qui dentro?
@@ -147,7 +147,7 @@ const VIETATE_RICHIESTA = new Set([
  * che è già testo. `content-length` per lo stesso motivo: la misura è quella
  * del corpo compresso, e non corrisponde più a ciò che parte.
  */
-const VIETATE_RISPOSTA = new Set([
+const FORBIDDEN_REPLY = new Set([
   "connection", "keep-alive", "transfer-encoding", "upgrade", "te", "trailer",
   "proxy-authenticate", "proxy-authorization", "content-encoding", "content-length",
 ]);
@@ -157,9 +157,9 @@ function pulisci(h: Intestazioni, vietate: Set<string>): Intestazioni {
   for (const [n, v] of h) {
     if (out.length >= MAX_INTESTAZIONI) break;
     const nome = n.toLowerCase();
-    if (!NOME_VALIDO.test(nome) || nome.length > MAX_NOME) continue;
+    if (!VALID_NAME.test(nome) || nome.length > MAX_NOME) continue;
     if (vietate.has(nome)) continue;
-    if (v.length > MAX_VALORE || haControlli(v)) continue;
+    if (v.length > MAX_VALUE || haControlli(v)) continue;
     out.push([nome, v]);
   }
   return out;
@@ -172,7 +172,7 @@ export function intestazioniRichiesta(h: Intestazioni | undefined): Intestazioni
 
 /** …e ciò che della risposta torna indietro. */
 export function intestazioniRisposta(h: Intestazioni): Intestazioni {
-  return pulisci(h, VIETATE_RISPOSTA);
+  return pulisci(h, FORBIDDEN_REPLY);
 }
 
 function leggiIntestazioni(raw: unknown): Intestazioni | null {

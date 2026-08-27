@@ -70,7 +70,7 @@ function landingAuditDeps(deps: AuditWiring, listCandidates: () => AuditTask[], 
   // paga UNA volta per repo per passata: le card di una board stanno tutte nello
   // stesso checkout, e senza cache l'avrebbero pagata una a testa.
   const indici = new Map<string, ReadonlySet<string>>();
-  const indiceDi = async (repoPath: string): Promise<ReadonlySet<string>> => {
+  const indexOf = async (repoPath: string): Promise<ReadonlySet<string>> => {
     const gia = indici.get(repoPath);
     if (gia) return gia;
     const nuovo = await indiceRigheMain(repoPath);
@@ -85,7 +85,7 @@ function landingAuditDeps(deps: AuditWiring, listCandidates: () => AuditTask[], 
     // STESSO conto di `report:landed`, che è il modo in cui la misura a mano e la
     // pastiglia sulla card non possono più dire due cose diverse.
     debtVerdict: async (task: AuditTask, repoPath: string): Promise<LandingState> => {
-      const indiceMain = await indiceDi(repoPath);
+      const indiceMain = await indexOf(repoPath);
       // Col ramo ancora vivo si può chiedere tutto (patch inversa, conflitto,
       // supersessione); potato il ramo resta la sola domanda sul contenuto.
       const verdetto = task.deliveryBranch && (await branchExistsInRepo(repoPath, task.deliveryBranch))

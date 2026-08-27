@@ -20,7 +20,7 @@ import { actingPersonId } from "./orgs";
 
 type Db = Parameters<typeof actingPersonId>[0];
 
-export interface AutoreMessaggio {
+export interface AuthorMessage {
   authorPersonId: string | null;
   authorDeviceId: string | null;
 }
@@ -28,7 +28,7 @@ export interface AutoreMessaggio {
 export function autoreDaIdentita(
   db: Db,
   identita: { deviceId: string | null } | null | undefined,
-): AutoreMessaggio {
+): AuthorMessage {
   const deviceId = identita?.deviceId ?? null;
   return { authorPersonId: actingPersonId(db, deviceId), authorDeviceId: deviceId };
 }

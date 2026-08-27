@@ -38,10 +38,10 @@ describe("in automatico l'app non chiede di aggiornare a mano", () => {
   it("con l'auto acceso NON compare il bottone «Scarica»", () => {
     // Il ramo dell'automatico deve stare PRIMA del blocco che disegna il
     // bottone: dopo, sarebbe codice morto e il difetto resterebbe identico.
-    const ramoAuto = POPOVER.indexOf("if (autoUpdate)");
-    const bottoneScarica = POPOVER.indexOf("onClick={onDownload}");
-    expect(ramoAuto, "il ramo dell'automatico deve esistere").toBeGreaterThan(0);
-    expect(ramoAuto, "…e venire prima del bottone che deve evitare").toBeLessThan(bottoneScarica);
+    const branchAuto = POPOVER.indexOf("if (autoUpdate)");
+    const buttonDownload = POPOVER.indexOf("onClick={onDownload}");
+    expect(branchAuto, "il ramo dell'automatico deve esistere").toBeGreaterThan(0);
+    expect(branchAuto, "…e venire prima del bottone che deve evitare").toBeLessThan(buttonDownload);
   });
 
   it("dice comunque che sta arrivando: silenzio no, gesto inutile nemmeno", () => {

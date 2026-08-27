@@ -215,7 +215,7 @@ describe('selectCardComments', () => {
    */
   describe('le due card che mostravano la riga sbagliata', () => {
     /** La domanda di sistema, esattamente come `askParkedChildren` la scrive. */
-    const domandaParcheggiati = () => comment(
+    const parkedQuestion = () => comment(
       'system',
       '```question\nFermo su 2 sottotask che non lavorera nessuno («Costruisce UIMockup», «Verifica TypeScript»): '
         + 'uno step lo muove solo l\'agente di questa card dentro il proprio turno, e con un sottotask aperto questo '
@@ -227,7 +227,7 @@ describe('selectCardComments', () => {
       // La card mostrava il markdown grezzo della domanda morta — recinto e
       // elenco delle due opzioni — al posto della consegna. `Card.tsx` smette
       // di parsarla (nessun bottone), quindi cadeva nel ramo «testo semplice».
-      const domanda = domandaParcheggiati();
+      const domanda = parkedQuestion();
       const landing = comment('system', 'Non e\' su main: `04e90f7a` (topics/divine-rooster) — landa il ramo prima che venga potato.');
       const risolta = { subtaskCount: 3, subtaskDoneCount: 3 };
       const got = selectCardComments([domanda, landing], risolta);
@@ -237,10 +237,10 @@ describe('selectCardComments', () => {
       // ...e finche' i sottotask sono davvero fermi la domanda RESTA in cima:
       // e' l'unica cosa che tiene ferma la card, e spegnerla sarebbe il difetto
       // opposto, molto peggiore.
-      const viva = selectCardComments([domandaParcheggiati(), landing], { subtaskCount: 3, subtaskDoneCount: 1 });
+      const viva = selectCardComments([parkedQuestion(), landing], { subtaskCount: 3, subtaskDoneCount: 1 });
       expect(viva?.latest.content).toContain('```question');
       // Senza numeri non si spegne niente: l'asimmetria va sempre in quel verso.
-      expect(selectCardComments([domandaParcheggiati(), landing])?.latest.content).toContain('```question');
+      expect(selectCardComments([parkedQuestion(), landing])?.latest.content).toContain('```question');
     });
 
     test('5cf58e29: senza consegna, la card spiega PERCHE\' e\' li\' invece di ripetermi la mia frase', () => {

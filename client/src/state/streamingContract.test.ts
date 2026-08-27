@@ -34,7 +34,7 @@
 import { describe, expect, test } from 'bun:test';
 
 /** La forma di una riga, copiata dal tipo dichiarato in `server/routes/topics.ts`. */
-interface RigaStreaming {
+interface RowStreaming {
   topicId: string;
   sessionKey: string;
   state: 'streaming' | 'waiting';
@@ -49,7 +49,7 @@ interface RigaStreaming {
  * banner proprio sulla chat che ti sta chiedendo qualcosa — il caso in cui
  * accusare la rete è più fuorviante che mai.
  */
-function topicVivi(sessions: RigaStreaming[]): Set<string> {
+function aliveTopic(sessions: RowStreaming[]): Set<string> {
   const vivi = new Set<string>();
   for (const s of sessions) {
     if (s.state !== 'streaming' && s.state !== 'waiting') continue;
@@ -60,15 +60,15 @@ function topicVivi(sessions: RigaStreaming[]): Set<string> {
 
 describe('contratto di GET /api/topics/streaming — il testimone del banner', () => {
   test('uno stato `streaming` tiene il topic fra i vivi', () => {
-    expect(topicVivi([{ topicId: 't1', sessionKey: 'topic:t1', state: 'streaming' }])).toEqual(new Set(['t1']));
+    expect(aliveTopic([{ topicId: 't1', sessionKey: 'topic:t1', state: 'streaming' }])).toEqual(new Set(['t1']));
   });
 
   test('anche `waiting` è un turno APERTO: fermo su una domanda, non finito', () => {
-    expect(topicVivi([{ topicId: 't2', sessionKey: 'topic:t2', state: 'waiting' }])).toEqual(new Set(['t2']));
+    expect(aliveTopic([{ topicId: 't2', sessionKey: 'topic:t2', state: 'waiting' }])).toEqual(new Set(['t2']));
   });
 
   test('una lista vuota non tiene nessuno: è il caso in cui il banner deve parlare', () => {
-    expect(topicVivi([]).size).toBe(0);
+    expect(aliveTopic([]).size).toBe(0);
   });
 
   test('uno stato SCONOSCIUTO viene scartato — ed è il modo silenzioso in cui il difetto tornerebbe', () => {
@@ -76,7 +76,7 @@ describe('contratto di GET /api/topics/streaming — il testimone del banner', (
     // questo `continue` non farebbe rumore: il set resterebbe vuoto e il banner
     // ricomincerebbe ad accusare la connessione su ogni turno vivo. Il test non
     // può impedirlo, ma tiene scritto DOVE guardare quando succede.
-    expect(topicVivi([{ topicId: 't3', sessionKey: 'topic:t3', state: 'running' as unknown as 'streaming' }]).size).toBe(0);
+    expect(aliveTopic([{ topicId: 't3', sessionKey: 'topic:t3', state: 'running' as unknown as 'streaming' }]).size).toBe(0);
   });
 
   test("la forma finta dall'E2E è la stessa che il server dichiara", () => {
@@ -84,7 +84,7 @@ describe('contratto di GET /api/topics/streaming — il testimone del banner', (
     // questo oggetto. Se il contratto cambia, questa riga smette di compilare
     // (typecheck) o questo test smette di passare — invece di lasciare l'E2E
     // verde su una finzione che il server non serve più.
-    const comeNellE2E: RigaStreaming = { topicId: 't4', sessionKey: 'topic:t4', state: 'streaming' };
-    expect(topicVivi([comeNellE2E])).toEqual(new Set(['t4']));
+    const comeNellE2E: RowStreaming = { topicId: 't4', sessionKey: 'topic:t4', state: 'streaming' };
+    expect(aliveTopic([comeNellE2E])).toEqual(new Set(['t4']));
   });
 });

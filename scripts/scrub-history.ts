@@ -129,10 +129,10 @@ function commitCon(termine: string, ambito: string[]): number {
  * actually configured; a ref pointing at a remote nobody can reach publishes
  * nothing.
  */
-function remotiVeri(): string[] {
+function remoteReal(): string[] {
   return git("remote").split("\n").map((r) => r.trim()).filter(Boolean);
 }
-const PUBBLICO = remotiVeri().map((r) => `--remotes=${r}/*`);
+const PUBBLICO = remoteReal().map((r) => `--remotes=${r}/*`);
 const LOCALE = ["--all", "--not", ...PUBBLICO];
 
 const soloMisura = process.argv.includes("--check");

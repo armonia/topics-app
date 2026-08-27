@@ -30,7 +30,7 @@ const BRANCH = "topics/ramo-vecchio";
  * del land ma della macchina. Il tetto resta perché un test che non finisce MAI
  * va comunque interrotto.
  */
-const CON_GIT_VERO = 30_000;
+const WITH_REAL_GIT = 30_000;
 
 const created: string[] = [];
 afterEach(() => {
@@ -54,7 +54,7 @@ function commit(cwd: string, path: string, body: string, message: string): void 
  * Un repo con `main` e un ramo di card nato PRIMA che main avanzasse: cioè lo
  * stato in cui finisce ogni consegna che aspetta la review più di qualche ora.
  */
-function repoConRamoVecchio(opts: {
+function repoWithOldBranch(opts: {
   /** File che main aggiunge dopo che il ramo è nato. */
   avanzamentoMain: Array<[string, string]>;
   /** File che il ramo aggiunge (o cambia) per conto suo. */
@@ -92,7 +92,7 @@ function log(repoPath: string, ref: string): string[] {
 
 describe("il land riallinea il ramo su main da sé", () => {
   test("ramo indietro di 2 commit, fusione pulita → landa, e dice cosa ha riallineato", async () => {
-    const repo = repoConRamoVecchio({
+    const repo = repoWithOldBranch({
       avanzamentoMain: [["main-uno.txt", "uno\n"], ["main-due.txt", "due\n"]],
       lavoroDelRamo: [["ramo.txt", "lavoro della card\n"]],
     });
@@ -115,10 +115,10 @@ describe("il land riallinea il ramo su main da sé", () => {
     expect(git(repo, "rev-list", "--count", `main..${BRANCH}`).trim()).toBe("0");
     // Nessun worktree usa-e-getta lasciato in giro.
     expect(git(repo, "worktree", "list")).not.toContain("topics-realign");
-  }, CON_GIT_VERO);
+  }, WITH_REAL_GIT);
 
   test("il ramo era già aggiornato → nessun merge in più, e niente da dire", async () => {
-    const repo = repoConRamoVecchio({ avanzamentoMain: [], lavoroDelRamo: [["ramo.txt", "x\n"]] });
+    const repo = repoWithOldBranch({ avanzamentoMain: [], lavoroDelRamo: [["ramo.txt", "x\n"]] });
 
     const res = await landOn(repo).tryMerge("t1", "Card fresca");
 
@@ -127,10 +127,10 @@ describe("il land riallinea il ramo su main da sé", () => {
     expect(res.realigned).toBeNull();
     // Un solo merge su main: quello del land. Nessuna fusione nel ramo.
     expect(log(repo, BRANCH).filter((s) => s.startsWith("Riporta main"))).toHaveLength(0);
-  }, CON_GIT_VERO);
+  }, WITH_REAL_GIT);
 
   test("conflitto VERO nel riallineamento: si ferma, nomina i file, e main non si muove", async () => {
-    const repo = repoConRamoVecchio({
+    const repo = repoWithOldBranch({
       avanzamentoMain: [["contesa.txt", "la versione di main\n"]],
       lavoroDelRamo: [["contesa.txt", "la versione del ramo\n"], ["solo-mio.txt", "x\n"]],
     });
@@ -147,13 +147,13 @@ describe("il land riallinea il ramo su main da sé", () => {
     // E non ha lasciato il ramo a metà fusione, né un worktree appeso.
     expect(git(repo, "status", "--porcelain")).toBe("");
     expect(git(repo, "worktree", "list")).not.toContain("topics-realign");
-  }, CON_GIT_VERO);
+  }, WITH_REAL_GIT);
 
   test("checkout condiviso su un altro ramo: riallinea e atterra su main comunque", async () => {
     // Il caso normale di notte: il server gira da un checkout parcheggiato su un
     // ramo di sessione, quindi il land atterra in un worktree usa-e-getta su
     // main — e il ramo della card va riallineato in un ALTRO worktree ancora.
-    const repo = repoConRamoVecchio({
+    const repo = repoWithOldBranch({
       avanzamentoMain: [["main-uno.txt", "uno\n"]],
       lavoroDelRamo: [["ramo.txt", "x\n"]],
       checkoutSu: "topics/sessione-viva",
@@ -167,10 +167,10 @@ describe("il land riallinea il ramo su main da sé", () => {
     expect(res.checkoutBranch).toBe("topics/sessione-viva");
     expect(res.realigned).toContain("1 commit");
     expect(log(repo, "main")).toContain("ramo: ramo.txt");
-  }, CON_GIT_VERO);
+  }, WITH_REAL_GIT);
 
   test("il ramo è aperto in un worktree con WIP → non si riallinea, e non si fonde la WIP di nessuno", async () => {
-    const repo = repoConRamoVecchio({
+    const repo = repoWithOldBranch({
       avanzamentoMain: [["main-uno.txt", "uno\n"]],
       lavoroDelRamo: [["ramo.txt", "x\n"]],
       checkoutSu: "topics/sessione-viva",
@@ -187,7 +187,7 @@ describe("il land riallinea il ramo su main da sé", () => {
     expect(res.code).toBe("realign-blocked");
     expect(res.reason).toContain("ramo.txt");
     expect(log(repo, "main")).not.toContain("ramo: ramo.txt");
-  }, CON_GIT_VERO);
+  }, WITH_REAL_GIT);
 
   test("il merge non parte nemmeno (un file non tracciato sarebbe sovrascritto) → non è un conflitto", async () => {
     // Un merge fallito senza NESSUN file in conflitto non ha niente da
@@ -195,7 +195,7 @@ describe("il land riallinea il ramo su main da sé", () => {
     // marcatori che non ci sono. Qui il file non tracciato è proprio uno di
     // quelli che il cancello della WIP ignora (`graphify-out/`), quindi il
     // riallineamento parte e si schianta contro git.
-    const repo = repoConRamoVecchio({
+    const repo = repoWithOldBranch({
       avanzamentoMain: [["graphify-out/graph.json", "{\"da\":\"main\"}\n"]],
       lavoroDelRamo: [["ramo.txt", "x\n"]],
       checkoutSu: "topics/sessione-viva",
@@ -213,13 +213,13 @@ describe("il land riallinea il ramo su main da sé", () => {
     expect(res.code).toBe("realign-blocked");
     expect(res.reason).toContain("nessun file in conflitto");
     expect(log(repo, "main")).not.toContain("ramo: ramo.txt");
-  }, CON_GIT_VERO);
+  }, WITH_REAL_GIT);
 
   test("i rifiuti degli agenti non sono WIP: col ramo aperto e pulito il riallineamento passa", async () => {
     // `graphify-out/` e `.claude-task-summary.md` li scrive la strumentazione,
     // non la card: se contassero come lavoro non committato, il riallineamento
     // sarebbe bloccato su ogni ramo che un agente ha davvero usato.
-    const repo = repoConRamoVecchio({
+    const repo = repoWithOldBranch({
       avanzamentoMain: [["main-uno.txt", "uno\n"]],
       lavoroDelRamo: [["ramo.txt", "x\n"]],
       checkoutSu: "topics/sessione-viva",
@@ -238,7 +238,7 @@ describe("il land riallinea il ramo su main da sé", () => {
     // secondo sullo stesso branch), e il ramo ora contiene main.
     expect(log(repo, BRANCH)).toContain("Riporta main nel ramo prima del land");
     expect(log(repo, "main")).toContain("ramo: ramo.txt");
-  }, CON_GIT_VERO);
+  }, WITH_REAL_GIT);
 });
 
 describe("il cancello migration dopo il riallineamento", () => {
@@ -249,7 +249,7 @@ describe("il cancello migration dopo il riallineamento", () => {
     // `slice(0, 3)`, leggeva «202» su ogni nome a timestamp, e QUALUNQUE coppia
     // fra main e il ramo diventava una collisione. Il messaggio era ottimo e
     // sbagliato, e il tasto restava rotto per sempre.
-    const repo = repoConRamoVecchio({
+    const repo = repoWithOldBranch({
       avanzamentoMain: [stamp("20260812094300-notification-log.sql")],
       lavoroDelRamo: [stamp("20260812120000-preview-retired.sql")],
     });
@@ -258,13 +258,13 @@ describe("il cancello migration dopo il riallineamento", () => {
 
     expect(res.status).toBe("merged");
     expect(log(repo, "main")).toContain("ramo: server/db/migrations/20260812120000-preview-retired.sql");
-  }, CON_GIT_VERO);
+  }, WITH_REAL_GIT);
 
   test("due CONTATORI uguali restano una collisione, anche dopo che il ramo ha inglobato main", async () => {
     // Il controllo del test qui sopra. Riportare main dentro il ramo mette
     // entrambi i file DALLO STESSO LATO: un cancello che guardasse un lato per
     // volta non vedrebbe più niente, e la seconda 089 arriverebbe su main.
-    const repo = repoConRamoVecchio({
+    const repo = repoWithOldBranch({
       avanzamentoMain: [stamp("089-retirements.sql")],
       lavoroDelRamo: [stamp("089-task-dispatch-weight.sql")],
     });
@@ -276,12 +276,12 @@ describe("il cancello migration dopo il riallineamento", () => {
     expect(res.reason).toContain("089");
     expect(res.reason).toContain("Rinumera");
     expect(log(repo, "main")).not.toContain("ramo: server/db/migrations/089-task-dispatch-weight.sql");
-  }, CON_GIT_VERO);
+  }, WITH_REAL_GIT);
 });
 
 describe("la PUNTA del ramo è la consegna, il commit registrato è solo dove era arrivata", () => {
   test("commit di consegna ANTENATO della punta → si pubblica la punta, e lo si dice", async () => {
-    const repo = repoConRamoVecchio({
+    const repo = repoWithOldBranch({
       avanzamentoMain: [["main-uno.txt", "uno\n"]],
       lavoroDelRamo: [["ramo.txt", "prima\n"]],
     });
@@ -299,5 +299,5 @@ describe("la PUNTA del ramo è la consegna, il commit registrato è solo dove er
     if (res.status !== "merged") return;
     expect(res.deliveryDrift).toContain("DOPO la consegna");
     expect(log(repo, "main")).toContain("ramo: dopo.txt");
-  }, CON_GIT_VERO);
+  }, WITH_REAL_GIT);
 });

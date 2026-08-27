@@ -301,9 +301,9 @@ test.describe("Done non mente: lo stato di atterraggio sta sulla card", () => {
     // Indietro nel tempo di tre giorni: il chip tace sotto l'ora, quindi una
     // card appena creata non lo mostrerebbe - e un test che aspetta un'ora
     // vera non e' un test.
-    const treGiorniFa = new Date(Date.now() - 3 * 24 * 3600_000).toISOString();
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 3600_000).toISOString();
     const t = await page.request.post(`${BASE}/api/test/tasks/${task.id}/review-at`, {
-      data: { at: treGiorniFa },
+      data: { at: threeDaysAgo },
     });
     expect(t.ok(), `seed review-at: ${t.status()}`).toBe(true);
 

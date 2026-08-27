@@ -26,7 +26,7 @@ const SCHEMA = `CREATE TABLE tasks (
  * senza questa tabella la fixture morirebbe con «no such table», che è il modo
  * più silenzioso di non provare niente.
  */
-const SCHEMA_COMMENTI = `CREATE TABLE task_comments (
+const SCHEMA_COMMENTS = `CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL,
     content TEXT NOT NULL, created_at TEXT NOT NULL
   )`;
@@ -34,7 +34,7 @@ const SCHEMA_COMMENTI = `CREATE TABLE task_comments (
 function freshDb(): Database {
   const db = new Database(":memory:");
   db.run(SCHEMA);
-  db.run(SCHEMA_COMMENTI);
+  db.run(SCHEMA_COMMENTS);
   return db;
 }
 
@@ -239,7 +239,7 @@ describe("probe:stalls --gate", () => {
     const path = join(dir, "topics.db");
     const db = new Database(path);
     db.run(SCHEMA);
-    db.run(SCHEMA_COMMENTI);
+    db.run(SCHEMA_COMMENTS);
     seed(db);
     db.close();
     return { dir, path };

@@ -42,7 +42,7 @@ import { decodeCol, encodeCol } from "../../shared/message-blob";
  * Il prefisso è ancorato: un errore che CONTIENE la parola più in là (l'output
  * di un comando che parla di interruzioni) non deve entrare.
  */
-const SEGNI_DI_INTERRUZIONE = /^Interrotto[:,] |^\[comando interrotto:/;
+const SIGNS_OF_INTERRUPTION = /^Interrotto[:,] |^\[comando interrotto:/;
 
 /**
  * Il cartello per una riga chiusa dallo spazzino, o `null` se non serve.
@@ -62,7 +62,7 @@ export function verdettoDaApporre(
     (b) =>
       b?.kind === "tool" &&
       typeof (b as { toolCall?: { error?: unknown } }).toolCall?.error === "string" &&
-      SEGNI_DI_INTERRUZIONE.test((b as { toolCall: { error: string } }).toolCall.error),
+      SIGNS_OF_INTERRUPTION.test((b as { toolCall: { error: string } }).toolCall.error),
   );
   if (!interrotto) return null;
   return { kind: "error", text: testo };
@@ -87,7 +87,7 @@ export function bonificaTurniMuti(db: DbLike, testo: string): number {
   ).iterate() as Iterable<{ id: string; blocks: unknown }>;
   // Si raccoglie PRIMA di scrivere: aggiornare la tabella che si sta scorrendo
   // è un comportamento che SQLite non definisce.
-  const daRiparare: Array<{ id: string; blocks: string }> = [];
+  const toRepair: Array<{ id: string; blocks: string }> = [];
   for (const row of iter) {
     const bl = decodeCol(row.blocks);
     // Scarto a buon mercato prima di pagare il `JSON.parse`: le righe con un
@@ -98,13 +98,13 @@ export function bonificaTurniMuti(db: DbLike, testo: string): number {
     const verdetto = verdettoDaApporre(parsed, testo);
     if (!verdetto) continue;
     parsed.push(verdetto);
-    daRiparare.push({ id: row.id, blocks: JSON.stringify(parsed) });
+    toRepair.push({ id: row.id, blocks: JSON.stringify(parsed) });
   }
-  if (daRiparare.length === 0) return 0;
+  if (toRepair.length === 0) return 0;
   const upd = db.prepare(`UPDATE messages SET blocks = ? WHERE id = ?`);
-  for (const r of daRiparare) upd.run(encodeCol(r.blocks) ?? null, r.id);
-  console.log(`[boot] ${daRiparare.length} turno/i interrotto/i senza spiegazione: verdetto aggiunto`);
-  return daRiparare.length;
+  for (const r of toRepair) upd.run(encodeCol(r.blocks) ?? null, r.id);
+  console.log(`[boot] ${toRepair.length} turno/i interrotto/i senza spiegazione: verdetto aggiunto`);
+  return toRepair.length;
 }
 
 /**

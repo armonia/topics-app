@@ -41,7 +41,7 @@ export function PairingGate({ session }: { session: SessionState }) {
   const requestIdRef = useRef<string | null>(null);
   const claimRef = useRef<string>('');
   /** Failures in a row. Only used to space out the retries. */
-  const tentativiRef = useRef(0);
+  const attemptsRef = useRef(0);
   /**
    * The "retry now" gesture, as an effect DEPENDENCY.
    *
@@ -102,7 +102,7 @@ export function PairingGate({ session }: { session: SessionState }) {
         // Success: the error goes now, because something replaces it on screen
         // (the code). It is the only moment where clearing leaves no hole.
         setError(null);
-        tentativiRef.current = 0;
+        attemptsRef.current = 0;
         requestIdRef.current = body.requestId;
         // Il segreto di ritiro: torna solo qui, e da qui non esce più. Senza,
         // chiunque avesse visto passare il `requestId` poteva incassare il
@@ -132,8 +132,8 @@ export function PairingGate({ session }: { session: SessionState }) {
      * in a pocket.
      */
     function riprovaPiuTardi() {
-      tentativiRef.current += 1;
-      timer = setTimeout(() => { void avvia(); }, attesaRiprova(tentativiRef.current));
+      attemptsRef.current += 1;
+      timer = setTimeout(() => { void avvia(); }, attesaRiprova(attemptsRef.current));
     }
 
     async function attendi() {
@@ -239,7 +239,7 @@ export function PairingGate({ session }: { session: SessionState }) {
                   wait for the next round, not the only way out. */}
               <p className="mt-1 text-[12px] text-app-text-muted">{t('pair.retrying')}</p>
               <button
-                onClick={() => { tentativiRef.current = 0; setOraRiprova((n) => n + 1); }}
+                onClick={() => { attemptsRef.current = 0; setOraRiprova((n) => n + 1); }}
                 className="mt-3 rounded-lg border border-app-border px-4 py-2 text-[13px] text-app-text hover:bg-surface"
               >
                 {t('pair.retry')}

@@ -178,10 +178,10 @@ describe("la finestra di chi scrive: il «fermati» che arriva fino a chi produc
 
     // …e adesso non si muove più. È l'asserzione che conta, e senza le due
     // righe di sopra non potrebbe fallire.
-    const primaDelBlocco = filo.length;
+    const beforeBlock = filo.length;
     expect(c.manda("terzo")).toBe("in-coda");
     expect(c.manda("quart")).toBe("in-coda");
-    expect(filo.length).toBe(primaDelBlocco);
+    expect(filo.length).toBe(beforeBlock);
     expect(c.inCoda()).toBe(2);
 
     c.ricarica(costoMessaggio(5) * 2);
@@ -327,31 +327,31 @@ describe("un giro completo fra due capi, senza rete", () => {
     const versoHost: EsitoTubo[] = [];
     const versoGuest: EsitoTubo[] = [];
 
-    const capoGuest = creaCapoCanale({ s: 1, invia: (f) => versoHost.push(daGuest.ricevi(f)) });
-    const capoHost = creaCapoCanale({ s: 0, invia: (f) => versoGuest.push(daHost.ricevi(f)) });
+    const headGuest = creaCapoCanale({ s: 1, invia: (f) => versoHost.push(daGuest.ricevi(f)) });
+    const headHost = creaCapoCanale({ s: 0, invia: (f) => versoGuest.push(daHost.ricevi(f)) });
 
-    capoGuest.apri("ws", scriviTestaWs({ p: "/ws/terminal/t1" }));
+    headGuest.apri("ws", scriviTestaWs({ p: "/ws/terminal/t1" }));
     expect(versoHost.at(-1)).toEqual({
       esito: "aperto", s: 1, k: "ws", h: scriviTestaWs({ p: "/ws/terminal/t1" }), canale: true,
     });
 
-    capoHost.apri("wsok", scriviTestaWs({ re: 1, s: 101 }));
+    headHost.apri("wsok", scriviTestaWs({ re: 1, s: 101 }));
     expect(versoGuest.at(-1)?.esito).toBe("aperto");
 
-    capoGuest.manda("ls -la\n");
+    headGuest.manda("ls -la\n");
     const su = versoHost.at(-1);
     if (su?.esito !== "messaggio") throw new Error("atteso un messaggio verso la macchina");
     expect(su.dati).toBe("ls -la\n");
 
-    capoHost.manda("total 0\r\n");
+    headHost.manda("total 0\r\n");
     const giu = versoGuest.at(-1);
     if (giu?.esito !== "messaggio") throw new Error("atteso un messaggio verso l'ospite");
     expect(giu.dati).toBe("total 0\r\n");
 
     // Il credito che torna indietro è quello che chi RICEVE ha contato.
-    capoGuest.ricarica(costoMessaggio(giu.byte));
+    headGuest.ricarica(costoMessaggio(giu.byte));
 
-    capoHost.chiudi("aborted");
+    headHost.chiudi("aborted");
     expect(versoGuest.at(-1)).toEqual({ esito: "chiuso", s: 0, motivo: "aborted" });
   });
 

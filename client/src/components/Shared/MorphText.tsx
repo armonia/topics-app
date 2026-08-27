@@ -46,7 +46,7 @@ interface Volo {
  * advance the index just like letters (so the rhythm stays the rhythm of the
  * sentence) even though they are never animated.
  */
-function partenzeChunk(chunks: string[]): number[] {
+function startsChunk(chunks: string[]): number[] {
   const out: number[] = [];
   let indice = -1;
   for (const chunk of chunks) {
@@ -83,7 +83,7 @@ export function MorphText({ text }: { text: string }) {
 
   const { prefix, changed, suffix, stepMs } = volo.plan;
   const chunks = morphWordChunks(changed);
-  const partenze = partenzeChunk(chunks);
+  const partenze = startsChunk(chunks);
   return (
     <span key={volo.seq}>
       {prefix}

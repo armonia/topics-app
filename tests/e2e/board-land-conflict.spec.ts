@@ -46,7 +46,7 @@ const API = `${BASE}/api`;
 
 /** La stessa riga, cambiata in due modi: il conflitto è garantito, non sperato. */
 const BEFORE = ["uno", "due", "tre", "quattro"].join("\n") + "\n";
-const SUL_TASK = ["uno", "due", "TRE dal task", "quattro"].join("\n") + "\n";
+const ON_TASK = ["uno", "due", "TRE dal task", "quattro"].join("\n") + "\n";
 const SU_MAIN = ["uno", "due", "TRE da main", "quattro"].join("\n") + "\n";
 
 interface WorktreeRow { id: string; status: string; absPath: string; branchName: string }
@@ -140,7 +140,7 @@ test.describe("Board · il land in conflitto dice perché la card torna indietro
     worktreePath = wt.absPath;
 
     // 3. Il lavoro del task, committato sul suo branch…
-    writeFileSync(`${wt.absPath}/conta.txt`, SUL_TASK);
+    writeFileSync(`${wt.absPath}/conta.txt`, ON_TASK);
     git(wt.absPath, ["add", "-A"]);
     git(wt.absPath, ["commit", "-q", "-m", "conta: TRE dal task"]);
     // …e main che intanto ha cambiato LA STESSA riga: il merge non può riuscire.

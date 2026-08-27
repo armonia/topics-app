@@ -118,7 +118,7 @@ export function facceOnline(
         id: m.id,
         nome,
         avatarUrl: p?.github?.avatarUrl ?? null,
-        iniziali: inizialiDi(nome),
+        iniziali: initialOf(nome),
       };
     });
 }
@@ -156,7 +156,7 @@ export function gentePresenza(
         id: m.id,
         nome,
         avatarUrl: p?.github?.avatarUrl ?? null,
-        iniziali: inizialiDi(nome),
+        iniziali: initialOf(nome),
         presente: online(m, adesso, sogliaMs),
         vistoA: m.lastSeenAt ?? null,
       };
@@ -221,6 +221,6 @@ function nomeDi(m: MembroPresenza, perId: Map<string, RigaRubrica>): string {
 }
 
 /** One or two initials. Empty when there is no name: the drawing side decides. */
-function inizialiDi(nome: string): string {
+function initialOf(nome: string): string {
   return nome.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? '').join('');
 }

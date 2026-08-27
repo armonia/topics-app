@@ -47,7 +47,7 @@ const PROJECT_PANE_ID = `project:${encodeURIComponent(PROJECT_PATH)}`;
 test.describe("Tab «Progetto»: si spegne quando l'hai guardata", () => {
   let chatId: string;
   let chatSessionKey: string;
-  let altroveId: string;
+  let elsewhereId: string;
 
   /** Il sessionKey che il SERVER ha assegnato: non si indovina dalla convenzione,
    *  o un cambio di formato produce un test verde-vuoto invece di un rosso. */
@@ -75,11 +75,11 @@ test.describe("Tab «Progetto»: si spegne quando l'hai guardata", () => {
     // Una seconda tab FUORI dal progetto: serve a dimostrare che il fill non
     // torna quando sposti il fuoco altrove (il vecchio gate lo faceva tornare).
     const altrove = await createTopic(request, `visto-altrove-${stamp}`);
-    altroveId = altrove.id;
+    elsewhereId = altrove.id;
   });
 
   test.afterAll(async ({ request }) => {
-    for (const id of [chatId, altroveId]) {
+    for (const id of [chatId, elsewhereId]) {
       if (id) await deleteTopic(request, id).catch(() => {});
     }
     rmSync(PROJECT_PATH, { recursive: true, force: true });
@@ -88,7 +88,7 @@ test.describe("Tab «Progetto»: si spegne quando l'hai guardata", () => {
   test.beforeEach(async ({ request }) => {
     // Superficie ermetica: prima si azzera, POI si semina il pane del progetto
     // (seedProjectPane appende allo store appena riscritto).
-    await resetPaneStore(request, [altroveId]);
+    await resetPaneStore(request, [elsewhereId]);
     await resetProjectPanes(request, PROJECT_PATH).catch(() => {});
     await seedProjectPane(request, PROJECT_PATH);
     // La chat del progetto è una tab APERTA dentro il progetto: è ciò che l'utente
@@ -123,9 +123,9 @@ test.describe("Tab «Progetto»: si spegne quando l'hai guardata", () => {
 
     // E qui il bug: sposta il fuoco altrove. Prima tornava blu — il gate era
     // «la tab è attiva adesso», non «l'ho letta».
-    const tabAltrove = page.locator(`[role="tab"][data-pane-id]`).filter({ hasText: /visto-altrove/ }).first();
-    await expect(tabAltrove).toBeVisible({ timeout: 10000 });
-    await tabAltrove.click();
+    const tabElsewhere = page.locator(`[role="tab"][data-pane-id]`).filter({ hasText: /visto-altrove/ }).first();
+    await expect(tabElsewhere).toBeVisible({ timeout: 10000 });
+    await tabElsewhere.click();
 
     // Resta spenta. La fase è ancora `awaiting-user` — è il "visto" a reggere,
     // non l'assenza dello stato.
@@ -165,7 +165,7 @@ test.describe("Tab «Progetto»: si spegne quando l'hai guardata", () => {
   test("una chat CHIUSA parcheggiata in attesa non accende il progetto", async ({ page, request }) => {
     const stamp = Date.now();
     const chiusa = await createTopic(request, `visto-chiusa-${stamp}`, { projectPath: PROJECT_PATH });
-    const chiusaKey = await sessionKeyOf(request, chiusa.id);
+    const closedKey = await sessionKeyOf(request, chiusa.id);
     // Archiviare è una DELETE con `{archived:true}` (soft delete), non una PATCH:
     // il PATCH del campo passa senza errore e non archivia niente — un test che
     // lo usasse verificherebbe una chat APERTA credendola chiusa.
@@ -187,8 +187,8 @@ test.describe("Tab «Progetto»: si spegne quando l'hai guardata", () => {
       // Il turno della chat CHIUSA finisce. Non deve dire niente al progetto.
       ws.send({
         type: "session:state",
-        sessionKey: chiusaKey,
-        state: { phase: "awaiting-user", rev: 1, claudeSessionId: chiusaKey },
+        sessionKey: closedKey,
+        state: { phase: "awaiting-user", rev: 1, claudeSessionId: closedKey },
       });
       await page.waitForTimeout(2000);
       await expect(tabProgetto).not.toHaveAttribute("data-attention", /input|done/);

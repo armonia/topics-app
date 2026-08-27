@@ -55,7 +55,7 @@ function git(args: string[]) {
  * Il popover vive in un PORTALE su document.body: si cerca dalla pagina, non
  * dentro `[data-testid="git-changes"]`.
  */
-async function apriStoria(win: Locator): Promise<Locator> {
+async function openHistory(win: Locator): Promise<Locator> {
   const git = win.locator('[data-testid="git-changes"]');
   await expect(git).toBeVisible({ timeout: 10000 });
   const head = git.locator('[data-testid="project-sidebar-git"]');
@@ -108,7 +108,7 @@ test.describe("cronologia dei commit", () => {
     // nemmeno nel DOM, e con lui la lista dei commit.
     await expect(page.locator('[data-testid="git-history-popover"]')).toHaveCount(0);
 
-    const storia = await apriStoria(win);
+    const storia = await openHistory(win);
 
     const righe = storia.locator('[data-testid="commit-row"]');
     await expect(righe).toHaveCount(3, { timeout: 10000 });
@@ -149,7 +149,7 @@ test.describe("cronologia dei commit", () => {
     await goToApp(page);
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
     const win = page.locator(`[data-testid="project-window"][data-project-path="${PROJ}"]`);
-    const pop = await apriStoria(win);
+    const pop = await openHistory(win);
     await expect(pop.locator('[data-testid="commit-row"]').first()).toBeVisible({ timeout: 10000 });
 
     const g = await pop.evaluate((el: HTMLElement) => {
@@ -226,7 +226,7 @@ test.describe("cronologia dei commit", () => {
     await expect(pannello.getByText(/Albero di lavoro pulito|Clean working tree/)).toBeVisible({ timeout: 10000 });
     // Ma resta raggiungibile: il bottone c'e' anche ad albero pulito, perche'
     // dei commit ce ne sono.
-    const pop = await apriStoria(win);
+    const pop = await openHistory(win);
     await expect(pop.locator('[data-testid="commit-row"]').first()).toBeVisible({ timeout: 10000 });
 
     // E l'icona di git non e' colorata: sta accanto alla pastiglia del
@@ -240,12 +240,12 @@ test.describe("cronologia dei commit", () => {
       // (`h-9 md:h-7`, vedi SECTION_CARD) quel filtro non trova piu' niente e
       // il test e' andato rosso su un cambio di GEOMETRIA mentre credeva di
       // parlare di COLORI. I testid ci sono gia' e non si muovono con lo stile.
-      const iconaDi = (testid: string) => {
+      const iconOf = (testid: string) => {
         const riga = root.querySelector(`[data-testid="project-sidebar-${testid}"]`);
         const svg = riga?.querySelector("svg");
         return svg ? getComputedStyle(svg).color : null;
       };
-      return { git: iconaDi("git"), file: iconaDi("files"), processi: iconaDi("processes") };
+      return { git: iconOf("git"), file: iconOf("files"), processi: iconOf("processes") };
     });
     expect(colori.git).not.toBeNull();
     expect(colori.git).toBe(colori.file ?? colori.processi);
@@ -261,7 +261,7 @@ test.describe("cronologia dei commit", () => {
     await goToApp(page);
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
     const win = page.locator(`[data-testid="project-window"][data-project-path="${PROJ}"]`);
-    const storia = await apriStoria(win);
+    const storia = await openHistory(win);
     const righe = storia.locator('[data-testid="commit-row"]');
     await expect(righe).toHaveCount(3, { timeout: 10000 });
 

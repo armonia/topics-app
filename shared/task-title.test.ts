@@ -29,8 +29,8 @@ describe("titoloDaTesto", () => {
   test("IL CASO 235afe11: il titolo resta leggibile e sta nel limite", () => {
     const { title } = titoloDaTesto(DETTATO);
     expect(title.length).toBeLessThanOrEqual(TITOLO_MAX);
-    const ultimaParola = title.replace(/…$/, "").trim().split(" ").pop()!;
-    expect(DETTATO).toContain(ultimaParola);
+    const lastWord = title.replace(/…$/, "").trim().split(" ").pop()!;
+    expect(DETTATO).toContain(lastWord);
   });
 
   /**
@@ -43,7 +43,7 @@ describe("titoloDaTesto", () => {
     const s = "Sistemare il pannello delle impostazioni e la finestra della configurazione avanzata del browser";
     expect(s[77]).not.toBe(" "); // il taglio secco cadrebbe dentro una parola
     const { title } = titoloDaTesto(s);
-    const ultimaParola = title.replace(/…$/, "").trim().split(" ").pop()!;
+    const lastWord = title.replace(/…$/, "").trim().split(" ").pop()!;
     // L'ASSERZIONE DEVE ESSERE FORTE, o passa per caso: la prima stesura
     // controllava `s.includes(parola + " ")`, e col taglio secco l'ultima
     // «parola» era «a» — che il testo contiene ovunque. Verde su un titolo
@@ -54,9 +54,9 @@ describe("titoloDaTesto", () => {
     // («…configurazione a») fallisce, perché quella «a» è il moncone di
     // «avanzata».
     const parole = s.split(/\s+/);
-    expect(parole).toContain(ultimaParola);
+    expect(parole).toContain(lastWord);
     // E non è un frammento di una parola più lunga rimasta a metà.
-    expect(ultimaParola.length).toBeGreaterThan(2);
+    expect(lastWord.length).toBeGreaterThan(2);
   });
 
   test("il testo intero non si perde mai: finisce nella descrizione", () => {

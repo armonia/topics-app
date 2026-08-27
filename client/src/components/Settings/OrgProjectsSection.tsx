@@ -82,7 +82,7 @@ export function OrgProjectsSection() {
     return () => { vivo = false; };
   }, []);
 
-  const nomiProgetti = new Set(progetti.map((p) => p.name.toLowerCase()));
+  const namesProjects = new Set(progetti.map((p) => p.name.toLowerCase()));
 
   return (
     <div>
@@ -120,7 +120,7 @@ export function OrgProjectsSection() {
       <div className="overflow-hidden rounded-lg border border-app-border">
         {PROPOSTE.map((proposta, i) => {
           const Icon = proposta.icon;
-          const presente = nomiProgetti.has(proposta.nome.toLowerCase());
+          const presente = namesProjects.has(proposta.nome.toLowerCase());
           return (
             <div
               key={proposta.nome}

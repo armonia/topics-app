@@ -25,7 +25,7 @@
  */
 
 /** Oltre questo, il click che aspettavamo non arriva più: si disarma. */
-const GUARDIA_MS = 700;
+const GUARD_MS = 700;
 
 /** Il minimo di `document` che serve qui — così la regola si prova senza un DOM. */
 export interface PressHost {
@@ -78,14 +78,14 @@ export function swallowNextClick(deps: SwallowDeps = defaultDeps()): () => void 
   inCarica?.();
   const { host, schedule } = deps;
   let disarmato = false;
-  let annullaAttesa: (() => void) | null = null;
+  let cancelWait: (() => void) | null = null;
 
   const disarma = () => {
     if (disarmato) return;
     disarmato = true;
     host.removeEventListener('click', mangia, { capture: true });
-    annullaAttesa?.();
-    annullaAttesa = null;
+    cancelWait?.();
+    cancelWait = null;
     if (inCarica === disarma) inCarica = null;
   };
 
@@ -96,7 +96,7 @@ export function swallowNextClick(deps: SwallowDeps = defaultDeps()): () => void 
   }
 
   host.addEventListener('click', mangia, { capture: true });
-  annullaAttesa = schedule(disarma, GUARDIA_MS);
+  cancelWait = schedule(disarma, GUARD_MS);
   inCarica = disarma;
   return disarma;
 }

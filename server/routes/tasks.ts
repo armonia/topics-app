@@ -1721,8 +1721,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // Un task singolo, il suo thread, i suoi allegati: passa solo se l'id è
       // fra i condivisi. L'id si legge dal path, che è la forma che tutte le
       // rotte di questo router usano.
-      const idNelPath = pathname.match(/\/api\/tasks\/([^/]+)/)?.[1];
-      if (idNelPath && condivisi.has(decodeURIComponent(idNelPath))) {
+      const idInPath = pathname.match(/\/api\/tasks\/([^/]+)/)?.[1];
+      if (idInPath && condivisi.has(decodeURIComponent(idInPath))) {
         // prosegue allo smistamento normale
       } else {
         return json({ error: "non condiviso", code: "not_shared" }, 403);
@@ -2877,9 +2877,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // Le guardie sono quelle della creazione, perche' e' la stessa decisione:
       // un titolo corto non si tocca, una risposta storta si scarta, e senza
       // modello non succede niente.
-      const bTitolo = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/retitle");
-      if (bTitolo && method === "POST") {
-        const t = svc.get(bTitolo.taskId, { projectId: bTitolo.projectId })?.task;
+      const bTitle = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/retitle");
+      if (bTitle && method === "POST") {
+        const t = svc.get(bTitle.taskId, { projectId: bTitle.projectId })?.task;
         if (!t) return json({ error: "not_found" }, 404);
         const prov = opts?.namingProvider?.();
         if (!prov) return json({ ok: false, reason: "no_provider" });
@@ -2887,9 +2887,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         if (!migliore) return json({ ok: false, reason: "nothing_better", text: t.text });
         const aggiornata = svc.update({
           taskId: t.id, actor: "agent", by: "system",
-          projectId: bTitolo.projectId, patch: { text: migliore },
+          projectId: bTitle.projectId, patch: { text: migliore },
         });
-        if (aggiornata) broadcastToAll({ type: "task:updated", projectId: bTitolo.projectId, task: aggiornata });
+        if (aggiornata) broadcastToAll({ type: "task:updated", projectId: bTitle.projectId, task: aggiornata });
         return json({ ok: true, text: migliore, before: t.text });
       }
 

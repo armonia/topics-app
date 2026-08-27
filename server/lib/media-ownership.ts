@@ -48,7 +48,7 @@ export interface MediaAttribution {
  * partenza, con un passaggio in più. Sotto questa soglia si accetta SOLO il
  * percorso assoluto.
  */
-const NOME_MINIMO = 8;
+const MINIMUM_NAME = 8;
 
 /**
  * Quali dei candidati appartengono davvero a questo turno.
@@ -76,7 +76,7 @@ export function attribuisciMedia(candidati: string[], tools: TurnToolTrace[]): M
   const altrui: string[] = [];
   for (const c of candidati) {
     const nome = basename(c);
-    const nominato = pagliaio.includes(c) || (nome.length >= NOME_MINIMO && pagliaio.includes(nome));
+    const nominato = pagliaio.includes(c) || (nome.length >= MINIMUM_NAME && pagliaio.includes(nome));
     (nominato ? propri : altrui).push(c);
   }
   return { propri, altrui };

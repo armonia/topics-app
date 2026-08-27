@@ -46,7 +46,7 @@ function proprietario(db: Database): { id: string; display_name: string } {
      ORDER BY io.is_default DESC LIMIT 1`).get() as { id: string; display_name: string };
 }
 
-function quantePersone(db: Database): number {
+function manyPeople(db: Database): number {
   return Number((db.query("SELECT COUNT(*) AS n FROM people").get() as { n: number }).n);
 }
 
@@ -131,11 +131,11 @@ describe("aggancio · non nasce mai una persona nuova", () => {
 
   test("prima attivazione: si prende la persona che agisce, e il conteggio non si muove", () => {
     const io = proprietario(db);
-    const prima = quantePersone(db);
+    const prima = manyPeople(db);
 
     const e = collegaAccount(db, { identita: IDENTITA, actingPersonId: io.id, now: 7000 });
     expect(e).toEqual({ ok: true, personId: io.id, come: "acting" });
-    expect(quantePersone(db)).toBe(prima);
+    expect(manyPeople(db)).toBe(prima);
 
     const r = rigaPersona(db, io.id);
     expect(r.remote_id).toBe("acct-77");
@@ -159,13 +159,13 @@ describe("aggancio · non nasce mai una persona nuova", () => {
   test("riattivare lo stesso account sulla propria riga è idempotente e la ritrova", () => {
     const io = proprietario(db);
     collegaAccount(db, { identita: IDENTITA, actingPersonId: io.id, now: 7000 });
-    const prima = quantePersone(db);
+    const prima = manyPeople(db);
 
     const e = collegaAccount(db, { identita: IDENTITA, actingPersonId: io.id, now: 9000 });
     // `remote_id` e non `acting`: la riga portava GIÀ questo account, ed è
     // l'unico modo per distinguere una riattivazione da una prima attivazione.
     expect(e).toEqual({ ok: true, personId: io.id, come: "remote_id" });
-    expect(quantePersone(db)).toBe(prima);
+    expect(manyPeople(db)).toBe(prima);
     expect(rigaPersona(db, io.id).synced_at).toBe(9000);
   });
 
@@ -174,11 +174,11 @@ describe("aggancio · non nasce mai una persona nuova", () => {
     // è il caso di chi era stato aggiunto a mano alla rubrica.
     const io = proprietario(db);
     db.query("UPDATE people SET email = ? WHERE id = ?").run("attilio@esempio.test", io.id);
-    const prima = quantePersone(db);
+    const prima = manyPeople(db);
 
     const e = collegaAccount(db, { identita: IDENTITA, actingPersonId: io.id, now: 7000 });
     expect(e).toEqual({ ok: true, personId: io.id, come: "email" });
-    expect(quantePersone(db)).toBe(prima);
+    expect(manyPeople(db)).toBe(prima);
     expect(rigaPersona(db, io.id).remote_id).toBe("acct-77");
   });
 
@@ -188,7 +188,7 @@ describe("aggancio · non nasce mai una persona nuova", () => {
     // due risposte, con `DELETE` incapace di raggiungere l'aggancio.
     const io = proprietario(db);
     const invitato = aggiungiPersona(db, "Mircea", "mircea@esempio.test");
-    const prima = quantePersone(db);
+    const prima = manyPeople(db);
 
     const e = collegaAccount(db, {
       identita: { accountId: "acct-9", email: "Mircea@Esempio.test" },
@@ -196,7 +196,7 @@ describe("aggancio · non nasce mai una persona nuova", () => {
       now: 7000,
     });
     expect(e).toEqual({ ok: false, codice: "belongs_to_other_person" });
-    expect(quantePersone(db)).toBe(prima);
+    expect(manyPeople(db)).toBe(prima);
     expect(rigaPersona(db, invitato).remote_id).toBeNull();
     expect(rigaPersona(db, io.id).remote_id).toBeNull();
   });
@@ -204,13 +204,13 @@ describe("aggancio · non nasce mai una persona nuova", () => {
   test("un account che è di UN'ALTRA riga si rifiuta: l'indice unico lo direbbe comunque, ma peggio", () => {
     const io = proprietario(db);
     collegaAccount(db, { identita: IDENTITA, actingPersonId: io.id, now: 7000 });
-    const prima = quantePersone(db);
+    const prima = manyPeople(db);
 
     // Un secondo dispositivo, un'altra persona alla tastiera, lo stesso account.
     const altro = aggiungiPersona(db, "Ospite", null);
     const e = collegaAccount(db, { identita: IDENTITA, actingPersonId: altro, now: 9000 });
     expect(e).toEqual({ ok: false, codice: "belongs_to_other_person" });
-    expect(quantePersone(db)).toBe(prima + 1); // solo quella aggiunta a mano qui sopra
+    expect(manyPeople(db)).toBe(prima + 1); // solo quella aggiunta a mano qui sopra
     expect(rigaPersona(db, altro).remote_id).toBeNull();
     // E la riga che l'account ce l'ha davvero non è stata toccata.
     expect(rigaPersona(db, io.id).synced_at).toBe(7000);
@@ -220,7 +220,7 @@ describe("aggancio · non nasce mai una persona nuova", () => {
   test("chi porta già un ALTRO account non se lo vede sostituire in silenzio", () => {
     const io = proprietario(db);
     collegaAccount(db, { identita: IDENTITA, actingPersonId: io.id, now: 7000 });
-    const prima = quantePersone(db);
+    const prima = manyPeople(db);
 
     const e = collegaAccount(db, {
       identita: { accountId: "acct-diverso", email: "altro@esempio.test" },
@@ -228,7 +228,7 @@ describe("aggancio · non nasce mai una persona nuova", () => {
       now: 8000,
     });
     expect(e).toEqual({ ok: false, codice: "already_linked_other" });
-    expect(quantePersone(db)).toBe(prima);
+    expect(manyPeople(db)).toBe(prima);
     // Niente è cambiato: né l'account né l'indirizzo.
     expect(rigaPersona(db, io.id).remote_id).toBe("acct-77");
     expect(rigaPersona(db, io.id).email).toBe("attilio@esempio.test");
@@ -237,7 +237,7 @@ describe("aggancio · non nasce mai una persona nuova", () => {
   test("un indirizzo che appartiene a una persona REVOCATA si dichiara, non si aggira", () => {
     const io = proprietario(db);
     aggiungiPersona(db, "Uscito", "uscito@esempio.test", true);
-    const prima = quantePersone(db);
+    const prima = manyPeople(db);
 
     const e = collegaAccount(db, {
       identita: { accountId: "acct-5", email: "uscito@esempio.test" },
@@ -245,7 +245,7 @@ describe("aggancio · non nasce mai una persona nuova", () => {
       now: 7000,
     });
     expect(e).toEqual({ ok: false, codice: "person_revoked" });
-    expect(quantePersone(db)).toBe(prima);
+    expect(manyPeople(db)).toBe(prima);
     expect(rigaPersona(db, io.id).remote_id).toBeNull();
   });
 
@@ -255,16 +255,16 @@ describe("aggancio · non nasce mai una persona nuova", () => {
     const io = proprietario(db);
     const uscito = aggiungiPersona(db, "Uscito", "uscito@esempio.test", true);
     db.query("UPDATE people SET remote_id = ? WHERE id = ?").run("acct-77", uscito);
-    const prima = quantePersone(db);
+    const prima = manyPeople(db);
 
     const e = collegaAccount(db, { identita: IDENTITA, actingPersonId: io.id, now: 7000 });
     expect(e).toEqual({ ok: false, codice: "person_revoked" });
-    expect(quantePersone(db)).toBe(prima);
+    expect(manyPeople(db)).toBe(prima);
     expect(rigaPersona(db, io.id).remote_id).toBeNull();
   });
 
   test("senza nessuna persona a cui agganciarsi si rifiuta, e non se ne inventa una", () => {
-    const prima = quantePersone(db);
+    const prima = manyPeople(db);
     expect(collegaAccount(db, { identita: IDENTITA, actingPersonId: null, now: 7000 }))
       .toEqual({ ok: false, codice: "no_person" });
     expect(collegaAccount(db, { identita: IDENTITA, actingPersonId: "mai-esistita", now: 7000 }))
@@ -274,7 +274,7 @@ describe("aggancio · non nasce mai una persona nuova", () => {
     expect(collegaAccount(db, { identita: IDENTITA, actingPersonId: uscito, now: 7000 }))
       .toEqual({ ok: false, codice: "no_person" });
     expect(rigaPersona(db, uscito).remote_id).toBeNull();
-    expect(quantePersone(db)).toBe(prima + 1); // solo `Uscito`
+    expect(manyPeople(db)).toBe(prima + 1); // solo `Uscito`
   });
 
   test("un carico senza account o senza indirizzo non si interpreta", () => {
@@ -292,32 +292,32 @@ describe("aggancio · non nasce mai una persona nuova", () => {
 describe("seconda installazione · si riconcilia sulla STESSA persona", () => {
   test("due database, due righe locali, un solo `remote_id`", () => {
     const primaMacchina = dbFresco();
-    const secondaMacchina = dbFresco();
+    const secondMachine = dbFresco();
 
     const ioA = proprietario(primaMacchina);
-    const ioB = proprietario(secondaMacchina);
+    const ioB = proprietario(secondMachine);
     // Le due installazioni partono da due righe DIVERSE: gli id li fa
     // `randomblob`, apposta perché due database che si incontrano non
     // collidano. Se questa asserzione cadesse, il test successivo passerebbe
     // per il motivo sbagliato.
     expect(ioA.id).not.toBe(ioB.id);
 
-    const primaA = quantePersone(primaMacchina);
-    const primaB = quantePersone(secondaMacchina);
+    const primaA = manyPeople(primaMacchina);
+    const primaB = manyPeople(secondMachine);
 
     expect(collegaAccount(primaMacchina, { identita: IDENTITA, actingPersonId: ioA.id, now: 100 }))
       .toEqual({ ok: true, personId: ioA.id, come: "acting" });
-    expect(collegaAccount(secondaMacchina, { identita: IDENTITA, actingPersonId: ioB.id, now: 200 }))
+    expect(collegaAccount(secondMachine, { identita: IDENTITA, actingPersonId: ioB.id, now: 200 }))
       .toEqual({ ok: true, personId: ioB.id, come: "acting" });
 
     // Nessuna delle due ha guadagnato un abitante.
-    expect(quantePersone(primaMacchina)).toBe(primaA);
-    expect(quantePersone(secondaMacchina)).toBe(primaB);
+    expect(manyPeople(primaMacchina)).toBe(primaA);
+    expect(manyPeople(secondMachine)).toBe(primaB);
 
     // E le due righe portano la stessa identità remota: è QUESTA la chiave
     // condivisa, non la riga — ogni installazione ha il proprio database.
     expect(rigaPersona(primaMacchina, ioA.id).remote_id)
-      .toBe(rigaPersona(secondaMacchina, ioB.id).remote_id);
+      .toBe(rigaPersona(secondMachine, ioB.id).remote_id);
     expect(rigaPersona(primaMacchina, ioA.id).remote_id).toBe("acct-77");
   });
 });

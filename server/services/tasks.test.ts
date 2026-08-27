@@ -1244,13 +1244,13 @@ describe("blocked-by dependency", () => {
     const bloccante = s.create({ projectId: PID, text: "bloccante", status: "todo" });
     const epica = s.create({ projectId: PID, text: "epica" });
     const sottotask = s.create({ projectId: PID, text: "step", parentTaskId: epica.id, blockedByTaskId: bloccante.id });
-    const altroProgetto = s.create({ projectId: "altro-progetto-x", text: "fuori progetto", blockedByTaskId: bloccante.id });
-    const inLista = s.create({ projectId: PID, text: "dipendente in lista", blockedByTaskId: bloccante.id, status: "todo" });
+    const otherProject = s.create({ projectId: "altro-progetto-x", text: "fuori progetto", blockedByTaskId: bloccante.id });
+    const inList = s.create({ projectId: PID, text: "dipendente in lista", blockedByTaskId: bloccante.id, status: "todo" });
 
     const roots = s.list({ scope: "project", projectId: PID, rootsOnly: true });
     const card = roots.find((t) => t.id === bloccante.id);
     expect(roots.map((t) => t.id)).not.toContain(sottotask.id);   // fuori dalla lista…
-    expect(roots.map((t) => t.id)).not.toContain(altroProgetto.id); // …e anche questo…
+    expect(roots.map((t) => t.id)).not.toContain(otherProject.id); // …e anche questo…
     expect(card?.waitingOnCount).toBe(3);                          // …ma contati lo stesso
 
     // In lettura singola e — cosa che conta per il WS — in SCRITTURA: ogni
@@ -1260,9 +1260,9 @@ describe("blocked-by dependency", () => {
 
     // Vivi = non done e non archiviati: gli stessi che il gate di dispatch tiene
     // fermi e che ripartono quando il bloccante chiude.
-    s.update({ taskId: inLista.id, actor: "human", by: "u", patch: { status: "done" } });
+    s.update({ taskId: inList.id, actor: "human", by: "u", patch: { status: "done" } });
     expect(s.get(bloccante.id)?.task.waitingOnCount).toBe(2);
-    s.archive({ taskId: altroProgetto.id });
+    s.archive({ taskId: otherProject.id });
     expect(s.get(bloccante.id)?.task.waitingOnCount).toBe(1);
     // Sciolto il legame, il contatore va a zero (e chi non blocca nessuno sta a 0).
     s.update({ taskId: sottotask.id, actor: "human", by: "u", patch: { blockedByTaskId: null } });
@@ -1934,8 +1934,8 @@ describe("la lista: filtro per id, stato validato, commenti sulla card", () => {
     expect(card!.recentComments.map((c) => c.content)).toEqual(["parola 2", "parola 3", "parola 4"]);
     // E su OGNI payload, anche su quelli che le scritture ribaltano sul WS: un
     // campo riempito solo in lettura si spegnerebbe al primo giro di WS.
-    const dopoScrittura = s.update({ taskId: t.id, actor: "human", by: "attilio", patch: { priority: 3 } });
-    expect(dopoScrittura.recentComments.map((c) => c.content)).toEqual(["parola 2", "parola 3", "parola 4"]);
+    const afterWrite = s.update({ taskId: t.id, actor: "human", by: "attilio", patch: { priority: 3 } });
+    expect(afterWrite.recentComments.map((c) => c.content)).toEqual(["parola 2", "parola 3", "parola 4"]);
   });
 
   /**
@@ -2135,14 +2135,14 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
 
     for (const each of [id, ...altri]) {
       const dallaLista = listati.get(each);
-      const dalDettaglio = s.get(each)?.task;
+      const fromDetail = s.get(each)?.task;
       expect(dallaLista).toBeDefined();
-      expect(dalDettaglio).toBeDefined();
+      expect(fromDetail).toBeDefined();
       // `checks` e `description` fuori dal confronto e pinzate a parte: sono le
       // DUE differenze volute fra le due porte, quindi vanno nominate invece
       // che tollerate. Tutto il resto deve coincidere, campo per campo.
       const senzaGrasso = { checks: null, description: null };
-      expect({ ...dallaLista!, ...senzaGrasso }).toEqual({ ...dalDettaglio!, ...senzaGrasso });
+      expect({ ...dallaLista!, ...senzaGrasso }).toEqual({ ...fromDetail!, ...senzaGrasso });
     }
 
     expect(listati.get(id)!.checks).toBeNull();          // la lista non li porta
@@ -2408,13 +2408,13 @@ describe("bindTopic: al cambio di topic i `done` si archiviano e gli aperti si e
 
     s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
 
-    const eventiDi = (id: string) =>
+    const eventsOf = (id: string) =>
       (db.prepare("SELECT content FROM task_comments WHERE task_id = ? AND kind = 'status'").all(id) as any[])
         .map((r) => r.content);
-    expect(eventiDi(step.id).join(" "), "in_progress -> todo, scritto").toContain("todo");
-    expect(eventiDi(step.id).length).toBe(1);
+    expect(eventsOf(step.id).join(" "), "in_progress -> todo, scritto").toContain("todo");
+    expect(eventsOf(step.id).length).toBe(1);
     expect(
-      eventiDi(fermo.id),
+      eventsOf(fermo.id),
       "gia' in todo: non si e' mosso, e non deve inventarsi un passaggio",
     ).toEqual([]);
   });
