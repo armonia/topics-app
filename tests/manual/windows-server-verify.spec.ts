@@ -6,8 +6,9 @@
  * the Mac over an ssh tunnel. It exists to leave a REPEATABLE measurement
  * where there was only a written report.
  *
- * Run by hand (not in CI: it needs that machine powered on):
- *   ssh -f -N -L 51156:127.0.0.1:51156 zorah@100.92.197.74
+ * Run by hand (not in CI: it needs that machine powered on). Replace the
+ * placeholders with the account and address of your own Windows box:
+ *   ssh -f -N -L 51156:127.0.0.1:51156 <user>@<windows-host>
  *   TOPICS_WIN_BASE=http://127.0.0.1:51156 \
  *     npx playwright test -c playwright.windows.config.ts
  *

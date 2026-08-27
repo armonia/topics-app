@@ -1802,6 +1802,8 @@ const IT: Dict = {
   'version.nativeApp': 'App nativa',
   'version.whatsNew': 'Novità di questa versione',
   'version.updates': 'Aggiornamenti',
+  'version.incompleteInstall': 'Installazione incompleta.',
+  'version.incompleteInstallDetail': 'Questi componenti sono rimasti alla versione precedente ({names}): erano in uso quando l\'aggiornamento e\' stato installato. Chiudi Topics del tutto e reinstalla.',
   'version.swReady': 'Aggiornamento pronto, ricarica',
   'version.webUpToDate': 'Sei sulla versione web più recente.',
   'version.checking': 'Controllo aggiornamenti…',
