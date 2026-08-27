@@ -23,7 +23,7 @@ import { isDesktop, isTauri } from '../lib/shell';
 import { reloadAllWindows } from '../lib/shell/app';
 import { hasOpenModalSurface } from '../lib/modalSurface';
 import type { Topic } from '../types';
-import { undo as undoUndo, redo as undoRedo, isTextInputFocused } from '../contexts/UndoContext';
+import { undo as undoUndo, redo as undoRedo, isTextInputFocused, isRawKeySurfaceFocused } from '../contexts/UndoContext';
 import { isProjectPaneId, getProjectPathFromPaneId, sessionKeyForPaneId, type ClosedTabRecord } from '../state/pane/adapters';
 import { OPEN_ADD_PALETTE_EVENT } from '../components/Shared/PaneAddMenu';
 
@@ -415,18 +415,20 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         return;
       }
 
-      // ⌘, — Preferenze. La palette dei comandi lo annunciava gia' accanto a
-      // "Settings" (ActionPill shortcut="⌘,"), ma non lo ascoltava nessuno: la
-      // scorciatoia piu' automatica del Mac era scritta e basta.
+      // ⌘, — Settings, as on every macOS app. The command palette announced it
+      // next to "Settings" (ActionPill shortcut="⌘,") long before anybody
+      // listened for it.
       //
-      // `isMod` è `metaKey || ctrlKey`, quindi qui passa anche `Ctrl+,`. Su Mac
-      // ⌘, è assoluto e deve funzionare anche mentre scrivi — è la convenzione
-      // di sistema. `Ctrl+,` no: dentro un terminale xterm o un editor
-      // CodeMirror è un tasto VERO, e questo handler è in capture su `window`,
-      // quindi il `preventDefault()` incondizionato lo mangiava prima che
-      // arrivasse alla superficie a fuoco. Ctrl cede il passo a chi sta
-      // scrivendo, ⌘ no.
-      if (isMod && !e.shiftKey && e.key === ',' && (e.metaKey || !isTextInputFocused(e.target))) {
+      // `isMod` is `metaKey || ctrlKey`, so Ctrl+, lands here too, and on
+      // Windows that is the ONLY way in: `metaKey` is always false there. The
+      // guard used to yield to any focused text input, which on Windows meant
+      // the shortcut was mute exactly where people live, the chat composer
+      // (card cb88f460). It now yields only to the surfaces that own the raw
+      // combo: an xterm terminal and a CodeMirror editor, where Ctrl+, is a
+      // REAL key and this capture-phase `preventDefault()` would eat it before
+      // the surface saw it. A textarea does nothing with Ctrl+, so there is
+      // nothing to yield to.
+      if (isMod && !e.shiftKey && e.key === ',' && (e.metaKey || !isRawKeySurfaceFocused(e.target))) {
         e.preventDefault();
         setShowSettings(true);
         return;
