@@ -55,6 +55,30 @@ fn trace(app: &tauri::AppHandle, line: &str) {
     }
 }
 
+
+/// Force the PAGE to re-raster, which is a different lever from everything the
+/// controller offers.
+///
+/// Every host-side remedy has now been measured not to work (2.2.182 to 2.2.186:
+/// window bounce, controller visibility cycle, re-parent, a real one-pixel bounce
+/// of the controller's own bounds - each one ran, `repaint.log` proves it, and
+/// the window came back at 3 or 4 rows of 79 every time). The WebView2 runtime is
+/// current (151.0.4129.107) and the window is not layered, so neither is the
+/// explanation.
+///
+/// What has NOT been tried is asking the renderer itself to throw its raster
+/// away. Promoting the root to its own compositing layer and dropping it again
+/// invalidates every tile: if the renderer is alive and only its surface is
+/// stale, this is enough and costs nothing. If it is NOT enough, the renderer is
+/// suspended rather than stale, and the only remaining remedy is a reload - which
+/// costs the page's state and is therefore a decision, not a default.
+const REPAINT_JS: &str = "(function(){try{\
+var d=document.documentElement;\
+d.style.transform='translateZ(0)';\
+d.getBoundingClientRect();\
+requestAnimationFrame(function(){d.style.transform='';});\
+}catch(e){}})()";
+
 /// Ask WebView2 to rebuild the visual it lost while the window was minimised.
 ///
 /// `get_webview`, NOT `get_webview_window`: once a native browser pane is up the
@@ -127,7 +151,8 @@ pub(crate) fn note_window_event(win: &tauri::Window, kind: &'static str) {
         let app2 = app.clone();
         let _ = app.run_on_main_thread(move || {
             crate::window_recompose::recompose_main_window(&app2, "restore");
-            trace(&app2, &format!("repair: {what}, window bounced"));
+            let evalled = crate::eval_in_main_webview(&app2, REPAINT_JS);
+            trace(&app2, &format!("repair: {what}, window bounced, repaint js {evalled}"));
         });
     });
 }
