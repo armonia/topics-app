@@ -212,7 +212,33 @@ pub(crate) fn note_window_event(win: &tauri::Window, kind: &'static str) {
         let _ = app.run_on_main_thread(move || {
             crate::window_recompose::recompose_main_window(&app2, "restore");
             let evalled = crate::eval_in_main_webview(&app2, REPAINT_JS);
-            trace(&app2, &format!("repair: {what}, window bounced, repaint js {evalled}"));
+            // HIDE AND SHOW, last on purpose and the only lever left untried.
+            //
+            // Eight measured attempts talked to the webview: window bounce,
+            // controller visibility cycle, re-parent, a real bounce of the
+            // controller's own bounds, a rasterization-scale change, a
+            // compositor invalidation from inside the page, an opaque default
+            // background. Every one of them RAN - repaint.log says so each time -
+            // and the window came back at 3 or 4 rows of 79 every time.
+            //
+            // This one does not talk to the webview at all. Hiding takes the
+            // window out of the presentation entirely (not iconic - absent), and
+            // showing it puts it back, which is the closest thing to the restart
+            // that has always cured it. It is also the ugliest, which is why it
+            // is the last one and not the first.
+            let shown = {
+                use tauri::Manager;
+                match app2.get_window("main") {
+                    Some(w) => {
+                        let _ = w.hide();
+                        let _ = w.show();
+                        let _ = w.set_focus();
+                        true
+                    }
+                    None => false,
+                }
+            };
+            trace(&app2, &format!("repair: {what}, bounced, js {evalled}, hide/show {shown}"));
         });
     });
 }
