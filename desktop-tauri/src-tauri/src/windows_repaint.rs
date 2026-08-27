@@ -65,30 +65,32 @@ fn rebuild_webview_visual(app: &tauri::AppHandle) -> &'static str {
     let Some(wv) = app.get_webview("main") else { return "no main webview" };
     let queued = wv.with_webview(move |platform| unsafe {
         let c = platform.controller();
-        // A LADDER, in the order Microsoft documents for "the webview came back
-        // blank": the visibility cycle alone was MEASURED not to be enough
-        // (2.2.184: the repair ran - `repair: controller cycled, window bounced`
-        // is in repaint.log - and the window still came back at 3 rows of 79).
+        // BOUNCE THE CONTROLLER'S BOUNDS, and bounce them for real.
         //
-        // Re-parenting the controller to the SAME parent is the strong one: it
-        // makes WebView2 rebuild its whole visual tree, which is precisely what
-        // is lost here (every HWND stays healthy, nothing is drawn).
-        // `NotifyParentWindowPositionChanged` is the cheap one that tells it the
-        // host moved, and re-asserting the bounds gives the new visual a size.
+        // Everything tried before re-asserted values that were ALREADY set:
+        // `SetParentWindow` with the same parent, `SetBounds` with the same rect,
+        // a visibility cycle. Measured across 2.2.183, 2.2.184 and 2.2.185 - the
+        // repair ran every time, `repaint.log` proves it - and the window came
+        // back at 3 or 4 rows of 79 each time. A setter handed the value it
+        // already holds is free to do nothing, and that is the likeliest reason
+        // none of them bit.
+        //
+        // So the rect is CHANGED (one pixel narrower) and then put back, which is
+        // the same trick as the window bounce but applied one layer down, where
+        // the loss actually is: every HWND stays healthy and nothing is drawn.
         // Signatures read from webview2-com-sys 0.38.2, not guessed.
-        let mut parent = windows::Win32::Foundation::HWND::default();
-        if c.ParentWindow(&mut parent).is_ok() {
-            let _ = c.SetParentWindow(parent);
+        let mut r = windows::Win32::Foundation::RECT::default();
+        if c.Bounds(&mut r).is_ok() {
+            let mut shrunk = r;
+            shrunk.right = (shrunk.right - 1).max(shrunk.left + 1);
+            let _ = c.SetBounds(shrunk);
+            let _ = c.SetBounds(r);
         }
         let _ = c.NotifyParentWindowPositionChanged();
         let _ = c.SetIsVisible(false);
         let _ = c.SetIsVisible(true);
-        let mut r = windows::Win32::Foundation::RECT::default();
-        if c.Bounds(&mut r).is_ok() {
-            let _ = c.SetBounds(r);
-        }
     });
-    if queued.is_err() { "with_webview refused" } else { "reparented + cycled" }
+    if queued.is_err() { "with_webview refused" } else { "bounds bounced + cycled" }
 }
 
 /// Called on EVERY window event this file subscribes to (`Resized`, `Focused`),
