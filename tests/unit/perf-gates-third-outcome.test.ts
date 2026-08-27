@@ -20,9 +20,17 @@
  * Text scan and not a YAML parse, on purpose: the repo has no YAML dependency,
  * the neighbouring CI tests read the file exactly this way, and the shape being
  * asserted is the shape a person sees when editing it.
+ *
+ * The step is then RUN, not only read. Three regexes found in a body do not say
+ * what the body DOES with an exit code: an `exit "$rc"` sitting before the `if`
+ * instead of after it matches every one of them, and swallows the annotation
+ * whole. So the `run:` block is extracted, the gate line inside it is replaced
+ * by a stub returning a chosen code, and bash decides. Same move as the script
+ * half in `check-ink-exit-codes.test.ts`, applied to the other file.
  * @covers GATE-04
  */
 import { describe, it, expect } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "fs";
 import { join } from "path";
 
@@ -66,6 +74,29 @@ function stepRunning(script: string): string {
   return bodies[0]!;
 }
 
+/**
+ * The `run:` block of that step, dedented, with the gate itself replaced by a
+ * subshell returning `code`. Everything around it is the CI bytes, untouched.
+ */
+function shellOf(script: string, code: number): string {
+  const lines = stepRunning(script).split("\n");
+  const at = lines.findIndex((l) => /^\s*run: \|\s*$/.test(l));
+  if (at < 0) throw new Error(`step running \`${script}\` has no run: block`);
+  const body = lines.slice(at + 1);
+  const indent = body.find((l) => l.trim().length > 0)?.match(/^\s*/)?.[0] ?? "";
+  const dedented = body.map((l) => (l.startsWith(indent) ? l.slice(indent.length) : l));
+  const gate = dedented.findIndex((l) => l.trim() === `bun run ${script}`);
+  if (gate < 0) throw new Error(`gate line for \`${script}\` not found in its run: block`);
+  dedented[gate] = `( exit ${code} )`;
+  return dedented.join("\n");
+}
+
+/** Run that block under bash and report what CI would have seen. */
+function runStep(script: string, code: number): { code: number; out: string } {
+  const run = spawnSync("bash", ["-c", shellOf(script, code)], { encoding: "utf8" });
+  return { code: run.status ?? -1, out: `${run.stdout ?? ""}${run.stderr ?? ""}` };
+}
+
 describe("i cancelli di performance hanno un terzo esito, e si vede", () => {
   for (const script of ABSTAINING_GATES) {
     it(`${script}: l'uscita 2 non ferma la run ma lascia un warning annotato`, () => {
@@ -80,6 +111,26 @@ describe("i cancelli di performance hanno un terzo esito, e si vede", () => {
       // from a measurement that went well.
       expect(stepRunning(script)).not.toMatch(/\|\| test \$\? -eq 2/);
     });
+
+    it(`${script}: ESEGUITO, un 2 esce 0 e lascia la riga ::warning`, () => {
+      const { code, out } = runStep(script, 2);
+      expect(code).toBe(0);
+      expect(out).toMatch(/^::warning title=/m);
+    });
+
+    it(`${script}: ESEGUITO, un 1 ferma lo step e non lo annota`, () => {
+      // The abstention must not become an umbrella: a MEASURED overrun has to
+      // keep coming out of this same block as a failure.
+      const { code, out } = runStep(script, 1);
+      expect(code).toBe(1);
+      expect(out).not.toContain("::warning");
+    });
+
+    it(`${script}: ESEGUITO, un verde resta verde e muto`, () => {
+      const { code, out } = runStep(script, 0);
+      expect(code).toBe(0);
+      expect(out).not.toContain("::warning");
+    });
   }
 
   it("check:bundle NON si astiene: e' deterministico, e blocca sempre", () => {
@@ -87,26 +138,27 @@ describe("i cancelli di performance hanno un terzo esito, e si vede", () => {
     // Giving it an exit 2 would be handing it an excuse it cannot have.
     expect(stepRunning("check:bundle")).not.toMatch(/-eq 2/);
   });
+
+  it("check:bundle non ha proprio un blocco di shell dove nascondere un'uscita", () => {
+    // A one-line `run:` hands the exit code straight to the runner: there is
+    // no `if` in between, so no code can be turned into a green here. The five
+    // gates above earn their branch by being able to fail to measure; this one
+    // would only be borrowing an excuse.
+    expect(stepRunning("check:bundle")).toMatch(/^\s*run: bun run check:bundle\s*$/m);
+  });
 });
 
 describe("check:ink sa dire «non ho misurato»", () => {
   const src = readFileSync(join(ROOT, "scripts/check-ink-latency.ts"), "utf8");
 
-  it("dichiara i due esiti non-verdi con un nome", () => {
-    expect(src).toMatch(/const OVER_BUDGET = 1;/);
-    expect(src).toMatch(/const NOT_MEASURED = 2;/);
-  });
-
+  // The other four exit points of this script are asserted by RUNNING it, over
+  // in `check-ink-exit-codes.test.ts`. Only this one stays a source scan,
+  // because reaching it means making a real Playwright run fail.
   it("la misura che non parte e' un'astensione, non una regressione", () => {
     // The Playwright run failing means nothing was measured. The app being
     // broken is judged by the E2E job, which runs this same spec.
     const branch = /playwright exit \$\{run\.status\}[\s\S]{0,400}?return (\w+);/.exec(src);
     expect(branch?.[1]).toBe("NOT_MEASURED");
-  });
-
-  it("uno sforo MISURATO resta rosso: l'astensione non lo copre", () => {
-    const branch = /if \(failures\.length > 0\) \{[\s\S]{0,300}?return (\w+);/.exec(src);
-    expect(branch?.[1]).toBe("OVER_BUDGET");
   });
 });
 
