@@ -158,4 +158,28 @@ test.describe("Kanban board toolbar — mobile overflow affordance", () => {
     expect(m.width, "l'indicatore standard deve sopravvivere (non 'none')").toBe("thin");
     expect(m.webkit, "la barra webkit legacy deve essere azzerata").toBe("0px");
   });
+
+  // THE LINE UNDER THE BAR, measured instead of eyeballed (card f1150efa).
+  //
+  // The toolbar overflows by construction (it is the premise of
+  // TOOLBAR-OVERFLOW-01 above), so a HORIZONTAL scrollbar exists, and it sits
+  // exactly under the bar's bottom edge. That is why the element declares
+  // `scrollbar-width: none`. The declaration is a Tailwind utility, i.e. it is
+  // LAYERED, and as long as the `index.css` defaults sat outside every `@layer`
+  // they beat it: declared `none`, computed `thin`. On WebKit (the Tauri shell)
+  // that scrollbar is really painted, because there the standard property wins
+  // over the `::-webkit-scrollbar` pseudo that would hide it.
+  //
+  // What is measured is the COMPUTED value, not the class: the class was already
+  // there while the defect was there.
+  test("TOOLBAR-SCROLLBAR-01: la barra non riserva nessuna barra di scorrimento", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("/");
+    await openProjectBoard(page);
+
+    const toolbar = page.getByTestId("board-toolbar");
+    await expect(toolbar).toBeVisible({ timeout: 10000 });
+    const computed = await toolbar.evaluate((el) => getComputedStyle(el).scrollbarWidth);
+    expect(computed, "dichiarata `none` sull'elemento: il valore calcolato deve dire lo stesso").toBe("none");
+  });
 });
