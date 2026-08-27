@@ -361,7 +361,7 @@
     "client/src/hooks/useGlobalBoard.ts": 6,
     "client/src/hooks/useGoal.ts": 15,
     "client/src/hooks/useHoverReveal.ts": 10,
-    "client/src/hooks/useKeyboardShortcuts.ts": 78,
+    "client/src/hooks/useKeyboardShortcuts.ts": 69,
     "client/src/hooks/useLongPress.ts": 52,
     "client/src/hooks/useMediaQuery.ts": 10,
     "client/src/hooks/useMenuKeyboard.test.ts": 6,
