@@ -76,7 +76,14 @@ let source: string | null = null;
 let mountPromise: Promise<void> | null = null;
 
 function enabled(): boolean {
-  return process.env.TOPICS_NATIVE_MCP !== "0";
+  if (process.env.TOPICS_NATIVE_MCP === "0") return false;
+  // A TEST MUST NEVER MOUNT THE MACHINE'S REAL FLEET. Any suite that starts a
+  // native session would otherwise open the developer's configured servers,
+  // spawn their stdio processes and talk to their remote endpoints, which is a
+  // test that reads the world instead of the code. A test that DOES want a
+  // fleet says so by pointing `TOPICS_MCP_CONFIG_FILE` at its own config.
+  if (process.env.NODE_ENV === "test" && !process.env.TOPICS_MCP_CONFIG_FILE) return false;
+  return true;
 }
 
 async function mountOne(name: string, def: McpServerDef): Promise<void> {

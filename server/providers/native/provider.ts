@@ -30,7 +30,7 @@ import { pruneDanglingToolUses } from "./history-repair";
 import { rehydrateHistory } from "./history-rehydrate";
 import { levelFor } from "./permissions";
 import { topicsToolSpecs, type TopicsToolContext } from "./topics-tools";
-import { ensureMcpFleet, mcpToolSpecs } from "./mcp-fleet";
+import { ensureMcpFleet, mcpToolSpecs, closeMcpFleet } from "./mcp-fleet";
 import { hasCredentials, getAccessToken, readCredentials } from "./auth";
 import { getTopicWorkspaceForSession, topicsAppBaseUrl } from "../claude-code";
 import type {
@@ -246,6 +246,9 @@ export class NativeProvider implements AIProvider {
       try { s.abort?.abort("server-shutdown" satisfies StopCause); } catch { /* già finito */ }
     }
     this.sessions.clear();
+    // The stdio MCP servers are OUR child processes: leaving them behind on
+    // shutdown is how a machine collects orphans nobody can trace back.
+    closeMcpFleet();
   }
 
   /**
