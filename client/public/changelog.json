@@ -1,5 +1,56 @@
 [
   {
+    "version": "2.2.193",
+    "date": "2026-08-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Ctrl+, era muto nel composer: la guardia cedeva a ogni campo di testo, non solo a chi possiede il tasto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il bump smette di inseguire lo SHA approvato e segue la punta di main",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il debito dei nomi scende di due: il test del release-gate e' nato in inglese",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "release-gate.ts e' un cieco per knip, e va dichiarato invece di aggirato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "E anche i commenti italiani scendono: 45 righe in meno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Terzo ratchet della tornata: 9 righe italiane in meno in useKeyboardShortcuts",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'asserzione negativa aspettava l'orologio: adesso aspetta un fatto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "CMD-COMMA-01 e -02: i requisiti che la spec di Ctrl+virgola gia' provava",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.192",
     "date": "2026-08-27",
     "sections": {
