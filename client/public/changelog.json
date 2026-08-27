@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.2.187",
+    "date": "2026-08-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-08-27 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Ogni leva LATO HOST e' stata misurata e non morde: si prova quella lato pagina",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.186",
     "date": "2026-08-27",
     "sections": {
