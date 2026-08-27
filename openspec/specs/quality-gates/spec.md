@@ -422,3 +422,62 @@ finisce in tempo NON SHALL essere toccato, e il tetto SHALL potersi spegnere.
 #### Scenario: un comando appeso
 - **GIVEN** un comando che supera il tetto di tempo
 - **THEN** SHALL essere abbattuto, e lo slot SHALL tornare libero
+
+### Requirement: SLOT-02 — Il freno sta sotto il comando, non solo nello script, e due corse non scrivono lo stesso referto
+
+MISURATO IL 27/08/2026 alle 02:40, con la board che dichiarava un tetto di UN
+agente: loadavg 52,9 su 12 core, 90 processi node/bun, e DUE `bun test` interi
+vivi INSIEME dallo STESSO worktree, uno da 12 minuti e 54 secondi e l'altro da
+circa 4. SLOT-01 era in vigore e non c'entrava nulla: erano stati lanciati a mano
+come `bun test --timeout 30000 ...`, cioè il comando che `test:unit` avvolge,
+senza l'involucro. Un freno che vive solo nello script è un freno che l'ingresso
+diretto scavalca.
+
+**Il semaforo SHALL essere preso anche DA DENTRO la corsa.** Ogni `bun test` di
+questo repository passa dal preload dei test, e lì lo slot SHALL essere preso,
+così che `bun run test:unit` non abbia una porta privilegiata ma la stessa porta,
+presa un passo prima. Chi tiene già uno slot SHALL marcare l'ambiente di ciò che
+lancia, e una corsa già coperta NON SHALL mettersi in coda dietro al proprio
+genitore: sarebbe un'attesa che non finisce.
+
+**E SHALL fallire aperto come il resto.** Un errore del semaforo SHALL lasciar
+girare il comando, e l'attesa SHALL avere un limite oltre il quale si gira senza
+strozzatura, mai un cancello bloccato per sempre.
+
+**Due corse NON SHALL scrivere lo stesso file di referto.** Entrambe le corse
+misurate portavano `--reporter-outfile=/tmp/unit.xml`, un percorso che nel
+repository non compare da nessuna parte: chi ha scritto il comando se l'è
+inventato, e la seconda corsa sovrascriveva il verdetto della prima. Un cancello
+che promuove o boccia una consegna leggendo il risultato di UN'ALTRA corsa è
+peggio di un cancello lento. Quindi: il percorso del referto junit SHALL essere
+derivato per corsa (worktree, pid, istante) invece che fisso, e una seconda
+corsa VIVA sullo stesso percorso assoluto SHALL essere rifiutata a voce alta
+invece di sovrascrivere in silenzio. Questo è l'unico punto del semaforo che NON
+fallisce aperto: qui «aperto» è esattamente la corruzione misurata.
+
+**Una corsa che nessuno aspetta SHALL avere comunque una fine.** Le due corse
+erano orfane (`nohup ... &`) del turno che le aveva lanciate: il tetto di tempo
+da parete SHALL valere anche per chi non è passato dall'involucro.
+
+#### Scenario: due `bun test` diretti con uno slot solo
+- **GIVEN** due comandi `bun test` lanciati a mano, senza passare dagli script
+- **AND** un solo slot dichiarato
+- **THEN** le loro finestre di vita NON SHALL sovrapporsi
+
+#### Scenario: la stessa coppia con la strozzatura spenta
+- **GIVEN** gli stessi due comandi con il semaforo disattivato
+- **THEN** SHALL sovrapporsi, o il banco non sta misurando nulla
+
+#### Scenario: una corsa già coperta dall'involucro
+- **GIVEN** una corsa lanciata da chi tiene già lo slot
+- **THEN** NON SHALL rimettersi in coda, e SHALL partire subito
+
+#### Scenario: due corse sullo stesso referto junit
+- **GIVEN** una corsa viva che ha preso un percorso di output
+- **WHEN** una seconda corsa chiede lo stesso percorso assoluto
+- **THEN** SHALL essere rifiutata con un codice dedicato, e il referto della
+  prima SHALL restare intatto
+
+#### Scenario: due referti chiesti dallo script sanzionato
+- **GIVEN** due corse di `test:unit:junit` dallo stesso worktree
+- **THEN** i due percorsi di output SHALL essere DISTINTI

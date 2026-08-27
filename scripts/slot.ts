@@ -45,24 +45,22 @@
  *         TOPICS_GATE_KILL_GRACE_MS  SIGTERM → SIGKILL window (default 10s)
  */
 import { spawn } from "node:child_process";
-import { cpus } from "node:os";
-import { mkdirSync, openSync, closeSync, writeSync, readFileSync, unlinkSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { acquireSlot, slotCount, GATE_HELD_ENV } from "./gate-slot.ts";
 
-/** Machine-wide by default. Overridable so the test can hold its own counter
- *  instead of fighting the real one — this file runs inside `test:unit`, which
- *  is itself holding a slot while the test executes. */
-const SLOT_DIR = process.env.TOPICS_GATE_SLOT_DIR || "/tmp/topics-gate-slots";
-/** Past this, waiting has cost more than the contention it was avoiding. */
-const MAX_WAIT_MS = 10 * 60_000;
-const POLL_MS = 700;
-/** L'orologio parte DOPO lo slot: l'attesa in coda non è tempo del comando.
- *  Un'ora è molte volte la suite intera sotto contesa, e una frazione delle 12
- *  ore del più giovane degli alberi appesi che hanno motivato il limite. */
+/**
+ * THE LOCK PROTOCOL LIVES IN `gate-slot.ts`, not here any more: the same
+ * counter is now taken from inside the test process too (see
+ * `tests/setup/bun-test-preload.ts`), because a brake that only exists in the
+ * script is a brake a hand-typed `bun test` walks straight past.
+ */
+
+/** The clock starts AFTER the slot: queueing is not the command's time.
+ *  An hour is many times the whole suite under contention, and a fraction of
+ *  the 12 hours of the youngest of the hung trees that motivated the cap. */
 const MAX_RUN_MS = envMs("TOPICS_GATE_MAX_RUN_MS", 60 * 60_000);
-/** Quanto si concede a un comando per morire di sua volontà (flush, cleanup). */
+/** How long a command is given to die of its own accord (flush, cleanup). */
 const KILL_GRACE_MS = envMs("TOPICS_GATE_KILL_GRACE_MS", 10_000);
-/** La convenzione di `timeout(1)`, così chi legge il codice lo riconosce. */
+/** The convention of `timeout(1)`, so whoever reads the code recognises it. */
 const TIMEOUT_EXIT_CODE = 124;
 
 function envMs(name: string, fallback: number): number {
@@ -70,70 +68,6 @@ function envMs(name: string, fallback: number): number {
   if (raw == null || raw === "") return fallback;
   const n = Number(raw);
   return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : fallback;
-}
-
-function slotCount(): number {
-  const raw = process.env.TOPICS_GATE_SLOTS;
-  if (raw != null && raw !== "") {
-    const n = Number(raw);
-    return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : 0;
-  }
-  // A full suite, a tsc and an eslint each happily take several cores. A quarter
-  // of the machine per concurrent gate leaves room for the app, the server and
-  // the person using them.
-  if (process.env.CI) return 0;
-  return Math.max(2, Math.floor((cpus().length || 4) / 4));
-}
-
-function alive(pid: number): boolean {
-  try { process.kill(pid, 0); return true; } catch { return false; }
-}
-
-/** A slot whose holder is gone is free: a killed run must not park a slot forever. */
-function reapStale(dir: string): void {
-  for (const name of readdirSync(dir)) {
-    if (!name.endsWith(".pid")) continue;
-    const p = join(dir, name);
-    try {
-      const pid = Number(readFileSync(p, "utf8").trim());
-      if (!Number.isFinite(pid) || !alive(pid)) unlinkSync(p);
-    } catch { /* someone else reaped it first */ }
-  }
-}
-
-/** Returns the release function, or null when it gave up and is running anyway. */
-function acquire(slots: number, label: string): (() => void) | null {
-  mkdirSync(SLOT_DIR, { recursive: true });
-  const deadline = Date.now() + MAX_WAIT_MS;
-  let announced = false;
-  for (;;) {
-    reapStale(SLOT_DIR);
-    for (let i = 0; i < slots; i++) {
-      const p = join(SLOT_DIR, `${i}.pid`);
-      try {
-        // 'wx' is the whole mutual exclusion: exclusive create is atomic, so two
-        // callers racing for the same slot cannot both win it.
-        const fd = openSync(p, "wx");
-        writeSync(fd, String(process.pid));
-        closeSync(fd);
-        let released = false;
-        return () => {
-          if (released) return;
-          released = true;
-          try { unlinkSync(p); } catch { /* already reaped */ }
-        };
-      } catch { /* taken; try the next one */ }
-    }
-    if (Date.now() >= deadline) {
-      console.error(`[slot] ${label}: ${Math.round(MAX_WAIT_MS / 60_000)} min of waiting, running anyway (unthrottled).`);
-      return null;
-    }
-    if (!announced) {
-      announced = true;
-      console.error(`[slot] ${label}: all ${slots} gate slots are busy, waiting for one.`);
-    }
-    Bun.sleepSync(POLL_MS);
-  }
 }
 
 const argv = process.argv.slice(2);
@@ -147,13 +81,7 @@ if (!cmd) {
 
 const slots = slotCount();
 let release: (() => void) | null = null;
-if (slots > 0) {
-  // Even acquiring must not be able to stop the command: any throw here means
-  // the throttle is broken, and a broken throttle runs everything.
-  try { release = acquire(slots, label); } catch (e) {
-    console.error(`[slot] ${label}: throttle unavailable (${e instanceof Error ? e.message : e}), running unthrottled.`);
-  }
-}
+if (slots > 0) release = acquireSlot(slots, label);
 
 // `-c`, NOT `-lc`. A login shell sources the user's profile, and this machine's
 // profile exports a NODE_OPTIONS that eslint refuses to start under
@@ -165,7 +93,14 @@ if (slots > 0) {
 // Uccidere il solo pid della shell lascia in piedi proprio i figli che tengono
 // la memoria — e quelli erano il difetto. Con il gruppo, `kill(-pid)` li prende
 // tutti in un colpo.
-const child = spawn("/bin/sh", ["-c", cmd], { stdio: "inherit", detached: true });
+// The slot this process is holding covers everything it launches: the marker
+// stops the preload inside a `bun test` child from queueing for a SECOND slot
+// behind its own parent, which with one free slot would be a deadlock.
+const child = spawn("/bin/sh", ["-c", cmd], {
+  stdio: "inherit",
+  detached: true,
+  env: { ...process.env, [GATE_HELD_ENV]: label || "gate" },
+});
 let done = false;
 let timer: ReturnType<typeof setTimeout> | null = null;
 let timedOut = false;

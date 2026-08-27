@@ -51,6 +51,9 @@
  * `tests/unit/test-default-timeout.test.ts`.
  */
 import { setDefaultTimeout } from "bun:test";
+import { readFileSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
+import { acquireSlot, claimOutfile, slotCount, alreadyHeld, GATE_HELD_ENV } from "../../scripts/gate-slot.ts";
 
 /**
  * 30s: sei volte il default di bun. Il numero e' una misura, non un gusto. Col
@@ -184,3 +187,134 @@ isolateGitFromEnvironment();
 export function gitEnv(extra: Record<string, string> = {}): Record<string, string> {
   return { ...(process.env as Record<string, string>), ...extra };
 }
+
+/**
+ * THE GATE SEMAPHORE, TAKEN FROM INSIDE THE RUN AND NOT ONLY BY THE SCRIPT.
+ *
+ * THE HOLE. `scripts/slot.ts` wraps `test:unit`, `typecheck`, `lint` and
+ * `check:deadcode`, so `bun run test:unit` counts against a machine-wide slot.
+ * But the brake was in the SCRIPT: whoever typed the underlying command walked
+ * straight past it. Measured on 2026-08-27 at 02:40, with the board declaring a
+ * cap of one agent: loadavg 52.9 on 12 cores, 90 node/bun processes, and TWO
+ * full `bun test` runs alive together from the SAME worktree - 12 min 54 s and
+ * about 4 min old - each launched by hand as `bun test --timeout 30000 ...`.
+ * Neither had ever seen a slot.
+ *
+ * bun loads this file for EVERY `bun test` started in this repository, which is
+ * the one place below the scripts that every entrance goes through. So the slot
+ * is taken here too, and `bun run test:unit` no longer has a privileged door:
+ * it has the same door, taken one step earlier by the wrapper.
+ *
+ * WHY IT DOES NOT DEADLOCK AGAINST ITSELF. The wrapper marks the environment of
+ * what it launches (`TOPICS_GATE_HELD`), so the suite it started does not queue
+ * for a SECOND slot behind its own parent - which with a single free slot would
+ * be a wait that never ends. A test that spawns a child `bun test` passes
+ * `process.env` along and the child inherits the same cover.
+ *
+ * IT FAILS OPEN like the rest of the semaphore, and the wait is bounded: past
+ * the deadline it runs unthrottled rather than holding a suite for ever.
+ */
+function holdGateSlot(): void {
+  if (alreadyHeld()) return;
+  const slots = slotCount();
+  if (slots <= 0) return;
+  const release = acquireSlot(slots, "bun test");
+  // The cover is written even when the wait gave up: what it says is "this
+  // process tree has already been through the semaphore", not "it won".
+  process.env[GATE_HELD_ENV] = "bun test";
+  if (!release) return;
+  process.on("exit", () => release());
+  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+    process.on(sig, () => { release(); process.exit(1); });
+  }
+}
+
+/**
+ * A RUN NOBODY IS WAITING FOR STILL HAS AN END.
+ *
+ * Third half of the same measurement: both runs had been started with `nohup
+ * ... &`, so they were orphans of the turn that launched them. When the turn
+ * ends or is checkpointed, that suite keeps eating the machine and no longer
+ * has anybody reading its result. `slot.ts` already caps what IT launches; a
+ * run that never went through the wrapper had no cap at all, and this gives it
+ * one from the inside. Same knob, same exit code as `timeout(1)`.
+ *
+ * `unref` so the cap never keeps a healthy run alive one millisecond longer
+ * than its own work: it fires only if the process is still there.
+ */
+function boundOwnRuntime(): void {
+  const raw = process.env.TOPICS_GATE_MAX_RUN_MS;
+  const parsed = raw == null || raw === "" ? 60 * 60_000 : Number(raw);
+  const capMs = Number.isFinite(parsed) && parsed >= 0 ? Math.trunc(parsed) : 60 * 60_000;
+  if (capMs <= 0) return;
+  setTimeout(() => {
+    console.error(`[slot] bun test: ${Math.round(capMs / 60_000)} min of wall clock without finishing - giving up (exit 124).`);
+    process.exit(124);
+  }, capMs).unref();
+}
+
+/**
+ * TWO RUNS SHALL NOT REPORT INTO THE SAME FILE.
+ *
+ * The other half of what was measured: both of those runs carried
+ * `--reporter=junit --reporter-outfile=/tmp/unit.xml`, a path that appears
+ * nowhere in this repository - whoever wrote the command invented it. The
+ * second run overwrites the first, and whoever reads that file reads a verdict
+ * that may belong to another run: a gate that promotes or fails a delivery on
+ * somebody else's result is worse than one that is merely slow.
+ *
+ * The sanctioned way to get junit out of the unit suite is `bun run
+ * test:unit:junit`, which derives a path per run and cannot collide. This is
+ * the guard for everything else: the claim on the absolute path is exclusive
+ * for as long as the run is ALIVE, and a second live run on the same path is
+ * refused loudly instead of quietly overwriting. It is the ONE place in the
+ * semaphore that does not fail open - here "open" means exactly the corruption
+ * being measured.
+ *
+ * WHY IT READS THE PROCESS COMMAND LINE. `process.argv` inside a preload holds
+ * the test FILES and not the flags (verified on bun 1.3.8: it is
+ * `[bun, <file>]`), so the flag is unreadable from the runtime. The kernel has
+ * it: `/proc/self/cmdline` on Linux, `ps` everywhere else. If neither answers,
+ * no claim is made and the run goes ahead.
+ */
+const OUTFILE_CONFLICT_EXIT_CODE = 125;
+
+function ownCommandLine(): string {
+  try {
+    if (process.platform === "linux") {
+      return readFileSync("/proc/self/cmdline", "utf8").split("\0").join(" ");
+    }
+    if (process.platform === "win32") return "";
+    const r = Bun.spawnSync(["ps", "-o", "command=", "-p", String(process.pid)]);
+    return new TextDecoder().decode(r.stdout);
+  } catch { return ""; }
+}
+
+/** The flag as bun accepts it, in both shapes: `--flag=path` and `--flag path`. */
+export function reporterOutfileOf(commandLine: string): string | null {
+  const m = /--reporter-outfile[=\s]+("[^"]+"|'[^']+'|\S+)/.exec(commandLine);
+  if (!m) return null;
+  const raw = m[1].replace(/^["']|["']$/g, "");
+  return raw === "" ? null : raw;
+}
+
+function claimOwnOutfile(): void {
+  const path = reporterOutfileOf(ownCommandLine());
+  if (!path) return;
+  const absolute = isAbsolute(path) ? path : resolve(process.cwd(), path);
+  const release = claimOutfile(absolute);
+  if (!release) {
+    console.error(
+      `[slot] bun test: another live run is already writing ${absolute}.\n` +
+      "       Two runs on one output file mean one verdict overwrites the other, and\n" +
+      "       whoever reads that file can be reading somebody else's run.\n" +
+      "       Use `bun run test:unit:junit`, which derives one path per run.",
+    );
+    process.exit(OUTFILE_CONFLICT_EXIT_CODE);
+  }
+  process.on("exit", () => release());
+}
+
+claimOwnOutfile();
+holdGateSlot();
+boundOwnRuntime();
