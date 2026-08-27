@@ -53,7 +53,7 @@ test.describe("BROWSER-CHAT-03 Agent control + native browser tools (@plan-30-05
       expect(obsRes.ok()).toBe(true);
       const obs = (await obsRes.json()) as {
         snapshot?: string; count?: number; full?: boolean;
-        url?: string; title?: string; screenshot_annotated?: string; error?: string;
+        url?: string; title?: string; screenshot_path?: string; error?: string;
       };
       expect(obs.error).toBeUndefined();
       expect(typeof obs.snapshot).toBe("string");
@@ -64,7 +64,7 @@ test.describe("BROWSER-CHAT-03 Agent control + native browser tools (@plan-30-05
       expect(typeof obs.url).toBe("string");
       expect(obs.url!.length).toBeGreaterThan(0);
       // Heavy annotated screenshot is OPT-IN — absent by default.
-      expect(obs.screenshot_annotated).toBeUndefined();
+      expect(obs.screenshot_path).toBeUndefined();
 
       // Second observe (no full): incremental diff — stable structure costs ~0.
       const obs2Res = await request.post(`${BASE}/api/browsers/${ctxId}/agent/observe`, {
@@ -75,14 +75,15 @@ test.describe("BROWSER-CHAT-03 Agent control + native browser tools (@plan-30-05
       expect(obs2.full).toBe(false);
       expect(obs2.snapshot).toMatch(/no element changes|same structure|navigated/);
 
-      // Opt-in screenshot path still produces a base64 annotated JPEG/PNG.
+      // Opt-in capture: a FILE on disk and its path, never the pixels inline.
       const shotRes = await request.post(`${BASE}/api/browsers/${ctxId}/agent/observe`, {
         data: { screenshot: true },
         headers: { "Content-Type": "application/json" },
       });
-      const shot = (await shotRes.json()) as { screenshot_annotated?: string };
-      expect(typeof shot.screenshot_annotated).toBe("string");
-      const buf = Buffer.from(shot.screenshot_annotated!, "base64");
+      const shot = (await shotRes.json()) as Record<string, unknown>;
+      expect(typeof shot.screenshot_path).toBe("string");
+      expect(shot.screenshot_annotated).toBeUndefined();
+      const buf = readFileSync(shot.screenshot_path as string);
       expect(buf.length).toBeGreaterThan(50);
       expect([0xff, 0x89]).toContain(buf[0]); // JPEG 0xff / PNG 0x89
 

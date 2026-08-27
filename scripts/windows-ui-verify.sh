@@ -29,14 +29,28 @@
 set -euo pipefail
 
 HOST="${1:-zorah@100.92.197.74}"
-TAG="${TOPICS_WIN_TAG:-tauri-v2.2.176}"
+# Di default si misura CIO' CHE E' INSTALLATO sul PC, non un tag scritto a
+# mano che invecchia a ogni release: si chiede la versione al server dell'app e
+# si ricostruisce quel tag. `TOPICS_WIN_TAG` resta per puntare altrove (per
+# esempio `main`, per vedere una cura prima che venga pubblicata).
+if [ -n "${TOPICS_WIN_TAG:-}" ]; then
+  TAG="$TOPICS_WIN_TAG"
+else
+  VERSIONE_INSTALLATA="$(ssh "$HOST" 'powershell -NoProfile -Command "(Get-Item "$env:LOCALAPPDATA\Topics\app.exe").VersionInfo.FileVersion"' 2>/dev/null | tr -d "\r\n ")"
+  if [ -n "$VERSIONE_INSTALLATA" ] && git rev-parse -q --verify "tauri-v${VERSIONE_INSTALLATA}" >/dev/null; then
+    TAG="tauri-v${VERSIONE_INSTALLATA}"
+  else
+    echo "!! non riesco a leggere la versione installata (o il suo tag manca): uso main" >&2
+    TAG="origin/main"
+  fi
+fi
 PORTA_BUNDLE=8199
 PORTA_CDP=9333
 PORTA_CDP_LOCALE=9555
 RADICE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LAVORO="${TMPDIR:-/tmp}/topics-win-ui"
 
-echo "==> 1/5 ricostruisco il bundle da $TAG (lo stesso codice dell'app installata)"
+echo "==> 1/5 ricostruisco il bundle da $TAG"
 SHA="$(git -C "$RADICE" rev-parse --short "$TAG")"
 rm -rf "$LAVORO/wt"
 git -C "$RADICE" worktree remove --force "$LAVORO/wt" 2>/dev/null || true

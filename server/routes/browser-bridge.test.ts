@@ -67,6 +67,8 @@ interface HarnessOpts {
    * per coprire.
    */
   paneAttached?: boolean | "dopo-force-open";
+  /** Makes the navigation blow up (no headless browser, dead page). */
+  navigateThrows?: boolean;
   /**
    * Fake for the port→project resolver (task f9cf765e): defaults to "nobody
    * listens, no cwd" so the existing open-pane tests (all `https://…` URLs,
@@ -118,6 +120,7 @@ function harness(opts: HarnessOpts = {}) {
     broadcastAgentActive: () => {},
     navigate: async (contextId: string, url: string) => {
       navigations.push({ contextId, url });
+      if (opts.navigateThrows) throw new Error("niente browser headless");
       return { url: opts.navigateTo ?? url, title: "Titolo" };
     },
     getOrCreate: async (contextId: string) => ({
@@ -292,14 +295,14 @@ describe("open-pane — tre rami, tre pannelli diversi", () => {
     ]);
   });
 
-  test("task: apre la scheda DENTRO il drawer del task e non tocca il browser headless", async () => {
+  test("task: apre la scheda DENTRO il drawer del task, e NAVIGA (non solo annuncia)", async () => {
     const h = harness();
     const topic = h.addTopic("aaaaaaaa-topic");
     h.taskOfTopic.set(topic.id, { id: "12345678-task" });
 
     const resp = await h.post("/api/topics/aaaaaaaa-topic/browser/open-pane", { url: "https://example.com/" });
 
-    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "" });
+    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "", visible: true });
     // contextId STABILE per (task, topic): riaprire riusa la stessa scheda.
     expect(h.typed("browser:open-task-tab")[0]).toMatchObject({
       taskId: "12345678-task",
@@ -307,15 +310,55 @@ describe("open-pane — tre rami, tre pannelli diversi", () => {
       url: "https://example.com/",
     });
     expect(h.typed("browser:navigate")).toEqual([]);
-    // Nessun dispatch: il pannello del task può essere smontato (drawer chiuso),
-    // e un browser_open headless guiderebbe un fantasma invisibile.
-    expect(h.navigations).toEqual([]);
+    // The defect of card 05105d29: this branch stopped at the broadcast and
+    // answered "Opened" with the tab still on about:blank. The broadcast seeds
+    // `initialUrl`, which the client reads ONLY at mount: an already mounted
+    // tab would never have moved without this navigation.
+    expect(h.navigations).toEqual([{ contextId: "task-12345678-aaaaaaaaa", url: "https://example.com/" }]);
     // Il legame va persistito, o l'observe/act successivo non ritrova la scheda.
     expect(h.saved).toEqual(["aaaaaaaa-topic"]);
     expect(h.topics.get("aaaaaaaa-topic")!.browserState).toMatchObject({
       url: "https://example.com/",
       contextId: "task-12345678-aaaaaaaaa",
     });
+  });
+
+  test("task: dopo un redirect la scheda insegue l'URL FINALE, e il record pure", async () => {
+    const h = harness({ navigateTo: "https://example.com/finale" });
+    const topic = h.addTopic("aaaaaaaa-topic");
+    h.taskOfTopic.set(topic.id, { id: "12345678-task" });
+
+    const resp = await h.post("/api/topics/aaaaaaaa-topic/browser/open-pane", { url: "https://example.com/inizio" });
+
+    // The login case: a server action sets the cookie and redirects. If the tab
+    // and the record stayed on the starting URL, the reviewer would open the
+    // page that bounces to the login instead of the one behind it.
+    expect(await resp!.json()).toMatchObject({ url: "https://example.com/finale", visible: true });
+    expect(h.typed("browser:open-task-tab").map((m) => m.url)).toEqual([
+      "https://example.com/inizio",
+      "https://example.com/finale",
+    ]);
+    expect(h.persisted.map((p) => p.url)).toEqual([
+      "https://example.com/inizio",
+      "https://example.com/finale",
+    ]);
+  });
+
+  test("task: se la navigazione fallisce la scheda resta, e la risposta lo DICE", async () => {
+    const h = harness({ navigateThrows: true });
+    const topic = h.addTopic("aaaaaaaa-topic");
+    h.taskOfTopic.set(topic.id, { id: "12345678-task" });
+
+    const resp = await h.post("/api/topics/aaaaaaaa-topic/browser/open-pane", { url: "https://example.com/" });
+
+    // Here the tab IS the task's delivery, and it is already written and
+    // announced: a 500 would tell the agent it does not exist while it sits in
+    // the drawer. The failure travels as a warning, same information, no lie.
+    expect(resp!.status).toBe(200);
+    const body = await resp!.json() as { visible: boolean; warning?: string };
+    expect(body.visible).toBe(false);
+    expect(body.warning).toContain("navigation failed");
+    expect(h.persisted).toHaveLength(1);
   });
 
   // --- IL MANIFESTO: il nome È l'identità della tab ---
@@ -364,7 +407,7 @@ describe("open-pane — tre rami, tre pannelli diversi", () => {
     // nomi degeneri in UNA tab sola, che è peggio del ripiego.
     const resp = await h.post("/api/topics/aaaaaaaa-topic/browser/open-pane", { url: "https://x.test/", name: "###" });
 
-    expect(await resp!.json()).toEqual({ url: "https://x.test/", title: "" });
+    expect(await resp!.json()).toEqual({ url: "https://x.test/", title: "", visible: true });
     expect(h.persisted[0].contextId).toBe("task-12345678-aaaaaaaaa");
     expect(h.persisted[0].title).toBe("");
   });
@@ -433,7 +476,7 @@ describe("open-pane — tre rami, tre pannelli diversi", () => {
     }
   });
 
-  test("terminale: apre il pannello ACCANTO al terminale e non naviga niente lato server", async () => {
+  test("terminale: apre il pannello ACCANTO al terminale, e naviga sullo stesso contextId", async () => {
     const h = harness();
     h.addTerminal("42");
 
@@ -446,7 +489,10 @@ describe("open-pane — tre rami, tre pannelli diversi", () => {
       contextId: "term-42",
       url: "https://example.com/",
     }]);
-    expect(h.navigations).toEqual([]);
+    // Same shared sequence as the other two branches: the broadcast seeds the
+    // pane, the navigation actually takes it to the URL. `term-<id>` is the id
+    // observe/act resolve to as well, so it is the one that must be driven.
+    expect(h.navigations).toEqual([{ contextId: "term-42", url: "https://example.com/" }]);
   });
 
   test("senza url ⇒ 400, su entrambi i rami", async () => {
@@ -659,7 +705,11 @@ describe("open-pane — «visibile» non si dà per scontato", () => {
     // Forzare una pane standalone qui SPOSTEREBBE la tab fuori dal task, che è
     // il posto in cui il reviewer la cerca.
     expect(h.typed("browser:force-open")).toEqual([]);
-    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "" });
+    // `visible:false` is the HONEST answer: the drawer is closed, the
+    // navigation still went to the headless context (where observe/act land),
+    // but nobody is watching it and the caller knows.
+    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "", visible: false });
+    expect(h.navigations).toEqual([{ contextId: "task-12345678-aaaaaaaaa", url: "https://example.com/" }]);
   });
 });
 

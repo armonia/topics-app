@@ -25,6 +25,7 @@ import { createInterface } from "readline";
 import {
   mcpBrowserTools,
   BRIDGED_BROWSER_ENDPOINTS,
+  READ_ONLY_BROWSER_ENDPOINTS,
   type McpToolAnnotations,
 } from "../browser-tool-spec";
 import { PARKED_WAITED_OUT, PREVIEW_RULE, TASK_STATUSES } from "../../shared/board";
@@ -771,14 +772,24 @@ export async function callOpenBrowserPane(
   // `name` viaggia solo se c'è: il body storico è `{url}`, e mandare `name:""`
   // cambierebbe i byte di ogni chiamata esistente per niente.
   const name = typeof toolArgs?.name === "string" ? toolArgs.name.trim() : "";
-  const resp = await fetchImpl(endpoint, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(name ? { url: toolArgs.url, name } : { url: toolArgs.url }),
-    // topics-app serves a self-signed cert on this loopback origin; skip
-    // verification (Bun fetch extension). Safe: we only ever talk to 127.0.0.1.
-    ...loopbackTlsInit(),
-  });
+  let resp: Response;
+  try {
+    resp = await fetchImpl(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(name ? { url: toolArgs.url, name } : { url: toolArgs.url }),
+      // The same deadline as every other bridge call: this one waits for a pane
+      // to attach and for a page to load, both bounded server-side, so an answer
+      // that never comes is a lost request and not a slow one. No second send:
+      // opening a pane twice is a second tab.
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      // topics-app serves a self-signed cert on this loopback origin; skip
+      // verification (Bun fetch extension). Safe: we only ever talk to 127.0.0.1.
+      ...loopbackTlsInit(),
+    });
+  } catch (err: unknown) {
+    throw lostRequestError(err, "POST", "/browser/open-pane");
+  }
 
   if (!resp.ok) {
     const text = await resp.text().catch(() => "");
@@ -863,7 +874,14 @@ export async function callBrowserBridge(
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/browser/${endpoint}`;
-  const body = await httpJson<Record<string, unknown>>(args, "POST", path, toolArgs, fetchImpl);
+  // These are all POSTs, so the method says nothing about repeatability: what
+  // says it is the tool's own `readOnly` flag, the same one the MCP annotation
+  // comes from. Observing twice costs a snapshot; clicking twice costs a click
+  // nobody asked for, so `act` and friends are never re-sent.
+  const body = await httpJson<Record<string, unknown>>(
+    args, "POST", path, toolArgs, fetchImpl, undefined,
+    { retryOnLostRequest: READ_ONLY_BROWSER_ENDPOINTS.has(endpoint) },
+  );
   return JSON.stringify(body ?? {}, null, 2);
 }
 
@@ -928,6 +946,18 @@ interface CommentResp { id?: string }
  * instead of passing `any` across the trust boundary.
  * `callOpenBrowserPane` keeps its own bespoke impl for backwards compatibility.
  */
+/**
+ * How long ONE bridge request may stay open before we call it lost.
+ *
+ * `fetch` has no timeout of its own: a server that accepts the connection and
+ * then says nothing (paused process, half-open socket after a sleep/wake) held
+ * the call open forever, and with it the turn of whoever was waiting for the
+ * answer. Generous on purpose - it is the "this will never arrive" line, not a
+ * latency budget. The calls that stay open BY CONSTRUCTION (waiting on a
+ * process, on a human's answer) pass their own signal and keep it.
+ */
+const REQUEST_TIMEOUT_MS = 45_000;
+
 async function httpJson<T>(
   args: ParsedArgs,
   method: string,
@@ -937,18 +967,42 @@ async function httpJson<T>(
   /** Solo per le chiamate che restano APERTE per costruzione (l'attesa di un
    *  processo): il trasporto deve mollare dopo il nostro timer, mai prima. */
   signal?: AbortSignal,
+  /**
+   * `retryOnLostRequest`: send it a SECOND time (once) if the first attempt
+   * never got an answer. Only for requests that change nothing - a GET, or a
+   * browser endpoint the tool spec calls read-only. A reply that arrived, even
+   * a 500, is an answer and is never retried: repeating a request the server
+   * did receive is how one comment becomes two.
+   */
+  opts?: { retryOnLostRequest?: boolean },
 ): Promise<T | undefined> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (args.gatewayToken) headers["X-Gateway-Token"] = args.gatewayToken;
 
-  const resp = await fetchImpl(`${args.baseUrl}${path}`, {
+  const send = (): Promise<Response> => fetchImpl(`${args.baseUrl}${path}`, {
     method,
     headers,
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-    ...(signal ? { signal } : {}),
+    // Our own deadline, unless the caller brought a longer one of its own.
+    signal: signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     ...loopbackTlsInit(),
   });
+
+  // A caller-supplied signal is a budget somebody already reasoned about: it is
+  // not ours to spend twice.
+  const mayRetry = !signal && (opts?.retryOnLostRequest ?? method === "GET");
+  let resp: Response;
+  try {
+    resp = await send();
+  } catch (err: unknown) {
+    if (!mayRetry) throw lostRequestError(err, method, path);
+    try {
+      resp = await send();
+    } catch (err2: unknown) {
+      throw lostRequestError(err2, method, path);
+    }
+  }
 
   const text = await resp.text().catch(() => "");
   let parsed: (T & { error?: unknown; available?: unknown; duplicates?: unknown }) | undefined;
@@ -971,6 +1025,19 @@ async function httpJson<T>(
   }
   if (parsed?.error) throw new Error(String(parsed.error));
   return parsed;
+}
+
+/**
+ * A request that never came back, said as such. Bare, an aborted fetch reads
+ * "The operation was aborted", which names the mechanism and hides both the
+ * cause and the call - and it is the message the agent reads.
+ */
+function lostRequestError(err: unknown, method: string, path: string): Error {
+  const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+  const detail = timedOut
+    ? `no answer in ${Math.round(REQUEST_TIMEOUT_MS / 1000)}s`
+    : err instanceof Error ? err.message : String(err);
+  return new Error(`${method} ${path}: ${detail} (topics-app unreachable?)`);
 }
 
 export async function callRunScript(

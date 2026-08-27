@@ -85,7 +85,7 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
   {
     name: "browser_observe",
     description:
-      "Read the pane as a compact ref-based accessibility snapshot — lines like `[3] button \"Sign in\"`. Use those [ref] numbers with browser_act. INCREMENTAL by default (only what changed since the last observe — ~0 tokens when stable); pass full:true for the complete list. No screenshot by default (you already see the pane); pass screenshot:true to also get an annotated JPEG.",
+      "Read the pane as a compact ref-based accessibility snapshot — lines like `[3] button \"Sign in\"`. Use those [ref] numbers with browser_act. INCREMENTAL by default (only what changed since the last observe — ~0 tokens when stable); pass full:true for the complete list. No screenshot by default (you already see the pane); pass screenshot:true to also get an image, which comes back as a FILE PATH (`screenshot_path`), never as pixels in your context.",
     schema: {
       type: "object",
       properties: {
@@ -97,7 +97,7 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
         max_elements: { type: "number", description: "Deprecated alias for max." },
         screenshot: {
           type: "boolean",
-          description: "Also include a base64 annotated screenshot (heavy; default off).",
+          description: "Also capture the pane to a file and return its path in `screenshot_path` (default off). `screenshot_boxes` tells you whether the numbered boxes are drawn on it.",
         },
       },
       required: [],
@@ -359,6 +359,16 @@ export const CONTEXT_ID_PROP = {
 export function toolNameToEndpoint(name: string): string {
   return name.replace(/^browser_/, "").replace(/_/g, "-");
 }
+
+/**
+ * The bridged endpoints that only LOOK at the page (slug set), derived from the
+ * same `readOnly` flag the MCP annotation is projected from. It is what says
+ * whether a request lost in transport can simply be sent again: observing twice
+ * costs a snapshot, clicking twice costs a click nobody asked for.
+ */
+export const READ_ONLY_BROWSER_ENDPOINTS: ReadonlySet<string> = new Set(
+  BROWSER_TOOL_SPECS.filter((s) => s.surfaces.mcp && s.readOnly).map((s) => toolNameToEndpoint(s.name)),
+);
 
 /** Browser tools bridged generically over REST (endpoint slug → tool name). */
 export const BRIDGED_BROWSER_ENDPOINTS: Record<string, string> = Object.fromEntries(

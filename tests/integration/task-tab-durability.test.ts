@@ -72,10 +72,17 @@ beforeAll(async () => {
   (ctx as { broadcastToAll: (msg: object) => void }).broadcastToAll = (msg) => { broadcasts.push(msg); };
 
   const { createTopicsRouter } = await import("../../server/routes/topics");
-  // Un browserService finto e basta truthy: il ramo task-owned esce PRIMA di
-  // usarlo (broadcast + return, niente Playwright headless — vedi il commento
-  // nel route: la pane può essere smontata).
-  const fakeBrowserService = {} as any;
+  // A stub browser service: since card 05105d29 the task-owned branch NAVIGATES
+  // too (it used to broadcast and return, and the tab stayed on about:blank), so
+  // the route now goes through the tools dispatcher. What is measured here is
+  // still the persistence chain, not Playwright: `navigate` answers, and the
+  // best-effort snapshot is allowed to fail (the handler swallows it).
+  const fakeBrowserService = {
+    broadcastAgentActive: () => {},
+    setAgentAction: () => {},
+    navigate: async (_ctxId: string, url: string) => ({ url, title: "" }),
+    getOrCreate: async () => { throw new Error("no headless browser in this test"); },
+  } as any;
   topicsRouter = createTopicsRouter(ctx, fakeBrowserService) as typeof topicsRouter;
 }, 30_000);
 

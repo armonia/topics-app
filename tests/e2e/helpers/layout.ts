@@ -146,3 +146,52 @@ export async function closeTabViaCommand(tab: Locator): Promise<void> {
   await tab.hover();
   await tab.locator('[data-testid="pane-tab-close"]').last().click();
 }
+
+/**
+ * Wait until the geometry under `scope` has stopped moving.
+ *
+ * This is the condition-based replacement for the `waitForTimeout(N)` that
+ * used to sit before every geometric measurement: a rect read half-way
+ * through a resize or a debounced re-render is noise, not a defect.
+ * What the sleep was really standing in for is "the layout is still", and
+ * that is a condition the page can answer.
+ *
+ * The signature is the rounded rect of every element under the scope plus
+ * the document scroll box. It has to stay identical for `stableMs` before
+ * the wait returns, so a debounce that fires late restarts the clock
+ * instead of slipping through.
+ */
+export async function waitForLayoutSettled(
+  page: Page,
+  scope = "body",
+  { stableMs = 400, timeout = 15_000 }: { stableMs?: number; timeout?: number } = {},
+): Promise<void> {
+  // Drop any state left by a previous call. Without this a fill() that does
+  // not move a single pixel until its debounce fires would look, for one
+  // poll, like a layout that settled long ago.
+  await page.evaluate(() => {
+    delete (window as unknown as Record<string, unknown>).__layoutSettle;
+  });
+  await page.waitForFunction(
+    ({ sel, ms }: { sel: string; ms: number }) => {
+      const root = document.querySelector(sel);
+      if (!root) return false;
+      const doc = document.documentElement;
+      const parts: number[] = [doc.scrollWidth, doc.scrollHeight];
+      const els = Array.from(root.querySelectorAll("*")).slice(0, 400);
+      for (const el of els) {
+        const r = el.getBoundingClientRect();
+        parts.push(Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height));
+      }
+      const signature = `${els.length}:${parts.join(",")}`;
+      const w = window as unknown as { __layoutSettle?: { sig: string; since: number } };
+      if (!w.__layoutSettle || w.__layoutSettle.sig !== signature) {
+        w.__layoutSettle = { sig: signature, since: Date.now() };
+        return false;
+      }
+      return Date.now() - w.__layoutSettle.since >= ms;
+    },
+    { sel: scope, ms: stableMs },
+    { polling: 100, timeout },
+  );
+}

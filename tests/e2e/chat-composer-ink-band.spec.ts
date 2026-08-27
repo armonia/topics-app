@@ -27,6 +27,7 @@ import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { waitForLayoutSettled } from "./helpers/layout";
 
 hermetic(test);
 
@@ -153,7 +154,7 @@ test.describe("Chat — la fascia dietro il composer resta senza inchiostro", ()
     await openTopic(page, new RegExp(topicName));
     await expect(page.getByTestId("chat-message-list").first()).toBeVisible({ timeout: 10_000 });
     await page.setViewportSize(PHONE);
-    await page.waitForTimeout(1200);
+    await waitForLayoutSettled(page);
 
     const area = page.getByTestId("chat-input-area").first();
     await expect(area).toBeVisible();

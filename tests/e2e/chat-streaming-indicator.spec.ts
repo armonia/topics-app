@@ -93,6 +93,8 @@ test.describe("Chat streaming indicator", () => {
     // First tick may be 0.0s; wait for a real value, then confirm growth.
     await expect(timer).toContainText(/s/, { timeout: 3_000 });
     const before = await parseSecs();
+    // DELIBERATE FIXED WAIT: the test is that the timer COUNTS, so real time
+    // has to pass between the two readings. The clock is the subject.
     await page.waitForTimeout(2_200);
     const after = await parseSecs();
     expect(Number.isFinite(before)).toBe(true);

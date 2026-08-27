@@ -291,11 +291,11 @@ fails, and SHALL let a session that owns no pane list and drive another topic's 
 - **GIVEN** a context sitting on a page
 - **WHEN** the agent posts `{ full: true }` to `agent/observe`
 - **THEN** the response carries a `snapshot` of numbered ref lines (`[1] link …`), a `count` of at least 1, `full: true` and a non-empty `url`
-- **AND** `screenshot_annotated` is absent — the heavy payload is opt-in
+- **AND** `screenshot_path` is absent — the capture is opt-in
 - **WHEN** the agent observes again without `full`
 - **THEN** the response reports `full: false` and an incremental snapshot ("no element changes" / "same structure" / "navigated")
 - **WHEN** the agent observes with `{ screenshot: true }`
-- **THEN** `screenshot_annotated` is a base64 JPEG or PNG of non-trivial size
+- **THEN** `screenshot_path` is the absolute path of an image file on disk, of non-trivial size, and never the image bytes in the response
 
 #### Scenario: get-text and extract read the page
 - **GIVEN** a context sitting on a page
@@ -923,6 +923,38 @@ strutturato.
 #### Scenario: un barattolo di cookie malformato
 - **GIVEN** un dump illeggibile
 - **THEN** i cookie SHALL mancare, e la memoria locale SHALL uscire lo stesso
+
+### Requirement: NATIVEOPS-02 — I due motori non-Apple portano lo STESSO insieme di operazioni
+
+`NATIVEOPS-01` chiede che ogni operazione abbia una mappatura dichiarata, ma lo
+chiede PER OPERAZIONE. Un'operazione che funziona su un motore e tace sull'altro
+lo soddisfa alla lettera: il buco non è nell'operazione, è fra i motori, e nessuno
+lo guardava. Questo requisito guarda lì.
+
+Il pane nativo gira su tre motori. Due vivono in moduli gemelli — WebView2 in
+`browser_win.rs`, WebKitGTK in `browser_linux.rs` — e la loro simmetria è un
+FATTO SUL SORGENTE, leggibile da qualunque macchina, non un comportamento che
+serva Windows o Linux per misurare. Il terzo, WKWebView, è in linea nel guscio e
+resta fuori da questo requisito: il suo confine non si legge per moduli.
+
+I due moduli SHALL esportare lo stesso insieme di operazioni. Ogni operazione
+esportata da entrambi SHALL essere smistata dal guscio per ENTRAMBI i motori, e
+ogni operazione esportata SHALL essere smistata da qualcuno: un'operazione che
+nessuno chiama è un motore che ha smesso di ricevere quella capacità.
+
+Un buco SHALL essere DICHIARATO, sul modulo che ne è privo, in una forma leggibile
+a macchina che nomini l'operazione e ne dia il motivo. La differenza che conta è
+fra «quel motore non può» e «nessuno se n'è accorto»: la prima è una decisione e
+si scrive, la seconda è la perdita, e senza il marcatore le due sono lo stesso
+silenzio.
+
+#### Scenario: un'operazione aggiunta a un motore solo
+- **GIVEN** una nuova operazione esportata da un modulo e non dal gemello
+- **THEN** SHALL essere respinta, a meno che il gemello non la dichiari come buco
+
+#### Scenario: un buco dichiarato
+- **GIVEN** un'operazione che quel motore non può portare, col motivo scritto
+- **THEN** SHALL essere accettata, e il motivo SHALL restare leggibile
 
 ### Requirement: ZOOM-01 — Lo zoom vive su una SCALA, e sopravvive a una navigazione
 

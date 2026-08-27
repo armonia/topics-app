@@ -295,6 +295,8 @@ test.describe("Chat scroll behavior", () => {
     // non c'e' condizione da pollare — serve una finestra in cui, se lo scroll
     // saltasse, lo si vedrebbe. Due secondi coprono il round-trip WS piu' il
     // rendering della riga.
+    // DELIBERATE FIXED WAIT: the assertion is that the view did NOT jump. There
+    // is no condition for an event that must not arrive.
     await page.waitForTimeout(2000);
 
     // La domanda è «la vista è SALTATA IN FONDO?», non «scrollTop è identico».
@@ -335,6 +337,8 @@ test.describe("Chat scroll behavior", () => {
 
     // E ci resta: due letture a distanza, per escludere il rimbalzo. Il
     // messaggio d'errore porta i numeri: un booleano non dice mai di quanto.
+    // DELIBERATE FIXED WAIT: two readings a real interval apart are what rules
+    // out a bounce. One reading, however well timed, cannot.
     await page.waitForTimeout(1200);
     const stato = await dopo.evaluate((el) => {
       const prima = el.scrollTop;
@@ -408,6 +412,7 @@ test.describe("Chat scroll behavior", () => {
       await expect(dopo).toHaveCount(1, { timeout: 15_000 });
 
       await settleAtTrueBottom(dopo, 12_000);
+      // DELIBERATE FIXED WAIT: it has to STAY there, which takes elapsed time.
       await page.waitForTimeout(1200);
       expect(await isAtTrueBottom(dopo)).toBe(true);
     } finally {
@@ -454,6 +459,8 @@ test.describe("Chat scroll behavior", () => {
       // Il fondo VERO, e dopo che la storia autorevole e' atterrata: e' proprio
       // quel secondo momento a spostare la vista, non il montaggio.
       await settleAtTrueBottom(dopo, 20_000);
+      // DELIBERATE FIXED WAIT: the authoritative history lands after the mount
+      // and may move the view a second time. The window is what catches it.
       await page.waitForTimeout(1500);
       const finale = await dopo.evaluate((el) => ({
         residuo: Math.round(el.scrollHeight - el.scrollTop - el.clientHeight),
@@ -532,6 +539,8 @@ test.describe("Chat scroll behavior", () => {
     // due secondi.
     const measurements: boolean[] = [];
     for (let i = 0; i < 4; i++) {
+      // DELIBERATE FIXED WAIT: sampling interval. The test is the SEQUENCE of
+      // four readings over two seconds, so the spacing is the instrument.
       await page.waitForTimeout(500);
       measurements.push(await isAtTrueBottom(scroller));
     }

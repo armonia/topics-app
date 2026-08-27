@@ -245,10 +245,13 @@ test.describe.serial("Claude Code Provider", () => {
       { timeout: 15_000 }
     );
 
-    // Verify the error tool call renders
-    await expect(page.locator("body")).toContainText("Read", {
-      timeout: 10_000,
-    });
+    // The title of this test promises ERROR STYLING, and until this line it
+    // only checked that the word "Read" was somewhere on the page. A tool call
+    // that rendered as a success would have passed. The card states its own
+    // outcome in the DOM, so that is what gets asserted here.
+    const errorCard = page.locator('[data-testid="tool-call-row-tc-err-1"]');
+    await expect(errorCard).toBeVisible({ timeout: 10_000 });
+    await expect(errorCard).toHaveAttribute("data-status", "error");
 
     // Cleanup
     await page.request

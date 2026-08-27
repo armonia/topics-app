@@ -109,7 +109,10 @@ test.describe.serial("Coda dei messaggi", () => {
     }
   }
 
-  /** Pausa che serve SOLO alla clip di consegna (E2E_EVIDENCE=1). Zero a suite normale. */
+  /**
+   * Pausa che serve SOLO alla clip di consegna (E2E_EVIDENCE=1). Zero a suite normale.
+   * DELIBERATE FIXED WAIT: the pause is the deliverable, and it is off by default.
+   */
   const beat = (page: import("@playwright/test").Page, ms = 1200) =>
     process.env.E2E_EVIDENCE === "1" ? page.waitForTimeout(ms) : Promise.resolve();
 
@@ -346,12 +349,16 @@ test.describe.serial("Coda dei messaggi", () => {
 
     // Il server dice la sua: turno finito. È il momento esatto in cui la coda
     // partiva da sola.
+    // DELIBERATE FIXED WAIT: the drain used to fire on its own in this gap, so
+    // the gap has to exist for the test to be able to catch it.
     await page.waitForTimeout(500);
     inject!(JSON.stringify({ type: "stream:end", sessionKey, topicId, reason: "user_abort" }));
 
     // IL PUNTO: fermato vuol dire fermo. Nessun secondo invio…
     // L'attesa copre TUTTA la finestra in cui il drain riproverebbe
     // (`TURN_DRAIN_MAX_ATTEMPTS × TURN_DRAIN_RETRY_MS` = 2s).
+    // DELIBERATE FIXED WAIT: the assertion is that NO second send happened, and
+    // the window has to outlast every retry the drain would have made.
     await page.waitForTimeout(4_000);
     expect(sent, "lo stop non deve far partire il messaggio in coda").toEqual(["primo"]);
     // …e il messaggio non è perso: è ancora lì, correggibile.

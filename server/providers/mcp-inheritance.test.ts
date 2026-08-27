@@ -1,4 +1,6 @@
 /**
+ * @covers MCPSRV-02
+ *
  * There is ONE inheritance rule, and it also answers the second question.
  *
  * `isColdBootServer` already has its own test (`mcp-coldboot.test.ts`); what is

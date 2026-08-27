@@ -90,8 +90,11 @@ test.describe.serial("Ricerca — mappa dei tasti", () => {
     const input = page.locator("textarea, input[type='text']").first();
     if (await input.count()) {
       await input.click({ force: true }).catch(() => {});
-      await page.waitForTimeout(200);
+      await expect(input).toBeFocused({ timeout: 5_000 });
       await page.keyboard.press("Meta+f");
+      // DELIBERATE FIXED WAIT: the assertion is that the panel does NOT open.
+      // `toHaveCount(0)` is true the instant it is asked, so without a window
+      // it would pass even on a panel that opens a frame later.
       await page.waitForTimeout(400);
       // Il gestore esce SENZA preventDefault: la superficie a fuoco tiene la sua ⌘F.
       await expect(page.getByTestId("file-search")).toHaveCount(0);
@@ -141,6 +144,8 @@ test.describe.serial("Ricerca — mappa dei tasti", () => {
     await page.keyboard.press("Escape");
 
     await page.keyboard.press("Meta+Shift+f");
+    // DELIBERATE FIXED WAIT: negative assertion again. A withdrawn shortcut
+    // opens nothing, and nothing has no event.
     await page.waitForTimeout(500);
     await expect(page.getByTestId("file-search")).toHaveCount(0);
     await expect(page.getByTestId("command-palette")).toHaveCount(0);

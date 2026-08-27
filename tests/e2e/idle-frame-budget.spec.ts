@@ -137,7 +137,9 @@ test.describe("perf: app a riposo", () => {
     test.info().annotations.push({ type: "spec", description: "IDLE-01" });
     await installFrameProbe(page);
     await goToApp(page);
-    // Boot, animazioni d'ingresso e primo assestamento del layout non contano.
+    // Boot, entry animations and the first layout settle do not count.
+    // DELIBERATE FIXED WAIT: this window is EXCLUDED from the measurement on
+    // purpose. It is the methodology, not a wait for something to appear.
     await page.waitForTimeout(2500);
     reportAndAssert("shell", await measureQuietWindow(page));
   });
@@ -156,7 +158,8 @@ test.describe("perf: app a riposo", () => {
     await page
       .locator("[data-testid='chat-scroll-container']")
       .waitFor({ state: "visible", timeout: 10000 });
-    // La lista misura, si assesta e smette: le prime notifiche sono legittime.
+    // The list measures, settles and stops: the first notifications are fair.
+    // DELIBERATE FIXED WAIT: same exclusion window as above.
     await page.waitForTimeout(2500);
     reportAndAssert("chat", await measureQuietWindow(page));
   });
@@ -198,8 +201,9 @@ test.describe("perf: app a riposo", () => {
       await installFrameProbe(page);
       await goToApp(page);
       await page.locator(".xterm-rows").first().waitFor({ state: "visible", timeout: 20000 });
-      // Il prompt della shell arriva e si stampa: quel disegno è legittimo.
-      // Si misura DOPO, quando non deve più succedere niente.
+      // The shell prompt arrives and prints: that painting is legitimate.
+      // The measurement happens AFTER, when nothing more may happen.
+      // DELIBERATE FIXED WAIT: the excluded window is the methodology.
       await page.waitForTimeout(3000);
       reportAndAssert("terminale", await measureQuietWindow(page));
     } finally {
@@ -378,6 +382,8 @@ test.describe("perf: guscio nativo a riposo", () => {
     // veloce e tre di quello lento, se non fossero gated.
     await setHidden(true);
     await resetProbe();
+    // DELIBERATE FIXED WAIT: the assertion is that a HIDDEN tab painted nothing
+    // for this long. The window is the whole experiment.
     await page.waitForTimeout(HIDDEN_WINDOW_MS);
     expect(await drains(), "drain nativi con la finestra NASCOSTA").toBe(0);
 
@@ -386,6 +392,8 @@ test.describe("perf: guscio nativo a riposo", () => {
     // da un tick periodico.
     await resetProbe();
     await setHidden(false);
+    // DELIBERATE FIXED WAIT: the catch-up budget after the tab comes back is a
+    // number under test, not an unknown to poll for.
     await page.waitForTimeout(CATCH_UP_MS);
     expect(
       await count("browser_take_nav_errors"),

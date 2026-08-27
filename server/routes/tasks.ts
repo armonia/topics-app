@@ -17,7 +17,7 @@
  * Both go through the service's projectId guard, so a caller can only touch
  * tasks on the project it named/owns (no cross-project IDOR).
  */
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import type { AppContext, RouteHandler } from "../types";
@@ -350,6 +350,28 @@ async function runGitCap(cwd: string, args: string[]): Promise<{ code: number; o
   } catch (e) {
     return { code: 1, out: "", err: String((e as Error)?.message ?? e) };
   }
+}
+
+/**
+ * The board's `deployCommand` setting is empty, but the project ALREADY HAS a
+ * `deploy` script in its `package.json` — the same shape as `dispatchAutoMerge`
+ * suggesting nothing, except here there is something concrete to point at.
+ * Returns the command to SUGGEST (never writes it), or `null` when there is no
+ * `package.json`, it has no `scripts.deploy`, or it fails to parse.
+ *
+ * The runner prefix follows `packageManager` (Corepack's field) when present —
+ * a `yarn@`/`pnpm@` project suggesting a `npm run` command that happens to work
+ * by luck is worse than no suggestion, because it looks authoritative.
+ */
+function deploySuggestionFromPackageJson(projectPath: string): string | null {
+  try {
+    const raw = readFileSync(join(projectPath, "package.json"), "utf8");
+    const pkg = JSON.parse(raw) as { scripts?: Record<string, unknown>; packageManager?: string };
+    if (typeof pkg?.scripts?.deploy !== "string") return null;
+    const pm = typeof pkg.packageManager === "string" ? pkg.packageManager.split("@")[0] : "";
+    const runner = pm === "yarn" ? "yarn" : pm === "pnpm" ? "pnpm run" : pm === "bun" ? "bun run" : "npm run";
+    return `${runner} deploy`;
+  } catch { return null; }
 }
 
 /**
@@ -1135,7 +1157,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // lo stato la deve dire, da qualunque stato si arrivi. Idempotente sulle
         // card già chiuse e ferme (il caso normale), quindi non aggiunge righe
         // di storico al percorso che funzionava.
-        const closed = svc.settleLanded({ taskId, by: "system", reason: `il land è riuscito: il codice è su main (${res.commit})` });
+        const closed = svc.settleLanded({ taskId, by: "system", reason: `landed: the code is on main (${res.commit})` });
         // IL MERGE È AVVENUTO ANCHE QUANDO LA CARD NON SI CHIUDE. `settleLanded`
         // rifiuta di chiudere un padre che ha ancora step aperti (chiuderlo li
         // renderebbe irraggiungibili: il feed è `rootsOnly`), e senza questa riga
@@ -1364,6 +1386,60 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
       } catch (err) { console.warn(`[land] impossibile ritirare ${taskId} da done:`, err); }
       throw e instanceof Error ? e : new Error(msg);
+    }
+  }
+
+  /**
+   * Post-approve: PROPOSE a deploy, never run one. Mirrors `enqueueLandOnDone`'s
+   * shape (a board setting gates an approve-time side effect) but the effect
+   * itself stops one step earlier — a comment + a button, not a queued action.
+   * No-op when the board has no `deployCommand` configured.
+   */
+  function proposeDeployIfConfigured(projectId: string, taskId: string): void {
+    let cmd = "";
+    try { cmd = (svc.getBoardSettings(projectId).deployCommand ?? "").trim(); }
+    catch (err) { console.warn("[deploy] board settings unreadable for", projectId, err); return; }
+    if (!cmd) return;
+    try {
+      const proposed = svc.proposeDeploy({ taskId, command: cmd });
+      if (proposed) broadcastToAll({ type: "task:updated", projectId, task: proposed });
+    } catch (err) { console.warn("[deploy] propose failed for", taskId, err); }
+  }
+
+  /**
+   * Runs a CONFIRMED deploy in the project's own checkout (never a worktree —
+   * the whole point is "the real thing", same target as `publishProject`).
+   * Fire-and-forget from the route: the request already answered 202 with the
+   * task in `running`; the outcome lands as a system comment + broadcast.
+   */
+  async function runDeploy(projectId: string, taskId: string, command: string): Promise<void> {
+    let dirs: string[] = [];
+    try { dirs = opts?.listProjectDirs?.() ?? []; } catch { /* best-effort */ }
+    const cwd = dirs.find((d) => projectIdForPath(d) === projectId);
+    const settle = (ok: boolean, detail: string) => {
+      let t: Task;
+      try { t = svc.finishDeploy({ taskId, ok, detail }); }
+      catch (err) { console.warn("[deploy] finish failed for", taskId, err); return; }
+      broadcastToAll({ type: "task:updated", projectId, task: t });
+    };
+    if (!cwd) { settle(false, "progetto non risolvibile su questo host: nessun checkout da usare."); return; }
+    try {
+      const p = Bun.spawn(["bash", "-lc", command], {
+        cwd, stdout: "pipe", stderr: "pipe",
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      });
+      // 10 minutes: a deploy that does not return within this window is a stuck
+      // deploy, not a slow one — better to say so than stay "running" forever.
+      const killer = setTimeout(() => { try { p.kill(); } catch { /* already exited */ } }, 10 * 60 * 1000);
+      const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
+      const code = await p.exited;
+      clearTimeout(killer);
+      const tail = (s: string) => s.trim().slice(-1500);
+      const body = tail(err) || tail(out);
+      const detail = `\`${command}\` (exit ${code})` + (body ? `\n\n\`\`\`\n${body}\n\`\`\`` : "");
+      settle(code === 0, detail);
+    } catch (e) {
+      settle(false, `\`${command}\`: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
@@ -2163,7 +2239,16 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             const settings = svc.getBoardSettings(projectId);
             // `worktreeReady` NON è un'impostazione: è un fatto sul progetto,
             // che il pannello mostra accanto all'interruttore che ne dipende.
-            return json({ ...settings, worktreeReady: opts?.worktreeReady?.(projectId) ?? true });
+            // `deployCommandSuggestion`: same idea — only when the command is
+            // missing AND the project's `package.json` already has a `deploy` script.
+            let deployCommandSuggestion: string | null = null;
+            if (!settings.deployCommand) {
+              let dirs: string[] = [];
+              try { dirs = opts?.listProjectDirs?.() ?? []; } catch { /* best-effort */ }
+              const path = dirs.find((d) => projectIdForPath(d) === projectId);
+              if (path) deployCommandSuggestion = deploySuggestionFromPackageJson(path);
+            }
+            return json({ ...settings, worktreeReady: opts?.worktreeReady?.(projectId) ?? true, deployCommandSuggestion });
           } catch (e) { return fail(e); }
         }
         if (method === "PATCH") {
@@ -2193,6 +2278,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               dispatchEffort: typeof body?.dispatchEffort === "string" ? body.dispatchEffort : undefined,
               dispatchUseWorktree: typeof body?.dispatchUseWorktree === "boolean" ? body.dispatchUseWorktree : undefined,
               dispatchAutoMerge: typeof body?.dispatchAutoMerge === "boolean" ? body.dispatchAutoMerge : undefined,
+              // Empty = off, same reading as `dispatchMcp`/`dispatchModel`: an
+              // empty string is an EXPLICIT value ("no command"), not "leave
+              // alone" — that one is `undefined`.
+              deployCommand: typeof body?.deployCommand === "string" ? body.deployCommand : undefined,
               dispatchTimeoutMin: typeof body?.dispatchTimeoutMin === "number" ? body.dispatchTimeoutMin : undefined,
               dispatchIdleMin: typeof body?.dispatchIdleMin === "number" ? body.dispatchIdleMin : undefined,
               dispatchMcp: typeof body?.dispatchMcp === "string" ? body.dispatchMcp : undefined,
@@ -2661,6 +2750,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             // Accepted (not landed): the preview server is no longer needed.
             void opts?.teardownPreview?.(bReview.taskId).catch(() => {});
           }
+          // Post-approve deploy PROPOSAL (never automatic): a board with
+          // `deployCommand` set gets a comment + "Deploya ora" button here, the
+          // same edge `enqueueLandOnDone` watches for the land side. No-op when
+          // the board has no command configured.
+          if (decision === "approve" && task.status === "done") {
+            proposeDeployIfConfigured(bReview.projectId, bReview.taskId);
+          }
           return json(task);
         } catch (e) { return fail(e); }
       }
@@ -2705,6 +2801,32 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const ticket = landings.status(bLand.taskId);
         if (!ticket) return json({ error: "nessun land richiesto per questo task", code: "not_found" }, 404);
         return json({ landing: ticket, pending: landings.pending(bLand.projectId) });
+      }
+
+      // POST /api/boards/:projectId/tasks/:taskId/deploy — the HUMAN CLICK that
+      // confirms a proposed deploy. This is the only door that runs a deploy
+      // command: `proposeDeployIfConfigured` (post-approve) only ever writes the
+      // proposal, never gets here on its own. 409 when there is nothing pending
+      // (never proposed, or already running/deployed) — same shape as `/land`
+      // when nothing needs landing.
+      const bDeploy = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/deploy");
+      if (bDeploy && method === "POST") {
+        const { projectId, taskId } = bDeploy;
+        try {
+          const before = svc.get(taskId, { projectId })?.task;
+          if (!before) return json({ error: "task not found", code: "not_found" }, 404);
+          const claim = svc.beginDeploy({ taskId });
+          if (!claim) {
+            return json({
+              error: "nessun deploy in sospeso per questa card (mai proposto, o già in corso/eseguito)",
+              code: "invalid_transition",
+            }, 409);
+          }
+          const running = svc.get(taskId, { projectId })?.task ?? before;
+          broadcastToAll({ type: "task:updated", projectId, task: running });
+          void runDeploy(projectId, taskId, claim.command);
+          return json(running, 202);
+        } catch (e) { return fail(e); }
       }
 
       // POST /api/boards/:projectId/tasks/:taskId/preview — «Ricattura evidenza»
