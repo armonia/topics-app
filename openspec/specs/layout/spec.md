@@ -1849,3 +1849,47 @@ spostato di una quantita' che non corrisponde a nessuno stato.
 - **GIVEN** la sidebar aperta
 - **WHEN** cambia solo la sua larghezza
 - **THEN** non SHALL esserci nessuna trasformata da animare
+
+### Requirement: WINCTL-01 — I comandi finestra escono dallo STESSO posto sui due sistemi
+
+Su Windows la barra del titolo di sistema e' spenta e la app disegna la propria,
+quindi senza comandi propri una finestra non si potrebbe piu' minimizzare,
+massimizzare o chiudere se non dalla barra delle applicazioni. Quei tre comandi
+SHALL uscire dal bottone «Topics», che e' dove il Mac fa uscire le sue tre
+pastiglie (`trafficLightPosition` { x: 12, y: 12 }, con la parola «Topics» che
+diventa invisibile quando il menu si apre). Stavano in fondo alla stessa riga,
+dopo «Cerca» e «+»: la stessa app chiudeva la finestra a sinistra su un sistema
+e a destra sull'altro, e chi passa dall'uno all'altro doveva reimpararlo.
+
+L'ORDINE SHALL essere quello del Mac — chiudi, minimizza, massimizza — e non
+quello di Windows 11. Ancora e ordine sono una decisione sola: tenere l'ordine
+di Windows sotto l'ancora del Mac metterebbe la chiusura esattamente dove sul
+Mac si minimizza, cioe' sotto il puntatore di chi conosce l'altro sistema.
+
+I tre comandi SHALL essere FUORI DAL FLUSSO della riga. La riga del chrome e'
+`h-10` e deriva la propria altezza dai propri bottoni: in flusso, i tre comandi
+possono alzarla, spostare il titolo, oppure — misurato — riservare la propria
+larghezza da SPENTI e spingere la campanella sotto al gruppo `z-50`, rendendola
+non cliccabile. Fuori dal flusso non riservano niente, accesi o spenti.
+
+Su macOS e sul web il componente NON SHALL montare niente: li' la cornice esiste
+gia' (sul Mac sono le tre pastiglie che Tauri dipinge sopra la nostra riga con
+`TitleBarStyle::Overlay`), e un secondo gruppo sarebbe lo stesso errore
+speculare.
+
+#### Scenario: si apre il menu Topics su Windows
+- **GIVEN** il guscio Tauri su Windows
+- **WHEN** il menu «Topics» si apre
+- **THEN** i tre comandi SHALL comparire sopra il bottone
+- **AND** SHALL essere nell'ordine chiudi, minimizza, massimizza
+
+#### Scenario: la riga non cambia altezza
+- **GIVEN** la riga del chrome alta `h-10`
+- **WHEN** i comandi passano da spenti ad accesi
+- **THEN** l'altezza della riga NON SHALL cambiare
+- **AND** nessun altro elemento della riga SHALL spostarsi
+
+#### Scenario: sul Mac non montano
+- **GIVEN** il guscio Tauri su macOS
+- **WHEN** il menu «Topics» si apre
+- **THEN** il componente NON SHALL rendere nessun bottone

@@ -16,6 +16,8 @@
  * 3. THEY ARE MOUNTED ON THE TOPICS BUTTON. The component can be perfect and
  *    mounted in the wrong place, which is precisely the defect being fixed.
  *
+ * @covers WINCTL-01
+ *
  * Geometry in pixels (that 12px is really 12px on screen) needs layout, and
  * layout needs a browser: it belongs to the Windows harness in
  * `tests/manual/ui12-windows.js`, not here.
@@ -34,7 +36,11 @@ let WindowControls: ComponentType<{ visible: boolean }>;
 beforeAll(async () => {
   (globalThis as unknown as { window: unknown }).window = { __TAURI_INTERNALS__: {} };
   Object.defineProperty(globalThis.navigator, 'platform', { value: 'Win32', configurable: true });
-  WindowControls = (await import('./WindowControls')).WindowControls;
+  // Destructured on purpose: `(await import(…)).member` makes the module OPAQUE
+  // to knip, which then reports every export of it as used — that is exactly the
+  // blind spot `check:deadcode-blindspots` refuses.
+  const { WindowControls: Loaded } = await import('./WindowControls');
+  WindowControls = Loaded;
 });
 
 const order = (html: string) =>
