@@ -97,6 +97,8 @@ test.describe.serial("Bozza · aperta ma non aperta", () => {
     // Un attimo sulla bozza: una che non ha mai avuto il fuoco non l'hai mai
     // lasciata, e la regola lo dice (DRAFT_MIN_LOOKED_AT_MS). Il fuoco gliel'ha
     // dato l'app, non un tuo clic: NON conta come «toccata».
+    // DELIBERATE FIXED WAIT: DRAFT_MIN_LOOKED_AT_MS is a product timer. The
+    // test has to sit past it, and a timer that has elapsed shows nothing.
     await page.waitForTimeout(800);
     await page
       .locator('[data-testid="panel-tab-bar"]')
@@ -120,6 +122,7 @@ test.describe.serial("Bozza · aperta ma non aperta", () => {
       .first()
       .click();
     // Un secondo pieno oltre il tempo in cui la chiusura sarebbe scattata.
+    // DELIBERATE FIXED WAIT: the assertion is that the draft did NOT close.
     await page.waitForTimeout(1500);
     await expect(draftTabs(page)).toHaveCount(1);
 
@@ -164,6 +167,7 @@ test.describe.serial("Bozza · aperta ma non aperta", () => {
 
       await expect(draftTabs(page)).toHaveCount(1, { timeout: 5_000 });
       // Ben oltre la finestra della chiusura differita: se rimbalza, muore qui.
+      // DELIBERATE FIXED WAIT: negative assertion, the pane must NOT bounce.
       await page.waitForTimeout(2000);
       await expect(draftTabs(page)).toHaveCount(1);
       await expect(

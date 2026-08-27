@@ -53,9 +53,38 @@ The general shape:
 3. Poll that, with a generous timeout. A generous timeout on a real condition
    costs nothing when the condition arrives early; a fixed sleep always costs.
 
-The one exception in the tree is flag-gated: `E2E_EVIDENCE=1` pauses between
-captions of a delivery video. Nothing is being waited for there — the page is
-already still, a human is being given time to read.
+### The sleeps that stay, and how they declare themselves
+
+Some waits are not debt: they ARE the experiment. Three shapes recur.
+
+1. **The negative assertion.** The test says "for N ms nothing happened": no
+   navigation, no second send, no banner, no re-render. `toHaveCount(0)` is true
+   the instant it is asked, so without a window the test passes on a bug that
+   arrives one frame later. There is no condition for an event that must not
+   occur.
+2. **The window IS the measurement.** A CLS score, an idle frame budget, a
+   catch-up budget after a hidden tab. Shortening the window on a condition
+   measures a different thing and quietly improves the number.
+3. **The cadence is the instrument.** The delay between two synthetic touch
+   points is the SPEED of the finger, and the browser reads that speed to decide
+   what gesture it saw. A sampling interval in a stability poll is the same
+   thing: the loop is the condition, the interval is how often it looks.
+
+Flag-gated evidence pauses (`E2E_EVIDENCE=1`, captions of a delivery video)
+count as a fourth: nothing is being waited for, a human is being given time to
+read, and they are off on the default path.
+
+Any of these declares itself in the comment on or above the call:
+
+```ts
+// DELIBERATE FIXED WAIT: the assertion below is that the draft did NOT close.
+await page.waitForTimeout(1500);
+```
+
+`check:sleeps` counts declared and undeclared calls apart and prints both. The
+number that has to reach zero is the UNDECLARED one. An undeclared sleep is a
+bet on a clock; a declared one is a decision with its reason next to it, which
+is the only version a reviewer can argue with.
 
 ## Never anchor on translated copy
 

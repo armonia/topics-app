@@ -74,6 +74,10 @@ interface Baseline {
   files: Record<string, number>;
   total_calls: number;
   total_ms: number;
+  /** How many of those calls carry a `DELIBERATE FIXED WAIT` reason. Informative. */
+  total_declared?: number;
+  /** total_calls - total_declared. This is the debt. Informative. */
+  total_undeclared?: number;
 }
 
 interface FileCount {
@@ -302,11 +306,16 @@ function writeBaseline(opts: Options, counts: FileCount[]): void {
       "introduce uno, fa uscire 1. Scendere non fallisce mai: riabbassa il numero con --update-baseline.",
       "Non alzare un numero per far passare la CI. Un sonno in piu' e' una decisione, non un effetto",
       "collaterale: la convenzione sta in tests/e2e/CONVENTIONS.md.",
+      "total_declared conta i sonni che portano scritto DELIBERATE FIXED WAIT: quelli in cui il tempo",
+      "E' l'esperimento (si asserisce che per N ms non e' successo niente, o la cadenza e' lo strumento).",
+      "Il debito e' total_undeclared, ed e' quello che deve arrivare a zero.",
     ],
     updated: new Date().toISOString().slice(0, 10),
     files,
     total_calls: counts.reduce((a, c) => a + c.calls, 0),
     total_ms: counts.reduce((a, c) => a + c.ms, 0),
+    total_declared: counts.reduce((a, c) => a + c.declared, 0),
+    total_undeclared: counts.reduce((a, c) => a + c.undeclared, 0),
   };
   writeFileSync(opts.baselinePath, `${JSON.stringify(baseline, null, 2)}\n`);
   console.log(`[check-sleeps] baseline riscritta: ${relative(opts.root, opts.baselinePath)} (${baseline.total_calls} chiamate, ${(baseline.total_ms / 1000).toFixed(1)}s)`);

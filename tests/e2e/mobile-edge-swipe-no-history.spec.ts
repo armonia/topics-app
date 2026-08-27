@@ -164,6 +164,10 @@ async function dito(page: Page, opts: { da: number; a: number; y: number }): Pro
   for (let i = 1; i <= 4; i++) fini.push(da + verso * 2 * i);
   const grossi: number[] = [];
   for (let i = 1; i <= 10; i++) grossi.push(da + ((a - da) * i) / 10);
+  // DELIBERATE FIXED WAIT (both loops): the delay between two touch points IS
+  // the gesture. A finger has a speed, and the browser reads that speed to
+  // decide whether this is an edge swipe. Firing the points as fast as the
+  // loop can go would send a different gesture from the one under test.
   for (const x of fini) {
     await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y }] });
     await page.waitForTimeout(60);
@@ -183,6 +187,9 @@ test.describe("il bordo e' del menu", () => {
     const prima = await leggi(page);
 
     await dito(page, { da: 2, a: 340, y: 420 });
+    // DELIBERATE FIXED WAIT: what is asserted below is that the swipe did NOT
+    // navigate. A navigation that never happens has no event to wait for, so
+    // the window is the only thing that can catch one that does.
     await page.waitForTimeout(700);
     const dopo = await leggi(page);
 
@@ -204,6 +211,7 @@ test.describe("il bordo e' del menu", () => {
     const larghezza = page.viewportSize()!.width;
 
     await dito(page, { da: larghezza - 2, a: larghezza - 340, y: 420 });
+    // DELIBERATE FIXED WAIT: same negative assertion, from the other edge.
     await page.waitForTimeout(700);
     const dopo = await leggi(page);
 

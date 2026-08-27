@@ -11,6 +11,8 @@ hermetic(test);
 // fast path there is no clip to pace, so these are 8s of dead sleep per run.
 // Anything that actually needs to wait for the app uses a condition instead.
 const EVIDENCE = process.env.E2E_EVIDENCE === '1';
+// DELIBERATE FIXED WAIT: the pause IS the deliverable here. It paces the clip
+// so a person can watch it, and it is off on the default fast path.
 const videoPause = (page: Page, ms: number) =>
   EVIDENCE ? page.waitForTimeout(ms) : Promise.resolve();
 
@@ -27,6 +29,8 @@ async function waitForSettledX(locator: Locator, timeoutMs = 3000): Promise<numb
     const x = (await locator.boundingBox())?.x ?? Number.NaN;
     if (x === last) return x;
     last = x;
+    // DELIBERATE FIXED WAIT: this is the sampling interval of a stability
+    // poll, not a bet that 100 ms is enough. The condition is the loop.
     await locator.page().waitForTimeout(100);
   }
   return last;
@@ -52,6 +56,9 @@ async function measureCLS(page: Page, action: () => Promise<void>): Promise<numb
     }).observe({ type: 'layout-shift', buffered: false });
   });
   await action();
+  // DELIBERATE FIXED WAIT: the CLS observer scores what shifts INSIDE a window.
+  // The window is the measurement. Shortening it on a condition would score a
+  // different thing and silently lower the number.
   await page.waitForTimeout(1000);
   return page.evaluate(() => (window as any).__cls);
 }
@@ -141,6 +148,8 @@ async function assertLayoutSettled(page: Page, windowMs = 1500): Promise<string[
     });
 
   const before = await snapshot();
+  // DELIBERATE FIXED WAIT: the assertion is that NOTHING moved between the two
+  // snapshots. With no window there is nothing to have failed to happen.
   await page.waitForTimeout(windowMs);
   const after = await snapshot();
 
@@ -225,6 +234,8 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
       .toBeGreaterThan(1);
     const cls = await measureCLS(page, async () => {
       await topics.nth(1).click();
+      // DELIBERATE FIXED WAIT: inside a CLS measurement, so the shifts that the
+      // click causes are given time to be scored rather than raced past.
       await page.waitForTimeout(500);
     });
     expect(cls).toBeLessThan(0.1);
@@ -247,6 +258,9 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
 
     await newPage.goto('/');
     await newPage.waitForLoadState('domcontentloaded');
+    // DELIBERATE FIXED WAIT: what is under test is the FIRST painted frame, so
+    // the probe must be read after a paint and before nothing in particular.
+    // Any condition to wait on here would be downstream of the frame itself.
     await newPage.waitForTimeout(200);
 
     const firstBg = await newPage.evaluate(() => (window as any).__firstBg || getComputedStyle(document.documentElement).backgroundColor);

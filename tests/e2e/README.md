@@ -1,37 +1,59 @@
 # Topics App — E2E Test Suite
 
 Playwright E2E tests covering all major features (chat, sidebar, panels,
-layout, tabs, terminals, browser, agents, infra). **262** `*.spec.ts` files,
-1 083 tests — the count in this line said 68 until 2026-08-25, which is roughly
-when it was last true.
+layout, tabs, terminals, browser, agents, infra). **268** `*.spec.ts` files,
+**1 128** tests.
 
-> **Stato della suite, misurato il 25/08/2026.** Numeri che servono a chi la
-> tocca, non decorazione:
+> **Stato della suite, rimisurato il 27/08/2026.** Ogni riga porta il comando
+> che la rifà: un numero senza il modo di riprenderlo scade in silenzio, ed è
+> esattamente come questa intestazione è arrivata a dichiarare 68 file quando
+> erano 262.
 >
-> - **175 `waitForTimeout` in 82 file = 149,9 s di attesa a vuoto per passata.**
->   `CONVENTIONS.md` li vieta dalla prima riga; `check:sleeps` è verde perché è
->   un cricchetto e congela il debito invece di vietarlo. È il taglio più grosso
->   disponibile sui tempi senza toccare la parallelizzazione.
-> - **98 test (9%) hanno come unica asserzione la visibilità**, e 70 non passano
->   nemmeno da un page-object che potrebbe asserire dentro. Violano D7 dello
->   STANDARD di spec-flow.
-> - **956 usi di `.first()`/`.last()`**, che `CONVENTIONS.md` vieta su pareggi.
->   Nessun cancello li guarda.
-> - **62 prefissi di nome con un solo file** e 12 gruppi di quasi-duplicati
->   (quattro file coprono «lo split interno al progetto sopravvive al reload»).
->   Non c'è una tassonomia: c'è un accumulo cronologico.
+> ```bash
+> ls tests/e2e/*.spec.ts | wc -l                 # 268 file
+> npx playwright test --list | tail -1           # 1 128 test in 268 file
+> bun run check:sleeps                           # 126 sonni, 35 dichiarati, 125,2 s
+> grep -ro '\.\(first\|last\)()' tests/e2e --include=*.spec.ts | wc -l   # 967
+> grep -rl toHaveScreenshot tests/e2e --include=*.ts | wc -l               # 0
+> ls tests/e2e/*.spec.ts | xargs -n1 basename | sed 's/\.spec\.ts$//' \
+>   | awk -F- '{print $1}' | sort | uniq -c | awk '$1==1' | wc -l          # 69
+> ```
+>
+> - **126 `waitForTimeout` in 73 file = 125,2 s per passata** (erano 175 in 82
+>   file, 149,9 s). Di questi **35 sono DICHIARATI**: portano scritto
+>   `DELIBERATE FIXED WAIT` e una riga che dice perché il tempo *è*
+>   l'esperimento (si asserisce che per N ms non è successo niente, oppure la
+>   cadenza è lo strumento: la velocità di un dito, l'intervallo di
+>   campionamento). **Il debito sono i 91 restanti**, ed è quel numero che deve
+>   arrivare a zero, non il totale. `check:sleeps` li conta separati.
+> - **967 usi di `.first()`/`.last()`**, che `CONVENTIONS.md` vieta sui
+>   pareggi. Nessun cancello li guarda: è il pezzo più grosso ancora scoperto.
 > - **Zero baseline visive** (`toHaveScreenshot` non compare in nessun file):
 >   nessuna regressione puramente grafica può essere colta.
-> - **273 `data-testid` su 606 non sono usati da nessun test.**
+> - **69 prefissi di nome con un solo file**, 64 file con un solo test, 117 con
+>   due o meno. Non c'è una tassonomia: c'è un accumulo cronologico, un file per
+>   feature nata.
 >
-> La riorganizzazione dei file **non** è stata fatta di proposito: spostarli
-> cambia l'assegnazione degli shard, e al 25/08 un'altra sessione stava
-> lavorando proprio sui tempi e sulla pubblicazione UAT. È il primo pezzo da
-> fare quando quel lavoro è finito, e va fatto in un colpo solo.
+> **Fondere quei file non è stato fatto, ed è una decisione, non una
+> dimenticanza.** Gli shard sono assegnati PER FILE e bilanciati sulla durata
+> (`bun run test:e2e:plan`): meno unità e più grandi peggiorano il
+> bilanciamento. Si guadagnerebbe in leggibilità e si perderebbe in
+> parallelismo, e il secondo oggi è misurato mentre il primo no. Va deciso con
+> il numero in mano: quanto costa in secondi lo sbilanciamento fra shard.
+>
+> **Due allarmi dell'audit del 25/08 sono FALSI, verificati riga per riga il
+> 27/08.** Chi li ritrova in un rapporto automatico non li rincorra:
+>
+> - «id riusato dentro lo stesso file» (`BROWSER-CHAT-04` nove volte,
+>   `TAB-SYNC-01` undici) conta l'ANNOTAZIONE `spec`, non il nome del test. Un
+>   requisito coperto da nove scenari è come `check:spec-coverage` deve
+>   funzionare; i nomi sono già distinti (`-04`, `-04b`, `-04c`…).
+> - «titolo identico in due file» non esiste più: zero titoli condivisi fra file
+>   diversi in tutta la suite.
 >
 > Il legame fra questi test e i requisiti di `openspec/specs/` lo misura
 > `bun run check:spec-coverage` (cablato in CI). Si dichiara così, sullo
-> scenario — è la convenzione già in uso qui, 274 test in 45 file:
+> scenario:
 >
 > ```ts
 > test.info().annotations.push({ type: "spec", description: "KANBAN-01" });
