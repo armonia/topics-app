@@ -1774,3 +1774,47 @@ SHALL vincere quella della barra.
 #### Scenario: un argomento già archiviato
 - **GIVEN** lo stato archiviato
 - **THEN** NON SHALL essere proposta l'archiviazione
+
+### Requirement: LAYOUT-27 — Chiudere e riaprire la sidebar non SCOPRE una banda che nessuno dipinge
+
+Lo scorrimento della sidebar SHALL essere animato con una trasformata, non
+animando il padding: il padding e' una proprieta' di LAYOUT, e cambiarla a ogni
+frame ristringe la larghezza del contenuto, che a cascata rifa' il layout di
+ogni terminale visibile. Il rimedio storico — far scattare il padding di colpo
+quando ci sono molti terminali — spegneva l'animazione proprio sotto carico,
+cioe' curava il sintomo togliendo la cosa.
+
+Il layer spostato dalla trasformata SHALL essere ALLARGATO dello stesso
+spostamento mentre scorre. Il layer e' un figlio flex: committare il padding lo
+stringe, quindi la trasformata scopre una striscia larga quanto lo spostamento —
+la «banda grigia» segnalata riaprendo la sidebar. Una trasformata non puo'
+dipingere cio' che non e' dentro la scatola.
+
+La larghezza aggiunta SHALL essere azzerata PRIMA della misura successiva: un
+ciclo rapido chiudi-riapri misurerebbe altrimenti un layer che indossa ancora
+l'extra del giro precedente, e l'errore si accumulerebbe a ogni giro.
+
+Un RIDIMENSIONAMENTO della sidebar — larghezza diversa, stato aperto invariato —
+SHALL assestarsi subito e NON SHALL essere animato: arriva come un solo commit a
+fine trascinamento, e animarlo farebbe scivolare la pagina duecento millisecondi
+dopo che la maniglia e' stata rilasciata.
+
+Una nuova commutazione SHALL annullare quella in volo: senza, il frame della
+precedente atterra dopo che la nuova ha gia' ri-misurato, e il layer resta
+spostato di una quantita' che non corrisponde a nessuno stato.
+
+#### Scenario: si riapre la sidebar
+- **GIVEN** la sidebar chiusa e un layer allineato al padding del contenuto
+- **WHEN** la sidebar si riapre
+- **THEN** il layer SHALL essere spostato della differenza misurata
+- **AND** SHALL essere allargato della stessa quantita'
+
+#### Scenario: due cicli di fila
+- **GIVEN** una riapertura che ha allargato il layer
+- **WHEN** si richiude
+- **THEN** la larghezza aggiunta SHALL essere tornata a zero
+
+#### Scenario: si trascina la maniglia
+- **GIVEN** la sidebar aperta
+- **WHEN** cambia solo la sua larghezza
+- **THEN** non SHALL esserci nessuna trasformata da animare
