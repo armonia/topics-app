@@ -522,19 +522,21 @@ describe("cleanup del worktree — non buttare via i commit", () => {
   });
 });
 
-// NOTA, e vale piu di un test verde: il percorso che perdeva davvero i commit —
-// UN agente, turno troncato, task rimesso in coda — NON e coperto qui. Ho
-// provato a raggiungerlo con questo harness (fanOut 1, runTurn che rigetta,
-// tentativi esauriti) e ogni variante finisce altrove: o in `review` per
-// consegna di sistema, o senza nemmeno creare il worktree. I test che avevo
-// scritto passavano senza toccare la guardia, cioe non provavano niente, e li
-// ho tolti invece di lasciarli verdi a vuoto.
+// NOTE: the path that really lost commits (ONE agent, turn truncated, task put
+// back in `todo`, worktree deleted with its BRANCH) IS pinned now, but not here:
+// `task-dispatcher-preserve-work.test.ts` covers `preserveWork` directly.
 //
-// Quello che i tre test sopra provano davvero e il NON-regressione: il reap dei
-// tentativi perdenti continua a cancellare anche quando la sonda dice che c'e
-// lavoro, perche li lo scarto e deliberato. La guardia vera (`preserveWork`) e
-// verificata per lettura, non da un test: per coprirla serve un harness che
-// sappia portare un task a `todo`/`backlog` DOPO aver creato un worktree.
+// It stays out of THIS harness because the missing ingredient was never the
+// turn, it was the CARD. Every single-agent variant tried here (fanOut 1, a
+// runTurn that rejects, the retry budget spent) lands somewhere else: in `review`
+// by system delivery, or without a worktree at all. The tests written for it
+// passed without touching the guard, so they were deleted rather than left green
+// and empty. Getting to `todo` with a worktree already created needs a parent
+// whose subtask is still IN FLIGHT, which is what the other file sets up.
+//
+// What the three tests above prove is the NON-regression: the reap of the losing
+// attempts keeps deleting even when the probe reports work, because there the
+// discard is deliberate.
 
 // ── Il topic dell'agente si ritira col task ────────────────────────────────
 //

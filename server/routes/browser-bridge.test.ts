@@ -24,6 +24,7 @@ import { join } from "node:path";
 import { createBrowserBridgeRouter, type TerminalSessionRef } from "./browser-bridge";
 import type { AppContext, Topic } from "../types";
 import type { BrowserService } from "../browser-service";
+import type { PortOwnerDeps } from "../lib/port-project-owner";
 
 const TOKEN = "gateway-token-di-prova";
 
@@ -66,6 +67,12 @@ interface HarnessOpts {
    * per coprire.
    */
   paneAttached?: boolean | "dopo-force-open";
+  /**
+   * Fake for the port→project resolver (task f9cf765e): defaults to "nobody
+   * listens, no cwd" so the existing open-pane tests (all `https://…` URLs,
+   * out of scope for the check anyway) stay a silent no-op.
+   */
+  portOwnerDeps?: PortOwnerDeps;
 }
 
 function harness(opts: HarnessOpts = {}) {
@@ -166,6 +173,7 @@ function harness(opts: HarnessOpts = {}) {
     // Le attese vere sono da secondi: qui bastano pochi millisecondi, o ogni
     // test del ramo «nessuna pane» pagherebbe due finestre piene.
     paneWaitMs: 20,
+    portOwnerDeps: opts.portOwnerDeps ?? { findListener: async () => null, cwdForPid: async () => null },
   }, opts.noService ? undefined : service);
 
   const post = async (path: string, body?: unknown, headers: Record<string, string> = { "x-gateway-token": TOKEN }) => {
@@ -473,6 +481,104 @@ describe("open-pane — tre rami, tre pannelli diversi", () => {
 
     expect(open!.status).toBe(200);
     expect(close!.status).toBe(200);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// open-pane — the foreign-port warning (task f9cf765e): a localhost:PORT URL
+// that answers from a DIFFERENT project, or does not answer at all, carries a
+// `warning` field on the tool result, without ever blocking the navigation.
+// ---------------------------------------------------------------------------
+describe("open-pane — avviso quando la porta localhost è di un altro progetto", () => {
+  test("chat: porta servita dal progetto della topic stessa ⇒ nessun avviso", async () => {
+    const h = harness({
+      portOwnerDeps: {
+        findListener: async () => ({ pid: 111, command: "bun" }),
+        cwdForPid: async () => "/Users/x/Projects/topics-app",
+      },
+    });
+    h.addTopic("t1", { projectPath: "/Users/x/Projects/topics-app" });
+
+    const resp = await h.post("/api/topics/t1/browser/open-pane", { url: "http://localhost:3333/" });
+    const body = await resp!.json();
+
+    expect(body.warning).toBeUndefined();
+  });
+
+  test("chat: porta servita da un ALTRO progetto ⇒ warning prominente nel risultato", async () => {
+    const h = harness({
+      portOwnerDeps: {
+        findListener: async () => ({ pid: 222, command: "node" }),
+        cwdForPid: async () => "/Users/x/Projects/darkroom",
+      },
+    });
+    h.addTopic("t1", { projectPath: "/Users/x/Projects/topics-app" });
+
+    const resp = await h.post("/api/topics/t1/browser/open-pane", { url: "http://localhost:3333/" });
+    const body = await resp!.json();
+
+    expect(body.warning).toContain("darkroom");
+    expect(body.warning).toContain("222");
+    // Not blocking: the navigation happened anyway.
+    expect(h.navigations).toEqual([{ contextId: "t1", url: "http://localhost:3333/" }]);
+  });
+
+  test("chat: nessuno risponde sulla porta ⇒ segnalato, non silenzioso", async () => {
+    const h = harness({ portOwnerDeps: { findListener: async () => null, cwdForPid: async () => null } });
+    h.addTopic("t1", { projectPath: "/Users/x/Projects/topics-app" });
+
+    const resp = await h.post("/api/topics/t1/browser/open-pane", { url: "http://localhost:5173/" });
+    const body = await resp!.json();
+
+    expect(body.warning).toContain("5173");
+  });
+
+  test("un URL non-localhost non tocca nemmeno il resolver", async () => {
+    let called = false;
+    const h = harness({
+      portOwnerDeps: {
+        findListener: async () => { called = true; return null; },
+        cwdForPid: async () => null,
+      },
+    });
+    h.addTopic("t1", { projectPath: "/Users/x/Projects/topics-app" });
+
+    const resp = await h.post("/api/topics/t1/browser/open-pane", { url: "https://example.com/" });
+    const body = await resp!.json();
+
+    expect(body.warning).toBeUndefined();
+    expect(called).toBe(false);
+  });
+
+  test("terminale: usa la cwd del terminale come progetto proprio", async () => {
+    const h = harness({
+      portOwnerDeps: {
+        findListener: async () => ({ pid: 333, command: "vite" }),
+        cwdForPid: async () => "/Users/x/Projects/other-app",
+      },
+    });
+    h.terminals.set("42", { id: "42", name: "Terminal 42", cwd: "/Users/x/Projects/topics-app" });
+
+    const resp = await h.post("/api/sessions/42/browser/open-pane", { url: "http://127.0.0.1:9000/" });
+    const body = await resp!.json();
+
+    expect(body.warning).toContain("other-app");
+  });
+
+  test("task: la scheda dentro il drawer porta l'avviso allo stesso modo", async () => {
+    const h = harness({
+      portOwnerDeps: {
+        findListener: async () => ({ pid: 444, command: "node" }),
+        cwdForPid: async () => "/Users/x/Projects/darkroom",
+      },
+    });
+    const topic = h.addTopic("aaaaaaaa-topic", { projectPath: "/Users/x/Projects/topics-app" });
+    h.taskOfTopic.set(topic.id, { id: "12345678-task" });
+
+    const resp = await h.post("/api/topics/aaaaaaaa-topic/browser/open-pane", { url: "http://localhost:4000/" });
+    const body = await resp!.json();
+
+    expect(body.warning).toContain("darkroom");
   });
 });
 

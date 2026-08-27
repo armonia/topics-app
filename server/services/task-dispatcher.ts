@@ -19,8 +19,11 @@
  *    live repo next to the human's WIP. If a worktree can't be made and the user
  *    hasn't explicitly opted into in-place, the task is parked with an error
  *    instead of clobbering the repo.
- *  - wall-clock timeout per turn; turn-end reconciliation requeues (bounded by
- *    the retry cap) or parks a task that ended without reaching `review`.
+ *  - a passive stall detector, not a wall-clock kill, cuts a turn: silence past
+ *    `dispatchIdleMin` asks a cheap judge first, and only a "stuck" verdict
+ *    recycles it (see `server/lib/stall-detector.ts`). Turn-end reconciliation
+ *    requeues (bounded by the retry cap) or parks a task that ended without
+ *    reaching `review`.
  */
 import { LAND_ACTION_LABEL, UNASSIGNED_PROJECT_ID, commentAsksHuman, type Task, type TaskService } from "./tasks";
 import { type SessionUsage } from "./transcript-usage";
@@ -209,7 +212,16 @@ export interface DispatcherDeps {
    * turns), so a resume/continuation doesn't need the full envelope re-injected
    * into history — that only compounds cache write/read on every later call.
    */
-  runTurn: (sessionKey: string, content: string, opts: { timeoutMs: number; contextMode?: "full" | "lean" }) => Promise<TurnEndInfo | void>;
+  /**
+   * `timeoutMs` is DECLASSED TO REPORTING ONLY: it no longer cuts a turn, it is
+   * just what the host compares an over-long turn against and logs. The kill
+   * mechanism is `idleMs` — the passive stall detector's silence threshold
+   * (see `server/lib/stall-detector.ts`): once the session goes quiet for that
+   * long, a cheap judge decides "alive" (rearm, keep going) or "stuck" (recycle
+   * — abort + resume the SAME session). Absent `idleMs` ⇒ the host's own
+   * default.
+   */
+  runTurn: (sessionKey: string, content: string, opts: { timeoutMs: number; idleMs?: number; contextMode?: "full" | "lean" }) => Promise<TurnEndInfo | void>;
   /**
    * True if a still-running agent turn for this session survived a server
    * restart in the ai-bridge broker (provider.hasLiveSession). When present and
@@ -220,7 +232,7 @@ export interface DispatcherDeps {
   hasLiveSession?: (sessionKey: string) => Promise<boolean>;
   /** Drive a REATTACH turn to completion (adopt the surviving broker child and
    *  finish it). Injected alongside hasLiveSession. */
-  reattach?: (sessionKey: string, opts: { timeoutMs: number }) => Promise<TurnEndInfo | void>;
+  reattach?: (sessionKey: string, opts: { timeoutMs: number; idleMs?: number }) => Promise<TurnEndInfo | void>;
   /**
    * Is the agent PROCESS behind this session still alive? (provider
    * `isTurnProcessAlive` — the same probe the stream watchdog trusts to tell a
@@ -1659,7 +1671,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /** Launch one already-claimed task: (worktree?) → topic → turn → reconcile. */
   async function launch(
     taskId: string,
-    settings: { useWorktree: boolean; timeoutMin: number; effort: string; mcp: string; model?: string },
+    settings: { useWorktree: boolean; timeoutMin: number; idleMin: number; effort: string; mcp: string; model?: string },
     resolved: { path: string; projectStoreId: string | null },
   ): Promise<void> {
     const runId = beginRun(taskId, "");
@@ -1861,6 +1873,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       emit(deps.svc.setDispatchState({ taskId, state: CHIP_WORKING }));
 
       const timeoutMs = Math.max(1, settings.timeoutMin) * 60_000;
+      const idleMs = Math.max(1, settings.idleMin) * 60_000;
       const t0 = Date.now();
       const usage0 = anchorUsage(taskId, sessionKey);
       startLiveTurn(task, sessionKey, t0, usage0, chosenModel ?? null);
@@ -1869,7 +1882,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // Kickoff = the ONE turn that needs the full context envelope (grounds
         // the fresh session in the project). A reused-blocker topic also gets
         // full — it's a new task, worth re-grounding.
-        turnEnd = (await deps.runTurn(sessionKey, kickoff, { timeoutMs, contextMode: "full" })) || undefined;
+        turnEnd = (await deps.runTurn(sessionKey, kickoff, { timeoutMs, idleMs, contextMode: "full" })) || undefined;
       } catch (err) {
         log(`turn failed for task ${taskId}`, err);
         turnEnd = classifyTurnError(err);
@@ -2026,7 +2039,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     task: Task,
     idx: number,
     total: number,
-    opts: { timeoutMs: number; effort: string; mcp: string; model?: string },
+    opts: { timeoutMs: number; idleMs: number; effort: string; mcp: string; model?: string },
     resolved: { path: string; projectStoreId: string },
   ): Promise<void> {
     const store = deps.attempts!;
@@ -2060,6 +2073,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       usage0 = anchorUsage(task.id, sessionKey);
       const turnEnd = (await deps.runTurn(sessionKey, buildFanoutKickoff(task, idx, total), {
         timeoutMs: opts.timeoutMs,
+        idleMs: opts.idleMs,
         contextMode: "full",
       })) || undefined;
       if (turnEnd && turnEnd.end !== "end_turn") failure = describeTurnEnd(turnEnd);
@@ -2223,7 +2237,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   async function launchFanOut(
     taskId: string,
     n: number,
-    settings: { timeoutMin: number; effort: string; mcp: string; model?: string },
+    settings: { timeoutMin: number; idleMin: number; effort: string; mcp: string; model?: string },
     resolved: { path: string; projectStoreId: string },
   ): Promise<void> {
     const runId = beginRun(taskId, "");
@@ -2269,11 +2283,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       } catch { /* best-effort */ }
 
       const timeoutMs = Math.max(1, settings.timeoutMin) * 60_000;
+      const idleMs = Math.max(1, settings.idleMin) * 60_000;
       // allSettled e non all: un tentativo che esplode in modo imprevisto non
       // deve lasciare i fratelli a girare senza nessuno che ne raccolga l'esito.
       await Promise.allSettled(
         Array.from({ length: n }, (_, i) =>
-          runAttempt(task, i + 1, n, { timeoutMs, effort: chosenEffort, mcp: settings.mcp, model: chosenModel }, resolved),
+          runAttempt(task, i + 1, n, { timeoutMs, idleMs, effort: chosenEffort, mcp: settings.mcp, model: chosenModel }, resolved),
         ),
       );
       // Sepolto dalla rete di liveness mentre giravamo (o rimpiazzato da un run
@@ -2840,6 +2855,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       emit(deps.svc.setDispatchState({ taskId, state: CHIP_WORKING }));
       let timeoutMin = 20;
       try { timeoutMin = deps.svc.getBoardSettings(t.projectId).dispatchTimeoutMin; } catch { /* default */ }
+      let idleMin = 5;
+      try { idleMin = deps.svc.getBoardSettings(t.projectId).dispatchIdleMin; } catch { /* default */ }
       const t0 = Date.now();
       const usage0 = anchorUsage(taskId, sessionKey);
       startLiveTurn(t, sessionKey, t0, usage0, t.model ?? null);
@@ -2858,7 +2875,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // already carries the full envelope from kickoff — re-injecting CLAUDE.md
       // & co. only compounds cache write/read. Lean = role prompt + cwd only.
       let turnEnd: TurnEndInfo | undefined;
-      try { turnEnd = (await deps.runTurn(sessionKey, content, { timeoutMs: Math.max(1, timeoutMin) * 60_000, contextMode: "lean" })) || undefined; }
+      try {
+        turnEnd = (await deps.runTurn(sessionKey, content, {
+          timeoutMs: Math.max(1, timeoutMin) * 60_000,
+          idleMs: Math.max(1, idleMin) * 60_000,
+          contextMode: "lean",
+        })) || undefined;
+      }
       catch (err) { log(`resume turn failed for ${taskId}`, err); turnEnd = classifyTurnError(err); }
       bookUsageFloor(taskId, sessionKey);   // prima della guardia: vedi launch
       if (!ownsRun(taskId, runId)) return; // buried mid-turn (see launch)
@@ -2888,11 +2911,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       emit(deps.svc.setDispatchState({ taskId, state: CHIP_WORKING }));
       let timeoutMin = 20;
       try { timeoutMin = deps.svc.getBoardSettings(t.projectId).dispatchTimeoutMin; } catch { /* default */ }
+      let idleMin = 5;
+      try { idleMin = deps.svc.getBoardSettings(t.projectId).dispatchIdleMin; } catch { /* default */ }
       const t0 = Date.now();
       const usage0 = anchorUsage(taskId, sessionKey);
       startLiveTurn(t, sessionKey, t0, usage0, t.model ?? null);
       let turnEnd: TurnEndInfo | undefined;
-      try { turnEnd = (await deps.reattach!(sessionKey, { timeoutMs: Math.max(1, timeoutMin) * 60_000 })) || undefined; }
+      try {
+        turnEnd = (await deps.reattach!(sessionKey, {
+          timeoutMs: Math.max(1, timeoutMin) * 60_000,
+          idleMs: Math.max(1, idleMin) * 60_000,
+        })) || undefined;
+      }
       catch (err) { log(`reattach turn failed for ${taskId}`, err); turnEnd = classifyTurnError(err); }
       bookUsageFloor(taskId, sessionKey);   // prima della guardia: vedi launch
       if (!ownsRun(taskId, runId)) return; // buried mid-turn (see launch)
@@ -3458,6 +3488,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       }
       const launchSettings = {
         timeoutMin: settings.dispatchTimeoutMin,
+        idleMin: settings.dispatchIdleMin,
         effort: settings.dispatchEffort,
         mcp: settings.dispatchMcp,
         model: settings.dispatchModel && settings.dispatchModel !== "auto" ? settings.dispatchModel : undefined,
