@@ -201,7 +201,7 @@ test.describe('inventario del peso per funzionalita', () => {
     await expect(totale).toBeVisible({ timeout: 15_000 });
 
     // PRIMA DELL'HOVER il tooltip NON porta l'inventario: si raccoglie solo
-    // quando qualcuno guarda (RES-ATTR-08), e questa e' la prova che la regola
+    // quando qualcuno guarda (RES-ATTR-04), e questa e' la prova che la regola
     // e' rispettata invece di dichiarata.
     const primaDellHover = (await totale.getAttribute('title')) ?? '';
     expect(primaDellHover).not.toContain('Cosa tiene questo numero');

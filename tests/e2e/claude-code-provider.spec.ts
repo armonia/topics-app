@@ -183,10 +183,14 @@ test.describe.serial("Claude Code Provider", () => {
       { timeout: 15_000 }
     );
 
-    // Verify Bash tool call card appears
-    await expect(page.locator("body")).toContainText("Bash", {
-      timeout: 10_000,
-    });
+    // Verify the Bash tool call card appears. Assert on the CARD, not on the
+    // page body: the topic created above is named "CC Bash E2E …" and sits in
+    // the sidebar, so a body-level "Bash" assertion passed whether or not any
+    // card rendered. And the card carries the NORMALISED label, so a `Bash`
+    // call reads `Shell` (see CCPROV-02 and buildToolDisplayLabel).
+    await expect(
+      page.locator('[data-testid="tool-call-name"]').first()
+    ).toHaveText("Shell", { timeout: 10_000 });
 
     // Cleanup
     await page.request

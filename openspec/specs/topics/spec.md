@@ -196,6 +196,8 @@ The system SHALL provide organizational features for topics including drag-and-d
 
 > Promoted from `2026-05-16-add-project-worktree-domain`; the scenarios about the New Topic dialog's worktree picker, the settings-modal Worktree section and slash-command cwd resolution were dropped because the covering test exercises the topic API only. What is stated here is what that test proves: the binding round-trip and the fallback when the worktree disappears.
 
+> Reread 27/08/2026 against the code, unchanged: migration 018 still adds a NULLABLE `worktree_id` with `ON DELETE SET NULL`, and the delete route still purges the id from the `ui_state` snapshots in the same transaction, so a deleted worktree cannot come back through a sync.
+
 A topic MAY optionally be bound to a single worktree through the `worktree_id` foreign key. A topic with no binding SHALL behave exactly as it did before the column existed, operating inside its own `project_path`. When the bound worktree is deleted the binding SHALL be cleared, and the topic SHALL keep working against `project_path` with no user-visible error.
 
 #### Scenario: Topic created without a worktree keeps the legacy behaviour
