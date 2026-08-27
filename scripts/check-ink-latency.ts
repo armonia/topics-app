@@ -20,6 +20,20 @@
  * The spec deliberately does not assert the budget: one number judged in two
  * places is how a budget ends up with two values.
  *
+ * THREE OUTCOMES, because "I did not measure" is not a verdict.
+ *   0  measured, every gesture within budget
+ *   1  MEASURED and over budget, or the command was invoked wrong
+ *   2  NOT measured: the probe never produced a number, so there is nothing to
+ *      judge. Its siblings (route-latency, scroll-fluidity, drag, growth) all
+ *      have this exit already; this gate did not, so a run where Playwright
+ *      never got to the measurement was reported as a performance regression.
+ *      Measured on run 33027396174 (2026-08-27): the job `check` went red on
+ *      "Click-to-ink budget" with no ink number anywhere in the log.
+ *
+ * Exit 2 does NOT hide a broken app: the very same spec runs inside the E2E
+ * shards, in their own job, where a failure to drive the app is a real red.
+ * What is silenced here is only the second verdict on the same fact.
+ *
  * Usage
  *   bun run check:ink                  measure, then judge
  *   bun run check:ink --stall 300      make the app really slow, then judge
@@ -48,6 +62,11 @@ const GESTURES: Array<{ key: string; label: string; answer: string }> = [
   { key: "send", label: "send a message", answer: "the sent message in the list" },
 ];
 
+/** Over budget, or invoked wrong: the run stops. */
+const OVER_BUDGET = 1;
+/** Nothing was measured: the gate abstains, and says so out loud. */
+const NOT_MEASURED = 2;
+
 interface Budget {
   budget: { medianMs: number; maxMs: number };
 }
@@ -74,7 +93,7 @@ function main(): number {
   const stallMs = stallAt >= 0 ? Number(args[stallAt + 1]) : 0;
   if (stallAt >= 0 && (!Number.isFinite(stallMs) || stallMs <= 0)) {
     console.error("check:ink — --stall wants a positive number of milliseconds");
-    return 2;
+    return OVER_BUDGET;
   }
 
   if (!noRun) {
@@ -93,26 +112,32 @@ function main(): number {
     if (run.status !== 0) {
       console.error(
         `\ncheck:ink — the measurement did not complete (playwright exit ${run.status}).\n` +
-          "Nothing was measured, so nothing is being judged. This is a red, not a pass.",
+          "Nothing was measured, so nothing is being judged. This is NOT a pass and it\n" +
+          "is NOT a regression either: the gate abstains (exit 2). The app itself is\n" +
+          "judged by the E2E job, which runs this same spec.",
       );
-      return 1;
+      return NOT_MEASURED;
     }
   }
 
   if (!existsSync(RESULT_PATH)) {
-    console.error(`check:ink — no measurement at ${RESULT_PATH}. Run without --no-run.`);
-    return 1;
+    console.error(
+      `check:ink — no measurement at ${RESULT_PATH}. Run without --no-run.\n` +
+        "No number, no verdict: the gate abstains (exit 2).",
+    );
+    return NOT_MEASURED;
   }
   const budget = (JSON.parse(readFileSync(BUDGET_PATH, "utf8")) as Budget).budget;
   const result = JSON.parse(readFileSync(RESULT_PATH, "utf8")) as Result;
 
   const rows: string[] = [];
   const failures: string[] = [];
+  const missing: string[] = [];
   for (const gesture of GESTURES) {
     const measured = result.gestures[gesture.key];
     if (!measured) {
-      failures.push(`${gesture.label}: not measured at all`);
-      rows.push(pad(gesture.label, 18) + "  —  not measured");
+      missing.push(gesture.label);
+      rows.push(pad(gesture.label, 18) + "  -  not measured");
       continue;
     }
     const overMedian = measured.medianMs > budget.medianMs;
@@ -144,10 +169,20 @@ function main(): number {
   console.log(`budget: median ≤ ${budget.medianMs} ms, no sample > ${budget.maxMs} ms\n`);
   for (const row of rows) console.log("  " + row);
 
+  // A MEASURED overrun beats an abstention: if even one gesture is genuinely
+  // over budget the gate is red, whatever the others did or did not do.
   if (failures.length > 0) {
     console.error("\nOver budget:");
     for (const f of failures) console.error("  · " + f);
-    return 1;
+    return OVER_BUDGET;
+  }
+  if (missing.length > 0) {
+    console.error(
+      `\nNot measured: ${missing.join(", ")}.\n` +
+        "The gestures that did produce a number are within budget, but this run\n" +
+        "does not say the app is fast: it says it was not measured (exit 2).",
+    );
+    return NOT_MEASURED;
   }
   console.log("\nAll three under budget.");
   return 0;
