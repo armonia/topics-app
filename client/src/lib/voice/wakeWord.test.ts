@@ -1,5 +1,7 @@
 /**
  * The wake-word matcher: case/accent-insensitive, and what's left after it.
+ *
+ * @covers VOICE-02
  */
 import { describe, test, expect } from 'bun:test';
 import { extractAfterWakePhrase, containsWakePhrase, DEFAULT_WAKE_PHRASE } from './wakeWord';

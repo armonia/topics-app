@@ -1,5 +1,7 @@
 /**
  * The voice announcement queue: dedup, drain order, rollup threshold.
+ *
+ * @covers VOICE-01
  */
 import { describe, test, expect } from 'bun:test';
 import {

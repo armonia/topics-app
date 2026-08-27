@@ -1,5 +1,7 @@
 /**
  * The keyword fallback (no network) and the Groq path with a mocked fetch.
+ *
+ * @covers VOICE-03
  */
 import { describe, test, expect } from 'bun:test';
 import { classifyByKeyword, classifyIntent } from './intent-classifier';

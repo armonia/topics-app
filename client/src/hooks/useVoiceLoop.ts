@@ -28,8 +28,6 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useWSSubscription } from './useWSSubscription';
 import { useRefMirror } from './useRefMirror';
 import { useTextToSpeech } from './useSpeech';
-import { recordUtterance } from '../lib/voice/recordUtterance';
-import { extractAfterWakePhrase } from '../lib/voice/wakeWord';
 import {
   enqueueAnnouncement,
   nextAnnouncement,
@@ -38,7 +36,6 @@ import {
   EMPTY_ANNOUNCE_QUEUE,
   type AnnounceQueueState,
 } from '../lib/voice/announceQueue';
-import { classifyVoiceIntent } from '../lib/voice/classifyIntent';
 import { runNotificationAction } from '../lib/notify/notificationAction';
 import { boardNotificationDeps } from '../lib/notify/boardActionDeps';
 import type { AppSettings, WSMessage } from '../types';
@@ -61,6 +58,18 @@ export function useVoiceLoop({ onWSMessage, settings }: VoiceLoopProps): void {
   const drain = useCallback(async () => {
     if (drainingRef.current) return;
     drainingRef.current = true;
+    // The voice machinery is loaded HERE, not at module level. It is dead
+    // weight for everybody who never speaks to the board (`voiceMode: 'off'`
+    // is the default) and it was 26 KB of the eager entry, which is what
+    // `check:bundle` measured. Fetched once per drain, after the first
+    // `speak()` has already started - no turn waits on it. Destructured on
+    // purpose: `.then((m) => m.default)` is the form that makes the module a
+    // blind spot for knip (see the same note in `i18n.ts`).
+    const [{ recordUtterance }, { extractAfterWakePhrase }, { classifyVoiceIntent }] = await Promise.all([
+      import('../lib/voice/recordUtterance'),
+      import('../lib/voice/wakeWord'),
+      import('../lib/voice/classifyIntent'),
+    ]);
     try {
       for (;;) {
         if (settingsRef.current.voiceMode === 'off') {
