@@ -41,8 +41,8 @@ describe("il nome del ref", () => {
     // None of these is a uuid, and that is the point: the day a card id comes
     // from somewhere else, the ref must not be writable anywhere else in the
     // repository.
-    for (const cattivo of ["../heads/main", "a/b", "-x", "a..b", "x.lock", "", "a b"]) {
-      expect(deliveryRefName(cattivo)).toBeNull();
+    for (const bad of ["../heads/main", "a/b", "-x", "a..b", "x.lock", "", "a b"]) {
+      expect(deliveryRefName(bad)).toBeNull();
     }
   });
 
@@ -63,8 +63,8 @@ describe("quando un ref di consegna ha finito il suo lavoro", () => {
   });
 
   test("card ancora aperta: si tiene, comunque sia datata", () => {
-    for (const stato of ["todo", "in_progress", "review", "backlog"]) {
-      expect(decideDeliveryRefDrop({ status: stato, completedAt: isoDaysAgo(400) }, NOW, 90).drop).toBe(false);
+    for (const cardStatus of ["todo", "in_progress", "review", "backlog"]) {
+      expect(decideDeliveryRefDrop({ status: cardStatus, completedAt: isoDaysAgo(400) }, NOW, 90).drop).toBe(false);
     }
   });
 
@@ -90,7 +90,7 @@ describe("quando un ref di consegna ha finito il suo lavoro", () => {
 describe("piantare e potare su git vero", () => {
   let repo: string;
   let root: string;
-  let consegna = "";
+  let delivery = "";
 
   beforeAll(() => {
     root = mkdtempSync(join(tmpdir(), "delivery-ref-"));
@@ -105,16 +105,16 @@ describe("piantare e potare su git vero", () => {
     writeFileSync(join(repo, "b.txt"), "lavoro della card");
     git(repo, "add", "-A");
     git(repo, "commit", "-q", "-m", "consegna");
-    consegna = git(repo, "rev-parse", "HEAD");
+    delivery = git(repo, "rev-parse", "HEAD");
     git(repo, "checkout", "-q", "main");
   }, 30_000);
 
   afterAll(() => rmSync(root, { recursive: true, force: true }));
 
   test("il ref si pianta e il repo lo elenca con lo sha intero", async () => {
-    expect(await keepDeliveryCommit({ repoPath: repo, taskId: "card-uno", commit: consegna.slice(0, 8) })).toBe(true);
-    const tenute = await listKeptDeliveries(repo);
-    expect(tenute).toEqual([{ taskId: "card-uno", ref: "refs/consegne/card-uno", commit: consegna }]);
+    expect(await keepDeliveryCommit({ repoPath: repo, taskId: "card-uno", commit: delivery.slice(0, 8) })).toBe(true);
+    const kept = await listKeptDeliveries(repo);
+    expect(kept).toEqual([{ taskId: "card-uno", ref: "refs/consegne/card-uno", commit: delivery }]);
   });
 
   test("uno sha che non esiste non pianta niente", async () => {
@@ -124,18 +124,18 @@ describe("piantare e potare su git vero", () => {
   });
 
   test("un oggetto che non è un commit non si pianta: un ref che punta a un albero risponderebbe a un'altra domanda", async () => {
-    const albero = git(repo, "rev-parse", "HEAD^{tree}");
-    expect(await keepDeliveryCommit({ repoPath: repo, taskId: "card-albero", commit: albero })).toBe(false);
+    const tree = git(repo, "rev-parse", "HEAD^{tree}");
+    expect(await keepDeliveryCommit({ repoPath: repo, taskId: "card-albero", commit: tree })).toBe(false);
   });
 
   test("una cartella che non è un repo non è un errore: torna false", async () => {
-    expect(await keepDeliveryCommit({ repoPath: root, taskId: "card-tre", commit: consegna })).toBe(false);
+    expect(await keepDeliveryCommit({ repoPath: root, taskId: "card-tre", commit: delivery })).toBe(false);
   });
 
   test("la potatura lascia cadere solo le card chiuse da troppo", async () => {
-    await keepDeliveryCommit({ repoPath: repo, taskId: "vecchia", commit: consegna });
-    await keepDeliveryCommit({ repoPath: repo, taskId: "recente", commit: consegna });
-    await keepDeliveryCommit({ repoPath: repo, taskId: "aperta", commit: consegna });
+    await keepDeliveryCommit({ repoPath: repo, taskId: "vecchia", commit: delivery });
+    await keepDeliveryCommit({ repoPath: repo, taskId: "recente", commit: delivery });
+    await keepDeliveryCommit({ repoPath: repo, taskId: "aperta", commit: delivery });
     const vite: Record<string, { status: string | null; completedAt: string | null }> = {
       vecchia: { status: "done", completedAt: isoDaysAgo(200) },
       recente: { status: "done", completedAt: isoDaysAgo(3) },
@@ -148,10 +148,10 @@ describe("piantare e potare su git vero", () => {
       lifeOf: (id) => vite[id] ?? { status: null, completedAt: null },
     });
     expect(summary?.dropped).toEqual(["vecchia"]);
-    const rimasti = (await listKeptDeliveries(repo))!.map((r) => r.taskId);
-    expect(rimasti).toContain("recente");
-    expect(rimasti).toContain("aperta");
-    expect(rimasti).not.toContain("vecchia");
+    const remaining = (await listKeptDeliveries(repo))!.map((r) => r.taskId);
+    expect(remaining).toContain("recente");
+    expect(remaining).toContain("aperta");
+    expect(remaining).not.toContain("vecchia");
   });
 
   test("su una cartella che non è un repo la potatura non dice niente invece di indovinare", async () => {
@@ -161,26 +161,26 @@ describe("piantare e potare su git vero", () => {
 });
 
 describe("la cattura pianta il ref PRIMA di scrivere la colonna", () => {
-  test("l'ordine è quello, ed è tutta la sicurezza del meccanismo", async () => {
-    const ordine: string[] = [];
+  test("l'order è quello, ed è tutta la sicurezza del meccanismo", async () => {
+    const order: string[] = [];
     const capture = createDeliveryCapture({
       svc: {
-        recordDelivery: () => { ordine.push("colonna"); },
+        recordDelivery: () => { order.push("colonna"); },
         deriveLabelsFromDiff: () => {},
       },
       taskDeliveryRef: async () => ({ branch: "topics/card", commit: "a".repeat(40), repoPath: "/repo" }),
-      keepDeliveryCommit: async () => { ordine.push("ref"); },
+      keepDeliveryCommit: async () => { order.push("ref"); },
       ownCommitFiles: async () => null,
     });
     expect(await capture("card")).toBe(true);
-    expect(ordine).toEqual(["ref", "colonna"]);
+    expect(order).toEqual(["ref", "colonna"]);
   });
 
   test("git che inciampa sul ref non fa saltare la consegna", async () => {
-    let scritta = false;
+    let written = false;
     const capture = createDeliveryCapture({
       svc: {
-        recordDelivery: () => { scritta = true; },
+        recordDelivery: () => { written = true; },
         deriveLabelsFromDiff: () => {},
       },
       taskDeliveryRef: async () => ({ branch: "topics/card", commit: "a".repeat(40), repoPath: "/repo" }),
@@ -188,18 +188,18 @@ describe("la cattura pianta il ref PRIMA di scrivere la colonna", () => {
       ownCommitFiles: async () => null,
     });
     expect(await capture("card")).toBe(true);
-    expect(scritta).toBe(true);
+    expect(written).toBe(true);
   });
 
   test("senza commit non c'è niente da tenere vivo: git non viene disturbato", async () => {
-    let chiamate = 0;
+    let calls = 0;
     const capture = createDeliveryCapture({
       svc: { recordDelivery: () => {}, deriveLabelsFromDiff: () => {} },
       taskDeliveryRef: async () => ({ branch: "topics/card", commit: null, repoPath: "/repo" }),
-      keepDeliveryCommit: async () => { chiamate += 1; },
+      keepDeliveryCommit: async () => { calls += 1; },
       ownCommitFiles: async () => null,
     });
     expect(await capture("card")).toBe(true);
-    expect(chiamate).toBe(0);
+    expect(calls).toBe(0);
   });
 });

@@ -2,7 +2,63 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.180 — 2026-08-27
+
+### Sotto il cofano
+- Il verdetto citato e' italiano: la riga lo dichiara
+- La nightly e' VERDE: l'ultimo rosso era un divieto, non un test
+- Le 12 verifiche UI su Windows diventano un comando solo, da zero
+- Il driver delle 12 verifiche poteva restare appeso per sempre
+- UPDATER-02 provato su un aggiornamento VERO: pty-bridge non resta piu' indietro
+- **e2e** · aggiorna durate shard dal nightly del 2026-08-27 [skip ci]
+- Il bottone «ricontrolla» dell'MCP era 26.5px sotto un dito, ne servono 44
+- La spec del dito non verificava di avere un dito
+- Lo script misura la versione INSTALLATA, senza un tag da aggiornare a mano
+- Post-approve: proponi il deploy su board senza automerge (deployCommand)
+- Il cancello ink sa dire "non ho misurato", e la spec dice chi blocca
+- Quattro cancelli rossi in `check`, e uno era un mio numero rubato
+- Tre cause di fine turno non passavano il filo: la chat restava viva per sempre
+- I due cancelli ink si provano ESEGUENDOLI, non leggendone il sorgente
+- Il semaforo dei cancelli scende sotto gli script, e il referto junit e' per corsa
+- La riga che chiude una card atterrata era in italiano, e la legge l'utente
+- I test che non hanno girato non spariscono in una riga gialla
+- Le e2e fuori dal tier PR hanno un cancello sulle PR che le toccano
+- La deroga di check:e2e-touched e' sopravvissuta al motivo che la scusava
+- Le attese a vuoto diventano attese sulla condizione, e il cricchetto distingue le due specie
+- I sonni dichiarati si separano dal debito, e il README dice come rimisurarsi
+- L'audit dei task chiusi ha prodotto un buco vero: la parita' fra i due motori
+- La deroga per check:e2e-touched non serve piu': ora e' cablata in CI
+- Un cancello col numero nel nome si leggeva a meta': `check:e2e-touched` → `check:e`
+- Leak audit: a before/after counter for each of the five remaining suspects
+- Leak audit: spec del registro per-contesto e tag @covers sui banchi
+- Due test provavano requisiti che nessuna spec aveva scritto
+- Auto-bump dipingeva di rosso una rinuncia che era la scelta giusta
+- Il banco della parita' falliva APERTO: cio' che non sapeva leggere leggeva come parita'
+- Six more payload fields ride only when they have a value
+- Cleared and never-set are one state for outputUrl
+- La colonna dei nomi della sidebar diventa una: lo slot del glifo lo riserva ogni riga
+- Il finto `matchMedia` restava in ombra dietro la lista memoizzata
+- La rete di sicurezza si tende da sola, e uscirne non stacca la testa
+- Il memo di matchMedia rispondeva per una finestra che non esisteva piu'
+- WIP voice loop: intent classifier, voice queue/wakeword helpers, voiceMode setting (partial, not wired to review event yet)
+- I pulsanti finestra rubavano 138px da SPENTI, e la campanella tornava sotto
+- I commenti dell'e2e parlavano italiano, e il cancello e' un dente d'arresto
+- UI per MCP, hook e permessi ereditati: l'ambiente di una sessione si legge
+- La banda grigia della sidebar aveva zero test: ora si esegue, non si guarda
+- Il test della banda grigia era in italiano, e un file nuovo non ha baseline
+- Due righe sopra il tetto, e la fetta da staccare era il contratto
+- `VoiceIntent` era dichiarato due volte, e il commento diceva che andava bene
+- Due sessioni hanno numerato LAYOUT-27, e una teneva un frame che non esegue
+- Il cancello sul merge ha trovato due file diventati il punto d'incontro di tutti
+- Il giro vocale viaggiava nel bundle di chi non parla, e i suoi test erano invisibili
+- Cinque test leggevano il catalogo come TESTO, e l'ho spostato sotto i loro piedi
+- Tre code della tornata: una stringa cablata, un test non ermetico, e il bundle
+- Sei rossi e2e della tornata: uno slot che collassa, uno spec senza soggetto, un ordine implicito
+
 ## 2.2.179 — 2026-08-27
+
+### Correzioni
+- **client** · remove updatefound listener on unmount in useServiceWorkerUpdate
 
 ### Sotto il cofano
 - Add Kimi Code as a terminal agent option in the +/New menu
@@ -18,10 +74,24 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il chip degli amici disegnava 2px oltre se stesso: ora taglia il proprio inchiostro
 - Lo slot del chevron era alto ZERO: riservava una colonna che non occupava
 - Il quarto agente non entrava nella lista che il commento diceva derivata
+- Un ramo su tre apriva la pane senza mai navigarla: ora la sequenza e' una sola
+- La tab di task gia' aperta seguiva il record, non l'URL: ora naviga
 - Due cancelli misuravano il font del runner, non il prodotto
+- Un ref scaduto costava un giro: ora la fotografia se la fa il server
 - Su main ogni commit cancellava il verdetto del precedente
+- Anche la cattura di observe finisce su disco: torna un percorso, non i pixel
 - I commenti che ho aggiunto erano in italiano: lo standard e' l'inglese
+- Una richiesta del ponte MCP poteva restare aperta per sempre
 - Lo stub serviva DUE padroni opposti: ora li distingue da `--print`
+- Runtime nativo: client MCP per i server globali, con la stessa regola della CLI
+- Stato della flotta MCP su rotta, e nessun test monta la flotta vera della macchina
+- Residuo non committato, messo al sicuro dalla potatura
+- I commenti nuovi in inglese, e due tipi riesportati che nessuno importava
+- Un cancello di consegna che gira le e2e di cio' che il ramo ha toccato
+- Il cricchetto sotto 88a80f1aa: la scatola riservata dichiara un'altezza
+- Lo sweep si aspetta, non si legge al primo colpo
+- Registra le due crescite di questo lavoro, non quelle degli altri
+- La finestra grigia su Windows: il server non aveva la pagina, e nessuno gliel'aveva detta
 
 ## 2.2.178 — 2026-08-27
 

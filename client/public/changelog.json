@@ -1,10 +1,274 @@
 [
   {
-    "version": "2.2.179",
+    "version": "2.2.180",
     "date": "2026-08-27",
     "sections": {
       "new": [],
       "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il verdetto citato e' italiano: la riga lo dichiara",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La nightly e' VERDE: l'ultimo rosso era un divieto, non un test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le 12 verifiche UI su Windows diventano un comando solo, da zero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il driver delle 12 verifiche poteva restare appeso per sempre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "UPDATER-02 provato su un aggiornamento VERO: pty-bridge non resta piu' indietro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-08-27 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Il bottone «ricontrolla» dell'MCP era 26.5px sotto un dito, ne servono 44",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La spec del dito non verificava di avere un dito",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo script misura la versione INSTALLATA, senza un tag da aggiornare a mano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Post-approve: proponi il deploy su board senza automerge (deployCommand)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello ink sa dire \"non ho misurato\", e la spec dice chi blocca",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Quattro cancelli rossi in `check`, e uno era un mio numero rubato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tre cause di fine turno non passavano il filo: la chat restava viva per sempre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I due cancelli ink si provano ESEGUENDOLI, non leggendone il sorgente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il semaforo dei cancelli scende sotto gli script, e il referto junit e' per corsa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La riga che chiude una card atterrata era in italiano, e la legge l'utente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I test che non hanno girato non spariscono in una riga gialla",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le e2e fuori dal tier PR hanno un cancello sulle PR che le toccano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La deroga di check:e2e-touched e' sopravvissuta al motivo che la scusava",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le attese a vuoto diventano attese sulla condizione, e il cricchetto distingue le due specie",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I sonni dichiarati si separano dal debito, e il README dice come rimisurarsi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'audit dei task chiusi ha prodotto un buco vero: la parita' fra i due motori",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La deroga per check:e2e-touched non serve piu': ora e' cablata in CI",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un cancello col numero nel nome si leggeva a meta': `check:e2e-touched` → `check:e`",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Leak audit: a before/after counter for each of the five remaining suspects",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Leak audit: spec del registro per-contesto e tag @covers sui banchi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due test provavano requisiti che nessuna spec aveva scritto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Auto-bump dipingeva di rosso una rinuncia che era la scelta giusta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il banco della parita' falliva APERTO: cio' che non sapeva leggere leggeva come parita'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Six more payload fields ride only when they have a value",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cleared and never-set are one state for outputUrl",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La colonna dei nomi della sidebar diventa una: lo slot del glifo lo riserva ogni riga",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il finto `matchMedia` restava in ombra dietro la lista memoizzata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La rete di sicurezza si tende da sola, e uscirne non stacca la testa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il memo di matchMedia rispondeva per una finestra che non esisteva piu'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "WIP voice loop: intent classifier, voice queue/wakeword helpers, voiceMode setting (partial, not wired to review event yet)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I pulsanti finestra rubavano 138px da SPENTI, e la campanella tornava sotto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I commenti dell'e2e parlavano italiano, e il cancello e' un dente d'arresto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "UI per MCP, hook e permessi ereditati: l'ambiente di una sessione si legge",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La banda grigia della sidebar aveva zero test: ora si esegue, non si guarda",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test della banda grigia era in italiano, e un file nuovo non ha baseline",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due righe sopra il tetto, e la fetta da staccare era il contratto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "`VoiceIntent` era dichiarato due volte, e il commento diceva che andava bene",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due sessioni hanno numerato LAYOUT-27, e una teneva un frame che non esegue",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello sul merge ha trovato due file diventati il punto d'incontro di tutti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il giro vocale viaggiava nel bundle di chi non parla, e i suoi test erano invisibili",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cinque test leggevano il catalogo come TESTO, e l'ho spostato sotto i loro piedi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tre code della tornata: una stringa cablata, un test non ermetico, e il bundle",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sei rossi e2e della tornata: uno slot che collassa, uno spec senza soggetto, un ordine implicito",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.179",
+    "date": "2026-08-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "remove updatefound listener on unmount in useServiceWorkerUpdate",
+          "en": "",
+          "scope": "client",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
@@ -73,7 +337,22 @@
           "scope": null
         },
         {
+          "it": "Un ramo su tre apriva la pane senza mai navigarla: ora la sequenza e' una sola",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La tab di task gia' aperta seguiva il record, non l'URL: ora naviga",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Due cancelli misuravano il font del runner, non il prodotto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un ref scaduto costava un giro: ora la fotografia se la fa il server",
           "en": "",
           "scope": null
         },
@@ -83,12 +362,67 @@
           "scope": null
         },
         {
+          "it": "Anche la cattura di observe finisce su disco: torna un percorso, non i pixel",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "I commenti che ho aggiunto erano in italiano: lo standard e' l'inglese",
           "en": "",
           "scope": null
         },
         {
+          "it": "Una richiesta del ponte MCP poteva restare aperta per sempre",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Lo stub serviva DUE padroni opposti: ora li distingue da `--print`",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Runtime nativo: client MCP per i server globali, con la stessa regola della CLI",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Stato della flotta MCP su rotta, e nessun test monta la flotta vera della macchina",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Residuo non committato, messo al sicuro dalla potatura",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I commenti nuovi in inglese, e due tipi riesportati che nessuno importava",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un cancello di consegna che gira le e2e di cio' che il ramo ha toccato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cricchetto sotto 88a80f1aa: la scatola riservata dichiara un'altezza",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo sweep si aspetta, non si legge al primo colpo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra le due crescite di questo lavoro, non quelle degli altri",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La finestra grigia su Windows: il server non aveva la pagina, e nessuno gliel'aveva detta",
           "en": "",
           "scope": null
         }

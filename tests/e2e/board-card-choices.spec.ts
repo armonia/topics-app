@@ -259,11 +259,11 @@ test.describe("Scelte sempre presenti sulla card", () => {
     // is in a portal on `<body>`: it is looked up from the page.
     await expect(bloccata.getByTestId("task-choices")).toHaveCount(0);
     await bloccata.getByTestId("task-choices-menu").click();
-    const uscite = page.getByTestId("task-choices-panel");
-    await expect(uscite.getByTestId("task-choice-unblock")).toHaveText(`Sblocca: ${T_BLOCCANTE}`);
-    await expect(uscite.getByTestId("task-choice-unlink")).toHaveText("Togli il legame");
+    const choicesPanel = page.getByTestId("task-choices-panel");
+    await expect(choicesPanel.getByTestId("task-choice-unblock")).toHaveText(`Sblocca: ${T_BLOCCANTE}`);
+    await expect(choicesPanel.getByTestId("task-choice-unlink")).toHaveText("Togli il legame");
     await beat(page);
-    await uscite.getByTestId("task-choice-unblock").click();
+    await choicesPanel.getByTestId("task-choice-unblock").click();
     // Un click: il legame cade e la card è in Todo, pronta a partire.
     await expect(page.getByTestId("kanban-column-body-todo").locator(`[data-task-card="${taskIds.bloccata}"]`))
       .toBeVisible({ timeout: 10000 });

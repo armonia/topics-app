@@ -66,8 +66,8 @@ describe("resolveInheritedMcp", () => {
     });
     const out = resolveInheritedMcp();
     expect(Object.keys(out.servers ?? {})).toEqual(["ricerca"]);
-    const motivi = Object.fromEntries(out.excluded.map((e) => [e.name, e.reason]));
-    expect(motivi).toEqual({ "chrome-devtools": "deny", pesante: "cold-boot" });
+    const reasons = Object.fromEntries(out.excluded.map((e) => [e.name, e.reason]));
+    expect(reasons).toEqual({ "chrome-devtools": "deny", pesante: "cold-boot" });
     for (const e of out.excluded) expect(e.detail.length).toBeGreaterThan(10);
   });
 

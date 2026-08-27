@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Topics",
-  "version": "2.2.179",
+  "version": "2.2.181",
   "identifier": "io.armonia.topics.tauri",
   "build": {
     "frontendDist": "../../public"
@@ -47,35 +47,86 @@
     "createUpdaterArtifacts": true,
     "fileAssociations": [
       {
-        "ext": ["md", "markdown", "mdx", "txt"],
+        "ext": [
+          "md",
+          "markdown",
+          "mdx",
+          "txt"
+        ],
         "name": "Testo e documentazione",
         "description": "Documento di testo",
         "role": "Editor",
         "mimeType": "text/markdown;text/plain"
       },
       {
-        "ext": ["ts", "tsx", "js", "jsx", "mjs", "cjs", "rs", "py", "go", "rb", "java", "kt", "swift", "c", "h", "cc", "cpp", "hpp", "cs", "php", "lua", "sql", "vue", "svelte"],
+        "ext": [
+          "ts",
+          "tsx",
+          "js",
+          "jsx",
+          "mjs",
+          "cjs",
+          "rs",
+          "py",
+          "go",
+          "rb",
+          "java",
+          "kt",
+          "swift",
+          "c",
+          "h",
+          "cc",
+          "cpp",
+          "hpp",
+          "cs",
+          "php",
+          "lua",
+          "sql",
+          "vue",
+          "svelte"
+        ],
         "name": "Codice sorgente",
         "description": "File di codice sorgente",
         "role": "Editor",
         "mimeType": "text/x-csrc;text/x-python;application/javascript"
       },
       {
-        "ext": ["json", "jsonc", "yaml", "yml", "toml", "ini", "env", "conf"],
+        "ext": [
+          "json",
+          "jsonc",
+          "yaml",
+          "yml",
+          "toml",
+          "ini",
+          "env",
+          "conf"
+        ],
         "name": "Configurazione",
         "description": "File di configurazione",
         "role": "Editor",
         "mimeType": "application/json;application/yaml;application/toml"
       },
       {
-        "ext": ["css", "scss", "less", "html", "htm", "svg"],
+        "ext": [
+          "css",
+          "scss",
+          "less",
+          "html",
+          "htm",
+          "svg"
+        ],
         "name": "Web",
         "description": "File web",
         "role": "Editor",
         "mimeType": "text/css;text/html;image/svg+xml"
       },
       {
-        "ext": ["sh", "bash", "zsh", "fish"],
+        "ext": [
+          "sh",
+          "bash",
+          "zsh",
+          "fish"
+        ],
         "name": "Script di shell",
         "description": "Script di shell",
         "role": "Editor",
@@ -108,6 +159,9 @@
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"
-    }
+    },
+    "resources": [
+      "../../public/"
+    ]
   }
 }

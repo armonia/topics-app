@@ -28,6 +28,8 @@ mod browser_eval;
 mod browser_linux;
 #[cfg(target_os = "windows")]
 mod browser_win;
+#[cfg(target_os = "windows")]
+mod windows_repaint;
 
 /// I path che l'OS consegna quando qualcuno fa «Apri con Topics»: raccolta da
 /// argv / seconda istanza / Finder, coda per chi arriva prima della webview,
@@ -1290,6 +1292,41 @@ fn external_server_marker(app: &tauri::AppHandle) -> std::path::PathBuf {
 /// available in standalone mode") — in an app whose whole point is running
 /// command-line agents. The bridge now has a named-pipe transport
 /// (pty-bridge/src/transport.rs), so Windows advertises one like everywhere else.
+/// The CLIENT BUNDLE shipped beside the app (`bundle.resources`), so the sidecar
+/// server has something to answer `/` with.
+///
+/// WHY THIS EXISTS, measured on Windows 2.2.179 on 2026-08-27. The shell loads
+/// its UI from the server origin (see the note at the top of this file), and the
+/// server resolves the bundle as `TOPICS_PUBLIC_DIR || <baseDir>/public`
+/// (`server/utils.ts`). An installed Topics has NO `public/` next to
+/// `topics-server.exe`, so `/` answered 503 "Bundle not built yet"
+/// (`server.ts:3002`) while `/api/system/status` answered 200 — an app whose API
+/// works and whose window paints one flat grey. Measured: 95.9% of the window
+/// was a single colour, and 3 of 79 sampled rows had any pixels at all.
+///
+/// It never showed on macOS because there the shell DEFERS to an already-running
+/// server (`probe_topics_server`), which on a developer box runs inside the
+/// checkout and therefore has the directory. The standalone path — the only one
+/// a Windows user ever takes — was never exercised where anyone was looking.
+///
+/// `None` when the resource is absent (a build made before this shipped): the
+/// caller then leaves `TOPICS_PUBLIC_DIR` unset, which is exactly today's
+/// behaviour. This cannot make anything worse than it already is.
+fn bundled_public_dir(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    use tauri::Manager;
+    // The same relative string the bundle config uses: tauri maps `..` to `_up_`
+    // when it copies, and resolves it back here.
+    let dir = app
+        .path()
+        .resolve("../../public", tauri::path::BaseDirectory::Resource)
+        .ok()?;
+    if dir.join("index.html").exists() {
+        Some(dir)
+    } else {
+        None
+    }
+}
+
 fn bundled_pty_bridge_bin() -> Option<std::path::PathBuf> {
     // Tauri places externalBin sidecars beside the app executable.
     let exe = std::env::current_exe().ok()?;
@@ -1475,6 +1512,13 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
                 // (`CARGO_PKG_VERSION`, which tauri.conf and Cargo.toml keep in
                 // step), so it has nothing to read: it just passes it along.
                 .env("TOPICS_APP_VERSION", env!("CARGO_PKG_VERSION"));
+            // WHERE THE PAGE LIVES. Without this the sidecar looks for `public/`
+            // beside its own executable, finds nothing, and answers 503 on `/` —
+            // the grey window (see `bundled_public_dir`). Set only when the
+            // resource is really there, so an older bundle behaves as before.
+            if let Some(pubdir) = bundled_public_dir(&app) {
+                c = c.env("TOPICS_PUBLIC_DIR", pubdir.to_string_lossy().to_string());
+            }
             match &bridge_bin {
                 // Bundled Rust bridge present: hand the server the binary to spawn.
                 // This flips isPtyBridgeDisabled() to false (terminal.ts) so terminals
@@ -3411,7 +3455,7 @@ fn rect_intersects_any(rect: (f64, f64, f64, f64), monitors: &[(f64, f64, f64, f
 ///
 /// Bounce: grow the outer size by 1px and put it back a beat later. That is the half
 /// that was missing, and it's the half that actually repaints.
-fn recompose_main_window(app: &tauri::AppHandle, why: &str) {
+pub(crate) fn recompose_main_window(app: &tauri::AppHandle, why: &str) {
     use tauri::Manager;
     let Some(win) = app.get_window("main") else { return };
     if !win.is_visible().unwrap_or(true) || win.is_minimized().unwrap_or(false) {
@@ -10740,6 +10784,10 @@ pub fn run() {
                             let visible = TRAFFIC_LIGHTS_VISIBLE.load(Ordering::Relaxed)
                                 || w.is_fullscreen().unwrap_or(false);
                             apply_traffic_lights(&w, visible);
+                            // Windows delivers Resized on both edges of a minimise,
+                            // which is where the un-minimize transition is visible.
+                            #[cfg(target_os = "windows")]
+                            windows_repaint::note_minimize_transition(&w.as_ref().window());
                         }
                         tauri::WindowEvent::Moved(_) => {
                             save_state_throttled(&w.as_ref().window());

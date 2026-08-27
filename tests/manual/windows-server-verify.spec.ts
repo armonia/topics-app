@@ -33,12 +33,12 @@ test.beforeEach(({}, testInfo) => {
   testInfo.annotations.push({ type: "spec", description: "RUNTIME-17" });
 });
 
-const VERSIONE = process.env.TOPICS_WIN_VERSION ?? "2.2.176";
+const VERSION = process.env.TOPICS_WIN_VERSION ?? "2.2.176";
 
 test.describe("Windows — published build server contract", () => {
   test("WIN-SRV-01: the served version is the one built by the pipeline", async ({ request }) => {
     const v = await (await request.get("/api/version")).json();
-    expect(v.version).toBe(VERSIONE);
+    expect(v.version).toBe(VERSION);
   });
 
   test("WIN-SRV-02: every route the UI calls on startup answers 200", async ({ request }) => {
@@ -77,7 +77,7 @@ test.describe("Windows — published build server contract", () => {
     // to fool ourselves into thinking we verified anything.
     const v = await (await request.get("/api/version")).json();
     const s = await (await request.get("/api/system/status")).json();
-    expect(v.version).toBe(VERSIONE);
+    expect(v.version).toBe(VERSION);
     expect(s.server.devReload).toBe(false);
   });
 
@@ -114,6 +114,24 @@ test.describe("Windows — published build server contract", () => {
     } finally {
       expect((await request.delete(`/api/topics/${topic.id}`)).status()).toBeLessThan(300);
     }
+  });
+
+  test("WIN-SRV-11: the installed app SERVES ITS OWN PAGE, not a 503", async ({ request }) => {
+    // THE GREY WINDOW, and it is the one check this suite was missing while the
+    // user was looking at an empty app. Every other case here asks the API, and
+    // the API was answering 200 the whole time — `/api/system/status` was fine
+    // while `GET /` returned 503 "Bundle not built yet", because the client
+    // bundle was never shipped beside the server and nobody passed
+    // `TOPICS_PUBLIC_DIR`. A suite that only asks the API cannot see an app
+    // whose window is blank.
+    //
+    // Measured on the installed 2.2.180: 503. On 2.2.181, which ships `public/`
+    // as a bundle resource: 200 with 4374 bytes.
+    const r = await request.get("/");
+    expect(r.status(), "GET / must serve the page, not 503").toBe(200);
+    const body = await r.text();
+    expect(body.length, "the page came back empty").toBeGreaterThan(500);
+    expect(body).toContain("<div id=\"root\"");
   });
 
   test("WIN-SRV-10: terminal sessions list without a missing-auth rejection", async ({ request }) => {

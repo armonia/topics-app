@@ -184,6 +184,18 @@ jobs:
       # path that no longer exists now FAILS the script: it used to warn on
       # stderr and exit 0, so renaming a ratcheted file quietly removed it from
       # the gate while this step stayed green and the warning was folded away.
+      # `check:identifier-language` used to read the SYSTEM word list, and
+      # `ubuntu-latest` does not carry one: from the day the gate was added
+      # until 27/08/2026 every green run printed «no English dictionary on this
+      # system: cannot judge names, skipping» and exited 0, so it never read a
+      # name in CI while the same gate went red on a developer's Mac. The first
+      # cure was an `apt-get install wamerican` here, and it was worse than the
+      # disease: Debian's list is far poorer than macOS's, so the SAME commit
+      # was green on the Mac and red in CI with 1.144 flagged names - `rect`
+      # among them. The list now travels with the repo
+      # (`scripts/english-words.txt`), which is why no install step is needed
+      # and why the verdict is the same on every machine.
+
       - name: Static guard rails (any in 6 ratcheted files / NUL / dead code / eslint-disable / test skip / long dash / bloat / UI language / E2E sleeps)
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: |
@@ -216,7 +228,8 @@ jobs:
           # sistema, 235.976 voci) invece di indovinare se e italiana, perche la
           # lista di 85 stopword del cancello dei commenti ne riconosceva due su
           # otto. Baseline a NOMI, non a conteggi: dice quale nome e nuovo.
-          # Salta da se dove il dizionario non c e, e lo dice.
+          # Senza dizionario ADESSO ESCE 2: il passo qui sopra lo installa, e
+          # una misura impossibile e' un rosso, non un «skipping» verde.
           bun run check:identifier-language
           bun run check:sleeps
           bun run check:spec-coverage

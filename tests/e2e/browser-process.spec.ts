@@ -68,7 +68,7 @@ async function mountBrowserPaneViaEvent(
  * on the TAB and not on the button: until the group is hovered the button is
  * there but transparent, and the label on top of it takes the pointer.
  */
-async function rivelaLaBarra(page: import("@playwright/test").Page): Promise<void> {
+async function revealUrlBar(page: import("@playwright/test").Page): Promise<void> {
   const barra = page.locator('[data-testid="browser-url-input"]');
   if (await barra.count() > 0) return; // already open: a blank pane keeps it
   await page.locator('[data-testid^="pane-tab-browser:"]').first().hover();
@@ -311,7 +311,7 @@ test.describe("RemoteBrowserPanel", () => {
       await goToApp(page);
       await waitForTopicVisible(page, topic.id);
       await mountBrowserPaneViaEvent(page, topic.id);
-      await rivelaLaBarra(page);
+      await revealUrlBar(page);
 
       // Wait for toolbar buttons to appear. The toolbar is localized (IT): Back
       // → "Indietro", Forward → "Avanti" (both carry a variable suffix when the
@@ -324,10 +324,10 @@ test.describe("RemoteBrowserPanel", () => {
       // carried a timeout, the others fell back to the 5s default, and under
       // four workers "Avanti" lost that race about one run in five — measured
       // 2026-08-26, and it is the one that failed.
-      const atteso = { timeout: 10_000 };
-      await expect(page.locator('button[title^="Indietro"]')).toBeVisible(atteso);
-      await expect(page.locator('button[title^="Avanti"]')).toBeVisible(atteso);
-      await expect(page.locator('button[title="Refresh"]')).toBeVisible(atteso);
+      const longWait = { timeout: 10_000 };
+      await expect(page.locator('button[title^="Indietro"]')).toBeVisible(longWait);
+      await expect(page.locator('button[title^="Avanti"]')).toBeVisible(longWait);
+      await expect(page.locator('button[title="Refresh"]')).toBeVisible(longWait);
       await expect(page.locator('[data-testid="browser-url-input"]')).toBeVisible();
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
@@ -360,7 +360,7 @@ test.describe("RemoteBrowserPanel", () => {
       await goToApp(page);
       await waitForTopicVisible(page, topic.id);
       await mountBrowserPaneViaEvent(page, topic.id);
-      await rivelaLaBarra(page);
+      await revealUrlBar(page);
 
       const urlInput = page.locator('[data-testid="browser-url-input"]');
       await expect(urlInput).toBeVisible({ timeout: 10000 });
