@@ -181,6 +181,17 @@ jobs:
           path: test-results/results.json
           retention-days: 1
 
+      # Un worker che muore a meta' shard non fallisce i test che restavano: smette
+      # di avviarli, e il riepilogo li conta in una riga gialla senza nomi
+      # («909 passed, 17 skipped, 9 did not run», nightly del 15/08). Quella e'
+      # copertura sparita, e a distanza di un giorno nessuno sa piu' QUALI nove
+      # scenari non sono stati misurati. Questo step li nomina e chiude rosso.
+      - name: I test senza verdetto hanno un rosso loro
+        # `!cancelled()` e non `always()`: una run cancellata a mano non ha perso
+        # copertura per un guasto, e non merita un secondo rosso che confonde.
+        if: ${{ !cancelled() }}
+        run: bun run check:e2e-no-verdict test-results/results.json
+
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v4
