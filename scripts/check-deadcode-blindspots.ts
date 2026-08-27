@@ -188,6 +188,16 @@ export const KNOWN_BLIND: Array<{ file: string; reason: string }> = [
   // riferimento al modulo, e non sapendo cosa ne leggi lo rende opaco. È il
   // prezzo giusto: quei test valgono più della copertura su un file con UN export.
   { file: "client/src/hooks/useTauriBrowser.ts", reason: "il sorgente è letto da 3 test via new URL()" },
+  // A genuine ENTRY POINT: the auto-bump workflow runs it
+  // (`bun run scripts/release-gate.ts`), and knip counts every export of an
+  // entry point as used — rightly, since nobody imports them. That
+  // `tests/unit/auto-bump-gate.test.ts` imports `decide` to test it does not
+  // change knip's verdict on the file itself.
+  // Cost of leaving it: a dead export ADDED in there would go unreported. Small,
+  // because the file has one surface (`decide` plus the two types of its input)
+  // and twenty tests cover it. Not repairable: dropping the entry point would
+  // mean no longer being able to run it.
+  { file: "scripts/release-gate.ts", reason: "entry point: il workflow lo esegue, knip da' per usati gli export di un entry" },
 ];
 
 // ─── i candidati ─────────────────────────────────────────────────────────────
