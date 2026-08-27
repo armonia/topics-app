@@ -124,7 +124,7 @@ pub(crate) fn note_window_event(win: &tauri::Window, kind: &'static str) {
         let what = rebuild_webview_visual(&app);
         let app2 = app.clone();
         let _ = app.run_on_main_thread(move || {
-            crate::recompose_main_window(&app2, "restore");
+            crate::window_recompose::recompose_main_window(&app2, "restore");
             trace(&app2, &format!("repair: {what}, window bounced"));
         });
     });
