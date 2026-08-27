@@ -148,10 +148,10 @@ export interface Task {
   priority: number;
   kanbanOrder: number;
   assignedTo: string | null;
-  dueDate: string | null;
-  chatId: string | null;
+  dueDate?: string;
+  chatId?: string;
   createdAt: string;
-  completedAt: string | null;
+  completedAt?: string;
   updatedAt: string;
   /**
    * ON THE WIRE, not in the fixed body: it travels only when it has a value.
@@ -189,7 +189,7 @@ export interface Task {
   /** Parent task (nested subtask, unlimited depth). Set at creation only. */
   parentTaskId: string | null;
   /** Reviewable output (http/https URL) shown in the task's review panel. */
-  outputUrl: string | null;
+  outputUrl?: string;
   /**
    * Esito dell'ultima sonda server-side sull'output_url.
    * - `'live'`    : la sonda ha risposto 2xx/3xx
@@ -230,10 +230,10 @@ export interface Task {
   /** IL commento che È il piano (la tab "Piano" rende questo, non l'ultimo
    *  commento che capita). Lo scrive `addComment` riconoscendo il contratto
    *  piano-prima; `null` sui task nati prima di questo puntatore. */
-  planCommentId: string | null;
+  planCommentId?: string;
   /** When the current claim started (dispatcher CAS) — the live "ci sta
    *  mettendo" ticker anchors here while a turn runs. */
-  inProgressAt: string | null;
+  inProgressAt?: string;
   /** Cumulative agent effort: wall-clock ms + tokens across every turn.
    *  agentTokens = input+output+cacheWrite (dedup); cache READS ride separately
    *  — they dominate real consumption but aren't "work" tokens. */
@@ -2426,10 +2426,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       priority: r.priority,
       kanbanOrder: r.kanban_order,
       assignedTo: r.assigned_to ?? null,
-      dueDate: r.due_date ?? null,
-      chatId: r.chat_id ?? null,
       createdAt: r.created_at,
-      completedAt: r.completed_at ?? null,
       updatedAt: r.updated_at,
       assignedTopicId: r.assigned_topic_id ?? null,
       dispatchState: r.dispatch_state ?? null,
@@ -2441,7 +2438,6 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       waitSince: r.wait_since ?? null,
       dispatchWeight: readTaskWeight(r.dispatch_weight),
       parentTaskId: r.parent_task_id ?? null,
-      outputUrl: r.output_url ?? null,
       urlProbeStatus: (r.url_probe_status as 'live' | 'dead' | 'unknown' | null) ?? null,
       previewImage: r.preview_image ?? null,
       // I due campi RARI si aggiungono solo quando hanno un contenuto: vedi le
@@ -2475,6 +2471,23 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       ...(r.url_probe_checked_at ? { urlProbeCheckedAt: r.url_probe_checked_at } : {}),
       ...(r.landing_checked_at ? { landingCheckedAt: r.landing_checked_at } : {}),
 
+      // NINE MORE FIELDS THAT TRAVELLED EMPTY ON EVERY CARD.
+      //
+      // Same rule, one round later: event timestamps and external ids ride
+      // only when they have a value. Every one of these answers "when did it
+      // happen" or "which one is it": absent and never-happened say the same
+      // thing, so a repeated `null` here is the name of the key and nothing
+      // else. The fields where `null` IS an answer stayed fixed: the state
+      // enums (`dispatchState`, `landingState`, `checksState`, `deployState`),
+      // `checksCommit`, `doneActor`, `waitStreak`/`waitReason`/`waitSince`,
+      // and `parentTaskId`, where null means root.
+      ...(r.due_date ? { dueDate: r.due_date } : {}),
+      ...(r.chat_id ? { chatId: r.chat_id } : {}),
+      ...(r.completed_at ? { completedAt: r.completed_at } : {}),
+      ...(r.plan_comment_id ? { planCommentId: r.plan_comment_id } : {}),
+      ...(r.in_progress_at ? { inProgressAt: r.in_progress_at } : {}),
+      ...(r.output_url ? { outputUrl: r.output_url } : {}),
+
       previewRetiredAt: r.preview_retired_at ?? null,
       previewRetiredReason: r.preview_retired_reason ?? null,
       // The rejected paths reach the client because that is where what to draw
@@ -2482,8 +2495,6 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // very image the retirement declared false.
       previewRejected: rejectedPaths(r.preview_rejected),
       planFirst: !!r.plan_first,
-      planCommentId: r.plan_comment_id ?? null,
-      inProgressAt: r.in_progress_at ?? null,
       agentMs: r.agent_ms ?? 0,
       agentTokens: r.agent_tokens ?? 0,
       agentCacheReadTokens: r.agent_cache_read_tokens ?? 0,
