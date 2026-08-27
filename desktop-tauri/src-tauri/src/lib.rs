@@ -3489,10 +3489,22 @@ pub(crate) fn recompose_main_window(app: &tauri::AppHandle, why: &str) {
         eprintln!("[recompose] {why}: window off every screen — re-anchoring to {mx},{my}");
         let _ = win.set_position(tauri::LogicalPosition::new(mx + 30.0, my + 80.0));
     }
+    // BOUNCE THE INNER SIZE, and read the inner size to do it. `set_size` sets
+    // the INNER size, so feeding it the OUTER one grows the window by the
+    // decoration delta EVERY time this runs. On macOS that delta is zero for a
+    // borderless window and nobody noticed; on Windows the invisible resize
+    // borders and the DWM frame make it 16x29, and this fires on every restore -
+    // measured on 2.2.184, where one repair took the window from 1416x939 to
+    // 1432x968.
+    let Ok(inner) = win.inner_size() else { return };
+    let inner = inner.to_logical::<f64>(sf);
+    let (bw, bh) = (inner.width, inner.height);
+    if bw <= 0.0 || bh <= 0.0 {
+        return;
+    }
     eprintln!("[recompose] {why}: bouncing bounds to force a redraw");
-    let _ = win.set_size(tauri::LogicalSize::new(w + 1.0, h));
+    let _ = win.set_size(tauri::LogicalSize::new(bw + 1.0, bh));
     let app2 = app.clone();
-    let (bw, bh) = (w, h);
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(120));
         let app3 = app2.clone();

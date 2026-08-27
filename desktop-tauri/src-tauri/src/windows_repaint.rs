@@ -65,12 +65,22 @@ fn rebuild_webview_visual(app: &tauri::AppHandle) -> &'static str {
     let Some(wv) = app.get_webview("main") else { return "no main webview" };
     let queued = wv.with_webview(move |platform| unsafe {
         let c = platform.controller();
-        // The cycle is the point: WebView2 drops its composition surface on
-        // minimise and does not always rebuild it on the way back. Turning the
-        // controller off and on again forces the rebuild; re-asserting the
-        // bounds gives the new visual a size. Signatures read from
-        // webview2-com-sys 0.38.2, not guessed: `SetIsVisible` takes a plain
-        // `bool`, `Bounds` an out-pointer, `SetBounds` a value.
+        // A LADDER, in the order Microsoft documents for "the webview came back
+        // blank": the visibility cycle alone was MEASURED not to be enough
+        // (2.2.184: the repair ran - `repair: controller cycled, window bounced`
+        // is in repaint.log - and the window still came back at 3 rows of 79).
+        //
+        // Re-parenting the controller to the SAME parent is the strong one: it
+        // makes WebView2 rebuild its whole visual tree, which is precisely what
+        // is lost here (every HWND stays healthy, nothing is drawn).
+        // `NotifyParentWindowPositionChanged` is the cheap one that tells it the
+        // host moved, and re-asserting the bounds gives the new visual a size.
+        // Signatures read from webview2-com-sys 0.38.2, not guessed.
+        let mut parent = windows::Win32::Foundation::HWND::default();
+        if c.ParentWindow(&mut parent).is_ok() {
+            let _ = c.SetParentWindow(parent);
+        }
+        let _ = c.NotifyParentWindowPositionChanged();
         let _ = c.SetIsVisible(false);
         let _ = c.SetIsVisible(true);
         let mut r = windows::Win32::Foundation::RECT::default();
@@ -78,7 +88,7 @@ fn rebuild_webview_visual(app: &tauri::AppHandle) -> &'static str {
             let _ = c.SetBounds(r);
         }
     });
-    if queued.is_err() { "with_webview refused" } else { "controller cycled" }
+    if queued.is_err() { "with_webview refused" } else { "reparented + cycled" }
 }
 
 /// Called on EVERY window event this file subscribes to (`Resized`, `Focused`),
