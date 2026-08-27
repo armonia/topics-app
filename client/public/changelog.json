@@ -1,5 +1,101 @@
 [
   {
+    "version": "2.2.179",
+    "date": "2026-08-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Add Kimi Code as a terminal agent option in the +/New menu",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le verifiche su Windows diventano un comando, non la mia parola",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Board filters: priority+assignee become one autocomplete token field",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le verifiche Windows in inglese, e senza l'indirizzo di una persona",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I commenti della suite Windows vanno in inglese: erano 28 righe fuori standard",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Quattro test provavano cose vere senza dirlo: ora le dichiarano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due migrazioni nate in parallelo, l'elenco incorporato fuori ordine",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La guardia sulla CLI assente diventa UNA, invece del quarto fratello scoperto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Pinned tiles declare their alignment, not just their shape",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le 12 verifiche UI ora si misurano DAVVERO su Windows: 12 su 12",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il chip degli amici disegnava 2px oltre se stesso: ora taglia il proprio inchiostro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo slot del chevron era alto ZERO: riservava una colonna che non occupava",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il quarto agente non entrava nella lista che il commento diceva derivata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due cancelli misuravano il font del runner, non il prodotto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Su main ogni commit cancellava il verdetto del precedente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I commenti che ho aggiunto erano in italiano: lo standard e' l'inglese",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo stub serviva DUE padroni opposti: ora li distingue da `--print`",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.178",
     "date": "2026-08-27",
     "sections": {
@@ -33,9 +129,21 @@
           "scope": null
         },
         {
+          "it": "reserve the accordion box on every row, so the column has one alignment",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Lo stub muto teneva appesa ogni chat del banco: ora chiude il turno",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "replace the wall-clock turn kill with an idle stall detector + judge",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "La rimisura del cancello di consegna diventa uno script, non una paste",
@@ -43,9 +151,25 @@
           "scope": null
         },
         {
+          "it": "I tre soggetti dell'identita' stanno su una riga sola, come mini-card",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "open-pane: warn when a localhost port is served by another project",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Una CLI che esce presto uccideva il server: EPIPE senza rete",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "surface the port/project warning in open_browser_pane's tool text",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "Il token del gateway autentica il banco: toglierlo dava 401 al terminale",
@@ -63,7 +187,43 @@
           "scope": null
         },
         {
+          "it": "l'installer non puo' piu' saltare un sidecar in silenzio",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Commenti in inglese nel test EPIPE, per riaprire il cancello della lingua",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Il test cercava una voce di menu che ora e' tradotta, non un turno morto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I chip dell'identita' reggono la misura: una riga sola, ink che sopravvive al velo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo stato vuoto delle org e' un soggetto misurato, e il file cresciuto e' a bilancio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A bilancio solo il file che questa card ha fatto crescere",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le facce dei gruppi cedono alla stessa larghezza dei segnali di lavoro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Pin the preserveWork guard: the requeue path that deleted the branch",
           "en": "",
           "scope": null
         }
