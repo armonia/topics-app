@@ -31,7 +31,7 @@ import { useFloatingVibrancy } from './hooks/useFloatingVibrancy';
 import { useSidebarFitCoalesce } from './hooks/useSidebarFitCoalesce';
 import { useSidebarFlipPush } from './hooks/useSidebarFlipPush';
 import { useSidebarSwipe, mobileDrawerStyle } from './hooks/useSidebarSwipe';
-import { isDesktop, isTauri } from './lib/shell';
+import { isDesktop, isTauri, isTauriWindows } from './lib/shell';
 import { selectDirectory } from './lib/shell/app';
 import { initDevBundleReload } from './lib/devBundleReload';
 import { initDevLayoutProbe } from './lib/devLayoutProbe';
@@ -1447,7 +1447,13 @@ function App() {
                 destra del nome delle righe qui sotto (x=14). Tolta, il titolo
                 torna in colonna con loro. */}
             {/* Topics button - opens combined settings & tools menu */}
-            <div className="app-no-drag" {...NO_DRAG_REGION} ref={topicsMenuRef}>
+            {/* `relative`: THE WINDOW COMMANDS ARE ANCHORED HERE. On Windows
+                they come out over this button when the menu opens, exactly where
+                the Mac's traffic lights come out (`trafficLightPosition`
+                { x: 12, y: 12 }, i.e. ROW_INSET into this wrapper) — see
+                WindowControls. They are absolute, so they add nothing to this
+                row: `h-10` stays `h-10` whether they are lit or not. */}
+            <div className="app-no-drag relative" {...NO_DRAG_REGION} ref={topicsMenuRef}>
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -1495,7 +1501,7 @@ function App() {
                 // di progetto hanno `project-toggle-*`.
                 data-testid="sidebar-topics-menu"
               >
-                <span className={`font-semibold text-app-text tracking-[-0.01em] truncate ${isMobile ? 'text-[17px]' : 'text-[15px]'} ${isTauriMac && showTopicsMenu ? 'invisible' : ''}`}>Topics</span>
+                <span className={`font-semibold text-app-text tracking-[-0.01em] truncate ${isMobile ? 'text-[17px]' : 'text-[15px]'} ${(isTauriMac || isTauriWindows) && showTopicsMenu ? 'invisible' : ''}`}>Topics</span>
                 {/* 14, come il glifo di «Cerca» e del «+» che gli stanno accanto sulla
                     STESSA riga — misurato: era 12 contro i loro 14, e il raggio
                     6 contro 8. Tre elementi affiancati con tre forme diverse
@@ -1503,6 +1509,17 @@ function App() {
                     il riferimento (Attilio, 08/08). */}
                 <ChevronDown size={14} className={`text-app-text-secondary transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
               </button>
+              {/* The window commands, and ONLY on Windows: there the system frame
+                  is off (the app draws its own) and without these there would be
+                  no way left to minimise, maximise or close except through the
+                  taskbar. They sit HERE, over the button, and not at the end of
+                  the row: on macOS the component renders nothing because those
+                  commands are the traffic lights, and the shell paints them over
+                  this exact spot. Same place on both systems, same order.
+                  A SIBLING of the button and not a child: a button inside a
+                  button is invalid HTML, and the browser would take the nesting
+                  apart on its own. */}
+              <WindowControls visible={showTopicsMenu} />
             </div>
             {/* COL MOUSE STA ACCANTO A TOPICS, e non in coda alla riga con
                 Cerca e «+»: quei due sono comandi che CREANO o CERCANO, questo
@@ -1564,13 +1581,6 @@ function App() {
           >
             {sidebarSearchButton}
             {sidebarAddMenu}
-            {/* The window commands, and ONLY on Windows: there the system frame
-                is off (the app draws its own) and without these there would be
-                no way left to minimise, maximise or close except through the
-                taskbar. On macOS the component renders nothing: those commands
-                are the traffic lights, which the shell already paints over this
-                very row. */}
-            <WindowControls visible={showTopicsMenu} />
           </div>}
         </div>
 
