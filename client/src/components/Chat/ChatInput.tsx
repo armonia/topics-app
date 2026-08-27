@@ -89,6 +89,10 @@ function AddMenu({
 }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  // `SLASH_COMMANDS` carries keys, not sentences: it is a module, so it is the
+  // two places that DRAW that resolve them. This is one, the `/` menu below is
+  // the other.
+  const tr = useT();
 
   const anyActive = isCallActive || isListening || isSpeaking || autoTTS;
   const rowClass = 'w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover disabled:opacity-40 disabled:pointer-events-none';
@@ -214,7 +218,7 @@ function AddMenu({
             >
               <Icon size={14} className="text-app-text-muted" />
               <span className="font-mono text-primary text-[11px] whitespace-nowrap">{cmd.cmd}</span>
-              <span className="text-[11px] text-app-text-muted text-right truncate">{cmd.description}</span>
+              <span className="text-[11px] text-app-text-muted text-right truncate">{tr(cmd.descriptionKey)}</span>
             </button>
           );
         })}
@@ -748,13 +752,16 @@ export function ChatInput({
   // commands/skills (which fall through to the child, expanded by the CLI).
   // Built-in wins on a name clash. The menu render only reads {cmd, description}.
   const allSlashCommands = useMemo(() => {
-    const builtin = SLASH_COMMANDS.map((c) => ({ cmd: c.cmd, description: c.description }));
+    const builtin = SLASH_COMMANDS.map((c) => ({ cmd: c.cmd, description: tr(c.descriptionKey) }));
     const builtinNames = new Set(builtin.map((c) => c.cmd));
     const custom = customCmds
       .map((c) => ({ cmd: '/' + c.name, description: c.description || (c.kind === 'skill' ? 'Skill' : 'Comando') }))
       .filter((c) => !builtinNames.has(c.cmd));
     return [...builtin, ...custom];
-  }, [customCmds]);
+    // `tr` changes identity when the catalogue of the chosen language lands:
+    // without it here the menu would keep the fallback language until something
+    // else redrew it.
+  }, [customCmds, tr]);
 
   const filteredSlashCommands = allSlashCommands.filter(c =>
     c.cmd.toLowerCase().startsWith(slashFilter.toLowerCase())

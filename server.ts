@@ -181,6 +181,7 @@ import { armStallDetector } from "./server/lib/stall-detector";
 import { judgeStall } from "./server/lib/stall-judge";
 import { runBootPartialSweep } from "./server/lib/boot-partial-sweep";
 import { backfillDeliveries as backfillDeliveriesPass } from "./server/services/delivery-backfill";
+import { keepDeliveryCommit, pruneDeliveryRefs, DELIVERY_REF_RETENTION_DAYS } from "./server/services/delivery-ref-keep";
 import { runLandingAudit as runLandingAuditPass, auditOneLanding as auditOneLandingPass, type AuditWiring } from "./server/services/landing-audit-pass";
 import { decodeCol, encodeCol } from "./shared/message-blob";
 import { TURN_ERROR_PREFIX } from "./shared/board";
@@ -1884,9 +1885,13 @@ const taskDeliveryRef = async (taskId: string) => {
     // Best-effort come tutto il resto di questa funzione: se git inciampa la
     // consegna passa lo stesso, senza misura (NULL, che non è zero).
     const stat = await worktreeDiffStat(ref.worktreePath ?? ref.repoPath, { branch: ref.branch }).catch(() => null);
+    // `repoPath` travels with the snapshot because the capture plants
+    // `refs/consegne/<taskId>` on the delivered sha before writing the column
+    // (`services/delivery-ref-keep.ts`): the land squashes and then deletes the
+    // branch, and without that ref the commit is reachable from nowhere.
     return stat
-      ? { ...pointer, filesChanged: stat.filesChanged, insertions: stat.insertions, deletions: stat.deletions }
-      : pointer;
+      ? { ...pointer, repoPath: ref.repoPath, filesChanged: stat.filesChanged, insertions: stat.insertions, deletions: stat.deletions }
+      : { ...pointer, repoPath: ref.repoPath };
 };
 
 const taskCheckoutRef = async (taskId: string) => {
@@ -1905,6 +1910,7 @@ capturaConsegna = createDeliveryCapture({
   taskDeliveryRef,
   taskCheckoutRef,
   ownCommitFiles,
+  keepDeliveryCommit,
 });
 
 // Stessa sonda che il pannello delle modifiche usa gia' (`taskWorktreeDirt`):
@@ -4703,6 +4709,7 @@ function backfillDeliveries(): Promise<void> {
     resolveDeliveryBranch,
     deliveryPointer,
     worktreeDiffStat,
+    keepDeliveryCommit,
   });
 }
 
@@ -4720,7 +4727,51 @@ const auditWiring: AuditWiring = {
   broadcast: (msg) => broadcastToAll(msg as Parameters<typeof broadcastToAll>[0]),
   backfill: backfillDeliveries,
 };
-const runLandingAudit = () => runLandingAuditPass(auditWiring);
+/**
+ * THE BROOM OVER THE DELIVERY REFS, on the same pass as the audit and never on
+ * a timer of its own: both walk the repositories, and two sweeps on the same
+ * git are one collision waiting for the night nobody is watching.
+ *
+ * `TOPICS_DELIVERY_REF_RETENTION_DAYS=0` keeps every delivery reachable for
+ * ever, which is a legitimate choice on a small board: a ref is 41 bytes, what
+ * it pins is an object graph that then never shrinks.
+ */
+const DELIVERY_REF_RETENTION = Number(
+  process.env.TOPICS_DELIVERY_REF_RETENTION_DAYS ?? DELIVERY_REF_RETENTION_DAYS,
+);
+async function pruneKeptDeliveries(): Promise<void> {
+  if (!Number.isFinite(DELIVERY_REF_RETENTION) || DELIVERY_REF_RETENTION <= 0) return;
+  const vita = ctx.db.prepare("SELECT status, completed_at AS completedAt FROM tasks WHERE id = ?");
+  const visti = new Set<string>();
+  for (const p of ctx.projectStore.list()) {
+    const path = p.path;
+    if (!path || visti.has(path) || !existsSync(path)) continue;
+    visti.add(path);
+    try {
+      const summary = await pruneDeliveryRefs({
+        repoPath: path,
+        retentionDays: DELIVERY_REF_RETENTION,
+        // A card the database does not know is KEPT, not dropped: see the
+        // decision in `delivery-ref-keep.ts`. One repository can carry the
+        // deliveries of more than one board.
+        lifeOf: (taskId) => {
+          const row = vita.get(taskId) as { status?: string; completedAt?: string | null } | undefined;
+          return { status: row?.status ?? null, completedAt: row?.completedAt ?? null };
+        },
+      });
+      if (summary && summary.dropped.length > 0) {
+        console.log(`[delivery-refs] ${summary.dropped.length} ref lasciati cadere, ${summary.kept} tenuti { repo: ${path} }`);
+      }
+    } catch (err) {
+      console.warn("[delivery-refs] potatura fallita", err);
+    }
+  }
+}
+
+const runLandingAudit = async () => {
+  await runLandingAuditPass(auditWiring);
+  await pruneKeptDeliveries();
+};
 const auditOneLanding = (taskId: string) => auditOneLandingPass(auditWiring, taskId);
 
 // Offset from the GC pass so the two git sweeps don't collide on the same repo.

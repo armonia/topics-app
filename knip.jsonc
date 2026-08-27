@@ -111,6 +111,12 @@
         // suo test.
         "scripts/fd-leak-probe.ts!",
         "scripts/effort-variance.ts!",
+        // La rimisura del cancello sui rapporti di consegna: `bun run
+        // scripts/delivery-claims-audit.ts [--db <file>] [--code <codice>]
+        // [--list] [--json]`. Sola lettura sul DB della board e su git, si
+        // lancia a mano prima di decidere se un controllo puo' bloccare una
+        // consegna, e non lo importa nessuno tranne il suo test.
+        "scripts/delivery-claims-audit.ts!",
         // `bun run scripts/mem-report.ts [--json]` — dove stanno i megabyte che
         // la status bar riassume in due numeri: si lancia a mano quando uno dei
         // due sembra alto, legge e basta, nessuno lo importa.

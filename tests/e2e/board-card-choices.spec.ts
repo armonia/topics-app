@@ -252,10 +252,18 @@ test.describe("Scelte sempre presenti sulla card", () => {
     // (12/08, vedi lib/board.ts) e un'asserzione sulla frase intera si rompeva
     // senza che niente fosse rotto.
     await expect(bloccata.getByTestId("card-blocked-by")).toContainText(T_BLOCCANTE);
-    await expect(choice(taskIds.bloccata, "unblock")).toHaveText(`Sblocca: ${T_BLOCCANTE}`);
-    await expect(choice(taskIds.bloccata, "unlink")).toHaveText("Togli il legame");
+    // Here too the choices live behind the `⋯` at the end of the chip row, and
+    // for one reason more than the working card's: the row of buttons was the
+    // LAST thing on the card, that is the geometric centre of a short one, so
+    // the click meant to open the drawer pressed «sblocca» instead. The panel     allow-italian: quoted UI string
+    // is in a portal on `<body>`: it is looked up from the page.
+    await expect(bloccata.getByTestId("task-choices")).toHaveCount(0);
+    await bloccata.getByTestId("task-choices-menu").click();
+    const uscite = page.getByTestId("task-choices-panel");
+    await expect(uscite.getByTestId("task-choice-unblock")).toHaveText(`Sblocca: ${T_BLOCCANTE}`);
+    await expect(uscite.getByTestId("task-choice-unlink")).toHaveText("Togli il legame");
     await beat(page);
-    await choice(taskIds.bloccata, "unblock").click();
+    await uscite.getByTestId("task-choice-unblock").click();
     // Un click: il legame cade e la card è in Todo, pronta a partire.
     await expect(page.getByTestId("kanban-column-body-todo").locator(`[data-task-card="${taskIds.bloccata}"]`))
       .toBeVisible({ timeout: 10000 });

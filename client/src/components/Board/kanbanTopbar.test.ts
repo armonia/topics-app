@@ -40,6 +40,72 @@ function codeWithoutComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ");
 }
 
+/**
+ * The app stylesheet, and the rules in it that live OUTSIDE every `@layer`.
+ *
+ * An unlayered declaration beats a layered one whatever the specificity, and
+ * Tailwind's utilities are layered. So a global rule written at the top level of
+ * `index.css` overrides what a component asks for on itself - silently, and
+ * without ever showing up in a grep of the component.
+ */
+const CSS = readFileSync(join(DIR, "..", "..", "index.css"), "utf8");
+
+/**
+ * The unlayered rules of `index.css` that can put a SCROLLBAR on any element.
+ *
+ * Only two shapes qualify, and both are universal: a rule that sets
+ * `scrollbar-width` on a selector containing `*`, and a rule on the bare
+ * `::-webkit-scrollbar` pseudo. A rule that sets only `scrollbar-color` is NOT
+ * one of them: a colour cannot paint a scrollbar that `scrollbar-width: none`
+ * never creates.
+ */
+function unlayeredScrollbarRules(css: string): string[] {
+  const src = css.replace(/\/\*[\s\S]*?\*\//g, " ");
+  const hits: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (ch === "{") {
+      if (depth === 0) {
+        const selector = src.slice(start, i).trim();
+        const close = matchingBrace(src, i);
+        const body = src.slice(i + 1, close);
+        // `@layer`, `@utility`, `@media`... are at-rules: what matters is the
+        // plain rules, the ones that sit in no layer at all.
+        if (!selector.startsWith("@")) {
+          const universal = /(^|[\s,>+~])\*/.test(selector) || selector.trimStart().startsWith("::");
+          const webkitBar = selector.includes("::-webkit-scrollbar");
+          if (universal && (/scrollbar-width\s*:/.test(body) || webkitBar)) {
+            hits.push(selector.replace(/\s+/g, " "));
+          }
+        }
+        i = close;
+        start = close + 1;
+        continue;
+      }
+      depth++;
+    } else if (ch === "}") {
+      if (depth > 0) depth--;
+      if (depth === 0) start = i + 1;
+    }
+  }
+  return hits;
+}
+
+/** The index of the `}` that closes the `{` at `open`. */
+function matchingBrace(src: string, open: number): number {
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}") {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return src.length - 1;
+}
+
 /** The toolbar element itself, found by the test id the app already carries. */
 function toolbarTag(): string {
   const i = PANE.indexOf('data-testid="board-toolbar"');
@@ -64,6 +130,35 @@ describe("1. sotto la barra non c'e' nessuna linea", () => {
     const before = PANE.slice(Math.max(0, i - 400), i);
     const parent = before.slice(before.lastIndexOf("<div"));
     expect(parent, `il contenitore della barra ha un bordo inferiore: ${parent}`).not.toContain("border-b");
+  });
+
+  // THE THIRD THING THAT DRAWS A LINE, and it is not a border: the toolbar's OWN
+  // horizontal SCROLLBAR. The strip overflows by construction (measured on the
+  // bundle, 2026-08-27: scrollWidth 472 against clientWidth 420), so a horizontal
+  // scrollbar exists, and it lives exactly under the bar's bottom edge. That is
+  // why the element declares it off.
+  test("la barra dichiara di non volere nessuna barra di scorrimento", () => {
+    const tag = toolbarTag();
+    expect(tag, "senza `scrollbar-width:none` la riga di scorrimento torna").toContain("[scrollbar-width:none]");
+    expect(tag, "e la meta' webkit serve ai motori che ignorano la proprieta' standard").toContain("[&::-webkit-scrollbar]:hidden");
+  });
+
+  test("e nessuna regola FUORI da @layer puo' rimettergliela", () => {
+    // MEASURED on the live app (Playwright, global board and project board, light
+    // and dark, 2026-08-27): the element declares `scrollbar-width: none` and
+    // `getComputedStyle` answered `thin`. The toolbar's declaration is a Tailwind
+    // utility, so it sits in `@layer utilities`; the `* { scrollbar-width: thin }`
+    // of `index.css` sat OUTSIDE every layer, and an unlayered rule beats a
+    // layered one whatever the specificity. On the Tauri shell that scrollbar is
+    // visible for real: WebKit, once the standard property is set, ignores
+    // `::-webkit-scrollbar` (the `.tauri-mac *` note in `index.css` says so
+    // already) and `.tauri-mac` even gives it an always-on grey. The result is a
+    // grey hairline under the bar that no `border-b` grep can find.
+    const offenders = unlayeredScrollbarRules(CSS);
+    expect(
+      offenders,
+      `queste regole di index.css stanno fuori da @layer e battono il \`scrollbar-width:none\` della barra: ${offenders.join(" | ")}`,
+    ).toEqual([]);
   });
 
   test("e il test puo' fallire", () => {

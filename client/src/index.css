@@ -831,54 +831,83 @@ html {
 /* Mobile tap highlight */
 * {
   -webkit-tap-highlight-color: transparent;
-  scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
-}
-*:hover {
-  scrollbar-color: rgba(156, 163, 175, 0.25) transparent;
-}
-.dark *:hover {
-  scrollbar-color: rgba(100, 116, 139, 0.25) transparent;
 }
 
-/* Scrollbar — hidden by default, thin on hover */
-::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
-}
+/* THE SCROLLBAR DEFAULTS ARE A DEFAULT, so they live in `@layer base`.
+ *
+ * They used to sit at the top level of this file, i.e. in NO layer at all - and
+ * an unlayered declaration beats a layered one whatever the specificity. Every
+ * Tailwind utility is layered, so `[scrollbar-width:none]` written on an element
+ * lost against `* { scrollbar-width: thin }` written here, and lost SILENTLY:
+ * the element declares the scrollbar off, the computed value says `thin`.
+ *
+ * Measured on 2026-08-27 on the live app: the kanban toolbar
+ * (`data-testid="board-toolbar"`) declares `scrollbar-width: none`, and
+ * `getComputedStyle` answered `thin`. The bar overflows horizontally by
+ * construction (scrollWidth 472 vs clientWidth 420), so a horizontal scrollbar
+ * really is drawn, right under its bottom edge - the "line under the top bar"
+ * that no `border-b` grep could ever find. On the Tauri shell it is visible for
+ * real: WebKit, once the standard property is set, ignores the styled
+ * `::-webkit-scrollbar` pseudo (see the `.tauri-mac *` note below), and
+ * `.tauri-mac` gives it an always-on grey.
+ *
+ * In `base` they still apply to everything that asks for nothing, and an element
+ * that DOES ask for something now gets it. `kanbanTopbar.test.ts` keeps them
+ * here: a scrollbar rule that walks back out of every layer makes the gate red.
+ *
+ * `scrollbar-standard` keeps its `!important` (the escape hatch invented when
+ * these rules were unlayered): harmless now, and it costs nothing to leave. */
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+  *:hover {
+    scrollbar-color: rgba(156, 163, 175, 0.25) transparent;
+  }
+  .dark *:hover {
+    scrollbar-color: rgba(100, 116, 139, 0.25) transparent;
+  }
 
-::-webkit-scrollbar-track {
-  background: transparent;
-}
+  /* Scrollbar — hidden by default, thin on hover */
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
 
-::-webkit-scrollbar-thumb {
-  background-color: transparent;
-  border-radius: 2px;
-  transition: background-color 0.2s;
-}
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
 
-:hover::-webkit-scrollbar-thumb {
-  background-color: rgba(156, 163, 175, 0.25);
-}
+  ::-webkit-scrollbar-thumb {
+    background-color: transparent;
+    border-radius: 2px;
+    transition: background-color 0.2s;
+  }
 
-::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(156, 163, 175, 0.35);
-}
+  :hover::-webkit-scrollbar-thumb {
+    background-color: rgba(156, 163, 175, 0.25);
+  }
 
-::-webkit-scrollbar-thumb:active {
-  background-color: rgba(156, 163, 175, 0.4);
-}
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(156, 163, 175, 0.35);
+  }
 
-.dark :hover::-webkit-scrollbar-thumb {
-  background-color: rgba(100, 116, 139, 0.25);
-}
+  ::-webkit-scrollbar-thumb:active {
+    background-color: rgba(156, 163, 175, 0.4);
+  }
 
-.dark ::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(100, 116, 139, 0.35);
-}
+  .dark :hover::-webkit-scrollbar-thumb {
+    background-color: rgba(100, 116, 139, 0.25);
+  }
 
-.dark ::-webkit-scrollbar-thumb:active {
-  background-color: rgba(100, 116, 139, 0.4);
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(100, 116, 139, 0.35);
+  }
+
+  .dark ::-webkit-scrollbar-thumb:active {
+    background-color: rgba(100, 116, 139, 0.4);
+  }
 }
 
 /* WebKit (Tauri) scrollbar visibility. The global `* { scrollbar-color:

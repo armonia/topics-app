@@ -47,6 +47,14 @@ export interface BackfillDeps<D = unknown> {
   resolveDeliveryBranch(deps: D, taskId: string): Promise<{ repoPath: string; branch: string } | null>;
   deliveryPointer(repoPath: string, branch: string): Promise<{ branch: string; commit: string | null } | null>;
   worktreeDiffStat(cwd: string, opts: { branch?: string }): Promise<{ filesChanged: number; insertions: number; deletions: number } | null>;
+  /**
+   * Plant the ref that outlives the branch (`services/delivery-ref-keep.ts`).
+   * This pass is the OTHER door a delivery comes in from, so leaving it out
+   * would keep alive only the commits captured in review: the cards this pass
+   * exists for are precisely the ones whose worktree is already gone, i.e. the
+   * ones closest to losing their object.
+   */
+  keepDeliveryCommit?(a: { repoPath: string; taskId: string; commit: string }): Promise<unknown>;
 }
 
 export async function backfillDeliveries<D>(deps: BackfillDeps<D>): Promise<void> {
@@ -103,6 +111,12 @@ export async function backfillDeliveries<D>(deps: BackfillDeps<D>): Promise<void
     // via il verdetto testimoniato a ogni giro.
     const commitNuovo = !row.delivery_commit;
     if (!ptr?.commit) continue;
+    // The ref before the column, same order as the capture in review and for the
+    // same reason: the column is a pointer, the ref is what keeps its object.
+    if (deps.keepDeliveryCommit) {
+      await deps.keepDeliveryCommit({ repoPath: ref.repoPath, taskId: row.id, commit: ptr.commit })
+        .catch(() => { /* best-effort: a ref never blocks a backfill */ });
+    }
     // QUANTO lavoro c'è dentro, con lo stesso misuratore del worktree vivo: si
     // conta dal PADRE del commit proprio più vecchio, non dalla punta, così una
     // card non si prende il lavoro di un'altra sessione. `null` = non misurabile
