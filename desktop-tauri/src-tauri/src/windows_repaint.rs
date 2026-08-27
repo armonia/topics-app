@@ -81,20 +81,31 @@ fn rebuild_webview_visual(app: &tauri::AppHandle) -> &'static str {
     if queued.is_err() { "with_webview refused" } else { "controller cycled" }
 }
 
-/// Call on every `WindowEvent::Resized`. Windows delivers one on both edges of a
-/// minimise, which is what makes the transition visible from here at all.
+/// Called on EVERY window event this file subscribes to (`Resized`, `Focused`),
+/// because which one carries the un-minimize edge is not a given.
 ///
-/// The delay is not superstition: `recompose_main_window` returns early while the
-/// window still reports minimised, and the transition is not atomic, so the
-/// repair has to land after the restore has settled or it is a no-op.
-pub(crate) fn note_minimize_transition(win: &tauri::Window) {
+/// tao emits `Resized` from `WM_SIZE`, and `WM_SIZE(SIZE_MINIMIZED)` arrives with
+/// a size of 0x0 - a runtime that skips that one never lets us see the window go
+/// DOWN, so the way back up would not read as a transition at all. `Focused` is
+/// the belt to that pair of braces: minimising always takes focus away, and at
+/// that moment `is_minimized()` is already true, so the state gets recorded even
+/// if no `Resized` ever came.
+///
+/// The delay before repairing is not superstition: the transition is not atomic,
+/// and `recompose_main_window` returns early while the window still reports
+/// minimised, so the repair has to land after the restore has settled.
+pub(crate) fn note_window_event(win: &tauri::Window, kind: &'static str) {
     use tauri::Manager;
     let now = win.is_minimized().unwrap_or(false);
     let before = WAS_MINIMIZED.swap(now, Ordering::Relaxed);
-    if !(before && !now) {
-        return; // not the un-minimize edge
+    if before == now {
+        return; // no transition
     }
     let app = win.app_handle().clone();
+    trace(&app, &format!("{kind}: minimized {before} -> {now}"));
+    if now {
+        return; // going DOWN: nothing to repair yet
+    }
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(250));
         // NOT inside `run_on_main_thread`: `with_webview` dispatches to the UI
@@ -104,7 +115,33 @@ pub(crate) fn note_minimize_transition(win: &tauri::Window) {
         let app2 = app.clone();
         let _ = app.run_on_main_thread(move || {
             crate::recompose_main_window(&app2, "restore");
-            trace(&app2, &format!("restore: {what}, window bounced"));
+            trace(&app2, &format!("repair: {what}, window bounced"));
         });
     });
+}
+
+/// Subscribe the main window. Registered from `run()` OUTSIDE any macOS block,
+/// which is the whole reason the first attempt did nothing: the handler that
+/// carried this hook lived inside `#[cfg(target_os = "macos")]`, so the line was
+/// guarded for Windows inside a block that on Windows does not exist. It
+/// compiled nowhere, and `cargo check` could not say so on either platform.
+///
+/// `get_window`, not `webview_windows()`: the latter loses windows that have a
+/// native browser pane, and this app has them.
+pub(crate) fn wire(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    let Some(win) = app.get_window("main") else {
+        return;
+    };
+    // `on_window_event` APPENDS a listener, it does not replace one (verified in
+    // tauri-runtime-wry 2.11.3: every registration takes a fresh id into a map,
+    // and the runtime calls them all), so this does not disturb anything already
+    // listening on this window.
+    let w = win.clone();
+    win.on_window_event(move |event| match event {
+        tauri::WindowEvent::Resized(_) => note_window_event(&w, "resized"),
+        tauri::WindowEvent::Focused(_) => note_window_event(&w, "focused"),
+        _ => {}
+    });
+    trace(app, "wired");
 }

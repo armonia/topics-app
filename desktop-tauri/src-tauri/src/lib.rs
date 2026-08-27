@@ -10626,6 +10626,14 @@ pub fn run() {
                 }
             }
 
+            // The window comes back from minimised and the webview stops
+            // painting. The hook goes HERE, outside the macOS block below, which
+            // is exactly where the first attempt put it by mistake: a line
+            // guarded for Windows inside a block that on Windows does not exist
+            // compiles nowhere, and no `cargo check` can say so.
+            #[cfg(target_os = "windows")]
+            windows_repaint::wire(app.handle());
+
             // Traffic lights hidden by default — revealed on demand when the
             // Topics menu opens (parity with the Electron shell).
             #[cfg(target_os = "macos")]
@@ -10784,10 +10792,6 @@ pub fn run() {
                             let visible = TRAFFIC_LIGHTS_VISIBLE.load(Ordering::Relaxed)
                                 || w.is_fullscreen().unwrap_or(false);
                             apply_traffic_lights(&w, visible);
-                            // Windows delivers Resized on both edges of a minimise,
-                            // which is where the un-minimize transition is visible.
-                            #[cfg(target_os = "windows")]
-                            windows_repaint::note_minimize_transition(&w.as_ref().window());
                         }
                         tauri::WindowEvent::Moved(_) => {
                             save_state_throttled(&w.as_ref().window());
