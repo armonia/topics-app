@@ -119,7 +119,7 @@ export const PROJECT_WORDS = new Set([
   "bool", "int", "idx", "len", "min", "max", "avg", "prev", "curr", "cur", "el",
   "ref", "refs", "props", "prop", "attr", "attrs", "elem", "btn", "nav", "auth",
   "admin", "repo", "repos", "sha", "diff", "diffs", "commit", "commits", "git",
-  "npm", "bun", "vite", "react", "playwright", "sse", "mcp", "pty", "ptys",
+  "npm", "bun", "vite", "react", "playwright", "sse", "mcp", "pty", "ptys", "ipc",
   // The browser pane's own nouns. `web2` is a 1934 dictionary: it does not
   // carry `download`, and the feature it names is a menu on screen.
   "download", "downloads",
