@@ -1,31 +1,30 @@
 /**
- * VERIFICHE CONTRO L'APP WINDOWS INSTALLATA (non un banco).
+ * VERIFICATION AGAINST THE INSTALLED WINDOWS APP (not a test bench).
  *
- * Punta al `topics-server` della build 2.2.176 installata sul PC Windows 11
- * (`%LOCALAPPDATA%\Topics\`, app.exe sha256 27AB5DBA24E2F8A3…), raggiunto dal
- * Mac via tunnel ssh. Serve a lasciare una misura RIPETIBILE dove finora
- * c'era solo il mio resoconto a parole.
+ * Targets the `topics-server` of build 2.2.176 installed on the Windows 11 box
+ * (`%LOCALAPPDATA%\Topics\`, app.exe sha256 27AB5DBA24E2F8A3…), reached from
+ * the Mac over an ssh tunnel. It exists to leave a REPEATABLE measurement
+ * where there was only a written report.
  *
- * Si lancia a mano (non e' nella CI: richiede quel PC acceso):
+ * Run by hand (not in CI: it needs that machine powered on):
  *   ssh -f -N -L 51156:127.0.0.1:51156 zorah@100.92.197.74
  *   TOPICS_WIN_BASE=http://127.0.0.1:51156 \
  *     npx playwright test -c playwright.windows.config.ts
  *
- * PERCHE' QUI NON C'E' NESSUNA MISURA DEL DOM, che era il mio piano iniziale.
- * L'interfaccia NON e' servita via HTTP: e' compilata dentro `app.exe` e la
- * webview la carica da `tauri://localhost` (verificato cercando quella stringa
- * nel binario). `GET /` sulla porta del server risponde 503 «Bundle not built
- * yet», che e' corretto: in produzione quel server fa solo da API. E la porta
- * di debug di WebView2 non e' aperta, ne' si puo' aprirla al volo, perche'
- * l'app e' a istanza singola — un secondo avvio con
- * `--remote-debugging-port` rientra nella finestra gia' viva (misurato: dopo
- * il lancio le istanze restano 1, pid invariato) e quella finestra e' quella
- * dell'utente, che non si tocca.
+ * WHY THERE IS NO DOM MEASUREMENT HERE, which was the original plan. The UI is
+ * NOT served over HTTP: it is compiled into `app.exe` and the webview loads it
+ * from `tauri://localhost` (confirmed by finding that string inside the
+ * binary). `GET /` on the server port answers 503 "Bundle not built yet",
+ * which is correct: in production that server is API-only. And the WebView2
+ * debug port is not open, nor can it be opened after the fact, because the app
+ * is single-instance: relaunching it with `--remote-debugging-port` re-enters
+ * the live window (measured: instance count stays 1, pid unchanged) and that
+ * window belongs to the user, which we do not touch.
  *
- * Quindi: le cose di geometria e pixel (pulsanti finestra, campanella, chip
- * identita', tooltip, banda grigia) restano verificate a mano sul ferro e
- * NON sono qui. Qui c'e' cio' che si puo' interrogare davvero dall'esterno,
- * che e' il contratto del server come gira su Windows.
+ * So the geometry-and-pixel checks (window buttons, notification bell,
+ * identity chip, tooltip, grey band) stay MANUALLY verified on the hardware
+ * and are deliberately NOT here. Saying so is the only way to stop anyone
+ * believing they are automated. See RUNTIME-17.
  */
 import { test, expect } from "@playwright/test";
 
@@ -33,13 +32,13 @@ test.beforeEach(({}, testInfo) => {
   testInfo.annotations.push({ type: "spec", description: "RUNTIME-17" });
 });
 
-test.describe("Windows 2.2.176 — contratto del server sulla build pubblicata", () => {
-  test("WIN-SRV-01: la versione servita e' la 2.2.176 della pipeline", async ({ request }) => {
+test.describe("Windows 2.2.176 — published build server contract", () => {
+  test("WIN-SRV-01: the served version is the 2.2.176 built by the pipeline", async ({ request }) => {
     const v = await (await request.get("/api/version")).json();
     expect(v.version).toBe("2.2.176");
   });
 
-  test("WIN-SRV-02: le rotte che l'interfaccia interroga all'avvio rispondono tutte 200", async ({ request }) => {
+  test("WIN-SRV-02: every route the UI calls on startup answers 200", async ({ request }) => {
     for (const p of [
       "/api/system/status",
       "/api/topics",
@@ -51,59 +50,59 @@ test.describe("Windows 2.2.176 — contratto del server sulla build pubblicata",
     }
   });
 
-  test("WIN-SRV-03: i provider sono dichiarati con requisiti e modelli, non una lista vuota", async ({ request }) => {
+  test("WIN-SRV-03: providers are declared with name and status, not an empty list", async ({ request }) => {
     const snap = await (await request.get("/api/providers/snapshot")).json();
     expect(Array.isArray(snap.providers)).toBe(true);
     expect(snap.providers.length).toBeGreaterThan(0);
-    // Ogni provider dice come si chiama e cosa gli serve: e' esattamente cio'
-    // che permette all'app di DIRE che un agente manca invece di aprire una
-    // tab vuota, che era il difetto segnalato il 26/08.
+    // Each provider states what it is and what it needs: that is exactly what
+    // lets the app SAY an agent is missing instead of opening an empty tab,
+    // which was the defect reported on 2026-08-26.
     for (const p of snap.providers) {
       expect(typeof p.name, JSON.stringify(p).slice(0, 80)).toBe("string");
       expect(typeof p.status).toBe("string");
     }
   });
 
-  test("WIN-SRV-04: nessun modello resta senza listino (il costo non e' mai finto zero)", async ({ request }) => {
+  test("WIN-SRV-04: no model is left unpriced (cost is never a fake zero)", async ({ request }) => {
     const s = await (await request.get("/api/system/status")).json();
     expect(s.server.unpricedModels).toEqual([]);
   });
 
-  test("WIN-SRV-05: la versione del binario coincide con quella che il server dichiara", async ({ request }) => {
-    // Prova che il server interrogato e' DAVVERO quello dell'installazione
-    // 2.2.176, non un processo di sviluppo rimasto acceso su quella porta:
-    // sarebbe il modo piu' facile di prendersi in giro da soli.
+  test("WIN-SRV-05: the binary version matches what the server reports", async ({ request }) => {
+    // Proves the server being queried really is the 2.2.176 installation and
+    // not a dev process left listening on that port, which would be the
+    // easiest way to fool ourselves into thinking we verified anything.
     const v = await (await request.get("/api/version")).json();
     const s = await (await request.get("/api/system/status")).json();
     expect(v.version).toBe("2.2.176");
     expect(s.server.devReload).toBe(false);
   });
 
-  test("WIN-SRV-06: una rotta inesistente da' 404, non 500 e non una pagina", async ({ request }) => {
+  test("WIN-SRV-06: an unknown route gives 404, not 500 and not a page", async ({ request }) => {
     expect((await request.get("/api/usage/other")).status()).toBe(404);
   });
 
-  test("WIN-SRV-07: il server e' su da ore e non sta perdendo memoria", async ({ request }) => {
+  test("WIN-SRV-07: the server has been up for hours and is not leaking memory", async ({ request }) => {
     const s = await (await request.get("/api/system/status")).json();
     expect(s.server.uptimeMs).toBeGreaterThan(60_000);
-    // 37 MB alla misura di stanotte dopo ~2h di vita. La soglia e' larga
-    // apposta: qui interessa una perdita evidente, non il singolo megabyte.
+    // 37 MB when measured after ~2h of uptime. The bound is deliberately wide:
+    // this is about catching an obvious leak, not policing single megabytes.
     expect(s.server.memoryMB).toBeLessThan(600);
   });
 
-  test("WIN-SRV-08: lo stato dichiara il gateway e le connessioni vive", async ({ request }) => {
+  test("WIN-SRV-08: status reports the gateway and live connections", async ({ request }) => {
     const s = await (await request.get("/api/system/status")).json();
     expect(s.gateway).toBeDefined();
     expect(s.connections).toBeDefined();
   });
 
-  test("WIN-SRV-09: creare, leggere e cancellare un topic funziona sulla macchina vera", async ({ request }) => {
+  test("WIN-SRV-09: create, read and delete a topic works on the real machine", async ({ request }) => {
     const name = `win-verify-${Date.now()}`;
     const created = await request.post("/api/topics", { data: { name } });
     expect(created.status()).toBeLessThan(300);
     const topic = await created.json();
     try {
-      // `/api/topics` risponde con una MAPPA id → topic, non con un array.
+      // `/api/topics` answers with a MAP of id → topic, not an array.
       const list = await (await request.get("/api/topics")).json();
       expect(Object.keys(list.topics)).toContain(topic.id);
     } finally {
@@ -111,7 +110,7 @@ test.describe("Windows 2.2.176 — contratto del server sulla build pubblicata",
     }
   });
 
-  test("WIN-SRV-10: le sessioni di terminale si elencano senza autenticazione mancante", async ({ request }) => {
+  test("WIN-SRV-10: terminal sessions list without a missing-auth rejection", async ({ request }) => {
     const r = await request.get("/api/terminal/sessions");
     expect(r.status()).toBe(200);
     expect(Array.isArray(await r.json())).toBe(true);
