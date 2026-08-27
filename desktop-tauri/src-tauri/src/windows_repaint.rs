@@ -113,8 +113,25 @@ fn rebuild_webview_visual(app: &tauri::AppHandle) -> &'static str {
         let _ = c.NotifyParentWindowPositionChanged();
         let _ = c.SetIsVisible(false);
         let _ = c.SetIsVisible(true);
+        // THE RASTER, and this is the one aimed at what the evidence actually
+        // says. `repaint js true` in repaint.log means ExecuteScript RAN, so the
+        // renderer is alive and simply is not painting: everything above talks to
+        // the host side of a webview that is already doing its job. Changing the
+        // rasterization scale cannot be a no-op the way re-asserting a value can,
+        // because the value is different, and it makes the renderer re-raster
+        // every tile at the new scale. Then it goes back.
+        if let Ok(c3) = windows::core::Interface::cast::<
+            webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller3,
+        >(&c)
+        {
+            let mut scale = 0.0f64;
+            if c3.RasterizationScale(&mut scale).is_ok() && scale > 0.0 {
+                let _ = c3.SetRasterizationScale(scale * 1.02);
+                let _ = c3.SetRasterizationScale(scale);
+            }
+        }
     });
-    if queued.is_err() { "with_webview refused" } else { "bounds bounced + cycled" }
+    if queued.is_err() { "with_webview refused" } else { "bounds bounced + cycled + re-rastered" }
 }
 
 /// Called on EVERY window event this file subscribes to (`Resized`, `Focused`),
