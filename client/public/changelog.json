@@ -420,6 +420,11 @@
           "it": "Registra le due crescite di questo lavoro, non quelle degli altri",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "La finestra grigia su Windows: il server non aveva la pagina, e nessuno gliel'aveva detta",
+          "en": "",
+          "scope": null
         }
       ]
     }

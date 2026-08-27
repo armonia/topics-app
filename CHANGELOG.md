@@ -91,6 +91,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il cricchetto sotto 88a80f1aa: la scatola riservata dichiara un'altezza
 - Lo sweep si aspetta, non si legge al primo colpo
 - Registra le due crescite di questo lavoro, non quelle degli altri
+- La finestra grigia su Windows: il server non aveva la pagina, e nessuno gliel'aveva detta
 
 ## 2.2.178 — 2026-08-27
 
