@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.185",
+    "date": "2026-08-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il ciclo di visibilita' non basta: si ri-genitora. E il rimbalzo faceva CRESCERE la finestra",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "recompose_main_window esce da lib.rs: non e' setup del guscio, e' una riparazione",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.184",
     "date": "2026-08-27",
     "sections": {

@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.185 — 2026-08-27
+
+### Sotto il cofano
+- Il ciclo di visibilita' non basta: si ri-genitora. E il rimbalzo faceva CRESCERE la finestra
+- recompose_main_window esce da lib.rs: non e' setup del guscio, e' una riparazione
+
 ## 2.2.184 — 2026-08-27
 
 ### Sotto il cofano
