@@ -28,14 +28,16 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useWSSubscription } from './useWSSubscription';
 import { useRefMirror } from './useRefMirror';
 import { useTextToSpeech } from './useSpeech';
-import {
-  enqueueAnnouncement,
-  nextAnnouncement,
-  announceText,
-  rollupText,
-  EMPTY_ANNOUNCE_QUEUE,
-  type AnnounceQueueState,
-} from '../lib/voice/announceQueue';
+import type { AnnounceQueueState } from '../lib/voice/announceQueue';
+
+/**
+ * The empty queue, written here instead of imported, so that NOTHING of
+ * `announceQueue` is pulled into the eager bundle just to seed a ref. The
+ * module itself arrives with the rest of the voice machinery, on the first
+ * turn that actually speaks (see `drain`). One object literal is a cheaper
+ * price than a module.
+ */
+const EMPTY_ANNOUNCE_QUEUE: AnnounceQueueState = { items: [] };
 import { runNotificationAction } from '../lib/notify/notificationAction';
 import { boardNotificationDeps } from '../lib/notify/boardActionDeps';
 import type { AppSettings, WSMessage } from '../types';
@@ -65,10 +67,16 @@ export function useVoiceLoop({ onWSMessage, settings }: VoiceLoopProps): void {
     // `speak()` has already started - no turn waits on it. Destructured on
     // purpose: `.then((m) => m.default)` is the form that makes the module a
     // blind spot for knip (see the same note in `i18n.ts`).
-    const [{ recordUtterance }, { extractAfterWakePhrase }, { classifyVoiceIntent }] = await Promise.all([
+    const [
+      { recordUtterance },
+      { extractAfterWakePhrase },
+      { classifyVoiceIntent },
+      { nextAnnouncement, announceText, rollupText },
+    ] = await Promise.all([
       import('../lib/voice/recordUtterance'),
       import('../lib/voice/wakeWord'),
       import('../lib/voice/classifyIntent'),
+      import('../lib/voice/announceQueue'),
     ]);
     try {
       for (;;) {
@@ -112,16 +120,23 @@ export function useVoiceLoop({ onWSMessage, settings }: VoiceLoopProps): void {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- settingsRef is a stable ref object (useRefMirror), reading `.current` needs no re-subscription
   }, [speak]);
 
+  // Async on purpose: the enqueue lives in the same lazy module as the rest of
+  // the voice machinery, so it arrives a microtask later. Nothing observes the
+  // difference - `drain` was already async and is guarded by `drainingRef`.
   useWSSubscription(onWSMessage, 'task:review-ready', (msg) => {
     if (settingsRef.current.voiceMode === 'off') return;
     if (!msg.taskId || !msg.projectId) return;
-    queueRef.current = enqueueAnnouncement(queueRef.current, {
-      taskId: msg.taskId,
-      projectId: msg.projectId,
-      title: (msg.taskTitle || 'Task').slice(0, 140),
-      questionText: msg.question?.text,
-    });
-    void drain();
+    void (async () => {
+      const { enqueueAnnouncement } = await import('../lib/voice/announceQueue');
+      if (settingsRef.current.voiceMode === 'off') return;
+      queueRef.current = enqueueAnnouncement(queueRef.current, {
+        taskId: msg.taskId!,
+        projectId: msg.projectId!,
+        title: (msg.taskTitle || 'Task').slice(0, 140),
+        questionText: msg.question?.text,
+      });
+      void drain();
+    })();
   });
 
   // Flip to `off` mid-loop: stop talking, drop whatever is queued. The mic

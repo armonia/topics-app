@@ -407,6 +407,9 @@ const IT: Dict = {
   'palette.hint.close': 'chiudi',
   'settings.board.showRow': 'Mostra la Board nella sidebar',
   'settings.board.showRowBlurb': 'Una riga fissa in cima alla colonna, con i progetti e i conteggi per stato.',
+  'settings.turnCheckpoints.label': 'Checkpoint automatico a ogni turno',
+  'settings.turnCheckpoints.blurb': "Prima di ogni turno Topics fotografa la cartella del progetto su un ref git dedicato, invisibile a log e branch: /rewind in chat rimette i file com'erano, senza detached HEAD. Torna indietro l'albero, non la conversazione. Ne tiene gli ultimi 50 per chat.",
+  'settings.turnCheckpoints.saving': 'Salvataggio…',
   'board.night.title': 'Modalità notturna',
   'board.night.blurb':
     "Mentre sei via, la coda parte solo a macchina libera. Si spegne da sola all'orario di fine, invece di restare armata addosso a chi lavora.",

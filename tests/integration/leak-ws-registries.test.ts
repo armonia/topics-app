@@ -140,6 +140,13 @@ beforeAll(async () => {
     // Built from scratch, NOT spread from process.env: see the header.
     env: {
       PATH: process.env.PATH ?? "",
+      // PLAIN HTTP, because the probe below is `http://`. The server turns TLS
+      // on by itself the moment `certs/fullchain.pem` exists next to it, and
+      // that file is NOT tracked: on a machine that has run the LAN setup the
+      // spawned server answers https and the probe never connects, while CI
+      // (no certs) passes. Without this the test measures the developer's
+      // certs folder, not the registries.
+      NO_TLS: "1",
       BUN_PORT: String(port),
       PORT: String(port),
       DATA_DIR: dataDir,

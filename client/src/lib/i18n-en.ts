@@ -404,6 +404,9 @@ const EN = {
   'palette.hint.close': 'close',
   'settings.board.showRow': 'Show the Board in the sidebar',
   'settings.board.showRowBlurb': 'A fixed row at the top of the column, with the projects and the per-status counts.',
+  'settings.turnCheckpoints.label': 'Automatic checkpoint on every turn',
+  'settings.turnCheckpoints.blurb': "Before every turn Topics snapshots the project folder onto a dedicated git ref, invisible to log and branch: /rewind in the chat puts the files back as they were, with no detached HEAD. It rewinds the tree, not the conversation. It keeps the last 50 per chat.",
+  'settings.turnCheckpoints.saving': 'Saving…',
   'board.night.title': 'Night mode',
   'board.night.blurb':
     'While you are away, the queue only starts on an idle machine. It switches itself off at the end time instead of staying armed over whoever is working.',

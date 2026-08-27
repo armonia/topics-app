@@ -1,5 +1,6 @@
 import { type AppBehaviorSettings } from '../../lib/api';
 import { ToggleRow } from './ToggleRow';
+import { useT } from '@/hooks/useT';
 
 /**
  * The switch for automatic per-turn checkpoints.
@@ -26,21 +27,18 @@ export function TurnCheckpointsChoice({
   saving: boolean;
   onSave: (patch: Partial<AppBehaviorSettings>) => Promise<void>;
 }) {
+  const tr = useT();
   return (
     <div className="mb-3 rounded-lg border border-app-border bg-surface/40 px-3 py-1">
       <ToggleRow
-        label="Checkpoint automatico a ogni turno"
-        description={
-          "Prima di ogni turno Topics fotografa la cartella del progetto su un ref git dedicato, " +
-          "invisibile a log e branch: /rewind in chat rimette i file com'erano, senza detached HEAD. " +
-          "Torna indietro l'albero, non la conversazione. Ne tiene gli ultimi 50 per chat."
-        }
+        label={tr('settings.turnCheckpoints.label')}
+        description={tr('settings.turnCheckpoints.blurb')}
         value={settings.turnCheckpointsEnabled === true}
         onChange={(v) => {
           void onSave({ turnCheckpointsEnabled: v }).catch(() => { /* the section renders the error */ });
         }}
       />
-      {saving && <div className="pb-1 text-[11px] text-app-text-muted">Salvataggio…</div>}
+      {saving && <div className="pb-1 text-[11px] text-app-text-muted">{tr('settings.turnCheckpoints.saving')}</div>}
     </div>
   );
 }
