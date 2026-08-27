@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.186",
+    "date": "2026-08-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Rimbalzavo i bounds del controller sugli STESSI valori: un setter cosi' e' libero di non fare niente",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.185",
     "date": "2026-08-27",
     "sections": {

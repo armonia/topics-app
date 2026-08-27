@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.186 — 2026-08-27
+
+### Sotto il cofano
+- Rimbalzavo i bounds del controller sugli STESSI valori: un setter cosi' e' libero di non fare niente
+
 ## 2.2.185 — 2026-08-27
 
 ### Sotto il cofano
