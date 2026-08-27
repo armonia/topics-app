@@ -126,6 +126,13 @@ docs/*
 # misura sul PC vero, prima e dopo. Una procedura che vive solo sulla macchina
 # di chi l'ha scritta non fa verificare la cura a nessun altro.
 !docs/windows-aggiornamento-sidecar.md
+# windows-scorciatoie-mappa.md e' l'INVENTARIO delle 34 voci del pannello
+# scorciatoie: dove ognuna e' gestita, cosa fa oggi su Windows, e a quale delle
+# tre cause note appartiene quando non fa niente. Le card figlie che provano i
+# tasti sul ferro partono da qui, e un turno precedente lo aveva gia' scritto:
+# non essendo in allowlist il file restava untracked e la consegna spariva col
+# worktree.
+!docs/windows-scorciatoie-mappa.md
 # board-vs-chat/ è il REGISTRO DELLE PROVE della barra `scripts/board-vs-chat.ts`:
 # `cases.json` è la matrice dei casi limite con l'output dei comandi eseguiti, e
 # lo script esce ROSSO se non la trova. Ignorata, su un checkout pulito il file
