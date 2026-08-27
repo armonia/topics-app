@@ -39,6 +39,8 @@ import {
   diff,
   REF_ACTIONS,
   ACT_ACTIONS,
+  isStaleRefError,
+  refAfterResnapshot,
   type Snapshot,
 } from '../../../../shared/browser-snapshot-core';
 import {
@@ -259,6 +261,30 @@ export async function executeNativeBrowserOp(
         } catch {
           actRes = { ok: false, error: 'native act: malformed result' };
         }
+        // THE REF IS GONE: same recovery as the server path (one shared rule in
+        // browser-snapshot-core). Re-snapshot here instead of telling the caller
+        // to observe: if the element is still on the page under another number,
+        // act there once; if it is not, the error carries the fresh listing, so
+        // the next call can be the action rather than an observe.
+        let actedRef = ref;
+        let staleNote = '';
+        if (!actRes.ok && isStaleRefError(actRes.error) && ref != null) {
+          const fresh = await takeSnapshot(id, invoke, 200);
+          const again = refAfterResnapshot(prevSnapshot.get(id), fresh, ref);
+          prevSnapshot.set(id, fresh);
+          if (again == null) {
+            return { error: `${actRes.error}\nFresh snapshot (already taken for you):\n${serialize(fresh)}` };
+          }
+          const retryJs = `JSON.stringify((${ACT_FN.toString()})(${JSON.stringify({ ...payload, ref: again })}))`;
+          const retryRaw = await invoke<string>('browser_eval_js', { id, js: retryJs, preserveFocus: true });
+          try {
+            actRes = JSON.parse(retryRaw || '{"ok":false}');
+          } catch {
+            actRes = { ok: false, error: 'native act: malformed result' };
+          }
+          actedRef = again;
+          staleNote = `(ref ${ref} was stale; re-snapshotted and acted on [${again}], same element.)`;
+        }
         if (!actRes.ok) return { error: actRes.error || `browser_act ${action} failed` };
 
         // Return what changed so the agent doesn't need a separate observe.
@@ -278,7 +304,8 @@ export async function executeNativeBrowserOp(
         // cause — fall back to streaming mode there. (Mutation/read ops only;
         // navigations and scrolls don't depend on trust.)
         const untrusted = action === 'scroll' ? undefined : true;
-        return { result: { ok: true, action, ref, snapshot, untrusted } };
+        if (staleNote) snapshot = snapshot ? `${staleNote}\n${snapshot}` : staleNote;
+        return { result: { ok: true, action, ref: actedRef, snapshot, untrusted } };
       }
       case 'browser_upload': {
         // The server (dispatcher.readUploadFile) already read + base64'd the file

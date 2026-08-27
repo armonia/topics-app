@@ -39,7 +39,14 @@ import {
 } from "./browser-login-state";
 // SHARED action set — the SAME source the native validator (tauriBrowserOps) uses,
 // so the two paths can never disagree on what browser_act accepts.
-import { REF_ACTIONS, ACT_ACTIONS, UPLOAD_FN, STATUS_JS } from "../shared/browser-snapshot-core";
+import {
+  REF_ACTIONS,
+  ACT_ACTIONS,
+  UPLOAD_FN,
+  STATUS_JS,
+  isStaleRefError,
+  refAfterResnapshot,
+} from "../shared/browser-snapshot-core";
 import { writeFile, mkdir, readdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { topicsHome } from "./services/daemon-state";
@@ -295,6 +302,8 @@ export async function handleBrowserAct(
   console.log(`[BrowserTools] browser_act(${contextId}, ref=${ref ?? "-"}, action=${action})`);
   const ops = await resolveOps(service, contextId);
   return withLock(service, contextId, async () => {
+    /** Set when a stale ref was followed to the number it now carries. */
+    let rerefedTo: number | undefined;
     // get_text reads — no mutation, no diff.
     if (action === "get_text") {
       const r = await ops.getText({ ref });
@@ -306,11 +315,29 @@ export async function handleBrowserAct(
     } else if (action === "press" && ref == null) {
       await ops.dispatchInput("keypress", { key: args.key ?? "Enter" });
     } else {
-      await ops.actByRef(ref as number, action as RefAction, {
-        text: args.text,
-        value: args.value,
-        key: args.key,
-      });
+      const payload = { text: args.text, value: args.value, key: args.key };
+      try {
+        await ops.actByRef(ref as number, action as RefAction, payload);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!isStaleRefError(msg)) throw err;
+        // THE REF IS GONE, so take the snapshot the caller was told to take.
+        // A ref is a position in a listing: a re-render renumbers, and the
+        // element aimed at is usually still there under another number. Two
+        // outcomes, both of which cost the caller nothing:
+        //   - it is followable (one element with the same identity): act there,
+        //     once, and say so in the result;
+        //   - it is not: the error CARRIES the fresh snapshot, so the next call
+        //     is the action again, not an observe to earn the right to retry.
+        const fresh = await ops.snapshot({ max: 200 });
+        const again = refAfterResnapshot(prevSnapshotCache.get(contextId), fresh, ref as number);
+        prevSnapshotCache.set(contextId, fresh);
+        if (again == null) {
+          throw new Error(`${msg}\nFresh snapshot (already taken for you):\n${serialize(fresh)}`);
+        }
+        await ops.actByRef(again, action as RefAction, payload);
+        rerefedTo = again;
+      }
     }
     // Let a click-triggered navigation / async re-render settle before we read
     // the result, so the diff reflects the RESULT rather than the pre-effect DOM
@@ -333,7 +360,11 @@ export async function handleBrowserAct(
     } catch {
       /* diff best-effort */
     }
-    return { ok: true as const, action, ref, snapshot };
+    if (rerefedTo != null) {
+      const note = `(ref ${ref} was stale; re-snapshotted and acted on [${rerefedTo}], same element.)`;
+      snapshot = snapshot ? `${note}\n${snapshot}` : note;
+    }
+    return { ok: true as const, action, ref: rerefedTo ?? ref, snapshot };
   });
 }
 

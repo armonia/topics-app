@@ -22,7 +22,7 @@ beforeEach(() => {
   __resetTaskTabNavigate();
   __resetTaskTabs();
   // The store persists through ui-state; nothing here is about the network.
-  globalThis.fetch = (async () => new Response('{}', { status: 200 })) as typeof fetch;
+  globalThis.fetch = (async () => new Response('{}', { status: 200 })) as unknown as typeof fetch;
 });
 afterEach(() => {
   globalThis.fetch = REAL_FETCH;
