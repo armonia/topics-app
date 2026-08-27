@@ -110,7 +110,7 @@ function git(args: string[], cwd = repo): string {
   return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
 }
 
-function righeIniziali(): string[] {
+function initialRows(): string[] {
   return Array.from({ length: 40 }, (_, i) => `riga ${i + 1}\n`);
 }
 
@@ -120,11 +120,11 @@ beforeEach(() => {
   git(["config", "user.email", "a@b.c"]);
   git(["config", "user.name", "t"]);
   git(["config", "commit.gpgsign", "false"]);
-  writeFileSync(join(repo, "f.txt"), righeIniziali().join(""));
+  writeFileSync(join(repo, "f.txt"), initialRows().join(""));
   git(["add", "-A", "--", "."]);
   git(["commit", "-qm", "primo"]);
 
-  const l = righeIniziali();
+  const l = initialRows();
   l[2] = "riga 3 MODIFICATA\n";
   l.splice(10, 0, "riga NUOVA A\n", "riga NUOVA B\n");
   l.splice(25, 2);

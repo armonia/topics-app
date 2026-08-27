@@ -277,9 +277,9 @@ test.describe("Sidebar — Unified Timeline", () => {
     await expect(page.getByRole("button", { name: "Vista per tipo" })).toHaveCount(0);
 
     // Timeline → per stato. L'etichetta dice il modo SUCCESSIVO.
-    const statoToggle = page.getByRole("button", { name: "Vista per stato" });
-    await expect(statoToggle).toBeVisible({ timeout: 5000 });
-    await statoToggle.click();
+    const stateToggle = page.getByRole("button", { name: "Vista per stato" });
+    await expect(stateToggle).toBeVisible({ timeout: 5000 });
+    await stateToggle.click();
 
     // Vista per stato: le sezioni sono gli STATI, mai i tipi.
     await expect(
@@ -908,9 +908,9 @@ test.describe("Sidebar — i due comandi in testa alla colonna", () => {
         // the question has no subject.
         if (!svg) return null;
         if (!kbd) return "senza-scorciatoia" as const;
-        const ariaGlifo = (svg.width * (1 - INK)) / 2;
+        const ariaGlyph = (svg.width * (1 - INK)) / 2;
         return {
-          sinistra: svg.x - b.x + ariaGlifo,
+          sinistra: svg.x - b.x + ariaGlyph,
           destra: b.x + b.width - (kbd.x + kbd.width),
         };
       };

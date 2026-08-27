@@ -22,7 +22,7 @@ hermetic(test);
 
 /** Il vecchio numero fisso di Git. Non è un valore atteso: è il valore da cui ci
  *  si deve essere staccati, e serve solo a rendere il rosso leggibile. */
-const VECCHIA_ALTEZZA_PROCESSI = 150;
+const OLD_HEIGHT_PROCESSES = 150;
 
 /* PERCHÉ IL SOGGETTO È «PROCESSI» E NON «GIT».
  *
@@ -148,8 +148,8 @@ test.describe("colonna di progetto: altezza delle sezioni aperte", () => {
 
     expect(
       g.height,
-      `Processi è alta ${g.height.toFixed(0)}px: se vale esattamente ${VECCHIA_ALTEZZA_PROCESSI} l'altezza è di nuovo quella fissa`,
-    ).not.toBe(VECCHIA_ALTEZZA_PROCESSI);
+      `Processi è alta ${g.height.toFixed(0)}px: se vale esattamente ${OLD_HEIGHT_PROCESSES} l'altezza è di nuovo quella fissa`,
+    ).not.toBe(OLD_HEIGHT_PROCESSES);
 
     expect(
       g.height,

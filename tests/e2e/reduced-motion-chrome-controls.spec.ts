@@ -132,18 +132,18 @@ async function misura(page: Page, punto: { x: number; y: number }): Promise<Misu
       .sort((a, b) => a.getBoundingClientRect().x - b.getBoundingClientRect().x)
       .map((e) => ({ cls: e.className, rect: r(e) }));
     const b = bar.getBoundingClientRect();
-    const sottoIlPunto = document.elementFromPoint(b.x + p.x, b.y + p.y);
+    const belowPoint = document.elementFromPoint(b.x + p.x, b.y + p.y);
     return {
       reduce: matchMedia("(prefers-reduced-motion: reduce)").matches,
       bar: r(bar),
       chrome: r(chrome),
       comandi,
       angolo: {
-        dentroLaBarra: !!sottoIlPunto && bar.contains(sottoIlPunto),
-        dentroUnComando: !!sottoIlPunto && !!sottoIlPunto.closest(".raised-control-overlay"),
+        dentroLaBarra: !!belowPoint && bar.contains(belowPoint),
+        dentroUnComando: !!belowPoint && !!belowPoint.closest(".raised-control-overlay"),
         // Chi risponde, per nome: quando il punto torna coperto il rosso deve
         // dire QUALE elemento se l'è preso, non solo che non era la barra.
-        chi: sottoIlPunto ? `${sottoIlPunto.tagName.toLowerCase()}.${sottoIlPunto.className}` : "(nessuno)",
+        chi: belowPoint ? `${belowPoint.tagName.toLowerCase()}.${belowPoint.className}` : "(nessuno)",
       },
     };
   }, punto);

@@ -336,7 +336,7 @@ export function StandaloneChatGroup({
   // prop `mobile`). Viene dalla STESSA lista da cui nascono le tab, così il
   // nome in cima e quello nella colonna non possono divergere: sono la stessa
   // stringa passata per due strade.
-  const titoloSuperficie = panes.find((p) => p.id === activePaneId)?.title ?? '';
+  const titleSurface = panes.find((p) => p.id === activePaneId)?.title ?? '';
 
   // Build tab notification badge map from context. Project tabs inherit their
   // children's badges via the central rollup (getProjectBadgeCount); other
@@ -349,12 +349,12 @@ export function StandaloneChatGroup({
     // di sopprimere il badge. Passare la sola `pane.id === activePaneId` faceva
     // scattare la scorciatoia di `getBadgeCount` (solo attenzione Claude, senza
     // unread) anche su una superficie che non hai davanti.
-    const gruppoAFuoco = !focusedPanelId || validatedOrderedIds.includes(focusedPanelId);
+    const groupFocused = !focusedPanelId || validatedOrderedIds.includes(focusedPanelId);
     for (const pane of panes) {
       const count =
         pane.type === 'project' && pane.projectPath
           ? getProjectBadgeCount(pane.projectPath)
-          : getBadgeCount(pane.id, pane.topicId, pane.id === activePaneId && gruppoAFuoco);
+          : getBadgeCount(pane.id, pane.topicId, pane.id === activePaneId && groupFocused);
       if (count > 0) map.set(pane.id, count);
     }
     return map;
@@ -824,7 +824,7 @@ export function StandaloneChatGroup({
               data-testid="mobile-pane-title"
               className={`flex-1 flex items-center min-w-0 overflow-hidden ${onToggleSidebar ? CHROME_ROW_ACTION_RESERVE_LEFT : 'pl-1.5'}`}
             >
-              <span className={`truncate ${TAB_LABEL}`}>{titoloSuperficie}</span>
+              <span className={`truncate ${TAB_LABEL}`}>{titleSurface}</span>
             </div>
           ) : (
             <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag" {...NO_DRAG_REGION}>{tabBar}</div>

@@ -39,7 +39,7 @@ const CHIAVE = (() => {
 const IID = "aaaaaaaaaaaaaaaaaaaaaaaa";
 const ORA = 1_760_000_000_000;
 const FINE_PERIODO_S = Math.floor(ORA / 1000) + 30 * 86_400;
-const SCADENZA_ATTESA = FINE_PERIODO_S * 1000 + GRAZIA_MS;
+const EXPIRY_WAIT = FINE_PERIODO_S * 1000 + GRAZIA_MS;
 const SEGRETO = "whsec_prova";
 
 function abbonamento(extra: Record<string, unknown> = {}, meta: Record<string, unknown> = {}) {
@@ -69,7 +69,7 @@ describe("conio · quando si conia", () => {
       subscriptionId: "sub_123",
       installationId: IID,
       posti: 5,
-      scadenza: SCADENZA_ATTESA,
+      scadenza: EXPIRY_WAIT,
     });
   });
 
@@ -104,7 +104,7 @@ describe("conio · quando si conia", () => {
     });
     const d = decidiConio(evento("customer.subscription.updated", sub));
     if (d.tipo !== "conia") throw new Error("doveva coniare");
-    expect(d.scadenza).toBe(SCADENZA_ATTESA);
+    expect(d.scadenza).toBe(EXPIRY_WAIT);
   });
 
   it("`trialing` conia: la prova è servizio concesso, e senza gettone non c'è", () => {
@@ -124,7 +124,7 @@ describe("conio · lo stop al ciclo", () => {
   // servizio scrive, si risveglia, riscrive, per sempre.
   it("l'evento generato dalla nostra stessa scrittura non fa coniare di nuovo", () => {
     const gettone = coniaGettone({
-      installationId: IID, posti: 5, scadenza: SCADENZA_ATTESA, adesso: ORA, chiave: CHIAVE,
+      installationId: IID, posti: 5, scadenza: EXPIRY_WAIT, adesso: ORA, chiave: CHIAVE,
     });
     const d = decidiConio(evento("customer.subscription.updated",
       abbonamento({}, { license_token: gettone })));
@@ -142,7 +142,7 @@ describe("conio · lo stop al ciclo", () => {
 
   it("e se cambiano i posti sì: chi compra tre postazioni in più le vuole adesso", () => {
     const vecchio = coniaGettone({
-      installationId: IID, posti: 5, scadenza: SCADENZA_ATTESA, adesso: ORA, chiave: CHIAVE,
+      installationId: IID, posti: 5, scadenza: EXPIRY_WAIT, adesso: ORA, chiave: CHIAVE,
     });
     const d = decidiConio(evento("customer.subscription.updated",
       abbonamento({ items: { data: [{ quantity: 8 }] } }, { license_token: vecchio })));
@@ -152,7 +152,7 @@ describe("conio · lo stop al ciclo", () => {
 
   it("un gettone di UN'ALTRA installazione nei metadati non conta come già coniato", () => {
     const altrui = coniaGettone({
-      installationId: "bbbbbbbbbbbbbbbbbbbbbbbb", posti: 5, scadenza: SCADENZA_ATTESA,
+      installationId: "bbbbbbbbbbbbbbbbbbbbbbbb", posti: 5, scadenza: EXPIRY_WAIT,
       adesso: ORA, chiave: CHIAVE,
     });
     const d = decidiConio(evento("customer.subscription.updated",
@@ -162,7 +162,7 @@ describe("conio · lo stop al ciclo", () => {
 
   it("dopo una rotazione di chiave si riconia, anche se il vecchio gettone è ancora buono", () => {
     const vecchio = coniaGettone({
-      installationId: IID, posti: 5, scadenza: SCADENZA_ATTESA, adesso: ORA,
+      installationId: IID, posti: 5, scadenza: EXPIRY_WAIT, adesso: ORA,
       chiave: CHIAVE, kid: "armonia-1",
     });
     const d = decidiConio(evento("customer.subscription.updated",
@@ -179,7 +179,7 @@ describe("conio · lo stop al ciclo", () => {
   it("la tolleranza è un giorno, non un istante: un secondo di deriva non fa riscrivere", () => {
     const gettone = coniaGettone({
       installationId: IID, posti: 5,
-      scadenza: SCADENZA_ATTESA - TOLLERANZA_SCADENZA_MS + 1_000,
+      scadenza: EXPIRY_WAIT - TOLLERANZA_SCADENZA_MS + 1_000,
       adesso: ORA, chiave: CHIAVE,
     });
     const d = decidiConio(evento("customer.subscription.updated",
@@ -261,7 +261,7 @@ describe("conio · il gettone che esce vale davvero", () => {
 
   it("lo stesso gettone su un'ALTRA macchina non concede niente", () => {
     const g = coniaGettone({
-      installationId: IID, posti: 5, scadenza: SCADENZA_ATTESA, adesso: ORA,
+      installationId: IID, posti: 5, scadenza: EXPIRY_WAIT, adesso: ORA,
       chiave: CHIAVE, kid: "armonia-prova",
     });
     const e = verificaGettone(g, { chiavi, installationId: "cccccccccccccccccccccccc", ora: ORA });
@@ -270,10 +270,10 @@ describe("conio · il gettone che esce vale davvero", () => {
 
   it("`leggiCaricoNonVerificato` legge ciò che abbiamo firmato (è la base dello stop al ciclo)", () => {
     const g = coniaGettone({
-      installationId: IID, posti: 5, scadenza: SCADENZA_ATTESA, adesso: ORA, chiave: CHIAVE,
+      installationId: IID, posti: 5, scadenza: EXPIRY_WAIT, adesso: ORA, chiave: CHIAVE,
     });
     expect(leggiCaricoNonVerificato(g)).toEqual({
-      iid: IID, seats: 5, exp: SCADENZA_ATTESA, kid: "armonia-1",
+      iid: IID, seats: 5, exp: EXPIRY_WAIT, kid: "armonia-1",
     });
   });
 });
@@ -282,7 +282,7 @@ describe("conio · il gettone che esce vale davvero", () => {
 // Il gestore HTTP: firma, risposte, e la scrittura su Stripe
 // ─────────────────────────────────────────────────────────────────────────────
 
-function richiestaFirmata(corpo: unknown, segreto = SEGRETO, ora = ORA): Request {
+function signedRequest(corpo: unknown, segreto = SEGRETO, ora = ORA): Request {
   const testo = JSON.stringify(corpo);
   const t = Math.floor(ora / 1000);
   const v1 = createHmac("sha256", segreto).update(`${t}.${testo}`, "utf8").digest("hex");
@@ -293,7 +293,7 @@ function richiestaFirmata(corpo: unknown, segreto = SEGRETO, ora = ORA): Request
   });
 }
 
-const CONFIG_PIENA = () => leggiConfigConio({
+const FULL_CONFIG = () => leggiConfigConio({
   TOPICS_LICENSE_PRIVKEY: PRIV_B64,
   CONIO_WEBHOOK_SECRET: SEGRETO,
   STRIPE_SECRET_KEY: "sk_prova",
@@ -313,10 +313,10 @@ describe("conio · il gestore del webhook", () => {
       return new Response("{}", { status: 200 });
     };
     const g = creaGestoreConio({
-      config: CONFIG_PIENA, now: () => ORA, fetchImpl: finto, log: () => {},
+      config: FULL_CONFIG, now: () => ORA, fetchImpl: finto, log: () => {},
     });
 
-    const r = await g(richiestaFirmata(evento("customer.subscription.created", abbonamento())));
+    const r = await g(signedRequest(evento("customer.subscription.created", abbonamento())));
     expect(r.status).toBe(200);
     expect(await r.json()).toMatchObject({ minted: true, seats: 5 });
 
@@ -339,20 +339,20 @@ describe("conio · il gestore del webhook", () => {
   it("scrive SOLO `license_token`: `installation_id` non si tocca", async () => {
     let corpo = "";
     const g = creaGestoreConio({
-      config: CONFIG_PIENA, now: () => ORA, log: () => {},
+      config: FULL_CONFIG, now: () => ORA, log: () => {},
       fetchImpl: async (_u, init) => { corpo = String(init?.body ?? ""); return new Response("{}"); },
     });
-    await g(richiestaFirmata(evento("customer.subscription.created", abbonamento())));
+    await g(signedRequest(evento("customer.subscription.created", abbonamento())));
     expect([...new URLSearchParams(corpo).keys()]).toEqual(["metadata[license_token]"]);
   });
 
   it("una firma sbagliata è `400` e NON tocca Stripe", async () => {
     let toccato = false;
     const g = creaGestoreConio({
-      config: CONFIG_PIENA, now: () => ORA, log: () => {},
+      config: FULL_CONFIG, now: () => ORA, log: () => {},
       fetchImpl: async () => { toccato = true; return new Response("{}"); },
     });
-    const r = await g(richiestaFirmata(evento("customer.subscription.created", abbonamento()), "whsec_altro"));
+    const r = await g(signedRequest(evento("customer.subscription.created", abbonamento()), "whsec_altro"));
     expect(r.status).toBe(400);
     expect(toccato).toBe(false);
   });
@@ -362,7 +362,7 @@ describe("conio · il gestore del webhook", () => {
       config: () => leggiConfigConio({ TOPICS_LICENSE_PRIVKEY: PRIV_B64 }),
       now: () => ORA, log: () => {},
     });
-    const r = await g(richiestaFirmata(evento("customer.subscription.created", abbonamento())));
+    const r = await g(signedRequest(evento("customer.subscription.created", abbonamento())));
     expect(r.status).toBe(503);
   });
 
@@ -374,27 +374,27 @@ describe("conio · il gestore del webhook", () => {
       }),
       now: () => ORA, log: (r) => righe.push(r),
     });
-    const r = await g(richiestaFirmata(evento("customer.subscription.created", abbonamento())));
+    const r = await g(signedRequest(evento("customer.subscription.created", abbonamento())));
     expect(r.status).toBe(503);
     expect(righe.join("\n")).toContain("ALLARME");
   });
 
   it("Stripe che rifiuta la scrittura è `500`: quello va ritentato", async () => {
     const g = creaGestoreConio({
-      config: CONFIG_PIENA, now: () => ORA, log: () => {},
+      config: FULL_CONFIG, now: () => ORA, log: () => {},
       fetchImpl: async () => new Response("no", { status: 402 }),
     });
-    const r = await g(richiestaFirmata(evento("customer.subscription.created", abbonamento())));
+    const r = await g(signedRequest(evento("customer.subscription.created", abbonamento())));
     expect(r.status).toBe(500);
   });
 
   it("un evento che non ci riguarda è `200` e non chiama nessuno", async () => {
     let toccato = false;
     const g = creaGestoreConio({
-      config: CONFIG_PIENA, now: () => ORA, log: () => {},
+      config: FULL_CONFIG, now: () => ORA, log: () => {},
       fetchImpl: async () => { toccato = true; return new Response("{}"); },
     });
-    const r = await g(richiestaFirmata(evento("invoice.paid", { id: "in_1" })));
+    const r = await g(signedRequest(evento("invoice.paid", { id: "in_1" })));
     expect(r.status).toBe(200);
     expect(await r.json()).toMatchObject({ minted: false, reason: "unhandled_type" });
     expect(toccato).toBe(false);
@@ -404,20 +404,20 @@ describe("conio · il gestore del webhook", () => {
     const righe: string[] = [];
     let scritto = "";
     const g = creaGestoreConio({
-      config: CONFIG_PIENA, now: () => ORA, log: (r) => righe.push(r),
+      config: FULL_CONFIG, now: () => ORA, log: (r) => righe.push(r),
       fetchImpl: async (_u, init) => {
         scritto = new URLSearchParams(String(init?.body ?? "")).get("metadata[license_token]") ?? "";
         return new Response("{}");
       },
     });
-    await g(richiestaFirmata(evento("customer.subscription.created", abbonamento())));
+    await g(signedRequest(evento("customer.subscription.created", abbonamento())));
     expect(scritto.length).toBeGreaterThan(50);
     expect(righe.join("\n")).not.toContain(scritto);
     expect(righe.join("\n")).toContain(IID);
   });
 
   it("una GET non è un webhook", async () => {
-    const g = creaGestoreConio({ config: CONFIG_PIENA, now: () => ORA, log: () => {} });
+    const g = creaGestoreConio({ config: FULL_CONFIG, now: () => ORA, log: () => {} });
     const r = await g(new Request("http://127.0.0.1/webhook"));
     expect(r.status).toBe(405);
   });

@@ -486,7 +486,7 @@ describe("uscita da done: la traccia sulla card e chi può riaprirla", () => {
   // ───────────────────────────────────────────────────────────────────────────
 
   /** Una card in review con una consegna registrata: lo stato di `d6baaf5e`. */
-  function inReviewConConsegna(text: string): string {
+  function inReviewWithDelivery(text: string): string {
     const t = s.create({ projectId: PID, text, status: "in_progress" });
     s.addComment({ taskId: t.id, author: "claude", content: "consegnato" });
     s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
@@ -497,7 +497,7 @@ describe("uscita da done: la traccia sulla card e chi può riaprirla", () => {
   test.each(["in_progress", "todo", "backlog"] as const)(
     "trascinata da review a %s: è una riapertura umana, e la consegna vecchia non la segue",
     (destinazione: "in_progress" | "todo" | "backlog") => {
-      const id = inReviewConConsegna(`review → ${destinazione}`);
+      const id = inReviewWithDelivery(`review → ${destinazione}`);
       expect(s.get(id)!.task.deliveryCommit).not.toBeNull();
 
       s.update({ taskId: id, actor: "human", by: "umano", patch: { status: destinazione } });
@@ -512,7 +512,7 @@ describe("uscita da done: la traccia sulla card e chi può riaprirla", () => {
   );
 
   test("il rifiuto in review lascia lo stesso segno: è la quarta uscita umana", () => {
-    const id = inReviewConConsegna("rifiutata");
+    const id = inReviewWithDelivery("rifiutata");
     // Un commento umano su una card in review arriva qui come reject-con-testo
     // (routes/tasks.ts): è LA porta da cui si è passati alle 18:25.
     const rejected = s.reviewDecision({ taskId: id, by: "umano", decision: "reject", comment: "cambia rotta" });
@@ -541,7 +541,7 @@ describe("uscita da done: la traccia sulla card e chi può riaprirla", () => {
   });
 
   test("consegnare di nuovo chiude il ciclo: rientrare in review spegne il segno", () => {
-    const id = inReviewConConsegna("riconsegnata");
+    const id = inReviewWithDelivery("riconsegnata");
     s.update({ taskId: id, actor: "human", by: "umano", patch: { status: "in_progress" } });
     expect(s.get(id)!.task.reopenedActor).toBe("human");
 
@@ -559,7 +559,7 @@ describe("uscita da done: la traccia sulla card e chi può riaprirla", () => {
     // proprio per riconoscere il lavoro già atterrato quando una card rientra da
     // sola (orfana rilasciata). Cancellarle il commit sotto le mani la
     // spegnerebbe su tutte le strade della macchina.
-    const id = inReviewConConsegna("orfana rilasciata");
+    const id = inReviewWithDelivery("orfana rilasciata");
     s.release({ taskId: id, requeue: true, reason: "server ripartito", by: "dispatcher" });
     const after = s.get(id)!.task;
     expect(after.status).toBe("todo");

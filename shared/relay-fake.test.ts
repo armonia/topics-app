@@ -23,7 +23,7 @@ function capo() {
   return { ricevuti, invia: (m: MessaggioRelay) => { ricevuti.push(m); } };
 }
 
-function scenaCollegata() {
+function connectedScene() {
   const relay = creaRelayFinto();
   const mac = capo();
   const host = relay.collegaMacchina(mac.invia);
@@ -38,7 +38,7 @@ function scenaCollegata() {
 
 describe("relay finto · il giro completo", () => {
   it("la macchina si registra e l'ospite si collega", () => {
-    const { mac, tel } = scenaCollegata();
+    const { mac, tel } = connectedScene();
     expect(mac.ricevuti[0]).toEqual({ t: "ready", v: 1 });
     expect(tel.ricevuti[0]).toMatchObject({ t: "ready", v: 1 });
     // La macchina viene avvisata: deve sapere che c'è qualcuno, o manderebbe
@@ -47,7 +47,7 @@ describe("relay finto · il giro completo", () => {
   });
 
   it("una busta arriva dall'ospite alla macchina, e ritorno", () => {
-    const { mac, tel, guest, host } = scenaCollegata();
+    const { mac, tel, guest, host } = connectedScene();
     const sid = (tel.ricevuti[0] as { sessionId: string }).sessionId;
 
     guest.ricevi({ t: "to-host", payload: "CIFRATO-A" });
@@ -60,7 +60,7 @@ describe("relay finto · il giro completo", () => {
   it("il relay NON ha visto i contenuti", () => {
     // La prova che regge la promessa commerciale. Il relay registra cosa è
     // passato, e in quel registro i payload non ci sono.
-    const { relay, guest, host, tel } = scenaCollegata();
+    const { relay, guest, host, tel } = connectedScene();
     const sid = (tel.ricevuti[0] as { sessionId: string }).sessionId;
     guest.ricevi({ t: "to-host", payload: "SEGRETO-DELL-OSPITE" });
     host.ricevi({ t: "to-guest", to: sid, payload: "SEGRETO-DELLA-MACCHINA" });
@@ -84,13 +84,13 @@ describe("relay finto · la macchina spenta", () => {
   });
 
   it("se la macchina se ne va, gli ospiti collegati lo sanno", () => {
-    const { host, tel } = scenaCollegata();
+    const { host, tel } = connectedScene();
     host.scollega();
     expect(tel.ricevuti.at(-1)).toEqual({ t: "denied", motivo: "host-offline" });
   });
 
   it("e se se ne va l'ospite, lo sa la macchina", () => {
-    const { mac, guest } = scenaCollegata();
+    const { mac, guest } = connectedScene();
     guest.scollega();
     expect(mac.ricevuti.at(-1)).toMatchObject({ t: "guest-left" });
   });
@@ -98,7 +98,7 @@ describe("relay finto · la macchina spenta", () => {
 
 describe("relay finto · il canale di un DISPOSITIVO appaiato", () => {
   /** Una macchina collegata e un dispositivo agganciato dall'altra rete. */
-  function scenaDispositivo() {
+  function sceneDevice() {
     const relay = creaRelayFinto();
     const mac = capo();
     const host = relay.collegaMacchina(mac.invia);
@@ -113,7 +113,7 @@ describe("relay finto · il canale di un DISPOSITIVO appaiato", () => {
     // Non è un link: un dispositivo non ha una capacità su UNA risorsa, ha
     // l'installazione intera davanti — e chi decide cosa può vedere è
     // l'ascoltatore dedicato, non il relay.
-    const { mac, dev, disp } = scenaDispositivo();
+    const { mac, dev, disp } = sceneDevice();
     const sid = disp.sessionId() ?? "";
     expect(sid).toBeTruthy();
     expect(dev.ricevuti[0]).toEqual({ t: "ready", v: 1, sessionId: sid });
@@ -121,7 +121,7 @@ describe("relay finto · il canale di un DISPOSITIVO appaiato", () => {
   });
 
   it("le buste vanno e tornano, col mittente attaccato dal relay", () => {
-    const { mac, dev, host, disp } = scenaDispositivo();
+    const { mac, dev, host, disp } = sceneDevice();
     const sid = disp.sessionId()!;
 
     disp.ricevi({ t: "to-host", payload: "FRAME-DEL-TUBO" });
@@ -132,7 +132,7 @@ describe("relay finto · il canale di un DISPOSITIVO appaiato", () => {
   });
 
   it("il relay non ha visto passare i contenuti nemmeno qui", () => {
-    const { relay, host, disp } = scenaDispositivo();
+    const { relay, host, disp } = sceneDevice();
     const sid = disp.sessionId()!;
     disp.ricevi({ t: "to-host", payload: "SEGRETO-DEL-DISPOSITIVO" });
     host.ricevi({ t: "to-guest", to: sid, payload: "SEGRETO-DELLA-MACCHINA" });
@@ -155,14 +155,14 @@ describe("relay finto · il canale di un DISPOSITIVO appaiato", () => {
   });
 
   it("quando se ne va, la macchina lo sa ed è un DISPOSITIVO che se n'è andato", () => {
-    const { mac, disp } = scenaDispositivo();
+    const { mac, disp } = sceneDevice();
     const sid = disp.sessionId() ?? "";
     disp.scollega();
     expect(mac.ricevuti.at(-1)).toEqual({ t: "guest-left", sessionId: sid, ruolo: "device" });
   });
 
   it("un ospite di link resta un ospite: i due ruoli non si confondono", () => {
-    const { relay, mac } = scenaDispositivo();
+    const { relay, mac } = sceneDevice();
     const tel = capo();
     relay.collegaOspite(tel.invia).ricevi({ t: "guest-open", v: 1, installationId: "i1", shareRef: "r1" });
     expect(mac.ricevuti.at(-1)).toMatchObject({ ruolo: "guest" });
@@ -173,7 +173,7 @@ describe("relay finto · non ci si spaccia per altri", () => {
   it("un ospite non può scegliersi la sessione da cui dice di venire", () => {
     // È il relay ad attaccare `to` alla busta. Se lo facesse l'ospite,
     // potrebbe attribuirsi la sessione di un altro.
-    const { mac, guest, tel } = scenaCollegata();
+    const { mac, guest, tel } = connectedScene();
     const sid = (tel.ricevuti[0] as { sessionId: string }).sessionId;
     guest.ricevi({ t: "to-host", payload: "x" });
     expect((mac.ricevuti.at(-1) as { to: string }).to).toBe(sid);
@@ -224,7 +224,7 @@ describe("relay finto · non ci si spaccia per altri", () => {
  * Il relay resta quello di sempre e non impara niente: le buste interne
  * viaggiano dentro `payload`, che per lui è una stringa sola.
  */
-function scenaTubo(max?: number) {
+function scenePipe(max?: number) {
   const relay = creaRelayFinto();
   /** Ogni busta ESTERNA consegnata da un capo all'altro. Serve a dimostrare
    *  cosa ha potuto vedere chi instrada. */
@@ -264,7 +264,7 @@ const finiti = (e: EsitoTubo[]) => e.filter((x) => x.esito === "completo");
 
 describe("tubo sul relay · il giro completo", () => {
   it("una richiesta va e la risposta torna, sulla stessa sessione", () => {
-    const s = scenaTubo();
+    const s = scenePipe();
     const chiesto = s.tuboGuest.manda("req", '{"path":"/api/topics"}', "GET");
     expect(finiti(s.allaMacchina)).toMatchObject([{ k: "req", h: "GET", dati: '{"path":"/api/topics"}' }]);
 
@@ -275,7 +275,7 @@ describe("tubo sul relay · il giro completo", () => {
   it("CINQUE stream vivono insieme su una sessione sola, e non si mescolano", () => {
     // È il difetto che questo strato ripara: prima una sessione era uno stream,
     // quindi la richiesta lunga metteva in coda tutte le altre.
-    const s = scenaTubo();
+    const s = scenePipe();
     const numeri = [1, 2, 3, 4, 5].map((i) => s.tuboGuest.manda("req", `corpo-${i}`, `h-${i}`));
     expect(new Set(numeri).size).toBe(5);
 
@@ -288,7 +288,7 @@ describe("tubo sul relay · il giro completo", () => {
 
   it("due stream INTRECCIATI sul filo si rimettono insieme lo stesso", () => {
     // Non è teoria: due risposte lunghe che scorrono insieme è il caso normale.
-    const s = scenaTubo();
+    const s = scenePipe();
     const coda: string[] = [];
     const rinviato = creaCapoTubo({ lato: "guest", max: 8, invia: (p) => coda.push(p) });
     const a = rinviato.manda("req", "AAAAAAAAAAAAAAAAAAAAAAAA", "A");
@@ -318,7 +318,7 @@ describe("tubo sul relay · il giro completo", () => {
     // rimette insieme, un carattere a metà no. È il guasto che si scopre mesi
     // dopo su una lingua che nessuno aveva provato.
     const testo = "日本語 ààà 🙂🙂";
-    const s = scenaTubo(2);
+    const s = scenePipe(2);
     s.tuboGuest.manda("req", testo);
 
     const arrivati = finiti(s.allaMacchina);
@@ -333,7 +333,7 @@ describe("tubo sul relay · il giro completo", () => {
   it("un blob più grosso di un frame passa spezzato e arriva identico", () => {
     // I binari il Durable Object li scarta, quindi i byte vanno in base64 dentro
     // JSON — e nessun frame deve avvicinarsi al tetto di 32 MiB.
-    const s = scenaTubo(64);
+    const s = scenePipe(64);
     const b = new Uint8Array(1500);
     for (let i = 0; i < b.length; i++) b[i] = (i * 13) & 0xff;
     s.tuboGuest.manda("blob", b);
@@ -351,7 +351,7 @@ describe("tubo sul relay · il giro completo", () => {
 
 describe("tubo sul relay · il relay continua a non capire", () => {
   it("nel registro del relay non c'è traccia di stream né di contenuti", () => {
-    const s = scenaTubo(32);
+    const s = scenePipe(32);
     s.tuboGuest.manda("req", "CONTENUTO-RISERVATO", "intestazione-riservata");
     s.tuboHost.manda("res", "RISPOSTA-RISERVATA");
 
@@ -377,7 +377,7 @@ describe("tubo sul relay · il relay continua a non capire", () => {
   it("l'involucro delle buste passate non nomina nessuno stream", () => {
     // `involucro()` è la dichiarazione di cosa il relay può leggere. Se un
     // domani lo `streamId` salisse lì «tanto serve per il log», questo cade.
-    const s = scenaTubo(32);
+    const s = scenePipe(32);
     s.tuboGuest.manda("req", "x".repeat(200), "h-riservata");
     const buste = s.esterne.filter((m) => m.t === "to-guest" || m.t === "to-host");
     expect(buste.length).toBeGreaterThan(5);
@@ -396,7 +396,7 @@ describe("tubo sul relay · il relay continua a non capire", () => {
 
 describe("tubo sul relay · un capo storto non porta giù gli altri", () => {
   it("un payload che non è un frame è un errore di UNO stream", () => {
-    const s = scenaTubo();
+    const s = scenePipe();
     s.guest.ricevi({ t: "to-host", payload: "{non-un-frame" });
     expect(s.allaMacchina.at(-1)).toMatchObject({ esito: "errore", motivo: "bad-frame" });
     // E dopo, il tubo funziona ancora: uno storto non avvelena il canale.
@@ -405,7 +405,7 @@ describe("tubo sul relay · un capo storto non porta giù gli altri", () => {
   });
 
   it("chi rinuncia lo dice, e l'altro capo lo sa", () => {
-    const s = scenaTubo(16);
+    const s = scenePipe(16);
     const n = s.tuboGuest.manda("req", "x".repeat(100));
     expect(finiti(s.allaMacchina).length).toBe(1);
     s.tuboGuest.annulla(n);
@@ -419,7 +419,7 @@ describe("tubo sul relay · un capo storto non porta giù gli altri", () => {
     // già visti dalla macchina, la PRIMA richiesta dell'ospite morirebbe, e con
     // lei tutte quelle sotto: un rifiuto che si porta via il canale invece di
     // morire su uno stream solo.
-    const s = scenaTubo(16);
+    const s = scenePipe(16);
     s.tuboHost.manda("res", "primo");
     const lunga = s.tuboHost.manda("res", "x".repeat(200));
     expect(lunga).toBeGreaterThan(1); // davvero un numero della corsia della macchina
@@ -465,13 +465,13 @@ describe("l'ospite dei WebSocket · chiudere restituisce il canale", () => {
     // viaggia, e intanto l'ospite ha già aperto altri socket. Se per liberare
     // il canale aspettasse la risposta, basterebbe una raffica di aperture e
     // chiusure per esaurirgli il tetto senza che nessuno abbia sbagliato.
-    let prossimoHost = 0;
+    let nextHost = 0;
     const ospite = creaOspiteWs({
       invia: (p) => {
         const fr = leggiFramePayload(p);
         if (!fr || fr.f !== "open" || fr.k !== GENERE_WS) return;
-        const sOut = prossimoHost;
-        prossimoHost += 2;
+        const sOut = nextHost;
+        nextHost += 2;
         ospite.ricevi(scriviFrame({
           f: "open", s: sOut, n: 0, k: GENERE_WS_APERTO,
           h: scriviTestaWs({ re: fr.s, s: WS_APERTO }), c: true,

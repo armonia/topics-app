@@ -94,7 +94,7 @@ test.describe("Un turno in volo è UNA bolla sola", () => {
     return (frame: Record<string, unknown>) => inject!(JSON.stringify({ sessionKey, topicId, ...frame }));
   }
 
-  const rigaUtente = {
+  const rowUser = {
     id: "u-inflight-1",
     role: "user",
     content: "che fine ha fatto la pratica?",
@@ -104,7 +104,7 @@ test.describe("Un turno in volo è UNA bolla sola", () => {
   test("il segnaposto porta l'id che il server ha annunciato", async ({ page, chatPage }) => {
 
     test.info().annotations.push({ type: "spec", description: "CHAT-BUBBLE-01" });
-    const send = await apri(page, chatPage, () => ({ messages: [rigaUtente] }));
+    const send = await apri(page, chatPage, () => ({ messages: [rowUser] }));
     send({ type: "stream:start", messageId: DURABLE });
     send({ type: "stream:content_chunk", content: TESTO });
 
@@ -116,27 +116,27 @@ test.describe("Un turno in volo è UNA bolla sola", () => {
   });
 
   test("un ricarico della storia a metà turno non raddoppia la risposta", async ({ page, chatPage }) => {
-    let turnoAperto = false;
+    let openTurn = false;
     const send = await apri(page, chatPage, () =>
-      turnoAperto
+      openTurn
         ? {
             // Esattamente ciò che `routes/history.ts` restituisce a stream
             // attivo: il parziale NON si filtra e il testo vivo ci viene
             // sovrapposto.
             messages: [
-              rigaUtente,
+              rowUser,
               { id: DURABLE, role: "assistant", content: TESTO, timestamp: new Date().toISOString(), partial: true },
             ],
             isStreaming: true,
           }
-        : { messages: [rigaUtente] },
+        : { messages: [rowUser] },
     );
 
     send({ type: "stream:start", messageId: DURABLE });
     send({ type: "stream:content_chunk", content: TESTO });
     const assistenti = page.locator('[data-testid="chat-message"][data-role="assistant"]');
     await expect(assistenti).toHaveCount(1, { timeout: 10_000 });
-    turnoAperto = true;
+    openTurn = true;
 
     // La rilettura fuori banda: `topic:updated` su una pane aperta la scatena
     // (con 400 ms di anti-rimbalzo). Si aspetta il tetto di `loadHistory`, o la

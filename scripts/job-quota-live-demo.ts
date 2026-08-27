@@ -89,7 +89,7 @@ const cargo = join(quotaChannelDir(SESSIONE), "bin", "cargo");
 const compila = () => execFileSync(cargo, ["build"], { env: AMBIENTE, encoding: "utf8" }).trim();
 
 const atteso4 = computeJobQuota({ cores: CORES, cap: 4, weight: null, peers: 4 });
-const attesoSolo = Math.max(1, CORES - 1);
+const expectedOnly = Math.max(1, CORES - 1);
 const atteso6 = computeJobQuota({ cores: CORES, cap: 4, weight: null, peers: 6 });
 
 const prove: Array<{ nome: string; atteso: number; letto: number }> = [];
@@ -105,7 +105,7 @@ const scritti = refreshLiveJobQuotas(db);
 riga(`giro del dispatcher (ogni 10s in produzione): ${scritti} file riscritto → quota ${readLiveQuota(SESSIONE)}`, "atto");
 
 riga(`cargo build  (ambiente ANCORA congelato: CARGO_BUILD_JOBS=${congelato})`, "atto");
-prove.push({ nome: "rimasto solo", atteso: attesoSolo, letto: Number(compila()) });
+prove.push({ nome: "rimasto solo", atteso: expectedOnly, letto: Number(compila()) });
 riga(`  → -j${prove[1]!.letto}  ·  da solo su ${CORES} core, meno quello dell'umano`, "misura");
 
 // ---- E si richiude: arrivano in cinque.

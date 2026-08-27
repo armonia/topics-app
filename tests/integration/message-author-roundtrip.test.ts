@@ -112,13 +112,13 @@ describe("l'autore entra anche dalla porta dell'edit", () => {
     return { ctx, personId, router };
   }
 
-  const autoreDi = (ctx: AppContext, id: string) =>
+  const authorOf = (ctx: AppContext, id: string) =>
     (ctx.db as never as { query: (q: string) => { get: (a: string) => unknown } })
       .query("SELECT author_person_id AS p, author_device_id AS d FROM messages WHERE id = ?")
       .get(id) as { p: string | null; d: string | null };
 
   /** L'ultimo messaggio utente della sessione che NON è quello di partenza. */
-  const nuovoUtente = (ctx: AppContext, sk: string, escluso: string) =>
+  const newUser = (ctx: AppContext, sk: string, escluso: string) =>
     (ctx.db as never as { query: (q: string) => { get: (...a: string[]) => unknown } })
       .query("SELECT id FROM messages WHERE session_key = ? AND role = 'user' AND id != ? ORDER BY sort_order DESC LIMIT 1")
       .get(sk, escluso) as { id: string } | undefined;
@@ -140,9 +140,9 @@ describe("l'autore entra anche dalla porta dell'edit", () => {
 
     await edita(router, "er-u1");
 
-    const nuova = nuovoUtente(ctx, sk, "er-u1");
+    const nuova = newUser(ctx, sk, "er-u1");
     expect(nuova, "l'edit deve aver creato un fratello").toBeTruthy();
-    expect(autoreDi(ctx, nuova!.id)).toEqual({ p: personId, d: "dev-mircea" });
+    expect(authorOf(ctx, nuova!.id)).toEqual({ p: personId, d: "dev-mircea" });
   });
 
   test("il fratello sotto lo stesso padre pure", async () => {
@@ -162,6 +162,6 @@ describe("l'autore entra anche dalla porta dell'edit", () => {
       .get("es-a1") as { id: string } | undefined;
     expect(nuova?.id).toBeTruthy();
     expect(nuova!.id).not.toBe("es-u2");
-    expect(autoreDi(ctx, nuova!.id)).toEqual({ p: personId, d: "dev-mircea" });
+    expect(authorOf(ctx, nuova!.id)).toEqual({ p: personId, d: "dev-mircea" });
   });
 });

@@ -260,12 +260,12 @@ describe("own-commits — il runner iniettato", () => {
 
   test("le due liste: `--not` solo se c'è da sottrarre, e una `rev-list` sola quando non c'è", async () => {
     calls.length = 0;
-    const conAltri = await splitAheadCommits("/repo", "mio", { runGit: run, others: ["refs/heads/altro"] });
+    const withOther = await splitAheadCommits("/repo", "mio", { runGit: run, others: ["refs/heads/altro"] });
     expect(calls.map((c) => c.join(" "))).toEqual([
       `rev-list ${SENZA_RESIDUI.join(" ")} refs/heads/main..refs/heads/mio`,
       `rev-list ${SENZA_RESIDUI.join(" ")} refs/heads/main..refs/heads/mio --not refs/heads/altro`,
     ]);
-    expect(conAltri!.others).toEqual(["refs/heads/altro"]);
+    expect(withOther!.others).toEqual(["refs/heads/altro"]);
 
     calls.length = 0;
     const senza = await splitAheadCommits("/repo", "mio", { runGit: run, others: [] });

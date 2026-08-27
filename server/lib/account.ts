@@ -199,7 +199,7 @@ export type EsitoCollega =
   | { ok: true; personId: string; come: ComeRiconciliato }
   | { ok: false; codice: CodiceAccount };
 
-export interface IdentitaRemota {
+export interface RemoteIdentity {
   accountId: string;
   email: string;
   /** Il nome sull'account. Facoltativo, e NON sovrascrive un nome già scelto
@@ -226,7 +226,7 @@ interface RigaPersona {
  */
 export function collegaAccount(
   db: Db,
-  o: { identita: IdentitaRemota; actingPersonId: string | null; now: number },
+  o: { identita: RemoteIdentity; actingPersonId: string | null; now: number },
 ): EsitoCollega {
   const email = normalizzaEmail(o.identita.email);
   if (!email) return { ok: false, codice: "bad_response" };
@@ -334,7 +334,7 @@ export function scollegaAccount(
 // IL SERVIZIO REMOTO
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type EsitoRete<T> = { ok: true; dato: T } | { ok: false; codice: CodiceAccount };
+export type OutcomeNetwork<T> = { ok: true; dato: T } | { ok: false; codice: CodiceAccount };
 
 export interface OpzioniServizio {
   baseUrl: string | null;
@@ -349,13 +349,13 @@ export interface OpzioniServizio {
   timeoutMs?: number;
 }
 
-const TIMEOUT_PREDEFINITO_MS = 10_000;
+const DEFAULT_TIMEOUT_MS = 10_000;
 
 /** Da uno stato HTTP a un codice. `rifiutato` è il codice del caso «il servizio
  *  ha risposto e ha detto di no», che è diverso per le due chiamate: chiedere
  *  un codice a un indirizzo che non va bene non è la stessa cosa che sbagliare
  *  il codice. */
-function codiceDaStato(status: number, rifiutato: CodiceAccount): CodiceAccount {
+function codeFromState(status: number, rifiutato: CodiceAccount): CodiceAccount {
   if (status === 429) return "rate_limited";
   if (status >= 500) return "service_unreachable";
   return rifiutato;
@@ -367,7 +367,7 @@ async function chiamata<T>(
   corpo: Record<string, unknown>,
   rifiutato: CodiceAccount,
   leggi: (b: Record<string, unknown>) => T | null,
-): Promise<EsitoRete<T>> {
+): Promise<OutcomeNetwork<T>> {
   if (!o.baseUrl) return { ok: false, codice: "not_configured" };
   let res: Response;
   try {
@@ -375,21 +375,21 @@ async function chiamata<T>(
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ...corpo, installationId: o.installationId }),
-      signal: AbortSignal.timeout(o.timeoutMs ?? TIMEOUT_PREDEFINITO_MS),
+      signal: AbortSignal.timeout(o.timeoutMs ?? DEFAULT_TIMEOUT_MS),
     });
   } catch {
     // Rete caduta, DNS, timeout: da qui è un fatto solo, ed è transitorio.
     return { ok: false, codice: "service_unreachable" };
   }
-  if (!res.ok) return { ok: false, codice: codiceDaStato(res.status, rifiutato) };
-  let corpoRisposta: unknown;
+  if (!res.ok) return { ok: false, codice: codeFromState(res.status, rifiutato) };
+  let bodyReply: unknown;
   try {
-    corpoRisposta = await res.json() as unknown;
+    bodyReply = await res.json() as unknown;
   } catch {
     return { ok: false, codice: "bad_response" };
   }
-  if (!corpoRisposta || typeof corpoRisposta !== "object") return { ok: false, codice: "bad_response" };
-  const dato = leggi(corpoRisposta as Record<string, unknown>);
+  if (!bodyReply || typeof bodyReply !== "object") return { ok: false, codice: "bad_response" };
+  const dato = leggi(bodyReply as Record<string, unknown>);
   // Un `200` con un carico che non è quello atteso NON si interpreta: è un
   // servizio che risponde un'altra cosa, e crederci vorrebbe dire agganciare
   // l'identità di qualcuno a un valore inventato.
@@ -405,7 +405,7 @@ async function chiamata<T>(
 export function chiediCodice(
   o: OpzioniServizio,
   email: string,
-): Promise<EsitoRete<{ expiresAt: number | null }>> {
+): Promise<OutcomeNetwork<{ expiresAt: number | null }>> {
   return chiamata(o, "/v1/account/code", { email }, "service_refused", (b) => ({
     expiresAt: typeof b.expiresAt === "number" && Number.isFinite(b.expiresAt) ? b.expiresAt : null,
   }));
@@ -416,7 +416,7 @@ export function verificaCodice(
   o: OpzioniServizio,
   email: string,
   codice: string,
-): Promise<EsitoRete<IdentitaRemota>> {
+): Promise<OutcomeNetwork<RemoteIdentity>> {
   return chiamata(o, "/v1/account/verify", { email, code: codice }, "bad_code", (b) => {
     const accountId = typeof b.accountId === "string" ? b.accountId.trim() : "";
     const indirizzo = normalizzaEmail(b.email) ?? normalizzaEmail(email);

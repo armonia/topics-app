@@ -210,8 +210,8 @@ function tutte<T>(db: Database, sql: string, ...parametri: unknown[]): T[] {
 function legatura(db: Database, da: string, dove: string, topicId: string): DispatchBinding | null {
   const conPeso = interroga<{ peso?: string | null }>(db, `SELECT k.dispatch_weight AS peso FROM ${da} WHERE ${dove} LIMIT 1`, topicId);
   if (conPeso) return { dispatched: true, weight: readTaskWeight(conPeso.peso) };
-  const senzaPeso = interroga<{ uno?: number }>(db, `SELECT 1 AS uno FROM ${da} WHERE ${dove} LIMIT 1`, topicId);
-  return senzaPeso ? { dispatched: true, weight: null } : null;
+  const withoutWeight = interroga<{ uno?: number }>(db, `SELECT 1 AS uno FROM ${da} WHERE ${dove} LIMIT 1`, topicId);
+  return withoutWeight ? { dispatched: true, weight: null } : null;
 }
 
 /**
@@ -226,7 +226,7 @@ function legatura(db: Database, da: string, dove: string, topicId: string): Disp
  * risponde alla domanda giusta («quanti ne regge questa macchina in regime»), e
  * un tetto FISSO resta la parola dell'umano.
  */
-function capDiConcorrenza(db: Database): number {
+function capOfConcurrency(db: Database): number {
   try {
     // `sizingDispatchCap`, non `effectiveDispatchCap`: la seconda risponde
     // «ne ammetto un altro?» e con il tetto disattivato dice Infinity, che come
@@ -286,9 +286,9 @@ export function liveDispatchedSessions(db: Database): Array<{ sessionKey: string
         WHERE ${TASK_VIVO} AND a.state = 'running'`,
     ),
   ];
-  const perChiave = new Map<string, TaskWeight | null>();
-  for (const r of righe) if (r.k) perChiave.set(r.k, readTaskWeight(r.w));
-  return [...perChiave].map(([sessionKey, weight]) => ({ sessionKey, weight }));
+  const perKey = new Map<string, TaskWeight | null>();
+  for (const r of righe) if (r.k) perKey.set(r.k, readTaskWeight(r.w));
+  return [...perKey].map(([sessionKey, weight]) => ({ sessionKey, weight }));
 }
 
 /**
@@ -300,7 +300,7 @@ function liveJobQuota(db: Database, sessionKey: string): number | null {
   if (!binding.dispatched) return null;
   return computeJobQuota({
     cores: Math.max(1, os.cpus().length),
-    cap: capDiConcorrenza(db),
+    cap: capOfConcurrency(db),
     weight: binding.weight,
     peers: countLiveDispatchedAgents(db),
   });
@@ -321,14 +321,14 @@ export function resolveJobQuotaEnv(db: Database, sessionKey: string): Record<str
 // ============ Il canale VIVO ============
 
 /** Un solo file per topic, e il PATH che ci porta. Sovrascrivibile per i test. */
-function radiceCanale(): string {
+function rootChannel(): string {
   return process.env.TOPICS_JOB_QUOTA_DIR || join(os.homedir(), ".topics", "job-quota");
 }
 
 /** La cartella del canale vivo di un topic: dentro, `jobs` e `bin/`. */
 export function quotaChannelDir(sessionKey: string): string {
   const slug = sessionKey.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 120) || "senza-nome";
-  return join(radiceCanale(), slug);
+  return join(rootChannel(), slug);
 }
 
 /**
@@ -507,7 +507,7 @@ export function refreshLiveJobQuotas(db: Database): number {
   try { vive = liveDispatchedSessions(db); } catch { return 0; }
   if (!vive.length) return 0;
   const peers = countLiveDispatchedAgents(db);
-  const cap = capDiConcorrenza(db);
+  const cap = capOfConcurrency(db);
   const cores = Math.max(1, os.cpus().length);
   let scritti = 0;
   for (const a of vive) {

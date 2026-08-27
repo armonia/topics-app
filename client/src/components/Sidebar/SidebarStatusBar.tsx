@@ -231,8 +231,8 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
    * processi) e sotto il patologico (14 GB di WKWebView orfane dopo una raffica
    * di ⌘R), quindi si accende quando c'è davvero qualcosa da guardare.
    */
-  const SOGLIA_DISPOSITIVO_MB = isPartialMem ? 1024 : 3072;
-  const SOGLIA_SERVER_MB = 6144;
+  const THRESHOLD_DEVICE_MB = isPartialMem ? 1024 : 3072;
+  const THRESHOLD_SERVER_MB = 6144;
   // La CPU segue lo stesso taglio della memoria: `null` = non misurata, che non
   // è zero (una pane appena aperta non ha ancora un delta).
   const shellCpu = perf?.cpu.total ?? null;
@@ -257,14 +257,14 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
   // solo per le metà che stanno davvero nel numero: sul telefono il totale è il
   // solo lato server, quindi la soglia torna quella del server e non si accende
   // un allarme perenne (era esattamente il bug del ramo `appMemMB !== null`).
-  const sogliaTotale = (appMemMB !== null ? SOGLIA_DISPOSITIVO_MB : 0)
-    + (usage.serverMB !== null ? SOGLIA_SERVER_MB : 0);
-  const totalMemHigh = usage.totalMB !== null && usage.totalMB > sogliaTotale;
+  const thresholdTotal = (appMemMB !== null ? THRESHOLD_DEVICE_MB : 0)
+    + (usage.serverMB !== null ? THRESHOLD_SERVER_MB : 0);
+  const totalMemHigh = usage.totalMB !== null && usage.totalMB > thresholdTotal;
   const totalCpuHigh = usage.totalCpu !== null && usage.totalCpu > 50;
   /** Il «~» dice che il totale copre una metà sola: senza, un numero parziale
    *  si legge come il totale, ed è la ragione per cui le due letture erano state
    *  separate. Con lui possono tornare una. */
-  const segnoParziale = (parziale: boolean) => (parziale ? '~' : '');
+  const partialSign = (parziale: boolean) => (parziale ? '~' : '');
 
   /** QUESTO dispositivo: la shell e i suoi processi, più gli fps, che sono
    *  l'unica misura presa DI QUA anche quando non c'è nessuna shell. */
@@ -319,7 +319,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
    * Si mostra solo quando la quota compressa e' sostanziale (meta' del totale,
    * con un pavimento di 300 MB): sotto, la riga sarebbe rumore su ogni avvio.
    */
-  const mostraResidente = mostraResidenteInBarra({
+  const showResident = mostraResidenteInBarra({
     totalMB: usage.totalMB, residentMB: residentMemMB,
     serverMB: serverSideMemMB, partial: isPartialMem,
   });
@@ -347,7 +347,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
    * per un minuto intero, cioe' l'inventario senza la meta' che pesa. Le due
    * chiamate sono deduplicate a valle — `ensurePaneUsageFresh` ha la sua
    * finestra di validita' e `refresh` e' una fetch sola. */
-  const mostraInventario = useCallback(() => {
+  const showInventory = useCallback(() => {
     setHoverTotale(true);
     ensurePaneUsageFresh();
     void refreshStatus();
@@ -364,11 +364,11 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
   const totalTitle = [
     'Topics in tutto',
     usage.totalMB !== null
-      ? `memoria: ${segnoParziale(usage.memPartial)}${fmtMB(usage.totalMB)} su ${usage.totalProcessCount} processi`
+      ? `memoria: ${partialSign(usage.memPartial)}${fmtMB(usage.totalMB)} su ${usage.totalProcessCount} processi`
       : 'memoria: non misurata',
-    mostraResidente ? tr('statusBar.residenteInline', { mb: residentMemMB ?? 0 }) : null,
+    showResident ? tr('statusBar.residenteInline', { mb: residentMemMB ?? 0 }) : null,
     usage.totalCpu !== null
-      ? `CPU: ${segnoParziale(usage.cpuPartial)}${formatCpuPercent(usage.totalCpu)}% della macchina`
+      ? `CPU: ${partialSign(usage.cpuPartial)}${formatCpuPercent(usage.totalCpu)}% della macchina`
       : 'CPU: non ancora misurata',
     usage.memPartial || usage.cpuPartial
       ? `«~» = totale parziale: ${appMemMB === null
@@ -653,8 +653,8 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
               // `mouseenter` perche' questo gruppo vive dentro un <button>: chi
               // ci arriva da tastiera deve leggere lo stesso tooltip, non uno
               // piu' povero.
-              onMouseEnter={mostraInventario}
-              onFocus={mostraInventario}
+              onMouseEnter={showInventory}
+              onFocus={showInventory}
             >
               {/* NO MACHINE GLYPH HERE ANY MORE: which machine these numbers
                   are measured on is written, with its own icon, in the
@@ -663,12 +663,12 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
                   monitor icon under the first one was decoration. */}
               {usage.totalMB !== null && (
                 <span className={`text-app-text-secondary ${totalMemHigh ? SEGNALE_ATTESA : ''}`}>
-                  {segnoParziale(usage.memPartial)}{fmtMB(usage.totalMB)}
+                  {partialSign(usage.memPartial)}{fmtMB(usage.totalMB)}
                 </span>
               )}
               {usage.totalCpu !== null && (
                 <span className={`text-app-text-secondary ${totalCpuHigh ? SEGNALE_ATTESA : ''}`}>
-                  {segnoParziale(usage.cpuPartial)}{formatCpuPercent(usage.totalCpu)}%
+                  {partialSign(usage.cpuPartial)}{formatCpuPercent(usage.totalCpu)}%
                 </span>
               )}
               {fps > 0 && (

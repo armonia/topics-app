@@ -162,8 +162,8 @@ describe("scrivere sulla riga di un turno non idrata le due colonne grosse", () 
 
     const riga = ctx.getMessageById(msg.id)!;
     expect(riga.toolCalls?.[0]?.status).toBe("waiting_for_input");
-    const bloccoTool = riga.blocks?.find((b) => b.kind === "tool");
-    expect(bloccoTool?.kind === "tool" && bloccoTool.toolCall.status).toBe("waiting_for_input");
+    const blockTool = riga.blocks?.find((b) => b.kind === "tool");
+    expect(blockTool?.kind === "tool" && blockTool.toolCall.status).toBe("waiting_for_input");
   });
 
   test("un turno di soli TOOL non viene scartato come vuoto (la lettura magra non lo rende invisibile)", async () => {
@@ -232,7 +232,7 @@ function shellDoppia(id: string): ToolCall {
  * `detail.content` e' il file scritto. Due testi diversi, e nessuno dei due si
  * puo' buttare. E' il caso `write`, l'unico che divergeva nella misura.
  */
-function scritturaSenzaCopia(id: string): ToolCall {
+function writeWithoutCopy(id: string): ToolCall {
   return {
     id, name: "Write", args: { file_path: "/tmp/x.txt" }, status: "success",
     result: "Scritto /tmp/x.txt (3 righe)",
@@ -242,7 +242,7 @@ function scritturaSenzaCopia(id: string): ToolCall {
 }
 
 /** I byte grezzi delle due colonne grosse, sommati come li conta la barra. */
-function pesoRiga(ctx: AppContext, id: string): number {
+function weightRow(ctx: AppContext, id: string): number {
   const row = ctx.db.prepare(
     "SELECT COALESCE(LENGTH(blocks), 0) + COALESCE(LENGTH(tool_calls), 0) AS n FROM messages WHERE id = ?",
   ).get(id) as { n: number };
@@ -250,7 +250,7 @@ function pesoRiga(ctx: AppContext, id: string): number {
 }
 
 /** Scrive un turno con quella tool call passando dai mutatori veri dello stream. */
-function turnoConTool(ctx: AppContext, sk: string, tc: ToolCall): string {
+function turnWithTool(ctx: AppContext, sk: string, tc: ToolCall): string {
   ctx.saveLocalMessages(sk, [
     { id: `${sk}-u`, role: "user", content: "fai una cosa", timestamp: new Date(1).toISOString() },
   ]);
@@ -271,7 +271,7 @@ describe("la copia che nessuno guarda non arriva sul disco", () => {
   test("`result` gia' presente in `detail` non viene scritto, ne' nei blocchi ne' nelle tool call", async () => {
     const ctx = await createTestAppContext();
     const sk = "topic:disk-lean-copia";
-    const id = turnoConTool(ctx, sk, shellDoppia("tc-copia"));
+    const id = turnWithTool(ctx, sk, shellDoppia("tc-copia"));
 
     const grezzo = ctx.db.prepare("SELECT blocks, tool_calls FROM messages WHERE id = ?").get(id) as
       { blocks: string | null; tool_calls: string | null };
@@ -293,7 +293,7 @@ describe("la copia che nessuno guarda non arriva sul disco", () => {
   test("SENZA PERDITA: un `result` che non compare identico in `detail` arriva intero", async () => {
     const ctx = await createTestAppContext();
     const sk = "topic:disk-lean-senza-copia";
-    const id = turnoConTool(ctx, sk, scritturaSenzaCopia("tc-write"));
+    const id = turnWithTool(ctx, sk, writeWithoutCopy("tc-write"));
 
     const riga = ctx.getMessageById(id)!;
     expect(riga.toolCalls?.[0]?.result).toBe("Scritto /tmp/x.txt (3 righe)");
@@ -307,17 +307,17 @@ describe("la copia che nessuno guarda non arriva sul disco", () => {
     // La barra del task, fatta sul campione che conta: le righe scritte DOPO il
     // cambio, non la tabella intera, che e' dominata dal passato.
     const ctx = await createTestAppContext();
-    const id = turnoConTool(ctx, "topic:disk-lean-misura", shellDoppia("tc-misura"));
-    const dopo = pesoRiga(ctx, id);
+    const id = turnWithTool(ctx, "topic:disk-lean-misura", shellDoppia("tc-misura"));
+    const dopo = weightRow(ctx, id);
 
     // Il PRIMA e' lo stesso identico payload serializzato com'era prima del
     // cambio: `JSON.stringify` nudo, senza togliere la copia. Non un numero
     // scritto a mano, che invecchierebbe al primo campo aggiunto a `ToolCall`.
     const riga = ctx.getMessageById(id)!;
-    const conCopia = (b: ContentBlock) => (b.kind === "tool"
+    const withCopy = (b: ContentBlock) => (b.kind === "tool"
       ? { ...b, toolCall: { ...b.toolCall, result: OUTPUT } }
       : b);
-    const prima = JSON.stringify((riga.blocks ?? []).map(conCopia)).length
+    const prima = JSON.stringify((riga.blocks ?? []).map(withCopy)).length
       + JSON.stringify((riga.toolCalls ?? []).map((t) => ({ ...t, result: OUTPUT }))).length;
 
     expect(dopo).toBeLessThan(prima * 0.7);

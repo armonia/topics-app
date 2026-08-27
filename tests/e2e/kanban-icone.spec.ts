@@ -111,7 +111,7 @@ async function apriBoard(page: Page): Promise<void> {
 }
 
 /** Le icone rese nelle card, con quanta linea stipano per pixel di lato. */
-async function densitaIcone(page: Page) {
+async function densityIcons(page: Page) {
   return page.evaluate(() => {
     const out: { icona: string; lato: number; linea: number; rapporto: number }[] = [];
     const viste = new Set<string>();
@@ -142,7 +142,7 @@ test.describe('le icone piccole della kanban restano leggibili', () => {
     await apriBoard(page);
     await expect(page.locator('[data-testid^="card-"]').first()).toBeVisible({ timeout: 20_000 });
 
-    const tutte = await densitaIcone(page);
+    const tutte = await densityIcons(page);
     /* IL CONTROLLO CHE IL CONTROLLO VEDA: misurare zero icone e passare e' il
      * guasto silenzioso di una regola come questa.
      *
@@ -175,7 +175,7 @@ test.describe('le icone piccole della kanban restano leggibili', () => {
      * applicata. Zero o infinito vorrebbero dire che la misura e' rotta. */
     await apriBoard(page);
     await expect(page.locator('[data-testid^="card-"]').first()).toBeVisible({ timeout: 20_000 });
-    const tutte = await densitaIcone(page);
+    const tutte = await densityIcons(page);
     expect(tutte.length).toBeGreaterThanOrEqual(2);
     for (const d of tutte) {
       expect(d.lato, `${d.icona}: lato zero, non e\' stata misurata`).toBeGreaterThan(0);

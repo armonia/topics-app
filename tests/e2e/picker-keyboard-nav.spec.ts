@@ -175,11 +175,11 @@ test.describe.serial("Provider/Model picker keyboard navigation", () => {
     // Quello che il test vuole davvero sapere è che il badge mostri il DEFAULT
     // DEL PROVIDER, qualunque sia, e che lo dichiari come tale. Quindi si
     // ricalcola la stessa catena.
-    const defaultAtteso = (process.env.TOPICS_CLAUDE_EFFORT || process.env.CLAUDE_EFFORT || "xhigh")
+    const expectedDefault = (process.env.TOPICS_CLAUDE_EFFORT || process.env.CLAUDE_EFFORT || "xhigh")
       .trim()
       .toLowerCase();
     const badge = page.getByTestId("chat-session-config").getByTestId("session-effort-badge");
-    await expect(badge).toHaveText(defaultAtteso, { timeout: 5_000 });
+    await expect(badge).toHaveText(expectedDefault, { timeout: 5_000 });
     await expect(badge).toHaveAttribute("data-effort-source", "default");
   });
 });

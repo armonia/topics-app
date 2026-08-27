@@ -136,11 +136,11 @@ test("il flip che balla non cambia il seme a ogni oscillazione", async () => {
   const { registry } = scriptedRegistry({ result: NATIVE });
   const store = fakeStore({ ctx: { cookies: [{ name: "phone", value: "P", domain: "a.com", path: "/" }], origins: [] } });
   await seedSharedFromNative("ctx", { registry, load: store.load, save: store.save });
-  const dopoUno = JSON.stringify(store.files.ctx);
+  const afterOne = JSON.stringify(store.files.ctx);
   // Il debounce da 1200ms può rimbalzare: due giri devono dare lo stesso file.
   await seedSharedFromNative("ctx", { registry, load: store.load, save: store.save });
   await seedSharedFromNative("ctx", { registry, load: store.load, save: store.save });
-  expect(JSON.stringify(store.files.ctx)).toBe(dopoUno);
+  expect(JSON.stringify(store.files.ctx)).toBe(afterOne);
 });
 
 test("il passaggio riempie i buchi e non sostituisce: non puo\' sloggare nessuno", async () => {
@@ -198,7 +198,7 @@ const CONDIVISO: StorageState = {
 };
 
 /** Memo pulita per ogni test: il modulo ne tiene una sua di processo. */
-const memoNuova = () => new Map<string, string>();
+const newMemo = () => new Map<string, string>();
 
 /**
  * Un `loadStorageState` finto con la FIRMA VERA dello store: prende il
@@ -217,7 +217,7 @@ test("[⟲] senza pane nativa viva non si delega niente", async () => {
   const out = await seedNativeFromShared("ctx", {
     registry,
     load: barattolo(CONDIVISO),
-    memo: memoNuova(),
+    memo: newMemo(),
   });
   expect(out).toEqual({ ok: false, skipped: "no-native-pane" });
 });
@@ -227,7 +227,7 @@ test("[⟲] i cookie della sessione condivisa arrivano sulla WKWebView", async (
   const out = await seedNativeFromShared("ctx", {
     registry,
     load: barattolo(CONDIVISO),
-    memo: memoNuova(),
+    memo: newMemo(),
   });
   expect(out).toEqual({ ok: true, cookies: 1 });
   expect(seen).toHaveLength(1);
@@ -241,7 +241,7 @@ test("[⟲] NON naviga la pane dell'utente per posare il localStorage", async ()
   // chi guarda. Qui passano solo i cookie — che sono la sessione, per la quasi
   // totalità dei login.
   const { registry, seen } = scriptedRegistry({ result: { cookies: 1, origins: 0 } });
-  await seedNativeFromShared("ctx", { registry, load: barattolo(CONDIVISO), memo: memoNuova() });
+  await seedNativeFromShared("ctx", { registry, load: barattolo(CONDIVISO), memo: newMemo() });
   const args = seen[0]!.args as { state: StorageState };
   expect(args.state.origins).toEqual([]);
   expect(args.state.cookies).toEqual(CONDIVISO.cookies);
@@ -250,11 +250,11 @@ test("[⟲] NON naviga la pane dell'utente per posare il localStorage", async ()
 test("[⟲] un barattolo vuoto non viene applicato", async () => {
   const { registry, seen } = scriptedRegistry({ result: { cookies: 0, origins: 0 } });
   const vuoto = await seedNativeFromShared("ctx", {
-    registry, load: barattolo({ cookies: [], origins: [] }), memo: memoNuova(),
+    registry, load: barattolo({ cookies: [], origins: [] }), memo: newMemo(),
   });
   expect(vuoto).toEqual({ ok: false, skipped: "empty" });
   const assente = await seedNativeFromShared("ctx", {
-    registry, load: barattolo(null), memo: memoNuova(),
+    registry, load: barattolo(null), memo: newMemo(),
   });
   expect(assente).toEqual({ ok: false, skipped: "empty" });
   expect(seen).toHaveLength(0);
@@ -265,7 +265,7 @@ test("[⟲] rifarlo con lo stesso barattolo non ri-tocca la pane", async () => {
   // del socket: senza memoria, ogni riconnessione sarebbe una scrittura di
   // cookie sulla pane viva.
   const { registry, seen } = scriptedRegistry({ result: { cookies: 1, origins: 0 } });
-  const memo = memoNuova();
+  const memo = newMemo();
   const load = barattolo(CONDIVISO);
   expect(await seedNativeFromShared("ctx", { registry, load, memo })).toEqual({ ok: true, cookies: 1 });
   expect(await seedNativeFromShared("ctx", { registry, load, memo })).toEqual({ ok: false, skipped: "unchanged" });
@@ -274,7 +274,7 @@ test("[⟲] rifarlo con lo stesso barattolo non ri-tocca la pane", async () => {
 
 test("[⟲] ma un login NUOVO dal telefono riparte", async () => {
   const { registry, seen } = scriptedRegistry({ result: { cookies: 1, origins: 0 } });
-  const memo = memoNuova();
+  const memo = newMemo();
   let jar: StorageState = CONDIVISO;
   const load = async (_topicId: string): Promise<BrowserStorageState | null> => jar as never;
   await seedNativeFromShared("ctx", { registry, load, memo });
@@ -287,7 +287,7 @@ test("[⟲] il Mac che non risponde non appende il flip", async () => {
   const { registry } = scriptedRegistry(null); // il client non risponde mai
   const t0 = performance.now();
   const out = await seedNativeFromShared("ctx", {
-    registry, load: barattolo(CONDIVISO), timeoutMs: 40, memo: memoNuova(),
+    registry, load: barattolo(CONDIVISO), timeoutMs: 40, memo: newMemo(),
   });
   expect(out).toMatchObject({ ok: false, skipped: "timeout" });
   expect(performance.now() - t0).toBeLessThan(1000);
@@ -295,7 +295,7 @@ test("[⟲] il Mac che non risponde non appende il flip", async () => {
 
 test("[⟲] un errore del client non diventa un'eccezione, e non viene memorizzato", async () => {
   const { registry, seen } = scriptedRegistry({ error: "pane sparita" });
-  const memo = memoNuova();
+  const memo = newMemo();
   const load = barattolo(CONDIVISO);
   expect(await seedNativeFromShared("ctx", { registry, load, memo })).toMatchObject({
     ok: false, skipped: "apply-failed", error: "pane sparita",
@@ -308,14 +308,14 @@ test("[⟲] un errore del client non diventa un'eccezione, e non viene memorizza
 test("[⟲] se lo store non si legge non salta nulla in aria", async () => {
   const { registry } = scriptedRegistry({ result: { cookies: 1, origins: 0 } });
   const out = await seedNativeFromShared("ctx", {
-    registry, load: async (_topicId: string): Promise<BrowserStorageState | null> => { throw new Error("disco rotto"); }, memo: memoNuova(),
+    registry, load: async (_topicId: string): Promise<BrowserStorageState | null> => { throw new Error("disco rotto"); }, memo: newMemo(),
   });
   expect(out).toEqual({ ok: false, skipped: "empty" });
 });
 
 test("[⟲] confinato al suo contesto", async () => {
   const { registry, seen } = scriptedRegistry({ result: { cookies: 1, origins: 0 } }, "ctx-A");
-  const memo = memoNuova();
+  const memo = newMemo();
   await seedNativeFromShared("ctx-A", { registry, load: barattolo(CONDIVISO), memo });
   const altro = await seedNativeFromShared("ctx-B", { registry, load: barattolo(CONDIVISO), memo });
   expect(altro).toEqual({ ok: false, skipped: "no-native-pane" });

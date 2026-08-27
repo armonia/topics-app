@@ -62,13 +62,13 @@ describe('pairing · la frase dice ciò che è successo davvero', () => {
     // on the phone's screen.
     const italiane = new Set(chiaviDelCatalogo());
     const inglesi = EN as Record<string, string>;
-    const daTradurre = [
+    const toTranslate = [
       ...CODICI_AUTH.map((c) => chiaveFrase(motivoDaRisposta({ error: c }))),
       chiaveFrase('unreachable'),
       'pair.retrying',
       'pair.retry',
     ];
-    for (const chiave of daTradurre) {
+    for (const chiave of toTranslate) {
       expect(italiane.has(chiave)).toBe(true);
       expect(typeof inglesi[chiave]).toBe('string');
     }

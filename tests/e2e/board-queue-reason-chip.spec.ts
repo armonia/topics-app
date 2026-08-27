@@ -36,16 +36,16 @@ const PROJECT_PATH = `/tmp/e2e-coda-${Date.now()}`;
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 
 const BLOCCANTE = "Migrare le foto sul nuovo bucket";
-const AL_LAVORO = "Riscrivere la home del catalogo";
-const DAVANTI_1 = "Sistemare il carrello su mobile";
-const DAVANTI_2 = "Tradurre le email transazionali";
+const AT_WORK = "Riscrivere la home del catalogo";
+const FRONT_1 = "Sistemare il carrello su mobile";
+const FRONT_2 = "Tradurre le email transazionali";
 const IN_CODA = "Rifare la scheda prodotto";
 const BLOCCATA = "Pubblicare la scheda nuova";
 const RINVIATA = "Ricontrollare i permessi del bucket";
-const ESAURITA = "Riscrivere l'import dei listini";
+const EXHAUSTED = "Riscrivere l'import dei listini";
 
 let projectTopicId: string | null = null;
-let capIniziale: { maxAgents: number; maxAgentsAuto: boolean } | null = null;
+let initialCap: { maxAgents: number; maxAgentsAuto: boolean } | null = null;
 const createdTasks: string[] = [];
 
 async function createTask(request: any, body: Record<string, unknown>): Promise<{ id: string }> {
@@ -126,7 +126,7 @@ test.describe("Il chip della coda porta la sua ragione", () => {
     const topic = await createTopic(request, "E2E-Coda", { projectPath: PROJECT_PATH });
     projectTopicId = topic.id;
     const res = await request.get(`${BASE}/api/all-boards/settings`);
-    capIniziale = (await res.json()) as { maxAgents: number; maxAgentsAuto: boolean };
+    initialCap = (await res.json()) as { maxAgents: number; maxAgentsAuto: boolean };
   });
 
   test.afterAll(async ({ request }) => {
@@ -134,9 +134,9 @@ test.describe("Il chip della coda porta la sua ragione", () => {
     // cambierebbe il mondo sotto le spec che girano dopo (`board.spec.ts`
     // asserisce «the test env starts manual»).
     await setAutoDispatch(request, false).catch(() => {});
-    if (capIniziale) {
+    if (initialCap) {
       await request.patch(`${BASE}/api/all-boards/settings`, {
-        data: { maxAgents: capIniziale.maxAgents, maxAgentsAuto: capIniziale.maxAgentsAuto },
+        data: { maxAgents: initialCap.maxAgents, maxAgentsAuto: initialCap.maxAgentsAuto },
       }).catch(() => {});
     }
     for (const key of [...createdTasks].reverse()) {
@@ -157,17 +157,17 @@ test.describe("Il chip della coda porta la sua ragione", () => {
     // Il bloccante resta aperto: è il motivo della card che lo aspetta.
     const bloccante = await createTask(request, { text: BLOCCANTE, status: "in_progress" });
     // L'agente che occuperà l'unico slot, più avanti nel test.
-    const alLavoro = await createTask(request, { text: AL_LAVORO, status: "in_progress" });
+    const alLavoro = await createTask(request, { text: AT_WORK, status: "in_progress" });
 
     // Due card idonee DAVANTI, per priorità: il «2 davanti» dev'essere un fatto
     // dell'ordine di coda, non del millisecondo in cui sono nate.
-    await createTask(request, { text: DAVANTI_1, status: "todo", priority: 4 });
-    await createTask(request, { text: DAVANTI_2, status: "todo", priority: 3 });
+    await createTask(request, { text: FRONT_1, status: "todo", priority: 4 });
+    await createTask(request, { text: FRONT_2, status: "todo", priority: 3 });
 
     const inCoda = await createTask(request, { text: IN_CODA, status: "todo" });
     const bloccata = await createTask(request, { text: BLOCCATA, status: "todo", blockedByTaskId: bloccante.id });
     const rinviata = await createTask(request, { text: RINVIATA, status: "todo" });
-    const esaurita = await createTask(request, { text: ESAURITA, status: "todo" });
+    const esaurita = await createTask(request, { text: EXHAUSTED, status: "todo" });
 
     // Gli stati che nessuna API pubblica costruisce.
     await dispatchGate(request, rinviata.id, { deferMinutes: 45, deferReason: "aspetto l'esito della UAT su CI" });
@@ -223,12 +223,12 @@ test.describe("Il chip della coda porta la sua ragione", () => {
     // aspettano me», che sono fatti opposti — chiudere la seconda ne sblocca
     // altri. L'unico indizio era il numero davanti, e la spiegazione stava in
     // un tooltip, cioè in niente su un telefono.
-    const cardBloccante = page.locator(`[data-task-card="${bloccante.id}"]`);
-    await expect(cardBloccante.getByTestId("card-waiting-on-this")).toHaveText(/1 la aspetta/);
-    const cardBloccata = page.locator(`[data-task-card="${bloccata.id}"]`);
-    await expect(cardBloccata.getByTestId("card-blocked-by")).toContainText(`aspetta: ${BLOCCANTE}`);
-    await expect(cardBloccante.getByTestId("card-waiting-on-this")).not.toContainText("in attesa");
-    await expect(cardBloccata.getByTestId("card-blocked-by")).not.toContainText("in attesa");
+    const blockingCard = page.locator(`[data-task-card="${bloccante.id}"]`);
+    await expect(blockingCard.getByTestId("card-waiting-on-this")).toHaveText(/1 la aspetta/);
+    const blockedCard = page.locator(`[data-task-card="${bloccata.id}"]`);
+    await expect(blockedCard.getByTestId("card-blocked-by")).toContainText(`aspetta: ${BLOCCANTE}`);
+    await expect(blockingCard.getByTestId("card-waiting-on-this")).not.toContainText("in attesa");
+    await expect(blockedCard.getByTestId("card-blocked-by")).not.toContainText("in attesa");
     await didascalia(page, "«1 la aspetta» ≠ «aspetta: …»  —  due versi, zero parole in comune");
     await beat(page, 2600);
 
@@ -275,8 +275,8 @@ test.describe("Il chip della coda porta la sua ragione", () => {
 
     await page.goto("/");
     await openProjectBoard(page);
-    const cardCongelato = page.locator(`[data-task-card="${congelato.id}"]`);
-    await expect(cardCongelato).toBeVisible({ timeout: 10000 });
+    const frozenCard = page.locator(`[data-task-card="${congelato.id}"]`);
+    await expect(frozenCard).toBeVisible({ timeout: 10000 });
 
     // A) la card ferma DICE perché, e col tono che significa «non riparte da sé».
     await expect(chipOf(page, congelato.id)).toHaveAttribute("data-kind", "checklist_frozen", { timeout: 10000 });
@@ -302,7 +302,7 @@ test.describe("Il chip della coda porta la sua ragione", () => {
     // Lo scatto delle due card insieme: è la prova che si legge senza il video.
     // La COLONNA, non la pagina: la review sta fuori dallo schermo a 1280, e uno
     // scatto della pagina avrebbe fotografato le card sbagliate.
-    await cardCongelato.scrollIntoViewIfNeeded();
+    await frozenCard.scrollIntoViewIfNeeded();
     const review = page.getByTestId("kanban-column-body-review");
     await expect(review).toBeVisible();
     await review.screenshot({ path: "test-results/queue-reason-review.png" });

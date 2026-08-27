@@ -70,14 +70,14 @@ async function misura(page: Page): Promise<Misura> {
       return { y: arrotonda(r.y), h: arrotonda(r.height), ink: inchiostro(b) };
     });
     const win = document.querySelector('[data-testid="project-window"]')!;
-    const barraProgetto = win.querySelector(".pane-chrome-bar")!;
-    const card = barraProgetto.parentElement!;
+    const barProject = win.querySelector(".pane-chrome-bar")!;
+    const card = barProject.parentElement!;
     // La cella si riconosce dal RIENTRO EFFETTIVO, non dalla classe: la classe
     // e' un letterale Tailwind con parentesi e virgole dentro, e un selettore
     // d'attributo che la cerchi e' fragile per ragioni che non c'entrano con
     // cio' che stiamo misurando. Qui si cerca chi ha un padding-top pari
     // all'altezza della barra, che e' la definizione stessa di «cella rientrata».
-    const hBarra = barraProgetto.getBoundingClientRect().height;
+    const hBarra = barProject.getBoundingClientRect().height;
     const cella = Array.from(card.querySelectorAll<HTMLElement>('*')).find((el) => {
       const pt = parseFloat(getComputedStyle(el).paddingTop);
       return Math.abs(pt - hBarra) < 0.5 && el.getBoundingClientRect().height > 40;

@@ -39,8 +39,8 @@ const RADICE = join(import.meta.dir, "..", "..");
 const MIGRAZIONI = ["080-devices.sql", "082-task-shares.sql", "083-grants.sql"];
 
 /** Le tabelle che questo file usa: vedi `alterMigrationsAfter`. */
-const TABELLE_QUI = ["orgs", "people", "devices", "grants", "task_shares"];
-const alterazioniSuccessive = (dopo: string) => alterMigrationsAfter(dopo, TABELLE_QUI, RADICE);
+const TABLES_HERE = ["orgs", "people", "devices", "grants", "task_shares"];
+const alterazioniSuccessive = (dopo: string) => alterMigrationsAfter(dopo, TABLES_HERE, RADICE);
 function dbFresco(): Database {
   const db = new Database(":memory:");
   // Le due tabelle a cui le migration si agganciano con una FK, e da cui
@@ -1091,16 +1091,16 @@ describe("rotte auth · i membri dell'organizzazione", () => {
       body: { name: "Uno di troppo" },
     }))!.json() as { personId: string };
 
-    const contaMe = async () =>
+    const countMe = async () =>
       ((await (await chiama(router, "/api/auth/me"))!.json()) as { org: { members: number } }).org.members;
     const nellaRubrica = async () =>
       JSON.stringify(await (await chiama(router, "/api/auth/subjects"))!.json()).includes(org);
 
-    expect(await contaMe()).toBe(2);
+    expect(await countMe()).toBe(2);
     expect(await nellaRubrica(), "due membri: il gruppo si può nominare").toBe(true);
 
     await chiama(router, `/api/auth/orgs/${org}/members?personId=${personId}`, "DELETE");
-    expect(await contaMe(), "tolto uno, si torna a uno").toBe(1);
+    expect(await countMe(), "tolto uno, si torna a uno").toBe(1);
     expect(await nellaRubrica(), "e il gruppo di uno non si nomina").toBe(false);
   });
 
@@ -1504,7 +1504,7 @@ describe("rotte auth · cancellare una persona dalla rubrica", () => {
     const r = await chiama(router, `/api/auth/orgs/${org}/members`, "POST", { body: { name: nome } });
     return (await r!.json() as { personId: string }).personId;
   }
-  const togliDalGruppo = (router: ReturnType<typeof createAuthRouter>, org: string, pid: string) =>
+  const removeFromGroup = (router: ReturnType<typeof createAuthRouter>, org: string, pid: string) =>
     chiama(router, `/api/auth/orgs/${org}/members?personId=${encodeURIComponent(pid)}`, "DELETE");
   const cancella = (router: ReturnType<typeof createAuthRouter>, pid: string) =>
     chiama(router, `/api/auth/people/${encodeURIComponent(pid)}`, "DELETE");
@@ -1516,7 +1516,7 @@ describe("rotte auth · cancellare una persona dalla rubrica", () => {
     const pid = await invita(router, org, "Errore Di Battitura");
     expect(revocaDi(db, pid), "appena invitata è viva").toBeNull();
 
-    await togliDalGruppo(router, org, pid);
+    await removeFromGroup(router, org, pid);
     expect((await cancella(router, pid))?.status).toBe(200);
     expect(revocaDi(db, pid), "la lapide si scrive").not.toBeNull();
   });
@@ -1536,7 +1536,7 @@ describe("rotte auth · cancellare una persona dalla rubrica", () => {
     };
     expect(await nella(), "prima c'è").toBe(true);
 
-    await togliDalGruppo(router, org, pid);
+    await removeFromGroup(router, org, pid);
     await cancella(router, pid);
     expect(await nella(), "dopo non c'è più").toBe(false);
   });
@@ -1546,7 +1546,7 @@ describe("rotte auth · cancellare una persona dalla rubrica", () => {
     const router = createAuthRouter(creaCtx(db).ctx);
     const org = miaOrg(db);
     const pid = await invita(router, org, "Una Volta Sola");
-    await togliDalGruppo(router, org, pid);
+    await removeFromGroup(router, org, pid);
     await cancella(router, pid);
 
     const r = await cancella(router, pid);
@@ -1574,7 +1574,7 @@ describe("rotte auth · cancellare una persona dalla rubrica", () => {
     const pid = await invita(router, org, "Ha Un Telefono");
     db.run("INSERT INTO devices (id, name, token_hash, created_at, role, person_id) VALUES ('tel','Telefono','h',1,'guest',?)",
       [pid]);
-    await togliDalGruppo(router, org, pid);
+    await removeFromGroup(router, org, pid);
 
     const r = await cancella(router, pid);
     expect(r?.status).toBe(409);
@@ -1606,7 +1606,7 @@ describe("rotte auth · cancellare una persona dalla rubrica", () => {
     const router = createAuthRouter(creaCtx(db).ctx);
     const org = miaOrg(db);
     const pid = await invita(router, org, "Torna Indietro");
-    await togliDalGruppo(router, org, pid);
+    await removeFromGroup(router, org, pid);
     expect(revocaDi(db, pid), "togliere dal gruppo non scrive la lapide").toBeNull();
 
     const r = await chiama(router, `/api/auth/orgs/${org}/members`, "POST", { body: { personId: pid } });

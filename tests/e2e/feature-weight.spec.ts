@@ -36,7 +36,7 @@ hermetic(test);
  * toglie la corsa: quello che si prova qui e' l'inventario, non la capacita'
  * del server di test di rispondere in fretta.
  */
-async function conFlotta(page: import('@playwright/test').Page, fleet?: unknown) {
+async function withFleet(page: import('@playwright/test').Page, fleet?: unknown) {
   await page.route('**/api/system/status', async (route) => {
     await route.fulfill({
       json: {
@@ -73,7 +73,7 @@ async function conFlotta(page: import('@playwright/test').Page, fleet?: unknown)
 test.describe('inventario del peso per funzionalita', () => {
   test('il pannello dice COSA tiene il numero, non solo quanto', async ({ page }) => {
     test.info().annotations.push({ type: 'spec', description: 'RES-ATTR-11' });
-    await conFlotta(page);
+    await withFleet(page);
     await page.goto('/');
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
     await page.locator('[data-testid="connection-status"]').click();
@@ -102,7 +102,7 @@ test.describe('inventario del peso per funzionalita', () => {
 
   test('le due nature restano distinte: conteggi e MB non si mescolano', async ({ page }) => {
     test.info().annotations.push({ type: 'spec', description: 'RES-ATTR-11' });
-    await conFlotta(page);
+    await withFleet(page);
     await page.goto('/');
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
     await page.locator('[data-testid="connection-status"]').click();
@@ -160,20 +160,20 @@ test.describe('inventario del peso per funzionalita', () => {
 
     // Le righe MISURATE, al contrario, i MB li hanno: senza questo controllo
     // un «togli MB da tutte le righe» passerebbe come una correzione.
-    const tooltipMisurati = await page.evaluate(() => {
+    const measuredTooltip = await page.evaluate(() => {
       const box = document.querySelector('[data-testid="perf-inventory"]');
       if (!box) return [];
       const figli = [...box.children];
       const i = figli.findIndex(el => /trattenuto|held/i.test(el.textContent ?? ''));
       return figli.slice(0, i < 0 ? figli.length : i).map(el => el.getAttribute('title') ?? '');
     });
-    expect(tooltipMisurati.length).toBeGreaterThan(0);
-    for (const t of tooltipMisurati) expect(t).toContain('MB');
+    expect(measuredTooltip.length).toBeGreaterThan(0);
+    for (const t of measuredTooltip) expect(t).toContain('MB');
   });
 
   test('l\'ordine mette il misurato davanti: sono MB veri', async ({ page }) => {
     test.info().annotations.push({ type: 'spec', description: 'RES-ATTR-11' });
-    await conFlotta(page);
+    await withFleet(page);
     await page.goto('/');
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
     await page.locator('[data-testid="connection-status"]').click();
@@ -193,7 +193,7 @@ test.describe('inventario del peso per funzionalita', () => {
 
   test('il recap si legge anche dalla BARRA, senza aprire niente', async ({ page }) => {
     test.info().annotations.push({ type: 'spec', description: 'RES-ATTR-11' });
-    await conFlotta(page);
+    await withFleet(page);
     await page.goto('/');
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
 
@@ -227,7 +227,7 @@ test.describe('inventario del peso per funzionalita', () => {
     // Nessuna flotta: le voci misurate spariscono. Le trattenute restano (l'app
     // ha comunque delle schede), ma nessuna riga deve comparire a «0 MB» — uno
     // zero che sembra una misura.
-    await conFlotta(page, null);
+    await withFleet(page, null);
 
     await page.goto('/');
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
@@ -261,7 +261,7 @@ test.describe('il consumo sulla TAB', () => {
    */
 
   /** Una chat con `n` messaggi in cronologia, e la sua tab aperta. */
-  async function chatConMessaggi(page: import('@playwright/test').Page, n: number) {
+  async function chatWithMessages(page: import('@playwright/test').Page, n: number) {
     const nome = `peso-tab-${Date.now()}`;
     // `createTopic` e non un POST nudo: oltre a creare il topic SEMINA la sua
     // pane nello snapshot di `pane-store-v2`, che e' cio' che ne fa comparire
@@ -289,8 +289,8 @@ test.describe('il consumo sulla TAB', () => {
 
   test('una chat con messaggi dice quanti ne tiene, non solo cosa non e\'', async ({ page }) => {
     test.info().annotations.push({ type: 'spec', description: 'RES-ATTR-11' });
-    await conFlotta(page);
-    const chat = await chatConMessaggi(page, 7);
+    await withFleet(page);
+    const chat = await chatWithMessages(page, 7);
     await page.goto('/');
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
 
@@ -314,8 +314,8 @@ test.describe('il consumo sulla TAB', () => {
 
   test('ogni tab aperta ha un tooltip che parla di consumo, nessuna resta muta', async ({ page }) => {
     test.info().annotations.push({ type: 'spec', description: 'RES-ATTR-11' });
-    await conFlotta(page);
-    await chatConMessaggi(page, 3);
+    await withFleet(page);
+    await chatWithMessages(page, 3);
     await page.goto('/');
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
 

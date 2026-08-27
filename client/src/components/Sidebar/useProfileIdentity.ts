@@ -15,7 +15,7 @@ import { subscribeSession, type SessionState } from '@/lib/auth/session';
  * porta del profilo in fondo allo schermo e il menu «Topics» — e la stessa
  * domanda fatta due volte con due copie di codice diverge alla prima modifica.
  */
-export interface ProfiloIdentita {
+export interface ProfileIdentity {
   /** Il nome da mostrare, o stringa vuota se non lo sa ancora nessuno. */
   nome: string;
   /** L'avatar GitHub, se il profilo c'è. */
@@ -34,7 +34,7 @@ export function iniziali(nome: string): string {
     .join('');
 }
 
-export function useProfileIdentity(): ProfiloIdentita {
+export function useProfileIdentity(): ProfileIdentity {
   const [io, setIo] = useState<PersonWithProfile | null>(null);
   const [sessione, setSessione] = useState<SessionState>({ status: 'loading' });
 

@@ -106,9 +106,9 @@ test.describe("Checklist UI verification", () => {
         const cs = getComputedStyle(el);
         return { larghezza: parseFloat(cs.borderRightWidth || "0"), ombra: cs.boxShadow };
       });
-      const conOmbra = bordo.ombra !== "none" && bordo.ombra !== "";
+      const withShadow = bordo.ombra !== "none" && bordo.ombra !== "";
       expect(
-        (bordo.larghezza > 0) !== conOmbra,
+        (bordo.larghezza > 0) !== withShadow,
         `filo e ombra si escludono: larghezza=${bordo.larghezza}, ombra=${bordo.ombra}`,
       ).toBe(true);
 

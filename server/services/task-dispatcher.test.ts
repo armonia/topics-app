@@ -633,21 +633,21 @@ describe("task-dispatcher", () => {
     await flush();
 
     // La rete chiude un turno ogni due sweep, sempre sulla STESSA sessione.
-    const chiudiUnTurno = async () => {
+    const closeOneTurn = async () => {
       await h.dispatcher.reconcile(); await flush();
       await h.dispatcher.reconcile(); await flush();
     };
 
     usage = reading(40_000);
-    await chiudiUnTurno();
+    await closeOneTurn();
     expect(h.task("t1")!.agentTokens).toBe(40_000);
 
     usage = undefined;                 // la lettura non c'è: non si sa
-    await chiudiUnTurno();
+    await closeOneTurn();
     expect(h.task("t1")!.agentTokens).toBe(40_000);   // non azzerato
 
     usage = reading(90_000);           // e quando torna, il totale è quello vero
-    await chiudiUnTurno();
+    await closeOneTurn();
     expect(h.task("t1")!.agentTokens).toBe(90_000);   // non 130.000
   });
 
@@ -836,18 +836,18 @@ describe("task-dispatcher", () => {
 
   it("consegna → il worktree si snellisce, ma solo DOPO l'anteprima", async () => {
     const ordine: string[] = [];
-    let sbloccaAnteprima: (() => void) | null = null;
+    let unlockPreview: (() => void) | null = null;
     const h = harness({
       preparePreview: (id) => new Promise<void>((res) => {
         ordine.push(`anteprima:${id}`);
-        sbloccaAnteprima = () => res();
+        unlockPreview = () => res();
       }),
       slimWorktree: async (id) => { ordine.push(`slim:${id}`); },
     });
     await deliver(h);
     // L'anteprima è ancora in piedi: togliere `node_modules` ora la ucciderebbe.
     expect(ordine).toEqual(["anteprima:t1"]);
-    sbloccaAnteprima!();
+    unlockPreview!();
     await flush();
     expect(ordine).toEqual(["anteprima:t1", "slim:t1"]);
   });
@@ -1298,11 +1298,11 @@ describe("task-dispatcher", () => {
     await flush();
 
     h.db.run("INSERT OR IGNORE INTO topics (id) VALUES (?)", ["topic-2"]);
-    const legaT2 = () => {
+    const bindT2 = () => {
       h.svc.update({ taskId: "t2", actor: "human", by: "u", patch: { status: "in_progress" } });
       h.db.run("UPDATE tasks SET assigned_topic_id = ? WHERE id = ?", ["topic-2", "t2"]);
     };
-    legaT2();
+    bindT2();
     await h.dispatcher.resume("t2", "riprova");   // aspetta un posto, lo annuncia
     await flush();
     const primo = h.svc.get("t2")!.comments.filter((c) => c.content.includes("In attesa di uno slot")).length;
@@ -1322,7 +1322,7 @@ describe("task-dispatcher", () => {
     await h.dispatcher.tick(PID);
     await flush();
     expect(h.turns.length).toBe(2); // due posti, due turni vivi: il tetto e' pieno
-    legaT2();
+    bindT2();
     await h.dispatcher.resume("t2", "riprova ancora");
     await flush();
     const testi = h.svc.get("t2")!.comments.filter((c) => c.content.includes("In attesa di uno slot")).map((c) => c.content);
@@ -2924,7 +2924,7 @@ describe("la coda deve dire il vero", () => {
 
 describe("cancello: non si ridispaccia lavoro già su main", () => {
   /** Banco di prova con la sonda del commit di consegna sotto controllo. */
-  function conSonda(risposta: boolean | null | (() => Promise<never>)) {
+  function withProbe(risposta: boolean | null | (() => Promise<never>)) {
     const chieste: Array<{ repoPath: string; commit: string }> = [];
     const h = harness({
       deliveryLanded: async (repoPath, commit) => {
@@ -2943,7 +2943,7 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     // `4ec47331` e `e54a9be6` hanno bruciato 3,26M token e 91M di cache read per
     // riprodurre codice che su main c'era già. Il land ha il suo cancello; qui si
     // copre la strada da cui la card RIENTRA in coda dopo essere atterrata.
-    const { h, chieste } = conSonda(true);
+    const { h, chieste } = withProbe(true);
     seedTask(h.db, { id: "t1", status: "todo", deliveryBranch: "topics/ardent-grouse", deliveryCommit: "c2d20879ffffffffffffffffffffffffffffffff" });
 
     await h.dispatcher.tick(PID);
@@ -2973,7 +2973,7 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     // La controprova. Senza, «non parte» potrebbe essere vero per un'altra
     // ragione (la sonda mai chiamata, il claim rotto) e il test sopra passerebbe
     // lo stesso.
-    const { h, chieste } = conSonda(false);
+    const { h, chieste } = withProbe(false);
     seedTask(h.db, { id: "t1", status: "todo", deliveryCommit: "deadbeef00000000000000000000000000000000" });
 
     await h.dispatcher.tick(PID);
@@ -2989,7 +2989,7 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
   it("«non lo so» non chiude niente: sull'ignoranza si dispaccia", async () => {
     // Chiudere una card su un `null` (sha potato, repo irraggiungibile) sarebbe
     // l'errore opposto e più caro: butta via il lavoro che manca davvero.
-    const { h } = conSonda(null);
+    const { h } = withProbe(null);
     seedTask(h.db, { id: "t1", status: "todo", deliveryCommit: "0000000000000000000000000000000000000000" });
 
     await h.dispatcher.tick(PID);
@@ -3001,7 +3001,7 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
   });
 
   it("una sonda che ESPLODE non ferma il dispatch", async () => {
-    const { h } = conSonda(() => Promise.reject(new Error("git è esploso")));
+    const { h } = withProbe(() => Promise.reject(new Error("git è esploso")));
     seedTask(h.db, { id: "t1", status: "todo", deliveryCommit: "abc1230000000000000000000000000000000000" });
 
     await h.dispatcher.tick(PID);
@@ -3084,7 +3084,7 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     // chiesto altro lavoro. Se una modifica futura marcasse un rilascio come
     // «riaperto da un umano», il cancello morirebbe in silenzio e questo test è
     // l'unico posto che lo direbbe.
-    const { h, chieste } = conSonda(true);
+    const { h, chieste } = withProbe(true);
     seedTask(h.db, { id: "t1", status: "in_progress", dispatchState: "working", deliveryCommit: "eeee5555".repeat(5) });
 
     const rimessa = h.svc.release({ taskId: "t1", requeue: true, by: "dispatcher", reason: "il server è ripartito" });
@@ -3107,7 +3107,7 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     // macchina in un verso, non la ribalta nemmeno nell'altro. Chi riapre una
     // card atterrata sta chiedendo un SEGUITO — richiuderla gli risponde con una
     // riga di storico che non leggerà, e la richiesta muore lì.
-    const { h } = conSonda(true);
+    const { h } = withProbe(true);
     seedTask(h.db, { id: "t1", status: "done", deliveryBranch: "topics/x", deliveryCommit: "aaaa1111".repeat(5) });
 
     h.svc.update({ taskId: "t1", actor: "human", by: "attilio", patch: { status: "todo", text: "aggiungi anche il caso limite X" } });
@@ -3133,7 +3133,7 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     // aveva riaperto niente, e il mattino dopo il cancello ha chiuso la card
     // sopra una consegna di cinque giorni prima. Due salti, un solo esito.
     for (const passaggio of ["in_progress", "todo"] as const) {
-      const { h, chieste } = conSonda(true);
+      const { h, chieste } = withProbe(true);
       seedTask(h.db, { id: "t1", status: "review", deliveryBranch: "topics/x", deliveryCommit: "dddd6666".repeat(5) });
 
       h.svc.update({ taskId: "t1", actor: "human", by: "attilio", patch: { status: passaggio } });
@@ -3165,7 +3165,7 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     // il rilascio di un orfano), e `markReopened` non tocca niente perché non si
     // usciva da `done`. Da lì il cancello la rivede, e la sonda dice «atterrato»
     // di una consegna vecchia. Deve dispacciare lo stesso.
-    const { h, chieste } = conSonda(true);
+    const { h, chieste } = withProbe(true);
     seedTask(h.db, { id: "t1", status: "todo", deliveryCommit: "bbbb2222".repeat(5) });
     h.db.run("UPDATE tasks SET reopened_actor = 'human', reopened_by = 'attilio' WHERE id = ?", ["t1"]);
 
@@ -3192,7 +3192,7 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     // essendosi chiusa, prosegue fino al claim: ha una checklist da muovere, e
     // saltarla la lascerebbe ferma per sempre. Il conto della sonda è UNA
     // chiamata, non una per tick per card.
-    const { h, chieste } = conSonda(true);
+    const { h, chieste } = withProbe(true);
     seedTask(h.db, { id: "padre", status: "todo", deliveryCommit: "cccc3333".repeat(5) });
     seedTask(h.db, { id: "figlio", status: "todo", parentTaskId: "padre" });
 
@@ -3213,7 +3213,7 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     // Il cancello costa una chiamata a git, e la stragrande maggioranza delle
     // card in coda non ha mai consegnato nulla: su quelle non deve costare poco,
     // deve costare NIENTE.
-    const { h, chieste } = conSonda(true);
+    const { h, chieste } = withProbe(true);
     seedTask(h.db, { id: "t1", status: "todo" });
 
     await h.dispatcher.tick(PID);
@@ -3236,7 +3236,7 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     // The other four exits from review go through `update()` and have their
     // test in tasks.test.ts; this one closes the loop all the way to the gate,
     // which is where the damage showed.
-    const { h, chieste } = conSonda(true);
+    const { h, chieste } = withProbe(true);
     seedTask(h.db, { id: "t1", status: "review", deliveryBranch: "topics/x", deliveryCommit: "cccc7777".repeat(5) });
 
     const rejected = h.svc.reviewDecision({ taskId: "t1", by: "attilio", decision: "reject", comment: "cambia rotta" });
@@ -3325,7 +3325,7 @@ describe("chip at delivery: delivery versus question", () => {
  * il numero non cambia da una macchina all'altra.
  */
 describe("il reconcile non idrata la board per contare le board", () => {
-  function contaStatement<T>(db: Database, run: () => Promise<T>): Promise<number> {
+  function countStatement<T>(db: Database, run: () => Promise<T>): Promise<number> {
     const raw = db.prepare.bind(db);
     let n = 0;
     (db as unknown as { prepare: unknown }).prepare =
@@ -3354,7 +3354,7 @@ describe("il reconcile non idrata la board per contare le board", () => {
     // L'interruttore è la riga globale `*`, e di serie è spento.
     expect(h.svc.getGlobalAutoDispatch()).toBe(false);
 
-    const n = await contaStatement(h.db, () => h.dispatcher.reconcile());
+    const n = await countStatement(h.db, () => h.dispatcher.reconcile());
 
     expect(n).toBeLessThan(15);
     h.dispatcher.shutdown();
@@ -3374,8 +3374,8 @@ describe("il reconcile non idrata la board per contare le board", () => {
     const grande = harness();
     seedCoda(grande.db);
 
-    const a = await contaStatement(piccola.db, () => piccola.dispatcher.reconcile());
-    const b = await contaStatement(grande.db, () => grande.dispatcher.reconcile());
+    const a = await countStatement(piccola.db, () => piccola.dispatcher.reconcile());
+    const b = await countStatement(grande.db, () => grande.dispatcher.reconcile());
 
     expect(b).toBe(a);
     piccola.dispatcher.shutdown();
@@ -3423,14 +3423,14 @@ describe("l'envelope non parla italiano", () => {
   const ITALIANO = /\b(?:il|lo|la|le|gli|un|una|uno|del|dello|della|dei|delle|degli|che|non|con|sul|sulla|nel|nella|dal|dalla|alla|questo|questa|quello|quella|quando|perché|perche|già|gia|senza|sempre|anche|ancora|adesso|quindi|invece|oppure|ogni|tutti|tutte|nessuno|niente|appena|subito|mentre|sotto|sono|essere|fare|fatto|deve|devi|puoi|può|puo|cosa|dove|più|piu|sei|tuo|tua|tuoi|suo|sua)\b|è/i;
 
   /** L'envelope meno le etichette che il resto della app confronta per valore. */
-  function senzaEtichette(envelope: string): string {
+  function withoutLabels(envelope: string): string {
     return [LAND_ACTION_LABEL, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, "Pubblica"]
       .reduce((testo, etichetta) => testo.split(etichetta).join("<label>"), envelope);
   }
 
   /** Le righe che tradiscono la lingua, per poterle NOMINARE quando è rosso. */
-  const righeItaliane = (envelope: string): string[] =>
-    senzaEtichette(envelope).split("\n").filter((r) => ITALIANO.test(r));
+  const italianRows = (envelope: string): string[] =>
+    withoutLabels(envelope).split("\n").filter((r) => ITALIANO.test(r));
 
   /**
    * Un task fatto apposta per accendere OGNI ramo dell'envelope: plan-first,
@@ -3463,14 +3463,14 @@ describe("l'envelope non parla italiano", () => {
     for (const ramo of ["PLAN FIRST", "AUTOMATIC PRIORITY", "open subtask(s)", "PRE-REVIEW CHECKS", "REVIEW EVIDENCE", "THE SIX CODE GATES", "THE REPO IS ENGLISH", "A VERSION BUMP IS ONE COMMAND", "Start now."]) {
       expect(kickoff).toContain(ramo);
     }
-    expect(righeItaliane(kickoff)).toEqual([]);
+    expect(italianRows(kickoff)).toEqual([]);
     h.dispatcher.shutdown();
   });
 
   it("il kickoff di fan-out, che è un contratto diverso e quindi un testo diverso", async () => {
     const { h, kickoff } = await envelopeDiKickoff(2);
     expect(kickoff).toContain("ATTEMPT 1 of 2");
-    expect(righeItaliane(kickoff)).toEqual([]);
+    expect(italianRows(kickoff)).toEqual([]);
     h.dispatcher.shutdown();
   });
 
@@ -3485,7 +3485,7 @@ describe("l'envelope non parla italiano", () => {
 
     const testo = h.turns[0]!.content;
     expect(testo).toContain("Human update on task");
-    expect(righeItaliane(testo)).toEqual([]);
+    expect(italianRows(testo)).toEqual([]);
     h.dispatcher.shutdown();
   });
 
@@ -3508,20 +3508,20 @@ describe("l'envelope non parla italiano", () => {
   it("il sollecito, in ENTRAMBE le forme: quella normale e quella col budget finito", async () => {
     const normale = await envelopeDiSollecito(3);
     expect(normale.testo).toContain("was interrupted");
-    expect(righeItaliane(normale.testo)).toEqual([]);
+    expect(italianRows(normale.testo)).toEqual([]);
     normale.h.dispatcher.shutdown();
 
     const ultimo = await envelopeDiSollecito(2);
     expect(ultimo.testo).toContain("LAST TURN");
-    expect(righeItaliane(ultimo.testo)).toEqual([]);
+    expect(italianRows(ultimo.testo)).toEqual([]);
     ultimo.h.dispatcher.shutdown();
   });
 
   it("e il cancello sa dire di no: una riga italiana la vede", () => {
     // La controprova. Senza, «nessuna riga italiana» potrebbe voler dire
     // «il filtro non guarda niente», e passerebbe su qualunque testo.
-    expect(righeItaliane("- Lavora SOLO questo task, in questa working directory.")).toHaveLength(1);
-    expect(righeItaliane("- Work ONLY this task, in this working directory.")).toEqual([]);
+    expect(italianRows("- Lavora SOLO questo task, in questa working directory.")).toHaveLength(1);
+    expect(italianRows("- Work ONLY this task, in this working directory.")).toEqual([]);
   });
 });
 
@@ -3763,15 +3763,15 @@ describe("un ritentativo programmato non si fa svegliare dal poll", () => {
     h.finishTurnWith({ end: "cancelled", cause: "turn-in-flight" });
     await flush();
 
-    const primaDelRiavvio = h.turns.length;
-    const dopoRiavvio = h.restart();
-    await dopoRiavvio.reconcile();
+    const beforeRestart = h.turns.length;
+    const afterRestart = h.restart();
+    await afterRestart.reconcile();
     await flush();
     expect(
-      h.turns.length - primaDelRiavvio,
+      h.turns.length - beforeRestart,
       "dopo un riavvio il registro e' vuoto: la card e' orfana davvero e va ripresa",
     ).toBeGreaterThan(0);
-    dopoRiavvio.shutdown();
+    afterRestart.shutdown();
   });
 });
 

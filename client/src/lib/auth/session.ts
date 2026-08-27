@@ -64,7 +64,7 @@ const listeners = new Set<(s: SessionState) => void>();
  * uguaglianza che dipende dall'ordine delle chiavi è una uguaglianza che prima o
  * poi mente.
  */
-function stessoStato(a: SessionState, b: SessionState): boolean {
+function sameState(a: SessionState, b: SessionState): boolean {
   if (a.status !== b.status) return false;
   if (a.status === 'paired' && b.status === 'paired') {
     return a.name === b.name && a.role === b.role && a.as === b.as
@@ -82,7 +82,7 @@ function stessoStato(a: SessionState, b: SessionState): boolean {
 }
 
 function emit(next: SessionState): void {
-  if (stessoStato(next, state)) return;
+  if (sameState(next, state)) return;
   state = next;
   for (const fn of listeners) fn(state);
 }

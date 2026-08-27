@@ -81,7 +81,7 @@ describe('fitProjectChips', () => {
   // sta nel loro gruppo; `GROUP_SPACING` (20) separa i gruppi fra loro.
   // `CHIP_GAP` (6) resta solo dentro i conteggi di stato.
   const spanW = (w: number, n: number) => n * w + (n - 1) * CHIP_SPACING;
-  const spanRicco = (n: number) => spanW(RICCO.w, n);
+  const richSpan = (n: number) => spanW(RICCO.w, n);
 
   test('non ancora misurato (null) tace del tutto, e non è la stessa cosa di zero', () => {
     // Un «+5» che compare e sparisce al primo layout è peggio del vuoto di un
@@ -97,20 +97,20 @@ describe('fitProjectChips', () => {
   });
 
   test('se ci stanno tutte sul gradino ricco non c\'è nessun «+N»', () => {
-    expect(fitProjectChips(spanRicco(5), chips)).toEqual({ shown: chips, hidden: 0, mode: RICCO.mode });
-    expect(fitProjectChips(spanRicco(5) + 500, chips)).toEqual({ shown: chips, hidden: 0, mode: RICCO.mode });
+    expect(fitProjectChips(richSpan(5), chips)).toEqual({ shown: chips, hidden: 0, mode: RICCO.mode });
+    expect(fitProjectChips(richSpan(5) + 500, chips)).toEqual({ shown: chips, hidden: 0, mode: RICCO.mode });
   });
 
   test('il «+N» si prende il suo posto PRIMA di contare quante ne restano', () => {
     // Un pixel meno del necessario per cinque: ne entrerebbero quattro, e con
     // quattro mostrate serve anche il «+1» — che qui ci sta.
-    expect(fitProjectChips(spanRicco(5) - 1, chips)).toEqual({ shown: ['a', 'b', 'c', 'd'], hidden: 1, mode: RICCO.mode });
+    expect(fitProjectChips(richSpan(5) - 1, chips)).toEqual({ shown: ['a', 'b', 'c', 'd'], hidden: 1, mode: RICCO.mode });
     // Esattamente lo spazio di quattro: il «+1» NON ci sta più, quindi si
     // scende a tre. È il passaggio che di solito manca, e senza il quale
     // l'ultima pastiglia e il «+N» si contendono gli stessi pixel.
-    expect(fitProjectChips(spanRicco(4), chips)).toEqual({ shown: ['a', 'b', 'c'], hidden: 2, mode: RICCO.mode });
+    expect(fitProjectChips(richSpan(4), chips)).toEqual({ shown: ['a', 'b', 'c'], hidden: 2, mode: RICCO.mode });
     // E la soglia esatta: con lo spazio di quattro PIÙ il «+N», quattro tornano.
-    expect(fitProjectChips(spanRicco(4) + CHIP_SPACING + MORE_W, chips))
+    expect(fitProjectChips(richSpan(4) + CHIP_SPACING + MORE_W, chips))
       .toEqual({ shown: ['a', 'b', 'c', 'd'], hidden: 1, mode: RICCO.mode });
   });
 
@@ -270,7 +270,7 @@ describe('fitBoardRow', () => {
     // la riga vera non ci arriva comunque (a colonna 180px lo spazio elastico
     // è ~78px).
     const totale = counts.reduce((a, c) => a + c.n, 0);
-    const minimoGarantito = countWidth(totale) + CHIP_SPACING + MORE_W;
+    const minimumGuaranteed = countWidth(totale) + CHIP_SPACING + MORE_W;
     for (let w = 0; w <= 400; w += 1) {
       const { chips: c, counts: k } = fitBoardRow(w, chips, counts);
       const chipW = CHIP_MODES.find((m) => m.mode === c.mode)!.w;
@@ -278,7 +278,7 @@ describe('fitBoardRow', () => {
       if (c.hidden > 0) used += (c.shown.length > 0 ? CHIP_GAP : 0) + MORE_W;
       const kw = countsSpan(k);
       if (kw > 0 && used > 0) used += CHIP_GAP;
-      expect(used + kw, `sborda a ${w}px`).toBeLessThanOrEqual(Math.max(w, minimoGarantito));
+      expect(used + kw, `sborda a ${w}px`).toBeLessThanOrEqual(Math.max(w, minimumGuaranteed));
     }
   });
 });

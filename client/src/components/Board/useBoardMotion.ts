@@ -35,7 +35,7 @@ import { animateEl, EASE, MOTION } from '../../lib/motion';
 import { planBoardMoves, type BoardMove, type CardSpot, type ColumnBox } from '../../lib/boardFlight';
 import { prefersReducedMotion } from '../../lib/reducedMotion';
 
-const PREFISSO_COLONNA = 'kanban-column-body-';
+const PREFIX_COLUMN = 'kanban-column-body-';
 
 interface Istantanea {
   spots: Map<string, CardSpot>;
@@ -50,8 +50,8 @@ interface Istantanea {
 function misura(root: HTMLElement): Istantanea {
   const spots = new Map<string, CardSpot>();
   const columns = new Map<string, ColumnBox>();
-  for (const body of root.querySelectorAll<HTMLElement>(`[data-testid^="${PREFISSO_COLONNA}"]`)) {
-    const status = (body.dataset.testid ?? '').slice(PREFISSO_COLONNA.length);
+  for (const body of root.querySelectorAll<HTMLElement>(`[data-testid^="${PREFIX_COLUMN}"]`)) {
+    const status = (body.dataset.testid ?? '').slice(PREFIX_COLUMN.length);
     if (!status) continue;
     const box = body.getBoundingClientRect();
     columns.set(status, { left: box.left, top: box.top, scrollLeft: body.scrollLeft, scrollTop: body.scrollTop });
@@ -166,7 +166,7 @@ export function useBoardMotion(
   enabled: boolean,
 ): (id: string) => void {
   const prima = useRef<Map<string, CardSpot> | null>(null);
-  const daSaltare = useRef<Set<string>>(new Set());
+  const toSkip = useRef<Set<string>>(new Set());
 
   useLayoutEffect(() => {
     const root = rootRef.current;
@@ -174,8 +174,8 @@ export function useBoardMotion(
     const { spots, columns } = misura(root);
     const before = prima.current;
     prima.current = spots;
-    const skip = daSaltare.current;
-    daSaltare.current = new Set();
+    const skip = toSkip.current;
+    toSkip.current = new Set();
     // Il primo giro non ha un "prima": la board non e' arrivata da nessuna
     // parte, c'era gia'.
     if (!before || !enabled || prefersReducedMotion()) return;
@@ -183,6 +183,6 @@ export function useBoardMotion(
   }, [rootRef, signature, enabled]);
 
   return useCallback((id: string) => {
-    daSaltare.current.add(id);
+    toSkip.current.add(id);
   }, []);
 }

@@ -49,7 +49,7 @@ import { useEffect, useRef, type RefObject } from 'react';
 
 /** La striscia da cui si apre. 28px: iOS ne usa ~20 per il suo gesto, e questa
  *  deve essere almeno altrettanto larga o il dito «manca» il cassetto. */
-const BORDO_PX = 28;
+const EDGE_PX = 28;
 /** Quanto deve muoversi il dito prima che si decida l'asse. Sotto questa
  *  soglia il gesto è ancora di tutti: un tocco, uno scorrimento, un lancio. */
 const ASSE_PX = 8;
@@ -250,8 +250,8 @@ export function useSidebarSwipe({ enabled, sidebarRef, collapsed, setCollapsed }
       if (e.touches.length !== 1) { azzera(); return; }
       const t = e.touches[0];
       const dentro = sidebarRef.current?.contains(t.target as Node) ?? false;
-      const aDestra = t.clientX >= larghezza() - BORDO_PX;
-      const aSinistra = t.clientX <= BORDO_PX;
+      const aDestra = t.clientX >= larghezza() - EDGE_PX;
+      const aSinistra = t.clientX <= EDGE_PX;
       if (chiuso.current) {
         if (aSinistra) modo = 'apri';
         else if (aDestra) modo = 'sopprimi';

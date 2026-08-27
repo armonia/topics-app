@@ -42,7 +42,7 @@ const PROJECT_PATH = join(tmpdir(), "e2e-open-pane-orphan");
 // rosso di prodotto — ma con del contenuto ben visibile, perché la clip di
 // consegna deve mostrare che il pannello si è aperto DAVVERO, non un rettangolo
 // bianco indistinguibile dallo sfondo.
-const URL_APERTA =
+const OPEN_URL =
   "data:text/html,<body style='margin:0;background:%23101418;color:%2360f0a0;font:700 72px system-ui;display:grid;place-items:center'>PANE VISIBILE</body>";
 
 let topicId = "";
@@ -84,7 +84,7 @@ test.describe("open_browser_pane monta un pannello anche fuori da un progetto", 
     // La porta dell'agente, non una scorciatoia del test.
     const resp = await page.request.post(
       `${BASE}/api/topics/${encodeURIComponent(topicId)}/browser/open-pane`,
-      { data: { url: URL_APERTA }, ignoreHTTPSErrors: true },
+      { data: { url: OPEN_URL }, ignoreHTTPSErrors: true },
     );
     expect(resp.ok()).toBe(true);
     const body = (await resp.json()) as { url?: string; visible?: boolean };

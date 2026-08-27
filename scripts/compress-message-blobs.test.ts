@@ -27,7 +27,7 @@ import { encodeCol, decodeCol } from "../shared/message-blob";
 const SOGLIA = 512;
 
 /** Il giro completo che lo script fa su ogni colonna. */
-function giroCompleto(s: string): { compresso: boolean; identico: boolean } {
+function completeRound(s: string): { compresso: boolean; identico: boolean } {
   const out = encodeCol(s);
   if (typeof out === "string" || out == null) return { compresso: false, identico: out === s };
   return { compresso: true, identico: decodeCol(out) === s };
@@ -41,7 +41,7 @@ describe("compressione dei blob dei messaggi", () => {
         toolCall: { id: `t${i}`, name: "Bash", status: "success", output: "riga di output ".repeat(30) },
       })),
     );
-    const r = giroCompleto(tipico);
+    const r = completeRound(tipico);
     expect(r.compresso).toBe(true);
     expect(r.identico).toBe(true);
     expect((encodeCol(tipico) as Uint8Array).length).toBeLessThan(tipico.length / 3);
@@ -52,12 +52,12 @@ describe("compressione dei blob dei messaggi", () => {
     // Se un giorno qualcuno ci mettesse in mezzo una codifica a byte singolo,
     // questo è il test che lo direbbe — e i messaggi sono pieni di italiano.
     const testo = "però èàùìò 🎉🚀 日本語のテキスト ".repeat(60);
-    expect(giroCompleto(testo)).toEqual({ compresso: true, identico: true });
+    expect(completeRound(testo)).toEqual({ compresso: true, identico: true });
   });
 
   it("una stringa SOTTO soglia non viene toccata e resta sé stessa", () => {
     const corta = "x".repeat(SOGLIA - 1);
-    const r = giroCompleto(corta);
+    const r = completeRound(corta);
     expect(r.compresso).toBe(false);
     expect(r.identico).toBe(true);
   });
@@ -65,7 +65,7 @@ describe("compressione dei blob dei messaggi", () => {
   it("il confine della soglia non perde niente in nessuno dei due versi", () => {
     for (const n of [SOGLIA - 1, SOGLIA, SOGLIA + 1]) {
       const s = "a".repeat(n);
-      expect(giroCompleto(s).identico).toBe(true);
+      expect(completeRound(s).identico).toBe(true);
     }
   });
 
@@ -82,6 +82,6 @@ describe("compressione dei blob dei messaggi", () => {
     // Base64 di roba casuale: zstd non ha niente da togliere e può persino
     // crescere. L'invariante che conta non è il risparmio, è il ritorno.
     const casuale = Buffer.from(crypto.getRandomValues(new Uint8Array(4096))).toString("base64");
-    expect(giroCompleto(casuale).identico).toBe(true);
+    expect(completeRound(casuale).identico).toBe(true);
   });
 });

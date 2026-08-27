@@ -17,7 +17,7 @@
 import type { VocePeso } from './featureWeight';
 
 /** Le sessioni terminale come le riporta la flotta. */
-export interface SessioneMisurata {
+export interface MeasuredSession {
   sessionId: string;
   name: string;
   memoryMB: number;
@@ -25,7 +25,7 @@ export interface SessioneMisurata {
 }
 
 /** Una radice del lato server (pty-bridge, ai-bridge, il server stesso). */
-export interface RadiceMisurata {
+export interface MeasuredRoot {
   kind: string;
   memoryMB: number;
   processCount: number;
@@ -33,11 +33,11 @@ export interface RadiceMisurata {
 
 export interface IngressiMisurati {
   /** Le sessioni PTY (terminali e CLI degli agenti), dal server. */
-  sessioni: readonly SessioneMisurata[];
+  sessioni: readonly MeasuredSession[];
   /** Le pane browser, dalla shell: una webview = un processo WebContent. */
   browser: readonly { label: string; memoryMB: number }[];
   /** Le radici del lato server. */
-  radici: readonly RadiceMisurata[];
+  radici: readonly MeasuredRoot[];
   /** Il lavoro lanciato dagli agenti (npm install, build, test). */
   scriptsMB: number;
   scriptsProcessCount: number;
@@ -101,7 +101,7 @@ export function vociMisurate(x: IngressiMisurati): VocePeso[] {
     if (r.memoryMB < MIN_MB) continue;
     out.push({
       id: `fleet.root.${r.kind}`,
-      label: etichettaRadice(r.kind),
+      label: labelRoot(r.kind),
       natura: 'misurato',
       peso: { entries: 1, memoryMB: r.memoryMB, processCount: r.processCount },
     });
@@ -123,7 +123,7 @@ export function vociMisurate(x: IngressiMisurati): VocePeso[] {
 
 /** Il nome del ponte come lo riconosce chi usa l'app. Un `kind` sconosciuto
  *  passa cosi' com'e': meglio una riga con un nome tecnico che nessuna riga. */
-function etichettaRadice(kind: string): string {
+function labelRoot(kind: string): string {
   switch (kind) {
     case 'server': return 'Server di Topics';
     case 'pty-bridge': return 'Ponte dei terminali';

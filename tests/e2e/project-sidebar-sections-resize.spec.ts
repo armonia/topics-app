@@ -173,26 +173,26 @@ test.describe("sidebar progetto: i divisori fra le sezioni", () => {
     const DY = -40;
     await trascina(page, divisore, DY);
 
-    const dopoGit = await riquadro(boxGit, "git");
-    const dopoProc = await riquadro(boxProcessi, "processi");
-    const dopoDiv = await riquadro(divisore, "divisore");
+    const afterGit = await riquadro(boxGit, "git");
+    const afterProc = await riquadro(boxProcessi, "processi");
+    const afterDiv = await riquadro(divisore, "divisore");
 
     // Il divisore SEGUE il puntatore. È la formulazione che coglie
     // l'inversione a prescindere dai fermi: col segno rovesciato scendeva
     // esattamente di quanto il puntatore saliva.
     expect(
-      dopoDiv.y - primaDiv.y,
-      `il divisore deve salire con il puntatore (prima ${primaDiv.y}, dopo ${dopoDiv.y})`,
+      afterDiv.y - primaDiv.y,
+      `il divisore deve salire con il puntatore (prima ${primaDiv.y}, dopo ${afterDiv.y})`,
     ).toBeLessThan(0);
 
     // Processi (SOTTO) cresce, Git (SOPRA) si stringe.
     expect(
-      Math.round(dopoProc.height - primaProc.height),
-      `Processi deve crescere di ~${-DY} (prima ${primaProc.height}, dopo ${dopoProc.height})`,
+      Math.round(afterProc.height - primaProc.height),
+      `Processi deve crescere di ~${-DY} (prima ${primaProc.height}, dopo ${afterProc.height})`,
     ).toBeGreaterThan(20);
     expect(
-      Math.round(dopoGit.height - primaGit.height),
-      `Git deve stringersi (prima ${primaGit.height}, dopo ${dopoGit.height})`,
+      Math.round(afterGit.height - primaGit.height),
+      `Git deve stringersi (prima ${primaGit.height}, dopo ${afterGit.height})`,
     ).toBeLessThan(0);
   });
 
@@ -206,19 +206,19 @@ test.describe("sidebar progetto: i divisori fra le sezioni", () => {
 
     await trascina(page, divisore, -40);
 
-    const dopoGit = await riquadro(boxGit, "git");
-    const dopoProc = await riquadro(boxProcessi, "processi");
+    const afterGit = await riquadro(boxGit, "git");
+    const afterProc = await riquadro(boxProcessi, "processi");
 
     // Quello che perde uno lo prende l'altro: la somma resta, e quindi il
     // tetto della coppia — cioè il bordo alto di Git, cioè il fondo di Files —
     // non si sposta. È qui che si vedeva «si sposta git».
     expect(
-      Math.abs(dopoGit.height + dopoProc.height - sommaPrima),
-      `la somma delle due deve restare ${sommaPrima} (ora ${dopoGit.height + dopoProc.height})`,
+      Math.abs(afterGit.height + afterProc.height - sommaPrima),
+      `la somma delle due deve restare ${sommaPrima} (ora ${afterGit.height + afterProc.height})`,
     ).toBeLessThanOrEqual(2);
     expect(
-      Math.abs(dopoGit.y - primaGit.y),
-      `il tetto di Git non deve muoversi (prima ${primaGit.y}, dopo ${dopoGit.y})`,
+      Math.abs(afterGit.y - primaGit.y),
+      `il tetto di Git non deve muoversi (prima ${primaGit.y}, dopo ${afterGit.y})`,
     ).toBeLessThanOrEqual(2);
   });
 
@@ -232,16 +232,16 @@ test.describe("sidebar progetto: i divisori fra le sezioni", () => {
     // Processi parte da 150 e il suo minimo è 96: 40 in giù ci stanno.
     await trascina(page, divisore, 40);
 
-    const dopoGit = await riquadro(boxGit, "git");
-    const dopoProc = await riquadro(boxProcessi, "processi");
+    const afterGit = await riquadro(boxGit, "git");
+    const afterProc = await riquadro(boxProcessi, "processi");
 
     expect(
-      Math.round(dopoProc.height - primaProc.height),
-      `Processi deve stringersi (prima ${primaProc.height}, dopo ${dopoProc.height})`,
+      Math.round(afterProc.height - primaProc.height),
+      `Processi deve stringersi (prima ${primaProc.height}, dopo ${afterProc.height})`,
     ).toBeLessThan(0);
     expect(
-      Math.round(dopoGit.height - primaGit.height),
-      `Git deve crescere (prima ${primaGit.height}, dopo ${dopoGit.height})`,
+      Math.round(afterGit.height - primaGit.height),
+      `Git deve crescere (prima ${primaGit.height}, dopo ${afterGit.height})`,
     ).toBeGreaterThan(20);
   });
 
@@ -257,23 +257,23 @@ test.describe("sidebar progetto: i divisori fra le sezioni", () => {
     // cedere 40 e non un pixel di più.
     await trascina(page, divisore, -400);
 
-    const dopoGit = await riquadro(boxGit, "git");
-    const dopoProc = await riquadro(boxProcessi, "processi");
+    const afterGit = await riquadro(boxGit, "git");
+    const afterProc = await riquadro(boxProcessi, "processi");
 
     expect(
-      Math.round(dopoGit.height),
+      Math.round(afterGit.height),
       `Git non deve scendere sotto il suo minimo (${MIN.git})`,
     ).toBeGreaterThanOrEqual(MIN.git - 2);
     // E il fermo non deve diventare uno scivolo per l'altro: senza la stretta
     // sul delta, Processi continuerebbe a crescere mentre Git è già fermo, e
     // la coppia sfonderebbe la colonna spingendo Files fuori.
     expect(
-      Math.abs(dopoGit.height + dopoProc.height - sommaPrima),
-      `la somma deve restare ${sommaPrima} anche a fondo corsa (ora ${dopoGit.height + dopoProc.height})`,
+      Math.abs(afterGit.height + afterProc.height - sommaPrima),
+      `la somma deve restare ${sommaPrima} anche a fondo corsa (ora ${afterGit.height + afterProc.height})`,
     ).toBeLessThanOrEqual(2);
     expect(
-      Math.abs(dopoGit.y - primaGit.y),
-      `il tetto di Git non deve muoversi nemmeno a fondo corsa (prima ${primaGit.y}, dopo ${dopoGit.y})`,
+      Math.abs(afterGit.y - primaGit.y),
+      `il tetto di Git non deve muoversi nemmeno a fondo corsa (prima ${primaGit.y}, dopo ${afterGit.y})`,
     ).toBeLessThanOrEqual(2);
   });
 
@@ -291,7 +291,7 @@ test.describe("sidebar progetto: i divisori fra le sezioni", () => {
     await trascina(page, divisoreFiles, -1000);
 
     const dopoTesta = await riquadro(files, "intestazione files");
-    const dopoBox = await riquadro(boxFiles, "scatola files");
+    const afterBox = await riquadro(boxFiles, "scatola files");
 
     // La card di Files resta INTERA e nella colonna.
     expect(
@@ -301,8 +301,8 @@ test.describe("sidebar progetto: i divisori fra le sezioni", () => {
     // E sotto di lei resta una riga d'albero: è il pavimento, come il minimo
     // utile di Git e Processi.
     expect(
-      Math.round(dopoBox.height - dopoTesta.height),
-      `sotto l'intestazione deve restare almeno una riga (scatola ${dopoBox.height}, testa ${dopoTesta.height})`,
+      Math.round(afterBox.height - dopoTesta.height),
+      `sotto l'intestazione deve restare almeno una riga (scatola ${afterBox.height}, testa ${dopoTesta.height})`,
     ).toBeGreaterThanOrEqual(20);
   });
 });

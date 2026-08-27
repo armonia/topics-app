@@ -69,7 +69,7 @@ function risolvi(da: string, spec: string): string | null {
   return null;
 }
 
-function trovaCicli(files: string[]): string[][] {
+function findCycles(files: string[]): string[][] {
   const grafo = new Map<string, string[]>();
   for (const f of files) {
     const src = readFileSync(f, "utf8");
@@ -106,7 +106,7 @@ const chiave = (c: readonly string[]) => [...new Set(c)].sort().join(" + ");
 describe("il grafo degli import non ha cicli oltre a quelli dichiarati", () => {
   const files = SCOPES.flatMap((s) => sorgenti(resolve(ROOT, s)));
   const rel = (p: string) => p.slice(ROOT.length + 1);
-  const trovati = trovaCicli(files).map((c) => c.map(rel));
+  const trovati = findCycles(files).map((c) => c.map(rel));
 
   test("il grafo è stato costruito davvero (guardia contro un verde a vuoto)", () => {
     // Senza questa, uno scope rinominato renderebbe `files` vuoto e il test
@@ -128,9 +128,9 @@ describe("il grafo degli import non ha cicli oltre a quelli dichiarati", () => {
     // Una deroga che non corrisponde più a un ciclo vero è un permesso che
     // sopravvive alla ragione per cui era stato dato: va tolta, non lasciata lì
     // ad autorizzare qualcosa che nessuno ha più chiesto.
-    const trovatiK = new Set(trovati.map(chiave));
+    const foundK = new Set(trovati.map(chiave));
     for (const d of DEROGHE) {
-      expect(trovatiK.has(chiave(d)), `la deroga "${chiave(d)}" non corrisponde più a nessun ciclo: toglila da DEROGHE`).toBe(true);
+      expect(foundK.has(chiave(d)), `la deroga "${chiave(d)}" non corrisponde più a nessun ciclo: toglila da DEROGHE`).toBe(true);
     }
   });
 });

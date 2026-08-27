@@ -24,8 +24,8 @@ const PROJECT_PATH = `/tmp/e2e-intake-${Date.now()}`;
 
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 
-const CARD_APERTA = "Feedback grafici sulla landing: spaziature e contrasto dei chip";
-const FEEDBACK_NUOVO = "Altri feedback grafici sulla landing: il contrasto dei chip e le spaziature del blocco finale";
+const OPEN_CARD = "Feedback grafici sulla landing: spaziature e contrasto dei chip";
+const NEW_FEEDBACK = "Altri feedback grafici sulla landing: il contrasto dei chip e le spaziature del blocco finale";
 
 let projectTopicId: string | null = null;
 const createdTasks: string[] = [];
@@ -104,7 +104,7 @@ test.describe("Intake che collega", () => {
     // Una card sul tema, in corso: è lo scenario della richiesta (una lista di
     // feedback grafici già aperta, e ne arrivano altri).
     const res = await request.post(`${BASE}/api/boards/${PROJECT_ID}/tasks`, {
-      data: { text: CARD_APERTA, status: "in_progress" },
+      data: { text: OPEN_CARD, status: "in_progress" },
     });
     expect(res.ok()).toBe(true);
     const aperta = (await res.json()) as { id: string };
@@ -117,13 +117,13 @@ test.describe("Intake che collega", () => {
     // Si scrive il feedback nuovo nel composer.
     const composer = page.getByTestId("board-task-composer").locator("textarea");
     await composer.click();
-    await composer.fill(FEEDBACK_NUOVO);
+    await composer.fill(NEW_FEEDBACK);
 
     // Compare la PROPOSTA — e la board è ancora quella di prima: nessuna card
     // nuova, nessun collegamento. Proporre non attribuisce.
     const intake = page.getByTestId("composer-intake");
     await expect(intake).toBeVisible({ timeout: 10000 });
-    await expect(intake).toContainText(CARD_APERTA);
+    await expect(intake).toContainText(OPEN_CARD);
     await expect(page.getByTestId("composer-intake-chain")).toBeVisible();
     await expect(page.getByTestId("composer-intake-subtask")).toBeVisible();
     await expect(page.locator("[data-task-card]")).toHaveCount(1);

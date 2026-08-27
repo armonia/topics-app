@@ -108,7 +108,7 @@ async function openProjectBoard(page: Page): Promise<void> {
  * misura è esatta e la stessa su una macchina scarica e su una in ginocchio.
  * Alla fine l'animazione riparte da dov'era, così la clip non resta ferma.
  */
-async function profiloAlpha(page: Page, taskId: string, istanti: number[]): Promise<{ durata: number; alpha: number[] }> {
+async function profileAlpha(page: Page, taskId: string, istanti: number[]): Promise<{ durata: number; alpha: number[] }> {
   return page.locator(`[data-task-card="${taskId}"]`).evaluate((el, istanti) => {
     const anim = el.getAnimations().find((a) => (a as CSSAnimation).animationName === "taskFlash");
     if (!anim) throw new Error("nessuna animazione `taskFlash` sulla card: il lampo non sta girando");
@@ -145,7 +145,7 @@ async function tinta(page: Page, taskId: string): Promise<string> {
  * fermo, quindi non c'è nessuna curva da misurare. `recordVideo` perché la clip
  * è la consegna.
  */
-function apriContesto(browser: Browser) {
+function openContext(browser: Browser) {
   return browser.newContext({
     baseURL: E2E_BASE,
     viewport: VIEWPORT,
@@ -189,7 +189,7 @@ test.describe("Il lampo di una card", () => {
     await createTask(request, { text: "Scegliere il fornitore", status: "todo" });
     expect((await request.post(`${API}/test/tasks/${inCorso}/dispatch-state`, { data: { state: "working" } })).ok()).toBe(true);
 
-    const ctx = await apriContesto(browser);
+    const ctx = await openContext(browser);
     const page = await ctx.newPage();
     const video = page.video();
     try {
@@ -255,7 +255,7 @@ test.describe("Il lampo di una card", () => {
       expect(["56, 189, 248", "2, 132, 199"]).toContain(await tinta(page, viaggiatrice)); // sky-400 / sky-600
 
       // 0 → 192ms salita, 192 → 1080 tenuta, 1080 → 2400 discesa.
-      const { durata, alpha } = await profiloAlpha(page, viaggiatrice, [0, 96, 192, 1080, 1300, 2399]);
+      const { durata, alpha } = await profileAlpha(page, viaggiatrice, [0, 96, 192, 1080, 1300, 2399]);
       expect(durata).toBe(DURATA_MS);
       const [aZero, aMetaSalita, aCima, aFineTenuta, aInizioDiscesa, aFine] = alpha;
       // SALITA. È il fotogramma che la vecchia curva non aveva: partiva accesa.

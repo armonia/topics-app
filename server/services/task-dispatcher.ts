@@ -3253,18 +3253,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // ciclo i claim che riescono cambiano il numero, e una nota che cita un
     // conteggio di dieci righe fa è peggio di una che non lo cita affatto.
     // `null` = non si sa, e la riga lo dice senza numeri invece di inventarne.
-    const agentiVivi = (): number | null => {
+    const aliveAgents = (): number | null => {
       try { return deps.svc.liveAgents({ projectId: capScope === "global" ? null : projectId }); }
       catch { return null; }
     };
     // Da dove esce il tetto (core, RAM, quanta CPU tiene la flotta): una volta
     // per tick, perché la stessa riga va su tutte le card trattenute.
-    let motivoTetto: string | null | undefined;
-    const perchePieno = (): string | null => {
-      if (motivoTetto === undefined) {
-        try { motivoTetto = deps.capacity?.().reason ?? null; } catch { motivoTetto = null; }
+    let reasonCap: string | null | undefined;
+    const whyFull = (): string | null => {
+      if (reasonCap === undefined) {
+        try { reasonCap = deps.capacity?.().reason ?? null; } catch { reasonCap = null; }
       }
-      return motivoTetto;
+      return reasonCap;
     };
     /**
      * «Non c'è posto», scritto sulla card con i numeri che lo producono.
@@ -3277,7 +3277,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       const conto = vivi != null
         ? `ci sono ${vivi} agent al lavoro su un tetto di ${effectiveCap}`
         : `il tetto di ${effectiveCap} agent insieme è pieno`;
-      const perche = perchePieno();
+      const perche = whyFull();
       // QUANTE aspettano dietro. È il terzo numero, e l'unico che dice quanto
       // dura l'attesa invece di perché è cominciata: «il tetto è pieno» con una
       // card in fila e con dodici è la stessa frase per due situazioni diverse.
@@ -3349,8 +3349,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // questo dai contatori arrivati con la lista. Se `settleLanded` non chiude
       // (torna una card che non è `done`) questa card non è finita, e il ciclo
       // prosegue fino al claim invece di saltarla.
-      const riapertaDaUnUmano = t.reopenedActor === "human";
-      if (t.deliveryCommit && deps.deliveryLanded && !riapertaDaUnUmano) {
+      const reopenedHumanBy = t.reopenedActor === "human";
+      if (t.deliveryCommit && deps.deliveryLanded && !reopenedHumanBy) {
         let landed: boolean | null = null;
         try { landed = await deps.deliveryLanded(resolved.path, t.deliveryCommit); }
         catch (err) { log(`sonda del commit di consegna fallita per ${t.id}`, err); }
@@ -3393,7 +3393,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // Macchina piena: da qui in poi aspettano tutti, e lo si dice a
         // ciascuno prima di uscire. Il `break` senza una riga era il difetto:
         // la coda restava ferma e le card non lo raccontavano.
-        const vivi = agentiVivi();
+        const vivi = aliveAgents();
         const posti = Math.max(0, effectiveCap - reservedSlots - gateRuns);
         for (const rest of todos.slice(idx)) {
           if (inFlight.has(rest.id) || graceTimers.has(rest.id)) continue;
@@ -3447,7 +3447,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // con un altro claim nello stesso istante (che si risolve da sé al tick
         // dopo, e commentarla sarebbe rumore). Si distinguono ri-contando gli
         // agenti vivi: se sono già almeno quanti il tetto ne ammette, è il tetto.
-        const vivi = agentiVivi();
+        const vivi = aliveAgents();
         if (vivi == null || vivi >= claimCap) noteCapFull(t, vivi);
         continue;
       }
@@ -3723,7 +3723,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // ripreso un riavvio bisognava interrogare il database. I contatori qui
     // sotto diventano UNA riga sola in fondo al passo, non una riga per card:
     // con 303 riprese il per-card e' un allagamento, non una misura.
-    let inDiretta = 0, daCapo = 0, inCoda = 0, nonRecuperabili = 0, fanOut = 0;
+    let directIn = 0, daCapo = 0, inCoda = 0, nonRecuperabili = 0, fanOut = 0;
     for (const t of running) {
       if (inFlight.has(t.id)) continue; // we own it, leave it
       // Un'attesa di slot VIVA (il resume rinviato a tetto pieno) non ha un turno,
@@ -3833,7 +3833,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
                 note: "Riavvio del server: ripreso in diretta, nessun tentativo consumato.",
               });
             } catch { /* dedupe/best-effort */ }
-            inDiretta++;
+            directIn++;
             void reattachTask(t.id);
             continue;
           }
@@ -3878,9 +3878,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         inCoda++;
       } catch (err) { log(`reconcile release failed for ${t.id}`, err); }
     }
-    if (inDiretta + daCapo + inCoda + nonRecuperabili + fanOut > 0) {
+    if (directIn + daCapo + inCoda + nonRecuperabili + fanOut > 0) {
       log(
-        `riavvio: ${inDiretta + daCapo} riprese (${inDiretta} in diretta, ${daCapo} da capo), ` +
+        `riavvio: ${directIn + daCapo} riprese (${directIn} in diretta, ${daCapo} da capo), ` +
         `${inCoda} rimesse in coda, ${fanOut} fan-out chiusi, ${nonRecuperabili} non recuperabili`,
       );
     }

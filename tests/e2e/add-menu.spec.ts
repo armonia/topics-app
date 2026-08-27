@@ -45,7 +45,7 @@ hermetic(test);
  * sopra. L'Escape si ripete finche' non e' vero, che e' diverso da premerlo
  * una volta e sperare.
  */
-async function appPulita(page: import("@playwright/test").Page) {
+async function cleanApp(page: import("@playwright/test").Page) {
   await goToApp(page);
   const sovrapposti = page.locator(
     '[data-testid="pane-add-palette"], [data-testid="pane-add-menu"], [data-testid="command-palette"]',
@@ -78,7 +78,7 @@ test.describe.serial("Add menu — sistema", () => {
     await page.addInitScript(() =>
       localStorage.setItem("app-settings", JSON.stringify({ enableNewChat: false })),
     );
-    await appPulita(page);
+    await cleanApp(page);
 
     await page.getByTestId("pane-add-menu-trigger").first().click();
     const menu = page.getByTestId("pane-add-menu");
@@ -95,7 +95,7 @@ test.describe.serial("Add menu — sistema", () => {
     // DROPDOWN, mentre quello dell'header è la palette che ⌘N stessa apre —
     // partire da lì misurerebbe un toggle, non l'impilamento.
     await resetPaneStore(request, [topicId!]);
-    await appPulita(page);
+    await cleanApp(page);
 
     const tabBarPlus = page.locator('[data-testid="pane-add-menu-trigger"][title="Add pane"]').first();
     await expect(tabBarPlus).toBeVisible({ timeout: 10_000 });
@@ -112,7 +112,7 @@ test.describe.serial("Add menu — sistema", () => {
 
   test("ADD-03: la palette sta SOPRA i popover, non sotto", async ({ page, request }) => {
     await resetPaneStore(request, []);
-    await appPulita(page);
+    await cleanApp(page);
 
     await page.keyboard.press("Meta+n");
     const palette = page.getByTestId("pane-add-palette");
@@ -127,7 +127,7 @@ test.describe.serial("Add menu — sistema", () => {
 
   test("ADD-04: il menu è un menu — role, fuoco e frecce", async ({ page, request }) => {
     await resetPaneStore(request, []);
-    await appPulita(page);
+    await cleanApp(page);
 
     const trigger = page.getByTestId("pane-add-menu-trigger").first();
     await expect(trigger).toHaveAttribute("aria-haspopup", "menu");
@@ -156,7 +156,7 @@ test.describe.serial("Add menu — sistema", () => {
 
   test("ADD-05: la lettera nuda apre la voce — ⌘N poi B = browser", async ({ page, request }) => {
     await resetPaneStore(request, []);
-    await appPulita(page);
+    await cleanApp(page);
 
     await page.keyboard.press("Meta+n");
     await expect(page.getByTestId("pane-add-palette")).toBeVisible();
@@ -175,7 +175,7 @@ test.describe.serial("Add menu — sistema", () => {
     // UNA sola per riga, e stia nella colonna destra — cioè il disegno scelto
     // (chip .kbd a fine riga), non uno qualunque che «sembra giusto».
     await resetPaneStore(request, []);
-    await appPulita(page);
+    await cleanApp(page);
 
     await page.keyboard.press("Meta+n");
     await expect(page.getByTestId("pane-add-palette")).toBeVisible();
@@ -218,7 +218,7 @@ test.describe.serial("Add menu — sistema", () => {
     // a lettere da 12px — e la stessa trappola aspetta chiunque aggiunga testo
     // a un pannello portato. Il gate misura la CLASSE, non l'istanza.
     await resetPaneStore(request, []);
-    await appPulita(page);
+    await cleanApp(page);
     await page.keyboard.press("Meta+n");
     await expect(page.getByTestId("pane-add-palette")).toBeVisible();
 
@@ -245,7 +245,7 @@ test.describe.serial("Add menu — sistema", () => {
     // Confronto per ID, non per etichetta: gli id sono il contratto, i testi
     // cambiano (e sono appena cambiati \u2014 \u00abNew Chat\u00bb \u2192 \u00abChat\u00bb).
     await resetPaneStore(request, []);
-    await appPulita(page);
+    await cleanApp(page);
 
     await page.keyboard.press("Meta+n");
     await expect(page.getByTestId("pane-add-palette")).toBeVisible();
@@ -295,7 +295,7 @@ test.describe.serial("Add menu — sistema", () => {
     // SQLite lato sessioni), la parola è solo la parola. È esattamente la
     // distinzione che questo test tiene in piedi.
     await resetPaneStore(request, []);
-    await appPulita(page);
+    await cleanApp(page);
 
     await page.getByTestId("pane-add-menu-trigger").first().click();
     const shell = page.getByTestId("pane-add-menu-shell");
@@ -321,7 +321,7 @@ test.describe.serial("Add menu — sistema", () => {
     // linea, poi gli agenti CLI — che aprono una sessione con un modello
     // dentro, e sono un'altra categoria di cosa.
     await resetPaneStore(request, []);
-    await appPulita(page);
+    await cleanApp(page);
 
     await page.keyboard.press("Meta+n");
     await expect(page.getByTestId("pane-add-palette")).toBeVisible();

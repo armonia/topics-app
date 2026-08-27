@@ -79,7 +79,7 @@ const STATI_FINITI = new Set(["canceled", "unpaid", "incomplete_expired"]);
 
 /** `incomplete` non c'è fra i finiti ma non è nemmeno pagato: è il checkout a
  *  metà, e coniare lì regalerebbe un anno a chi non ha completato. */
-const STATI_VIVI = new Set(["active", "trialing", "past_due"]);
+const ALIVE_STATES = new Set(["active", "trialing", "past_due"]);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // La decisione. Pura: nessuna rete, nessun orologio nascosto, nessuna chiave.
@@ -94,9 +94,9 @@ export type Decisione =
       /** ms epoch */
       scadenza: number;
     }
-  | { tipo: "niente"; perche: MotivoNiente };
+  | { tipo: "niente"; perche: ReasonNothing };
 
-export type MotivoNiente =
+export type ReasonNothing =
   | "not_an_event"          // il corpo non è un evento di Stripe
   | "unhandled_type"        // Stripe ne manda molti più di quanti ne servano
   | "subscription_over"     // disdetto o non pagato: la disdetta viaggia da sé
@@ -118,7 +118,7 @@ function stringa(o: unknown): string | null {
 /** I posti pagati stanno sulla RIGA dell'abbonamento, non sull'abbonamento:
  *  `quantity` di primo livello è un campo che Stripe ha smesso di riempire, e
  *  leggendo solo quello si venderebbero cinque posti come uno. */
-function leggiPosti(sub: Record<string, unknown>): number | null {
+function readSlots(sub: Record<string, unknown>): number | null {
   const righe = oggetto(sub.items)?.data;
   if (Array.isArray(righe)) {
     let somma = 0;
@@ -172,7 +172,7 @@ export function decidiConio(corpo: unknown, gettoneAtteso?: { kid?: string }): D
 
   const stato = stringa(sub.status);
   if (stato && STATI_FINITI.has(stato)) return { tipo: "niente", perche: "subscription_over" };
-  if (!stato || !STATI_VIVI.has(stato)) return { tipo: "niente", perche: "not_paid_yet" };
+  if (!stato || !ALIVE_STATES.has(stato)) return { tipo: "niente", perche: "not_paid_yet" };
 
   const subscriptionId = stringa(sub.id);
   if (!subscriptionId) return { tipo: "niente", perche: "no_subscription_id" };
@@ -188,7 +188,7 @@ export function decidiConio(corpo: unknown, gettoneAtteso?: { kid?: string }): D
   if (fine === null) return { tipo: "niente", perche: "no_period_end" };
   const scadenza = fine + GRAZIA_MS;
 
-  const posti = leggiPosti(sub);
+  const posti = readSlots(sub);
   if (posti === null || posti < 1 || posti > POSTI_MAX) return { tipo: "niente", perche: "bad_seats" };
 
   // ── Lo stop al ciclo.
@@ -199,7 +199,7 @@ export function decidiConio(corpo: unknown, gettoneAtteso?: { kid?: string }): D
   const esistente = meta ? stringa(meta.license_token) : null;
   if (esistente) {
     const c = leggiCaricoNonVerificato(esistente);
-    const kidAtteso = gettoneAtteso?.kid ?? KID_DEFAULT;
+    const expectedKid = gettoneAtteso?.kid ?? KID_DEFAULT;
     const buono = c
       && c.iid === installationId
       && c.seats === posti
@@ -207,7 +207,7 @@ export function decidiConio(corpo: unknown, gettoneAtteso?: { kid?: string }): D
       // Dopo una rotazione il gettone vecchio è ancora leggibile e ancora
       // valido, ma è firmato con la chiave che stiamo dismettendo: riconiarlo
       // adesso è l'unico momento in cui è gratis farlo.
-      && (c.kid ?? KID_DEFAULT) === kidAtteso;
+      && (c.kid ?? KID_DEFAULT) === expectedKid;
     if (buono) return { tipo: "niente", perche: "already_minted" };
   }
 
@@ -218,7 +218,7 @@ export function decidiConio(corpo: unknown, gettoneAtteso?: { kid?: string }): D
 // La scrittura su Stripe
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type EsitoScrittura =
+export type OutcomeWrite =
   | { ok: true }
   | { ok: false; codice: "upstream_error" | "unreachable" };
 
@@ -251,7 +251,7 @@ export async function scriviGettone(o: {
   gettone: string;
   eventId: string;
   fetchImpl?: FetchLike;
-}): Promise<EsitoScrittura> {
+}): Promise<OutcomeWrite> {
   const corpo = new URLSearchParams({ "metadata[license_token]": o.gettone });
   const f = o.fetchImpl ?? fetch;
   let r: Response;

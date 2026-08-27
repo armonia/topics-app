@@ -177,7 +177,7 @@ test.describe("Chat — la fascia dietro il composer resta senza inchiostro", ()
 
     await scrollToBottom(page);
     const rest = await page.screenshot({ clip: band });
-    const restSopra = await page.screenshot({ clip: testimone });
+    const restAbove = await page.screenshot({ clip: testimone });
 
     // Quattro posizioni: quel che rompe non è "scrollare", è dove si FERMA la
     // riga rispetto al bordo — a metà, appena entrata, appena uscita.
@@ -186,7 +186,7 @@ test.describe("Chat — la fascia dietro il composer resta senza inchiostro", ()
       await scrollBy(page, dy);
 
       const sopra = await page.screenshot({ clip: testimone });
-      const mosso = await diffBand(page, restSopra, sopra, testimone.width, testimone.height);
+      const mosso = await diffBand(page, restAbove, sopra, testimone.width, testimone.height);
       expect(
         mosso.changed,
         `scroll di ${dy}px: sopra la fascia non è cambiato NIENTE — il trascritto non si è mosso, ` +

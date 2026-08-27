@@ -555,9 +555,9 @@ describe("resolveTabRef — la chiave di progetto non si prende per buona", () =
     putUi(key, { nonChatPanes: [{ id: "browser:c-9", type: "browser" }], openChatTopicIds: [] });
 
     // Senza hint: due candidati, nessuno dei due dimostrabile → non si nomina.
-    const senzaHint = resolveTabRef("/tab/browser/c-9", deps())!;
-    expect(senzaHint.surface).toBe(`project:#${key.slice("topics-project-panes-".length)}`);
-    expect(senzaHint.state).toBe("open");
+    const withoutHint = resolveTabRef("/tab/browser/c-9", deps())!;
+    expect(withoutHint.surface).toBe(`project:#${key.slice("topics-project-panes-".length)}`);
+    expect(withoutHint.state).toBe("open");
 
     // Con l'hint del link: vince quello, ed è verificato contro i candidati.
     const conHint = resolveTabRef(buildTabPath({ kind: "browser", key: "c-9", projectPath: B })!, deps())!;

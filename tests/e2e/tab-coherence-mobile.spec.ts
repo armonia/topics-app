@@ -47,7 +47,7 @@ test.afterAll(async ({ request }) => {
   creati.length = 0;
 });
 
-async function apriColonna(page: Page): Promise<void> {
+async function openColumn(page: Page): Promise<void> {
   // Sul telefono la colonna è un cassetto che RICORDA dov'eri: senza questo
   // parte chiusa (`width: 0` in App.tsx) e ogni misura esce zero — cioè il test
   // passerebbe confrontando due nulla.
@@ -74,7 +74,7 @@ test.describe("Le tre facce di una tab, sullo schermo dove collassano in una", (
     }).catch(() => {});
 
     await page.setViewportSize({ width: 390, height: 844 });
-    await apriColonna(page);
+    await openColumn(page);
     await goToApp(page);
 
     const colonna = page.getByTestId("sidebar-topic-list");
@@ -157,7 +157,7 @@ test.describe("Le tre facce di una tab, sullo schermo dove collassano in una", (
     }
 
     await page.setViewportSize({ width: 390, height: 844 });
-    await apriColonna(page);
+    await openColumn(page);
     await goToApp(page);
 
     const colonna = page.getByTestId("sidebar-topic-list");
@@ -220,7 +220,7 @@ test.describe("Le tre facce di una tab, sullo schermo dove collassano in una", (
     }
 
     await page.setViewportSize({ width: 390, height: 844 });
-    await apriColonna(page);
+    await openColumn(page);
     await goToApp(page);
 
     const colonna = page.getByTestId("sidebar-topic-list");
@@ -292,7 +292,7 @@ test.describe("Le tre facce di una tab, sullo schermo dove collassano in una", (
     }).catch(() => {});
 
     await page.setViewportSize({ width: 390, height: 844 });
-    await apriColonna(page);
+    await openColumn(page);
     await goToApp(page);
     await expect(page.getByTestId("pinned-divider").first()).toBeVisible({ timeout: 15000 });
 

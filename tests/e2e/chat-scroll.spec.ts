@@ -100,7 +100,7 @@ const isAtTrueBottom = (scroller: Scroller) =>
  * `assertScrollabile` lo verifica a voce alta. Non è un allargamento di soglia —
  * le soglie restano quelle di prima; è la precondizione che prima non c'era.
  */
-const statoFondo = (scroller: Scroller, tolerance: number) =>
+const stateBottom = (scroller: Scroller, tolerance: number) =>
   scroller.evaluate(
     (el, tol) => ({
       montata: el.scrollHeight - el.clientHeight > 0,
@@ -115,14 +115,14 @@ const statoFondo = (scroller: Scroller, tolerance: number) =>
 /** Attende che la lista virtualizzata abbia finito di misurarsi e sia ancorata in fondo. */
 async function settleAtBottom(scroller: Scroller): Promise<void> {
   await expect
-    .poll(() => statoFondo(scroller, AT_BOTTOM_TOLERANCE_PX), { timeout: 15_000 })
+    .poll(() => stateBottom(scroller, AT_BOTTOM_TOLERANCE_PX), { timeout: 15_000 })
     .toMatchObject({ montata: true, inFondo: true });
 }
 
 /** Come sopra, ma al fondo VERO: è l'attesa dei test di refresh. */
 async function settleAtTrueBottom(scroller: Scroller, timeout: number): Promise<void> {
   await expect
-    .poll(() => statoFondo(scroller, TRUE_BOTTOM_PX), { timeout })
+    .poll(() => stateBottom(scroller, TRUE_BOTTOM_PX), { timeout })
     .toMatchObject({ montata: true, inFondo: true });
 }
 
@@ -309,11 +309,11 @@ test.describe("Chat scroll behavior", () => {
     // fondo.
     // La costante vive nel processo del test, non nella pagina: va passata
     // dentro `evaluate`, altrimenti è `undefined` là dove viene valutata.
-    const massimoLontano = await scroller.evaluate(
+    const maximumFar = await scroller.evaluate(
       (el, tol) => el.scrollHeight - el.clientHeight - tol,
       AT_BOTTOM_TOLERANCE_PX,
     );
-    expect(scrollBefore, "il gesto deve aver portato la vista lontano dal fondo").toBeLessThan(massimoLontano);
+    expect(scrollBefore, "il gesto deve aver portato la vista lontano dal fondo").toBeLessThan(maximumFar);
     expect(await isAtBottom(scroller), "un messaggio in arrivo NON deve riportare in fondo").toBe(false);
   });
 
@@ -430,8 +430,8 @@ test.describe("Chat scroll behavior", () => {
     // posizione». Con quaranta messaggi il difetto e' INVISIBILE: la prima
     // ondata E' la storia, e l'indice e' per forza giusto. Ce ne vogliono piu'
     // di cinquanta.
-    const lungoName = `scroll-lungo-${Date.now()}`;
-    const lungo = await createTopic(request, lungoName);
+    const longName = `scroll-lungo-${Date.now()}`;
+    const lungo = await createTopic(request, longName);
     try {
       for (let i = 0; i < 120; i++) {
         await request.post(`${BASE}/api/topics/${lungo.id}/system-message`, {
@@ -441,7 +441,7 @@ test.describe("Chat scroll behavior", () => {
       }
       await resetPaneStore(request, [lungo.id]);
       await goToApp(page);
-      await openTopic(page, new RegExp(lungoName));
+      await openTopic(page, new RegExp(longName));
 
       const scroller = page.locator('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller]').first();
       await expect(scroller).toHaveCount(1, { timeout: 10_000 });

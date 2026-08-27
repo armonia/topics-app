@@ -61,7 +61,7 @@ function git(cwd: string, ...args: string[]): void {
 // ---------------------------------------------------------------------------
 
 /** Un repo git di tre file, con dentro cio' che il caso vuole. */
-function repoMinimo(file: Record<string, string>): string {
+function minimumRepo(file: Record<string, string>): string {
   const dir = mkdtempSync(join(tmpdir(), "security-min-"));
   git(dir, "init", "--quiet");
   for (const [rel, contenuto] of Object.entries(file)) {
@@ -80,7 +80,7 @@ describe("check:security - il pezzo dei segreti", () => {
   });
 
   function conRepo(file: Record<string, string>): string {
-    const d = repoMinimo(file);
+    const d = minimumRepo(file);
     temporanee.push(d);
     return d;
   }
@@ -145,10 +145,10 @@ describe("check:security - il pezzo dei segreti", () => {
 
   test("`allow-secret:` con una ragione spegne la riga, senza ragione no", () => {
     const chiave = `sk-${"ant"}-api03-${"Q7wR2xL9pKm4TvB8nZc1JdF6hY3sG5uA"}`;
-    const conRagione = conRepo({
+    const withReason = conRepo({
       "docs/esempio.md": `Esempio: \`${chiave}\` allow-secret: chiave finta di documentazione\n`,
     });
-    expect(esegui(conRagione, "--only=secrets").code).toBe(0);
+    expect(esegui(withReason, "--only=secrets").code).toBe(0);
 
     // Una deroga senza ragione non e' una deroga: e' un interruttore.
     const muta = conRepo({ "docs/esempio.md": `Esempio: \`${chiave}\` allow-secret: x\n` });

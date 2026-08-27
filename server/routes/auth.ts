@@ -143,7 +143,7 @@ export function __invecchiaPendingPerTests(id: string, di: number): void {
   if (p) p.createdAt -= di;
 }
 
-function scordaScadenza(id: string): void {
+function forgetExpiry(id: string): void {
   const t = scadenze.get(id);
   if (t !== undefined) { clearTimeout(t); scadenze.delete(id); }
 }
@@ -151,8 +151,8 @@ function scordaScadenza(id: string): void {
 function sweep(now: number, avvisa?: (id: string) => void): void {
   for (const [id, p] of pending) {
     if (now - p.createdAt > PAIRING_CODE_TTL_MS) {
-      pending.delete(id); scordaScadenza(id);
-      scordaScadenza(id);
+      pending.delete(id); forgetExpiry(id);
+      forgetExpiry(id);
       // Scomparire in silenzio non basta. Il cartello di approvazione compare
       // per un broadcast (`auth:pair-requested`) e vive nella memoria del
       // client: senza l'annuncio contrario resta sullo schermo per sempre, e
@@ -324,7 +324,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
   });
 
   /** Le persone note, per raggruppare l'elenco e per offrire lo spostamento. */
-  const elencoPersone = (): Array<{ id: string; name: string; owner: boolean }> => {
+  const listPeople = (): Array<{ id: string; name: string; owner: boolean }> => {
     try {
       return (db.query(`
         SELECT p.id, p.display_name AS name,
@@ -425,7 +425,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         // exactly the defect `sweep` exists to prevent, reopened through the
         // other door. That door now opens on every request past the cap.
         pending.delete(esito.sfratta);
-        scordaScadenza(esito.sfratta);
+        forgetExpiry(esito.sfratta);
         ctx.broadcast?.({ type: "auth:pair-resolved", requestId: esito.sfratta, approved: false });
       }
       const name = deviceNameFromUserAgent(req.headers.get("user-agent"));
@@ -451,7 +451,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       // nessuno sta più guardando.
       const t = setTimeout(() => {
         if (!pending.has(id)) return;
-        pending.delete(id); scordaScadenza(id);
+        pending.delete(id); forgetExpiry(id);
         scadenze.delete(id);
         ctx.broadcast?.({ type: "auth:pair-resolved", requestId: id, approved: false });
       }, PAIRING_CODE_TTL_MS);
@@ -486,7 +486,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       if (entry.state !== "approved" || !entry.token) return json({ state: "pending" });
       // Consegna unica: il token esce dalla memoria appena tocca il filo.
       const token = entry.token;
-      pending.delete(id); scordaScadenza(id);
+      pending.delete(id); forgetExpiry(id);
       // `json()` non porta header extra: qui serve `Set-Cookie`, quindi la
       // Response si costruisce a mano.
       return new Response(JSON.stringify({ state: "approved", name: entry.name }), {
@@ -572,7 +572,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         thisComputer: { name: "Questo computer", current: loopback },
         // Le persone conosciute, così l'elenco può raggruppare per PERSONA e
         // offrire lo spostamento. Senza, il pannello sa solo di ferri.
-        people: elencoPersone(),
+        people: listPeople(),
         devices: listDevices().map((d) => ({
           id: d.id, name: d.name, role: d.role, createdAt: d.createdAt,
           person: personaDi(d.id),
@@ -1163,14 +1163,14 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
           // Chi è GIÀ dentro non consuma un posto in più: ripetere questa POST
           // su un membro vivo è idempotente, e non deve diventare l'unico gesto
           // che si rompe a gruppo pieno.
-          const giaMembro = typeof body?.personId === "string" && body.personId
+          const alreadyMember = typeof body?.personId === "string" && body.personId
             ? orgRole(db as never, orgId, body.personId) !== null
             : false;
           // Senza il servizio della licenza innestato non c'è un'autorità a cui
           // chiedere, e non se ne inventa una: si lascia passare, che è il verso
           // in cui questo modulo sbaglia sempre.
           const licenza = ctx.licenza?.();
-          if (!giaMembro && licenza) {
+          if (!alreadyMember && licenza) {
             const esito = consentito(licenza.stato(), {
               tipo: "aggiungi_persona_al_gruppo",
               membriVivi: liveMemberCount(db as never, orgId),
@@ -1405,27 +1405,27 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         // così una riga verso una persona o un'organizzazione non sparisce
         // dall'elenco solo perché la JOIN non la trova.
         const righe = subjectsOf(db as never, tipo, id).filter((r) => r.level !== "deny");
-        const nomeDispositivo = new Map(
+        const nameDevice = new Map(
           (db.query("SELECT id, name FROM devices WHERE revoked_at IS NULL").all() as Array<{ id: string; name: string }>)
             .map((d) => [d.id, d.name]),
         );
         // I nomi degli altri soggetti. Senza, una riga verso una persona
         // mostrava il suo UUID — «Condiviso con a8e3c1e4…», che non risponde a
         // nessuna delle domande per cui si apre questo pannello.
-        const nomeSoggetto = new Map<string, string>();
+        const nameSubject = new Map<string, string>();
         try {
           for (const p of db.query("SELECT id, display_name FROM people").all() as Array<{ id: string; display_name: string }>) {
-            nomeSoggetto.set(`person:${p.id}`, p.display_name);
+            nameSubject.set(`person:${p.id}`, p.display_name);
           }
           for (const o of db.query("SELECT id, name FROM orgs").all() as Array<{ id: string; name: string }>) {
-            nomeSoggetto.set(`org:${o.id}`, o.name);
+            nameSubject.set(`org:${o.id}`, o.name);
           }
         } catch { /* schema più vecchio della 084 */ }
         return json({
           shares: righe
             // Un dispositivo revocato non compare: la sua riga di concessione
             // resta (non si cancella la storia) ma non ha piu' effetto.
-            .filter((r) => r.subjectType !== "device" || nomeDispositivo.has(r.subjectId))
+            .filter((r) => r.subjectType !== "device" || nameDevice.has(r.subjectId))
             .map((r) => ({
               subjectType: r.subjectType,
               subjectId: r.subjectId,
@@ -1434,8 +1434,8 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
               // `subjectId`. La rotta ha gia' questo idioma con `taskId`.
               deviceId: r.subjectType === "device" ? r.subjectId : undefined,
               name: r.subjectType === "device"
-                ? nomeDispositivo.get(r.subjectId) ?? r.subjectId
-                : nomeSoggetto.get(`${r.subjectType}:${r.subjectId}`) ?? r.subjectId,
+                ? nameDevice.get(r.subjectId) ?? r.subjectId
+                : nameSubject.get(`${r.subjectType}:${r.subjectId}`) ?? r.subjectId,
               sharedAt: r.grantedAt,
             })),
         });
@@ -1490,9 +1490,9 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         // soggetto è un'organizzazione, non ci sarebbe più modo di sapere a chi
         // dirlo. Il frame va mandato comunque — proprio perché la concessione
         // non esiste più, nessun broadcast filtrato per entità arriverebbe.
-        const daAvvisare = dispositiviDelSoggetto(db, sogTipoRaw, sogId);
+        const toWarn = dispositiviDelSoggetto(db, sogTipoRaw, sogId);
         dropGrant(db as never, { kind: sogTipoRaw, id: sogId }, tipo, risorsa);
-        for (const d of daAvvisare) ctx.sendToDevice?.(d, { type: "auth:shares-changed" });
+        for (const d of toWarn) ctx.sendToDevice?.(d, { type: "auth:shares-changed" });
         return json({ ok: true });
       }
     }

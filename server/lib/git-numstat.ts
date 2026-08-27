@@ -107,7 +107,7 @@ interface Contabile {
 }
 
 /** La stessa voce, dopo. I due campi li AGGIUNGE questa funzione. */
-export type ConConteggi<T> = T & { staged?: Numstat; unstaged?: Numstat };
+export type WithCounts<T> = T & { staged?: Numstat; unstaged?: Numstat };
 
 /**
  * Oltre questa soglia i conteggi si saltano. Un `git diff` su una lista enorme
@@ -150,8 +150,8 @@ export function attachNumstats<T extends Contabile>(
   entries: T[],
   stats: { staged: Map<string, Numstat>; unstaged: Map<string, Numstat> },
   prefix: string,
-): ConConteggi<T>[] {
-  const out = entries as ConConteggi<T>[];
+): WithCounts<T>[] {
+  const out = entries as WithCounts<T>[];
   if (out.length > NUMSTAT_MAX_FILES) return out;
   for (const e of out) {
     // Non tracciato: git non lo mette in nessun diff, quindi non c'è numero da

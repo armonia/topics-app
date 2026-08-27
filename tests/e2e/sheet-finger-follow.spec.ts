@@ -57,7 +57,7 @@ async function apriApp(page: Page): Promise<void> {
 
 /** Apre il foglio e aspetta che sia FERMO: l'animazione d'ingresso dura 300ms,
  *  e un campione preso dentro quella finestra parla di lei, non del gesto. */
-async function apriIlFoglio(page: Page): Promise<number> {
+async function openSheet(page: Page): Promise<number> {
   await page.tap(TRIGGER);
   const foglio = page.locator(FOGLIO);
   await expect(foglio).toBeVisible({ timeout: 5_000 });
@@ -83,7 +83,7 @@ interface Campione { dito: number; bordo: number }
  * il motivo per cui non sfarfalla), quindi misurare subito leggerebbe il
  * fotogramma precedente e accuserebbe il codice di un ritardo che non ha.
  */
-async function trascinaGiu(
+async function dragDown(
   page: Page,
   opts: { x: number; y0: number; y1: number; passi: number; pausaMs: number; selettore: string },
 ): Promise<Campione[]> {
@@ -170,12 +170,12 @@ test.describe("Il foglio dal basso sta sotto il dito", () => {
       scena: async (page) => {
         await apriApp(page);
         await beat(page, 600);
-        const cima = await apriIlFoglio(page);
+        const cima = await openSheet(page);
         await beat(page, 900);
 
         // Si parte da 12px sotto il bordo del foglio: la maniglia, cioè il
         // punto che un pollice cerca.
-        const campioni = await trascinaGiu(page, {
+        const campioni = await dragDown(page, {
           x: 195, y0: cima + 12, y1: cima + 300, passi: 7, pausaMs: 20, selettore: FOGLIO,
         });
 
@@ -202,12 +202,12 @@ test.describe("Il foglio dal basso sta sotto il dito", () => {
 
   test("SHEET-02: al rilascio decide il gesto, e una corsa breve e LENTA non chiude niente", async ({ page }) => {
     await apriApp(page);
-    const cima = await apriIlFoglio(page);
+    const cima = await openSheet(page);
 
     // ~60px di corsa a 120ms per passo fanno ~0,17px/ms: sotto la soglia del
     // lancio, e ben sotto la metà del foglio. Il dito ha spinto e ci ha
     // ripensato — il foglio torna dov'era.
-    const campioni = await trascinaGiu(page, {
+    const campioni = await dragDown(page, {
       x: 195, y0: cima + 12, y1: cima + 72, passi: 3, pausaMs: 120, selettore: FOGLIO,
     });
     // Durante la corsa si era mosso davvero: si prova la POSA, non che il gesto

@@ -222,10 +222,10 @@ describe("summarizeFleet", () => {
   it("una sessione senza base CPU è 'non misurata', non zero", () => {
     // La regola che il modulo applica già ai pid nuovi: uno 0 direbbe «ferma»,
     // e di una sessione appena avviata non lo sappiamo.
-    const nessunaBase = summarizeFleet(rows, [{ kind: "pty-bridge", pid: 20 }], () => null, 1, [
+    const noBase = summarizeFleet(rows, [{ kind: "pty-bridge", pid: 20 }], () => null, 1, [
       { sessionId: "s-a", name: "A", pid: 21 },
     ]);
-    expect(nessunaBase.sessions[0].cpuPercent).toBeNull();
+    expect(noBase.sessions[0].cpuPercent).toBeNull();
 
     const ferma = summarizeFleet(rows, [{ kind: "pty-bridge", pid: 20 }], () => 0, 1, [
       { sessionId: "s-a", name: "A", pid: 21 },
@@ -375,14 +375,14 @@ describe("il buco da 911 MB: responsible pid E ppid, non l'uno O l'altro", () =>
   });
 
   it("un processo ESTRANEO resta fuori: unire non vuol dire prendere tutto", () => {
-    const conEstraneo = parsePsRows([
+    const withForeign = parsePsRows([
       " 10 1  90000  1.0 0:01.00 bun run server.ts",
       " 57 1  20000  1.0 0:01.00 bun run ai-bridge.mjs --socket /tmp/a.sock",
       " 95 57 554768 5.0 0:01.00 claude --print",
       " 77 1  700000 9.0 0:01.00 qualcun-altro",
     ].join("\n"));
     const out = summarizeFleet(
-      conEstraneo,
+      withForeign,
       [{ kind: "server", pid: 10 }, { kind: "ai-bridge", pid: 57 }],
       undefined, 1, [], [], responsibleOf,
     );

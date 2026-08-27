@@ -167,9 +167,9 @@ describe("una sessione a 1M non può leggersi al 288%", () => {
     // Nessun modello richiesto, resta il nome nudo → 200k, cioè il 288%. Ma
     // quella chiamata ha RICEVUTO RISPOSTA: su una finestra da 200k il provider
     // l'avrebbe rifiutata con «Prompt is too long».
-    const senzaRichiesta = contextWindowFor(windowModelFor(NUDO, null));
-    expect(senzaRichiesta.tokens).toBe(200_000);
-    expect(windowCoveringMeasure(senzaRichiesta, NUDO, MISURA))
+    const withoutRequest = contextWindowFor(windowModelFor(NUDO, null));
+    expect(withoutRequest.tokens).toBe(200_000);
+    expect(windowCoveringMeasure(withoutRequest, NUDO, MISURA))
       .toEqual({ tokens: 1_000_000, known: true });
   });
 

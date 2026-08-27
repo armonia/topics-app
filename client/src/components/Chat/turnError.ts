@@ -27,8 +27,8 @@ import { TURN_ERROR_PREFIX as LEGACY_ERROR_PREFIX } from '../../../../shared/boa
  * vive solo nel testo quelle righe restano senza spiegazione.
  */
 export function turnErrorOf(msg: { content?: string; blocks?: ContentBlock[] | null }): string | null {
-  const dalBlocco = msg.blocks?.find((b) => b.kind === 'error');
-  if (dalBlocco) return dalBlocco.text;
+  const fromBlock = msg.blocks?.find((b) => b.kind === 'error');
+  if (fromBlock) return fromBlock.text;
   const c = (msg.content ?? '').trim();
   if (!c.startsWith(LEGACY_ERROR_PREFIX)) return null;
   // Solo il PRIMO capoverso. Un cartello vecchio è sempre una frase sola, ma la

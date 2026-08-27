@@ -25,7 +25,7 @@ hermetic(test);
 const RUST = `/tmp/e2e-scripts-rust-${Date.now()}`;
 const NUDA = `/tmp/e2e-scripts-nuda-${Date.now()}`;
 
-async function apriProcessi(page: import("@playwright/test").Page, path: string) {
+async function openProcesses(page: import("@playwright/test").Page, path: string) {
   const win = page.locator(`[data-testid="project-window"][data-project-path="${path}"]`);
   await expect(win).toHaveCount(1, { timeout: 15000 });
   const riga = win.locator('[data-testid="project-sidebar-processes"]');
@@ -55,7 +55,7 @@ test.describe("script del progetto", () => {
     await waitForPaneStoreQuiet(request);
     await goToApp(page);
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
-    const win = await apriProcessi(page, RUST);
+    const win = await openProcesses(page, RUST);
 
     const runner = win.locator('[data-testid="script-runner"]');
     await expect(runner).toBeVisible({ timeout: 10000 });
@@ -89,7 +89,7 @@ test.describe("script del progetto", () => {
     await waitForPaneStoreQuiet(request);
     await goToApp(page);
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
-    const win = await apriProcessi(page, RUST);
+    const win = await openProcesses(page, RUST);
     const runner = win.locator('[data-testid="script-runner"]');
     await expect(runner).toBeVisible({ timeout: 10000 });
 
@@ -112,7 +112,7 @@ test.describe("script del progetto", () => {
     await waitForPaneStoreQuiet(request);
     await goToApp(page);
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
-    const win = await apriProcessi(page, NUDA);
+    const win = await openProcesses(page, NUDA);
 
     const vuoto = win.locator('[data-testid="script-runner-empty"]');
     await expect(vuoto).toBeVisible({ timeout: 10000 });

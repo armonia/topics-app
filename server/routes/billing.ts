@@ -34,9 +34,9 @@ import {
 /** Posti chiesti quando il client non lo dice. Due e non uno: uno è già il
  *  piano gratuito, e un checkout che vende ciò che è gratis è una schermata di
  *  pagamento che non ha senso aprire. */
-const POSTI_DEFAULT = 2;
+const SLOTS_DEFAULT = 2;
 
-export interface DipendenzeBilling {
+export interface DepsBilling {
   /** Iniettabile per i test; in produzione è `process.env`. Si legge a OGNI
    *  richiesta e non al boot: una variabile cambiata a caldo che non ha effetto
    *  è la trappola che `resolveAllowedOrigins` ha già pagato una volta. */
@@ -62,7 +62,7 @@ export function isBillingWebhookPath(pathname: string): boolean {
   return pathname === PERCORSO_WEBHOOK;
 }
 
-export function createBillingRouter(ctx: AppContext, deps: DipendenzeBilling = {}): RouteHandler {
+export function createBillingRouter(ctx: AppContext, deps: DepsBilling = {}): RouteHandler {
   const { json, readJSON } = ctx;
   const adesso = deps.now ?? (() => Date.now());
   const config = () => leggiConfigStripe(deps.env ?? process.env);
@@ -85,7 +85,7 @@ export function createBillingRouter(ctx: AppContext, deps: DipendenzeBilling = {
     // ── Aprire un checkout.
     if (method === "POST" && pathname === "/api/billing/checkout") {
       const body = await readJSON(req) as { seats?: unknown } | null;
-      const posti = typeof body?.seats === "number" ? body.seats : POSTI_DEFAULT;
+      const posti = typeof body?.seats === "number" ? body.seats : SLOTS_DEFAULT;
 
       // Gli indirizzi di ritorno si ricavano dall'ORIGINE di questa richiesta e
       // non si prendono dal corpo. Un `success_url` scelto da chi chiama è un

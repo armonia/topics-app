@@ -31,7 +31,7 @@ const BACKOFF_MAX    = 30; // tetto
  * Calcola il backoff dopo N boot-failure consecutivi.
  * Specchio diretto della logica in start-prod.sh.
  */
-function backoffDopoNFailure(n: number): number {
+function backoffAfterNFailure(n: number): number {
   let cur = 0;
   for (let i = 0; i < n; i++) {
     if (cur < BACKOFF_DELAY) {
@@ -48,27 +48,27 @@ function backoffDopoNFailure(n: number): number {
 
 describe("backoff esponenziale sui boot-failure di start-prod.sh", () => {
   it("primo failure: ritardo minimo (BACKOFF_DELAY)", () => {
-    expect(backoffDopoNFailure(1)).toBe(BACKOFF_DELAY);
+    expect(backoffAfterNFailure(1)).toBe(BACKOFF_DELAY);
   });
 
   it("sequenza: 2s → 4s → 8s → 16s → 30s (tetto)", () => {
-    expect(backoffDopoNFailure(1)).toBe(2);
-    expect(backoffDopoNFailure(2)).toBe(4);
-    expect(backoffDopoNFailure(3)).toBe(8);
-    expect(backoffDopoNFailure(4)).toBe(16);
-    expect(backoffDopoNFailure(5)).toBe(30);
+    expect(backoffAfterNFailure(1)).toBe(2);
+    expect(backoffAfterNFailure(2)).toBe(4);
+    expect(backoffAfterNFailure(3)).toBe(8);
+    expect(backoffAfterNFailure(4)).toBe(16);
+    expect(backoffAfterNFailure(5)).toBe(30);
     // Rimane al tetto per sempre
-    expect(backoffDopoNFailure(6)).toBe(30);
-    expect(backoffDopoNFailure(10)).toBe(30);
+    expect(backoffAfterNFailure(6)).toBe(30);
+    expect(backoffAfterNFailure(10)).toBe(30);
   });
 
   it("zero failure: nessun backoff (crash di produzione)", () => {
-    expect(backoffDopoNFailure(0)).toBe(0);
+    expect(backoffAfterNFailure(0)).toBe(0);
   });
 
   it("tetto: nessun valore supera BACKOFF_MAX", () => {
     for (let n = 1; n <= 20; n++) {
-      expect(backoffDopoNFailure(n)).toBeLessThanOrEqual(BACKOFF_MAX);
+      expect(backoffAfterNFailure(n)).toBeLessThanOrEqual(BACKOFF_MAX);
     }
   });
 });

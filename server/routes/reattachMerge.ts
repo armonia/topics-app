@@ -130,12 +130,12 @@ export function mergeReattachedRow(
   // A metà replay il testo nuovo prende il posto del vecchio solo quando lo ha
   // raggiunto: prima di allora quello che c'è in riga è ancora il turno intero
   // di prima, e vale più di un replay a un terzo.
-  const testoNuovoVince = phase === "final"
+  const newTextWins = phase === "final"
     ? !!producedText
     : producedText.length >= previousText.length && !!producedText;
 
   return {
-    content: testoNuovoVince ? produced.content : snapshot.content,
+    content: newTextWins ? produced.content : snapshot.content,
     thinking: produced.thinking || snapshot.thinking || undefined,
     toolCallsJson: keepOldTools ? (snapshot.toolCallsJson ?? undefined) : undefined,
     blocks: blocchiTenuti,

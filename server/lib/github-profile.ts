@@ -27,7 +27,7 @@ import type { Database } from "bun:sqlite";
 type Db = Pick<Database, "query">;
 
 /** Le regole vere dei login GitHub: alfanumerici e trattini, non in testa/coda, max 39. */
-const LOGIN_VALIDO = /^[a-zA-Z\d](?:[a-zA-Z\d]|-(?=[a-zA-Z\d])){0,38}$/;
+const VALID_LOGIN = /^[a-zA-Z\d](?:[a-zA-Z\d]|-(?=[a-zA-Z\d])){0,38}$/;
 
 const TTL_MS = 6 * 60 * 60 * 1000;
 const TTL_ERRORE_MS = 30 * 60 * 1000;
@@ -60,7 +60,7 @@ export interface ProfiloGitHub {
 }
 
 export function loginValido(login: unknown): login is string {
-  return typeof login === "string" && LOGIN_VALIDO.test(login);
+  return typeof login === "string" && VALID_LOGIN.test(login);
 }
 
 interface Riga {
@@ -71,7 +71,7 @@ interface Riga {
   fetched_at: number | null; failed_at: number | null; status: number | null;
 }
 
-const rigaAProfilo = (r: Riga): ProfiloGitHub => ({
+const rowAProfile = (r: Riga): ProfiloGitHub => ({
   login: r.login,
   name: r.name, avatarUrl: r.avatar_url, htmlUrl: r.html_url, bio: r.bio,
   company: r.company, location: r.location,
@@ -97,7 +97,7 @@ function inCache(db: Db, login: string): Riga | null {
 /** Solo la copia già scaricata, senza toccare la rete: è ciò che serve a una LISTA. */
 export function profiloInCache(db: Db, login: string): ProfiloGitHub | null {
   const r = inCache(db, login);
-  return r && r.fetched_at !== null ? rigaAProfilo(r) : null;
+  return r && r.fetched_at !== null ? rowAProfile(r) : null;
 }
 
 function fresca(r: Riga | null, ora: number): boolean {
@@ -126,7 +126,7 @@ export async function profiloGitHub(
   if (!loginValido(login)) return null;
   const ora = (o.now ?? Date.now)();
   const cache = inCache(db, login);
-  if (fresca(cache, ora)) return cache!.fetched_at !== null ? rigaAProfilo(cache!) : null;
+  if (fresca(cache, ora)) return cache!.fetched_at !== null ? rowAProfile(cache!) : null;
 
   const f = o.fetch ?? fetch;
   const base = o.baseUrl ?? "https://api.github.com";
@@ -139,7 +139,7 @@ export async function profiloGitHub(
       scriviFallimento(db, login, ora, res.status);
       // La copia VECCHIA vale più di niente: un 403 da quota finita non deve
       // far sparire una faccia che abbiamo già.
-      return cache?.fetched_at !== null && cache ? rigaAProfilo(cache) : null;
+      return cache?.fetched_at !== null && cache ? rowAProfile(cache) : null;
     }
     const j = (await res.json()) as Record<string, unknown>;
     const str = (k: string) => (typeof j[k] === "string" ? (j[k] as string) : null);
@@ -154,15 +154,15 @@ export async function profiloGitHub(
       publicRepos: num("public_repos"), followers: num("followers"),
       fetchedAt: ora,
     };
-    scriviProfilo(db, profilo, ora);
+    writeProfile(db, profilo, ora);
     return profilo;
   } catch {
     scriviFallimento(db, login, ora, 0);
-    return cache && cache.fetched_at !== null ? rigaAProfilo(cache) : null;
+    return cache && cache.fetched_at !== null ? rowAProfile(cache) : null;
   }
 }
 
-function scriviProfilo(db: Db, p: ProfiloGitHub, ora: number): void {
+function writeProfile(db: Db, p: ProfiloGitHub, ora: number): void {
   try {
     db.query(`
       INSERT INTO github_profiles (login, name, avatar_url, html_url, bio, company, location,

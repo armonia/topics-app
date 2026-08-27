@@ -121,8 +121,8 @@ test.describe("Il badge di un progetto dice DI CHI è", () => {
 
     // Lo stesso vale per chi non vede il tooltip: il nome accessibile della tab
     // porta lo stesso contenuto. Il colore non parla, e un tooltip nemmeno.
-    const ariaProgetto = await tabProgetto.getAttribute("aria-label");
-    expect(ariaProgetto).toContain(chatName);
+    const ariaProject = await tabProgetto.getAttribute("aria-label");
+    expect(ariaProject).toContain(chatName);
   });
 
   test("il figlio, che è la tab attiva, resta senza badge — e il progetto resta spiegabile", async ({ page }) => {
@@ -157,8 +157,8 @@ test.describe("Il badge di un progetto dice DI CHI è", () => {
     await expect(badgeChat).toHaveCount(0);
 
     // E proprio per questo il numero del progetto deve restare risalibile.
-    const badgeProgetto = tabProgetto.locator("span[title]").filter({ hasText: /^\d+$/ }).first();
-    await expect(badgeProgetto).toBeVisible({ timeout: 10000 });
-    expect(await badgeProgetto.getAttribute("title")).toContain(chatName);
+    const badgeProject = tabProgetto.locator("span[title]").filter({ hasText: /^\d+$/ }).first();
+    await expect(badgeProject).toBeVisible({ timeout: 10000 });
+    expect(await badgeProject.getAttribute("title")).toContain(chatName);
   });
 });

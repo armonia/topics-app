@@ -53,11 +53,11 @@ import {
 
 type Invia = (m: MessaggioRelay) => void;
 
-interface Capo {
+interface Head {
   invia: Invia;
 }
 
-export interface RelayFintoOpts {
+export interface FakeRelayOpts {
   /** I token validi per installazione. Il relay verifica CHE tu sia
    *  l'installazione che dici, non CHI sei come persona — quella domanda non è
    *  sua e non deve diventarlo. */
@@ -74,18 +74,18 @@ export interface RelayFintoOpts {
  * differenza fra dire «la sua macchina è spenta» e lasciare qualcuno davanti a
  * una pagina vuota che si legge come «non ti hanno condiviso niente».
  */
-export function creaRelayFinto(opts: RelayFintoOpts = {}) {
-  const macchine = new Map<string, Capo>();
-  const ospiti = new Map<string, { capo: Capo; installationId: string; ruolo: RuoloSessione }>();
+export function creaRelayFinto(opts: FakeRelayOpts = {}) {
+  const macchine = new Map<string, Head>();
+  const ospiti = new Map<string, { capo: Head; installationId: string; ruolo: RuoloSessione }>();
   /** Ciò che il relay ha VISTO passare: serve ai test per dimostrare che non
    *  contiene i contenuti. */
   const visto: Array<Record<string, unknown>> = [];
   let contatore = 0;
 
-  const nega = (capo: Capo, motivo: Rifiutato["motivo"]) => capo.invia({ t: "denied", motivo });
+  const nega = (capo: Head, motivo: Rifiutato["motivo"]) => capo.invia({ t: "denied", motivo });
 
   function collegaMacchina(invia: Invia) {
-    const capo: Capo = { invia };
+    const capo: Head = { invia };
     let id: string | null = null;
 
     return {
@@ -128,7 +128,7 @@ export function creaRelayFinto(opts: RelayFintoOpts = {}) {
   }
 
   function collegaOspite(invia: Invia) {
-    const capo: Capo = { invia };
+    const capo: Head = { invia };
     let sessionId: string | null = null;
 
     return {
@@ -186,7 +186,7 @@ export function creaRelayFinto(opts: RelayFintoOpts = {}) {
    * l'ascoltatore dedicato della macchina, non il relay.
    */
   function collegaDispositivo(installationId: string, invia: Invia) {
-    const capo: Capo = { invia };
+    const capo: Head = { invia };
     let sessionId: string | null = null;
 
     const host = macchine.get(installationId);
@@ -345,12 +345,12 @@ export interface RispostaTubo {
   testo(): string;
 }
 
-export interface OspiteHttpOpts {
+export interface GuestHttpOpts {
   invia(payload: string): void;
   max?: number;
 }
 
-export function creaOspiteHttp(opts: OspiteHttpOpts) {
+export function creaOspiteHttp(opts: GuestHttpOpts) {
   const tubo = creaCapoTubo({
     lato: "guest",
     invia: opts.invia,
@@ -371,7 +371,7 @@ export function creaOspiteHttp(opts: OspiteHttpOpts) {
   /** Da quale stream di risposta si torna a quale richiesta. Serve perché una
    *  corsia può MORIRE (`reset`), e allora chi aspetta va svegliato lo stesso:
    *  un `null` è una risposta, un'attesa per sempre no. */
-  const daRispostaAllaRichiesta = new Map<number, number>();
+  const fromReplyAtRequest = new Map<number, number>();
 
   const consegna = (re: number, r: RispostaTubo | null) => {
     const risolvi = attese.get(re);
@@ -421,13 +421,13 @@ export function creaOspiteHttp(opts: OspiteHttpOpts) {
       const e = tubo.ricevi(payload);
       if (e.esito === "aperto" && e.k === GENERE_RISPOSTA) {
         const t = leggiTestaRisposta(e.h);
-        if (t) daRispostaAllaRichiesta.set(e.s, t.re);
+        if (t) fromReplyAtRequest.set(e.s, t.re);
       }
       if (e.esito === "completo") {
         if (e.k !== GENERE_RISPOSTA) return e;
         const t = leggiTestaRisposta(e.h);
         if (!t) return e;
-        daRispostaAllaRichiesta.delete(e.s);
+        fromReplyAtRequest.delete(e.s);
         const corpo = e.e === "b" ? e.dati : new TextEncoder().encode(e.dati);
         consegna(t.re, {
           stato: t.s, intestazioni: t.h ?? [], corpo,
@@ -439,8 +439,8 @@ export function creaOspiteHttp(opts: OspiteHttpOpts) {
         // chiudere la corsia di RISPOSTA (e allora si risale al `re`) oppure
         // la corsia della RICHIESTA, quando la testa non le è nemmeno
         // piaciuta — e lì non c'è nessuna risposta da cui risalire.
-        const re = daRispostaAllaRichiesta.get(e.s);
-        if (re !== undefined) { daRispostaAllaRichiesta.delete(e.s); consegna(re, null); }
+        const re = fromReplyAtRequest.get(e.s);
+        if (re !== undefined) { fromReplyAtRequest.delete(e.s); consegna(re, null); }
         else consegna(e.s, null);
       }
       return e;
@@ -483,7 +483,7 @@ export interface SocketOspite {
   credito(): number;
 }
 
-export interface OspiteWsOpts {
+export interface GuestWsOpts {
   invia(payload: string): void;
   max?: number;
   credito?: number;
@@ -502,7 +502,7 @@ export interface AperturaWs {
   suChiuso?(c: number, r: string, stato?: number): void;
 }
 
-interface StatoSocketOspite {
+interface StateSocketGuest {
   s: number;
   sOut: number | null;
   stato: "apertura" | "aperto" | "chiuso";
@@ -514,13 +514,13 @@ interface StatoSocketOspite {
   rifiuto: number | null;
 }
 
-export function creaOspiteWs(opts: OspiteWsOpts) {
+export function creaOspiteWs(opts: GuestWsOpts) {
   const prossimo = creaContatoreStream("guest");
   const rias = creaRiassemblatore({ latoRemoto: "host" });
   /** I socket per canale dell'OSPITE (il loro nome) e per canale della
    *  MACCHINA (da dove arrivano messaggi e credito). */
-  const perNome = new Map<number, StatoSocketOspite>();
-  const perCanale = new Map<number, StatoSocketOspite>();
+  const perNome = new Map<number, StateSocketGuest>();
+  const perCanale = new Map<number, StateSocketGuest>();
 
   const manda = (f: Parameters<typeof scriviFrame>[0]) => opts.invia(scriviFrame(f));
 
@@ -534,7 +534,7 @@ export function creaOspiteWs(opts: OspiteWsOpts) {
    * chiusura — la caduta del filo, `1006`, senza codice — che arriva a chi
    * ascolta prima di quella vera e la copre.
    */
-  function stacca(sk: StatoSocketOspite): boolean {
+  function stacca(sk: StateSocketGuest): boolean {
     if (sk.stato === "chiuso") return false;
     sk.stato = "chiuso";
     perNome.delete(sk.s);
@@ -552,12 +552,12 @@ export function creaOspiteWs(opts: OspiteWsOpts) {
   }
 
   /** Fine dichiarata: si chiude la propria corsia e lo si dice a chi ascolta. */
-  function annuncia(sk: StatoSocketOspite, c: number, r: string, avvisa: boolean) {
+  function annuncia(sk: StateSocketGuest, c: number, r: string, avvisa: boolean) {
     if (avvisa) sk.canale.chiudi("aborted");
     sk.cb.suChiuso?.(c, r, sk.rifiuto ?? undefined);
   }
 
-  function spegni(sk: StatoSocketOspite, c: number, r: string, avvisa: boolean) {
+  function spegni(sk: StateSocketGuest, c: number, r: string, avvisa: boolean) {
     if (!stacca(sk)) return;
     annuncia(sk, c, r, avvisa);
   }
@@ -573,7 +573,7 @@ export function creaOspiteWs(opts: OspiteWsOpts) {
         ...(opts.credito !== undefined ? { credito: opts.credito } : {}),
         ...(opts.arretratoMax !== undefined ? { arretratoMax: opts.arretratoMax } : {}),
       });
-      const sk: StatoSocketOspite = { s, sOut: null, stato: "apertura", canale, cb: o, rifiuto: null };
+      const sk: StateSocketGuest = { s, sOut: null, stato: "apertura", canale, cb: o, rifiuto: null };
       perNome.set(s, sk);
       canale.apri(GENERE_WS, scriviTestaWs({
         p, ...(o.h !== undefined ? { h: o.h } : {}), ...(o.sp !== undefined ? { sp: o.sp } : {}),

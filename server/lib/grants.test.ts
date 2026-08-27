@@ -104,9 +104,9 @@ describe("grants · i frame che un ospite può ricevere", () => {
     // ~91 tipi, di cui solo 39 portano un id di entità: un filtro che si affidasse
     // all'id lascerebbe passare i 52 che non ne hanno — git, presenza, capacità di
     // dispatch, stato dei progetti.
-    const nonAmmessi = REGISTERED_OUTBOUND_TYPES.filter((t) => !ammessi.includes(t));
-    expect(nonAmmessi.length).toBeGreaterThan(50);
-    for (const t of nonAmmessi) {
+    const notAllowed = REGISTERED_OUTBOUND_TYPES.filter((t) => !ammessi.includes(t));
+    expect(notAllowed.length).toBeGreaterThan(50);
+    for (const t of notAllowed) {
       expect(isGuestSafeFrameType(t)).toBe(false);
     }
   });

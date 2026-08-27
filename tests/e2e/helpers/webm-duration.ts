@@ -47,15 +47,15 @@ export interface MisuraWebm {
  * primo byte: `1xxxxxxx` = 1 byte, `01xxxxxx` = 2, e così via. Zero = byte non
  * valido (nessun bit acceso), che per noi vuol dire "qui non c'è un elemento".
  */
-function lunghezzaVint(primo: number): number {
+function lengthVint(primo: number): number {
   for (let i = 0; i < 8; i++) if (primo & (0x80 >> i)) return i + 1;
   return 0;
 }
 
 /** L'ID di un elemento: i bit del marcatore FANNO PARTE del valore. */
-function leggiId(buf: Buffer, pos: number): { id: number; dopo: number } | null {
+function readId(buf: Buffer, pos: number): { id: number; dopo: number } | null {
   if (pos >= buf.length) return null;
-  const len = lunghezzaVint(buf[pos]);
+  const len = lengthVint(buf[pos]);
   if (len === 0 || len > 4 || pos + len > buf.length) return null;
   let id = 0;
   for (let i = 0; i < len; i++) id = id * 256 + buf[pos + i];
@@ -67,18 +67,18 @@ function leggiId(buf: Buffer, pos: number): { id: number; dopo: number } | null 
  * significa "dimensione sconosciuta" (muxing in streaming): il corpo arriva
  * fino alla fine del genitore, e lo diciamo con `null`.
  */
-function leggiDimensione(buf: Buffer, pos: number): { size: number | null; dopo: number } | null {
+function readSize(buf: Buffer, pos: number): { size: number | null; dopo: number } | null {
   if (pos >= buf.length) return null;
-  const len = lunghezzaVint(buf[pos]);
+  const len = lengthVint(buf[pos]);
   if (len === 0 || pos + len > buf.length) return null;
   const primo = buf[pos] & (0xff >> len);
   let value = primo;
-  let tuttiUno = primo === (0xff >> len);
+  let allOne = primo === (0xff >> len);
   for (let i = 1; i < len; i++) {
     value = value * 256 + buf[pos + i];
-    if (buf[pos + i] !== 0xff) tuttiUno = false;
+    if (buf[pos + i] !== 0xff) allOne = false;
   }
-  return { size: tuttiUno ? null : value, dopo: pos + len };
+  return { size: allOne ? null : value, dopo: pos + len };
 }
 
 interface Elemento {
@@ -90,10 +90,10 @@ interface Elemento {
 }
 
 /** Legge l'elemento che comincia a `pos`, senza uscire da `limite`. */
-function leggiElemento(buf: Buffer, pos: number, limite: number): Elemento | null {
-  const testa = leggiId(buf, pos);
+function readElement(buf: Buffer, pos: number, limite: number): Elemento | null {
+  const testa = readId(buf, pos);
   if (!testa || testa.dopo > limite) return null;
-  const dim = leggiDimensione(buf, testa.dopo);
+  const dim = readSize(buf, testa.dopo);
   if (!dim) return null;
   const corpo = dim.dopo;
   if (corpo > limite) return null;
@@ -101,7 +101,7 @@ function leggiElemento(buf: Buffer, pos: number, limite: number): Elemento | nul
   return { id: testa.id, corpo, fine };
 }
 
-function interoBE(buf: Buffer, da: number, a: number): number {
+function wholeBE(buf: Buffer, da: number, a: number): number {
   let v = 0;
   for (let i = da; i < a; i++) v = v * 256 + buf[i];
   return v;
@@ -120,7 +120,7 @@ function floatBE(buf: Buffer, da: number, a: number): number | null {
 function figlio(buf: Buffer, dentro: Elemento, id: number): Elemento | null {
   let pos = dentro.corpo;
   while (pos < dentro.fine) {
-    const el = leggiElemento(buf, pos, dentro.fine);
+    const el = readElement(buf, pos, dentro.fine);
     if (!el) return null;
     if (el.id === id) return el;
     if (el.fine <= pos) return null; // elemento vuoto o malformato: non avanzeremmo mai
@@ -143,7 +143,7 @@ function ultimoTimecodeCluster(buf: Buffer, segment: Elemento): number | null {
   let pos = segment.corpo;
   let camminata = true;
   while (pos < segment.fine) {
-    const el = leggiElemento(buf, pos, segment.fine);
+    const el = readElement(buf, pos, segment.fine);
     if (!el || el.fine <= pos) {
       camminata = false;
       break;
@@ -154,7 +154,7 @@ function ultimoTimecodeCluster(buf: Buffer, segment: Elemento): number | null {
         camminata = false;
       }
       const tc = figlio(buf, el, ID_CLUSTER_TIMECODE);
-      if (tc) ultimo = interoBE(buf, tc.corpo, tc.fine);
+      if (tc) ultimo = wholeBE(buf, tc.corpo, tc.fine);
       if (!camminata) break;
     }
     pos = el.fine;
@@ -165,10 +165,10 @@ function ultimoTimecodeCluster(buf: Buffer, segment: Elemento): number | null {
   const marcatore = Buffer.from([0x1f, 0x43, 0xb6, 0x75]);
   let idx = buf.indexOf(marcatore, segment.corpo);
   while (idx !== -1) {
-    const el = leggiElemento(buf, idx, buf.length);
+    const el = readElement(buf, idx, buf.length);
     if (el) {
       const tc = figlio(buf, { ...el, fine: Math.min(el.fine, buf.length) }, ID_CLUSTER_TIMECODE);
-      if (tc) ultimo = interoBE(buf, tc.corpo, tc.fine);
+      if (tc) ultimo = wholeBE(buf, tc.corpo, tc.fine);
     }
     idx = buf.indexOf(marcatore, idx + 4);
   }
@@ -180,7 +180,7 @@ export function misuraWebm(buf: Buffer): MisuraWebm {
   let segment: Elemento | null = null;
   let pos = 0;
   while (pos < buf.length) {
-    const el = leggiElemento(buf, pos, buf.length);
+    const el = readElement(buf, pos, buf.length);
     if (!el || el.fine <= pos) break;
     if (el.id === ID_SEGMENT) {
       segment = el;
@@ -194,7 +194,7 @@ export function misuraWebm(buf: Buffer): MisuraWebm {
   let scala = TIMECODE_SCALE_DEFAULT;
   if (info) {
     const ts = figlio(buf, info, ID_TIMECODE_SCALE);
-    if (ts && ts.fine > ts.corpo) scala = interoBE(buf, ts.corpo, ts.fine);
+    if (ts && ts.fine > ts.corpo) scala = wholeBE(buf, ts.corpo, ts.fine);
     const dur = figlio(buf, info, ID_DURATION);
     if (dur) {
       const tick = floatBE(buf, dur.corpo, dur.fine);

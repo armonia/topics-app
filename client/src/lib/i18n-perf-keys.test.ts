@@ -27,7 +27,7 @@ import { t, missingKeys } from './i18n';
  * ricavasse dal sorgente proverebbe che il codice è coerente con sé stesso, non
  * che dice qualcosa a una persona.
  */
-const RIGHE_DEL_PANNELLO: Array<[string, Record<string, string | number>]> = [
+const ROWS_OF_PANEL: Array<[string, Record<string, string | number>]> = [
   ['perf.verdict.noAccel', {}],
   ['perf.verdict.compressed', { gb: '2.5' }],
   ['perf.verdict.mostlySwapped', { pct: 78, mb: 234 }],
@@ -44,7 +44,7 @@ describe('le stringhe del pannello prestazioni', () => {
   });
 
   it('nessuna esce come CHIAVE GREZZA, che è ciò che si vedrebbe a schermo', () => {
-    for (const [chiave, vars] of RIGHE_DEL_PANNELLO) {
+    for (const [chiave, vars] of ROWS_OF_PANEL) {
       const reso = t(chiave, 'it', vars);
       // `t()` restituisce la chiave quando non la trova: è esattamente il
       // difetto, ed è invisibile a un test che guardi solo la decisione.
@@ -56,7 +56,7 @@ describe('le stringhe del pannello prestazioni', () => {
   it('nessuna lascia un segnaposto non sostituito', () => {
     // `{mb}` a schermo è peggio di una traduzione mancante: sembra un difetto
     // dei dati, non delle stringhe, e manda a cercare dalla parte sbagliata.
-    for (const [chiave, vars] of RIGHE_DEL_PANNELLO) {
+    for (const [chiave, vars] of ROWS_OF_PANEL) {
       for (const lingua of ['it', 'en'] as const) {
         expect(t(chiave, lingua, vars)).not.toMatch(/\{[a-zA-Z]+\}/);
       }

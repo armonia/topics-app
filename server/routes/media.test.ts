@@ -202,7 +202,7 @@ describe("la politica sul tipo · importata, non ricopiata", () => {
   test("ogni MIME attivo ha l'estensione corrispondente nell'altro insieme", () => {
     // I due insiemi sono due assi della stessa regola: se uno nomina un tipo
     // che l'altro non riconosce, resta la strada in cui il file passa.
-    const perEstensione = new Map([
+    const perExtension = new Map([
       ["text/html", "html"], ["application/xhtml+xml", "xhtml"], ["image/svg+xml", "svg"],
       ["text/javascript", "js"], ["application/javascript", "js"],
       ["application/x-javascript", "js"], ["application/x-httpd-php", "php"],
@@ -210,7 +210,7 @@ describe("la politica sul tipo · importata, non ricopiata", () => {
     for (const mime of ACTIVE_CONTENT_MIMES) {
       // Un MIME nuovo senza voce qui fa rosso: `undefined` non sta in nessun
       // insieme, ed è esattamente la strada che resterebbe aperta.
-      const ext = perEstensione.get(mime) ?? "";
+      const ext = perExtension.get(mime) ?? "";
       expect(`${mime}→${ext}→${ACTIVE_CONTENT_EXTENSIONS.has(ext)}`).toBe(`${mime}→${ext}→true`);
     }
   });

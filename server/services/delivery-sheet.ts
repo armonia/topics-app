@@ -146,7 +146,7 @@ export function renderDeliverySheet(data: DeliverySheetData): string {
     <text x="800" y="${NUM_Y}" class="n del">-${del ?? 0}</text>
     <text x="800" y="${KEY_Y}" class="k">righe tolte</text>
     <text x="72" y="${BRANCH_Y}" class="b">${escapeXml(data.branch ?? "")}</text>`
-    : riassuntoSvg(data.summary, NUM_Y, KEY_Y);
+    : summarySvg(data.summary, NUM_Y, KEY_Y);
 
   const total = data.subtasksTotal ?? 0;
   const passi = total > 0
@@ -231,7 +231,7 @@ export function makeSheetWriter(openclawDir: string): (taskId: string, svg: stri
  * significherebbe due numeri da tenere allineati a mano — cioe' una scheda che
  * si scompagina al primo ritocco del layout.
  */
-function riassuntoSvg(summary: string | null | undefined, NUM_Y: number, KEY_Y: number): string {
+function summarySvg(summary: string | null | undefined, NUM_Y: number, KEY_Y: number): string {
   const testo = (summary ?? "").replace(/\s+/g, " ").trim();
   if (!testo) {
     return `

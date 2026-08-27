@@ -59,8 +59,8 @@ const PROJ_ID = projectIdForPath(PROJ);
 
 /** Due card: una passa il filtro, l'altra no. E' l'unico modo di provare che il
  *  filtro e' APPLICATO e non solo che il campo ha ancora del testo dentro. */
-const CARD_DENTRO = `Zeta filtro ${STAMP}`;
-const CARD_FUORI = `Omega escluso ${STAMP}`;
+const CARD_INSIDE = `Zeta filtro ${STAMP}`;
+const CARD_OUTSIDE = `Omega escluso ${STAMP}`;
 /** Il termine da cercare: presente solo nella prima. */
 const AGO = `Zeta`;
 
@@ -93,14 +93,14 @@ async function seedTask(
 
 /** La Board GENERALE dal «+» della barra standalone: la chiave dei filtri e'
  *  `board:filters-all`, e la board vede le card di ogni progetto. */
-async function apriBoardGenerale(page: Page) {
+async function openGeneralBoard(page: Page) {
   await page.getByTestId("pane-add-menu-trigger").first().click();
   await page.getByTestId("pane-add-menu-board").click();
   await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15000 });
 }
 
 /** Apre il drawer di una card dalla board. */
-async function apriDrawer(page: Page, testo: string): Promise<Locator> {
+async function openDrawer(page: Page, testo: string): Promise<Locator> {
   await page.getByTestId("kanban-board").getByText(testo, { exact: true }).first().click({ timeout: 15000 });
   const drawer = page.getByTestId("task-detail-drawer");
   await expect(drawer).toBeVisible({ timeout: 10000 });
@@ -108,7 +108,7 @@ async function apriDrawer(page: Page, testo: string): Promise<Locator> {
 }
 
 /** Apre la finestra del progetto-fixture e restituisce il suo riquadro. */
-async function apriProgetto(page: Page): Promise<Locator> {
+async function openProject(page: Page): Promise<Locator> {
   const sezione = page.getByRole("button", { name: /sezione Progetti/ });
   if ((await sezione.count()) > 0 && (await sezione.getAttribute("aria-expanded")) === "false") {
     await sezione.click();
@@ -180,8 +180,8 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
     const topic = await createTopic(request, `refresh-board-${STAMP}`, { projectPath: PROJ });
     topicIds.push(topic.id);
 
-    await seedTask(request, CARD_DENTRO, { status: "todo" });
-    await seedTask(request, CARD_FUORI, { status: "todo" });
+    await seedTask(request, CARD_INSIDE, { status: "todo" });
+    await seedTask(request, CARD_OUTSIDE, { status: "todo" });
     const padre = await seedTask(request, CARD_DRAWER, {
       status: "todo",
       description: "## Il piano\n\nUna descrizione vera, abbastanza lunga da valere una sezione richiudibile.",
@@ -197,10 +197,10 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
       data: { previewImage: previewPath },
     });
     expect(patch.ok(), `PATCH previewImage -> ${patch.status()}`).toBe(true);
-    const dopoPatch = (await (await request.get(`${BASE}/api/boards/${PROJ_ID}/tasks/${padre}`)).json()) as {
+    const afterPatch = (await (await request.get(`${BASE}/api/boards/${PROJ_ID}/tasks/${padre}`)).json()) as {
       task?: { previewImage?: string | null };
     };
-    expect(dopoPatch.task?.previewImage, "anteprima scartata dall'allowlist della HOME del server").toBe(previewPath);
+    expect(afterPatch.task?.previewImage, "anteprima scartata dall'allowlist della HOME del server").toBe(previewPath);
   });
 
   test.afterAll(async ({ request }) => {
@@ -221,15 +221,15 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
   test("RIGA 1: il filtro di testo della board RESTA, e resta APPLICATO", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "DURAB-BOARD-01" });
     await goToApp(page);
-    await apriBoardGenerale(page);
+    await openGeneralBoard(page);
     const board = page.getByTestId("kanban-board");
-    await expect(board.getByText(CARD_DENTRO, { exact: true })).toBeVisible({ timeout: 15000 });
+    await expect(board.getByText(CARD_INSIDE, { exact: true })).toBeVisible({ timeout: 15000 });
 
     const cerca = page.getByLabel("Cerca nei task");
     await cerca.fill(AGO);
     // Il filtro morde: la card che non lo passa sparisce.
-    await expect(board.getByText(CARD_FUORI, { exact: true })).toHaveCount(0);
-    await expect(board.getByText(CARD_DENTRO, { exact: true })).toBeVisible();
+    await expect(board.getByText(CARD_OUTSIDE, { exact: true })).toHaveCount(0);
+    await expect(board.getByText(CARD_INSIDE, { exact: true })).toBeVisible();
 
     // La scrittura passa da un effetto su `filters`: si aspetta che la chiave
     // esista davvero, non un tempo.
@@ -245,18 +245,18 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
     // le colonne mostrano tutto sarebbe la peggiore delle due uscite, perche'
     // sembra a posto.
     await expect(
-      page.getByTestId("kanban-board").getByText(CARD_FUORI, { exact: true }),
+      page.getByTestId("kanban-board").getByText(CARD_OUTSIDE, { exact: true }),
       "il testo del filtro e' tornato ma non filtra: la board dice il falso su cosa sta mostrando",
     ).toHaveCount(0);
-    await expect(page.getByTestId("kanban-board").getByText(CARD_DENTRO, { exact: true })).toBeVisible();
+    await expect(page.getByTestId("kanban-board").getByText(CARD_INSIDE, { exact: true })).toBeVisible();
   });
 
   // ── RIGA 2 ────────────────────────────────────────────────────────────────
   test("RIGA 2: i pannelli chiusi del drawer (descrizione, sottotask, consegna) RESTANO chiusi", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "DURAB-BOARD-01" });
     await goToApp(page);
-    await apriBoardGenerale(page);
-    let drawer = await apriDrawer(page, CARD_DRAWER);
+    await openGeneralBoard(page);
+    let drawer = await openDrawer(page, CARD_DRAWER);
 
     const manDesc = drawer.getByRole("button", { name: /^Descrizione$/ });
     const manSub = drawer.getByRole("button", { name: /^Sottotask/ });
@@ -283,7 +283,7 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 20000 });
-    drawer = await apriDrawer(page, CARD_DRAWER);
+    drawer = await openDrawer(page, CARD_DRAWER);
 
     // CHIUSO != VUOTO: la prova che la descrizione e' chiusa (e non assente) e'
     // l'accenno con la misura, lo stesso appiglio di `board-drawer-truth`.
@@ -300,8 +300,8 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
   test("RIGA 3: il drawer largo (board:taskDetailWide) RESTA largo", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "DURAB-BOARD-01" });
     await goToApp(page);
-    await apriBoardGenerale(page);
-    let drawer = await apriDrawer(page, CARD_DRAWER);
+    await openGeneralBoard(page);
+    let drawer = await openDrawer(page, CARD_DRAWER);
 
     const largo = drawer.getByTestId("task-detail-wide-toggle");
     await expect(largo).toHaveAttribute("aria-pressed", "false");
@@ -318,7 +318,7 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 20000 });
-    drawer = await apriDrawer(page, CARD_DRAWER);
+    drawer = await openDrawer(page, CARD_DRAWER);
 
     await expect(
       drawer.getByTestId("task-detail-wide-toggle"),
@@ -331,8 +331,8 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
   test("RIGA 4: lo Spazio di lavoro chiuso (board:taskWorkspaceOpen) RESTA chiuso", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "DURAB-BOARD-01" });
     await goToApp(page);
-    await apriBoardGenerale(page);
-    let drawer = await apriDrawer(page, CARD_DRAWER);
+    await openGeneralBoard(page);
+    let drawer = await openDrawer(page, CARD_DRAWER);
 
     // La maniglia e' DISABILITATA finche' il gruppo del task non ha pane: senza
     // una tab dentro non c'e' niente da chiudere, e chiudere una sezione vuota
@@ -350,7 +350,7 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 20000 });
-    drawer = await apriDrawer(page, CARD_DRAWER);
+    drawer = await openDrawer(page, CARD_DRAWER);
 
     await expect(drawer.getByTestId("task-workspace-toggle")).toBeEnabled({ timeout: 20000 });
     await expect(
@@ -368,7 +368,7 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
     const bozza = `Bozza che deve sopravvivere al ricaricamento ${STAMP}`;
 
     await goToApp(page);
-    await apriBoardGenerale(page);
+    await openGeneralBoard(page);
     const composer = page.getByTestId("board-task-composer");
     await expect(composer).toBeVisible({ timeout: 15000 });
     const ta = composer.locator("textarea");
@@ -405,7 +405,7 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
     test.info().annotations.push({ type: "spec", description: "DURAB-BOARD-01" });
     await seedProjectPane(page.request, PROJ);
     await goToApp(page);
-    const win = await apriProgetto(page);
+    const win = await openProject(page);
 
     // Uno stato che NON e' il default: File chiusa (nasce aperta), Processi
     // aperta (nasce chiusa).
@@ -454,7 +454,7 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
     // sulla vecchia casa, cosi' una finestra gia' aperta non perde niente.
     await seedProjectPane(page.request, PROJ);
     await goToApp(page);
-    const win = await apriProgetto(page);
+    const win = await openProject(page);
 
     await portaSezione(win.getByTestId("project-sidebar-files"), false);
     const partenza = await larghezzaColonna(win);
@@ -477,15 +477,15 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
     await expect(win2.locator('[data-testid="project-sidebar"]')).toBeVisible({ timeout: 20000 });
 
     const larghezza2 = Math.round((await win2.locator('[data-testid="project-sidebar"]').boundingBox())!.width);
-    const fileAperta = await win2.getByTestId("project-sidebar-files").getAttribute("aria-expanded");
-    console.log(`[RIGA 7] scheda 1: ${scelta}px, File aperta=false. Scheda 2: ${larghezza2}px, File aperta=${fileAperta}`);
+    const openFile = await win2.getByTestId("project-sidebar-files").getAttribute("aria-expanded");
+    console.log(`[RIGA 7] scheda 1: ${scelta}px, File aperta=false. Scheda 2: ${larghezza2}px, File aperta=${openFile}`);
 
     expect(
       larghezza2,
       `la seconda scheda apre la colonna a ${larghezza2}px invece dei ${scelta}px scelti: la larghezza per progetto non esce dalla scheda che l'ha decisa`,
     ).toBeGreaterThan(scelta - 2);
     expect(
-      fileAperta,
+      openFile,
       "la seconda scheda riapre la sezione File che era stata chiusa: la scelta non esce dalla scheda che l'ha fatta",
     ).toBe("false");
 
@@ -496,7 +496,7 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
   test("RIGA 8: l'a capo automatico dell'editor (editor-word-wrap) RESTA", async ({ page }) => {
     await seedProjectPane(page.request, PROJ);
     await goToApp(page);
-    const win = await apriProgetto(page);
+    const win = await openProject(page);
 
     // Si apre un file dall'albero della colonna: questo percorso monta un
     // FilePane nell'area principale, che e' il gemello di EditorTabs e legge la
@@ -532,7 +532,7 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
     test.info().annotations.push({ type: "spec", description: "DURAB-BOARD-01" });
     await seedProjectPane(page.request, PROJ);
     await goToApp(page);
-    const win = await apriProgetto(page);
+    const win = await openProject(page);
 
     const albero = win.locator('[data-testid="file-tree"]').first();
     const file = albero.getByRole("treeitem", { name: /lungo\.ts/ });

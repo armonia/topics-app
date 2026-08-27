@@ -182,7 +182,7 @@ function contorno(c: CardComment): boolean {
  * verso: senza i figli (`counts` assenti) non si spegne niente. Meglio una
  * domanda morta in cima che una viva nascosta.
  */
-function domandaSpenta(c: CardComment, counts: CardThreadContext | null): boolean {
+function offQuestion(c: CardComment, counts: CardThreadContext | null): boolean {
   if (!counts) return false;
   return counts.children
     ? isResolvedParkedQuestion(c, counts.children)
@@ -228,7 +228,7 @@ export function selectCardComments<T extends CardComment>(
   //
   // Non si buttano: se sono l'UNICA voce dicono comunque qualcosa (perche' la
   // card e' cieca). Si tolgono solo di mezzo quando c'e' una parola vera.
-  const parole = speech.filter((c) => !contorno(c) && !domandaSpenta(c, ctx ?? null));
+  const parole = speech.filter((c) => !contorno(c) && !offQuestion(c, ctx ?? null));
   const vive = parole.length ? parole : speech;
   const latest = vive[vive.length - 1];
   if (!latest) return null;

@@ -39,7 +39,7 @@
 
 /** Come si legge il peso di questa voce. Un'unione chiusa, non un booleano: il
  *  tipo stesso deve impedire di sommare MB e conteggi. */
-export type NaturaPeso = 'misurato' | 'trattenuto';
+export type NatureWeight = 'misurato' | 'trattenuto';
 
 /** Cosa una funzionalita' dichiara di tenere. */
 export interface PesoDichiarato {
@@ -66,7 +66,7 @@ export interface VocePeso {
   /** Come la chiama chi usa l'app. Non il nome del modulo che la implementa:
    *  «Le tue schede», non `pane.store`. */
   label: string;
-  natura: NaturaPeso;
+  natura: NatureWeight;
   peso: PesoDichiarato;
   /** Il proprietario e' esploso: NON MISURATO, che non e' zero. */
   errore?: string;
@@ -74,7 +74,7 @@ export interface VocePeso {
 
 interface Proprietario {
   label: string;
-  natura: NaturaPeso;
+  natura: NatureWeight;
   report: () => PesoDichiarato;
 }
 
@@ -95,7 +95,7 @@ const proprietari = new Map<string, Proprietario>();
 export function registerFeatureWeight(
   id: string,
   label: string,
-  natura: NaturaPeso,
+  natura: NatureWeight,
   report: () => PesoDichiarato,
 ): () => void {
   proprietari.set(id, { label, natura, report });

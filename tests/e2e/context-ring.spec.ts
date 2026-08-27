@@ -70,9 +70,9 @@ test.describe.serial("Context ring — contesto reale + avviso accanto all'anell
     // conta invece di ispezionare il DOM perche' e' il costo vero, e perche'
     // un `<details>` chiuso nasconde i figli senza smontarli — a occhio le due
     // situazioni sono identiche.
-    let chiamateEnvelope = 0;
+    let callsEnvelope = 0;
     page.on("request", (r) => {
-      if (/\/context-(preview|snapshots)/.test(r.url())) chiamateEnvelope++;
+      if (/\/context-(preview|snapshots)/.test(r.url())) callsEnvelope++;
     });
     await page.route("**/api/context/live*", (route) =>
       route.fulfill({
@@ -158,7 +158,7 @@ test.describe.serial("Context ring — contesto reale + avviso accanto all'anell
     // fetch a ogni apertura del pannello, per chi non guarderà mai quella
     // sezione. Difetto invisibile a occhio — questa è la riga che lo tiene
     // curato.
-    expect(chiamateEnvelope).toBe(0);
+    expect(callsEnvelope).toBe(0);
     // Aprendola, invece, i dati si vanno a prendere: la sezione funziona.
     // `> summary`: figlio DIRETTO. Aperto il pannello, dentro compaiono altri
     // due `<summary>` («Adaptation notes», «Raw envelope JSON») e un locator
@@ -167,7 +167,7 @@ test.describe.serial("Context ring — contesto reale + avviso accanto all'anell
     // meta' test e' un test che si rompe da solo.
     const interruttore = dettagli.locator("> summary");
     await interruttore.click();
-    await expect.poll(() => chiamateEnvelope, { timeout: 10_000 }).toBeGreaterThan(0);
+    await expect.poll(() => callsEnvelope, { timeout: 10_000 }).toBeGreaterThan(0);
     await interruttore.click(); // richiusa per lo screenshot
     expect(await dettagli.evaluate((el) => (el as HTMLDetailsElement).open)).toBe(false);
 

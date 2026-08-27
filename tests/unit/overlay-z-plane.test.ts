@@ -129,7 +129,7 @@ interface Esito {
   superficiEsaminate: number;
 }
 
-function scandisci(file: { rel: string; testo: string }[]): Esito {
+function scan(file: { rel: string; testo: string }[]): Esito {
   const colpevoli: string[] = [];
   let superficiEsaminate = 0;
   for (const { rel, testo } of file) {
@@ -152,7 +152,7 @@ describe("il piano di una superficie a schermo intero si dichiara, non si indovi
   }));
 
   it("nessun overlay a schermo intero si scrive il piano a mano, oltre i difetti noti", () => {
-    const { colpevoli, superficiEsaminate } = scandisci(file);
+    const { colpevoli, superficiEsaminate } = scan(file);
     expect(colpevoli).toEqual(DIFETTI_NOTI);
 
     // Non vacuo, su due assi. Se il giro dei file o il ritaglio delle corse si
@@ -180,7 +180,7 @@ describe("il piano di una superficie a schermo intero si dichiara, non si indovi
       rel: "finto.tsx",
       testo: `<div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30" />`,
     }];
-    expect(scandisci(arbitrario).colpevoli).toHaveLength(1);
+    expect(scan(arbitrario).colpevoli).toHaveLength(1);
 
     // E la stessa cosa riscritta sulla scala Tailwind, che è come il difetto si
     // ripresenterebbe se qualcuno «riparasse» il numero cambiandogli grafia.
@@ -188,7 +188,7 @@ describe("il piano di una superficie a schermo intero si dichiara, non si indovi
       rel: "finto.tsx",
       testo: `<div className="fixed inset-0 z-50 flex items-center justify-center" />`,
     }];
-    expect(scandisci(scala).colpevoli).toHaveLength(1);
+    expect(scan(scala).colpevoli).toHaveLength(1);
 
     // NON grida su ciò che è legittimo: uno z-index piccolo interno a un
     // componente, e una card ancorata a un angolo.
@@ -200,7 +200,7 @@ describe("il piano di una superficie a schermo intero si dichiara, non si indovi
         <div className="fixed bottom-4 right-4 z-[100] max-w-xs" />
       `,
     }];
-    expect(scandisci(legittimo).colpevoli).toEqual([]);
+    expect(scan(legittimo).colpevoli).toEqual([]);
 
     // La forma sana passa: il piano arriva da una costante interpolata, quindi
     // nella corsa letterale non c'è nessun numero.
@@ -208,7 +208,7 @@ describe("il piano di una superficie a schermo intero si dichiara, non si indovi
       rel: "finto.tsx",
       testo: "<div className={`fixed inset-0 ${MODAL_LAYER} flex items-center`} />",
     }];
-    expect(scandisci(sano).colpevoli).toEqual([]);
+    expect(scan(sano).colpevoli).toEqual([]);
   });
 
   it("le superfici riparate prendono il piano dalla costante", () => {

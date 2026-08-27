@@ -65,7 +65,7 @@ export const MAX_PENDING_PER_IP = 3;
  */
 export const MAX_PENDING_TOTAL = 200;
 
-export type EsitoQuota =
+export type OutcomeQuota =
   /** Si accetta. `sfratta` è l'id da togliere per far posto, se serve. */
   | { ok: true; sfratta: string | null }
   /**
@@ -84,7 +84,7 @@ export type EsitoQuota =
 export function valutaQuota(
   pending: readonly PendingLike[],
   ip: string | null,
-): EsitoQuota {
+): OutcomeQuota {
   // Il limite su chi chiede. Un indirizzo assente (non lo sappiamo) NON viene
   // raggruppato con gli altri sconosciuti: sommarli darebbe a un ignoto la
   // capacità di consumare la quota di un altro ignoto.
@@ -114,7 +114,7 @@ export function valutaQuota(
  *  bastano a renderla impossibile per un IP vero — e si VEDONO, a differenza del
  *  byte NUL che ci avevo messo prima: invisibile nel sorgente, introvabile con
  *  `grep`, e beccato solo dal guardiano che questo repo ha apposta. */
-const CHIAVE_IGNOTO = "(ignoto)";
+const UNKNOWN_KEY = "(ignoto)";
 
 /**
  * Chi esce quando la coda è piena.
@@ -131,7 +131,7 @@ export function sceltoPerSfratto(pending: readonly PendingLike[]): string | null
 
   const perIp = new Map<string, PendingLike[]>();
   for (const p of pending) {
-    const k = p.ip ?? CHIAVE_IGNOTO;
+    const k = p.ip ?? UNKNOWN_KEY;
     const l = perIp.get(k) ?? [];
     l.push(p);
     perIp.set(k, l);

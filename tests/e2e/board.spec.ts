@@ -247,7 +247,7 @@ test.describe("Kanban board", () => {
     const vuoto = page.getByTestId("task-thread-empty");
     await expect(vuoto).toBeVisible({ timeout: 10000 });
     await expect(vuoto, "in coda: aspetta la macchina").toContainText(/in coda/i);
-    const testoCoda = await vuoto.innerText();
+    const textQueue = await vuoto.innerText();
 
     await page.keyboard.press("Escape");
     await page.getByTestId("kanban-column-backlog").getByText(inBacklog).click({ timeout: 10000 });
@@ -256,7 +256,7 @@ test.describe("Kanban board", () => {
     // In backlog la mossa e' TUA: se questa frase fosse uguale a quella di
     // sopra, la riga sarebbe tornata una constatazione con piu' parole.
     await expect(vuoto, "in backlog: aspetta te").toContainText(/backlog/i);
-    expect(await vuoto.innerText()).not.toBe(testoCoda);
+    expect(await vuoto.innerText()).not.toBe(textQueue);
   });
 
   test("BOARD-04: agent-surface create lands in Backlog (intake, not the run-queue)", async ({ page }) => {
@@ -499,20 +499,20 @@ test.describe("Kanban board", () => {
    */
   test("BOARD-16: la tab della board di progetto conta solo i task di quel progetto", async ({ page }) => {
     const stamp = Date.now();
-    const ALTRO_ID = boardIdForPath(`/tmp/e2e-board-altro-${stamp}`);
+    const OTHER_ID = boardIdForPath(`/tmp/e2e-board-altro-${stamp}`);
     await apiCreateTask(page.request, { text: `Solo mio ${stamp}`, status: "in_progress" });
-    await apiCreateTask(page.request, { text: `Di un altro ${stamp}`, status: "in_progress" }, ALTRO_ID);
+    await apiCreateTask(page.request, { text: `Di un altro ${stamp}`, status: "in_progress" }, OTHER_ID);
 
     await page.goto("/");
     await openProjectBoard(page);
 
-    const perProgetto = async (projectId: string) => {
+    const perProject = async (projectId: string) => {
       const r = await page.request.get(`${BASE}/api/boards/${projectId}/tasks`);
       const { tasks } = (await r.json()) as { tasks: { status: string; parentTaskId: string | null }[] };
       return tasks.filter((t) => t.status === "in_progress" && !t.parentTaskId).length;
     };
-    const mio = await perProgetto(PROJECT_ID);
-    const altro = await perProgetto(ALTRO_ID);
+    const mio = await perProject(PROJECT_ID);
+    const altro = await perProject(OTHER_ID);
     expect(altro, "il secondo progetto serve a rendere i due numeri diversi").toBeGreaterThan(0);
 
     const cue = projectWindow(page).getByTestId("tab-board-count-in_progress");

@@ -34,8 +34,16 @@ import { envDataDir, resolveDataDir, resolveStateDir } from "../../server/lib/da
 const ROOT = join(import.meta.dir, "..", "..");
 const THE_DOOR = "server/lib/data-dir.ts";
 
-/** Any read of the two variables off any env object, comments included. */
-const ENV_READ = /\benv\.(DATA_DIR|TOPICS_DATA_DIR)\b/;
+/**
+ * Any read of the two variables off any env object, comments included: plain
+ * dot access (`process.env.DATA_DIR`, optional-chained), bracket access
+ * (`env["DATA_DIR"]`), and destructuring (`const { DATA_DIR } = process.env`),
+ * because a falsification pass with only the first form found the other two
+ * slip straight through — the same door has three handles.
+ */
+const DOT_OR_BRACKET_READ = /\benv\?*\.(DATA_DIR|TOPICS_DATA_DIR)\b|\benv\[["'](DATA_DIR|TOPICS_DATA_DIR)["']\]/;
+const DESTRUCTURE_READ = /\{[^}]*\b(?:DATA_DIR|TOPICS_DATA_DIR)\b[^}]*\}\s*=\s*(?:process\.)?env\b/;
+const ENV_READ = (line: string): boolean => DOT_OR_BRACKET_READ.test(line) || DESTRUCTURE_READ.test(line);
 
 function sourceFiles(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
@@ -60,13 +68,26 @@ describe("STATE-DIR-DOOR-01 · una sola porta per la cartella di stateDir", () =
       if (rel === THE_DOOR) continue;
       const lines = readFileSync(file, "utf8").split("\n");
       lines.forEach((line, i) => {
-        if (ENV_READ.test(line)) offenders.push(`${rel}:${i + 1}`);
+        if (ENV_READ(line)) offenders.push(`${rel}:${i + 1}`);
       });
     }
     expect(
       offenders,
       `queste letture aggirano ${THE_DOOR}: due nomi non allineati sono il difetto del 25/08`,
     ).toEqual([]);
+  });
+
+  test("il matcher prende le tre forme di lettura, non solo il punto", () => {
+    // Trovato con la falsificazione richiesta dal task: il solo `env.DATA_DIR`
+    // lasciava passare bracket access e destructuring senza dire nulla.
+    expect(ENV_READ('const a = process.env["DATA_DIR"];')).toBe(true);
+    expect(ENV_READ("const b = process.env['TOPICS_DATA_DIR'];")).toBe(true);
+    expect(ENV_READ("const { DATA_DIR } = process.env;")).toBe(true);
+    expect(ENV_READ("const { DATA_DIR: renamed } = env;")).toBe(true);
+    expect(ENV_READ("const c = process.env?.TOPICS_DATA_DIR;")).toBe(true);
+    // E non prende un falso positivo sul nome vicino ma diverso.
+    expect(ENV_READ("const d = process.env.APP_DATA_DIR;")).toBe(false);
+    expect(ENV_READ("const dataDir = resolveDataDir(stateDir, env);")).toBe(false);
   });
 
   test("la porta dichiara la precedenza: TOPICS_DATA_DIR vince, DATA_DIR segue", () => {

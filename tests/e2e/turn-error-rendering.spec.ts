@@ -49,7 +49,7 @@ test.describe.serial("Il verdetto di un turno finito male", () => {
   });
 
   /** La classe del contenitore della bolla — quello che diventava giallo. */
-  async function classiContenitore(page: import("@playwright/test").Page): Promise<string> {
+  async function classesContainer(page: import("@playwright/test").Page): Promise<string> {
     return page
       .locator('[data-testid="message-content-assistant"]')
       .last()
@@ -80,7 +80,7 @@ test.describe.serial("Il verdetto di un turno finito male", () => {
     await expect(page.locator('[data-testid="message-content-assistant"]').last()).toContainText("rifare a shader");
 
     // E non è dentro una scatola gialla.
-    expect(await classiContenitore(page)).not.toContain("amber");
+    expect(await classesContainer(page)).not.toContain("amber");
   });
 
   test("il cartello nel testo di una riga VECCHIA torna leggibile", async ({ page, request }) => {
@@ -103,7 +103,7 @@ test.describe.serial("Il verdetto di un turno finito male", () => {
     await expect(verdetto).toContainText("ack timeout");
     await expect(page.locator('[data-testid="message-content-assistant"]').last())
       .toContainText("Un turno di lavoro sopravvissuto");
-    expect(await classiContenitore(page)).not.toContain("amber");
+    expect(await classesContainer(page)).not.toContain("amber");
 
     // E NIENTE bottone «Riprova»: il turno ha prodotto. Rimandarlo non
     // ripara niente — ne farebbe un secondo, a pagamento, sopra uno già lì.
@@ -149,7 +149,7 @@ test.describe.serial("Il verdetto di un turno finito male", () => {
     // Il lavoro dell'agente resta leggibile sotto il cartello.
     await expect(page.locator('[data-testid="message-content-assistant"]').last())
       .toContainText("Lo mando in background");
-    expect(await classiContenitore(page)).not.toContain("amber");
+    expect(await classesContainer(page)).not.toContain("amber");
   });
 
   test("una riga di solo errore si legge una volta sola, e porta il suo Riprova", async ({ page, request }) => {

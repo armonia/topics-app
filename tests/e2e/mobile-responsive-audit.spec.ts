@@ -131,7 +131,7 @@ function expectNoHardDefects(report: UiAuditReport) {
  * uno per uno. Pretendere zero anche li' vorrebbe dire o mentire o cambiare il
  * prodotto per far tacere un test.
  */
-function expectPulitaComeOggi(report: UiAuditReport) {
+function expectCleanAsToday(report: UiAuditReport) {
   expect(report.findings.misalign).toEqual([]);
   expect(report.findings.spacing).toEqual([]);
   expect(report.findings.overlap).toEqual([]);
@@ -200,13 +200,13 @@ test.describe("MRA — responsiveness mobile misurata", () => {
       await expect(palette).toHaveAttribute("data-page", "true");
 
       expectNoHardDefects(vuota);
-      expectPulitaComeOggi(vuota);
+      expectCleanAsToday(vuota);
       expect(vuota.findings.tapTargets).toEqual([]);
       // Senza questa riga un contenitore vuoto renderebbe verde tutto il resto.
       expect(vuota.counts.analyzed).toBeGreaterThan(10);
 
       expectNoHardDefects(conQuery);
-      expectPulitaComeOggi(conQuery);
+      expectCleanAsToday(conQuery);
       expect(conQuery.findings.tapTargets).toEqual([]);
     });
 
@@ -227,7 +227,7 @@ test.describe("MRA — responsiveness mobile misurata", () => {
 
       await expect(panel).toHaveAttribute("data-page", "true");
       expectNoHardDefects(perNome);
-      expectPulitaComeOggi(perNome);
+      expectCleanAsToday(perNome);
       expect(perNome.findings.tapTargets).toEqual([]);
       expect(perNome.counts.analyzed).toBeGreaterThan(5);
 
@@ -242,17 +242,17 @@ test.describe("MRA — responsiveness mobile misurata", () => {
       await expect(panel.getByText("nota-di-prova.txt").first()).toBeVisible({ timeout: 15_000 });
       await waitForLayoutSettled(page, '[data-testid="file-search"]', { stableMs: 700 });
 
-      const perContenuto = await runUiAudit(page, '[data-testid="file-search"]', 44);
-      persist(`mobile-filesearch-contenuto-${vp.name}`, perContenuto);
-      expectNoHardDefects(perContenuto);
-      expect(perContenuto.findings.tapTargets).toEqual([]);
-      expect(perContenuto.findings.overlap).toEqual([]);
-      expect(perContenuto.findings.spacing).toEqual([]);
+      const perContent = await runUiAudit(page, '[data-testid="file-search"]', 44);
+      persist(`mobile-filesearch-contenuto-${vp.name}`, perContent);
+      expectNoHardDefects(perContent);
+      expect(perContent.findings.tapTargets).toEqual([]);
+      expect(perContent.findings.overlap).toEqual([]);
+      expect(perContent.findings.spacing).toEqual([]);
       // UN misalign da 2px fra due span della stessa riga (`text-[11px]` contro
       // `text-xs`): e' la differenza di baseline fra due misure di carattere,
       // non un difetto di layout. Si DICHIARA invece di pretendere zero — cosi'
       // il secondo, se arriva, e' rosso.
-      expect(perContenuto.findings.misalign.length).toBeLessThanOrEqual(1);
+      expect(perContent.findings.misalign.length).toBeLessThanOrEqual(1);
     });
 
     /* ── Il resto della app ─────────────────────────────────────────────── */

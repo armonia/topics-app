@@ -119,7 +119,7 @@ export function IdentityBlock({ onOpenDevices }: { onOpenDevices?: () => void })
       style={{ paddingInline: ROW_INSET }}
     >
       <RigaIo presenza={presenza} onOpenDevices={onOpenDevices} />
-      <RigaOrganizzazioni orgs={presenza.orgs} />
+      <RowOrgs orgs={presenza.orgs} />
       <RigaAmici online={presenza.amiciOnline} tutti={presenza.amiciTutti} totali={presenza.amiciTotali} />
     </div>
   );
@@ -376,7 +376,7 @@ function RigaIo({ presenza, onOpenDevices }: {
  * organisation is and how you end up in one: same reason the people chip stays
  * at zero, and the same person is the one who needs it.
  */
-function RigaOrganizzazioni({ orgs }: { orgs: OrgConPresenza[] }) {
+function RowOrgs({ orgs }: { orgs: OrgConPresenza[] }) {
   const [apertaId, setApertaId] = useState<string | null>(null);
   // No leading glyph any more: it was there to tell one ROW from the next, and
   // there are no rows left. Alignment survives without it: every subject now

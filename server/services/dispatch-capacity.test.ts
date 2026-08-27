@@ -171,14 +171,14 @@ describe("il pavimento sulle risorse", () => {
    * decimo dal rosso. E' lo stesso difetto gia' pagato in tasks.test.ts, dove
    * un test misurava il TMPDIR di chi lo lanciava.
    */
-  const memoriaLarga = () => DISPATCH_MEM_FLOOR_GB + 8;
+  const wideMemory = () => DISPATCH_MEM_FLOOR_GB + 8;
 
   test("con spazio non blocca", () => {
-    expect(dispatchResourceBlock("/", freeDiskGB, memoriaLarga)).toBeNull();
+    expect(dispatchResourceBlock("/", freeDiskGB, wideMemory)).toBeNull();
   });
 
   test("un path che non si legge NON blocca: non sapere non è sapere di no", () => {
-    expect(dispatchResourceBlock("/percorso/che/non/esiste/davvero", freeDiskGB, memoriaLarga)).toBeNull();
+    expect(dispatchResourceBlock("/percorso/che/non/esiste/davvero", freeDiskGB, wideMemory)).toBeNull();
     expect(freeDiskGB("/percorso/che/non/esiste/davvero")).toBeNull();
   });
 
@@ -195,7 +195,7 @@ describe("il pavimento sulle risorse", () => {
   test("sotto il pavimento BLOCCA, e la frase porta il numero", () => {
     // Misura iniettata: il caso che conta è il disco quasi pieno, e aspettarlo
     // sul serio vorrebbe dire non provarlo mai.
-    const msg = dispatchResourceBlock("/qualunque", () => 3.5, memoriaLarga);
+    const msg = dispatchResourceBlock("/qualunque", () => 3.5, wideMemory);
     expect(msg).not.toBeNull();
     expect(msg!).toContain("3.5 GB liberi");
     expect(msg!).toContain(String(DISPATCH_DISK_FLOOR_GB));
@@ -205,9 +205,9 @@ describe("il pavimento sulle risorse", () => {
   });
 
   test("un solo GB sopra il pavimento non blocca: la soglia è una soglia", () => {
-    expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB + 1, memoriaLarga)).toBeNull();
-    expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB, memoriaLarga)).toBeNull();
-    expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB - 0.1, memoriaLarga)).not.toBeNull();
+    expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB + 1, wideMemory)).toBeNull();
+    expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB, wideMemory)).toBeNull();
+    expect(dispatchResourceBlock("/qualunque", () => DISPATCH_DISK_FLOOR_GB - 0.1, wideMemory)).not.toBeNull();
   });
 });
 
@@ -226,14 +226,14 @@ describe("il pavimento sulle risorse", () => {
 describe("il pavimento sulla memoria", () => {
   // Disco largo: qui si giudica solo la RAM, e con un disco pieno la prima
   // frase vincerebbe sempre nascondendo la seconda.
-  const discoLargo = () => 999;
+  const wideDisk = () => 999;
 
   test("con memoria in abbondanza NON blocca", () => {
-    expect(dispatchResourceBlock("/qualunque", discoLargo, () => DISPATCH_MEM_FLOOR_GB + 8)).toBeNull();
+    expect(dispatchResourceBlock("/qualunque", wideDisk, () => DISPATCH_MEM_FLOOR_GB + 8)).toBeNull();
   });
 
   test("sotto il pavimento BLOCCA, e la frase porta il numero", () => {
-    const msg = dispatchResourceBlock("/qualunque", discoLargo, () => 2.1);
+    const msg = dispatchResourceBlock("/qualunque", wideDisk, () => 2.1);
     expect(msg).not.toBeNull();
     expect(msg!).toContain("2.1 GB disponibili");
     expect(msg!).toContain(String(DISPATCH_MEM_FLOOR_GB));
@@ -252,12 +252,12 @@ describe("il pavimento sulla memoria", () => {
     // che non sia un Mac.
     expect(memoryTooTight(null)).toBe(false);
     expect(memoryTooTight(Number.NaN)).toBe(false);
-    expect(dispatchResourceBlock("/qualunque", discoLargo, () => null)).toBeNull();
+    expect(dispatchResourceBlock("/qualunque", wideDisk, () => null)).toBeNull();
   });
 
   test("una sonda che esplode non ferma la coda", () => {
     expect(
-      dispatchResourceBlock("/qualunque", discoLargo, () => { throw new Error("vm_stat non c'è"); }),
+      dispatchResourceBlock("/qualunque", wideDisk, () => { throw new Error("vm_stat non c'è"); }),
     ).toBeNull();
   });
 
@@ -292,14 +292,14 @@ describe("il pavimento sulla memoria", () => {
     // La riga `Pages active` del campione sopra vale 700000 pagine, cioe' 11,5
     // GB: se finisse nel totale il pavimento non morderebbe mai su una macchina
     // piena, che e' precisamente il caso per cui esiste.
-    const conAttive = [
+    const withActive = [
       "Mach Virtual Memory Statistics: (page size of 16384 bytes)",
       "Pages free:                                65536.",
       "Pages active:                             700000.",
       "Pages inactive:                            65536.",
       "Pages speculative:                         65536.",
     ].join("\n");
-    expect(availableMemGB(() => conAttive)!).toBeLessThan(4);
+    expect(availableMemGB(() => withActive)!).toBeLessThan(4);
   });
 
   test("un output illeggibile vale «non lo so», non una sottostima", () => {

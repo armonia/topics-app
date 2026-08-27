@@ -114,8 +114,8 @@ describe('selectLatestTodo — quanto lavoro fa davvero', () => {
     const coda = [{ id: 'u9', role: 'user' as const, content: 'ok', timestamp: '' }];
     const conTodo = [asstWith([todoCall('t1', [{ content: 'c\'è', status: 'pending' }])]), ...coda];
     expect(selectLatestTodo(conTodo)!.total).toBe(1);
-    const senzaTodo = [asstWith([{ id: 'b', name: 'Bash', args: {}, status: 'success' as const }]), ...coda];
-    expect(selectLatestTodo(senzaTodo)).toBeNull();
+    const withoutTodo = [asstWith([{ id: 'b', name: 'Bash', args: {}, status: 'success' as const }]), ...coda];
+    expect(selectLatestTodo(withoutTodo)).toBeNull();
   });
 
   test('una tool call con un `detail` di tipo todo passa anche se il nome è altro', () => {
@@ -140,7 +140,7 @@ describe('selectLatestTodo — quanto lavoro fa davvero', () => {
  */
 describe('deriva di schema sul detail del server', () => {
   /** Una todo vera, con addosso un detail che Zod rifiuta. */
-  function conDetailRotto(detail: unknown): ToolCall {
+  function withBrokenDetail(detail: unknown): ToolCall {
     return {
       id: 'rotta',
       name: 'TodoWrite',
@@ -154,13 +154,13 @@ describe('deriva di schema sul detail del server', () => {
     // `shell` senza `command`: la forma è sbagliata, quindi `parseToolCallDetail`
     // fallisce e `resolveToolDetail` deriva dal nome. Il tipo dichiarato non è
     // `todo`, ed è esattamente il caso che il filtro scartava.
-    const snap = selectLatestTodo([asstWith([conDetailRotto({ type: 'shell' })])]);
+    const snap = selectLatestTodo([asstWith([withBrokenDetail({ type: 'shell' })])]);
     expect(snap?.items[0].content).toBe('dal nome');
     expect(snap?.active?.activeForm).toBe('Ci lavoro');
   });
 
   test('un detail con un `type` che non esiste si comporta allo stesso modo', () => {
-    const snap = selectLatestTodo([asstWith([conDetailRotto({ type: 'todoo', items: [] })])]);
+    const snap = selectLatestTodo([asstWith([withBrokenDetail({ type: 'todoo', items: [] })])]);
     expect(snap?.items[0].content).toBe('dal nome');
   });
 

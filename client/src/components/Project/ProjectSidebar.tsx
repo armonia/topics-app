@@ -282,12 +282,12 @@ export function ProjectSidebar({
    * aperta adesso non perde cio' che ci aveva messo dentro; la scrittura va
    * solo in `localStorage`, quindi la vecchia casa si svuota da se'.
    */
-  const leggiLayout = (k: string): string | null => {
+  const readLayout = (k: string): string | null => {
     try {
       return localStorage.getItem(k) ?? sessionStorage.getItem(k);
     } catch { return null; }
   };
-  const scriviLayout = (k: string, v: string): void => {
+  const writeLayout = (k: string, v: string): void => {
     try { localStorage.setItem(k, v); } catch { /* quota o storage negato: si resta col default */ }
   };
 
@@ -304,7 +304,7 @@ export function ProjectSidebar({
   const HEIGHTS_KEY = `project-sidebar-bottom-heights:auto:${projectPath}`;
   const [expandedSections, setExpandedSections] = useState<Record<SectionId, boolean>>(() => {
     try {
-      const saved = leggiLayout(SECTIONS_KEY) ?? sessionStorage.getItem('sidebar-sections');
+      const saved = readLayout(SECTIONS_KEY) ?? sessionStorage.getItem('sidebar-sections');
       if (saved) return JSON.parse(saved);
     } catch {}
     return { files: true, git: false, processes: false };
@@ -312,7 +312,7 @@ export function ProjectSidebar({
 
   // Persist expanded sections across page refreshes
   useEffect(() => {
-    scriviLayout(SECTIONS_KEY, JSON.stringify(expandedSections));
+    writeLayout(SECTIONS_KEY, JSON.stringify(expandedSections));
   }, [SECTIONS_KEY, expandedSections]);
 
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
@@ -366,14 +366,14 @@ export function ProjectSidebar({
   const WIDTH_KEY = `project-sidebar-width:${projectPath}`;
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     try {
-      const saved = leggiLayout(WIDTH_KEY);
+      const saved = readLayout(WIDTH_KEY);
       const n = saved ? parseInt(saved, 10) : NaN;
       if (Number.isFinite(n)) return Math.min(MAX_SIDEBAR_W, Math.max(MIN_SIDEBAR_W, n));
     } catch {}
     return DEFAULT_SIDEBAR_W;
   });
   useEffect(() => {
-    scriviLayout(WIDTH_KEY, String(sidebarWidth));
+    writeLayout(WIDTH_KEY, String(sidebarWidth));
   }, [WIDTH_KEY, sidebarWidth]);
 
   // ── Bottom sections (Git, Processes) — ancorate in fondo, altezza AUTOMATICA ──
@@ -390,14 +390,14 @@ export function ProjectSidebar({
   // divisore della larghezza, che col doppio clic torna al default.
   const [bottomHeights, setBottomHeights] = useState<Record<'git' | 'processes', number | null>>(() => {
     try {
-      const saved = leggiLayout(HEIGHTS_KEY);
+      const saved = readLayout(HEIGHTS_KEY);
       if (saved) return JSON.parse(saved);
     } catch {}
     return { git: null, processes: null };
   });
 
   useEffect(() => {
-    scriviLayout(HEIGHTS_KEY, JSON.stringify(bottomHeights));
+    writeLayout(HEIGHTS_KEY, JSON.stringify(bottomHeights));
   }, [HEIGHTS_KEY, bottomHeights]);
 
   const widthDragRef = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -426,7 +426,7 @@ export function ProjectSidebar({
   /** Le scatole di Git e Processi, per misurarne l'altezza VERA quando è
    *  automatica (vedi `startBottomResize`). Un oggetto e non due ref separate:
    *  chi trascina le indicizza per nome. */
-  const sezioniRef = useRef<Record<'git' | 'processes', HTMLDivElement | null>>({ git: null, processes: null });
+  const sectionsRef = useRef<Record<'git' | 'processes', HTMLDivElement | null>>({ git: null, processes: null });
   const filesHeaderRef = useRef<HTMLDivElement>(null);
 
   // Full-viewport drag chrome (same protocol as useGridResize): keeps the
@@ -573,10 +573,10 @@ export function ProjectSidebar({
     // stato dice `null` — è il contenuto a decidere — e un trascinamento che
     // partisse da lì salterebbe di colpo al primo numero. Si legge il pixel che
     // c'è adesso sullo schermo, che è anche quello che l'utente sta afferrando.
-    const altezzaVera = (sez: 'git' | 'processes') =>
-      bottomHeights[sez] ?? sezioniRef.current[sez]?.offsetHeight ?? DEFAULT_HEIGHTS[sez];
-    const partenzaSotto = altezzaVera(below);
-    const partenzaSopra = above ? altezzaVera(above) : undefined;
+    const realHeight = (sez: 'git' | 'processes') =>
+      bottomHeights[sez] ?? sectionsRef.current[sez]?.offsetHeight ?? DEFAULT_HEIGHTS[sez];
+    const partenzaSotto = realHeight(below);
+    const partenzaSopra = above ? realHeight(above) : undefined;
     // E SI FISSANO SUBITO, prima che il gesto cominci.
     //
     // Il primo taglio le misurava e basta, lasciando lo stato su `null` finché
@@ -823,7 +823,7 @@ export function ProjectSidebar({
               )}
             </div>
             <div
-              ref={el => { sezioniRef.current.git = el; }}
+              ref={el => { sectionsRef.current.git = el; }}
               className={`flex flex-col overflow-hidden ${expandedSections.git ? 'min-h-0 pb-[3px]' : 'flex-shrink-0'}`}
               style={expandedSections.git
               // Automatica: l'altezza la dà il contenuto, con il tetto di
@@ -853,7 +853,7 @@ export function ProjectSidebar({
               </Suspense>
             </div>
             <div
-              ref={el => { sezioniRef.current.processes = el; }}
+              ref={el => { sectionsRef.current.processes = el; }}
               className={`flex flex-col overflow-hidden ${expandedSections.processes ? 'min-h-0 pb-[3px]' : 'flex-shrink-0'}`}
               style={expandedSections.processes
               // Automatica: l'altezza la dà il contenuto, con il tetto di
@@ -1056,7 +1056,7 @@ export function ProjectSidebar({
 
         {/* Git Section — anchored at bottom, fixed pixel height */}
         <div
-          ref={el => { sezioniRef.current.git = el; }}
+          ref={el => { sectionsRef.current.git = el; }}
           className={`flex flex-col overflow-hidden ${expandedSections.git ? 'min-h-0 pb-[3px]' : 'flex-shrink-0'}`}
           style={expandedSections.git
               // Automatica: l'altezza la dà il contenuto, con il tetto di
@@ -1140,7 +1140,7 @@ export function ProjectSidebar({
 
         {/* Processes Section — anchored at bottom, fixed pixel height */}
         <div
-          ref={el => { sezioniRef.current.processes = el; }}
+          ref={el => { sectionsRef.current.processes = el; }}
           className={`flex flex-col overflow-hidden ${expandedSections.processes ? 'min-h-0 pb-[3px]' : 'flex-shrink-0'}`}
           style={expandedSections.processes
               // Automatica: l'altezza la dà il contenuto, con il tetto di

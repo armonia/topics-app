@@ -139,12 +139,12 @@ describe("il turno di /compact non lascia una bolla vuota — né perde il divid
     // Se un giorno la CLI accompagnasse la compattazione con una riga di testo,
     // quella riga è lavoro fatto e resta — insieme al suo divider.
     ctx.appendLocalMessage(SK, "user", "/compact");
-    const conTesto = ctx.createPartialMessage(SK, "assistant");
+    const withText = ctx.createPartialMessage(SK, "assistant");
     ctx.appendToLastMessage(SK, "Ho compattato: ora il contesto sta in un terzo.");
     const finalizzato = ctx.updateLastMessage(SK, { partial: undefined, streamedAt: undefined });
 
     expect(ctx.discardIfEmptyTurn(SK, finalizzato)).toBeNull();
-    expect(ctx.getMessageById(conTesto.id)).toBeTruthy();
+    expect(ctx.getMessageById(withText.id)).toBeTruthy();
   });
 });
 

@@ -135,16 +135,16 @@ test.describe("Changelog (real data end-to-end)", () => {
     type Versione = { version: string; sections: { new: Voce[]; fixes: Voce[]; perf: Voce[] } };
     const storia = (await res.json()) as Versione[];
     expect(storia.length, "il changelog generato non può essere vuoto").toBeGreaterThan(0);
-    const conVociPubbliche = storia.find(
+    const withPublicEntries = storia.find(
       (v) => v.sections.new.length + v.sections.fixes.length + v.sections.perf.length > 0,
     );
-    if (!conVociPubbliche) {
+    if (!withPublicEntries) {
       throw new Error("nessuna versione con voci pubbliche: rigenera con `bun run changelog`");
     }
     const primaVoce = [
-      ...conVociPubbliche.sections.new,
-      ...conVociPubbliche.sections.fixes,
-      ...conVociPubbliche.sections.perf,
+      ...withPublicEntries.sections.new,
+      ...withPublicEntries.sections.fixes,
+      ...withPublicEntries.sections.perf,
     ][0].it;
 
     await page.goto("/");
@@ -161,7 +161,7 @@ test.describe("Changelog (real data end-to-end)", () => {
 
     // E le voci sono quelle vere: si apre la versione scelta dai dati e ci si
     // ritrova il testo generato, dentro una `section li`.
-    await modal.getByTestId(`changelog-version-${conVociPubbliche.version}`).click();
+    await modal.getByTestId(`changelog-version-${withPublicEntries.version}`).click();
     await expect(modal.locator("section li").first()).toBeVisible();
     await expect(modal.locator("section li").filter({ hasText: primaVoce }).first()).toBeVisible();
   });

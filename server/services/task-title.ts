@@ -42,7 +42,7 @@ import type { AIProvider } from "../providers";
 import { isProviderError } from "../lib/commit-message";
 
 /** Sotto questa lunghezza la prima riga È il titolo, e non si tocca. */
-export const TITOLO_GIA_BUONO = 60;
+export const TITLE_ALREADY_GOOD = 60;
 
 /**
  * Un titolo migliore per questa card, o `null` se non c'è niente da migliorare
@@ -64,7 +64,7 @@ export async function titoloMigliore(
   // il composer ha dovuto tagliare (e si riconosce dall'ellissi) o che è
   // comunque troppo lunga per essere un nome.
   const tagliato = titolo.endsWith("…");
-  if (!tagliato && titolo.length <= TITOLO_GIA_BUONO) return null;
+  if (!tagliato && titolo.length <= TITLE_ALREADY_GOOD) return null;
 
   // Senza descrizione non c'è materiale in più: il modello riscriverebbe la
   // stessa frase con altre parole, che è rumore.

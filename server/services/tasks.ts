@@ -855,7 +855,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * prima di decidere cosa mostrare. Se le due divergessero, la scheda
    * scriverebbe una riga che la card non mostra.
    */
-  function ultimaParolaDelThread(taskId: string): string | null {
+  function lastWordOfThread(taskId: string): string | null {
     try {
       const r = db.prepare(
         `SELECT content FROM task_comments
@@ -993,7 +993,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // `service` non sono parole di nessuno). Senza, il ramo senza codice
         // scriveva «Nessun codice consegnato» — un'assenza al posto di
         // un'informazione, sul 60% della larghezza della scheda.
-        summary: ultimaParolaDelThread(taskId),
+        summary: lastWordOfThread(taskId),
       });
       const path = writeDeliverySheet(taskId, svg);
       if (!path) return;
@@ -2482,17 +2482,17 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // Stesso suggerimento di `askParkedChildren`, e per la stessa ragione: la
       // domanda si posa in un thread, non su una card che si muove, ma chi la
       // legge ha lo stesso bisogno di sapere quali step hanno lavoro sotto.
-      const conLavoro = parked.filter((c) => c.own_work === 1).length;
+      const withWork = parked.filter((c) => c.own_work === 1).length;
       svc.addComment({
         taskId: parentId, author: "system",
         content:
           `Chiuso l'ultimo sottotask in lavorazione, e restano ${parked.length} passi parcheggiati in backlog (${elenco}): ` +
           `nessun dispatcher li prende da solo, e con un sottotask aperto questa card non si può approvare. ` +
-          (conLavoro > 0
-            ? `${conLavoro} hanno lavoro proprio: promuoverli a task li rende servibili dalla coda. `
+          (withWork > 0
+            ? `${withWork} hanno lavoro proprio: promuoverli a task li rende servibili dalla coda. `
             : `Nessuno ha lavoro proprio: sono la decomposizione del titolo. `) +
           `Li promuovo a task, li rimetto in coda, o archivio ciò che non serve più?`,
-        questionOptions: conLavoro > 0
+        questionOptions: withWork > 0
           ? [PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL]
           : [ARCHIVE_PARKED_LABEL, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL],
       });
@@ -4351,9 +4351,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // restava da fare; nudi, sono la decomposizione del titolo e archiviarli
       // non toglie niente. La frase lo dice e l'ordine dei bottoni lo mostra: il
       // primo è quello suggerito. Chi decide resta chi decide.
-      const conLavoro = parked.filter((c) => c.own_work === 1).length;
-      const lettura = conLavoro > 0
-        ? `${conLavoro} su ${parked.length} hanno lavoro proprio (sessione, tentativi o commenti): promuoverli a task li rende servibili dalla coda, archiviarli butterebbe cio' che restava da fare.`
+      const withWork = parked.filter((c) => c.own_work === 1).length;
+      const lettura = withWork > 0
+        ? `${withWork} su ${parked.length} hanno lavoro proprio (sessione, tentativi o commenti): promuoverli a task li rende servibili dalla coda, archiviarli butterebbe cio' che restava da fare.`
         : `Nessuno dei ${parked.length} ha lavoro proprio: sono la decomposizione del titolo, e archiviarli non perde niente.`;
       const question = giaRimessi > 0
         ? `Fermo di nuovo sugli stessi ${parked.length} sottotask (${elenco}), e rimetterli in coda l'ha gia' fatto: ` +
@@ -4369,7 +4369,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // girare a vuoto chi decide.
       const opzioni = giaRimessi > 0
         ? [PROMOTE_PARKED_LABEL, ARCHIVE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL]
-        : conLavoro > 0
+        : withWork > 0
           ? [PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL]
           : [ARCHIVE_PARKED_LABEL, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL];
       // PREDICATO review_needs_summary, PORTA DI SISTEMA.

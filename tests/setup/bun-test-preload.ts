@@ -83,8 +83,8 @@ export const TIMEOUT_ENV_VAR = "TOPICS_TEST_TIMEOUT_MS";
  */
 export const TIMEOUT_MARKER = "__topicsDefaultTestTimeoutMs";
 
-const daAmbiente = Number(process.env[TIMEOUT_ENV_VAR]);
-const applicato = Number.isFinite(daAmbiente) && daAmbiente > 0 ? daAmbiente : DEFAULT_TEST_TIMEOUT_MS;
+const fromEnvironment = Number(process.env[TIMEOUT_ENV_VAR]);
+const applicato = Number.isFinite(fromEnvironment) && fromEnvironment > 0 ? fromEnvironment : DEFAULT_TEST_TIMEOUT_MS;
 
 setDefaultTimeout(applicato);
 (globalThis as Record<string, unknown>)[TIMEOUT_MARKER] = applicato;

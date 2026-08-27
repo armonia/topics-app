@@ -82,7 +82,7 @@ function topic(db: Database, id: string, sessionKey: string) {
 }
 
 /** Un agente vivo: la sua chat, la sua card, il suo chip di dispatch. */
-function agenteVivo(db: Database, n: number, opts: { weight?: string | null; state?: string } = {}) {
+function aliveAgent(db: Database, n: number, opts: { weight?: string | null; state?: string } = {}) {
   topic(db, `t${n}`, `topic:${n}`);
   db.prepare(
     "INSERT INTO tasks (id, assigned_topic_id, dispatch_weight, status, dispatch_state, archived) VALUES (?,?,?,?,?,0)",
@@ -94,16 +94,16 @@ const SOLO = Math.max(1, CORES - 1);
 
 // Il canale vivo scrive su disco: ogni test che lo tocca lo fa in una cartella
 // sua, mai in `~/.topics`.
-const radiciTemporanee: string[] = [];
-function radiceTemporanea(): string {
+const temporaryRoots: string[] = [];
+function temporaryRoot(): string {
   const dir = mkdtempSync(join(os.tmpdir(), "job-quota-"));
-  radiciTemporanee.push(dir);
+  temporaryRoots.push(dir);
   process.env.TOPICS_JOB_QUOTA_DIR = dir;
   return dir;
 }
 afterEach(() => {
   delete process.env.TOPICS_JOB_QUOTA_DIR;
-  for (const d of radiciTemporanee.splice(0)) rmSync(d, { recursive: true, force: true });
+  for (const d of temporaryRoots.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
 describe("computeJobQuota — la fetta di macchina di un agente", () => {
@@ -195,12 +195,12 @@ describe("computeJobQuota — il divisore è chi c'è DAVVERO, non chi ci stareb
   });
 
   test("conteggio assente o assurdo: si torna al tetto, che è il numero di prima", () => {
-    const colTetto = computeJobQuota({ cores: 12, cap: 4, weight: null });
-    expect(computeJobQuota({ cores: 12, cap: 4, weight: null, peers: null })).toBe(colTetto);
+    const colCap = computeJobQuota({ cores: 12, cap: 4, weight: null });
+    expect(computeJobQuota({ cores: 12, cap: 4, weight: null, peers: null })).toBe(colCap);
     // Zero agenti vivi mentre uno chiede la sua quota è una lettura che si
     // contraddice: non si consegna la macchina a chi non risulta esistere.
-    expect(computeJobQuota({ cores: 12, cap: 4, weight: null, peers: 0 })).toBe(colTetto);
-    expect(computeJobQuota({ cores: 12, cap: 4, weight: null, peers: -3 })).toBe(colTetto);
+    expect(computeJobQuota({ cores: 12, cap: 4, weight: null, peers: 0 })).toBe(colCap);
+    expect(computeJobQuota({ cores: 12, cap: 4, weight: null, peers: -3 })).toBe(colCap);
   });
 
   test("un pesante resta solo comunque: il conteggio non lo tocca", () => {
@@ -211,14 +211,14 @@ describe("computeJobQuota — il divisore è chi c'è DAVVERO, non chi ci stareb
 describe("countLiveDispatchedAgents — quanti stanno compilando adesso", () => {
   test("una card viva = un agente", () => {
     const db = dbVivo();
-    agenteVivo(db, 1);
-    agenteVivo(db, 2, { state: "starting" });
+    aliveAgent(db, 1);
+    aliveAgent(db, 2, { state: "starting" });
     expect(countLiveDispatchedAgents(db)).toBe(2);
   });
 
   test("chi non ha un turno vivo non conta: review, archiviati, chip spento", () => {
     const db = dbVivo();
-    agenteVivo(db, 1);
+    aliveAgent(db, 1);
     topic(db, "t2", "topic:2");
     db.prepare(
       "INSERT INTO tasks (id, assigned_topic_id, status, dispatch_state, archived) VALUES ('k2','t2','review','working',0)",
@@ -237,7 +237,7 @@ describe("countLiveDispatchedAgents — quanti stanno compilando adesso", () => 
 
   test("UN FAN-OUT SONO N AGENTI, non una card: N processi che compilano lo stesso progetto", () => {
     const db = dbVivo();
-    agenteVivo(db, 1);
+    aliveAgent(db, 1);
     topic(db, "t2", "topic:2");
     topic(db, "t3", "topic:3");
     db.prepare("INSERT INTO task_attempts (id, task_id, idx, topic_id, state) VALUES ('a1','k1',1,'t1','running')").run();
@@ -250,7 +250,7 @@ describe("countLiveDispatchedAgents — quanti stanno compilando adesso", () => 
 
   test("i tentativi finiti non contano più: il fan-out consegnato libera la macchina", () => {
     const db = dbVivo();
-    agenteVivo(db, 1);
+    aliveAgent(db, 1);
     topic(db, "t2", "topic:2");
     db.prepare("INSERT INTO task_attempts (id, task_id, idx, topic_id, state) VALUES ('a1','k1',1,'t1','running')").run();
     db.prepare("INSERT INTO task_attempts (id, task_id, idx, topic_id, state) VALUES ('a2','k1',2,'t2','delivered')").run();
@@ -266,7 +266,7 @@ describe("countLiveDispatchedAgents — quanti stanno compilando adesso", () => 
 describe("liveDispatchedSessions — a chi va riscritto il numero", () => {
   test("card e tentativi, senza doppioni", () => {
     const db = dbVivo();
-    agenteVivo(db, 1);
+    aliveAgent(db, 1);
     topic(db, "t2", "topic:2");
     db.prepare("INSERT INTO task_attempts (id, task_id, idx, topic_id, state) VALUES ('a1','k1',1,'t1','running')").run();
     db.prepare("INSERT INTO task_attempts (id, task_id, idx, topic_id, state) VALUES ('a2','k1',2,'t2','running')").run();
@@ -276,7 +276,7 @@ describe("liveDispatchedSessions — a chi va riscritto il numero", () => {
 
   test("il peso viaggia con la sessione: un heavy resta largo anche alla rilettura", () => {
     const db = dbVivo();
-    agenteVivo(db, 1, { weight: "heavy" });
+    aliveAgent(db, 1, { weight: "heavy" });
     expect(liveDispatchedSessions(db)).toEqual([{ sessionKey: "topic:1", weight: "heavy" }]);
   });
 
@@ -287,13 +287,13 @@ describe("liveDispatchedSessions — a chi va riscritto il numero", () => {
 
 describe("refreshLiveJobQuotas — LA RILETTURA A METÀ SESSIONE", () => {
   test("gli agenti se ne vanno e il recinto si apre, senza che nessuno respawni", () => {
-    radiceTemporanea();
+    temporaryRoot();
     const db = dbVivo();
-    for (const n of [1, 2, 3, 4]) agenteVivo(db, n);
+    for (const n of [1, 2, 3, 4]) aliveAgent(db, n);
 
     expect(refreshLiveJobQuotas(db)).toBe(4);
-    const inQuattro = readLiveQuota("topic:1")!;
-    expect(inQuattro).toBe(computeJobQuota({ cores: CORES, cap: 4, weight: null, peers: 4 }));
+    const inFour = readLiveQuota("topic:1")!;
+    expect(inFour).toBe(computeJobQuota({ cores: CORES, cap: 4, weight: null, peers: 4 }));
 
     // Tre finiscono. Nessuno respawna: cambia solo il file.
     db.prepare("UPDATE tasks SET status='review', dispatch_state=NULL WHERE id IN ('k2','k3','k4')").run();
@@ -301,16 +301,16 @@ describe("refreshLiveJobQuotas — LA RILETTURA A METÀ SESSIONE", () => {
     const daSolo = readLiveQuota("topic:1")!;
 
     expect(daSolo).toBe(SOLO);
-    if (CORES > 2) expect(daSolo).toBeGreaterThan(inQuattro);
+    if (CORES > 2) expect(daSolo).toBeGreaterThan(inFour);
   });
 
   test("e si richiude quando arrivano: il numero segue il roster in tutte e due le direzioni", () => {
-    radiceTemporanea();
+    temporaryRoot();
     const db = dbVivo();
-    agenteVivo(db, 1);
+    aliveAgent(db, 1);
     refreshLiveJobQuotas(db);
     const daSolo = readLiveQuota("topic:1")!;
-    for (const n of [2, 3, 4, 5, 6]) agenteVivo(db, n);
+    for (const n of [2, 3, 4, 5, 6]) aliveAgent(db, n);
     refreshLiveJobQuotas(db);
     const inSei = readLiveQuota("topic:1")!;
     expect(inSei).toBeLessThanOrEqual(daSolo);
@@ -318,16 +318,16 @@ describe("refreshLiveJobQuotas — LA RILETTURA A METÀ SESSIONE", () => {
   });
 
   test("un conteggio solo per giro: le fette dello stesso istante sono coerenti", () => {
-    radiceTemporanea();
+    temporaryRoot();
     const db = dbVivo();
-    for (const n of [1, 2, 3]) agenteVivo(db, n);
+    for (const n of [1, 2, 3]) aliveAgent(db, n);
     refreshLiveJobQuotas(db);
     expect(readLiveQuota("topic:1")).toBe(readLiveQuota("topic:2"));
     expect(readLiveQuota("topic:2")).toBe(readLiveQuota("topic:3"));
   });
 
   test("nessun agente vivo: nessun file toccato", () => {
-    radiceTemporanea();
+    temporaryRoot();
     expect(refreshLiveJobQuotas(dbVivo())).toBe(0);
   });
 });
@@ -338,7 +338,7 @@ describe("gli shim — dove il numero entra davvero nella toolchain", () => {
     // shim gira DUE volte con lo stesso ambiente (quello congelato allo spawn,
     // `-j2`), e in mezzo cambia solo il file. Se leggesse l'ambiente direbbe 2
     // tutte e due le volte.
-    const radice = radiceTemporanea();
+    const radice = temporaryRoot();
     const finto = join(radice, "finto");
     mkdirSync(finto, { recursive: true });
     writeFileSync(join(finto, "cargo"), "#!/bin/sh\necho \"$CARGO_BUILD_JOBS $MAKEFLAGS\"\n", { mode: 0o755 });
@@ -347,10 +347,10 @@ describe("gli shim — dove il numero entra davvero nella toolchain", () => {
     const shim = installQuotaShims("topic:1", finto)!;
     expect(shim.installed).toContain("cargo");
 
-    const ambienteCongelato = { ...process.env, ...jobQuotaEnv(2) };
+    const frozenEnvironment = { ...process.env, ...jobQuotaEnv(2) };
     const esegui = () =>
       execFileSync(join(quotaChannelDir("topic:1"), "bin", "cargo"), ["build"], {
-        env: ambienteCongelato,
+        env: frozenEnvironment,
         encoding: "utf8",
       }).trim();
 
@@ -360,20 +360,20 @@ describe("gli shim — dove il numero entra davvero nella toolchain", () => {
   });
 
   test("file assente o corrotto: si esegue lo stesso, con l'ambiente congelato", () => {
-    const radice = radiceTemporanea();
+    const radice = temporaryRoot();
     const finto = join(radice, "finto");
     mkdirSync(finto, { recursive: true });
     writeFileSync(join(finto, "cargo"), "#!/bin/sh\necho \"${CARGO_BUILD_JOBS:-vuoto}\"\n", { mode: 0o755 });
     installQuotaShims("topic:1", finto);
     const bin = join(quotaChannelDir("topic:1"), "bin", "cargo");
-    const conAmbiente = { ...process.env, ...jobQuotaEnv(5) };
+    const withEnvironment = { ...process.env, ...jobQuotaEnv(5) };
 
     // Nessun file: il recinto è quello di prima, non «nessun recinto».
-    expect(execFileSync(bin, [], { env: conAmbiente, encoding: "utf8" }).trim()).toBe("5");
+    expect(execFileSync(bin, [], { env: withEnvironment, encoding: "utf8" }).trim()).toBe("5");
     writeFileSync(join(quotaChannelDir("topic:1"), "jobs"), "");
-    expect(execFileSync(bin, [], { env: conAmbiente, encoding: "utf8" }).trim()).toBe("5");
+    expect(execFileSync(bin, [], { env: withEnvironment, encoding: "utf8" }).trim()).toBe("5");
     writeFileSync(join(quotaChannelDir("topic:1"), "jobs"), "tantissimi\n");
-    expect(execFileSync(bin, [], { env: conAmbiente, encoding: "utf8" }).trim()).toBe("5");
+    expect(execFileSync(bin, [], { env: withEnvironment, encoding: "utf8" }).trim()).toBe("5");
   });
 
   test("gli argomenti non si toccano: un `-j` scritto a mano continua a vincere", () => {
@@ -391,7 +391,7 @@ describe("gli shim — dove il numero entra davvero nella toolchain", () => {
     // Misurato: `.cargo/bin` in 12 e lo shim in 13, cioè shim scavalcato.
     // Tenendo quella cartella in coda, la guardia di idempotenza la trova già
     // presente e non la ripropone.
-    const radice = radiceTemporanea();
+    const radice = temporaryRoot();
     const finto = join(radice, "finto-cargo-bin");
     mkdirSync(finto, { recursive: true });
     writeFileSync(join(finto, "cargo"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
@@ -413,7 +413,7 @@ describe("gli shim — dove il numero entra davvero nella toolchain", () => {
     // lì, `cargo` — l'unico comando per cui il recinto esiste — restava senza
     // shim, e la cartella vera non finiva in coda al PATH del figlio (che è la
     // mossa che tiene lo shim davanti a `~/.cargo/env`).
-    const radice = radiceTemporanea();
+    const radice = temporaryRoot();
     const vuota = join(radice, "vuota");
     mkdirSync(vuota, { recursive: true });
     const shim = installQuotaShims("topic:1", vuota);
@@ -429,9 +429,9 @@ describe("gli shim — dove il numero entra davvero nella toolchain", () => {
 
 describe("applyJobQuota — cosa lascia sull'ambiente di uno spawn", () => {
   test("agente dispatchato: variabili congelate, numero sul disco, shim in testa", () => {
-    radiceTemporanea();
+    temporaryRoot();
     const db = dbVivo();
-    agenteVivo(db, 1);
+    aliveAgent(db, 1);
     const env: Record<string, string> = { PATH: "/usr/bin:/bin", HOME: "/tmp" };
     const jobs = applyJobQuota(db, "topic:1", env)!;
 
@@ -443,7 +443,7 @@ describe("applyJobQuota — cosa lascia sull'ambiente di uno spawn", () => {
   });
 
   test("chat umana: l'ambiente resta byte per byte quello di prima, e niente su disco", () => {
-    radiceTemporanea();
+    temporaryRoot();
     const db = dbVivo();
     topic(db, "t9", "topic:umana");
     const env: Record<string, string> = { PATH: "/usr/bin:/bin", HOME: "/tmp" };

@@ -191,7 +191,7 @@ describe("computeCostProbe — aritmetica", () => {
  * fare una piega. Qui il database c'è, e le righe sono quelle vere della
  * fixture rimesse dentro.
  */
-function dbConLeRigheDellaFixture(): Database {
+function dbWithRowsOfFixture(): Database {
   const db = new Database(":memory:");
   // Le sole colonne che la sonda legge — un `messages` completo qui vorrebbe
   // dire trascinarsi dietro tutta la catena delle migration per contare
@@ -222,7 +222,7 @@ function dbConLeRigheDellaFixture(): Database {
 
 describe("probeSessionCost — dal database", () => {
   test("rilegge dalla SELECT gli stessi numeri della BARRA", () => {
-    const db = dbConLeRigheDellaFixture();
+    const db = dbWithRowsOfFixture();
     const probe = probeSessionCost(db, fixture.sessionKey);
     expect(probe.messages).toBe(46);
     expect(probe.toolCalls).toBe(98);
@@ -233,12 +233,12 @@ describe("probeSessionCost — dal database", () => {
   test("l'ordine è `sort_order`, non il timestamp: il contesto corrente è l'ULTIMO, e sbagliare ordine lo cambia", () => {
     // I timestamp della fixture rimessa dentro alternano apposta fra due giorni:
     // ordinare per data metterebbe in fondo un messaggio di metà conversazione.
-    const rows = readCostProbeRows(dbConLeRigheDellaFixture(), fixture.sessionKey);
+    const rows = readCostProbeRows(dbWithRowsOfFixture(), fixture.sessionKey);
     expect(rows.map((r) => r.role)).toEqual((fixture.rows as CostProbeRow[]).map((r) => r.role));
   });
 
   test("il prefisso taglia davvero: 12 messaggi non sono 46", () => {
-    const db = dbConLeRigheDellaFixture();
+    const db = dbWithRowsOfFixture();
     const corto = probeSessionCost(db, fixture.sessionKey, { limitMessages: 12 });
     expect(corto.messages).toBe(12);
     expect(corto.toolCalls).toBeLessThan(98);
@@ -246,7 +246,7 @@ describe("probeSessionCost — dal database", () => {
   });
 
   test("sul prefisso la misura persistita NON entra: sarebbe il contesto di adesso, fuori dalla finestra misurata", () => {
-    const db = dbConLeRigheDellaFixture();
+    const db = dbWithRowsOfFixture();
     db.run(`INSERT INTO session_context (session_key, used_tokens, window_tokens, estimated, model, measured_at)
             VALUES (?, 999999, 1000000, 0, 'claude-opus-5', '2026-08-11T18:00:00.000Z')`, [fixture.sessionKey]);
     expect(probeSessionCost(db, fixture.sessionKey, { limitMessages: 46 }).contextTokens).toBe(309_335);
@@ -255,7 +255,7 @@ describe("probeSessionCost — dal database", () => {
   });
 
   test("una sessione che non esiste non esplode", () => {
-    const probe = probeSessionCost(dbConLeRigheDellaFixture(), "topic:non-esiste");
+    const probe = probeSessionCost(dbWithRowsOfFixture(), "topic:non-esiste");
     expect(probe.messages).toBe(0);
     expect(probe.toolCalls).toBe(0);
     expect(probe.contextTokens).toBe(0);
@@ -285,14 +285,14 @@ describe("la fixture resta anonima", () => {
   const testo = readFileSync(percorso, "utf8");
 
   /** La forma di un id di sessione vero: `topic:` + una corsa di esadecimale. */
-  const ID_VIVO = /topic:[0-9a-f]{8}/i;
+  const ALIVE_ID = /topic:[0-9a-f]{8}/i;
 
   test("nessun id di sessione reale, né nel file né nel suo nome", () => {
     // `topic:fixture-barra` passa: «fixture» non è tutto esadecimale. Un
     // `topic:` seguito da otto cifre esadecimali no — ed è esattamente la forma
     // che uscirebbe da una rigenerazione contro il database vivo.
-    expect(ID_VIVO.test(testo)).toBe(false);
-    expect(ID_VIVO.test(percorso.replace(/[/\\]/g, ":"))).toBe(false);
+    expect(ALIVE_ID.test(testo)).toBe(false);
+    expect(ALIVE_ID.test(percorso.replace(/[/\\]/g, ":"))).toBe(false);
     expect(/[0-9a-f]{8}/i.test(basename(percorso))).toBe(false);
   });
 

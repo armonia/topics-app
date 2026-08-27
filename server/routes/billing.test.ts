@@ -22,7 +22,7 @@ import { creaServizioLicenza, type CaricoGettone } from "../lib/licenza";
 import type { AppContext } from "../types";
 
 const IID = "installazione-di-prova";
-const SEGRETO_WH = "whsec_prova";
+const SECRET_WH = "whsec_prova";
 const ORA = 1_700_000_000_000;
 
 function nuovaCoppia() {
@@ -61,7 +61,7 @@ function creaCtx(env: Record<string, string | undefined>, fetchImpl?: typeof fet
 }
 
 /** Firma un corpo come farebbe Stripe. */
-function firmaStripe(corpo: string, segreto = SEGRETO_WH, tsMs = ORA): string {
+function signatureStripe(corpo: string, segreto = SECRET_WH, tsMs = ORA): string {
   const t = Math.floor(tsMs / 1000);
   const d = createHmac("sha256", segreto).update(`${t}.${corpo}`, "utf8").digest("hex");
   return `t=${t},v1=${d}`;
@@ -91,20 +91,20 @@ async function evento(router: Router, corpoOggetto: unknown, opt: {
   const corpo = JSON.stringify(corpoOggetto);
   const header = opt.header !== undefined
     ? opt.header
-    : firmaStripe(corpo, opt.segreto ?? SEGRETO_WH, opt.tsMs ?? ORA);
+    : signatureStripe(corpo, opt.segreto ?? SECRET_WH, opt.tsMs ?? ORA);
   const r = await chiama(router, "POST", "/api/billing/webhook", { corpo, header });
   return { status: r?.status ?? 0, body: await r?.json() as Record<string, unknown> };
 }
 
-const checkoutCompletato = (token: string) => ({
+const completedCheckout = (token: string) => ({
   id: "evt_1",
   type: "checkout.session.completed",
   data: { object: { client_reference_id: IID, metadata: { license_token: token } } },
 });
 
-const ENV_PIENO = {
+const FULL_ENV = {
   STRIPE_SECRET_KEY: "sk_test_finta", STRIPE_PRICE_ID: "price_finto",
-  STRIPE_WEBHOOK_SECRET: SEGRETO_WH, STRIPE_API_BASE: "https://finto.example",
+  STRIPE_WEBHOOK_SECRET: SECRET_WH, STRIPE_API_BASE: "https://finto.example",
 };
 
 beforeEach(() => {
@@ -128,7 +128,7 @@ describe("billing · lo stato non è un cancello", () => {
   });
 
   it("configurato lo dice, e della chiave non esce niente", async () => {
-    const r = await chiama(creaCtx({ ...ENV_PIENO, STRIPE_SECRET_KEY: "sk_live_segretissimo" }), "GET", "/api/billing");
+    const r = await chiama(creaCtx({ ...FULL_ENV, STRIPE_SECRET_KEY: "sk_live_segretissimo" }), "GET", "/api/billing");
     const testo = await r?.text() ?? "";
     expect(JSON.parse(testo).configured).toBe(true);
     expect(testo).not.toContain("sk_live");
@@ -137,7 +137,7 @@ describe("billing · lo stato non è un cancello", () => {
   });
 
   it("un percorso che non è suo lo lascia passare oltre", async () => {
-    expect(await chiama(creaCtx(ENV_PIENO), "GET", "/api/topics")).toBeNull();
+    expect(await chiama(creaCtx(FULL_ENV), "GET", "/api/topics")).toBeNull();
   });
 });
 
@@ -150,7 +150,7 @@ describe("billing · il checkout", () => {
 
   it("gli indirizzi di ritorno vengono dall'ORIGINE, non dal corpo", async () => {
     let inviato = "";
-    const router = creaCtx(ENV_PIENO, (async (_u: string, init: RequestInit) => {
+    const router = creaCtx(FULL_ENV, (async (_u: string, init: RequestInit) => {
       inviato = String(init.body);
       return new Response(JSON.stringify({ id: "cs_1", url: "https://checkout.example/c" }));
     }) as unknown as typeof fetch);
@@ -169,9 +169,9 @@ describe("billing · il checkout", () => {
 
 describe("billing · il webhook si autentica da solo", () => {
   it("senza segreto configurato non accetta niente — e 503, così Stripe riprova", async () => {
-    const corpo = JSON.stringify(checkoutCompletato(gettone(servizio.privata)));
+    const corpo = JSON.stringify(completedCheckout(gettone(servizio.privata)));
     const r = await chiama(creaCtx({}), "POST", "/api/billing/webhook", {
-      corpo, header: firmaStripe(corpo),
+      corpo, header: signatureStripe(corpo),
     });
     expect(r?.status).toBe(503);
     expect(await r?.json()).toEqual({ ok: false, code: "no_secret" });
@@ -180,8 +180,8 @@ describe("billing · il webhook si autentica da solo", () => {
   });
 
   it("firma assente o sbagliata → 400, e Stripe non riprova", async () => {
-    const router = creaCtx(ENV_PIENO);
-    const buono = checkoutCompletato(gettone(servizio.privata));
+    const router = creaCtx(FULL_ENV);
+    const buono = completedCheckout(gettone(servizio.privata));
 
     const senza = await evento(router, buono, { header: null });
     expect(senza.status).toBe(400);
@@ -195,7 +195,7 @@ describe("billing · il webhook si autentica da solo", () => {
   });
 
   it("un evento RIGIOCATO fuori finestra viene respinto", async () => {
-    const r = await evento(creaCtx(ENV_PIENO), checkoutCompletato(gettone(servizio.privata)), {
+    const r = await evento(creaCtx(FULL_ENV), completedCheckout(gettone(servizio.privata)), {
       tsMs: ORA - 600_000,
     });
     expect(r.status).toBe(400);
@@ -204,10 +204,10 @@ describe("billing · il webhook si autentica da solo", () => {
   });
 
   it("un corpo manomesso DOPO la firma non passa", async () => {
-    const corpo = JSON.stringify(checkoutCompletato(gettone(servizio.privata)));
-    const header = firmaStripe(corpo);
+    const corpo = JSON.stringify(completedCheckout(gettone(servizio.privata)));
+    const header = signatureStripe(corpo);
     const manomesso = corpo.replace('"seats"', '"seats_"');
-    const r = await chiama(creaCtx(ENV_PIENO), "POST", "/api/billing/webhook", {
+    const r = await chiama(creaCtx(FULL_ENV), "POST", "/api/billing/webhook", {
       corpo: manomesso === corpo ? corpo + " " : manomesso, header,
     });
     expect(r?.status).toBe(400);
@@ -218,7 +218,7 @@ describe("billing · il webhook si autentica da solo", () => {
 describe("billing · Stripe non concede niente da solo", () => {
   it("LA RIGA: firma buona + gettone CONTRAFFATTO ⇒ resta `free`", async () => {
     const finto = gettone(impostore.privata, { seats: 9999 });
-    const r = await evento(creaCtx(ENV_PIENO), checkoutCompletato(finto));
+    const r = await evento(creaCtx(FULL_ENV), completedCheckout(finto));
 
     // L'evento è autentico e lo abbiamo capito: `200`, non un errore.
     expect(r.status).toBe(200);
@@ -235,7 +235,7 @@ describe("billing · Stripe non concede niente da solo", () => {
 
   it("un gettone per un'ALTRA installazione non vale qui", async () => {
     const altrui = gettone(servizio.privata, { iid: "un-altra-macchina" });
-    const r = await evento(creaCtx(ENV_PIENO), checkoutCompletato(altrui));
+    const r = await evento(creaCtx(FULL_ENV), completedCheckout(altrui));
     expect(r.body.applied).toBe(false);
     expect(r.body.reason).toBe("other_installation");
     expect(svc.stato(ORA).piano).toBe("free");
@@ -243,7 +243,7 @@ describe("billing · Stripe non concede niente da solo", () => {
 
   it("un gettone SCADUTO non vale", async () => {
     const vecchio = gettone(servizio.privata, { exp: ORA - 1 });
-    const r = await evento(creaCtx(ENV_PIENO), checkoutCompletato(vecchio));
+    const r = await evento(creaCtx(FULL_ENV), completedCheckout(vecchio));
     expect(r.body.applied).toBe(false);
     expect(r.body.reason).toBe("expired");
     expect(svc.stato(ORA).piano).toBe("free");
@@ -253,7 +253,7 @@ describe("billing · Stripe non concede niente da solo", () => {
   //    anche con un webhook che non fa NIENTE, e non dimostrerebbero niente.
   it("col gettone VERO, invece, la licenza si installa davvero", async () => {
     const vero = gettone(servizio.privata, { seats: 5 });
-    const r = await evento(creaCtx(ENV_PIENO), checkoutCompletato(vero));
+    const r = await evento(creaCtx(FULL_ENV), completedCheckout(vero));
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ action: "install_token", applied: true, reason: "valid" });
 
@@ -267,13 +267,13 @@ describe("billing · Stripe non concede niente da solo", () => {
 describe("billing · il ciclo dell'abbonamento", () => {
   /** Porta l'installazione sul piano a pagamento, per poterlo poi perdere. */
   async function attiva(router: Router) {
-    const r = await evento(router, checkoutCompletato(gettone(servizio.privata)));
+    const r = await evento(router, completedCheckout(gettone(servizio.privata)));
     expect(r.body.applied).toBe(true);
     expect(svc.stato(ORA).piano).toBe("team");
   }
 
   it("la disdetta riporta al piano gratuito", async () => {
-    const router = creaCtx(ENV_PIENO);
+    const router = creaCtx(FULL_ENV);
     await attiva(router);
 
     const r = await evento(router, {
@@ -286,7 +286,7 @@ describe("billing · il ciclo dell'abbonamento", () => {
   });
 
   it("una disdetta per un'ALTRA macchina non tocca la nostra licenza", async () => {
-    const router = creaCtx(ENV_PIENO);
+    const router = creaCtx(FULL_ENV);
     await attiva(router);
 
     const r = await evento(router, {
@@ -299,7 +299,7 @@ describe("billing · il ciclo dell'abbonamento", () => {
   });
 
   it("`past_due` non spegne niente: il rinnovo sta ancora ritentando", async () => {
-    const router = creaCtx(ENV_PIENO);
+    const router = creaCtx(FULL_ENV);
     await attiva(router);
 
     await evento(router, {
@@ -310,7 +310,7 @@ describe("billing · il ciclo dell'abbonamento", () => {
   });
 
   it("un tipo di evento che non ci interessa è `200` e non fa niente", async () => {
-    const router = creaCtx(ENV_PIENO);
+    const router = creaCtx(FULL_ENV);
     await attiva(router);
 
     const r = await evento(router, { id: "evt_5", type: "invoice.created", data: { object: {} } });
@@ -320,7 +320,7 @@ describe("billing · il ciclo dell'abbonamento", () => {
   });
 
   it("un corpo firmato ma che non è un evento è `400`", async () => {
-    const r = await evento(creaCtx(ENV_PIENO), { non: "un evento" });
+    const r = await evento(creaCtx(FULL_ENV), { non: "un evento" });
     expect(r.status).toBe(400);
     expect(r.body.code).toBe("not_an_event");
   });

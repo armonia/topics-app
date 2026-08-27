@@ -53,7 +53,7 @@ import {
   privacyPersona, setPrivacy, type ProfilePrivacy,
 } from "../lib/follows";
 
-export interface DipendenzePeople {
+export interface DepsPeople {
   /** Iniettabile: nessun test deve poter uscire davvero su api.github.com. */
   github?: OpzioniGitHub;
 }
@@ -88,7 +88,7 @@ interface Target {
   privacy: ProfilePrivacy;
 }
 
-export function createPeopleRouter(ctx: AppContext, deps: DipendenzePeople = {}): RouteHandler {
+export function createPeopleRouter(ctx: AppContext, deps: DepsPeople = {}): RouteHandler {
   const { json, readJSON, matchRoute, errorResponse } = ctx;
   const db = ctx.db as never as {
     query: (sql: string) => {

@@ -62,12 +62,12 @@ const flag = (name: string, dflt?: string) => {
 };
 const MODEL = flag("--model", "claude-opus-5[1m]")!;
 /** `off` = il braccio di controllo, quello che non compatta mai. */
-const SOGLIA_RAW = flag("--soglia", "off")!;
-const SOGLIA = SOGLIA_RAW === "off" ? null : Number(SOGLIA_RAW);
+const THRESHOLD_RAW = flag("--soglia", "off")!;
+const SOGLIA = THRESHOLD_RAW === "off" ? null : Number(THRESHOLD_RAW);
 /** Quante fetch in tutto. La card ne chiede 20. */
 const FETCH = Number(flag("--fetch", "20"));
 /** Quante per turno: più corto il turno, più fitto il controllo sulla soglia. */
-const PER_TURNO = Number(flag("--per-turno", "5"));
+const PER_TURN = Number(flag("--per-turno", "5"));
 /**
  * Il tetto ai risultati MCP, uguale nei due bracci. Si passa SEMPRE esplicito, e
  * il valore di default non è più `0`.
@@ -127,7 +127,7 @@ interface TurnResult {
 }
 
 /** Le tre facce dello stesso guasto: il risultato non è in contesto, è un puntatore. */
-const SU_DISCO = /exceeds maximum allowed tokens|Output has been saved to|persisted-output/;
+const ON_DISK = /exceeds maximum allowed tokens|Output has been saved to|persisted-output/;
 
 /**
  * La HOME finta è per BRACCIO, non una sola per il banco. I due bracci si
@@ -289,7 +289,7 @@ async function turn(
           for (const b of ev.message.content as Record<string, any>[]) {
             if (b?.type !== "tool_result") continue;
             const corpo = typeof b.content === "string" ? b.content : JSON.stringify(b.content ?? "");
-            if (SU_DISCO.test(corpo)) res.suDisco++;
+            if (ON_DISK.test(corpo)) res.suDisco++;
           }
         }
         if (ev.type === "system" && ev.subtype === "compact_boundary") res.compattato = true;
@@ -397,10 +397,10 @@ async function main() {
     console.log(`   ${fase.padEnd(22)} ${String(r.contexts.length).padStart(3)} richieste · contesto ${Math.round(ctx / 1000)}k · ${tok.toLocaleString("it-IT")} token · $${cost.toFixed(3)}`);
   };
 
-  console.log(`\n══ braccio ${ARM} — ${FETCH} fetch in turni da ${PER_TURNO}, modello ${MODEL}\n`);
+  console.log(`\n══ braccio ${ARM} — ${FETCH} fetch in turni da ${PER_TURN}, modello ${MODEL}\n`);
 
-  for (let i = 0; i < seq.length; i += PER_TURNO) {
-    const blocco = seq.slice(i, i + PER_TURNO);
+  for (let i = 0; i < seq.length; i += PER_TURN) {
+    const blocco = seq.slice(i, i + PER_TURN);
     const prompt = [
       "Chiama il tool `mcp__bench__web_fetch` su questi URL, UNO ALLA VOLTA, in",
       "quest'ordine, aspettando il risultato di ognuno prima del successivo",
@@ -452,7 +452,7 @@ async function main() {
     soglia: SOGLIA,
     model: MODEL,
     fetch: FETCH,
-    perTurno: PER_TURNO,
+    perTurno: PER_TURN,
     cap: CAP,
     tokens,
     costUsd,
