@@ -150,26 +150,28 @@ export function testServerEnv(port: number = E2E_PORT): Record<string, string> {
     // definizione, ed è l'unico modo di provare il confinamento com'è in
     // produzione invece che con una scorciatoia buona solo per i test.
     TOPICS_TUNNEL_PORT: String(tunnelPortFor(port)),
-    // THE GATEWAY IS DECLARED ONLY IF SOMEONE IS ACTUALLY LISTENING.
+    // THE GATEWAY URL IS DECLARED ONLY IF SOMEONE IS ACTUALLY LISTENING.
+    // THE TOKEN, INSTEAD, IS ALWAYS DECLARED — and the difference is the whole
+    // point, because getting it wrong breaks the terminal tests.
     //
-    // These two fake values elected `openclaw` as the bench's AI provider
+    // A fake GATEWAY_URL elected `openclaw` as the bench's AI provider
     // (`providers/index.ts` registers it when GATEWAY_URL **and** GATEWAY_TOKEN
-    // are both present), and nothing answers on :18789. Consequence: a sent
-    // message opens a turn that NEVER ENDS — the server keeps reporting
-    // `state: "streaming"` and the composer stays on the `queue` action, because
-    // with a turn in flight Enter parks the text instead of sending it.
+    // are both present) while nothing answered on :18789. Consequence: a sent
+    // message opened a turn that NEVER ENDED — the server kept reporting
+    // `state: "streaming"` and the composer stayed on the `queue` action,
+    // because with a turn in flight Enter parks the text instead of sending it.
+    // It was also the source of the thousands of "[GatewayWS] Connect failed"
+    // lines in the nightly logs, in every shard, including the green ones.
+    // Dropping the URL is enough to stop that: the election needs BOTH.
     //
-    // Measured 2026-08-26: after ONE send the button stays `queue` forever (12
-    // reads over 6 seconds, `/api/topics/streaming` always `streaming`), and
-    // `ink-latency.spec.ts` waited 60s for a `send` action that could not come.
-    // It is also the source of the thousands of "[GatewayWS] Connect failed"
-    // lines in the nightly logs, in every shard — including the green ones.
-    //
-    // Passed through only when they come from the environment, so the bench does
-    // not pretend: with no gateway the server elects another provider, and
-    // whoever wants to exercise the real OpenClaw integration exports the two
-    // variables and gets exactly the previous behaviour.
-    ...(process.env.GATEWAY_TOKEN ? { GATEWAY_TOKEN: process.env.GATEWAY_TOKEN } : {}),
+    // The token is a different job that happens to share a name. It is also the
+    // legacy credential `agentAuthOk()` accepts on the terminal routes (see
+    // server/routes/terminal.ts), and api-fixtures.ts sends it as
+    // `x-gateway-token` on every terminal call. Dropping it too — as a first
+    // attempt did — made GET /sessions/:id/buffer answer 401 to the bench
+    // itself, so TERM-02 read an empty buffer and failed while the product was
+    // perfectly fine. Measured: red 2 runs out of 2 without it, green with.
+    GATEWAY_TOKEN: process.env.GATEWAY_TOKEN ?? "test-token",
     ...(process.env.GATEWAY_URL ? { GATEWAY_URL: process.env.GATEWAY_URL } : {}),
   };
 }

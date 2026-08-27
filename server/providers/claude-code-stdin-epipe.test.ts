@@ -1,27 +1,25 @@
 /**
  * @covers CCLI-11
  *
- * Una CLI che esce PRIMA di leggere il prompt non deve portarsi dietro il
- * server.
+ * A CLI that exits BEFORE reading the prompt must not take the server with it.
  *
- * Il difetto, visto in CI (run 33030011608): `complete()` fa `write(prompt)` +
- * `end()` sullo stdin del figlio. Se il figlio e' gia' uscito, la pipe e'
- * chiusa e arriva EPIPE — ma NON dentro la write: arriva asincrono mentre lo
- * stream si chiude (`finishMaybe` → `destroy` → `end`). Nessun try/catch
- * attorno alla write puo' vederlo, e senza un ascoltatore su `stdin` Bun lo
- * tratta come eccezione non gestita e ABBATTE IL PROCESSO. In quel run il
- * server di test e' morto e ha lasciato ~200 prove a 0ms.
+ * The defect, seen in CI (run 33030011608): `complete()` does `write(prompt)`
+ * then `end()` on the child's stdin. If the child already exited, the pipe is
+ * closed and EPIPE is raised — but NOT inside the write: it surfaces
+ * asynchronously while the stream tears down (`finishMaybe` → `destroy` →
+ * `end`). No try/catch around the write can see it, and with no listener on
+ * `stdin` Bun treats it as an unhandled exception and KILLS THE PROCESS. In
+ * that run the test server died and left ~200 tests failing at 0ms.
  *
- * Il test riproduce la sola condizione che conta — pipe chiusa sotto la
- * scrittura — in un processo figlio, perche' e' l'unico modo di distinguere
- * «gestito» da «il processo e' morto»: dentro il runner un'eccezione non
- * gestita verrebbe attribuita al test invece che al server.
+ * The check runs in a child process on purpose: inside the test runner an
+ * unhandled exception would be blamed on the test rather than proving the
+ * server process died, which is the only thing worth asserting here.
  *
- * Controprova ESEGUITA: togliendo `proc.stdin.on("error")` da `complete()`,
- * questo figlio stampa «EPIPE» ed esce 1; con la cura esce 0 e pulito. Nota
- * che «VIVO» viene stampato in ENTRAMBI i casi — l'eccezione asincrona arriva
- * dopo — quindi la riga da sola non prova niente: cio' che distingue i due
- * mondi e' il CODICE DI USCITA, ed e' su quello che questo test insiste.
+ * Counter-proof, actually run: removing `proc.stdin.on("error")` from
+ * `complete()` makes this child print "EPIPE" and exit 1; with the fix it
+ * exits 0 and clean. Note "ALIVE" is printed in BOTH cases — the async
+ * exception lands afterwards — so the line alone proves nothing. What
+ * separates the two worlds is the EXIT CODE, and that is what this asserts.
  */
 import { describe, test, expect } from "bun:test";
 import { spawnSync } from "node:child_process";
@@ -29,27 +27,25 @@ import { mkdtempSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-describe("claude-code complete(): CLI che esce prima di leggere", () => {
-  test("EPIPE sullo stdin non uccide il processo", () => {
+describe("claude-code complete(): CLI exiting before it reads stdin", () => {
+  test("EPIPE on stdin does not kill the process", () => {
     const dir = mkdtempSync(join(tmpdir(), "epipe-"));
 
-    // Una CLI che esce SUBITO, senza toccare stdin: il caso reale di un
-    // binario che crasha all'avvio o di un percorso sbagliato.
-    const fakeCli = join(dir, "cli-che-esce-subito.sh");
+    // A CLI that exits immediately without touching stdin: the real-world case
+    // of a binary that crashes on startup or a wrong path.
+    const fakeCli = join(dir, "cli-that-exits-now.sh");
     writeFileSync(fakeCli, "#!/usr/bin/env bash\nexit 0\n");
     chmodSync(fakeCli, 0o755);
 
-    // Il prompt deve superare la capienza della pipe (64 KiB su Linux):
-    // sotto quella soglia il kernel assorbe la scrittura nel buffer e
-    // l'EPIPE non si presenta affatto. Con 1 MiB la scrittura arriva
-    // davvero alla pipe chiusa.
+    // The prompt must exceed the pipe capacity (64 KiB on Linux): below that
+    // the kernel buffers the write and no EPIPE ever occurs. At 1 MiB the
+    // write really reaches the closed pipe.
     const driver = join(dir, "driver.ts");
     writeFileSync(driver, `
       import { ClaudeCodeProvider } from ${JSON.stringify(join(import.meta.dir, "claude-code.ts"))};
       const provider = new ClaudeCodeProvider({});
       await provider.complete([{ role: "user", content: "x".repeat(1024 * 1024) }]);
-      // Se siamo qui, l'EPIPE e' stato gestito e il processo e' ancora vivo.
-      console.log("VIVO");
+      console.log("ALIVE");
     `);
 
     const run = spawnSync(process.execPath, [driver], {
@@ -60,7 +56,7 @@ describe("claude-code complete(): CLI che esce prima di leggere", () => {
 
     const output = `${run.stdout ?? ""}${run.stderr ?? ""}`;
     expect(output).not.toContain("EPIPE");
-    expect(run.stdout ?? "").toContain("VIVO");
+    expect(run.stdout ?? "").toContain("ALIVE");
     expect(run.status).toBe(0);
   }, 40_000);
 });

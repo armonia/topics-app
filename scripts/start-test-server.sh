@@ -134,7 +134,17 @@ export TOPICS_PUBLIC_DIR="${TOPICS_PUBLIC_DIR:-}"
 # l'invio aspetta per sempre. Si passano solo se arrivano dall'ambiente, cosi'
 # chi vuole provare l'integrazione vera li esporta e ottiene il comportamento
 # di prima.
-if [ -n "${GATEWAY_TOKEN:-}" ]; then export GATEWAY_TOKEN; fi
+# Il TOKEN si dichiara sempre, l'URL solo se qualcuno ascolta davvero — e la
+# differenza non e' un dettaglio. L'URL finto eleggeva `openclaw` a provider AI
+# del banco (serve la coppia URL+token) verso una porta dove non risponde
+# nessuno, e da li' nascevano i turni che non finivano mai. Il token invece fa
+# un mestiere diverso che ha solo lo stesso nome: e' la credenziale legacy che
+# `agentAuthOk()` accetta sulle route del terminale, e api-fixtures.ts la manda
+# come `x-gateway-token` a ogni chiamata. Toglierlo — come avevo fatto al primo
+# tentativo — faceva rispondere 401 al banco stesso: TERM-02 leggeva un buffer
+# vuoto e cadeva con il prodotto sanissimo. Misurato: rosso 2 volte su 2 senza,
+# verde con.
+export GATEWAY_TOKEN="${GATEWAY_TOKEN:-test-token}"
 if [ -n "${GATEWAY_URL:-}" ]; then export GATEWAY_URL; fi
 
 # Ensure data + topics-home + isolated OpenClaw config/home directories exist
