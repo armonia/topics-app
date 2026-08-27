@@ -16,6 +16,7 @@ import { startDragPreview } from '../../lib/dragPreview';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { cachedIconPalette, cachedIconTint, fromHex, sampleIconPalette, sampleIconTint } from '../../lib/iconTint';
 import { PINNED_ALIGN, PINNED_TILE_ACTION_SLOT, PINNED_TILE_H, type PinnedForm } from './pinnedTileMetrics';
+import { RowSplitMap } from './RowSplitMap';
 
 /**
  * Il glifo di TIPO, per le cose il cui titolo da solo non basta a
@@ -627,6 +628,12 @@ export function PinnedTile({
           yields. */}
       <span
         data-testid="pinned-tile-name"
+        // MARKED AS A NAME OF THE COLUMN ONLY IN ROW FORM, because only there
+        // is it read in the column: `sidebar-name-column.spec.ts` demands ONE x
+        // for every `data-row-name` of the same depth, and a grid tile centres
+        // its identity on purpose. Marking it in both forms would ask the
+        // measurement to condemn a decision taken on the board (27/08).
+        data-row-name={isRow ? 'pinned' : undefined}
         className={`relative min-w-0 max-w-full truncate-tight ${TAB_LABEL} ${
           isRow
             // `flex-auto` and not `flex-1`: with basis 0 the name takes all the
@@ -711,6 +718,13 @@ export function PinnedTile({
           className="hidden w-3 shrink-0 @min-[76px]/tile:block"
         />
       )}
+
+      {/* WHERE THIS PANE SITS IN THE SPLIT — the same schematic every sidebar
+          row carries, and in row form the tile IS a row (see `splitMap` in
+          PINNED_ALIGN for why a grid tile does not get it). Before the trailing
+          slot, like the sisters: it is a signal of POSITION, and the command
+          that appears on hover lands beyond it. */}
+      {align.splitMap && <RowSplitMap paneId={sidebarItemPaneId(item)} />}
 
       {hasActions && (
         <span

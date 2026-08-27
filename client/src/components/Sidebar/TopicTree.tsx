@@ -26,8 +26,7 @@ import { ClaudeIcon } from '@/components/Shared/ClaudeIcon';
 import { CodexIcon } from '@/components/Shared/CodexIcon';
 import { ProjectFavicon } from '@/components/Shared/ProjectFavicon';
 import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from '@/components/Layout/StreamingIndicator';
-import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
-import { useSplitPosition } from '@/contexts/SplitPositionContext';
+import { RowSplitMap } from './RowSplitMap';
 import { useAttentionSignals, signalsActions, useTerminalAttentionFill, useSeenDwell, attentionFillFor, useSignalsStore, projectAttentionTier, useSessionLastActivity } from '@/state/signals';
 import { useProjectFocusStore } from '@/state/projectFocus';
 import { usePaneStore } from '@/state/pane/store';
@@ -829,7 +828,12 @@ export function TopicTree({
         <span className={ROW_GLYPH_SLOT}>
           <Icon size={ROW_GLYPH} className="text-app-text-secondary" />
         </span>
-        <span className={`${TAB_LABEL_TYPE} flex-1 text-left truncate`}>{item.name}</span>
+        <span className={`${TAB_LABEL_TYPE} flex-1 text-left truncate`} data-row-name="utility">{item.name}</span>
+        {/* Split schematic, like every other row: a utility pane (agents,
+            statistics, cron) lives in a grid cell exactly as a chat does, and
+            its row used to be the only one that could not say which. Its pane
+            id IS the row id (`__<type>__`). */}
+        <RowSplitMap paneId={item.id} />
         {/* Was missing entirely: the row rendered no badge at all, so an agents
             pane could light up its TAB (pinned by tab-notifications.spec.ts
             TAB-BADGE-10/11) and stay silent here. Suppressed while focused, the
@@ -1195,7 +1199,7 @@ export function TopicTree({
               only (user preference), never on the top tab bar.
               Fuori dal binario quieto: è un segnale di POSIZIONE, non di stato,
               e sta a sinistra di quanto il comando può coprire. */}
-          <ProjectSplitMiniMap projectPath={pp} onFill={projOnFill} />
+          <RowSplitMap paneId={pp} onFill={projOnFill} />
           {/* Lo spinner sta fuori dal binario quieto, come su ogni riga. */}
           <ProjectStreamingSpinner projectPath={pp} />
           <div className={`${ROW_TRAIL} flex items-center ${ROW_GAP} flex-shrink-0`}>
@@ -1704,10 +1708,14 @@ export function TopicTree({
                 Il nome NON è l'elemento elastico: si prende quello che gli serve
                 e cede il resto al riassunto, che è la parte che cresce e che va
                 misurata. */}
-            <span className={`flex-shrink-0 ${TAB_LABEL_TYPE}`}>{BOARD_LABEL}</span>
+            <span className={`flex-shrink-0 ${TAB_LABEL_TYPE}`} data-row-name="board">{BOARD_LABEL}</span>
             {/* Di CHI sono quei task e a che punto stanno, con una sola misura e
                 una sola scala di priorità: vedi `BoardRowSummary`. */}
             <BoardRowSummary byStatus={boardByStatus} />
+            {/* Split schematic, like every other row of the column: the board
+                is a pane, it takes a cell, and this row is the only sidebar
+                presence it has. */}
+            <RowSplitMap paneId={BOARD_ID} />
           </button>
   ) : null;
 
@@ -2211,11 +2219,6 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
   useSeenDwell(s.id, isFocused);
   const attentionTier = useTerminalAttentionFill(s.id);
   const onFill = attentionTier !== null;
-  // Split schematic, same as chat rows (TopicItem) and projects. The standalone
-  // terminal pane is published in SplitPositionContext under its pane-id
-  // `terminal:<id>` (PanelGrid keys every open pane by paneId), so a topicless
-  // terminal — which has no topic UUID key — still resolves its cell here.
-  const splitPosition = useSplitPosition(`terminal:${s.id}`);
 
   return (
     // Tieni premuto = tasto destro, come ogni altra riga della sidebar. Era
@@ -2264,7 +2267,7 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
             `truncate-tight` usa il margine verticale, e un `mt` sul figlio glielo
             porterebbe via. */}
         <span className="flex-1 min-w-0 flex flex-col justify-center gap-[3px]">
-          <span className={`truncate-tight ${onFill ? 'font-semibold' : ''}`}>{s.name}</span>
+          <span data-row-name="terminal" className={`truncate-tight ${onFill ? 'font-semibold' : ''}`}>{s.name}</span>
           <SessionActivity subjectId={s.id} onFill={onFill} />
         </span>
         {projectName && (
@@ -2279,15 +2282,9 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
             still available server-side if a surface ever genuinely needs it. */}
       </button>
 
-      {/* Split schematic — same placement/treatment as the chat row's minimap. */}
-      {splitPosition && (
-        <SplitMiniMap
-          rows={splitPosition.rows}
-          rowHeights={splitPosition.rowHeights}
-          active={splitPosition.active}
-          className={`flex-shrink-0 ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
-        />
-      )}
+      {/* Split schematic - same placement and same treatment as every other
+          sidebar row: one component decides both (see RowSplitMap). */}
+      <RowSplitMap paneId={`terminal:${s.id}`} onFill={onFill} />
 
       {/* Lo spinner sta fuori dal binario quieto: vedi la riga chat, stessa
           ragione (fermare un turno ≠ chiudere la riga). */}
@@ -2626,29 +2623,6 @@ function ProjectRowPendingOverlay({ projectPath }: { projectPath: string }) {
 
 
 /**
- * The project window's position mini-map for its sidebar row. Reads the
- * project path's cell in the published top-level split (undefined unless more
- * than one window is open), and renders the same proportional SplitMiniMap the
- * sidebar chat rows use, with this window's cell lit. Module-scope sub-component
- * because it calls a hook — can't run inside the projects render loop above.
- */
-function ProjectSplitMiniMap({ projectPath, onFill }: { projectPath: string; onFill?: boolean }) {
-  const pos = useSplitPosition(projectPath);
-  if (!pos) return null;
-  return (
-    <SplitMiniMap
-      rows={pos.rows}
-      rowHeights={pos.rowHeights}
-      active={pos.active}
-      // currentColor-driven: on the attention fill inherit its high-contrast tone
-      // instead of a fixed grey (the grey-on-blue bug), matching the chat row.
-      className={`flex-shrink-0 mr-1.5 ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
-    />
-  );
-}
-
-
-/**
  * Browser sidebar item — extracted from the parent's `renderBrowserItem`
  * inline closure so we can call `usePendingActionStatus` per browser.
  * Otherwise hooks live inside a function called conditionally inside the
@@ -2715,9 +2689,14 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
       <span className={ROW_GLYPH_SLOT}>
         <Globe size={ROW_GLYPH} className="opacity-60" />
       </span>
-      <span className="flex-1 truncate" title={bc.url}>
+      <span data-row-name="browser" className="flex-1 truncate" title={bc.url}>
         {itemName}
       </span>
+      {/* Split schematic. It was MISSING here, and a browser is exactly the
+          pane one splits the grid for: the row said nothing about where its
+          cell is while the chat row next to it did. The pane is published under
+          its pane id (`browser:<id>`), the same key the grid opens it with. */}
+      <RowSplitMap paneId={`browser:${bc.id}`} />
       {/* Loading spinner — fuori dal binario quieto, come sulle righe sorelle:
           il segnale «sta caricando» non deve sparire per mostrare «chiudi». */}
       <BrowserStreamingSpinner paneId={`browser:${bc.id}`} />

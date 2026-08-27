@@ -39,14 +39,23 @@ export const SplitMiniMap = memo(function SplitMiniMap({
   if (!rows?.length) return null;
   const [activeRow, activeCol] = active;
   return (
-    <div
+    // SPANS, NOT DIVS, and it is not a detail of taste: the map now rides on
+    // the pinned tile too, and a tile is a `<button>` - whose content model is
+    // phrasing content, which a `<div>` is not. The boxes are laid out by
+    // inline `display: flex` either way, so the drawing is identical and the
+    // element is legal everywhere a row wants to put it.
+    <span
       className={className}
       style={{ display: 'flex', flexDirection: 'column', gap: GAP, width: W, height: H }}
       aria-hidden
+      // A HANDLE FOR THE MEASUREMENT, because the map has no accessible name to
+      // find it by: it is `aria-hidden` on purpose (it repeats, as a drawing,
+      // what the row already says in words).
+      data-testid="split-mini-map"
       title={t('minimap.position')}
     >
       {rows.map((cols, rowIdx) => (
-        <div
+        <span
           key={rowIdx}
           style={{ display: 'flex', gap: GAP, flex: `${rowHeights?.[rowIdx] ?? 1} 1 0%`, minHeight: 0 }}
         >
@@ -81,8 +90,8 @@ export const SplitMiniMap = memo(function SplitMiniMap({
               />
             );
           })}
-        </div>
+        </span>
       ))}
-    </div>
+    </span>
   );
 });
