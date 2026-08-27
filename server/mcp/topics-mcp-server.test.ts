@@ -44,6 +44,7 @@ import {
   callSendChatMessage,
   callReadChatMessages,
   callResolveTab,
+  callBrowserBridge,
   handleMessage,
   ASK_LEG_MS,
   ASK_MAX_LEGS,
@@ -1987,5 +1988,71 @@ describe("callMoveToProject", () => {
     await expect(
       callMoveToProject({ baseUrl: "http://x", sessionKey: "s" }, {}, fetchImpl),
     ).rejects.toThrow(/project_path.*required/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bridge transport: one deadline per request, and a single second send
+// ---------------------------------------------------------------------------
+
+describe("bridge transport — timeout e ritentativo", () => {
+  const args = { baseUrl: "http://x", sessionKey: "s" };
+  const ok = () => new Response(JSON.stringify({ ok: true }), {
+    status: 200, headers: { "content-type": "application/json" },
+  });
+
+  test("ogni richiesta porta una scadenza: fetch da solo non ne ha nessuna", async () => {
+    let seenSignal: unknown;
+    const fetchImpl = stubFetch(async (_url, init) => { seenSignal = init?.signal; return ok(); });
+    await callBrowserBridge(args, {}, "observe", fetchImpl);
+    expect(seenSignal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("endpoint di sola lettura: una richiesta persa si rimanda, una volta sola", async () => {
+    let calls = 0;
+    const fetchImpl = stubFetch(async () => {
+      calls++;
+      if (calls === 1) throw new TypeError("fetch failed");
+      return ok();
+    });
+    const out = await callBrowserBridge(args, {}, "observe", fetchImpl);
+    expect(calls).toBe(2);
+    expect(out).toContain("ok");
+  });
+
+  test("due perdite di fila: si arrende, e l'errore dice la chiamata, non il meccanismo", async () => {
+    let calls = 0;
+    const fetchImpl = stubFetch(async () => { calls++; throw new TypeError("fetch failed"); });
+    await expect(callBrowserBridge(args, {}, "observe", fetchImpl)).rejects.toThrow(/browser\/observe/);
+    expect(calls).toBe(2);
+  });
+
+  test("un'azione NON si rimanda: un clic ripetuto e' un clic che nessuno ha chiesto", async () => {
+    let calls = 0;
+    const fetchImpl = stubFetch(async () => { calls++; throw new TypeError("fetch failed"); });
+    await expect(callBrowserBridge(args, {}, "act", fetchImpl)).rejects.toThrow(/act/);
+    expect(calls).toBe(1);
+  });
+
+  test("una risposta arrivata e' una risposta, anche se e' un 500: non si rimanda", async () => {
+    let calls = 0;
+    const fetchImpl = stubFetch(async () => {
+      calls++;
+      return new Response(JSON.stringify({ error: "boom" }), { status: 500, headers: { "content-type": "application/json" } });
+    });
+    await expect(callBrowserBridge(args, {}, "observe", fetchImpl)).rejects.toThrow(/boom/);
+    expect(calls).toBe(1);
+  });
+
+  test("una GET si rimanda da se', senza che nessuno lo dichiari", async () => {
+    let calls = 0;
+    const fetchImpl = stubFetch(async () => {
+      calls++;
+      if (calls === 1) throw new TypeError("fetch failed");
+      return new Response(JSON.stringify({ scripts: [] }), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    const out = await callListProcesses(args, {}, fetchImpl);
+    expect(calls).toBe(2);
+    expect(out).toContain("No processes");
   });
 });

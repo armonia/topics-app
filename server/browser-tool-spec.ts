@@ -360,6 +360,16 @@ export function toolNameToEndpoint(name: string): string {
   return name.replace(/^browser_/, "").replace(/_/g, "-");
 }
 
+/**
+ * The bridged endpoints that only LOOK at the page (slug set), derived from the
+ * same `readOnly` flag the MCP annotation is projected from. It is what says
+ * whether a request lost in transport can simply be sent again: observing twice
+ * costs a snapshot, clicking twice costs a click nobody asked for.
+ */
+export const READ_ONLY_BROWSER_ENDPOINTS: ReadonlySet<string> = new Set(
+  BROWSER_TOOL_SPECS.filter((s) => s.surfaces.mcp && s.readOnly).map((s) => toolNameToEndpoint(s.name)),
+);
+
 /** Browser tools bridged generically over REST (endpoint slug → tool name). */
 export const BRIDGED_BROWSER_ENDPOINTS: Record<string, string> = Object.fromEntries(
   BROWSER_TOOL_SPECS.filter((s) => s.surfaces.mcp).map((s) => [
