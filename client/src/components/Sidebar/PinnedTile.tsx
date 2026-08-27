@@ -491,12 +491,12 @@ export function PinnedTile({
           ink starts at the row inset and lands in the same column as the
           chevron of a project row and of a chat row with children.
 
-          A tile that does not open reserves NOTHING. It used to reserve the
-          slot always, to keep the names of two tiles in one column; the price
-          was 20px of dead space before nothing on every tile that has no
-          accordion, which is most of them ("no useless space before the
-          accordion"). The names of the expandable ones now start after their
-          chevron, exactly as they do in the tree.
+          IN ROW FORM IT IS ALWAYS RESERVED, empty when there is nothing to
+          open: a row is read in a column, and 20px of saved air on one row is
+          the misalignment of the whole list (see ROW_CHEVRON_SLOT). In GRID
+          form nothing is reserved, because there the tile is not read in a
+          column: it is centred, and an empty box on the leading side is exactly
+          what pushes the identity off centre.
 
           IN GRID FORM IT IS MIRRORED, NOT REMOVED. Its weight would push the
           identity off centre by half a chevron plus half a gap — measured on a
@@ -520,7 +520,7 @@ export function PinnedTile({
         />
       )}
 
-      {expandable && (
+      {expandable ? (
         <span
           data-testid="pinned-chevron-slot"
           className={`${ROW_CHEVRON_SLOT} ${
@@ -535,7 +535,15 @@ export function PinnedTile({
         >
           <ExpandChevron expanded={expanded} />
         </span>
-      )}
+      ) : isRow ? (
+        // IN ROW FORM THE COLUMN COMES FIRST. A pinned row that does not open
+        // reserves the accordion box anyway, or its icon would start 20px
+        // (slot + gap) left of the icon of the row above it - the same two
+        // alignments the tree had. In GRID form nothing is reserved: there the
+        // tile is centred and the trigger's weight is mirrored on the other
+        // side (see above), so an empty box would push the identity off centre.
+        <span aria-hidden="true" data-row-chevron-slot="empty" className={ROW_CHEVRON_SLOT} />
+      ) : null}
 
       {/* IL CONTENITORE DELL'ICONA SPARISCE QUANDO NON C'E' UN'ICONA.
           Un riquadro largo ZERO non occupa spazio, ma il `gap-2` della riga
