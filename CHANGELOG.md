@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.192 — 2026-08-27
+
+### Sotto il cofano
+- Incassato il calo dei commenti italiani in lib.rs: 1352 -> 1351
+
 ## 2.2.191 — 2026-08-27
 
 ### Sotto il cofano
