@@ -133,6 +133,8 @@ import m20260821000500_nota_senza_riassunto_ordine from "./migrations/2026082100
 import m20260821162529_follows_and_profile_privacy from "./migrations/20260821162529-follows-and-profile-privacy.sql" with { type: "text" };
 import m20260823210000_preview_rejected from "./migrations/20260823210000-preview-rejected.sql" with { type: "text" };
 import m20260826213000_unread_su_topic_archiviate from "./migrations/20260826213000-unread-su-topic-archiviate.sql" with { type: "text" };
+import m20260827130000_terminal_session_type_kimi_code from "./migrations/20260827130000-terminal-session-type-kimi-code.sql" with { type: "text" };
+import m20260827005333_dispatch_idle_min from "./migrations/20260827005333-dispatch-idle-min.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -270,4 +272,6 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260821162529, name: "20260821162529-follows-and-profile-privacy.sql", sql: m20260821162529_follows_and_profile_privacy },
   { version: 20260823210000, name: "20260823210000-preview-rejected.sql", sql: m20260823210000_preview_rejected },
   { version: 20260826213000, name: "20260826213000-unread-su-topic-archiviate.sql", sql: m20260826213000_unread_su_topic_archiviate },
+  { version: 20260827130000, name: "20260827130000-terminal-session-type-kimi-code.sql", sql: m20260827130000_terminal_session_type_kimi_code },
+  { version: 20260827005333, name: "20260827005333-dispatch-idle-min.sql", sql: m20260827005333_dispatch_idle_min },
 ];

@@ -1,0 +1,17 @@
+-- 20260827005333-dispatch-idle-min.sql
+--
+-- Il prefisso è un timestamp UTC (YYYYMMDDHHMMSS), non un contatore: è quello
+-- che rende impossibile la collisione fra card in parallelo. Non rinominarlo.
+--
+-- Task 29451376: dispatch_timeout_min smette di uccidere un turno da solo (il
+-- kill a orologio tagliava agenti sani, vedi server/lib/turn-deadline.ts). Al
+-- suo posto uno STALL DETECTOR passivo: quando il transcript di una sessione
+-- resta muto per `dispatch_idle_min` minuti, un giudice economico legge la
+-- coda del transcript e decide se è ancora viva o incastrata; solo su
+-- "incastrata" il turno viene riciclato (abort + resume sulla stessa
+-- sessione). `dispatch_timeout_min` resta in tabella e viene solo SEGNALATO
+-- (log), non più applicato come taglio.
+--
+-- 5 minuti di default: abbastanza per un tool lento, corto abbastanza da non
+-- lasciare una card incastrata per ore prima che qualcuno se ne accorga.
+ALTER TABLE board_settings ADD COLUMN dispatch_idle_min INTEGER NOT NULL DEFAULT 5;

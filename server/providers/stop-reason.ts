@@ -85,6 +85,17 @@ export type StopCause =
    * metà frase, senza una parola che dicesse cosa fosse successo.
    */
   | "server-shutdown"
+  /**
+   * THE PASSIVE STALL DETECTOR RECYCLED THE TURN, not a timer.
+   *
+   * `dispatchTimeoutMin` no longer cuts anything by itself (see
+   * `server/lib/stall-detector.ts`): once the session's transcript has been
+   * silent for `dispatchIdleMin`, a cheap judge reads the transcript tail and
+   * answers "alive" or "stuck". This cause exists only for a CONFIRMED
+   * "stuck" verdict — an "alive" one rearms the watch and produces no
+   * `TurnEndInfo` at all, the turn just keeps running.
+   */
+  | "stall"
   /** La sessione `--resume` non esisteva più: reset trasparente, si rispawna. */
   | "session-reset"
   /** Il processo figlio è uscito con codice diverso da zero. */
@@ -198,6 +209,7 @@ const STOP_CAUSES: readonly StopCause[] = [
   "watchdog",
   "wall-clock",
   "server-shutdown",
+  "stall",
   "session-reset",
   "process-died",
   "turn-in-flight",
@@ -295,6 +307,7 @@ export function describeTurnEnd(info: TurnEndInfo): string {
         // become false, and the sentence is what a person reads.
         case "wall-clock": return "Turno fermo: nessun segno di vita fino allo scadere";
         case "server-shutdown": return "Il server si è riavviato mentre il turno era in corso";
+        case "stall": return "Turno riciclato: transcript muto da dispatchIdleMin, il giudice l'ha valutato incastrato";
         case "session-reset": return "Sessione persa e riavviata: stesso turno, processo nuovo";
         case "turn-in-flight": return "La sessione stava già rispondendo: turno non avviato";
         default: return "Turno annullato";

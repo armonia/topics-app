@@ -49,6 +49,7 @@ import { nativeDelegateRegistry } from "../browser-native-delegate";
 import { collectLiveContextIds, listBrowserTabs, type TabInventoryDeps } from "../browser-tab-inventory";
 import { timingSafeEqualStr } from "../utils";
 import { taskTabContextId, slugTabName } from "../../shared/task-tab-context";
+import { checkPortOwnership, formatPortWarning, realPortOwnerDeps, type PortOwnerDeps } from "../lib/port-project-owner";
 
 /**
  * Le sessioni di terminale viste da qui: solo i tre campi che servono a dare un
@@ -107,6 +108,12 @@ export interface BrowserBridgeDeps {
    * I test la stringono a pochi ms.
    */
   paneWaitMs?: number;
+  /**
+   * Injectable seam for the localhost-port ownership check (task f9cf765e):
+   * defaults to the real `lsof`-backed deps, tests substitute fakes so the
+   * warning path never touches the machine's actual listening ports.
+   */
+  portOwnerDeps?: PortOwnerDeps;
 }
 
 export function createBrowserBridgeRouter(
@@ -122,6 +129,22 @@ export function createBrowserBridgeRouter(
   const { getTerminalSessionById, taskForTopic, taskByIdPrefix, browserNavigatedTopics, persistTaskTab, attachLoginHandle, paneAttachedTo } = deps;
   const PANE_WAIT_MS = deps.paneWaitMs ?? 2500;
   const PANE_POLL_MS = 50;
+  const portOwnerDeps = deps.portOwnerDeps ?? realPortOwnerDeps();
+
+  /**
+   * The localhost-port warning (task f9cf765e): does this URL point at a port
+   * whose owner is a DIFFERENT project than `callerProjectPath`, or at a port
+   * nobody answers on? Never blocks, never throws into open-pane — a probe
+   * that fails to answer its own question is just silent.
+   */
+  async function portOwnershipWarning(url: string, callerProjectPath: string | null): Promise<string | undefined> {
+    try {
+      const warning = await checkPortOwnership(url, callerProjectPath, portOwnerDeps);
+      return warning ? formatPortWarning(warning) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
 
   // Server gate for the task-owned browser fork (client mirror:
   // localStorage['board:taskBrowser']). Default ON → an agent open-pane on a
@@ -327,7 +350,8 @@ export function createBrowserBridgeRouter(
             // headless, finestra chiusa): stessa cecità della rotta chat, stesso
             // ripiego, stessa risposta onesta.
             const visible = await ensureVisiblePane(ctxId, url);
-            return json({ url, title: "", visible });
+            const warning = await portOwnershipWarning(url, term.cwd || null);
+            return json({ url, title: "", visible, ...(warning ? { warning } : {}) });
           }
         }
         if (!topic) return json({ error: "Topic not found" }, 404);
@@ -384,7 +408,8 @@ export function createBrowserBridgeRouter(
           // idempotente e converge.
           persistTaskTab(taskCtx.taskId, taskCtx.contextId, url, tabName);
           broadcastToAll({ type: "browser:open-task-tab", taskId: taskCtx.taskId, contextId: taskCtx.contextId, url, title: tabName });
-          return json({ url, title: tabName });
+          const warning = await portOwnershipWarning(url, topic.projectPath ?? null);
+          return json({ url, title: tabName, ...(warning ? { warning } : {}) });
         }
 
         const ctxId = resolveContextIdForTopic(topic);
@@ -419,7 +444,8 @@ export function createBrowserBridgeRouter(
           //    montata dal contesto vivo che nessuno vede (il ripiego
           //    force-open è già stato tentato qui dentro).
           const visible = await ensureVisiblePane(ctxId, resolvedUrl);
-          return json({ url: resolvedUrl, title: result?.title ?? "", visible });
+          const warning = await portOwnershipWarning(resolvedUrl, topic.projectPath ?? null);
+          return json({ url: resolvedUrl, title: result?.title ?? "", visible, ...(warning ? { warning } : {}) });
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e);
           return json({ error: msg }, 500);

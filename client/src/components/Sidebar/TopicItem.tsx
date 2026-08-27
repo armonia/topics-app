@@ -329,8 +329,14 @@ export const TopicItem = memo(function TopicItem({
       {/* "Awaiting feedback" is the row's own electric-blue background now
           (see sidebarRowCard awaiting flag), not an overlay. */}
 
-      {/* Toggle button — only show if has children */}
-      {hasChildren && (
+      {/* THE ACCORDION COLUMN, RESERVED EVEN WHEN THERE IS NO ACCORDION.
+          The toggle only exists on a row with children, but the SLOT exists on
+          every row: without the empty branch a chat without children started
+          `ROW_CHEVRON_SLOT` + `ROW_GAP` (12 + 8 = 20px) left of a chat with
+          children, so the same column carried two alignments. Reported on the
+          board (card 150ebafb): a row without an accordion starts further left
+          than a row that has one. */}
+      {hasChildren ? (
         <button
           onClick={(e) => { e.stopPropagation(); onToggle(); }}
           aria-label={isExpanded ? 'Comprimi' : 'Espandi'}
@@ -345,6 +351,8 @@ export const TopicItem = memo(function TopicItem({
             className={cn('transition-transform duration-150', isExpanded && 'rotate-90')}
           />
         </button>
+      ) : (
+        <span aria-hidden="true" data-row-chevron-slot="empty" className={ROW_CHEVRON_SLOT} />
       )}
 
       {/* IL GLIFO D'ARCHIVIO IN TESTA NON C'È PIÙ, ed è la metà visibile della

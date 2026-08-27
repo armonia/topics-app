@@ -16,10 +16,11 @@
  */
 import { resolveClaudeBin } from "./claude-bin";
 import { resolveCodexBin } from "./codex-bin";
+import { resolveKimiBin } from "./kimi-bin";
 
 export interface AgentPresence {
   /** The session-type id (`shared/terminal-session-types.ts`). */
-  id: "claude-code" | "codex" | "opencode" | "gemini";
+  id: "claude-code" | "codex" | "opencode" | "kimi-code" | "gemini";
   /** What the people who use it call it. */
   name: string;
   /** The absolute path found, or null. */
@@ -79,6 +80,14 @@ export function detectAgents(): AgentPresence[] {
       path: which("opencode"),
       install: "npm i -g opencode-ai",
       url: "https://opencode.ai",
+      installed: false,
+    },
+    {
+      id: "kimi-code",
+      name: "Kimi Code",
+      path: resolveKimiBin(),
+      install: "curl https://code.kimi.com/kimi-code/install.sh | bash",
+      url: "https://code.kimi.com",
       installed: false,
     },
     {

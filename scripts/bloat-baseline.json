@@ -139,6 +139,7 @@
     "server/lib/claude-session-state.ts": 931,
     "client/src/lib/buildSidebarItems.test.ts": 929,
     "tests/e2e/grid-split.spec.ts": 920,
+    "client/src/components/Sidebar/IdentityBlock.tsx": 907,
     "client/src/components/Layout/StandaloneChatGroup.tsx": 890,
     "server/services/task-automerge.test.ts": 889,
     "client/src/components/Sidebar/SidebarStatusBar.tsx": 887,

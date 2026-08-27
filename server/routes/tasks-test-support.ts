@@ -28,6 +28,7 @@ export function freshDb(): Database {
     only_lead_can_change_status INTEGER DEFAULT 0, max_agents INTEGER DEFAULT 5, auto_expire_hours INTEGER DEFAULT 24,
     auto_dispatch INTEGER NOT NULL DEFAULT 0, dispatch_effort TEXT NOT NULL DEFAULT 'medium',
     dispatch_use_worktree INTEGER NOT NULL DEFAULT 1, dispatch_timeout_min INTEGER NOT NULL DEFAULT 20,
+    dispatch_idle_min INTEGER NOT NULL DEFAULT 5,
     dispatch_auto_merge INTEGER NOT NULL DEFAULT 0,
     max_agents_auto INTEGER, review_checks TEXT
   )`);

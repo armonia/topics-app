@@ -34,7 +34,7 @@ test("the ids match the session types the server can actually spawn", () => {
   // The id is what the client posts as `type` to /api/terminal/sessions. An id
   // that does not exist there produces a plain shell instead of the agent, in
   // silence — the server falls back to `shell` for anything unknown.
-  const spawnable = new Set(["claude-code", "codex", "opencode", "gemini"]);
+  const spawnable = new Set(["claude-code", "codex", "opencode", "kimi-code", "gemini"]);
   for (const a of detectAgents()) expect(spawnable.has(a.id)).toBe(true);
 });
 
