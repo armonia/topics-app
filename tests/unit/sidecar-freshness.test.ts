@@ -1,4 +1,6 @@
 /**
+ * @covers UPDATER-02
+ *
  * AN UPDATE THAT DECLARES ITSELF SUCCESSFUL MUST HAVE ARRIVED WHOLE.
  *
  * Measured on a real Windows machine on 2026-08-27, updating 2.2.173 to 2.2.176

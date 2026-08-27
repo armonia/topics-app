@@ -215,3 +215,51 @@ comparire un doppione.
 #### Scenario: un aggiornamento disponibile trovato dal controllo al boot
 - **GIVEN** un controllo silenzioso che trova un aggiornamento
 - **THEN** il riquadro SHALL comparire lo stesso
+
+### Requirement: UPDATER-02 — An update that reports success SHALL have arrived whole
+
+An installer that skips a file and still exits 0 produces the worst kind of
+update: the registry says the new version, the shell says the new version, and
+one binary on disk is still the old one. Nobody is lying and nobody is right.
+
+Measured on a real Windows 11 machine on 2026-08-27, updating 2.2.173 → 2.2.176
+with the app open and a terminal in use: `app.exe`, `topics-server.exe` and
+`webrtc-bridge.exe` were replaced, `pty-bridge.exe` was NOT. The one file left
+behind was the only one that was RUNNING — the NSIS installer cannot overwrite a
+file in use, in silent mode it skips it, and it exits 0. Tauri's own template
+closes exactly one process before copying (`CheckIfAppIsRunning` looks for
+`${MAINBINARYNAME}.exe` and nothing else), so every sidecar survives by
+construction.
+
+The installer SHALL close its sidecars before copying, and SHALL FAIL when one
+is still locked afterwards: a copy that could not happen is not a successful
+install.
+
+The shell SHALL compare, at startup, the fingerprints of the binaries beside it
+against the ones the build shipped, and SHALL surface a mismatch where the user
+already looks for version information.
+
+The warning SHALL NOT be symmetric: only a verdict that was actually verified
+accuses anyone. A build carrying no fingerprints — a dev build, or the stub
+sidecars CI creates for the existence gate — knows nothing, and whoever knows
+nothing SHALL stay quiet. A warning that fires on every `tauri dev` is a warning
+ignored on the day it is true.
+
+Every sidecar declared in `externalBin` SHALL be listed in the installer hooks:
+what this requirement prevents is not the locked file, it is the SILENCE — add a
+fourth sidecar without listing it and that binary goes back to being skipped
+with nobody the wiser.
+
+#### Scenario: a sidecar is running during the update
+- **GIVEN** an update installed while the app is open
+- **WHEN** the installer copies the new binaries
+- **THEN** the sidecars SHALL be closed first
+- **AND** a file still locked afterwards SHALL fail the install rather than be skipped
+
+#### Scenario: the shell notices it is standing next to stale binaries
+- **GIVEN** a shell whose sidecar fingerprints do not match the shipped ones
+- **THEN** the mismatch SHALL be shown with the version information
+
+#### Scenario: a build that knows nothing keeps quiet
+- **GIVEN** a build with no recorded fingerprints (dev, or CI stub sidecars)
+- **THEN** no warning SHALL be shown

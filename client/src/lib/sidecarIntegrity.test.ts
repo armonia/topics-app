@@ -1,4 +1,6 @@
 /**
+ * @covers UPDATER-02
+ *
  * When the "incomplete install" warning shows up, and above all when it does NOT.
  *
  * One rule, and it is not symmetric: only a verdict that was actually verified
