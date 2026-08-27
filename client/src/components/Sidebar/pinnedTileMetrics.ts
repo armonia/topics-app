@@ -10,7 +10,7 @@
  * trigger «+»), non solo dalla tessera: qui sono al loro posto, e nessuno deve
  * importare un componente per sapere quanto è alta una riga.
  */
-import { ROW_H } from '../../lib/selectionStyles';
+import { ROW_GLYPH_SLOT, ROW_H } from '../../lib/selectionStyles';
 
 /**
  * L'altezza di una tessera — che è quella di una RIGA, perché una tessera è una
@@ -127,3 +127,61 @@ export const PINNED_TILE_PX = {
   /** Sotto i 768px: `h-11` di `ROW_H` / `w-9` di `ROW_ACTION_BOX`. */
   compact: { tile: 44, action: 36 },
 } as const;
+
+/**
+ * THE TWO FORMS OF A PINNED TILE, and the alignment each one implies.
+ *
+ * Reported on 27/08/2026: the pinned tiles look pushed to the right when the
+ * sidebar has spare width, and stacked tiles do not read as centred. The shape
+ * was already decided in one place (the grid, from how many cells a row draws)
+ * but the ALIGNMENT was not declared anywhere: it lived scattered in the class
+ * lists of the tile, so nothing said out loud that a row aligns to the column
+ * and a grid tile centres its identity, and nothing could go red when the two
+ * drifted apart.
+ *
+ * So form and alignment are ONE decision, taken here and read by everybody:
+ * `pinnedForm` says which form a row of N cells has, `PINNED_ALIGN` says what
+ * that form does to the content. No width threshold decides a third alignment
+ * (see the history in `PinnedTile.tsx`: a scale of container queries used to
+ * centre the NAME inside a box that was itself left-aligned).
+ */
+export type PinnedForm = 'row' | 'grid';
+
+/**
+ * ONE TILE ON THE ROW = A ROW. Two or more = a grid.
+ *
+ * Counted on the cells being DRAWN, ghost included: while a second tile hovers
+ * over a row that holds one, what you see is already a grid, and the alignment
+ * must be the one of the drop, not the one of a moment ago.
+ */
+export function pinnedForm(cellCount: number): PinnedForm {
+  return cellCount <= 1 ? 'row' : 'grid';
+}
+
+export interface PinnedAlignment {
+  /** How the line of content sits inside the tile. */
+  justify: string;
+  /**
+   * The box the leading icon sits in.
+   *
+   * In ROW form it is the SHARED slot of the column ({@link ROW_GLYPH_SLOT}):
+   * an 18px box that centres any glyph, so a tile and a normal row start their
+   * name at the same pixel. Measured before this existed: the tile's ink began
+   * 2px left of the row's, because the tile sized the box on the glyph (14)
+   * while the column reserves 18 for all of them.
+   *
+   * In GRID form the box is the icon itself: the identity is centred, and a
+   * fixed box that is wider than what it holds is air on one side only.
+   */
+  iconSlot: string;
+  /** Whether the leading accordion box is reserved even when nothing opens. */
+  reservesChevron: boolean;
+}
+
+export const PINNED_ALIGN: Record<PinnedForm, PinnedAlignment> = {
+  // A row is read inside a column: it starts where the column starts.
+  row: { justify: 'justify-start', iconSlot: ROW_GLYPH_SLOT, reservesChevron: true },
+  // A grid tile is read on its own: what identifies it takes the middle, and
+  // an empty box on the leading side is exactly what pushes it off centre.
+  grid: { justify: 'justify-center', iconSlot: 'flex-shrink-0 items-center justify-center', reservesChevron: false },
+};

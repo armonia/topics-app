@@ -73,7 +73,11 @@ async function readRows(page: import("@playwright/test").Page): Promise<RowMetri
 
 test.describe("sidebar: the accordion column", () => {
   test("ROWALIGN-01: every row opens with the same accordion box", async ({ page }) => {
+    // Both, and neither is decoration: LAYOUT-26 is the declared step of the
+    // column, ROWALIGN-01 is the requirement this measurement IS. Claiming only
+    // the first left an id that titles a test and is claimed by none.
     test.info().annotations.push({ type: "spec", description: "LAYOUT-26" });
+    test.info().annotations.push({ type: "spec", description: "ROWALIGN-01" });
     await goToApp(page);
     await expect(page.locator('[role="tree"]')).toBeVisible({ timeout: 15000 });
 
