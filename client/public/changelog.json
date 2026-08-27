@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.190",
+    "date": "2026-08-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "L'ultima leva mai provata: nascondere e rimostrare la finestra",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.189",
     "date": "2026-08-27",
     "sections": {
