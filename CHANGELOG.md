@@ -2,6 +2,14 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.191 — 2026-08-27
+
+### Sotto il cofano
+- Nove rimedi provati e nessuno funziona: escono dal codice ed entrano nel file come tabella
+- Quattro nomi italiani arrivati con la tornata, e il debito scende di uno
+- Due cancelli della tornata: un path /tmp fisso, e il nome del proprietario in un file nuovo
+- Il commento della deroga era in italiano, in un file a baseline zero
+
 ## 2.2.190 — 2026-08-27
 
 ### Sotto il cofano
@@ -31,17 +39,21 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.2.185 — 2026-08-27
 
 ### Sotto il cofano
+- Su Windows gli acceleratori del menu non li traduceva nessuno: ora li ascolta la webview
+- Lo schema dello split su ogni riga della sidebar, da un solo componente
 - Il ciclo di visibilita' non basta: si ri-genitora. E il rimbalzo faceva CRESCERE la finestra
 - recompose_main_window esce da lib.rs: non e' setup del guscio, e' una riparazione
 
 ## 2.2.184 — 2026-08-27
 
 ### Sotto il cofano
+- Su Windows le scorciatoie dell'app morivano dentro la pane, come sul Mac prima del monitor
 - L'aggancio stava dentro un blocco macOS: su Windows non esisteva proprio
 
 ## 2.2.183 — 2026-08-27
 
 ### Sotto il cofano
+- Mappa delle 34 scorciatoie su Windows: dove e' gestita ognuna e quale causa la uccide
 - La prima cura non ha morso: non e' la finestra, e' la composizione di WebView2
 
 ## 2.2.182 — 2026-08-27
@@ -54,6 +66,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - WINCTL-01: il requisito che il test provava gia', e il modulo che knip non vedeva
 - La finta copriva una porta su due, e quale porta contasse lo decideva la macchina
 - Il test passava DA SOLO e falliva nella suite: fingeva l'ospite, non il modulo
+- Una sola porta per la cartella di stato: DATA_DIR e TOPICS_DATA_DIR unificate
 
 ## 2.2.181 — 2026-08-27
 

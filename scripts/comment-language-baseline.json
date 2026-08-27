@@ -731,7 +731,7 @@
     "desktop-tauri/src-tauri/src/browser_eval.rs": 58,
     "desktop-tauri/src-tauri/src/browser_linux.rs": 125,
     "desktop-tauri/src-tauri/src/browser_win.rs": 139,
-    "desktop-tauri/src-tauri/src/lib.rs": 1352,
+    "desktop-tauri/src-tauri/src/lib.rs": 1351,
     "desktop-tauri/src-tauri/src/macos_notifications.rs": 149,
     "desktop-tauri/src-tauri/src/os_open.rs": 43,
     "scripts/ai-bridge-replay-bench.ts": 58,
