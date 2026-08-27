@@ -89,39 +89,39 @@ describe("/rewind sul checkpoint automatico del turno", () => {
     const data = (await createTestAppContext()).loadTopics();
     const sessionKey = data.topics[topicId].sessionKey;
 
-    // PRIMA DEL TURNO: il checkpoint che la rotta di chat scatta da sola.
+    // BEFORE THE TURN: the checkpoint the chat route takes on its own.
     const ckpt = await captureTurnCheckpoint(REPO, sessionKey, "aggiungi la feature");
     expect(ckpt, "il checkpoint di partenza deve esistere").not.toBeNull();
 
-    // IL TURNO: l'agente modifica un file, ne crea uno nuovo, ne cancella uno.
+    // THE TURN: the agent edits a file, creates a new one, deletes another.
     writeFileSync(join(REPO, "app.ts"), "export const answer = 'rotto'\n");
     mkdirSync(join(REPO, "src"), { recursive: true });
     writeFileSync(join(REPO, "src", "nato-nel-turno.ts"), "export const x = 1\n");
 
-    // La striscia automatica lo vede.
+    // The automatic strip sees it.
     const lista = (await (await call(router, "GET", `/api/topics/${topicId}/turn-checkpoints`)).json()) as {
       checkpoints: Array<{ commit: string; label: string }>;
     };
     expect(lista.checkpoints.length).toBe(1);
     expect(lista.checkpoints[0].label).toBe("aggiungi la feature");
 
-    // `/rewind`: la stessa POST che parte dal composer.
+    // `/rewind`: the same POST the composer sends.
     const res = await call(router, "POST", `/api/topics/${topicId}/turn-checkpoints/restore`, {});
     expect(res.status).toBe(200);
     const out = (await res.json()) as {
       ok: boolean; restored: number; removed: number; branch: string | null; conversationRewound: boolean;
     };
 
-    // 1. Il contenuto del file torna indietro.
+    // 1. The file content goes back.
     expect(readFileSync(join(REPO, "app.ts"), "utf8")).toBe("export const answer = 42\n");
-    // 2. Il file NATO nel turno se ne va: «l'albero com'era» include le nascite.
+    // 2. The file BORN in the turn goes away: the tree as it was includes births.
     expect(existsSync(join(REPO, "src", "nato-nel-turno.ts"))).toBe(false);
     expect(out.removed).toBe(1);
-    // 3. Nessun detached HEAD. `symbolic-ref` fallisce su una testa staccata,
-    //    quindi questa e' l'asserzione che coglierebbe il ritorno a `checkout`.
+    // 3. No detached HEAD. `symbolic-ref` fails on a detached head,
+    //    so this is the assertion that would catch a return to `checkout`.
     expect(git("symbolic-ref", "HEAD")).toBe("refs/heads/main");
     expect(out.branch).toBe("main");
-    // 4. E lo dice: i file sono tornati, la conversazione no.
+    // 4. And it says so: the files came back, the conversation did not.
     expect(out.conversationRewound).toBe(false);
   });
 
