@@ -153,10 +153,10 @@ test.describe("Copia task · il contenuto della card negli appunti", () => {
     expect(box!.y + box!.height, "il pannello deve stare dentro la finestra").toBeLessThanOrEqual(vp.height + 1);
     expect(box!.x, "…e non sbordare a sinistra").toBeGreaterThanOrEqual(-1);
     await link.click();
-    // Il link porta uno SLUG leggibile davanti all'id, e l'id resta in CODA:
-    // e' quello che risolve, lo slug e' decorazione che la lettura butta via.
-    // L'asserzione segue il contratto — finisce con l'uuid — invece della forma
-    // esatta, cosi' non si rompe di nuovo se lo slug cambia.
+    // The link carries a readable SLUG in front of the id, and the id stays at
+    // the END: that is what resolves, the slug is decoration the reader throws
+    // away. So the assertion follows the CONTRACT — ends with the uuid — instead
+    // of the exact shape, and does not break again when the slug changes.
     expect(await clipboard(page)).toMatch(new RegExp(`/task/(?:[a-z0-9-]+-)?${task.id}$`));
     // La spunta è la sola cosa che l'utente vede: c'è, e poi se ne va da sola.
     await expect(link.locator("svg.text-green-500")).toBeVisible({ timeout: 2000 });
