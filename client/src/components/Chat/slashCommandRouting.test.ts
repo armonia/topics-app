@@ -101,8 +101,13 @@ describe("`/help` cannot fall behind the menu", () => {
   // The cure was to DERIVE it, so this test guards against the cure being
   // undone rather than against the drift — a hand-written list can drift again
   // the day after anyone syncs it.
+  //
+  // It is a FUNCTION of `tr` now rather than a constant, because the array
+  // carries i18n keys and the text only exists once a language is chosen. What
+  // is guarded is unchanged: the lines come from `SLASH_COMMANDS`, not from a
+  // second list.
   test("the help text is built from the same array the menu uses", () => {
-    const line = CHAT_PANE.match(/const SLASH_COMMANDS_HELP\s*=\s*([^;]+);/)?.[1] ?? "";
+    const line = CHAT_PANE.match(/const slashCommandsHelp\s*=\s*([^;]+);/)?.[1] ?? "";
     expect(line, "`/help` is a hand-written list again").toContain("SLASH_COMMANDS.map");
     expect(CHAT_PANE, "`ChatPane` must import the menu, not copy it").toContain(
       "import { SLASH_COMMANDS } from './slashCommands'",
