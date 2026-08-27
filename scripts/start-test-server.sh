@@ -89,6 +89,15 @@ if [ ! -f "$HOME/.local/bin/claude" ]; then
 #!/usr/bin/env bash
 # Stub del banco e2e: risponde una volta e chiude, cosi' il turno finisce.
 # Vedi la nota in scripts/start-test-server.sh.
+#
+# Il drenaggio in sottofondo NON e' cosmesi: chi ci lancia scrive il prompt
+# sulla nostra stdin. Se usciamo senza che nessuno tenga aperto quel capo,
+# la scrittura successiva trova la pipe chiusa e prende EPIPE — che nel
+# banco ha ucciso il server di test e con lui 200 prove in un colpo solo.
+# Questo `cat` sopravvive a noi giusto il tempo di assorbire il prompt e
+# muore da se' quando chi scrive chiude. Non tiene ne' stdout ne' stderr,
+# quindi non ritarda la chiusura del processo agli occhi di chi ci attende.
+cat >/dev/null 2>&1 &
 printf '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}\n'
 printf '{"type":"result","subtype":"success","is_error":false,"result":"ok"}\n'
 exit 0
@@ -125,7 +134,17 @@ export TOPICS_PUBLIC_DIR="${TOPICS_PUBLIC_DIR:-}"
 # l'invio aspetta per sempre. Si passano solo se arrivano dall'ambiente, cosi'
 # chi vuole provare l'integrazione vera li esporta e ottiene il comportamento
 # di prima.
-if [ -n "${GATEWAY_TOKEN:-}" ]; then export GATEWAY_TOKEN; fi
+# Il TOKEN si dichiara sempre, l'URL solo se qualcuno ascolta davvero — e la
+# differenza non e' un dettaglio. L'URL finto eleggeva `openclaw` a provider AI
+# del banco (serve la coppia URL+token) verso una porta dove non risponde
+# nessuno, e da li' nascevano i turni che non finivano mai. Il token invece fa
+# un mestiere diverso che ha solo lo stesso nome: e' la credenziale legacy che
+# `agentAuthOk()` accetta sulle route del terminale, e api-fixtures.ts la manda
+# come `x-gateway-token` a ogni chiamata. Toglierlo — come avevo fatto al primo
+# tentativo — faceva rispondere 401 al banco stesso: TERM-02 leggeva un buffer
+# vuoto e cadeva con il prodotto sanissimo. Misurato: rosso 2 volte su 2 senza,
+# verde con.
+export GATEWAY_TOKEN="${GATEWAY_TOKEN:-test-token}"
 if [ -n "${GATEWAY_URL:-}" ]; then export GATEWAY_URL; fi
 
 # Ensure data + topics-home + isolated OpenClaw config/home directories exist
