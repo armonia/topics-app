@@ -11,12 +11,22 @@
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 
-/// The ⌘-chord forwarding allowlist, GENERATED from the shared shortcut registry
-/// (`shared/shortcuts.ts`) by `scripts/gen-shortcuts.ts`. `app_chord_dispatch_js`
-/// consults it so the native list can never silently drift from the window the
-/// user sees. Regenerate with `bun run gen:shortcuts`.
-#[cfg(target_os = "macos")]
+/// The app-chord forwarding allowlist, GENERATED from the shared shortcut
+/// registry (`shared/shortcuts.ts`) by `scripts/gen-shortcuts.ts`. Both native
+/// forwarders consult it (`app_chord_dispatch_js` here, `chords::decide` for
+/// WebView2), so no native list can silently drift from the window the user
+/// sees. Regenerate with `bun run gen:shortcuts`.
 mod shortcuts_generated;
+
+/// Which app chord a focused browser pane must not keep, and what to do with it:
+/// the Windows counterpart of the NSEvent monitor further down. The decision is
+/// a table compiled on EVERY platform, so `cargo test --lib` proves it on a Mac;
+/// `chords_win` is the WebView2 plumbing that feeds it, and is the only caller
+/// outside the tests.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+mod chords;
+#[cfg(target_os = "windows")]
+mod chords_win;
 
 /// I tre backend del pane browser nativo. `browser_eval` e la parte che NON
 /// dipende dal motore (attesa delle promise, forma del risultato) e si compila
@@ -4961,6 +4971,15 @@ fn browser_open_inner(
             tauri::LogicalSize::new(width.max(1.0), height.max(1.0)),
         )
         .map_err(|e| e.to_string())?;
+    // Windows: the app's own chords (Ctrl+W, Ctrl+1-9, Ctrl+Shift+Tab, Esc,
+    // Ctrl+R) would end in this pane and stop there. The accelerator hook gives
+    // them back to the renderer of the window that hosts the pane. `window`, not
+    // `host_label`: the label may have fallen back to "main" above, and the
+    // forward has to land where the pane actually lives.
+    #[cfg(target_os = "windows")]
+    if let Some(wv) = app.get_webview(&label) {
+        chords_win::install(&app, &wv, window.label());
+    }
     // Structural FPS fix: make the pane's frame changes instant (no implicit CA
     // animation to stack during a divider/sidebar/window-resize move).
     #[cfg(target_os = "macos")]

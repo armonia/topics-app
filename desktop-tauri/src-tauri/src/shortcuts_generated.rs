@@ -2,10 +2,14 @@
 // Run `bun run gen:shortcuts` after changing the keyboard-shortcut registry;
 // `shared/shortcuts.test.ts` fails in CI if this file drifts from the registry.
 
-/// Is `chars` (charactersIgnoringModifiers, lowercase) a forwarded ⌘-chord?
-/// The caller has already checked `cmd && !ctrl`. Mirrors the `native` entries
-/// of the shortcut registry; the re-dispatched `key` is `chars` itself.
-#[cfg(target_os = "macos")]
+/// Is `chars` (the character the key prints without Shift, lowercase) a
+/// forwarded app chord? The caller has already checked the app modifier (⌘ on
+/// macOS, Ctrl on Windows). Mirrors the `native` entries of the shortcut
+/// registry; the re-dispatched `key` is `chars` itself.
+///
+/// No `cfg`: the macOS monitor (`lib.rs`) and the Windows decision table
+/// (`chords.rs`, compiled everywhere so `cargo test --lib` can prove it off
+/// Windows) both read this one list.
 pub fn is_forwarded_cmd_chord(shift: bool, chars: &str) -> bool {
     match chars {
         "?" | "/" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "b" | "k" | "n" | "p" | "t" | "w" => true,
