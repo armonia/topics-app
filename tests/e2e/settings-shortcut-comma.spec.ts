@@ -81,10 +81,16 @@ test.describe("Settings shortcut, comma", () => {
 
     const settings = page.getByTestId("settings-panel");
     await page.keyboard.press("Control+,");
-    // Negative assertion with a real wait: the modal mounts in a few frames
-    // when it mounts at all, so a short settle is enough to tell "did not
-    // open" from "has not opened yet".
-    await page.waitForTimeout(1_000);
+
+    // A NEGATIVE assertion needs a happens-after, not a stopwatch. `toHaveCount(0)`
+    // on its own passes instantly and proves nothing: the panel has not opened
+    // YET is indistinguishable from it will not open. So a second keystroke is
+    // sent through the same path and WAITED FOR: once the terminal has echoed
+    // the marker, the Ctrl+, that went before it has certainly been processed,
+    // and only then does the absence of the panel mean anything.
+    const marker = `comma-${Date.now()}`;
+    await terminalPage.typeCommand(`echo ${marker}`);
+    await terminalPage.waitForOutput(marker);
     await expect(settings).toHaveCount(0);
 
     // The macOS convention is untouched: Cmd+, is absolute, terminal or not.
