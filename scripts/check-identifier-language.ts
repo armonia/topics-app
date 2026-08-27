@@ -62,7 +62,20 @@ const BASELINE = join(ROOT, "scripts", "identifier-language-baseline.json");
  */
 const DICTS = process.env.IDENTIFIER_LANGUAGE_DICT
   ? [process.env.IDENTIFIER_LANGUAGE_DICT]
-  : ["/usr/share/dict/words", "/usr/dict/words", "/usr/share/dict/american-english"];
+  : [
+      // THE LIST TRAVELS WITH THE REPO, and that is the whole point. Measured on
+      // 2026-08-27: with the system list, `ubuntu-latest` (wamerican) flagged
+      // 1.144 names that macOS's list knows — `rect` among them — so the same
+      // commit was green on a developer's machine and red in CI. A gate whose
+      // verdict depends on which operating system read it is not a gate: it
+      // measures the box, not the code. This file is macOS's `words` (the
+      // public-domain Webster list, 235.976 entries), and it is now the ONLY
+      // answer on every machine.
+      join(import.meta.dir, "english-words.txt"),
+      "/usr/share/dict/words",
+      "/usr/dict/words",
+      "/usr/share/dict/american-english",
+    ];
 
 const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
 

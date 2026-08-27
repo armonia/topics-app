@@ -8,3 +8,6 @@
 # (numero, nome) prima di applicare. Rigenerare il manifest dopo il merge
 # rinormalizza l'ordine, ma non è necessario perché funzioni.
 server/db/migrations-embedded.ts merge=union
+# The vendored English word list is data, not source: keep it out of diffs and
+# out of language stats. Regenerating it means copying a system word list.
+scripts/english-words.txt linguist-generated=true -diff
