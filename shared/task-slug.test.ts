@@ -25,8 +25,8 @@ describe('task-slug — lo slug decorativo del link di un task', () => {
     expect(slug.length).toBeLessThanOrEqual(48);
     expect(slug.endsWith('-')).toBe(false);
     expect(slug.startsWith('parola-parola')).toBe(true);
-    const unico = taskLinkSlug('a'.repeat(120));
-    expect(unico.length).toBe(48);
+    const uniqueId = taskLinkSlug('a'.repeat(120));
+    expect(uniqueId.length).toBe(48);
   });
 
   test('il segmento fa il giro: costruito con il titolo, letto torna l uuid', () => {
