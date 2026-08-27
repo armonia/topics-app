@@ -40,9 +40,33 @@ const WIN = readFileSync(join(SRC, "browser_win.rs"), "utf8");
 const LINUX = readFileSync(join(SRC, "browser_linux.rs"), "utf8");
 const SHELL = readFileSync(join(SRC, "lib.rs"), "utf8");
 
-/** The operations a module offers to the shell: its top-level `pub fn`. */
+/**
+ * The operations a module offers to the shell: its top-level public functions.
+ *
+ * Every form Rust allows for one counts, and that is not pedantry. This file
+ * reads a set difference, so a declaration form it does not recognise is not a
+ * miss, it is a SILENT PASS: an operation added to one engine as `pub async fn`
+ * would be invisible on both sides and the asymmetry would read as parity. The
+ * shape the bench cannot see is the shape the next gap will have.
+ */
+const EXPORTED_OP = /^pub(?:\((?:crate|super)\))? (?:async )?(?:unsafe )?fn ([a-z_0-9]+)/gm;
+
 function exportedOps(src: string): string[] {
-  return [...src.matchAll(/^pub fn ([a-z_0-9]+)/gm)].map((m) => m[1]).sort();
+  return [...src.matchAll(EXPORTED_OP)].map((m) => m[1]).sort();
+}
+
+/**
+ * Whether the shell routes `op` to that engine's module. Anchored on a word
+ * boundary: plain substring matching lets `browser_win::reload_hard` answer for
+ * `reload`, which is a longer name vouching for a shorter one that may not be
+ * dispatched at all.
+ */
+function dispatchesIn(src: string, module: string, op: string): boolean {
+  return new RegExp(`${module}::${op}\\b`).test(src);
+}
+
+function shellDispatches(module: string, op: string): boolean {
+  return dispatchesIn(SHELL, module, op);
 }
 
 /**
@@ -98,19 +122,44 @@ describe("i due motori non-Apple portano lo stesso insieme di operazioni", () =>
 
   test("ogni operazione condivisa e' smistata dal guscio per ENTRAMBI i motori", () => {
     const shared = winOps.filter((op) => linuxOps.includes(op));
-    const oneSided = shared.filter((op) => {
-      const onWin = SHELL.includes(`browser_win::${op}`);
-      const onLinux = SHELL.includes(`browser_linux::${op}`);
-      return onWin !== onLinux;
-    });
+    const oneSided = shared.filter(
+      (op) => shellDispatches("browser_win", op) !== shellDispatches("browser_linux", op),
+    );
     expect(oneSided).toEqual([]);
   });
 
   test("nessuna operazione esportata resta senza chiamante", () => {
     // A module op the shell never calls is a capability that quietly left that
     // engine: it compiles, it is covered by nothing, and it looks like parity.
-    const orphanWin = winOps.filter((op) => !SHELL.includes(`browser_win::${op}`));
-    const orphanLinux = linuxOps.filter((op) => !SHELL.includes(`browser_linux::${op}`));
+    const orphanWin = winOps.filter((op) => !shellDispatches("browser_win", op));
+    const orphanLinux = linuxOps.filter((op) => !shellDispatches("browser_linux", op));
     expect({ orphanWin, orphanLinux }).toEqual({ orphanWin: [], orphanLinux: [] });
+  });
+});
+
+describe("il banco vede le forme che dichiara di leggere", () => {
+  // A bench built on set differences fails OPEN: whatever it cannot read is
+  // absent from both sides and therefore agrees. These cases are the reading
+  // itself under test, on synthetic source, so the day an engine grows an
+  // `async` operation the parity check is the thing that notices.
+  test("un'operazione pubblica conta in ogni forma che Rust ammette", () => {
+    const src = [
+      "pub fn plain_op(wv: &Webview) {}",
+      "pub async fn async_op(wv: &Webview) {}",
+      "pub(crate) fn crate_op(wv: &Webview) {}",
+      "pub unsafe fn unsafe_op(wv: &Webview) {}",
+    ].join("\n");
+    expect(exportedOps(src)).toEqual(["async_op", "crate_op", "plain_op", "unsafe_op"]);
+  });
+
+  test("cio' che non e' un'operazione del modulo resta fuori", () => {
+    const src = ["fn private_op() {}", "    pub fn nested_op() {}", "// pub fn commented_op() {}"].join("\n");
+    expect(exportedOps(src)).toEqual([]);
+  });
+
+  test("un nome piu' lungo non risponde per uno piu' corto", () => {
+    const shell = "browser_win::reload_hard(wv)?;";
+    expect(dispatchesIn(shell, "browser_win", "reload_hard")).toBe(true);
+    expect(dispatchesIn(shell, "browser_win", "reload")).toBe(false);
   });
 });
