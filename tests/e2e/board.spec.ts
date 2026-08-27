@@ -65,7 +65,24 @@ async function openTestProject(page: Page) {
   // proved nothing — then openProjectBoard failed further on with "no + menu
   // with a Board (kanban) entry found", 10 s away from the point where the
   // problem was already visible.
-  await expect(page.getByTestId("project-window")).toBeVisible({ timeout: 10000 });
+  // AND ANCHORED ON THIS FILE'S PROJECT, not on "a" project window.
+  //
+  // `getByTestId("project-window")` alone is strict-mode: when another spec file
+  // runs in parallel and has opened ITS project, the locator finds two and the
+  // assertion dies with "resolved to 2 elements", naming two paths that have
+  // nothing to do with each other. Measured 2026-08-26 running board.spec
+  // alongside board-subtask-work-chip: `/tmp/e2e-subwork-…` and
+  // `/tmp/e2e-board-…` both present. On its own the file always passes — which
+  // is why the red showed only in the nightly, the one that runs the whole
+  // suite while the PR tier skips this file.
+  //
+  // `data-project-path` is already on the element: just ask it WHICH.
+  await expect(finestraDelProgetto(page)).toBeVisible({ timeout: 10000 });
+}
+
+/** This file's project window, not any project window. */
+function finestraDelProgetto(page: Page) {
+  return page.locator('[data-testid="project-window"][data-project-path*="e2e-board-"]');
 }
 
 /** Open the project board pane via the project window's "+" menu. */
@@ -498,7 +515,7 @@ test.describe("Kanban board", () => {
     const altro = await perProgetto(ALTRO_ID);
     expect(altro, "il secondo progetto serve a rendere i due numeri diversi").toBeGreaterThan(0);
 
-    const cue = page.getByTestId("project-window").getByTestId("tab-board-count-in_progress");
+    const cue = finestraDelProgetto(page).getByTestId("tab-board-count-in_progress");
     await expect(cue).toBeVisible({ timeout: 15000 });
     // `mio`, non `mio + altro`: con un task in corso su ciascun progetto i due
     // numeri sono diversi, quindi questa uguaglianza è anche il rosso che

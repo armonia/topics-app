@@ -118,8 +118,23 @@ jobs:
       - name: Build client
         run: bun run build:client
 
-      - name: Install Playwright browsers (Chromium)
-        run: npx playwright install --with-deps chromium
+      # CHROMIUM **E WEBKIT**, e la seconda parola è il fix.
+      #
+      # `playwright.config.ts` ha un progetto `webkit` che esegue
+      # `drag-preview.spec.ts`, e lo fa apposta: il difetto che quella spec
+      # protegge (`setDragImage` che torna vuota su un nodo fuori dal viewport)
+      # su Chromium NON esiste, quindi la sola versione Chromium resterebbe
+      # verde mentendo. Ma la nightly installava solo Chromium, così quei 5 test
+      # morivano con «Executable doesn't exist at …/webkit-2272/pw_run.sh» —
+      # un rosso di configurazione che accusa il prodotto.
+      #
+      # Misurato sul run 32928801507: 5 dei 13 falliti erano ESATTAMENTE questi,
+      # tutti `[webkit] › drag-preview`, tutti con lo stesso messaggio. È già
+      # successo in `ci.yml` (run 32430381446, 4 shard su 4 rossi) ed è stato
+      # riparato lì soltanto: un workflow che esegue un progetto senza
+      # installarne il motore è rotto in partenza, e il conto lo paga la spec.
+      - name: Install Playwright browsers (Chromium + WebKit)
+        run: npx playwright install --with-deps chromium webkit
 
       - name: Resolve Chromium path (Linux)
         id: chromium
