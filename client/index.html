@@ -47,8 +47,10 @@
          lockstep con --chrome-bg in index.css e con boot.js. */
       html, body, #root { background-color: #eaecf0; color: #1a1a1a; }
       html.dark, html.dark body, html.dark #root { background-color: #080a0e; color: #e6edf3; }
-      /* Electron+macOS: stay transparent pre-paint so native vibrancy isn't masked */
-      html.electron-mac, html.electron-mac body, html.electron-mac #root { background-color: transparent; }
+      /* Native frosted backdrop (macOS vibrancy / Windows acrylic): stay
+         transparent pre-paint so the native backdrop isn't masked. `native-frost`
+         is added by /boot.js above, before this style can paint. */
+      html.native-frost, html.native-frost body, html.native-frost #root { background-color: transparent; }
       /* Hide sidebar instantly when pre-collapsed to avoid flash */
       html.sidebar-pre-collapsed [role="navigation"][aria-label="Topics sidebar"] { width: 0 !important; overflow: hidden; }
     </style>

@@ -40,7 +40,11 @@ function getEffectiveTheme(mode: ThemeMode): 'light' | 'dark' {
  * barra di sistema non esiste.
  */
 function syncThemeColorMeta(): void {
-  if (document.documentElement.classList.contains('electron-mac')) return;
+  // `native-frost`, not a per-OS class: the guard is about the TOKEN, not the
+  // platform. Under any native-backdrop shell `--chrome-bg` carries an alpha,
+  // and `hsl(... / .55)` is not a valid theme-color. There is no system band to
+  // tint there either.
+  if (document.documentElement.classList.contains('native-frost')) return;
   const meta = document.querySelector('meta[name="theme-color"]');
   if (!meta) return;
   const value = getComputedStyle(document.documentElement).getPropertyValue('--chrome-bg').trim();

@@ -56,26 +56,40 @@
     document.addEventListener('DOMContentLoaded', function () { scriviThemeColor(); });
   }
 
-  // Desktop on macOS: tag <html> so the app can let native window vibrancy show
-  // through the chrome. Set before first paint so the opaque base never masks the
-  // blur. Driven by per-region NSVisualEffectViews on the Tauri shell
-  // (vibrancy_set_regions, from useFloatingVibrancy). `.electron-mac` is the
-  // shell-neutral base-transparency hook (legacy name kept — referenced in CSS);
-  // `.tauri-mac` is the Tauri-mac gate.
+  // Desktop shell: tag <html> so the page stops painting opaque over the NATIVE
+  // frosted backdrop behind the webview. Set before first paint, or the opaque
+  // base masks the blur for a frame.
+  //
+  // `.native-frost` is the shell-neutral hook and carries all the translucency
+  // (see index.css); the per-OS classes gate only what is OS-specific:
+  //   macOS   `.electron-mac` (legacy name, referenced in CSS) + `.tauri-mac`,
+  //           backed by per-region NSVisualEffectViews (vibrancy_set_regions,
+  //           driven from useFloatingVibrancy) so the gaps between cards are
+  //           truly transparent.
+  //   Windows `.windows-acrylic`, backed by ONE whole-window DWM Acrylic
+  //           backdrop. DWM has no per-region equivalent, so the gaps are
+  //           frosted rather than see-through, and the per-region IPC is never
+  //           called there.
   try {
     // navigator.platform is deprecated and can be empty in a WKWebView — OR it
     // with the userAgent (always contains "Mac OS X").
     var __isMac = /Mac/i.test(navigator.platform || '') || /Mac OS X/i.test(navigator.userAgent || '');
+    // Windows: the userAgent carries "Windows NT" on WebView2 (and everywhere
+    // else). Same OR-with-platform defence as the mac branch.
+    var __isWin = /Win/i.test(navigator.platform || '') || /Windows NT/i.test(navigator.userAgent || '');
     // __TAURI_INTERNALS__ is injected at document-start but not guaranteed before
     // this synchronous script — ALSO key on the custom origin (tauri://localhost),
     // available synchronously. Either signal is enough.
     var __isTauri = !!(window.__TAURI_INTERNALS__ || window.__TAURI__)
       || location.protocol === 'tauri:'
       || /(^|\.)tauri\.localhost$/i.test(location.hostname || '');
-    var __isTauriMac = __isTauri && __isMac;
-    if (__isTauriMac) {
+    if (__isTauri && __isMac) {
       document.documentElement.classList.add('electron-mac');
       document.documentElement.classList.add('tauri-mac');
+      document.documentElement.classList.add('native-frost');
+    } else if (__isTauri && __isWin) {
+      document.documentElement.classList.add('windows-acrylic');
+      document.documentElement.classList.add('native-frost');
     }
   } catch (e) {}
 

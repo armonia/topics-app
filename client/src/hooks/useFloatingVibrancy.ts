@@ -23,6 +23,13 @@ import { isWindowAwake } from '../state/windowAwake';
  *
  * Fully inert off macOS / on web (the resolver returns null → the effect bails),
  * where the window keeps its CSS fallback.
+ *
+ * WINDOWS IS A DELIBERATE NON-CLIENT of this hook. The acrylic build still gets
+ * the frost, but from ONE whole-window DWM backdrop, so there are no regions to
+ * push and the IPC above is never called there. The hook's only job on Windows
+ * is the class safety net in `assertFrostClasses`. Consequence, and it is the
+ * contract rather than a defect: Windows gets frosted chrome and frosted GAPS
+ * between the cards, never gaps you can see the live desktop through.
  */
 const FLOAT_RADIUS = 10; // keep in sync with --float-radius in index.css
 
@@ -83,22 +90,48 @@ function predictSidebarEnd(start: Rect[], sbStartW: number, sbTargetW: number): 
     : { ...r, x: Math.round(sbTargetW + (r.x - sbStartW) * s), w: Math.round(r.w * s) });
 }
 
-/** Resolve the host's per-region vibrancy driver, or null where there's none
- *  (web, non-mac). Under Tauri we detect macOS DIRECTLY (isTauri + userAgent)
- *  rather than trusting the `.tauri-mac` html class — that class is set by the
- *  pre-paint inline script, whose Tauri detection can miss (internals not yet
- *  injected at <head> time), and a missed class silently kills the whole frost.
- *  Detecting here makes the hook self-sufficient and re-asserts the transparency
- *  classes the CSS needs so the native frost behind the (clear) webview shows. */
+const isMacHost = (): boolean => typeof navigator !== 'undefined'
+  && (/Mac/i.test(navigator.platform || '') || /Mac OS X/i.test(navigator.userAgent || ''));
+/** Windows: WebView2 always carries "Windows NT" in the userAgent. Same
+ *  OR-with-platform defence as the mac probe (platform is deprecated and can
+ *  come back empty). */
+const isWindowsHost = (): boolean => typeof navigator !== 'undefined'
+  && (/Win/i.test(navigator.platform || '') || /Windows NT/i.test(navigator.userAgent || ''));
+
+/** Re-assert the html classes the frost CSS needs, on BOTH desktop platforms.
+ *
+ *  This is a safety net, not the primary path: `client/public/boot.js` sets
+ *  them pre-paint, but its Tauri detection can miss (the internals are not
+ *  guaranteed to be injected at <head> time), and a missed class does not fail
+ *  loudly. It silently leaves the page painting an OPAQUE background over a
+ *  native backdrop that is working perfectly, which reads as "the acrylic /
+ *  vibrancy is broken". Adding a class that is already there costs nothing, so
+ *  the net runs unconditionally.
+ *
+ *  `native-frost` is the shell-neutral hook carrying every translucency rule;
+ *  the per-OS class next to it gates only what is OS-specific (see index.css). */
+function assertFrostClasses(): void {
+  if (!isTauri || typeof document === 'undefined') return;
+  if (isMacHost()) document.documentElement.classList.add('electron-mac', 'tauri-mac', 'native-frost');
+  else if (isWindowsHost()) document.documentElement.classList.add('windows-acrylic', 'native-frost');
+}
+
+/** Resolve the host's PER-REGION vibrancy driver, or null where there is none.
+ *
+ *  Null off macOS, and Windows is a deliberate null rather than an omission:
+ *  DWM backdrops are whole-window and have no per-region equivalent, so
+ *  `vibrancy_set_regions` / `vibrancy_animate_regions` must never be called
+ *  there. Windows still gets the classes above, so it gets frosted chrome and
+ *  frosted gaps between the cards. What it cannot get is TRANSPARENT gaps
+ *  showing the live desktop: that is the macOS-only half of this feature.
+ *
+ *  macOS is detected DIRECTLY (isTauri + userAgent) rather than by reading the
+ *  `.tauri-mac` class back, for the same reason the safety net exists: the
+ *  class may be missing, and driving native views off a missing class would
+ *  make the hook inert exactly when it is needed. */
 function resolveVibrancy(): VibrancyApi | null {
-  const isMac = typeof navigator !== 'undefined'
-    && (/Mac/i.test(navigator.platform || '') || /Mac OS X/i.test(navigator.userAgent || ''));
-  if (isTauri && isMac) {
-    if (typeof document !== 'undefined') {
-      // Idempotent safety net: the page bg is opaque without `.electron-mac`, which
-      // would hide the frost even when we DO place the NSVisualEffectViews.
-      document.documentElement.classList.add('electron-mac', 'tauri-mac');
-    }
+  assertFrostClasses();
+  if (isTauri && isMacHost()) {
     return {
       setRegions: (rects) => {
         void tauriInvoke('vibrancy_set_regions', {

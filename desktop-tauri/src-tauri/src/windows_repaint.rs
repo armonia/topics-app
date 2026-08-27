@@ -74,16 +74,29 @@ fn trace(app: &tauri::AppHandle, line: &str) {
     }
 }
 
-/// Make the main webview OPAQUE, and this one stays although it did not fix the
-/// repaint either.
+/// Make the main webview background TRANSPARENT, so the DWM backdrop underneath
+/// it can be seen.
 ///
-/// `transparent: true` sits in the shared window config for one reason: the
-/// per-region NSVisualEffectViews on macOS need to see through the webview so the
-/// material underneath shows. Windows has no vibrancy at all, so the window was
-/// paying for a feature it does not have — and a transparent webview that has
-/// lost its composition shows the bare window instead of its own page
-/// background. Being opaque is simply the right value on this platform.
-fn make_opaque(app: &tauri::AppHandle) {
+/// This function used to do the opposite. It set A:255 on the argument that
+/// Windows had no vibrancy, so a see-through webview was paying for a feature
+/// the platform did not have. That is no longer true: `windows_acrylic` now asks
+/// DWM for an Acrylic backdrop behind the whole window, and an opaque webview
+/// background covers it completely. No backdrop can ever show through A:255.
+///
+/// Nothing that worked is lost by the change. Making the webview opaque was one
+/// of the nine remedies tried against the repaint bug (2.2.189 in the table at
+/// the top of this file) and it is among the ones that did NOT cure it: 3 of 79
+/// rows, the same as every other attempt. So its opacity was buying nothing, and
+/// it is what the backdrop costs.
+///
+/// What this call actually changed is the REMOVAL, not the A:0. wry already sets
+/// the controller background to (0,0,0,0) at creation for any window built
+/// `transparent: true`, which ours is; the old A:255 here ran afterwards and
+/// overrode it. Setting A:0 now re-states what wry had already decided, so the
+/// line is a belt-and-braces assertion of intent rather than the thing that
+/// makes the backdrop visible. It is worth keeping only while the window is
+/// transparent: flip that config and this would be forcing the wrong value.
+fn make_transparent(app: &tauri::AppHandle) {
     use tauri::Manager;
     let Some(wv) = app.get_webview("main") else { return };
     let _ = wv.with_webview(|platform| unsafe {
@@ -92,12 +105,13 @@ fn make_opaque(app: &tauri::AppHandle) {
         };
         let c = platform.controller();
         if let Ok(c2) = windows::core::Interface::cast::<ICoreWebView2Controller2>(&c) {
-            // The app's own light background, so nothing flashes white.
+            // A:0 is the whole point. The RGB is ignored at zero alpha, so it is
+            // left at zero too rather than carrying a colour that means nothing.
             let _ = c2.SetDefaultBackgroundColor(COREWEBVIEW2_COLOR {
-                A: 255,
-                R: 236,
-                G: 237,
-                B: 238,
+                A: 0,
+                R: 0,
+                G: 0,
+                B: 0,
             });
         }
     });
@@ -141,6 +155,6 @@ pub(crate) fn wire(app: &tauri::AppHandle) {
         tauri::WindowEvent::Focused(_) => note_window_event(&w, "focused"),
         _ => {}
     });
-    make_opaque(app);
+    make_transparent(app);
     trace(app, "wired");
 }
