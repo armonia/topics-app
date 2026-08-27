@@ -1,5 +1,67 @@
 [
   {
+    "version": "2.2.182",
+    "date": "2026-08-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il cancello dei nomi non aveva mai letto un nome in CI: adesso legge",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La finestra grigia e' curata sull'artefatto vero: 503 -> 200, verificato installando",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello dei nomi giudicava il sistema operativo, non il codice",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Su Windows la finestra tornava dal minimize e la webview smetteva di dipingere",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "WINCTL-01: il requisito che il test provava gia', e il modulo che knip non vedeva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La finta copriva una porta su due, e quale porta contasse lo decideva la macchina",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test passava DA SOLO e falliva nella suite: fingeva l'ospite, non il modulo",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.181",
+    "date": "2026-08-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "I comandi finestra di Windows escono dal bottone Topics, dove escono quelli del Mac",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.180",
     "date": "2026-08-27",
     "sections": {

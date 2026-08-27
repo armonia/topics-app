@@ -2,6 +2,22 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.182 — 2026-08-27
+
+### Sotto il cofano
+- Il cancello dei nomi non aveva mai letto un nome in CI: adesso legge
+- La finestra grigia e' curata sull'artefatto vero: 503 -> 200, verificato installando
+- Il cancello dei nomi giudicava il sistema operativo, non il codice
+- Su Windows la finestra tornava dal minimize e la webview smetteva di dipingere
+- WINCTL-01: il requisito che il test provava gia', e il modulo che knip non vedeva
+- La finta copriva una porta su due, e quale porta contasse lo decideva la macchina
+- Il test passava DA SOLO e falliva nella suite: fingeva l'ospite, non il modulo
+
+## 2.2.181 — 2026-08-27
+
+### Sotto il cofano
+- I comandi finestra di Windows escono dal bottone Topics, dove escono quelli del Mac
+
 ## 2.2.180 — 2026-08-27
 
 ### Sotto il cofano
