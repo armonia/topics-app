@@ -1,5 +1,76 @@
 [
   {
+    "version": "2.2.178",
+    "date": "2026-08-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "L'ultimo rosso della nightly misurava l'ambiente, non il prodotto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La riga sotto la top bar della kanban era una barra di scorrimento",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il commit di consegna non muore piu' col suo ramo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I comandi slash del composer parlano la lingua dell'app",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il banco dichiarava un gateway che non ascolta, e il provider AI finiva li'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo stub muto teneva appesa ogni chat del banco: ora chiude il turno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La rimisura del cancello di consegna diventa uno script, non una paste",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una CLI che esce presto uccideva il server: EPIPE senza rete",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il token del gateway autentica il banco: toglierlo dava 401 al terminale",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il centro di una card bloccata apre la card, non preme «sblocca»",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test che ho landato non diceva cosa prova",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test cercava una voce di menu che ora e' tradotta, non un turno morto",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.177",
     "date": "2026-08-27",
     "sections": {

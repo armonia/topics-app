@@ -1116,6 +1116,34 @@ in un posto solo.
 - **GIVEN** una cella che ospita testo denso
 - **THEN** il fondo SHALL restare opaco
 
+### Requirement: LAYOUT-26 — La colonna dell'accordion è UNA, e la riservano anche le righe che non hanno un accordion
+
+Nella sidebar lo spazio del chevron SHALL essere riservato da OGNI riga, anche da
+quelle che non hanno niente da aprire: una riga senza accordion che non lo riserva
+fa cominciare il proprio contenuto 20px (il riquadro del chevron più il passo
+della riga) prima di quello della riga sorella che ce l'ha, e nella stessa colonna
+convivono due incolonnamenti.
+
+Vale per la riga di chat senza figli, per il terminale, per il browser, per le
+righe di utilità e per la riga della bacheca, e per la tessera fissata in forma di
+RIGA. In forma di GRIGLIA la tessera NON SHALL riservarlo: lì l'identità sta al
+centro e un riquadro vuoto in testa la sposterebbe.
+
+Il riquadro riservato SHALL essere lo STESSO del chevron, non una seconda misura.
+
+La verifica NON SHALL essere a occhio: le `left` delle etichette della colonna
+SHALL avere UN solo valore per ciascun livello di profondità.
+
+Il passo di rientro per profondità resta fuori: lì due valori diversi sono voluti.
+
+#### Scenario: due righe sorelle, una con accordion e una senza
+- **GIVEN** una chat con figli e una chat senza figli allo stesso livello
+- **THEN** le due etichette SHALL cominciare allo STESSO pixel
+
+#### Scenario: la tessera fissata in griglia
+- **GIVEN** una tessera che non si apre, in forma di griglia
+- **THEN** NON SHALL riservare il riquadro dell'accordion
+
 ### Requirement: POPOVER-01 — Uno alla volta, ma un FIGLIO non caccia il genitore
 
 L'apertura di un popover ESCLUSIVO SHALL chiudere i FRATELLI e NON SHALL chiudere

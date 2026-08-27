@@ -2,6 +2,22 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.178 — 2026-08-27
+
+### Sotto il cofano
+- L'ultimo rosso della nightly misurava l'ambiente, non il prodotto
+- La riga sotto la top bar della kanban era una barra di scorrimento
+- Il commit di consegna non muore piu' col suo ramo
+- I comandi slash del composer parlano la lingua dell'app
+- Il banco dichiarava un gateway che non ascolta, e il provider AI finiva li'
+- Lo stub muto teneva appesa ogni chat del banco: ora chiude il turno
+- La rimisura del cancello di consegna diventa uno script, non una paste
+- Una CLI che esce presto uccideva il server: EPIPE senza rete
+- Il token del gateway autentica il banco: toglierlo dava 401 al terminale
+- Il centro di una card bloccata apre la card, non preme «sblocca»
+- Il test che ho landato non diceva cosa prova
+- Il test cercava una voce di menu che ora e' tradotta, non un turno morto
+
 ## 2.2.177 — 2026-08-27
 
 ### Sotto il cofano

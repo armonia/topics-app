@@ -208,17 +208,35 @@ test.describe("presence dell'organizzazione, a schermo", () => {
    * THE BAND IS ONE BAND, MEASURED.
    *
    * What tells the three subjects apart is the first glyph of each, so the
-   * three glyphs have to start on the same vertical line. They did not: on the
+   * three glyphs have to agree on one box and one line. They did not: on the
    * delivery screenshot of 2026-08-21 the three rows measured 16px, 8px and
    * 11px tall with the left edge jumping between x=6 and x=10, and that shot
    * was attached to the card as its evidence.
+   *
+   * WHAT CHANGED SINCE, AND WHY THIS TEST NOW ASSERTS THE OPPOSITE OF ONE LINE.
+   * Until 8f58d75 the band was a WRAPPING inline flow, so the number of lines
+   * was decided by the data: one line on a wide column with one group, three on
+   * a narrow one with four. This test therefore checked the only edge that
+   * survives a wrap, the left one, and it had to refuse to run below two lines
+   * because with a single line there is no second start to compare. That
+   * "collapsed onto one line" guard was correct then and is exactly what the
+   * redesign reversed on purpose: the three subjects are now three mini-cards
+   * on ONE line at every sidebar width (the name truncates, the groups past the
+   * second collapse into a `+n` chip). A place whose shape moves with the data
+   * is a place you re-read instead of glancing at.
+   *
+   * So the left-edge promise becomes a TOP promise: one line, one top. The box
+   * assertion is untouched, because "same slot for every subject" is what made
+   * the left edges agree by construction in the first place. The widths at
+   * which the line has to hold, the contrast over the new chip veil and the
+   * pointer targets are measured in `identity-chips.spec.ts`.
    *
    * It is measured on a populated app on purpose. That screenshot was taken on
    * an EMPTY one — welcome screen, sidebar blank from y=122 to y=686 — so the
    * band hung off nothing and the presence, which was the whole point, was not
    * in the picture at all.
    */
-  test("PRESENCE-08: i tre glifi della fascia partono dalla stessa riga verticale", async ({ page, request }) => {
+  test("PRESENCE-08: i tre glifi della fascia stanno sulla stessa riga, nella stessa scatola", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
     // SOMETHING ABOVE THE BAND. It is not needed for the measurement - the
     // glyphs sit at the bottom and do not move - but it is needed for the
@@ -280,22 +298,24 @@ test.describe("presence dell'organizzazione, a schermo", () => {
       expect(s.h, `box height ${s.h}`).toBe(boxes[0]!.h);
     }
 
-    // ONE LEFT EDGE, for whoever OPENS a line.
+    // ONE LINE, SO ONE TOP.
     //
-    // The band is a wrapping inline flow, not three stacked rows: with a wide
-    // enough sidebar the groups share the line with "me" and only start their
-    // own when they no longer fit. So the edge is a promise about who begins a
-    // line, and that is what is checked here — "me" and "friends" measured on
-    // different lines (y=728 and y=751), while the groups sit at x=203 on the
-    // first line because they are its continuation, not its start.
+    // This used to read "one left edge, for whoever OPENS a line", and it
+    // counted the lines first because a wrapping band could have two or three
+    // of them. There is one now, by construction, so the thing worth pinning is
+    // that there STILL is one: a second `y` in this set means the band went
+    // back to wrapping, which is the regression the redesign was for.
     //
-    // It was broken for the subject you read first: the "me" chip carried a
-    // `-mx-1` that no other did, so it began at x=6 against x=10.
-    const perRow = new Map<number, number[]>();
-    for (const s of boxes) perRow.set(s.y, [...(perRow.get(s.y) ?? []), s.x]);
-    const starts = [...perRow.values()].map((xs) => Math.min(...xs));
-    expect(starts.length, "the band collapsed onto one line: nothing to compare").toBeGreaterThan(1);
-    expect(Math.max(...starts) - Math.min(...starts)).toBeLessThanOrEqual(1);
+    // The left edge is not lost, it moved into the box assertion above: three
+    // marks of the same size, opened by chips with the same padding, agree on
+    // one edge without a margin tuned by hand. That is what the `-mx-1` on the
+    // "me" chip used to break, starting the subject you read first at x=6
+    // against everyone else's x=10.
+    const tops = boxes.map((s) => s.y);
+    expect(
+      Math.max(...tops) - Math.min(...tops),
+      `the band wrapped: glyph tops at ${tops.join(", ")}`,
+    ).toBeLessThanOrEqual(1);
 
     const box = await fascia.boundingBox();
     if (box) {

@@ -67,6 +67,6 @@ describe('buildTerminalSessionBody', () => {
   });
 
   it('labels stay in sync with the agent union', () => {
-    expect(Object.keys(TERMINAL_AGENT_LABELS).sort()).toEqual(['claude-code', 'codex', 'opencode', 'shell']);
+    expect(Object.keys(TERMINAL_AGENT_LABELS).sort()).toEqual(['claude-code', 'codex', 'kimi-code', 'opencode', 'shell']);
   });
 });

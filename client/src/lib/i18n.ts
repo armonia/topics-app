@@ -1773,6 +1773,14 @@ const IT: Dict = {
   'statusBar.me.devicesCount': '{n} connessi di {tot}',
   'statusBar.me.workRow': 'Adesso',
   'statusBar.orgs.manageOne': 'Gestisci questa organizzazione',
+  'statusBar.orgs.manageAll': 'Gestisci le organizzazioni',
+  // THE SUBJECT AT ZERO. The chip stays even with no group at all, and this is
+  // the only place that explains what an organisation is to somebody in none.
+  'statusBar.orgs.noneTitle': 'Nessuna organizzazione',
+  'statusBar.orgs.noneHint': 'Le organizzazioni raccolgono le persone con cui lavori. Entri in una quando qualcuno ti invita.',
+  // The chip for the groups that do not fit the line: it says how many they
+  // are, it does not hide them.
+  'statusBar.orgs.more': 'Altre {n} organizzazioni',
   'statusBar.orgs.alone': 'Sei l’unico membro',
   'statusBar.friends.title': 'Persone',
   'statusBar.friends.none': 'Non conosci ancora nessuno',
