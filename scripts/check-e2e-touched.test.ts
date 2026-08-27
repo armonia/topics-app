@@ -1,4 +1,6 @@
 /**
+ * @covers GATE-11
+ *
  * The gate that picks the e2e specs of a change has its own gate.
  *
  * Two failure modes, and they are opposite: pick TOO MANY (the gate becomes the

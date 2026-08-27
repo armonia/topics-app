@@ -1,5 +1,5 @@
 /**
- * @covers CCLI-11
+ * @covers CCLI-12
  *
  * A CLI that exits BEFORE reading the prompt must not take the server with it.
  *

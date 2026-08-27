@@ -422,3 +422,31 @@ finisce in tempo NON SHALL essere toccato, e il tetto SHALL potersi spegnere.
 #### Scenario: un comando appeso
 - **GIVEN** un comando che supera il tetto di tempo
 - **THEN** SHALL essere abbattuto, e lo slot SHALL tornare libero
+
+### Requirement: GATE-11 — Il cancello che sceglie le spec e2e di una modifica ha il suo cancello
+
+Far girare la suite e2e intera a ogni cambiamento costa troppo; farne girare
+troppo poche significa essere verdi mentre la prova che misurava quel
+cambiamento non e' mai partita. La selezione automatica delle spec SHALL quindi
+essere provata come si prova il prodotto, perche' sbaglia in DUE modi opposti e
+tutti e due si sono verificati mentre veniva scritta.
+
+Selezionare TROPPO SHALL essere un guasto: la prima versione legava 5 file
+modificati a 75 spec agganciandosi a frammenti di parola come «famil», e un
+cancello che riaccende l'intera suite viene spento dal primo che ha fretta.
+
+Selezionare le spec SBAGLIATE SHALL essere un guasto: la seconda versione
+metteva otto spec di altre funzioni davanti a quella che era davvero diventata
+rossa.
+
+Il legame SHALL passare dagli identificativi dei test dichiarati nel codice,
+letti in tutte le forme in cui si scrivono, e l'ordine SHALL mettere davanti le
+spec piu' vicine al cambiamento.
+
+#### Scenario: gli identificativi si leggono ovunque siano dichiarati
+- **GIVEN** un file che dichiara identificativi come attributo, come espressione e come stringa interpolata
+- **THEN** la lettura SHALL trovarli tutti
+
+#### Scenario: la spec che misura il cambiamento viene per prima
+- **GIVEN** una modifica che tocca una funzione con la sua spec dedicata
+- **THEN** quella spec SHALL precedere le spec di altre funzioni

@@ -864,3 +864,28 @@ Uno strumento SCONOSCIUTO SHALL tornare un errore di protocollo, non un silenzio
 #### Scenario: uno strumento sconosciuto
 - **GIVEN** una chiamata a un nome inesistente
 - **THEN** SHALL tornare un errore di protocollo
+
+### Requirement: MCPSRV-02 — I server MCP configurati valgono per OGNI runtime, e un'assenza si spiega
+
+Gli strumenti esterni configurati una volta SHALL essere montati da qualunque
+runtime chieda il proprio registro, non solo da quello che li aveva per primo:
+finche' il montaggio e' vissuto sul solo ramo della riga di comando, i server
+venivano risolti e poi letti da nessuno — il registro del runtime nativo non
+conteneva NIENTE col prefisso degli strumenti esterni.
+
+Quando un server configurato NON c'e', il sistema SHALL dire perche'. Uno
+strumento che manca senza spiegazione e' indistinguibile da un difetto, e la
+ragione non SHALL restare su una riga di diagnostica che nessuno legge.
+
+La prova di questo requisito SHALL parlare il protocollo VERO su entrambi i
+trasporti supportati, invece di sostituire il server con un finto: cio' che
+deve reggere e' la stretta di mano e la chiamata.
+
+#### Scenario: il runtime nativo monta i server configurati
+- **GIVEN** una configurazione con un server MCP funzionante
+- **WHEN** il runtime nativo chiede il proprio registro di strumenti
+- **THEN** il registro SHALL contenere gli strumenti di quel server
+
+#### Scenario: un server assente porta con se' la sua ragione
+- **GIVEN** un server configurato che non viene montato
+- **THEN** il motivo SHALL essere esposto insieme all'assenza
