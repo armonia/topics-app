@@ -1070,6 +1070,18 @@ describe("board settings", () => {
     expect(s.getBoardSettings(PID).autoDispatch).toBe(true);
   });
 
+  // `dispatchIdleMin` is the stall detector's silence threshold (default 5,
+  // migration `dispatch-idle-min`): it never cuts a turn by itself, but it is
+  // still a per-board setting with the same read/write/clamp contract as
+  // `dispatchTimeoutMin` — see shared/board.ts.
+  test("dispatchIdleMin defaults to 5, persists, and clamps 1..60", () => {
+    expect(s.getBoardSettings(PID).dispatchIdleMin).toBe(5);
+    const bs = s.updateBoardSettings(PID, { dispatchIdleMin: 999 });
+    expect(bs.dispatchIdleMin).toBe(60); // clamped 1..60
+    expect(s.getBoardSettings(PID).dispatchIdleMin).toBe(60);
+    expect(s.updateBoardSettings(PID, { dispatchIdleMin: 0 }).dispatchIdleMin).toBe(1);
+  });
+
   // Il clamp del tetto viveva su un campo per board che non limitava niente:
   // qui misura la leva che comanda davvero (riga '*'), e il suo intervallo è
   // 1..20, non l'1..10 di quel campo morto.

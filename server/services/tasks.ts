@@ -5589,6 +5589,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         dispatchUseWorktree: r ? !!r.dispatch_use_worktree : true,
         dispatchAutoMerge: r ? !!r.dispatch_auto_merge : false,
         dispatchTimeoutMin: r?.dispatch_timeout_min ?? 20,
+        // Default 5: see `BoardSettings.dispatchIdleMin` in shared/board.ts —
+        // this is the passive stall detector's silence threshold, not a kill timer.
+        dispatchIdleMin: r?.dispatch_idle_min ?? 5,
         dispatchMcp: r?.dispatch_mcp ?? "bridge-only",
         dispatchModel: r?.dispatch_model ?? "auto",
         language: r?.language ?? "inherit",
@@ -5645,6 +5648,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.dispatchUseWorktree !== undefined) { sets.push("dispatch_use_worktree = ?"); params.push(patch.dispatchUseWorktree ? 1 : 0); }
       if (patch.dispatchAutoMerge !== undefined) { sets.push("dispatch_auto_merge = ?"); params.push(patch.dispatchAutoMerge ? 1 : 0); }
       if (patch.dispatchTimeoutMin !== undefined) { sets.push("dispatch_timeout_min = ?"); params.push(clampInt(patch.dispatchTimeoutMin, 1, 120)); }
+      if (patch.dispatchIdleMin !== undefined) { sets.push("dispatch_idle_min = ?"); params.push(clampInt(patch.dispatchIdleMin, 1, 60)); }
       if (patch.dispatchMcp !== undefined) { sets.push("dispatch_mcp = ?"); params.push(patch.dispatchMcp); }
       // 'auto' (or empty) collapses to NULL so the classifier keeps picking; any other
       // string pins the board to that model id. No allowlist here — the model set is

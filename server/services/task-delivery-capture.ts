@@ -37,6 +37,13 @@ import type { TaskFile } from "../../shared/task-labels";
 export interface DeliveryRef {
   branch: string;
   commit: string | null;
+  /**
+   * The checkout the delivery was read from. It travels with the snapshot for
+   * one reason: this is where the ref that keeps the commit alive gets planted,
+   * and asking for the path a second time would mean a second answer to the
+   * same question.
+   */
+  repoPath?: string;
   /** L'entita' del lavoro consegnato, quando git ha saputo dirla. */
   filesChanged?: number;
   insertions?: number;
@@ -58,6 +65,12 @@ export interface DeliveryCaptureDeps {
   taskDeliveryRef?: (taskId: string) => Promise<DeliveryRef | null>;
   /** Dove sta il worktree della card, per leggere i file dei suoi commit. */
   taskCheckoutRef?: (taskId: string) => Promise<{ cwd: string; commit: string | null } | null>;
+  /**
+   * Plant the ref that outlives the branch (`services/delivery-ref-keep.ts`).
+   * Optional like everything else here: without it the snapshot is still
+   * written, it just points at an object the next `gc` is free to drop.
+   */
+  keepDeliveryCommit?: (args: { repoPath: string; taskId: string; commit: string }) => Promise<unknown>;
   /** I file dei commit propri, `null` quando non sono contabili. */
   ownCommitFiles: (cwd: string) => Promise<TaskFile[] | null>;
 }
@@ -79,6 +92,17 @@ export function createDeliveryCapture(deps: DeliveryCaptureDeps): DeliveryCaptur
         // `null` ⇒ task in-place senza branch: non c'e' niente contro cui
         // confrontarsi, e inventare uno zero direbbe «non ha prodotto niente».
         if (ref) {
+          // THE REF BEFORE THE COLUMN, and the order is the whole safety of it.
+          // The column is a pointer; the ref is what keeps the thing it points
+          // at. Written the other way round, a crash in between leaves a sha
+          // that the land's `branch -D` plus the next `gc` turn into forty
+          // characters of nothing, which is the state 213 done cards are in.
+          // A failure here is swallowed: a delivery is never refused over a ref.
+          if (ref.commit && ref.repoPath && deps.keepDeliveryCommit) {
+            await deps.keepDeliveryCommit({
+              repoPath: ref.repoPath, taskId, commit: ref.commit,
+            }).catch(() => { /* best-effort, like the rest of this capture */ });
+          }
           deps.svc.recordDelivery({
             taskId,
             branch: ref.branch,

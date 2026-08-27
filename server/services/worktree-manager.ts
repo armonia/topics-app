@@ -485,6 +485,13 @@ export function createWorktreeManager(
           ? opts.deleteBranch
           : wt.mode === "branch";
       if (shouldDeleteBranch && project && wt.branchName) {
+        // THE LINE THAT MADE 213 DELIVERIES UNREACHABLE, and it stays. The land
+        // is a squash, so nothing on `main` descends from this branch: deleting
+        // it leaves the agent's commit reachable from no ref at all, and the
+        // next gc is right to collect it. What was missing was not a reason to
+        // keep the branch (a branch drags a whole worktree behind it) but a ref
+        // of 41 bytes, planted when the delivery is RECORDED:
+        // `services/delivery-ref-keep.ts`, LAND-09.
         try {
           await runGit(project.path, ["branch", "-D", wt.branchName]);
         } catch (err: any) {

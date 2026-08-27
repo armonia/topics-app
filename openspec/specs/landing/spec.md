@@ -371,3 +371,47 @@ come atterrato significa cancellare qualcosa che serviva.
 #### Scenario: lavoro non ancora atterrato
 - **GIVEN** un ramo con lavoro assente da quello principale
 - **THEN** NON SHALL essere dichiarato eliminabile
+
+### Requirement: LAND-09 — Il commit di consegna SHALL restare raggiungibile dopo il land
+
+Il land schiaccia e poi cancella il ramo (`worktree-manager.ts`, `git branch -D`):
+da quel momento il commit dell'agente non è raggiungibile da nessun ref, e la
+prima potatura di git se lo porta via. Misurato il 22/08 su questa board: 213
+`delivery_commit` su 286 puntano a un oggetto che nel repo non esiste più, e
+`git fsck --unreachable` non restituisce niente.
+
+Al momento in cui la consegna viene REGISTRATA, il sistema SHALL piantare un ref
+che tiene vivo l'oggetto — `refs/consegne/<taskId>` sullo sha consegnato — PRIMA
+di scrivere la colonna: la colonna è un puntatore, il ref è ciò che tiene in vita
+la cosa puntata, e nell'ordine inverso un incidente in mezzo lascia quaranta
+caratteri di niente.
+
+Il ref SHALL essere piantato da OGNI porta che registra una consegna (la cattura
+verso review e la passata di backfill), altrimenti resterebbero vive solo le
+consegne fotografate col worktree ancora in piedi, cioè non quelle a rischio.
+
+Un ref piantato non SHALL impedire una consegna: un errore di git si ingoia e la
+card resta registrata comunque.
+
+Il ref SHALL cadere quando la card è `done` da più della finestra di ritenzione
+(default 90 giorni, la stessa di `gc.pruneExpire`; `0` = mai). Tutto ciò che non
+si può datare — card sconosciuta al database, `done` senza data — SHALL essere
+TENUTO: lasciar cadere è irreversibile, tenere costa 41 byte.
+
+#### Scenario: consegna registrata, ramo cancellato, gc passato
+- **GIVEN** una card consegnata e il suo ref di consegna piantato
+- **WHEN** il ramo viene cancellato e git pota gli oggetti irraggiungibili
+- **THEN** `git cat-file -t <delivery_commit>` SHALL rispondere `commit`
+
+#### Scenario: senza il ref, sulla stessa sequenza
+- **GIVEN** una card consegnata senza ref piantato
+- **WHEN** il ramo viene cancellato e git pota gli oggetti irraggiungibili
+- **THEN** il commit di consegna NON SHALL essere più leggibile
+
+#### Scenario: card chiusa da più della finestra
+- **GIVEN** una card `done` da più giorni della finestra di ritenzione
+- **THEN** il suo ref di consegna SHALL essere lasciato cadere
+
+#### Scenario: card che il database non conosce
+- **GIVEN** un ref di consegna il cui task non è in questo database
+- **THEN** il ref NON SHALL essere lasciato cadere

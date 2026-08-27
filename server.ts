@@ -173,11 +173,15 @@ import { staleStreamVerdict } from "./server/lib/stale-stream-verdict";
 // la deriva che `human-hold.ts` è stato scritto per impedire — e che la sua
 // docstring nomina, elencando «lo spazzino degli stream fermi» fra i sei posti.
 import { isHumanHold, humanHoldAgeMs } from "./server/lib/human-hold";
-// Il tetto a orologio dei turni guidati da qui non conta il tempo in cui la
-// palla è dell'umano: con una domanda a schermo si riarma invece di tagliare.
-import { armTurnDeadline } from "./server/lib/turn-deadline";
+// PASSIVE STALL DETECTOR: silence past `dispatchIdleMin` no longer cuts a turn
+// by itself — it asks a cheap judge first, and only a "stuck" verdict recycles
+// it (see server/lib/stall-detector.ts + stall-judge.ts). `dispatchTimeoutMin`
+// is downgraded to a reporting-only comparison below.
+import { armStallDetector } from "./server/lib/stall-detector";
+import { judgeStall } from "./server/lib/stall-judge";
 import { runBootPartialSweep } from "./server/lib/boot-partial-sweep";
 import { backfillDeliveries as backfillDeliveriesPass } from "./server/services/delivery-backfill";
+import { keepDeliveryCommit, pruneDeliveryRefs, DELIVERY_REF_RETENTION_DAYS } from "./server/services/delivery-ref-keep";
 import { runLandingAudit as runLandingAuditPass, auditOneLanding as auditOneLandingPass, type AuditWiring } from "./server/services/landing-audit-pass";
 import { decodeCol, encodeCol } from "./shared/message-blob";
 import { TURN_ERROR_PREFIX } from "./shared/board";
@@ -766,10 +770,39 @@ function rejectedTurn(resp: Response, what: string): TurnEndInfo | null {
   };
 }
 
+// Fallback when a caller doesn't pass `idleMs` (e.g. the boot sweep's
+// mid-turn reattach, which isn't a board task and has no `dispatchIdleMin`
+// setting to read) — matches `BoardSettings.dispatchIdleMin`'s own default.
+const DEFAULT_STALL_IDLE_MS = 5 * 60_000;
+
+/**
+ * The transcript TAIL the stall judge reads: the last few local messages,
+ * newest last, capped so the judge call stays cheap. `null` when there is
+ * nothing to read — the caller treats that as "alive" (never recycle blind).
+ */
+function stallTranscriptTail(sessionKey: string): string | null {
+  try {
+    const msgs = ctx.loadLocalMessages(sessionKey, { withBlocks: false });
+    if (msgs.length === 0) return null;
+    const tail = msgs.slice(-6).map((m) => {
+      const text = typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "");
+      return `${m.role}: ${text.length > 1500 ? text.slice(-1500) : text}`;
+    });
+    return tail.join("\n---\n").slice(-6000) || null;
+  } catch { return null; }
+}
+
+/** One cheap haiku call, in the shape `judgeStall` expects. */
+async function stallJudgeComplete(prompt: string): Promise<string> {
+  const provider = getProvider("claude-code");
+  const res = await provider.complete([{ role: "user", content: prompt }], { model: "claude-haiku-4-5" });
+  return res.content ?? "";
+}
+
 async function runHeadlessTurn(
   sessionKey: string,
   content: string,
-  opts: { timeoutMs: number; contextMode?: "full" | "lean" },
+  opts: { timeoutMs: number; idleMs?: number; contextMode?: "full" | "lean" },
 ): Promise<TurnEndInfo> {
   const url = new URL("http://localhost/api/chat");
   // Butta via un eventuale residuo: una fine depositata e mai ritirata è di un
@@ -793,15 +826,24 @@ async function runHeadlessTurn(
   if (rejected) return rejected;
   // The turn self-drives server-side (consumeGateway) whether or not we read the
   // SSE mirror; we drain it only to learn when the turn ENDS (the reconciliation
-  // signal). A wall-clock backstop aborts a runaway turn.
+  // signal). No wall-clock kill anymore: a PASSIVE stall detector watches for
+  // silence past `idleMs` and asks a cheap judge before ever touching the turn.
   const reader = resp.body.getReader();
-  let timedOut = false;
-  const deadline = armTurnDeadline({
-    ms: opts.timeoutMs,
+  let stalled = false;
+  const t0 = Date.now();
+  const detector = armStallDetector({
+    idleMs: opts.idleMs ?? DEFAULT_STALL_IDLE_MS,
     isWaitingForHuman: () => isHumanHold(sessionKey),
-    onRearm: () => console.log(`[turn] tetto di inattivita' riarmato su ${sessionKey}: una persona è in mezzo (domanda o permesso), il tempo dell'umano non conta`),
-    onExpired: () => {
-      timedOut = true;
+    getTail: () => stallTranscriptTail(sessionKey),
+    judge: (tail) => judgeStall({ complete: stallJudgeComplete }, tail),
+    onRearm: (reason) => console.log(
+      reason === "human"
+        ? `[turn] stall watch rearmed on ${sessionKey}: a person is in the loop (question or permission), their time doesn't count`
+        : `[turn] stall watch rearmed on ${sessionKey}: judge says alive, still watching`,
+    ),
+    onStuck: () => {
+      stalled = true;
+      console.warn(`[turn] stall detector recycling ${sessionKey}: judge found it stuck`);
       abortHeadlessTurn(sessionKey).catch(() => {});
       reader.cancel().catch(() => {});
     },
@@ -812,13 +854,20 @@ async function runHeadlessTurn(
    * still going, and nobody was looking. Without it the cap was a wall clock and
    * it cut healthy turns: 60 times, the last on 2026-08-21 at 00:37. It costs one
    * assignment per chunk. */
-  try { while (true) { const { done } = await reader.read(); if (done) break; deadline.noteActivity(); } }
-  finally { deadline.clear(); try { reader.releaseLock(); } catch { /* already released */ } }
-  // Il tetto a orologio è NOSTRO: vince su qualunque fine la route abbia
-  // depositato nel frattempo (l'abort che manda arriva dopo).
-  if (timedOut) {
+  try { while (true) { const { done } = await reader.read(); if (done) break; detector.noteActivity(); } }
+  finally {
+    detector.clear();
+    try { reader.releaseLock(); } catch { /* already released */ }
+    // `dispatchTimeoutMin` DECLASSED TO REPORTING ONLY: no cut, just a log.
+    if (opts.timeoutMs && Date.now() - t0 > opts.timeoutMs) {
+      console.warn(`[turn] ${sessionKey}: over dispatchTimeoutMin (${Math.round(opts.timeoutMs / 60_000)}min) — reporting only, no cut (${Math.round((Date.now() - t0) / 60_000)}min elapsed)`);
+    }
+  }
+  // Il rilievo di questo modulo è NOSTRO: vince su qualunque fine la route
+  // abbia depositato nel frattempo (l'abort che manda arriva dopo).
+  if (stalled) {
     takeTurnEnd(sessionKey);
-    return cancelled("wall-clock", `timeout after ${opts.timeoutMs}ms`);
+    return cancelled("stall", `idle stall detector: judge found the session stuck (idle ${opts.idleMs ?? DEFAULT_STALL_IDLE_MS}ms)`);
   }
   // La route ha depositato il PERCHÉ finalizzando; il drain finisce con `[DONE]`,
   // che la finalizzazione scrive dopo. Se manca, il turno è comunque finito.
@@ -829,7 +878,7 @@ async function runHeadlessTurn(
 // the route calls provider.reattach (adopt the surviving broker turn) instead of
 // sendChat. Same SSE drain to learn when the turn ends. Used by the dispatcher's
 // reconcile REATTACH branch after a server restart.
-async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number }): Promise<TurnEndInfo> {
+async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number; idleMs?: number }): Promise<TurnEndInfo> {
   const url = new URL("http://localhost/api/chat");
   // Il provider si DICHIARA, non si lascia indovinare alla rotta.
   //
@@ -860,13 +909,21 @@ async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number
   const rejected = rejectedTurn(resp, "/api/chat (reattach)");
   if (rejected) return rejected;
   const reader = resp.body.getReader();
-  let timedOut = false;
-  const deadline = armTurnDeadline({
-    ms: opts.timeoutMs,
+  let stalled = false;
+  const t0 = Date.now();
+  const detector = armStallDetector({
+    idleMs: opts.idleMs ?? DEFAULT_STALL_IDLE_MS,
     isWaitingForHuman: () => isHumanHold(sessionKey),
-    onRearm: () => console.log(`[turn] tetto di inattivita' riarmato su ${sessionKey}: una persona è in mezzo (domanda o permesso), il tempo dell'umano non conta`),
-    onExpired: () => {
-      timedOut = true;
+    getTail: () => stallTranscriptTail(sessionKey),
+    judge: (tail) => judgeStall({ complete: stallJudgeComplete }, tail),
+    onRearm: (reason) => console.log(
+      reason === "human"
+        ? `[turn] stall watch rearmed on ${sessionKey}: a person is in the loop (question or permission), their time doesn't count`
+        : `[turn] stall watch rearmed on ${sessionKey}: judge says alive, still watching`,
+    ),
+    onStuck: () => {
+      stalled = true;
+      console.warn(`[turn] stall detector recycling ${sessionKey} (reattach): judge found it stuck`);
       abortHeadlessTurn(sessionKey).catch(() => {});
       reader.cancel().catch(() => {});
     },
@@ -877,13 +934,18 @@ async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number
    * still going, and nobody was looking. Without it the cap was a wall clock and
    * it cut healthy turns: 60 times, the last on 2026-08-21 at 00:37. It costs one
    * assignment per chunk. */
-  try { while (true) { const { done } = await reader.read(); if (done) break; deadline.noteActivity(); } }
-  finally { deadline.clear(); try { reader.releaseLock(); } catch { /* already released */ } }
-  // Il tetto a orologio è NOSTRO e vince: prima lanciava un errore generico che
-  // il dispatcher classificava come guasto del provider — era la stessa bugia.
-  if (timedOut) {
+  try { while (true) { const { done } = await reader.read(); if (done) break; detector.noteActivity(); } }
+  finally {
+    detector.clear();
+    try { reader.releaseLock(); } catch { /* already released */ }
+    // `dispatchTimeoutMin` DECLASSED TO REPORTING ONLY: no cut, just a log.
+    if (opts.timeoutMs && Date.now() - t0 > opts.timeoutMs) {
+      console.warn(`[turn] ${sessionKey} (reattach): over dispatchTimeoutMin (${Math.round(opts.timeoutMs / 60_000)}min) — reporting only, no cut (${Math.round((Date.now() - t0) / 60_000)}min elapsed)`);
+    }
+  }
+  if (stalled) {
     takeTurnEnd(sessionKey);
-    return cancelled("wall-clock", `reattach timeout after ${opts.timeoutMs}ms`);
+    return cancelled("stall", `idle stall detector (reattach): judge found the session stuck (idle ${opts.idleMs ?? DEFAULT_STALL_IDLE_MS}ms)`);
   }
   return takeTurnEnd(sessionKey) ?? { end: "end_turn" };
 }
@@ -1823,9 +1885,13 @@ const taskDeliveryRef = async (taskId: string) => {
     // Best-effort come tutto il resto di questa funzione: se git inciampa la
     // consegna passa lo stesso, senza misura (NULL, che non è zero).
     const stat = await worktreeDiffStat(ref.worktreePath ?? ref.repoPath, { branch: ref.branch }).catch(() => null);
+    // `repoPath` travels with the snapshot because the capture plants
+    // `refs/consegne/<taskId>` on the delivered sha before writing the column
+    // (`services/delivery-ref-keep.ts`): the land squashes and then deletes the
+    // branch, and without that ref the commit is reachable from nowhere.
     return stat
-      ? { ...pointer, filesChanged: stat.filesChanged, insertions: stat.insertions, deletions: stat.deletions }
-      : pointer;
+      ? { ...pointer, repoPath: ref.repoPath, filesChanged: stat.filesChanged, insertions: stat.insertions, deletions: stat.deletions }
+      : { ...pointer, repoPath: ref.repoPath };
 };
 
 const taskCheckoutRef = async (taskId: string) => {
@@ -1844,6 +1910,7 @@ capturaConsegna = createDeliveryCapture({
   taskDeliveryRef,
   taskCheckoutRef,
   ownCommitFiles,
+  keepDeliveryCommit,
 });
 
 // Stessa sonda che il pannello delle modifiche usa gia' (`taskWorktreeDirt`):
@@ -4642,6 +4709,7 @@ function backfillDeliveries(): Promise<void> {
     resolveDeliveryBranch,
     deliveryPointer,
     worktreeDiffStat,
+    keepDeliveryCommit,
   });
 }
 
@@ -4659,7 +4727,51 @@ const auditWiring: AuditWiring = {
   broadcast: (msg) => broadcastToAll(msg as Parameters<typeof broadcastToAll>[0]),
   backfill: backfillDeliveries,
 };
-const runLandingAudit = () => runLandingAuditPass(auditWiring);
+/**
+ * THE BROOM OVER THE DELIVERY REFS, on the same pass as the audit and never on
+ * a timer of its own: both walk the repositories, and two sweeps on the same
+ * git are one collision waiting for the night nobody is watching.
+ *
+ * `TOPICS_DELIVERY_REF_RETENTION_DAYS=0` keeps every delivery reachable for
+ * ever, which is a legitimate choice on a small board: a ref is 41 bytes, what
+ * it pins is an object graph that then never shrinks.
+ */
+const DELIVERY_REF_RETENTION = Number(
+  process.env.TOPICS_DELIVERY_REF_RETENTION_DAYS ?? DELIVERY_REF_RETENTION_DAYS,
+);
+async function pruneKeptDeliveries(): Promise<void> {
+  if (!Number.isFinite(DELIVERY_REF_RETENTION) || DELIVERY_REF_RETENTION <= 0) return;
+  const vita = ctx.db.prepare("SELECT status, completed_at AS completedAt FROM tasks WHERE id = ?");
+  const visti = new Set<string>();
+  for (const p of ctx.projectStore.list()) {
+    const path = p.path;
+    if (!path || visti.has(path) || !existsSync(path)) continue;
+    visti.add(path);
+    try {
+      const summary = await pruneDeliveryRefs({
+        repoPath: path,
+        retentionDays: DELIVERY_REF_RETENTION,
+        // A card the database does not know is KEPT, not dropped: see the
+        // decision in `delivery-ref-keep.ts`. One repository can carry the
+        // deliveries of more than one board.
+        lifeOf: (taskId) => {
+          const row = vita.get(taskId) as { status?: string; completedAt?: string | null } | undefined;
+          return { status: row?.status ?? null, completedAt: row?.completedAt ?? null };
+        },
+      });
+      if (summary && summary.dropped.length > 0) {
+        console.log(`[delivery-refs] ${summary.dropped.length} ref lasciati cadere, ${summary.kept} tenuti { repo: ${path} }`);
+      }
+    } catch (err) {
+      console.warn("[delivery-refs] potatura fallita", err);
+    }
+  }
+}
+
+const runLandingAudit = async () => {
+  await runLandingAuditPass(auditWiring);
+  await pruneKeptDeliveries();
+};
 const auditOneLanding = (taskId: string) => auditOneLandingPass(auditWiring, taskId);
 
 // Offset from the GC pass so the two git sweeps don't collide on the same repo.

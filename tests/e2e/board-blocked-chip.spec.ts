@@ -31,6 +31,10 @@ const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 const EPICA = "Rifare la scheda prodotto";
 const STEP = "Migrare le foto sul nuovo bucket";
 const DIPENDENTE = "Pubblicare la scheda nuova";
+// A SHORT card, on purpose: the shorter it is, the closer its geometric centre
+// gets to whatever sits at the bottom of the body.
+const BLOCCANTE_CORTO = "Chiudere il contratto";
+const BLOCCATA_CORTA = "Spedire l'ordine";
 
 let projectTopicId: string | null = null;
 const createdTasks: string[] = [];
@@ -125,11 +129,9 @@ test.describe("Chip «aspetta: …» · bloccante fuori dalla lista", () => {
     // In the drawer the chip sits IN LINE, not buried in the ⋯ menu, and it
     // opens the picker.
     //
-    // What gets clicked is the TITLE, not the card. `card.click()` lands on the
-    // geometric centre, and on a blocked card the «sblocca» button sits right   allow-italian: quoted UI string
-    // there (`task-choice-unblock`, inside a container that stops propagation):
-    // the drawer did not open, and the click PATCHed the task — i.e. the gesture
-    // unblocked the very thing the test still had to observe blocked.
+    // What gets clicked is the TITLE, and it stays that way because this test
+    // is about the chip: the centre of a blocked card has a test of its own,
+    // the second one in this file, and that is where it is measured.
     await card.getByText(DIPENDENTE).click();
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
@@ -151,5 +153,62 @@ test.describe("Chip «aspetta: …» · bloccante fuori dalla lista", () => {
     expect(done.ok()).toBe(true);
     await expect(card.getByTestId("card-blocked-by")).toHaveCount(0, { timeout: 10000 });
     await beat(page, 2200);
+  });
+
+  /**
+   * THE CENTRE OF A BLOCKED CARD OPENS THE CARD.
+   *
+   * The two ways out of the wait used to be a row of buttons in the card's
+   * body, inside a container that stops propagation, and they were the LAST
+   * thing on the card: on a short card that row IS the centre, so clicking the
+   * card in the middle did not open the drawer, it pressed «sblocca» and sent a   allow-italian: quoted UI string
+   * PATCH that changed the dispatch gate with no confirmation. The test above
+   * had to dodge it by clicking the title.
+   *
+   * The choices now live in the compact ⋯ key at the end of the chip row, so
+   * the target is small and off the centre. What is measured is both halves of
+   * the fact: the drawer opens, and NOTHING is written on the tasks.
+   */
+  test("il centro di una card bloccata apre la scheda e non scrive niente", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-26" });
+    const bloccante = await createTask(request, { text: BLOCCANTE_CORTO, status: "todo" });
+    const bloccata = await createTask(request, {
+      text: BLOCCATA_CORTA, status: "todo", blockedByTaskId: bloccante.id,
+    });
+
+    // Every write on the tasks, whoever sends it: a GET is the board reading
+    // itself, anything else is a gesture, and this gesture must have none.
+    const scritture: string[] = [];
+    page.on("request", (r) => {
+      if (r.method() !== "GET" && /\/api\/boards\/[^/]+\/tasks/.test(r.url())) {
+        scritture.push(`${r.method()} ${new URL(r.url()).pathname}`);
+      }
+    });
+
+    await page.goto("/");
+    await openProjectBoard(page);
+
+    const card = page.locator(`[data-task-card="${bloccata.id}"]`);
+    await expect(card).toBeVisible({ timeout: 10000 });
+    await expect(card.getByTestId("card-blocked-by")).toContainText(`aspetta: ${BLOCCANTE_CORTO}`);
+    // The shape of the fix: no row of buttons on the card, one compact key.
+    await expect(card.getByTestId("task-choices")).toHaveCount(0);
+    await expect(card.getByTestId("task-choices-menu")).toBeVisible();
+    await beat(page, 1600);
+
+    // `card.click()` with no position: Playwright lands on the geometric
+    // centre. That is the whole point of the test.
+    await card.click();
+    const drawer = page.getByTestId("task-detail-drawer");
+    await expect(drawer).toBeVisible({ timeout: 10000 });
+    expect(scritture, `il click ha scritto sui task: ${scritture.join(", ")}`).toEqual([]);
+    // Still blocked after the click: the chip is the state, not the drawing.
+    await expect(drawer.getByTestId("task-blocked-by-chip")).toContainText(`aspetta: ${BLOCCANTE_CORTO}`);
+    // For extenso the row is still there, in the drawer: nothing was lost, it
+    // moved to the surface you reach on purpose.
+    await expect(drawer.getByTestId("task-choice-unblock")).toBeVisible();
+    await beat(page, 2000);
+    await page.keyboard.press("Escape");
+    await expect(drawer).toBeHidden({ timeout: 5000 });
   });
 });
