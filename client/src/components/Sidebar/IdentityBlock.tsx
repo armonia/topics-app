@@ -19,21 +19,33 @@
  * because it also says WHAT the row is about, not just where the previous one
  * ended.
  *
- * ONE INLINE FLOW, NOT THREE LINES.
- * The three subjects are not three rows any more: they are chips in a single
- * wrapping flow, so the block is as TALL as it needs and no taller. With one
- * group and nobody around it collapses onto two lines instead of always
- * spending three, and with six groups it grows by exactly the chips that did
- * not fit. A fixed row per subject was paying, every single day, the price of
- * the busiest day.
+ * ONE LINE, THREE CHIPS, ALWAYS THE SAME THREE.
+ * The three subjects are not three rows, and they are not a wrapping flow
+ * either: they are three mini-cards on ONE line, at every sidebar width. The
+ * wrapping flow was better than the three fixed rows it replaced, but it made
+ * the band's own shape depend on the data: the same installation showed one
+ * line or three depending on how many groups you had joined that week, and a
+ * place whose SHAPE changes is a place you have to re-read every time instead
+ * of glancing at. One line is what makes the band a place.
  *
- * IT WRAPS, IT DOES NOT SCROLL.
- * The organisation chips used to sit on a row that scrolled sideways. A
- * horizontal scroll inside a 240px column is content hidden with nothing to say
- * so: the fourth group exists only if it occurs to you to drag. Now the chips
- * wrap on their own and the block grows by exactly that much, which is also the
- * only way "who am I with" is a question with a VISIBLE answer instead of one
- * to go and discover.
+ * The line holds because each subject knows what to give up: the name of
+ * whoever is logged in truncates (it is the only elastic thing here), and the
+ * groups past the second collapse into a `+n` chip. Nothing is hidden without
+ * a mark saying so.
+ *
+ * IT DOES NOT WRAP AND IT DOES NOT SCROLL.
+ * The organisation chips used to sit on a row that scrolled sideways, and then
+ * on one that wrapped. A horizontal scroll inside a 240px column is content
+ * hidden with nothing to say so: the fourth group exists only if it occurs to
+ * you to drag. The `+n` chip is the third answer: it is VISIBLE, it says how
+ * many are behind it, and it opens them in a panel.
+ *
+ * FULL AND EMPTY ARE TOLD APART BY THE CHIP, NOT BY ABSENCE.
+ * A subject with nothing in it is drawn as an outlined chip instead of
+ * disappearing (`identityChip.ts` holds the recipe). The groups chip used to
+ * not render at all at zero, which is how "which groups am I in" ended up
+ * unanswerable for whoever was in none. Three slots, always three, and one
+ * glance counts the filled ones.
  *
  * EVERY THING OPENS ITS OWN PANEL.
  * Each chip opens a dropdown (`PresencePopover`) instead of jumping straight to
@@ -51,14 +63,15 @@
  * says zero, and its panel explains where the people come from.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Bot, ChevronRight, Hourglass, ListChecks, MessagesSquare, Monitor, Smartphone, Users } from 'lucide-react';
+import { Bot, Building2, ChevronRight, Hourglass, ListChecks, MessagesSquare, Monitor, Smartphone, Users } from 'lucide-react';
 import { subscribeSession, type SessionState } from '@/lib/auth/session';
 import { etichettaIdentita } from './identityLabel';
 import { useIdentityPresence, type OrgConPresenza } from '@/hooks/useIdentityPresence';
 import { usePresenceSummary } from '@/hooks/usePresenceSummary';
 import { apriProfilo, openPersonProfile } from '@/state/profileTarget';
 import type { FacciaPresenza, RigaPresenza } from './orgPresence';
-import { IDENTITY_GLYPH_BOX, IDENTITY_GLYPH_INK, ROW_INSET, SIDEBAR_HOVER, TIER_DONE_TEXT } from '@/lib/selectionStyles';
+import { IDENTITY_GLYPH_BOX, IDENTITY_GLYPH_INK, ROW_INSET, TIER_DONE_TEXT } from '@/lib/selectionStyles';
+import { CHIP_INK_DIM, chipClass, splitOrgs } from './identityChip';
 import { PALLINO_OK, SEGNALE_ATTESA, SEGNALE_OK } from './chromeSignals';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
 import { PresencePopover } from './PresencePopover';
@@ -68,29 +81,41 @@ import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
 import { openSettings } from '@/lib/openSettings';
 import { useT } from '@/hooks/useT';
 
-/** A subject inside the flow: it never breaks in the middle, it either fits on
- *  the line or moves to the next one whole. */
+/**
+ * A subject on the line.
+ *
+ * The default is `flex: 0 1 auto` (grow no, shrink yes): a subject asks for
+ * exactly its content and gives room back only when the line runs out. Who
+ * gives it back FIRST is decided per subject, and the order matters:
+ *
+ *   1. "me" (`flex-1 basis-0`) asks for nothing and takes the leftover, so it
+ *      is the first to yield and the name truncates;
+ *   2. "people" yields next, and what it drops is its own word, not its count;
+ *   3. the groups (`flex-none`) never yield: a squashed logo is not a smaller
+ *      logo, it is an unrecognisable one.
+ */
 const SUBJECT = 'flex min-w-0 items-center';
-
-/** An immersed chip: no border at rest, the lift arrives with the pointer.
- *  The rounded border was there to say "I am clickable", but that meant five
- *  borders in a thirty pixel strip; hover says it better, and only when needed. */
-const CHIP = `flex min-w-0 items-center gap-1 rounded px-1 py-0.5 ${SIDEBAR_HOVER}`;
 
 /** How many faces are shown before switching to a number. Past four they are
  *  indistinguishable dots, each as wide as the word that would count them. */
 const MAX_FACCE = 4;
 
-/** In the org chip the name is gone, so the room it took goes to the faces:
- *  six fit on the line the name used to fill by itself. */
-const MAX_FACCE_ORG = 6;
+/** In the group chip the faces share a line with two other subjects now, so
+ *  the six that fitted while the chip could wrap became the reason the row
+ *  could not hold. Two faces and a count: the count is the part that stays
+ *  true past two anyway. */
+const MAX_FACCE_ORG = 2;
 
 export function IdentityBlock({ onOpenDevices }: { onOpenDevices?: () => void }) {
   const presenza = useIdentityPresence();
   return (
+    // `flex-nowrap` is the whole promise of the band, and `overflow-hidden` is
+    // what makes it a promise instead of a hope: if a subject ever refuses to
+    // shrink, the column must not grow a horizontal scrollbar to accommodate
+    // it. The e2e measures both (same top within 1px, scrollWidth == clientWidth).
     <div
       data-testid="identity-block"
-      className="flex flex-wrap items-center gap-x-1 gap-y-0.5 pb-1 text-[11px]"
+      className="@container/identity flex flex-nowrap items-center gap-1 overflow-hidden pb-1 text-[11px]"
       style={{ paddingInline: ROW_INSET }}
     >
       <RigaIo presenza={presenza} onOpenDevices={onOpenDevices} />
@@ -185,21 +210,34 @@ function RigaIo({ presenza, onOpenDevices }: {
   ].filter(Boolean).join('\n');
 
   return (
-    // `flex-1` with a basis: on a wide sidebar the chip shares the line with the
-    // groups, on a narrow one it takes the line by itself and the groups wrap
-    // under it. No breakpoint decides that, the available width does.
-    <span data-testid="identity-row-me" className={`${SUBJECT} flex-1 basis-40`}>
+    // THE ONE ELASTIC SUBJECT. Everything on this line has a size it will not
+    // give up (a glyph, two faces, a digit) except the name, which is also the
+    // only thing here that reads fine half-shown. So "me" takes the leftover
+    // width and yields it back, in that order: `flex-1` with `basis-0` and
+    // `min-w-0`, i.e. it asks for nothing and accepts what is left. That is
+    // what keeps the other two on the line at 180px instead of pushing them off.
+    // `min-w-6` IS THE 24px TARGET, PUT ON THE PART THAT ACTUALLY SHRINKS.
+    // The floor was on the button alone, and a floor under the wrong box is not
+    // a floor: `basis-0` let THIS span be squeezed to nothing by the groups,
+    // while the button inside kept its 24px and simply painted outside its
+    // parent, straight over the next chip. Measured at 180px with four groups:
+    // the row was ~4px wide, the button drew 6..30, the groups opened at 10.
+    // An overlap reads as a pile, which is the exact failure the redesign was
+    // called in to fix, so the constraint belongs to the flex item that yields.
+    <span data-testid="identity-row-me" className={`${SUBJECT} min-w-6 flex-1 basis-0`}>
       <button
         ref={setChip}
         data-testid="identity-me-profile"
         onClick={() => setAperto((v) => !v)}
         aria-haspopup="dialog"
         aria-expanded={aperto}
-        // NO negative margin. `-mx-1` cancelled the chip's own `px-1`, so this
+        // NO negative margin. `-mx-1` cancelled the chip's own padding, so this
         // subject started four pixels to the LEFT of the others. The hover
         // surface it widened is worth less than the one edge every subject
         // mark shares.
-        className={`${CHIP} flex-1 text-left`}
+        // Always FULL: if this chip is drawn at all you are paired, so this
+        // subject is never the empty one.
+        className={`${chipClass(true)} min-w-0 flex-1 text-left`}
         title={[`${chi.nome}${chi.dettaglio ? ` \u00b7 ${chi.dettaglio}` : ''}`, workStory].filter(Boolean).join('\n')}
       >
         {/* THE FACE, and only when there is a person: a disc holding the
@@ -218,9 +256,25 @@ function RigaIo({ presenza, onOpenDevices }: {
         {/* WHAT IS RUNNING, in glyphs. `workSignals` decides which three:
             what is alive first, the inventory last, zeros never. */}
         {signals.length > 0 && (
+          // WHAT YIELDS WHEN THE COLUMN IS NARROW. The glyph and these signals
+          // are the only parts of the chip that refuse to shrink, so on a 180px
+          // column they kept drawing their full width straight over the groups
+          // chip: 84px of spill, measured. The name truncating is not enough
+          // give, because the floor is the chip's own 24px target.
+          // The threshold is the band's own width, not the window's, and 300 is
+          // measured rather than chosen: the band is the sidebar less the 6px
+          // inset each side, so the three test widths give 168, 244 and 388. At
+          // 244 the chip is still 10px short of holding glyph, a name clipped
+          // to its ellipsis, the signals and the two other subjects. 388 has
+          // the room with a margin. Anything under 300 is the narrow case.
+          // So below a band of 300px the signals go, and they are the right
+          // thing to lose: the subject of this chip is WHO you are, the numbers
+          // are what is running, and they are already in the tooltip and in the
+          // panel the chip opens. Losing them costs a hover; losing the line
+          // costs the glance the whole band exists for.
           <span
             data-testid="presence-summary"
-            className="ml-auto flex flex-shrink-0 items-center gap-1.5 tabular-nums"
+            className="ml-auto hidden flex-shrink-0 items-center gap-1.5 tabular-nums @[300px]/identity:flex"
           >
             {signals.map((s) => <Signal key={s.kind} kind={s.kind} n={s.n} />)}
           </span>
@@ -314,19 +368,32 @@ function RigaIo({ presenza, onOpenDevices }: {
  * the news, fighting for the leftovers. The logo already identifies the group
  * without spelling it, the tooltip and the panel header carry the full name,
  * and what is left on the row is exactly the answer to "who is around": the
- * faces, wrapping inside the chip when they are many.
+ * faces.
+ *
+ * AND IT IS THERE AT ZERO. It used to return null with no groups, which made
+ * the band two chips wide and left the third question unasked. Now the subject
+ * holds its slot as an outlined chip that opens the panel explaining what an
+ * organisation is and how you end up in one: same reason the people chip stays
+ * at zero, and the same person is the one who needs it.
  */
 function RigaOrganizzazioni({ orgs }: { orgs: OrgConPresenza[] }) {
   const [apertaId, setApertaId] = useState<string | null>(null);
-  if (orgs.length === 0) return null;
+  // No leading glyph any more: it was there to tell one ROW from the next, and
+  // there are no rows left. Alignment survives without it: every subject now
+  // opens with a mark of the same IDENTITY_GLYPH_BOX size (the face, a group
+  // logo, the people sign) sitting inside a chip with the same padding, so
+  // the left edges agree by construction instead of by hand-tuned margins.
+  if (orgs.length === 0) {
+    return (
+      <span data-testid="identity-row-orgs" className={`${SUBJECT} flex-none`}>
+        <EmptyOrgChip />
+      </span>
+    );
+  }
+  const { inline, extra } = splitOrgs(orgs);
   return (
-// No leading glyph any more: it was there to tell one ROW from the next, and
-    // there are no rows left. Alignment survives without it: every subject now
-    // opens with a mark of the same IDENTITY_GLYPH_BOX size (the face, a group
-    // logo, the people sign) sitting inside a chip with the same padding, so
-    // the left edges agree by construction instead of by hand-tuned margins.
-    <span data-testid="identity-row-orgs" className={`${SUBJECT} flex-wrap gap-x-1 gap-y-0.5`}>
-      {orgs.map((o) => (
+    <span data-testid="identity-row-orgs" className={`${SUBJECT} flex-none gap-1`}>
+      {inline.map((o) => (
         <ChipOrg
           key={o.id}
           org={o}
@@ -335,7 +402,138 @@ function RigaOrganizzazioni({ orgs }: { orgs: OrgConPresenza[] }) {
           onClose={() => setApertaId(null)}
         />
       ))}
+      {extra > 0 && (
+        <MoreOrgsChip
+          orgs={orgs.slice(inline.length)}
+          aperta={apertaId === MORE_ORGS_KEY}
+          onToggle={() => setApertaId((v) => (v === MORE_ORGS_KEY ? null : MORE_ORGS_KEY))}
+          onClose={() => setApertaId(null)}
+        />
+      )}
     </span>
+  );
+}
+
+/** The open-panel key of the `+n` chip. It shares `apertaId` with the group
+ *  chips because only one panel may be open at a time, and an id no group can
+ *  have is cheaper than a second piece of state that can disagree with this one. */
+const MORE_ORGS_KEY = '\u0000more';
+
+/**
+ * NO GROUPS: the slot stays, drawn as an outline, and it is the only place in
+ * the product that answers "what is an organisation" to somebody who is in
+ * none. Before, it answered by not being there.
+ */
+function EmptyOrgChip() {
+  const tr = useT();
+  const [aperto, setAperto] = useState(false);
+  const [chip, setChip] = useState<HTMLButtonElement | null>(null);
+  return (
+    <>
+      <button
+        ref={setChip}
+        data-testid="org-chip-empty"
+        onClick={() => setAperto((v) => !v)}
+        aria-haspopup="dialog"
+        aria-expanded={aperto}
+        className={`${chipClass(false)} justify-center text-app-text-secondary`}
+        title={tr('statusBar.orgs.noneTitle')}
+      >
+        <span data-testid="identity-glyph" className={`flex ${IDENTITY_GLYPH_BOX} flex-shrink-0 items-center justify-center`}>
+          <Building2 size={IDENTITY_GLYPH_INK} />
+        </span>
+        <span className="flex-shrink-0 tabular-nums">0</span>
+      </button>
+
+      {aperto && (
+        <PresencePopover
+          anchorEl={chip}
+          onClose={() => setAperto(false)}
+          testId="org-empty-panel"
+          titolo={
+            <>
+              <Building2 size={12} className="flex-shrink-0 text-app-text-muted" />
+              <span className="truncate">{tr('statusBar.orgs.noneTitle')}</span>
+            </>
+          }
+        >
+          <div className="px-3 py-2 text-[11px] text-app-text-secondary">
+            {tr('statusBar.orgs.noneHint')}
+          </div>
+          <div className="border-t border-app-border py-1">
+            <Azione onClick={() => { setAperto(false); openSettings('organization'); }} testId="org-empty-manage">
+              {tr('statusBar.orgs.manageAll')}
+            </Azione>
+          </div>
+        </PresencePopover>
+      )}
+    </>
+  );
+}
+
+/**
+ * THE GROUPS THAT DID NOT FIT, as a chip that says how many they are.
+ *
+ * This is the price of one line, and it is paid out loud: `+3` is a thing you
+ * can see and press, unlike the sideways scroll it replaces, where the fourth
+ * group existed only if it occurred to you to drag. The panel lists them with
+ * their presence, so the count on the chip is never the end of the answer.
+ */
+function MoreOrgsChip({ orgs, aperta, onToggle, onClose }: {
+  orgs: OrgConPresenza[];
+  aperta: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+}) {
+  const tr = useT();
+  const [chip, setChip] = useState<HTMLButtonElement | null>(null);
+  const presentNow = orgs.reduce((n, o) => n + o.online, 0);
+  return (
+    <>
+      <button
+        ref={setChip}
+        data-testid="org-chip-more"
+        onClick={onToggle}
+        aria-haspopup="dialog"
+        aria-expanded={aperta}
+        className={`${chipClass(true)} justify-center text-app-text-secondary`}
+        title={tr('statusBar.orgs.more', { n: orgs.length })}
+      >
+        <span className="flex-shrink-0 tabular-nums">+{orgs.length}</span>
+        {presentNow > 0 && <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${PALLINO_OK}`} />}
+      </button>
+
+      {aperta && (
+        <PresencePopover
+          anchorEl={chip}
+          onClose={onClose}
+          testId="org-more-panel"
+          titolo={
+            <>
+              <Building2 size={12} className="flex-shrink-0 text-app-text-muted" />
+              <span className="truncate">{tr('statusBar.orgs.more', { n: orgs.length })}</span>
+            </>
+          }
+        >
+          <div className="py-1">
+            {orgs.map((o) => (
+              <div key={o.id} data-testid="org-more-row" className={`${POPOVER_ITEM} gap-2`}>
+                <Logo org={o} size={5} />
+                <span className="min-w-0 flex-1 truncate">{o.nome}</span>
+                <span className={`flex-shrink-0 tabular-nums ${o.online > 0 ? SEGNALE_OK : CHIP_INK_DIM}`}>
+                  {tr('statusBar.friends.count', { n: o.online, tot: o.membri })}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="border-t border-app-border py-1">
+            <Azione onClick={() => { onClose(); openSettings('organization'); }} testId="org-more-manage">
+              {tr('statusBar.orgs.manageAll')}
+            </Azione>
+          </div>
+        </PresencePopover>
+      )}
+    </>
   );
 }
 
@@ -355,7 +553,10 @@ function ChipOrg({ org, aperta, onToggle, onClose }: {
         onClick={onToggle}
         aria-haspopup="dialog"
         aria-expanded={aperta}
-        className={`${CHIP} flex-wrap text-app-text-secondary`}
+        // A group you are in is a FULL chip even with nobody online: what the
+        // fill answers is "am I in a group", and the faces answer the other
+        // question inside it.
+        className={`${chipClass(true)} justify-center text-app-text-secondary`}
         title={org.online > 0
           ? `${org.nome}\n${tr('statusBar.orgs.presence', { n: org.online, tot: org.membri })}`
           : org.nome}
@@ -363,9 +564,17 @@ function ChipOrg({ org, aperta, onToggle, onClose }: {
         <Logo org={org} size={3.5} />
         {/* Only the faces, and only when there are any. Nobody online is said
             by the chip being just a logo: an empty chip is already the answer,
-            and it costs no word to read. */}
+            and it costs no word to read. It does not wrap any more either: on
+            a single-line band a chip that grows downwards takes the whole band
+            with it, so past two faces the count carries the rest.
+            Below `@[300px]` the faces go, at the SAME width where the "me" chip
+            drops its work signals. One threshold, not two: both are presence
+            DETAIL on top of an identity that has to stay readable, so they
+            leave together, and the band narrows by losing one class of thing
+            instead of fraying a bit everywhere. What goes is never lost: the
+            popover this chip opens lists the people by name. */}
         {org.online > 0 && (
-          <span data-testid="org-chip-online" className={`flex flex-wrap items-center gap-y-0.5 ${SEGNALE_OK}`}>
+          <span data-testid="org-chip-online" className={`hidden flex-none items-center @[300px]/identity:flex ${SEGNALE_OK}`}>
             <Facce facce={org.facce} max={MAX_FACCE_ORG} totale={org.online} />
           </span>
         )}
@@ -424,7 +633,12 @@ function Logo({ org, size }: { org: OrgConPresenza; size: 3.5 | 5 }) {
         className={`${cls} flex-shrink-0 rounded-full object-cover`}
         onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
       />
-    : <span data-testid={marker} className={`${cls} flex flex-shrink-0 items-center justify-center rounded-full bg-indigo-500/20 font-bold text-indigo-400`}>
+    // THE INITIALS ARE THE LOGO when there is no image, so they are content and
+    // they have to READ. One indigo for both themes did not: `indigo-400` on
+    // the tinted disc measured 4.46:1 in dark, which is a fail by four
+    // hundredths and exactly the kind of miss an eye ratifies and a meter
+    // catches. One step out per theme, away from the ground each sits on.
+    : <span data-testid={marker} className={`${cls} flex flex-shrink-0 items-center justify-center rounded-full bg-indigo-500/20 font-bold text-indigo-700 dark:text-indigo-300`}>
         {org.nome.slice(0, 2).toUpperCase()}
       </span>;
 }
@@ -462,24 +676,39 @@ function RigaAmici({ online, tutti, totali }: {
         onClick={() => setAperto((v) => !v)}
         aria-haspopup="dialog"
         aria-expanded={aperto}
-        className={`${CHIP} text-left`}
+        // FULL when somebody is around, OUTLINED when nobody is: this is the
+        // subject the whole "which of the three exist" question was about, and
+        // it is now answered by the chip's own body instead of by a zero you
+        // have to go and read.
+        // `overflow-hidden` is not cosmetics: without it this chip's contents
+        // are laid out at full size even when the chip is squeezed to its 24px
+        // floor, and they land on the card next door. Measured in CI at 180px
+        // with four groups: 2px past its own right edge. This chip has FOUR
+        // incompressible children (glyph, faces, count, total) against the org
+        // chip's two, so it is the one of the three that actually runs out of
+        // room. The box can be innocent while the ink is not — so clip the ink.
+        className={`${chipClass(ci_sono)} min-w-0 justify-center overflow-hidden text-left`}
         title={ci_sono ? online.map((f) => f.nome).join(', ') : tr('statusBar.friends.title')}
       >
-        <span data-testid="identity-glyph" className={`flex ${IDENTITY_GLYPH_BOX} flex-shrink-0 items-center justify-center ${ci_sono ? SEGNALE_OK : 'text-app-text-muted'}`}>
+        <span data-testid="identity-glyph" className={`flex ${IDENTITY_GLYPH_BOX} flex-shrink-0 items-center justify-center ${ci_sono ? SEGNALE_OK : CHIP_INK_DIM}`}>
           <Users size={IDENTITY_GLYPH_INK} />
         </span>
+        {/* Faces give way FIRST: they are the only repeated child, hence the
+            only one that can shrink without erasing information available
+            nowhere else. The numbers beside them already say how many there
+            are, and one face fewer still reads in the `+N`. */}
         {ci_sono && <Facce facce={online} totale={online.length} />}
         {/* With people around the faces ARE the answer, so the chip drops the
             words and keeps two numbers: how many are here, out of how many you
             know. Alone, the chip says its own name instead, because a chip that
             is only a glyph and a zero is a door nobody recognises. */}
         {!ci_sono && (
-          <span className="truncate text-app-text-muted">{tr('statusBar.friends.title')}</span>
+          <span className={`truncate ${CHIP_INK_DIM}`}>{tr('statusBar.friends.title')}</span>
         )}
         {ci_sono && (
           <span className="flex-shrink-0 text-app-text-secondary tabular-nums">{online.length}</span>
         )}
-        <span data-testid="identity-friends-total" className="flex-shrink-0 text-app-text-muted tabular-nums">
+        <span data-testid="identity-friends-total" className={`flex-shrink-0 ${CHIP_INK_DIM} tabular-nums`}>
           {ci_sono ? `/${totali}` : totali}
         </span>
       </button>
@@ -546,7 +775,7 @@ const SIGNALS: Record<SignalKind, {
   awaitingInput: { Icon: Hourglass, tint: SEGNALE_ATTESA, label: 'statusBar.signals.awaitingInput' },
   done: { Icon: Hourglass, tint: TIER_DONE_TEXT, label: 'statusBar.signals.done' },
   tasks: { Icon: ListChecks, tint: 'text-app-text-secondary', label: 'statusBar.signals.tasks' },
-  open: { Icon: MessagesSquare, tint: 'text-app-text-muted', label: 'statusBar.signals.open' },
+  open: { Icon: MessagesSquare, tint: CHIP_INK_DIM, label: 'statusBar.signals.open' },
 };
 
 /**
@@ -616,7 +845,7 @@ function Persona({ p }: { p: RigaPresenza }) {
       <span className={`flex h-5 w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded-full ${p.presente ? '' : 'opacity-50'}`}>
         {p.avatarUrl
           ? <img src={p.avatarUrl} alt="" className="h-full w-full object-cover" />
-          : <span className="flex h-full w-full items-center justify-center bg-primary/20 text-[8px] font-semibold leading-none text-app-text-secondary">
+          : <span className="flex h-full w-full items-center justify-center bg-primary/20 text-[8px] font-semibold leading-none text-app-text">
               {p.iniziali}
             </span>}
       </span>
@@ -682,7 +911,7 @@ function Facce({ facce, max = MAX_FACCE, totale }: {
         >
           {f.avatarUrl
             ? <img src={f.avatarUrl} alt="" className="h-full w-full object-cover" />
-            : <span className="flex h-full w-full items-center justify-center bg-primary/20 text-[7px] font-semibold leading-none text-app-text-secondary">
+            : <span className="flex h-full w-full items-center justify-center bg-primary/20 text-[7px] font-semibold leading-none text-app-text">
                 {f.iniziali}
               </span>}
         </span>

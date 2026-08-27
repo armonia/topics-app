@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Download, RefreshCw, Check, AlertCircle, Rocket, Sparkles, ChevronRight } from 'lucide-react';
 import { useUpdater } from '@/lib/updater';
+import { useSidecarIntegrity, shouldWarnAboutSidecars } from '@/lib/sidecarIntegrity';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { useDismissable } from '@/hooks/useDismissable';
@@ -62,6 +63,11 @@ export function VersionPopover({
   // runs after this one.
   useEffect(() => { anchorRef.current = anchorEl; });
   const { available, status, check, download, install } = useUpdater();
+  // An update can land on the app and MISS a piece of it: on Windows the
+  // installer skips a binary that is still running and exits 0 anyway (see
+  // lib/sidecarIntegrity.ts). This popover is where the version number is read,
+  // so it is where the number has to admit it is only partly true.
+  const sidecars = useSidecarIntegrity();
   // Quanto tempo fa e' stata costruita: si ricava dalla data che il pannello
   // gia' riceve, senza una seconda fonte da tenere allineata.
   //
@@ -170,6 +176,20 @@ export function VersionPopover({
           <ChevronRight size={12} className="ml-auto" />
         </button>
       </div>
+
+      {/* Half applied update: the app is new, one of its binaries is not. */}
+      {shouldWarnAboutSidecars(sidecars) && (
+        <div
+          data-testid="version-incomplete-install"
+          className="flex gap-1.5 rounded border border-amber-500/30 bg-amber-500/10 p-2 text-[11px] text-amber-600 dark:text-amber-400"
+        >
+          <AlertCircle size={12} className="mt-0.5 shrink-0" />
+          <span>
+            <span className="font-medium">{tr('version.incompleteInstall')}</span>{' '}
+            {tr('version.incompleteInstallDetail', { names: (sidecars?.bad ?? []).join(', ') })}
+          </span>
+        </div>
+      )}
 
       {/* Auto-update box */}
       <div className="border-t border-app-border pt-2.5">

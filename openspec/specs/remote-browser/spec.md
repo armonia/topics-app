@@ -1584,3 +1584,40 @@ prova sarebbe verde anche su una pagina che l'idratazione non l'ha mai chiesta.
 #### Scenario: una pane genuinamente vuota
 - **GIVEN** il negozio che ha parlato e nessun indirizzo reale
 - **THEN** la barra SHALL comparire
+
+### Requirement: BROWSER-PORT-01 — A localhost pane SHALL say when the port belongs to another project
+
+Opening `http://localhost:<port>` in a pane is the most ordinary thing an agent
+does, and it is also where it silently looks at the WRONG app: another project's
+dev server answers on the same port, the page renders fine, and the agent reads
+somebody else's UI as if it were its own. The system SHALL warn instead of
+letting that pass.
+
+When the URL is loopback with an explicit port, the system SHALL resolve who is
+listening and SHALL compare that process's working directory with the calling
+session's project. A port served from ANOTHER project SHALL produce a warning
+naming the port, the pid, the command and the owner's directory, carried in the
+tool result the agent actually reads.
+
+A port that NOTHING answers on SHALL produce its own distinct warning: a blank
+pane whose dev server is simply not running is a different problem from looking
+at the wrong app, and telling them apart is the point.
+
+The system SHALL NEVER accuse on a guess. When the owner's working directory
+cannot be established, when the calling session is not bound to a project, or
+when the URL is not loopback-with-port, the answer SHALL be silence rather than
+a warning built on a missing fact.
+
+#### Scenario: the port is served by another project
+- **GIVEN** a session working in project A opens `http://localhost:5173`
+- **WHEN** the listener on 5173 has its working directory inside project B
+- **THEN** the tool result SHALL carry a warning naming port, pid, command and directory
+
+#### Scenario: nothing is listening
+- **GIVEN** a loopback URL with a port
+- **WHEN** no process listens there
+- **THEN** the warning SHALL say the page is likely blank, not that it belongs elsewhere
+
+#### Scenario: the owner cannot be established
+- **GIVEN** a listener whose working directory cannot be read
+- **THEN** no warning SHALL be produced

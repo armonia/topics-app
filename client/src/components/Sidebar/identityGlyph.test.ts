@@ -65,15 +65,23 @@ describe('the identity band: one glyph box for the three subjects', () => {
     expect(band).not.toContain('size={10}');
   });
 
-  // Every subject in the band opens with the marked box, and there are exactly
-  // three: one per subject. The marker is what the pixel test then measures, so
-  // a fourth subject arriving without it would go unmeasured and silent.
-  it('the band carries exactly three marked glyph boxes, one per subject', () => {
+  // Every subject in the band opens with the marked box. The marker is what the
+  // pixel test then measures, so a subject arriving WITHOUT it would go
+  // unmeasured and silent: that, not the total, is what this guards.
+  //
+  // The total is four because the count is per rendering SITE, not per subject,
+  // and the orgs subject has two mutually exclusive ones: the populated chip
+  // (through `Logo`) and `EmptyOrgChip`. That second site is the point of the
+  // redesign, not an accident. The orgs chip used to VANISH at zero, so the one
+  // person who most needed the band to say what an organisation is was the one
+  // person it said nothing to. Now zero is a state you can see and click, so it
+  // has a glyph like any other, and it is measured like any other.
+  it('every glyph box in the band is marked, one per rendering site', () => {
     expect(SUBJECTS).toHaveLength(3);
-    // Two are written inline ("me", "friends"); the third reaches the org mark
-    // through `Logo`, which attaches it only in the band and not in a title.
+    // "me" and "friends" are written inline; orgs reaches the mark through
+    // `Logo` when populated and writes it directly when empty.
     const marked = code.match(/identity-glyph/g) ?? [];
-    expect(marked).toHaveLength(3);
+    expect(marked).toHaveLength(4);
   });
 
   // The organisation mark reaches the box through its PLACE, not through a

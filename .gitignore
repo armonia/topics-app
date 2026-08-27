@@ -121,6 +121,11 @@ docs/*
 # si perde con quella macchina, insieme alla possibilità di servire chi ha
 # pagato.
 !docs/licenze-rilascio.md
+# windows-aggiornamento-sidecar.md e' la PROCEDURA DI RIPROVA del difetto del
+# 27/08/2026 (un sidecar in uso che l'installer NSIS salta in silenzio): come si
+# misura sul PC vero, prima e dopo. Una procedura che vive solo sulla macchina
+# di chi l'ha scritta non fa verificare la cura a nessun altro.
+!docs/windows-aggiornamento-sidecar.md
 # board-vs-chat/ è il REGISTRO DELLE PROVE della barra `scripts/board-vs-chat.ts`:
 # `cases.json` è la matrice dei casi limite con l'output dei comandi eseguiti, e
 # lo script esce ROSSO se non la trova. Ignorata, su un checkout pulito il file

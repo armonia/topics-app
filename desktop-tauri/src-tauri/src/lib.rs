@@ -35,6 +35,13 @@ mod browser_win;
 /// cosa aprire sta in `shared/os-open-path.ts`.
 mod os_open;
 
+/// Is the app beside the binaries it was built with? An installer that cannot
+/// overwrite a RUNNING sidecar skips it and still reports success, so "app.exe
+/// says 2.2.176" is not the same as "this install is 2.2.176". The build records
+/// what it shipped, the shell checks what landed.
+mod sidecar_fingerprint;
+mod sidecar_integrity;
+
 /// objc2 compatibility shims for the AppKit FFI throughout this file.
 ///
 /// Migrated off the deprecated `objc` + `cocoa` crates (759 of the shell's 761
@@ -2698,6 +2705,14 @@ fn set_dock_badge(count: u32) {
             let _: () = msg_send![tile, setBadgeLabel: label];
         }
     }
+}
+
+/// Did every binary this build ships actually land beside the app? The client
+/// asks when it shows the version, so a half applied update is visible where the
+/// user goes to read "you are on 2.2.176" (see sidecar_integrity.rs).
+#[tauri::command]
+fn sidecar_integrity() -> sidecar_integrity::SidecarReport {
+    sidecar_integrity::report()
 }
 
 /// Update metadata handed to the renderer by `updater_check`.
@@ -10071,6 +10086,10 @@ pub fn run() {
                 )?;
             }
 
+            // Was the whole app replaced by the last update, or only the part that
+            // was not running? Off-thread: it reads every bundled binary.
+            sidecar_integrity::warm_in_background();
+
             // Local-dev auto-update (opt-in, per-machine): when this shell runs on a
             // dev machine that opted in (see `dev_auto_update_enabled`), pull the newest
             // signed release. Gated on the dev marker so it NEVER fires for prod
@@ -10873,6 +10892,7 @@ pub fn run() {
             browser_download_progress,
             updater_check,
             updater_install,
+            sidecar_integrity,
             window_detach,
             window_detach_space,
             window_focus_label,
