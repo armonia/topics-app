@@ -1,5 +1,36 @@
 [
   {
+    "version": "2.2.191",
+    "date": "2026-08-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Nove rimedi provati e nessuno funziona: escono dal codice ed entrano nel file come tabella",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Quattro nomi italiani arrivati con la tornata, e il debito scende di uno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due cancelli della tornata: un path /tmp fisso, e il nome del proprietario in un file nuovo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il commento della deroga era in italiano, in un file a baseline zero",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.190",
     "date": "2026-08-27",
     "sections": {
@@ -94,6 +125,16 @@
       "perf": [],
       "internal": [
         {
+          "it": "Su Windows gli acceleratori del menu non li traduceva nessuno: ora li ascolta la webview",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo schema dello split su ogni riga della sidebar, da un solo componente",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Il ciclo di visibilita' non basta: si ri-genitora. E il rimbalzo faceva CRESCERE la finestra",
           "en": "",
           "scope": null
@@ -115,6 +156,11 @@
       "perf": [],
       "internal": [
         {
+          "it": "Su Windows le scorciatoie dell'app morivano dentro la pane, come sul Mac prima del monitor",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "L'aggancio stava dentro un blocco macOS: su Windows non esisteva proprio",
           "en": "",
           "scope": null
@@ -130,6 +176,11 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "Mappa delle 34 scorciatoie su Windows: dove e' gestita ognuna e quale causa la uccide",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "La prima cura non ha morso: non e' la finestra, e' la composizione di WebView2",
           "en": "",
@@ -178,6 +229,11 @@
         },
         {
           "it": "Il test passava DA SOLO e falliva nella suite: fingeva l'ospite, non il modulo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una sola porta per la cartella di stato: DATA_DIR e TOPICS_DATA_DIR unificate",
           "en": "",
           "scope": null
         }
