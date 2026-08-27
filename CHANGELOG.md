@@ -2,16 +2,23 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.194 — 2026-08-27
+
+### Sotto il cofano
+- `destructure` entra in PROJECT_WORDS: e' un buco del dizionario, non italiano
+
 ## 2.2.193 — 2026-08-27
 
 ### Sotto il cofano
 - Ctrl+, era muto nel composer: la guardia cedeva a ogni campo di testo, non solo a chi possiede il tasto
 - Il bump smette di inseguire lo SHA approvato e segue la punta di main
 - Il debito dei nomi scende di due: il test del release-gate e' nato in inglese
+- Chiudi il buco nel gate state-dir-single-door: bracket access e destructuring
 - release-gate.ts e' un cieco per knip, e va dichiarato invece di aggirato
 - E anche i commenti italiani scendono: 45 righe in meno
 - Terzo ratchet della tornata: 9 righe italiane in meno in useKeyboardShortcuts
 - L'asserzione negativa aspettava l'orologio: adesso aspetta un fatto
+- Rinomina in inglese 706 identificatori italiani locali, baseline 6868 -> 6162
 - CMD-COMMA-01 e -02: i requisiti che la spec di Ctrl+virgola gia' provava
 
 ## 2.2.192 — 2026-08-27

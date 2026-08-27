@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.194",
+    "date": "2026-08-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "`destructure` entra in PROJECT_WORDS: e' un buco del dizionario, non italiano",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.193",
     "date": "2026-08-27",
     "sections": {
@@ -23,6 +39,11 @@
           "scope": null
         },
         {
+          "it": "Chiudi il buco nel gate state-dir-single-door: bracket access e destructuring",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "release-gate.ts e' un cieco per knip, e va dichiarato invece di aggirato",
           "en": "",
           "scope": null
@@ -39,6 +60,11 @@
         },
         {
           "it": "L'asserzione negativa aspettava l'orologio: adesso aspetta un fatto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rinomina in inglese 706 identificatori italiani locali, baseline 6868 -> 6162",
           "en": "",
           "scope": null
         },
