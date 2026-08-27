@@ -760,7 +760,7 @@ export async function callOpenBrowserPane(
   args: ParsedArgs,
   toolArgs: { url?: unknown; name?: unknown },
   fetchImpl: typeof fetch = fetch,
-): Promise<{ url: string; title: string; visible: boolean }> {
+): Promise<{ url: string; title: string; visible: boolean; warning?: string }> {
   if (typeof toolArgs?.url !== "string" || !toolArgs.url) {
     throw new Error("open_browser_pane: 'url' (string) is required");
   }
@@ -784,7 +784,7 @@ export async function callOpenBrowserPane(
     const text = await resp.text().catch(() => "");
     throw new Error(`topics-app HTTP ${resp.status}: ${text || resp.statusText}`);
   }
-  const body = (await resp.json()) as { url?: unknown; title?: unknown; visible?: unknown; error?: unknown };
+  const body = (await resp.json()) as { url?: unknown; title?: unknown; visible?: unknown; warning?: unknown; error?: unknown };
   if (body.error) throw new Error(String(body.error));
   return {
     url: typeof body.url === "string" ? body.url : toolArgs.url,
@@ -792,6 +792,9 @@ export async function callOpenBrowserPane(
     // Assente (server più vecchio del flag) ⇒ si tiene il messaggio storico:
     // meglio non dire niente che dire «invisibile» a un server che non lo sa.
     visible: body.visible !== false,
+    // The foreign-port / no-response check (task f9cf765e): present only when
+    // there IS something to say, so a plain open keeps its plain result shape.
+    ...(typeof body.warning === "string" && body.warning ? { warning: body.warning } : {}),
   };
 }
 
@@ -1976,9 +1979,13 @@ export const TOOL_HANDLERS: Record<
     // I due esiti DEVONO leggersi diversi. Finché il messaggio era lo stesso,
     // «pane aperta» e «contesto vivo che nessuno vede» erano indistinguibili da
     // fuori: né l'agente né l'umano potevano accorgersi del guasto.
-    return r.visible
+    const body = r.visible
       ? `Opened browser pane at ${where}`
       : `Browser context ready at ${where} — but NO visible pane is mounted (no Topics window took it). The page is loaded and drivable with browser_*; call browser_focus_tab to surface it, or tell the user it is not on screen.`;
+    // The port/project warning (task f9cf765e) LEADS the result: it is the one
+    // line an agent skimming "Opened browser pane at ..." must not be able to
+    // miss, so it is not appended at the end where a long result truncates it.
+    return r.warning ? `${r.warning}\n${body}` : body;
   },
   close_browser_pane: (a, t) => callCloseBrowserPane(a, t as { contextId?: unknown }),
   browser_list_tabs: (a, t) => callListBrowserTabs(a, t),

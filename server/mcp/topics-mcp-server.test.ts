@@ -226,6 +226,33 @@ describe("callOpenBrowserPane", () => {
     expect(result).toEqual({ url: "https://example.com/foo", title: "", visible: true });
   });
 
+  test("forwards a server-side warning (foreign-port / no-response check, task f9cf765e)", async () => {
+    const fetchImpl = stubFetch(async () =>
+      new Response(
+        JSON.stringify({ url: "http://localhost:3333/", title: "", visible: true, warning: "⚠ Port 3333 is served by another project" }),
+        { status: 200 },
+      ),
+    );
+    const result = await callOpenBrowserPane(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { url: "http://localhost:3333/" },
+      fetchImpl,
+    );
+    expect(result.warning).toBe("⚠ Port 3333 is served by another project");
+  });
+
+  test("no warning field when the server has nothing to say", async () => {
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ url: "https://example.com/", title: "" }), { status: 200 }),
+    );
+    const result = await callOpenBrowserPane(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { url: "https://example.com/" },
+      fetchImpl,
+    );
+    expect(result.warning).toBeUndefined();
+  });
+
   test("surfaces server-side { error } as throw", async () => {
     const fetchImpl = stubFetch(async () =>
       new Response(JSON.stringify({ error: "Browser service disabled" }), { status: 200 }),
@@ -715,6 +742,33 @@ describe("handleMessage", () => {
       expect(invisibile).toContain("NO visible pane");
       expect(invisibile).toContain("browser_focus_tab");
       expect(invisibile).not.toContain("Opened browser pane");
+    } finally {
+      (globalThis as any).fetch = orig;
+    }
+  });
+
+  test("open_browser_pane: a foreign-port warning LEADS the text, it does not trail it (task f9cf765e)", async () => {
+    const orig = globalThis.fetch;
+    (globalThis as any).fetch = stubFetch(async () =>
+      new Response(
+        JSON.stringify({
+          url: "http://localhost:3333/",
+          title: "",
+          visible: true,
+          warning: "⚠ Port 3333 is served by pid 222 (node) from another project (/Users/x/Projects/darkroom)",
+        }),
+        { status: 200 },
+      ),
+    );
+    try {
+      const resp = await handleMessage(
+        { jsonrpc: "2.0", id: 78, method: "tools/call", params: { name: "open_browser_pane", arguments: { url: "http://localhost:3333/" } } },
+        ARGS,
+      );
+      const text = (resp!.result as any).content[0].text as string;
+      expect(text.startsWith("⚠ Port 3333")).toBe(true);
+      expect(text).toContain("darkroom");
+      expect(text).toContain("Opened browser pane at http://localhost:3333/");
     } finally {
       (globalThis as any).fetch = orig;
     }
