@@ -39,7 +39,14 @@ import {
 } from "./browser-login-state";
 // SHARED action set — the SAME source the native validator (tauriBrowserOps) uses,
 // so the two paths can never disagree on what browser_act accepts.
-import { REF_ACTIONS, ACT_ACTIONS, UPLOAD_FN, STATUS_JS } from "../shared/browser-snapshot-core";
+import {
+  REF_ACTIONS,
+  ACT_ACTIONS,
+  UPLOAD_FN,
+  STATUS_JS,
+  isStaleRefError,
+  refAfterResnapshot,
+} from "../shared/browser-snapshot-core";
 import { writeFile, mkdir, readdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { topicsHome } from "./services/daemon-state";
@@ -196,8 +203,17 @@ export interface BrowserObserveResult {
   snapshot: string;
   /** True when `snapshot` is a full listing (no prior snapshot / full requested). */
   full: boolean;
-  /** Base64 annotated JPEG — present only when screenshot:true was requested. */
-  screenshot_annotated?: string;
+  /**
+   * ABSOLUTE PATH of the annotated JPEG — present only when screenshot:true was
+   * requested and the capture succeeded. A path, never the pixels: the image
+   * used to travel back as base64, tens of thousands of tokens the caller
+   * cannot look at, on the same turn that already carries the snapshot. The
+   * file is fed to `moondream <path>` / the Read tool, or just left alone.
+   */
+  screenshot_path?: string;
+  /** Are the numbered boxes drawn on that image? The web pane annotates; the
+   *  native pane has no annotator and says so instead of implying it. */
+  screenshot_boxes?: boolean;
 }
 
 export async function handleBrowserObserve(
@@ -228,12 +244,21 @@ export async function handleBrowserObserve(
           return { url: next.url, title: next.title, count: next.elements.length, snapshot: d.text, full: d.full };
         })();
 
-    // Heavy annotated screenshot is opt-in (the user already sees the pane).
+    // Heavy annotated screenshot is opt-in (the user already sees the pane), and
+    // it lands ON DISK like every other agent-facing capture: same helper, same
+    // media dir, same prune. `browser_screenshot` learned this long ago; observe
+    // kept inlining base64 into a response that already carries the snapshot.
     if (wantScreenshot) {
       try {
         const elements = await ops.extractIndexedElements({ maxElements: max });
         observeCache.set(contextId, elements);
-        result.screenshot_annotated = await ops.captureAnnotatedScreenshot(elements);
+        const b64 = await ops.captureAnnotatedScreenshot(elements);
+        const buf = Buffer.from(b64, "base64");
+        // A PNG starts with 0x89 and a JPEG with 0xff: the annotator picks, we
+        // name the file after what it actually produced instead of assuming.
+        const ext = buf[0] === 0x89 ? "png" : "jpg";
+        result.screenshot_path = await writeAgentScreenshot(buf, contextId, ext);
+        result.screenshot_boxes = true;
         // NB: the compact ref snapshot above + the annotated JPEG already give the
         // agent both structure and pixels; the old `a11y_tree` (full ariaSnapshot)
         // duplicated the snapshot at ~3–6k tokens per call, so it's dropped.
@@ -295,6 +320,8 @@ export async function handleBrowserAct(
   console.log(`[BrowserTools] browser_act(${contextId}, ref=${ref ?? "-"}, action=${action})`);
   const ops = await resolveOps(service, contextId);
   return withLock(service, contextId, async () => {
+    /** Set when a stale ref was followed to the number it now carries. */
+    let rerefedTo: number | undefined;
     // get_text reads — no mutation, no diff.
     if (action === "get_text") {
       const r = await ops.getText({ ref });
@@ -306,11 +333,29 @@ export async function handleBrowserAct(
     } else if (action === "press" && ref == null) {
       await ops.dispatchInput("keypress", { key: args.key ?? "Enter" });
     } else {
-      await ops.actByRef(ref as number, action as RefAction, {
-        text: args.text,
-        value: args.value,
-        key: args.key,
-      });
+      const payload = { text: args.text, value: args.value, key: args.key };
+      try {
+        await ops.actByRef(ref as number, action as RefAction, payload);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!isStaleRefError(msg)) throw err;
+        // THE REF IS GONE, so take the snapshot the caller was told to take.
+        // A ref is a position in a listing: a re-render renumbers, and the
+        // element aimed at is usually still there under another number. Two
+        // outcomes, both of which cost the caller nothing:
+        //   - it is followable (one element with the same identity): act there,
+        //     once, and say so in the result;
+        //   - it is not: the error CARRIES the fresh snapshot, so the next call
+        //     is the action again, not an observe to earn the right to retry.
+        const fresh = await ops.snapshot({ max: 200 });
+        const again = refAfterResnapshot(prevSnapshotCache.get(contextId), fresh, ref as number);
+        prevSnapshotCache.set(contextId, fresh);
+        if (again == null) {
+          throw new Error(`${msg}\nFresh snapshot (already taken for you):\n${serialize(fresh)}`);
+        }
+        await ops.actByRef(again, action as RefAction, payload);
+        rerefedTo = again;
+      }
     }
     // Let a click-triggered navigation / async re-render settle before we read
     // the result, so the diff reflects the RESULT rather than the pre-effect DOM
@@ -333,7 +378,11 @@ export async function handleBrowserAct(
     } catch {
       /* diff best-effort */
     }
-    return { ok: true as const, action, ref, snapshot };
+    if (rerefedTo != null) {
+      const note = `(ref ${ref} was stale; re-snapshotted and acted on [${rerefedTo}], same element.)`;
+      snapshot = snapshot ? `${note}\n${snapshot}` : note;
+    }
+    return { ok: true as const, action, ref: rerefedTo ?? ref, snapshot };
   });
 }
 

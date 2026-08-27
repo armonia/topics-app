@@ -11,7 +11,7 @@
 // Il contratto della board sta in `shared/board.ts`, dichiarato UNA volta e
 // letto dai due lati del filo: `export … from` ri-esporta ma non porta i nomi
 // in scope locale, e qui sotto servono, quindi l'import gemello non è ridondante.
-export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, PARKED_STOPPED, PARKED_WAITED_OUT, isAgentWorking, isThreadSpeech, parseStatusEvent, hasPlanApproveOption, parseQuestionBlock, showsLandingDebt } from '../../../shared/board';
+export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, PARKED_STOPPED, PARKED_WAITED_OUT, isAgentWorking, isThreadSpeech, parseStatusEvent, hasPlanApproveOption, parseQuestionBlock, showsLandingDebt, showsDeployProposal } from '../../../shared/board';
 // Il tetto globale di concorrenza: estremi, arrotondamento e formula del numero
 // EFFETTIVO. Stessa cartella condivisa e stesso motivo del resto: il dispatcher
 // applica questo calcolo, il pannello impostazioni della board lo scrive sotto
@@ -572,6 +572,10 @@ export interface BoardTask {
    *  null = never audited (no delivery recorded). 'unlanded' is the alarm. */
   landingState: "landed" | "unlanded" | "unverifiable" | "superseded" | null;
   landingCheckedAt?: string;
+  /** Deploy proposed at approve (board setting `deployCommand`). `null` = never
+   *  proposed. `'proposed'` shows the "Deploya ora" banner; the outcome
+   *  (`deployed`/`failed`) is told in the thread as a system comment. */
+  deployState: "proposed" | "running" | "deployed" | "failed" | null;
   /** Esito dei checks pre-review. null = mai girati — NON un verde. */
   /**
    * `unknown` = i comandi non sono arrivati in fondo (quasi sempre il tetto dei
@@ -910,6 +914,10 @@ export const boardApi = {
   /** L'esito del land richiesto per questo task (404 se non ne è mai stato chiesto uno). */
   landStatus: (projectId: string, taskId: string) =>
     req<{ landing: LandingTicket; pending: number }>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/land`),
+  /** Confirm a proposed deploy (board setting `deployCommand`): runs the command
+   *  in the project's main checkout. Never automatic — this IS the human click. */
+  deploy: (projectId: string, taskId: string) =>
+    req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/deploy`, { method: 'POST', body: JSON.stringify({}) }),
   /**
    * «Ricattura evidenza» su una card GIÀ in review: riavvia l'anteprima dal suo
    * worktree e la rifotografa. Non sveglia l'agent, non consuma un tentativo, non

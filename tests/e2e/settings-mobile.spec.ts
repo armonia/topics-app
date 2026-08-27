@@ -78,21 +78,38 @@ async function apriImpostazioni(page: Page) {
  * puntatore), quindi qui si emulano tutt'e due via CDP. Va rifatto DOPO ogni
  * `goto`/`reload`: l'override sta sulla sessione, non sul documento.
  */
-async function emulaIlDito(page: Page) {
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send("Emulation.setEmulatedMedia", {
-    features: [
-      { name: "pointer", value: "coarse" },
-      { name: "any-pointer", value: "coarse" },
-      { name: "hover", value: "none" },
-      { name: "any-hover", value: "none" },
-    ],
-  });
+/**
+ * THE FINGER COMES FROM THE CONTEXT, and this checks it is actually there.
+ *
+ * There used to be an `emulaIlDito` here calling `Emulation.setEmulatedMedia`
+ * with `pointer`/`any-pointer` features. Chrome ignores those names in that
+ * command - it emulates `prefers-color-scheme` and friends, not the pointer -
+ * so the call returned cleanly and changed nothing. Measured on a page WITHOUT
+ * `hasTouch`: right after it, `matchMedia("(any-pointer: coarse)").matches` was
+ * still false. It was doing no work, and it read like it was.
+ *
+ * What really turns the finger on is `test.use({ hasTouch, isMobile })` at the
+ * top of this file. The check below is what makes that visible: `coarse:` gates
+ * 67 rules in this app, so if the context ever stopped providing a coarse
+ * pointer, this spec would go on measuring a DESKTOP squeezed into 390px while
+ * its name promised a finger - and it would keep passing, because desktop
+ * controls clear 44px until one of them does not.
+ */
+/** A guard that cannot silently measure the wrong device again. */
+async function ilDitoCePerDavvero(page: Page) {
+  const media = await page.evaluate(() => ({
+    any: matchMedia("(any-pointer: coarse)").matches,
+    pointer: matchMedia("(pointer: coarse)").matches,
+  }));
+  expect(
+    media.any,
+    `la variante \`coarse:\` e' definita su (any-pointer: coarse): senza, questa spec misura un desktop stretto e le sue misure non dicono niente sul tocco (letto: ${JSON.stringify(media)})`,
+  ).toBe(true);
 }
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  await emulaIlDito(page);
+  await ilDitoCePerDavvero(page);
   await expect(page.getByTestId("sidebar-topics-menu")).toBeVisible({ timeout: 15_000 });
 });
 
@@ -211,7 +228,7 @@ test("nessun <select> di sistema in pagina, e la lingua si cambia col menu dell'
   // LA SCELTA SOPRAVVIVE AL RELOAD. È la metà che conta: un selettore che
   // cambia l'etichetta e dimentica non ha cambiato niente.
   await page.reload();
-  await emulaIlDito(page);
+  await ilDitoCePerDavvero(page);
   await expect(page.getByTestId("sidebar-topics-menu")).toBeVisible({ timeout: 15_000 });
   await apriImpostazioni(page);
   await expect(page.getByTestId("settings-language")).toHaveText(/English/);

@@ -37,10 +37,24 @@ ws.addEventListener("message", (ev) => {
   const m = JSON.parse(String(ev.data));
   if (m.id && pending.has(m.id)) { pending.get(m.id)!(m); pending.delete(m.id); }
 });
-const cdp = (method: string, params: Record<string, unknown> = {}) =>
-  new Promise<{ result?: { result?: { value?: string }, exceptionDetails?: unknown } }>((ok) => {
+/**
+ * A CDP call that CANNOT hang forever.
+ *
+ * Without the deadline this returned a promise that only ever settled if the
+ * answer came back - and when the page's main thread is stuck (a script that
+ * loops, a renderer wedged by an earlier evaluation) the answer never comes.
+ * Measured: a run sat there for ten minutes saying nothing, and the wedged
+ * renderer then refused even `1+1`, so the next attempt looked like a broken
+ * tunnel instead of a busy page. A timeout turns a hang into a sentence.
+ */
+const cdp = (method: string, params: Record<string, unknown> = {}, ms = 45_000) =>
+  new Promise<{ result?: { result?: { value?: string }, exceptionDetails?: unknown } }>((ok, ko) => {
     const id = ++seq;
-    pending.set(id, ok as (v: unknown) => void);
+    const bell = setTimeout(() => {
+      pending.delete(id);
+      ko(new Error(`CDP: ${method} did not answer within ${ms}ms - the page is probably wedged. Restart the remote Chrome (schtasks /End then /Run on topics-ui176-chrome, and delete the profile dir: a locked one makes Chrome fail to start silently).`));
+    }, ms);
+    pending.set(id, ((v: unknown) => { clearTimeout(bell); ok(v as never); }) as (v: unknown) => void);
     ws.send(JSON.stringify({ id, method, params }));
   });
 

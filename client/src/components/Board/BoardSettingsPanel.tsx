@@ -215,7 +215,64 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           <input type="checkbox" checked={s.dispatchAutoMerge} disabled={!s.dispatchUseWorktree} onChange={(e) => patch({ dispatchAutoMerge: e.target.checked })} className="h-3.5 w-3.5 accent-emerald-500 disabled:opacity-40" />
         </label>
         <ReviewChecksField checks={s.reviewChecks} onSave={(reviewChecks) => patch({ reviewChecks })} />
+        <DeployCommandField
+          value={s.deployCommand}
+          suggestion={(s as { deployCommandSuggestion?: string | null }).deployCommandSuggestion ?? null}
+          onSave={(deployCommand) => patch({ deployCommand })}
+        />
       </SettingsSection>
+    </div>
+  );
+}
+
+/**
+ * The generic analogue of the auto-merge switch above, for a board whose
+ * "done" runs an external deploy command instead of merging to main. Free
+ * text and NOT a toggle: it never runs by itself, it only turns the post-
+ * approve PROPOSAL (comment + "Deploya ora" button) on or off — see
+ * `Task.deployState` and `server/routes/tasks.ts`.
+ */
+function DeployCommandField({ value, suggestion, onSave }: {
+  value: string;
+  suggestion: string | null;
+  onSave: (v: string) => void;
+}) {
+  const tr = useT();
+  const [draft, setDraft] = useState<string | null>(null);
+  const text = draft ?? value;
+  const commit = () => {
+    if (draft === null) return;
+    setDraft(null);
+    if (draft.trim() === value.trim()) return;
+    onSave(draft.trim());
+  };
+  return (
+    <div className="space-y-1">
+      <label className="flex items-center justify-between gap-2" title={tr('board.settings.deployCommandTitle')}>
+        <span>{tr('board.settings.deployCommand')}</span>
+      </label>
+      <input
+        type="text"
+        data-testid="board-deploy-command"
+        value={text}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+        spellCheck={false}
+        placeholder={tr('board.settings.deployCommandPlaceholder')}
+        className="w-full rounded bg-white/5 px-1.5 py-1 font-mono text-[11px] text-app-text outline-none placeholder:text-app-placeholder focus:bg-white/10"
+      />
+      {!value && suggestion && (
+        <p className="text-[10px] text-app-text-muted">
+          {tr('board.settings.deployCommandSuggestion', { cmd: suggestion })}{' '}
+          <button
+            type="button"
+            data-testid="board-deploy-command-use-suggestion"
+            onClick={() => onSave(suggestion)}
+            className="text-emerald-400 hover:underline"
+          >{tr('board.settings.deployCommandUseSuggestion')}</button>
+        </p>
+      )}
     </div>
   );
 }

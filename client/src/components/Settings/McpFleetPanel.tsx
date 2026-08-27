@@ -68,7 +68,13 @@ export function McpFleetPanel() {
           data-testid="mcp-fleet-refresh"
           onClick={() => { void recheck(); }}
           disabled={refreshing}
-          className="flex flex-shrink-0 items-center gap-1 rounded-md border border-app-border bg-surface px-2 py-1 text-[11px] hover:bg-app-hover disabled:opacity-50"
+          // `coarse:min-h-11` like every other target in this panel: under a
+          // finger this button measured 26.5px tall against the 44px required
+          // — found by the nightly (run 33040071985), its only red out of 245.
+          // The `coarse` variant keys off the POINTER, not the screen width,
+          // so on desktop the button stays as compact as it has always been
+          // and only grows where there is an actual finger.
+          className="flex flex-shrink-0 items-center gap-1 rounded-md border border-app-border bg-surface px-2 py-1 text-[11px] hover:bg-app-hover disabled:opacity-50 coarse:min-h-11 coarse:px-3"
         >
           <RefreshCw size={11} className={refreshing ? 'animate-spin' : undefined} />
           {refreshing ? t('mcp.rechecking') : t('mcp.recheck')}

@@ -1385,6 +1385,18 @@ export interface BoardSettings {
    */
   dispatchAutoMerge: boolean;
   /**
+   * The generic analogue of `dispatchAutoMerge` for a board whose "done" does
+   * not mean "merge to main" but "run this deploy script" — an external
+   * project (a static site, a worker) with its own `deploy` in package.json.
+   * Empty string = OFF, the default: no existing board changes behaviour.
+   *
+   * The server NEVER runs it by itself. On approve, if this is set, it
+   * PROPOSES the deploy (a comment + a "Deploya ora" button on the card) and
+   * only runs it in the project's MAIN checkout when a human confirms — see
+   * `server/services/task-deploy.ts` and `Task.deployState`.
+   */
+  deployCommand: string;
+  /**
    * DECLASSED TO REPORTING ONLY: this used to be the wall-clock ceiling that
    * cut a turn dead. It no longer kills anything — see `dispatchIdleMin` for
    * what replaced it. Kept only as a signal a very long turn compares itself
@@ -1827,6 +1839,36 @@ export function showsLandingDebt(task: {
   // `unverifiable` non è un'accusa più debole: è l'assenza di un verdetto.
   if (task.landingState !== 'unlanded') return false;
   return !!task.deliveryCommit;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Deploy proposed at approve (board_settings.deployCommand) — analogue of
+// `landingState`, but for running a command instead of a git merge.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Where a card stands relative to the deploy proposed at approve: `'proposed'
+ *  | 'running' | 'deployed' | 'failed' | null` (`null` = never proposed —
+ *  board with no `deployCommand`, or a card not yet approved). Kept as the
+ *  literal union everywhere it is used (`Task.deployState`, this function's
+ *  parameter): nothing validates it against a runtime list yet, so a named
+ *  type here would be a second declaration nobody imports. */
+
+/** The button's text — a reserved quick-reply, executed by the server and
+ *  never by the agent (same treatment as `LAND_ACTION_LABEL` above). */
+export const DEPLOY_ACTION_LABEL = 'Deploya ora';
+
+/**
+ * THE SAME PILL as `showsLandingDebt`, for deploy: persisted, not derived from
+ * the thread, so a card reopened after a network error does not lose the
+ * button just because the proposal comment has scrolled out of view.
+ *
+ * Holds on ANY status of the card (not just `done`): a post-approve `reject`
+ * does not withdraw a deploy proposal already made, and that is intentional —
+ * the deploy is an action on the BOARD (the main checkout), not a verdict on
+ * the task.
+ */
+export function showsDeployProposal(task: { deployState: string | null | undefined }): boolean {
+  return task.deployState === 'proposed';
 }
 
 /**

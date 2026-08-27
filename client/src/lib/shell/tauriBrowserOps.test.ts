@@ -131,6 +131,72 @@ test('browser_act surfaces a failed ACT_FN result as an error', async () => {
   expect(out.error).toContain('ref 9 not found');
 });
 
+/**
+ * Stale ref on the native pane. Same rule as the server path (both call
+ * `refAfterResnapshot`): the DOM here is a snapshot we can swap, and ACT_FN is
+ * answered by looking for the ref in the CURRENT one.
+ */
+function stalePaneInvoke(first: Snapshot, after: Snapshot): { invoke: Invoke; actedRefs: number[] } {
+  const actedRefs: number[] = [];
+  let current = first;
+  const invoke: Invoke = async (cmd, args) => {
+    if (cmd !== 'browser_eval_js') return '' as never;
+    const js = (args as { js: string }).js;
+    if (js.includes('getClientRects')) {
+      const out = JSON.stringify(current);
+      current = after; // the next read sees the re-rendered page
+      return out as never;
+    }
+    if (js.includes('scrollIntoView')) {
+      const ref = Number(/"ref":(\d+)/.exec(js)?.[1] ?? NaN);
+      const known = current.elements.some((e) => e.ref === ref);
+      if (!known) {
+        return JSON.stringify({
+          ok: false,
+          error: `ref ${ref} not found on the page (stale snapshot? call browser_observe again, then act)`,
+        }) as never;
+      }
+      actedRefs.push(ref);
+      return JSON.stringify({ ok: true }) as never;
+    }
+    return '' as never;
+  };
+  return { invoke, actedRefs };
+}
+
+const RENUMBERED: Snapshot = {
+  ...SNAP,
+  elements: [{ ref: 1, role: 'button', name: 'Go' }],
+};
+const AMBIGUOUS: Snapshot = {
+  ...SNAP,
+  elements: [
+    { ref: 1, role: 'button', name: 'Go' },
+    { ref: 2, role: 'button', name: 'Go' },
+  ],
+};
+
+test('browser_act on a stale ref: re-snapshots and acts on the SAME element, once', async () => {
+  clearNativeSnapshotCache('stale');
+  // Seed the cache with the page as it was, then let the pane re-render.
+  const { invoke, actedRefs } = stalePaneInvoke(SNAP, RENUMBERED);
+  await executeNativeBrowserOp('stale', 'browser_observe', { full: true }, invoke);
+  const out = await executeNativeBrowserOp('stale', 'browser_act', { ref: 2, action: 'click' }, invoke);
+  expect(actedRefs).toEqual([1]);
+  expect((out.result as { ref?: number })?.ref).toBe(1);
+  expect((out.result as { snapshot?: string })?.snapshot).toContain('ref 2 was stale');
+});
+
+test('browser_act on a stale ref with two identical candidates: no guess, the error carries the listing', async () => {
+  clearNativeSnapshotCache('stale2');
+  const { invoke, actedRefs } = stalePaneInvoke(SNAP, AMBIGUOUS);
+  await executeNativeBrowserOp('stale2', 'browser_observe', { full: true }, invoke);
+  const out = await executeNativeBrowserOp('stale2', 'browser_act', { ref: 5, action: 'click' }, invoke);
+  expect(actedRefs).toEqual([]);
+  expect(out.error).toContain('Fresh snapshot');
+  expect(out.error).toContain('[2] button "Go"');
+});
+
 test('browser_extract maps CSS-selector fields to values', async () => {
   const invoke: Invoke = async (cmd, args) => {
     if (cmd === 'browser_eval_js') {
