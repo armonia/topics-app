@@ -1283,39 +1283,3 @@ export interface WSGoalUpdatedMessage {
   topicId: string;
   goal: TopicGoal | null;
 }
-
-/**
- * What happened to one globally configured MCP server, as the screen shows it.
- *
- * `excluded` is not a failure: an inheritance rule dropped the server on
- * purpose (see `server/providers/mcp-inheritance.ts`), and `reason` carries the
- * rule that did it. `failed` is a server that was meant to be there and did not
- * answer the handshake, and `reason` is then the connection error.
- */
-export type McpServerState = 'ready' | 'failed' | 'excluded';
-
-export interface McpServerStatus {
-  name: string;
-  transport: 'http' | 'stdio' | null;
-  state: McpServerState;
-  /** Prefixed tool names, exactly as the model sees them. */
-  tools: string[];
-  /** What the server exposes besides tools (MCP prompts), by name. */
-  skills: string[];
-  /** Why it is not there: the connection error, or the inheritance rule. */
-  reason?: string;
-}
-
-/**
- * The answer of `GET /api/mcp/fleet`, which is also the whole content of the
- * mounted-tools panel in Settings.
- */
-export interface McpFleetStatus {
-  /** False when the native MCP client is switched off (TOPICS_NATIVE_MCP=0). */
-  enabled: boolean;
-  /** True while the first mount is still in flight. */
-  mounting: boolean;
-  /** The config the fleet was read from. */
-  source: string | null;
-  servers: McpServerStatus[];
-}

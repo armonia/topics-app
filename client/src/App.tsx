@@ -85,6 +85,7 @@ import { ToastProvider, ToastOutlet, useToast } from './components/Shared/Toast'
 import { PairingApproval } from './components/Auth/PairingApproval';
 import { ConfirmProvider } from './hooks/useConfirm';
 import { CompletionNotifierBridge } from './hooks/useCompletionNotifier';
+import { useVoiceLoop } from './hooks/useVoiceLoop';
 import { PendingActionProvider, enqueuePendingAction, tickPendingAction, cancelPendingAction, flushPendingActions } from './contexts/PendingActionContext';
 import { DRAG_REGION, NO_DRAG_REGION } from './lib/shell/dragRegion';
 import { WindowControls } from './components/Shared/WindowControls';
@@ -569,6 +570,13 @@ function App() {
   // in its task's in-drawer group, never the global layout. App-level so it's
   // captured whichever drawer is open. See useTaskBrowserTabsSync.
   useTaskBrowserTabsSync(onWSMessage);
+
+  // Voice loop board: announces a task reaching review out loud and, outside
+  // `voiceMode: 'off'` (the default), listens for a spoken reply. No toast
+  // context needed (unlike CompletionNotifierBridge below), so it's called
+  // directly here instead of through a renderless bridge component. See
+  // useVoiceLoop.ts.
+  useVoiceLoop({ onWSMessage, settings: appSettings });
 
   // Wire up chat stream handler to WebSocket (enables cross-window streaming)
   useEffect(() => {

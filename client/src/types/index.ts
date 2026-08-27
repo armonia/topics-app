@@ -1544,6 +1544,20 @@ export interface AppSettings {
    * vero: lì il vuoto è informazione.
    */
   showBoardRow: boolean;
+  /**
+   * The voice loop board: when a task reaches review, the app announces it
+   * out loud and — outside `off` — opens the mic for a spoken reply (approve
+   * / feedback / close).
+   *
+   *  · `off` (default) — no announcement, no mic opened on its own.
+   *  · `always` — every `task:review-ready` is announced and, right after,
+   *    the app listens for the reply.
+   *  · `wake-word` — still announces, but the reply is only recorded if the
+   *    transcript contains the activation phrase (see
+   *    `lib/voice/wakeWord.ts`): the mic stays on at low commitment instead
+   *    of opening itself after every announcement.
+   */
+  voiceMode: 'off' | 'always' | 'wake-word';
 }
 
 // Qui c'erano due descrizioni senza lettori. `ScriptProcess`: la UI degli

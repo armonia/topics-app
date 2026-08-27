@@ -1144,6 +1144,37 @@ Il passo di rientro per profondità resta fuori: lì due valori diversi sono vol
 - **GIVEN** una tessera che non si apre, in forma di griglia
 - **THEN** NON SHALL riservare il riquadro dell'accordion
 
+### Requirement: LAYOUT-27 — La colonna dei NOMI è UNA: lo slot del glifo di testa lo riservano anche le righe senza glifo
+
+Misurato sulla card 018fd91f, sidebar alla larghezza di default: il nome di una
+chat partiva a 34px dal bordo, quello di un progetto a 56 (la favicon stava in una
+scatola sua da 14px, l'ultimo glifo fuori dallo slot condiviso), quello della
+bacheca, delle utilità, dei terminali e dei browser a 60. Tre incolonnamenti nella
+stessa lista, e nessuna riga sbagliata da sola.
+
+Ogni riga della sidebar SHALL riservare lo slot del glifo di testa, anche quando
+non ci disegna niente: NON disegnare un glifo e NON riservarne la scatola sono due
+decisioni distinte, e la chat aveva presa solo la prima. Una chat NON SHALL
+guadagnare un marchio proprio: i marchi (Claude / Codex) restano delle sessioni
+agente vere.
+
+Ogni glifo di testa SHALL stare nello STESSO slot, favicon di progetto compresa:
+una scatola scritta a mano accanto allo slot condiviso rifà lo stesso difetto più
+piccolo. Il DISEGNO può restare più stretto dello slot: allinea la scatola, non
+l'inchiostro.
+
+La verifica NON SHALL essere a occhio, e NON SHALL limitarsi alle righe con
+`role="treeitem"`: la riga di progetto non lo è, e la coppia che il difetto
+riguarda resterebbe fuori dalla misura.
+
+#### Scenario: una chat e un progetto allo stesso livello
+- **GIVEN** una chat di primo livello e un progetto di primo livello
+- **THEN** i due nomi SHALL cominciare dallo STESSO pixel
+
+#### Scenario: una riga di chat
+- **GIVEN** una chat, che non porta nessun glifo di testa
+- **THEN** SHALL riservare comunque il riquadro del glifo
+
 ### Requirement: POPOVER-01 — Uno alla volta, ma un FIGLIO non caccia il genitore
 
 L'apertura di un popover ESCLUSIVO SHALL chiudere i FRATELLI e NON SHALL chiudere
@@ -1774,3 +1805,47 @@ SHALL vincere quella della barra.
 #### Scenario: un argomento già archiviato
 - **GIVEN** lo stato archiviato
 - **THEN** NON SHALL essere proposta l'archiviazione
+
+### Requirement: LAYOUT-28 — Chiudere e riaprire la sidebar non SCOPRE una banda che nessuno dipinge
+
+Lo scorrimento della sidebar SHALL essere animato con una trasformata, non
+animando il padding: il padding e' una proprieta' di LAYOUT, e cambiarla a ogni
+frame ristringe la larghezza del contenuto, che a cascata rifa' il layout di
+ogni terminale visibile. Il rimedio storico — far scattare il padding di colpo
+quando ci sono molti terminali — spegneva l'animazione proprio sotto carico,
+cioe' curava il sintomo togliendo la cosa.
+
+Il layer spostato dalla trasformata SHALL essere ALLARGATO dello stesso
+spostamento mentre scorre. Il layer e' un figlio flex: committare il padding lo
+stringe, quindi la trasformata scopre una striscia larga quanto lo spostamento —
+la «banda grigia» segnalata riaprendo la sidebar. Una trasformata non puo'
+dipingere cio' che non e' dentro la scatola.
+
+La larghezza aggiunta SHALL essere azzerata PRIMA della misura successiva: un
+ciclo rapido chiudi-riapri misurerebbe altrimenti un layer che indossa ancora
+l'extra del giro precedente, e l'errore si accumulerebbe a ogni giro.
+
+Un RIDIMENSIONAMENTO della sidebar — larghezza diversa, stato aperto invariato —
+SHALL assestarsi subito e NON SHALL essere animato: arriva come un solo commit a
+fine trascinamento, e animarlo farebbe scivolare la pagina duecento millisecondi
+dopo che la maniglia e' stata rilasciata.
+
+Una nuova commutazione SHALL annullare quella in volo: senza, il frame della
+precedente atterra dopo che la nuova ha gia' ri-misurato, e il layer resta
+spostato di una quantita' che non corrisponde a nessuno stato.
+
+#### Scenario: si riapre la sidebar
+- **GIVEN** la sidebar chiusa e un layer allineato al padding del contenuto
+- **WHEN** la sidebar si riapre
+- **THEN** il layer SHALL essere spostato della differenza misurata
+- **AND** SHALL essere allargato della stessa quantita'
+
+#### Scenario: due cicli di fila
+- **GIVEN** una riapertura che ha allargato il layer
+- **WHEN** si richiude
+- **THEN** la larghezza aggiunta SHALL essere tornata a zero
+
+#### Scenario: si trascina la maniglia
+- **GIVEN** la sidebar aperta
+- **WHEN** cambia solo la sua larghezza
+- **THEN** non SHALL esserci nessuna trasformata da animare

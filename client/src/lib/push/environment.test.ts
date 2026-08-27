@@ -22,6 +22,7 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { pushCapable, pushDeviceId, readPushEnvironment } from "./environment";
+import { resetMediaQueryCache } from "../mediaQuery";
 
 type Globals = { navigator?: unknown; window?: unknown; localStorage?: unknown; Notification?: unknown };
 const ORIGINALS: Globals = {
@@ -59,6 +60,11 @@ function environment(opts: {
     matchMedia: (q: string) => ({ matches: q.includes("standalone") ? (opts.displayMode ?? false) : false }),
   };
   if (opts.pushManager ?? true) win.PushManager = function () {};
+  // `lib/mediaQuery` MEMOIZES one MediaQueryList per query for the whole
+  // session, so without clearing that memo the fake `matchMedia` installed
+  // below stays shadowed behind the list built by the previous case, and the
+  // `display-mode` this case exists to exercise is never read.
+  resetMediaQueryCache();
   setGlobals({
     navigator: nav,
     window: win,

@@ -96,9 +96,20 @@
     const py = parseFloat(st.paddingTop) + parseFloat(st.paddingBottom);
     return { w: r.width + px, h: r.height + py };
   };
+  // Terza esclusione, per lo stesso motivo delle altre due: un elemento che
+  // NESSUNO puo' cliccare non e' un bersaglio. I pulsanti finestra da chiusi
+  // stanno dentro un gruppo `pointer-events: none` e larghezza zero — e' il
+  // loro stato spento, non un bersaglio piccolo.
+  const spento = (e) => {
+    for (let n = e; n; n = n.parentElement) {
+      if (getComputedStyle(n).pointerEvents === "none") return true;
+    }
+    return false;
+  };
   const minuscoli = Array.from(document.querySelectorAll("button,a[href]"))
     .filter(vis)
     .filter((e) => !e.className.includes("sr-only"))
+    .filter((e) => !spento(e))
     .map((e) => ({ a: areaCliccabile(e), t: e.getAttribute("aria-label") || (e.textContent || "").slice(0, 16) || "senza nome" }))
     .filter(({ a }) => a.w > 0 && (a.w < 16 || a.h < 16))
     .slice(0, 4).map(({ t, a }) => `${t}=${Math.round(a.w)}x${Math.round(a.h)}`);
@@ -106,7 +117,7 @@
 
   // 9. No two clickable elements overlap at each other's centre.
   const bottoni = Array.from(document.querySelectorAll("button")).filter(vis).slice(0, 60);
-  const coperti = bottoni.filter((b) => rect(b).width > 8 && chiRiceve(b, "button") !== "lui")
+  const coperti = bottoni.filter((b) => !spento(b) && rect(b).width > 8 && chiRiceve(b, "button") !== "lui")
     .slice(0, 4).map((b) => b.getAttribute("aria-label") || (b.textContent || "").slice(0, 16) || "senza nome");
   dice("UI-09 nessun bottone coperto", coperti.length === 0, coperti.join(", ") || `${bottoni.length} bottoni, nessuno coperto`);
 
@@ -125,6 +136,35 @@
   const rotte = Array.from(document.images).filter((i) => i.complete && i.naturalWidth === 0)
     .slice(0, 4).map((i) => i.getAttribute("src") || "senza src");
   dice("UI-12 nessuna immagine rotta", rotte.length === 0, rotte.join(", ") || `${document.images.length} immagini, nessuna rotta`);
+
+  // 13. I PULSANTI FINESTRA compaiono col menu Topics e spariscono con lui.
+  //     Questo fix (4a206509d) era arrivato su main dichiarando esso stesso
+  //     «la prova sulla macchina vera resta da fare», e nessun test lo copriva:
+  //     e' un feedback esplicito dell'utente misurato finora solo a occhio.
+  const menu = document.querySelector('[data-testid="sidebar-topics-menu"]');
+  const wc = document.querySelector('[data-testid="win-minimize"]');
+  const gruppo = wc ? wc.closest("div") : null;
+  const opacita = (el) => (el ? getComputedStyle(el).opacity : "assente");
+  const primaDelMenu = opacita(gruppo);
+  if (menu && gruppo) {
+    menu.click();
+    await new Promise((r) => setTimeout(r, 700));
+  }
+  const dopoIlMenu = opacita(gruppo);
+  dice("UI-13 pulsanti finestra col menu Topics",
+    !!wc && primaDelMenu === "0" && dopoIlMenu === "1",
+    wc ? `opacita' ${primaDelMenu} -> ${dopoIlMenu} (attesa 0 -> 1)` : "pulsanti assenti");
+
+  // 14. E chiusi i pulsanti tornano non cliccabili: `pointer-events: none`,
+  //     senno' resterebbero bersagli invisibili sopra la barra del titolo.
+  if (menu && gruppo) {
+    menu.click();
+    await new Promise((r) => setTimeout(r, 700));
+  }
+  const eventiDopoChiusura = gruppo ? getComputedStyle(gruppo).pointerEvents : "assente";
+  dice("UI-14 pulsanti finestra spenti alla chiusura",
+    eventiDopoChiusura === "none",
+    `pointer-events=${eventiDopoChiusura} (atteso none)`);
 
   const rossi = prove.filter((p) => !p.ok);
   return JSON.stringify({
