@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import { TERMINAL_AGENT_TYPES } from "../../shared/terminal-session-types";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -339,11 +340,21 @@ test.describe.serial("Add menu — sistema", () => {
       });
     });
 
-    // Le tre voci che il registro condiviso marca come agenti CLI. `shell` NON
-    // è tra queste: è una pane che si apre vuota, e sta sopra la linea.
-    const AGENTS = ["claude-code", "codex", "opencode"];
+    // Le voci che il registro condiviso marca come agenti CLI, DERIVATE da lui
+    // e non ricopiate: `shell` NON è tra queste (è una pane che si apre vuota,
+    // e sta sopra la linea). Erano tre nomi scritti a mano sotto un commento
+    // che diceva «dal registro condiviso» — e il primo agente aggiunto dopo
+    // (`kimi-code`) è finito fra gli estranei sotto la linea, rosso in nightly
+    // per un difetto che non esisteva. Aggiungere un agente deve restare UNA
+    // modifica, che è la ragione per cui `addMenuItems.ts` legge lo stesso
+    // array con lo stesso filtro.
+    //
+    // Non è un'asserzione che non può fallire: qui si misurano l'ORDINE, la
+    // posizione della linea e il fatto che sotto non ci sia altro. Quali
+    // agenti esistano non è la cosa sotto test.
+    const AGENTS = TERMINAL_AGENT_TYPES.filter((a) => a !== "shell") as readonly string[];
     const agentIdx = seq.flatMap((id, i) => (AGENTS.includes(id) ? [i] : []));
-    expect(agentIdx.length, "i tre agenti CLI sono nel menu").toBe(3);
+    expect(agentIdx.length, "ogni agente CLI del registro è nel menu").toBe(AGENTS.length);
 
     // 1. Gli agenti sono un BLOCCO in coda: nessuna riga non-agente dopo il
     //    primo di loro. È l'invariante che il vecchio ramo atomico rendeva
@@ -354,7 +365,7 @@ test.describe.serial("Add menu — sistema", () => {
     expect(strays, "sotto la linea ci vanno SOLO gli agenti").toEqual([]);
 
     // 2. Restano nell'ordine del registro condiviso (TERMINAL_AGENT_TYPES).
-    expect(agentIdx.map((i) => seq[i])).toEqual(AGENTS);
+    expect(agentIdx.map((i) => seq[i])).toEqual([...AGENTS]);
 
     // 3. La linea sta ESATTAMENTE prima del primo agente.
     expect(seq[firstAgent - 1], "un divisore apre il blocco degli agenti").toBe("---");
