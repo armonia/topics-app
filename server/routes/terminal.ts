@@ -14,6 +14,7 @@ import { timingSafeEqualStr } from "../utils";
 import { readState } from "../services/daemon-state";
 import { resolveCodexBin } from "../lib/codex-bin";
 import { resolveClaudeBin } from "../lib/claude-bin";
+import { resolveKimiBin } from "../lib/kimi-bin";
 import { discoverCodexSessionId, codexRolloutExists, codexRolloutPath } from "../lib/codex-session";
 import { deriveCodexSessionTitle } from "../lib/codex-transcript-title";
 import { discoverOpencodeSessionId, deriveOpencodeSessionTitle } from "../lib/opencode-session";
@@ -1669,6 +1670,17 @@ async function createSession(id: string, name: string, cwd: string, command?: st
     // (GET /v1/models): only gemma-4-31b / gpt-oss-120b / zai-glm-4.7 here.
     file = process.env.SHELL || '/bin/zsh';
     args = ['-lic', 'exec opencode -m cerebras/gemma-4-31b'];
+  } else if (sessionType === 'kimi-code') {
+    // Kimi Code (Moonshot AI's CLI) — spawned the same interactive-PTY way as
+    // codex: no session-id/--resume, no MCP bridge config, no tracker
+    // registration. It carries no claude_session_id, so the dormant sweep and
+    // `decideOnRestart` treat it like shell/codex (see terminal-restart-policy.ts).
+    //
+    // Resolve the ABSOLUTE path: the installer drops the binary at
+    // ~/.kimi-code/bin/kimi and does not reliably reach the bare PATH a
+    // launchd-spawned server inherits (see lib/kimi-bin.ts).
+    file = resolveKimiBin() ?? 'kimi';
+    args = [];
   } else if (command) {
     const parts = command.split(" ");
     file = parts[0];
@@ -1713,6 +1725,10 @@ async function createSession(id: string, name: string, cwd: string, command?: st
     // CEREBRAS_API_KEY + Homebrew PATH live) and opencode finds its config at
     // ~/.config/opencode. PATH augmented as a belt-and-suspenders fallback.
     env = { PATH: augmentPath(), HOME: realHome() };
+  } else if (sessionType === 'kimi-code') {
+    // Same reasoning as codex: PATH augmented for a launchd-minimal env, HOME
+    // pinned to the real home so kimi reads its own auth/config, not a sandbox one.
+    env = { PATH: augmentPath(), HOME: realHome() };
   }
 
   // IS THE CLI ACTUALLY THERE? If not, say so HERE.
@@ -1736,6 +1752,7 @@ async function createSession(id: string, name: string, cwd: string, command?: st
         'claude': 'https://claude.com/product/claude-code',
         'codex': 'npm i -g @openai/codex',
         'opencode': 'npm i -g opencode-ai',
+        'kimi': 'curl https://code.kimi.com/kimi-code/install.sh | bash',
       };
       const base = file.replace(/\.(exe|cmd|bat)$/i, '');
       const hint = howToInstall[base];
@@ -2660,7 +2677,8 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         body.type === 'claude-code-team' ? 'claude-code-team' :
         body.type === 'claude-code' ? 'claude-code' :
         body.type === 'codex' ? 'codex' :
-        body.type === 'opencode' ? 'opencode' : 'shell';
+        body.type === 'opencode' ? 'opencode' :
+        body.type === 'kimi-code' ? 'kimi-code' : 'shell';
       const skipPermissions = body.skipPermissions !== false;
       const claudeSessionId = resumeIdForNewSession(body.claudeSessionId, sessionType);
       // `command` E' ESECUZIONE ARBITRARIA: createSession lo spezza e lo passa

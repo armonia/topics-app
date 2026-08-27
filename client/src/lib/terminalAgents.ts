@@ -2,9 +2,9 @@
  * terminalAgents — ONE place that knows which interactive agents can run in a
  * terminal pane and how to spawn them.
  *
- * The add-menu offers four pty flavours: a plain shell (labelled «Terminale»),
- * Claude Code (default agent), Codex (OpenAI's CLI) and opencode. Before this
- * module the
+ * The add-menu offers five pty flavours: a plain shell (labelled «Terminale»),
+ * Claude Code (default agent), Codex (OpenAI's CLI), opencode and Kimi Code
+ * (Moonshot AI's CLI). Before this module the
  * `subType → session-create body` dance was copy-pasted at three call sites
  * (usePanelLifecycle.handleQuickCreateTerminal, useProjectLayout's
  * handleAddPaneToGroup + handleAddPaneWhenEmpty) with hardcoded
@@ -36,6 +36,7 @@ export const TERMINAL_AGENT_LABELS: Record<TerminalAgentType, string> = {
   'claude-code': 'Claude Code',
   codex: 'Codex',
   opencode: 'opencode',
+  'kimi-code': 'Kimi Code',
 };
 
 /**

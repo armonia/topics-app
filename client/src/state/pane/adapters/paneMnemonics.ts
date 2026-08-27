@@ -38,6 +38,7 @@ export type AddMenuItemId =
   | 'claude-code'
   | 'codex'
   | 'opencode'
+  | 'kimi-code'
   | 'browser'
   | 'git'
   | 'files'
@@ -64,6 +65,8 @@ export const ADD_MENU_MNEMONICS: Record<AddMenuItemId, string> = {
   'claude-code': 'C',
   codex: 'X',
   opencode: 'O',
+  // K is the initial of "Kimi Code" and it is free: case (a).
+  'kimi-code': 'K',
   // B a Browser e non a Board: Browser esiste in ENTRAMBI gli scope, Board in
   // uno solo. A parità di iniziale vince la voce che si incontra ovunque.
   browser: 'B',
@@ -102,6 +105,6 @@ export const ADD_MENU_MNEMONICS: Record<AddMenuItemId, string> = {
  *  metà delle installazioni non vede mai. Stessa ragione per cui la mappa non
  *  si calcola sul visibile (invariante 1 in testa al file). */
 export const ADD_MENU_ROWS_BY_SCOPE: Record<'project' | 'standalone', readonly AddMenuItemId[]> = {
-  project: ['new-chat', 'shell', 'claude-code', 'codex', 'opencode', 'browser', 'git', 'files', 'kanban'],
-  standalone: ['new-chat', 'shell', 'claude-code', 'codex', 'opencode', 'browser', 'board', 'dashboard', 'cron', 'profile', 'open-project'],
+  project: ['new-chat', 'shell', 'claude-code', 'codex', 'opencode', 'kimi-code', 'browser', 'git', 'files', 'kanban'],
+  standalone: ['new-chat', 'shell', 'claude-code', 'codex', 'opencode', 'kimi-code', 'browser', 'board', 'dashboard', 'cron', 'profile', 'open-project'],
 };

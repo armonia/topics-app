@@ -5,11 +5,12 @@
  *
  *   - `scope="project"`    — inside a ProjectWindow (top tab bar group "+",
  *     sidebar project-header "+", touch overflow menu). Items: New Chat,
- *     Shell, Claude Code, Codex, opencode, Browser, Git, Files, Board.
+ *     Shell, Claude Code, Codex, opencode, Kimi Code, Browser, Git, Files,
+ *     Board.
  *   - `scope="standalone"` — no project context (standalone tab bar "+",
  *     sidebar global header "+"). Items: New Chat, Shell, Claude Code,
- *     Codex, opencode, Browser, Board generale, then (desktop) Apri / Crea
- *     Progetto.
+ *     Codex, opencode, Kimi Code, Browser, Board generale, then (desktop)
+ *     Apri / Crea Progetto.
  *
  * L'ELENCO non vive più qui: sta in `addMenuItems.tsx`, che lo costruisce da
  * `PANE_CONFIG.addableScopes` + `TERMINAL_AGENT_TYPES` e lo condivide con le
