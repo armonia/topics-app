@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.187 — 2026-08-27
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-08-27 [skip ci]
+- Ogni leva LATO HOST e' stata misurata e non morde: si prova quella lato pagina
+
 ## 2.2.186 — 2026-08-27
 
 ### Sotto il cofano
