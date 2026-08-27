@@ -1070,6 +1070,7 @@ const IT: Dict = {
   // la nomina invece di dire un generico «invia».
   'board.card.replySendTitle': '{action}, con questa indicazione dentro.',
   'board.card.turnActions': 'Azioni su questo turno',
+  'board.card.blockedActions': 'Uscite dall\'attesa',
   'board.card.yourRequest': 'La tua richiesta: {text}',
   'board.card.commentPlaceholder': '…oppure commenta',
   'board.card.comment': 'Commenta',

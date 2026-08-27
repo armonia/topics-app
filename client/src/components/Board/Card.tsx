@@ -1119,6 +1119,24 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               domanda. Adesso sono un dropdown a chip nel piede della card,
               a chip dropdown in the card's foot, next to the model: see
               `DeliveryFiles.tsx`. */}
+          {/* THE WAYS OUT OF THE WAIT, on a blocked card, as ONE compact key at
+              the end of the row: the same shape a working card already uses for
+              its rare actions.
+              They used to be a row of full buttons in the card's body, inside a
+              container that stops propagation, and it was the LAST thing on the
+              card: on a short card that row IS the geometric centre, so
+              clicking the card in the middle did not open the drawer, it
+              pressed «sblocca» and PATCHed the dispatch gate with no
+              confirmation. Moving the row lower was not an option (nothing was
+              below it), so what changes is the SIZE of the target.
+              The row of buttons stays in the drawer, where you are already
+              looking at the card on purpose. */}
+          {choiceState === 'blocked' && (
+            <TaskChoiceMenu
+              task={task} disabled={busy} onDone={choiceDone} onError={choiceFailed}
+              ariaLabel={tr('board.card.blockedActions')}
+            />
+          )}
         </div>
       )}
       {/* The checklist: the steps, in EVERY column and not only in review.
@@ -1478,14 +1496,6 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               ariaLabel={tr('board.card.turnActions')}
             />
           </div>
-        </div>
-      )}
-      {/* Bloccata: le scelte sono le uniche due uscite dall'attesa (togliere il
-          legame, o toglierlo e farla partire). Senza, la card resta ferma e
-          l'unico modo per muoverla è aprire il drawer e cercare il picker. */}
-      {choiceState === 'blocked' && (
-        <div className="mt-2" onClick={(e) => e.stopPropagation()}>
-          <TaskChoiceRow task={task} disabled={busy} onDone={choiceDone} onError={choiceFailed} />
         </div>
       )}
       {/* The review's EXITS: the choices, and the field that says why. They

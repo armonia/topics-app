@@ -21,13 +21,17 @@ import { TASK_ACTION_ICON, TASK_ACTION_ICON_TONE } from './taskActionIcons';
  * ── Due forme, e a sceglierle è il PESO della decisione ──────────────────────
  * · `TaskChoiceRow` — bottoni in fila. È la superficie su cui si DECIDE: una
  *   card in review chiede «e adesso?», e la risposta va letta senza aprire
- *   niente. Vale anche per una card bloccata, dove le scelte sono le uniche
- *   uscite dall'attesa.
+ *   niente.
  * · `TaskChoiceMenu` — un solo tasto compatto che apre le stesse voci. È per la
  *   card che sta soltanto LAVORANDO: «Fermati» e «Consegna quello che hai» sono
  *   azioni rare, e disegnate come due bottoni pieni pesavano su ogni card in
  *   corso della board come se ci fosse qualcosa da decidere. Nel drawer restano
  *   bottoni: lì la card la stai già guardando apposta.
+ *   A BLOCKED card uses the menu too, and for a second reason on top of the
+ *   first one: its row was the LAST thing on the card, so on a short card it
+ *   sat exactly under the pointer that meant to open the drawer, and the click
+ *   changed the dispatch gate instead. The row could not move lower, so the
+ *   target got smaller. See the comment on the chip row in `Card.tsx`.
  *
  * Le due forme condividono l'esecuzione (`useTaskChoiceRunner`), non una copia:
  * la conferma prima di archiviare un turno vivo, l'ordine delle voci e le
@@ -210,8 +214,9 @@ export function TaskChoiceMenu({ task, disabled, onDone, onError, ariaLabel, cla
         className={`flex shrink-0 items-center rounded-md px-1.5 py-1.5 text-app-text-secondary hover:bg-white/10 hover:text-app-text disabled:opacity-50 ${className ?? ''}`}
       ><MoreHorizontal className="h-3.5 w-3.5" /></button>
       {/* `task-choices-panel`, non `task-choices`: quello è la RIGA di bottoni,
-          e sulla stessa board c'è (una card bloccata la disegna). Due superfici
-          diverse non possono rispondere allo stesso locator. */}
+          che vive nel drawer sopra il composer, e il drawer si apre SOPRA la
+          board. Due superfici diverse non possono rispondere allo stesso
+          locator. */}
       <Menu open={open} anchorRef={anchorRef} onClose={() => setOpen(false)} align="right" ariaLabel={ariaLabel} testId="task-choices-panel">
         {choices.map((c) => (
           <button
