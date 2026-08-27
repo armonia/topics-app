@@ -180,7 +180,30 @@ test.describe("Top bar della kanban — si legge da sola", () => {
       contentType: "application/json",
       body: JSON.stringify({ conteggi, geometrie }, null, 2),
     });
-    expect(conteggi.larga, `a 1440px i progetti stanno nella barra come filtri — ${JSON.stringify(geometrie)}`).toBeGreaterThanOrEqual(3);
+    // AT 1440px THE PROJECTS BECOME FILTERS, and the bar is full: one more
+    // would not have fitted.
+    //
+    // This used to read `>= 3`, which is not a property of this code: it is how
+    // many chips fit in 245px with the font on the author's Mac. On the very
+    // same tree the CI runner lays out two, and the red said "the projects do
+    // not know how to become filters" about a bar that was packing them just
+    // fine.
+    //
+    // The real property is that the packing is GREEDY: show everything that
+    // fits, send back to the menu only what does not. And it is measurable
+    // without knowing how many, because the excluded chips stay laid out and
+    // only lose their visibility - so the first of them can be asked how far
+    // it overhung. The gate can still fail, and that is the case that matters:
+    // if the calculation hid a project that had room, that chip would sit
+    // INSIDE the bar and the overhang would be negative.
+    const g = geometrie.larga as { firstHiddenOverhang: number | null };
+    expect(conteggi.larga, `a 1440px almeno un progetto e' un filtro — ${JSON.stringify(geometrie)}`).toBeGreaterThanOrEqual(1);
+    if (g.firstHiddenOverhang !== null) {
+      expect(
+        g.firstHiddenOverhang,
+        `a 1440px il primo progetto rimasto nel menu doveva sporgere dalla barra, invece ci stava per ${-g.firstHiddenOverhang}px — ${JSON.stringify(geometrie)}`,
+      ).toBeGreaterThan(0);
+    }
     expect(conteggi.media, "restringendo, i chip che non entrano tornano nel menu").toBeLessThan(conteggi.larga!);
     expect(conteggi.stretta, `a 390px la barra è già piena: nessun chip fuori dal menu — ${JSON.stringify(geometrie)}`).toBe(0);
 

@@ -108,6 +108,24 @@ describe('the accordion column of the sidebar', () => {
     }
   });
 
+  test('the reserved box declares a height, or nothing can see it', () => {
+    // THE RATCHET UNDER 88a80f1aa. The empty branch is a span with no content:
+    // with a width and no height it is 12x0, so it holds the column open and is
+    // invisible to everything that reads the layout - the first measurable
+    // child of the row becomes the NEXT one (18px on the Board row, 153px on a
+    // chat), which is what the nightly of 27/08 measured, and a box of zero
+    // height could never have taken a click either.
+    //
+    // The width is checked below and the class is shared by both branches, so
+    // this is the half that has no other guard: a `self-stretch` deleted as
+    // decoration puts ROWALIGN-01/02 back to red in a nightly, not here.
+    expect(
+      /(^|\s)(self-stretch|h-full|h-\[\d+px\]|h-\d+)(\s|$)/.test(ROW_CHEVRON_SLOT),
+      `the reserved accordion box must declare a height ("${ROW_CHEVRON_SLOT}"): ` +
+        'without one the empty branch is 12x0 and drops out of every measurement.',
+    ).toBe(true);
+  });
+
   test('the reserved box is the chevron box, not a second measure', () => {
     // If the empty box drifted from the box the chevron sits in, the column
     // would be back to two alignments - just with a smaller gap between them.

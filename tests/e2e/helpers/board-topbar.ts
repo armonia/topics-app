@@ -183,6 +183,28 @@ export async function toolbarGeometry(page: Page) {
       scrollWidth: el.scrollWidth,
       clientWidth: el.clientWidth,
       stripWidth: strip ? Math.round(strip.getBoundingClientRect().width) : -1,
+      // COULD ONE MORE HAVE FITTED? Asked of the layout, not of a constant.
+      //
+      // Every chip is laid out, in order, inside a `w-max` row; the ones that
+      // do not fit keep their box and only lose `visibility`. So the first
+      // hidden chip knows exactly how much room it wanted: its right edge
+      // measured from the strip's left. If that is beyond the strip, it really
+      // did not fit and the menu is where it belongs. If it is inside, the
+      // calculation hid something that had room, and that is a bug.
+      //
+      // This replaces «at least 3 chips», which was not a property of this
+      // code: it was how many chips fit in 245px with the font on the author's
+      // Mac. The CI runner draws wider glyphs, fits two, and reported the bar
+      // as broken while it was packing correctly.
+      firstHiddenOverhang: (() => {
+        if (!strip) return null;
+        const left = strip.getBoundingClientRect().left;
+        const width = strip.getBoundingClientRect().width;
+        const hidden = Array.from(el.querySelectorAll('[data-testid^="project-filter-chip-"]'))
+          .find((c) => getComputedStyle(c).visibility === "hidden");
+        if (!hidden) return null;
+        return Math.round(hidden.getBoundingClientRect().right - left - width);
+      })(),
       chain: (() => {
         const out: string[] = [];
         let n: Element | null = strip;

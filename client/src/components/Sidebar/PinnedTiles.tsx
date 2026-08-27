@@ -7,7 +7,7 @@ import { DND_TYPES } from '../../lib/dndTypes';
 import { draggedPaneId } from '../../lib/dragPayload';
 import { pinKeyFromPaneId } from '../../state/pane/adapters/paneConfig';
 import { PinnedTile } from './PinnedTile';
-import { PINNED_TILE_H, PINNED_TILE_CONTAINER, PINNED_TILE_ACTION_INSET_CLASS } from './pinnedTileMetrics';
+import { PINNED_TILE_H, PINNED_TILE_CONTAINER, PINNED_TILE_ACTION_INSET_CLASS, pinnedForm } from './pinnedTileMetrics';
 import { useMobile } from '@/hooks/useMobile';
 import {
   flattenPinnedLayout,
@@ -911,13 +911,12 @@ export function PinnedTiles({
         const widths =
           cells.length === row.keys.length ? row.widths : pinnedRowWidths(cells.length);
 
-        // ONE TILE ON THE ROW = A ROW. Two or more = a grid, and there the
-        // tiles centre what identifies them. It is counted on the cells being
-        // DRAWN (ghost included), not on the saved row: while a second tile is
-        // hovering over a row that holds one, what you see is already a grid
-        // and the alignment must be the one of the drop, not the one of a
-        // moment ago.
-        const shape: 'row' | 'grid' = cells.length === 1 ? 'row' : 'grid';
+        // FORM AND ALIGNMENT ARE ONE DECISION, and it is not taken here: the
+        // rule ("one tile on the row = a row, two or more = a grid") and what
+        // each form does to the content both live in `pinnedTileMetrics`, so
+        // the grid, the tile and the drop preview cannot drift apart. Counted
+        // on the cells being DRAWN (ghost included), not on the saved row.
+        const shape = pinnedForm(cells.length);
 
         return (
           <div key={`row-${rowIdx}`} className="flex flex-col min-h-0">

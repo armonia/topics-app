@@ -2,6 +2,27 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.179 — 2026-08-27
+
+### Sotto il cofano
+- Add Kimi Code as a terminal agent option in the +/New menu
+- Le verifiche su Windows diventano un comando, non la mia parola
+- Board filters: priority+assignee become one autocomplete token field
+- Le verifiche Windows in inglese, e senza l'indirizzo di una persona
+- I commenti della suite Windows vanno in inglese: erano 28 righe fuori standard
+- Quattro test provavano cose vere senza dirlo: ora le dichiarano
+- Due migrazioni nate in parallelo, l'elenco incorporato fuori ordine
+- La guardia sulla CLI assente diventa UNA, invece del quarto fratello scoperto
+- Pinned tiles declare their alignment, not just their shape
+- Le 12 verifiche UI ora si misurano DAVVERO su Windows: 12 su 12
+- Il chip degli amici disegnava 2px oltre se stesso: ora taglia il proprio inchiostro
+- Lo slot del chevron era alto ZERO: riservava una colonna che non occupava
+- Il quarto agente non entrava nella lista che il commento diceva derivata
+- Due cancelli misuravano il font del runner, non il prodotto
+- Su main ogni commit cancellava il verdetto del precedente
+- I commenti che ho aggiunto erano in italiano: lo standard e' l'inglese
+- Lo stub serviva DUE padroni opposti: ora li distingue da `--print`
+
 ## 2.2.178 — 2026-08-27
 
 ### Sotto il cofano
@@ -10,13 +31,25 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il commit di consegna non muore piu' col suo ramo
 - I comandi slash del composer parlano la lingua dell'app
 - Il banco dichiarava un gateway che non ascolta, e il provider AI finiva li'
+- reserve the accordion box on every row, so the column has one alignment
 - Lo stub muto teneva appesa ogni chat del banco: ora chiude il turno
+- replace the wall-clock turn kill with an idle stall detector + judge
 - La rimisura del cancello di consegna diventa uno script, non una paste
+- I tre soggetti dell'identita' stanno su una riga sola, come mini-card
+- open-pane: warn when a localhost port is served by another project
 - Una CLI che esce presto uccideva il server: EPIPE senza rete
+- surface the port/project warning in open_browser_pane's tool text
 - Il token del gateway autentica il banco: toglierlo dava 401 al terminale
 - Il centro di una card bloccata apre la card, non preme «sblocca»
 - Il test che ho landato non diceva cosa prova
+- l'installer non puo' piu' saltare un sidecar in silenzio
+- Commenti in inglese nel test EPIPE, per riaprire il cancello della lingua
 - Il test cercava una voce di menu che ora e' tradotta, non un turno morto
+- I chip dell'identita' reggono la misura: una riga sola, ink che sopravvive al velo
+- Lo stato vuoto delle org e' un soggetto misurato, e il file cresciuto e' a bilancio
+- A bilancio solo il file che questa card ha fatto crescere
+- Le facce dei gruppi cedono alla stessa larghezza dei segnali di lavoro
+- Pin the preserveWork guard: the requeue path that deleted the branch
 
 ## 2.2.177 — 2026-08-27
 

@@ -56,6 +56,26 @@ npx playwright test -g "sends message"    # by title
 npx playwright show-report test-results/html-report
 ```
 
+### Before landing: the specs of what you changed
+
+```bash
+bun run check:e2e-touched --list   # which specs your branch touches
+bun run check:e2e-touched          # select and run them
+```
+
+None of the six delivery gates (`typecheck`, `lint`, `check:deadcode`,
+`check:emdash`, `check:migrations`, `test:unit`) runs an e2e test, and a land is
+a LOCAL merge: it never passes through the CI job that runs the PR tier of this
+suite. On 27/08 three cards landed green on every gate and the nightly came back
+with six reds, two of which were a rule and a list changed on one surface only.
+
+This command closes part of that window without becoming the suite: it diffs the
+branch against `main`, derives the related specs (a spec that changed, a spec
+that imports a changed module, a spec of the same area, a spec naming one of its
+testids), and runs at most eight of them, strongest link first. It is not a
+replacement for the nightly, which stays the full measurement: a spec that
+measures a surface without naming it is still invisible to the selection.
+
 Config: [`../../playwright.config.ts`](../../playwright.config.ts) —
 `baseURL` `http://localhost:13334`, `video: "on"`, sequential
 (`fullyParallel: false`) to avoid races on the shared DB.
