@@ -56,6 +56,49 @@ fn trace(app: &tauri::AppHandle, line: &str) {
 }
 
 
+
+/// Make the main webview OPAQUE on Windows, once, at startup.
+///
+/// The screenshot after a restore settles what seven host-side remedies could
+/// not: the desktop shows THROUGH the window at its edges, so the window really
+/// is transparent, and what is left inside is one stale tile plus the window's
+/// own background. `WS_EX_LAYERED` is false (exstyle 0x40110), so wry does not
+/// do it with a layered window - it does it by leaving the webview's default
+/// background transparent, and a transparent webview whose composition is gone
+/// shows nothing at all instead of showing its own page background.
+///
+/// And it buys NOTHING here. `transparent: true` sits in the shared window
+/// config for one reason: the per-region NSVisualEffectViews on macOS, which
+/// need the webview to be see-through so the material underneath shows. Windows
+/// has no such thing - there is no vibrancy on this platform at all - so the
+/// window is paying for a feature it does not have.
+///
+/// Not a workaround dressed as a fix: the right value on this platform is
+/// opaque, and it happens to remove the one structural difference left between
+/// a window that comes back painted and one that does not.
+pub(crate) fn make_opaque(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    let Some(wv) = app.get_webview("main") else { return };
+    let _ = wv.with_webview(|platform| unsafe {
+        use webview2_com::Microsoft::Web::WebView2::Win32::{
+            ICoreWebView2Controller2, COREWEBVIEW2_COLOR,
+        };
+        let c = platform.controller();
+        if let Ok(c2) = windows::core::Interface::cast::<ICoreWebView2Controller2>(&c) {
+            // The app's own light background, so nothing flashes white on the way
+            // in: this is the colour every measurement of the broken window has
+            // been reading (236,237,238).
+            let _ = c2.SetDefaultBackgroundColor(COREWEBVIEW2_COLOR {
+                A: 255,
+                R: 236,
+                G: 237,
+                B: 238,
+            });
+        }
+    });
+    trace(app, "main webview set opaque");
+}
+
 /// Force the PAGE to re-raster, which is a different lever from everything the
 /// controller offers.
 ///
@@ -197,5 +240,6 @@ pub(crate) fn wire(app: &tauri::AppHandle) {
         tauri::WindowEvent::Focused(_) => note_window_event(&w, "focused"),
         _ => {}
     });
+    make_opaque(app);
     trace(app, "wired");
 }
