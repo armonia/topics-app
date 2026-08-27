@@ -25,23 +25,22 @@ else
 fi
 export DATA_DIR="${DATA_DIR:-$DEFAULT_DATA_DIR}"
 # @covers E2E-ISO-01
-# E LO STESSO PERCORSO COME STATE_DIR, o l'isolamento vale solo per lo SQLite.
+# UNA VARIABILE SOLA, E BASTA COSI'.
 #
-# `DATA_DIR` lo legge `server/db.ts` e basta. Tutto il resto dello stato
-# mutabile passa da `resolveStateDir` (`server/lib/data-dir.ts`), che guarda
-# SOLO `TOPICS_DATA_DIR`: senza, `STATE_DIR` ricade su `baseDir` = il repo, e i
-# server di test scrivono `topics.json`, `unread.json`, `uploads/`,
-# `context-files/`, `messages/` e `data/usage/` DENTRO LA CARTELLA VIVA, quella
-# che usa anche il server di produzione.
+# Qui c'era `export TOPICS_DATA_DIR="${TOPICS_DATA_DIR:-$DATA_DIR}"`: una
+# riga-ponte che copiava un nome nell'altro perche' `DATA_DIR` la leggeva solo
+# `server/db.ts` e tutto il resto dello stato passava da `resolveStateDir`, che
+# guardava solo `TOPICS_DATA_DIR`. Senza il ponte, i server di test scrivevano
+# `topics.json`, `unread.json`, `uploads/`, `context-files/`, `messages/` e
+# `data/usage/` DENTRO LA CARTELLA VIVA (misurato il 25/08: quattro shard sulla
+# stessa `data/usage/`, ENOENT sul rename di un temporaneo, uno shard morto al
+# boot, 253 test non eseguiti).
 #
-# Misurato il 25/08: `uploads/` portava tre file `voice-*.m4a` con l'ora esatta
-# di tre run e2e, e `data/usage/summary.json` l'mtime dell'ultima. Nella stessa
-# corsa uno shard e' MORTO al boot — `initUsageStore` cancella all'avvio ogni
-# file che contiene `.tmp.` nella sua cartella, e con quattro shard sulla
-# stessa `data/usage/` la pulizia di uno ha cancellato la scrittura in volo di
-# un altro (ENOENT sul rename, `server/usage/store.ts:47`, 253 test non
-# eseguiti). Due nomi per la stessa idea, e uno dei due non lo leggeva nessuno.
-export TOPICS_DATA_DIR="${TOPICS_DATA_DIR:-$DATA_DIR}"
+# Adesso `resolveStateDir` legge ENTRAMBE le variabili con una precedenza
+# dichiarata (`server/lib/data-dir.ts`), ed e' l'unico posto del server che le
+# legge: `DATA_DIR` qui sopra isola TUTTO lo stato da sola. Il ponte non serve
+# piu' e il cancello che tiene in piedi l'unione e'
+# `tests/unit/state-dir-single-door.test.ts`.
 # Phase 30 plan 30-05: dedicated TOPICS_HOME so the test server doesn't
 # compete with the dev server (which holds ~/.topics/daemon-process.lock).
 export TOPICS_HOME="${TOPICS_HOME:-$DATA_DIR/.topics-home}"

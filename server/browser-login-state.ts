@@ -24,7 +24,7 @@ import {
   chmodSync,
 } from "node:fs";
 import type { Page, BrowserContext } from "playwright-core";
-import { resolveStateDir } from "./lib/data-dir";
+import { resolveDataDir, resolveStateDir } from "./lib/data-dir";
 
 // Il formato sta in `shared/browser-login-state.ts`: lo leggono anche il client
 // e (per struct gemella) il pane nativo in Rust.
@@ -71,9 +71,7 @@ function isHttpOrigin(url: string): boolean {
 }
 
 function topicsStatesDir(): string {
-  const base = process.env.DATA_DIR
-    ? join(process.env.DATA_DIR, "browser-state")
-    : join(resolveStateDir(process.cwd()), "data", "browser-state");
+  const base = join(resolveDataDir(resolveStateDir(process.cwd())), "browser-state");
   return join(base, "_handles");
 }
 

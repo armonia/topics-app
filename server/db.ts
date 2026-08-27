@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { readFileSync, readdirSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
 import { EMBEDDED_MIGRATIONS } from "./db/migrations-embedded";
+import { resolveDataDir } from "./lib/data-dir";
 
 let _db: Database | null = null;
 
@@ -14,7 +15,7 @@ export function initDatabase(baseDir: string, dataRoot: string = baseDir): Datab
 
   // DB file lives under the WRITABLE dataRoot (STATE_DIR); migrations are read
   // from baseDir (the bundle) below. In dev dataRoot === baseDir (unchanged).
-  const dataDir = process.env.DATA_DIR || join(dataRoot, "data");
+  const dataDir = resolveDataDir(dataRoot);
   mkdirSync(dataDir, { recursive: true });
 
   const dbPath = join(dataDir, "topics.db");
