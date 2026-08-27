@@ -889,3 +889,44 @@ deve reggere e' la stretta di mano e la chiamata.
 #### Scenario: un server assente porta con se' la sua ragione
 - **GIVEN** un server configurato che non viene montato
 - **THEN** il motivo SHALL essere esposto insieme all'assenza
+
+### Requirement: CMD-COMMA-01 — La scorciatoia delle Impostazioni cede solo a chi POSSIEDE il tasto
+
+`⌘,` e `Ctrl+,` SHALL aprire le Impostazioni. La palette dei comandi lo
+annunciava accanto a «Settings» da prima che qualcuno lo ascoltasse.
+
+Il gestore SHALL cedere il passo SOLO alle superfici che possiedono davvero la
+combinazione grezza — un terminale xterm e un editor CodeMirror — e NON a
+qualunque campo di testo a fuoco. La differenza non e' stilistica: `isMod` e'
+`metaKey || ctrlKey`, e su Windows `Ctrl` e' l'UNICA via perche' `metaKey` li' e'
+sempre falso. Una guardia che cede a ogni input rende quindi la scorciatoia muta
+esattamente dove si vive, nel composer della chat.
+
+La ragione di cedere resta vera ma e' piu' stretta della guardia che c'era:
+dentro xterm e CodeMirror `Ctrl+,` e' un tasto VERO, e questo gestore corre in
+fase di CATTURA su `window`, quindi il suo `preventDefault()` se lo mangerebbe
+prima che la superficie lo veda. Una `textarea` con `Ctrl+,` non ci fa niente:
+non c'e' niente a cui cedere.
+
+#### Scenario: si scrive nel composer
+- **GIVEN** il fuoco nel composer della chat
+- **WHEN** si preme `Ctrl+,`
+- **THEN** le Impostazioni SHALL aprirsi
+
+#### Scenario: il fuoco e' in un terminale
+- **GIVEN** un terminale xterm che possiede la tastiera
+- **WHEN** si preme `Ctrl+,`
+- **THEN** le Impostazioni NON SHALL aprirsi
+- **AND** il tasto SHALL arrivare al terminale
+
+### Requirement: CMD-COMMA-02 — `⌘,` resta assoluto sul Mac
+
+Sul Mac `⌘,` e' una convenzione di sistema e SHALL funzionare anche mentre si
+scrive, terminale compreso: li' non si cede a nessuno. La distinzione e' fra i
+due modificatori, non fra le due piattaforme — `metaKey` non cede mai, `Ctrl`
+cede alle due superfici di CMD-COMMA-01.
+
+#### Scenario: il fuoco e' in un terminale, su Mac
+- **GIVEN** un terminale xterm che possiede la tastiera
+- **WHEN** si preme `⌘,`
+- **THEN** le Impostazioni SHALL aprirsi lo stesso
