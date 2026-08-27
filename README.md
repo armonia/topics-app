@@ -129,6 +129,11 @@ cd client && bun run build && cd ..   # client → public/
 bun run start                          # http://localhost:3333
 ```
 
+`public/` is a build artefact and nothing rebuilds it on its own: after a change
+under `client/src` you run the build again. While you are working on the client,
+use `bun run dev:client` (Vite HMR) instead of rebuilding. Why it is not
+watched: [`docs/build-watch-decision.md`](docs/build-watch-decision.md).
+
 The desktop shell needs the [Rust toolchain](https://rustup.rs/) and embeds
 `public/` at compile time, so build the client first:
 

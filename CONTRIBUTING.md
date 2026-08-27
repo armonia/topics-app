@@ -57,6 +57,13 @@ cd client && bun run build   # builds to public/
 bun run start                # server serves public/ on http://localhost:3333
 ```
 
+Nothing rebuilds `public/` for you: the launchd `build:watch` agent is off since
+2026-08-04 and stays off by decision (a save costs a full 25s production
+rollup, and the bundle it would publish comes from a dirty tree). The reasoning
+and the numbers: [`docs/build-watch-decision.md`](docs/build-watch-decision.md).
+`check:bundle` exits 2 rather than measure a bundle older than its sources, so a
+forgotten rebuild is loud, not silent.
+
 ### Desktop shell changes — Tauri (primary, v2)
 
 The client must be built first (`cd client && bun run build`): Tauri embeds `public/`

@@ -87,7 +87,8 @@ export function newestMtime(dir: string): { at: number; file: string } {
  * the code in the working tree.
  *
  * That is not hypothetical. The launchd `build:watch` job has been off since
- * 2026-08-04, so `public/` only moves when somebody types `build:client`. On
+ * 2026-08-04 and stays off by decision (docs/build-watch-decision.md), so
+ * `public/` only moves when somebody types `build:client`. On
  * 2026-08-25 the two measurements happened to differ by 309 bytes purely
  * because that round was almost all server-side; a round weighted towards the
  * client would have delivered a verdict on the wrong build. The only trace of
