@@ -785,6 +785,25 @@ jobs:
           CHROMIUM_PATH: ${{ steps.chromium.outputs.path }}
           E2E_TIER: pr
 
+      # IL TIER PR NON E' TUTTA LA SUITE, e cio' che salta non ha nessun altro cancello
+      # bloccante: 161 test (22 spec via `testIgnore` + 12 taggati @nightly) girano solo
+      # nella nightly, che nessuna PR puo' far partire. Se un ramo tocca una di quelle
+      # superfici, il rosso si scopre alle 3:17 del mattino dopo, su main.
+      #
+      # Questo step chiude la finestra sui file che il ramo ha TOCCATO: sceglie le spec
+      # legate al diff (testid, import, spec stesse) SENZA il filtro di tier, e le esegue.
+      # Solo sullo shard 1: la selezione dipende dal diff, non dallo shard, e quattro
+      # copie sarebbero quattro volte lo stesso lavoro.
+      - name: E2E dei file toccati, anche fuori dal tier PR
+        if: ${{ matrix.shard == 1 && github.event_name == 'pull_request' }}
+        run: |
+          # Il checkout della PR e' superficiale: senza questo fetch il base non esiste
+          # come ref e la selezione non si potrebbe fare (uscita 2, "NOT MEASURED").
+          git fetch --no-tags --depth=100 origin "${{ github.base_ref }}"
+          bun run check:e2e-touched --base=FETCH_HEAD
+        env:
+          CHROMIUM_PATH: ${{ steps.chromium.outputs.path }}
+
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v4
