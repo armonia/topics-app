@@ -149,6 +149,13 @@ renderer — SHALL essere considerata un numero inventato e NON SHALL essere mos
 
 ### Requirement: RES-ATTR-06 — L'inventario del peso per feature: i conteggi sono ESATTI, i byte sono stime dichiarate
 
+> Riletto il 27/08/2026 contro il codice, invariato: le fonti sono ancora
+> registrate a parte (`client/src/lib/featureWeightSources.ts`, montate da
+> `App.tsx`) e i byte restano dichiarati come stima. Da leggere insieme a
+> RES-ATTR-09, che riprende la stessa promessa sui conteggi e vi aggiunge il
+> parcheggiato contato a parte, i duplicati contati una volta e il tetto
+> dichiarato: la prima frase dei due si sovrappone, il resto no.
+
 Topics mostra quanto pesa ciascuna feature: quante code, quante tab di task,
 quante anteprime, e quanti byte occupano. Le due grandezze NON hanno lo stesso
 valore di verità, e il sistema DEVE trattarle come due promesse diverse:
@@ -204,6 +211,11 @@ indovinare.
 
 ### Requirement: RES-ATTR-07 — Le voci MISURATE portano megabyte veri, e dodici terminali fanno una riga
 
+> Riletto il 27/08/2026 contro il codice, invariato: la soglia di un megabyte,
+> l'aggregazione delle sessioni con il nome della più pesante nel dettaglio, una
+> riga per radice del server e il nome grezzo per un tipo sconosciuto stanno
+> tutti in `client/src/lib/featureUsage.ts`.
+
 L'inventario del peso SHALL tenere separate le voci MISURATE — megabyte di
 processi veri — da quelle dichiarate a registro (RES-ATTR-06). Le prime arrivano
 da fuori e possono MANCARE: senza shell non c'è nessuna webview da pesare, senza
@@ -237,6 +249,14 @@ portare megabyte maggiori di zero.
 - **THEN** SHALL comparire col proprio nome, non essere scartata
 
 ### Requirement: RES-ATTR-08 — Un allegato è di questo turno solo se il turno l'ha NOMINATO
+
+> Riletto il 27/08/2026 contro il codice, invariato: `attribuisciMedia`
+> (`server/lib/media-ownership.ts`) è agganciata allo sweep di `routes/chat.ts`,
+> la soglia del nome corto è otto caratteri e gli argomenti non serializzabili
+> cadono da soli. Attenzione al numero: nella change `feature-weight-inventory`
+> RES-ATTR-08 nominava tutt'altro (il recap all'hover), e due commenti nel
+> codice lo citavano ancora con quel significato. Ora puntano a RES-ATTR-04,
+> che è dove quella regola vive davvero.
 
 L'attribuzione di un file prodotto a un turno di lavoro SHALL basarsi su ciò che
 quel turno ha effettivamente NOMINATO nelle proprie chiamate, non su una finestra

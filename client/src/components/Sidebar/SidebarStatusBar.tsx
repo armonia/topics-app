@@ -336,7 +336,9 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
    * serializzare lo stato di mezza app, e farlo ogni cinque secondi con la
    * finestra ferma sarebbe lavoro a riposo per un testo che nessuno legge —
    * esattamente cio' che questa app ha appena finito di togliersi di dosso.
-   * (RES-ATTR-08: la misura si chiede quando serve a qualcuno.)
+   * (RES-ATTR-04: la misura si chiede quando serve a qualcuno.)
+   * This line used to cite RES-ATTR-08, which names something else entirely
+   * in the reference document: see docs/archive/RILETTURA-14-REQUISITI-PROMOSSI.md.
    */
   const [hoverTotale, setHoverTotale] = useState(false);
   /* Accendere l'inventario CHIEDE anche un campione fresco.

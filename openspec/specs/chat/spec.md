@@ -597,6 +597,8 @@ server-side from the autonomy level (`planModeFor`), not from a per-turn prompt 
 
 > Promoted from `2026-05-16-claude-code-provider`; only the registration half is stated. The process-lifecycle scenarios of the original text (spawn flags, the 15-minute inactivity kill, the 2-hour max lifetime, SIGTERM then SIGKILL on stop) are exercised by unit tests under `server/providers/` that claim no requirement id, so they are not restated as scenarios here.
 
+> Reread 27/08/2026 against the code, unchanged: the provider still declares those four capabilities and `GET /api/providers` still answers with the array, every entry carrying `name`, `connected` and `capabilities` (plus `isDefault`, which contradicts nothing).
+
 The system SHALL register the Claude Code CLI as an AI provider named `claude-code`, declaring the capabilities `streaming`, `tools`, `sessions` and `abort`, and SHALL expose every registered provider over `GET /api/providers`.
 
 #### Scenario: The providers endpoint lists the registered providers
@@ -609,13 +611,15 @@ The system SHALL register the Claude Code CLI as an AI provider named `claude-co
 
 > Promoted from `2026-05-16-claude-code-provider`, rewritten from provider-callback wording to the visible end of the stream, which is what the covering tests assert. The original scenarios about `onTextDelta`/`onToolStart`/`onToolResult` fan-out, error propagation from the child process and per-session serialisation of concurrent messages live at unit level and are claimed by no test id.
 
-The system SHALL render a streamed assistant turn incrementally: the assistant text as it arrives, and one tool card carrying the tool's name for every tool the turn uses, placed at the offset in the text where the call happened. A card SHALL render whether the call succeeded or failed, and a turn that uses several tools SHALL render one card per tool.
+> Reread 27/08/2026 against the code, and REWRITTEN twice. (a) The card shows a NORMALISED label, not the raw tool name: `Bash` reads `Shell`, an MCP tool reads `server · tool` (`buildToolDisplayLabel`, `client/src/components/Chat/toolDetail.ts`). (b) The card is not placed at the exact offset: the split moves to the nearest paragraph boundary, and the exact offset is used only when the text has no paragraph break (`client/src/components/MessageContent.tsx`).
+
+The system SHALL render a streamed assistant turn incrementally: the assistant text as it arrives, and one tool card for every tool the turn uses. The card SHALL carry the tool's DISPLAY LABEL, which is the same word whatever CLI produced the call (`Bash` renders as `Shell`, an MCP tool as `server · tool`), and the raw name SHALL pass through when no label is known. The card SHALL be placed at the paragraph boundary nearest to the offset where the call happened, and at the exact offset when the text holds no paragraph break. A card SHALL render whether the call succeeded or failed, and a turn that uses several tools SHALL render one card per tool.
 
 #### Scenario: A streamed turn renders its text and a card for the tool it used
 - **GIVEN** an open topic with the message input ready
 - **WHEN** the user sends a message and the turn streams back text plus a `Read` (or `Bash`) tool call
 - **THEN** the assistant text SHALL appear in the message area
-- **AND** a tool card naming that tool SHALL appear alongside it
+- **AND** a tool card SHALL appear alongside it, its `[data-testid="tool-call-name"]` carrying the label of that tool (`Read` for `Read`, `Shell` for `Bash`)
 
 #### Scenario: A failed tool call still renders its card
 - **GIVEN** a streamed turn whose tool call comes back as an error
@@ -632,6 +636,8 @@ The system SHALL render a streamed assistant turn incrementally: the assistant t
 ### Requirement: CCPROV-05 — Claude Code Provider Configuration
 
 > Promoted from `2026-05-16-claude-code-provider`; the environment-defaults scenario was rewritten. It pinned `claude-sonnet-4-6` as the default model and the model list has since moved on (see CHAT-DEF-03), so no model id is stated here; the workspace scenarios state the resolution order that actually ships.
+
+> Reread 27/08/2026 against the code, unchanged: the PATCH still writes the `provider` column and `GET /api/topics` reads it back, and the workspace still resolves a `ready` and existing worktree first, then the project path, then nothing. The resolution lives in `server/providers/claude-code.ts`, not in a file named after its own test.
 
 The system SHALL let a topic select `claude-code` as its provider and SHALL persist that choice on the topic. The working directory of a Claude Code session SHALL be resolved from the topic: its bound worktree when that worktree is ready, otherwise the project checkout.
 
@@ -657,7 +663,9 @@ The system SHALL let a topic select `claude-code` as its provider and SHALL pers
 
 > Promoted from `2026-07-10-chat-rendering-parity` and translated into English. The safe-degradation scenario (unknown language, blocks over 50 000 characters, tokenizer failure) is not restated: no test exercises it. The behaviour is in `highlightCode`, which returns null in those cases and leaves the block plain.
 
-Code blocks in messages whose fence names a known language SHALL be rendered with syntax highlighting.
+> Reread 27/08/2026 against the code, and NARROWED: two more cases ship plain, and neither was stated. The line-numbers view renders per row and stays plain by construction, and while a block is still streaming the tokenizer is fed a deferred copy, so the block renders plain until the deferred text catches up with the live one (`client/src/components/MessageContent.tsx`).
+
+Code blocks in messages whose fence names a known language SHALL be rendered with syntax highlighting. Highlighting SHALL degrade to plain text, never to an error or to a stale snapshot, in the cases where it cannot hold: unknown language, oversize block, tokenizer failure, the line-numbers view, and the interval while a streaming block's deferred copy trails the text on screen.
 
 #### Scenario: A javascript fence is tokenised
 - **GIVEN** an assistant message containing a fence marked `javascript` with a keyword and a comment
@@ -667,6 +675,8 @@ Code blocks in messages whose fence names a known language SHALL be rendered wit
 ### Requirement: CHAT-CONV-01 — Regenerate As A Sibling Branch
 
 > Promoted from `2026-07-11-chat-conversation-pack` and translated into English. The "regenerate is not offered during streaming" scenario was rewritten: what ships is a per-message guard (the action is absent on a partial message) plus a 409 from the endpoint, and no test claims the streaming case, so only the offered-on-a-completed-message half is stated.
+
+> Reread 27/08/2026 against the code, unchanged: the endpoint still forks a sibling under the anchor, truncates the prompt there, refuses a non-assistant message with 400 and a live stream with 409, and the action is still hidden on a partial message. Since then the prompt also carries the measurements of the turn being replaced (`CHAT-CONV-04`), which adds to this text and does not contradict it.
 
 The system SHALL offer Regenerate on any completed assistant reply, not only on failed ones. Regenerating SHALL fork a new assistant sibling under the same anchor user message, leaving the previous reply reachable through the branch arrows, and SHALL truncate the prompt sent to the provider at the anchor so the model never sees the answer it is replacing. The endpoint SHALL refuse anything that is not an assistant message.
 
@@ -689,6 +699,8 @@ The system SHALL offer Regenerate on any completed assistant reply, not only on 
 ### Requirement: CHAT-CONV-02 — Message Deletion Takes Its Subtree
 
 > Promoted from `2026-07-11-chat-conversation-pack` and translated into English; the substance is unchanged.
+
+> Reread 27/08/2026 against the code, unchanged: `DELETE /api/messages/:id` still runs subtree, dense renumbering and active-pointer repair in one transaction and returns the active thread, and the button still arms before it deletes.
 
 The system SHALL let the user delete a message. Deletion SHALL remove the whole descendant subtree, renumber the surviving siblings densely and repair the active-branch pointer, returning the resulting active thread. The UI SHALL require a two-click confirmation, and the removal SHALL be server truth.
 
@@ -714,17 +726,21 @@ The system SHALL let the user delete a message. Deletion SHALL remove the whole 
 
 > Promoted from `2026-07-11-chat-conversation-pack` and translated into English; the promise of roles and timestamps in the exported file was narrowed to the message contents, which is what the covering test reads back.
 
-The system SHALL export the active thread as a downloadable Markdown file from the composer's tools menu.
+> Reread 27/08/2026 against the code, and WIDENED back: the promotion note narrowed the promise to the message contents because that is all the covering test reads back, but the exported file does carry a heading per message with the role and the local timestamp, and the topic name as its title. A requirement that promises less than the code does leaves the rest free to disappear unnoticed. The entry is offered only when the thread has at least one message.
+
+The system SHALL export the active thread as a downloadable Markdown file from the composer's tools menu, when that thread holds at least one message. The file SHALL open with the topic name and SHALL carry, for every message of the active thread, a heading naming the author (the person or the assistant) with the message's timestamp, followed by its content.
 
 #### Scenario: Export downloads a markdown file carrying the thread
 - **GIVEN** a topic with messages
 - **WHEN** the user opens the composer's tools menu and chooses Export conversation
 - **THEN** a file whose name ends in `.md` SHALL be downloaded
-- **AND** its content SHALL contain the messages of the active thread
+- **AND** its content SHALL contain the messages of the active thread, each under a heading naming its author
 
 ### Requirement: REAL-TC-01 — Tool Calls Stored In History Render As Cards
 
 > Promoted from `2026-05-16-real-e2e-tool-calls-and-media`; the test ids were corrected against what ships. The row is `[data-testid="tool-call-row-<id>"]` (the change said `tool-call-<id>`), and the error status is an attribute on that row, `data-status="error"`, not a separate `[data-testid="tool-call-status"]` element.
+
+> Reread 27/08/2026 against the code, unchanged: `tool-call-row-<id>`, `tool-call-name`, `tool-call-args`, `tool-call-result`, `tool-call-error` and `data-status` all still ship, and the rows are still sorted by content offset. `Read` is one of the tools whose label equals its name, so the scenario below stays literal (see `CCPROV-02` for the tools where it does not).
 
 The system SHALL render a tool card for every tool call stored on a message, when that message is loaded from chat history.
 
@@ -755,6 +771,8 @@ The system SHALL render a tool card for every tool call stored on a message, whe
 
 > Promoted from `2026-05-16-real-e2e-tool-calls-and-media` unchanged: the element ids in the original text are the ones that ship.
 
+> Reread 27/08/2026 against the code, unchanged: `media-image` with its `src`, `media-file` and `media-file-name` are still the ids that ship.
+
 The system SHALL render a media component for every path stored in a message's `media`, when that message is loaded from chat history.
 
 #### Scenario: An image path renders as a media image
@@ -772,6 +790,8 @@ The system SHALL render a media component for every path stored in a message's `
 ### Requirement: REAL-TC-03 — Live Streaming Produces Visible Tool Cards
 
 > Promoted from `2026-05-16-real-e2e-tool-calls-and-media`; the selector was corrected to the shipped prefix `tool-call-row-`.
+
+> Reread 27/08/2026 against the code, unchanged: the check still waits 30 seconds for a `tool-call-row-` element with a non-empty name, and still skips with the annotation "Gateway unavailable" instead of failing.
 
 When a live chat turn uses a tool, the system SHALL render the tool card in real time through the whole unmocked pipeline (server stream to client state to DOM).
 
