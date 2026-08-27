@@ -221,9 +221,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  */
 export function projectNameFromId(projectId: string): string | null {
   if (UUID.test(projectId)) return null;
-  const senzaHash = projectId.replace(/-[^-]+$/, '');
+  const withoutHash = projectId.replace(/-[^-]+$/, '');
   // Un id tutto esadecimale anche dopo il taglio non è un nome: stessa ragione.
-  return /^[0-9a-f-]{12,}$/i.test(senzaHash) ? null : senzaHash;
+  return /^[0-9a-f-]{12,}$/i.test(withoutHash) ? null : withoutHash;
 }
 
 /**

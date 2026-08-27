@@ -84,15 +84,15 @@ async function tabCarica(page: Page) {
 interface Misura {
   tab: { w: number; h: number };
   label: Riquadro | null;
-  labelInk: Inchiostro | null;
+  labelInk: Ink | null;
   loader: Riquadro | null;
   loaderGlifo: Riquadro | null;
   badge: Riquadro | null;
-  badgeInk: Inchiostro | null;
+  badgeInk: Ink | null;
   comando: Riquadro | null;
 }
 interface Riquadro { w: number; h: number; sx: number; dx: number; dCentro: number }
-interface Inchiostro { dCentro: number; inkSx: number; inkDx: number }
+interface Ink { dCentro: number; inkSx: number; inkDx: number }
 
 async function misura(page: Page, paneId: string): Promise<Misura> {
   return page.evaluate((id) => {
@@ -166,10 +166,10 @@ test.describe("I widget in coda a una tab", () => {
     expect(riposo.badge!.dx, "il badge si ferma a ROW_PX dal bordo").toBe(ROW_PX);
     // La scatola del comando è più grande del suo glifo: è l'incasso del GLIFO
     // che deve valere ROW_PX, non quello della scatola.
-    const glifoDx = sopra.comando!.dx + (sopra.comando!.w - GLIFO) / 2;
-    expect(glifoDx, "il glifo del comando si ferma dove si ferma il badge").toBe(ROW_PX);
+    const glyphDx = sopra.comando!.dx + (sopra.comando!.w - GLIFO) / 2;
+    expect(glyphDx, "il glifo del comando si ferma dove si ferma il badge").toBe(ROW_PX);
     // …e allora i due occupano lo STESSO rettangolo: niente salto sotto il dito.
-    expect(glifoDx).toBe(riposo.badge!.dx);
+    expect(glyphDx).toBe(riposo.badge!.dx);
     expect(sopra.comando!.dCentro, "comando centrato in verticale").toBe(0);
   });
 
@@ -180,8 +180,8 @@ test.describe("I widget in coda a una tab", () => {
     // È la causa: (28 − 19,5) / 2 = 4,25 per l'etichetta, (16 − 11) / 2 = 2,5 per
     // il numero. Con altezze pari dentro contenitori pari il conto è intero e il
     // rasterizzatore ha una griglia su cui posarsi.
-    const interoMezzo = (n: number) => Number.isInteger(n * 2);
-    expect(interoMezzo((m.tab.h - m.label!.h) / 2), `etichetta alta ${m.label!.h} in una tab da ${m.tab.h}`).toBe(true);
+    const wholeHalf = (n: number) => Number.isInteger(n * 2);
+    expect(wholeHalf((m.tab.h - m.label!.h) / 2), `etichetta alta ${m.label!.h} in una tab da ${m.tab.h}`).toBe(true);
     expect(m.label!.dCentro, "etichetta centrata in verticale").toBe(0);
   });
 
@@ -341,10 +341,10 @@ test.describe("I widget in coda a una tab", () => {
     // La matrice vecchia era larga 7,5 in una scatola da 16 → margine 4,25, e un
     // quadrato da 3px su un quarto di pixel non ha bordi: ha due colonne
     // sbiadite. L'onda è 10×12 in 16 → 3 e 2, interi.
-    const margineX = (m.loader!.w - m.loaderGlifo!.w) / 2;
-    const margineY = (m.loader!.h - m.loaderGlifo!.h) / 2;
-    expect(Number.isInteger(margineX), `glifo largo ${m.loaderGlifo!.w} in una scatola da ${m.loader!.w}`).toBe(true);
-    expect(Number.isInteger(margineY), `glifo alto ${m.loaderGlifo!.h} in una scatola da ${m.loader!.h}`).toBe(true);
+    const marginX = (m.loader!.w - m.loaderGlifo!.w) / 2;
+    const marginY = (m.loader!.h - m.loaderGlifo!.h) / 2;
+    expect(Number.isInteger(marginX), `glifo largo ${m.loaderGlifo!.w} in una scatola da ${m.loader!.w}`).toBe(true);
+    expect(Number.isInteger(marginY), `glifo alto ${m.loaderGlifo!.h} in una scatola da ${m.loader!.h}`).toBe(true);
     expect(m.loader!.dCentro, "loader centrato in verticale").toBe(0);
   });
 });

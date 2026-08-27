@@ -80,11 +80,11 @@ describe("il job `check` misura tutto anche quando qualcosa e' rosso", () => {
   });
 
   it("i passi che avevano gia' una condizione la conservano", () => {
-    const conCondizionePropria = steps.filter((s) =>
+    const withOwnCondition = steps.filter((s) =>
       /hashFiles\(|github\.event_name/.test(s.body),
     );
-    expect(conCondizionePropria.length).toBeGreaterThan(0);
-    for (const s of conCondizionePropria) {
+    expect(withOwnCondition.length).toBeGreaterThan(0);
+    for (const s of withOwnCondition) {
       expect(GUARD.test(s.body)).toBe(true);
     }
   });

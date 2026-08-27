@@ -463,7 +463,7 @@ export function CommandPalette({
   }, [query]);
 
   const filteredProjects = useMemo(() => filterByQuery(projectItems), [projectItems, filterByQuery]);
-  const filteredRecenti = useMemo(() => filterByQuery(recentItems), [recentItems, filterByQuery]);
+  const recentFiltered = useMemo(() => filterByQuery(recentItems), [recentItems, filterByQuery]);
   const filteredMain = useMemo(() => filterByQuery(topicItems), [topicItems, filterByQuery]);
   const filteredActions = useMemo(() => filterByQuery(actionItems), [actionItems, filterByQuery]);
   const filteredCreate = useMemo(() => filterByQuery(createItems), [createItems, filterByQuery]);
@@ -477,14 +477,14 @@ export function CommandPalette({
     // History is one single list: no projects, no actions, no topics. You get
     // here from the "Topics" menu to look for WHERE YOU WERE, and every other
     // row in here would be noise on that question.
-    if (scope === 'history') return filteredRecenti;
+    if (scope === 'history') return recentFiltered;
     // «Crea» sta in cima anche a query vuota: in una palette vuota la cosa piu'
     // azionabile e' quella che fa nascere qualcosa, ed e' l'unico modo per cui
     // le frecce ci arrivino sopra (prima era una barra di pill, fuori dalla
     // navigazione da tastiera).
-    if (!query.trim()) return [...filteredCreate, ...filteredProjects, ...filteredRecenti];
-    return [...filteredCreate, ...filteredProjects, ...filteredActions, ...filteredMain, ...filteredRecenti, ...searchFileItems, ...searchResults];
-  }, [scope, query, filteredProjects, filteredCreate, filteredActions, filteredRecenti, filteredMain, searchFileItems, searchResults]);
+    if (!query.trim()) return [...filteredCreate, ...filteredProjects, ...recentFiltered];
+    return [...filteredCreate, ...filteredProjects, ...filteredActions, ...filteredMain, ...recentFiltered, ...searchFileItems, ...searchResults];
+  }, [scope, query, filteredProjects, filteredCreate, filteredActions, recentFiltered, filteredMain, searchFileItems, searchResults]);
 
   // O(1) id→index lookup, built once per `allItems` change. Rendering each
   // section calls `indexOf` per row; a findIndex there made render O(n²) over
@@ -634,10 +634,10 @@ export function CommandPalette({
             <div ref={listRef} className="flex-1 min-w-0 overflow-y-auto py-1" role="listbox" aria-label="Cronologia" data-testid="palette-history">
               <div className="px-3 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
                 {t('palette.history')}
-                {filteredRecenti.length > 0 && <span className="text-app-text-tertiary font-normal">{filteredRecenti.length}</span>}
+                {recentFiltered.length > 0 && <span className="text-app-text-tertiary font-normal">{recentFiltered.length}</span>}
               </div>
-              {filteredRecenti.length > 0 ? (
-                filteredRecenti.map(item => renderRow(item, { highlight: !!query.trim() }))
+              {recentFiltered.length > 0 ? (
+                recentFiltered.map(item => renderRow(item, { highlight: !!query.trim() }))
               ) : (
                 <EmptyState variant="panel" title={t('palette.noHistory')} />
               )}
@@ -682,10 +682,10 @@ export function CommandPalette({
                 {filteredCreate.map(item => renderRow(item, { compact: !isMobile }))}
                 <div className="px-3 pt-2 pb-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5 border-t border-app-border mt-1">
                   {t('palette.history')}
-                  {filteredRecenti.length > 0 && <span className="text-app-text-tertiary font-normal">{filteredRecenti.length}</span>}
+                  {recentFiltered.length > 0 && <span className="text-app-text-tertiary font-normal">{recentFiltered.length}</span>}
                 </div>
-                {filteredRecenti.length > 0 ? (
-                  filteredRecenti.map(item => renderRow(item, { compact: !isMobile }))
+                {recentFiltered.length > 0 ? (
+                  recentFiltered.map(item => renderRow(item, { compact: !isMobile }))
                 ) : (
                   <EmptyState variant="section" title={t('palette.noHistory')} />
                 )}
@@ -733,10 +733,10 @@ export function CommandPalette({
                         {filteredMain.map(item => renderRow(item, { highlight: true }))}
                       </>
                     )}
-                    {filteredRecenti.length > 0 && (
+                    {recentFiltered.length > 0 && (
                       <>
                         <SectionHeader label={t('palette.history')} />
-                        {filteredRecenti.map(item => renderRow(item, { highlight: true }))}
+                        {recentFiltered.map(item => renderRow(item, { highlight: true }))}
                       </>
                     )}
                     {searchFileItems.length > 0 && (

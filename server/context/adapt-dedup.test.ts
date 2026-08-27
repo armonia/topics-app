@@ -86,11 +86,11 @@ describe("composeSystemSlots", () => {
 describe("primo turno", () => {
   it("porta il contesto completo, byte-identico al comportamento senza dedup", () => {
     const env = inlineEnvelope([PROMPT, AWARE, README]);
-    const senzaDedup = adaptEnvelope(env);
-    const conMappaVuota = adaptEnvelope(env, { alreadySent: new Map() });
-    expect(conMappaVuota.userContent).toBe(senzaDedup.userContent);
-    expect(conMappaVuota.userContent).toContain("<context>");
-    expect(conMappaVuota.userContent).toContain("# Quadra");
+    const withoutDedup = adaptEnvelope(env);
+    const withEmptyMap = adaptEnvelope(env, { alreadySent: new Map() });
+    expect(withEmptyMap.userContent).toBe(withoutDedup.userContent);
+    expect(withEmptyMap.userContent).toContain("<context>");
+    expect(withEmptyMap.userContent).toContain("# Quadra");
   });
 
   it("riporta gli slot risultanti, che il chiamante userà come stato", () => {
@@ -167,8 +167,8 @@ describe("ritiro degli slot spariti", () => {
     const primo = adaptEnvelope(inlineEnvelope(blocks), { alreadySent: sent });
 
     // Il chiamante registra `inlineSlots` come nuovo stato — plan-mode ne è uscito.
-    const nuovoStato = new Map(primo.inlineSlots!.map((s) => [s.slot, s.hash]));
-    const secondo = adaptEnvelope(inlineEnvelope(blocks), { alreadySent: nuovoStato });
+    const newState = new Map(primo.inlineSlots!.map((s) => [s.slot, s.hash]));
+    const secondo = adaptEnvelope(inlineEnvelope(blocks), { alreadySent: newState });
     expect(secondo.userContent).not.toContain("no longer in effect");
     expect(secondo.userContent).toBe("riaccedi");
   });

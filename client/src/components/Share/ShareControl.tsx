@@ -39,7 +39,7 @@ interface Subject {
   devices: number;
 }
 
-interface LinkFuoriRete {
+interface LinkOutsideNetwork {
   ref: string;
   expiresAt: number;
   revokedAt: number | null;
@@ -63,7 +63,7 @@ const ETICHETTA: Record<Subject['subjectType'], string> = {
 /** Il titolo dice COSA si sta condividendo. «Condividi con un ospite» su una
  *  chat e su una scheda è la stessa frase per due gesti diversi: chi la legge
  *  non sa quale delle due cose sta per uscire di casa. */
-const CHIAVE_TITOLO: Record<ResourceType, string> = {
+const KEY_TITLE: Record<ResourceType, string> = {
   task: 'share.title.task',
   topic: 'share.title.topic',
   // `Record` e non un indice parziale: aggiungere un tipo di risorsa e
@@ -73,7 +73,7 @@ const CHIAVE_TITOLO: Record<ResourceType, string> = {
 };
 
 /** Cosa vedrà chi apre il link, detto per la risorsa giusta. */
-const CHIAVE_OGGETTO: Record<ResourceType, string> = {
+const KEY_OBJECT: Record<ResourceType, string> = {
   task: 'share.object.task',
   topic: 'share.object.topic',
   project: 'share.object.project',
@@ -106,7 +106,7 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
    *  e allora il gesto «fuori rete» non si offre affatto — un bottone che non
    *  può funzionare è peggio di un bottone che non c'è. */
   const [relay, setRelay] = useState<{ baseUrl: string; relayId: string; connected: boolean } | null>(null);
-  const [links, setLinks] = useState<LinkFuoriRete[]>([]);
+  const [links, setLinks] = useState<LinkOutsideNetwork[]>([]);
   /** Il link appena creato, con la chiave. Vive SOLO qui, in memoria: il server
    *  non lo ripropone mai più. Chiudere il pannello lo perde, ed è giusto —
    *  se serve di nuovo se ne fa un altro. */
@@ -118,16 +118,16 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
   const [errore, setErrore] = useState<string | null>(null);
   const [inCorso, setInCorso] = useState(false);
   const ancoraRef = useRef<HTMLButtonElement>(null);
-  const timerCopia = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (timerCopia.current) clearTimeout(timerCopia.current); }, []);
+  const timerCopy = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (timerCopy.current) clearTimeout(timerCopy.current); }, []);
 
-  const copiaDeepLink = useCallback(async () => {
+  const copyDeepLink = useCallback(async () => {
     const url = deepLink?.();
     if (!url) return;
     if (!(await copyText(url))) return;
     setCopiatoDeep(true);
-    if (timerCopia.current) clearTimeout(timerCopia.current);
-    timerCopia.current = setTimeout(() => setCopiatoDeep(false), 1400);
+    if (timerCopy.current) clearTimeout(timerCopy.current);
+    timerCopy.current = setTimeout(() => setCopiatoDeep(false), 1400);
   }, [deepLink]);
 
   const carica = useCallback(async () => {
@@ -140,7 +140,7 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
       ]) as [
         { shares: Share[] }, { subjects: Subject[] },
         { enabled: boolean; baseUrl: string | null; relayId: string | null; connected: boolean },
-        { links: LinkFuoriRete[] },
+        { links: LinkOutsideNetwork[] },
       ];
       setShares(s.shares ?? []);
       setSoggetti(d.subjects ?? []);
@@ -223,8 +223,8 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
   // La chiave è la COPPIA tipo+id: due soggetti di tipo diverso possono avere
   // lo stesso id senza essere la stessa cosa.
   const chiave = (t: string, i: string) => `${t}:${i}`;
-  const giaCondiviso = new Set(shares.map((s) => chiave(s.subjectType, s.subjectId)));
-  const disponibili = soggetti.filter((o) => !giaCondiviso.has(chiave(o.subjectType, o.subjectId)));
+  const alreadyShared = new Set(shares.map((s) => chiave(s.subjectType, s.subjectId)));
+  const disponibili = soggetti.filter((o) => !alreadyShared.has(chiave(o.subjectType, o.subjectId)));
 
   return (
     <div className="relative">
@@ -233,7 +233,7 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
         onClick={() => setAperto((v) => !v)}
         data-testid="share-control"
         className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-app-text-secondary hover:bg-app-hover hover:text-app-text"
-        title={t(CHIAVE_TITOLO[resourceType])}
+        title={t(KEY_TITLE[resourceType])}
       >
         <Share2 size={12} />
         {shares.length > 0 ? t('share.sharedWith', { n: shares.length }) : t('share.button')}
@@ -255,7 +255,7 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
         align="right"
         minWidth={280}
         unmanagedFocus
-        ariaLabel={t(CHIAVE_TITOLO[resourceType])}
+        ariaLabel={t(KEY_TITLE[resourceType])}
         testId="share-panel"
         className="w-[280px]"
       >
@@ -268,7 +268,7 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
           {deepLink && (
             <>
               <button
-                onClick={() => { void copiaDeepLink(); }}
+                onClick={() => { void copyDeepLink(); }}
                 data-testid="share-copy-link"
                 title={t('share.copyLinkTitle')}
                 className={POPOVER_ITEM}
@@ -340,7 +340,7 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
                   {/* Le due cose che chi crea un link deve leggere ADESSO, non
                       scoprire dopo: che il link È la credenziale, e che scade. */}
                   <p className="mt-1.5 text-[10px] leading-snug text-app-text-muted">
-                    {t('share.linkWarning', { object: t(CHIAVE_OGGETTO[resourceType]) })}
+                    {t('share.linkWarning', { object: t(KEY_OBJECT[resourceType]) })}
                   </p>
                 </>
               ) : (

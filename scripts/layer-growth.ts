@@ -50,7 +50,7 @@ const MINUTI = Number(arg("minuti", "10"));
  * usata il conto oscilla. Cinque al minuto è ampiamente sopra quel rumore e
  * ampiamente sotto le trentuno misurate.
  */
-const MAX_AL_MINUTO = Number(arg("max-al-minuto", "5"));
+const MAX_AT_MINUTE = Number(arg("max-al-minuto", "5"));
 
 /** Il numero di regioni `owned unmapped (graphics)`, o null se non leggibile. */
 function regioni(pid: number): number | null {
@@ -107,11 +107,11 @@ for (let i = 1; i <= MINUTI; i++) {
   console.log(`t+${String(i).padStart(2)}m: ${r} regioni (${r - r0 >= 0 ? "+" : ""}${r - r0}) · ${f} MB`);
 }
 
-const minutiVeri = (Date.now() - t0) / 60_000;
-const alMinuto = (ultimo - r0) / minutiVeri;
-console.log(`\n${r0} → ${ultimo} regioni in ${minutiVeri.toFixed(1)} min = ${alMinuto.toFixed(1)}/min`);
-if (alMinuto > MAX_AL_MINUTO) {
-  console.error(`\n✗ ROSSO: ${alMinuto.toFixed(1)} regioni grafiche al minuto (tetto ${MAX_AL_MINUTO}).`);
+const realMinutes = (Date.now() - t0) / 60_000;
+const atMinute = (ultimo - r0) / realMinutes;
+console.log(`\n${r0} → ${ultimo} regioni in ${realMinutes.toFixed(1)} min = ${atMinute.toFixed(1)}/min`);
+if (atMinute > MAX_AT_MINUTE) {
+  console.error(`\n✗ ROSSO: ${atMinute.toFixed(1)} regioni grafiche al minuto (tetto ${MAX_AT_MINUTE}).`);
   console.error(
     "  Ogni regione è un backing IOSurface che la heap JS non vede: si accumula\n" +
     "  fuori da ogni sonda scritta in JavaScript e finisce in swap. Se il DOM è\n" +
@@ -120,4 +120,4 @@ if (alMinuto > MAX_AL_MINUTO) {
   );
   process.exit(1);
 }
-console.log(`\n✓ verde: ${alMinuto.toFixed(1)}/min ≤ ${MAX_AL_MINUTO}`);
+console.log(`\n✓ verde: ${atMinute.toFixed(1)}/min ≤ ${MAX_AT_MINUTE}`);

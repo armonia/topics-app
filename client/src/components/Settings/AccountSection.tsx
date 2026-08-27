@@ -92,7 +92,7 @@ export function AccountSection() {
     }
   }, [email, invia]);
 
-  const conferma_ = useCallback(async () => {
+  const confirmation_ = useCallback(async () => {
     if (passo.fase !== 'codice' || !codice.trim()) return;
     if (await invia('/api/auth/account/verify', 'POST', { email: passo.email, code: codice.trim() })) {
       setPasso({ fase: 'indirizzo' });
@@ -179,12 +179,12 @@ export function AccountSection() {
                 inputMode="numeric"
                 value={codice}
                 onChange={(e) => setCodice(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') void conferma_(); }}
+                onKeyDown={(e) => { if (e.key === 'Enter') void confirmation_(); }}
                 aria-label={t('account.codeLabel')}
                 placeholder={t('account.codePlaceholder')}
                 className={campo}
               />
-              <button disabled={inCorso || !codice.trim()} onClick={() => void conferma_()} className={bottone}>
+              <button disabled={inCorso || !codice.trim()} onClick={() => void confirmation_()} className={bottone}>
                 <span className="flex items-center gap-1">
                   <KeyRound size={11} />
                   {t('account.confirm')}

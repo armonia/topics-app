@@ -31,9 +31,9 @@ hermetic(test);
 
 const STAMP = Date.now();
 /** Un progetto la cui cartella porta una favicon vera. */
-const CON_ICONA = `/tmp/e2e-rotte-con-${STAMP}`;
+const WITH_ICON = `/tmp/e2e-rotte-con-${STAMP}`;
 /** E uno che non ce l'ha: è il caso del difetto. */
-const SENZA_ICONA = `/tmp/e2e-rotte-senza-${STAMP}`;
+const WITHOUT_ICON = `/tmp/e2e-rotte-senza-${STAMP}`;
 
 const PNG_1x1 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
@@ -56,12 +56,12 @@ test.describe("Sidebar · le rotte partono dalla stessa colonna", () => {
   const creati: string[] = [];
 
   test.beforeAll(async ({ request }) => {
-    mkdirSync(CON_ICONA, { recursive: true });
-    writeFileSync(`${CON_ICONA}/favicon.png`, Buffer.from(PNG_1x1, "base64"));
-    mkdirSync(SENZA_ICONA, { recursive: true });
+    mkdirSync(WITH_ICON, { recursive: true });
+    writeFileSync(`${WITH_ICON}/favicon.png`, Buffer.from(PNG_1x1, "base64"));
+    mkdirSync(WITHOUT_ICON, { recursive: true });
     // Una chat dentro ciascuno, così le due righe progetto compaiono.
-    creati.push((await createTopic(request, `E2E-Rotte-Con-${STAMP}`, { projectPath: CON_ICONA })).id);
-    creati.push((await createTopic(request, `E2E-Rotte-Senza-${STAMP}`, { projectPath: SENZA_ICONA })).id);
+    creati.push((await createTopic(request, `E2E-Rotte-Con-${STAMP}`, { projectPath: WITH_ICON })).id);
+    creati.push((await createTopic(request, `E2E-Rotte-Senza-${STAMP}`, { projectPath: WITHOUT_ICON })).id);
   });
 
   test.afterAll(async ({ request }) => {
@@ -73,8 +73,8 @@ test.describe("Sidebar · le rotte partono dalla stessa colonna", () => {
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
 
-    const conIcona = `[data-testid="project-toggle-${CON_ICONA.split("/").pop()}"]`;
-    const senzaIcona = `[data-testid="project-toggle-${SENZA_ICONA.split("/").pop()}"]`;
+    const conIcona = `[data-testid="project-toggle-${WITH_ICON.split("/").pop()}"]`;
+    const senzaIcona = `[data-testid="project-toggle-${WITHOUT_ICON.split("/").pop()}"]`;
     await expect(page.locator(conIcona)).toBeVisible({ timeout: 15000 });
     await expect(page.locator(senzaIcona)).toBeVisible({ timeout: 15000 });
     // L'icona vera arriva da una fetch: senza aspettarla si misurerebbe il
@@ -83,16 +83,16 @@ test.describe("Sidebar · le rotte partono dalla stessa colonna", () => {
     await expect(page.locator(`${conIcona} img`)).toBeVisible({ timeout: 15000 });
 
     const xCon = await xDelNome(page, conIcona);
-    const xSenza = await xDelNome(page, senzaIcona);
+    const xWithout = await xDelNome(page, senzaIcona);
     expect(xCon, "il progetto con icona deve avere un nome misurabile").not.toBeNull();
-    expect(xSenza).not.toBeNull();
+    expect(xWithout).not.toBeNull();
 
     // I NUMERI OSSERVATI, sempre, anche quando passa: senza, un verde dice solo
     // «non e' peggiorato» e non permette di rispondere a «di quanto era fuori?».
-    console.log(`[ROTTE-01] con favicon x=${xCon} · senza favicon x=${xSenza} · scarto ${Math.abs(xCon! - xSenza!).toFixed(1)}px`);
+    console.log(`[ROTTE-01] con favicon x=${xCon} · senza favicon x=${xWithout} · scarto ${Math.abs(xCon! - xWithout!).toFixed(1)}px`);
     expect(
-      Math.abs(xCon! - xSenza!),
-      `il nome parte da due colonne diverse: con icona x=${xCon}, senza icona x=${xSenza}`,
+      Math.abs(xCon! - xWithout!),
+      `il nome parte da due colonne diverse: con icona x=${xCon}, senza icona x=${xWithout}`,
     ).toBeLessThanOrEqual(0.5);
   });
 });

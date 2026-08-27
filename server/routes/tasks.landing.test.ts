@@ -380,7 +380,7 @@ describe("approve decoupled from landing", () => {
    */
   test("un land riuscito FERMA l'agente che sta ancora lavorando su quella card", async () => {
     const aborted: string[] = [];
-    let statusAlloStop: string | undefined;
+    let statusAtStop: string | undefined;
     let taskId = "";
     const d = freshDb(); const b: any[] = [];
     const rt = createTasksRouter(makeCtx(d, b), undefined, {
@@ -391,7 +391,7 @@ describe("approve decoupled from landing", () => {
       // farebbe ripartire — cioè ripagherebbe il turno che si stava evitando.
       abortTurn: async (key: string) => {
         aborted.push(key);
-        statusAlloStop = (d.prepare("SELECT status FROM tasks WHERE id = ?").get(taskId) as any)?.status;
+        statusAtStop = (d.prepare("SELECT status FROM tasks WHERE id = ?").get(taskId) as any)?.status;
       },
     });
     d.run("INSERT INTO topics (id) VALUES ('485cb19a-993f-4e36-9823-687ee4235aae')");
@@ -412,7 +412,7 @@ describe("approve decoupled from landing", () => {
     // sparisce a metà frase senza spiegazione.
     expect(after.comments.some((c) => c.content.includes("Fermato l'agente"))).toBe(true);
     // L'ordine: quando lo stop parte, la card è GIÀ chiusa.
-    expect(statusAlloStop).toBe("done");
+    expect(statusAtStop).toBe("done");
   });
 
   test("il ramo riallineato dal land finisce nel thread, PRIMA del «Mergiato»", async () => {
@@ -761,7 +761,7 @@ describe("una card chiusa senza landare puo' dirlo", () => {
     return t.id;
   }
 
-  const statoLanding = (id: string) =>
+  const stateLanding = (id: string) =>
     (db.prepare("SELECT landing_state FROM tasks WHERE id = ?").get(id) as { landing_state: string | null }).landing_state;
 
   test("con `superseded` la card si chiude e lo dichiara", async () => {
@@ -770,7 +770,7 @@ describe("una card chiusa senza landare puo' dirlo", () => {
       decision: "approve", force: true, superseded: true,
     });
     expect(r?.status).toBe(200);
-    expect(statoLanding(id)).toBe("superseded");
+    expect(stateLanding(id)).toBe("superseded");
   });
 
   test("senza il gesto NON si inventa niente: resta un debito da guardare", async () => {
@@ -783,7 +783,7 @@ describe("una card chiusa senza landare puo' dirlo", () => {
       decision: "approve", force: true,
     });
     expect(r?.status).toBe(200);
-    expect(statoLanding(id)).not.toBe("superseded");
+    expect(stateLanding(id)).not.toBe("superseded");
   });
 
   test("un rifiuto non lo scrive nemmeno se glielo chiedi", async () => {
@@ -794,6 +794,6 @@ describe("una card chiusa senza landare puo' dirlo", () => {
     await call(router, "POST", `/api/boards/pX/tasks/${id}/review`, {
       decision: "reject", comment: "rifai", superseded: true,
     });
-    expect(statoLanding(id)).not.toBe("superseded");
+    expect(stateLanding(id)).not.toBe("superseded");
   });
 });

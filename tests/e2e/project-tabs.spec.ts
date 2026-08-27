@@ -649,7 +649,7 @@ test.describe("Project Tabs", () => {
     // `[data-pane-id]` e non `[data-testid^="pane-tab-"]`: il prefisso pesca
     // anche `pane-tab-label`, che sta DENTRO ogni tab, quindi conterebbe due
     // nodi per tab.
-    const tabDelProgetto = finestra.locator("[data-pane-id]:visible");
+    const tabOfProject = finestra.locator("[data-pane-id]:visible");
     // Le pane DISTINTE, non i nodi-tab. Sul desktop il progetto passa da
     // SplitTree e puo' avere piu' di una striscia visibile; il conteggio nudo
     // le somma, e se lo stesso pane id compare in due gruppi — succede mentre
@@ -659,19 +659,19 @@ test.describe("Project Tabs", () => {
     // quel doppione sparisce: il rosso misurato diceva «expected 5, received
     // 4» e sembrava una tab persa nel passaggio, mentre le pane erano le
     // stesse e a divergere erano i due modi di contarle.
-    const idsVisibili = async (loc: typeof tabDelProgetto) =>
+    const visibleIds = async (loc: typeof tabOfProject) =>
       [...new Set(await loc.evaluateAll((els) =>
         els.map((el) => el.getAttribute("data-pane-id") ?? ""),
       ))].filter(Boolean).sort();
     await expect
-      .poll(async () => (await idsVisibili(tabDelProgetto)).length, { timeout: 10000 })
+      .poll(async () => (await visibleIds(tabOfProject)).length, { timeout: 10000 })
       .toBeGreaterThanOrEqual(2);
     // Quante sono, non quante ci si aspetta: il layout di un progetto vive
     // server-side e NON viene azzerato dal reset del pane-store, quindi un
     // tentativo precedente (o un retry) può lasciarne aperte. È comunque
     // questo numero che deve ricomparire tale e quale sul telefono, ed è
     // proprio quello il contratto.
-    const suDesktop = await idsVisibili(tabDelProgetto);
+    const suDesktop = await visibleIds(tabOfProject);
     // Sul desktop il progetto passa da SplitTree, che è la metà del confronto:
     // se sparisse anche qui, lo zero di sotto non direbbe più niente.
     expect(await finestra.locator("[data-group-cell]").count()).toBeGreaterThanOrEqual(1);
@@ -713,7 +713,7 @@ test.describe("Project Tabs", () => {
     // si perda nel passaggio, e un insieme lo dice — un rosso qui nomina QUALE
     // pane manca, invece di far leggere due numeri e indovinare.
     await expect
-      .poll(async () => idsVisibili(bars.first().locator("[data-pane-id]")), { timeout: 10000 })
+      .poll(async () => visibleIds(bars.first().locator("[data-pane-id]")), { timeout: 10000 })
       .toEqual(suDesktop);
   });
   /**

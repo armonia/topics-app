@@ -61,7 +61,7 @@ const DIR_CLIP = join(CHECKOUT_ROOT, "videos", "clip");
 
 export const isClipRun = (): boolean => process.env.E2E_CLIP === "1";
 
-export interface OpzioniClip {
+export interface OptionsClip {
   /** Nome del file finale, senza estensione. */
   nome: string;
   /** Tetto della clip. Oltre, `clipDiConsegna` alza. */
@@ -97,12 +97,12 @@ export interface Clip {
  * Esegue prologo e scena in un contesto dedicato e, sotto `E2E_CLIP=1`,
  * consegna il .webm della sola scena. Ritorna `null` quando non registra.
  */
-export async function clipDiConsegna(opts: OpzioniClip): Promise<Clip | null> {
+export async function clipDiConsegna(opts: OptionsClip): Promise<Clip | null> {
   const registra = isClipRun();
   const budgetMs = opts.budgetMs ?? CLIP_BUDGET_MS;
   const dirFinale = opts.dir ?? DIR_CLIP;
   const destinazione = join(dirFinale, `${opts.nome}.webm`);
-  const dirTemporanea = join(dirFinale, `.grezzo-${opts.nome}-${process.pid}-${Date.now()}`);
+  const temporaryDir = join(dirFinale, `.grezzo-${opts.nome}-${process.pid}-${Date.now()}`);
 
   // Vedi il punto 1 del docstring: `slowMo` sta sul browser, non sul contesto.
   const browser = await chromium.launch({ headless: opts.headless ?? true });
@@ -111,11 +111,11 @@ export async function clipDiConsegna(opts: OpzioniClip): Promise<Clip | null> {
   const context = await browser.newContext({
     ...opts.context,
     ...(registra
-      ? { recordVideo: { dir: dirTemporanea, ...(viewport ? { size: viewport } : {}) } }
+      ? { recordVideo: { dir: temporaryDir, ...(viewport ? { size: viewport } : {}) } }
       : {}),
   });
 
-  let erroreScena: unknown = null;
+  let errorScene: unknown = null;
   let muroMs = 0;
   let video: ReturnType<Page["video"]> = null;
 
@@ -140,7 +140,7 @@ export async function clipDiConsegna(opts: OpzioniClip): Promise<Clip | null> {
       muroMs = Date.now() - t0;
     }
   } catch (e) {
-    erroreScena = e;
+    errorScene = e;
   }
 
   // `close()` finalizza i video: prima di qui il .webm sul disco è troncato.
@@ -154,16 +154,16 @@ export async function clipDiConsegna(opts: OpzioniClip): Promise<Clip | null> {
       await video.saveAs(destinazione);
       salvata = true;
     } catch (e) {
-      if (!erroreScena) erroreScena = e;
+      if (!errorScene) errorScene = e;
     }
   }
 
   await browser.close().catch(() => {});
-  rmSync(dirTemporanea, { recursive: true, force: true });
+  rmSync(temporaryDir, { recursive: true, force: true });
 
   // L'errore della scena viene PRIMA del cancello sul tempo: un test rotto non
   // va rietichettato come «clip troppo lunga».
-  if (erroreScena) throw erroreScena;
+  if (errorScene) throw errorScene;
   if (!registra || !salvata) return null;
 
   const misura = misuraWebmFile(destinazione);

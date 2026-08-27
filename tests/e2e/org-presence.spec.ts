@@ -36,7 +36,7 @@ function membro(id: string, name: string, lastSeenAt: number | null) {
  * `session.status !== 'paired'`, which returns null, so on an installation with
  * no pairing there is no presence regardless of the members.
  */
-async function stubIdentita(
+async function stubIdentity(
   page: Page,
   membri: ReturnType<typeof membro>[],
   ioId = "io",
@@ -95,7 +95,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
   test("PRESENCE-01: due colleghi visti ora diventano due facce sul chip dell'org", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
     const ora = Date.now();
-    await stubIdentita(page, [
+    await stubIdentity(page, [
       membro("io", "Io", ora),          // you do not count yourself
       membro("a", "Anna", ora - 30_000),
       membro("b", "Bruno", ora - 60_000),
@@ -119,7 +119,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     // "0 online" is noise you learn to skip: with nobody around the chip is
     // just the logo, and the emptiness is already the answer. The chip stays,
     // though, because it is also the door to managing THAT organisation.
-    await stubIdentita(page, [membro("io", "Io", Date.now())]);
+    await stubIdentity(page, [membro("io", "Io", Date.now())]);
     await page.goto("/");
     await expect(page.getByTestId("identity-row-me")).toBeVisible({ timeout: 20000 });
     await expect(page.getByTestId("org-chip")).toBeVisible({ timeout: 20000 });
@@ -132,7 +132,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     // would end up at the bottom together with people who really were here. A
     // null read as 0 would not change the count, but a `null` treated as a date
     // would: this checks it never enters the count.
-    await stubIdentita(page, [
+    await stubIdentity(page, [
       membro("io", "Io", Date.now()),
       membro("a", "Anna", null),
     ]);
@@ -145,7 +145,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     // The chip no longer jumps to a page: it opens its panel, which answers
     // "who is in this group" on the spot. The door to management survives, at
     // the bottom of the panel, for when the question really is a big one.
-    await stubIdentita(page, [membro("io", "Io", Date.now())]);
+    await stubIdentity(page, [membro("io", "Io", Date.now())]);
     await page.goto("/");
     const chip = page.getByTestId("org-chip");
     await expect(chip).toBeVisible({ timeout: 20000 });
@@ -163,7 +163,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     // not here right now. The closed chip shows the present, the list does not
     // stop there.
     const ora = Date.now();
-    await stubIdentita(page, [
+    await stubIdentity(page, [
       membro("io", "Io", ora),
       membro("a", "Anna", ora - 30_000),
       membro("c", "Carla", ora - 3_600_000), // past the threshold: there, but dark
@@ -184,7 +184,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
   test("PRESENCE-05: la riga degli amici mostra chi è online e apre gli amici", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
     const ora = Date.now();
-    await stubIdentita(page, [
+    await stubIdentity(page, [
       membro("io", "Io", ora),
       membro("a", "Anna", ora - 30_000),
     ], "io", [
@@ -251,7 +251,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     }
 
     const ora = Date.now();
-    await stubIdentita(page, [
+    await stubIdentity(page, [
       membro("io", "Io", ora),
       membro("a", "Anna", ora - 30_000),
       membro("b", "Bruno", ora - 60_000),
@@ -345,7 +345,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     // the digits, each behind its own glyph, and the sentence stays in the
     // tooltip: this checks the digits are the ones on screen.
     const ora = Date.now();
-    await stubIdentita(page, [
+    await stubIdentity(page, [
       membro("io", "Io", ora),
       membro("a", "Anna", ora - 30_000),
       membro("c", "Carla", ora - 3_600_000),
@@ -397,7 +397,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     // It used to disappear. A row that exists only when it has good news
     // leaves "but where are the friends?" unanswered for the very person who
     // has nobody yet, the only one who needs to get in to begin.
-    await stubIdentita(page, [membro("io", "Io", Date.now())], "io", [
+    await stubIdentity(page, [membro("io", "Io", Date.now())], "io", [
       { id: "io", displayName: "Io", isMe: true },
     ]);
     await page.goto("/");

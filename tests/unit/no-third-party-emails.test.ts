@@ -48,18 +48,18 @@ const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
  * I domini di posta PUBBLICA: un indirizzo qui sopra e' di una persona, non di
  * un ruolo. E' la lista corta apposta — allungarla richiede un caso vero.
  */
-const POSTA_PERSONALE = [
+const PERSONAL_MAIL = [
   "gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com",
   "icloud.com", "me.com", "yahoo.com", "yahoo.it", "libero.it", "tiscali.it",
   "virgilio.it", "alice.it", "protonmail.com", "proton.me", "pec.it",
 ];
 
-function fileTracciati(): string[] {
+function trackedFile(): string[] {
   const out = execFileSync("git", ["ls-files", "-z"], { cwd: RADICE, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   return out.split("\0").filter((p) => p && TESTABILE.test(p));
 }
 
-function indirizziPersonali(rel: string): string[] {
+function personalAddresses(rel: string): string[] {
   const abs = join(RADICE, rel);
   try {
     // I file enormi (fixture, bundle) non si leggono: un indirizzo di persona
@@ -67,14 +67,14 @@ function indirizziPersonali(rel: string): string[] {
     if (statSync(abs).size > 2 * 1024 * 1024) return [];
     const testo = readFileSync(abs, "utf8");
     const trovati = testo.match(EMAIL) ?? [];
-    return [...new Set(trovati.filter((a) => POSTA_PERSONALE.some((d) => a.toLowerCase().endsWith("@" + d))))];
+    return [...new Set(trovati.filter((a) => PERSONAL_MAIL.some((d) => a.toLowerCase().endsWith("@" + d))))];
   } catch {
     return []; // binario o illeggibile: non e' un file che scrive un umano
   }
 }
 
 describe("nessun indirizzo personale nei file tracciati", () => {
-  const tracciati = fileTracciati();
+  const tracciati = trackedFile();
 
   test("l'elenco dei file tracciati non e' vuoto (guardia contro un verde a vuoto)", () => {
     // Senza, un `git ls-files` che fallisce renderebbe verde il caso sotto
@@ -86,7 +86,7 @@ describe("nessun indirizzo personale nei file tracciati", () => {
   test("nessun file tracciato contiene un indirizzo su un dominio di posta personale", () => {
     const colpevoli: string[] = [];
     for (const f of tracciati) {
-      const trovati = indirizziPersonali(f);
+      const trovati = personalAddresses(f);
       // L'indirizzo NON si stampa per intero: dirlo qui sarebbe la fuga che
       // questo test impedisce, in un messaggio d'errore. Basta il dominio e il
       // file per andarlo a togliere.
@@ -110,7 +110,7 @@ describe("nessun indirizzo personale nei file tracciati", () => {
     const personale = ["mario.rossi", "gmail.com"].join("@");
     const prova = `scrivi a ${personale} oppure a security@armonia.io o admin@example.com`;
     const trovati = (prova.match(EMAIL) ?? []).filter((a) =>
-      POSTA_PERSONALE.some((d) => a.toLowerCase().endsWith("@" + d)),
+      PERSONAL_MAIL.some((d) => a.toLowerCase().endsWith("@" + d)),
     );
     expect(trovati.length, "il dominio personale deve essere l'unico preso").toBe(1);
     expect(trovati[0]!.endsWith("@gmail.com")).toBe(true);

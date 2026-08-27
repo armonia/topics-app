@@ -141,9 +141,9 @@ export function computeTopicsFootprint(input: TopicsUsageInput): TopicsFootprint
   // Smorzamento EMA sul lato server (quello che oscilla). Una lettura mancante
   // non entra nell'EMA: smorzare contro zero farebbe scendere il valore come se
   // il server si fosse alleggerito, mentre e' solo il campione a mancare.
-  const campioneNuovo = sampleKey === undefined || sampleKey !== _lastSampleKey;
+  const newSample = sampleKey === undefined || sampleKey !== _lastSampleKey;
   if (sampleKey !== undefined) _lastSampleKey = sampleKey;
-  if (serverMB !== null && campioneNuovo) {
+  if (serverMB !== null && newSample) {
     _smoothedServerMB = _smoothedServerMB === null
       ? serverMB
       : Math.round(EMA_ALPHA * serverMB + (1 - EMA_ALPHA) * _smoothedServerMB);

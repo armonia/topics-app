@@ -62,7 +62,7 @@ export const RIGHE_MINIME = 3;
  * (dentro: 1.00 e 0.82 · fuori o superati: 0.12, 0.07, 0.04, 0.00). Fra 0.82 e
  * 0.12 non c'è niente, e la soglia sta nel vuoto.
  */
-export const SOGLIA_DENTRO = 0.75;
+export const THRESHOLD_INSIDE = 0.75;
 
 /** Tetto ai commit propri letti: oltre, il campione di righe è già abbondante. */
 const MAX_COMMIT = 50;
@@ -159,7 +159,7 @@ interface DiffRaccolto {
  * perché il contesto non è lavoro del ramo: cercarlo su main direbbe «dentro»
  * sulle tre righe che il ramo ha solo sfiorato.
  */
-async function raccogliDiff(
+async function collectDiff(
   repoPath: string,
   own: string[],
   git: GitRunner,
@@ -201,7 +201,7 @@ async function fileSuMain(
 }
 
 /** Il commit più recente di `mainRef` che tocca `file`, o `null`. */
-async function ultimoTocco(
+async function lastTouch(
   repoPath: string,
   mainRef: string,
   file: string,
@@ -233,7 +233,7 @@ async function ultimoTocco(
  * conflitto»: si finisce nella lista dei debiti, che è dove si stava prima, e
  * quella lista si guarda.
  */
-async function inConflittoConMain(
+async function inConflictWithMain(
   repoPath: string,
   mainRef: string,
   branch: string,
@@ -244,7 +244,7 @@ async function inConflittoConMain(
 }
 
 /** Quanti commit di main hanno toccato quei file dopo `dopo`. */
-async function commitDiMainDopo(
+async function commitOfMainAfter(
   repoPath: string,
   mainRef: string,
   file: string[],
@@ -284,7 +284,7 @@ async function cercaSupersessione(
   const perSha = new Map<string, CommitSuperante>();
   for (const f of file) {
     if (!esistenti.has(f)) return null;
-    const tocco = await ultimoTocco(repoPath, mainRef, f, git);
+    const tocco = await lastTouch(repoPath, mainRef, f, git);
     // Nessun tocco, o un tocco che precede il ramo: questo file su main è come
     // il ramo l'ha trovato, quindi non c'è niente che lo abbia superato.
     if (!tocco || tocco.data <= dopo) return null;
@@ -299,7 +299,7 @@ async function cercaSupersessione(
 }
 
 /** La data (ISO) del commit proprio più recente del ramo. */
-async function dataDelRamo(repoPath: string, own: string[], git: GitRunner): Promise<string | null> {
+async function dataOfBranch(repoPath: string, own: string[], git: GitRunner): Promise<string | null> {
   let ultima: string | null = null;
   for (const sha of own.slice(0, MAX_COMMIT)) {
     const res = await git(repoPath, ["log", "-1", "--format=%cI", sha]);
@@ -315,7 +315,7 @@ async function dataDelRamo(repoPath: string, own: string[], git: GitRunner): Pro
  * (rinomina, componente estratto), e chiamarla persa sarebbe di nuovo l'errore
  * della discendenza, cioè guardare il contenitore invece del contenuto.
  */
-function contaPresenti(
+function countPresent(
   aggiunte: Map<string, string[]>,
   indice: ReadonlySet<string>,
 ): { cercate: number; presenti: number } {
@@ -367,7 +367,7 @@ function dentroPerContenuto(
   sostanza: { cercate: number; presenti: number },
 ): boolean {
   const passa = (c: { cercate: number; presenti: number }) =>
-    c.cercate >= RIGHE_MINIME && c.presenti / c.cercate >= SOGLIA_DENTRO;
+    c.cercate >= RIGHE_MINIME && c.presenti / c.cercate >= THRESHOLD_INSIDE;
   return passa(tutte) || passa(sostanza);
 }
 
@@ -472,7 +472,7 @@ export async function classifyBranchLanding(
     return { ...nudo, esito: "dentro", motivo: "nessun commit proprio oltre main" };
   }
 
-  const { file, aggiunte } = await raccogliDiff(repoPath, own, git);
+  const { file, aggiunte } = await collectDiff(repoPath, own, git);
   if (file.length === 0) {
     return { ...nudo, esito: "dentro", motivo: "tocca solo file generati (lock, bundle, versione): niente da perdere" };
   }
@@ -480,7 +480,7 @@ export async function classifyBranchLanding(
   const indice = opts.indiceMain ?? (await indiceRigheMain(repoPath, mainRef, git));
   const esistenti = await fileSuMain(repoPath, mainRef, file, git);
   const assentiSuMain = file.filter((f) => !esistenti.has(f));
-  const righe = contaPresenti(aggiunte, indice);
+  const righe = countPresent(aggiunte, indice);
   const sostanza = contaSostanza(aggiunte, indice);
   const base = { righe, file, assentiSuMain };
 
@@ -506,23 +506,23 @@ export async function classifyBranchLanding(
     };
   }
 
-  const dataRamo = await dataDelRamo(repoPath, own, git);
+  const dataBranch = await dataOfBranch(repoPath, own, git);
   // Due condizioni, e servono tutte e due: che main abbia rifatto quei file DOPO
   // (le date), e che abbia rifatto lo stesso terreno (il conflitto). Con le sole
   // date, un ramo che aggiunge un paragrafo in fondo a un file molto trafficato
   // veniva assolto da modifiche che non lo riguardavano.
-  const inConflitto = await inConflittoConMain(repoPath, mainRef, branch, git);
+  const inConflict = await inConflictWithMain(repoPath, mainRef, branch, git);
   const superatoDa =
-    dataRamo && inConflitto
-      ? await cercaSupersessione(repoPath, mainRef, file, esistenti, dataRamo, git)
+    dataBranch && inConflict
+      ? await cercaSupersessione(repoPath, mainRef, file, esistenti, dataBranch, git)
       : null;
-  if (superatoDa && dataRamo) {
-    const commitDopo = await commitDiMainDopo(repoPath, mainRef, file, dataRamo, git);
+  if (superatoDa && dataBranch) {
+    const commitDopo = await commitOfMainAfter(repoPath, mainRef, file, dataBranch, git);
     const quali = file.length === 1 ? "l'unico file che tocca è cambiato" : `tutti e ${file.length} i file che tocca sono cambiati`;
     return {
       ...base, esito: "superato", superatoDa, commitDopo,
       motivo:
-        `${quali} su main dopo il ramo (${dataRamo.slice(0, 10)}), in ${commitDopo} commit; ` +
+        `${quali} su main dopo il ramo (${dataBranch.slice(0, 10)}), in ${commitDopo} commit; ` +
         `di suo su main ne restano ${righe.presenti}/${righe.cercate} righe`,
     };
   }
@@ -530,7 +530,7 @@ export async function classifyBranchLanding(
     const mancanti = assentiSuMain.length ? `, e ${assentiSuMain.length} dei suoi file su main non esistono` : "";
     // Se si fonde ancora pulito, il bottone «Landa su main» funziona: è la
     // differenza fra un debito che si paga con un click e uno da cherry-pick.
-    const landabile = inConflitto ? "; non si fonde pulito, va ripreso a mano" : "; si fonde ancora pulito su main";
+    const landabile = inConflict ? "; non si fonde pulito, va ripreso a mano" : "; si fonde ancora pulito su main";
     return {
       ...base, esito: "fuori", superatoDa: null, commitDopo: 0,
       motivo: `${righe.cercate - righe.presenti}/${righe.cercate} righe distintive non sono su main${mancanti}${landabile}`,
@@ -567,12 +567,12 @@ export async function classifyCommitLanding(
   if ((await git(repoPath, ["rev-parse", "--verify", "--quiet", `${commit}^{commit}`])).code !== 0) {
     return { ...nudo, esito: "non-decidibile", motivo: "non decidibile: il repo non ha più quel commit" };
   }
-  const { file, aggiunte } = await raccogliDiff(repoPath, [commit], git);
+  const { file, aggiunte } = await collectDiff(repoPath, [commit], git);
   if (file.length === 0) {
     return { ...nudo, esito: "dentro", motivo: "tocca solo file generati (lock, bundle, versione): niente da perdere" };
   }
   const indice = opts.indiceMain ?? (await indiceRigheMain(repoPath, mainRef, git));
-  const righe = contaPresenti(aggiunte, indice);
+  const righe = countPresent(aggiunte, indice);
   const sostanza = contaSostanza(aggiunte, indice);
   const base = { righe, file, assentiSuMain: [], superatoDa: null, commitDopo: 0 };
 

@@ -163,7 +163,7 @@ export function DevicesSection() {
    * NON tocca le concessioni: quelle puntano a una persona, e spostare il ferro
    * non vuol dire spostare ciò che le è stato condiviso.
    */
-  const spostaSu = async (id: string, personId: string | null) => {
+  const moveOn = async (id: string, personId: string | null) => {
     setInCorso(id);
     try {
       const r = await fetch(`/api/auth/devices/${encodeURIComponent(id)}`, {
@@ -331,7 +331,7 @@ export function DevicesSection() {
                         <button
                           key={p.id}
                           disabled={inCorso === d.id}
-                          onClick={() => void spostaSu(d.id, p.id)}
+                          onClick={() => void moveOn(d.id, p.id)}
                           className={`rounded border px-1.5 py-0.5 text-[11px] disabled:opacity-50 ${
                             d.person?.id === p.id
                               ? 'border-primary/40 bg-primary/10 text-primary'

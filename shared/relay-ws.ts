@@ -106,8 +106,8 @@ export const WS_CHIUSURA_ANOMALA = 1006;
 
 const MAX_TESTA = 16 * 1024;
 const MAX_PROTOCOLLI = 16;
-const MAX_PROTOCOLLO = 128;
-const MAX_MOTIVO = 512;
+const MAX_PROTOCOL = 128;
+const MAX_REASON = 512;
 const MAX_INTESTAZIONI = 100;
 
 /** Il nome di un sottoprotocollo è un token HTTP: tutto il resto — spazi,
@@ -128,11 +128,11 @@ function leggiIntestazioni(raw: unknown): Intestazioni | null {
   return out;
 }
 
-function leggiProtocolli(raw: unknown): string[] | null {
+function readProtocols(raw: unknown): string[] | null {
   if (!Array.isArray(raw) || raw.length > MAX_PROTOCOLLI) return null;
   const out: string[] = [];
   for (const p of raw) {
-    if (typeof p !== "string" || p.length === 0 || p.length > MAX_PROTOCOLLO) return null;
+    if (typeof p !== "string" || p.length === 0 || p.length > MAX_PROTOCOL) return null;
     if (!PROTOCOLLO_VALIDO.test(p)) return null;
     out.push(p);
   }
@@ -155,7 +155,7 @@ export function leggiTestaWs(raw: string | undefined): TestaWs | null {
   if (typeof m.p !== "string") return null;
   const h = "h" in m && m.h !== undefined ? leggiIntestazioni(m.h) : undefined;
   if (h === null) return null;
-  const sp = "sp" in m && m.sp !== undefined ? leggiProtocolli(m.sp) : undefined;
+  const sp = "sp" in m && m.sp !== undefined ? readProtocols(m.sp) : undefined;
   if (sp === null) return null;
   return { p: m.p, ...(h !== undefined ? { h } : {}), ...(sp !== undefined ? { sp } : {}) };
 }
@@ -168,7 +168,7 @@ export function leggiTestaWsAperto(raw: string | undefined): TestaWsAperto | nul
   if (typeof m.re !== "number" || !Number.isInteger(m.re) || m.re < 0) return null;
   if (typeof m.s !== "number" || !Number.isInteger(m.s) || m.s < 100 || m.s > 599) return null;
   if ("sp" in m && m.sp !== undefined) {
-    if (typeof m.sp !== "string" || m.sp.length === 0 || m.sp.length > MAX_PROTOCOLLO) return null;
+    if (typeof m.sp !== "string" || m.sp.length === 0 || m.sp.length > MAX_PROTOCOL) return null;
     if (!PROTOCOLLO_VALIDO.test(m.sp)) return null;
     return { re: m.re, s: m.s, sp: m.sp };
   }
@@ -194,7 +194,7 @@ export function leggiChiusuraWs(raw: string | Uint8Array | undefined): ChiusuraW
   const m = oggetto(testo);
   if (!m) return null;
   if (typeof m.c !== "number" || !Number.isInteger(m.c) || m.c < 1000 || m.c > 4999) return null;
-  if (typeof m.r !== "string" || m.r.length > MAX_MOTIVO) return null;
+  if (typeof m.r !== "string" || m.r.length > MAX_REASON) return null;
   return { c: m.c, r: m.r };
 }
 

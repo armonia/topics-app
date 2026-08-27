@@ -423,8 +423,8 @@ describe("review-card-is-mute", () => {
   });
 
   it("NON scatta: basta il riassunto, anche senza descrizione", () => {
-    const conRiassunto = task({ ...muta, lastAgentComment: { at: ago(H), content: "Fatto: il fondo della cella lo decide il tipo di pane. Test verdi." } });
-    expect(runChecks(input({ tasks: [conRiassunto] }), only("review-card-is-mute"))).toHaveLength(0);
+    const withSummary = task({ ...muta, lastAgentComment: { at: ago(H), content: "Fatto: il fondo della cella lo decide il tipo di pane. Test verdi." } });
+    expect(runChecks(input({ tasks: [withSummary] }), only("review-card-is-mute"))).toHaveLength(0);
   });
 
   it("NON scatta senza un ramo: una card portata in review a mano non ha consegnato niente", () => {

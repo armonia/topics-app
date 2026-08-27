@@ -54,7 +54,7 @@ const WARMUP_DEFAULT_S = 60;
  * carico partisse. Sotto i 4s il banco crederebbe di misurare 3 secondi di
  * macchina satura e ne misurerebbe sessanta mezzi vuoti.
  */
-const CAMPIONE_MS = 5000;
+const SAMPLE_MS = 5000;
 
 /** Dopo quanto i bruciatori si spengono da soli, anche se il banco muore male. */
 const AUTO_SPEGNIMENTO_S = 240;
@@ -92,7 +92,7 @@ function tettoVecchio(load1: number): number {
  */
 async function misura(gamba: string, running: number): Promise<Misura> {
   await getFleetUsage();
-  await attesa(CAMPIONE_MS);
+  await attesa(SAMPLE_MS);
   await getFleetUsage();
   const cap = computeDispatchCapacity(running);
   return {
@@ -337,8 +337,8 @@ async function main(): Promise<number> {
   // rossi.
   const PAVIMENTO = 2;
   const nostriCore = gamba2?.nostriCore ?? 0;
-  const tettoVivoPrevisto = Math.max(PAVIMENTO, AGENTI + Math.floor(quota - nostriCore));
-  const premessaGamba2 = gamba2 != null && tettoVivoPrevisto < strutturale;
+  const aliveExpectedCap = Math.max(PAVIMENTO, AGENTI + Math.floor(quota - nostriCore));
+  const premessaGamba2 = gamba2 != null && aliveExpectedCap < strutturale;
 
   // ── La barra ──────────────────────────────────────────────────────────────
   const esiti = [
@@ -372,7 +372,7 @@ async function main(): Promise<number> {
     console.log(
       `\n  Seconda gamba NON MISURABILE: la flotta finta ha tenuto ${nostriCore.toFixed(2)} core ` +
       `sui ${quota} di quota con ${bruciatori} bruciatori, quindi il tetto vivo resta ` +
-      `${tettoVivoPrevisto} e non stringe sotto lo strutturale ${strutturale}. ` +
+      `${aliveExpectedCap} e non stringe sotto lo strutturale ${strutturale}. ` +
       "Sotto quota il freno non deve mordere: non è un rosso della barra. " +
       "Rilancia quando la macchina è più libera.",
     );

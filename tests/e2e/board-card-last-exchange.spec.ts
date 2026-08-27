@@ -38,8 +38,8 @@ const API = `${BASE}/api`;
 const REPO = `/tmp/e2e-scambio-${Date.now()}`;
 const PROJECT_ID = boardIdForPath(REPO);
 
-const T_DOMANDA = "Rifare la fascia della sidebar";
-const T_CRONACA = "Turno tagliato da un riavvio";
+const T_QUESTION = "Rifare la fascia della sidebar";
+const T_LOG = "Turno tagliato da un riavvio";
 
 let topicId: string | null = null;
 const createdTasks: string[] = [];
@@ -101,11 +101,11 @@ test.describe("L'ultimo scambio, visto dalla review", () => {
     topicId = topic.id;
 
     // 1) La card con la MIA domanda e nessuna risposta.
-    ids.domanda = await createTask(request, { text: T_DOMANDA, status: "review" });
+    ids.domanda = await createTask(request, { text: T_QUESTION, status: "review" });
     await commenta(request, ids.domanda, "e i separatori? non li vedo");
 
     // 2) La card con SOLO cronaca della macchina — il caso 235afe11.
-    ids.cronaca = await createTask(request, { text: T_CRONACA, status: "review" });
+    ids.cronaca = await createTask(request, { text: T_LOG, status: "review" });
     await commenta(request, ids.cronaca, "Fan-out chiuso: 3 tentativi, 1 con modifiche.");
   });
 
@@ -144,9 +144,9 @@ test.describe("L'ultimo scambio, visto dalla review", () => {
     //
     //    Sono due prove diverse e servono entrambe: quella la' morde sulla
     //    regola, questa qui garantisce che la regola arrivi a schermo.
-    const conDomanda = colonna.locator(`[data-task-card="${ids.domanda}"]`);
-    await expect(conDomanda).toBeVisible({ timeout: 15_000 });
-    await expect(conDomanda).toContainText("separatori", { timeout: 10_000 });
+    const withQuestion = colonna.locator(`[data-task-card="${ids.domanda}"]`);
+    await expect(withQuestion).toBeVisible({ timeout: 15_000 });
+    await expect(withQuestion).toContainText("separatori", { timeout: 10_000 });
 
     // 2. LA CRONACA SI VEDE. Anche qui c'è una parola in cima invece del solo
     //    titolo, ed è la meta' visibile del secondo difetto.
@@ -160,8 +160,8 @@ test.describe("L'ultimo scambio, visto dalla review", () => {
     //    dispatcher. Quel caso e' provato dove si puo' comporre davvero, sui
     //    sei commenti reali di 235afe11 (`cardComments.test.ts`), e sarebbe
     //    disonesto simularlo qui firmando a mano righe che l'API non produce.
-    const conCronaca = colonna.locator(`[data-task-card="${ids.cronaca}"]`);
-    await expect(conCronaca).toBeVisible({ timeout: 15_000 });
-    await expect(conCronaca).toContainText("Fan-out chiuso", { timeout: 10_000 });
+    const withLog = colonna.locator(`[data-task-card="${ids.cronaca}"]`);
+    await expect(withLog).toBeVisible({ timeout: 15_000 });
+    await expect(withLog).toContainText("Fan-out chiuso", { timeout: 10_000 });
   });
 });

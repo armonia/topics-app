@@ -19,7 +19,7 @@ import { Database } from "bun:sqlite";
 import { titoloMigliore } from "../server/services/task-title";
 import { registerProvider, tryGetProvider } from "../server/providers";
 
-const SCRIVI = process.argv.includes("--scrivi");
+const WRITE = process.argv.includes("--scrivi");
 
 const db = new Database("data/topics.db");
 const righe = db.query(
@@ -39,7 +39,7 @@ if (!prov) {
   process.exit(1);
 }
 
-console.log(`${righe.length} card da guardare${SCRIVI ? "" : "  (prova: niente viene scritto)"}\n`);
+console.log(`${righe.length} card da guardare${WRITE ? "" : "  (prova: niente viene scritto)"}\n`);
 for (const r of righe) {
   const migliore = await titoloMigliore(prov, { text: r.text, description: r.description });
   if (!migliore) {
@@ -49,9 +49,9 @@ for (const r of righe) {
   console.log(`${r.id.slice(0, 8)}`);
   console.log(`   prima: ${r.text}`);
   console.log(`   dopo : ${migliore}`);
-  if (SCRIVI) {
+  if (WRITE) {
     db.run("UPDATE tasks SET text = ?, updated_at = ? WHERE id = ?", [migliore, new Date().toISOString(), r.id]);
   }
 }
-if (!SCRIVI) console.log("\nNiente scritto. Ripeti con --scrivi per applicare.");
+if (!WRITE) console.log("\nNiente scritto. Ripeti con --scrivi per applicare.");
 db.close();

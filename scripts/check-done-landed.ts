@@ -305,12 +305,12 @@ async function liveBranchesOutsideMain(): Promise<Alive[]> {
 }
 
 const aliveOutside = await liveBranchesOutsideMain();
-const perEsito = (e: LandingEsito) => aliveOutside.filter((a) => a.verdetto.esito === e);
+const perOutcome = (e: LandingEsito) => aliveOutside.filter((a) => a.verdetto.esito === e);
 /** Il debito vero: nessuno ha quel contenuto e nessuno ha rifatto quei file. */
-const debiti = perEsito("fuori");
-const superati = perEsito("superato");
-const dentroPerContenuto = perEsito("dentro");
-const indecisi = perEsito("non-decidibile");
+const debiti = perOutcome("fuori");
+const superati = perOutcome("superato");
+const dentroPerContenuto = perOutcome("dentro");
+const indecisi = perOutcome("non-decidibile");
 const outside = verdicts.filter((v) => v.status === "unmerged");
 // Le card fuori da main che NON hanno più un ramo vivo: la loro riga è cronaca,
 // non un'azione, e sta lontano dalle tre liste per non ingrossarle.
@@ -388,13 +388,13 @@ if (JSON_OUT) {
   // Il conto per DISCENDENZA e quello per CONTENUTO, affiancati. Il primo da
   // solo era il numero che mentiva: il land ricopia i commit, quindi accusa di
   // «fuori» del lavoro che è dentro, e su 10 card ne accusava a torto 4.
-  const dentroDavvero = landed.length + recuperate.length + dentroPerContenuto.length;
+  const insideReally = landed.length + recuperate.length + dentroPerContenuto.length;
   console.log(
     `card done con una consegna registrata: ${verdicts.length} · su main per discendenza: ${landed.length} · ` +
     `fuori: ${outside.length} · commit sparito: ${pruned.length} · progetto non risolto: ${unresolved.length}`,
   );
   console.log(
-    `  ripassate per CONTENUTO: su main ${dentroDavvero} ` +
+    `  ripassate per CONTENUTO: su main ${insideReally} ` +
     `(${recuperate.length + dentroPerContenuto.length} che la discendenza dava per fuori) · ` +
     `superate ${superati.length} · DEBITO ${debiti.length} · ` +
     `senza ramo, non più landabili ${storico.length}`,

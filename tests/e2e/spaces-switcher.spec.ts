@@ -165,9 +165,9 @@ test.describe.serial("Gruppi (Spazi)", () => {
     await page.getByText("Sposta nel gruppo", { exact: true }).click();
     // Scoped al MENU: "Principale" è anche il nome sull'intestazione della sua
     // card, e senza lo scope il locator è ambiguo.
-    const principaleEntry = page.getByRole("menu").getByRole("button", { name: "Principale", exact: true });
-    await expect(principaleEntry, "la riga di ritorno c'è").toBeVisible({ timeout: 3000 });
-    await expect(principaleEntry, "ed è cliccabile").toBeEnabled();
+    const mainEntry = page.getByRole("menu").getByRole("button", { name: "Principale", exact: true });
+    await expect(mainEntry, "la riga di ritorno c'è").toBeVisible({ timeout: 3000 });
+    await expect(mainEntry, "ed è cliccabile").toBeEnabled();
   });
 
   test("SPACE-05: 'Sposta in una finestra' apre la finestra DI QUEL GRUPPO", async ({ page }) => {

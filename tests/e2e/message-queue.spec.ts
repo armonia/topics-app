@@ -95,7 +95,7 @@ test.describe.serial("Coda dei messaggi", () => {
   /** Svuota la coda comunque sia messa: con più righe c'è «Svuota», con una
    *  sola la X di quella riga È lo svuota (due bottoni per la stessa azione
    *  sarebbero un bivio finto). */
-  async function svuotaCoda(page: import("@playwright/test").Page) {
+  async function clearQueue(page: import("@playwright/test").Page) {
     const bolle = queuedBubbles(page);
     for (let giro = 0; giro < 10; giro++) {
       const n = await bolle.count();
@@ -167,7 +167,7 @@ test.describe.serial("Coda dei messaggi", () => {
     test.info().annotations.push({ type: "spec", description: "CHAT-QUEUE-03" });
     const { sent, state } = await interceptSends(page);
     await openChat(page, chatPage);
-    await svuotaCoda(page);
+    await clearQueue(page);
 
     await chatPage.messageInput.fill("primo");
     await chatPage.messageInput.press("Enter");
@@ -240,7 +240,7 @@ test.describe.serial("Coda dei messaggi", () => {
     });
 
     await openChat(page, chatPage);
-    await svuotaCoda(page);
+    await clearQueue(page);
 
     await chatPage.messageInput.fill("il turno lungo");
     await chatPage.messageInput.press("Enter");
@@ -268,7 +268,7 @@ test.describe.serial("Coda dei messaggi", () => {
     // premerlo e non succede nulla.
     const { state } = await interceptSends(page);
     await openChat(page, chatPage);
-    await svuotaCoda(page);
+    await clearQueue(page);
 
     await chatPage.messageInput.fill("primo");
     await chatPage.messageInput.press("Enter");
@@ -290,7 +290,7 @@ test.describe.serial("Coda dei messaggi", () => {
   test("la X sulla bolla butta il messaggio prima che parta", async ({ page, chatPage }) => {
     const { sent, state } = await interceptSends(page);
     await openChat(page, chatPage);
-    await svuotaCoda(page);
+    await clearQueue(page);
 
     await chatPage.messageInput.fill("primo");
     await chatPage.messageInput.press("Enter");
@@ -372,7 +372,7 @@ test.describe.serial("Coda dei messaggi", () => {
     await openChat(page, chatPage);
     // La coda del test precedente è durevole per costruzione: si svuota qui,
     // altrimenti questo scenario partirebbe da uno stato che non è il suo.
-    await svuotaCoda(page);
+    await clearQueue(page);
     await expect(queuedBubbles(page)).toHaveCount(0);
 
     await chatPage.messageInput.fill("uno");
@@ -452,7 +452,7 @@ test.describe.serial("Coda dei messaggi", () => {
     });
 
     await openChat(page, chatPage);
-    await svuotaCoda(page);
+    await clearQueue(page);
     await expect(queuedBubbles(page)).toHaveCount(0);
 
     await didascalia(page, "L'agente sta rispondendo…");
@@ -588,7 +588,7 @@ test.describe.serial("Coda dei messaggi", () => {
 
     await openChat(page, chatPage);
     expect(inject, "la rotta WS deve aver catturato la presa").not.toBeNull();
-    await svuotaCoda(page);
+    await clearQueue(page);
     await expect(queuedBubbles(page)).toHaveCount(0);
 
     const TESTO = "scrivo mentre l'agente sta lavorando qui";

@@ -671,7 +671,7 @@ const checkNeedsInputUnanswered: DoctorCheck = {
  * l'agente commenti. E' l'impronta esatta della card muta: c'e' un commento,
  * ma non l'ha scritto nessuno che sapesse cosa era stato fatto.
  */
-const NOTA_SENZA_RIASSUNTO = "Consegna senza riassunto";
+const NOTE_WITHOUT_SUMMARY = "Consegna senza riassunto";
 
 /** Quanto deve essere lunga una descrizione per dire qualcosa. Un titolo
  *  ricopiato nella descrizione non e' una descrizione: sotto questa soglia si
@@ -692,8 +692,8 @@ const checkReviewCardIsMute: DoctorCheck = {
       // MUTA = nessuna delle due voci parla. Una sola basta: una card senza
       // descrizione ma con un riassunto vero si legge benissimo, e viceversa.
       const descParla = desc.length >= DESC_MINIMA;
-      const riassuntoParla = riassunto.trim().length > 0 && !riassunto.includes(NOTA_SENZA_RIASSUNTO);
-      if (descParla || riassuntoParla) continue;
+      const summarySpeak = riassunto.trim().length > 0 && !riassunto.includes(NOTE_WITHOUT_SUMMARY);
+      if (descParla || summarySpeak) continue;
       // E se non c'e' NEMMENO un ramo, non c'e' niente da raccontare: e' una
       // card portata in review a mano, non una consegna rimasta senza parole.
       if (!t.deliveryBranch) continue;

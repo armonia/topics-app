@@ -27,13 +27,13 @@
 import type { SectionId } from '@/components/Settings/sections';
 
 /** The only pages the Profile pane knows about (`IDENTITY_SECTIONS`). */
-export type PaginaProfilo = Extract<SectionId, 'profile' | 'followers' | 'privacy'>;
+export type PageProfile = Extract<SectionId, 'profile' | 'followers' | 'privacy'>;
 
 export const EVENTO_PAGINA_PROFILO = 'topics:profile-page';
 
 /** What a caller can ask for: a page, a person, or both. */
 export interface ProfileRequest {
-  pagina: PaginaProfilo;
+  pagina: PageProfile;
   /** `null` = me. Anything else is somebody else's profile, read only. */
   personId: string | null;
 }
@@ -41,7 +41,7 @@ export interface ProfileRequest {
 /** The window in which the request is still answered. Long enough for a lazy
  *  chunk to arrive and for the pane to mount (twice, if the pane store rebuilds
  *  it), short enough that nobody can reach it from an unrelated later gesture. */
-const VALIDA_MS = 5_000;
+const VALID_MS = 5_000;
 
 let richiesta: (ProfileRequest & { at: number }) | null = null;
 
@@ -56,7 +56,7 @@ function request(r: ProfileRequest, ora: number): void {
  * the caller: the page is set down here, the pane opens through the bus that
  * opens every utility.
  */
-export function apriProfilo(pagina: PaginaProfilo, ora = Date.now()): void {
+export function apriProfilo(pagina: PageProfile, ora = Date.now()): void {
   request({ pagina, personId: null }, ora);
 }
 
@@ -83,7 +83,7 @@ export function openPersonProfile(personId: string, ora = Date.now()): void {
  */
 export function requestedProfile(ora = Date.now()): ProfileRequest | null {
   if (!richiesta) return null;
-  if (ora - richiesta.at > VALIDA_MS) {
+  if (ora - richiesta.at > VALID_MS) {
     richiesta = null;
     return null;
   }
@@ -91,7 +91,7 @@ export function requestedProfile(ora = Date.now()): ProfileRequest | null {
 }
 
 /** Just the page, for callers that do not care whose profile it is. */
-export function paginaProfiloChiesta(ora = Date.now()): PaginaProfilo | null {
+export function paginaProfiloChiesta(ora = Date.now()): PageProfile | null {
   return requestedProfile(ora)?.pagina ?? null;
 }
 

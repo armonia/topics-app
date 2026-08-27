@@ -307,7 +307,7 @@ export function isSilenceArtifact(text: string): boolean {
  * un `.webm` che dentro e' un MP4 (quello che registra WebKit) si apre male o
  * non si apre. Il nome arriva dal client, quindi e' la sua parola sul formato.
  */
-function estensioneDi(audio: SttAudio): string {
+function extensionOf(audio: SttAudio): string {
   return audio.filename.includes(".") ? audio.filename.split(".").pop()! : "webm";
 }
 
@@ -469,7 +469,7 @@ async function transcribeLocal(audio: SttAudio, cfg: LocalConfig): Promise<{ tra
   // chiude la finestra symlink/TOCTOU su una macchina multiutente.
   const tmpDir = mkdtempSync(join(tmpdir(), "stt-"));
   try {
-    const src = join(tmpDir, `in.${estensioneDi(audio)}`);
+    const src = join(tmpDir, `in.${extensionOf(audio)}`);
     const wav = join(tmpDir, "out.wav");
     writeFileSync(src, audio.bytes);
 
@@ -572,7 +572,7 @@ export async function transcribe(audio: SttAudio, deps: SttDeps): Promise<SttRes
         const dump = deps.env.STT_DUMP_DIR;
         if (dump) {
           try {
-            const nome = join(dump, `stt-vuoto-${now()}.${estensioneDi(audio)}`);
+            const nome = join(dump, `stt-vuoto-${now()}.${extensionOf(audio)}`);
             writeFileSync(nome, audio.bytes);
             console.warn(`[stt] audio del vuoto conservato in ${nome}`);
           } catch (e) {

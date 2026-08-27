@@ -31,8 +31,8 @@ import { isGuestSafeFrameType, frameResource } from "../../server/lib/grants";
 import { PROJECT_ROOT, setupTestDataDir, testTmpDir } from "./helpers";
 
 const TEST_DATA = testTmpDir("project-broadcast-data");
-const DIR_CONDIVISO = testTmpDir("project-broadcast-condiviso");
-const DIR_SEGRETO = testTmpDir("project-broadcast-segreto");
+const SHARED_DIR = testTmpDir("project-broadcast-condiviso");
+const DIR_SECRET = testTmpDir("project-broadcast-segreto");
 
 // ── Socket finte ───────────────────────────────────────────────────────────
 
@@ -50,7 +50,7 @@ interface SocketFinta {
   send(payload: string): void;
 }
 
-function socketFinta(
+function fakeSocket(
   id: string,
   deviceId: string | null,
   deviceRole: "owner" | "guest" | null = "owner",
@@ -64,12 +64,12 @@ function socketFinta(
   return s;
 }
 
-interface FrameProgetto {
+interface FrameProject {
   type: string;
   project: { id: string; name?: string; path?: string };
   payload_version?: number;
 }
-const frames = (s: SocketFinta): FrameProgetto[] => s.grezzi.map((g) => JSON.parse(g) as FrameProgetto);
+const frames = (s: SocketFinta): FrameProject[] => s.grezzi.map((g) => JSON.parse(g) as FrameProject);
 const tipi = (s: SocketFinta): string[] => frames(s).map((f) => f.type);
 const tutto = (s: SocketFinta): string => s.grezzi.join("\n");
 
@@ -118,7 +118,7 @@ describe("i frame di un progetto sanno chi hanno davanti", () => {
   let orgId: string;
   let devMircea: string;   // stessa org, NON proprietario dell'installazione
   let devEstraneo: string; // un'altra org
-  let devOspite: string;   // dispositivo appaiato come ospite
+  let devGuest: string;   // dispositivo appaiato come ospite
 
   beforeAll(async () => {
     // Il DB di `server/db.ts` è un singleton di processo: chiuderlo prima di
@@ -127,7 +127,7 @@ describe("i frame di un progetto sanno chi hanno davanti", () => {
     const { closeDatabase } = await import("../../server/db");
     closeDatabase();
     setupTestDataDir(TEST_DATA);
-    for (const d of [DIR_CONDIVISO, DIR_SEGRETO]) fs.mkdirSync(d, { recursive: true });
+    for (const d of [SHARED_DIR, DIR_SECRET]) fs.mkdirSync(d, { recursive: true });
 
     const { createAppContext } = await import("../../server/utils");
     const { createProjectsRouter } = await import("../../server/routes/projects");
@@ -139,14 +139,14 @@ describe("i frame di un progetto sanno chi hanno davanti", () => {
     devMircea = collega(ctx.db, "mircea", orgId);
     ctx.db.run("INSERT INTO orgs (id, name, created_at, updated_at) VALUES ('altra', 'Altra', 0, 0)");
     devEstraneo = collega(ctx.db, "estraneo", "altra");
-    devOspite = collega(ctx.db, "ospite", orgId, { ruoloDispositivo: "guest" });
+    devGuest = collega(ctx.db, "ospite", orgId, { ruoloDispositivo: "guest" });
   });
 
   afterAll(async () => {
     const { closeDatabase } = await import("../../server/db");
     closeDatabase();
     fs.rmSync(TEST_DATA, { recursive: true, force: true });
-    for (const d of [DIR_CONDIVISO, DIR_SEGRETO]) fs.rmSync(d, { recursive: true, force: true });
+    for (const d of [SHARED_DIR, DIR_SECRET]) fs.rmSync(d, { recursive: true, force: true });
   });
 
   beforeEach(() => {
@@ -157,9 +157,9 @@ describe("i frame di un progetto sanno chi hanno davanti", () => {
 
   /** Le tre socket che contano, già collegate. */
   function collega3() {
-    const macchina = socketFinta("ws-loopback", null);
-    const mircea = socketFinta("ws-mircea", devMircea);
-    const estraneo = socketFinta("ws-estraneo", devEstraneo);
+    const macchina = fakeSocket("ws-loopback", null);
+    const mircea = fakeSocket("ws-mircea", devMircea);
+    const estraneo = fakeSocket("ws-estraneo", devEstraneo);
     for (const s of [macchina, mircea, estraneo]) ctx.wsClients.add(s as never);
     return { macchina, mircea, estraneo };
   }
@@ -173,7 +173,7 @@ describe("i frame di un progetto sanno chi hanno davanti", () => {
 
   test("un progetto d'org: la riga a chi è dell'org, la ritratta all'estraneo", async () => {
     const { macchina, mircea, estraneo } = collega3();
-    const p = await crea("Condiviso", DIR_CONDIVISO);
+    const p = await crea("Condiviso", SHARED_DIR);
 
     expect(frames(macchina)).toEqual([
       expect.objectContaining({ type: "project:new", project: expect.objectContaining({ name: "Condiviso" }) }),
@@ -182,11 +182,11 @@ describe("i frame di un progetto sanno chi hanno davanti", () => {
     // Chi non ha nessuna org in comune riceve l'id e nient'altro.
     expect(frames(estraneo)).toEqual([{ type: "project:deleted", project: { id: p.id }, payload_version: 1 }]);
     expect(tutto(estraneo)).not.toContain("Condiviso");
-    expect(tutto(estraneo)).not.toContain(DIR_CONDIVISO);
+    expect(tutto(estraneo)).not.toContain(SHARED_DIR);
   });
 
   test("marcato incognito: al compagno d'org parte la RITRATTA, non la riga", async () => {
-    const p = await crea("Segreto", DIR_SEGRETO);
+    const p = await crea("Segreto", DIR_SECRET);
     // Le socket entrano DOPO la creazione: qui si guarda solo la modifica.
     const { macchina, mircea, estraneo } = collega3();
 
@@ -203,12 +203,12 @@ describe("i frame di un progetto sanno chi hanno davanti", () => {
     expect(frames(mircea)).toEqual([{ type: "project:deleted", project: { id: p.id }, payload_version: 1 }]);
     for (const s of [mircea, estraneo]) {
       expect(tutto(s)).not.toContain("Segreto");
-      expect(tutto(s)).not.toContain(DIR_SEGRETO);
+      expect(tutto(s)).not.toContain(DIR_SECRET);
     }
   });
 
   test("un incognito che cambia nome o si archivia non torna in chiaro", async () => {
-    const p = await crea("Segreto", DIR_SEGRETO);
+    const p = await crea("Segreto", DIR_SECRET);
     await chiama(router, `/api/projects/${p.id}`, "PATCH", { incognito: true });
     const { macchina, mircea, estraneo } = collega3();
 
@@ -224,7 +224,7 @@ describe("i frame di un progetto sanno chi hanno davanti", () => {
     for (const s of [mircea, estraneo]) {
       expect(tipi(s)).toEqual(["project:deleted", "project:deleted", "project:deleted"]);
       expect(tutto(s)).not.toContain("Segreto");
-      expect(tutto(s)).not.toContain(DIR_SEGRETO);
+      expect(tutto(s)).not.toContain(DIR_SECRET);
     }
   });
 
@@ -240,11 +240,11 @@ describe("i frame di un progetto sanno chi hanno davanti", () => {
       },
       mayReadTopic: () => false,
     });
-    const ospite = socketFinta("ws-ospite", devOspite, "guest");
+    const ospite = fakeSocket("ws-ospite", devGuest, "guest");
     ctx.wsClients.add(ospite as never);
     const { macchina } = collega3();
 
-    await crea("Condiviso", DIR_CONDIVISO);
+    await crea("Condiviso", SHARED_DIR);
 
     expect(ospite.grezzi).toEqual([]);
     expect(tipi(macchina)).toEqual(["project:new"]);
@@ -253,13 +253,13 @@ describe("i frame di un progetto sanno chi hanno davanti", () => {
   test("due finestre dello stesso dispositivo ricevono entrambe", async () => {
     // L'osservatore è in cache PER DISPOSITIVO, non per socket: la cache deve
     // risparmiare due query, non saltare una finestra.
-    const uno = socketFinta("ws-mircea-1", devMircea);
-    const due = socketFinta("ws-mircea-2", devMircea);
-    const chiusa = socketFinta("ws-mircea-chiusa", devMircea);
+    const uno = fakeSocket("ws-mircea-1", devMircea);
+    const due = fakeSocket("ws-mircea-2", devMircea);
+    const chiusa = fakeSocket("ws-mircea-chiusa", devMircea);
     chiusa.readyState = 3;
     for (const s of [uno, due, chiusa]) ctx.wsClients.add(s as never);
 
-    await crea("Condiviso", DIR_CONDIVISO);
+    await crea("Condiviso", SHARED_DIR);
 
     expect(frames(uno)[0]!.project.name).toBe("Condiviso");
     expect(frames(due)[0]!.project.name).toBe("Condiviso");
@@ -269,7 +269,7 @@ describe("i frame di un progetto sanno chi hanno davanti", () => {
   test("la cancellazione porta solo l'id, e va a tutti", async () => {
     // `project:deleted` resta su `broadcastToAll`: è già la forma ridotta, e la
     // riga non c'è più — non ci sarebbe niente da valutare.
-    const p = await crea("Condiviso", DIR_CONDIVISO);
+    const p = await crea("Condiviso", SHARED_DIR);
     const { macchina, mircea, estraneo } = collega3();
 
     const r = await chiama(router, `/api/projects/${p.id}`, "DELETE");

@@ -39,7 +39,7 @@ const FINE_PERIODO_S = Math.floor(ORA / 1000) + 30 * 86_400;
  *  dell'installazione sono due endpoint distinti dello stesso account Stripe, e
  *  confonderli è il modo realistico di rompere questo giro. */
 const SEGRETO_CONIO = "whsec_venditore";
-const SEGRETO_INSTALLAZIONE = "whsec_cliente";
+const SECRET_INSTALL = "whsec_cliente";
 
 const coppia = generateKeyPairSync("ed25519");
 const PRIV = coppia.privateKey.export({ type: "pkcs8", format: "der" }).subarray(-32).toString("base64url");
@@ -130,14 +130,14 @@ function latoInstallazione() {
     licenza: () => servizio,
   } as unknown as AppContext;
   const router = createBillingRouter(ctx, {
-    env: { STRIPE_WEBHOOK_SECRET: SEGRETO_INSTALLAZIONE },
+    env: { STRIPE_WEBHOOK_SECRET: SECRET_INSTALL },
     now: () => ORA,
   });
   return async (evento: unknown) => {
     const corpo = JSON.stringify(evento);
     const req = new Request("https://cliente.local/api/billing/webhook", {
       method: "POST",
-      headers: { "stripe-signature": firma(corpo, SEGRETO_INSTALLAZIONE), "content-type": "application/json" },
+      headers: { "stripe-signature": firma(corpo, SECRET_INSTALL), "content-type": "application/json" },
       body: corpo,
     });
     const r = await router(req, new URL(req.url), "/api/billing/webhook", "POST");

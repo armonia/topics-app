@@ -88,7 +88,7 @@ function sqlDi(file: string): string {
 }
 
 /** Il generatore vero, dalla radice del repo di prova. Torna il file creato. */
-function agenteScriveMigration(repo: string, slug: string): string {
+function agentWritesMigration(repo: string, slug: string): string {
   const prima = new Set(readdirSync(join(repo, MIGRATIONS_DIR)));
   const proc = Bun.spawnSync(["bun", "run", join(repo, "scripts", "new-migration.ts"), slug], { cwd: repo });
   expect(proc.stderr.toString() + proc.stdout.toString()).toContain(slug);
@@ -150,7 +150,7 @@ describe("prefisso timestamp", () => {
 
     // Ramo A, tagliato da main.
     git(repo, "checkout", "-q", "-b", "card-a");
-    const a = agenteScriveMigration(repo, "notification-log");
+    const a = agentWritesMigration(repo, "notification-log");
     git(repo, "add", "-A");
     git(repo, "commit", "-qm", "card-a");
     expect(cancello(repo, "main").code).toBe(0);
@@ -159,7 +159,7 @@ describe("prefisso timestamp", () => {
     git(repo, "checkout", "-q", "main");
     git(repo, "checkout", "-q", "-b", "card-b");
     expect(readdirSync(join(repo, MIGRATIONS_DIR))).not.toContain(a);
-    const b = agenteScriveMigration(repo, "push-device-prefs");
+    const b = agentWritesMigration(repo, "push-device-prefs");
     git(repo, "add", "-A");
     git(repo, "commit", "-qm", "card-b");
     expect(cancello(repo, "main").code).toBe(0);

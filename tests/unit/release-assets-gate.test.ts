@@ -73,17 +73,17 @@ describe("publish: il cancello sono gli asset", () => {
   it("manca una FIRMA: non si pubblica — l'updater non installa senza", () => {
     // Il .sig non e' un accessorio: e' quello che l'updater verifica prima di
     // applicare. Un bundle senza firma e' un aggiornamento che non si puo' fare.
-    const senzaSig = completa().filter((n) => !n.endsWith("Topics_universal.app.tar.gz.sig"));
-    const v = assetVerdict(senzaSig);
+    const withoutSig = completa().filter((n) => !n.endsWith("Topics_universal.app.tar.gz.sig"));
+    const v = assetVerdict(withoutSig);
     expect(v.complete).toBe(false);
     expect((v as { missing: string[] }).missing).toContain("_universal.app.tar.gz.sig");
   });
 
   it("manca un OS INTERO (il caso della firma macOS del 08/08)", () => {
-    const senzaMac = completa().filter(
+    const withoutMac = completa().filter(
       (n) => !n.includes("universal.dmg") && !n.includes("universal.app.tar.gz"),
     );
-    const v = assetVerdict(senzaMac);
+    const v = assetVerdict(withoutMac);
     expect(v.complete).toBe(false);
     expect(v.found).toBe(9);
   });

@@ -69,7 +69,7 @@ const PROJECT_PANE = `project:${encodeURIComponent(PROJECT_PATH)}`;
 const BOARD_PANE = "__board__";
 /** Un task che non esiste: il drawer non lo risolve, `topics:task-opened` non
  *  parte, l'intento resta ARMATO. */
-const TASK_FANTASMA = "00000000-0000-4000-8000-000000000000";
+const TASK_GHOST = "00000000-0000-4000-8000-000000000000";
 
 /**
  * Le pane ATTIVE della barra di livello app. Le barre dentro `project-window`
@@ -137,13 +137,13 @@ async function apriProgettoDaSidebar(page: Page) {
 }
 
 /** «New Chat» dal menu «+» DENTRO la finestra progetto. */
-async function newChatDalProgetto(page: Page) {
+async function newChatFromProject(page: Page) {
   await page.getByTestId("project-window").getByTestId("pane-add-menu-trigger").first().click();
   await page.getByTestId("pane-add-menu").getByTestId("pane-add-menu-new-chat").click();
 }
 
 /** «New Chat» dal menu «+» GLOBALE della sidebar. */
-async function newChatGlobale(page: Page) {
+async function globalNewChat(page: Page) {
   const trigger = page.locator('[aria-label="Topics sidebar"] [data-testid="pane-add-menu-trigger"]').first();
   await expect(trigger).toBeVisible({ timeout: 10000 });
   await trigger.click();
@@ -154,7 +154,7 @@ async function newChatGlobale(page: Page) {
 async function armaIntento(page: Page) {
   await page.evaluate((taskId) => {
     window.dispatchEvent(new CustomEvent("topics:open-task", { detail: { taskId } }));
-  }, TASK_FANTASMA);
+  }, TASK_GHOST);
   await page.waitForTimeout(600);
 }
 
@@ -192,7 +192,7 @@ test.describe.serial("FOCUS-BOUNCE — il fuoco che torna sulla board", () => {
     await scena(page, request);
     await apriProgettoDaSidebar(page);
 
-    await newChatDalProgetto(page);
+    await newChatFromProject(page);
     const { boardTornata, visti } = await watchFocus(page, 5000);
     expect(boardTornata, `fuoco osservato dopo «New Chat»: ${JSON.stringify(visti)}`).toBe(false);
   });
@@ -201,7 +201,7 @@ test.describe.serial("FOCUS-BOUNCE — il fuoco che torna sulla board", () => {
     await scena(page, request);
     await apriProgettoDaSidebar(page);
 
-    await newChatGlobale(page);
+    await globalNewChat(page);
     const { boardTornata, visti } = await watchFocus(page, 5000);
     expect(boardTornata, `fuoco osservato dopo «New Chat»: ${JSON.stringify(visti)}`).toBe(false);
   });
@@ -211,7 +211,7 @@ test.describe.serial("FOCUS-BOUNCE — il fuoco che torna sulla board", () => {
     await armaIntento(page);
     await apriProgettoDaSidebar(page);
 
-    await newChatDalProgetto(page);
+    await newChatFromProject(page);
     const { boardTornata, visti } = await watchFocus(page, 5000);
     expect(boardTornata, `fuoco osservato dopo «New Chat»: ${JSON.stringify(visti)}`).toBe(false);
   });
@@ -221,7 +221,7 @@ test.describe.serial("FOCUS-BOUNCE — il fuoco che torna sulla board", () => {
     await armaIntento(page);
     await apriProgettoDaSidebar(page);
 
-    await newChatGlobale(page);
+    await globalNewChat(page);
     const { boardTornata, visti } = await watchFocus(page, 5000);
     expect(boardTornata, `fuoco osservato dopo «New Chat»: ${JSON.stringify(visti)}`).toBe(false);
   });
@@ -237,7 +237,7 @@ test.describe.serial("FOCUS-BOUNCE — il fuoco che torna sulla board", () => {
     await armaIntento(page);
     await apriProgettoDaSidebar(page);
 
-    await newChatDalProgetto(page);
+    await newChatFromProject(page);
     const { boardTornata, visti } = await watchFocus(page, 5000);
     expect(boardTornata, `fuoco osservato dopo «New Chat»: ${JSON.stringify(visti)}`).toBe(false);
   });
@@ -246,14 +246,14 @@ test.describe.serial("FOCUS-BOUNCE — il fuoco che torna sulla board", () => {
     // La via vera dell'utente: si arriva sulla board CLICCANDO un task (notifica,
     // permalink). `openTaskFromUrl` apre la board e arma l'intento al boot.
     await resetPaneStore(request, [topicId]);
-    await page.goto(`/task/${TASK_FANTASMA}`);
+    await page.goto(`/task/${TASK_GHOST}`);
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
     await expect(page.locator(`[data-pane-id="${BOARD_PANE}"]`).first())
       .toHaveAttribute("data-active", "true", { timeout: 15000 });
 
     await apriProgettoDaSidebar(page);
 
-    await newChatDalProgetto(page);
+    await newChatFromProject(page);
     const { boardTornata, visti } = await watchFocus(page, 5000);
     expect(boardTornata, `fuoco osservato dopo «New Chat»: ${JSON.stringify(visti)}`).toBe(false);
   });

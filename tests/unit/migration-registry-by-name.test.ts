@@ -101,14 +101,14 @@ describe("registro migration per nome", () => {
     const a = baseConMigrations(files);
     initDatabase(a.baseDir);
     closeDatabase();
-    const ordineA = registro(a.dataDir).map(r => r.name);
+    const orderA = registro(a.dataDir).map(r => r.name);
 
     const b = baseConMigrations(files);
     initDatabase(b.baseDir);
     closeDatabase();
 
-    expect(ordineA).toEqual(["089-mid.sql", "090-aaa.sql", "090-zzz.sql"]);
-    expect(registro(b.dataDir).map(r => r.name)).toEqual(ordineA);
+    expect(orderA).toEqual(["089-mid.sql", "090-aaa.sql", "090-zzz.sql"]);
+    expect(registro(b.dataDir).map(r => r.name)).toEqual(orderA);
   });
 
   it("un secondo avvio non riapplica niente", () => {

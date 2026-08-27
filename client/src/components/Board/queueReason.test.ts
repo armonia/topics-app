@@ -58,8 +58,8 @@ const FILES = [...walk(join(SRC, 'components/Board')), join(SRC, 'lib/board.ts')
  * e' il compromesso giusto — e' raro, e riformularla costa una parola.
  */
 function senzaCommenti(src: string): string {
-  const senzaBlocchi = src.replace(/\/\*[\s\S]*?\*\//g, ' ');
-  return senzaBlocchi
+  const withoutBlocks = src.replace(/\/\*[\s\S]*?\*\//g, ' ');
+  return withoutBlocks
     .split('\n')
     .filter((riga) => !/^\s*(\/\/|\*)/.test(riga))
     .join('\n');
@@ -118,10 +118,10 @@ describe('la ragione della coda non ha una copia nel client', () => {
     // Senza questo caso, `senzaCommenti` potrebbe cancellare troppo (o tutto) e
     // il controllo sopra resterebbe verde per sempre senza guardare niente.
     const frase = deriveQueueReason({ ...base, parentTaskId: 'p' }, { ...ctx, parentStatus: 'in_progress' })!.detail;
-    const nelCodice = `const x = '${frase}';`;
-    const nelCommento = `// vita normale di uno step (${frase})\n * e anche cosi' (${frase})`;
-    expect(senzaCommenti(nelCodice).includes(frase), 'una copia vera deve restare presa').toBe(true);
-    expect(senzaCommenti(nelCommento).includes(frase), 'una spiegazione non e\' una copia').toBe(false);
+    const inCode = `const x = '${frase}';`;
+    const inComment = `// vita normale di uno step (${frase})\n * e anche cosi' (${frase})`;
+    expect(senzaCommenti(inCode).includes(frase), 'una copia vera deve restare presa').toBe(true);
+    expect(senzaCommenti(inComment).includes(frase), 'una spiegazione non e\' una copia').toBe(false);
   });
 
   test('il chip rende i campi del payload, non li compone', () => {

@@ -195,7 +195,7 @@ async function load(path: string, esplicita = false) {
   if (!store.snapshot.gitStatus) patch(store, { loading: true });
   // Da quale stato partiamo. Se nel frattempo arriva un push, questa risposta
   // descrive un momento PRECEDENTE e non deve vincere.
-  const pushAllaPartenza = store.pushSeq;
+  const pushAtStart = store.pushSeq;
   try {
     const status = await gitApi.status(path);
     // Il server risponde 200 con `{ notGit: true }` per una cartella non-repo.
@@ -219,7 +219,7 @@ async function load(path: string, esplicita = false) {
     // sta chiedendo lo stato di ADESSO, e la sua risposta e' piu recente di
     // qualunque push partito prima: scartarla lascerebbe il pannello indietro
     // proprio nel momento in cui l'utente guarda per vedere l'effetto.
-    if (!esplicita && store.pushSeq !== pushAllaPartenza) { retime(path, store); return; }
+    if (!esplicita && store.pushSeq !== pushAtStart) { retime(path, store); return; }
     publish(path, store, status);
     retime(path, store);
   } catch (err: unknown) {

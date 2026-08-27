@@ -91,11 +91,11 @@ describe("la nota «senza riassunto» storica", () => {
     d.run(SQL);
     const dopoUna = d.query("SELECT created_at FROM task_comments WHERE id='1'").get() as { created_at: string };
     d.run(SQL);
-    const dopoDue = d.query("SELECT created_at FROM task_comments WHERE id='1'").get() as { created_at: string };
+    const afterTwo = d.query("SELECT created_at FROM task_comments WHERE id='1'").get() as { created_at: string };
     d.close();
     // Il secondo giro non sposta di un altro secondo: il `WHERE` non trova più
     // un fan-out nello stesso secondo, perché la nota si è già spostata.
-    expect(dopoDue.created_at).toBe(dopoUna.created_at);
+    expect(afterTwo.created_at).toBe(dopoUna.created_at);
   });
 
   /** Un commento umano non finisce mai in questo insieme. */

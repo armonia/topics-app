@@ -89,7 +89,7 @@ function runPingProbe(): never {
 
 // -------------------------------------------------------------- seme ----
 
-const RIGA_TESTO =
+const ROW_TEXT =
   "Sto leggendo il file e cerco il punto in cui la riadozione perde l'ancora: è lì che il turno muore, " +
   "perché l'offset da cui riparte non è quello che il daemon ha davvero consegnato. Però la prova sta nei byte. ";
 
@@ -100,7 +100,7 @@ function synthStore(bytes: number, sessionId: string): Buffer {
   let total = 0;
   let i = 0;
   while (total < bytes) {
-    const text = RIGA_TESTO.slice(0, 200) + ` #${i}`;
+    const text = ROW_TEXT.slice(0, 200) + ` #${i}`;
     const line = JSON.stringify({
       type: "stream_event",
       event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text } },

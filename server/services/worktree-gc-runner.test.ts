@@ -24,7 +24,7 @@ import { join } from "node:path";
 import { createWorktreeGcRunner, type WorktreeGcDeps } from "./worktree-gc-runner";
 
 /** Dipendenze inerti: rispondono, non fanno nulla, e registrano se le chiamano. */
-function depsFinte(over: Partial<WorktreeGcDeps> = {}): { deps: WorktreeGcDeps; toccati: string[]; annunci: unknown[]; db: Database } {
+function fakeDeps(over: Partial<WorktreeGcDeps> = {}): { deps: WorktreeGcDeps; toccati: string[]; annunci: unknown[]; db: Database } {
   const toccati: string[] = [];
   const annunci: unknown[] = [];
   const db = new Database(":memory:");
@@ -64,7 +64,7 @@ function depsFinte(over: Partial<WorktreeGcDeps> = {}): { deps: WorktreeGcDeps; 
  * `projectId` NON compare qui: sulla card lo scrive il servizio task, e i test
  * che lo guardano se lo fanno restituire dal doppio di `svc.get`.
  */
-function legaTask(db: Database, opts: { taskId: string; worktreeId: string; status: string }): void {
+function bindTask(db: Database, opts: { taskId: string; worktreeId: string; status: string }): void {
   const topicId = `topic-${opts.taskId}`;
   db.run("INSERT INTO topics (id, session_key, worktree_id) VALUES (?, ?, ?)", [topicId, `topic:${opts.taskId}`, opts.worktreeId]);
   db.run(
@@ -75,7 +75,7 @@ function legaTask(db: Database, opts: { taskId: string; worktreeId: string; stat
 
 describe("il cablaggio della potatura dei worktree", () => {
   it("la fabbrica costruisce e pubblica i due tempi dell'avvio", () => {
-    const { deps } = depsFinte();
+    const { deps } = fakeDeps();
     const gc = createWorktreeGcRunner(deps);
     expect(typeof gc.runWorktreeGc).toBe("function");
     expect(typeof gc.slimWorktreeOfTask).toBe("function");
@@ -89,7 +89,7 @@ describe("il cablaggio della potatura dei worktree", () => {
     // E' il caso che conta: senza worktree da valutare, un sottosistema che
     // distrugge deve restare fermo. Se qui comparisse un `delete`, sarebbe la
     // prova che il giro fa qualcosa per conto suo.
-    const { deps, toccati } = depsFinte();
+    const { deps, toccati } = fakeDeps();
     const gc = createWorktreeGcRunner(deps);
     const esito = await gc.runWorktreeGc();
     expect(esito).not.toBeNull();
@@ -101,7 +101,7 @@ describe("il cablaggio della potatura dei worktree", () => {
   it("un errore dentro il giro non propaga: la potatura non puo' abbattere il server", async () => {
     // Il `catch` finale c'era in `server.ts` e va con il codice, non col
     // chiamante: un timer che esplode ogni trenta minuti si nota tardi.
-    const { deps } = depsFinte({
+    const { deps } = fakeDeps({
       worktreeStore: { list: () => { throw new Error("store rotto"); } },
     });
     const gc = createWorktreeGcRunner(deps);
@@ -109,7 +109,7 @@ describe("il cablaggio della potatura dei worktree", () => {
   });
 
   it("lo sfoltimento di un task senza worktree e' un non-evento", async () => {
-    const { deps, toccati } = depsFinte();
+    const { deps, toccati } = fakeDeps();
     const gc = createWorktreeGcRunner(deps);
     await gc.slimWorktreeOfTask("t-inesistente");
     expect(toccati).toEqual([]);
@@ -119,7 +119,7 @@ describe("il cablaggio della potatura dei worktree", () => {
     // La guardia piu' importante di `slimWorktreeOfTask`: togliere
     // `node_modules` sotto i piedi di un agente che sta lavorando.
     const letture: string[] = [];
-    const { deps } = depsFinte({
+    const { deps } = fakeDeps({
       isInFlight: () => true,
       worktreeOfTask: (taskId) => { letture.push(taskId); return { id: "w1", absPath: "/tmp/x", projectId: "p" }; },
     });
@@ -170,13 +170,13 @@ describe("la potatura ANNUNCIA cio' che scrive sulle card", () => {
     // starci lavorando. `release` lo declassa, e senza annuncio la board
     // continuerebbe a mostrarlo in lavorazione fino al ricaricamento.
     const toccati: string[] = [];
-    const { deps, annunci, db } = depsFinte({
+    const { deps, annunci, db } = fakeDeps({
       worktreeStore: fantasma("w-abbandonato"),
       projectStore: { get: () => null },          // niente repo ⇒ ramo "gone"
       worktreeManager: { delete: async () => true },
       svc: svcConCard("t-abbandonato", toccati),
     });
-    legaTask(db, { taskId: "t-abbandonato", worktreeId: "w-abbandonato", status: "in_progress" });
+    bindTask(db, { taskId: "t-abbandonato", worktreeId: "w-abbandonato", status: "in_progress" });
 
     const esito = await createWorktreeGcRunner(deps).runWorktreeGc();
 
@@ -192,13 +192,13 @@ describe("la potatura ANNUNCIA cio' che scrive sulle card", () => {
     // perde il legame col worktree, ed e' quel legame a decidere se il bottone
     // che apre la cartella ha ancora un posto dove andare.
     const toccati: string[] = [];
-    const { deps, annunci, db } = depsFinte({
+    const { deps, annunci, db } = fakeDeps({
       worktreeStore: fantasma("w-slegato"),
       projectStore: { get: () => null },
       worktreeManager: { delete: async () => true },
       svc: svcConCard("t-slegato", toccati),
     });
-    legaTask(db, { taskId: "t-slegato", worktreeId: "w-slegato", status: "review" });
+    bindTask(db, { taskId: "t-slegato", worktreeId: "w-slegato", status: "review" });
 
     const esito = await createWorktreeGcRunner(deps).runWorktreeGc();
 
@@ -214,13 +214,13 @@ describe("la potatura ANNUNCIA cio' che scrive sulle card", () => {
     // primo non solleva niente e non si vede da nessuna parte: il client
     // riceve il frame e lo butta, che e' il silenzio da cui siamo partiti.
     const toccati: string[] = [];
-    const { deps, annunci, db } = depsFinte({
+    const { deps, annunci, db } = fakeDeps({
       worktreeStore: fantasma("w-namespace"),
       projectStore: { get: () => null },
       worktreeManager: { delete: async () => true },
       svc: svcConCard("t-namespace", toccati),
     });
-    legaTask(db, { taskId: "t-namespace", worktreeId: "w-namespace", status: "in_progress" });
+    bindTask(db, { taskId: "t-namespace", worktreeId: "w-namespace", status: "in_progress" });
 
     await createWorktreeGcRunner(deps).runWorktreeGc();
 
@@ -237,7 +237,7 @@ describe("la potatura ANNUNCIA cio' che scrive sulle card", () => {
     const dir = mkdtempSync(join(tmpdir(), "gc-runner-sporco-"));
     try {
       const toccati: string[] = [];
-      const { deps, annunci, db } = depsFinte({
+      const { deps, annunci, db } = fakeDeps({
         // `reuse`: il ramo non e' suo, quindi la riga fantasma non entra in
         // gioco e si arriva alla sonda dello sporco. La cartella esiste ma non
         // e' un repo git: `git status` esce non-zero, e chi non ha potuto
@@ -246,7 +246,7 @@ describe("la potatura ANNUNCIA cio' che scrive sulle card", () => {
         worktreeManager: { delete: async () => true },
         svc: svcConCard("t-sporco", toccati),
       });
-      legaTask(db, { taskId: "t-sporco", worktreeId: "w-sporco", status: "done" });
+      bindTask(db, { taskId: "t-sporco", worktreeId: "w-sporco", status: "done" });
 
       const esito = await createWorktreeGcRunner(deps).runWorktreeGc();
 
@@ -264,14 +264,14 @@ describe("la potatura ANNUNCIA cio' che scrive sulle card", () => {
     // un giro che serve a liberare spazio. Se il broadcast alza, il task e'
     // gia' parcheggiato e la cartella va rimossa lo stesso.
     const toccati: string[] = [];
-    const { deps, db } = depsFinte({
+    const { deps, db } = fakeDeps({
       worktreeStore: fantasma("w-filo-rotto"),
       projectStore: { get: () => null },
       worktreeManager: { delete: async () => true },
       svc: svcConCard("t-filo-rotto", toccati),
       broadcast: () => { throw new Error("client staccati"); },
     });
-    legaTask(db, { taskId: "t-filo-rotto", worktreeId: "w-filo-rotto", status: "in_progress" });
+    bindTask(db, { taskId: "t-filo-rotto", worktreeId: "w-filo-rotto", status: "in_progress" });
 
     const esito = await createWorktreeGcRunner(deps).runWorktreeGc();
 
@@ -294,7 +294,7 @@ describe("la potatura ANNUNCIA cio' che scrive sulle card", () => {
 describe("rientro della potatura", () => {
   it("due chiamate sovrapposte condividono LA STESSA passata", async () => {
     let giri = 0;
-    const { deps } = depsFinte({ worktreeStore: { list: () => { giri += 1; return []; } } });
+    const { deps } = fakeDeps({ worktreeStore: { list: () => { giri += 1; return []; } } });
     const gc = createWorktreeGcRunner(deps);
 
     const a = gc.runWorktreeGc();
@@ -309,7 +309,7 @@ describe("rientro della potatura", () => {
 
   it("finita la passata, la successiva riparte davvero (non è un interruttore a senso unico)", async () => {
     let giri = 0;
-    const { deps } = depsFinte({ worktreeStore: { list: () => { giri += 1; return []; } } });
+    const { deps } = fakeDeps({ worktreeStore: { list: () => { giri += 1; return []; } } });
     const gc = createWorktreeGcRunner(deps);
 
     await gc.runWorktreeGc();

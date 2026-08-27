@@ -40,7 +40,7 @@ import { join } from 'node:path';
 const ROOT = join(import.meta.dir, '..', '..');
 
 /** I campi ANNIDATI: leggerli va bene, COPIARLI in un campo disgiunto no. */
-const CAMPI_GREZZI = ['cacheCreation', 'cacheCreation1h'] as const;
+const RAW_FIELDS = ['cacheCreation', 'cacheCreation1h'] as const;
 
 describe('routes/chat.ts non copia a mano le quote annidate di un turno', () => {
   const src = readFileSync(join(ROOT, 'server', 'routes', 'chat.ts'), 'utf8');
@@ -49,8 +49,8 @@ describe('routes/chat.ts non copia a mano le quote annidate di un turno', () => 
     // `live` è l'accumulatore del turno in corso. Ogni suo uso diretto delle
     // due quote di scrittura è il guasto che stiamo impedendo: sono annidate,
     // e ogni destinazione nel repo le vuole disgiunte.
-    const colpevoli = CAMPI_GREZZI
-      .map((campo) => ({ campo, righe: righeCon(src, `live.${campo}`) }))
+    const colpevoli = RAW_FIELDS
+      .map((campo) => ({ campo, righe: rowsWith(src, `live.${campo}`) }))
       .filter((x) => x.righe.length > 0);
 
     expect(
@@ -63,7 +63,7 @@ describe('routes/chat.ts non copia a mano le quote annidate di un turno', () => 
     // invece di collegarlo — verde per assenza, che è il modo in cui una
     // guardia smette di guardare.
     expect(src).toContain('turnUsageWire');
-    expect(righeCon(src, 'turnUsageWire(live)').length).toBeGreaterThan(0);
+    expect(rowsWith(src, 'turnUsageWire(live)').length).toBeGreaterThan(0);
   });
 });
 
@@ -92,7 +92,7 @@ describe('turnUsageWire è la sola forma che i due contratti condividono', () =>
 });
 
 /** I numeri di riga (1-based) su cui compare un ago. Servono al messaggio. */
-function righeCon(src: string, ago: string): number[] {
+function rowsWith(src: string, ago: string): number[] {
   return src
     .split('\n')
     .map((riga, i) => (riga.includes(ago) ? i + 1 : 0))

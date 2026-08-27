@@ -26,14 +26,14 @@ const SORGENTE = readFileSync(
 );
 
 /** La riga che decide se la fascia dei chip si monta. */
-function condizioneRiga(): string {
+function conditionRow(): string {
   const riga = SORGENTE.split("\n").find((l) => l.includes("const hasMetaRow ="));
   if (!riga) throw new Error("hasMetaRow non trovato: il contenitore dei chip è cambiato nome");
   return riga;
 }
 
 /** I `data-testid` dei chip disegnati DENTRO la fascia. */
-function chipDentroLaFascia(): string[] {
+function chipInsideBand(): string[] {
   const inizio = SORGENTE.indexOf("{hasMetaRow && (");
   expect(inizio, "la fascia dei chip deve esistere").toBeGreaterThan(0);
   // Fino alla fine del componente: i chip stanno tutti lì dentro, e prendere
@@ -70,8 +70,8 @@ function chipCondizionato(testid: string): boolean {
 
 describe("la fascia dei chip conosce tutti i suoi chip", () => {
   it("ogni chip condizionato compare nell'elenco di hasMetaRow", () => {
-    const condizione = condizioneRiga();
-    const trovati = chipDentroLaFascia();
+    const condizione = conditionRow();
+    const trovati = chipInsideBand();
     expect(trovati.length, "nessun chip trovato: il selettore è andato a vuoto").toBeGreaterThan(1);
 
     // La mappa da `data-testid` al nome della variabile che lo governa. Sta qui

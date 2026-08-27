@@ -52,7 +52,7 @@ function sorgenti(dir: string, out: string[] = []): string[] {
 }
 
 /** Un solo componente auto-chiuso con iniziale maiuscola: `<X size={12} />`. */
-const SOLO_UN_ICONA = /^<[A-Z][A-Za-z0-9]*(\s[^>]*?)?\/>$/s;
+const ONLY_ONE_ICON = /^<[A-Z][A-Za-z0-9]*(\s[^>]*?)?\/>$/s;
 const HA_UN_NOME = /aria-label|aria-labelledby|\btitle=/;
 
 /** Fine del tag di apertura, saltando le graffe JSX (`className={`…`}`). */
@@ -78,7 +78,7 @@ function senzaNome(file: string): number[] {
     const chiusura = src.indexOf("</button>", fine);
     if (chiusura < 0) continue;
     const corpo = src.slice(fine + 1, chiusura).replace(/\{\/\*[\s\S]*?\*\/\}/g, "").trim();
-    if (SOLO_UN_ICONA.test(corpo)) righe.push(src.slice(0, i).split("\n").length);
+    if (ONLY_ONE_ICON.test(corpo)) righe.push(src.slice(0, i).split("\n").length);
   }
   return righe;
 }

@@ -43,10 +43,10 @@ const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 
 const STAMP = Date.now();
 const TASK_VIVO = `Sessione viva ${STAMP}`;
-const TASK_MORTO = `Sessione finita ${STAMP}`;
+const DEAD_TASK = `Sessione finita ${STAMP}`;
 
 let projectTopicId: string | null = null;
-let topicVivo: string | null = null;
+let aliveTopic: string | null = null;
 let topicMorto: string | null = null;
 const createdTasks: string[] = [];
 
@@ -104,20 +104,20 @@ test.describe("Scheda del task e sessione dell'agente", () => {
     // chat tabs, which is the surface of this clip — exactly what the dispatcher
     // does on the catch-all board.
     projectTopicId = (await createTopic(request, "E2E-CardSess", { projectPath: PROJECT_PATH })).id;
-    topicVivo = (await createTopic(request, `Sessione viva ${STAMP}`)).id;
+    aliveTopic = (await createTopic(request, `Sessione viva ${STAMP}`)).id;
     topicMorto = (await createTopic(request, `Sessione finita ${STAMP}`)).id;
   });
 
   test.afterAll(async ({ request }) => {
     for (const id of [...createdTasks].reverse()) await deleteTask(request, PROJECT_ID, id);
-    for (const id of [topicMorto, topicVivo, projectTopicId]) if (id) await deleteTopic(request, id);
+    for (const id of [topicMorto, aliveTopic, projectTopicId]) if (id) await deleteTopic(request, id);
     rmSync(PROJECT_PATH, { recursive: true, force: true });
   });
 
   test("dalla board alla scheda, dalla scheda alla sessione, e ritorno — e la sessione finita lo dice", async ({ page, request }) => {
     const vivo = await createTask(request, TASK_VIVO);
-    const morto = await createTask(request, TASK_MORTO);
-    await bindTopic(request, vivo.id, topicVivo!, "working");
+    const morto = await createTask(request, DEAD_TASK);
+    await bindTopic(request, vivo.id, aliveTopic!, "working");
     await bindTopic(request, morto.id, topicMorto!, null);
 
     await resetPaneStore(page.request, []);
@@ -125,18 +125,18 @@ test.describe("Scheda del task e sessione dell'agente", () => {
     await page.goto("/");
     await openGlobalBoard(page);
 
-    const cardVivo = page.locator(`[data-task-card="${vivo.id}"]`);
-    const cardMorto = page.locator(`[data-task-card="${morto.id}"]`);
-    await expect(cardVivo).toBeVisible({ timeout: 15000 });
-    await expect(cardMorto).toBeVisible({ timeout: 15000 });
+    const aliveCard = page.locator(`[data-task-card="${vivo.id}"]`);
+    const deadCard = page.locator(`[data-task-card="${morto.id}"]`);
+    await expect(aliveCard).toBeVisible({ timeout: 15000 });
+    await expect(deadCard).toBeVisible({ timeout: 15000 });
 
     // (a) BEFORE THE CLICK the difference is readable: one card offers the
     //     session, the other says it is over and offers nothing to open.
-    await expect(cardVivo.getByTestId("card-open-session")).toBeVisible();
-    await expect(cardVivo.getByTestId("card-session-gone")).toHaveCount(0);
-    await expect(cardMorto.getByTestId("card-session-gone")).toBeVisible();
+    await expect(aliveCard.getByTestId("card-open-session")).toBeVisible();
+    await expect(aliveCard.getByTestId("card-session-gone")).toHaveCount(0);
+    await expect(deadCard.getByTestId("card-session-gone")).toBeVisible();
     await expect(
-      cardMorto.getByTestId("card-open-session"),
+      deadCard.getByTestId("card-open-session"),
       "una sessione che non c'è più non si apre: il gesto non esiste proprio",
     ).toHaveCount(0);
     await beat(page, 2200);
@@ -145,7 +145,7 @@ test.describe("Scheda del task e sessione dell'agente", () => {
     //     The title, because the geometric centre of the card can be taken by an
     //     in-line control, and that click is not the bare click this means to
     //     exercise.
-    await cardVivo.getByText(TASK_VIVO).click();
+    await aliveCard.getByText(TASK_VIVO).click();
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 15000 });
     await expect(drawer).toContainText(TASK_VIVO);
@@ -167,8 +167,8 @@ test.describe("Scheda del task e sessione dell'agente", () => {
 
     // (e) The card detail of a task whose session is over: the reason is written
     //     down, and the gesture toward nothing is absent.
-    await cardMorto.click();
-    await expect(drawer).toContainText(TASK_MORTO, { timeout: 15000 });
+    await deadCard.click();
+    await expect(drawer).toContainText(DEAD_TASK, { timeout: 15000 });
     await expect(drawer.getByTestId("task-session-gone")).toBeVisible();
     await expect(
       drawer.getByTestId("task-open-session-tab"),

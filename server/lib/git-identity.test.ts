@@ -14,7 +14,7 @@ import { gitEnvFor, FALLBACK_GIT_IDENTITY, resetGitIdentityCache } from "./git-i
  *
  * @covers GIT-ID-01
  */
-function senzaIdentita(): void {
+function withoutIdentity(): void {
   const dir = mkdtempSync(join(tmpdir(), "git-identity-"));
   const cfg = join(dir, "gitconfig");
   writeFileSync(cfg, "[user]\n\tuseConfigOnly = true\n");
@@ -33,7 +33,7 @@ afterEach(() => {
 });
 
 test("macchina senza identità: git riceve quella di ripiego", async () => {
-  senzaIdentita();
+  withoutIdentity();
   const env = await gitEnvFor(process.cwd());
   expect(env.GIT_COMMITTER_NAME).toBe(FALLBACK_GIT_IDENTITY.name);
   expect(env.GIT_COMMITTER_EMAIL).toBe(FALLBACK_GIT_IDENTITY.email);
@@ -42,7 +42,7 @@ test("macchina senza identità: git riceve quella di ripiego", async () => {
 });
 
 test("il ripiego SBLOCCA davvero il comando che git rifiutava (exit 128)", async () => {
-  senzaIdentita();
+  withoutIdentity();
   const repo = mkdtempSync(join(tmpdir(), "git-identity-repo-"));
   const run = async (env: Record<string, string | undefined>, args: string[]) => {
     const p = Bun.spawn(["git", ...args], { cwd: repo, stdout: "pipe", stderr: "pipe", env });

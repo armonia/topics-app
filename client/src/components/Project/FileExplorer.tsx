@@ -1518,7 +1518,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
    * del server: l'albero resta a schermo, la banda dice che l'ultimo
    * aggiornamento non e' passato, lo store ritenta da solo.
    */
-  const bandaErrore = error ? (
+  const bandError = error ? (
     <div
       data-testid="file-tree-error-banner"
       /* `amber-800` in chiaro, non `amber-600`: la banda ha un fondo suo
@@ -1537,7 +1537,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   if (compact) {
     return (
       <>
-        {bandaErrore}
+        {bandError}
         <div
           ref={treeRef}
           className="flex-1 overflow-y-auto"
@@ -1595,7 +1595,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   return (
     <>
       <div className="flex flex-col h-full">
-        {bandaErrore}
+        {bandError}
         {/* File tree */}
         <div
           ref={treeRef}

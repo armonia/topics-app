@@ -117,7 +117,7 @@ test.describe("Board · l'errore di un'azione sta sulla card che l'ha presa", ()
   test.describe.configure({ timeout: 120_000 });
 
   let padreId = "";
-  let figlioId = "";
+  let childId = "";
 
   test.beforeAll(async ({ request }) => {
     mkdirSync(PROJECT_PATH, { recursive: true });
@@ -132,7 +132,7 @@ test.describe("Board · l'errore di un'azione sta sulla card che l'ha presa", ()
     // Il figlio APERTO. `backlog` di proposito: conta per il cancello
     // (`countOpenChildren`: non-done, non-archiviato) ma nessun dispatcher lo
     // prende, quindi non compare un agente a metà scena.
-    figlioId = await createTask(request, { text: FIGLIO, parentTaskId: padreId, status: "backlog" });
+    childId = await createTask(request, { text: FIGLIO, parentTaskId: padreId, status: "backlog" });
 
     // I due presupposti, dichiarati: se cadono qui il rosso parla del SETUP, non
     // del bottone.
@@ -235,6 +235,6 @@ test.describe("Board · l'errore di un'azione sta sulla card che l'ha presa", ()
     // d'API, non hanno niente da far vedere.
     const padre = await readTask(request, padreId);
     expect(padre.status, "il padre resta in review").toBe("review");
-    expect((await readTask(request, figlioId)).status, "il figlio resta aperto").not.toBe("done");
+    expect((await readTask(request, childId)).status, "il figlio resta aperto").not.toBe("done");
   });
 });

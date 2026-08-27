@@ -315,9 +315,9 @@ describe("checksVerdict: l'esito della barra in una parola", () => {
     // E' la ragione per cui `checksVerdict` e' stata estratta invece di
     // duplicata: due copie che divergono rimetterebbero in piedi il difetto,
     // con la card che dice rosso mentre il thread dice «non misurati».
-    const soloScaduti = [ok("typecheck"), scaduto("test:unit")];
-    expect(checksVerdict(soloScaduti)).toBe("unknown");
-    expect(formatChecksComment(soloScaduti)).toContain("NON MISURATI");
+    const onlyExpired = [ok("typecheck"), scaduto("test:unit")];
+    expect(checksVerdict(onlyExpired)).toBe("unknown");
+    expect(formatChecksComment(onlyExpired)).toContain("NON MISURATI");
     const conRosso = [rosso("lint"), scaduto("test:unit")];
     expect(checksVerdict(conRosso)).toBe("fail");
     expect(formatChecksComment(conRosso)).toContain("ROSSI");

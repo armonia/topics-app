@@ -34,7 +34,7 @@ function svc(db: Database): TaskService {
 }
 
 /** Il padre col figlio parcheggiato, nella forma esatta in cui è stato misurato. */
-function padreConFiglioParcheggiato(s: TaskService): { padre: string; figlio: string } {
+function parentWithParkedChild(s: TaskService): { padre: string; figlio: string } {
   const padre = s.create({ projectId: PID, text: "Il padre", status: "in_progress" });
   const figlio = s.create({ projectId: PID, text: "Il sottotask rimandato", parentTaskId: padre.id });
   return { padre: padre.id, figlio: figlio.id };
@@ -44,7 +44,7 @@ function padreConFiglioParcheggiato(s: TaskService): { padre: string; figlio: st
 const archiviato = (db: Database, id: string) =>
   (db.prepare("SELECT archived FROM tasks WHERE id = ?").get(id) as { archived: number }).archived;
 
-const ultimoCommento = (s: TaskService, id: string) => {
+const lastComment = (s: TaskService, id: string) => {
   const c = s.get(id)!.comments.filter((x) => x.kind !== "status");
   return c[c.length - 1]!.content;
 };
@@ -61,7 +61,7 @@ describe("l'anello: rimettere in coda una seconda volta non si offre piu'", () =
   };
 
   test("la PRIMA volta offre tutte e tre le uscite", () => {
-    const { padre } = padreConFiglioParcheggiato(s);
+    const { padre } = parentWithParkedChild(s);
     s.deliverToReviewBySystem({ taskId: padre, reason: "turno finito" });
     // Uno step NUDO — creato e mai toccato — e' la decomposizione del titolo:
     // archiviarlo per primo. «Promuovi» resta a portata perche' la lettura e' un
@@ -81,16 +81,16 @@ describe("l'anello: rimettere in coda una seconda volta non si offre piu'", () =
    * primo il bottone che non butta via niente.
    */
   test("uno step con lavoro proprio si SUGGERISCE di promuoverlo, e la domanda lo dice", () => {
-    const { padre, figlio } = padreConFiglioParcheggiato(s);
+    const { padre, figlio } = parentWithParkedChild(s);
     s.addComment({ taskId: figlio, author: "agent", content: "meta' fatto: manca la migrazione" });
     s.deliverToReviewBySystem({ taskId: padre, reason: "turno finito" });
 
     expect(opzioni(padre)[0]).toBe("Promuovi i sottotask a task");
-    expect(ultimoCommento(s, padre)).toContain("hanno lavoro proprio");
+    expect(lastComment(s, padre)).toContain("hanno lavoro proprio");
   });
 
   test("«promuovi»: il figlio perde il padre e va in coda, il padre riparte libero", () => {
-    const { padre, figlio } = padreConFiglioParcheggiato(s);
+    const { padre, figlio } = parentWithParkedChild(s);
     s.deliverToReviewBySystem({ taskId: padre, reason: "turno finito" });
     const esito = s.resolveParkedChildren({ taskId: padre, decision: "promote", by: "chi rivede" })!;
 
@@ -117,7 +117,7 @@ describe("l'anello: rimettere in coda una seconda volta non si offre piu'", () =
     // conto restava zero, la terza uscita non compariva mai, e chi rispondeva si
     // ritrovava lo stesso bottone circolare. Adesso si conta la nota che
     // `resolveParkedChildren` scrive davvero.
-    const { padre } = padreConFiglioParcheggiato(s);
+    const { padre } = parentWithParkedChild(s);
     s.deliverToReviewBySystem({ taskId: padre, reason: "turno finito" });
     s.resolveParkedChildren({ taskId: padre, decision: "requeue", by: "attilio" });
     // Il turno riparte e finisce di nuovo senza toccare gli step.
@@ -139,7 +139,7 @@ describe("un padre fermo solo su figli parcheggiati fa una DOMANDA", () => {
   beforeEach(() => { clock = 0; db = freshDb(); s = svc(db); });
 
   test("il turno finito porta il padre in review con le due risposte, non in backlog", () => {
-    const { padre } = padreConFiglioParcheggiato(s);
+    const { padre } = parentWithParkedChild(s);
     const t = s.deliverToReviewBySystem({ taskId: padre, reason: "tentativi esauriti" });
 
     expect(t.status).toBe("review");
@@ -147,7 +147,7 @@ describe("un padre fermo solo su figli parcheggiati fa una DOMANDA", () => {
     expect(t.deliveredBy).toBe("system");
     expect(t.deliveredReason).toBe("parked_children");
     // Le due risposte, nel blocco che il client rende come bottoni.
-    const testo = ultimoCommento(s, padre);
+    const testo = lastComment(s, padre);
     expect(testo).toContain("```question");
     expect(testo).toContain("- Rimetti in coda i sottotask");
     expect(testo).toContain("- Archivia i sottotask");
@@ -182,7 +182,7 @@ describe("un padre fermo solo su figli parcheggiati fa una DOMANDA", () => {
     expect(t.status).toBe("review");
     expect(t.dispatchState).toBe("needs_input");
     expect(t.deliveredReason).toBe("parked_children");
-    expect(ultimoCommento(s, padre)).toContain("Uno step lasciato in todo");
+    expect(lastComment(s, padre)).toContain("Uno step lasciato in todo");
   });
 
   // Lo specchio del precedente: un figlio in `todo` col PROPRIO chip addosso si
@@ -200,7 +200,7 @@ describe("un padre fermo solo su figli parcheggiati fa una DOMANDA", () => {
   });
 
   test("la domanda non si ripete: due giri, una sola domanda", () => {
-    const { padre } = padreConFiglioParcheggiato(s);
+    const { padre } = parentWithParkedChild(s);
     s.deliverToReviewBySystem({ taskId: padre, reason: "primo giro" });
     expect(s.askParkedChildren({ taskId: padre })).toBeNull();
     const domande = s.get(padre)!.comments.filter((c) => c.content.includes("```question"));
@@ -219,7 +219,7 @@ describe("un padre fermo solo su figli parcheggiati fa una DOMANDA", () => {
     const t = s.get(padre)!.task;
     expect(t.status).toBe("review");
     expect(t.dispatchState).toBe("needs_input");
-    expect(ultimoCommento(s, padre)).toContain("- Rimetti in coda i sottotask");
+    expect(lastComment(s, padre)).toContain("- Rimetti in coda i sottotask");
   });
 
   test("l'agente che spunta il PRIMO passo della sua checklist non si taglia il turno", () => {
@@ -277,7 +277,7 @@ describe("un padre fermo solo su figli parcheggiati fa una DOMANDA", () => {
     s.update({ taskId: figlio, actor: "agent", by: "agent", patch: { status: "backlog" } });
 
     expect(s.get(padre)!.task.status).toBe("in_progress");
-    expect(ultimoCommento(s, padre)).toContain("Sottotask fermo");
+    expect(lastComment(s, padre)).toContain("Sottotask fermo");
   });
 });
 
@@ -305,7 +305,7 @@ describe("il rastrello arriva anche sulle card già ferme", () => {
     const t = s.get(padre)!.task;
     expect(t.status).toBe("review");
     expect(t.deliveredReason).toBe("parked_children");
-    expect(ultimoCommento(s, padre)).toContain("Lo step di ieri");
+    expect(lastComment(s, padre)).toContain("Lo step di ieri");
   });
 
   test("il secondo giro non ripete niente: la domanda è già sulla card", () => {
@@ -319,9 +319,9 @@ describe("il rastrello arriva anche sulle card già ferme", () => {
   test("non rastrella chi ha un turno addosso, chi è in review e chi è dentro la finestra di rinvio", () => {
     const alLavoro = s.create({ projectId: PID, text: "Ha un turno", status: "in_progress" }).id;
     s.create({ projectId: PID, text: "Step 1", parentTaskId: alLavoro });
-    const inArrivo = s.create({ projectId: PID, text: "Il turno parte al tick" }).id;
-    s.create({ projectId: PID, text: "Step 2", parentTaskId: inArrivo });
-    s.setDispatchState({ taskId: inArrivo, state: "queued" });
+    const inArrival = s.create({ projectId: PID, text: "Il turno parte al tick" }).id;
+    s.create({ projectId: PID, text: "Step 2", parentTaskId: inArrival });
+    s.setDispatchState({ taskId: inArrival, state: "queued" });
     const rinviato = s.create({ projectId: PID, text: "Riprende più tardi" }).id;
     s.create({ projectId: PID, text: "Step 3", parentTaskId: rinviato });
     db.run("UPDATE tasks SET dispatch_deferred_until = '2099-01-01T00:00:00.000Z' WHERE id = ?", [rinviato]);
@@ -382,7 +382,7 @@ describe("le due risposte, e cosa fanno davvero", () => {
   beforeEach(() => { clock = 0; db = freshDb(); s = svc(db); });
 
   test("«rimetti in coda»: i figli in todo, il padre in coda col chip queued", () => {
-    const { padre, figlio } = padreConFiglioParcheggiato(s);
+    const { padre, figlio } = parentWithParkedChild(s);
     s.deliverToReviewBySystem({ taskId: padre, reason: "tentativi esauriti" });
 
     const esito = s.resolveParkedChildren({ taskId: padre, decision: "requeue", by: "attilio" })!;
@@ -398,7 +398,7 @@ describe("le due risposte, e cosa fanno davvero", () => {
   });
 
   test("«archivia»: i figli spariscono e il padre riparte da solo", () => {
-    const { padre } = padreConFiglioParcheggiato(s);
+    const { padre } = parentWithParkedChild(s);
     s.deliverToReviewBySystem({ taskId: padre, reason: "tentativi esauriti" });
 
     const { figlio } = { figlio: s.get(padre)!.children[0]!.id };
@@ -413,14 +413,14 @@ describe("le due risposte, e cosa fanno davvero", () => {
   });
 
   test("rispondere due volte non inventa un secondo esito", () => {
-    const { padre } = padreConFiglioParcheggiato(s);
+    const { padre } = parentWithParkedChild(s);
     s.deliverToReviewBySystem({ taskId: padre, reason: "tentativi esauriti" });
     expect(s.resolveParkedChildren({ taskId: padre, decision: "requeue", by: "attilio" })).not.toBeNull();
     expect(s.resolveParkedChildren({ taskId: padre, decision: "requeue", by: "attilio" })).toBeNull();
   });
 
   test("la risposta chiude l'approvazione pendente: il task non è più in review", () => {
-    const { padre } = padreConFiglioParcheggiato(s);
+    const { padre } = parentWithParkedChild(s);
     s.deliverToReviewBySystem({ taskId: padre, reason: "tentativi esauriti" });
     s.resolveParkedChildren({ taskId: padre, decision: "requeue", by: "attilio" });
     const r = db.prepare("SELECT status FROM approvals WHERE task_id = ?").get(padre) as { status: string };
@@ -441,7 +441,7 @@ describe("chiudere l'ultimo figlio rimette in moto il padre", () => {
   beforeEach(() => { clock = 0; db = freshDb(); s = svc(db); });
 
   /** Il padre parcheggiato ad aspettare i figli, come lo lascia il turno finito. */
-  function padreInAttesa(figli: number): { padre: string; figli: string[] } {
+  function parentInWait(figli: number): { padre: string; figli: string[] } {
     const padre = s.create({ projectId: PID, text: "Il padre", status: "in_progress" }).id;
     const ids = Array.from({ length: figli }, (_, i) => {
       const f = s.create({ projectId: PID, text: `Step ${i + 1}`, parentTaskId: padre }).id;
@@ -463,7 +463,7 @@ describe("chiudere l'ultimo figlio rimette in moto il padre", () => {
   ).get(id) as { status: string; dispatch_state: string | null; dispatch_deferred_until: string | null };
 
   test("checklist finita: la finestra di rinvio sparisce e il tick lo riprende subito", () => {
-    const { padre, figli } = padreInAttesa(1);
+    const { padre, figli } = parentInWait(1);
     expect(riga(padre).dispatch_state).toBe("waiting");
     expect(riga(padre).dispatch_deferred_until).not.toBeNull();
 
@@ -476,7 +476,7 @@ describe("chiudere l'ultimo figlio rimette in moto il padre", () => {
   });
 
   test("finché UN figlio è ancora in volo non si tocca niente", () => {
-    const { padre, figli } = padreInAttesa(2);
+    const { padre, figli } = parentInWait(2);
     s.update({ taskId: figli[0]!, actor: "human", by: "attilio", patch: { status: "done" } });
     expect(riga(padre).dispatch_state).toBe("waiting");
     expect(riga(padre).dispatch_deferred_until).not.toBeNull();
@@ -485,7 +485,7 @@ describe("chiudere l'ultimo figlio rimette in moto il padre", () => {
   test("il padre in review non si muove, ma perde il chip che parla di figli che non ci sono più", () => {
     // La forma esatta di f9250521 ed e285d5d8: consegna vera dell'agente, chip
     // `waiting` stantio addosso, figli in review.
-    const { padre, figli } = padreInAttesa(1);
+    const { padre, figli } = parentInWait(1);
     db.run("UPDATE tasks SET status = 'review', delivered_by = 'agent' WHERE id = ?", [padre]);
     s.update({ taskId: figli[0]!, actor: "human", by: "attilio", patch: { status: "review" } });
     s.update({ taskId: figli[0]!, actor: "human", by: "attilio", patch: { status: "done" } });
@@ -511,7 +511,7 @@ describe("chiudere l'ultimo figlio rimette in moto il padre", () => {
     const t = s.get(padre)!.task;
     expect(t.status).toBe("review");
     expect(t.deliveredReason).toBe("parked_children");
-    expect(ultimoCommento(s, padre)).toContain("- Rimetti in coda i sottotask");
+    expect(lastComment(s, padre)).toContain("- Rimetti in coda i sottotask");
   });
 
   test("padre GIÀ in review con una consegna vera: la domanda si posa nel thread e la consegna resta sua", () => {
@@ -527,7 +527,7 @@ describe("chiudere l'ultimo figlio rimette in moto il padre", () => {
     expect(t.status).toBe("review");
     expect(t.deliveredBy).toBe("agent");
     expect(t.deliveredReason).toBeNull();
-    expect(ultimoCommento(s, padre)).toContain("- Archivia i sottotask");
+    expect(lastComment(s, padre)).toContain("- Archivia i sottotask");
   });
 
   test("la domanda nel thread non si ripete a ogni figlio che chiude", () => {
@@ -546,7 +546,7 @@ describe("chiudere l'ultimo figlio rimette in moto il padre", () => {
   });
 
   test("archiviare l'ultimo figlio conta quanto chiuderlo", () => {
-    const { padre, figli } = padreInAttesa(1);
+    const { padre, figli } = parentInWait(1);
     s.archive({ taskId: figli[0]! });
     const p = riga(padre);
     expect(p.dispatch_state).toBeNull();
@@ -554,7 +554,7 @@ describe("chiudere l'ultimo figlio rimette in moto il padre", () => {
   });
 
   test("un padre archiviato o chiuso non si tocca", () => {
-    const { padre, figli } = padreInAttesa(1);
+    const { padre, figli } = parentInWait(1);
     db.run("UPDATE tasks SET archived = 1 WHERE id = ?", [padre]);
     s.update({ taskId: figli[0]!, actor: "human", by: "attilio", patch: { status: "done" } });
     expect(riga(padre).dispatch_state).toBe("waiting");

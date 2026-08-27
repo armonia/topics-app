@@ -148,10 +148,10 @@ test.describe.serial("Gruppi — ciclo di vita nella sidebar", () => {
     await moveTabToNewGroup(page, idA);
     const gruppo = card(page, "Gruppo 2");
     const principale = card(page, "Principale");
-    const rigaA = gruppo.getByText("GRP-A-", { exact: false }).first();
-    await expect(rigaA, "la tab spostata vive nella card del gruppo").toBeVisible({ timeout: 5000 });
+    const rowA = gruppo.getByText("GRP-A-", { exact: false }).first();
+    await expect(rowA, "la tab spostata vive nella card del gruppo").toBeVisible({ timeout: 5000 });
 
-    await trascina(page, rigaA, principale);
+    await trascina(page, rowA, principale);
 
     await expect(
       card(page, "Gruppo 2"),

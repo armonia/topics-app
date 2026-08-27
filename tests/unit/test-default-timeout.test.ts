@@ -46,7 +46,7 @@ function dalPreload(nome: string, pattern: RegExp): string {
 const costanteDichiarata = Number(
   dalPreload("DEFAULT_TEST_TIMEOUT_MS", /DEFAULT_TEST_TIMEOUT_MS\s*=\s*([0-9_]+)/).replace(/_/g, ""),
 );
-const variabileDichiarata = dalPreload("TIMEOUT_ENV_VAR", /TIMEOUT_ENV_VAR\s*=\s*"([^"]+)"/);
+const declaredVariable = dalPreload("TIMEOUT_ENV_VAR", /TIMEOUT_ENV_VAR\s*=\s*"([^"]+)"/);
 
 /** Gli script che lanciano davvero `bun test`, non quelli che lanciano Playwright. */
 const scriptCheLancianoBunTest = Object.entries(pkg.scripts).filter(([, cmd]) =>
@@ -75,7 +75,7 @@ describe("timeout di default dei test", () => {
    * i tre di oggi, cosi' un quarto script domani non puo' nascere scoperto.
    */
   it("meta' 2: ogni script che lancia `bun test` passa --timeout, e lo stesso numero", () => {
-    const atteso = `--timeout \${${variabileDichiarata}:-${costanteDichiarata}}`;
+    const atteso = `--timeout \${${declaredVariable}:-${costanteDichiarata}}`;
     expect(scriptCheLancianoBunTest.length).toBeGreaterThan(0);
     for (const [nome, cmd] of scriptCheLancianoBunTest) {
       expect(`${nome}: ${cmd}`).toContain(atteso);
@@ -132,7 +132,7 @@ describe("timeout di default dei test", () => {
     // flag BEFORE the preloads, and the preload overwrites it. The knob, on the
     // other hand, moves the preload itself, which is the lever under test.
     expect(
-      childRun({ [variabileDichiarata]: "1000" }),
+      childRun({ [declaredVariable]: "1000" }),
       `${FIXTURE} e' sopravvissuto a un default di 1s: allora non dipende dal default, e il caso sopra non prova niente`,
     ).not.toBe(0);
   }, 60_000);

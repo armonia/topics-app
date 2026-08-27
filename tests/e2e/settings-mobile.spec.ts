@@ -251,8 +251,8 @@ test("i comandi sui pannelli non compaiono dove non ci sono pannelli", async ({ 
   // A 390px: assenti. Non grigi — ASSENTI: la condizione che li sbloccherebbe
   // è lo schermo, e non c'è niente da sbloccare.
   await menu.click();
-  const menuAperto = page.getByRole("button", { name: "Settings", exact: true });
-  await expect(menuAperto).toBeVisible();
+  const openMenu = page.getByRole("button", { name: "Settings", exact: true });
+  await expect(openMenu).toBeVisible();
   await expect(page.getByRole("button", { name: "Reimposta pannelli" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Disponi automaticamente" })).toHaveCount(0);
   await didascalia(page, "390px: niente comandi sui pannelli");

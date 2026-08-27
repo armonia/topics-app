@@ -481,9 +481,9 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       // comando in testa alla riga, identico nelle due modalita': vedi
       // `tests/e2e/reduced-motion-chrome-controls.spec.ts`, che ora misura
       // posizione e cliccabilita' con e senza movimento ridotto.
-      const riduciMovimento = prefersReducedMotion();
+      const reduceMovement = prefersReducedMotion();
       const behavior: ScrollBehavior =
-        didInitialScrollRef.current && !riduciMovimento ? 'smooth' : 'auto';
+        didInitialScrollRef.current && !reduceMovement ? 'smooth' : 'auto';
       const containerRect = container.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
       if (elRect.left < containerRect.left) {
@@ -1078,7 +1078,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         // risponde a "devo attirare l'attenzione?", questa etichetta a "com'è".
         // (Per un progetto le due domande coincidono: il suo tier è l'aggregato
         // di ciò che resta da guardare — vedi la nota su `rawTier`.)
-        const statoTab = rawTier === 'input'
+        const stateTab = rawTier === 'input'
           ? 'attende una tua risposta'
           : rawTier === 'done'
             ? 'turno finito'
@@ -1086,7 +1086,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         // Per un PROGETTO lo stato non basta: il tier è un aggregato e il numero
         // pure, quindi «turno finito» non dice di CHI. Il nome accessibile porta
         // i figli per nome, come il tooltip del badge.
-        const dettaglioProgetto = pane.type === 'project' && pane.projectPath
+        const detailProject = pane.type === 'project' && pane.projectPath
           ? describeProjectBadge(pane.projectPath)
           : '';
         const isDragged = draggedPaneId === pane.id;
@@ -1144,7 +1144,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // title qui aprirebbe un tooltip sopra una tab il cui nome è già
             // scritto accanto, e duplicherebbe i title dei figli (spinner,
             // SessionActivity) che dicono la loro parte.
-            aria-label={[label, statoTab, dettaglioProgetto].filter(Boolean).join(' · ')}
+            aria-label={[label, stateTab, detailProject].filter(Boolean).join(' · ')}
             style={{ width: tabWidth, minWidth: tabWidth, maxWidth: tabWidth, flexShrink: 0 }}
             // overflow-hidden clips a tab whose trailing widgets (project git
             // status + spinner + notification badge + close) would otherwise

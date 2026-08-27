@@ -78,8 +78,8 @@ describe("filterNetwork", () => {
   });
 
   test("onlyFailures prende il 4xx E la richiesta mai risposta", () => {
-    const conFallita = [...dati, e({ url: "/api/boom", failure: "ERR" })];
-    expect(filterNetwork(conFallita, { onlyFailures: true }).map((x) => x.url))
+    const withFailed = [...dati, e({ url: "/api/boom", failure: "ERR" })];
+    expect(filterNetwork(withFailed, { onlyFailures: true }).map((x) => x.url))
       .toEqual(["/api/login", "/api/boom"]);
   });
 

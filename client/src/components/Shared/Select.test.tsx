@@ -43,7 +43,7 @@ const ESENZIONI: Record<string, string> = {
  * correzione. Un cancello che vieta anche di parlarne costringe a raccontare i
  * fatti a mezze parole, e quella è la fine dei commenti utili.
  */
-function soloCodice(testo: string): string {
+function onlyCode(testo: string): string {
   return testo
     .replace(/\/\*[\s\S]*?\*\//g, ' ')  // /* … */ e {/* … */}
     .replace(/^\s*\/\/.*$/gm, ' ')      // // …
@@ -70,7 +70,7 @@ describe('nessun <select> nativo nel client', () => {
       if (ESENZIONI[rel]) continue;
       // Il TAG, non la parola: `<select` seguito da spazio, a-capo o `>`, in un
       // testo da cui commenti e apici inversi sono già spariti.
-      const righe = soloCodice(readFileSync(file, 'utf8')).split('\n');
+      const righe = onlyCode(readFileSync(file, 'utf8')).split('\n');
       righe.forEach((riga, i) => {
         if (/<select[\s>]/.test(riga)) colpevoli.push(`${rel}:${i + 1}: ${riga.trim().slice(0, 80)}`);
       });

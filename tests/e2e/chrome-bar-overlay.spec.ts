@@ -52,18 +52,18 @@ const contenitore = (page: Page) => page.getByTestId("chat-scroll-container").fi
  * (È il primo rosso di questa spec, e va scritto: il test lungo diceva
  * «nascosto» di una cosa che era semplicemente scorsa.)
  */
-let lungaId = "";
-let lungaNome = "";
+let longId = "";
+let longName = "";
 let cortaId = "";
 let cortaNome = "";
 
 test.beforeAll(async ({ request }) => {
   const stamp = Date.now();
-  lungaNome = `E2E-Overlay-Lunga-${stamp}`;
-  const lunga = await createTopic(request, lungaNome);
-  lungaId = lunga.id;
+  longName = `E2E-Overlay-Lunga-${stamp}`;
+  const lunga = await createTopic(request, longName);
+  longId = lunga.id;
   for (let i = 0; i < SEMI; i++) {
-    await request.post(`${BASE}/api/topics/${lungaId}/system-message`, {
+    await request.post(`${BASE}/api/topics/${longId}/system-message`, {
       data: { content: `Riga di semina numero ${i} — serve solo a far scorrere la lista.` },
     });
   }
@@ -77,7 +77,7 @@ test.beforeAll(async ({ request }) => {
 });
 
 test.afterAll(async ({ request }) => {
-  for (const id of [lungaId, cortaId]) {
+  for (const id of [longId, cortaId]) {
     if (id) await deleteTopic(request, id).catch(() => {});
   }
 });
@@ -92,7 +92,7 @@ async function apri(page: Page, request: APIRequestContext, id: string, nome: st
 test.describe("La riga di chrome sta SOPRA la pane, non prima di lei", () => {
   test("OVERLAY-1: la barra è fuori dal flusso e la conversazione le comincia sotto", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "CHROME-01" });
-    await apri(page, request, lungaId, lungaNome);
+    await apri(page, request, longId, longName);
     const b = barra(page);
     await expect(b).toBeVisible({ timeout: 15000 });
 
@@ -101,18 +101,18 @@ test.describe("La riga di chrome sta SOPRA la pane, non prima di lei", () => {
     await expect(b).toHaveCSS("position", "absolute");
 
     const rBarra = (await b.boundingBox())!;
-    const rLista = (await contenitore(page).boundingBox())!;
+    const rList = (await contenitore(page).boundingBox())!;
 
     // Il contenitore della conversazione comincia ALL'ALTEZZA della barra o
     // sopra, non dopo: è la definizione di «ci passa sotto». Con la barra nel
     // flusso qui ci sarebbero 40px di scarto.
-    expect(rLista.y).toBeLessThanOrEqual(rBarra.y + 1);
+    expect(rList.y).toBeLessThanOrEqual(rBarra.y + 1);
   });
 
   test("OVERLAY-2: su una chat che non scorre, il primo messaggio nasce SOTTO la barra", async ({ page, request }) => {
     await apri(page, request, cortaId, cortaNome);
     const rBarra = (await barra(page).boundingBox())!;
-    const fondoBarra = rBarra.y + rBarra.height;
+    const bottomBar = rBarra.y + rBarra.height;
 
     // Precondizione esplicita: se questa chat scorresse, il test misurerebbe
     // lo scroll invece del varco e passerebbe (o fallirebbe) per il motivo
@@ -129,11 +129,11 @@ test.describe("La riga di chrome sta SOPRA la pane, non prima di lei", () => {
 
     // Tolleranza di UN pixel, e non di più: è l'arrotondamento del layout, non
     // un margine di comodo. Senza varco lo scarto sarebbe di decine di pixel.
-    expect(Math.min(...cime)).toBeGreaterThanOrEqual(fondoBarra - 1);
+    expect(Math.min(...cime)).toBeGreaterThanOrEqual(bottomBar - 1);
   });
 
   test("OVERLAY-3: il varco in cima vale ESATTAMENTE l'altezza della barra", async ({ page, request }) => {
-    await apri(page, request, lungaId, lungaNome);
+    await apri(page, request, longId, longName);
     // La misura diretta della cosa che si rompe in silenzio. Il varco è il
     // primo figlio dello scroller di Virtuoso (l'Header), e la variabile che lo
     // alimenta deve arrivare fin lì.
@@ -164,9 +164,9 @@ test.describe("La riga di chrome sta SOPRA la pane, non prima di lei", () => {
   });
 
   test("OVERLAY-4: scorrendo, i messaggi passano DAVVERO sotto la barra", async ({ page, request }) => {
-    await apri(page, request, lungaId, lungaNome);
+    await apri(page, request, longId, longName);
     const rBarra = (await barra(page).boundingBox())!;
-    const fondoBarra = rBarra.y + rBarra.height;
+    const bottomBar = rBarra.y + rBarra.height;
 
     // Si scorre verso l'alto di mezzo schermo: qualunque messaggio che prima
     // stava appena sotto la barra deve ora trovarsi in parte dietro di lei.
@@ -182,7 +182,7 @@ test.describe("La riga di chrome sta SOPRA la pane, non prima di lei", () => {
           const r = el.getBoundingClientRect();
           return r.top < soglia && r.bottom > 0;
         }).length;
-      }, fondoBarra);
+      }, bottomBar);
     }, { timeout: 10000, message: "nessun messaggio è finito sotto la barra" }).toBeGreaterThan(0);
   });
 
@@ -210,7 +210,7 @@ test.describe("La riga di chrome sta SOPRA la pane, non prima di lei", () => {
    * conversazione e' montato, cioe' che siamo davvero in cima.
    */
   test("OVERLAY-5: risalita fino in cima, il primo messaggio si ferma al fondo della barra", async ({ page, request }) => {
-    await apri(page, request, lungaId, lungaNome);
+    await apri(page, request, longId, longName);
     const b = barra(page);
     await expect(b).toBeVisible({ timeout: 15000 });
     await page.waitForSelector('[data-testid="virtuoso-item-list"]', { timeout: 15000 });
@@ -262,14 +262,14 @@ test.describe("La riga di chrome sta SOPRA la pane, non prima di lei", () => {
     );
 
     const rBarra = (await b.boundingBox())!;
-    const fondoBarra = rBarra.y + rBarra.height;
-    const cimaPrimo = (await primo.boundingBox())!.y;
+    const bottomBar = rBarra.y + rBarra.height;
+    const firstTop = (await primo.boundingBox())!.y;
 
     // Tolleranza di UN pixel: l'arrotondamento del layout, non un margine di
     // comodo. Senza varco lo scarto sarebbe l'altezza intera della barra.
     expect(
-      cimaPrimo,
-      `la cima del primo messaggio (${cimaPrimo}px) sta sopra il fondo della barra (${fondoBarra}px): il testo e' coperto`,
-    ).toBeGreaterThanOrEqual(fondoBarra - 1);
+      firstTop,
+      `la cima del primo messaggio (${firstTop}px) sta sopra il fondo della barra (${bottomBar}px): il testo e' coperto`,
+    ).toBeGreaterThanOrEqual(bottomBar - 1);
   });
 });

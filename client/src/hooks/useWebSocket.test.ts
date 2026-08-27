@@ -58,7 +58,7 @@ let timeout = new Map<number, () => void>();
 let orologio = 0;
 
 const salvati: Record<string, unknown> = {};
-const dateNowVero = Date.now;
+const realDateNow = Date.now;
 
 beforeEach(() => {
   socket = [];
@@ -105,11 +105,11 @@ afterEach(() => {
   for (const [k, v] of Object.entries(salvati)) {
     if (v === undefined) delete g[k]; else g[k] = v;
   }
-  Date.now = dateNowVero;
+  Date.now = realDateNow;
 });
 
 /** Fa scattare ogni intervallo armato, una volta. */
-function battiIlTimer(): void {
+function beatTimer(): void {
   for (const fn of [...intervalli.values()]) fn();
 }
 
@@ -151,12 +151,12 @@ describe('il polso della connessione WS', () => {
     ws.apri();
 
     orologio += 40_000;
-    battiIlTimer();
+    beatTimer();
     expect(ws.chiusure).toBe(0);           // 40s di silenzio non bastano
     expect(ws.tipiInviati()).toContain('ping');
 
     orologio += 40_000;                    // 80s dall'ultimo segno di vita
-    battiIlTimer();
+    beatTimer();
     expect(ws.chiusure).toBe(1);
     smonta();
   });
@@ -170,12 +170,12 @@ describe('il polso della connessione WS', () => {
     ws.consegna({ type: 'pong' });         // il server risponde: e' vivo
     orologio += 60_000;                    // 120s dall'apertura, 60 dal pong
 
-    battiIlTimer();
+    beatTimer();
     expect(ws.chiusure).toBe(0);
     // …e senza quel `pong` la stessa distanza dall'apertura avrebbe chiuso:
     // e' la prova che a contare e' la RISPOSTA, non il tempo dall'apertura.
     orologio += 80_000;
-    battiIlTimer();
+    beatTimer();
     expect(ws.chiusure).toBe(1);
     smonta();
   });
@@ -206,11 +206,11 @@ describe('il polso della connessione WS', () => {
     ws.apri();
 
     orologio += 80_000;
-    battiIlTimer();
+    beatTimer();
     expect(ws.chiusure).toBe(1);
 
     orologio += 80_000;
-    battiIlTimer();
+    beatTimer();
     expect(ws.chiusure).toBe(1);
     smonta();
   });
@@ -238,7 +238,7 @@ describe('il polso della connessione WS', () => {
     expect(api().status).toBe('connected');
 
     orologio += 80_000;
-    battiIlTimer();
+    beatTimer();
 
     expect(ws.chiusure).toBe(1);
     // La grazia di `displayStatus` tiene ancora `connected` per tre secondi:
@@ -262,7 +262,7 @@ describe('il polso della connessione WS', () => {
     nuova.apri();
 
     orologio += 10_000;
-    battiIlTimer();
+    beatTimer();
     expect(nuova.chiusure).toBe(0);
     expect(nuova.tipiInviati()).toContain('ping');
     smonta();

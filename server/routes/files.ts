@@ -571,8 +571,8 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         //   stage    albero→indice, in avanti sull'indice
         //   unstage  indice→HEAD,   al contrario sull'indice
         //   discard  albero→indice, al contrario sull'ALBERO (tocca il file)
-        const daIndice = azione === "unstage";
-        const diffArgs = daIndice
+        const fromIndex = azione === "unstage";
+        const diffArgs = fromIndex
           ? gitRead("diff", "--cached", "--", filePath)
           : gitRead("diff", "--", filePath);
         const diffProc = Bun.spawn(diffArgs, { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });

@@ -343,9 +343,9 @@ test.describe.serial("Pannello di permesso", () => {
       await request.patch(`${BASE}/api/topics/${topicId}`, { data: { autonomyLevel: "yolo" }, ignoreHTTPSErrors: true });
       const res = await request.get(`${BASE}/api/topics`, { ignoreHTTPSErrors: true });
       const { topics } = (await res.json()) as { topics: Record<string, { id: string; sessionKey: string }> };
-      const skVicina = Object.values(topics).find((t) => t.id === vicina.id)!.sessionKey;
+      const nearSk = Object.values(topics).find((t) => t.id === vicina.id)!.sessionKey;
 
-      const suo = await request.post(`${BASE}/api/sessions/${encodeURIComponent(skVicina)}/permission`, {
+      const suo = await request.post(`${BASE}/api/sessions/${encodeURIComponent(nearSk)}/permission`, {
         data: { toolName: TOOL, input: TOOL_INPUT, toolUseId: "toolu_vicina", legMs: 400 },
         ignoreHTTPSErrors: true,
       });

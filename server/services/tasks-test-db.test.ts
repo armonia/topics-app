@@ -32,7 +32,7 @@ import { freshDb } from "./tasks-test-db";
 const DIR = import.meta.dir;
 
 /** I file di test del servizio dei tasks: `tasks.test.ts` e `tasks.<tema>.test.ts`. */
-function fileDelServizio(): string[] {
+function fileOfService(): string[] {
   return readdirSync(DIR)
     .filter((n) => (n === "tasks.test.ts" || n.startsWith("tasks.")) && n.endsWith(".test.ts"))
     .filter((n) => n !== "tasks-test-db.test.ts")
@@ -43,11 +43,11 @@ describe("lo schema dei test del servizio tasks e' uno solo", () => {
   test("i file ci sono (guardia contro un verde a vuoto)", () => {
     // Senza, un rinominare qualsiasi renderebbe verdi i casi sotto misurando
     // zero file: il modo piu' comune in cui un cancello smette di guardare.
-    expect(fileDelServizio().length).toBeGreaterThanOrEqual(8);
+    expect(fileOfService().length).toBeGreaterThanOrEqual(8);
   });
 
   test("nessun file si scrive la tabella `tasks` per conto suo", () => {
-    const colpevoli = fileDelServizio().filter((n) =>
+    const colpevoli = fileOfService().filter((n) =>
       /CREATE TABLE\s+(IF NOT EXISTS\s+)?tasks\b/i.test(readFileSync(resolve(DIR, n), "utf8")),
     );
     expect(
@@ -58,7 +58,7 @@ describe("lo schema dei test del servizio tasks e' uno solo", () => {
   });
 
   test("ogni file passa dal banco condiviso", () => {
-    const fuori = fileDelServizio().filter(
+    const fuori = fileOfService().filter(
       (n) => !readFileSync(resolve(DIR, n), "utf8").includes('from "./tasks-test-db"'),
     );
     expect(fuori, "un file del servizio che non importa il banco si sta costruendo il suo").toEqual([]);

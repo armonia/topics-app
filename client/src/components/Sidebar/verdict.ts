@@ -58,7 +58,7 @@ export const SOGLIA_PRESSIONE_MB = 2048;
 /** Quota del footprint oltre la quale «il numero grande esagera» è la lettura giusta. */
 export const QUOTA_SWAPPATA = 0.5;
 /** Metà macchina presa da Topics è già «sotto carico». */
-export const SOGLIA_CPU = 50;
+export const THRESHOLD_CPU = 50;
 
 /**
  * L'ordine conta: si nomina prima la causa più grave e più certa, perché è
@@ -84,7 +84,7 @@ export function scegliVerdetto(x: IngressiVerdetto): Verdetto | null {
       mb: Math.round(x.residentMB),
     };
   }
-  if ((x.totalCpu ?? 0) > SOGLIA_CPU) return { tipo: 'loaded' };
+  if ((x.totalCpu ?? 0) > THRESHOLD_CPU) return { tipo: 'loaded' };
   // Nessuna riga nel caso buono: gli fps e la sparkline sopra lo dicono già.
   return null;
 }

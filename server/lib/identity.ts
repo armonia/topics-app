@@ -34,7 +34,7 @@ import type { Principal } from "./grants-query";
 
 type Db = Pick<Database, "query">;
 
-export interface IdentitaRisolta {
+export interface ResolvedIdentity {
   /** `true` = la macchina stessa. Nessun cookie letto, nessuna query fatta. */
   locale: boolean;
   /** Il dispositivo che il cookie identifica, se ce n'è uno. Include i revocati:
@@ -49,11 +49,11 @@ export interface IdentitaRisolta {
   personId: string | null;
 }
 
-const LOCALE: IdentitaRisolta = {
+const LOCALE: ResolvedIdentity = {
   locale: true, device: null, principals: [], confined: false, personId: null,
 };
 
-function rigaADevice(r: Record<string, unknown>): DeviceRecord {
+function rowADevice(r: Record<string, unknown>): DeviceRecord {
   return {
     id: String(r.id),
     name: String(r.name),
@@ -77,7 +77,7 @@ function rigaADevice(r: Record<string, unknown>): DeviceRecord {
  * anche la rete anti-lockout della 080 — una tabella di identità corrotta non
  * deve poter chiudere fuori il proprietario da casa propria.
  */
-export function resolveIdentity(db: Db, cookieHeader: string | null, locale: boolean): IdentitaRisolta {
+export function resolveIdentity(db: Db, cookieHeader: string | null, locale: boolean): ResolvedIdentity {
   if (locale) return LOCALE;
 
   const token = readSessionCookie(cookieHeader);
@@ -87,7 +87,7 @@ export function resolveIdentity(db: Db, cookieHeader: string | null, locale: boo
     .get(hashToken(token)) as Record<string, unknown> | undefined;
   if (!riga) return { locale: false, device: null, principals: [], confined: true, personId: null };
 
-  const device = rigaADevice(riga);
+  const device = rowADevice(riga);
 
   // Un dispositivo revocato non ha principali: la riga si restituisce perché a
   // valle si possa dire «ti è stato tolto l'accesso» invece di «non ti conosco»,

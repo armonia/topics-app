@@ -71,7 +71,7 @@ const QUERY = `
   ) WHERE ${WHERE}
   ORDER BY rn DESC`;
 
-function dbConCommenti(righe: Array<[string, string, string]>): Database {
+function dbWithComments(righe: Array<[string, string, string]>): Database {
   const db = new Database(":memory:");
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT, author TEXT, content TEXT,
@@ -89,7 +89,7 @@ describe('la finestra dei commenti della card', () => {
    * Con la sola regola `rn <= 3` non arriva; con `rn_mia = 1` sì.
    */
   test('il mio ultimo messaggio viaggia anche da sette posizioni indietro', () => {
-    const db = dbConCommenti([
+    const db = dbWithComments([
       ['user', 'comment', 'Verifica col land esteso'],          // il mio, in fondo
       ['agent:x', 'comment', 'Riconciliato il ramo'],
       ['system', 'comment', 'Il ramo era indietro di 26 commit'],
@@ -111,7 +111,7 @@ describe('la finestra dei commenti della card', () => {
    * ogni lista.
    */
   test('non trascina tutto il thread: solo la coda piu' + "' l'essenziale", () => {
-    const db = dbConCommenti([
+    const db = dbWithComments([
       ['user', 'comment', 'il mio, vecchissimo'],
       ...Array.from({ length: 10 }, (_, i) =>
         ['system', 'comment', `nota ${i}`] as [string, string, string]),
@@ -131,7 +131,7 @@ describe('la finestra dei commenti della card', () => {
    * scritto — lo stesso difetto che `isHumanComment` evita sul client.
    */
   test('una narrazione del server firmata user non e' + "' un mio messaggio", () => {
-    const db = dbConCommenti([
+    const db = dbWithComments([
       ['user', 'review-note', 'Fermato da te: agent interrotto.'],
       ...Array.from({ length: 5 }, (_, i) =>
         ['system', 'comment', `nota ${i}`] as [string, string, string]),

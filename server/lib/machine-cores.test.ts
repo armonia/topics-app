@@ -21,16 +21,16 @@ describe("machineCores — una macchina non perde core", () => {
     // proprio mentre la macchina era carica. Qui si riproduce la lettura rotta
     // e si controlla che il numero non scenda.
     const primo = machineCores();
-    const veroCpus = os.cpus;
-    const veroPar = os.availableParallelism;
+    const realCpus = os.cpus;
+    const realPar = os.availableParallelism;
     try {
       (os as { cpus: unknown }).cpus = () => [];
       (os as { availableParallelism?: unknown }).availableParallelism = () => { throw new Error("sysctl muto"); };
       expect(machineCores()).toBe(primo);
       expect(machineCores()).toBe(primo);
     } finally {
-      (os as { cpus: unknown }).cpus = veroCpus;
-      (os as { availableParallelism?: unknown }).availableParallelism = veroPar;
+      (os as { cpus: unknown }).cpus = realCpus;
+      (os as { availableParallelism?: unknown }).availableParallelism = realPar;
     }
     // E quando la lettura torna a funzionare, non è rimasto niente di rotto.
     expect(machineCores()).toBe(primo);

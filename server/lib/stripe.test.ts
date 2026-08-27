@@ -242,7 +242,7 @@ describe("stripe · aprire un checkout", () => {
     installationId: "iid-1", posti: 3,
     successUrl: "https://app.example/ok", cancelUrl: "https://app.example/no",
   };
-  const cfgPiena = leggiConfigStripe({
+  const fullCfg = leggiConfigStripe({
     STRIPE_SECRET_KEY: "sk_test_x", STRIPE_PRICE_ID: "price_x",
     STRIPE_API_BASE: "https://finto.example",
   });
@@ -264,7 +264,7 @@ describe("stripe · aprire un checkout", () => {
     // compilerebbe più.
     const visto: { auth: string | null } = { auth: null };
     const e = await creaCheckout({
-      ...base, config: cfgPiena,
+      ...base, config: fullCfg,
       fetchImpl: (async (_u: string, init: RequestInit) => {
         corpo = String(init.body);
         visto.auth = new Headers(init.headers).get("authorization");
@@ -286,20 +286,20 @@ describe("stripe · aprire un checkout", () => {
     let chiamate = 0;
     const f = (async () => { chiamate++; return new Response("{}"); }) as unknown as typeof fetch;
     for (const posti of [0, -1, POSTI_MAX_CHECKOUT + 1]) {
-      expect(await creaCheckout({ ...base, posti, config: cfgPiena, fetchImpl: f }))
+      expect(await creaCheckout({ ...base, posti, config: fullCfg, fetchImpl: f }))
         .toEqual({ ok: false, codice: "bad_seats" });
     }
     expect(chiamate).toBe(0);
     // Il canale funziona: al limite esatto passa.
     expect((await creaCheckout({
-      ...base, posti: POSTI_MAX_CHECKOUT, config: cfgPiena,
+      ...base, posti: POSTI_MAX_CHECKOUT, config: fullCfg,
       fetchImpl: (async () => new Response(JSON.stringify({ id: "cs_1", url: "https://u" }))) as unknown as typeof fetch,
     })).ok).toBe(true);
   });
 
   it("una rete che non risponde torna `unreachable`, non un'eccezione", async () => {
     const e = await creaCheckout({
-      ...base, config: cfgPiena,
+      ...base, config: fullCfg,
       fetchImpl: (async () => { throw new Error("ECONNREFUSED"); }) as unknown as typeof fetch,
     });
     expect(e).toEqual({ ok: false, codice: "unreachable" });
@@ -307,7 +307,7 @@ describe("stripe · aprire un checkout", () => {
 
   it("una risposta di Stripe non-ok, o senza url, è `upstream_error`", async () => {
     const err = async (r: Response) => creaCheckout({
-      ...base, config: cfgPiena, fetchImpl: (async () => r) as unknown as typeof fetch,
+      ...base, config: fullCfg, fetchImpl: (async () => r) as unknown as typeof fetch,
     });
     expect(await err(new Response("no", { status: 402 }))).toEqual({ ok: false, codice: "upstream_error" });
     expect(await err(new Response("non-json"))).toEqual({ ok: false, codice: "upstream_error" });
@@ -316,7 +316,7 @@ describe("stripe · aprire un checkout", () => {
 
   it("senza installazione non si compra per nessuno", async () => {
     const e = await creaCheckout({
-      ...base, installationId: "  ", config: cfgPiena,
+      ...base, installationId: "  ", config: fullCfg,
       fetchImpl: (async () => new Response("{}")) as unknown as typeof fetch,
     });
     expect(e).toEqual({ ok: false, codice: "no_installation" });

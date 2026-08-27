@@ -91,7 +91,7 @@ function pagina(dentro: boolean, scrive: boolean): string {
 }
 
 /** Il sito: `/entra` dà l'identità, `/` la legge e basta. */
-async function alzaIlSito(): Promise<{ server: Server; origine: string }> {
+async function raiseSite(): Promise<{ server: Server; origine: string }> {
   const server = createServer((req, res) => {
     const percorso = (req.url ?? "/").split("?")[0];
     const entra = percorso === "/entra";
@@ -112,7 +112,7 @@ async function alzaIlSito(): Promise<{ server: Server; origine: string }> {
 
 /** I silo che il server vede per questo contesto: la STESSA rotta che interroga
  *  il dialogo, non una copia della sua logica. */
-async function siloVisti(request: APIRequestContext, contextId: string): Promise<string[]> {
+async function seenSilo(request: APIRequestContext, contextId: string): Promise<string[]> {
   const res = await request.get(`${E2E_BASE}/api/browsers/${encodeURIComponent(contextId)}/site-data`);
   if (!res.ok()) return [];
   const body = (await res.json()) as { records?: Array<{ displayName?: string }> };
@@ -120,7 +120,7 @@ async function siloVisti(request: APIRequestContext, contextId: string): Promise
 }
 
 /** Manda il browser del server su una url e aspetta che ci sia arrivato. */
-async function navigaIlContesto(request: APIRequestContext, contextId: string, url: string): Promise<void> {
+async function navigateContext(request: APIRequestContext, contextId: string, url: string): Promise<void> {
   const res = await request.post(
     `${E2E_BASE}/api/browsers/${encodeURIComponent(contextId)}/navigate`,
     { data: { url } },
@@ -129,7 +129,7 @@ async function navigaIlContesto(request: APIRequestContext, contextId: string, u
 }
 
 /** Monta la pane del browser per un topic, come fa `/browser <url>` in chat. */
-async function montaLaPane(page: Page, topicId: string, url: string): Promise<void> {
+async function mountPane(page: Page, topicId: string, url: string): Promise<void> {
   await page.evaluate(
     ({ tid, u }) => {
       window.dispatchEvent(
@@ -143,7 +143,7 @@ async function montaLaPane(page: Page, topicId: string, url: string): Promise<vo
 
 /** Quello che la pane sta DAVVERO mostrando: il co-browse DOM ricostruisce la
  *  pagina del server in questo browser, quindi il titolone è leggibile qui. */
-function statoMostrato(page: Page) {
+function shownState(page: Page) {
   return page
     .locator('[data-testid="browser-dom-cobrowse"]')
     .first()
@@ -171,7 +171,7 @@ test.describe("Dimentica questo sito — pane condivisa", () => {
   let topicId = "";
 
   test.beforeAll(async () => {
-    sito = await alzaIlSito();
+    sito = await raiseSite();
   });
 
   test.afterAll(async ({ request }) => {
@@ -205,18 +205,18 @@ test.describe("Dimentica questo sito — pane condivisa", () => {
       // scena la ritrova già aperta sul sito.
       prologo: async (p) => {
         // UNA sola visita a `/entra`: da qui in poi l'identità c'è.
-        await navigaIlContesto(request, contextId, `${origine}/entra`);
+        await navigateContext(request, contextId, `${origine}/entra`);
         // …e si torna su `/`, che non scrive niente: è la pagina da cui parte la
         // clip, ed è quella che dopo la cancellazione dirà SEI FUORI.
-        await navigaIlContesto(request, contextId, `${origine}/`);
+        await navigateContext(request, contextId, `${origine}/`);
         // Il cookie e il localStorage devono essere DAVVERO nel contesto del
         // server prima di filmare: registrare senza vorrebbe dire un dialogo
         // vuoto e un rosso che arriva a video già girato.
-        expect(await siloVisti(request, contextId)).toContain(HOST);
+        expect(await seenSilo(request, contextId)).toContain(HOST);
 
         await goToApp(p);
         await waitForTopicVisible(p, topic.id);
-        await montaLaPane(p, topic.id, `${origine}/`);
+        await mountPane(p, topic.id, `${origine}/`);
       },
       scena: async (page) => {
         await goToApp(page);
@@ -229,7 +229,7 @@ test.describe("Dimentica questo sito — pane condivisa", () => {
         // ── 1. La pane condivisa è dentro il sito ────────────────────────────
         // Non «la barra dice l'indirizzo»: la PAGINA rispecchiata dice che il
         // sito ti riconosce. È lo stato che dopo dovrà cambiare.
-        await expect(statoMostrato(page)).toHaveText("SEI DENTRO", { timeout: 30_000 });
+        await expect(shownState(page)).toHaveText("SEI DENTRO", { timeout: 30_000 });
         await didascalia(page, "Pane condivisa: il sito ti riconosce");
         await beat(page, 1200);
 
@@ -250,7 +250,7 @@ test.describe("Dimentica questo sito — pane condivisa", () => {
         await didascalia(page, "Premuto: la pane ricarica il sito");
         // La prova, e non è un resoconto: la pane ricarica `/` e il sito non
         // riconosce più nessuno.
-        await expect(statoMostrato(page)).toHaveText("SEI FUORI", { timeout: 30_000 });
+        await expect(shownState(page)).toHaveText("SEI FUORI", { timeout: 30_000 });
         await beat(page, 1400);
 
         // ── 4. Riaperto, non c'è più niente da dimenticare ───────────────────
@@ -264,7 +264,7 @@ test.describe("Dimentica questo sito — pane condivisa", () => {
 
     // Il cancello del prodotto, non della clip: il silo non c'è più nemmeno per
     // il server, che è l'unico posto in cui quella sessione viveva davvero.
-    expect(await siloVisti(request, contextId)).not.toContain(HOST);
+    expect(await seenSilo(request, contextId)).not.toContain(HOST);
 
     if (clip) console.log(`[clip] pronta: ${clip.path}`);
   });

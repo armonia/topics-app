@@ -77,7 +77,7 @@ const SOPRA = 6;
  *  mezza altezza è il massimo raggio che quel bottone può portare. */
 const ALTEZZA = 44;
 /** Il raggio che ha un tasto quando l'arco non lo tocca — `rounded-xl`. */
-const RAGGIO_STANDARD = 12;
+const RADIUS_STANDARD = 12;
 
 const GLIFI: Record<string, LucideIcon> = { Kanban, LayoutGrid, List };
 /** Il glifo della board arriva da `PANE_CONFIG`, come per la riga della
@@ -126,19 +126,19 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
       safeAreaInsets.bottom,
       parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--screen-corner-radius')),
     );
-    const prossime = formaFila({
+    const next = formaFila({
       larghezza: largo,
       scatole,
       raggio,
       pavimento: pavimentoFila(safeAreaInsets.bottom),
       altezza: ALTEZZA,
-      standard: RAGGIO_STANDARD,
+      standard: RADIUS_STANDARD,
     });
     setForme((prec) => (
-      prec.length === prossime.length
-        && prec.every((v, i) => v.alzata === prossime[i].alzata && v.curvatura === prossime[i].curvatura && v.lato === prossime[i].lato)
+      prec.length === next.length
+        && prec.every((v, i) => v.alzata === next[i].alzata && v.curvatura === next[i].curvatura && v.lato === next[i].lato)
         ? prec
-        : prossime
+        : next
     ));
   }, [safeAreaInsets.bottom]);
 
@@ -178,7 +178,7 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
     : pavimentoFila(safeAreaInsets.bottom);
   // Prima della prima misura non si inventa una curva: raggio standard e
   // pavimento minimo, cioè la fila dritta di uno schermo squadrato.
-  const forma = (i: number): FormaScatola => forme[i] ?? { alzata: 10, curvatura: RAGGIO_STANDARD, lato: null };
+  const forma = (i: number): FormaScatola => forme[i] ?? { alzata: 10, curvatura: RADIUS_STANDARD, lato: null };
 
   return (
     <div
@@ -342,7 +342,7 @@ function BottoneFila({ etichetta, onClick, children, attivo, testId, titolo, for
       className={`edge-lit flex flex-1 min-w-0 h-11 flex-col items-center justify-center gap-0.5 px-1 transition-colors ${
         attivo ? `${SIDEBAR_ACTIVE} text-primary` : `${RAISED_CONTROL} text-app-text`
       }`}
-      style={angoliFila(forma)}
+      style={cornersQueue(forma)}
     >
       {children}
       <span className="text-[10px] font-medium leading-none">{etichetta}</span>
@@ -357,8 +357,8 @@ function BottoneFila({ etichetta, onClick, children, attivo, testId, titolo, for
  * Alzare anche quello in alto farebbe una goccia, e in cima non c'è nessun
  * arco da seguire.
  */
-function angoliFila({ curvatura, lato }: FormaScatola): { borderRadius: string } {
-  const s = `${RAGGIO_STANDARD}px`;
+function cornersQueue({ curvatura, lato }: FormaScatola): { borderRadius: string } {
+  const s = `${RADIUS_STANDARD}px`;
   const c = `${curvatura}px`;
   // Ordine CSS: alto-sinistra, alto-destra, basso-destra, basso-sinistra.
   if (lato === 'sinistra') return { borderRadius: `${s} ${s} ${s} ${c}` };

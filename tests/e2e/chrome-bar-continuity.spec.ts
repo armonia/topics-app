@@ -167,7 +167,7 @@ test.describe("continuità: le righe di chrome e il contenuto", () => {
     // solo pittore la domanda non si pone più — e questa è l'unica asserzione
     // che se ne accorge quando qualcuno ne aggiunge un secondo, invece di
     // scoprirlo misurando un pixel mesi dopo.
-    const pittori = await page.evaluate(() => {
+    const painters = await page.evaluate(() => {
       const out: string[] = [];
       const visita = (el: Element) => {
         const bg = getComputedStyle(el).backgroundColor;
@@ -185,6 +185,6 @@ test.describe("continuità: le righe di chrome e il contenuto", () => {
       return out;
     });
 
-    expect(pittori, `superfici che dipingono sotto la shell:\n${pittori.join("\n")}`).toHaveLength(1);
+    expect(painters, `superfici che dipingono sotto la shell:\n${painters.join("\n")}`).toHaveLength(1);
   });
 });

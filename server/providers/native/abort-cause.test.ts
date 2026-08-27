@@ -49,7 +49,7 @@ function sse(events: unknown[]): string {
 
 /** Come `giroConTool`, ma il tool è un comando LUNGO: serve a mettere l'abort
  *  DENTRO l'esecuzione, che è il punto dove il turno passa il suo tempo. */
-const giroConToolLungo = sse([
+const roundWithLongTool = sse([
   { type: "message_start", message: { usage: { input_tokens: 10 } } },
   { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
   { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "misuro la densità" } },
@@ -183,7 +183,7 @@ describe("il ciclo dell'agente nativo quando il server si spegne sotto di lui", 
       if (giri === 1) {
         // Annulla mentre il `sleep 30` gira, non fra un giro e l'altro.
         setTimeout(() => ac.abort("server-shutdown"), 150);
-        return new Response(giroConToolLungo, { status: 200 });
+        return new Response(roundWithLongTool, { status: 200 });
       }
       throw new Error("nessun secondo giro atteso: il turno era già annullato");
     }) as unknown as typeof fetch;

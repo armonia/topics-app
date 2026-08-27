@@ -33,7 +33,7 @@ export interface FsProbe {
   eCartella(p: string): boolean;
 }
 
-const FS_VERO: FsProbe = {
+const REAL_FS: FsProbe = {
   esiste: (p) => existsSync(p),
   eCartella: (p) => { try { return statSync(p).isDirectory(); } catch { return false; } },
 };
@@ -50,7 +50,7 @@ const MODELLI = [
 ];
 
 /** I candidati nudi di un testo, espansi e ripuliti. */
-function candidatiIn(testo: string, home: string): string[] {
+function candidatesIn(testo: string, home: string): string[] {
   const out: string[] = [];
   for (const modello of MODELLI) {
     modello.lastIndex = 0;
@@ -69,18 +69,18 @@ export interface Messaggio { role: string; content: string }
 
 export function detectProjectPath(
   messages: Messaggio[],
-  fs: FsProbe = FS_VERO,
+  fs: FsProbe = REAL_FS,
   home: string = homedir(),
 ): string | null {
   // Primo giro, su TUTTO il testo: una cartella che esiste davvero.
-  for (const c of candidatiIn(messages.map(m => m.content).join("\n"), home)) {
+  for (const c of candidatesIn(messages.map(m => m.content).join("\n"), home)) {
     if (fs.esiste(c) && fs.eCartella(c)) return c;
   }
 
   // Ripiego, solo sui messaggi dell'UTENTE: la cartella che sta per nascere.
   // «Creami un progetto in ~/progetti/nuovo» va legato prima che esista.
-  const testoUtente = messages.filter(m => m.role === "user").map(m => m.content).join("\n");
-  for (const c of candidatiIn(testoUtente, home)) {
+  const textUser = messages.filter(m => m.role === "user").map(m => m.content).join("\n");
+  for (const c of candidatesIn(textUser, home)) {
     // Se esiste, il primo giro l'ha già giudicato: non esiste modo che sia una
     // cartella (l'avrebbe restituita) e rioffrirlo qui e' contraddirsi.
     if (fs.esiste(c)) continue;

@@ -109,7 +109,7 @@ export async function backfillDeliveries<D>(deps: BackfillDeps<D>): Promise<void
     // consegna non vale. Se invece manca solo la MISURA su una consegna che non
     // è cambiata, si scrive solo quella: passare da `recordDelivery` butterebbe
     // via il verdetto testimoniato a ogni giro.
-    const commitNuovo = !row.delivery_commit;
+    const newCommit = !row.delivery_commit;
     if (!ptr?.commit) continue;
     // The ref before the column, same order as the capture in review and for the
     // same reason: the column is a pointer, the ref is what keeps its object.
@@ -125,7 +125,7 @@ export async function backfillDeliveries<D>(deps: BackfillDeps<D>): Promise<void
     // prodotto niente». I ref sono condivisi fra i worktree, quindi il checkout
     // principale basta a misurare il ramo.
     const stat = await deps.worktreeDiffStat(ref.repoPath, { branch: ptr.branch }).catch(() => null);
-    if (commitNuovo) {
+    if (newCommit) {
       deps.svc.recordDelivery({
         taskId: row.id, branch: ptr.branch, commit: ptr.commit,
         stat: stat ? { filesChanged: stat.filesChanged, insertions: stat.insertions, deletions: stat.deletions } : null,

@@ -67,7 +67,7 @@ const LETTORI = "readFileSync|readFile|existsSync|statSync|lstatSync|createReadS
  * Un `readFileSync(join(ROOT, variabile))` non porta letterali e viene ignorato:
  * quel percorso si compone a runtime e non e' decidibile qui.
  */
-export function lettureLetterali(sorgente: string): string[] {
+export function readsLiterals(sorgente: string): string[] {
   const senzaCommenti = sorgente
     .replace(/\/\*[\s\S]*?\*\//g, " ")
     .replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
@@ -111,13 +111,13 @@ describe("un test non legge file che il repo non ha", () => {
     // farebbe fallire nessun altro caso di questo file. Qui c'e' la forma
     // esatta di destinazioni.test.ts, piu' i tre falsi positivi che la prima
     // versione produceva e che NON devono tornare.
-    const veri = lettureLetterali(`
+    const veri = readsLiterals(`
       const DOC = readFileSync(resolve(RADICE, "docs/destinazioni.md"), "utf8");
       const P = await Bun.file("scripts/security-baseline.json").text();
     `);
     expect(veri).toEqual(["docs/destinazioni.md", "scripts/security-baseline.json"]);
 
-    const falsi = lettureLetterali(`
+    const falsi = readsLiterals(`
       // legge .claude/settings.local.json quando serve
       /* nota: client/src/app.tsx */
       put("client/src/app.tsx");
@@ -137,7 +137,7 @@ describe("un test non legge file che il repo non ha", () => {
     for (const f of tests) {
       let src: string;
       try { src = readFileSync(join(ROOT, f), "utf8"); } catch { continue; }
-      for (const p of new Set(lettureLetterali(src))) {
+      for (const p of new Set(readsLiterals(src))) {
         if (tracked.has(p)) continue;
         if ([...GENERATE.keys()].some((g) => p.startsWith(g))) continue;
         const abs = join(ROOT, p);

@@ -136,9 +136,9 @@ describe("DELETE di un task: le sue tab se ne vanno con lui", () => {
 
   test("archiviare il padre porta via anche le tab dei figli (cascata)", async () => {
     const padreTopic = await seedTask("task-td-padre", "Padre");
-    const figlioTopic = await seedTask("task-td-figlio", "Figlio", "task-td-padre");
+    const childTopic = await seedTask("task-td-figlio", "Figlio", "task-td-padre");
     await call(topicsRouter, `/api/topics/${padreTopic}/browser/open-pane`, "POST", { url: "http://localhost:3501/p" });
-    await call(topicsRouter, `/api/topics/${figlioTopic}/browser/open-pane`, "POST", { url: "http://localhost:3501/f" });
+    await call(topicsRouter, `/api/topics/${childTopic}/browser/open-pane`, "POST", { url: "http://localhost:3501/f" });
     seedLayout("task-td-figlio", "thread:qualcosa");
     expect(uiKeys("task-td-figlio")).toHaveLength(2);
 
@@ -152,10 +152,10 @@ describe("DELETE di un task: le sue tab se ne vanno con lui", () => {
   });
 
   test("un task VIVO accanto non perde niente (si archivia solo chi è archiviato)", async () => {
-    const vivoTopic = await seedTask("task-td-vivo", "Resta");
-    const mortoTopic = await seedTask("task-td-morto", "Va via");
-    await call(topicsRouter, `/api/topics/${vivoTopic}/browser/open-pane`, "POST", { url: "http://localhost:3502/vivo" });
-    await call(topicsRouter, `/api/topics/${mortoTopic}/browser/open-pane`, "POST", { url: "http://localhost:3502/morto" });
+    const aliveTopic = await seedTask("task-td-vivo", "Resta");
+    const deadTopic = await seedTask("task-td-morto", "Va via");
+    await call(topicsRouter, `/api/topics/${aliveTopic}/browser/open-pane`, "POST", { url: "http://localhost:3502/vivo" });
+    await call(topicsRouter, `/api/topics/${deadTopic}/browser/open-pane`, "POST", { url: "http://localhost:3502/morto" });
 
     await call(tasksRouter, `/api/boards/${PROJ}/tasks/task-td-morto`, "DELETE");
 

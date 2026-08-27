@@ -13,7 +13,6 @@
       "rispondi"
     ],
     "client/src/components/Auth/PairingGate.test.ts": [
-      "RIGHE_JSX",
       "avvia",
       "contenitore",
       "corpo"
@@ -29,14 +28,12 @@
       "riprovaPiuTardi",
       "scaduto",
       "spiegazione",
-      "tentativiRef",
       "titolo",
       "vivo"
     ],
     "client/src/components/Auth/pairingErrore.test.ts": [
       "chiave",
       "corpo",
-      "daTradurre",
       "inglesi",
       "italiane",
       "motivo"
@@ -58,7 +55,6 @@
       "deliveryStat",
       "evidenza",
       "lavoroInPlace",
-      "noteDiMacchina",
       "parti",
       "scelte",
       "senzaCommit",
@@ -80,14 +76,12 @@
       "compRect",
       "lblBtnRef",
       "motivi",
-      "oltreQuota",
       "progetto",
       "raf",
       "raf2",
       "snelliti"
     ],
     "client/src/components/Board/NightModeCard.tsx": [
-      "caricoPct",
       "soglia"
     ],
     "client/src/components/Board/PreviewMedia.tsx": [
@@ -119,7 +113,6 @@
       "adesso",
       "consegna",
       "domanda",
-      "domandaParcheggiati",
       "evidenza",
       "mossa",
       "nota",
@@ -142,7 +135,6 @@
     ],
     "client/src/components/Board/cardComments.ts": [
       "contorno",
-      "domandaSpenta",
       "nota"
     ],
     "client/src/components/Board/constants.ts": [
@@ -154,13 +146,11 @@
       "stat"
     ],
     "client/src/components/Board/dispatchChip.test.ts": [
-      "STATI_DEL_SERVER",
       "atteso",
       "fallito",
       "stato"
     ],
     "client/src/components/Board/dndSensors.test.ts": [
-      "ElementoFinto",
       "bersaglio",
       "evento"
     ],
@@ -189,9 +179,6 @@
       "FRASI",
       "colpevoli",
       "corpo",
-      "nelCodice",
-      "nelCommento",
-      "senzaBlocchi",
       "senzaCommenti"
     ],
     "client/src/components/Board/reviewNotes.ts": [
@@ -209,9 +196,7 @@
     ],
     "client/src/components/Board/taskChoices.test.ts": [
       "chiusa",
-      "conRamo",
       "consegnata",
-      "daAgente",
       "disegnate",
       "dopo",
       "mai",
@@ -227,11 +212,9 @@
     ],
     "client/src/components/Board/useBoardMotion.ts": [
       "Istantanea",
-      "PREFISSO_COLONNA",
       "anim",
       "atterra",
       "chiuso",
-      "daSaltare",
       "gioca",
       "interrompi",
       "scivola",
@@ -400,13 +383,11 @@
     "client/src/components/Chat/planDetection.test.ts": [
       "PROSA",
       "deciso",
-      "domandaQualunque",
       "planoInAttesa"
     ],
     "client/src/components/Chat/scrollAuthority.test.ts": [
       "ancorato",
       "assestamento",
-      "dopoIlBottone",
       "dopoInvio",
       "gesto",
       "primo",
@@ -414,11 +395,9 @@
     ],
     "client/src/components/Chat/selectLatestTodo.test.ts": [
       "asstWith",
-      "conDetailRotto",
       "letture",
       "primo",
       "secondo",
-      "senzaTodo",
       "spia"
     ],
     "client/src/components/Chat/selectLatestTodo.ts": [
@@ -443,7 +422,6 @@
       "testo"
     ],
     "client/src/components/Chat/turnError.ts": [
-      "dalBlocco",
       "primoCapoverso"
     ],
     "client/src/components/Chat/useVoiceRecording.ts": [
@@ -495,12 +473,8 @@
       "nonUnito"
     ],
     "client/src/components/Git/CommitHistory.tsx": [
-      "RigaFile",
       "aperto",
-      "apriCommit",
-      "mio",
-      "richiestaRef",
-      "statoColore"
+      "mio"
     ],
     "client/src/components/Git/HunkActions.tsx": [
       "applica",
@@ -521,11 +495,8 @@
       "resetDndOverlays"
     ],
     "client/src/components/Layout/PaneTabBar.tsx": [
-      "dettaglioProgetto",
       "etichettaTab",
-      "riduciMovimento",
       "sottotitolo",
-      "statoTab",
       "voci"
     ],
     "client/src/components/Layout/PanelGrid.tsx": [
@@ -542,9 +513,7 @@
     ],
     "client/src/components/Layout/StandaloneChatGroup.tsx": [
       "CronJobsPanel",
-      "gruppoAFuoco",
       "lifecycle",
-      "titoloSuperficie",
       "utilType"
     ],
     "client/src/components/Layout/flattenLayout.ts": [
@@ -628,7 +597,6 @@
     ],
     "client/src/components/MessageParts.tsx": [
       "adesso",
-      "alProssimo",
       "origine"
     ],
     "client/src/components/Modals/ContextMenu.tsx": [
@@ -651,7 +619,6 @@
     ],
     "client/src/components/Project/FileExplorer.tsx": [
       "DeleteConfirmDialog",
-      "bandaErrore",
       "cartella",
       "clipboardRef",
       "copyToClipboard",
@@ -681,12 +648,8 @@
       "leggiEstremita",
       "modified",
       "motivo",
-      "nonTracciati",
-      "posStoria",
       "ripiego",
       "stato",
-      "storiaBtnRef",
-      "storiaPopRef",
       "tracciati",
       "voce"
     ],
@@ -696,17 +659,13 @@
       "stripAnsi"
     ],
     "client/src/components/Project/ProjectSidebar.tsx": [
-      "altezzaVera",
       "comandi",
       "etichetta",
       "giu",
-      "leggiLayout",
       "partenzaSopra",
       "partenzaSotto",
       "pavimento",
       "riga",
-      "scriviLayout",
-      "sezioniRef",
       "striscia"
     ],
     "client/src/components/Project/ScriptRunner.tsx": [
@@ -732,7 +691,6 @@
       "bottone",
       "chiediCodice",
       "conferma",
-      "conferma_",
       "indirizzo",
       "invia",
       "scollega"
@@ -743,8 +701,7 @@
       "quando",
       "revoca",
       "revocati",
-      "riprova",
-      "spostaSu"
+      "riprova"
     ],
     "client/src/components/Settings/DiscordSection.tsx": [
       "Anteprima",
@@ -775,17 +732,12 @@
       "RUOLI",
       "Ruolo",
       "TolliQueue",
-      "Traduci",
       "aggiungi",
       "amministra",
-      "cambiaRuolo",
       "cancellaGruppo",
       "cancellaPersona",
-      "caricaGruppi",
-      "caricaMembri",
       "conferma",
       "corpo",
-      "creaGruppo",
       "gruppo",
       "ricarica",
       "rotta",
@@ -794,14 +746,12 @@
     "client/src/components/Settings/OrgProjectsSection.tsx": [
       "PROPOSTE",
       "Proposta",
-      "nomiProgetti",
       "presente",
       "vivo"
     ],
     "client/src/components/Settings/PlanSection.tsx": [
       "StatoPagamento",
       "StatoPiano",
-      "avvisaScadenza",
       "bottone",
       "compra",
       "conferma",
@@ -813,7 +763,6 @@
       "Cifra",
       "Sparkline",
       "compatto",
-      "daQuando",
       "tok",
       "vivo"
     ],
@@ -841,8 +790,6 @@
       "muti"
     ],
     "client/src/components/Settings/pianoState.ts": [
-      "CODICI_CHECKOUT",
-      "GIORNI_AVVISO_SCADENZA",
       "POSTI_MAX_ACQUISTO",
       "POSTI_MIN_ACQUISTO",
       "StatoPagamento",
@@ -863,28 +810,19 @@
       "mancanti"
     ],
     "client/src/components/Share/GuestView.tsx": [
-      "ChatCondivisa",
-      "TaskCondiviso",
       "vuoto"
     ],
     "client/src/components/Share/ShareControl.tsx": [
-      "CHIAVE_OGGETTO",
-      "CHIAVE_TITOLO",
       "ETICHETTA",
-      "LinkFuoriRete",
       "chiave",
       "condividi",
-      "copiaDeepLink",
       "disponibili",
-      "giaCondiviso",
       "revocaLink",
-      "timerCopia",
       "togli"
     ],
     "client/src/components/Shared/CommandPalette.tsx": [
       "cancelled",
       "descBits",
-      "filteredRecenti",
       "projLabel"
     ],
     "client/src/components/Shared/ConfirmDialog.tsx": [
@@ -898,7 +836,6 @@
       "Volo",
       "indice",
       "partenze",
-      "partenzeChunk",
       "precedente"
     ],
     "client/src/components/Shared/PendingActionProgressOverlay.tsx": [
@@ -910,7 +847,6 @@
       "colpevoli",
       "primitiva",
       "righe",
-      "soloCodice",
       "sorgenti",
       "voce"
     ],
@@ -995,7 +931,6 @@
       "OrgConPresenza",
       "RigaAmici",
       "RigaIo",
-      "RigaOrganizzazioni",
       "Voce",
       "assenti",
       "chiedi",
@@ -1014,13 +949,10 @@
       "LucideIcon",
       "MOBILE_CHROME_H_VAR",
       "PortaProfilo",
-      "RAGGIO_STANDARD",
       "SOPRA",
-      "angoliFila",
       "attivo",
       "forma",
       "massima",
-      "prossime",
       "radice",
       "raggio",
       "scatole"
@@ -1037,9 +969,6 @@
       "fpsColor",
       "perf",
       "scelta",
-      "segnoCpu",
-      "segnoMem",
-      "vociMisurateVisibili",
       "vociPeso",
       "vociTrattenuteVisibili"
     ],
@@ -1051,9 +980,6 @@
       "apribili",
       "attiva",
       "dentro",
-      "dentroSezione",
-      "esternoDalDito",
-      "fuoriRef",
       "haAzioni",
       "inVolo",
       "inizio",
@@ -1066,17 +992,11 @@
       "pannello"
     ],
     "client/src/components/Sidebar/SidebarStatusBar.tsx": [
-      "SOGLIA_DISPOSITIVO_MB",
-      "SOGLIA_SERVER_MB",
       "fmtMB",
       "fps",
       "gatewayOnline",
       "hmrWs",
-      "mostraInventario",
-      "mostraResidente",
       "perf",
-      "segnoParziale",
-      "sogliaTotale",
       "vociPeso"
     ],
     "client/src/components/Sidebar/SidebarSystemMenu.tsx": [
@@ -1089,7 +1009,6 @@
     ],
     "client/src/components/Sidebar/TopicTree.tsx": [
       "LucideIcon",
-      "VoceIncognito",
       "colonna",
       "dentro",
       "ditoVersoIFissati",
@@ -1108,8 +1027,6 @@
     ],
     "client/src/components/Sidebar/boardProjectChips.test.ts": [
       "RICCO",
-      "minimoGarantito",
-      "spanRicco",
       "totale",
       "uno"
     ],
@@ -1128,7 +1045,6 @@
       "telefono"
     ],
     "client/src/components/Sidebar/identityLabel.ts": [
-      "EtichettaIdentita",
       "etichettaIdentita",
       "ferro",
       "iniziali",
@@ -1153,7 +1069,6 @@
       "gentePresenza",
       "gia",
       "gruppo",
-      "inizialiDi",
       "online",
       "presentiOra",
       "unisciFacce",
@@ -1192,7 +1107,6 @@
       "tridi"
     ],
     "client/src/components/Sidebar/useProfileIdentity.ts": [
-      "ProfiloIdentita",
       "iniziali",
       "primo"
     ],
@@ -1206,7 +1120,6 @@
       "IngressiVerdetto",
       "MIN_COMPRESSI_MB",
       "QUOTA_SWAPPATA",
-      "SOGLIA_CPU",
       "SOGLIA_PRESSIONE_MB",
       "Verdetto",
       "compressi",
@@ -1275,13 +1188,10 @@
       "oldest"
     ],
     "client/src/hooks/messageCacheWrite.test.ts": [
-      "FintoMessaggio",
       "adesso",
       "gigante",
       "primo",
-      "sanaAdesso",
       "sanaPrima",
-      "scritturaVecchia",
       "secondo"
     ],
     "client/src/hooks/outboundQueue.test.ts": [
@@ -1321,7 +1231,6 @@
     "client/src/hooks/terminalRosterFetch.test.ts": [
       "SORGENTE",
       "corpo",
-      "corpoDellaFetch",
       "inizio",
       "scritture"
     ],
@@ -1392,8 +1301,7 @@
     "client/src/hooks/useGitStatus.ts": [
       "AUTOFETCH_MS",
       "autofetch",
-      "eraEsplicita",
-      "pushAllaPartenza"
+      "eraEsplicita"
     ],
     "client/src/hooks/useGlobalBoard.ts": [
       "unregister"
@@ -1408,12 +1316,9 @@
       "INTERVALLO_MS",
       "MembroPresenza",
       "OrgConPresenza",
-      "PresenzaIdentita",
       "RigaPresenza",
       "VUOTO",
       "adesso",
-      "alRitorno",
-      "conMembri",
       "leggi",
       "membri",
       "mioId",
@@ -1539,7 +1444,6 @@
       "posaTimer",
       "preso",
       "rapida",
-      "scorrevoleSotto",
       "velocitaFinale"
     ],
     "client/src/hooks/useSidebarAndLayout.ts": [
@@ -1555,7 +1459,6 @@
       "visti"
     ],
     "client/src/hooks/useSidebarSwipe.ts": [
-      "BORDO_PX",
       "CURVA",
       "FINESTRA_MS",
       "LANCIO_PX_MS",
@@ -1606,8 +1509,6 @@
       "SocketFinta",
       "Sonda",
       "armati",
-      "battiIlTimer",
-      "dateNowVero",
       "guida",
       "intervalli",
       "nuova",
@@ -1621,7 +1522,6 @@
       "NOMI",
       "OFFLINE_THRESHOLD_MS",
       "clearOfflineTimer",
-      "daAzzerare",
       "handleOnline",
       "offlineTimerRef",
       "perdiIlFilo",
@@ -1630,7 +1530,6 @@
     ],
     "client/src/lib/api.ts": [
       "ProfiloGitHubClient",
-      "StatistichePersonaClient",
       "obj"
     ],
     "client/src/lib/auth/session.test.ts": [
@@ -1640,8 +1539,7 @@
       "visti"
     ],
     "client/src/lib/auth/session.ts": [
-      "precedente",
-      "stessoStato"
+      "precedente"
     ],
     "client/src/lib/authErrors.test.ts": [
       "buchiEn",
@@ -1703,12 +1601,10 @@
       "cmp"
     ],
     "client/src/lib/boardProjectsStore.ts": [
-      "noto",
-      "senzaHash"
+      "noto"
     ],
     "client/src/lib/boardTasksStore.test.ts": [
       "nuovo",
-      "unhookVecchio",
       "vecchio",
       "woken"
     ],
@@ -1724,7 +1620,6 @@
       "chiusa",
       "chiuso",
       "conArchiviate",
-      "senzaPin",
       "soloArchiviate"
     ],
     "client/src/lib/buildSidebarItems.ts": [
@@ -1736,7 +1631,6 @@
       "utilType"
     ],
     "client/src/lib/cacheBreakdown.test.ts": [
-      "RIGA_VERA",
       "pctCosto"
     ],
     "client/src/lib/chunkReloadGuard.ts": [
@@ -1774,13 +1668,7 @@
     ],
     "client/src/lib/dragPreview.test.ts": [
       "INTENTI",
-      "NodoFinto",
       "ScattoRegistrato",
-      "TrasferimentoFinto",
-      "anteprimaSola",
-      "anteprimeMontate",
-      "creaNodo",
-      "creaTrasferimento",
       "dopo",
       "intenti",
       "presa",
@@ -1791,7 +1679,6 @@
       "scatto",
       "secondo",
       "selettori",
-      "senzaRegola",
       "sorgente",
       "superficie",
       "testo",
@@ -1822,15 +1709,11 @@
     ],
     "client/src/lib/edgeSwipeGuard.ts": [
       "DA_METTERE_A_FUOCO",
-      "DI_SISTEMA",
-      "TOCCO_MS",
-      "TOCCO_SLOP_PX",
       "armaIlTocco",
       "fuggito",
       "nato",
       "smonta",
-      "sotto",
-      "sulBordo"
+      "sotto"
     ],
     "client/src/lib/fastMode.ts": [
       "applies",
@@ -1842,9 +1725,6 @@
     ],
     "client/src/lib/featureUsage.ts": [
       "IngressiMisurati",
-      "RadiceMisurata",
-      "SessioneMisurata",
-      "etichettaRadice",
       "maggiore",
       "vociMisurate"
     ],
@@ -1855,7 +1735,6 @@
       "voce"
     ],
     "client/src/lib/featureWeight.ts": [
-      "NaturaPeso",
       "PesoDichiarato",
       "Proprietario",
       "VocePeso",
@@ -1927,7 +1806,6 @@
       "aggiunto",
       "cancellato",
       "modificato",
-      "nonTracciato",
       "rinominato"
     ],
     "client/src/lib/haptics.test.ts": [
@@ -1938,7 +1816,6 @@
       "woken"
     ],
     "client/src/lib/i18n-perf-keys.test.ts": [
-      "RIGHE_DEL_PANNELLO",
       "informativa",
       "mancanti",
       "nostre",
@@ -2009,8 +1886,6 @@
       "visti"
     ],
     "client/src/lib/outsidePress.ts": [
-      "GUARDIA_MS",
-      "annullaAttesa",
       "disarma",
       "disarmato",
       "mangia"
@@ -2036,19 +1911,15 @@
       "tryHostname"
     ],
     "client/src/lib/popoverPosition.ts": [
-      "spazio",
-      "spazioSopra",
-      "spazioSotto"
+      "spazio"
     ],
     "client/src/lib/popoverRegistry.test.ts": [
       "unregister",
       "unregisterFirst"
     ],
     "client/src/lib/reducedMotion.test.ts": [
-      "FintaFinestra",
       "chiesta",
       "costruiti",
-      "finestraVera",
       "vivo"
     ],
     "client/src/lib/reloadFlash.test.ts": [
@@ -2071,15 +1942,11 @@
       "larga",
       "larghezza",
       "prec",
-      "stretta",
-      "treScatole"
+      "stretta"
     ],
     "client/src/lib/safeAreaArc.ts": [
       "FormaScatola",
       "LatoCurvo",
-      "OpzioniFila",
-      "RAGGIO_PER_FASCIA",
-      "ScatolaFila",
       "alzataCurva",
       "arco",
       "concentrico",
@@ -2152,7 +2019,6 @@
     ],
     "client/src/lib/sidebarStateGroups.test.ts": [
       "figlioAttende",
-      "figlioFermo",
       "figlioLavora"
     ],
     "client/src/lib/stt.ts": [
@@ -2193,8 +2059,7 @@
       "stesso"
     ],
     "client/src/lib/topicsFootprint.ts": [
-      "EMA_ALPHA",
-      "campioneNuovo"
+      "EMA_ALPHA"
     ],
     "client/src/lib/updater.ts": [
       "isAclDenial",
@@ -2350,9 +2215,6 @@
       "cambiato",
       "rec"
     ],
-    "client/src/state/pane/reducers/panes.updatePane.test.ts": [
-      "statoCon"
-    ],
     "client/src/state/pane/reducers/pinnedChatResurrection.test.ts": [
       "closing"
     ],
@@ -2390,8 +2252,6 @@
     ],
     "client/src/state/profileTarget.ts": [
       "EVENTO_PAGINA_PROFILO",
-      "PaginaProfilo",
-      "VALIDA_MS",
       "apriProfilo",
       "dimenticaPaginaProfilo",
       "paginaProfiloChiesta",
@@ -2405,8 +2265,6 @@
       "cancelled"
     ],
     "client/src/state/streamingContract.test.ts": [
-      "RigaStreaming",
-      "topicVivi",
       "vivi"
     ],
     "client/src/state/taskBrowserLayout.test.ts": [
@@ -2461,7 +2319,6 @@
       "WSUIStateUpdatedMessage"
     ],
     "scripts/ai-bridge-replay-bench.ts": [
-      "RIGA_TESTO",
       "Stat",
       "acc",
       "buf",
@@ -2536,9 +2393,6 @@
       "skipped",
       "usdPerMRead"
     ],
-    "scripts/board-cases.test.ts": [
-      "senzaColonna"
-    ],
     "scripts/board-cases.ts": [
       "assenti",
       "disp"
@@ -2547,7 +2401,6 @@
       "assente",
       "cieco",
       "conDesc",
-      "conRiassunto",
       "corretto",
       "denied",
       "idNoti",
@@ -2562,7 +2415,6 @@
     "scripts/board-doctor.ts": [
       "DENIES_SUBTASKS",
       "DESC_MINIMA",
-      "NOTA_SENZA_RIASSUNTO",
       "SHA_IN_TESTO",
       "checkBehaviourWithoutPreview",
       "desc",
@@ -2571,7 +2423,6 @@
       "idNoti",
       "mancanti",
       "riassunto",
-      "riassuntoParla",
       "righe",
       "shaDaChiedere",
       "shaRivendicati",
@@ -2585,9 +2436,6 @@
       "conta",
       "fatte",
       "soglia",
-      "suAperte",
-      "suTutte",
-      "totaleVive",
       "vecchie"
     ],
     "scripts/board-vs-chat.test.ts": [
@@ -2649,13 +2497,11 @@
       "LandingEsito",
       "capo",
       "debiti",
-      "dentroDavvero",
       "dentroPerContenuto",
       "esito",
       "indecisi",
       "indiceMain",
       "indici",
-      "perEsito",
       "ripassoStorico",
       "senzaRamo",
       "spreco",
@@ -2712,7 +2558,6 @@
     ],
     "scripts/check-security.test.ts": [
       "chiave",
-      "conRagione",
       "copia",
       "copiaAlbero",
       "elenco",
@@ -2720,7 +2565,6 @@
       "fonti",
       "pem",
       "pulito",
-      "repoMinimo",
       "ripristina",
       "sporco",
       "temporanea",
@@ -2741,7 +2585,6 @@
     "scripts/compress-message-blobs.test.ts": [
       "SOGLIA",
       "casuale",
-      "giroCompleto",
       "testo",
       "tipico"
     ],
@@ -2755,13 +2598,9 @@
       "nuovi",
       "rapporto",
       "riga",
-      "rigaOk",
-      "scriviLotto",
       "viste"
     ],
     "scripts/conio-lib.ts": [
-      "CaricoLetto",
-      "EsitoChiave",
       "OpzioniConio",
       "POSTI_MAX",
       "POSTI_MIN",
@@ -2778,11 +2617,9 @@
     ],
     "scripts/conio-licenze.test.ts": [
       "CHIAVE",
-      "CONFIG_PIENA",
       "FINE_PERIODO_S",
       "IID",
       "PRIV_B64",
-      "SCADENZA_ATTESA",
       "SEGRETO",
       "abbonamento",
       "altrui",
@@ -2793,7 +2630,6 @@
       "evento",
       "finto",
       "gettone",
-      "richiestaFirmata",
       "righe",
       "scritto",
       "stato",
@@ -2804,11 +2640,8 @@
     "scripts/conio-licenze.ts": [
       "ConfigConio",
       "Decisione",
-      "EsitoScrittura",
       "GRAZIA_MS",
-      "MotivoNiente",
       "STATI_FINITI",
-      "STATI_VIVI",
       "TOLLERANZA_SCADENZA_MS",
       "adesso",
       "avvia",
@@ -2822,10 +2655,8 @@
       "gestore",
       "gettone",
       "grezzo",
-      "kidAtteso",
       "leggiConfigConio",
       "leggiFinePeriodo",
-      "leggiPosti",
       "oggetto",
       "posti",
       "pulita",
@@ -2844,7 +2675,6 @@
       "AGENTI",
       "AUTO_SPEGNIMENTO_S",
       "BRUCIATORI",
-      "CAMPIONE_MS",
       "PAVIMENTO",
       "WARMUP_DEFAULT_S",
       "aRiposo",
@@ -2866,7 +2696,6 @@
       "riga",
       "strutturale",
       "tettoVecchio",
-      "tettoVivoPrevisto",
       "warmup"
     ],
     "scripts/e2e-plan-shards.test.ts": [
@@ -2884,7 +2713,6 @@
       "skipped"
     ],
     "scripts/event-loop-lag.ts": [
-      "OGNI_MS",
       "SONDA",
       "campioni",
       "ordinati",
@@ -2927,7 +2755,6 @@
       "SESSIONE",
       "atteso4",
       "atteso6",
-      "attesoSolo",
       "colore",
       "compila",
       "congelato",
@@ -2943,11 +2770,8 @@
       "reverseApplies"
     ],
     "scripts/layer-growth.ts": [
-      "MAX_AL_MINUTO",
       "MINUTI",
-      "alMinuto",
       "esplicito",
-      "minutiVeri",
       "pidPiuPesante",
       "regioni"
     ],
@@ -2967,17 +2791,13 @@
       "scadenza"
     ],
     "scripts/mcp-cap-bench/bench.ts": [
-      "ATTESO_PER_RICHIESTA",
       "atteso",
       "buf",
       "cred",
       "dentro"
     ],
     "scripts/mcp-cap-bench/compact-bench.ts": [
-      "PER_TURNO",
       "SOGLIA",
-      "SOGLIA_RAW",
-      "SU_DISCO",
       "attesa",
       "attesi",
       "blocco",
@@ -3003,7 +2823,6 @@
     "scripts/mcp-cap-bench/decompose.ts": [
       "misure",
       "prefisso",
-      "promptUtente",
       "sonda",
       "sonde"
     ],
@@ -3047,18 +2866,14 @@
       "dopo",
       "dopo2",
       "grassi",
-      "perStato",
       "simula",
-      "simulaIdx",
       "stampa"
     ],
     "scripts/mem-growth.ts": [
       "Campione",
-      "OGNI_S",
       "campioni",
       "leggi",
       "minuti",
-      "ogniIdx",
       "pendenzaMBalMin",
       "primo",
       "srv"
@@ -3085,9 +2900,7 @@
       "fmt"
     ],
     "scripts/probe-boot-memory.ts": [
-      "ATTESA_MAX_S",
       "RADICE",
-      "TETTO_MB",
       "bootFinito",
       "casa",
       "dati",
@@ -3095,19 +2908,16 @@
       "figlio",
       "guarda",
       "picco",
-      "piccoMB",
       "scadenza",
       "uscita",
       "verdetto"
     ],
     "scripts/reload-gate-migration.test.ts": [
-      "appDirFinto",
       "daPulire",
       "eseguiCancello",
       "voci"
     ],
     "scripts/retitle-review-cards.ts": [
-      "SCRIVI",
       "migliore",
       "prov",
       "righe"
@@ -3122,7 +2932,6 @@
       "mappa",
       "messaggi",
       "radice",
-      "remotiVeri",
       "righe",
       "sporchi"
     ],
@@ -3130,14 +2939,10 @@
       "fmt"
     ],
     "scripts/stalled-parents.test.ts": [
-      "SCHEMA_COMMENTI",
       "testo"
     ],
     "scripts/stalled-parents.ts": [
       "righe"
-    ],
-    "scripts/start-prod-backoff.test.ts": [
-      "backoffDopoNFailure"
     ],
     "scripts/thread-vs-work.ts": [
       "coord",
@@ -3182,14 +2987,12 @@
       "totale"
     ],
     "server/boot-orphan-scan.test.ts": [
-      "dbConRighe",
       "inCorso",
       "ins",
       "molte",
       "riga",
       "righe",
       "stato",
-      "trovatiCaricando",
       "trovatiScorrendo"
     ],
     "server/browser-chromium-extensions.test.ts": [
@@ -3242,7 +3045,6 @@
     ],
     "server/browser-network-log.test.ts": [
       "buf",
-      "conFallita",
       "dati",
       "molte"
     ],
@@ -3280,8 +3082,6 @@
       "altro",
       "assente",
       "barattolo",
-      "dopoUno",
-      "memoNuova",
       "vuoto"
     ],
     "server/browser-session-handoff.ts": [
@@ -3295,8 +3095,6 @@
       "posato"
     ],
     "server/browser-site-data.heavy.test.ts": [
-      "LEGGI_NOTA",
-      "SCRIVI_STORAGE",
       "casa",
       "dopo",
       "dopoAutosave",
@@ -3341,15 +3139,12 @@
     ],
     "server/context/adapt-dedup.test.ts": [
       "README",
-      "conMappaVuota",
       "normale",
       "nota",
       "nuovo",
-      "nuovoStato",
       "primo",
       "readmeNuovo",
       "secondo",
-      "senzaDedup",
       "testo"
     ],
     "server/context/adapt.ts": [
@@ -3471,11 +3266,9 @@
       "nudo",
       "primaMacchina",
       "proprietario",
-      "quantePersone",
       "rigaPersona",
       "risposta",
       "rotto",
-      "secondaMacchina",
       "servizio",
       "spazzatura",
       "troppe",
@@ -3485,17 +3278,12 @@
     "server/lib/account.ts": [
       "ComeRiconciliato",
       "EsitoCollega",
-      "EsitoRete",
-      "IdentitaRemota",
       "OpzioniServizio",
       "RigaPersona",
-      "TIMEOUT_PREDEFINITO_MS",
       "bersaglio",
       "chiamata",
       "chiediCodice",
-      "codiceDaStato",
       "collegaAccount",
-      "corpoRisposta",
       "dato",
       "email",
       "indirizzo",
@@ -3510,7 +3298,6 @@
     "server/lib/ai-bridge-ack-deadline.test.ts": [
       "buf",
       "errore",
-      "listRicevuti",
       "rumore"
     ],
     "server/lib/ai-bridge-client.test.ts": [
@@ -3540,8 +3327,7 @@
       "MUTATING"
     ],
     "server/lib/boot-catena-ripresa.test.ts": [
-      "blocchi",
-      "dbConTurnoTagliato"
+      "blocchi"
     ],
     "server/lib/boot-partial-sweep.test.ts": [
       "DDL",
@@ -3557,7 +3343,6 @@
     ],
     "server/lib/cancelled-notice.test.ts": [
       "casi",
-      "conPrefisso",
       "guasto",
       "haProdotto",
       "spegnimento",
@@ -3643,8 +3428,6 @@
       "insidioso",
       "marcatore",
       "molti",
-      "pezzoGrosso",
-      "pezzoPiccolo",
       "righe"
     ],
     "server/lib/commit-message.ts": [
@@ -3672,12 +3455,9 @@
       "MESSAGGIO"
     ],
     "server/lib/detect-project-path.ts": [
-      "FS_VERO",
       "MODELLI",
       "Messaggio",
-      "candidatiIn",
-      "modello",
-      "testoUtente"
+      "modello"
     ],
     "server/lib/device-auth.test.ts": [
       "ospite",
@@ -3694,7 +3474,6 @@
     ],
     "server/lib/empty-turn-headstone.test.ts": [
       "CARTELLO",
-      "alBordo",
       "futura",
       "lapide",
       "misti",
@@ -3702,7 +3481,6 @@
     ],
     "server/lib/empty-turn-headstone.ts": [
       "isReusableHeadstone",
-      "listaVuota",
       "nata",
       "soloIlBloccoDErrore"
     ],
@@ -3713,10 +3491,8 @@
       "sidechain"
     ],
     "server/lib/fleet-usage.test.ts": [
-      "conEstraneo",
       "ferma",
       "fmt",
-      "nessunaBase",
       "senza",
       "sessioni"
     ],
@@ -3734,17 +3510,14 @@
       "applica",
       "contenuto",
       "dueEtre",
-      "righeIniziali",
       "vero"
     ],
     "server/lib/git-hunks.ts": [
       "fuori",
-      "nuovoConto",
       "nuovoInizio",
       "riga",
       "righe",
-      "scelti",
-      "vistoPrimoHunk"
+      "scelti"
     ],
     "server/lib/git-identity-callsites.test.ts": [
       "Offence",
@@ -3752,14 +3525,10 @@
       "esaminate",
       "offences"
     ],
-    "server/lib/git-identity.test.ts": [
-      "senzaIdentita"
-    ],
     "server/lib/git-numstat.test.ts": [
       "BINARIO"
     ],
     "server/lib/git-numstat.ts": [
-      "ConConteggi",
       "Contabile",
       "NUMSTAT_ARGS",
       "NUMSTAT_CACHED_ARGS",
@@ -3795,7 +3564,6 @@
       "oldestTs"
     ],
     "server/lib/github-profile.ts": [
-      "LOGIN_VALIDO",
       "OpzioniGitHub",
       "ProfiloGitHub",
       "Riga",
@@ -3806,36 +3574,29 @@
       "profilo",
       "profiloGitHub",
       "profiloInCache",
-      "rigaAProfilo",
-      "scriviFallimento",
-      "scriviProfilo"
+      "scriviFallimento"
     ],
     "server/lib/gitignore.ts": [
       "esc"
     ],
     "server/lib/grants-query.test.ts": [
       "RADICE",
-      "conProgetti",
       "esploso",
       "principali",
-      "ragioni",
-      "taskNelProgetto"
+      "ragioni"
     ],
     "server/lib/grants-query.ts": [
-      "contenitoreDi",
       "dentro",
       "dirette",
       "fuori",
       "lista",
       "negati",
       "perTipo",
-      "righe",
-      "suContenitore"
+      "righe"
     ],
     "server/lib/grants.test.ts": [
       "ammessi",
-      "deroga",
-      "nonAmmessi"
+      "deroga"
     ],
     "server/lib/idempotency-cache.test.ts": [
       "clk"
@@ -3852,10 +3613,8 @@
       "cookie"
     ],
     "server/lib/identity.ts": [
-      "IdentitaRisolta",
       "confinamentoDerivato",
-      "riga",
-      "rigaADevice"
+      "riga"
     ],
     "server/lib/idle-gc.test.ts": [
       "conteggio",
@@ -3867,7 +3626,6 @@
     ],
     "server/lib/idle-gc.ts": [
       "ATTESA_RILASCIO_MS",
-      "EsitoIdleGc",
       "IDLE_GC_SOGLIA_MB",
       "dopo",
       "fonti",
@@ -3876,8 +3634,6 @@
     ],
     "server/lib/licenza.test.ts": [
       "CaricoGettone",
-      "ENV_CHIAVE",
-      "GETTONE_TESTIMONE",
       "IID",
       "MotivoLicenza",
       "altro",
@@ -3885,7 +3641,6 @@
       "carico",
       "casi",
       "chiavi",
-      "chiaviBuone",
       "der",
       "dopo",
       "esito",
@@ -3907,12 +3662,10 @@
     "server/lib/licenza.ts": [
       "CHIAVI_INTEGRATE",
       "CaricoGettone",
-      "ChiavePubblica",
       "EntitlementSulFilo",
       "Esito",
       "Interruttore",
       "OpzioniServizio",
-      "OpzioniVerifica",
       "POSTI_GRATUITI",
       "POSTI_MAX",
       "Richiesta",
@@ -3922,27 +3675,20 @@
       "aggiorna",
       "baseUrlConcesso",
       "buona",
-      "bytesCarico",
       "caricaChiavi",
       "carico",
-      "caricoCache",
       "chiave",
       "chiavi",
       "consentito",
-      "costruisciChiave",
       "creaInterruttoreLicenza",
       "creaServizioLicenza",
-      "daCarico",
-      "decodificaSegmento",
       "firma",
       "firmato",
       "grezze",
       "grezzo",
-      "grezzoCache",
       "leggiCarico",
       "leggiGettoneGrezzo",
       "membri",
-      "motivoCache",
       "orologio",
       "percorsoGettone",
       "pezzi",
@@ -3950,7 +3696,6 @@
       "riga",
       "stato",
       "sulFilo",
-      "verificaCarico",
       "verificaGettone",
       "vuole"
     ],
@@ -3958,9 +3703,7 @@
       "srv"
     ],
     "server/lib/machine-cores.test.ts": [
-      "primo",
-      "veroCpus",
-      "veroPar"
+      "primo"
     ],
     "server/lib/machine-cores.ts": [
       "letto",
@@ -3973,7 +3716,6 @@
       "mio"
     ],
     "server/lib/media-ownership.ts": [
-      "NOME_MINIMO",
       "altrui",
       "attribuisciMedia",
       "nominato",
@@ -3981,7 +3723,6 @@
       "propri"
     ],
     "server/lib/message-author.ts": [
-      "AutoreMessaggio",
       "autoreDaIdentita",
       "etichettaAutore"
     ],
@@ -4032,8 +3773,6 @@
       "vittima"
     ],
     "server/lib/pairing-quota.ts": [
-      "CHIAVE_IGNOTO",
-      "EsitoQuota",
       "gruppo",
       "peggiore",
       "piuVecchiaLa",
@@ -4205,7 +3944,6 @@
     ],
     "server/lib/ripresa-boot.test.ts": [
       "RigaDaValutare",
-      "conErrore",
       "guasto",
       "interrotto",
       "prosa"
@@ -4235,7 +3973,6 @@
       "CORPO",
       "SEGRETO",
       "alterato",
-      "cfgPiena",
       "chiamate",
       "corpo",
       "evento",
@@ -4244,19 +3981,10 @@
       "tardi"
     ],
     "server/lib/stripe.ts": [
-      "AzioneEvento",
-      "CodiceCheckout",
-      "EsitoCheckout",
-      "EsitoFirma",
-      "EventoStripe",
-      "MotivoFirma",
-      "OpzioniCheckout",
       "POSTI_MAX_CHECKOUT",
       "STATI_FINITI",
-      "StatoPubblicoStripe",
       "TOLLERANZA_MS",
       "atteso",
-      "caricoFirmato",
       "corpo",
       "dato",
       "firme",
@@ -4264,7 +3992,6 @@
       "interpretaEvento",
       "leggiConfigStripe",
       "leggiInstallationId",
-      "leggiToken",
       "oggetto",
       "pezzo",
       "posti",
@@ -4272,19 +3999,14 @@
       "stato",
       "statoPubblico",
       "stringa",
-      "ugualiSenzaTempi",
       "valore",
       "verificaFirmaWebhook"
     ],
     "server/lib/stt.test.ts": [
       "Chiamata",
-      "NESSUN_ERRORE",
       "SttAudio",
       "chiamate",
-      "envVuoto",
-      "erroreDi",
       "esito",
-      "fetchFinta",
       "ffmpeg",
       "rotta"
     ],
@@ -4297,7 +4019,6 @@
       "SttAudio",
       "SttDeps",
       "SttError",
-      "estensioneDi",
       "ffmpeg",
       "grezzo",
       "lang",
@@ -4315,7 +4036,6 @@
       "PROJ",
       "ignoto",
       "morto",
-      "senzaHint",
       "vivo"
     ],
     "server/lib/tab-resolver.ts": [
@@ -4397,9 +4117,7 @@
       "primo"
     ],
     "server/lib/verdetto-turno-interrotto.ts": [
-      "SEGNI_DI_INTERRUZIONE",
       "bonificaTurniMuti",
-      "daRiparare",
       "interrotto",
       "upd",
       "verdetto",
@@ -4488,17 +4206,13 @@
     "server/providers/claude-code-boot-replay.test.ts": [
       "ProviderCtor",
       "attacchi",
-      "driveDopo",
       "fase2Dopo",
-      "hDopo",
-      "keyDopo",
       "parcheggiato",
       "prov",
       "provA",
       "provDopo",
       "provPrima",
       "replayIntegraliDi",
-      "storeDopo",
       "vero"
     ],
     "server/providers/claude-code-broker-resilience.test.ts": [
@@ -4631,7 +4345,6 @@
       "fetchVero",
       "fini",
       "giri",
-      "giroConToolLungo",
       "partito",
       "prov",
       "spia"
@@ -4650,8 +4363,6 @@
       "creds"
     ],
     "server/providers/native/compaction.test.ts": [
-      "codaDopo",
-      "codaOriginale",
       "copia",
       "grande",
       "piccola",
@@ -4683,7 +4394,6 @@
       "spiegaErrore"
     ],
     "server/providers/native/model-catalog.test.ts": [
-      "catalogoVecchio",
       "lunghi"
     ],
     "server/providers/native/permissions.test.ts": [
@@ -4712,7 +4422,6 @@
       "TTL"
     ],
     "server/providers/native/thinking-blocks.test.ts": [
-      "comeDalloStream",
       "grezzo"
     ],
     "server/providers/native/tool-abort.test.ts": [
@@ -4748,8 +4457,7 @@
     ],
     "server/providers/runtime-default-safety.test.ts": [
       "acpMissing",
-      "acpPresent",
-      "homeVero"
+      "acpPresent"
     ],
     "server/providers/snapshot-manager.ts": [
       "SNAPSHOT_TTL_MS"
@@ -4778,12 +4486,10 @@
       "MIGRAZIONI",
       "RADICE",
       "Rotta",
-      "StatoSulFilo",
       "aggiungiPersona",
       "buono",
       "casi",
       "chiama",
-      "conRete",
       "corpo",
       "dopo",
       "mircea",
@@ -4796,15 +4502,11 @@
       "rotta",
       "rotto",
       "sbagliato",
-      "senzaRete",
-      "servizioBuono",
-      "servizioRotto",
       "storto",
       "tentativo"
     ],
     "server/routes/account.ts": [
       "CodiceAccount",
-      "DipendenzeAccount",
       "OpzioniServizio",
       "adesso",
       "agganciato",
@@ -4819,19 +4521,14 @@
       "__scadenzeArmatePerTests",
       "attuale",
       "conDispositivo",
-      "daAvvisare",
       "dimenticaPush",
       "dispositivi",
       "dispositiviDelSoggetto",
-      "elencoPersone",
       "email",
       "esito",
-      "giaMembro",
       "ident",
       "installazione",
       "licenza",
-      "nomeDispositivo",
-      "nomeSoggetto",
       "nulla",
       "persone",
       "questoHash",
@@ -4842,7 +4539,6 @@
       "risorsa",
       "ruolo",
       "scadenze",
-      "scordaScadenza",
       "segna",
       "sogTipo",
       "sogTipoRaw",
@@ -4852,20 +4548,16 @@
     ],
     "server/routes/billing.test.ts": [
       "CaricoGettone",
-      "ENV_PIENO",
       "IID",
-      "SEGRETO_WH",
       "altra",
       "altrui",
       "attiva",
       "buono",
-      "checkoutCompletato",
       "chiama",
       "corpo",
       "der",
       "evento",
       "finto",
-      "firmaStripe",
       "gettone",
       "impostore",
       "inviato",
@@ -4880,9 +4572,7 @@
       "vero"
     ],
     "server/routes/billing.ts": [
-      "DipendenzeBilling",
       "PERCORSO_WEBHOOK",
-      "POSTI_DEFAULT",
       "adesso",
       "corpo",
       "esito",
@@ -4901,7 +4591,6 @@
       "ESENTI",
       "ROTTA",
       "SERVIZIO",
-      "campiDelServizio",
       "campiDellaRotta",
       "corpo",
       "inizio",
@@ -4933,7 +4622,6 @@
       "candidati",
       "cevt",
       "chatIdempotency",
-      "conVerdetto",
       "evt",
       "haProdotto",
       "idempotencyKey",
@@ -4944,10 +4632,8 @@
       "localhostScanWindow",
       "outTok",
       "riprendeDaSolo",
-      "rowHasWorkDopoMerge",
       "scartata",
       "soloCompattazione",
-      "toolsDelTurno",
       "uevt",
       "usd",
       "usdFromProvider",
@@ -4982,14 +4668,10 @@
       "autore",
       "regenParams"
     ],
-    "server/routes/files.git-commit-identity.test.ts": [
-      "envSenzaIdentita"
-    ],
     "server/routes/files.ts": [
       "assoluto",
       "azione",
       "basename",
-      "daIndice",
       "esempi",
       "esito",
       "evictOldestBackups",
@@ -5035,7 +4717,6 @@
     "server/routes/media.test.ts": [
       "attivo",
       "letta",
-      "perEstensione",
       "troppo",
       "vero"
     ],
@@ -5052,7 +4733,6 @@
       "inv"
     ],
     "server/routes/people.ts": [
-      "DipendenzePeople",
       "OpzioniGitHub",
       "RigaPersona",
       "github",
@@ -5088,11 +4768,9 @@
       "useTty"
     ],
     "server/routes/profile.ts": [
-      "nomeProprietario",
       "servizio"
     ],
     "server/routes/projects.icon-gate.test.ts": [
-      "daTerminale",
       "dentro",
       "estranea",
       "proj"
@@ -5118,7 +4796,6 @@
     ],
     "server/routes/reattachMerge.ts": [
       "blocchiTenuti",
-      "testoNuovoVince",
       "verdetti"
     ],
     "server/routes/regenerate-evidence.ts": [
@@ -5143,16 +4820,13 @@
     "server/routes/tasks.landing.test.ts": [
       "cardConsegnata",
       "mergiato",
-      "riallineato",
-      "statoLanding",
-      "statusAlloStop"
+      "riallineato"
     ],
     "server/routes/tasks.test.ts": [
       "NUOVI",
       "archivio",
       "candidati",
       "chiuso",
-      "conDueTentativi",
       "cyc",
       "dopo",
       "esito",
@@ -5160,7 +4834,6 @@
       "globale",
       "hres",
       "nascosta",
-      "nelGruppo",
       "nuovo",
       "orfano",
       "padreCheChiede",
@@ -5169,20 +4842,17 @@
       "salvati",
       "secondo",
       "sei",
-      "senzaSql",
       "testo",
       "tornata",
       "traccia",
       "troppi",
       "uno",
-      "viaAgente",
       "vicina",
       "vivo"
     ],
     "server/routes/tasks.ts": [
       "aggiornata",
       "aperti",
-      "bTitolo",
       "capturaConsegna",
       "condivisi",
       "elenco",
@@ -5190,7 +4860,6 @@
       "esito",
       "fresca",
       "giaScelto",
-      "idNelPath",
       "identita",
       "miePath",
       "migliore",
@@ -5254,22 +4923,15 @@
       "stmt"
     ],
     "server/services/agent-job-quota.test.ts": [
-      "agenteVivo",
-      "ambienteCongelato",
       "atteso",
       "chiavi",
-      "colTetto",
-      "conAmbiente",
       "dbVivo",
       "esegui",
       "finto",
-      "inQuattro",
       "inSei",
       "pezzi",
       "precedente",
       "radice",
-      "radiceTemporanea",
-      "radiciTemporanee",
       "reale",
       "strettissimo",
       "suoi",
@@ -5282,20 +4944,16 @@
       "apici",
       "binarioReale",
       "candidato",
-      "capDiConcorrenza",
       "casa",
       "codaDaTenere",
       "congelato",
       "divisore",
       "interroga",
       "legatura",
-      "perChiave",
       "pezzi",
-      "radiceCanale",
       "reale",
       "righe",
       "scritti",
-      "senzaPeso",
       "spento",
       "suaDir",
       "testo",
@@ -5366,7 +5024,6 @@
     ],
     "server/services/delivery-backfill.ts": [
       "candidati",
-      "commitNuovo",
       "ptr",
       "stat"
     ],
@@ -5380,7 +5037,6 @@
       "ins",
       "larghezza",
       "passi",
-      "riassuntoSvg",
       "righe",
       "testo"
     ],
@@ -5416,12 +5072,9 @@
       "IpcSocket"
     ],
     "server/services/dispatch-capacity.test.ts": [
-      "conAttive",
       "dbConImpostazioni",
       "disco",
-      "discoLargo",
       "finto",
-      "memoriaLarga",
       "processi",
       "strutturale"
     ],
@@ -5456,18 +5109,15 @@
       "projTokenRe"
     ],
     "server/services/landing-audit-pass.test.ts": [
-      "CardFinta",
       "RIGA",
       "annunci",
       "commenti",
       "commitAtterrato",
-      "commitFuori",
       "esito",
       "piena"
     ],
     "server/services/landing-audit-pass.ts": [
       "gia",
-      "indiceDi",
       "indiceMain",
       "indici",
       "nuovo",
@@ -5478,7 +5128,6 @@
       "CARD_ATTERRATA",
       "RIGA",
       "commitAtterrato",
-      "commitProprio",
       "ptr",
       "stat"
     ],
@@ -5495,7 +5144,6 @@
       "creati",
       "impronte",
       "indice",
-      "nuovoRepo",
       "prosa",
       "repoSquashLandato",
       "scrivi"
@@ -5506,24 +5154,17 @@
       "LandingEsito",
       "RIGA_DISTINTIVA_MIN",
       "RIGHE_MINIME",
-      "SOGLIA_DENTRO",
       "aggiunte",
       "assentiSuMain",
       "candidati",
       "cercaSupersessione",
-      "commitDiMainDopo",
       "commitDopo",
-      "contaPresenti",
       "contaSostanza",
       "contenutoGiaNellAlbero",
-      "dataDelRamo",
-      "dataRamo",
       "dentroPerContenuto",
       "esistenti",
       "gia",
       "impronte",
-      "inConflitto",
-      "inConflittoConMain",
       "indice",
       "indiceRigheMain",
       "isRigaDiSostanza",
@@ -5535,14 +5176,12 @@
       "presenti",
       "quali",
       "quanti",
-      "raccogliDiff",
       "riga",
       "righe",
       "sostanza",
       "superatoDa",
       "tocco",
-      "tuttiIFileIdentici",
-      "ultimoTocco"
+      "tuttiIFileIdentici"
     ],
     "server/services/machine-store.ts": [
       "markStaleOffline",
@@ -5568,7 +5207,6 @@
     "server/services/own-commits.test.ts": [
       "SENZA_RESIDUI",
       "codice",
-      "conAltri",
       "corpo",
       "modifica",
       "nascita",
@@ -5588,8 +5226,7 @@
     "server/services/preview-manager.test.ts": [
       "attesa",
       "inAvvio",
-      "prominenti",
-      "sbloccaProbe"
+      "prominenti"
     ],
     "server/services/preview-manager.ts": [
       "nostro",
@@ -5624,18 +5261,14 @@
     ],
     "server/services/relay-client.test.ts": [
       "LinkCondivisione",
-      "SocketFintaRelay",
       "armati",
       "busta",
       "chiedi",
-      "clientCollegato",
       "parti",
       "righe",
-      "servita",
-      "veroSetTimeout"
+      "servita"
     ],
     "server/services/relay-client.ts": [
-      "ATTESA_CONFERMA_MS",
       "ATTESE",
       "ApriSocketLocale",
       "ChiusuraWs",
@@ -5643,25 +5276,15 @@
       "Intestazioni",
       "LinkCondivisione",
       "MAX_IN_VOLO",
-      "MAX_SESSIONI",
       "MessaggioRelay",
       "MotivoStream",
-      "ProxyTuboDeps",
       "RISERVA_DEVICE",
-      "RichiestaOspite",
-      "RispostaOspite",
       "RuoloSessione",
-      "SOCKET_IN_APERTURA",
-      "SessioneOspite",
       "WS_TROPPO_ARRETRATO",
       "aperto",
-      "apriIlFilo",
       "apriSocket",
       "apriSocketLocale",
-      "apriSocketLocaleVero",
-      "apriUscita",
       "attesa",
-      "attesaConferma",
       "busta",
       "canale",
       "cePosto",
@@ -5691,7 +5314,6 @@
       "maxSessioni",
       "motivo",
       "normalizza",
-      "nuovaSessione",
       "opzioni",
       "ospiteEntrato",
       "ospiteUscito",
@@ -5706,10 +5328,8 @@
       "scelto",
       "senzaCorpo",
       "servi",
-      "serviRichiesta",
       "sessioni",
-      "tentativo",
-      "timerConferma"
+      "tentativo"
     ],
     "server/services/relay-config.ts": [
       "leggiInstallationId",
@@ -5726,7 +5346,6 @@
       "GIRI",
       "SocketFinta",
       "aperti",
-      "apertiDavvero",
       "aperto",
       "apertura",
       "apri",
@@ -5745,11 +5364,8 @@
       "messaggi",
       "occupaLaMacchina",
       "ospite",
-      "ospiteSordo",
-      "ospiteSu",
       "percorsi",
       "primaDelSessantacinquesimo",
-      "proxyNudo",
       "ricevuti",
       "rifiuti",
       "rimandati",
@@ -5812,7 +5428,6 @@
       "rosso",
       "rotto",
       "scaduto",
-      "soloScaduti",
       "spia",
       "visti"
     ],
@@ -5826,19 +5441,15 @@
     "server/services/task-automerge-ramo-potato.test.ts": [
       "TITOLO",
       "consegna",
-      "repoConRamoPotato",
       "strano"
     ],
     "server/services/task-automerge-realign.test.ts": [
-      "CON_GIT_VERO",
-      "consegnato",
-      "repoConRamoVecchio"
+      "consegnato"
     ],
     "server/services/task-automerge.ts": [
       "LandFallout",
       "cnt",
       "landFallout",
-      "perTitolo",
       "titolo",
       "toccati",
       "visti"
@@ -5856,7 +5467,6 @@
     ],
     "server/services/task-dispatcher-fanout.test.ts": [
       "Stat",
-      "boardSemplice",
       "righe",
       "rotto"
     ],
@@ -5884,32 +5494,23 @@
       "bloccato",
       "blocchi",
       "chieste",
-      "chiudiUnTurno",
-      "conSonda",
       "consegna",
-      "contaStatement",
       "dopo",
-      "dopoRiavvio",
       "envelopeDiSollecito",
       "esterne",
       "finiti",
       "finoAllaConsegnaForzata",
       "grande",
-      "legaT2",
       "normale",
       "nota",
       "ordine",
       "passaggio",
       "piccola",
-      "primaDelRiavvio",
       "primo",
       "ramo",
       "riga",
       "righe",
-      "righeItaliane",
       "rimessa",
-      "sbloccaAnteprima",
-      "senzaEtichette",
       "slimmed",
       "storico",
       "testi",
@@ -5917,7 +5518,6 @@
     ],
     "server/services/task-dispatcher.ts": [
       "acceso",
-      "agentiVivi",
       "atteso",
       "buildFanoutKickoff",
       "chiusa",
@@ -5928,18 +5528,14 @@
       "fila",
       "gcap",
       "gia",
-      "inDiretta",
       "langFor",
       "lavoroNonCommittato",
       "marcate",
       "mossa",
-      "motivoTetto",
       "nienteDaVedere",
       "nota",
       "perche",
-      "perchePieno",
       "posti",
-      "riapertaDaUnUmano",
       "sporchi",
       "stillTriaging",
       "tappo",
@@ -5987,7 +5583,6 @@
       "rotto"
     ],
     "server/services/task-title.ts": [
-      "TITOLO_GIA_BUONO",
       "descrizione",
       "materiale",
       "ripulisci",
@@ -5997,7 +5592,6 @@
     ],
     "server/services/tasks-test-db.test.ts": [
       "colpevoli",
-      "fileDelServizio",
       "fuori"
     ],
     "server/services/tasks.archive-restore.test.ts": [
@@ -6037,7 +5631,6 @@
       "dedotto",
       "dopo",
       "figlio",
-      "inReviewConConsegna",
       "landata",
       "nuovo",
       "requeued",
@@ -6058,14 +5651,10 @@
       "domande",
       "esito",
       "figlio",
-      "inArrivo",
       "opzioni",
-      "padreConFiglioParcheggiato",
-      "padreInAttesa",
       "riga",
       "rinviato",
       "testo",
-      "ultimoCommento",
       "uno",
       "vivo"
     ],
@@ -6077,7 +5666,6 @@
       "chiesto",
       "dipendente",
       "dopo",
-      "escluseDallaSonda",
       "ferma",
       "figlio",
       "lista",
@@ -6094,14 +5682,11 @@
       "commenti",
       "evidenza",
       "figlio",
-      "notaMuta",
-      "parlate",
-      "seedPadreConFiglioFermo"
+      "parlate"
     ],
     "server/services/tasks.test.ts": [
       "agente",
       "altra",
-      "altroProgetto",
       "aperti",
       "aperto",
       "attende",
@@ -6109,7 +5694,6 @@
       "bloccante",
       "chiuso",
       "consegnato",
-      "dalDettaglio",
       "dallaLista",
       "dep",
       "dettaglio",
@@ -6117,15 +5701,12 @@
       "dipendente",
       "domanda",
       "dopo",
-      "dopoScrittura",
       "epica",
-      "eventiDi",
       "evts",
       "fatto",
       "fermo",
       "grande",
       "grassa",
-      "inLista",
       "inizioSerie",
       "ins",
       "listati",
@@ -6163,7 +5744,6 @@
       "cappello",
       "chiave",
       "chiesti",
-      "conLavoro",
       "contorno",
       "coperte",
       "dalPiuRecente",
@@ -6198,8 +5778,7 @@
       "tagliata",
       "testo",
       "titolo",
-      "tok",
-      "ultimaParolaDelThread"
+      "tok"
     ],
     "server/services/transcript-usage.ts": [
       "buf",
@@ -6228,11 +5807,9 @@
     ],
     "server/services/worktree-gc-runner.test.ts": [
       "annunci",
-      "depsFinte",
       "esito",
       "fantasma",
       "giri",
-      "legaTask",
       "letture",
       "toccati"
     ],
@@ -6275,14 +5852,11 @@
     "server/usage/context-window.test.ts": [
       "NUDO",
       "entrambe",
-      "senzaRichiesta",
       "stretta"
     ],
     "server/usage/cost-probe.test.ts": [
-      "ID_VIVO",
       "atteso",
       "corto",
-      "dbConLeRigheDellaFixture",
       "ins",
       "percorso",
       "riga",
@@ -6309,7 +5883,6 @@
       "casi"
     ],
     "server/utils-compact-discard.test.ts": [
-      "conTesto",
       "domanda",
       "finalizzato",
       "rimasti",
@@ -6509,7 +6082,6 @@
     ],
     "shared/relay-crypto.ts": [
       "BUSTA_V",
-      "CHIAVE_BIT",
       "apri",
       "chiaro",
       "chiave",
@@ -6540,13 +6112,9 @@
       "ospite",
       "parola",
       "primi",
-      "prossimoHost",
       "registro",
       "ricevuti",
       "rinviato",
-      "scenaCollegata",
-      "scenaDispositivo",
-      "scenaTubo",
       "secondi",
       "tel",
       "telA",
@@ -6557,7 +6125,6 @@
     ],
     "shared/relay-fake.ts": [
       "AperturaWs",
-      "Capo",
       "CapoTuboOpts",
       "EsitoInvio",
       "EsitoTubo",
@@ -6566,15 +6133,11 @@
       "LatoTubo",
       "MessaggioRelay",
       "MotivoStream",
-      "OspiteHttpOpts",
-      "OspiteWsOpts",
-      "RelayFintoOpts",
       "Rifiutato",
       "RispostaTubo",
       "RuoloSessione",
       "SEGRETO_FINTO",
       "SocketOspite",
-      "StatoSocketOspite",
       "annuncia",
       "attese",
       "atteso",
@@ -6590,7 +6153,6 @@
       "creaOspiteHttp",
       "creaOspiteWs",
       "creaRelayFinto",
-      "daRispostaAllaRichiesta",
       "gia",
       "macchine",
       "manda",
@@ -6617,13 +6179,10 @@
       "GENERE_RISPOSTA",
       "Intestazioni",
       "MAX_INTESTAZIONI",
-      "MAX_VALORE",
       "METODI",
-      "NOME_VALIDO",
       "TestaRichiesta",
       "TestaRisposta",
       "VIETATE_RICHIESTA",
-      "VIETATE_RISPOSTA",
       "haControlli",
       "intestazioniRichiesta",
       "intestazioniRisposta",
@@ -6673,34 +6232,19 @@
     "shared/relay-protocol.ts": [
       "ARRETRATO_MAX",
       "Accolto",
-      "ApriSessioneOspite",
-      "ApriStream",
-      "B64_ALFABETO",
       "BustaVersoMacchina",
       "BustaVersoOspite",
-      "CREDITO_INIZIALE",
-      "CapoCanaleOpts",
-      "ChiudiStream",
-      "CodificaTubo",
-      "DaMacchina",
-      "DaOspite",
-      "DatiStream",
       "EsitoInvio",
       "EsitoTubo",
       "FrameTubo",
       "LatoTubo",
       "MOTIVI",
-      "MOTIVI_STREAM",
       "MessaggioRelay",
       "MotivoStream",
       "OpzioniRiassemblatore",
-      "OspiteCambiato",
       "RUOLI",
-      "RegistraInstallazione",
-      "RicaricaCredito",
       "Rifiutato",
       "RuoloSessione",
-      "StatoStream",
       "TUBO_BYTE_PER_FRAME",
       "TUBO_DATI_MAX",
       "TUBO_LIMITE_CLOUDFLARE",
@@ -6723,14 +6267,11 @@
       "creaRiassemblatore",
       "credito",
       "dati",
-      "datiValidi",
       "dec",
       "dividiBinario",
       "dividiTesto",
       "emetti",
-      "fallisci",
       "haContenutoOpaco",
-      "idValido",
       "involucro",
       "latoDiStream",
       "leggiFrame",
@@ -6755,15 +6296,12 @@
       "arrivati",
       "busta",
       "capo",
-      "capoGuest",
-      "capoHost",
       "daOspite",
       "dopo",
       "esiti",
       "fuori",
       "giu",
       "iniziale",
-      "primaDelBlocco",
       "segnali",
       "testi",
       "uno"
@@ -6775,9 +6313,7 @@
       "GENERE_WS_CHIUSO",
       "Intestazioni",
       "MAX_INTESTAZIONI",
-      "MAX_MOTIVO",
       "MAX_PROTOCOLLI",
-      "MAX_PROTOCOLLO",
       "PROTOCOLLO_VALIDO",
       "TestaWsAperto",
       "TestaWsChiuso",
@@ -6788,7 +6324,6 @@
       "intestazioniUpgrade",
       "leggiChiusuraWs",
       "leggiIntestazioni",
-      "leggiProtocolli",
       "leggiTestaWs",
       "leggiTestaWsAperto",
       "leggiTestaWsChiuso",
@@ -6829,19 +6364,16 @@
       "tokenizeTaskText"
     ],
     "shared/task-title.test.ts": [
-      "DETTATO",
-      "ultimaParola"
+      "DETTATO"
     ],
     "shared/task-title.ts": [
       "TITOLO_MAX",
-      "TITOLO_MIN_UTILE",
       "accorcia",
       "finestra",
       "resto",
       "righe",
       "testo",
-      "titoloDaTesto",
-      "ultimoSpazio"
+      "titoloDaTesto"
     ],
     "shared/token-cost.test.ts": [
       "daMessaggio"
@@ -6857,7 +6389,6 @@
     ],
     "shared/tray-board.ts": [
       "miei",
-      "perGruppo",
       "spazio",
       "tagliato"
     ],
@@ -6873,7 +6404,6 @@
       "typingBroadcastSchema"
     ],
     "tests/e2e/add-menu.spec.ts": [
-      "appPulita",
       "kbds",
       "sovrapposti"
     ],
@@ -6914,12 +6444,9 @@
     "tests/e2e/board-card-action-error.spec.ts": [
       "FIGLIO",
       "approva",
-      "figlioId",
       "striscia"
     ],
     "tests/e2e/board-card-choices.spec.ts": [
-      "T_BLOCCANTE",
-      "T_BLOCCATA",
       "T_CORSO",
       "T_RAMO",
       "bloccata",
@@ -6927,25 +6454,17 @@
       "ramo"
     ],
     "tests/e2e/board-card-last-exchange.spec.ts": [
-      "T_CRONACA",
-      "T_DOMANDA",
       "apriBoard",
       "colonna",
-      "commenta",
-      "conCronaca",
-      "conDomanda"
+      "commenta"
     ],
     "tests/e2e/board-card-stop.spec.ts": [
       "ferma"
     ],
     "tests/e2e/board-card-vs-session.spec.ts": [
-      "TASK_MORTO",
       "TASK_VIVO",
-      "cardMorto",
-      "cardVivo",
       "morto",
       "topicMorto",
-      "topicVivo",
       "vivo"
     ],
     "tests/e2e/board-column-elastic-width.spec.ts": [
@@ -7000,7 +6519,6 @@
     "tests/e2e/board-drawer-scroll.spec.ts": [
       "CRC_TABLE",
       "approva",
-      "approvaBox",
       "crc",
       "crc32",
       "ihdr",
@@ -7022,28 +6540,22 @@
       "altro",
       "corpo",
       "estraneo",
-      "feedFermo",
       "inVolo",
       "letture",
       "marcato",
       "marcatore",
       "ricomparsa",
-      "testo",
-      "ultimaAttivita"
+      "testo"
     ],
     "tests/e2e/board-flash-curve.spec.ts": [
       "DURATA_MS",
       "anim",
-      "apriContesto",
       "durata",
       "inCorso",
       "parti",
-      "profiloAlpha",
       "viaggiatrice"
     ],
     "tests/e2e/board-intake-link.spec.ts": [
-      "CARD_APERTA",
-      "FEEDBACK_NUOVO",
       "aperta",
       "nuova",
       "vecchia"
@@ -7058,7 +6570,6 @@
       "visibile"
     ],
     "tests/e2e/board-land-conflict.spec.ts": [
-      "SUL_TASK",
       "evento",
       "nota",
       "proj",
@@ -7068,8 +6579,7 @@
       "aperta",
       "bottone",
       "lungo",
-      "piegata",
-      "treGiorniFa"
+      "piegata"
     ],
     "tests/e2e/board-preview-autoplay.spec.ts": [
       "lontane",
@@ -7086,21 +6596,13 @@
       "img"
     ],
     "tests/e2e/board-queue-reason-chip.spec.ts": [
-      "AL_LAVORO",
       "BLOCCANTE",
       "BLOCCATA",
-      "DAVANTI_1",
-      "DAVANTI_2",
-      "ESAURITA",
       "RINVIATA",
       "alLavoro",
       "bloccante",
       "bloccata",
-      "capIniziale",
-      "cardBloccante",
-      "cardBloccata",
       "cardChiede",
-      "cardCongelato",
       "chiede",
       "colonna",
       "congelato",
@@ -7111,14 +6613,10 @@
       "testi"
     ],
     "tests/e2e/board-recapture-preview.spec.ts": [
-      "PROJECT_ID_MUTO",
-      "REPO_MUTO",
       "bottone",
       "img",
       "nota",
-      "proj",
-      "seededMuto",
-      "wtMuto"
+      "proj"
     ],
     "tests/e2e/board-reopened-chip.spec.ts": [
       "didascalia"
@@ -7129,7 +6627,6 @@
     ],
     "tests/e2e/board-review-quiet-note.spec.ts": [
       "NOTA",
-      "T_CONSEGNA",
       "nota",
       "proj"
     ],
@@ -7170,7 +6667,6 @@
     ],
     "tests/e2e/board-text-never-lands.spec.ts": [
       "T_RAMO",
-      "inRamo",
       "proj",
       "ramo"
     ],
@@ -7178,7 +6674,6 @@
       "GRAFICA",
       "TESTO",
       "apriAlbero",
-      "fondoChrome",
       "lettere",
       "progetto",
       "quanti"
@@ -7188,7 +6683,6 @@
     ],
     "tests/e2e/board-topbar-legibility.spec.ts": [
       "agente",
-      "bottonePubblica",
       "canale",
       "conteggi",
       "contrasto",
@@ -7202,10 +6696,7 @@
       "sel",
       "sfondo",
       "titolo",
-      "voci",
-      "yAgente",
-      "yGlobali",
-      "yPausa"
+      "voci"
     ],
     "tests/e2e/board-waiting-on-chip.spec.ts": [
       "BLOCCANTE",
@@ -7218,17 +6709,14 @@
       "sottotask"
     ],
     "tests/e2e/board.spec.ts": [
-      "ALTRO_ID",
       "altro",
       "atteso",
       "colonne",
       "dst",
       "mio",
-      "perProgetto",
       "primo",
       "secondo",
       "testo",
-      "testoCoda",
       "vuoto"
     ],
     "tests/e2e/browser-agent-control.spec.ts": [
@@ -7244,21 +6732,16 @@
       "RRWEB_EVENTS"
     ],
     "tests/e2e/browser-forget-site-shared.spec.ts": [
-      "alzaIlSito",
       "apriIlDialogo",
       "bordo",
       "dentro",
       "dialogo",
       "entra",
       "fondo",
-      "montaLaPane",
-      "navigaIlContesto",
       "origine",
       "percorso",
-      "siloVisti",
       "sito",
-      "stato",
-      "statoMostrato"
+      "stato"
     ],
     "tests/e2e/browser-iframe-mode.spec.ts": [
       "iframe"
@@ -7273,9 +6756,6 @@
       "email",
       "kbd",
       "otp"
-    ],
-    "tests/e2e/browser-open-pane-orphan.spec.ts": [
-      "URL_APERTA"
     ],
     "tests/e2e/browser-persistence.spec.ts": [
       "buf"
@@ -7292,7 +6772,6 @@
     "tests/e2e/changelog.spec.ts": [
       "Versione",
       "Voce",
-      "conVociPubbliche",
       "primaVoce",
       "storia"
     ],
@@ -7329,7 +6808,6 @@
     ],
     "tests/e2e/chat-composer-ink-band.spec.ts": [
       "mosso",
-      "restSopra",
       "scroller",
       "sopra",
       "testimone"
@@ -7353,9 +6831,7 @@
       "bolla",
       "corpo",
       "quante",
-      "rigaUtente",
-      "trovato",
-      "turnoAperto"
+      "trovato"
     ],
     "tests/e2e/chat-reattach-bubble.spec.ts": [
       "EVIDENZA",
@@ -7374,12 +6850,9 @@
       "eccedenza",
       "fermi",
       "lungo",
-      "lungoName",
       "massimo",
-      "massimoLontano",
       "scroller",
-      "stato",
-      "statoFondo"
+      "stato"
     ],
     "tests/e2e/chat-streaming-indicator.spec.ts": [
       "distUp",
@@ -7388,7 +6861,6 @@
     "tests/e2e/chat-subagent-exit-bubble.spec.ts": [
       "DOPO",
       "REPORT_RESO",
-      "TURNO_ID",
       "apri",
       "assistenti",
       "rapporto",
@@ -7398,7 +6870,6 @@
     "tests/e2e/chat-tool-run-grouping.spec.ts": [
       "azioni",
       "bolle",
-      "coloreDi",
       "corsa",
       "gruppi",
       "gruppo",
@@ -7407,9 +6878,7 @@
       "rossoParziale",
       "rossoPersa",
       "scattoDiConsegna",
-      "scroller",
-      "titoloParziale",
-      "titoloPersa"
+      "scroller"
     ],
     "tests/e2e/chat.spec.ts": [
       "clipboard",
@@ -7418,13 +6887,11 @@
       "textarea"
     ],
     "tests/e2e/checklist-ui-verify.spec.ts": [
-      "bordo",
-      "conOmbra"
+      "bordo"
     ],
     "tests/e2e/chrome-bar-continuity.spec.ts": [
       "PROJ",
       "barre",
-      "pittori",
       "rgba",
       "righe",
       "risolvi",
@@ -7435,16 +6902,11 @@
     ],
     "tests/e2e/chrome-bar-overlay.spec.ts": [
       "apri",
-      "cimaPrimo",
       "cime",
       "contenitore",
-      "fondoBarra",
       "lista",
       "lunga",
-      "lungaId",
-      "lungaNome",
       "primo",
-      "rLista",
       "scorre"
     ],
     "tests/e2e/claude-code-provider.spec.ts": [
@@ -7457,7 +6919,6 @@
       "dialog"
     ],
     "tests/e2e/context-ring.spec.ts": [
-      "chiamateEnvelope",
       "dentro",
       "dettagli",
       "interruttore"
@@ -7500,12 +6961,9 @@
       "PROJ_B"
     ],
     "tests/e2e/drag-preview.spec.ts": [
-      "GestoHtml5",
       "Intento",
       "SPAZIO",
       "anteprima",
-      "anteprimaMostra",
-      "anteprimaSpenta",
       "aperte",
       "arrivo",
       "bersaglio",
@@ -7515,14 +6973,10 @@
       "consegna",
       "corpo",
       "gesto",
-      "idAltrove",
-      "idRiga",
       "iniziaGestoHtml5",
-      "nomeRiga",
       "presa",
       "riga",
       "sorgente",
-      "testoTask",
       "tipi"
     ],
     "tests/e2e/drop-zones-v2.spec.ts": [
@@ -7532,8 +6986,6 @@
       "prov"
     ],
     "tests/e2e/feature-weight.spec.ts": [
-      "chatConMessaggi",
-      "conFlotta",
       "figli",
       "iSessioni",
       "iTrattenuto",
@@ -7541,7 +6993,6 @@
       "righeTrattenute",
       "testo",
       "titolo",
-      "tooltipMisurati",
       "tooltipTrattenuti",
       "totale"
     ],
@@ -7554,8 +7005,7 @@
       "chiusa",
       "fermo",
       "intestazione",
-      "precedente",
-      "stileARiposo"
+      "precedente"
     ],
     "tests/e2e/file-explorer-git.spec.ts": [
       "STDERR",
@@ -7602,14 +7052,11 @@
       "textarea"
     ],
     "tests/e2e/focus-bounce-board.spec.ts": [
-      "TASK_FANTASMA",
       "apriBoard",
       "apriProgettoDaSidebar",
       "armaIntento",
       "attive",
       "boardTornata",
-      "newChatDalProgetto",
-      "newChatGlobale",
       "riga",
       "visti"
     ],
@@ -7617,18 +7064,15 @@
       "apriGit",
       "casella",
       "dopo",
-      "riga",
-      "unaRiga"
+      "riga"
     ],
     "tests/e2e/git-commit-history.spec.ts": [
       "IDENTITA",
       "PROJ",
       "VUOTO",
-      "apriStoria",
       "bottone",
       "colori",
       "dentro",
-      "iconaDi",
       "iniziale",
       "pannello",
       "readme",
@@ -7641,19 +7085,13 @@
       "usato"
     ],
     "tests/e2e/git-diff-sides.spec.ts": [
-      "colNomeNuovo",
-      "colNomeVecchio",
       "disco",
       "indice"
     ],
     "tests/e2e/git-hunk-staging.spec.ts": [
       "PROJ",
       "blocchi",
-      "righe",
-      "scriviTreBlocchi"
-    ],
-    "tests/e2e/git-untracked-folder.spec.ts": [
-      "etichettaRamo"
+      "righe"
     ],
     "tests/e2e/global-setup.ts": [
       "stato"
@@ -7673,7 +7111,6 @@
       "didascalia",
       "dividi",
       "divisa",
-      "nuovoGruppoCon",
       "passataAllAltroGruppo",
       "primaDivisa",
       "riga",
@@ -7721,11 +7158,8 @@
       "href"
     ],
     "tests/e2e/helpers/clip.ts": [
-      "OpzioniClip",
       "clipDiConsegna",
       "destinazione",
-      "dirTemporanea",
-      "erroreScena",
       "muroMs",
       "paginaPrologo",
       "registra",
@@ -7764,12 +7198,9 @@
     ],
     "tests/e2e/helpers/relay-e2e.ts": [
       "AperturaWs",
-      "CapoBrowser",
       "FiloFinto",
       "FrameTubo",
       "INSTALLAZIONE",
-      "ORIGINE_RELAY",
-      "RispostaRelay",
       "RispostaTubo",
       "SocketOspite",
       "SocketPonte",
@@ -7787,8 +7218,6 @@
       "involucri",
       "limite",
       "macchina",
-      "macchinaViva",
-      "ospiteHttp",
       "ospiteWs",
       "ponte",
       "ponteVivo",
@@ -7813,20 +7242,12 @@
       "corpo",
       "dur",
       "figlio",
-      "interoBE",
-      "leggiDimensione",
-      "leggiElemento",
-      "leggiId",
-      "lunghezzaVint",
       "marcatore",
       "primo",
-      "tuttiUno",
       "ultimoTimecodeCluster"
     ],
     "tests/e2e/hover-reveal-touch-audit.spec.ts": [
-      "ALTRO_BRANCH",
       "apriGit",
-      "apriRami",
       "bottone",
       "riga",
       "segnali",
@@ -7843,7 +7264,6 @@
     ],
     "tests/e2e/kanban-icone.spec.ts": [
       "apriBoard",
-      "densitaIcone",
       "lato",
       "lineaResa",
       "riga",
@@ -7875,14 +7295,12 @@
       "mio",
       "occupata",
       "primoTurno",
-      "svuotaCoda",
       "testo",
       "turnoUnito"
     ],
     "tests/e2e/mobile-chrome-bar.spec.ts": [
       "AGGIUNGI",
       "CERCA",
-      "PAVIMENTO_ASSOLUTO",
       "PROFILO",
       "RAGGI",
       "TETTO",
@@ -7898,14 +7316,12 @@
       "foglio",
       "gioco",
       "haCampitura",
-      "larghezzaSchermo",
       "larghezze",
       "misure",
       "parti",
       "porte",
       "primo",
       "profilo",
-      "raggioSchermoDichiarato",
       "riga",
       "righe",
       "riserva",
@@ -7927,9 +7343,7 @@
       "spia"
     ],
     "tests/e2e/mobile-responsive-audit.spec.ts": [
-      "expectPulitaComeOggi",
       "fuoriADestra",
-      "perContenuto",
       "pulita",
       "rotta",
       "vuota"
@@ -7944,14 +7358,11 @@
     ],
     "tests/e2e/org-presence.spec.ts": [
       "amici",
-      "membro",
-      "stubIdentita"
+      "membro"
     ],
     "tests/e2e/pane-over-pane-group.spec.ts": [
-      "apriBrowser",
       "battuta",
       "celle",
-      "centroDi",
       "didascalia",
       "trascina"
     ],
@@ -7979,13 +7390,9 @@
     ],
     "tests/e2e/permission-panel.spec.ts": [
       "dopo",
-      "skVicina",
       "suo",
       "traccia",
       "vicina"
-    ],
-    "tests/e2e/picker-keyboard-nav.spec.ts": [
-      "defaultAtteso"
     ],
     "tests/e2e/pinned-tile-action-slot.spec.ts": [
       "CORTO",
@@ -8027,8 +7434,6 @@
       "testo"
     ],
     "tests/e2e/project-badge-attributable.spec.ts": [
-      "ariaProgetto",
-      "badgeProgetto",
       "spiegazione",
       "tabProgetto"
     ],
@@ -8042,12 +7447,10 @@
       "varco"
     ],
     "tests/e2e/project-scripts.spec.ts": [
-      "apriProcessi",
       "riga",
       "vuoto"
     ],
     "tests/e2e/project-sidebar-auto-height.spec.ts": [
-      "VECCHIA_ALTEZZA_PROCESSI",
       "apri",
       "colonna",
       "garantisciAperta",
@@ -8059,25 +7462,17 @@
       "acceso",
       "aperta",
       "attesa",
-      "cardAperta",
-      "chiusaH",
-      "chiusoFont",
       "contenuto",
       "dati",
       "dipinta",
       "pastiglia",
-      "riga",
-      "rigaBox"
+      "riga"
     ],
     "tests/e2e/project-sidebar-sections-resize.spec.ts": [
       "PROJ",
       "apri",
       "boxGitPerFermarsi",
       "divisore",
-      "dopoBox",
-      "dopoDiv",
-      "dopoGit",
-      "dopoProc",
       "dopoTesta",
       "garantisciAperta",
       "riquadro",
@@ -8085,22 +7480,17 @@
     ],
     "tests/e2e/project-tab-seen.spec.ts": [
       "altrove",
-      "altroveId",
       "chiusa",
-      "chiusaKey",
       "chiuso",
       "dopo",
       "mappa",
-      "tabAltrove",
       "tabProgetto"
     ],
     "tests/e2e/project-tabs.spec.ts": [
       "finestra",
-      "idsVisibili",
       "progetto",
       "questaTab",
       "suDesktop",
-      "tabDelProgetto",
       "voce"
     ],
     "tests/e2e/provider-picker.spec.ts": [
@@ -8117,28 +7507,20 @@
       "margine",
       "normale",
       "primo",
-      "sottoIlPunto",
       "verificaAssoluta"
     ],
     "tests/e2e/refresh-cls.spec.ts": [
       "testid"
     ],
     "tests/e2e/refresh-durability-board.spec.ts": [
-      "CARD_DENTRO",
-      "CARD_FUORI",
       "PROJ",
       "PROJ_ID",
       "albero",
-      "apriBoardGenerale",
-      "apriDrawer",
-      "apriProgetto",
       "atteso",
       "bozza",
       "briciole",
       "cerca",
       "dopo",
-      "dopoPatch",
-      "fileAperta",
       "larghezza2",
       "larghezzaColonna",
       "manDesc",
@@ -8162,8 +7544,6 @@
       "condivisa",
       "corpo",
       "creazione",
-      "dalPonte",
-      "dalTelefono",
       "dopo",
       "dritto",
       "elenco",
@@ -8204,11 +7584,8 @@
       "varco"
     ],
     "tests/e2e/scroll-fluidity.spec.ts": [
-      "JANK_UNIFORME_MS",
       "Passata",
       "arrotonda",
-      "budgetDaCalibrazione",
-      "calibra",
       "corsa",
       "frazione",
       "indicePrec",
@@ -8217,10 +7594,8 @@
       "longtasks",
       "mediana",
       "ord",
-      "paginaVuota",
       "passata",
       "passate",
-      "primoIndice",
       "scroller"
     ],
     "tests/e2e/settings-lingua-org.spec.ts": [
@@ -8239,7 +7614,6 @@
       "SCHEDE",
       "apriImpostazioni",
       "lista",
-      "menuAperto",
       "pannello",
       "scheda"
     ],
@@ -8258,7 +7632,6 @@
       "Campione",
       "FOGLIO",
       "apriApp",
-      "apriIlFoglio",
       "attesa",
       "atteso",
       "campioni",
@@ -8273,8 +7646,7 @@
       "primo",
       "riga",
       "spara",
-      "tocco",
-      "trascinaGiu"
+      "tocco"
     ],
     "tests/e2e/sidebar-finger-follow.spec.ts": [
       "Campione",
@@ -8309,7 +7681,6 @@
       "freccia",
       "gruppo",
       "principale",
-      "rigaA",
       "trascina"
     ],
     "tests/e2e/sidebar-header-gap.spec.ts": [
@@ -8322,9 +7693,7 @@
       "inchiostroHeader",
       "lista",
       "passi",
-      "perGenitore",
       "primo",
-      "primoEl",
       "scendi"
     ],
     "tests/e2e/sidebar-pin-drag-touch.spec.ts": [
@@ -8365,20 +7734,15 @@
       "avviso",
       "bersaglio",
       "bordo",
-      "boxLarga",
       "boxProj",
-      "boxStretta",
       "campiona",
       "celle",
       "centri",
-      "chatVuoto",
       "chev",
       "chiave",
-      "chiaveNuda",
       "chiaveProj",
       "colore",
       "compagno",
-      "conConteggio",
       "conIcona",
       "creati",
       "dentro",
@@ -8389,7 +7753,6 @@
       "durante",
       "esito",
       "finto",
-      "fissaTrascinando",
       "fissata",
       "fissati",
       "forma",
@@ -8401,7 +7764,6 @@
       "lascia",
       "lista",
       "mentre",
-      "mentreTrascini",
       "mia",
       "minuscola",
       "misure",
@@ -8419,7 +7781,6 @@
       "posizioni",
       "prec",
       "progetto",
-      "progettoSenzaColore",
       "proj",
       "projChat",
       "resta",
@@ -8427,16 +7788,12 @@
       "riga",
       "riga0",
       "riga1",
-      "rigaSopra",
       "righe",
       "sbordano",
       "scarti",
       "scarto",
       "segno",
-      "senzaGlifo",
       "senzaIcona",
-      "senzaSpazio",
-      "senzaTab",
       "sfissaTrascinando",
       "sinistra",
       "sopra",
@@ -8444,14 +7801,12 @@
       "spazi",
       "stati",
       "stretta",
-      "sullaLista",
       "svanisce",
       "tessellaProj",
       "tessellaSopra",
       "testo",
       "tipi",
       "trascina",
-      "treSuUnaRiga",
       "tutte",
       "vicino",
       "visti",
@@ -8460,12 +7815,9 @@
       "zona"
     ],
     "tests/e2e/sidebar-rotte-allineate.spec.ts": [
-      "CON_ICONA",
-      "SENZA_ICONA",
       "conIcona",
       "creati",
-      "senzaIcona",
-      "xSenza"
+      "senzaIcona"
     ],
     "tests/e2e/sidebar-touch-audit.spec.ts": [
       "TETTO",
@@ -8478,7 +7830,6 @@
       "fantasma",
       "fermo",
       "fila",
-      "filaFuori",
       "geom",
       "leggi",
       "misuraBersagli",
@@ -8497,13 +7848,11 @@
     "tests/e2e/sidebar.spec.ts": [
       "ICONFUL_PROJECT",
       "ICONLESS_PROJECT",
-      "ariaGlifo",
       "kbd",
       "leggi",
       "misure",
       "raggi",
       "riga",
-      "statoToggle",
       "textarea",
       "timelineToggle"
     ],
@@ -8511,7 +7860,6 @@
       "dst",
       "gruppo2",
       "principale",
-      "principaleEntry",
       "tabAinSpace"
     ],
     "tests/e2e/split-badge-focus.spec.ts": [
@@ -8530,7 +7878,6 @@
       "PROJ",
       "apri",
       "arrotonda",
-      "barraProgetto",
       "barre",
       "inchiostro",
       "stato"
@@ -8547,22 +7894,15 @@
       "textarea"
     ],
     "tests/e2e/tab-bar-command-air.spec.ts": [
-      "BOX_DITO",
       "Comando",
       "Riga",
-      "apriDueChat",
       "arrotonda",
-      "attendiRigaFerma",
       "attesa",
-      "dalBordo",
       "fermo",
-      "inizioTesto",
-      "leggiRiga",
       "nomi",
       "precedente",
       "riga",
       "riserva",
-      "titoloEl",
       "varchi"
     ],
     "tests/e2e/tab-close-ring-touch.spec.ts": [
@@ -8577,7 +7917,6 @@
     ],
     "tests/e2e/tab-coherence-mobile.spec.ts": [
       "Profilo",
-      "apriColonna",
       "colonna",
       "creati",
       "dipinto",
@@ -8619,14 +7958,9 @@
     "tests/e2e/tab-widget-geometry.spec.ts": [
       "CANDIDATI",
       "GLIFO",
-      "Inchiostro",
       "Riquadro",
       "centro",
       "famiglia",
-      "glifoDx",
-      "interoMezzo",
-      "margineX",
-      "margineY",
       "ostile",
       "previsione",
       "provati",
@@ -8664,7 +7998,6 @@
     "tests/e2e/tool-card-legibility.spec.ts": [
       "corpo",
       "inerte",
-      "rigaLavoro",
       "turno"
     ],
     "tests/e2e/tooltip-app.spec.ts": [
@@ -8698,7 +8031,6 @@
       "ERRORE",
       "PROSA",
       "bolla",
-      "classiContenitore",
       "verdetto"
     ],
     "tests/e2e/unread-badge-cross-client.spec.ts": [
@@ -8711,7 +8043,6 @@
       "Gruppo",
       "MIGRAZIONI",
       "RADICE",
-      "TABELLE_QUI",
       "acceso",
       "alterazioniSuccessive",
       "annuncio",
@@ -8723,7 +8054,6 @@
       "collega",
       "conDispositivo",
       "condividi",
-      "contaMe",
       "cookie",
       "corpo",
       "creato",
@@ -8754,7 +8084,6 @@
       "suo",
       "tardi",
       "tipo",
-      "togliDalGruppo",
       "uno",
       "vivo",
       "vuoto"
@@ -8769,7 +8098,6 @@
       "SQL_MIA",
       "SQL_PAROLA",
       "contesto",
-      "dbConCommenti",
       "estrai",
       "leggi",
       "principale"
@@ -8795,7 +8123,6 @@
       "IID",
       "PRIV",
       "SEGRETO_CONIO",
-      "SEGRETO_INSTALLAZIONE",
       "abbonamento",
       "cliente",
       "coppia",
@@ -8870,13 +8197,11 @@
       "bufResp"
     ],
     "tests/integration/message-author-roundtrip.test.ts": [
-      "autoreDi",
       "caricati",
       "dopo",
       "edita",
       "ignoto",
       "nuova",
-      "nuovoUtente",
       "scritto"
     ],
     "tests/integration/message-blob-codec.test.ts": [
@@ -8885,16 +8210,11 @@
       "enc"
     ],
     "tests/integration/message-write-lean.test.ts": [
-      "bloccoTool",
-      "conCopia",
       "dopo",
       "grezzo",
       "nuovo",
       "occorrenze",
-      "pesoRiga",
-      "riga",
-      "scritturaSenzaCopia",
-      "turnoConTool"
+      "riga"
     ],
     "tests/integration/migration-071-empty-turns.test.ts": [
       "orfani",
@@ -8912,7 +8232,6 @@
     ],
     "tests/integration/migration-084-people-orgs.test.ts": [
       "RADICE",
-      "aggiungiDispositivo",
       "applica",
       "confinato",
       "conta",
@@ -8957,7 +8276,6 @@
     "tests/integration/migration-nota-senza-riassunto.test.ts": [
       "NOTA",
       "ORDINE",
-      "dopoDue",
       "dopoUna",
       "ins",
       "ordinati"
@@ -8995,9 +8313,6 @@
       "srv"
     ],
     "tests/integration/project-broadcast-visibility.test.ts": [
-      "DIR_CONDIVISO",
-      "DIR_SEGRETO",
-      "FrameProgetto",
       "SocketFinta",
       "archivia",
       "chiama",
@@ -9006,14 +8321,12 @@
       "collega3",
       "devEstraneo",
       "devMircea",
-      "devOspite",
       "estraneo",
       "macchina",
       "mircea",
       "ospite",
       "rinomina",
       "ripristina",
-      "socketFinta",
       "tipi",
       "tipo",
       "tutto",
@@ -9056,7 +8369,6 @@
       "chiama",
       "elencoSchede",
       "inventario",
-      "ospiteConPersona",
       "principali",
       "seminaTask"
     ],
@@ -9067,10 +8379,7 @@
       "resyncs"
     ],
     "tests/integration/task-tab-teardown.test.ts": [
-      "PROJ",
-      "figlioTopic",
-      "mortoTopic",
-      "vivoTopic"
+      "PROJ"
     ],
     "tests/integration/turn-end-topic-write.test.ts": [
       "dopo"
@@ -9087,8 +8396,7 @@
     ],
     "tests/setup/bun-test-preload.ts": [
       "TIMEOUT_ENV_VAR",
-      "applicato",
-      "daAmbiente"
+      "applicato"
     ],
     "tests/unit/auth-errors-are-codes.test.ts": [
       "RADICE",
@@ -9103,8 +8411,6 @@
     ],
     "tests/unit/auto-update-badge.test.ts": [
       "RADICE",
-      "bottoneScarica",
-      "ramoAuto",
       "riga"
     ],
     "tests/unit/bench-specs-are-nightly.test.ts": [
@@ -9117,9 +8423,7 @@
       "SORGENTE",
       "apre",
       "chipCondizionato",
-      "chipDentroLaFascia",
       "condizione",
-      "condizioneRiga",
       "corpo",
       "dopo",
       "governatoDa",
@@ -9143,7 +8447,6 @@
     ],
     "tests/unit/ci-check-job-measures-everything.test.ts": [
       "armati",
-      "conCondizionePropria",
       "senza"
     ],
     "tests/unit/claude-tasks-sync.test.ts": [
@@ -9172,7 +8475,6 @@
     ],
     "tests/unit/destinazioni.test.ts": [
       "RADICE",
-      "conAmbienti",
       "esiste",
       "mancanti"
     ],
@@ -9208,7 +8510,6 @@
       "sembraUnaFanout"
     ],
     "tests/unit/gatekeeper-instructions.test.ts": [
-      "DOCUMENTI",
       "MORTE",
       "RADICE",
       "forma",
@@ -9221,7 +8522,6 @@
       "WPATH"
     ],
     "tests/unit/icon-only-buttons-have-a-name.test.ts": [
-      "SOLO_UN_ICONA",
       "chiusura",
       "colpevoli",
       "corpo",
@@ -9250,7 +8550,6 @@
     ],
     "tests/unit/migration-registry-by-name.test.ts": [
       "daPulire",
-      "ordineA",
       "primo",
       "registro",
       "tabelle",
@@ -9258,7 +8557,6 @@
     ],
     "tests/unit/migration-timestamp-naming.test.ts": [
       "CON_SOTTOPROCESSI",
-      "agenteScriveMigration",
       "applica",
       "cancello",
       "creati",
@@ -9294,9 +8592,7 @@
       "risolvi",
       "sorgenti",
       "stato",
-      "trovaCicli",
-      "trovati",
-      "trovatiK"
+      "trovati"
     ],
     "tests/unit/no-nul-bytes.test.ts": [
       "dettaglio"
@@ -9312,28 +8608,22 @@
       "DEBITO_NOME_PROPRIETARIO"
     ],
     "tests/unit/no-personal-data-tracked.test.ts": [
-      "ACCOUNT_DI_SERVIZIO",
       "ESENTI",
       "TESTABILE",
-      "ancoraColpevoli",
       "colpevoli",
       "email",
       "filtraTermini",
       "grezzi",
-      "nomeCompleto",
       "nuovi",
       "prova",
       "riga",
       "stantie",
-      "terminiPersonali",
       "testo",
       "tracciati"
     ],
     "tests/unit/no-raw-turn-usage.test.ts": [
-      "CAMPI_GREZZI",
       "blocco",
-      "colpevoli",
-      "righeCon"
+      "colpevoli"
     ],
     "tests/unit/no-seats-message.test.ts": [
       "RADICE",
@@ -9350,12 +8640,9 @@
     ],
     "tests/unit/no-third-party-emails.test.ts": [
       "EMAIL",
-      "POSTA_PERSONALE",
       "RADICE",
       "TESTABILE",
       "colpevoli",
-      "fileTracciati",
-      "indirizziPersonali",
       "personale",
       "prova",
       "testo",
@@ -9383,7 +8670,6 @@
       "legittimo",
       "pieno",
       "sano",
-      "scandisci",
       "superficiEsaminate",
       "testo",
       "viste",
@@ -9399,8 +8685,7 @@
     "tests/unit/project-veil-tint-must-equal-base.test.ts": [
       "RADICE",
       "finto",
-      "valore",
-      "valoreChromeOverlay"
+      "valore"
     ],
     "tests/unit/pty-bridge-e2e-isolation.test.ts": [
       "nonEseguibili",
@@ -9414,13 +8699,10 @@
     ],
     "tests/unit/release-assets-gate.test.ts": [
       "completa",
-      "senzaMac",
-      "senzaMsi",
-      "senzaSig"
+      "senzaMsi"
     ],
     "tests/unit/shell-permissions.test.ts": [
       "PLIST",
-      "RICHIESTI",
       "chiavi",
       "chiusure",
       "plist"
@@ -9454,14 +8736,12 @@
       "costanteDichiarata",
       "dalPreload",
       "scriptCheLancianoBunTest",
-      "sorgentePreload",
-      "variabileDichiarata"
+      "sorgentePreload"
     ],
     "tests/unit/tests-read-tracked-files.test.ts": [
       "LETTORI",
       "colpevoli",
       "falsi",
-      "lettureLetterali",
       "senzaCommenti",
       "tracciati"
     ],
@@ -9469,8 +8749,6 @@
       "CHIAMATE",
       "SUPERFICI",
       "daMessaggio",
-      "eventoResult",
-      "rigaTranscript",
       "sessione",
       "turno",
       "vecchia"

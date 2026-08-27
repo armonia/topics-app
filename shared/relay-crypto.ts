@@ -33,7 +33,7 @@
 export const BUSTA_V = 1;
 
 const IV_BYTE = 12; // 96 bit: la dimensione raccomandata per GCM.
-const CHIAVE_BIT = 256;
+const KEY_BIT = 256;
 
 // ── base64url, senza padding ───────────────────────────────────────────────
 
@@ -61,7 +61,7 @@ export function daB64u(s: string): Uint8Array<ArrayBuffer> {
  * essere vero nel momento esatto in cui serve di più.
  */
 export function nuovaChiave(): string {
-  const b = new Uint8Array(new ArrayBuffer(CHIAVE_BIT / 8));
+  const b = new Uint8Array(new ArrayBuffer(KEY_BIT / 8));
   crypto.getRandomValues(b);
   return aB64u(b);
 }

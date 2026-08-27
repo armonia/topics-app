@@ -29,7 +29,7 @@ const BASE = E2E_BASE;
  */
 test.use({ video: "on" });
 
-const TURNO_ID = "9a1c7d24-55e6-4f10-8b3c-7e2d9f0a1b22";
+const TURN_ID = "9a1c7d24-55e6-4f10-8b3c-7e2d9f0a1b22";
 const REPORT_ID = "c0ffee00-1111-2222-3333-444455556666";
 const PRIMA = "Ho delegato l'analisi del log.";
 const DOPO = " Il risultato conferma la mia ipotesi.";
@@ -88,10 +88,10 @@ test.describe("Un sotto-agente che esce non ruba la bolla del turno", () => {
     test.info().annotations.push({ type: "spec", description: "SUBAGENT-07" });
     const send = await apri(page, chatPage);
     const assistenti = page.locator('[data-testid="chat-message"][data-role="assistant"]');
-    const turno = page.locator(`[data-testid="chat-message"][data-message-id="${TURNO_ID}"]`);
+    const turno = page.locator(`[data-testid="chat-message"][data-message-id="${TURN_ID}"]`);
     const rapporto = page.locator(`[data-testid="chat-message"][data-message-id="${REPORT_ID}"]`);
 
-    send({ type: "stream:start", messageId: TURNO_ID });
+    send({ type: "stream:start", messageId: TURN_ID });
     send({ type: "stream:content_chunk", content: PRIMA });
     await expect(turno).toContainText(PRIMA, { timeout: 10_000 });
 
@@ -105,7 +105,7 @@ test.describe("Un sotto-agente che esce non ruba la bolla del turno", () => {
 
     // E il resto del turno torna nella bolla del turno, non in coda al rapporto.
     send({ type: "stream:content_chunk", content: DOPO });
-    send({ type: "stream:end", messageId: TURNO_ID });
+    send({ type: "stream:end", messageId: TURN_ID });
     await expect(turno).toContainText("conferma la mia ipotesi", { timeout: 10_000 });
     await expect(rapporto).not.toContainText("conferma la mia ipotesi");
     await expect(assistenti).toHaveCount(2);
@@ -121,19 +121,19 @@ test.describe("Un sotto-agente che esce non ruba la bolla del turno", () => {
     // `message:new` e NIENT'ALTRO. Quella riga persistita è tutto il suo turno.
     const send = await apri(page, chatPage);
     const assistenti = page.locator('[data-testid="chat-message"][data-role="assistant"]');
-    const turno = page.locator(`[data-testid="chat-message"][data-message-id="${TURNO_ID}"]`);
+    const turno = page.locator(`[data-testid="chat-message"][data-message-id="${TURN_ID}"]`);
 
     // NIENTE `stream:content_chunk`: è esattamente la finestra senza delta.
-    send({ type: "stream:start", messageId: TURNO_ID });
+    send({ type: "stream:start", messageId: TURN_ID });
     await expect(assistenti).toHaveCount(1, { timeout: 10_000 });
 
-    send({ type: "message:new", role: "assistant", messageId: TURNO_ID, content: PRIMA + DOPO, preview: PRIMA });
+    send({ type: "message:new", role: "assistant", messageId: TURN_ID, content: PRIMA + DOPO, preview: PRIMA });
     // Una bolla sola, ED È PIENA. Asserire solo l'id sarebbe vero già dopo
     // `stream:start`: il test passerebbe con la fusione cancellata.
     await expect(turno).toContainText(PRIMA, { timeout: 10_000 });
     await expect(turno).toContainText("conferma la mia ipotesi");
     await expect(assistenti).toHaveCount(1);
-    await expect(assistenti.first()).toHaveAttribute("data-message-id", TURNO_ID);
+    await expect(assistenti.first()).toHaveAttribute("data-message-id", TURN_ID);
   });
 
   test("una anteprima troncata non accorcia quello che la finestra ha già ricevuto", async ({ page, chatPage }) => {
@@ -152,14 +152,14 @@ test.describe("Un sotto-agente che esce non ruba la bolla del turno", () => {
     // cui `content` È quello che si legge, ed è l'unica forma in cui
     // un'anteprima più corta può davvero accorciare quello che si vede.
     const send = await apri(page, chatPage);
-    const turno = page.locator(`[data-testid="chat-message"][data-message-id="${TURNO_ID}"]`);
+    const turno = page.locator(`[data-testid="chat-message"][data-message-id="${TURN_ID}"]`);
     const segnale = page.locator(`[data-testid="chat-message"][data-message-id="${REPORT_ID}"]`);
 
-    send({ type: "stream:start", messageId: TURNO_ID });
-    send({ type: "stream:catchup", messageId: TURNO_ID, content: PRIMA + DOPO });
+    send({ type: "stream:start", messageId: TURN_ID });
+    send({ type: "stream:catchup", messageId: TURN_ID, content: PRIMA + DOPO });
     await expect(turno).toContainText("conferma la mia ipotesi", { timeout: 10_000 });
 
-    send({ type: "message:new", role: "assistant", messageId: TURNO_ID, content: PRIMA, preview: PRIMA });
+    send({ type: "message:new", role: "assistant", messageId: TURN_ID, content: PRIMA, preview: PRIMA });
     // Il frame va ASPETTATO, non dato per applicato: asserire subito dopo
     // l'invio legge lo stato di PRIMA, e il test passerebbe anche con la
     // guardia tolta. La riga qui sotto è un'ALTRA riga (id diverso) e non tocca

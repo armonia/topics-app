@@ -98,7 +98,7 @@ function startSite() {
 
 /** Scrive localStorage e un IndexedDB con dentro qualcosa: uno store vuoto
  *  potrebbe non finire nello storageState, e il test misurerebbe niente. */
-const SCRIVI_STORAGE = `(async function(){
+const WRITE_STORAGE = `(async function(){
   localStorage.setItem('nota', 'bozza');
   await new Promise(function(res, rej){
     var r = indexedDB.open('appunti', 1);
@@ -115,7 +115,7 @@ const SCRIVI_STORAGE = `(async function(){
   return true;
 })();`;
 
-const LEGGI_NOTA = `localStorage.getItem('nota')`;
+const READ_NOTE = `localStorage.getItem('nota')`;
 
 describeHeavy("dimentica un sito sulla pane condivisa (browser vero)", () => {
   let site: ReturnType<typeof startSite>;
@@ -136,7 +136,7 @@ describeHeavy("dimentica un sito sulla pane condivisa (browser vero)", () => {
     await svc.createContext(ctx);
     for (const origin of [casa, vicino]) {
       await svc.navigate(ctx, `${origin}/login`);
-      await svc.evaluate(ctx, SCRIVI_STORAGE);
+      await svc.evaluate(ctx, WRITE_STORAGE);
     }
     // Si finisce sul sito che stiamo per dimenticare: è il caso vero, ed è
     // anche il più difficile (il renderer tiene la sua copia di localStorage).
@@ -170,7 +170,7 @@ describeHeavy("dimentica un sito sulla pane condivisa (browser vero)", () => {
     //    FUORI, e la nota non è più nel localStorage di quell'origine.
     const dopo = await svc.navigate(ctx, casa);
     expect(dopo.title).toBe("FUORI");
-    expect(await svc.evaluate(ctx, LEGGI_NOTA)).toBeNull();
+    expect(await svc.evaluate(ctx, READ_NOTE)).toBeNull();
 
     // 2. Il file. Il silo non c'è più fra i record salvati.
     const suDisco = siteDataRecords(await loadStorageState(ctx));
@@ -189,7 +189,7 @@ describeHeavy("dimentica un sito sulla pane condivisa (browser vero)", () => {
   test("e il vicino di casa è rimasto dov'era", async () => {
     const r = await svc.navigate(ctx, vicino);
     expect(r.title).toBe("DENTRO");
-    expect(await svc.evaluate(ctx, LEGGI_NOTA)).toBe("bozza");
+    expect(await svc.evaluate(ctx, READ_NOTE)).toBe("bozza");
     const records = await svc.siteDataRecords(ctx);
     expect(records.records.map((r2) => r2.displayName)).toContain("localhost");
   }, 90_000);

@@ -81,15 +81,15 @@ export function computeMenuPosition(
   left = maxLeft >= margin ? Math.max(margin, Math.min(left, maxLeft)) : margin;
 
   // Vertical: open below by default; flip above when there isn't room below.
-  const spazioSotto = vh - margin - (anchor.bottom + gap);
-  const spazioSopra = anchor.top - gap - margin;
-  const fitsBelow = menu.height <= spazioSotto;
+  const spaceBelow = vh - margin - (anchor.bottom + gap);
+  const spaceAbove = anchor.top - gap - margin;
+  const fitsBelow = menu.height <= spaceBelow;
   const top = fitsBelow ? anchor.bottom + gap : Math.max(margin, anchor.top - menu.height - gap);
 
   // Il tetto del lato scelto. Quando NON ci sta da nessuna parte si prende il
   // lato più capiente: ribaltare su un lato ancora più stretto sarebbe solo un
   // modo diverso di tagliare.
-  const spazio = fitsBelow ? spazioSotto : Math.max(spazioSopra, spazioSotto);
+  const spazio = fitsBelow ? spaceBelow : Math.max(spaceAbove, spaceBelow);
   const maxHeight = Math.max(minHeight, Math.min(spazio, vh - margin * 2));
 
   return { top, left, placement: fitsBelow ? 'below' : 'above', maxHeight };
