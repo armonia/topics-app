@@ -13,6 +13,7 @@ import { augmentPath, realHome } from "../utils/path-env";
 import { timingSafeEqualStr } from "../utils";
 import { readState } from "../services/daemon-state";
 import { resolveCodexBin } from "../lib/codex-bin";
+import { envDataDir } from "../lib/data-dir";
 import { resolveClaudeBin } from "../lib/claude-bin";
 import { resolveKimiBin } from "../lib/kimi-bin";
 import { discoverCodexSessionId, codexRolloutExists, codexRolloutPath } from "../lib/codex-session";
@@ -493,7 +494,7 @@ function getSocketPath(): string {
   // forgot to set TOPICS_PTY_SOCKET) can NEVER attach to the production bridge
   // and reconcile-kill its live PTYs. cwd stays in the basis so two checkouts
   // never collide.
-  const dataDir = process.env.DATA_DIR;
+  const dataDir = envDataDir();
   const basis = dataDir ? `${process.cwd()}\0${dataDir}` : process.cwd();
   const hash = createHash('md5').update(basis).digest('hex').slice(0, 8);
   // On Windows the pipe is NOT a file: `/tmp/...` does not exist and `net.connect`

@@ -15,7 +15,7 @@ import { createInterface } from "node:readline";
 import { createHash } from "node:crypto";
 import { resolve, join } from "node:path";
 import { augmentPath } from "../utils/path-env";
-import { resolveStateDir } from "./data-dir";
+import { envDataDir, resolveStateDir } from "./data-dir";
 import { registerFleetSocket } from "./fleet-usage";
 
 export interface SpawnOpts {
@@ -622,7 +622,7 @@ export class AiBridgeClient {
 function computeSocketPath(): string {
   const override = process.env.TOPICS_AI_BRIDGE_SOCKET;
   if (override) return override;
-  const dataDir = process.env.DATA_DIR;
+  const dataDir = envDataDir();
   const basis = dataDir ? `${process.cwd()}\0${dataDir}` : process.cwd();
   const hash = createHash("md5").update(basis).digest("hex").slice(0, 8);
   return `/tmp/topics-ai-bridge-${hash}.sock`;

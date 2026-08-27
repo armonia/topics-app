@@ -93,6 +93,7 @@ import { noteBackgroundShellOutput, registerBackgroundShell } from "./processes"
 import { shellProcessKey } from "../../shared/background-shell-registry";
 import { setSessionCliPid } from "../providers/session-pids";
 import { setRouteFault } from "../lib/route-fault";
+import { envDataDir } from "../lib/data-dir";
 
 /** Attivo solo dove `start-test-server.sh` lo dichiara. */
 export function e2eRoutesEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -101,7 +102,7 @@ export function e2eRoutesEnabled(env: NodeJS.ProcessEnv = process.env): boolean 
 
 /** Where the snapshot lives between one restart and the next. */
 export function baselinePath(env: NodeJS.ProcessEnv = process.env): string {
-  return join(env.DATA_DIR || "/tmp/topics-test-data", "e2e-baseline.json");
+  return join(envDataDir(env) || "/tmp/topics-test-data", "e2e-baseline.json");
 }
 
 export function createE2eRouter(ctx: AppContext): RouteHandler {
