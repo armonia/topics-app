@@ -1,4 +1,6 @@
 /**
+ * @covers MCPSRV-02
+ *
  * The native runtime mounts the globally configured MCP servers.
  *
  * THE TEST THAT WAS RED. Before `mcp-fleet.ts` this file's first assertion was

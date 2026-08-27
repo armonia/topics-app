@@ -1836,6 +1836,34 @@ ridotto SHALL essere un SOTTOINSIEME stretto di quello pieno.
 - **GIVEN** un comando esterno che parte da un binario installato
 - **THEN** NON SHALL essere escluso
 
+
+### Requirement: CCLI-12 — Una CLI che esce presto NON deve portarsi dietro il server
+
+Scrivere il prompt sullo stdin di un processo gia' uscito produce EPIPE, e
+quell'errore arriva ASINCRONO mentre lo stream si chiude: nasce dentro `end()`,
+non dentro `write()`, quindi nessun try/catch attorno alla scrittura puo'
+vederlo. Senza un ascoltatore sullo stream diventa un'eccezione non gestita, e
+il runtime abbatte l'INTERO processo del server invece della sola chat.
+
+Il sistema SHALL ascoltare l'errore sullo stdin di ogni CLI che avvia — sia nel
+turno singolo sia nella sessione lunga, dove la CLI puo' morire fra un turno e
+l'altro — e SHALL lasciare che sia la chiusura del processo a riportare
+l'uscita non-zero.
+
+Una CLI che esce presto e' ORDINARIA, non una stranezza da banco di prova:
+binario sbagliato, crash all'avvio, versione incompatibile. Su
+un'installazione utente lo stesso EPIPE spegnerebbe il server mentre l'utente
+sta lavorando.
+
+Misurato il 2026-08-27 (run 33030011608): il server di test e' morto a meta'
+corsa e si e' portato dietro ~200 prove mai partite, tutte a 0ms.
+
+#### Scenario: la CLI e' gia' uscita quando le si scrive il prompt
+- **GIVEN** un processo CLI che termina prima di leggere il proprio stdin
+- **WHEN** il server gli scrive addosso un prompt piu' grande della pipe
+- **THEN** il server SHALL restare vivo
+- **AND** l'uscita non-zero SHALL essere riportata dalla chiusura del processo
+
 ### Requirement: CODEX-01 — Il consumo è quello dell'ULTIMA chiamata, e un errore incapsulato si apre
 
 Gli eventi del fornitore a riga di comando alternativo SHALL essere instradati

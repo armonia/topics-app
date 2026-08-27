@@ -38,6 +38,35 @@
 import { z } from 'zod/mini';
 import { welcomeMessageSchema, formatZodIssues } from './ws-handshake';
 
+/**
+ * EVERY cause a turn can end with - this list IS the wire contract.
+ *
+ * It used to be written twice: here as a `z.enum([...])` with SIX values, and
+ * in `server/providers/stop-reason.ts` as a documented union with NINE. The
+ * three missing ones - `server-shutdown`, `stall`, `turn-in-flight` - were
+ * really being emitted, and every `stream:end` carrying one was rejected as a
+ * malformed broadcast: the client never received the end of the turn, so that
+ * chat stayed "running" forever. The server log showed it in bursts:
+ * "Malformed broadcast - stopCause: Invalid option".
+ *
+ * Three different ways to leave a dead chat alive, for one copied list. There
+ * is one list now, and `stop-reason.ts` checks AT COMPILE TIME that it matches
+ * this one both ways: adding a cause over there without adding it here no
+ * longer builds.
+ */
+export const STOP_CAUSES = [
+  'user',
+  'watchdog',
+  'wall-clock',
+  'server-shutdown',
+  'stall',
+  'session-reset',
+  'process-died',
+  'turn-in-flight',
+  'provider-error',
+] as const;
+
+
 // ---- Connection lifecycle --------------------------------------------------
 
 const connectedSchema = z.object({
@@ -117,7 +146,7 @@ const streamEndSchema = z.object({
   stopReason: z.optional(z.enum(['end_turn', 'max_tokens', 'max_turn_requests', 'refusal', 'cancelled'])),
   // CHI l'ha fermato — `cancelled` da solo non distingue lo stop dell'umano dal
   // nostro watchdog, e a valle sono due politiche opposte.
-  stopCause: z.optional(z.enum(['user', 'watchdog', 'wall-clock', 'session-reset', 'process-died', 'provider-error'])),
+  stopCause: z.optional(z.enum(STOP_CAUSES)),
   // Marcatore POSITIVo di fine PULITA (`end_turn`, turno non vuoto): lo legge la
   // push di fine risposta (server/push-triggers) per non annunciare "risposta
   // pronta" su un turno morto. `dispatched` = turno d'agente guidato dalla board

@@ -1,3 +1,4 @@
+import { STOP_CAUSES } from "../../shared/ws-outbound";
 /**
  * PERCHÉ un turno è finito — detto una volta sola, con il vocabolario di ACP.
  *
@@ -109,6 +110,24 @@ export type StopCause =
   /** Il provider ha risposto errore (rete, credito, limite). */
   | "provider-error";
 
+/**
+ * THE TWO LISTS MUST MATCH, and the compiler is what checks it.
+ *
+ * The union above has nine members; the wire schema
+ * (`shared/ws-outbound.ts`) carried six, copied by hand. The three missing
+ * ones were really emitted, and every `stream:end` carrying one was thrown
+ * away as a malformed broadcast: the chat never got the end of its turn and
+ * stayed "running" forever.
+ *
+ * The two lines below fail the build if either list grows without the other -
+ * in BOTH directions. It is not a test somebody has to remember to run: it is
+ * `typecheck`, which already runs on every delivery.
+ */
+type SameMembers<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
+const _causesAligned: SameMembers<StopCause, (typeof STOP_CAUSES)[number]> = true;
+void _causesAligned;
+
+
 export interface TurnEndInfo {
   end: TurnEnd;
   cause?: StopCause;
@@ -203,18 +222,9 @@ export function stopCauseFromSignal(signal: { reason?: unknown } | undefined): S
   return isStopCause(r) ? r : null;
 }
 
-/** Tutte le cause, per riconoscerne una che arriva da fuori. */
-const STOP_CAUSES: readonly StopCause[] = [
-  "user",
-  "watchdog",
-  "wall-clock",
-  "server-shutdown",
-  "stall",
-  "session-reset",
-  "process-died",
-  "turn-in-flight",
-  "provider-error",
-];
+/* The list lives in `shared/ws-outbound.ts` and is imported at the top: this
+ * was the THIRD copy of it (union + array + wire enum), and the third one was
+ * the one left behind. */
 
 export function isStopCause(value: unknown): value is StopCause {
   return typeof value === "string" && (STOP_CAUSES as readonly string[]).includes(value);
