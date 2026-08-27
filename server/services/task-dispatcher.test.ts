@@ -41,6 +41,7 @@ function freshDb(): Database {
     only_lead_can_change_status INTEGER DEFAULT 0, max_agents INTEGER DEFAULT 5, auto_expire_hours INTEGER DEFAULT 24,
     auto_dispatch INTEGER NOT NULL DEFAULT 0, dispatch_effort TEXT NOT NULL DEFAULT 'medium',
     dispatch_use_worktree INTEGER NOT NULL DEFAULT 1, dispatch_timeout_min INTEGER NOT NULL DEFAULT 20,
+    dispatch_idle_min INTEGER NOT NULL DEFAULT 5,
     dispatch_mcp TEXT,
     dispatch_retry_cap INTEGER, dispatch_retry_backoff_s INTEGER,
     -- I comandi che l'envelope nomina alla consegna. Senza questa colonna il
@@ -103,7 +104,7 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
   const events: any[] = [];
   const worktreesCreated: string[] = [];
   const topicsCreated: { name: string; projectPath: string; worktreeId?: string; effort?: string; model?: string; standalone?: boolean }[] = [];
-  const turns: { sessionKey: string; content: string; contextMode?: "full" | "lean" }[] = [];
+  const turns: { sessionKey: string; content: string; contextMode?: "full" | "lean"; timeoutMs?: number; idleMs?: number }[] = [];
   let resolveTurn: ((info?: TurnEndInfo) => void) | null = null;
   let rejectTurn: ((e: unknown) => void) | null = null;
 
@@ -124,7 +125,10 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
     },
     createWorktree: async (storeId) => { worktreesCreated.push(storeId); return `wt-${storeId}`; },
     runTurn: (sessionKey, content, opts) =>
-      new Promise<TurnEndInfo | void>((res, rej) => { turns.push({ sessionKey, content, contextMode: opts?.contextMode }); resolveTurn = res; rejectTurn = rej; }),
+      new Promise<TurnEndInfo | void>((res, rej) => {
+        turns.push({ sessionKey, content, contextMode: opts?.contextMode, timeoutMs: opts?.timeoutMs, idleMs: opts?.idleMs });
+        resolveTurn = res; rejectTurn = rej;
+      }),
     broadcast: (m) => events.push(m),
     graceMs: 10,
     retryBackoffMs: 0, // instant harness turns must not wait out the outage backoff
@@ -1721,6 +1725,25 @@ describe("task-dispatcher", () => {
     expect(comments.some((c) => c.author === "system" && c.content.includes("ripreso in diretta"))).toBe(true);
   });
 
+  it("reconcile's REATTACH also passes dispatchIdleMin as idleMs, not just the kickoff/resume turns", async () => {
+    const reattachOpts: { timeoutMs?: number; idleMs?: number }[] = [];
+    const h = harness({
+      topicExists: () => true,
+      hasLiveSession: async () => true,
+      reattach: (_sk: string, opts?: { timeoutMs?: number; idleMs?: number }) => {
+        reattachOpts.push(opts ?? {});
+        return new Promise<void>(() => {}); // stay in-flight: only the wiring is under test
+      },
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchTimeoutMin: 30, dispatchIdleMin: 9 });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-live", attempts: 1, dispatchState: "working" });
+
+    await h.dispatcher.reconcile();
+    await flush();
+
+    expect(reattachOpts).toEqual([{ timeoutMs: 30 * 60_000, idleMs: 9 * 60_000 }]);
+  });
+
   it("runtime NATIVO: un turno interrotto riprende la stessa sessione senza consumare un tentativo", async () => {
     // BARRA-1, riscritta sulla realta' misurata (card f832b25a). Il ramo di
     // riadozione dal broker non e' degradato: e' IRRAGGIUNGIBILE per le card,
@@ -2032,6 +2055,24 @@ describe("task-dispatcher", () => {
     // The reason is also in the thread, so the human sees WHY from the card.
     const comments = h.svc.get("t1")!.comments;
     expect(comments.some((c) => c.content.includes("directory del progetto"))).toBe(true);
+  });
+
+  // dispatchIdleMin: the stall detector's silence threshold, wired next to
+  // dispatchTimeoutMin (now reporting-only) on EVERY runTurn call — kickoff
+  // and resume both. Without this wiring, the host would fall back to its own
+  // default and the board's setting would silently do nothing.
+  it("passes dispatchIdleMin as idleMs on both the kickoff turn and a resume", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchTimeoutMin: 30, dispatchIdleMin: 7 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.turns[0].timeoutMs).toBe(30 * 60_000);
+    expect(h.turns[0].idleMs).toBe(7 * 60_000);
+
+    h.finishTurn(); // continuation → goes through resume()'s own settings read
+    await flush();
+    expect(h.turns[1].idleMs).toBe(7 * 60_000);
   });
 
   it("passes the board's dispatch effort to the agent topic", async () => {

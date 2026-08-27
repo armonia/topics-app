@@ -170,6 +170,14 @@ describe("politica del dispatcher", () => {
       expect(consumesAttempt({ end })).toBe(true);
     }
   });
+
+  // The passive stall detector's recycle cause: a confirmed "stuck" judge
+  // verdict, never a bare timer. It must resume the same session (same
+  // contract as wall-clock/watchdog) and count as an attempt.
+  it("un turno riciclato dallo stall detector si riprende e costa un tentativo", () => {
+    expect(shouldResume(cancelled("stall"))).toBe(true);
+    expect(consumesAttempt(cancelled("stall"))).toBe(true);
+  });
 });
 
 describe("describeTurnEnd — la riga che sostituisce «probabile timeout»", () => {
@@ -184,5 +192,11 @@ describe("describeTurnEnd — la riga che sostituisce «probabile timeout»", ()
     for (const end of ["end_turn", "max_tokens", "max_turn_requests", "refusal", "cancelled", "error"] as const) {
       expect(describeTurnEnd({ end }).length).toBeGreaterThan(0);
     }
+  });
+
+  it("un riciclo dello stall detector si distingue da un taglio a orologio", () => {
+    const stallText = describeTurnEnd(cancelled("stall"));
+    expect(stallText.length).toBeGreaterThan(0);
+    expect(stallText).not.toBe(describeTurnEnd(cancelled("wall-clock")));
   });
 });

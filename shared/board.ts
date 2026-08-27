@@ -1384,7 +1384,21 @@ export interface BoardSettings {
    * senso solo con `dispatchUseWorktree` acceso (un task in-place non ha branch).
    */
   dispatchAutoMerge: boolean;
+  /**
+   * DECLASSED TO REPORTING ONLY: this used to be the wall-clock ceiling that
+   * cut a turn dead. It no longer kills anything — see `dispatchIdleMin` for
+   * what replaced it. Kept only as a signal a very long turn compares itself
+   * against (never an action).
+   */
   dispatchTimeoutMin: number;
+  /**
+   * Minutes of SILENCE on a session's transcript before the passive stall
+   * detector asks its judge "alive or stuck?" (see `server/lib/stall-detector.ts`).
+   * A silent session is NOT cut on this alone: only a judge verdict of "stuck"
+   * recycles the turn (abort + resume the same session, with a system note).
+   * Default 5.
+   */
+  dispatchIdleMin: number;
   /**
    * Fleet MCP per gli agenti dispatchati su questa board (migration 049).
    * 'bridge-only' (il default NULL) = solo il bridge topics, profilo tool di
