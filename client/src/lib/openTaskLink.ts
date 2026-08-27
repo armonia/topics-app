@@ -3,7 +3,7 @@
 // lives here so there is a single, testable contract.
 //
 // ── Supported URL forms (the whole client surface) ───────────────────────────
-//   /task/<taskId>   (PATH-BASED, current)
+//   /task/<title-slug>-<taskId>   (PATH-BASED, current)
 //       Deep-link to a task in the GLOBAL board ("Board generale"). Opening the
 //       URL ACTIVATES the global board pane (surviving the pane-store hydrate,
 //       see usePanelLifecycle deep-link intent), selects the task and opens its
@@ -15,6 +15,12 @@
 //       longer part of the URL. The board resolves `projectId` from the loaded
 //       task list (it holds every task) when it needs the /api/boards/:projectId
 //       endpoints.
+//       What comes BEFORE the uuid is the task title, slugged, and it is pure
+//       DECORATION: whoever gets the link in a chat reads what it is about, and
+//       reading the URL throws it away (`taskIdFromSegment`). A wrong slug, or
+//       a title renamed after the link was sent, opens the same task — the day
+//       the prefix started to matter it would have stopped being decoration and
+//       gone back to being addressing.
 //   ?task=<projectId>~<taskId>   (LEGACY query form — read-only back-compat)
 //       The previous deep-link format. Links already pasted into merged review
 //       comments still open in-app: parse() reads this too, and the first
@@ -28,6 +34,7 @@
 // drawer); the path returns to '/' only when the drawer is closed.
 
 import { serverHttpBase } from './shell/net';
+import { taskIdFromSegment, taskLinkSegment } from '../../../shared/task-slug';
 
 // Legacy query form (`?task=<projectId>~<taskId>`), kept for read back-compat.
 const LEGACY_PARAM = 'task';
@@ -49,7 +56,7 @@ export interface TopicTarget {
   topicId: string;
 }
 
-export function buildTaskLink(taskId: string): string {
+export function buildTaskLink(taskId: string, title?: string | null): string {
   // Build against a REAL, openable server origin — NOT window.location.origin.
   // On the Tauri desktop shell the UI is served from `tauri://localhost`, an
   // origin that can't be opened/shared (opening it just spawns a browser);
@@ -57,9 +64,13 @@ export function buildTaskLink(taskId: string): string {
   // desktop, same-machine). On web it returns '' → fall back to the page origin
   // (the actual https server / tunnel). Same-machine only; LAN sharing needs
   // the LAN host and is out of scope.
+  //
+  // `title` only decorates the path (`<slug>-<uuid>`): pass it whenever it is
+  // at hand, leave it out and the link is the bare uuid, which resolves the
+  // same. Nothing downstream reads it back.
   const base = serverHttpBase() || window.location.origin;
   const u = new URL(base);
-  u.pathname = `/task/${taskId}`;
+  u.pathname = `/task/${taskLinkSegment(taskId, title)}`;
   u.search = '';
   return u.toString();
 }
@@ -84,11 +95,12 @@ export function parseTopicLocation(pathname: string): TopicTarget | null {
 export function parseTaskLocation(pathname: string, search: string): TaskTarget | null {
   const m = TASK_PATH_RE.exec(pathname);
   if (m && m[1]) {
+    let segment = m[1];
     try {
-      return { taskId: decodeURIComponent(m[1]) };
-    } catch {
-      return { taskId: m[1] };
-    }
+      segment = decodeURIComponent(segment);
+    } catch { /* not percent-encoded: read the raw segment */ }
+    // Drop the decorative title slug, if any: only the trailing uuid resolves.
+    return { taskId: taskIdFromSegment(segment) };
   }
   return parseLegacyQuery(search);
 }
@@ -173,9 +185,19 @@ export function selfTopicLinkTarget(url: string): TopicTarget | null {
 // path, so reflectPath no-ops instead of pushing a duplicate entry. Reflecting
 // also DROPS any legacy `?task=` query, so an old link that opened a drawer is
 // upgraded to the clean `/task/<id>` path on first reflection.
-function reflectPath(target: TaskTarget | null): void {
+//
+// A path ALREADY pointing at this task is left exactly as it is, decoration
+// included: the incoming link's slug (right, wrong or absent) is not worth a
+// second history entry that Back would have to walk back through with nothing
+// visible changing. The canonical `<slug>-<uuid>` is written when the URL was
+// somewhere else — which is the case that puts a readable link in the address
+// bar, opening a drawer from the board.
+function reflectPath(target: TaskTarget | null, title?: string | null): void {
   try {
-    const desired = target ? `/task/${target.taskId}` : '/';
+    const already = target && parseTaskLocation(window.location.pathname, '')?.taskId === target.taskId;
+    const desired = target
+      ? (already ? window.location.pathname : `/task/${taskLinkSegment(target.taskId, title)}`)
+      : '/';
     // `?space=` SOPRAVVIVE alla riflessione. In una finestra-GRUPPO quella
     // query non è un parametro di navigazione: è l'IDENTITÀ della finestra —
     // dice quale gruppo disegna (`lib/windowRole.spaceWindowId`). Cancellarla
@@ -199,10 +221,11 @@ function reflectPath(target: TaskTarget | null): void {
   }
 }
 
-/** Drawer opened for a task → push `/task/<id>` (a new history entry, so Back
- *  closes it). No-op if the URL already reflects this target. */
-export function reflectTaskOpen(target: TaskTarget): void {
-  reflectPath(target);
+/** Drawer opened for a task → push `/task/<slug>-<id>` (a new history entry, so
+ *  Back closes it). `title` is the decoration; without it the path is the bare
+ *  id, which resolves the same. No-op if the URL already points at this task. */
+export function reflectTaskOpen(target: TaskTarget, title?: string | null): void {
+  reflectPath(target, title);
 }
 
 /** Drawer closed → return to '/' (a new history entry, so Back reopens the

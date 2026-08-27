@@ -103,6 +103,31 @@ describe('buildTaskLink / parseTaskLocation (path-based)', () => {
     expect(parseTaskLocation('/task/t1/', '')).toEqual({ taskId: 't1' });
   });
 
+  test('con un titolo il link porta davanti uno slug leggibile', () => {
+    const taskId = '92a1091a-c9e3-4064-a098-2383bd37f2fe';
+    const link = buildTaskLink(taskId, 'Leggibilità del link condiviso');
+    expect(link).toBe(`${origin}/task/leggibilita-del-link-condiviso-${taskId}`);
+    expect(link.includes('%')).toBe(false);
+    const u = new URL(link);
+    expect(parseTaskLocation(u.pathname, u.search)).toEqual({ taskId });
+  });
+
+  test('con slug o senza, il task aperto è LO STESSO', () => {
+    const taskId = 'd8ea2ff3-d412-4771-810d-401faa1d1754';
+    expect(parseTaskLocation(`/task/${taskId}`, '')).toEqual({ taskId });
+    expect(parseTaskLocation(`/task/un-titolo-qualunque-${taskId}`, '')).toEqual({ taskId });
+    expect(parseTaskLocation(`/task/un-titolo-qualunque-${taskId}/`, '')).toEqual({ taskId });
+  });
+
+  test('UNO SLUG SBAGLIATO apre comunque il task giusto', () => {
+    // The one that decides whether the slug is decoration: a title renamed
+    // after the link was sent must not break the link that is already out
+    // there. If it did, the prefix would be addressing again.
+    const taskId = 'd8ea2ff3-d412-4771-810d-401faa1d1754';
+    expect(parseTaskLocation(`/task/tutt-altro-titolo-${taskId}`, '')).toEqual({ taskId });
+    expect(selfTaskLinkTarget(`${origin}/task/niente-a-che-vedere-${taskId}`)).toEqual({ taskId });
+  });
+
   test('rejects non-task / malformed paths', () => {
     expect(parseTaskLocation('/', '')).toBeNull();
     expect(parseTaskLocation('/task', '')).toBeNull();
@@ -194,6 +219,27 @@ describe('URL reflection (reflectTaskOpen / reflectTaskClose)', () => {
     reflectTaskOpen({ taskId: 't1' });
     reflectTaskOpen({ taskId: 't1' });
     expect(pushes).toBe(0);
+  });
+
+  test('con il titolo, la riflessione scrive un percorso leggibile', () => {
+    const taskId = 'd8ea2ff3-d412-4771-810d-401faa1d1754';
+    stubWindow(`${origin}/`);
+    reflectTaskOpen({ taskId }, 'Titolo del task');
+    expect(g.window.location.pathname).toBe(`/task/titolo-del-task-${taskId}`);
+    expect(currentTaskTarget()).toEqual({ taskId });
+  });
+
+  test('una URL già su quel task non si riscrive per lo slug (niente voce in più)', () => {
+    // A link arrives with its own decoration (right, wrong or absent): pushing
+    // the canonical form on top of it would cost a history entry that Back has
+    // to walk through with nothing visible changing.
+    const taskId = 'd8ea2ff3-d412-4771-810d-401faa1d1754';
+    const { sync } = stubWindow(`${origin}/task/slug-vecchio-${taskId}`);
+    let pushes = 0;
+    g.window.history = { pushState: (_s, _t, url) => { pushes++; sync(url); } };
+    reflectTaskOpen({ taskId }, 'Titolo nuovo');
+    expect(pushes).toBe(0);
+    expect(g.window.location.pathname).toBe(`/task/slug-vecchio-${taskId}`);
   });
 
   test('open UPGRADES a legacy ?task URL to the clean path', () => {

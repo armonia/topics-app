@@ -19,10 +19,13 @@
 //   /tab/task/<taskId>               alias in LETTURA di `/task/<id>` (vedi sotto)
 //
 // Alias accettati in lettura (già in circolazione, non li produciamo più noi):
-//   /task/<taskId>   → { kind: 'task' }   — l'UNICA forma riflessa nella history
-//                      dal drawer della board (openTaskLink.reflectTaskOpen). Il
-//                      produttore continua a emettere QUELLA: due scrittori di
-//                      history si peserebbero addosso.
+//   /task/<slug>-<taskId> → { kind: 'task' }   — l'UNICA forma riflessa nella
+//                      history dal drawer della board
+//                      (openTaskLink.reflectTaskOpen). Il produttore continua a
+//                      emettere QUELLA: due scrittori di history si peserebbero
+//                      addosso. The `<slug>` in front of the id is DECORATION
+//                      (the task title, for whoever reads the link in a chat):
+//                      it is dropped here, the key is the trailing uuid.
 //   /topic/<topicId> → { kind: 'chat' }   — la push di fine turno.
 //
 // ── `task` è la SCHEDA, `chat` è la SESSIONE: non sono la stessa tab ─────────
@@ -54,6 +57,8 @@
 //     produce mai un punto.
 //   • uno '/' dentro la chiave romperebbe il match a segmento singolo.
 // Il padding '=' va STRIPPATO davvero: altrimenti finisce nel path.
+
+import { taskIdFromSegment } from './task-slug';
 
 export type TabKind =
   | 'chat'
@@ -213,7 +218,7 @@ export function parseTabPath(pathname: string, search = ''): TabTarget | null {
   const taskAlias = TASK_ALIAS_RE.exec(pathname);
   if (taskAlias?.[1]) {
     const key = decodeTabSegment(taskAlias[1]);
-    return key ? { kind: 'task', key } : null;
+    return key ? { kind: 'task', key: taskIdFromSegment(key) } : null;
   }
   const topicAlias = TOPIC_ALIAS_RE.exec(pathname);
   if (topicAlias?.[1]) {

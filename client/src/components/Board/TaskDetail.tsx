@@ -2299,7 +2299,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             l'identità costruita sotto. */}
         {/* Un solo posto per «il link»: l'icona a catena accanto non c'è più,
             la copia vive dentro il pannello di condivisione. */}
-        {task && <ShareControl resourceType="task" resourceId={task.id} deepLink={() => buildTaskLink(task.id)} />}
+        {task && <ShareControl resourceType="task" resourceId={task.id} deepLink={() => buildTaskLink(task.id, task.text)} />}
         <Menu open={statusMenuOpen} anchorRef={statusBtnRef} onClose={() => setStatusMenuOpen(false)} minWidth={170} role="listbox">
           <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.moveTo')}</p>
           {TASK_STATUSES.map((s) => (
