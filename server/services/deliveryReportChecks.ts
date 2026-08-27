@@ -222,6 +222,15 @@ export function checkReport(report: string, probe: RepoProbe): Finding[] {
   const symbols = claims.filter((c) => c.kind === "simbolo").map((c) => (c as { name: string }).name);
 
   // 1. Every cited sha must resolve.
+  //    WHAT THIS FINDING MEANS CHANGED, and only forward. Until the delivery ref
+  //    existed (`services/delivery-ref-keep.ts`), a sha could vanish for two
+  //    opposite reasons: the agent invented it, or the land squashed the branch
+  //    away and gc collected a commit nobody had ever kept. On this board that
+  //    was 213 prunings hiding 17 inventions. Since a delivery is pinned by
+  //    `refs/consegne/<taskId>` when it is recorded, a delivery commit that no
+  //    longer resolves inside the retention window says one thing only. Cards
+  //    delivered BEFORE that, and cards past the window, are not recoverable and
+  //    this check cannot separate them retroactively.
   for (const c of claims) {
     if (c.kind === "sha" && !probe.shaExists(c.value)) {
       findings.push({ code: "sha-missing", detail: `il commit ${c.value} non esiste in nessun ref` });
