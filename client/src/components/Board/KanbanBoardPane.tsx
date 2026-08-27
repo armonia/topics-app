@@ -35,8 +35,9 @@ import { scrollDelta } from '../../lib/scrollDelta';
 import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
 import { UnifiedDiff } from './UnifiedDiff';
 import { useConfirm } from '../../hooks/useConfirm';
-import { CREATED_FLASH_MS, filterChipClass, PRIORITY_DOT, PRIORITY_ORDER, PRIORITY_LABEL, type LiveUsage, type OpenTask } from './constants';
+import { CREATED_FLASH_MS, filterChipClass, PRIORITY_DOT, PRIORITY_LABEL, type LiveUsage, type OpenTask } from './constants';
 import { boardCollision } from './format';
+import { FilterTokenField } from './FilterTokenField';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
 import { ProjectFilterPicker } from './ProjectFilterPicker';
 import { Column } from './Card';
@@ -531,25 +532,9 @@ function FilterOption({ selected, onClick, dot, label, title }: {
  *  "let the agent decide" makes no sense, so it's dropped. */
 function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelProps) {
   const tr = useT();
-  const prioBtnRef = useRef<HTMLButtonElement>(null);
-  const asgBtnRef = useRef<HTMLButtonElement>(null);
-  const [prioOpen, setPrioOpen] = useState(false);
-  const [asgOpen, setAsgOpen] = useState(false);
   const lblBtnRef = useRef<HTMLButtonElement>(null);
   const [lblOpen, setLblOpen] = useState(false);
 
-  const togglePriority = (p: number) => {
-    const updated = filters.priority.includes(p)
-      ? filters.priority.filter((x) => x !== p)
-      : [...filters.priority, p].sort((a, b) => b - a);
-    onFiltersChange({ ...filters, priority: updated });
-  };
-  const toggleAssignedTo = (a: string) => {
-    const updated = filters.assignedTo.includes(a)
-      ? filters.assignedTo.filter((x) => x !== a)
-      : [...filters.assignedTo, a];
-    onFiltersChange({ ...filters, assignedTo: updated });
-  };
   const toggleLabel = (l: TaskLabel) => {
     const updated = filters.labels.includes(l) ? filters.labels.filter((x) => x !== l) : [...filters.labels, l];
     onFiltersChange({ ...filters, labels: updated });
@@ -584,37 +569,15 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
         />
       </div>
 
-      {/* Priority — chip + Menu (multi-select, no "auto") */}
-      <button ref={prioBtnRef} onClick={() => setPrioOpen(true)} title={tr('board.filter.priorityTitle')} className={chip(filters.priority.length > 0)}>
-        <span className="h-1.5 w-1.5 shrink-0 rounded-full border border-app-text-faint" />
-        {tr('board.task.priority')}{filters.priority.length > 0 && <span className="tabular-nums text-app-text-secondary">·{filters.priority.length}</span>}
-        <ChevronDown className="h-3 w-3 text-app-text-muted" />
-      </button>
-      <Menu open={prioOpen} anchorRef={prioBtnRef} onClose={() => setPrioOpen(false)} minWidth={170} role="listbox">
-        <p className={menuHeader}>{tr('board.task.priority')}</p>
-        {PRIORITY_ORDER.map((p) => (
-          <FilterOption
-            key={p} selected={filters.priority.includes(p)} onClick={() => togglePriority(p)}
-            dot={<span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[p]}`} />} label={PRIORITY_LABEL[p]}
-          />
-        ))}
-      </Menu>
-
-      {/* Assignee — chip + Menu (only when there are assignees) */}
-      {assignees.length > 0 && (
-        <>
-          <button ref={asgBtnRef} onClick={() => setAsgOpen(true)} title={tr('board.filter.assigneeTitle')} className={chip(filters.assignedTo.length > 0)}>
-            Assegnatario{filters.assignedTo.length > 0 && <span className="tabular-nums text-app-text-secondary">·{filters.assignedTo.length}</span>}
-            <ChevronDown className="h-3 w-3 text-app-text-muted" />
-          </button>
-          <Menu open={asgOpen} anchorRef={asgBtnRef} onClose={() => setAsgOpen(false)} minWidth={170} role="listbox">
-            <p className={menuHeader}>{tr('board.filter.assignee')}</p>
-            {assignees.map((a) => (
-              <FilterOption key={a} selected={filters.assignedTo.includes(a)} onClick={() => toggleAssignedTo(a)} label={`@${a}`} />
-            ))}
-          </Menu>
-        </>
-      )}
+      {/* Priority + assignee — ONE token field with autocomplete, replacing the
+          two chip+Menu dropdowns. See `FilterTokenField.tsx`. */}
+      <FilterTokenField
+        priority={filters.priority}
+        assignedTo={filters.assignedTo}
+        assignees={assignees}
+        onPriorityChange={(priority) => onFiltersChange({ ...filters, priority })}
+        onAssignedToChange={(assignedTo) => onFiltersChange({ ...filters, assignedTo })}
+      />
 
 
       {/* Etichette — chip + Menu. Il caso d'uso che le ha fatte nascere si

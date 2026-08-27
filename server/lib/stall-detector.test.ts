@@ -2,6 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { armStallDetector } from "./stall-detector";
 
 /**
+ * @covers CHAT-REL-03 — the "stream inactivity" watchdog. Same requirement as
+ * `turn-deadline.test.ts`, opposite half: that one covers the deadline, this
+ * one covers arming and disarming the idle detector that replaced the
+ * wall-clock turn kill.
+ *
  * Same fake-timer bench as `turn-deadline.test.ts`: timers and the clock are
  * both moved by hand, because the detector's whole point is what happens at
  * expiry, not real wall-clock waiting.
