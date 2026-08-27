@@ -2,10 +2,18 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.195 — 2026-08-28
+
+### Sotto il cofano
+- child_reaper esce da lib.rs, e un nome italiano dallo slug dei link
+- Tre test asserivano la FORMA del link, non il suo contratto
+- I miei tre commenti erano in italiano, e i file hanno una baseline esatta
+
 ## 2.2.194 — 2026-08-27
 
 ### Sotto il cofano
 - `destructure` entra in PROJECT_WORDS: e' un buco del dizionario, non italiano
+- Il link di un task porta davanti il titolo, e la lettura lo butta
 
 ## 2.2.193 — 2026-08-27
 
@@ -19,6 +27,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Terzo ratchet della tornata: 9 righe italiane in meno in useKeyboardShortcuts
 - L'asserzione negativa aspettava l'orologio: adesso aspetta un fatto
 - Rinomina in inglese 706 identificatori italiani locali, baseline 6868 -> 6162
+- Parita' sui tre motori: ogni operazione del browser risponde, o dichiara perche' no
 - CMD-COMMA-01 e -02: i requisiti che la spec di Ctrl+virgola gia' provava
 
 ## 2.2.192 — 2026-08-27
