@@ -559,7 +559,7 @@ export const SIDEBAR_INDENT_STEP = 16;
  * broken alignment is not.
  */
 export const ROW_GLYPH = 14;
-export const ROW_GLYPH_SLOT = 'w-[18px] shrink-0 flex items-center justify-center';
+export const ROW_GLYPH_SLOT = 'w-[18px] self-stretch shrink-0 flex items-center justify-center';
 
 /**
  * THE ACCORDION SLOT — one box for every chevron that opens a sidebar row.

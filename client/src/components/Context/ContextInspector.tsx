@@ -403,6 +403,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
             </details>
 
             <details
+              data-testid="envelope-details"
               className="border-t border-app-border"
               onToggle={(e) => setEnvelopeAperto((e.currentTarget as HTMLDetailsElement).open)}
             >

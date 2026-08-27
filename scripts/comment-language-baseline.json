@@ -1647,7 +1647,7 @@
     "tests/e2e/composer-autonomy-draft.spec.ts": 21,
     "tests/e2e/composer-model-memory.spec.ts": 22,
     "tests/e2e/confirm-non-blocking.spec.ts": 29,
-    "tests/e2e/context-ring.spec.ts": 80,
+    "tests/e2e/context-ring.spec.ts": 77,
     "tests/e2e/context-settings.spec.ts": 5,
     "tests/e2e/cross-feature.spec.ts": 70,
     "tests/e2e/cross-window-topic-sync.spec.ts": 61,

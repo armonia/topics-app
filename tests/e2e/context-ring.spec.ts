@@ -145,10 +145,12 @@ test.describe.serial("Context ring — contesto reale + avviso accanto all'anell
     await expect(inspector).not.toContainText("No system prompt set");
     await expect(inspector).not.toContainText("No pinned messages");
     // E la diagnostica dell'envelope è CHIUSA: è roba da chi sviluppa Topics.
-    // Si guarda il PRIMO `details`, non il conteggio: aprendolo ne compaiono
-    // altri due dentro l'envelope («Adaptation notes», «Raw envelope JSON»), e
-    // contarli legherebbe il test alle sotto-sezioni di un altro pannello.
-    const dettagli = inspector.locator("details").first();
+    // Held BY NAME (`envelope-details`), not as the panel's first `details`:
+    // "the first" was a position, and the day the "session environment"
+    // section appeared above it this test started measuring that one instead.
+    // A count would be worse still - opening the envelope reveals two more
+    // inside it ("Adaptation notes", "Raw envelope JSON").
+    const dettagli = inspector.getByTestId("envelope-details");
     await expect(dettagli).toContainText(/Diagnostica|Envelope/i);
     expect(await dettagli.evaluate((el) => (el as HTMLDetailsElement).open)).toBe(false);
     // E CHIUSA NON COSTA NIENTE. Un `<details>` chiuso NASCONDE i figli, non li

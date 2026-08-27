@@ -17,6 +17,7 @@
 import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";
+import { seedFileProject, cleanupFileProject, type FileProject } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -56,10 +57,25 @@ async function readNames(page: import("@playwright/test").Page): Promise<NameMet
 }
 
 test.describe("sidebar: the name column", () => {
+  // A PROJECT ROW HAS TO EXIST, and under `hermetic` none does: the world
+  // starts empty, so the sidebar carried one name (the chat) and the check
+  // below - which compares a chat name with a PROJECT name - could never see
+  // its own subject. It failed with "no sidebar name was measurable", which
+  // reads like a broken selector and was instead an empty world.
+  let project: FileProject;
+  test.beforeAll(async ({ request }) => {
+    project = await seedFileProject(request, "name-column");
+  });
+  test.afterAll(async ({ request }) => {
+    await cleanupFileProject(request, project);
+  });
+
   test("ROWALIGN-03: a chat name and a project name start at the same x", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-27" });
     await goToApp(page);
-    await expect(page.locator('[role="tree"]')).toBeVisible({ timeout: 15000 });
+    // `.first()`: with a project seeded the sidebar carries a second tree (the
+    // project's own), and a bare locator is a strict-mode violation.
+    await expect(page.locator('[role="tree"]').first()).toBeVisible({ timeout: 15000 });
 
     const names = await readNames(page);
     expect(names.length, "no sidebar name was measurable").toBeGreaterThan(1);
