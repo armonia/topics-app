@@ -221,6 +221,12 @@ export class NativeProvider implements AIProvider {
 
   start(): void {
     this.stopped = false;
+    // THE FLEET WARMS UP AT BOOT, not on the first message. Mounting is awaited
+    // before a turn builds its tool list, and a server that takes ten seconds to
+    // answer the handshake would spend those ten seconds inside somebody's first
+    // question. Started here it is almost always ready by then, and nothing waits
+    // on it: a mount that fails leaves an empty fleet, not a broken start.
+    void ensureMcpFleet();
     if (this.sweepTimer) return;
     this.sweepTimer = setInterval(() => {
       try { this.sweepIdleSessions(); } catch { /* meglio non sfrattare che rompere un turno */ }

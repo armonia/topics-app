@@ -1358,6 +1358,31 @@ export const appSettingsApi = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// The MCP fleet — what the native runtime has mounted right now.
+//
+// The shapes are `shared/types.ts`, re-exported here so a component imports its
+// data type from the same module it imports the call from. Declaring them again
+// on this side is the mirror `tests/unit/no-type-mirrors.test.ts` refuses.
+// ─────────────────────────────────────────────────────────────────────────────
+export type { McpFleetStatus, McpServerStatus, McpServerState } from '../../../shared/types';
+import type { McpFleetStatus } from '../../../shared/types';
+
+export const mcpApi = {
+  /**
+   * Read the fleet. The server MOUNTS ON READ, so this can take as long as the
+   * slowest handshake: the answer is measured, not a cached guess.
+   */
+  async fleet(signal?: AbortSignal): Promise<McpFleetStatus> {
+    return request<McpFleetStatus>('/mcp/fleet', { signal });
+  },
+
+  /** Drop every connection and mount again, then answer with the new state. */
+  async refresh(): Promise<McpFleetStatus> {
+    return request<McpFleetStatus>('/mcp/fleet/refresh', { method: 'POST' });
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Profilo — chi sei qui dentro, cosa è passato di qui, e cosa ne vede Discord.
 //
 // Le statistiche NON vengono da `usage_records`/`agent_sessions`: quelle due

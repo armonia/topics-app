@@ -39,29 +39,13 @@ export function isMcpTool(name: string): boolean {
   return name.startsWith(MCP_TOOL_PREFIX);
 }
 
-export type McpServerState = "ready" | "failed" | "excluded";
-
-export interface McpServerStatus {
-  name: string;
-  transport: "http" | "stdio" | null;
-  state: McpServerState;
-  /** Prefixed tool names, exactly as the model sees them. */
-  tools: string[];
-  /** What the server exposes besides tools (MCP prompts), by name. */
-  skills: string[];
-  /** Why it is not there: the connection error, or the inheritance rule. */
-  reason?: string;
-}
-
-export interface McpFleetStatus {
-  /** False when the native MCP client is switched off (TOPICS_NATIVE_MCP=0). */
-  enabled: boolean;
-  /** True while the first mount is still in flight. */
-  mounting: boolean;
-  /** The config the fleet was read from. */
-  source: string | null;
-  servers: McpServerStatus[];
-}
+// The three shapes of this status are DECLARED IN `shared/types.ts`, not here:
+// the Settings panel renders them verbatim, and a second declaration on the
+// client is exactly the "KEEP IN SYNC" mirror that `tests/unit/no-type-mirrors`
+// exists to refuse. Re-exported so this module stays the place you import them
+// from on the server side.
+export type { McpServerState, McpServerStatus, McpFleetStatus } from "../../../shared/types";
+import type { McpServerStatus, McpFleetStatus } from "../../../shared/types";
 
 interface MountedTool {
   server: string;
@@ -74,6 +58,16 @@ let toolsByName = new Map<string, MountedTool>();
 let statuses: McpServerStatus[] = [];
 let source: string | null = null;
 let mountPromise: Promise<void> | null = null;
+/**
+ * Has a mount RUN to completion, as opposed to "is there a promise".
+ *
+ * The obvious reading of "still mounting" is `mountPromise && statuses.length
+ * === 0`, and it is wrong for the commonest state of all: a machine with NO
+ * configured server produces an empty `statuses` on a finished mount, so the
+ * screen would sit on "connecting" forever instead of saying, honestly, that
+ * there is nothing to connect to.
+ */
+let mounted = false;
 
 function enabled(): boolean {
   if (process.env.TOPICS_NATIVE_MCP === "0") return false;
@@ -146,6 +140,7 @@ async function mountFleet(): Promise<void> {
   connections = new Map();
   toolsByName = new Map();
   statuses = [];
+  mounted = false;
   const resolved = resolveInheritedMcp();
   source = resolved.source;
   for (const e of resolved.excluded) {
@@ -157,6 +152,7 @@ async function mountFleet(): Promise<void> {
   const toMount = resolved.servers ?? {};
   await Promise.all(Object.entries(toMount).map(([name, def]) => mountOne(name, def)));
   statuses.sort((a, b) => a.name.localeCompare(b.name));
+  mounted = true;
 }
 
 /**
@@ -188,7 +184,7 @@ export function mcpToolSpecs(): ToolSpec[] {
 export function mcpFleetStatus(): McpFleetStatus {
   return {
     enabled: enabled(),
-    mounting: Boolean(mountPromise) && statuses.length === 0,
+    mounting: Boolean(mountPromise) && !mounted,
     source,
     servers: statuses,
   };
@@ -224,4 +220,5 @@ export function closeMcpFleet(): void {
   connections = new Map();
   toolsByName = new Map();
   mountPromise = null;
+  mounted = false;
 }
