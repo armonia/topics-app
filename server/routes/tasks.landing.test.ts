@@ -368,7 +368,7 @@ describe("approve decoupled from landing", () => {
     // E la riga di storico dice PERCHÉ si è chiusa, non solo che si è chiusa.
     const ev = after.comments.filter((c) => c.kind === "status").at(-1)!;
     expect(parseStatusEvent(ev.content)?.to).toBe("done");
-    expect(parseStatusEvent(ev.content)?.reason).toContain("il codice è su main");
+    expect(parseStatusEvent(ev.content)?.reason).toContain("the code is on main");
   });
 
   /**

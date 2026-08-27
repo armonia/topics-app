@@ -340,6 +340,29 @@ export interface BrowserService {
   getLastDialog(id: string): { type: string; message: string; at: number; handled: "accept" | "dismiss" } | null;
   getUrl(id: string): { url: string; title: string } | null;
   listContexts(): { id: string; url: string; title: string; createdAt: string; lastActivity: number }[];
+  /**
+   * How many entries each per-contextId registry holds RIGHT NOW.
+   *
+   * Every one of these is keyed by contextId and lives as long as the process,
+   * so an id that goes in and never comes out is a slow leak that no other
+   * surface can see: `listContexts()` only shows `contexts`, and the other six
+   * are closed over by the factory. This is the only way to assert that a
+   * create/destroy cycle is balanced, which is what
+   * `tests/unit/leak-browser-destroy.test.ts` does.
+   *
+   * `pendingEngineHints` is the one that is SUPPOSED to outlive a destroy: it
+   * is what carries an engine switch across the teardown/remount (see
+   * `setEngineHint`). The rest must come back to where they started.
+   */
+  registrySizes(): {
+    contexts: number;
+    targetIds: number;
+    agentActionHints: number;
+    pendingViewportHints: number;
+    pendingEngineHints: number;
+    screencastSessions: number;
+    pendingCreates: number;
+  };
   /** width/height are CSS px (the pane's real size). deviceScaleFactor (HiDPI)
    *  is applied only when the context is CREATED — see the per-context hint +
    *  the immutability note on resize()'s impl. */
@@ -672,12 +695,43 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         console.warn(`[BrowserService] Chromium disconnected — purging ${contexts.size} stale context(s)`);
       }
       for (const e of contexts.values()) { try { e.autoSaveCleanup?.(); } catch { /* ignore */ } }
+      // Through forgetContext, so the caches OUTSIDE this module are flushed
+      // too. A crash purge that only cleared the local Maps left the observe
+      // snapshot of every dead context alive, and the relaunched browser
+      // recreates those panes under the same ids.
+      for (const id of Array.from(contexts.keys())) forgetContext(id);
       contexts.clear();
       targetIds.clear();
       screencastSessions.clear();
       agentActionHints.clear();
     });
     return browser;
+  }
+
+  /**
+   * Forget every per-context entry this module holds, and tell the consumer.
+   *
+   * `destroyContext` was not the only way a context leaves: a Chromium crash
+   * purges the whole registry, and `getOrCreate` discards an entry whose page
+   * died. Those two paths deleted the local Maps and stopped there, so the
+   * caches keyed by contextId OUTSIDE this module (the observe/snapshot caches
+   * and the vision-call counter, flushed by `onDestroy`) kept their entry for
+   * the life of the process. Measured by browser-context-destroy.leak.test.ts:
+   * 12 discard cycles, 12 contexts gone, 0 callbacks.
+   *
+   * Two costs, not one. The entries themselves only grow with pane churn; the
+   * one that bites is that a context recreated under the SAME id finds the
+   * stale snapshot still there, which is exactly the case the callback was
+   * added to prevent.
+   */
+  function forgetContext(id: string): void {
+    contexts.delete(id);
+    targetIds.delete(id);
+    agentActionHints.delete(id);
+    pendingViewportHints.delete(id);
+    try { opts.onDestroy?.(id); } catch (err: any) {
+      console.warn(`[BrowserService] onDestroy callback failed for ${id}:`, err.message);
+    }
   }
 
   function touchActivity(entry: BrowserContextEntry) {
@@ -1053,6 +1107,11 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
           try { await entry.context.close(); } catch {}
         }
       }
+      // Same reason as the crash purge: the caches keyed by contextId outside
+      // this module have no other way to shrink, and a service closed and
+      // relaunched in-process (the tests do it, and so does an engine switch)
+      // would find them still full.
+      for (const id of Array.from(contexts.keys())) forgetContext(id);
       contexts.clear();
       targetIds.clear();
       if (browser) {
@@ -1357,13 +1416,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         // its lifetime is the engine registry's ref count, released elsewhere.
         try { await entry.page.close(); } catch {}
         try { await entry.engineBrowser?.close(); } catch {}
-        contexts.delete(id);
-        targetIds.delete(id);
-        agentActionHints.delete(id);
-        pendingViewportHints.delete(id);
-        try { opts.onDestroy?.(id); } catch (err: any) {
-          console.warn(`[BrowserService] onDestroy callback failed for ${id}:`, err.message);
-        }
+        forgetContext(id);
         console.log(`[BrowserService] Chromium-engine context destroyed: ${id} (remaining: ${contexts.size})`);
         return;
       }
@@ -1376,23 +1429,14 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       }
       if (entry.persistCookies) await service.saveCookies(id);
       try { await entry.context.close(); } catch {}
-      contexts.delete(id);
-      targetIds.delete(id);
-      // Tie the agent-action hint's lifetime to the context: a context torn down
-      // mid-action (or without a trailing agent_active=false broadcast) would
-      // otherwise leave a stale entry that never gets deleted, growing the Map
-      // unbounded over the process lifetime as contexts churn.
-      agentActionHints.delete(id);
-      // Same bound for the viewport hint — a reopened pane re-sends resize on
-      // ws.onopen (within the screencast grace), so the recreate gets a fresh one.
-      pendingViewportHints.delete(id);
-      // Flush per-context caches (e.g. the browser_observe element cache).
-      // Without this, the cleanup-timer auto-close + a later getOrCreate(id)
-      // recreate a blank context under the same id while a stale IndexedElement[]
-      // survives, so browser_act could click an old bbox on the fresh page.
-      try { opts.onDestroy?.(id); } catch (err: any) {
-        console.warn(`[BrowserService] onDestroy callback failed for ${id}:`, err.message);
-      }
+      // Every per-context entry goes at once, callback included. The agent-action
+      // hint and the viewport hint are tied to the context's lifetime on purpose:
+      // a context torn down mid-action would otherwise leave a stale entry that
+      // nothing ever deletes, growing the Map as panes churn. And the callback
+      // flushes the caches held outside this module (the browser_observe element
+      // cache), without which an auto-close plus a later getOrCreate(id) recreate
+      // a blank context under the same id while a stale IndexedElement[] survives.
+      forgetContext(id);
       console.log(`[BrowserService] Context destroyed: ${id} (remaining: ${contexts.size})`);
     },
 
@@ -1412,9 +1456,10 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       // perpetually refreshing a dead context and starving the idle reaper.
       if (entry && entry.page.isClosed()) {
         try { entry.autoSaveCleanup?.(); } catch { /* ignore */ }
-        contexts.delete(id);
-        targetIds.delete(id);
-        agentActionHints.delete(id);
+        // forgetContext, not three deletes: the recreate below reuses the SAME
+        // id, so leaving the observe/snapshot cache of the dead page in place
+        // is what lets a later act resolve a ref that belonged to it.
+        forgetContext(id);
         entry = undefined;
       }
       if (!entry) {
@@ -1627,6 +1672,18 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         createdAt: e.createdAt,
         lastActivity: e.lastActivity,
       }));
+    },
+
+    registrySizes() {
+      return {
+        contexts: contexts.size,
+        targetIds: targetIds.size,
+        agentActionHints: agentActionHints.size,
+        pendingViewportHints: pendingViewportHints.size,
+        pendingEngineHints: pendingEngineHints.size,
+        screencastSessions: screencastSessions.size,
+        pendingCreates: pendingCreates.size,
+      };
     },
 
     async resize(id, width, height, deviceScaleFactor) {

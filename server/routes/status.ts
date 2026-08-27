@@ -280,6 +280,7 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
       const activeTopicsCount = topicCounts.active ?? 0;
 
       const streamKeys = Array.from(activeStreams.keys());
+      const browserWs = ctx.browserWsCounts?.() ?? { contexts: 0, sockets: 0 };
 
       // Gather active ports + top CPU consumers (both reuse cached snapshots).
       let ports: { port: number; pid: number; command: string }[] = [];
@@ -345,6 +346,11 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
         },
         connections: {
           wsClients: wsClients.size,
+          // The `/ws/browser/:contextId` registry, which `wsClients` does not
+          // contain (browser sockets are kept out of it on purpose). Absent in
+          // a reduced context: 0, not a made-up number.
+          browserWsContexts: browserWs.contexts,
+          browserWsSockets: browserWs.sockets,
           activeStreams: activeStreams.size,
           streamKeys,
         },

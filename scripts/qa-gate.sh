@@ -29,6 +29,12 @@
 # qui, nello stesso commit.
 #
 # I due che restano fuori con un motivo, e non per dimenticanza:
+#   `check:e2e-touched`  sceglie le spec e2e a partire dal DIFF con un ramo base,
+#                        quindi ha bisogno di un base contro cui confrontarsi: in
+#                        `ci.yml` gira solo su `pull_request`, dove quel base
+#                        esiste. Qui non ce l'ha, e senza base non seleziona
+#                        niente — un verde che non ha guardato nulla. Si lancia a
+#                        mano prima di consegnare: `bun run check:e2e-touched`.
 #   `check:bundle`       pretende `public/` gia' costruito (`bun run build:client`,
 #                        minuti): in CI viene dopo una build che qui non c'e'.
 #                        Dal 26/08 non puo' piu' mentire su una build vecchia:

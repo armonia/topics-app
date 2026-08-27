@@ -295,6 +295,17 @@ let lastGoodShell: { html: string; rev: string } | null = null;
 // websocket.open browser branch and cleaned by websocket.close.
 const browserWsClients = new Map<string, Set<ServerWebSocket<WSData>>>();
 
+// Make that registry observable on `/api/system/status`, next to `wsClients`.
+// Two numbers, because they fail apart: `sockets` stuck above zero with every
+// pane closed means a `close` handler did not run; `contexts` stuck with
+// `sockets` at zero means the empty-Set delete did not. Cheap - the Map holds
+// one entry per open pane, so this walk is a handful of iterations per poll.
+ctx.browserWsCounts = () => {
+  let sockets = 0;
+  for (const set of browserWsClients.values()) sockets += set.size;
+  return { contexts: browserWsClients.size, sockets };
+};
+
 // Cross-window presence: broadcast the FULL list of windows that have declared
 // their presence (via `hello`/`presence:announce`) plus the topics each holds.
 // A full-snapshot (not deltas) is trivially idempotent across reconnects; the

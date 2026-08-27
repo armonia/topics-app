@@ -2,6 +2,8 @@ import { describe, expect, it } from "bun:test";
 import { classify, collectLost } from "./check-e2e-no-verdict";
 
 /**
+ * @covers GATE-11
+ *
  * The one thing worth testing here is the LINE between a declared skip and a
  * test that vanished: get it wrong in one direction and the gate cries wolf on
  * every `test.skip` in the suite, get it wrong in the other and it stays as
