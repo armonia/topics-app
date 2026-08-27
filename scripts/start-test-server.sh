@@ -56,6 +56,33 @@ export TOPICS_HOME="${TOPICS_HOME:-$DATA_DIR/.topics-home}"
 # HOME here never leaks into those spawns (see server/utils/path-env.ts).
 export OPENCLAW_DIR="${OPENCLAW_DIR:-$DATA_DIR/.openclaw}"
 export HOME="$DATA_DIR/.home"
+# UNO STUB DI `claude` DENTRO LA HOME ISOLATA, e non e' un trucco per far
+# passare un test: e' la conseguenza diretta della riga qui sopra.
+#
+# `resolveClaudeBin()` cerca la CLI sotto `$HOME` (`~/.local/bin/claude` e
+# fratelli). Da quando questo script isola HOME, quel percorso e' una cartella
+# vuota, quindi il risolutore torna null ANCHE su una macchina dove la CLI e'
+# installata — e da quando il server DICE che un agente manca invece di aprire
+# una tab vuota (il difetto segnalato il 26/08), la POST di una sessione
+# claude-code risponde 502 «"claude" is not installed on this machine».
+#
+# Misurato: era l'unico rosso rimasto della nightly (run 33025740083, 1 su
+# 1076), e capitava anche su un Mac che la CLI ce l'ha. Il test misurava
+# l'AMBIENTE, non il prodotto — lo stesso equivoco che il commento di TRESUME-1c
+# gia' descriveva per il caso gemello.
+#
+# Lo stub resta muto e vivo (`cat` tiene aperto lo stdin come una REPL), cosi'
+# la PTY non va in EOF nell'istante dopo lo spawn e il server puo' coniare e
+# persistere l'id di sessione — che e' cio' che TERM-01 verifica. Della CLI vera
+# quel requisito non ha bisogno: ne ha bisogno solo che esista un eseguibile con
+# quel nome, e installare quella vera in CI vorrebbe credenziali Anthropic.
+#
+# `-f` e non `-e`: se qualcuno ci ha gia' messo un link alla CLI vera, vince lui.
+mkdir -p "$HOME/.local/bin"
+if [ ! -f "$HOME/.local/bin/claude" ]; then
+  printf '#!/usr/bin/env bash\nexec cat\n' > "$HOME/.local/bin/claude"
+  chmod +x "$HOME/.local/bin/claude"
+fi
 # Dedicated PTY-bridge socket so EVERY server started via this script — the
 # initial globalSetup server AND any in-test restart (terminal-session-resume)
 # — is bridge-isolated. Without this, a restart that omits TOPICS_PTY_SOCKET
