@@ -14,7 +14,20 @@ on:
 # Cancel superseded runs on the same ref to save minutes.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # ON MAIN, EVERY COMMIT NEEDS ITS OWN VERDICT.
+  #
+  # main is the branch that ships, and `auto-bump` only fires on a CI run that
+  # COMPLETED green. Cancelling in progress here means the newest push is the
+  # only commit ever measured -- and while landings keep arriving, not even
+  # that one gets measured, because the next land cancels it too.
+  #
+  # Sampled on the last 30 runs of main on 27/08/2026: 7 cancelled, 4 red,
+  # 1 green, and `Auto-bump patch` skipped 13 times out of 14. The releases
+  # were not failing to build: they were never being asked to.
+  #
+  # Everywhere else cancelling is still the right trade: only the tip of a
+  # branch matters there, and the minutes are worth saving.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   check:
