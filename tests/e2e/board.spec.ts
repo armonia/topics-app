@@ -65,7 +65,23 @@ async function openTestProject(page: Page) {
   // proved nothing — then openProjectBoard failed further on with "no + menu
   // with a Board (kanban) entry found", 10 s away from the point where the
   // problem was already visible.
-  await expect(page.getByTestId("project-window")).toBeVisible({ timeout: 10000 });
+  // E ANCORATO AL PROGETTO DI QUESTO FILE, non a «una» finestra di progetto.
+  //
+  // `getByTestId("project-window")` da solo e' in strict mode: quando un altro
+  // file di spec gira in parallelo e ha aperto il SUO progetto, il locator ne
+  // trova due e l'asserzione muore con «resolved to 2 elements», nominando due
+  // percorsi che non c'entrano fra loro. Misurato 2026-08-26 girando board.spec
+  // insieme a board-subtask-work-chip: `/tmp/e2e-subwork-…` e `/tmp/e2e-board-…`
+  // entrambe presenti. Da solo il file passa sempre — ed e' il motivo per cui il
+  // rosso si vedeva solo nella nightly, che gira la suite intera.
+  //
+  // `data-project-path` c'e' gia' sull'elemento: basta chiedergli QUALE.
+  await expect(finestraDelProgetto(page)).toBeVisible({ timeout: 10000 });
+}
+
+/** La finestra del progetto di QUESTO file, non una qualsiasi. */
+function finestraDelProgetto(page: Page) {
+  return page.locator('[data-testid="project-window"][data-project-path*="e2e-board-"]');
 }
 
 /** Open the project board pane via the project window's "+" menu. */
@@ -498,7 +514,7 @@ test.describe("Kanban board", () => {
     const altro = await perProgetto(ALTRO_ID);
     expect(altro, "il secondo progetto serve a rendere i due numeri diversi").toBeGreaterThan(0);
 
-    const cue = page.getByTestId("project-window").getByTestId("tab-board-count-in_progress");
+    const cue = finestraDelProgetto(page).getByTestId("tab-board-count-in_progress");
     await expect(cue).toBeVisible({ timeout: 15000 });
     // `mio`, non `mio + altro`: con un task in corso su ciascun progetto i due
     // numeri sono diversi, quindi questa uguaglianza è anche il rosso che
