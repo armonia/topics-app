@@ -739,7 +739,9 @@ describe("outputUrl (KANBAN-09 review panel)", () => {
     const t = s.create({ projectId: PID, text: "x" });
     s.update({ taskId: t.id, actor: "human", by: "user", patch: { outputUrl: "https://example.com" } });
     const cleared = s.update({ taskId: t.id, actor: "human", by: "user", patch: { outputUrl: "" } });
-    expect(cleared.outputUrl).toBeNull();
+    // Cleared and never-set are ONE state, and the payload now says it the
+    // same way for both: the key rides only when there is a URL.
+    expect(cleared.outputUrl).toBeUndefined();
   });
 });
 

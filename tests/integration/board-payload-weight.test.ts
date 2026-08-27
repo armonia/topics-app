@@ -219,6 +219,28 @@ describe("il peso di GET /api/all-boards/tasks", () => {
     //    that is not taken from a test. If this gate goes red again, that is
     //    the next lever, and it has to be pulled by whoever decides what the
     //    card shows.
+    //
+    // ── SECOND ROUND, and the reason it was needed is the measurement: the
+    //    25/08 cure left 67 bytes of margin, and nine days later the same
+    //    fixture measured 2,552.3. Nineteen bytes had already come back, with
+    //    nobody doing anything wrong: the `Task` type gains fields, and every
+    //    new one lands here as a name plus a `null`. A gate with 48 bytes of
+    //    slack is a gate that goes red on the next field, so the lever was
+    //    pulled once more instead of once per new key.
+    //
+    //    SIX MORE FIELDS went conditional, by the same criterion and not by
+    //    weight: `dueDate`, `completedAt`, `inProgressAt` (event timestamps:
+    //    never-happened and absent are one state), `chatId`, `planCommentId`,
+    //    `outputUrl` (pointers to another row: there is no id that means
+    //    "none"). All six read `x ?? y` or `if (x)` at every call site, so
+    //    absence and null already travelled the same path. 2,552.3 -> 2,446.3:
+    //    106 bytes off, margin from 48 to 154.
+    //
+    //    WHAT STAYED FIXED IS AGAIN THE POINT. The nine keys the diagnosis
+    //    named are NOT all the same: five of them (`checksCommit`,
+    //    `doneActor`, `waitStreak`, `waitReason`, `waitSince`) keep their
+    //    `null`, because down there null is a reachable state and eight tests
+    //    say so. Cheap is not the criterion; "is null an answer" is.
     // E il pavimento del cancello: se un giorno la fixture smettesse di portare
     // il thread o le descrizioni, il budget andrebbe verde misurando niente.
     expect(perTask).toBeGreaterThan(1200);

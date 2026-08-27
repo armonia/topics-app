@@ -60,6 +60,25 @@ const cdp = (method: string, params: Record<string, unknown> = {}, ms = 45_000) 
 
 await cdp("Page.enable");
 await cdp("Runtime.enable");
+
+// TAURI DECLARED BEFORE THE BUNDLE LOADS, and this is not faking the result.
+// `WindowControls` renders only when `isTauriWindows` is true, and that flag is
+// computed ONCE at module load from `window.__TAURI_INTERNALS__` plus the
+// platform string. In a plain browser it is false, so the window buttons are
+// simply not in the DOM and any check on them measures nothing.
+//
+// The platform half stays REAL: `navigator.platform` is Win32 because this is
+// Windows. Only the shell marker is declared, and it has to be declared through
+// `addScriptToEvaluateOnNewDocument` — set it after navigation and the module
+// has already read it.
+//
+// What this cannot do is prove the buttons drive the actual window (minimize,
+// maximize, close call into Tauri, which is not there). It proves what the fix
+// 4a206509d changed: that they APPEAR with the Topics menu and go
+// non-clickable with it. The native side stays a manual check.
+await cdp("Page.addScriptToEvaluateOnNewDocument", {
+  source: "window.__TAURI_INTERNALS__ = window.__TAURI_INTERNALS__ || { invoke: () => Promise.resolve() };",
+});
 await cdp("Page.navigate", { url: APP });
 await new Promise((r) => setTimeout(r, 6_000));
 

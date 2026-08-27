@@ -461,9 +461,11 @@ export interface BoardTask {
   priorityAuto: boolean;
   kanbanOrder: number;
   assignedTo: string | null;
-  dueDate: string | null;
+  /** ON THE WIRE: it arrives only when it has a value (absent = never happened). */
+  dueDate?: string;
   createdAt: string;
-  completedAt: string | null;
+  /** ON THE WIRE: it arrives only when it has a value (absent = never happened). */
+  completedAt?: string;
   updatedAt: string;
   /** Topic (chat tab) the dispatched agent works this task in, if any. */
   assignedTopicId: string | null;
@@ -473,8 +475,9 @@ export interface BoardTask {
   dispatchError: string | null;
   /** Parent task when this is a nested subtask (unlimited depth). */
   parentTaskId: string | null;
-  /** Reviewable output (http/https URL) shown in the task's review panel. */
-  outputUrl: string | null;
+  /** Reviewable output (http/https URL) shown in the task's review panel.
+   *  ON THE WIRE: it arrives only when it has a value. */
+  outputUrl?: string;
   /**
    * Esito della sonda server-side sull'output_url.
    * `'live'` = risponde, `'dead'` = morto, `'unknown'` = mai provata.
@@ -505,9 +508,9 @@ export interface BoardTask {
   /** IL commento che È il piano — scritto dal server quando il piano arriva
    *  (contratto piano-prima). `null` sui task nati prima del puntatore: la tab
    *  "Piano" ha una ricaduta esplicita per quelli. */
-  planCommentId: string | null;
+  planCommentId?: string;
   /** When the current claim started — anchors the live "ci sta mettendo" ticker. */
-  inProgressAt: string | null;
+  inProgressAt?: string;
   /** Cumulative agent effort across every turn (dispatcher-recorded).
    *  agentTokens = input+output+cacheWrite (dedup by API message id); cache
    *  READS ride separately — the context re-read pressure, not "work" tokens. */

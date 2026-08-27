@@ -98,7 +98,9 @@ describe('groupByStatus', () => {
   });
 
   test('done: senza completedAt (righe vecchie) si ripiega su updatedAt', () => {
-    const senza = task({ id: 'senza', status: 'done', completedAt: null, updatedAt: '2026-02-01T00:00:00.000Z' });
+    // Absence is how the wire says it now: the field rides only when it has a
+    // value, so a task that was never closed simply has no `completedAt` key.
+    const senza = task({ id: 'senza', status: 'done', completedAt: undefined, updatedAt: '2026-02-01T00:00:00.000Z' });
     const con = task({ id: 'con', status: 'done', completedAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' });
     expect(groupByStatus([con, senza], 'board').done.map((t) => t.id)).toEqual(['senza', 'con']);
   });

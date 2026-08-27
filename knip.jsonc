@@ -39,6 +39,11 @@
         "server/pty-bridge.mjs!", // idem
         "server/lib/serial-queue-survivor.ts!", // spawned as a child process by serial-queue.test.ts
         "cli/topics.ts!", // the `topics` CLI binary
+        // Loaded by bun before EVERY `bun test` of this repo (`preload` in
+        // bunfig.toml:30). Nothing imports it, and it is the one place below
+        // the scripts that every entrance to the suite goes through: it is
+        // where the gate semaphore is taken for a hand-typed `bun test`.
+        "tests/setup/bun-test-preload.ts!",
         // Il Worker del relay: è il `main` di `relay/wrangler.jsonc`, cioè
         // codice che sta IN PRODUZIONE su Cloudflare. Knip ha un plugin
         // `wrangler` che leggerebbe quel `main` da solo, e qui non si accende
@@ -64,6 +69,11 @@
         // `bun scripts/webrtc-probe.ts` — la sonda del percorso WebRTC: si lancia a
         // mano quando si vuole vedere encode/trasporto dal vivo, nessuno la importa.
         "scripts/webrtc-probe.ts!",
+        // `bun run probe:gate-slots` - the control measure of the gate
+        // semaphore: how many `bun test` runs are alive against how many slots
+        // are declared. Run by hand while the board is busy, imported by
+        // nobody but its own bench.
+        "scripts/probe-gate-concurrency.ts!",
         "scripts/e2e-shards-summary.ts!", // invoked by scripts/e2e-shards.sh:88
         // `bun run scripts/merge-shard-reports.ts <dir> --out <file>` — fonde i
         // report-N.json dei quattro shard in un report solo. Lo chiama
@@ -127,6 +137,10 @@
         // guarda cosa risponde il tetto automatico. Si lancia a mano, occupa la
         // macchina un paio di minuti, e nessuno lo importa.
         "scripts/dispatch-brake-bench.ts!",
+        // `bun run test:unit:junit [paths...]` - the unit suite with a junit
+        // report on a path derived per run. Launched as a command, never
+        // imported except by its own bench.
+        "scripts/test-junit.ts!",
     "scripts/disk-report.ts!",        // `bun run report:disk`
         // Verdetto sui rami PER CONTENUTO: `bun run report:branches`, e
         // `--delete-landed` per cancellare quelli che main ha già dentro.

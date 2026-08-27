@@ -22,7 +22,7 @@ import { hasPlanApproveOption, parseQuestionBlock, type TaskComment } from '../.
  * conta ancora: finché la card è aperta, o finché il server lo punta per nome.
  */
 export function pickPlanComment(
-  task: { planFirst: boolean; planCommentId: string | null; status: string } | null | undefined,
+  task: { planFirst: boolean; planCommentId?: string | null; status: string } | null | undefined,
   speech: TaskComment[],
 ): TaskComment | null {
   if (!task?.planFirst) return null;
