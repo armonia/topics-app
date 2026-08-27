@@ -623,6 +623,11 @@ pub fn forget_site_blocking(wv: &tauri::Webview, names: Vec<String>) -> Result<u
 
 /// Le navigazioni semplici, che WebView2 espone direttamente sull'interfaccia
 /// base. `go_to_index` non c'e sopra: vedi [`nav_entries`].
+///
+/// PARITY-GAP: go_to_index - WebView2 exposes no history LIST, only
+/// CanGoBack/CanGoForward, so there is no index to jump to. `nav_entries`
+/// returns an empty list and the shell declares the no-op instead of going
+/// quiet; see NATIVEOPS-02 and `tests/unit/browser-engine-parity.test.ts`.
 pub fn go_back(wv: &tauri::Webview) -> Result<(), String> {
     with_core(wv, |c| unsafe { c.GoBack() }.map_err(|e| e.to_string()))
 }
