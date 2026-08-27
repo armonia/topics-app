@@ -13,20 +13,26 @@ on:
 
 # Cancel superseded runs on the same ref to save minutes.
 concurrency:
-  group: ci-${{ github.ref }}
-  # ON MAIN, EVERY COMMIT NEEDS ITS OWN VERDICT.
+  # ON MAIN, EVERY COMMIT NEEDS ITS OWN VERDICT, AND ITS OWN GROUP.
   #
-  # main is the branch that ships, and `auto-bump` only fires on a CI run that
-  # COMPLETED green. Cancelling in progress here means the newest push is the
-  # only commit ever measured -- and while landings keep arriving, not even
-  # that one gets measured, because the next land cancels it too.
+  # main is the branch that ships, and `auto-bump` only releases a SHA whose CI
+  # completed green. `cancel-in-progress: false` was not enough: GitHub keeps
+  # exactly ONE pending run per concurrency group, so the second push in a busy
+  # window waits and the third one EVICTS it. Measured on the last 100 runs of
+  # main on 27/08/2026: 37 cancelled, every one of them inside a high-rate
+  # window, none after 06:23 when the rate dropped. Those 37 commits were judged
+  # by nobody, which is also why no release existed to ship between 04:37 and
+  # 09:32: there was no green verdict anywhere to ship.
   #
-  # Sampled on the last 30 runs of main on 27/08/2026: 7 cancelled, 4 red,
-  # 1 green, and `Auto-bump patch` skipped 13 times out of 14. The releases
-  # were not failing to build: they were never being asked to.
+  # One group per SHA means no run on main ever waits behind another, so none is
+  # ever evicted. Runs pile up in the account-level queue instead, which delays
+  # them but does not cancel them. The repository is public, so the runner
+  # minutes are free: what this costs is wall clock under a burst, and what it
+  # buys is a verdict on every commit.
   #
   # Everywhere else cancelling is still the right trade: only the tip of a
   # branch matters there, and the minutes are worth saving.
+  group: ci-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'tip' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
