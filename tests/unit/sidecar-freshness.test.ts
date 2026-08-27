@@ -37,7 +37,7 @@ const INTEGRITY_RS = leggi("desktop-tauri/src-tauri/src/sidecar_integrity.rs");
 const LIB_RS = leggi("desktop-tauri/src-tauri/src/lib.rs");
 const CLIENT = leggi("client/src/lib/sidecarIntegrity.ts");
 const POPOVER = leggi("client/src/components/Sidebar/VersionPopover.tsx");
-const IT = leggi("client/src/lib/i18n.ts");
+const IT = leggi("client/src/lib/i18n-it.ts");
 const EN = leggi("client/src/lib/i18n-en.ts");
 
 /** The base names declared in `bundle.externalBin` (without `binaries/`). */

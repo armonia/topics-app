@@ -17,7 +17,7 @@ import { emptyThreadKey } from "../../client/src/components/Board/emptyThread";
 // un test che importasse solo quello che si puo' importare misurerebbe meta'
 // del problema — cioe' proprio il caso «manca la traduzione» che deve prendere.
 const RADICE = resolve(import.meta.dir, "../..");
-const IT = readFileSync(resolve(RADICE, "client/src/lib/i18n.ts"), "utf8");
+const IT = readFileSync(resolve(RADICE, "client/src/lib/i18n-it.ts"), "utf8");
 const EN = readFileSync(resolve(RADICE, "client/src/lib/i18n-en.ts"), "utf8");
 
 describe("il vuoto di un task dice a chi tocca", () => {

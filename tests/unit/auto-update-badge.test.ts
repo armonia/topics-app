@@ -23,7 +23,7 @@ import { resolve } from "node:path";
 const RADICE = resolve(import.meta.dir, "../..");
 const POPOVER = readFileSync(resolve(RADICE, "client/src/components/Sidebar/VersionPopover.tsx"), "utf8");
 const BARRA = readFileSync(resolve(RADICE, "client/src/components/Sidebar/SidebarStatusBar.tsx"), "utf8");
-const IT = readFileSync(resolve(RADICE, "client/src/lib/i18n.ts"), "utf8");
+const IT = readFileSync(resolve(RADICE, "client/src/lib/i18n-it.ts"), "utf8");
 const EN = readFileSync(resolve(RADICE, "client/src/lib/i18n-en.ts"), "utf8");
 
 describe("in automatico l'app non chiede di aggiornare a mano", () => {

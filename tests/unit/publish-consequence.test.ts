@@ -22,7 +22,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const RADICE = resolve(import.meta.dir, "../..");
-const IT = readFileSync(resolve(RADICE, "client/src/lib/i18n.ts"), "utf8");
+const IT = readFileSync(resolve(RADICE, "client/src/lib/i18n-it.ts"), "utf8");
 const EN = readFileSync(resolve(RADICE, "client/src/lib/i18n-en.ts"), "utf8");
 const PANNELLO = readFileSync(
   resolve(RADICE, "client/src/components/Board/KanbanBoardPane.tsx"), "utf8",

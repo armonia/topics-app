@@ -37,7 +37,7 @@ const SEZIONE = readFileSync(
 // un file solo lo faceva cadere sul catalogo dimezzato, dicendo «manca
 // l'inglese» quando l'inglese c'era, un file più in là.
 const I18N = [
-  readFileSync(join(RADICE, "client", "src", "lib", "i18n.ts"), "utf8"),
+  readFileSync(join(RADICE, "client", "src", "lib", "i18n-it.ts"), "utf8"),
   readFileSync(join(RADICE, "client", "src", "lib", "i18n-en.ts"), "utf8"),
 ].join("\n");
 

@@ -247,7 +247,8 @@ export interface Task {
    *  full prose stays in the thread's system comment. */
   deliveredReason: "retries_exhausted" | "model_refused" | "fanout" | "parked_children" | null;
   /**
-   * Who last brought the card to `done`. `'human'` = a decision of Attilio's
+   * Who last brought the card to `done`. `'human'` = a decision of the person
+   * who owns the board
    * (an approval in review, or a drag on the board), and it counts as one: an
    * agent does not override it. `'agent'` = a checklist step the agent closed
    * by itself, never through a review - that one stays its own and it may
@@ -405,7 +406,7 @@ export interface ListTasksInput {
   /**
    * Filter by label, in AND: a task passes only if it has them ALL. The use
    * case that asked for it is "show me only the visible ones in review" - the
-   * list Attilio actually has to look at - and it combines with `status`, which
+   * list the reviewer actually has to look at - and it combines with `status`, which
    * is the column. Empty/absent = no filter.
    */
   labels?: readonly string[];
