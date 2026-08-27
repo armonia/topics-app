@@ -32,6 +32,15 @@ mod window_recompose;
 #[cfg(target_os = "windows")]
 mod windows_repaint;
 
+/// The menu accelerators on Windows, where nothing translates the accelerator
+/// table `muda` builds. `menu_chords` is the table (chord in, menu id out) and
+/// compiles everywhere so it can be TESTED here; `menu_chords_win` is the
+/// WebView2 plumbing that feeds it, and only Windows ever sees it.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+mod menu_chords;
+#[cfg(target_os = "windows")]
+mod menu_chords_win;
+
 /// I path che l'OS consegna quando qualcuno fa «Apri con Topics»: raccolta da
 /// argv / seconda istanza / Finder, coda per chi arriva prima della webview,
 /// e il comando con cui la UI li ritira. Il trasporto sta lì, la decisione su
@@ -8614,6 +8623,11 @@ async fn window_detach(
         });
     }
 
+    // The menu accelerators live in the window they were typed in, so every
+    // window we build arms its own hook (see `menu_chords_win`).
+    #[cfg(target_os = "windows")]
+    menu_chords_win::install(&app, &label);
+
     #[cfg(target_os = "macos")]
     {
         // Traffic lights hidden by default (revealed with the Topics menu, same
@@ -8778,6 +8792,11 @@ async fn window_detach_space(
                     }
                 });
             }
+
+            // Same reason as `window_detach`: a group window is a window, and
+            // Ctrl+Q or the zoom chords must work while it holds focus.
+            #[cfg(target_os = "windows")]
+            menu_chords_win::install(&app_for_main, &label);
 
             #[cfg(target_os = "macos")]
             {
@@ -9640,6 +9659,93 @@ fn serve_tauri_asset(
     }
 }
 
+/// Run the app action behind a MENU ID.
+///
+/// The menu is not the only door to these actions. On Windows the accelerator
+/// table `muda` builds is never translated (nobody calls `TranslateAcceleratorW`
+/// in the message loop: verified in tao 0.35.3, wry 0.55.1, tauri-runtime-wry
+/// 2.11.3), so Ctrl+Q and the zoom chords reach the app only through the
+/// WebView2 accelerator hook in `menu_chords_win`. Two doors, ONE body: the ids
+/// are the contract between them, and a behaviour that changes here changes for
+/// the menu click and for the chord together.
+fn run_menu_action(app: &tauri::AppHandle, id: &str) {
+    use tauri::Manager;
+    match id {
+        "reload" | "force-reload" => {
+            // Il menu e la scorciatoia sono lo stesso gesto, quindi
+            // chiamano la stessa funzione: riparte TUTTA la app, non la
+            // sola finestra focussata. Il bundle è uno; ricaricarne una
+            // lasciava le altre (gruppi staccati, finestre progetto) su
+            // quello vecchio, a parlarsi sullo stesso pane-store.
+            // Non serve più risolvere la finestra focussata: le prende
+            // tutte, quella inclusa.
+            let _ = no_abort("menu_reload_all", || Ok(reload_all_ui_windows(app)));
+        }
+        "app-quit" => {
+            QUITTING.store(true, Ordering::Relaxed);
+            app.exit(0);
+        }
+        "reset-split-layout" => {
+            // Dispatch the per-window reset bus on the FOCUSED window's webview
+            // (not always "main" — detached project windows may exist). The
+            // client's GroupLayout / PanelGrid listen for this and flatten the
+            // App-focused surface. Resolve the focused window by label, map it
+            // to its webview_window (eval lives on the webview), fall back to
+            // "main" if none reports focus (e.g. menu click stole key status).
+            let label = app
+                .get_focused_window()
+                .map(|w| w.label().to_string())
+                .unwrap_or_else(|| "main".to_string());
+            let win = app
+                .get_webview(&label)
+                .or_else(|| app.get_webview("main"));
+            if let Some(win) = win {
+                let _ = win
+                    .eval("window.dispatchEvent(new CustomEvent('topics:reset-split-layout'))");
+            }
+        }
+        "always-on-top" => toggle_always_on_top(app),
+        "open-at-login" => {
+            use tauri_plugin_autostart::ManagerExt;
+            let mgr = app.autolaunch();
+            let _ = if mgr.is_enabled().unwrap_or(false) {
+                mgr.disable()
+            } else {
+                mgr.enable()
+            };
+        }
+        id @ ("zoom-in" | "zoom-out" | "zoom-reset") => {
+            let cur = ZOOM_PERCENT.load(Ordering::Relaxed);
+            let next = match id {
+                "zoom-in" => (cur + 10).min(300),
+                "zoom-out" => (cur - 10).max(50),
+                _ => 100,
+            };
+            ZOOM_PERCENT.store(next, Ordering::Relaxed);
+            if let Some(win) = app.get_webview("main") {
+                let _ = win.set_zoom(next as f64 / 100.0);
+            }
+        }
+        "help-github" => {
+            // Same reaped path the client's openExternal takes — the
+            // plugin's opener leaks a zombie per call (see open_external).
+            let _ = open_external("https://github.com/armonia/topics-app".to_string());
+        }
+        "check-updates" => {
+            // Hand off to the client's updater flow (reuses updater_check +
+            // UpdaterToast). A DOM CustomEvent keeps the shell free of the
+            // @tauri-apps/event dependency — same bridge the tray uses.
+            if let Some(w) = app.get_window("main") { ensure_window_visible(&w); }
+            if let Some(wv) = app.get_webview("main") {
+                let _ = wv.eval(
+                    "window.dispatchEvent(new CustomEvent('topics:check-for-updates'))",
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Field diagnostics for the poisoned-mutex aborts (see `no_abort`): every
@@ -9963,83 +10069,7 @@ pub fn run() {
                 .items(&[&app_menu, &edit_menu, &view_menu, &window_menu, &help_menu])
                 .build()
         })
-        .on_menu_event(|app, event| {
-            use tauri::Manager;
-            match event.id().0.as_str() {
-                "reload" | "force-reload" => {
-                    // Il menu e la scorciatoia sono lo stesso gesto, quindi
-                    // chiamano la stessa funzione: riparte TUTTA la app, non la
-                    // sola finestra focussata. Il bundle è uno; ricaricarne una
-                    // lasciava le altre (gruppi staccati, finestre progetto) su
-                    // quello vecchio, a parlarsi sullo stesso pane-store.
-                    // Non serve più risolvere la finestra focussata: le prende
-                    // tutte, quella inclusa.
-                    let _ = no_abort("menu_reload_all", || Ok(reload_all_ui_windows(app)));
-                }
-                "app-quit" => {
-                    QUITTING.store(true, Ordering::Relaxed);
-                    app.exit(0);
-                }
-                "reset-split-layout" => {
-                    // Dispatch the per-window reset bus on the FOCUSED window's webview
-                    // (not always "main" — detached project windows may exist). The
-                    // client's GroupLayout / PanelGrid listen for this and flatten the
-                    // App-focused surface. Resolve the focused window by label, map it
-                    // to its webview_window (eval lives on the webview), fall back to
-                    // "main" if none reports focus (e.g. menu click stole key status).
-                    let label = app
-                        .get_focused_window()
-                        .map(|w| w.label().to_string())
-                        .unwrap_or_else(|| "main".to_string());
-                    let win = app
-                        .get_webview(&label)
-                        .or_else(|| app.get_webview("main"));
-                    if let Some(win) = win {
-                        let _ = win
-                            .eval("window.dispatchEvent(new CustomEvent('topics:reset-split-layout'))");
-                    }
-                }
-                "always-on-top" => toggle_always_on_top(app),
-                "open-at-login" => {
-                    use tauri_plugin_autostart::ManagerExt;
-                    let mgr = app.autolaunch();
-                    let _ = if mgr.is_enabled().unwrap_or(false) {
-                        mgr.disable()
-                    } else {
-                        mgr.enable()
-                    };
-                }
-                id @ ("zoom-in" | "zoom-out" | "zoom-reset") => {
-                    let cur = ZOOM_PERCENT.load(Ordering::Relaxed);
-                    let next = match id {
-                        "zoom-in" => (cur + 10).min(300),
-                        "zoom-out" => (cur - 10).max(50),
-                        _ => 100,
-                    };
-                    ZOOM_PERCENT.store(next, Ordering::Relaxed);
-                    if let Some(win) = app.get_webview("main") {
-                        let _ = win.set_zoom(next as f64 / 100.0);
-                    }
-                }
-                "help-github" => {
-                    // Same reaped path the client's openExternal takes — the
-                    // plugin's opener leaks a zombie per call (see open_external).
-                    let _ = open_external("https://github.com/armonia/topics-app".to_string());
-                }
-                "check-updates" => {
-                    // Hand off to the client's updater flow (reuses updater_check +
-                    // UpdaterToast). A DOM CustomEvent keeps the shell free of the
-                    // @tauri-apps/event dependency — same bridge the tray uses.
-                    if let Some(w) = app.get_window("main") { ensure_window_visible(&w); }
-                    if let Some(wv) = app.get_webview("main") {
-                        let _ = wv.eval(
-                            "window.dispatchEvent(new CustomEvent('topics:check-for-updates'))",
-                        );
-                    }
-                }
-                _ => {}
-            }
-        })
+        .on_menu_event(|app, event| run_menu_action(app, event.id().0.as_str()))
         .setup(move |app| {
             // Il path del PRIMO lancio: `topics /Users/x/progetto`, o il doppio
             // click su un file quando Topics non era ancora vivo. Qui la webview
@@ -10146,6 +10176,13 @@ pub fn run() {
             // the keydown. macOS-only (NSEvent local monitor); see the fn doc.
             #[cfg(target_os = "macos")]
             install_shortcut_forwarder(app.handle());
+
+            // Windows: nothing translates the menu's accelerator table, so
+            // Ctrl+Q and the zoom chords reach the app only through the WebView2
+            // accelerator hook armed here on the main window's UI webview (the
+            // other windows arm it as they are built). See `menu_chords_win`.
+            #[cfg(target_os = "windows")]
+            menu_chords_win::install(app.handle(), "main");
 
             // Global right-⌘ TAP → focus the board task composer, even when Topics
             // is in the background (from any other app). Needs Accessibility trust
