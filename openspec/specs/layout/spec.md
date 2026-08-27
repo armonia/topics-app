@@ -1806,7 +1806,7 @@ SHALL vincere quella della barra.
 - **GIVEN** lo stato archiviato
 - **THEN** NON SHALL essere proposta l'archiviazione
 
-### Requirement: LAYOUT-27 — Chiudere e riaprire la sidebar non SCOPRE una banda che nessuno dipinge
+### Requirement: LAYOUT-28 — Chiudere e riaprire la sidebar non SCOPRE una banda che nessuno dipinge
 
 Lo scorrimento della sidebar SHALL essere animato con una trasformata, non
 animando il padding: il padding e' una proprieta' di LAYOUT, e cambiarla a ogni

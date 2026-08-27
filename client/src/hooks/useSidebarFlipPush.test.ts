@@ -1,5 +1,5 @@
 /**
- * @covers LAYOUT-27
+ * @covers LAYOUT-28
  *
  * THE GREY BAND WHEN REOPENING THE SIDEBAR, executed rather than eyeballed.
  *
@@ -60,9 +60,6 @@ function contenutoFinto() {
 
 const globale = globalThis as unknown as Record<string, unknown>;
 let originali: Record<string, unknown> = {};
-/** The frame Play asked for, run when we want to observe it. */
-let framePendente: FrameRequestCallback | null = null;
-
 beforeEach(() => {
   originali = {
     requestAnimationFrame: globale.requestAnimationFrame,
@@ -74,9 +71,9 @@ beforeEach(() => {
   // inside a rAF: running it immediately completes the animation in the same
   // instant, and what one then observes is the END state — where there is no
   // band left to uncover. The state that matters is INVERT: the layer moved by
-  // `delta` with the width that has to cover it. So the frame is run by hand.
-  framePendente = null;
-  globale.requestAnimationFrame = (fn: FrameRequestCallback) => { framePendente = fn; return 1; };
+  // `delta` with the width that has to cover it. So the frame is SWALLOWED and
+  // never run: the assertions below read the layer while it is still inverted.
+  globale.requestAnimationFrame = () => 1;
   globale.cancelAnimationFrame = () => {};
   globale.window = { clearTimeout: () => {}, setTimeout: () => 1 };
 });
