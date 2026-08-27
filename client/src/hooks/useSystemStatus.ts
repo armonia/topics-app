@@ -75,6 +75,10 @@ export interface SystemStatus {
   };
   connections: {
     wsClients: number;
+    /** Distinct contextIds in the /ws/browser registry (one per open pane). */
+    browserWsContexts: number;
+    /** Total sockets across those contexts (a shared pane has more than one). */
+    browserWsSockets: number;
     activeStreams: number;
     streamKeys: string[];
   };

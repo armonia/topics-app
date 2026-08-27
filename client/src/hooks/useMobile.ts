@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { mediaQuery, mediaQueryMatches } from '../lib/mediaQuery';
 
 /**
  * `isTouch`, `isMobile` e `hasHover` SONO TRE DOMANDE DIVERSE. Qui c'è la
@@ -47,6 +48,11 @@ interface MobileState {
   orientation: 'portrait' | 'landscape';
 }
 
+/** The two queries this hook reads. Constants because they are the memo key
+ *  in `lib/mediaQuery`: one list each, for the whole session. */
+const HOVER_QUERY = '(hover: hover)';
+const STANDALONE_QUERY = '(display-mode: standalone)';
+
 export function useMobile(): MobileState {
   const [state, setState] = useState<MobileState>(() => getInitialState());
 
@@ -93,7 +99,7 @@ export function useMobile(): MobileState {
     // eventi, quindi senza questo listener il valore resterebbe fermo a quello
     // del montaggio — e i comandi nascosti dietro l'hover resterebbero nascosti
     // (o scoperti) fino al remount.
-    const hoverMq = typeof window.matchMedia === 'function' ? window.matchMedia('(hover: hover)') : null;
+    const hoverMq = mediaQuery(HOVER_QUERY);
     // `addListener` è il fallback per i WebKit < 14: lì `addEventListener` sulla
     // MediaQueryList non esiste, e senza il ramo vecchio il listener non si
     // aggancia affatto invece di degradare.
@@ -150,10 +156,10 @@ function getInitialState(): MobileState {
   // schermo touch sono vere entrambe. Se `matchMedia` non c'è si assume di sì,
   // per lo stesso motivo del ramo SSR qui sopra.
   const hasHover = typeof window.matchMedia === 'function'
-    ? window.matchMedia('(hover: hover)').matches
+    ? mediaQueryMatches(HOVER_QUERY)
     : true;
   const isMobile = window.innerWidth < 768 || (isTouch && window.innerWidth < 1024);
-  const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+  const isStandalone = mediaQueryMatches(STANDALONE_QUERY) ||
     // `navigator.standalone` is a non-standard iOS Safari flag (PWA installed to home screen).
     (navigator as Navigator & { standalone?: boolean }).standalone === true;
 

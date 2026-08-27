@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { mediaQuery } from '../lib/mediaQuery';
 
 /**
  * Una media query come VALORE React, per le decisioni che cambiano l'ALBERO e
@@ -19,14 +20,11 @@ import { useEffect, useState } from 'react';
  * di degradare.
  */
 export function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
-    return window.matchMedia(query).matches;
-  });
+  const [matches, setMatches] = useState(() => mediaQuery(query)?.matches ?? false);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
-    const mq = window.matchMedia(query);
+    const mq = mediaQuery(query);
+    if (!mq) return;
     const onChange = () => setMatches(mq.matches);
     onChange();
     if (mq.addEventListener) {

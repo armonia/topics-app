@@ -58,6 +58,7 @@
  * `elementFromPoint` costa una lettura di layout per tocco, e solo per i tocchi
  * che nascono sul bordo.
  */
+import { mediaQueryMatches } from './mediaQuery';
 
 /** Quanto è larga la striscia che iOS considera «bordo». 24px è la misura che
  *  copre il gesto senza mangiarsi mezza colonna. */
@@ -89,7 +90,7 @@ function shouldGuard(): boolean {
   if (!/iPhone|iPad|iPod/.test(navigator.userAgent)) return false;
   const standalone =
     (navigator as Navigator & { standalone?: boolean }).standalone === true ||
-    (typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches);
+    mediaQueryMatches('(display-mode: standalone)');
   return standalone;
 }
 
