@@ -1144,6 +1144,37 @@ Il passo di rientro per profondità resta fuori: lì due valori diversi sono vol
 - **GIVEN** una tessera che non si apre, in forma di griglia
 - **THEN** NON SHALL riservare il riquadro dell'accordion
 
+### Requirement: LAYOUT-27 — La colonna dei NOMI è UNA: lo slot del glifo di testa lo riservano anche le righe senza glifo
+
+Misurato sulla card 018fd91f, sidebar alla larghezza di default: il nome di una
+chat partiva a 34px dal bordo, quello di un progetto a 56 (la favicon stava in una
+scatola sua da 14px, l'ultimo glifo fuori dallo slot condiviso), quello della
+bacheca, delle utilità, dei terminali e dei browser a 60. Tre incolonnamenti nella
+stessa lista, e nessuna riga sbagliata da sola.
+
+Ogni riga della sidebar SHALL riservare lo slot del glifo di testa, anche quando
+non ci disegna niente: NON disegnare un glifo e NON riservarne la scatola sono due
+decisioni distinte, e la chat aveva presa solo la prima. Una chat NON SHALL
+guadagnare un marchio proprio: i marchi (Claude / Codex) restano delle sessioni
+agente vere.
+
+Ogni glifo di testa SHALL stare nello STESSO slot, favicon di progetto compresa:
+una scatola scritta a mano accanto allo slot condiviso rifà lo stesso difetto più
+piccolo. Il DISEGNO può restare più stretto dello slot: allinea la scatola, non
+l'inchiostro.
+
+La verifica NON SHALL essere a occhio, e NON SHALL limitarsi alle righe con
+`role="treeitem"`: la riga di progetto non lo è, e la coppia che il difetto
+riguarda resterebbe fuori dalla misura.
+
+#### Scenario: una chat e un progetto allo stesso livello
+- **GIVEN** una chat di primo livello e un progetto di primo livello
+- **THEN** i due nomi SHALL cominciare dallo STESSO pixel
+
+#### Scenario: una riga di chat
+- **GIVEN** una chat, che non porta nessun glifo di testa
+- **THEN** SHALL riservare comunque il riquadro del glifo
+
 ### Requirement: POPOVER-01 — Uno alla volta, ma un FIGLIO non caccia il genitore
 
 L'apertura di un popover ESCLUSIVO SHALL chiudere i FRATELLI e NON SHALL chiudere
