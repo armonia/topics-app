@@ -1157,7 +1157,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // lo stato la deve dire, da qualunque stato si arrivi. Idempotente sulle
         // card già chiuse e ferme (il caso normale), quindi non aggiunge righe
         // di storico al percorso che funzionava.
-        const closed = svc.settleLanded({ taskId, by: "system", reason: `il land è riuscito: il codice è su main (${res.commit})` });
+        const closed = svc.settleLanded({ taskId, by: "system", reason: `landed: the code is on main (${res.commit})` });
         // IL MERGE È AVVENUTO ANCHE QUANDO LA CARD NON SI CHIUDE. `settleLanded`
         // rifiuta di chiudere un padre che ha ancora step aperti (chiuderlo li
         // renderebbe irraggiungibili: il feed è `rootsOnly`), e senza questa riga
