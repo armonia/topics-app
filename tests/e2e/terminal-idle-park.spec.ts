@@ -118,7 +118,7 @@ test.describe("Parcheggio delle sessioni terminale ferme", () => {
     // The session must be IN THE HANDS OF THE SWEEP before the test reads a
     // verdict from it. Without this wait the first sweep of a test could land
     // before the bridge registered the PTY, and every gate assertion downstream
-    // read `(non elencata)` - a red that blamed the gate for a race.
+    // read `(non elencata)` - a red that blamed the gate for a race. allow-italian: quoted verdict string.
     expect(
       await sweepFinds(request, created.id),
       `la sessione ${name} non e' mai comparsa nello sweep: la PTY non e' partita, ` +
@@ -249,7 +249,7 @@ test.describe("Parcheggio delle sessioni terminale ferme", () => {
    * reads the IN-MEMORY map, which is filled a moment later, when the bridge has
    * really started the PTY. Reading the sweep on the next line is therefore a
    * read of whichever of the two won the race: on a fast runner the id is simply
-   * not there yet, so `why()` answered `(non elencata)` where the test expected
+   * not there yet, so `why()` answered `(non elencata)` where the test expected allow-italian: quoted verdict string.
    * `no-transcript` / `idle-unknown`.
    *
    * Waiting is not a `waitForTimeout` in disguise: the condition is the state
