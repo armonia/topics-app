@@ -111,9 +111,21 @@ jobs:
           # altro; rifarlo sulla punta nuova pubblicherebbe codice che la CI non
           # ha visto. Salta, e la release la fa il merge successivo — che porta
           # dentro anche questo, perche' e' gia' in main.
+          # RINUNCIARE NON E' FALLIRE, e la differenza si deve vedere da fuori.
+          #
+          # Questo `exit` era 1: la rinuncia - che qui e' la scelta GIUSTA, per le
+          # ragioni scritte sopra - dipingeva la run di rosso. Misurato il
+          # 27/08/2026: «Auto-bump patch -> failure» su una corsa in cui non si
+          # era rotto niente, main era semplicemente avanzato mentre la CI
+          # girava. Un rosso che non e' un guasto insegna a non guardare i rossi,
+          # ed e' lo stesso difetto che teneva la nightly rossa per un divieto.
+          #
+          # Ora si esce ZERO senza scrivere `sha`, e il job `release` non parte
+          # perche' ha una condizione su quell'output: il freno resta, il colore
+          # dice la verita'.
           if ! git push origin "HEAD:main"; then
-            echo "::warning::main e' avanzato oltre ${APPROVED_SHA} mentre la CI girava: bump saltato, lo spedisce il prossimo merge verde."
-            exit 1
+            echo "::warning::main e' avanzato oltre ${APPROVED_SHA} mentre la CI girava: bump non spedito, lo porta il prossimo merge verde (il commit e' gia' in main)."
+            exit 0
           fi
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
@@ -121,6 +133,10 @@ jobs:
   # tutti. Si salta da solo quando `bump` e' saltato (CI non verde).
   release:
     needs: bump
+    # Non parte se `bump` ha rinunciato: senza `sha` non c'e' niente da
+    # costruire, e prima questa condizione la faceva l'`exit 1` del passo di
+    # push - cioe' un rosso usato come interruttore.
+    if: ${{ needs.bump.outputs.sha != '' }}
     permissions:
       contents: write
     secrets: inherit
