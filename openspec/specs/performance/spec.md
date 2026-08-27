@@ -98,7 +98,15 @@ Il sistema DEVE:
    dell'EventSource del browser remoto, e i tre timer di stream (soft, grace,
    hard);
 4. **misurare la crescita nel tempo** su un banco che ripete cicli di
-   interazione, e giudicarla contro un budget per heap, nodi DOM e listener.
+   interazione, e giudicarla contro un budget per heap, nodi DOM e listener;
+5. **liberare le strutture per-contesto quando una pane browser se ne va**, e
+   per OGNI via d'uscita, non solo per quella esplicita. `BrowserService` tiene
+   sette registri chiavati per `contextId`, e il richiamo `onDestroy` è l'unico
+   modo in cui i registri che vivono in ALTRI moduli (la cache degli elementi di
+   `browser_observe`, l'istantanea dei riferimenti, il contatore delle chiamate
+   di visione) possono rimpicciolirsi. Un contesto ricreato con lo STESSO id su
+   una cache non svuotata non è solo memoria: è un `browser_act` che risolve un
+   riferimento della pagina morta.
 
 Il cancello DEVE poter diventare rosso: un banco che non ha mai fallito non è un
 banco.
@@ -117,6 +125,15 @@ banco.
 - **GIVEN** un client WebSocket registrato in una delle due mappe
 - **WHEN** il socket si chiude
 - **THEN** la sua voce è rimossa, e la voce esterna sparisce se l'insieme si svuota
+
+#### Scenario: un contesto browser che se ne va svuota anche le cache di fuori
+
+- **GIVEN** un contesto browser vivo, con le sue voci nei registri per `contextId`
+- **WHEN** il contesto se ne va, sia per chiusura esplicita sia perché la sua
+  pagina è morta e `getOrCreate` scarta la voce
+- **THEN** tutti i registri per-contesto tornano dov'erano e `onDestroy` scatta
+  una volta per contesto, così una ricreazione con lo stesso id non trova
+  un'istantanea vecchia
 
 #### Scenario: un socket semi-aperto viene mietuto
 

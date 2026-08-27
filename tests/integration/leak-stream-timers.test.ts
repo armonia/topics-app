@@ -34,6 +34,8 @@
  * The fake provider is the one `chat-stream-abort.test.ts` already uses: it
  * hands back the `StreamHandler` the route registers, which is how a real
  * provider drives a turn from inside its own `for await`.
+ *
+ * @covers LEAK-01
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { setupTestDataDir, createTestAppContext, cleanupTestDataDir, testTmpDir } from "./helpers";

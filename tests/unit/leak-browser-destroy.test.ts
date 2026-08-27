@@ -31,6 +31,8 @@
  * (setEngineHint -> destroyContext -> client remounts -> getOrCreate). The
  * last test below pins that down, so nobody "fixes" the leak by deleting the
  * hint and silently breaking the switch.
+ *
+ * @covers LEAK-01
  */
 import { describe, expect, test } from "bun:test";
 import { createBrowserService } from "../../server/browser-service";

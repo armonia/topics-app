@@ -35,6 +35,8 @@
  * after a 90 s pong timeout (server.ts), which no 30 s test can wait for.
  * What is measured here is the tab-closes path, which is the one that runs
  * thousands of times a day.
+ *
+ * @covers LEAK-01
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { mkdirSync } from "node:fs";
