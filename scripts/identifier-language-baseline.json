@@ -1089,7 +1089,6 @@
     ],
     "client/src/components/Sidebar/TopicTree.tsx": [
       "LucideIcon",
-      "ProjectSplitMiniMap",
       "VoceIncognito",
       "colonna",
       "dentro",

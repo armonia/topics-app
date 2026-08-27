@@ -52,7 +52,7 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-describe("STATE-DIR-DOOR-01 · una sola porta per la cartella di stato", () => {
+describe("STATE-DIR-DOOR-01 · una sola porta per la cartella di stateDir", () => {
   test("nessun file del server legge DATA_DIR o TOPICS_DATA_DIR da solo", () => {
     const offenders: string[] = [];
     for (const file of [...sourceFiles(join(ROOT, "server")), ...sourceFiles(join(ROOT, "shared"))]) {
@@ -70,19 +70,19 @@ describe("STATE-DIR-DOOR-01 · una sola porta per la cartella di stato", () => {
   });
 
   test("la porta dichiara la precedenza: TOPICS_DATA_DIR vince, DATA_DIR segue", () => {
-    const stato = join(tmpdir(), `topics-door-${process.pid}-stato`);
-    const both = { TOPICS_DATA_DIR: stato, DATA_DIR: join(stato, "data") } as NodeJS.ProcessEnv;
-    expect(resolveStateDir(ROOT, both)).toBe(stato);
-    expect(resolveDataDir(stato, both)).toBe(join(stato, "data"));
-    rmSync(stato, { recursive: true, force: true });
+    const stateDir = join(tmpdir(), `topics-door-${process.pid}-stateDir`);
+    const both = { TOPICS_DATA_DIR: stateDir, DATA_DIR: join(stateDir, "data") } as NodeJS.ProcessEnv;
+    expect(resolveStateDir(ROOT, both)).toBe(stateDir);
+    expect(resolveDataDir(stateDir, both)).toBe(join(stateDir, "data"));
+    rmSync(stateDir, { recursive: true, force: true });
   });
 
-  test("con il SOLO DATA_DIR lo stato NON torna nel repo: e' cio' che sostituisce la riga-ponte", () => {
-    const isolata = join(tmpdir(), `topics-door-${process.pid}-vecchio-nome`);
-    const onlyOld = { DATA_DIR: isolata } as NodeJS.ProcessEnv;
-    expect(resolveStateDir(ROOT, onlyOld)).toBe(isolata);
-    expect(resolveDataDir(resolveStateDir(ROOT, onlyOld), onlyOld)).toBe(isolata);
-    rmSync(isolata, { recursive: true, force: true });
+  test("con il SOLO DATA_DIR lo stateDir NON torna nel repo: e' cio' che sostituisce la riga-ponte", () => {
+    const isolatedDir = join(tmpdir(), `topics-door-${process.pid}-old-name`);
+    const onlyOld = { DATA_DIR: isolatedDir } as NodeJS.ProcessEnv;
+    expect(resolveStateDir(ROOT, onlyOld)).toBe(isolatedDir);
+    expect(resolveDataDir(resolveStateDir(ROOT, onlyOld), onlyOld)).toBe(isolatedDir);
+    rmSync(isolatedDir, { recursive: true, force: true });
   });
 
   test("senza nulla nell'ambiente il comportamento storico resta identico", () => {

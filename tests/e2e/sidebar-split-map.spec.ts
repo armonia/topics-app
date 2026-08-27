@@ -44,17 +44,17 @@ async function pin(page: Page, ids: string[]): Promise<void> {
 test.describe("Sidebar: the split schematic", () => {
   test.describe.configure({ mode: "serial" });
 
-  let fissata: { id: string; name: string };
-  let inLista: { id: string; name: string };
+  let pinnedTopic: { id: string; name: string };
+  let rowTopic: { id: string; name: string };
 
   test.beforeAll(async ({ request }) => {
     const stamp = Date.now();
-    fissata = await createTopic(request, `split-map-pinned-${stamp}`);
-    inLista = await createTopic(request, `split-map-row-${stamp}`);
+    pinnedTopic = await createTopic(request, `split-map-pinned-${stamp}`);
+    rowTopic = await createTopic(request, `split-map-row-${stamp}`);
   });
 
   test.afterAll(async ({ request }) => {
-    for (const t of [fissata, inLista]) {
+    for (const t of [pinnedTopic, rowTopic]) {
       if (t?.id) await deleteTopic(request, t.id).catch(() => {});
     }
     await request.put(`${E2E_BASE}/api/ui-state/sidebar-state`, {
@@ -64,12 +64,12 @@ test.describe("Sidebar: the split schematic", () => {
 
   test("SPLITMAP-01: one cell shows no map, two cells show one on the row AND on the pinned tile", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-29" });
-    await resetPaneStore(request, [fissata.id, inLista.id]);
-    await pin(page, [fissata.id]);
+    await resetPaneStore(request, [pinnedTopic.id, rowTopic.id]);
+    await pin(page, [pinnedTopic.id]);
     await goToApp(page);
 
     const tile = page.getByTestId("pinned-tile").first();
-    const row = page.locator(`[role="treeitem"][aria-label="${inLista.name}"]`).first();
+    const row = page.locator(`[role="treeitem"][aria-label="${rowTopic.name}"]`).first();
     await expect(tile).toBeVisible({ timeout: 20000 });
     await expect(row).toBeVisible({ timeout: 20000 });
 
