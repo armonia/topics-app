@@ -9101,10 +9101,6 @@
       "sconosciuti",
       "testo"
     ],
-    "tests/unit/auto-bump-gate.test.ts": [
-      "passate",
-      "storiche"
-    ],
     "tests/unit/auto-update-badge.test.ts": [
       "RADICE",
       "bottoneScarica",
