@@ -15,7 +15,7 @@ import { rememberDraggedPane } from '../../lib/dragPayload';
 import { startDragPreview } from '../../lib/dragPreview';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { cachedIconPalette, cachedIconTint, fromHex, sampleIconPalette, sampleIconTint } from '../../lib/iconTint';
-import { PINNED_TILE_ACTION_SLOT, PINNED_TILE_H } from './pinnedTileMetrics';
+import { PINNED_ALIGN, PINNED_TILE_ACTION_SLOT, PINNED_TILE_H, type PinnedForm } from './pinnedTileMetrics';
 
 /**
  * Il glifo di TIPO, per le cose il cui titolo da solo non basta a
@@ -165,7 +165,7 @@ export function PinnedTile({
    *  row" is a fact of the layout, and a width threshold answered it wrong at
    *  every sidebar size but one — three tiles in a 400px column are 130px each,
    *  which used to read as "row form" and left them all left-aligned. */
-  form?: 'row' | 'grid';
+  form?: PinnedForm;
 }) {
   const projectPath = item.type === 'project' ? (item.projectPath ?? '') : '';
   const icon = useProjectIcon(projectPath);
@@ -322,6 +322,9 @@ export function PinnedTile({
 
   /** Alone on its row = a row; sharing it = a tile in a grid. See `form`. */
   const isRow = form === 'row';
+  /** The alignment is not decided here: it is READ from the form, in the one
+   *  place that declares both (see `PINNED_ALIGN`). */
+  const align = PINNED_ALIGN[form];
 
   return (
     <button
@@ -386,7 +389,7 @@ export function PinnedTile({
         // that was itself left-aligned: a third alignment nobody asked for.
         // In grid form what is left in the flow is only the identity (icon,
         // name), so centring it centres what you see.
-        isRow ? 'justify-start' : 'justify-center',
+        align.justify,
         // `ROW_PX`, non un `px-1.5` scritto a mano: quel file dichiara questo
         // valore come «l'incasso orizzontale canonico di una riga di
         // contenuto — una tab della barra E una riga della colonna — così che
@@ -535,7 +538,7 @@ export function PinnedTile({
         >
           <ExpandChevron expanded={expanded} />
         </span>
-      ) : isRow ? (
+      ) : align.reservesChevron ? (
         // IN ROW FORM THE COLUMN COMES FIRST. A pinned row that does not open
         // reserves the accordion box anyway, or its icon would start 20px
         // (slot + gap) left of the icon of the row above it - the same two
@@ -563,8 +566,14 @@ export function PinnedTile({
              favicon would start 22px before the others. Measured on the real
              tiles on 17/08: chat at x=50, project without favicon at x=28, one
              with favicon at x=54 — THREE columns for the same list. */}
-      <span className={`relative flex-shrink-0 items-center justify-center ${
-        hasRealIcon || Glyph || iconProbing || isRow ? 'flex' : 'hidden'
+      <span className={`relative ${
+        // THE BOX COMES FROM THE FORM, and in row form it is the column's own
+        // slot: sized on the glyph the tile's ink started 2px before the ink of
+        // the row above it, because the column reserves 18px for every glyph
+        // and the tile reserved 14 (measured by tests/e2e/sidebar-pinned-alignment).
+        isRow
+          ? PINNED_ALIGN.row.iconSlot
+          : `${PINNED_ALIGN.grid.iconSlot} ${hasRealIcon || Glyph || iconProbing ? 'flex' : 'hidden'}`
       }`}>
         {hasRealIcon
           ? <ProjectFavicon path={projectPath} size={18} />
@@ -626,7 +635,16 @@ export function PinnedTile({
             // the tile) the name declares what it needs and the one that gives
             // way is the slot. See the slot at the bottom for the other half.
             ? 'flex-auto text-left'
-            : `flex-initial text-center ${hasRealIcon ? 'hidden @min-[104px]/tile:block' : ''}`
+            // AND IT LEAVES THE FLOW WHEN THERE IS NO FLOW LEFT, icon or not.
+            // Without a favicon the name used to stay at ANY width, because
+            // there it is the only identity the tile has. True down to the
+            // width where the name box is squeezed to ZERO: from there on it
+            // shows nothing and still costs its gap, and glyph plus gap no
+            // longer fit, so what you see is a glyph pushed 4px off centre
+            // (measured: 5 tiles in a 190px sidebar, air 4.3 left against 12.3
+            // right). 52 is the sum: 16 of inset + 14 of glyph + 8 of gap = 38
+            // before the first character, plus 14 for that character to exist.
+            : `flex-initial text-center ${hasRealIcon ? 'hidden @min-[104px]/tile:block' : 'hidden @min-[52px]/tile:block'}`
         }`}
       >
         {item.name}
