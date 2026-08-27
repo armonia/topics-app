@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.183 — 2026-08-27
+
+### Sotto il cofano
+- La prima cura non ha morso: non e' la finestra, e' la composizione di WebView2
+
 ## 2.2.182 — 2026-08-27
 
 ### Sotto il cofano

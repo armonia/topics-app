@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.183",
+    "date": "2026-08-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La prima cura non ha morso: non e' la finestra, e' la composizione di WebView2",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.182",
     "date": "2026-08-27",
     "sections": {
