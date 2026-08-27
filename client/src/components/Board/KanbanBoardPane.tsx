@@ -1653,7 +1653,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // the incoming path isn't wiped before the drawer opens.
   useEffect(() => {
     if (!global) return;
-    if (selected) { reflectTaskOpen({ taskId: selected.id }); return; }
+    if (selected) { reflectTaskOpen({ taskId: selected.id }, selected.text); return; }
     if (pendingSelect) return; // deep-link mid-flight — keep the URL
     reflectTaskClose();
     // Depend on selectedId (primitive), NOT the `selected` object: its reference
