@@ -2,7 +2,17 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.2.176 — 2026-08-27
+## 2.2.177 — 2026-08-27
+
+### Sotto il cofano
+- Diagnosi temporanea: cosa puo' fare davvero il GITHUB_TOKEN sulle release
+- Via la diagnosi: il 403 sulle release non c'e' piu'
+- La nightly rossa usciva verde, e una cartella senza git faceva 500 a raffica
+- BOARD-01 cadeva quando un altro file apriva il SUO progetto
+- Il commento di BOARD-01 va in inglese, come vuole il cancello
+- La nightly eseguiva WebKit senza averlo installato: 5 rossi su 13
+
+## 2.2.176 — 2026-08-26
 
 ### Sotto il cofano
 - Tre dei cinque bivi del primo avvio si chiudono da soli contro il codice
