@@ -12,7 +12,7 @@
 import { describe, it, expect } from 'bun:test';
 import { shouldWarnAboutSidecars, type SidecarReport } from './sidecarIntegrity';
 
-const rapporto = (r: Partial<SidecarReport>): SidecarReport => ({
+const report = (r: Partial<SidecarReport>): SidecarReport => ({
   ok: true, checked: true, bad: [], items: [], ...r,
 });
 
@@ -22,15 +22,15 @@ describe('avviso di installazione incompleta', () => {
   });
 
   it('tace su una build che non ha impronte da confrontare', () => {
-    expect(shouldWarnAboutSidecars(rapporto({ checked: false, ok: false, bad: ['pty-bridge'] }))).toBe(false);
+    expect(shouldWarnAboutSidecars(report({ checked: false, ok: false, bad: ['pty-bridge'] }))).toBe(false);
   });
 
   it('tace quando tutto corrisponde', () => {
-    expect(shouldWarnAboutSidecars(rapporto({ items: [{ name: 'pty-bridge', state: 'ok' }] }))).toBe(false);
+    expect(shouldWarnAboutSidecars(report({ items: [{ name: 'pty-bridge', state: 'ok' }] }))).toBe(false);
   });
 
   it('parla per il caso del 27/08: app nuova, un binario della build precedente', () => {
-    const r = rapporto({ ok: false, bad: ['pty-bridge'], items: [{ name: 'pty-bridge', state: 'stale' }] });
+    const r = report({ ok: false, bad: ['pty-bridge'], items: [{ name: 'pty-bridge', state: 'stale' }] });
     expect(shouldWarnAboutSidecars(r)).toBe(true);
   });
 });

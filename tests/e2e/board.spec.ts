@@ -77,11 +77,11 @@ async function openTestProject(page: Page) {
   // suite while the PR tier skips this file.
   //
   // `data-project-path` is already on the element: just ask it WHICH.
-  await expect(finestraDelProgetto(page)).toBeVisible({ timeout: 10000 });
+  await expect(projectWindow(page)).toBeVisible({ timeout: 10000 });
 }
 
 /** This file's project window, not any project window. */
-function finestraDelProgetto(page: Page) {
+function projectWindow(page: Page) {
   return page.locator('[data-testid="project-window"][data-project-path*="e2e-board-"]');
 }
 
@@ -515,7 +515,7 @@ test.describe("Kanban board", () => {
     const altro = await perProgetto(ALTRO_ID);
     expect(altro, "il secondo progetto serve a rendere i due numeri diversi").toBeGreaterThan(0);
 
-    const cue = finestraDelProgetto(page).getByTestId("tab-board-count-in_progress");
+    const cue = projectWindow(page).getByTestId("tab-board-count-in_progress");
     await expect(cue).toBeVisible({ timeout: 15000 });
     // `mio`, non `mio + altro`: con un task in corso su ciascun progetto i due
     // numeri sono diversi, quindi questa uguaglianza è anche il rosso che

@@ -99,11 +99,11 @@ describe("/rewind sul checkpoint automatico del turno", () => {
     writeFileSync(join(REPO, "src", "nato-nel-turno.ts"), "export const x = 1\n");
 
     // The automatic strip sees it.
-    const lista = (await (await call(router, "GET", `/api/topics/${topicId}/turn-checkpoints`)).json()) as {
+    const list = (await (await call(router, "GET", `/api/topics/${topicId}/turn-checkpoints`)).json()) as {
       checkpoints: Array<{ commit: string; label: string }>;
     };
-    expect(lista.checkpoints.length).toBe(1);
-    expect(lista.checkpoints[0].label).toBe("aggiungi la feature");
+    expect(list.checkpoints.length).toBe(1);
+    expect(list.checkpoints[0].label).toBe("aggiungi la feature");
 
     // `/rewind`: the same POST the composer sends.
     const res = await call(router, "POST", `/api/topics/${topicId}/turn-checkpoints/restore`, {});

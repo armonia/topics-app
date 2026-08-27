@@ -375,12 +375,12 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
     forgetSite: canForget ? () => setForgetOpen(true) : undefined,
   }), [browser, canForget, onToggleShare, backToSpawner]);
   // Subscribed, not sampled: on a restored pane this lands AFTER the mount.
-  const paneUrlNoto = useBrowserPaneUrl(`browser:${contextId}`);
+  const knownPaneUrl = useBrowserPaneUrl(`browser:${contextId}`);
   const chromeBridge = useBrowserChromeBridge(contextId, {
     url: browser.url,
     // The store's url, which on a restored pane is already right while
     // `browser.url` is still `about:blank`. See `showChrome`.
-    knownUrl: paneUrlNoto,
+    knownUrl: knownPaneUrl,
     faviconUrl: browser.faviconUrl,
     loading: browser.loading,
     canGoBack: browser.canGoBack ?? true,
@@ -446,13 +446,13 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   // `storeHasSpoken` true and `knownUrl` set. Not a race: the wrong question.
   const urlBarAutoFocusedRef = useRef(false);
   useEffect(() => {
-    const empty = !isRealUrl(browser.url) && !isRealUrl(paneUrlNoto);
+    const empty = !isRealUrl(browser.url) && !isRealUrl(knownPaneUrl);
     if (!isVisible || !empty) { urlBarAutoFocusedRef.current = false; return; }
     if (urlBarAutoFocusedRef.current) return;
     urlBarAutoFocusedRef.current = true;
     const t = setTimeout(() => focusUrlBar(), 50);
     return () => clearTimeout(t);
-  }, [isVisible, browser.url, paneUrlNoto, focusUrlBar]);
+  }, [isVisible, browser.url, knownPaneUrl, focusUrlBar]);
 
   // Keyboard shortcuts (Chrome parity), mirroring the Electron native panel:
   // Cmd+L focus url · Cmd+R reload · Cmd+[ back · Cmd+] forward · Cmd+F find ·
@@ -748,12 +748,12 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     forgetSite: sharedCanForget ? () => setForgetOpen(true) : undefined,
   }), [browser, sharedCanForget, onToggleShare, backToSpawner]);
   // Subscribed, not sampled: on a restored pane this lands AFTER the mount.
-  const paneUrlNoto = useBrowserPaneUrl(`browser:${contextId}`);
+  const knownPaneUrl = useBrowserPaneUrl(`browser:${contextId}`);
   const chromeBridge = useBrowserChromeBridge(contextId, {
     url: browser.url,
     // The store's url, which on a restored pane is already right while
     // `browser.url` is still `about:blank`. See `showChrome`.
-    knownUrl: paneUrlNoto,
+    knownUrl: knownPaneUrl,
     loading: browser.loading,
     canGoBack: true,
     canGoForward: true,
@@ -768,13 +768,13 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   // comment there. Wired through the toolbar's onRegisterFocus below.
   const urlBarAutoFocusedRef = useRef(false);
   useEffect(() => {
-    const empty = !isRealUrl(browser.url) && !isRealUrl(paneUrlNoto);
+    const empty = !isRealUrl(browser.url) && !isRealUrl(knownPaneUrl);
     if (!isVisible || !empty) { urlBarAutoFocusedRef.current = false; return; }
     if (urlBarAutoFocusedRef.current) return;
     urlBarAutoFocusedRef.current = true;
     const t = setTimeout(() => focusUrlBar(), 50);
     return () => clearTimeout(t);
-  }, [isVisible, browser.url, paneUrlNoto, focusUrlBar]);
+  }, [isVisible, browser.url, knownPaneUrl, focusUrlBar]);
 
   // Seed a blank server context with the pane's persisted URL (initialUrl). A
   // browser pane's page can live entirely on ANOTHER client — most notably the

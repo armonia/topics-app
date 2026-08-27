@@ -36,7 +36,7 @@ function git(cwd: string, ...args: string[]): { out: string; code: number } {
  * what the land does, and it is why the branch tip is unreachable the moment
  * the branch goes: nothing on `main` descends from it.
  */
-function repoConsegnato(root: string): { repo: string; consegna: string } {
+function deliveredRepo(root: string): { repo: string; delivery: string } {
   const repo = join(root, "repo");
   Bun.spawnSync(["git", "init", "-q", "-b", "main", repo], { stdout: "pipe", stderr: "pipe", env: gitEnv() });
   git(repo, "config", "user.email", "t@t");
@@ -55,12 +55,12 @@ function repoConsegnato(root: string): { repo: string; consegna: string } {
   writeFileSync(join(repo, "b.txt"), "il lavoro della card, finito"); // allow-italian: file content, not code
   git(repo, "add", "-A");
   git(repo, "commit", "-q", "-m", "consegna");
-  const consegna = git(repo, "rev-parse", "HEAD").out;
+  const delivery = git(repo, "rev-parse", "HEAD").out;
 
   git(repo, "checkout", "-q", "main");
   git(repo, "merge", "-q", "--squash", "topics/mint-sage");
   git(repo, "commit", "-q", "-m", "land della card");
-  return { repo, consegna };
+  return { repo, delivery };
 }
 
 /**
@@ -74,7 +74,7 @@ function repoConsegnato(root: string): { repo: string; consegna: string } {
  * measured missing on this board are what the far side of it looks like.
  * Expiring the reflog here is the 91st day arriving in one line.
  */
-function landEPotatura(repo: string): void {
+function landAndPrune(repo: string): void {
   git(repo, "branch", "-D", "topics/mint-sage");
   git(repo, "reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all");
   git(repo, "gc", "-q", "--prune=now");
@@ -86,38 +86,38 @@ describe("il commit di consegna sopravvive allo squash-and-delete", () => {
   afterEach(() => rmSync(root, { recursive: true, force: true }));
 
   test("col ref piantato, `git cat-file -t` risponde ancora `commit`", async () => {
-    const { repo, consegna } = repoConsegnato(root);
-    expect(await keepDeliveryCommit({ repoPath: repo, taskId: "67622704-card", commit: consegna })).toBe(true);
+    const { repo, delivery } = deliveredRepo(root);
+    expect(await keepDeliveryCommit({ repoPath: repo, taskId: "67622704-card", commit: delivery })).toBe(true);
 
-    landEPotatura(repo);
+    landAndPrune(repo);
 
-    expect(git(repo, "cat-file", "-t", consegna).out).toBe("commit");
+    expect(git(repo, "cat-file", "-t", delivery).out).toBe("commit");
     // And it is reachable BY NAME, which is what makes it auditable a year
     // later: the sha in the column is not the only way back in.
-    expect(git(repo, "rev-parse", "refs/consegne/67622704-card").out).toBe(consegna);
+    expect(git(repo, "rev-parse", "refs/consegne/67622704-card").out).toBe(delivery);
     // The diff of the delivery is still readable, which is the reason the object
     // was worth keeping at all.
-    expect(git(repo, "show", "--name-only", "--format=", consegna).out).toContain("b.txt");
+    expect(git(repo, "show", "--name-only", "--format=", delivery).out).toContain("b.txt");
   }, 30_000);
 
   test("senza il ref, sulla stessa sequenza, l'oggetto non c'è più", async () => {
-    const { repo, consegna } = repoConsegnato(root);
+    const { repo, delivery } = deliveredRepo(root);
 
-    landEPotatura(repo);
+    landAndPrune(repo);
 
-    expect(git(repo, "cat-file", "-t", consegna).code).not.toBe(0);
+    expect(git(repo, "cat-file", "-t", delivery).code).not.toBe(0);
   }, 30_000);
 
   test("il ref lasciato cadere non trattiene niente: dopo la potatura l'oggetto se ne va", async () => {
     // The other half of the expiry decision. Dropping the ref has to really
     // free the object, otherwise the retention window would be a promise the
     // disk never keeps.
-    const { repo, consegna } = repoConsegnato(root);
-    await keepDeliveryCommit({ repoPath: repo, taskId: "card-scaduta", commit: consegna });
-    git(repo, "update-ref", "-d", "refs/consegne/card-scaduta", consegna);
+    const { repo, delivery } = deliveredRepo(root);
+    await keepDeliveryCommit({ repoPath: repo, taskId: "card-scaduta", commit: delivery });
+    git(repo, "update-ref", "-d", "refs/consegne/card-scaduta", delivery);
 
-    landEPotatura(repo);
+    landAndPrune(repo);
 
-    expect(git(repo, "cat-file", "-t", consegna).code).not.toBe(0);
+    expect(git(repo, "cat-file", "-t", delivery).code).not.toBe(0);
   }, 30_000);
 });

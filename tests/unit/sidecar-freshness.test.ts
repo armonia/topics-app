@@ -27,18 +27,18 @@ import { describe, it, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const RADICE = resolve(import.meta.dir, "../..");
-const leggi = (p: string) => readFileSync(resolve(RADICE, p), "utf8");
+const ROOT = resolve(import.meta.dir, "../..");
+const read = (p: string) => readFileSync(resolve(ROOT, p), "utf8");
 
-const CONF = JSON.parse(leggi("desktop-tauri/src-tauri/tauri.conf.json"));
-const HOOKS = leggi("desktop-tauri/src-tauri/installer-hooks.nsh");
-const BUILD_RS = leggi("desktop-tauri/src-tauri/build.rs");
-const INTEGRITY_RS = leggi("desktop-tauri/src-tauri/src/sidecar_integrity.rs");
-const LIB_RS = leggi("desktop-tauri/src-tauri/src/lib.rs");
-const CLIENT = leggi("client/src/lib/sidecarIntegrity.ts");
-const POPOVER = leggi("client/src/components/Sidebar/VersionPopover.tsx");
-const IT = leggi("client/src/lib/i18n-it.ts");
-const EN = leggi("client/src/lib/i18n-en.ts");
+const CONF = JSON.parse(read("desktop-tauri/src-tauri/tauri.conf.json"));
+const HOOKS = read("desktop-tauri/src-tauri/installer-hooks.nsh");
+const BUILD_RS = read("desktop-tauri/src-tauri/build.rs");
+const INTEGRITY_RS = read("desktop-tauri/src-tauri/src/sidecar_integrity.rs");
+const LIB_RS = read("desktop-tauri/src-tauri/src/lib.rs");
+const CLIENT = read("client/src/lib/sidecarIntegrity.ts");
+const POPOVER = read("client/src/components/Sidebar/VersionPopover.tsx");
+const IT = read("client/src/lib/i18n-it.ts");
+const EN = read("client/src/lib/i18n-en.ts");
 
 /** The base names declared in `bundle.externalBin` (without `binaries/`). */
 const SIDECARS: string[] = (CONF.bundle.externalBin as string[]).map((p) => p.split("/").pop()!);
@@ -109,9 +109,9 @@ describe("un aggiornamento a meta' si vede dove si legge la versione", () => {
   });
 
   it("il messaggio esiste in entrambe le lingue e nomina i componenti", () => {
-    for (const testo of [IT, EN]) {
-      expect(testo).toContain("'version.incompleteInstall'");
-      expect(testo).toContain("'version.incompleteInstallDetail'");
+    for (const text of [IT, EN]) {
+      expect(text).toContain("'version.incompleteInstall'");
+      expect(text).toContain("'version.incompleteInstallDetail'");
     }
     expect(IT).toContain("{names}");
     expect(EN).toContain("{names}");

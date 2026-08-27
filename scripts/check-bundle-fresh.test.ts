@@ -62,10 +62,10 @@ describe("newestMtime — la misura", () => {
   it("trova il file piu' recente, anche annidato, e lo NOMINA", () => {
     const root = tree();
     fileAt(root, "a/vecchio.ts", 1_000_000);
-    const recente = fileAt(root, "a/b/recente.ts", 2_000_000);
+    const recent = fileAt(root, "a/b/recente.ts", 2_000_000);
     const got = newestMtime(root);
     expect(got.at).toBe(2_000_000_000);
-    expect(got.file).toBe(recente);
+    expect(got.file).toBe(recent);
   });
 
   it("salta node_modules: le dipendenze non sono i sorgenti di nessuno", () => {
@@ -87,19 +87,19 @@ describe("il cancello lo usa davvero", () => {
     // line too, and commenting it out is exactly how such a call gets disarmed.
     // Anchor on a LIVE call instead: start of line, no slash in front.
     const viva = /^[ \t]*assertFresh\(\);/m.exec(SRC);
-    const chiamata = viva?.index ?? -1;
+    const call = viva?.index ?? -1;
     const misura = SRC.indexOf("const measured");
-    expect(chiamata, "assertFresh non e' piu' chiamata (o e' commentata)").toBeGreaterThan(-1);
+    expect(call, "assertFresh non e' piu' chiamata (o e' commentata)").toBeGreaterThan(-1);
     expect(misura).toBeGreaterThan(-1);
-    expect(chiamata).toBeLessThan(misura);
+    expect(call).toBeLessThan(misura);
   });
 
   it("rifiuta col TERZO esito, non con un rosso", () => {
     // A stale bundle is not an over-budget bundle: exit 2, like assertBuilt.
     // See GATE-04.
-    const blocco = SRC.slice(SRC.indexOf("function assertFresh"), SRC.indexOf("function assertFresh") + 1600);
-    expect(blocco).toContain("process.exit(2)");
-    expect(blocco).not.toContain("process.exit(1)");
+    const block = SRC.slice(SRC.indexOf("function assertFresh"), SRC.indexOf("function assertFresh") + 1600);
+    expect(block).toContain("process.exit(2)");
+    expect(block).not.toContain("process.exit(1)");
   });
 
   it("il messaggio nomina il comando che ricostruisce", () => {

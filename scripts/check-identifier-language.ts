@@ -29,9 +29,16 @@
  * fails; removing one and rerunning `--update-baseline` locks in the gain.
  *
  * WHERE IT IS BLIND, said out loud rather than discovered later:
- *   - No dictionary on the machine (Linux CI often has none) ⇒ it cannot judge,
- *     so it says that and exits 0. It guards the machine where names are born,
- *     which is a developer's, not the runner that only replays them.
+ *   - No dictionary on the machine ⇒ it cannot judge, and it now exits NON-ZERO
+ *     instead of exiting 0 with a line nobody reads. It shipped the other way
+ *     and the other way was measured: `ubuntu-latest` carries no
+ *     `/usr/share/dict/words`, so from the day this gate was added until
+ *     2026-08-27 every CI run printed "skipping" and passed. The gate sat in the
+ *     static row looking like coverage and judged nothing, while the same gate
+ *     went red on a developer's Mac: green where nobody looks, red where
+ *     somebody does, which teaches people to ignore it. CI installs the word
+ *     list now (`apt-get install -y wamerican`, about a second) and a machine
+ *     without one is told what to install rather than waved through.
  *   - It reads DECLARATIONS, not every occurrence: a name is introduced once and
  *     that is the moment worth catching.
  *   - Invented English (`dedupe`, `stringify`) is not in a dictionary either.
@@ -47,7 +54,15 @@ import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
 const BASELINE = join(ROOT, "scripts", "identifier-language-baseline.json");
-const DICTS = ["/usr/share/dict/words", "/usr/dict/words", "/usr/share/dict/american-english"];
+/**
+ * `IDENTIFIER_LANGUAGE_DICT` pins the word list: it is how the tests drive the
+ * two outcomes (a real list, a path that does not exist) without depending on
+ * what the machine happens to carry, and how a machine with the dictionary
+ * somewhere else says so instead of being told it is broken.
+ */
+const DICTS = process.env.IDENTIFIER_LANGUAGE_DICT
+  ? [process.env.IDENTIFIER_LANGUAGE_DICT]
+  : ["/usr/share/dict/words", "/usr/dict/words", "/usr/share/dict/american-english"];
 
 const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
 
@@ -95,6 +110,7 @@ export const PROJECT_WORDS = new Set([
   "truthy", "falsy", "boolean", "enum", "enums", "middleware", "callback",
   "callbacks", "timestamp", "timestamps", "throttle", "debounce", "memoize",
   "hydrate", "rehydrate", "unmount", "remount", "prefetch", "refetch", "rerender",
+  "resnapshot",
   "teardown", "backoff", "changeset", "workspace", "workspaces", "toolbar",
   "tooltip", "dropdown", "popover", "checkbox", "placeholder", "viewport",
   "scrollbar", "sidebar", "keyframe", "keyframes", "flex", "grid", "svg", "png",
@@ -162,6 +178,47 @@ export const PROJECT_WORDS = new Set([
   // carry (it has `short` and `cut` separately), and `ctrl` is the name the
   // keyboard gives itself — it belongs next to `cmd` and `alt` for that reason.
   "shortcut", "shortcuts", "ctrl",
+  // THE FIRST HARVEST OF THE GATE THAT ACTUALLY RAN (27/08/2026). CI had never
+  // judged a name: no word list on `ubuntu-latest`, so the 184 names below were
+  // only ever visible on a Mac. Most of them are not Italian at all, they are
+  // English or shop talk that a 1934 word list cannot carry, so they belong
+  // here. The Italian ones were renamed in the same commit, which is the only
+  // honest split between these two piles.
+  //
+  // Shorthands this code reads everywhere, siblings of `cfg`, `ctx` and `msg`
+  // already above: `deps` is the injected-dependencies bag of a dozen modules,
+  // `cls` a CSS class name, `pos` a position, `pct` a percentage, `abs` is
+  // `path.resolve`/`Math.abs`, `seq` a sequence number, `proc` a child process,
+  // `cmd` a command line, `pkg` a package.json, `argv` the process arguments as
+  // Node spells them, `ext` a file extension, `orig` the original value, `def` a
+  // definition record, `conf` a config file, `lib` the Rust crate root
+  // (`lib.rs`), `mic` the microphone, `info` the payload of an event.
+  "deps", "cls", "pos", "pct", "abs", "seq", "proc", "cmd", "pkg", "argv",
+  "ext", "orig", "def", "defs", "conf", "lib", "mic", "info", "cfg",
+  // Words of the trade, printed by the tools themselves. `checkpoint` is this
+  // product's own noun for a saved turn (the API route says so), `timeout` is
+  // what every timer API calls it, `outfile` is the flag name of the test
+  // reporter, `endpoint` is what the browser engines return, `runtime`,
+  // `standalone`, `loopback`, `lookback`, `keyword`, `enqueue`, `stdio`, `rpc`,
+  // `descriptor`, `rollup` and `classify` are all plain technical English that
+  // web2 does not carry. `unsub` is the unsubscribe function every store
+  // returns, `subtask` is a board word, `unlayered` is CSS that sits outside an
+  // `@layer`, `pinnable` and `dedent` are coinages of the same family as
+  // `spawnable` and `dedupe` above.
+  "checkpoint", "checkpoints", "ckpt", "timeout", "timeouts", "outfile",
+  "endpoint", "endpoints", "runtime", "standalone", "loopback", "lookback",
+  "keyword", "keywords", "enqueue", "stdio", "rpc", "descriptor", "rollup",
+  "classify", "unsub", "subtask", "subtasks", "unlayered", "pinnable", "dedent",
+  "ops", "csv", "favicon",
+  // Plain English in a form web2 skips: it has `body`, `drop`, `trim`,
+  // `enclose` and `delivery` but not these. Renaming them would make the names
+  // worse, not more English, which is the same reason `held`, `seen` and
+  // `newest` are already on this list.
+  "bodies", "dropped", "trimmed", "enclosing", "deliveries",
+  // Proper nouns the code has to name to talk to them: an operating system, a
+  // browser engine, a debugging protocol, two model vendors, and the acronym
+  // the voice loop uses for voice activity detection.
+  "linux", "webkit", "cdp", "groq", "kimi", "vad",
   // `mtime` is the name the filesystem gives that field — `stat` prints it,
   // Node exposes it as `mtimeMs`. Spelling it `modificationTime` in a helper
   // that reads `st.mtimeMs` would make the code harder to follow, not more
@@ -267,10 +324,15 @@ function readBaseline(): Record<string, string[]> {
 if (import.meta.main) {
   const dict = loadDictionary();
   if (!dict) {
-    // Silence would read as approval. This machine cannot answer the question, so
-    // it says which one it could not answer.
-    console.log("[identifier-language] no English dictionary on this system (/usr/share/dict/words): cannot judge names, skipping.");
-    process.exit(0);
+    // Exiting 0 here read as approval for as long as this gate existed in CI:
+    // no word list on `ubuntu-latest`, one printed line, green. A gate that
+    // cannot measure has to stop the build, not narrate its own absence.
+    console.error(`[identifier-language] no English word list on this machine (looked in: ${DICTS.join(", ")}).`);
+    console.error("Cannot judge names, so this gate FAILS instead of passing blind.");
+    console.error("  Debian/Ubuntu: sudo apt-get install -y wamerican");
+    console.error("  macOS: /usr/share/dict/words ships with the system");
+    console.error("  elsewhere: point IDENTIFIER_LANGUAGE_DICT at a one-word-per-line English list");
+    process.exit(2);
   }
 
   const perFile = new Map<string, string[]>();

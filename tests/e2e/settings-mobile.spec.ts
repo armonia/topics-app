@@ -96,7 +96,7 @@ async function apriImpostazioni(page: Page) {
  * controls clear 44px until one of them does not.
  */
 /** A guard that cannot silently measure the wrong device again. */
-async function ilDitoCePerDavvero(page: Page) {
+async function theFingerIsReal(page: Page) {
   const media = await page.evaluate(() => ({
     any: matchMedia("(any-pointer: coarse)").matches,
     pointer: matchMedia("(pointer: coarse)").matches,
@@ -109,7 +109,7 @@ async function ilDitoCePerDavvero(page: Page) {
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  await ilDitoCePerDavvero(page);
+  await theFingerIsReal(page);
   await expect(page.getByTestId("sidebar-topics-menu")).toBeVisible({ timeout: 15_000 });
 });
 
@@ -228,7 +228,7 @@ test("nessun <select> di sistema in pagina, e la lingua si cambia col menu dell'
   // LA SCELTA SOPRAVVIVE AL RELOAD. È la metà che conta: un selettore che
   // cambia l'etichetta e dimentica non ha cambiato niente.
   await page.reload();
-  await ilDitoCePerDavvero(page);
+  await theFingerIsReal(page);
   await expect(page.getByTestId("sidebar-topics-menu")).toBeVisible({ timeout: 15_000 });
   await apriImpostazioni(page);
   await expect(page.getByTestId("settings-language")).toHaveText(/English/);

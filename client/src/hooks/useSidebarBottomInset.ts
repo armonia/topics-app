@@ -20,15 +20,15 @@ export function useSidebarBottomInset(): number {
   const [inset, setInset] = useState(0);
   useEffect(() => {
     const misura = () => {
-      const blocco = document.querySelector('[data-testid="identity-block"]');
-      setInset(blocco ? Math.max(0, Math.round(window.innerHeight - blocco.getBoundingClientRect().top)) : 0);
+      const block = document.querySelector('[data-testid="identity-block"]');
+      setInset(block ? Math.max(0, Math.round(window.innerHeight - block.getBoundingClientRect().top)) : 0);
     };
     misura();
     // The block grows with what it has to say (a second org, a longer name) and
     // the window changes height: both move the boundary.
     const ro = new ResizeObserver(misura);
-    const blocco = document.querySelector('[data-testid="identity-block"]');
-    if (blocco) ro.observe(blocco);
+    const block = document.querySelector('[data-testid="identity-block"]');
+    if (block) ro.observe(block);
     window.addEventListener('resize', misura);
     return () => { ro.disconnect(); window.removeEventListener('resize', misura); };
   }, []);

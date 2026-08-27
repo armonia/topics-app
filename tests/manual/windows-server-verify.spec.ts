@@ -33,12 +33,12 @@ test.beforeEach(({}, testInfo) => {
   testInfo.annotations.push({ type: "spec", description: "RUNTIME-17" });
 });
 
-const VERSIONE = process.env.TOPICS_WIN_VERSION ?? "2.2.176";
+const VERSION = process.env.TOPICS_WIN_VERSION ?? "2.2.176";
 
 test.describe("Windows — published build server contract", () => {
   test("WIN-SRV-01: the served version is the one built by the pipeline", async ({ request }) => {
     const v = await (await request.get("/api/version")).json();
-    expect(v.version).toBe(VERSIONE);
+    expect(v.version).toBe(VERSION);
   });
 
   test("WIN-SRV-02: every route the UI calls on startup answers 200", async ({ request }) => {
@@ -77,7 +77,7 @@ test.describe("Windows — published build server contract", () => {
     // to fool ourselves into thinking we verified anything.
     const v = await (await request.get("/api/version")).json();
     const s = await (await request.get("/api/system/status")).json();
-    expect(v.version).toBe(VERSIONE);
+    expect(v.version).toBe(VERSION);
     expect(s.server.devReload).toBe(false);
   });
 

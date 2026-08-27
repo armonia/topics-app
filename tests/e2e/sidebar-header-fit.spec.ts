@@ -38,9 +38,9 @@ for (const [nome, platform] of [["Mac", "MacIntel"], ["non-Mac", "Linux x86_64"]
       const b = document.querySelector('[data-testid="notification-history-button"]') as HTMLElement | null;
       if (!b) return null;
       const r = b.getBoundingClientRect();
-      const gruppo = b.parentElement!.getBoundingClientRect();
-      const sopra = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-      return { sporge: Math.round(r.right - gruppo.right), riceveIlClick: b.contains(sopra) };
+      const group = b.parentElement!.getBoundingClientRect();
+      const elementOnTop = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return { sporge: Math.round(r.right - group.right), riceveIlClick: b.contains(elementOnTop) };
     });
     expect(misura, "the bell must exist in the row").not.toBeNull();
 
@@ -78,18 +78,18 @@ test("SIDEBAR-FIT: the resize handle does not cover the commands at the bottom",
   // The bottom-most control is taken as it comes: the org chip when there is an
   // organisation, otherwise the profile row, which never goes away.
   const chip = page.getByTestId("org-chip");
-  const bersaglio = (await chip.count()) > 0 ? chip.first() : page.getByTestId("identity-me-profile").first();
-  await expect(bersaglio).toBeVisible({ timeout: 10_000 });
+  const target = (await chip.count()) > 0 ? chip.first() : page.getByTestId("identity-me-profile").first();
+  await expect(target).toBeVisible({ timeout: 10_000 });
 
   // `trial` attempts the click WITHOUT performing it: what matters is whether
   // the pointer LANDS, not what the panel opens.
-  await bersaglio.click({ trial: true, timeout: 8_000 });
+  await target.click({ trial: true, timeout: 8_000 });
 
   // And the handle must stay grabbable where it is needed, i.e. above: a cure
   // that switched it off entirely would pass this test and break the resize.
-  const maniglia = page.locator(".cursor-col-resize").first();
-  await expect(maniglia).toBeAttached();
-  const box = await maniglia.boundingBox();
+  const handle = page.locator(".cursor-col-resize").first();
+  await expect(handle).toBeAttached();
+  const box = await handle.boundingBox();
   expect(box, "the handle must have a box").not.toBeNull();
   expect(box!.height, "the handle must not vanish").toBeGreaterThan(200);
 });
