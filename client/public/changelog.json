@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.189",
+    "date": "2026-08-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La finestra e' TRASPARENTE, e su Windows quella trasparenza non serve a niente",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.188",
     "date": "2026-08-27",
     "sections": {
