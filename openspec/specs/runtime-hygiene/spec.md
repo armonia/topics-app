@@ -725,3 +725,48 @@ Un OFFLINE VERO — rete staccata — SHALL continuare a servire il guscio.
 #### Scenario: rete staccata
 - **GIVEN** nessuna connessione
 - **THEN** SHALL essere servito il guscio in cache
+
+### Requirement: RUNTIME-17 — La build PUBBLICATA per Windows regge il suo contratto sulla macchina vera
+
+Le verifiche su Windows SHALL essere fatte contro l'ARTEFATTO che ricevono gli
+utenti — l'installazione prodotta dalla pipeline — e non contro una build
+locale dello sviluppatore: sono due cose diverse, e la seconda non dice niente
+sulla prima.
+
+Il server dell'app installata SHALL dichiarare la stessa versione del binario
+che lo ospita, e SHALL dichiararsi fuori dalla modalita' di sviluppo: un
+processo di sviluppo rimasto acceso sulla stessa porta e' il modo piu' facile di
+credere di aver provato qualcosa.
+
+Le rotte che l'interfaccia interroga all'avvio (`/api/system/status`,
+`/api/topics`, `/api/terminal/sessions`, `/api/providers/snapshot`,
+`/api/all-boards/tasks`) SHALL rispondere 200 sulla macchina Windows, e una
+rotta inesistente SHALL dare 404 e non 500.
+
+Ogni provider dichiarato SHALL portare il proprio nome e il proprio stato: e'
+cio' che permette all'app di DIRE che un agente manca invece di aprire una tab
+vuota.
+
+Nessun modello SHALL restare senza listino: un costo ignoto si dichiara ignoto,
+non si arrotonda a zero.
+
+NOTA SUL LIMITE, che vale piu' di una prova in piu': l'interfaccia NON e'
+raggiungibile da fuori. E' compilata dentro `app.exe` e servita da
+`tauri://localhost`, la porta del server risponde 503 su `/`, e la porta di
+debug di WebView2 non e' apribile a posteriori perche' l'app e' a istanza
+singola. Quindi geometria e pixel (pulsanti finestra, campanella, chip
+identita', tooltip, banda grigia) restano verificati A MANO sul ferro, e questo
+requisito NON li copre. Dichiararlo e' l'unico modo di non far credere a
+nessuno che siano automatizzati.
+
+#### Scenario: il server interrogato e' davvero quello installato
+- **GIVEN** l'app installata dalla pipeline in esecuzione su Windows
+- **WHEN** si leggono `/api/version` e `/api/system/status`
+- **THEN** la versione SHALL coincidere con quella del binario
+- **AND** `devReload` SHALL essere falso
+
+#### Scenario: le rotte dell'avvio rispondono sulla macchina vera
+- **GIVEN** il server dell'installazione
+- **WHEN** si interrogano le rotte che l'interfaccia chiama all'avvio
+- **THEN** ognuna SHALL rispondere 200
+- **AND** una rotta inesistente SHALL rispondere 404

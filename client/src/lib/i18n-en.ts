@@ -862,6 +862,7 @@ const EN = {
   'board.card.steerSendTitle': 'Send to the agent. It arrives on its next turn, the way Claude Code does it.',
   'board.card.replySendTitle': '{action}, carrying this note.',
   'board.card.turnActions': 'Actions on this turn',
+  'board.card.blockedActions': 'Ways out of the wait',
   'board.card.yourRequest': 'Your request: {text}',
   'board.card.commentPlaceholder': '…or comment',
   'board.card.comment': 'Comment',
