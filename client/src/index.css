@@ -631,15 +631,15 @@
  * o su token propri, e restano un gradino sopra qualunque fondo. L'unica che
  * andava riportata a mano è il vetro dei popover, subito sotto. */
 @media (max-width: 767px) {
-  /* `html:not(.electron-mac)`, non `:root` nudo: questo collasso è una faccenda
+  /* `html:not(.native-frost)`, non `:root` nudo: questo collasso è una faccenda
      del WEB e della PWA. Il guscio desktop ha il suo sistema — lì `--chrome-bg`
      porta l'alpha 0.55 della vibrancy, e agganciarci `--bg-surface` farebbe
      diventare TRANSLUCIDE le superfici di contenuto appena qualcuno stringe la
      finestra sotto i 768px, con l'alpha che si compone a ogni strato. Oggi le
-     regole `html.electron-mac` vincono comunque (vengono dopo e pesano di più),
+     regole `html.native-frost` vincono comunque (vengono dopo e pesano di più),
      quindi questo non ripara un guasto visibile: toglie la trappola prima che
      qualcuno sposti una riga e la faccia scattare. */
-  html:not(.electron-mac) {
+  html:not(.native-frost) {
     --bg: var(--chrome-bg);
     --bg-surface: var(--chrome-bg);
     /* Un popover FLOTTA: deve staccare dal fondo su cui atterra, e con le tre
@@ -674,7 +674,7 @@
    * delle impostazioni, il bordo del composer.
    * In SCURO non serve niente: il fondo più scuro fa guadagnare tutto da sé (i
    * bordi salgono da 1,24 a 1,42, il testo da 14,2 a 16,2). */
-  html:not(.dark):not(.electron-mac) {
+  html:not(.dark):not(.native-frost) {
     /* La bolla dei tuoi messaggi era #e2e5ea, un gradino sotto #f8f9fa. Sul
      * fondo mobile (#eaecf0, più scuro) quel gradino si chiude a 1,07:1 — la
      * bolla SPARIVA. Riportata al distacco che il disegno dichiara: 1,221:1. */
@@ -693,22 +693,22 @@
    * passava da 1,183:1 a 1,000:1 e restava in piedi solo su una hairline a
    * 1,04:1 e un'ombra che in tema scuro è nero su quasi-nero.
    *
-   * `html:not(.electron-mac) .glass-surface` e non `.glass-surface` nudo: la
+   * `html:not(.native-frost) .glass-surface` e non `.glass-surface` nudo: la
    * regola base per quella classe vive 1275 righe più avanti nel file, e a
    * parità di specificità (0,1,0) l'ultima vince — la mia versione dentro la
    * media query era CODICE MORTO, e i popover dipingevano il fondo lo stesso.
    * (0,2,1) la batte a prescindere dall'ordine, e resta comunque sotto
-   * `html.electron-mac.dark .glass-surface` (0,3,1): la vibrancy non si tocca. */
-  html:not(.electron-mac) .glass-surface,
-  html:not(.electron-mac) .native-occlude,
-  html:not(.electron-mac) [role="region"][aria-label$=" panel"] form.bg-surface {
+   * `html.native-frost.dark .glass-surface` (0,3,1): la vibrancy non si tocca. */
+  html:not(.native-frost) .glass-surface,
+  html:not(.native-frost) .native-occlude,
+  html:not(.native-frost) [role="region"][aria-label$=" panel"] form.bg-surface {
     background-color: var(--popover-bg);
   }
   /* Lo scuro ha SOLO i suoi valori, e non annulla niente di nessuno: la bolla e
    * i bordi qui reggono da sé sul fondo più scuro. L'unico ritocco è il
    * placeholder, che era a 3,98:1 — sotto il 4,5, e questo è il fondo di TUTTA
    * la schermata, non di un angolo. */
-  html.dark:not(.electron-mac) {
+  html.dark:not(.native-frost) {
     --popover-bg: hsl(222 4.9% 13%);
     --text-placeholder: hsl(220 2.8% 48%);
     /* LE SUPERFICI SCURE ERANO TUTTE ×1,14 PIÙ CHIARE DEL DISEGNO.
@@ -1870,16 +1870,17 @@ input[type="range"]::-webkit-slider-thumb {
 }
 /* Sotto la vibrancy di macOS il riflesso resta, ma più asciutto: lì il
    materiale nativo porta già il suo gradiente e due riflessi sovrapposti
-   leggono come un doppio bordo. Attenzione: `.electron-mac` è il nome legacy,
-   ma la classe la mette anche la shell TAURI su macOS — questi due rami sono
-   quelli che si vedono nell'app vera, gli altri due valgono in browser. */
-html.electron-mac .edge-lit::before {
+   leggono come un doppio bordo. Keyed on `native-frost`, not on the OS: DWM
+   Acrylic carries its own gradient too, so Windows needs the drier reflection
+   for exactly the same reason. These two branches are what the desktop app
+   shows; the two above apply in a plain browser. */
+html.native-frost .edge-lit::before {
   box-shadow:
     inset 0 1px 0 0 rgb(255 255 255 / 0.32),
     inset 0 -1px 0 0 rgb(0 0 0 / 0.045),
     inset 0 0 0 1px rgb(0 0 0 / 0.03);
 }
-html.electron-mac.dark .edge-lit::before {
+html.native-frost.dark .edge-lit::before {
   box-shadow:
     inset 0 1px 0 0 rgb(255 255 255 / 0.06),
     inset 0 -1px 0 0 rgb(0 0 0 / 0.18),
@@ -1923,13 +1924,13 @@ html.electron-mac.dark .edge-lit::before {
       inset 0 -1px 0 0 rgb(0 0 0 / 0.2),
       inset 0 0 0 1px rgb(255 255 255 / 0.045);
   }
-  html.electron-mac .edge-lit-mobile::before {
+  html.native-frost .edge-lit-mobile::before {
     box-shadow:
       inset 0 1px 0 0 rgb(255 255 255 / 0.32),
       inset 0 -1px 0 0 rgb(0 0 0 / 0.045),
       inset 0 0 0 1px rgb(0 0 0 / 0.03);
   }
-  html.electron-mac.dark .edge-lit-mobile::before {
+  html.native-frost.dark .edge-lit-mobile::before {
     box-shadow:
       inset 0 1px 0 0 rgb(255 255 255 / 0.06),
       inset 0 -1px 0 0 rgb(0 0 0 / 0.18),
@@ -2002,10 +2003,10 @@ html.electron-mac.dark .edge-lit::before {
  * come una selezione. */
 .raised-control { background-color: var(--bg-elevated); }
 .raised-control:hover { background-color: var(--bg-hover); }
-html.electron-mac .raised-control { background-color: rgb(0 0 0 / 0.06); }
-html.electron-mac .raised-control:hover { background-color: rgb(0 0 0 / 0.10); }
-html.electron-mac.dark .raised-control { background-color: rgb(255 255 255 / 0.10); }
-html.electron-mac.dark .raised-control:hover { background-color: rgb(255 255 255 / 0.16); }
+html.native-frost .raised-control { background-color: rgb(0 0 0 / 0.06); }
+html.native-frost .raised-control:hover { background-color: rgb(0 0 0 / 0.10); }
+html.native-frost.dark .raised-control { background-color: rgb(255 255 255 / 0.10); }
+html.native-frost.dark .raised-control:hover { background-color: rgb(255 255 255 / 0.16); }
 
 /* LO STESSO COMANDO, MA APPOGGIATO SU CONTENUTO VIVO.
  *
@@ -2033,18 +2034,18 @@ html.electron-mac.dark .raised-control:hover { background-color: rgb(255 255 255
  *
  * `-webkit-backdrop-filter` non è ridondante: WKWebView — cioè la shell — è
  * proprio il motore che vuole ancora il prefisso. */
-html.electron-mac :is(.raised-control-overlay .raised-control, .raised-control-overlay.raised-control) {
+html.native-frost :is(.raised-control-overlay .raised-control, .raised-control-overlay.raised-control) {
   background-color: rgb(0 0 0 / 0.1);
   -webkit-backdrop-filter: blur(10px) saturate(150%);
   backdrop-filter: blur(10px) saturate(150%);
 }
-html.electron-mac :is(.raised-control-overlay .raised-control:hover, .raised-control-overlay.raised-control:hover) {
+html.native-frost :is(.raised-control-overlay .raised-control:hover, .raised-control-overlay.raised-control:hover) {
   background-color: rgb(0 0 0 / 0.14);
 }
-html.electron-mac.dark :is(.raised-control-overlay .raised-control, .raised-control-overlay.raised-control) {
+html.native-frost.dark :is(.raised-control-overlay .raised-control, .raised-control-overlay.raised-control) {
   background-color: rgb(255 255 255 / 0.14);
 }
-html.electron-mac.dark :is(.raised-control-overlay .raised-control:hover, .raised-control-overlay.raised-control:hover) {
+html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raised-control-overlay.raised-control:hover) {
   background-color: rgb(255 255 255 / 0.2);
 }
 
@@ -2637,24 +2638,52 @@ html.electron-mac.dark :is(.raised-control-overlay .raised-control:hover, .raise
   }
 }
 
-/* ─── macOS native vibrancy (Electron only) ──────────────────────────────
- * The main window is created with `vibrancy:'sidebar'` + a transparent native
- * background (electron-app/main.ts). macOS blur only shows where the ENTIRE
- * layer stack is translucent — so we punch html/body/#root fully transparent
- * and let the chrome carry a single translucent tint that frosts over the
- * blurred desktop. Content panes keep their opaque `--bg-surface`, so dense
- * text (chat, terminal, code) stays crisp and readable.
+/* ─── Native frosted backdrop (macOS vibrancy + Windows acrylic) ───────
+ * `.native-frost` is the SHELL-NEUTRAL contract, and it says one thing: a
+ * native frosted backdrop is painted BEHIND the webview, so the page must not
+ * paint an opaque layer on top of it. Every rule keyed on it is here for that
+ * reason alone, never for the OS that happens to draw the backdrop.
  *
- * The `.electron-mac` class is set pre-paint by the head script in index.html. */
-html.electron-mac,
-html.electron-mac body,
-html.electron-mac #root {
+ * WHO ADDS WHAT (client/public/boot.js, pre-paint; re-asserted idempotently in
+ * useFloatingVibrancy.ts, because a missed class silently kills the frost):
+ *   macOS   + Tauri -> `electron-mac` + `tauri-mac` + `native-frost`
+ *   Windows + Tauri -> `windows-acrylic` + `native-frost`
+ * `electron-mac` (legacy name, kept) and `windows-acrylic` are the per-OS
+ * gates: they carry ONLY what genuinely depends on that OS. `.tauri-mac`
+ * stays the WebKit gate (see the scrollbar block far above).
+ *
+ * THE TWO BACKDROPS ARE NOT THE SAME SHAPE, and the difference is a contract,
+ * not a defect to chase:
+ *   macOS   per-region NSVisualEffectViews (`vibrancy_set_regions`), one view
+ *           per panel, so the GAPS between cards are truly transparent and
+ *           show the live desktop through the window.
+ *   Windows ONE DWM Acrylic backdrop for the WHOLE window. DWM has no
+ *           per-region equivalent, so Windows gets frosted chrome and frosted
+ *           GAPS, never see-through ones. The per-region IPC
+ *           (`vibrancy_set_regions` / `vibrancy_animate_regions`) is therefore
+ *           never called off macOS.
+ *
+ * Either way the whole layer stack has to be translucent for the backdrop to
+ * reach the eye: html/body/#root go fully transparent and the chrome carries a
+ * single translucent tint. Content panes keep their opaque `--bg-surface`, so
+ * dense text (chat, terminal, code) stays crisp and readable. */
+html.native-frost,
+html.native-frost body,
+html.native-frost #root {
   background-color: transparent !important;
 }
 /* When the per-region vibrancy addon is active the window is truly transparent
  * and has no native rounded frame, so #root rounds its own corners. Radius
  * matches the native macOS window corner; harmless on the vibrancy-fallback
- * window (the native corners sit at the same radius). */
+ * window (the native corners sit at the same radius).
+ *
+ * STAYS ON `electron-mac`, and it is the only rule in this section that does.
+ * The 12px IS the macOS window corner, and it is only legible because that
+ * window has no opaque native frame of its own. A Windows acrylic window does:
+ * DWM draws the frame and fills the backdrop out to ITS corner radius, so
+ * rounding #root there would cut a second, mismatched corner out of the
+ * acrylic instead of following the window. Windows keeps square #root corners
+ * and lets DWM own the window shape. */
 html.electron-mac #root {
   border-radius: 12px;
   overflow: hidden;
@@ -2684,10 +2713,10 @@ html.electron-mac #root {
  * la stessa alpha: la convenzione di questo file è «stessa tinta, cambia solo
  * il grado», e due tinte che si chiamano uguale sono la deriva che il commento
  * precedente era già stato scritto per chiudere. */
-html.electron-mac.dark {
+html.native-frost.dark {
   --bg: hsl(224 26% 4.5% / 0.72);
 }
-html.electron-mac:not(.dark) {
+html.native-frost:not(.dark) {
   --bg: hsl(220 16% 93% / 0.72);
 }
 
@@ -2703,8 +2732,8 @@ html.electron-mac:not(.dark) {
  * riga il figlio dipingerebbe una SECONDA mano sopra la prima e l'area delle
  * pane risulterebbe piu' scura della sidebar — esattamente il compounding che
  * questo blocco esiste per evitare. */
-html.electron-mac #main-content,
-html.electron-mac .content-flip-layer {
+html.native-frost #main-content,
+html.native-frost .content-flip-layer {
   background-color: transparent !important;
 }
 
@@ -2753,10 +2782,10 @@ html.electron-mac .content-flip-layer {
  * Le leve vere, se l'ipotesi regge, sono native e chiedono una ricompilazione:
  * il materiale (`setMaterial: 7`, Sidebar, è fra i più trasmissivi) e
  * l'appearance della vista. */
-html.electron-mac.dark {
+html.native-frost.dark {
   --chrome-bg: hsl(224 26% 4.5% / 0.55);
 }
-html.electron-mac:not(.dark) {
+html.native-frost:not(.dark) {
   /* 93%, non 90%: il ramo scuro qui sopra ripete alla lettera la lightness del
    * `.dark` in cima (4,5%), il chiaro invece ne portava una PROPRIA — tre punti
    * più scura di `:root` — mentre il commento del blocco dichiara «stessa
@@ -2783,16 +2812,16 @@ html.electron-mac:not(.dark) {
  * stata la causa di ogni divergenza di questa famiglia (la barra di progetto
  * contro quella di primo livello, il 09/08).
  *
- * I selettori restano sdoppiati per tema: `html.electron-mac .chrome-glass`
+ * I selettori restano sdoppiati per tema: `html.native-frost .chrome-glass`
  * scenderebbe da (0,3,1) a (0,2,1) e pareggerebbe con le quattro regole
  * `transparent !important` più sotto (pane terminale, cella col browser nativo,
  * `.pane-frost`, `[role="region"][aria-label$=" panel"]`), che vincerebbero per
  * ordine di sorgente. Oggi dicono tutte la stessa cosa, quindi non si vedrebbe
  * — ma è un difetto latente che aspetta il primo che le fa divergere. */
-html.electron-mac.dark [role="navigation"][aria-label="Topics sidebar"],
-html.electron-mac.dark .chrome-glass,
-html.electron-mac:not(.dark) [role="navigation"][aria-label="Topics sidebar"],
-html.electron-mac:not(.dark) .chrome-glass {
+html.native-frost.dark [role="navigation"][aria-label="Topics sidebar"],
+html.native-frost.dark .chrome-glass,
+html.native-frost:not(.dark) [role="navigation"][aria-label="Topics sidebar"],
+html.native-frost:not(.dark) .chrome-glass {
   background-color: transparent !important;
 }
 
@@ -2864,7 +2893,7 @@ html.electron-mac:not(.dark) .chrome-glass {
  * questa barra ha sempre voluto avere.
  *
  * Un valore solo per tutti gli ambienti: sotto la shell era già così dal
- * blocco `html.electron-mac`, e tenerne due significava che web e desktop
+ * blocco `html.native-frost`, e tenerne due significava che web e desktop
  * mostravano due barre diverse per una decisione che è una sola. */
 :root { --chrome-overlay-bg: transparent; }
 
@@ -2917,7 +2946,7 @@ html.electron-mac:not(.dark) .chrome-glass {
   --chat-gutter: var(--chrome-bar-h, 0px);
 }
 
-/* La regola `!important` di `html.electron-mac .chrome-glass` (qui sopra)
+/* La regola `!important` di `html.native-frost .chrome-glass` (qui sopra)
    batterebbe il fondo di `.pane-chrome-bar` — e va bene così, perché lì il
    token che vogliamo È `--chrome-bg`. Scritto per esteso perché chi legge non
    debba dedurlo dalla cascata. */
@@ -2930,7 +2959,7 @@ html.electron-mac:not(.dark) .chrome-glass {
  * OPAQUE content panes, so it carries its OWN `backdrop-filter: blur()` to frost
  * whatever is behind it (content or desktop). Slightly more opaque than the
  * chrome (≈0.72 vs 0.55) so menu text stays crisp over busy content. On the web
- * (no `.electron-mac`) the base rule keeps the opaque `--bg-surface` fallback. */
+ * (no `.native-frost`) the base rule keeps the opaque `--bg-surface` fallback. */
 /* IL DISTACCO DEL POPOVER, fuori dalla media query dove era rimasto chiuso.
  *
  * `.glass-surface` senza vibrancy dipinge `--bg-surface`, cioè LO STESSO pixel
@@ -2950,7 +2979,7 @@ html.electron-mac:not(.dark) .chrome-glass {
  *
  * Solo `.glass-surface`: `.native-occlude` e il form del pannello stanno su un
  * velo scuro e il distacco ce l'hanno già — includerli sarebbe una regressione.
- * E la regola resta sotto `html.electron-mac .glass-surface`, che ha più peso:
+ * E la regola resta sotto `html.native-frost .glass-surface`, che ha più peso:
  * la vibrancy del Mac non si tocca. */
 :root { --popover-bg: hsl(220 4.9% 95%); }
 .dark { --popover-bg: hsl(222 4.9% 17%); }
@@ -2972,11 +3001,11 @@ html.electron-mac:not(.dark) .chrome-glass {
  * (Blink ships the property UNPREFIXED), so the blur silently did nothing.
  * Tailwind emits the var-chain with BOTH the prefixed and unprefixed property,
  * which is exactly the form that works here (same as `backdrop-blur-*`). */
-html.electron-mac.dark .glass-surface {
+html.native-frost.dark .glass-surface {
   background-color: hsl(224 26% 6% / 0.72);
   @apply backdrop-blur-xl backdrop-saturate-150;
 }
-html.electron-mac:not(.dark) .glass-surface {
+html.native-frost:not(.dark) .glass-surface {
   background-color: hsl(220 20% 94% / 0.72);
   @apply backdrop-blur-xl backdrop-saturate-150;
 }
@@ -2991,13 +3020,13 @@ html.electron-mac:not(.dark) .glass-surface {
  * same approach as ChatPanel in the frosted-tier block below. Web keeps the
  * opaque fallback. */
 .input-glass { background-color: var(--bg-surface); }
-html.electron-mac.dark .input-glass,
-html.electron-mac.dark [role="region"][aria-label$=" panel"] form.bg-surface {
+html.native-frost.dark .input-glass,
+html.native-frost.dark [role="region"][aria-label$=" panel"] form.bg-surface {
   background-color: hsl(0 0% 100% / 0.035);
   @apply backdrop-blur-xl backdrop-saturate-150;
 }
-html.electron-mac:not(.dark) .input-glass,
-html.electron-mac:not(.dark) [role="region"][aria-label$=" panel"] form.bg-surface {
+html.native-frost:not(.dark) .input-glass,
+html.native-frost:not(.dark) [role="region"][aria-label$=" panel"] form.bg-surface {
   background-color: hsl(0 0% 100% / 0.35);
   @apply backdrop-blur-xl backdrop-saturate-150;
 }
@@ -3008,8 +3037,8 @@ html.electron-mac:not(.dark) [role="region"][aria-label$=" panel"] form.bg-surfa
  * compositing on an opaque backdrop (which would reintroduce the blue cast the
  * single frosted layer avoids). The xterm background is transparent, so the
  * frosted tint reads through behind the (opaque) terminal text. */
-html.electron-mac [data-testid="terminal-panel"],
-html.electron-mac [data-testid="single-terminal-pane"] {
+html.native-frost [data-testid="terminal-panel"],
+html.native-frost [data-testid="single-terminal-pane"] {
   background-color: transparent !important;
 }
 
@@ -3040,9 +3069,9 @@ html.electron-mac [data-testid="single-terminal-pane"] {
  * `bg-surface`, so they are matched by role/aria selector rather than
  * carrying the class (same approach as the Topics sidebar). */
 .pane-frost { background-color: var(--bg-surface); }
-html.electron-mac .pane-frost,
-html.electron-mac [role="region"][aria-label$=" panel"],
-html.electron-mac [role="region"][aria-label$=" panel"] > .bg-surface {
+html.native-frost .pane-frost,
+html.native-frost [role="region"][aria-label$=" panel"],
+html.native-frost [role="region"][aria-label$=" panel"] > .bg-surface {
   background-color: transparent !important;
 }
 

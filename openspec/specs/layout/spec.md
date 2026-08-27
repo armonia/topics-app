@@ -529,6 +529,50 @@ bordo intercetta il gesto e fa scadere ciò che ci prova.
 - **GIVEN** la preferenza attiva
 - **THEN** i comandi NON SHALL spostarsi, e l'angolo SHALL restare raggiungibile
 
+### Requirement: CHROME-09 — Il vetro c'è anche su Windows, ed è di FINESTRA INTERA
+
+Sotto il guscio nativo la finestra SHALL avere un fondo smerigliato NATIVO su
+entrambe le piattaforme, non solo su macOS: vibrancy per-regione sul Mac, tenda
+DWM su Windows 11.
+
+Su Windows la tenda SHALL essere **Acrylic**, non Mica: Mica campiona soltanto lo
+sfondo del desktop, quindi con un'altra finestra dietro non mostrerebbe nulla di
+ciò che c'è davvero sotto — che è esattamente l'intento del disegno sul Mac. La
+scelta SHALL restare UNA costante sola, così passare a Mica costa una riga.
+
+La tenda SHALL seguire il tema chiaro/scuro dalla STESSA porta che già
+sincronizza il cromo nativo (il comando che riceve la MODALITÀ, non il tema
+risolto), e la modalità «sistema» SHALL leggere l'OS invece di pinnare un tema.
+
+Il fondo della webview SHALL essere TRASPARENTE: un fondo opaco viene steso
+sopra la tenda prima che la pagina disegni, e annulla qualunque backdrop DWM.
+Per la stessa ragione la pagina SHALL dipingere traslucida dietro una classe
+CONDIVISA fra le piattaforme, non dietro la classe di macOS: senza quella classe
+il vetro nativo c'è e non si vede.
+
+IL LIMITE È PARTE DEL CONTRATTO, non un difetto da inseguire. Le tende DWM sono
+di FINESTRA INTERA e non esiste un equivalente per-regione: su Windows i varchi
+fra le carte SHALL essere smerigliati anche loro, e NON trasparenti come sul
+Mac, dove cadono sul desktop vero. Le chiamate per-regione (le IPC della
+vibrancy) NON SHALL partire fuori da macOS.
+
+Quando la preferenza di sistema «effetti di trasparenza» è SPENTA, Windows
+appiattisce ogni backdrop: l'assenza di vetro in quel caso NON SHALL essere
+letta come un difetto dell'applicazione, ed è il primo valore da rileggere prima
+di toccare il codice.
+
+#### Scenario: la finestra su Windows 11
+- **GIVEN** il guscio desktop su Windows 11, con gli effetti di trasparenza attivi
+- **THEN** la finestra SHALL portare la tenda Acrylic, e il fondo della webview SHALL essere trasparente
+
+#### Scenario: il tema cambia
+- **GIVEN** l'utente sceglie chiaro, scuro o «sistema»
+- **THEN** la tinta della tenda SHALL seguire, dalla stessa porta del cromo nativo
+
+#### Scenario: i varchi fra le carte
+- **GIVEN** la finestra smerigliata su Windows
+- **THEN** i varchi SHALL essere smerigliati, NON trasparenti, e nessuna IPC per-regione SHALL partire
+
 ### Requirement: SHEET-01 — Il foglio SEGUE il dito, e il tocco che chiude non aziona
 
 Un foglio che entra dal basso SHALL SEGUIRE il dito durante il gesto: il bordo

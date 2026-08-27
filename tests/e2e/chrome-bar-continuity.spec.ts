@@ -89,12 +89,17 @@ async function barre(page: Page) {
  * already reverted; this fails, which is the point.
  */
 async function shell(page: Page, opts: { mac: boolean; dark: boolean }): Promise<void> {
+  // BOTH classes, because that is what the real mac shell carries: `native-frost`
+  // holds every translucency rule (the ones this spec measures) and `electron-mac`
+  // is the macOS-only gate. Toggling one would emulate a shell that never exists.
   await page.evaluate(({ mac, dark }) => {
+    document.documentElement.classList.toggle("native-frost", mac);
     document.documentElement.classList.toggle("electron-mac", mac);
     document.documentElement.classList.toggle("dark", dark);
   }, opts);
   await page.waitForFunction(
     ({ mac, dark }) =>
+      document.documentElement.classList.contains("native-frost") === mac &&
       document.documentElement.classList.contains("electron-mac") === mac &&
       document.documentElement.classList.contains("dark") === dark,
     opts,

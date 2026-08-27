@@ -42,6 +42,16 @@ mod window_recompose;
 #[cfg(target_os = "windows")]
 mod windows_repaint;
 
+/// The DWM backdrop behind the app window on Windows 11. Compiled on EVERY
+/// platform and called only from Windows, on purpose: the file next door carries
+/// the scar of a Windows-only line inside a macOS-only block, which "compiled
+/// nowhere, and no `cargo check` could say so". Every entry point in there is a
+/// no-op off Windows, so the call sites below stay unguarded and type-checked on
+/// a Mac. `allow(dead_code)` for the same reason as `mod chords`: off Windows the
+/// bodies are unreachable, and being unreachable is what makes them checkable.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+mod windows_acrylic;
+
 /// The menu accelerators on Windows, where nothing translates the accelerator
 /// table `muda` builds. `menu_chords` is the table (chord in, menu id out) and
 /// compiles everywhere so it can be TESTED here; `menu_chords_win` is the
@@ -2062,6 +2072,21 @@ fn set_theme(app: tauri::AppHandle, theme: String) {
             Ok(())
         });
     }
+    // Windows: no NSWindow to re-tint, but the DWM backdrop follows the window
+    // theme, so the same command has to reach it. The mode mapping and the window
+    // set live next to the effect that uses them; this line is a no-op off
+    // Windows, which is what keeps it unguarded and inside what a Mac
+    // `cargo check` reads (see `mod windows_acrylic`).
+    //
+    // no_abort for the same reason as the macOS arm above, and it is not
+    // decoration: `set_effects` and `set_theme` both reach the window
+    // dispatcher, whose mutex stays poisoned once anything has panicked while
+    // holding it. `set_theme` is a SYNC command, so a panic here unwinds into
+    // the FFI boundary and aborts the whole app rather than failing one call.
+    let _ = no_abort("set_theme_backdrop", || {
+        windows_acrylic::apply_theme_mode(&app, &theme);
+        Ok(())
+    });
     #[cfg(not(target_os = "macos"))]
     let _ = (app, theme);
 }
@@ -8615,6 +8640,12 @@ async fn window_detach(
     #[cfg(target_os = "windows")]
     menu_chords_win::install(&app, &label);
 
+    // Same DWM backdrop as the main window: a pop-out born after startup would
+    // otherwise be the one flat window on screen. `None` means "follow the OS
+    // for now"; the client's next `set_theme` re-tints this window with the
+    // rest, because `detach-*` is inside the set that command walks.
+    windows_acrylic::apply_backdrop(&win.as_ref().window(), None);
+
     #[cfg(target_os = "macos")]
     {
         // Traffic lights hidden by default (revealed with the Topics menu, same
@@ -8784,6 +8815,13 @@ async fn window_detach_space(
             // Ctrl+Q or the zoom chords must work while it holds focus.
             #[cfg(target_os = "windows")]
             menu_chords_win::install(&app_for_main, &label);
+
+            // And it is a window that PAINTS THE APP, so on Windows it needs the
+            // DWM backdrop like any other. Without this the group window is the
+            // one hole in the screen: it is built transparent, the client paints
+            // its page transparent too, and with nothing frosted behind it the
+            // live desktop shows straight through. See `is_app_shell`.
+            windows_acrylic::apply_backdrop(&win.as_ref().window(), None);
 
             #[cfg(target_os = "macos")]
             {
@@ -10585,6 +10623,13 @@ pub fn run() {
             // compiles nowhere, and no `cargo check` can say so.
             #[cfg(target_os = "windows")]
             windows_repaint::wire(app.handle());
+
+            // The DWM backdrop behind the window. Unguarded because the entry
+            // point is a no-op off Windows, which keeps this call site inside
+            // what a Mac `cargo check` reads. It runs AFTER the decorations are
+            // dropped above: the backdrop is a property of the window, not of
+            // its frame, and re-applying it later is idempotent anyway.
+            windows_acrylic::wire(app.handle());
 
             // Traffic lights hidden by default — revealed on demand when the
             // Topics menu opens (parity with the Electron shell).

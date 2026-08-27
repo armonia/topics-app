@@ -237,18 +237,23 @@
    * big part of why it reads as "the app". In a plain browser there's no native
    * vibrancy, so the same components fall back to a flat opaque slate and look
    * dead. We recreate the effect WITHOUT touching app code:
-   *   (a) add `.electron-mac` → reuses the exact real vibrancy CSS (index.css
-   *       §macOS native vibrancy): root goes transparent, chrome frosts to a
-   *       translucent dark glass, terminal panes ride the same layer.
+   *   (a) add `.native-frost` + `.electron-mac` → reuses the exact real
+   *       vibrancy CSS (index.css §Native frosted backdrop): root goes
+   *       transparent, chrome frosts to a translucent dark glass, terminal
+   *       panes ride the same layer. BOTH classes, because the real mac shell
+   *       carries both and the rules are split between them: `native-frost`
+   *       holds every translucency rule, `electron-mac` keeps the 12px #root
+   *       window corner. Dropping either one would change how this demo looks.
    *   (b) paint a deep, cool aurora backdrop BEHIND the now-transparent root
    *       (body::before, fixed, z-index:-1) so the glass has something living
    *       to frost over — the browser-side stand-in for the blurred desktop.
    * Self-contained: looks right standalone, on the local server, and inside the
    * landing hero iframe — no dependency on the parent page bleeding through. */
+  document.documentElement.classList.add("native-frost");
   document.documentElement.classList.add("electron-mac");
   (function injectVibrancyBackdrop() {
     var css =
-      "html.electron-mac, html.electron-mac body { background: transparent !important; }" +
+      "html.native-frost, html.native-frost body { background: transparent !important; }" +
       /* deep cool base + three soft, blurred glows ≈ a frosted dark desktop */
       "body::before{content:'';position:fixed;inset:0;z-index:-2;pointer-events:none;" +
         "background:" +
