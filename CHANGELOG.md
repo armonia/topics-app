@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.189 — 2026-08-27
+
+### Sotto il cofano
+- La finestra e' TRASPARENTE, e su Windows quella trasparenza non serve a niente
+
 ## 2.2.188 — 2026-08-27
 
 ### Sotto il cofano
