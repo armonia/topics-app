@@ -67,6 +67,12 @@ export interface AppSettings {
    *  NULL = pagina spenta (404). Non-null = pagina attiva a /public/profile/<token>.
    *  Generato dal server al primo click su «Pubblica», azzerato con «Revoca». */
   profileShareToken: string | null;
+  /** Topics snapshots the tree BEFORE every turn, onto a dedicated ref
+   *  (`refs/topics/checkpoints/<session>/<seq>`, see
+   *  `services/turn-checkpoints.ts`). NULL = never touched = OFF: it writes git
+   *  objects into somebody else's repository on every turn, so it has to arrive
+   *  without touching anyone until they switch it on. */
+  turnCheckpointsEnabled: boolean | null;
 }
 
 const EMPTY: AppSettings = {
@@ -87,6 +93,7 @@ const EMPTY: AppSettings = {
   agentRuntime: null,
   profilePublishCost: null,
   profileShareToken: null,
+  turnCheckpointsEnabled: null,
 };
 
 interface Row {
@@ -107,6 +114,7 @@ interface Row {
   agent_runtime: string | null;
   profile_publish_cost: number | null;
   profile_share_token: string | null;
+  turn_checkpoints_enabled: number | null;
 }
 
 function rowToSettings(r: Row): AppSettings {
@@ -131,6 +139,8 @@ function rowToSettings(r: Row): AppSettings {
     profilePublishCost:
       r.profile_publish_cost == null ? null : r.profile_publish_cost === 1,
     profileShareToken: r.profile_share_token ?? null,
+    turnCheckpointsEnabled:
+      r.turn_checkpoints_enabled == null ? null : r.turn_checkpoints_enabled === 1,
   };
 }
 
@@ -149,7 +159,8 @@ export function getAppSettings(): AppSettings {
                 openai_model, openai_max_tokens, codex_model, codex_reasoning_effort,
                 claude_code_permission_mode, codex_approval_mode, claude_code_enabled,
                 output_language, discord_presence_enabled, discord_detail_level,
-                agent_runtime, profile_publish_cost, profile_share_token
+                agent_runtime, profile_publish_cost, profile_share_token,
+                turn_checkpoints_enabled
            FROM app_settings WHERE id = 1`,
       )
       .get() as Row | null;
@@ -179,6 +190,7 @@ const COLUMNS: Record<keyof AppSettings, string> = {
   agentRuntime: "agent_runtime",
   profilePublishCost: "profile_publish_cost",
   profileShareToken: "profile_share_token",
+  turnCheckpointsEnabled: "turn_checkpoints_enabled",
 };
 
 /**
@@ -197,7 +209,12 @@ export function updateAppSettings(patch: Partial<AppSettings>): AppSettings {
     // I booleani vanno in colonne INTEGER: l'elenco è quello, e va tenuto
     // insieme al tipo — un `boolean` finito qui senza conversione entra in
     // SQLite come… niente, perché bun:sqlite non lega un bool.
-    if (key === "claudeCodeEnabled" || key === "discordPresenceEnabled" || key === "profilePublishCost") {
+    if (
+      key === "claudeCodeEnabled" ||
+      key === "discordPresenceEnabled" ||
+      key === "profilePublishCost" ||
+      key === "turnCheckpointsEnabled"
+    ) {
       values.push(v == null ? null : v ? 1 : 0);
     } else {
       values.push((v as string | number | null) ?? null);
@@ -393,4 +410,16 @@ export function resolveAgentRuntime(s = getAppSettings()): AgentRuntime {
   return (AGENT_RUNTIMES as readonly string[]).includes(raw)
     ? (raw as AgentRuntime)
     : "cli";
+}
+
+/**
+ * Automatic per-turn checkpoints: on, or off?
+ *
+ * No env fallback, and that is deliberate. The two settings above that have one
+ * are machine choices; this one writes into a git repository that belongs to a
+ * person, once per turn, and the only acceptable answer to "nobody decided" is
+ * NO. `=== true` means an explicit yes in Settings, nothing else.
+ */
+export function resolveTurnCheckpointsEnabled(s = getAppSettings()): boolean {
+  return s.turnCheckpointsEnabled === true;
 }

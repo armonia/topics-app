@@ -20,6 +20,7 @@ import { MessageList } from './MessageList';
 import { SLASH_COMMANDS } from './slashCommands';
 import { ChatInput } from './ChatInput';
 import { CheckpointTimeline } from './CheckpointTimeline';
+import { restoreLastTurnCheckpoint } from '../../hooks/useCheckpoints';
 import { TodoStrip } from './TodoStrip';
 import { GoalBar } from './GoalBar';
 import { PlanApprovalBar } from './PlanApprovalBar';
@@ -917,17 +918,40 @@ function ChatPaneComponent({
     // log — you type `/rewind`, nothing happens, and there is nothing to read
     // about why.
     //
-    // Topics has the feature under another name, on screen already: the
-    // checkpoint timeline above the composer. So the honest answer is to point
-    // at it. This does NOT decide what `/rewind` should eventually do — wiring
-    // it to a real rollback is a product call — it only stops the silence.
+    // Now it does the thing: it restores the automatic checkpoint taken before
+    // the last turn (`server/services/turn-checkpoints.ts`).
+    //
+    // WHAT IT SAYS, and why every line of it is there. It reports the file
+    // counts, it names the branch HEAD is still on — because the old manual
+    // rollback used to leave the repository detached and say nothing — and it
+    // states outright that the CONVERSATION did not move. That last line is not
+    // filler: "your files are back" and "the chat is back" are two different
+    // promises, Topics only keeps the first, and a user who assumes the second
+    // discovers the mismatch later, at the worst possible moment.
     if (cmd === '/rewind' || cmd === '/checkpoint') {
-      setCommandResult({
-        type: 'error',
-        message:
-          "/rewind is a TUI screen, and here the CLI runs non-interactively: handing it over would do nothing.\n" +
-          "This chat's checkpoints are the strip above the composer. That is where you go back from.",
-      });
+      setCommandLoading(true);
+      try {
+        const r = await restoreLastTurnCheckpoint(topic.id);
+        const when = r.checkpoint.createdAt ? new Date(r.checkpoint.createdAt).toLocaleTimeString() : '';
+        setCommandResult({
+          type: 'success',
+          message: [
+            `Albero ripristinato al checkpoint «${r.checkpoint.label}»${when ? ` (${when})` : ''}.`,
+            `${r.restored} file rimessi a posto, ${r.removed} creati dal turno rimossi.`,
+            r.branch ? `HEAD è ancora su ${r.branch}: nessun detached HEAD.` : 'Attenzione: HEAD era già staccato prima del ripristino.',
+            'La CONVERSAZIONE non è tornata indietro: sono i file a essere tornati com\'erano. Per tagliare anche la chat, usa la striscia dei checkpoint sopra il composer.',
+          ].join('\n'),
+        });
+      } catch (e) {
+        setCommandResult({
+          type: 'error',
+          message:
+            errMessage(e) +
+            '\nI checkpoint automatici per turno sono spenti finché non li accendi in Impostazioni.',
+        });
+      } finally {
+        setCommandLoading(false);
+      }
       return true;
     }
 

@@ -85,3 +85,36 @@ export function useCheckpoints(topicId: string) {
 
   return { checkpoints, loading, error, load, create, rollback };
 }
+
+/** The automatic per-turn checkpoint, as it comes off the wire. */
+export interface TurnCheckpointWire {
+  commit: string;
+  seq: number;
+  label: string;
+  createdAt: string;
+}
+
+export interface TurnRestoreWire {
+  ok: true;
+  checkpoint: TurnCheckpointWire;
+  restored: number;
+  removed: number;
+  branch: string | null;
+  /** Always false. Files come back; the conversation does not, and the caller
+   *  is expected to SAY so rather than let the user assume otherwise. */
+  conversationRewound: false;
+}
+
+/** `/rewind`: put the tree back the way it was before the last turn.
+ *
+ *  Standalone rather than part of `useCheckpoints` because it is a different
+ *  list on a different store (git refs, not the JSON file) and the strip above
+ *  the composer must not show the two mixed: half of those entries rewind the
+ *  conversation and half do not. */
+export async function restoreLastTurnCheckpoint(topicId: string): Promise<TurnRestoreWire> {
+  return checkpointRequest<TurnRestoreWire>(`/topics/${topicId}/turn-checkpoints/restore`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
