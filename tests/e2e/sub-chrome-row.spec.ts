@@ -33,6 +33,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import { waitForLayoutSettled } from "./helpers/layout";
 
 hermetic(test);
 
@@ -97,7 +98,9 @@ async function apri(page: Page, request: Parameters<typeof seedProjectPane>[0], 
   await waitForPaneStoreQuiet(request);
   await goToApp(page);
   await page.waitForSelector('[data-testid="project-window"]', { timeout: 15000 });
-  await page.waitForTimeout(400);
+  // Every measurement in this file is pixel geometry: it has to be taken when
+  // the layout has stopped, not when a clock says it should have.
+  await waitForLayoutSettled(page);
 }
 
 test.describe("La riga di chrome subordinata", () => {
@@ -134,7 +137,7 @@ test.describe("La riga di chrome subordinata", () => {
 
       if (stato === "aperta") {
         await page.getByTestId("project-card").first().click();
-        await page.waitForTimeout(400);
+        await waitForLayoutSettled(page);
       }
     }
   });
@@ -217,7 +220,7 @@ test.describe("La riga di chrome subordinata", () => {
     await page.setViewportSize({ width: 1400, height: 900 });
     await apri(page, request, "-c");
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.waitForTimeout(600);
+    await waitForLayoutSettled(page);
 
     const m = await misura(page);
     const [sopra, sotto] = m.barre;

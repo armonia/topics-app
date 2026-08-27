@@ -159,6 +159,7 @@ test.describe("Split Screen Sync & Correctness", () => {
     await expect(tabs.first()).toBeVisible({ timeout: 10000 });
 
     // Add 2 more panes for nested splits
+    const atteso = await tabs.count();
     for (let n = 0; n < 2; n++) {
       const addPaneBtn = page.getByTitle("Add pane");
       if ((await addPaneBtn.count()) > 0) {
@@ -173,7 +174,11 @@ test.describe("Split Screen Sync & Correctness", () => {
             break;
           }
         }
-        await page.waitForTimeout(500);
+        // The condition the sleep stood in for: the menu closed and the tab
+        // it created is on the bar. Counting is what the next assertion reads,
+        // so waiting on the count is waiting on the real thing.
+        await expect(addMenu).toBeHidden({ timeout: 10_000 });
+        await expect(tabs).toHaveCount(atteso + n + 1, { timeout: 10_000 });
       }
     }
 
@@ -191,8 +196,13 @@ test.describe("Split Screen Sync & Correctness", () => {
         .filter({ hasText: /Dividi a destra/ })
         .first();
       if ((await splitRightBtn.count()) > 0) {
+        const barrePrima = await countTabBars(page);
         await splitRightBtn.click();
-        await page.waitForTimeout(1000);
+        // A split ADDS a tab bar. That is the observable outcome, and it is
+        // exactly what the final assertion of this block counts.
+        await expect
+          .poll(() => countTabBars(page), { timeout: 10_000 })
+          .toBeGreaterThan(barrePrima);
       }
 
       // Now Split Down on another tab
@@ -206,8 +216,11 @@ test.describe("Split Screen Sync & Correctness", () => {
           .filter({ hasText: /Dividi in basso/ })
           .first();
         if ((await splitDownBtn.count()) > 0) {
+          const barrePrima = await countTabBars(page);
           await splitDownBtn.click();
-          await page.waitForTimeout(1000);
+          await expect
+            .poll(() => countTabBars(page), { timeout: 10_000 })
+            .toBeGreaterThan(barrePrima);
         }
       }
 

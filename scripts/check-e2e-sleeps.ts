@@ -82,6 +82,12 @@ interface FileCount {
   /** Somma degli argomenti LETTERALI. Le chiamate con un argomento calcolato non ci entrano. */
   ms: number;
   lines: number[];
+  /** Calls carrying a `DELIBERATE FIXED WAIT:` comment: there the time IS the experiment. */
+  declared: number;
+  /** All the others. This is the number that has to reach zero, not the total. */
+  undeclared: number;
+  /** Lines of the undeclared calls only. */
+  undeclaredLines: number[];
 }
 
 // ---------------------------------------------------------------------------
@@ -189,22 +195,53 @@ function blankNonCode(src: string): string {
 
 const SLEEP_CALL = /\bwaitForTimeout\s*\(\s*([0-9_]+)?/g;
 
+/**
+ * The pact that turns this gate from a debt archive into a RULE.
+ *
+ * A handful of sleeps are not debt: they are the experiment. When the assertion
+ * is "for N ms nothing happened" (no re-render, no extra request, no banner)
+ * the window IS the oracle, and replacing it with a condition deletes the test.
+ * Those declare themselves in the comment right above the call, and this gate
+ * counts them apart. Everything else is an undeclared bet on a clock.
+ */
+const DECLARED_MARKER = /DELIBERATE FIXED WAIT/;
+/** How many lines above the call are searched for the declaration. */
+const DECLARED_LOOKBACK = 8;
+
 function countFile(root: string, absPath: string): FileCount | null {
   const src = readFileSync(absPath, "utf8");
+  const rawLines = src.split("\n");
   const code = blankNonCode(src);
   const lines: number[] = [];
+  const undeclaredLines: number[] = [];
   let calls = 0;
   let ms = 0;
+  let declared = 0;
 
   SLEEP_CALL.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = SLEEP_CALL.exec(code)) !== null) {
     calls++;
     if (m[1]) ms += Number(m[1].replace(/_/g, ""));
-    lines.push(code.slice(0, m.index).split("\n").length);
+    const line = code.slice(0, m.index).split("\n").length;
+    lines.push(line);
+    // The window includes the call's own line: the declaration may sit at the
+    // end of the call instead of above it, and both spellings count.
+    const from = Math.max(0, line - 1 - DECLARED_LOOKBACK);
+    const window = rawLines.slice(from, line).join("\n");
+    if (DECLARED_MARKER.test(window)) declared++;
+    else undeclaredLines.push(line);
   }
   if (calls === 0) return null;
-  return { file: relative(root, absPath), calls, ms, lines };
+  return {
+    file: relative(root, absPath),
+    calls,
+    ms,
+    lines,
+    declared,
+    undeclared: calls - declared,
+    undeclaredLines,
+  };
 }
 
 function measure(root: string): FileCount[] {
@@ -291,6 +328,8 @@ function main(): void {
   const counts = measure(opts.root);
   const totalCalls = counts.reduce((a, c) => a + c.calls, 0);
   const totalMs = counts.reduce((a, c) => a + c.ms, 0);
+  const totalDeclared = counts.reduce((a, c) => a + c.declared, 0);
+  const totalUndeclared = totalCalls - totalDeclared;
 
   if (opts.updateBaseline) {
     writeBaseline(opts, counts);
@@ -315,14 +354,33 @@ function main(): void {
   }
 
   if (opts.json) {
-    console.log(JSON.stringify({ total_calls: totalCalls, total_ms: totalMs, worse, better, files: counts }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          total_calls: totalCalls,
+          total_ms: totalMs,
+          total_declared: totalDeclared,
+          total_undeclared: totalUndeclared,
+          worse,
+          better,
+          files: counts,
+        },
+        null,
+        2,
+      ),
+    );
     process.exit(worse.length ? 1 : 0);
   }
 
   const top = counts.slice().sort((a, b) => b.calls - a.calls || a.file.localeCompare(b.file)).slice(0, opts.top);
   console.log(`[check-sleeps] ${totalCalls} sonni fissi in ${counts.length} file sotto ${E2E_DIR} — ${(totalMs / 1000).toFixed(1)}s per passata (argomenti letterali)`);
-  console.log(`[check-sleeps] i piu' grossi:`);
-  for (const c of top) console.log(`  ${String(c.calls).padStart(3)}  ${(c.ms / 1000).toFixed(1).padStart(6)}s  ${c.file}`);
+  console.log(`[check-sleeps] di cui ${totalDeclared} DICHIARATI (il tempo e' l'esperimento) e ${totalUndeclared} no. Il numero che deve arrivare a zero e' il secondo.`);
+  console.log(`[check-sleeps] i piu' grossi (calls = dichiarati + non):`);
+  for (const c of top) {
+    console.log(
+      `  ${String(c.calls).padStart(3)}  ${String(c.declared).padStart(3)} dich.  ${(c.ms / 1000).toFixed(1).padStart(6)}s  ${c.file}`,
+    );
+  }
 
   for (const b of better) {
     console.log(`[check-sleeps] MEGLIO: ${b.file} ${b.was} -> ${b.now}. Riabbassa la baseline con --update-baseline.`);

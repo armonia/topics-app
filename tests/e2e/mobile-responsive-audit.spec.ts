@@ -33,6 +33,7 @@ import { mkdirSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { waitForLayoutSettled } from "./helpers/layout";
 import { hermetic } from "./fixtures/hermetic";
 
 hermetic(test);
@@ -97,7 +98,9 @@ async function openAppAt(page: Page, width: number, height: number) {
   await page.setViewportSize({ width, height });
   // Il layout deve essersi FERMATO prima di misurarlo: i listener di resize
   // ricalcolano, e una misura presa a meta' corsa e' rumore, non un difetto.
-  await page.waitForTimeout(1200);
+  // That is a condition the page can answer: no rect moves any more. A clock
+  // never knew it.
+  await waitForLayoutSettled(page);
 }
 
 /** I due difetti che nessun contenuto giustifica, su nessuna superficie. */
@@ -167,7 +170,7 @@ test.describe("MRA — responsiveness mobile misurata", () => {
       await page.keyboard.press("Meta+k");
       const palette = page.getByTestId("command-palette");
       await expect(palette).toBeVisible();
-      await page.waitForTimeout(400);
+      await waitForLayoutSettled(page, '[data-testid="command-palette"]');
 
       // Si MISURA e si SALVA prima di giudicare. Un artefatto che esiste solo
       // quando il test e' verde non serve a niente: la baseline che interessa
@@ -184,7 +187,10 @@ test.describe("MRA — responsiveness mobile misurata", () => {
       // Con una query la palette cambia corpo: era `grid-cols-2`, ed e' il caso
       // che su 320px dava due colonne da 150px.
       await palette.locator("input").fill("e2e");
-      await page.waitForTimeout(900);
+      // Message search is debounced 300 ms and then hits the network, so the
+      // palette body changes twice. The stillness wait restarts on every
+      // change, so it cannot slip through between the two.
+      await waitForLayoutSettled(page, '[data-testid="command-palette"]', { stableMs: 700 });
       const conQuery = await runUiAudit(page, '[data-testid="command-palette"]', 44);
       persist(`mobile-palette-query-${vp.name}`, conQuery);
 
@@ -214,7 +220,7 @@ test.describe("MRA — responsiveness mobile misurata", () => {
       const panel = page.getByTestId("file-search");
       await expect(panel).toBeVisible();
       await expect(panel.getByTestId("file-search-mode-name")).toHaveAttribute("aria-pressed", "true");
-      await page.waitForTimeout(400);
+      await waitForLayoutSettled(page, '[data-testid="file-search"]');
 
       const perNome = await runUiAudit(page, '[data-testid="file-search"]', 44);
       persist(`mobile-filesearch-nome-${vp.name}`, perNome);
@@ -230,7 +236,11 @@ test.describe("MRA — responsiveness mobile misurata", () => {
       await page.keyboard.press("Meta+f");
       await expect(panel.getByTestId("file-search-mode-content")).toHaveAttribute("aria-pressed", "true");
       await panel.getByTestId("file-search-input").fill("parolachiavecercabile");
-      await page.waitForTimeout(1200);
+      // The RESULT first (the group header carries the name of the file that
+      // holds the word), then the stillness. Search is debounced 300 ms and the
+      // disk read is on nobody's clock.
+      await expect(panel.getByText("nota-di-prova.txt").first()).toBeVisible({ timeout: 15_000 });
+      await waitForLayoutSettled(page, '[data-testid="file-search"]', { stableMs: 700 });
 
       const perContenuto = await runUiAudit(page, '[data-testid="file-search"]', 44);
       persist(`mobile-filesearch-contenuto-${vp.name}`, perContenuto);
@@ -293,7 +303,7 @@ test.describe("MRA — responsiveness mobile misurata", () => {
     await openAppAt(page, 390, 844);
     await page.keyboard.press("Meta+k");
     await expect(page.getByTestId("command-palette")).toBeVisible();
-    await page.waitForTimeout(400);
+    await waitForLayoutSettled(page, '[data-testid="command-palette"]');
 
     const pulita = await runUiAudit(page, '[data-testid="command-palette"]', 44);
     expect(pulita.counts.offscreen + pulita.counts.tapTargets).toBe(0);
