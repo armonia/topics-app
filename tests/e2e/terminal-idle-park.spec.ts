@@ -115,6 +115,16 @@ test.describe("Parcheggio delle sessioni terminale ferme", () => {
       "senza claude_session_id non c'e' niente da parcheggiare",
     ).toBeTruthy();
 
+    // The session must be IN THE HANDS OF THE SWEEP before the test reads a
+    // verdict from it. Without this wait the first sweep of a test could land
+    // before the bridge registered the PTY, and every gate assertion downstream
+    // read `(non elencata)` - a red that blamed the gate for a race. allow-italian: quoted verdict string.
+    expect(
+      await sweepFinds(request, created.id),
+      `la sessione ${name} non e' mai comparsa nello sweep: la PTY non e' partita, ` +
+        "e i gate qui sotto misurerebbero quello invece della decisione.",
+    ).toBe(true);
+
     return created;
   }
 
@@ -228,6 +238,42 @@ test.describe("Parcheggio delle sessioni terminale ferme", () => {
   const why = (r: SweepResult, id: string) =>
     r.skipped.find((s) => s.id === id)?.reason ?? "(non elencata)";
 
+  const sweepSees = (r: SweepResult, id: string) =>
+    r.parked.includes(id) || r.skipped.some((s) => s.id === id);
+
+  /**
+   * Waits until the sweep SEES the session, instead of reading it once.
+   *
+   * THE RACE, measured on the nightly of 27/08 (green on macOS, red on Linux).
+   * `POST /api/terminal/sessions` answers as soon as the row exists; the sweep
+   * reads the IN-MEMORY map, which is filled a moment later, when the bridge has
+   * really started the PTY. Reading the sweep on the next line is therefore a
+   * read of whichever of the two won the race: on a fast runner the id is simply
+   * not there yet, so `why()` answered `(non elencata)` where the test expected allow-italian: quoted verdict string.
+   * `no-transcript` / `idle-unknown`.
+   *
+   * Waiting is not a `waitForTimeout` in disguise: the condition is the state
+   * the test needs (the session is in the sweep's hands), so it costs one round
+   * trip when the PTY is already up and it fails with a sentence when it never
+   * comes up, instead of failing on the gate that follows.
+   *
+   * Returns false rather than throwing: the callers do two different things with
+   * a session that never appears - the probe declares the environment unable,
+   * the creation fails with its own message.
+   */
+  async function sweepFinds(
+    request: import("@playwright/test").APIRequestContext,
+    id: string,
+    timeoutMs = 10_000,
+  ): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      if (sweepSees(await sweep(request, 0), id)) return true;
+      if (Date.now() >= deadline) return false;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+
   /**
    * Questo ambiente riesce a tenere VIVA una sessione claude?
    *
@@ -255,9 +301,10 @@ test.describe("Parcheggio delle sessioni terminale ferme", () => {
       return false;
     }
     const probe = (await res.json()) as SessionRow;
-    const seen = await sweep(request, 0);
-    claudePtyAvailable =
-      seen.parked.includes(probe.id) || seen.skipped.some((s) => s.id === probe.id);
+    // Waited for, not read once: an environment that HAS a working PTY but is
+    // slower than this line would be declared unable, and every test here would
+    // silently skip - a suite that says nothing while looking green.
+    claudePtyAvailable = await sweepFinds(request, probe.id);
     await request.delete(`${E2E_BASE}/api/terminal/sessions/${probe.id}`).catch(() => {});
     return claudePtyAvailable;
   }
