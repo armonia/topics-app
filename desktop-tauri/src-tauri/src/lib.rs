@@ -28,6 +28,8 @@ mod browser_eval;
 mod browser_linux;
 #[cfg(target_os = "windows")]
 mod browser_win;
+#[cfg(target_os = "windows")]
+mod windows_repaint;
 
 /// I path che l'OS consegna quando qualcuno fa «Apri con Topics»: raccolta da
 /// argv / seconda istanza / Finder, coda per chi arriva prima della webview,
@@ -3453,7 +3455,7 @@ fn rect_intersects_any(rect: (f64, f64, f64, f64), monitors: &[(f64, f64, f64, f
 ///
 /// Bounce: grow the outer size by 1px and put it back a beat later. That is the half
 /// that was missing, and it's the half that actually repaints.
-fn recompose_main_window(app: &tauri::AppHandle, why: &str) {
+pub(crate) fn recompose_main_window(app: &tauri::AppHandle, why: &str) {
     use tauri::Manager;
     let Some(win) = app.get_window("main") else { return };
     if !win.is_visible().unwrap_or(true) || win.is_minimized().unwrap_or(false) {
@@ -10782,6 +10784,10 @@ pub fn run() {
                             let visible = TRAFFIC_LIGHTS_VISIBLE.load(Ordering::Relaxed)
                                 || w.is_fullscreen().unwrap_or(false);
                             apply_traffic_lights(&w, visible);
+                            // Windows delivers Resized on both edges of a minimise,
+                            // which is where the un-minimize transition is visible.
+                            #[cfg(target_os = "windows")]
+                            windows_repaint::note_minimize_transition(&w.as_ref().window());
                         }
                         tauri::WindowEvent::Moved(_) => {
                             save_state_throttled(&w.as_ref().window());
