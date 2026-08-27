@@ -1,158 +1,184 @@
 /**
- * IL CANCELLO FRA LA CI E QUELLO CHE ARRIVA ALL'AUTO-UPDATER.
+ * THE GATE BETWEEN THE CI AND WHAT REACHES THE AUTO-UPDATER.
  *
- * `auto-bump.yml` non costruisce solo: PUBBLICA, e quello che pubblica finisce
- * sull'auto-updater di chiunque abbia Topics aperta. Fino al 2026-08-16 partiva
- * su `push: branches: [main]` e l'unico cancello era la compilazione degli
- * installer — misurato su 60 run, 37 release riuscite di cui 28 su uno SHA la
- * cui CI era rossa o cancellata.
+ * `auto-bump.yml` does not only build: it PUBLISHES, and what it publishes
+ * lands on the auto-updater of anybody with Topics open. Until 2026-08-16 it
+ * fired on `push: branches: [main]` and the only gate was the installers
+ * compiling: measured over 60 runs, 37 successful releases, 28 of them on a SHA
+ * whose CI was red or cancelled.
  *
- * PERCHE' UN TEST E NON «si vede dal file». Il costo di sbagliare qui non e'
- * simmetrico. Un `if` scritto male in un workflow non ha modo di essere rosso:
- * GitHub valuta un'espressione non valida come FALSA e salta il job in
- * silenzio, quindi la forma rotta di questo cancello non e' «pubblica troppo»,
- * e' «non pubblica mai piu' e nessuno se ne accorge finche' un utente non
- * chiede perche' e' fermo a una versione di tre settimane fa». Questo file
- * legge le condizioni dal workflow VERO e le rigioca contro payload di
- * `workflow_run` costruiti a mano, cosi' la promessa e' verificata invece che
- * riletta.
+ * WHY A TEST AND NOT "you can see it in the file". The cost of being wrong here
+ * is not symmetric. A badly written `if` in a workflow has no way of being red:
+ * GitHub evaluates an invalid expression as FALSE and skips the job in silence,
+ * so the broken shape of this gate is not "publishes too much", it is "never
+ * publishes again and nobody notices until a user asks why they are three weeks
+ * behind". That is why, since 2026-08-27, the decision is not an `if:` at all
+ * but a pure function, `decide()` in `scripts/release-gate.ts`, and this file
+ * calls THAT function instead of replaying a copy of it.
  *
- * Un lint YAML non basterebbe: direbbe che la sintassi e' valida, non che la
- * condizione scarta un `cancelled`.
-  * @covers RELEASE-01
+ * WHAT CHANGED THAT DAY. The job used to bump the SHA the CI had approved and
+ * then push. At 18 commits an hour against a 13-minute CI, main had always
+ * moved by then, the push was not fast-forward, and it gave up - correctly, and
+ * forever: no release between 04:37 and 09:32. The candidate is now THE TIP of
+ * main and the condition is a green verdict on that exact SHA, so the shipped
+ * SHA is the measured SHA by construction and the push is fast-forward by
+ * construction. The tests below are the branches of that decision.
+ *
+ * @covers RELEASE-01
  */
 import { describe, it, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { decide, type CiRun, type GateInput } from "../../scripts/release-gate";
 
 const ROOT = resolve(import.meta.dir, "../..");
 const WF = readFileSync(resolve(ROOT, ".github/workflows/auto-bump.yml"), "utf8");
+const CI = readFileSync(resolve(ROOT, ".github/workflows/ci.yml"), "utf8");
 
-/**
- * L'`if` del job `bump`, preso dal file invece che ricopiato: un test che
- * riscrive la condizione che dice di controllare verifica se stesso.
- */
-function bumpCondition(): string {
-  const m = WF.match(/if:\s*>-\s*\n([\s\S]*?)\n\s{4}runs-on:/);
-  if (!m) throw new Error("`if` del job bump non trovato in auto-bump.yml");
-  return m[1];
-}
+const TIP = "1c0ffee1c0ffee1c0ffee1c0ffee1c0ffee1c0ff";
 
-type Run = {
-  conclusion: string;
-  head_branch: string;
-  head_commit: { message: string };
-};
-
-/**
- * Valuta la condizione del workflow contro un payload.
- *
- * Non e' un interprete di GitHub Actions: e' la traduzione delle tre clausole
- * che il file contiene, e il test qui sotto ne verifica la PARITA' con il testo
- * vero, cosi' una quarta clausola aggiunta al workflow senza toccare questo
- * file rende il test rosso invece di lasciarlo mentire.
- */
-function passes(run: Run): boolean {
-  return (
-    run.conclusion === "success" &&
-    run.head_branch === "main" &&
-    !run.head_commit.message.startsWith("chore(release):")
-  );
-}
-
-const run = (over: Partial<Run> = {}): Run => ({
+const run = (over: Partial<CiRun> = {}): CiRun => ({
+  status: "completed",
   conclusion: "success",
+  head_sha: TIP,
   head_branch: "main",
-  head_commit: { message: "Un commit qualsiasi" },
   ...over,
 });
 
-describe("auto-bump: la release non parte se la CI non e' verde", () => {
-  it("il trigger e' l'ESITO della CI, non il push", () => {
-    // `on: push` qui significava «pubblica e poi vediamo». La riga che conta e'
-    // `workflows: [CI]`: senza, `workflow_run` si sveglierebbe su un altro
-    // workflow e il cancello guarderebbe il verde di qualcun altro.
-    expect(WF).toContain("workflow_run:");
+const input = (over: Partial<GateInput> = {}): GateInput => ({
+  tipSha: TIP,
+  tipMessage: "Any commit at all",
+  branch: "main",
+  run: run(),
+  ...over,
+});
+
+describe("release-gate: only a green tip of main gets published", () => {
+  it("a green CI on the tip of main publishes THAT sha", () => {
+    expect(decide(input())).toEqual({ publish: true, sha: TIP });
+  });
+
+  it("a RED CI does not publish", () => {
+    expect(decide(input({ run: run({ conclusion: "failure" }) })).publish).toBe(false);
+  });
+
+  it("a CANCELLED CI does not publish: «we do not know» is not «fine»", () => {
+    // 37 of the last 100 runs on main were cancelled, all of them inside a
+    // high-rate window: the pending run evicted by the next push. Treating them
+    // as green would put back a third of the cases this gate exists to stop.
+    for (const conclusion of ["cancelled", "timed_out", "skipped", "action_required", null]) {
+      expect(decide(input({ run: run({ conclusion }) })).publish).toBe(false);
+    }
+  });
+
+  it("a CI still running is «not yet», and the next tick asks again", () => {
+    for (const status of ["queued", "in_progress", "waiting"]) {
+      const d = decide(input({ run: run({ status, conclusion: null }) }));
+      expect(d.publish).toBe(false);
+      expect(d).toHaveProperty("reason");
+    }
+  });
+
+  it("NO run on the tip does not publish", () => {
+    // The hole that used to park the chain: a run evicted from the queue never
+    // completes, so this sha has no verdict and never will. Skipping is right;
+    // what changed is that the next merge is no longer the only way out.
+    expect(decide(input({ run: null })).publish).toBe(false);
+  });
+
+  it("THE HEART OF IT: a green run on ANOTHER sha does not publish this tip", () => {
+    // The old shape shipped the approved SHA and let the push arbitrate. This
+    // one refuses before building anything, which is the same refusal moved to
+    // where it can be tested.
+    const other = "0badc0de0badc0de0badc0de0badc0de0badc0de";
+    expect(decide(input({ run: run({ head_sha: other }) })).publish).toBe(false);
+  });
+
+  it("a run measured on another branch does not publish", () => {
+    expect(decide(input({ run: run({ head_branch: "feature/whatever" }) })).publish).toBe(false);
+  });
+
+  it("the bump commit does not bump itself: no loop", () => {
+    // Second net. The first is that the default GITHUB_TOKEN triggers no
+    // workflow, so the CI never runs on a bump commit and it would be refused
+    // above for having no run. One net on a cycle that publishes to users is
+    // not enough.
+    expect(decide(input({ tipMessage: "chore(release): bump v2.2.191" })).publish).toBe(false);
+  });
+
+  it("a branch that is not main does not publish", () => {
+    expect(decide(input({ branch: "release/2.3" })).publish).toBe(false);
+  });
+
+  it("every refusal says why: the reason is what the run prints", () => {
+    // A gate that stops without a reason is indistinguishable from a gate that
+    // is broken, and this one is allowed to stop often.
+    const d = decide(input({ run: run({ conclusion: "failure" }) }));
+    expect(d.publish).toBe(false);
+    if (!d.publish) expect(d.reason.length).toBeGreaterThan(10);
+  });
+});
+
+describe("auto-bump.yml: the workflow asks the script, and asks it again", () => {
+  it("the gate step feeds the tip to release-gate.ts", () => {
+    expect(WF).toContain("bun run scripts/release-gate.ts");
+    expect(WF).toMatch(/id: gate/);
+  });
+
+  it("the bump, the changelog and the push are all guarded on its answer", () => {
+    const guards = WF.match(/if: \$\{\{ steps\.gate\.outputs\.publish == 'true' \}\}/g) ?? [];
+    expect(guards.length).toBe(3);
+  });
+
+  it("no job-level `if` reads the workflow_run payload any more", () => {
+    // It is empty on a scheduled tick, and a condition that quietly evaluates
+    // to false is how this chain would stop publishing with no red run to show.
+    expect(WF).not.toMatch(/if:[\s\S]{0,200}github\.event\.workflow_run\.conclusion/);
+  });
+
+  it("it checks out the TIP of main, not the sha of the event", () => {
+    expect(WF).toMatch(/fetch-depth: 0\n(\s+#.*\n)*\s+ref: main/);
+    expect(WF).not.toContain("ref: ${{ github.event.workflow_run.head_sha }}");
+  });
+
+  it("THE CONVERGENCE: a scheduled tick asks again without a new merge", () => {
+    // Without this the only tick is `workflow_run`, and a release then depends
+    // on a run finishing while its commit is still the tip - which is the
+    // coincidence that left the chain still for five hours on 27/08/2026.
+    expect(WF).toMatch(/schedule:\s*\n\s+- cron: "\*\/10 \* \* \* \*"/);
+    expect(WF).toMatch(/workflow_run:/);
     expect(WF).toMatch(/workflows:\s*\[CI\]/);
-    expect(WF).toMatch(/types:\s*\[completed\]/);
-    expect(WF).not.toMatch(/^on:\s*\n\s+push:/m);
   });
 
-  it("le tre clausole del workflow sono quelle che questo test rigioca", () => {
-    // PARITA'. Senza questo controllo `passes()` sarebbe una favola raccontata
-    // accanto al workflow: si potrebbe cambiare l'`if` vero e il test resterebbe
-    // verde su una condizione che non esiste piu'.
-    const cond = bumpCondition();
-    expect(cond).toContain("workflow_run.conclusion == 'success'");
-    expect(cond).toContain("workflow_run.head_branch == 'main'");
-    expect(cond).toContain("startsWith(github.event.workflow_run.head_commit.message, 'chore(release):')");
-    // Tre clausole, non quattro: `&&` compare due volte.
-    expect(cond.match(/&&/g)?.length).toBe(2);
+  it("nothing is ever force-pushed", () => {
+    expect(WF).not.toMatch(/push[^\n]*(--force|-f\b)/);
   });
 
-  it("una CI verde su main pubblica", () => {
-    expect(passes(run())).toBe(true);
+  it("giving up exits zero: a refusal is not a fault", () => {
+    // An `exit 1` on the losing side of a race paints a run red on a day when
+    // nothing broke, and a red that is not a fault teaches people to ignore
+    // reds. The brake is the missing `sha` output, not the colour.
+    expect(WF).toMatch(/if ! git push origin "HEAD:main"; then[\s\S]*?exit 0\n\s+fi/);
   });
 
-  it("una CI ROSSA non pubblica", () => {
-    expect(passes(run({ conclusion: "failure" }))).toBe(false);
-  });
-
-  it("una CI CANCELLATA non pubblica: «non lo sappiamo» non e' «va bene»", () => {
-    // Nei 60 run misurati, 11 erano `cancelled` — la concurrency di ci.yml
-    // cancella la run superata quando si spinge due volte di fila. Trattarli
-    // come verdi rimetterebbe dentro un terzo dei casi che questo cancello
-    // esiste per fermare.
-    expect(passes(run({ conclusion: "cancelled" }))).toBe(false);
-    expect(passes(run({ conclusion: "timed_out" }))).toBe(false);
-    expect(passes(run({ conclusion: "skipped" }))).toBe(false);
-    expect(passes(run({ conclusion: "action_required" }))).toBe(false);
-  });
-
-  it("il commit di bump non si auto-bumpa: nessun loop", () => {
-    // Seconda rete. La prima e' che il GITHUB_TOKEN di default non fa scattare
-    // altri workflow, quindi sul commit di bump la CI non gira proprio e non
-    // esiste un workflow_run che lo riguardi. Una rete sola su un ciclo che
-    // pubblica agli utenti non basta.
-    expect(passes(run({ head_commit: { message: "chore(release): bump v2.2.155" } }))).toBe(false);
-  });
-
-  it("un ramo che non e' main non pubblica", () => {
-    expect(passes(run({ head_branch: "feature/qualcosa" }))).toBe(false);
-  });
-
-  it("si bumpa lo SHA che la CI ha giudicato, non «main adesso»", () => {
-    // Fra la fine della CI e questo job main puo' essere avanzato. Checkout
-    // senza `ref` prenderebbe la punta nuova e pubblicherebbe un contenuto che
-    // la CI non ha mai visto: lo stesso buco, da un'altra porta.
-    expect(WF).toContain("ref: ${{ github.event.workflow_run.head_sha }}");
-  });
-
-  it("il job release resta appeso a bump, quindi il cancello vale anche per lui", () => {
-    // `release` non ha un `if` suo: si salta perche' `needs: bump` e' saltato.
-    // Se un giorno qualcuno gli desse un trigger indipendente, questo cancello
-    // diventerebbe decorativo.
+  it("the release job stays hung on bump, so the gate covers it too", () => {
     expect(WF).toMatch(/release:\s*\n\s+needs:\s*bump/);
+    expect(WF).toContain("if: ${{ needs.bump.outputs.sha != '' }}");
+  });
+});
+
+describe("ci.yml: on main no run waits behind another, so none is evicted", () => {
+  it("the concurrency group on main is per-SHA", () => {
+    // GitHub keeps ONE pending run per group: with a single group for main, the
+    // third push evicts the second and that commit is measured by nobody. 37 of
+    // the last 100 runs on main died that way. One group per sha, no queue, no
+    // eviction - and the gate above always has a verdict to read.
+    expect(CI).toContain(
+      "group: ci-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'tip' }}",
+    );
   });
 
-  /**
-   * LA VERIFICA CHE IL TASK CHIEDEVA, sui run VERI e non su esempi scelti:
-   * «verificare sui run storici gia' esistenti che la nuova condizione li
-   * avrebbe scartati».
-   *
-   * I dati sono quelli letti da `gh run list` il 2026-08-16 sulle ultime 60 run
-   * di ci.yml e auto-bump.yml, ridotti alle sole conclusioni. Sono congelati
-   * qui di proposito: un test che chiama la rete misura GitHub, non il
-   * cancello, ed e' rosso in aereo.
-   */
-  it("sui 60 run storici avrebbe scartato le 28 release nate da una CI non verde", () => {
-    const storiche: string[] = [
-      ...Array<string>(12).fill("success"),
-      ...Array<string>(37).fill("failure"),
-      ...Array<string>(11).fill("cancelled"),
-    ];
-    const passate = storiche.filter((c) => passes(run({ conclusion: c }))).length;
-    expect(passate).toBe(12);
-    expect(storiche.length - passate).toBe(48);
+  it("cancelling in progress stays off on main, on everywhere else", () => {
+    expect(CI).toContain("cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}");
   });
 });
