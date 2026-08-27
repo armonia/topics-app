@@ -1,68 +1,79 @@
 name: Auto-bump patch
 
-# Ogni push su main auto-incrementa la PATCH (la z in x.y.z) in lockstep su
-# package.json / tauri.conf.json / Cargo.toml, la committa indietro, e POI
-# costruisce e pubblica gli installer Tauri per quella versione — cosi' ogni
-# merge su main arriva all'auto-updater di tutti senza un passo manuale.
+# Increments the PATCH (the z in x.y.z) in lockstep across package.json /
+# tauri.conf.json / Cargo.toml / Cargo.lock, commits it back to main, and then
+# builds and publishes the Tauri installers for that version, so a merge on main
+# reaches everybody's auto-updater with no manual step.
 #
-# IL CANCELLO, ed e' il motivo per cui questo file e' cambiato il 2026-08-16.
-# La policy «main e' sempre spedito» (approvata 2026-07-10) diceva che gli
-# installer si costruiscono a ogni merge, e la build stessa era il cancello: un
-# merge che rompe la compilazione non pubblica niente. Misurato su 60 run, quel
-# cancello lascia passare tutto il resto: 37 release riuscite, 28 delle quali su
-# uno SHA la cui CI era rossa o cancellata. Compilare non e' passare i test —
-# quello che arrivava all'auto-updater di tutti era codice che non aveva mai
-# superato typecheck, lint e suite.
+# THE GATE, and why this file changed on 2026-08-16. The policy "main always
+# ships" (approved 2026-07-10) built installers on every merge, and the build
+# itself was the gate: a merge that broke compilation published nothing.
+# Measured over 60 runs, that gate let everything else through: 37 successful
+# releases, 28 of them on a SHA whose CI was red or cancelled. Compiling is not
+# passing the tests. Since then the gate is a GREEN CI, not a build.
 #
-# «Sempre spedito» resta, e questo NON lo annulla: non c'e' nessun passo umano
-# nuovo, nessuna approvazione, nessun tag da battere a mano. Cambia solo COSA
-# conta come merge sano — la CI verde invece della sola compilazione. Un rosso
-# non mette la release in attesa di qualcuno: la salta, e il commit successivo
-# che passa la CI spedisce anche il contenuto di quello saltato, perche' la
-# versione e' un contatore e non una coda.
+# WHAT CHANGED ON 2026-08-27, and it is the shape of the question. Measured at
+# 08:30 that day: 18 commits on origin/main in one hour, ~13 minutes for a CI
+# run to judge one of them. The job used to bump THE SHA THE CI HAD APPROVED and
+# then push; by the time it ran, main had moved and the push was not
+# fast-forward, so it gave up. Rightly so: forcing erases somebody else's
+# commit, and re-bumping on the new tip publishes code the CI never saw. But the
+# consequence was that a release only happened when a run finished while its SHA
+# was still the tip - a coincidence, not a mechanism. No release at all between
+# 04:37 and 09:32 that day; twelve of them once the rate dropped.
 #
-# PERCHE' `workflow_run` E NON UN POLLING. Le due strade erano: restare su
-# `push` e interrogare la conclusione della CI per quello SHA, oppure farsi
-# svegliare dalla CI quando ha finito. La prima paga la CI due volte — dieci
-# minuti di runner fermo ad aspettare un altro runner — e ha bisogno di un
-# timeout, che e' un terzo numero da tarare. La seconda arriva a cose fatte, con
-# la conclusione gia' nel payload. Una sola, come chiedeva il task.
+# So the question is asked the other way round now. The candidate is THE TIP OF
+# MAIN, and the condition is a green verdict on that exact SHA
+# (`scripts/release-gate.ts`, one pure function with a test per branch). The
+# shipped SHA is the measured SHA by construction, the push is fast-forward by
+# construction, and a tick that finds no verdict yet costs nothing - which is
+# what makes it safe to ask again on a schedule until the answer is yes.
+# Releases come out in BATCHES, one per quiet window instead of one per merge.
+# That is the trade, and it is deliberate.
 #
-# NIENTE LOOP, e per due ragioni indipendenti. Il commit di bump e' pushato con
-# il GITHUB_TOKEN di default, che per costruzione non fa scattare altri
-# workflow: la CI non gira sul bump, quindi non esiste un `workflow_run` che lo
-# riguardi e questo file non puo' svegliarsi su se stesso. La guardia sul
-# prefisso `chore(release):` resta come seconda rete, perche' una rete sola su
-# un ciclo che pubblica agli utenti non basta.
+# TWO TRIGGERS, ONE CODE PATH. `workflow_run` is the low-latency tick: when a CI
+# run completes and its commit is still the tip, the release goes out within the
+# minute, which is the normal case. `schedule` is the catch-up: an event that
+# arrived while main was ahead, or a run evicted from the concurrency queue,
+# used to park the chain until the next merge. Now the next tick picks it up.
+# Neither trigger has a gate of its own: both run the same script.
 #
-# Perche' la release gira QUI e non da un tag `tauri-v*`: il GITHUB_TOKEN non
-# puo' far partire un workflow guidato da tag o da dispatch, e non usiamo PAT.
-# Il job `release` non e' un fan-out ma una CHIAMATA diretta (`workflow_call`)
-# dentro questo stesso run, quindi continua a funzionare anche ora che il
-# trigger non e' piu' un push umano. `scripts/ship.sh` resta per i rilasci
-# manuali una tantum.
+# NO LOOP, for two independent reasons. The bump commit is pushed with the
+# default GITHUB_TOKEN, which by design triggers no workflow: the CI does not
+# run on the bump, so the tip of a bump has no run at all and the gate refuses
+# it. The `chore(release):` prefix check is the second net, because one net on a
+# cycle that publishes to users is not enough.
+#
+# Why the release runs HERE and not off a `tauri-v*` tag: the GITHUB_TOKEN
+# cannot start a tag- or dispatch-driven workflow, and we use no PAT. The
+# `release` job is not a fan-out but a direct call (`workflow_call`) inside this
+# same run. `scripts/ship.sh` remains for one-off manual releases.
 on:
   workflow_run:
     workflows: [CI]
     types: [completed]
     branches: [main]
+  # Every 10 minutes. Cron on GitHub is best-effort and can drift by several
+  # minutes under load, which is fine: this tick is the catch-up, not the
+  # deadline. A tick with nothing to do is two API calls and exits.
+  schedule:
+    - cron: "*/10 * * * *"
+  # For asking the question by hand after an incident.
+  workflow_dispatch:
 
 concurrency:
   group: auto-bump-main
+  # Never two releases in flight. A tick that gets evicted from this queue while
+  # a release builds is harmless: the next one asks the same question.
   cancel-in-progress: false
 
 jobs:
   bump:
-    # Tre condizioni, e nessuna e' ridondante:
-    #  - la CI dev'essere VERDE. `cancelled`, `failure` e `timed_out` sono tutti
-    #    «non lo sappiamo o sappiamo di no», e nessuno dei tre merita gli utenti;
-    #  - il push dev'essere su main. `branches:` sopra gia' filtra, ma il payload
-    #    di workflow_run porta il ramo della CI e vale dirlo dove si legge;
-    #  - il commit non dev'essere un bump. Rete di sicurezza sul loop.
-    if: >-
-      ${{ github.event.workflow_run.conclusion == 'success'
-          && github.event.workflow_run.head_branch == 'main'
-          && !startsWith(github.event.workflow_run.head_commit.message, 'chore(release):') }}
+    # NO JOB-LEVEL `if`. It used to read the `workflow_run` payload, which is
+    # empty on a scheduled tick, and a condition that silently evaluates to
+    # false is exactly how this chain would stop publishing without a single
+    # red run to show for it. The gate lives in one place now, and that place
+    # has tests.
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -73,69 +84,93 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          # Lo SHA ESATTO che la CI ha giudicato, non «main adesso»: fra la fine
-          # della CI e questo job main puo' essere avanzato, e bumpare un
-          # contenuto diverso da quello approvato e' esattamente il buco che
-          # questo cancello esiste per chiudere.
-          ref: ${{ github.event.workflow_run.head_sha }}
+          # The tip of main, explicitly: on a scheduled run there is no event
+          # SHA to inherit, and on a `workflow_run` the default would be the
+          # commit that triggered the CI, which is precisely the SHA this
+          # redesign stopped trusting to still be the tip.
+          ref: main
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Is the tip of main green?
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TIP="$(git rev-parse HEAD)"
+          MSG="$(git log -1 --format=%s "$TIP")"
+          # The CI run for THAT sha on main, or `null` when the CI has not been
+          # asked yet (or its run was evicted from the concurrency queue). The
+          # API answers newest first; a COMPLETED one wins over a fresher re-run
+          # still in flight, because a verdict beats a maybe.
+          RUN="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${TIP}&per_page=100" \
+            --jq '[.workflow_runs[] | select(.head_branch == "main")
+                   | {status, conclusion, head_sha, head_branch}] as $runs
+                  | (($runs | map(select(.status == "completed")) | first)
+                     // ($runs | first) // null)')"
+          jq -n --arg sha "$TIP" --arg msg "$MSG" --argjson run "${RUN:-null}" \
+            '{tipSha: $sha, tipMessage: $msg, branch: "main", run: $run}' \
+            | bun run scripts/release-gate.ts
 
       - name: Bump patch across lockstep files
         id: bump
+        if: ${{ steps.gate.outputs.publish == 'true' }}
         run: echo "version=$(bash scripts/bump-version.sh patch)" >> "$GITHUB_OUTPUT"
 
-      # Il changelog e' GENERATO dalla storia di git (scripts/gen-changelog.mjs),
-      # quindi la versione appena bumpata puo' averlo solo DOPO il bump e prima
-      # del commit. Girava a mano: il commit del 12/08 prometteva «non e' piu'
-      # un passo che qualcuno deve ricordarsi» e non lo aggancio' a niente —
-      # tre giorni dopo era indietro di 37 versioni, ed e' il changelog che
-      # l'utente legge dentro l'app e sulla landing.
+      # The changelog is GENERATED from git history (scripts/gen-changelog.mjs),
+      # so the version just bumped can only get one AFTER the bump and before
+      # the commit. It used to be run by hand: the commit of 12/08 promised "no
+      # longer a step somebody has to remember" and wired it to nothing, and
+      # three days later it was 37 versions behind - and this is the changelog
+      # the user reads inside the app and on the landing page.
       #
-      # Non blocca la release: un changelog che non si rigenera e' un difetto,
-      # fermare la spedizione per quello sarebbe peggio del difetto.
+      # It does not block the release: a changelog that fails to regenerate is a
+      # defect, and stopping the shipment over it would be worse than the defect.
       - name: Regenerate the changelog for this version
+        if: ${{ steps.gate.outputs.publish == 'true' }}
         continue-on-error: true
         run: node scripts/gen-changelog.mjs
 
       - name: Commit the bump back to main
         id: push
+        if: ${{ steps.gate.outputs.publish == 'true' }}
         env:
           VERSION: ${{ steps.bump.outputs.version }}
-          APPROVED_SHA: ${{ github.event.workflow_run.head_sha }}
+          APPROVED_SHA: ${{ steps.gate.outputs.sha }}
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "chore(release): bump v${VERSION}"
-          # `--force-with-lease` NO, e nemmeno un push cieco: se main e'
-          # avanzato mentre la CI girava, il push non e' fast-forward e DEVE
-          # fallire. Spingerlo comunque cancellerebbe il commit di qualcun
-          # altro; rifarlo sulla punta nuova pubblicherebbe codice che la CI non
-          # ha visto. Salta, e la release la fa il merge successivo — che porta
-          # dentro anche questo, perche' e' gia' in main.
-          # RINUNCIARE NON E' FALLIRE, e la differenza si deve vedere da fuori.
+          # NOT `--force-with-lease`, and not a blind push either. The gate above
+          # checked that the parent of this commit IS the tip of main, so the
+          # push is fast-forward unless somebody landed in the seconds since. If
+          # that happens the push must FAIL: forcing would erase their commit,
+          # and re-bumping on the new tip would publish code the CI has not
+          # judged. Both are refusals this file exists to make.
           #
-          # Questo `exit` era 1: la rinuncia - che qui e' la scelta GIUSTA, per le
-          # ragioni scritte sopra - dipingeva la run di rosso. Misurato il
-          # 27/08/2026: «Auto-bump patch -> failure» su una corsa in cui non si
-          # era rotto niente, main era semplicemente avanzato mentre la CI
-          # girava. Un rosso che non e' un guasto insegna a non guardare i rossi,
-          # ed e' lo stesso difetto che teneva la nightly rossa per un divieto.
-          #
-          # Ora si esce ZERO senza scrivere `sha`, e il job `release` non parte
-          # perche' ha una condizione su quell'output: il freno resta, il colore
-          # dice la verita'.
+          # GIVING UP IS NOT FAILING, and the difference has to be visible from
+          # outside. This `exit` was 1 once, and painted the run red on a race
+          # where nothing had broken; a red that is not a fault teaches people
+          # not to look at reds. It exits ZERO without writing `sha`, and the
+          # `release` job is guarded on that output: the brake stays, the colour
+          # tells the truth. The next tick (10 minutes at most) tries again.
           if ! git push origin "HEAD:main"; then
-            echo "::warning::main e' avanzato oltre ${APPROVED_SHA} mentre la CI girava: bump non spedito, lo porta il prossimo merge verde (il commit e' gia' in main)."
+            echo "::warning::main moved past ${APPROVED_SHA} during the bump: nothing shipped, the next tick will pick up the new tip once the CI has judged it."
             exit 0
           fi
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-  # Build + publish degli installer per la versione appena bumpata, live a
-  # tutti. Si salta da solo quando `bump` e' saltato (CI non verde).
+  # Build and publish the installers for the version just bumped, live to
+  # everybody. Skips itself when `bump` did not ship.
   release:
     needs: bump
-    # Non parte se `bump` ha rinunciato: senza `sha` non c'e' niente da
-    # costruire, e prima questa condizione la faceva l'`exit 1` del passo di
-    # push - cioe' un rosso usato come interruttore.
+    # Does not start when the gate said no or the push lost the race: with no
+    # `sha` there is nothing to build. This condition used to be an `exit 1`,
+    # which is a red run used as a switch.
     if: ${{ needs.bump.outputs.sha != '' }}
     permissions:
       contents: write
