@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.188",
+    "date": "2026-08-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il JS gira: il renderer e' VIVO e non dipinge, quindi si forza il re-raster",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.187",
     "date": "2026-08-27",
     "sections": {
