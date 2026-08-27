@@ -128,7 +128,14 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   -- 20260823210000: paths the retirement REJECTED, as a JSON array. Needed
   -- because the retired image stays attached to the comment the card took it
   -- from, and with no memory the startup sweep fished it straight back.
-  preview_rejected TEXT
+  preview_rejected TEXT,
+  -- 20260827041049: where a card stands relative to the deploy PROPOSED at
+  -- approve (board setting deployCommand). deploy_command_at_propose is a
+  -- snapshot of the command at proposal time, not a live read of the setting:
+  -- a later edit to the board's command must not change what a running deploy
+  -- executes.
+  deploy_state TEXT,
+  deploy_command_at_propose TEXT
 )`;
 
 /**

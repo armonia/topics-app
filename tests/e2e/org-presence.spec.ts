@@ -357,6 +357,19 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await page.route("**/api/system/presence", (r) =>
       r.fulfill({ status: 200, contentType: "application/json",
         body: JSON.stringify({ openSessions: 12, workingSessions: 3, activeTasks: 2, focusProject: null }) }));
+    // THE SIDEBAR HAS TO BE WIDE, and that is not a bench detail: since
+    // 6615e9eeb the presence signals live behind `@[300px]/identity`, i.e. they
+    // appear only once the column has room for them. Without seeding the width
+    // the test starts from the default sidebar, the box stays `hidden` by
+    // design, and the red would claim "the numbers are missing" when the truth
+    // is "there was no room" — two different things.
+    await page.addInitScript(() => {
+      const raw = localStorage.getItem("app-settings");
+      const base: Record<string, unknown> = raw ? JSON.parse(raw) : {};
+      localStorage.setItem("app-settings", JSON.stringify({
+        ...base, sidebarWidth: 360, sidebarWidthExpanded: 360, sidebarCollapsed: false,
+      }));
+    });
     await page.goto("/");
     const signals = page.getByTestId("presence-summary");
     await expect(signals).toBeVisible({ timeout: 20000 });

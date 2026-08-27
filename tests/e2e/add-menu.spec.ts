@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import { TERMINAL_AGENT_TYPES } from "../../shared/terminal-session-types";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -339,11 +340,21 @@ test.describe.serial("Add menu — sistema", () => {
       });
     });
 
-    // Le tre voci che il registro condiviso marca come agenti CLI. `shell` NON
-    // è tra queste: è una pane che si apre vuota, e sta sopra la linea.
-    const AGENTS = ["claude-code", "codex", "opencode"];
+    // The entries the shared registry marks as CLI agents, DERIVED from it and
+    // not copied: `shell` is not one of them (it opens an empty pane, and it
+    // belongs above the line). This used to be three names typed by hand under
+    // a comment that said "from the shared registry" - and the first agent
+    // added afterwards, `kimi-code`, landed among the strays below the line,
+    // red in nightly for a defect that did not exist. Adding an agent has to
+    // stay ONE edit, which is the whole reason `addMenuItems.ts` reads this
+    // same array through this same filter.
+    //
+    // This is not an assertion that cannot fail: what is measured here is the
+    // ORDER, where the divider sits, and that nothing else follows it. Which
+    // agents exist is not the thing under test.
+    const AGENTS = TERMINAL_AGENT_TYPES.filter((a) => a !== "shell") as readonly string[];
     const agentIdx = seq.flatMap((id, i) => (AGENTS.includes(id) ? [i] : []));
-    expect(agentIdx.length, "i tre agenti CLI sono nel menu").toBe(3);
+    expect(agentIdx.length, "ogni agente CLI del registro è nel menu").toBe(AGENTS.length);
 
     // 1. Gli agenti sono un BLOCCO in coda: nessuna riga non-agente dopo il
     //    primo di loro. È l'invariante che il vecchio ramo atomico rendeva
@@ -353,8 +364,8 @@ test.describe.serial("Add menu — sistema", () => {
     const strays = seq.slice(firstAgent).filter((id) => id !== "---" && !AGENTS.includes(id));
     expect(strays, "sotto la linea ci vanno SOLO gli agenti").toEqual([]);
 
-    // 2. Restano nell'ordine del registro condiviso (TERMINAL_AGENT_TYPES).
-    expect(agentIdx.map((i) => seq[i])).toEqual(AGENTS);
+    // 2. They keep the order of the shared registry (TERMINAL_AGENT_TYPES).
+    expect(agentIdx.map((i) => seq[i])).toEqual([...AGENTS]);
 
     // 3. La linea sta ESATTAMENTE prima del primo agente.
     expect(seq[firstAgent - 1], "un divisore apre il blocco degli agenti").toBe("---");

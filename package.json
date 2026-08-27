@@ -1,6 +1,6 @@
 {
   "name": "topics-app",
-  "version": "2.2.178",
+  "version": "2.2.179",
   "description": "Desktop workspace for coding agents: editor, diff viewer, terminal, browser and a task board, one topic at a time. Agents run inside Topics, not one process each: 200 sessions answering at once fit in 162 MB.",
   "author": "Armonia",
   "license": "MIT",
@@ -55,6 +55,7 @@
     "check:eslint-disable": "bun run scripts/check-eslint-disable.ts",
     "check:test-skips": "bun run scripts/check-test-skips.ts",
     "check:sleeps": "bun run scripts/check-e2e-sleeps.ts",
+    "check:e2e-touched": "bun run scripts/check-e2e-touched.ts",
     "check:bloat": "bun run scripts/check-bloat.ts",
     "qa:gate": "./scripts/qa-gate.sh",
     "check:security": "bun run scripts/check-security.ts",

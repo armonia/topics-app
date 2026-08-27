@@ -15,8 +15,10 @@ concurrency:
 
 permissions:
   contents: write
+  # `issues` per la segnalazione del job `esito`, che apre o commenta una issue
+  # quando la nightly e' rossa. NIENTE `pull-requests`: nessun job qui ne apre
+  # piu' una, e l'organizzazione lo vieta comunque a GitHub Actions.
   issues: write
-  pull-requests: write
 
 jobs:
   # Piano di sharding per durata: un'unica chiamata a `playwright test --list`
@@ -208,8 +210,10 @@ jobs:
     needs: e2e-full
     if: always()
     permissions:
+      # Solo `contents`: da quando si committa invece di aprire una PR, il
+      # permesso sulle PR non serve — e chiederlo sarebbe chiedere qualcosa che
+      # l'organizzazione vieta comunque.
       contents: write
-      pull-requests: write
     steps:
       - uses: actions/checkout@v5
 
@@ -246,34 +250,32 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Apri PR con le durate aggiornate
+      # SI COMMITTA SU MAIN, NON SI APRE UNA PR — e non e' una scorciatoia.
+      #
+      # Questo job apriva una PR e falliva ogni notte con «GitHub Actions is not
+      # permitted to create or approve pull requests»: e' un divieto
+      # dell'organizzazione, quindi nessun permesso nel workflow puo' aggirarlo.
+      # Il risultato era una nightly rossa per un job che aveva gia' fatto il
+      # suo lavoro — misurato la notte del 27/08, quando tutti e quattro gli
+      # shard erano verdi e l'unico rosso era questo.
+      #
+      # E una PR qui non serviva a nessuno: il contenuto e' un file di TEMPI
+      # misurati, rigenerato ogni notte, che nessuno rivede a mano. Una PR che
+      # nessuno legge e' cerimonia; il commit diretto e' cio' che si voleva.
+      #
+      # `[skip ci]` perche' cambiare durate non cambia il codice: senza, ogni
+      # notte partirebbe una CI completa per un file di misure.
+      - name: Committa le durate aggiornate su main
         if: steps.update.outputs.changed == 'true'
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const { execFileSync } = require("child_process");
-            const branch = `chore/update-e2e-durations-${context.runId}`;
-            execFileSync("git", ["config", "user.email", "github-actions[bot]@users.noreply.github.com"]);
-            execFileSync("git", ["config", "user.name", "github-actions[bot]"]);
-            execFileSync("git", ["checkout", "-b", branch]);
-            execFileSync("git", ["add", "scripts/e2e-durations.json"]);
-            execFileSync("git", ["commit", "-m",
-              `chore(e2e): aggiorna durate shard dal nightly del ${new Date().toISOString().slice(0,10)}`]);
-            execFileSync("git", ["push", "origin", branch]);
-            await github.rest.pulls.create({
-              ...context.repo,
-              title: `chore(e2e): aggiorna durate shard (nightly ${context.runId})`,
-              head: branch,
-              base: "main",
-              body: [
-                "Aggiorna `scripts/e2e-durations.json` con i tempi misurati dalla nightly di questa notte.",
-                "",
-                `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-                "",
-                "Generato automaticamente da `.github/workflows/e2e-nightly.yml` · job `update-durations`.",
-              ].join("\n"),
-            });
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add scripts/e2e-durations.json
+          git commit -m "chore(e2e): aggiorna durate shard dal nightly del $(date -u +%F) [skip ci]"
+          # La nightly gira su main e nel frattempo qualcuno puo' aver landato:
+          # si riallinea prima di spingere invece di fallire per non-fast-forward.
+          git pull --rebase origin main
+          git push origin HEAD:main
 
   # Un gate che fallisce in silenzio non e' un gate. Questa nightly e' stata ROSSA per OTTO
   # notti di fila (09/08 -> 16/08, tutte `failure`) senza che nessuno lo sapesse: nessuno

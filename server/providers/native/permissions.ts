@@ -42,6 +42,14 @@ export const DEFAULT_AUTONOMY: AutonomyLevel = "auto-apply";
 /** I tool che non modificano niente: leggere è sempre concesso. */
 const READ_ONLY = new Set(["read_file", "grep", "glob"]);
 
+// A TOOL MOUNTED FROM AN MCP SERVER IS NEVER READ-ONLY, and that is why
+// READ_ONLY is an allowlist of names WE wrote rather than a heuristic. An
+// inherited tool arrives as `mcp__<server>__<tool>` (see `mcp-fleet.ts`): it
+// does whatever a server outside this repo decided, a name that reads like a
+// search may well post something, and so it goes through the gate below like
+// everything else. `ask` refuses it, `auto-apply` runs it, and the topic's
+// autonomy level stays the only thing that decides.
+
 /**
  * Comandi che non si eseguono nemmeno in `auto-apply`.
  *

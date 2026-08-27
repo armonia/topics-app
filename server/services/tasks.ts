@@ -41,7 +41,7 @@ import { liveAgentCount } from "./agent-census";
 // the `TASK_STATUSES` list: whoever wants it takes it from `shared/board`.
 export type { TaskStatus, TaskComment, CardComment, BoardSettings, BoardSettingsPatch, BlockerRef, SubtaskWork, QueueReason, ParkedChildrenDecision } from "../../shared/board";
 import {
-  ACTIVE_DISPATCH_STATES, ARCHIVE_PARKED_LABEL, DISPATCH_CHIP_QUEUED, clampGlobalCap,
+  ACTIVE_DISPATCH_STATES, ARCHIVE_PARKED_LABEL, DEPLOY_ACTION_LABEL, DISPATCH_CHIP_QUEUED, clampGlobalCap,
   MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, QUEUE_REASON_UNKNOWN,
   PARKED_REQUEUE_NOTE_LIKE, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, TASK_STATUSES,
   WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
@@ -314,6 +314,12 @@ export interface Task {
    * Here `null` is not a state - absent and never-checked are the same thing.
    */
   landingCheckedAt?: string;
+  /** Deploy proposed at approve (see `BoardSettings.deployCommand`). `null` =
+   *  never proposed; the "Deploya ora" button only renders on `'proposed'`. */
+  deployState: "proposed" | "running" | "deployed" | "failed" | null;
+  /** Command frozen at propose time, so a later settings edit cannot change
+   *  what a pending "Deploya ora" is about to run. */
+  deployCommandAtPropose?: string;
   /**
    * Esito dei checks pre-review. null = mai girati (board senza check, task senza
    * worktree, task precedenti al gate) — che NON è un verde e non va disegnato come
@@ -1212,6 +1218,14 @@ export interface TaskService {
   getBoardSettings(projectId: string): BoardSettings;
   /** Upsert the per-board dispatch config. `autoDispatch` routes to the global switch. */
   updateBoardSettings(projectId: string, patch: UpdateBoardSettingsPatch): BoardSettings;
+  /** OFFERS the deploy (comment + "Deploya ora"), never runs it: `deploy_state
+   *  = 'proposed'`, command frozen. `null` if the task no longer exists. */
+  proposeDeploy(args: { taskId: string; command: string }): Task | null;
+  /** Human clicked "Deploya ora": CAS-claims the proposal (`proposed` →
+   *  `running`) and returns the frozen command. `null` if already claimed. */
+  beginDeploy(args: { taskId: string }): { command: string } | null;
+  /** Records the run's outcome (`deployed`/`failed`) as a plain thread comment. */
+  finishDeploy(args: { taskId: string; ok: boolean; detail: string }): Task;
   /** Read the GLOBAL auto-dispatch switch (one for every board). */
   getGlobalAutoDispatch(): boolean;
   /** Flip the GLOBAL auto-dispatch switch; returns the new value. */
@@ -2497,6 +2511,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       deliveryInsertions: r.delivery_insertions ?? null,
       deliveryDeletions: r.delivery_deletions ?? null,
       landingState: r.landing_state ?? null,
+      deployState: (r.deploy_state as Task["deployState"]) ?? null,
+      ...(r.deploy_command_at_propose ? { deployCommandAtPropose: r.deploy_command_at_propose } : {}),
       checksState: r.checks_state ?? null,
 
       checksAt: r.checks_at ?? null,
@@ -5588,6 +5604,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         dispatchEffort: r?.dispatch_effort ?? "medium",
         dispatchUseWorktree: r ? !!r.dispatch_use_worktree : true,
         dispatchAutoMerge: r ? !!r.dispatch_auto_merge : false,
+        deployCommand: r?.deploy_command ?? "", // "" = off, the default
         dispatchTimeoutMin: r?.dispatch_timeout_min ?? 20,
         // Default 5: see `BoardSettings.dispatchIdleMin` in shared/board.ts —
         // this is the passive stall detector's silence threshold, not a kill timer.
@@ -5647,6 +5664,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.dispatchEffort !== undefined) { sets.push("dispatch_effort = ?"); params.push(patch.dispatchEffort); }
       if (patch.dispatchUseWorktree !== undefined) { sets.push("dispatch_use_worktree = ?"); params.push(patch.dispatchUseWorktree ? 1 : 0); }
       if (patch.dispatchAutoMerge !== undefined) { sets.push("dispatch_auto_merge = ?"); params.push(patch.dispatchAutoMerge ? 1 : 0); }
+      // "" is an explicit, valid value ("off"), not "leave alone".
+      if (patch.deployCommand !== undefined) { sets.push("deploy_command = ?"); params.push(String(patch.deployCommand ?? "").trim()); }
       if (patch.dispatchTimeoutMin !== undefined) { sets.push("dispatch_timeout_min = ?"); params.push(clampInt(patch.dispatchTimeoutMin, 1, 120)); }
       if (patch.dispatchIdleMin !== undefined) { sets.push("dispatch_idle_min = ?"); params.push(clampInt(patch.dispatchIdleMin, 1, 60)); }
       if (patch.dispatchMcp !== undefined) { sets.push("dispatch_mcp = ?"); params.push(patch.dispatchMcp); }
@@ -5680,6 +5699,54 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.reviewChecks !== undefined) { sets.push("review_checks = ?"); params.push(serializeReviewChecks(patch.reviewChecks)); }
       if (sets.length) db.prepare(`UPDATE board_settings SET ${sets.join(", ")} WHERE project_id = ?`).run(...params, projectId);
       return this.getBoardSettings(projectId);
+    },
+
+    proposeDeploy({ taskId, command }): Task | null {
+      const row = getTaskRow(taskId);
+      if (!row) return null;
+      const cmd = (command ?? "").trim();
+      if (!cmd) return rowToTask(row);
+      const ts = now();
+      db.prepare(
+        "UPDATE tasks SET deploy_state = 'proposed', deploy_command_at_propose = ?, updated_at = ? WHERE id = ?",
+      ).run(cmd, ts, taskId);
+      try {
+        this.addComment({
+          taskId, author: "system",
+          content: `Board configurata per il deploy: \`${cmd}\`. Non parte da solo: conferma con il bottone qui sotto per lanciarlo nel checkout main.`,
+          questionOptions: [DEPLOY_ACTION_LABEL],
+        });
+      } catch { /* best-effort: the proposal stands regardless of the comment */ }
+      return rowToTask(getTaskRow(taskId));
+    },
+
+    beginDeploy({ taskId }): { command: string } | null {
+      const row = getTaskRow(taskId);
+      if (!row) return null;
+      const cmd = (row.deploy_command_at_propose ?? "").trim();
+      if (!cmd) return null;
+      // CAS on the state: a double click (or two humans) claims the run once.
+      const res = db.prepare(
+        "UPDATE tasks SET deploy_state = 'running', updated_at = ? WHERE id = ? AND deploy_state = 'proposed'",
+      ).run(now(), taskId);
+      if (res.changes !== 1) return null;
+      return { command: cmd };
+    },
+
+    finishDeploy({ taskId, ok, detail }): Task {
+      const row = getTaskRow(taskId);
+      if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      db.prepare("UPDATE tasks SET deploy_state = ?, updated_at = ? WHERE id = ?")
+        .run(ok ? "deployed" : "failed", now(), taskId);
+      try {
+        this.addComment({
+          taskId, author: "system",
+          content: ok
+            ? `Deploy eseguito.\n\n${detail}`
+            : `Deploy fallito.\n\n${detail}`,
+        });
+      } catch { /* best-effort */ }
+      return rowToTask(getTaskRow(taskId));
     },
   };
 }

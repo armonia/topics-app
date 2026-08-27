@@ -2096,7 +2096,10 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          -- 20260819122701: la rivendicazione del sollecito nella chat del task.
          -- Stessa ragione delle tre qui sopra: una colonna che resta NULL non e'
          -- coperta dal confronto fra lista e dettaglio.
-         nudge_claimed_at = ?, nudge_fingerprint = 'fp-sollecito', nudge_repeats = 2
+         nudge_claimed_at = ?, nudge_fingerprint = 'fp-sollecito', nudge_repeats = 2,
+         -- 20260827041049: la proposta di deploy post-approve. Stessa ragione:
+         -- una colonna che resta NULL non e' coperta dal confronto.
+         deploy_state = 'proposed', deploy_command_at_propose = 'bun run deploy'
        WHERE id = ?`,
       [
         // UNA DESCRIZIONE CON CARATTERI FUORI DAL PIANO BASE. `substr` di SQLite

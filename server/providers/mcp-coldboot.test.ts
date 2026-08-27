@@ -9,7 +9,7 @@
   * @covers CCLI-11
  */
 import { describe, expect, test } from "bun:test";
-import { isColdBootServer } from "./claude-code";
+import { isColdBootServer } from "./mcp-inheritance";
 
 describe("isColdBootServer — esclude solo chi si riavvia davvero", () => {
   test("npx -y: scarica e fa cold-boot a ogni spawn", () => {
