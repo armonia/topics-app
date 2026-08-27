@@ -35,7 +35,17 @@ let WindowControls: ComponentType<{ visible: boolean }>;
 
 beforeAll(async () => {
   (globalThis as unknown as { window: unknown }).window = { __TAURI_INTERNALS__: {} };
-  Object.defineProperty(globalThis.navigator, 'platform', { value: 'Win32', configurable: true });
+  // A WHOLE fake navigator, not a patched property. `isTauriWindows` reads
+  // `userAgentData.platform` FIRST and only falls back to `platform`, so faking
+  // just the second one leaves the verdict to whatever the host carries: on a
+  // Mac (Bun leaves `userAgentData` undefined) the fake won and the test passed,
+  // on ubuntu-latest the real `userAgentData` won and the component rendered
+  // nothing — the same commit green here and red in CI. Replacing the object
+  // closes both doors.
+  Object.defineProperty(globalThis, 'navigator', {
+    value: { platform: 'Win32', userAgentData: { platform: 'Windows' } },
+    configurable: true,
+  });
   // Destructured on purpose: `(await import(…)).member` makes the module OPAQUE
   // to knip, which then reports every export of it as used — that is exactly the
   // blind spot `check:deadcode-blindspots` refuses.
