@@ -50,6 +50,7 @@ import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getCla
 import { createStatusRouter } from "./server/routes/status";
 import { createMemoryRouter } from "./server/routes/memory";
 import { createMcpRouter } from "./server/routes/mcp";
+import { createSessionEnvironmentRouter } from "./server/routes/session-environment";
 import { initUsageStore, rebuildSummary } from "./server/usage/store";
 import { createCheckpointsRouter } from "./server/routes/checkpoints";
 import { createGoalsRouter } from "./server/routes/goals";
@@ -614,6 +615,8 @@ setTerminalBrowserCloser((contextId) => {
 const statusRouter = createStatusRouter(ctx);
 const memoryRouter = createMemoryRouter(ctx);
 const mcpRouter = createMcpRouter(ctx);
+// Read-only: what the current session inherited from the user's setting sources.
+const sessionEnvironmentRouter = createSessionEnvironmentRouter(ctx);
 const checkpointsRouter = createCheckpointsRouter(ctx);
 const goalsRouter = createGoalsRouter(ctx);
 const openclawContextRouter = aiProvider.name === 'openclaw' ? createOpenClawContextRouter(ctx) : null;
@@ -3152,6 +3155,7 @@ const opzioniServer = {
         || await statusRouter(req, url, pathname, method)
         || await memoryRouter(req, url, pathname, method)
         || await mcpRouter(req, url, pathname, method)
+        || await sessionEnvironmentRouter(req, url, pathname, method)
         || await activityRouter(req, url, pathname, method)
         || await externalSessionsRouter(req, url, pathname, method)
         || await checkpointsRouter(req, url, pathname, method)

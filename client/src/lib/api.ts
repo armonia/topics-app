@@ -1383,6 +1383,22 @@ export const mcpApi = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// The inherited environment of ONE session: hooks, skills, commands, MCP and
+// permission rules that the spawned CLI already has because of
+// `--setting-sources user,project,local`. Read-only, and it writes nothing.
+// ─────────────────────────────────────────────────────────────────────────────
+// Only what the screen names: an unused re-export is dead code, and the rest of
+// the shapes travel inside `SessionEnvironment` anyway.
+export type { SessionEnvironment, SessionEnvSource } from '../../../shared/types';
+import type { SessionEnvironment } from '../../../shared/types';
+
+export const sessionEnvironmentApi = {
+  async get(topicId: string, signal?: AbortSignal): Promise<SessionEnvironment> {
+    return request<SessionEnvironment>(`/topics/${encodeURIComponent(topicId)}/environment`, { signal });
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Profilo — chi sei qui dentro, cosa è passato di qui, e cosa ne vede Discord.
 //
 // Le statistiche NON vengono da `usage_records`/`agent_sessions`: quelle due

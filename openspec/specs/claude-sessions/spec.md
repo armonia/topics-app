@@ -248,3 +248,41 @@ riletto da zero; e un file assente SHALL dare NIENTE.
 #### Scenario: un carattere multi-byte al confine del frammento
 - **GIVEN** una lettura incrementale che spezza il carattere
 - **THEN** SHALL sopravvivere
+
+### Requirement: SESSENV-01 — What a session inherited is visible from the app
+
+Topics does not reimplement hooks, skills, custom commands, MCP servers or
+permission rules: it spawns the CLI with `--setting-sources user,project,local`,
+so what a person wrote under their home folder and under the project is already
+in force. The consequence, until this requirement, was a chat that inherited an
+entire environment and showed none of it.
+
+The system SHALL report, for one topic and without writing anything: the MCP
+servers the session gets and the reason each absent one is absent; the hooks in
+force per event; the commands and skills discovered on disk; and the permission
+rules with the mode in force. Every entry SHALL carry the FILE it came from,
+because which of the settings files wins is the question that made someone look.
+
+A runtime that does NOT read those setting sources SHALL be reported as such,
+instead of being shown a list that is true for a different engine.
+
+Secrets SHALL NOT reach the payload: an MCP definition carries tokens in its
+`env` block, in its argv and in its url, and this answer is rendered in a
+browser.
+
+#### Scenario: every entry says which file declared it
+- **GIVEN** hooks declared in the user, project and local settings files
+- **WHEN** the session environment is read
+- **THEN** each hook SHALL carry its event, its matcher and the file it came from
+
+#### Scenario: an absent server explains itself
+- **GIVEN** a configured MCP server that this session does not get
+- **THEN** the answer SHALL carry the rule or the scoping that dropped it
+
+#### Scenario: a hook installed by Topics is declared as such
+- **GIVEN** a session that runs with the guard Topics installs itself
+- **THEN** that hook SHALL appear marked as the app's, not as the user's
+
+#### Scenario: no token leaves the server
+- **GIVEN** a server configured with a token in argv, in a url query and in `env`
+- **THEN** none of those values SHALL appear in the answer

@@ -14,6 +14,7 @@ import { formatTokens } from '../../lib/formatTokens';
 import { ContextWarnings } from './ContextWarnings';
 import { ContextSourceRow } from './ContextSourceRow';
 import { ContextEnvelopeView } from './ContextEnvelopeView';
+import { SessionEnvironmentPanel } from './SessionEnvironmentPanel';
 import { useToast } from '../Shared/Toast';
 import { Spinner } from '../Shared/Spinner';
 
@@ -77,6 +78,8 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
   /** La diagnostica dell'envelope è aperta? Vedi il `<details>` in fondo: da
    *  chiusa il suo contenuto non si monta, quindi non fa le sue due fetch. */
   const [envelopeAperto, setEnvelopeAperto] = useState(false);
+  /** Is the inherited environment open? Same reason as the flag above. */
+  const [ambienteAperto, setAmbienteAperto] = useState(false);
 
   // Re-analyze when topic changes
   useEffect(() => {
@@ -376,6 +379,29 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
               quella sezione. Il difetto era invisibile a occhio e l'ha trovato
               un'asserzione sul `<details>`, non un umano.
             */}
+            {/*
+              THE INHERITED ENVIRONMENT. The session spawns the real CLI with
+              the user's setting sources, so hooks, skills, commands and MCP
+              servers written under `.claude` are already in force: what was
+              missing was the place to SEE them. It belongs here because it
+              answers the same question as this panel, "what does this session
+              actually have", and it is closed by default because it is an
+              answer people go looking for, not one they need on every open.
+
+              Same rule as the envelope below: a closed `<details>` HIDES its
+              children, it does not unmount them, so without the flag the fetch
+              would run for everyone who never opens the section.
+            */}
+            <details
+              className="border-t border-app-border"
+              onToggle={(e) => setAmbienteAperto((e.currentTarget as HTMLDetailsElement).open)}
+            >
+              <summary className="px-4 py-2 text-[11px] text-app-text-tertiary cursor-pointer hover:text-app-text-secondary select-none">
+                {tr('sessionEnv.title')}
+              </summary>
+              {ambienteAperto && <SessionEnvironmentPanel topicId={topic.id} />}
+            </details>
+
             <details
               className="border-t border-app-border"
               onToggle={(e) => setEnvelopeAperto((e.currentTarget as HTMLDetailsElement).open)}
