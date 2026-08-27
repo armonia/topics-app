@@ -57,14 +57,6 @@ const MOTIVI: Record<string, string> = {
   "check:lockfile":
     "versione «una botta sola» per l'umano (root, client, landing). In CI gli stessi tre " +
     "lockfile sono gia' coperti dai due install piu' il passo landing/ dedicato.",
-  "check:e2e-touched":
-    "si lancia A MANO prima di consegnare, ed e' scritto cosi' in tests/e2e/README.md: " +
-    "sceglie e fa girare le spec e2e di cio' che IL RAMO ha toccato, quindi ha bisogno di un " +
-    "ramo con delle modifiche. In CI non avrebbe niente da selezionare — il tier PR della " +
-    "suite gira gia' per intero — e cablarlo fra i sei cancelli lo farebbe partire su ogni " +
-    "consegna, anche quelle che non toccano una riga di interfaccia. Il buco che copre e' " +
-    "un altro: una consegna e' un merge LOCALE e non passa dal workflow, quindi il 27/08 tre " +
-    "card sono atterrate verdi su tutti i cancelli e la nightly ha risposto con sei rossi.",
   "check:contrast": "gira su landing/dist, un sito gia' costruito che nessun workflow costruisce.",
   "check:field": "gira su landing/dist, un sito gia' costruito che nessun workflow costruisce.",
   "check:painted": "gira su landing/dist, un sito gia' costruito che nessun workflow costruisce.",
