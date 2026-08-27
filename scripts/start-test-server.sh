@@ -89,6 +89,15 @@ if [ ! -f "$HOME/.local/bin/claude" ]; then
 #!/usr/bin/env bash
 # Stub del banco e2e: risponde una volta e chiude, cosi' il turno finisce.
 # Vedi la nota in scripts/start-test-server.sh.
+#
+# Il drenaggio in sottofondo NON e' cosmesi: chi ci lancia scrive il prompt
+# sulla nostra stdin. Se usciamo senza che nessuno tenga aperto quel capo,
+# la scrittura successiva trova la pipe chiusa e prende EPIPE — che nel
+# banco ha ucciso il server di test e con lui 200 prove in un colpo solo.
+# Questo `cat` sopravvive a noi giusto il tempo di assorbire il prompt e
+# muore da se' quando chi scrive chiude. Non tiene ne' stdout ne' stderr,
+# quindi non ritarda la chiusura del processo agli occhi di chi ci attende.
+cat >/dev/null 2>&1 &
 printf '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}\n'
 printf '{"type":"result","subtype":"success","is_error":false,"result":"ok"}\n'
 exit 0
