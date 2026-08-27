@@ -1364,8 +1364,8 @@ export const appSettingsApi = {
 // data type from the same module it imports the call from. Declaring them again
 // on this side is the mirror `tests/unit/no-type-mirrors.test.ts` refuses.
 // ─────────────────────────────────────────────────────────────────────────────
-export type { McpFleetStatus, McpServerStatus } from '../../../shared/types';
-import type { McpFleetStatus } from '../../../shared/types';
+export type { McpFleetStatus, McpServerStatus } from '../../../shared/session-environment';
+import type { McpFleetStatus } from '../../../shared/session-environment';
 
 export const mcpApi = {
   /**
@@ -1389,8 +1389,8 @@ export const mcpApi = {
 // ─────────────────────────────────────────────────────────────────────────────
 // Only what the screen names: an unused re-export is dead code, and the rest of
 // the shapes travel inside `SessionEnvironment` anyway.
-export type { SessionEnvironment, SessionEnvSource } from '../../../shared/types';
-import type { SessionEnvironment } from '../../../shared/types';
+export type { SessionEnvironment, SessionEnvSource } from '../../../shared/session-environment';
+import type { SessionEnvironment } from '../../../shared/session-environment';
 
 export const sessionEnvironmentApi = {
   async get(topicId: string, signal?: AbortSignal): Promise<SessionEnvironment> {

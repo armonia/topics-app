@@ -23,15 +23,7 @@
 import { existsSync, readFileSync, statSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
-import type {
-  SessionEnvCommand,
-  SessionEnvHook,
-  SessionEnvMcpServer,
-  SessionEnvPermissionRule,
-  SessionEnvSettingsFile,
-  SessionEnvSource,
-  SessionEnvironment,
-} from "../../shared/types";
+import type { SessionEnvCommand, SessionEnvHook, SessionEnvMcpServer, SessionEnvPermissionRule, SessionEnvSettingsFile, SessionEnvSource, SessionEnvironment } from "../../shared/session-environment";
 import { resolveInheritedMcp, type McpServerDef } from "../providers/mcp-inheritance";
 import { listSlashCommandFiles } from "./slash-command-source";
 

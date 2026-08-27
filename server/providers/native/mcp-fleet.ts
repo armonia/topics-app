@@ -39,13 +39,14 @@ export function isMcpTool(name: string): boolean {
   return name.startsWith(MCP_TOOL_PREFIX);
 }
 
-// The three shapes of this status are DECLARED IN `shared/types.ts`, not here:
+// The three shapes of this status are DECLARED IN `shared/session-environment.ts`,
+// not here:
 // the Settings panel renders them verbatim, and a second declaration on the
 // client is exactly the "KEEP IN SYNC" mirror that `tests/unit/no-type-mirrors`
 // exists to refuse. Re-exported so this module stays the place you import them
 // from on the server side.
-export type { McpFleetStatus } from "../../../shared/types";
-import type { McpServerStatus, McpFleetStatus } from "../../../shared/types";
+export type { McpFleetStatus } from "../../../shared/session-environment";
+import type { McpServerStatus, McpFleetStatus } from "../../../shared/session-environment";
 
 interface MountedTool {
   server: string;
