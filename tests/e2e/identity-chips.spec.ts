@@ -241,7 +241,27 @@ async function bandGeometry(page: Page): Promise<BandGeometry> {
         let far = r.right;
         for (const child of Array.from(b.querySelectorAll<HTMLElement>("*"))) {
           const c = child.getBoundingClientRect();
-          if (c.width > 0 && c.right > far) far = c.right;
+          if (c.width <= 0) continue;
+          // A CLIPPED CHILD DOES NOT PAINT. This measures ink, not layout, and
+          // the two stopped agreeing the day a chip got `overflow-hidden`: a
+          // clipped box still reports its full geometric rect, so the raw
+          // `right` reads a spill that nothing ever draws. Clamping to every
+          // clipping ancestor up to the chip is what makes the number mean
+          // what the assertion says it means.
+          //
+          // The gate does NOT get weaker: a chip that lets its contents out
+          // still fails, and the overlap check next door still refuses two
+          // boxes sharing pixels. What goes away is a red about paint that
+          // does not exist.
+          let right = c.right;
+          for (let a = child.parentElement; a; a = a.parentElement) {
+            const cs = getComputedStyle(a);
+            if (cs.overflowX !== "visible" || cs.overflowY !== "visible") {
+              right = Math.min(right, a.getBoundingClientRect().right);
+            }
+            if (a === b) break;
+          }
+          if (right > far) far = right;
         }
         return {
           id: b.getAttribute("data-testid") ?? "(unnamed button)",

@@ -49,6 +49,7 @@ import { createOrphanCensusRunner } from "./server/services/orphan-census";
 import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, countBusyAgentTerminals, listTerminalSessionSnapshot, parkOrphanSessions, retireTerminalSession } from "./server/routes/terminal";
 import { createStatusRouter } from "./server/routes/status";
 import { createMemoryRouter } from "./server/routes/memory";
+import { createMcpRouter } from "./server/routes/mcp";
 import { initUsageStore, rebuildSummary } from "./server/usage/store";
 import { createCheckpointsRouter } from "./server/routes/checkpoints";
 import { createGoalsRouter } from "./server/routes/goals";
@@ -612,6 +613,7 @@ setTerminalBrowserCloser((contextId) => {
 });
 const statusRouter = createStatusRouter(ctx);
 const memoryRouter = createMemoryRouter(ctx);
+const mcpRouter = createMcpRouter(ctx);
 const checkpointsRouter = createCheckpointsRouter(ctx);
 const goalsRouter = createGoalsRouter(ctx);
 const openclawContextRouter = aiProvider.name === 'openclaw' ? createOpenClawContextRouter(ctx) : null;
@@ -3149,6 +3151,7 @@ const opzioniServer = {
         || await terminalRouter(req, url, pathname, method)
         || await statusRouter(req, url, pathname, method)
         || await memoryRouter(req, url, pathname, method)
+        || await mcpRouter(req, url, pathname, method)
         || await activityRouter(req, url, pathname, method)
         || await externalSessionsRouter(req, url, pathname, method)
         || await checkpointsRouter(req, url, pathname, method)
