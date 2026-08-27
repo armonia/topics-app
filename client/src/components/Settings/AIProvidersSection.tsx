@@ -10,6 +10,7 @@ import { AGENT_RUNTIMES, DEFAULT_AGENT_RUNTIME } from '../../../../shared/types'
 import { PermissionsSection } from './PermissionsSection';
 import { SettingSelect } from './SettingSelect';
 import { AgentRuntimeChoice } from './AgentRuntimeChoice';
+import { McpFleetPanel } from './McpFleetPanel';
 import {
   STATUS_COLORS,
   STATUS_LABELS,
@@ -236,6 +237,12 @@ export function AIProvidersSection() {
             onSave={save}
           />
         )}
+
+        {/* Under the runtime choice, and nowhere else: MCP tools are what that
+            runtime mounts. The question that brings a person here is "why does
+            the agent not have tool X", and the answer now sits one row away
+            from the control that decides HOW the agent is run. */}
+        <McpFleetPanel />
         {(settingsError || defaultError) && (
           <div className="mb-2 text-[11px] text-red-500">{defaultError ?? settingsError}</div>
         )}

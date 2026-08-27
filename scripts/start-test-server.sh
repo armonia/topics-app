@@ -87,16 +87,65 @@ mkdir -p "$HOME/.local/bin"
 if [ ! -f "$HOME/.local/bin/claude" ]; then
   cat > "$HOME/.local/bin/claude" <<'STUB'
 #!/usr/bin/env bash
-# Stub del banco e2e: risponde una volta e chiude, cosi' il turno finisce.
-# Vedi la nota in scripts/start-test-server.sh.
+# Stub del banco e2e. Vedi la nota in scripts/start-test-server.sh.
+#
+# DUE USI OPPOSTI, e vanno distinti o uno dei due e' sempre rotto:
+#
+#   - la CHAT (`claude-code` come RUNTIME) vuole un turno che FINISCE. Se lo
+#     stub resta vivo, `POST /api/chat` non torna mai e il composer resta su
+#     `queue` per sempre.
+#   - la PTY di una sessione terminale vuole un processo che RESTA VIVO. Se
+#     esce entro tre secondi il server la considera un lancio fallito e ne
+#     CANCELLA la riga (giustamente: senno' ogni reload resusciterebbe una
+#     chat che si richiude subito). Misurato: terminal-idle-park perdeva la
+#     sessione a meta' file con «(non elencata)», 1 o 2 rossi a caso su 5.
+#
+# Si distinguono dagli argomenti, e il segno giusto e' `--print`: lo passa SOLO
+# il runtime della chat, che vuole una risposta e basta. La PTY apre una
+# sessione INTERATTIVA e non lo passa mai (server/routes/terminal.ts).
+#
+# Ci sono arrivato sbagliando due volte, e vale la pena scriverlo perche' il
+# primo istinto e' proprio quello che non funziona: `--session-id` lo passano
+# ENTRAMBI, e anche `--append-system-prompt` lo passano entrambi. L'ho visto
+# solo stampando l'argv vero dello stub invece di dedurlo dal codice: la chat
+# lancia `--print ... --append-system-prompt <istruzioni Topics> ... --session-id`.
+# Un segno che c'e' in tutti e due i casi non distingue niente.
+# `--version` e' una terza cosa ancora: chi sonda se la CLI esiste. Deve
+# rispondere e uscire ZERO, senza entrare in nessuno dei due rami.
+for arg in "$@"; do
+  case "$arg" in
+    --version|-v) printf 'claude 0.0.0-e2e-stub\n'; exit 0 ;;
+  esac
+done
+
+interattivo=1
+for arg in "$@"; do
+  case "$arg" in
+    --print|-p) interattivo=0 ;;
+  esac
+done
+
+if [ "$interattivo" = "1" ]; then
+  # Sessione di terminale: si comporta da guscio interattivo e RESTA VIVO.
+  #
+  # `sleep` in un ciclo e non `cat`: leggendo da una PTY, `cat` puo' tornare
+  # subito (EIO, o un EOF appena il master non ha ancora scritto) e uscire
+  # NON-ZERO — misurato, «exited in 382ms with code 1 — deleting (failed
+  # launch)», cioe' esattamente il caso che questo ramo esiste per evitare.
+  # Cosi' invece si resta finche' non ci uccidono, che e' come si comporta una
+  # CLI interattiva, e si esce ZERO se qualcuno chiude con garbo.
+  trap 'exit 0' TERM INT HUP
+  while :; do sleep 3600 & wait $!; done
+fi
+
+# Turno di chat: una riga in stream-json e via.
 #
 # Il drenaggio in sottofondo NON e' cosmesi: chi ci lancia scrive il prompt
-# sulla nostra stdin. Se usciamo senza che nessuno tenga aperto quel capo,
-# la scrittura successiva trova la pipe chiusa e prende EPIPE — che nel
-# banco ha ucciso il server di test e con lui 200 prove in un colpo solo.
-# Questo `cat` sopravvive a noi giusto il tempo di assorbire il prompt e
-# muore da se' quando chi scrive chiude. Non tiene ne' stdout ne' stderr,
-# quindi non ritarda la chiusura del processo agli occhi di chi ci attende.
+# sulla nostra stdin. Se usciamo senza che nessuno tenga aperto quel capo, la
+# scrittura successiva trova la pipe chiusa e prende EPIPE — che nel banco ha
+# ucciso il server di test e con lui 200 prove in un colpo solo. Questo `cat`
+# sopravvive a noi giusto il tempo di assorbire il prompt e muore da se' quando
+# chi scrive chiude.
 cat >/dev/null 2>&1 &
 printf '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}\n'
 printf '{"type":"result","subtype":"success","is_error":false,"result":"ok"}\n'

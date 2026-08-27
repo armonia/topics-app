@@ -340,18 +340,18 @@ test.describe.serial("Add menu — sistema", () => {
       });
     });
 
-    // Le voci che il registro condiviso marca come agenti CLI, DERIVATE da lui
-    // e non ricopiate: `shell` NON è tra queste (è una pane che si apre vuota,
-    // e sta sopra la linea). Erano tre nomi scritti a mano sotto un commento
-    // che diceva «dal registro condiviso» — e il primo agente aggiunto dopo
-    // (`kimi-code`) è finito fra gli estranei sotto la linea, rosso in nightly
-    // per un difetto che non esisteva. Aggiungere un agente deve restare UNA
-    // modifica, che è la ragione per cui `addMenuItems.ts` legge lo stesso
-    // array con lo stesso filtro.
+    // The entries the shared registry marks as CLI agents, DERIVED from it and
+    // not copied: `shell` is not one of them (it opens an empty pane, and it
+    // belongs above the line). This used to be three names typed by hand under
+    // a comment that said "from the shared registry" - and the first agent
+    // added afterwards, `kimi-code`, landed among the strays below the line,
+    // red in nightly for a defect that did not exist. Adding an agent has to
+    // stay ONE edit, which is the whole reason `addMenuItems.ts` reads this
+    // same array through this same filter.
     //
-    // Non è un'asserzione che non può fallire: qui si misurano l'ORDINE, la
-    // posizione della linea e il fatto che sotto non ci sia altro. Quali
-    // agenti esistano non è la cosa sotto test.
+    // This is not an assertion that cannot fail: what is measured here is the
+    // ORDER, where the divider sits, and that nothing else follows it. Which
+    // agents exist is not the thing under test.
     const AGENTS = TERMINAL_AGENT_TYPES.filter((a) => a !== "shell") as readonly string[];
     const agentIdx = seq.flatMap((id, i) => (AGENTS.includes(id) ? [i] : []));
     expect(agentIdx.length, "ogni agente CLI del registro è nel menu").toBe(AGENTS.length);
@@ -364,7 +364,7 @@ test.describe.serial("Add menu — sistema", () => {
     const strays = seq.slice(firstAgent).filter((id) => id !== "---" && !AGENTS.includes(id));
     expect(strays, "sotto la linea ci vanno SOLO gli agenti").toEqual([]);
 
-    // 2. Restano nell'ordine del registro condiviso (TERMINAL_AGENT_TYPES).
+    // 2. They keep the order of the shared registry (TERMINAL_AGENT_TYPES).
     expect(agentIdx.map((i) => seq[i])).toEqual([...AGENTS]);
 
     // 3. La linea sta ESATTAMENTE prima del primo agente.

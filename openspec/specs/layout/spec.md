@@ -1703,6 +1703,29 @@ sbagliata.
 - **GIVEN** due progetti, uno con icona e uno senza
 - **THEN** i due nomi SHALL partire dalla stessa x
 
+### Requirement: PINALIGN-01 — Il blocco dei fissati ha UN allineamento per forma, e nessuno spinto a destra
+
+Segnalato il 27/08/2026: le tessere fissate sembrano spostate a destra quando
+alla sidebar avanza larghezza, e impilate in colonna non si leggono centrate.
+
+La forma e l'allineamento SHALL essere la STESSA decisione: una tessera sola
+sulla sua riga è una RIGA e SHALL partire dalla stessa x delle righe normali
+della colonna; due o più sulla stessa riga sono una GRIGLIA e SHALL centrare ciò
+che le identifica. Nessuna soglia di larghezza SHALL decidere un terzo
+allineamento.
+
+Il blocco SHALL avere margine sinistro e destro UGUALI dentro la sidebar, a ogni
+larghezza e in ogni forma, e dentro una tessera l'aria a sinistra NON SHALL
+superare quella a destra.
+
+#### Scenario: una tessera sola, a tre larghezze di sidebar
+- **GIVEN** una tessera fissata e le righe normali della colonna
+- **THEN** l'inchiostro della tessera SHALL partire dalla x delle righe
+
+#### Scenario: tessere impilate in colonna
+- **GIVEN** più tessere, una per riga
+- **THEN** i margini sinistro e destro del blocco SHALL coincidere entro 1px
+
 ### Requirement: HEADPAR-01 — Il metodo di sola intestazione risponde come quello di lettura
 
 Misurato l'11/08 sul server vivo: una richiesta di sola intestazione su un

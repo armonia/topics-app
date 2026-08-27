@@ -31,6 +31,7 @@ import { parseCompactBoundary } from "./claude/compaction";
 import { buildClaudeArgs, buildClaudeOneshotArgs, resolveToolTrim } from "./claude/args";
 import { checkClaudeCliCompat, type ClaudeCliCompat } from "./claude/cli-compat";
 import { applyJobQuota } from "../services/agent-job-quota";
+import { resolveInheritedMcp } from "./mcp-inheritance";
 // La decodifica degli eventi `stream-json` — campi INTERNI della CLI, non
 // un'API pubblicata — vive in un modulo puro, provato su fixture registrate.
 import {
@@ -310,111 +311,30 @@ export function mcpConfigPathForSession(sessionKey: string): string {
 // A Claude session spawned inside Topics inherits the user's GLOBAL MCP
 // servers (~/.claude.json) because the CLI auto-loads them (default config +
 // `--setting-sources user`). Left unscoped, EVERY session re-spawns the entire
-// fleet — including chrome-devtools-mcp, which launches a real ~1.2GB Chrome.
-// To keep this controllable we write the FULL desired server set into the
-// per-session config and pass `--strict-mcp-config`, so the CLI uses ONLY that
-// set and ignores all other MCP configurations.
+// fleet. To keep this controllable we write the FULL desired server set into
+// the per-session config and pass `--strict-mcp-config`, so the CLI uses ONLY
+// that set and ignores all other MCP configurations.
 //
-// Everything is override-able via env (no code change, no rebuild):
-//   TOPICS_SESSION_MCP_INHERIT_ALL=1 -> legacy: inherit everything, no strict
-//   TOPICS_SESSION_MCP_ALLOW="a,b"   -> strict allowlist (topics + these only)
-//   TOPICS_SESSION_MCP_DENY="x,y"    -> inherit all global EXCEPT these
-//   (none)                           -> inherit all global EXCEPT DEFAULT_DENY
-//
-// Default-deny: chrome-devtools — a per-session real Chrome, redundant with
-// jarvis-browser / claude-in-chrome, and the single heaviest idle offender.
-//
-const DEFAULT_DENY_MCP = new Set(["chrome-devtools"]);
+// THE POLICY ITSELF NO LONGER LIVES HERE: it is `providers/mcp-inheritance.ts`,
+// because the native runtime has to answer the same question and a copy would
+// drift on the first fix. This branch keeps only what is CLI-specific, which is
+// the config file and the `--strict-mcp-config` decision.
 
 /**
- * Server che si RIAVVIANO a ogni spawn non entrano in una sessione di lavoro
- * lunga — e la regola è strutturale, non una lista di nomi.
- *
- * Un server `stdio` lanciato con `npx -y <pkg>` (o `npm exec -y`, o `bunx`)
- * risolve e scarica il pacchetto a ogni avvio: è cold-boot per costruzione, ed è
- * fragile per la stessa ragione. Quando quel processo cade, la CLI toglie i suoi
- * tool dallo schema e poi li rimette — e ogni giro cambia il PREFISSO del prompt.
- * Un prefisso che cambia va riscritto in cache per intero, e in una sessione
- * agentica la cache è il 96% del volume letto.
- *
- * Misurato sul transcript armonia-site (275 risposte): 8 richieste — il 2,9% —
- * portano l'85% di TUTTE le scritture di cache della sessione, 1,97M token per
- * ~$20-33. Sono le 8 che seguono una rimozione di tool-set, e il server che si
- * muoveva era `wigolo` (`npx -y wigolo`), l'unico dei globali che soddisfa questa
- * regola: gli altri sono `http` (nessun boot) o `node` su un path locale.
- *
- * Le chat non perdono niente di unico: la ricerca web resta con `exa` (http) e i
- * WebSearch/WebFetch nativi. Per rimettere un server escluso da questa regola:
- * `TOPICS_SESSION_MCP_ALLOW="wigolo,…"` (l'allowlist ha la precedenza) oppure
- * `TOPICS_SESSION_MCP_COLDBOOT_OK=1` per disattivare la regola in blocco.
- */
-export function isColdBootServer(def: unknown): boolean {
-  if (!def || typeof def !== "object") return false;
-  const d = def as { type?: string; command?: string; args?: unknown };
-  // Solo stdio: un server http non ha un processo da far ripartire.
-  if (d.type && d.type !== "stdio") return false;
-  const cmd = (d.command || "").split("/").pop() || "";
-  if (!/^(npx|bunx|pnpx)$/.test(cmd) && !(cmd === "npm" && Array.isArray(d.args) && d.args.includes("exec"))) {
-    return false;
-  }
-  // `npx pkg` senza `-y` si ferma a chiedere conferma e non parte affatto: è il
-  // flag di auto-conferma che rende il download silenzioso, e quindi ripetibile.
-  const args = Array.isArray(d.args) ? d.args.map(String) : [];
-  return args.includes("-y") || args.includes("--yes");
-}
-
-function parseCsvEnv(name: string): string[] {
-  return (process.env[name] || "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-/**
- * Resolve which GLOBAL (~/.claude.json) MCP servers a Topics session should
- * inherit. Returns null when we cannot / should not scope (caller then keeps
- * the legacy additive merge with NO --strict-mcp-config, so the user loses
- * nothing). Server definitions are copied verbatim so they spawn identically.
+ * The servers this session inherits, or `null` when we must not scope (the
+ * caller then keeps the legacy additive merge with NO `--strict-mcp-config`, so
+ * the user loses nothing). The exclusion reasons are reported by the shared
+ * resolver; here they only reach the log.
  */
 function resolveInheritedMcpServers(): Record<string, unknown> | null {
-  if (process.env.TOPICS_SESSION_MCP_INHERIT_ALL === "1") return null;
-  const home = process.env.HOME;
-  if (!home) return null;
-  let global: Record<string, unknown>;
-  try {
-    const parsed = JSON.parse(readFileSync(join(home, ".claude.json"), "utf-8"));
-    global = (parsed && typeof parsed === "object" && (parsed as any).mcpServers) || {};
-  } catch {
-    return null; // can't read global config -> don't risk stripping tools
+  const { servers, excluded } = resolveInheritedMcp();
+  // Never a silent exclusion: a tool that is missing without an explanation is
+  // indistinguishable from a bug, and people go looking in the wrong place.
+  // The screen that shows this properly is fed by the same resolver.
+  for (const e of excluded) {
+    if (e.reason === "cold-boot") console.log(`[claude-code] MCP not inherited: ${e.name} (${e.detail})`);
   }
-  const allow = parseCsvEnv("TOPICS_SESSION_MCP_ALLOW");
-  const deny = new Set([...parseCsvEnv("TOPICS_SESSION_MCP_DENY"), ...DEFAULT_DENY_MCP]);
-  const coldBootOk = process.env.TOPICS_SESSION_MCP_COLDBOOT_OK === "1";
-  const droppedForColdBoot: string[] = [];
-  const out: Record<string, unknown> = {};
-  for (const [name, def] of Object.entries(global)) {
-    if (name === "topics") continue; // our bridge is added explicitly below
-    if (allow.length > 0) {
-      if (allow.includes(name)) out[name] = def;
-    } else if (deny.has(name)) {
-      // già escluso per nome
-    } else if (!coldBootOk && isColdBootServer(def)) {
-      // Escluso dalla regola, non da una lista: vedi `isColdBootServer`.
-      droppedForColdBoot.push(name);
-    } else {
-      out[name] = def;
-    }
-  }
-  // Mai un'esclusione silenziosa: un tool che manca senza spiegazione è
-  // indistinguibile da un bug, e si finisce a cercarlo nel posto sbagliato.
-  if (droppedForColdBoot.length > 0) {
-    console.log(
-      `[claude-code] MCP esclusi perché si riavviano a ogni spawn (invalidano la cache del prompt): ` +
-        `${droppedForColdBoot.join(", ")} — per rimetterli: TOPICS_SESSION_MCP_ALLOW="${droppedForColdBoot.join(",")}" ` +
-        `oppure TOPICS_SESSION_MCP_COLDBOOT_OK=1`,
-    );
-  }
-  return out;
+  return servers;
 }
 
 /**

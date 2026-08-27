@@ -27,6 +27,7 @@ import { decide, DEFAULT_AUTONOMY } from "./permissions";
 import { applyPromptCache } from "../prompt-cache";
 import { needsCompaction, compact, windowFor } from "./compaction";
 import { isTopicsTool, executeTopicsTool, type TopicsToolContext } from "./topics-tools";
+import { isMcpTool, executeMcpTool } from "./mcp-fleet";
 import type { AutonomyLevel } from "../../../shared/types";
 import type { StreamHandler } from "../types";
 import type { TurnEndInfo } from "../stop-reason";
@@ -500,16 +501,20 @@ export async function runAgentTurn(
       // Farlo fallire con un'eccezione gli farebbe sparire il turno sotto i
       // piedi per una regola che poteva semplicemente rispettare.
       const verdict = decide(t.name!, (t.input ?? {}) as Record<string, unknown>, opts.autonomy ?? DEFAULT_AUTONOMY);
-      // Due famiglie di tool, un solo giro. I mestieri di Topics passano dai
-      // loro handler (`topics-tools.ts`), quelli di macchina dai nostri: la
-      // distinzione è sul NOME e non su un prefisso, perché e' la tabella MCP
-      // a decidere quali nomi esistono, non una convenzione che va tenuta
-      // allineata a mano.
+      // Tre famiglie di tool, un solo giro. I mestieri di Topics passano dai
+      // loro handler (`topics-tools.ts`), quelli di macchina dai nostri, e i
+      // tool dei server MCP globali dalla flotta (`mcp-fleet.ts`).
+      // The MCP branch goes FIRST and it is the only one keyed on a prefix:
+      // `mcp__<server>__<tool>` is a name WE built when mounting, so it cannot
+      // collide with a native tool, while the other two are told apart by the
+      // table that owns their names.
       const out = !verdict.allow
         ? { content: verdict.reason, isError: true }
-        : opts.topics && isTopicsTool(t.name!)
-          ? await executeTopicsTool(t.name!, (t.input ?? {}) as Record<string, unknown>, opts.topics)
-          : await executeTool(t.name!, (t.input ?? {}) as Record<string, any>, opts.toolContext);
+        : isMcpTool(t.name!)
+          ? await executeMcpTool(t.name!, (t.input ?? {}) as Record<string, unknown>)
+          : opts.topics && isTopicsTool(t.name!)
+            ? await executeTopicsTool(t.name!, (t.input ?? {}) as Record<string, unknown>, opts.topics)
+            : await executeTool(t.name!, (t.input ?? {}) as Record<string, any>, opts.toolContext);
       handler.onToolResult(t.id!, out.content, out.isError);
       results.push({
         type: "tool_result",

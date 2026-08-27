@@ -180,21 +180,22 @@ test.describe("Top bar della kanban — si legge da sola", () => {
       contentType: "application/json",
       body: JSON.stringify({ conteggi, geometrie }, null, 2),
     });
-    // A 1440px i progetti DIVENTANO filtri, e la barra e' piena: uno in piu'
-    // non ci sarebbe stato.
+    // AT 1440px THE PROJECTS BECOME FILTERS, and the bar is full: one more
+    // would not have fitted.
     //
-    // Qui c'era `>= 3`, che non e' una proprieta' di questo codice: e' quanti
-    // chip stanno in 245px col font di macOS. Sullo stesso identico albero il
-    // runner di CI ne mostra 2, e il rosso diceva «i progetti non sanno
-    // diventare filtri» di una barra che li stava impaginando benissimo.
+    // This used to read `>= 3`, which is not a property of this code: it is how
+    // many chips fit in 245px with the font on the author's Mac. On the very
+    // same tree the CI runner lays out two, and the red said "the projects do
+    // not know how to become filters" about a bar that was packing them just
+    // fine.
     //
-    // La proprieta' vera e' che l'impaginazione sia GOLOSA: mostra tutto cio'
-    // che entra e rimanda nel menu solo cio' che non entra. E si misura senza
-    // sapere quanti siano, perche' i chip esclusi restano impaginati e perdono
-    // solo la visibilita': al primo di loro si puo' chiedere quanto sporgeva.
-    // Il cancello puo' ancora fallire, ed e' il caso che conta: se il calcolo
-    // nascondesse un progetto che ci stava, quel chip finirebbe DENTRO la
-    // barra e la sporgenza sarebbe negativa.
+    // The real property is that the packing is GREEDY: show everything that
+    // fits, send back to the menu only what does not. And it is measurable
+    // without knowing how many, because the excluded chips stay laid out and
+    // only lose their visibility - so the first of them can be asked how far
+    // it overhung. The gate can still fail, and that is the case that matters:
+    // if the calculation hid a project that had room, that chip would sit
+    // INSIDE the bar and the overhang would be negative.
     const g = geometrie.larga as { firstHiddenOverhang: number | null };
     expect(conteggi.larga, `a 1440px almeno un progetto e' un filtro — ${JSON.stringify(geometrie)}`).toBeGreaterThanOrEqual(1);
     if (g.firstHiddenOverhang !== null) {
