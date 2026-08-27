@@ -1,0 +1,14 @@
+-- 20260827041036-board-deploy-command.sql
+--
+-- The prefix is a UTC timestamp (YYYYMMDDHHMMSS), not a counter: that is what
+-- makes collisions between parallel branches impossible. Do not rename it.
+--
+-- Generic analogue of `dispatch_auto_merge`, for boards whose "done" does not
+-- mean "merged" but "deploy this" (external projects, e.g. a static site or a
+-- worker with its own `deploy` script). Empty string = OFF, the default: no
+-- existing board changes behaviour until someone fills it in.
+--
+-- The server NEVER runs this command on its own. On approve, if this is set,
+-- it PROPOSES the deploy (a comment + a "Deploya ora" button) and only runs it
+-- when a human confirms — see server/services/task-deploy.ts.
+ALTER TABLE board_settings ADD COLUMN deploy_command TEXT NOT NULL DEFAULT '';

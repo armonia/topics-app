@@ -31,7 +31,7 @@ import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import { DictationButton } from '../Shared/DictationButton';
 import { emptyThreadKey } from './emptyThread';
-import { boardApi, commentAuthorLabel, diffTotals, hasCodeQuestion, showsLandingDebt, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, subtaskQueueChip, subtaskOpenable, reopenedChip, attemptHasWork, priorityAwaitingAgent, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef, type DiffBundle, type DiffNote, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
+import { boardApi, commentAuthorLabel, diffTotals, hasCodeQuestion, showsLandingDebt, showsDeployProposal, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, subtaskQueueChip, subtaskOpenable, reopenedChip, attemptHasWork, priorityAwaitingAgent, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef, type DiffBundle, type DiffNote, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
@@ -1115,6 +1115,19 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     }
     catch (e) { showError(e); }
     finally { setBusy(false); }
+  };
+
+  // "Deploya ora": the human confirms a deploy the server only PROPOSED at
+  // approve (board setting `deployCommand`). Fire-and-forget on this side too —
+  // the server answers 202 and the outcome lands as a system comment; `load()`
+  // after the click just picks up the `running` state right away.
+  const [deploying, setDeploying] = useState(false);
+  const doDeploy = async () => {
+    if (deploying) return;
+    setDeploying(true);
+    try { await boardApi.deploy(projectId, taskId); setError(null); await load(); onChanged(); }
+    catch (e) { showError(e); }
+    finally { setDeploying(false); }
   };
 
   // Il ticket si SEGUE finché non si chiude. Senza qualcuno che chieda «e poi?»,
@@ -2482,6 +2495,25 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             // più chiaro del fondo su cui sta.
             className="flex shrink-0 items-center gap-1 rounded border border-rose-400/40 bg-rose-500/20 px-2 py-0.5 font-medium hover:bg-rose-500/30 disabled:opacity-50"
           ><GitMerge className="h-3 w-3" /> {landWord.label}</button>
+        </div>
+      )}
+      {/* Deploy PROPOSED at approve (board setting `deployCommand`): a comment
+          already told the story in the thread, this banner is the durable
+          reminder + the button — same treatment as the "not on main" band
+          above, for the same reason (a comment scrolls away, this does not). */}
+      {task && showsDeployProposal(task) && (
+        <div data-testid="task-deploy-proposed-banner" className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-sky-500/20 bg-sky-500/10 px-3 py-1.5 text-[11px] text-sky-300">
+          <span className="min-w-0">🚀 {tr('board.task.deployProposed')}</span>
+          <button
+            data-testid="task-deploy-now"
+            disabled={deploying} onClick={doDeploy}
+            className="flex shrink-0 items-center gap-1 rounded border border-sky-400/40 bg-sky-500/20 px-2 py-0.5 font-medium hover:bg-sky-500/30 disabled:opacity-50"
+          >{deploying ? <Spinner size="sm" tone="current" /> : <GitMerge className="h-3 w-3" />} {tr('board.task.deployNow')}</button>
+        </div>
+      )}
+      {task?.deployState === 'running' && (
+        <div data-testid="task-deploy-running-banner" className="flex shrink-0 items-center gap-1.5 border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-300">
+          <Spinner size="sm" tone="current" /> {tr('board.task.deployRunning')}
         </div>
       )}
       {/* Aveva consegnato e non è più lì: la banda lo dice appena apri la card,
