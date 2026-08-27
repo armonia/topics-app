@@ -27,10 +27,34 @@
 const lists = new Map<string, MediaQueryList | null>();
 
 /**
+ * WHICH `matchMedia` built what is in `lists`.
+ *
+ * In a browser this never changes and the check costs one comparison. In tests
+ * it changes every time a case installs its own fake, and THAT is the bug this
+ * exists to make impossible: the memo would keep handing back the list built
+ * from the previous fake, whose `matches` belongs to the previous case.
+ *
+ * Measured on 27/08/2026: `push/environment.test.ts` passed alone and failed in
+ * the full suite - a file that ran earlier had populated the memo, so
+ * `mediaQueryMatches('(display-mode: standalone)')` answered for somebody
+ * else's window. `resetMediaQueryCache()` already existed for exactly this, and
+ * that is the weakness: it works only if every test remembers to call it, and
+ * one did not. Noticing the swap here needs nobody to remember anything.
+ */
+let builtBy: unknown;
+
+/**
  * The one `MediaQueryList` for `query`, or `null` outside a browser.
  * Safe in a hot path: after the first call it is a Map lookup.
  */
 export function mediaQuery(query: string): MediaQueryList | null {
+  const impl = typeof window !== 'undefined' ? window.matchMedia : undefined;
+  if (impl !== builtBy) {
+    // A different `matchMedia` than the one behind the memo: everything in it
+    // answers for a window that no longer exists.
+    lists.clear();
+    builtBy = impl;
+  }
   const hit = lists.get(query);
   if (hit !== undefined) return hit;
   const built = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
@@ -49,4 +73,5 @@ export function mediaQueryMatches(query: string): boolean {
  *  test would otherwise be shadowed by the list built from the previous one). */
 export function resetMediaQueryCache(): void {
   lists.clear();
+  builtBy = undefined;
 }

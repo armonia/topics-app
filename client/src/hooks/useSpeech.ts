@@ -153,12 +153,42 @@ export function useSpeechToText() {
   };
 }
 
+/**
+ * Native fallback, no key required: the browser/webview's own
+ * `speechSynthesis`.
+ *
+ * `/api/tts` (ElevenLabs) answers 500 when `ELEVENLABS_API_KEY` is not
+ * configured — which is most of the time, for anyone who never set it.
+ * Before this fallback, `speak()` stayed silent in that case: a console
+ * error, no audio. ElevenLabs is tried first (better voice, paid) and this
+ * one is used only when it is missing or fails — the same cascade shape as
+ * STT (`server/lib/stt.ts`), mirrored.
+ */
+function speakNative(text: string, onEnd: () => void): boolean {
+  if (typeof window === 'undefined' || !window.speechSynthesis) return false;
+  try {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.onend = onEnd;
+    utterance.onerror = onEnd;
+    window.speechSynthesis.speak(utterance);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // Text-to-speech hook using server TTS endpoint
 export function useTextToSpeech() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  const speak = useCallback(async (text: string) => {
+  // Resolves when speech has FINISHED (playback end, not start): `await
+  // audio.play()` alone resolves at START, not at the end — a caller that
+  // needs to know "it's done talking" (the board's voice controller, which
+  // then opens the mic) previously had only `isSpeaking` to poll. Existing
+  // fire-and-forget callers (e.g. `ChatInput`) stay valid: they don't await
+  // the promise, same behaviour as before.
+  const speak = useCallback(async (text: string): Promise<void> => {
     if (!text.trim()) return;
 
     setIsSpeaking(true);
@@ -184,32 +214,42 @@ export function useTextToSpeech() {
       const audio = new Audio(url);
       ttsAudioRef.current = audio;
 
-      audio.onended = () => {
-        setIsSpeaking(false);
-        URL.revokeObjectURL(url!);
-      };
-
-      audio.onerror = () => {
-        setIsSpeaking(false);
-        URL.revokeObjectURL(url!);
-      };
-
-      await audio.play();
+      await new Promise<void>((resolve) => {
+        audio.onended = () => {
+          setIsSpeaking(false);
+          URL.revokeObjectURL(url!);
+          resolve();
+        };
+        audio.onerror = () => {
+          setIsSpeaking(false);
+          URL.revokeObjectURL(url!);
+          resolve();
+        };
+        audio.play().catch(() => resolve());
+      });
     } catch (e) {
-      console.error('TTS error:', e);
-      setIsSpeaking(false);
+      console.error('TTS error, falling back to native speechSynthesis:', e);
       if (url) URL.revokeObjectURL(url);
+      await new Promise<void>((resolve) => {
+        if (!speakNative(text, () => { setIsSpeaking(false); resolve(); })) {
+          setIsSpeaking(false);
+          resolve();
+        }
+      });
     }
   }, []);
 
   const stop = useCallback(() => {
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
     if (ttsAudioRef.current) {
       // Rilascio pieno, non solo pausa: chi preme "stop" ha finito di
       // ascoltare, e tenere vivo il renderer costa un thread per sempre.
       releaseAudio(ttsAudioRef.current);
       ttsAudioRef.current = null;
-      setIsSpeaking(false);
     }
+    setIsSpeaking(false);
   }, []);
 
   useEffect(() => {
