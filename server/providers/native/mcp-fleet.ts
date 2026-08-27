@@ -44,7 +44,7 @@ export function isMcpTool(name: string): boolean {
 // client is exactly the "KEEP IN SYNC" mirror that `tests/unit/no-type-mirrors`
 // exists to refuse. Re-exported so this module stays the place you import them
 // from on the server side.
-export type { McpServerState, McpServerStatus, McpFleetStatus } from "../../../shared/types";
+export type { McpFleetStatus } from "../../../shared/types";
 import type { McpServerStatus, McpFleetStatus } from "../../../shared/types";
 
 interface MountedTool {

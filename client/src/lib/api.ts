@@ -1364,7 +1364,7 @@ export const appSettingsApi = {
 // data type from the same module it imports the call from. Declaring them again
 // on this side is the mirror `tests/unit/no-type-mirrors.test.ts` refuses.
 // ─────────────────────────────────────────────────────────────────────────────
-export type { McpFleetStatus, McpServerStatus, McpServerState } from '../../../shared/types';
+export type { McpFleetStatus, McpServerStatus } from '../../../shared/types';
 import type { McpFleetStatus } from '../../../shared/types';
 
 export const mcpApi = {

@@ -423,7 +423,7 @@ export class NativeProvider implements AIProvider {
       // muovere la card che sta lavorando e' meta' agente, ed e' esattamente
       // com'era prima di questa riga.
       const topics = this.topicsContext(sessionKey);
-      // ── LA FLOTTA MCP GLOBALE, E LA LEVA CHE LA SPEGNE ──────────────────
+      // ── THE GLOBAL MCP FLEET, AND THE LEVER THAT TURNS IT OFF ───────────
       //
       // The servers configured on the machine (`~/.claude.json`) are mounted by
       // `mcp-fleet.ts` once per process; here we only decide whether THIS

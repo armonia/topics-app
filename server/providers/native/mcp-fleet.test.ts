@@ -130,7 +130,7 @@ describe("la flotta MCP del runtime nativo", () => {
   test("un server che non risponde resta nell'elenco con il suo motivo", async () => {
     writeConfig({
       finto: { type: "http", url: server.url.href },
-      // Porta chiusa: la connessione cade, e deve cadere solo la sua.
+      // Closed port: the connection fails, and only its own must fail.
       rotto: { type: "http", url: "http://127.0.0.1:1/mcp" },
     });
     await remountMcpFleet();
@@ -138,7 +138,7 @@ describe("la flotta MCP del runtime nativo", () => {
     const stato = mcpFleetStatus();
     expect(stato.servers.find((s) => s.name === "rotto")!.state).toBe("failed");
     expect(stato.servers.find((s) => s.name === "rotto")!.reason).toBeTruthy();
-    // L'altro server è montato lo stesso: un guasto non costa la flotta.
+    // The other server is mounted all the same: one failure does not cost the fleet.
     expect(mcpToolSpecs().map((t) => t.name)).toContain("mcp__finto__eco");
   });
 
@@ -160,8 +160,8 @@ describe("la flotta MCP del runtime nativo", () => {
   });
 
   test("monta anche un server stdio, con il suo processo figlio vero", async () => {
-    // Un server MCP di sette righe su stdin/stdout: quello che conta è che il
-    // trasporto sia quello vero, non un finto in-process.
+    // A seven line MCP server on stdin/stdout: what matters is that the
+    // transport is the real one, not an in-process fake.
     const script = join(dir, "stdio-server.mjs");
     writeFileSync(
       script,
@@ -212,7 +212,7 @@ describe("i tool MCP passano dal cancello dei permessi", () => {
   });
 
   test("un nome che imita un tool di sola lettura non salta il livello", () => {
-    // `read_file` è concesso sempre; `mcp__x__read_file` no: viene da fuori.
+    // `read_file` is always allowed; `mcp__x__read_file` is not: it comes from outside.
     expect(decide("read_file", {}, "ask").allow).toBe(true);
     expect(decide("mcp__x__read_file", {}, "ask").allow).toBe(false);
   });

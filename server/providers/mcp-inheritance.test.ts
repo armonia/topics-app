@@ -1,10 +1,10 @@
 /**
- * La regola di ereditarieta' e' UNA, e risponde anche alla seconda domanda.
+ * There is ONE inheritance rule, and it also answers the second question.
  *
- * `isColdBootServer` ha gia' il suo test (`mcp-coldboot.test.ts`); qui si prova
- * la parte che prima non esisteva: PERCHE' un server configurato non c'e'. Fino
- * a ieri quel perche' finiva su una riga di stdout, e un tool che manca senza
- * spiegazione e' indistinguibile da un bug.
+ * `isColdBootServer` already has its own test (`mcp-coldboot.test.ts`); what is
+ * covered here is the part that did not exist before: WHY a configured server is
+ * absent. Until yesterday that reason ended up on a line of stdout, and a tool
+ * missing without an explanation is indistinguishable from a bug.
  */
 
 import { describe, test, expect, beforeEach, afterAll } from "bun:test";

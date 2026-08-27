@@ -1314,7 +1314,7 @@ const IT: Dict = {
   'runtime.missing': 'Scelto, ma non ancora fra i provider: serve un riavvio del server, e l’eseguibile jcode dev’essere nel PATH.',
   'runtime.defaultUnavailable': 'Il runtime nativo è il predefinito, ma non trova un login Claude su questa macchina: gli agenti girano sulla CLI, come prima. Esegui `claude` e fai /login una volta.',
 
-  // ── La flotta MCP: cosa è montato adesso, e perché il resto non c'è.
+  // ── The MCP fleet: what is mounted right now, and why the rest is not.
   'mcp.title': 'Server MCP',
   'mcp.blurb': "Gli strumenti che gli agenti trovano già pronti, presi dalla configurazione globale. Qui c'è quello che risponde adesso, e il motivo di ciò che manca.",
   'mcp.source': 'Letti da {path}',
