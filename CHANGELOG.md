@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.184 — 2026-08-27
+
+### Sotto il cofano
+- L'aggancio stava dentro un blocco macOS: su Windows non esisteva proprio
+
 ## 2.2.183 — 2026-08-27
 
 ### Sotto il cofano
