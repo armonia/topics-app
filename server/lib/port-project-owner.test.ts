@@ -1,5 +1,9 @@
 /**
- * @covers f9cf765e — the port -> project resolver behind the open-pane warning.
+ * @covers BROWSER-PORT-01 — the port -> project resolver behind the open-pane
+ * warning. (It used to declare the card uuid `f9cf765e`, which reads like a
+ * declaration but is invisible to `check-spec-coverage`: that gate only counts
+ * ids shaped `PREFIX-<number>`, so this file was traced by one gate and unseen
+ * by the other.)
  * All fakes: no real `lsof`, so this is the hermetic half of the feature (the
  * real-deps wiring is exercised end-to-end in browser-bridge.test.ts with
  * injected fakes too, never against the actual machine's listening ports).

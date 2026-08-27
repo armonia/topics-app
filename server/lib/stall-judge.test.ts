@@ -1,3 +1,9 @@
+/**
+ * @covers CHAT-REL-03 — the judge that decides whether a silent turn is alive
+ * or stuck. The requirement's whole point is that silence alone must not kill
+ * a turn, so a verdict misread off explanation text ("not alive, it looks
+ * stuck") is the exact failure it forbids.
+ */
 import { describe, expect, test } from "bun:test";
 import { buildStallJudgePrompt, judgeStall, parseStallVerdict } from "./stall-judge";
 
