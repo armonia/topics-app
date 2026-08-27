@@ -232,6 +232,23 @@ const IT: Dict = {
   'chat.goal.none': 'Nessun obiettivo attivo',
   'chat.command.dismiss': 'Chiudi il messaggio del comando',
 
+  // The commands the composer offers (the `/` menu and the text `/help`
+  // prints). Only the DESCRIPTION is translated, never the command itself:
+  // `/status` is what one types.
+  'chat.slash.status.description': 'Mostra lo stato della sessione',
+  'chat.slash.context.description': 'Mostra l\'uso della finestra di contesto (token, budget, sorgenti)',
+  'chat.slash.compact.description': 'Compatta il contesto ora (riassume la storia e libera spazio)',
+  'chat.slash.clear.description': 'Svuota la conversazione',
+  'chat.slash.model.description': 'Cambia modello (es. /model claude-opus-5[1m])',
+  'chat.slash.effort.description': 'Imposta lo sforzo di ragionamento (low|medium|high|xhigh|max)',
+  'chat.slash.reasoning.description': 'Accendi o spegni il ragionamento (openclaw) / → /effort su claude-code',
+  'chat.slash.agents.description': 'Elenca i profili degli agenti',
+  'chat.slash.resume.description': 'Riprendi l\'agente (@nome)',
+  'chat.slash.project.description': 'Crea o apri un progetto',
+  'chat.slash.browser.description': 'Apri una scheda del browser e naviga (es. /browser https://example.com)',
+  'chat.slash.goal.description': 'Obiettivo della chat: /goal <testo> · /goal fatto · /goal basta',
+  'chat.slash.help.description': 'Mostra i comandi disponibili',
+
   'diff.note.placeholder': 'Cosa non va in questa riga…',
   'common.add': 'Aggiungi',
   'common.cancel': 'Annulla',
