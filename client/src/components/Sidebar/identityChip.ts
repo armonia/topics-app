@@ -106,3 +106,27 @@ export function splitOrgs<T>(orgs: readonly T[], max = ORGS_INLINE): { inline: T
   const keep = Math.max(0, max - 1);
   return { inline: orgs.slice(0, keep), extra: orgs.length - keep };
 }
+
+/**
+ * THE DIM INK OF A CHIP, and why it is not `--text-muted`.
+ *
+ * The secondary things in the band (the people count, the word "friends", the
+ * inventory signal, an empty glyph) want ink that recedes, and the token for
+ * that is `--text-muted`. Measured on the real pixels, it does not survive the
+ * veil above: in LIGHT the chip is a black wash over the chrome, which pulls
+ * the background DOWN toward the dark ink instead of away from it, so muted
+ * text drops from 4.50:1 on the bare chrome to 4.07:1 on a chip.
+ *
+ * That is worth writing down because it is the opposite of the intuition this
+ * file was built on. "A dark veil under dark ink only helps" is true of the
+ * INK and false of the RATIO: contrast is a distance, and moving the ground
+ * toward the figure shortens it whichever way it moves. `--text-muted` in
+ * light is tuned to land exactly on 4.50:1 over `--chrome-bg`, so it has no
+ * margin left to spend and ANY veil breaks it.
+ *
+ * So the band's dim ink is the secondary token, one step darker, which keeps
+ * the hierarchy (it still recedes against `--text-app-text`) and measures
+ * 5.06:1 light and 7.90:1 dark over the veil. The e2e reads it off the
+ * composited pixels, not off this comment.
+ */
+export const CHIP_INK_DIM = 'text-app-text-secondary';

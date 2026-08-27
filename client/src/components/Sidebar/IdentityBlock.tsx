@@ -71,7 +71,7 @@ import { usePresenceSummary } from '@/hooks/usePresenceSummary';
 import { apriProfilo, openPersonProfile } from '@/state/profileTarget';
 import type { FacciaPresenza, RigaPresenza } from './orgPresence';
 import { IDENTITY_GLYPH_BOX, IDENTITY_GLYPH_INK, ROW_INSET, TIER_DONE_TEXT } from '@/lib/selectionStyles';
-import { chipClass, splitOrgs } from './identityChip';
+import { CHIP_INK_DIM, chipClass, splitOrgs } from './identityChip';
 import { PALLINO_OK, SEGNALE_ATTESA, SEGNALE_OK } from './chromeSignals';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
 import { PresencePopover } from './PresencePopover';
@@ -115,7 +115,7 @@ export function IdentityBlock({ onOpenDevices }: { onOpenDevices?: () => void })
     // it. The e2e measures both (same top within 1px, scrollWidth == clientWidth).
     <div
       data-testid="identity-block"
-      className="flex flex-nowrap items-center gap-1 overflow-hidden pb-1 text-[11px]"
+      className="@container/identity flex flex-nowrap items-center gap-1 overflow-hidden pb-1 text-[11px]"
       style={{ paddingInline: ROW_INSET }}
     >
       <RigaIo presenza={presenza} onOpenDevices={onOpenDevices} />
@@ -216,7 +216,15 @@ function RigaIo({ presenza, onOpenDevices }: {
     // width and yields it back, in that order: `flex-1` with `basis-0` and
     // `min-w-0`, i.e. it asks for nothing and accepts what is left. That is
     // what keeps the other two on the line at 180px instead of pushing them off.
-    <span data-testid="identity-row-me" className={`${SUBJECT} flex-1 basis-0`}>
+    // `min-w-6` IS THE 24px TARGET, PUT ON THE PART THAT ACTUALLY SHRINKS.
+    // The floor was on the button alone, and a floor under the wrong box is not
+    // a floor: `basis-0` let THIS span be squeezed to nothing by the groups,
+    // while the button inside kept its 24px and simply painted outside its
+    // parent, straight over the next chip. Measured at 180px with four groups:
+    // the row was ~4px wide, the button drew 6..30, the groups opened at 10.
+    // An overlap reads as a pile, which is the exact failure the redesign was
+    // called in to fix, so the constraint belongs to the flex item that yields.
+    <span data-testid="identity-row-me" className={`${SUBJECT} min-w-6 flex-1 basis-0`}>
       <button
         ref={setChip}
         data-testid="identity-me-profile"
@@ -248,9 +256,25 @@ function RigaIo({ presenza, onOpenDevices }: {
         {/* WHAT IS RUNNING, in glyphs. `workSignals` decides which three:
             what is alive first, the inventory last, zeros never. */}
         {signals.length > 0 && (
+          // WHAT YIELDS WHEN THE COLUMN IS NARROW. The glyph and these signals
+          // are the only parts of the chip that refuse to shrink, so on a 180px
+          // column they kept drawing their full width straight over the groups
+          // chip: 84px of spill, measured. The name truncating is not enough
+          // give, because the floor is the chip's own 24px target.
+          // The threshold is the band's own width, not the window's, and 300 is
+          // measured rather than chosen: the band is the sidebar less the 6px
+          // inset each side, so the three test widths give 168, 244 and 388. At
+          // 244 the chip is still 10px short of holding glyph, a name clipped
+          // to its ellipsis, the signals and the two other subjects. 388 has
+          // the room with a margin. Anything under 300 is the narrow case.
+          // So below a band of 300px the signals go, and they are the right
+          // thing to lose: the subject of this chip is WHO you are, the numbers
+          // are what is running, and they are already in the tooltip and in the
+          // panel the chip opens. Losing them costs a hover; losing the line
+          // costs the glance the whole band exists for.
           <span
             data-testid="presence-summary"
-            className="ml-auto flex flex-shrink-0 items-center gap-1.5 tabular-nums"
+            className="ml-auto hidden flex-shrink-0 items-center gap-1.5 tabular-nums @[300px]/identity:flex"
           >
             {signals.map((s) => <Signal key={s.kind} kind={s.kind} n={s.n} />)}
           </span>
@@ -496,7 +520,7 @@ function MoreOrgsChip({ orgs, aperta, onToggle, onClose }: {
               <div key={o.id} data-testid="org-more-row" className={`${POPOVER_ITEM} gap-2`}>
                 <Logo org={o} size={5} />
                 <span className="min-w-0 flex-1 truncate">{o.nome}</span>
-                <span className={`flex-shrink-0 tabular-nums ${o.online > 0 ? SEGNALE_OK : 'text-app-text-muted'}`}>
+                <span className={`flex-shrink-0 tabular-nums ${o.online > 0 ? SEGNALE_OK : CHIP_INK_DIM}`}>
                   {tr('statusBar.friends.count', { n: o.online, tot: o.membri })}
                 </span>
               </div>
@@ -603,7 +627,12 @@ function Logo({ org, size }: { org: OrgConPresenza; size: 3.5 | 5 }) {
         className={`${cls} flex-shrink-0 rounded-full object-cover`}
         onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
       />
-    : <span data-testid={marker} className={`${cls} flex flex-shrink-0 items-center justify-center rounded-full bg-indigo-500/20 font-bold text-indigo-400`}>
+    // THE INITIALS ARE THE LOGO when there is no image, so they are content and
+    // they have to READ. One indigo for both themes did not: `indigo-400` on
+    // the tinted disc measured 4.46:1 in dark, which is a fail by four
+    // hundredths and exactly the kind of miss an eye ratifies and a meter
+    // catches. One step out per theme, away from the ground each sits on.
+    : <span data-testid={marker} className={`${cls} flex flex-shrink-0 items-center justify-center rounded-full bg-indigo-500/20 font-bold text-indigo-700 dark:text-indigo-300`}>
         {org.nome.slice(0, 2).toUpperCase()}
       </span>;
 }
@@ -648,7 +677,7 @@ function RigaAmici({ online, tutti, totali }: {
         className={`${chipClass(ci_sono)} min-w-0 justify-center text-left`}
         title={ci_sono ? online.map((f) => f.nome).join(', ') : tr('statusBar.friends.title')}
       >
-        <span data-testid="identity-glyph" className={`flex ${IDENTITY_GLYPH_BOX} flex-shrink-0 items-center justify-center ${ci_sono ? SEGNALE_OK : 'text-app-text-muted'}`}>
+        <span data-testid="identity-glyph" className={`flex ${IDENTITY_GLYPH_BOX} flex-shrink-0 items-center justify-center ${ci_sono ? SEGNALE_OK : CHIP_INK_DIM}`}>
           <Users size={IDENTITY_GLYPH_INK} />
         </span>
         {ci_sono && <Facce facce={online} totale={online.length} />}
@@ -657,12 +686,12 @@ function RigaAmici({ online, tutti, totali }: {
             know. Alone, the chip says its own name instead, because a chip that
             is only a glyph and a zero is a door nobody recognises. */}
         {!ci_sono && (
-          <span className="truncate text-app-text-muted">{tr('statusBar.friends.title')}</span>
+          <span className={`truncate ${CHIP_INK_DIM}`}>{tr('statusBar.friends.title')}</span>
         )}
         {ci_sono && (
           <span className="flex-shrink-0 text-app-text-secondary tabular-nums">{online.length}</span>
         )}
-        <span data-testid="identity-friends-total" className="flex-shrink-0 text-app-text-muted tabular-nums">
+        <span data-testid="identity-friends-total" className={`flex-shrink-0 ${CHIP_INK_DIM} tabular-nums`}>
           {ci_sono ? `/${totali}` : totali}
         </span>
       </button>
@@ -729,7 +758,7 @@ const SIGNALS: Record<SignalKind, {
   awaitingInput: { Icon: Hourglass, tint: SEGNALE_ATTESA, label: 'statusBar.signals.awaitingInput' },
   done: { Icon: Hourglass, tint: TIER_DONE_TEXT, label: 'statusBar.signals.done' },
   tasks: { Icon: ListChecks, tint: 'text-app-text-secondary', label: 'statusBar.signals.tasks' },
-  open: { Icon: MessagesSquare, tint: 'text-app-text-muted', label: 'statusBar.signals.open' },
+  open: { Icon: MessagesSquare, tint: CHIP_INK_DIM, label: 'statusBar.signals.open' },
 };
 
 /**
@@ -799,7 +828,7 @@ function Persona({ p }: { p: RigaPresenza }) {
       <span className={`flex h-5 w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded-full ${p.presente ? '' : 'opacity-50'}`}>
         {p.avatarUrl
           ? <img src={p.avatarUrl} alt="" className="h-full w-full object-cover" />
-          : <span className="flex h-full w-full items-center justify-center bg-primary/20 text-[8px] font-semibold leading-none text-app-text-secondary">
+          : <span className="flex h-full w-full items-center justify-center bg-primary/20 text-[8px] font-semibold leading-none text-app-text">
               {p.iniziali}
             </span>}
       </span>
@@ -865,7 +894,7 @@ function Facce({ facce, max = MAX_FACCE, totale }: {
         >
           {f.avatarUrl
             ? <img src={f.avatarUrl} alt="" className="h-full w-full object-cover" />
-            : <span className="flex h-full w-full items-center justify-center bg-primary/20 text-[7px] font-semibold leading-none text-app-text-secondary">
+            : <span className="flex h-full w-full items-center justify-center bg-primary/20 text-[7px] font-semibold leading-none text-app-text">
                 {f.iniziali}
               </span>}
         </span>
