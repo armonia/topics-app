@@ -43,6 +43,10 @@ export function useServiceWorkerUpdate() {
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
+    let disposed = false;
+    // The registration this effect attached `updatefound` to, so cleanup can
+    // remove exactly that listener (not just "some" registration).
+    let boundReg: ServiceWorkerRegistration | null = null;
 
     // Stamp/clear the waiting clock: the FIRST time we see a waiting SW we
     // record the moment (unless a persisted stamp already survives a reload);
@@ -59,6 +63,31 @@ export function useServiceWorkerUpdate() {
       }
     };
 
+    // Named (not inline) so cleanup can remove the EXACT listener it added.
+    // `navigator.serviceWorker.getRegistration()` returns the SAME
+    // ServiceWorkerRegistration object for the whole page lifetime, so a
+    // component that mounts this hook repeatedly (e.g. a popover opened and
+    // closed many times) without this cleanup would pile up one 'updatefound'
+    // listener per mount on that shared object, forever.
+    const onUpdateFound = () => {
+      const reg = boundReg;
+      const newSW = reg?.installing;
+      if (!newSW) return;
+      const onStateChange = () => {
+        if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
+          setUpdateAvailable(true);
+          markWaiting(true);
+        }
+        // The worker only passes through 'installed'/'redundant' once each —
+        // drop the listener once its outcome is known instead of leaving it
+        // bound to a settled worker for the rest of the page's life.
+        if (newSW.state === 'installed' || newSW.state === 'redundant') {
+          newSW.removeEventListener('statechange', onStateChange);
+        }
+      };
+      newSW.addEventListener('statechange', onStateChange);
+    };
+
     const handleUpdate = (reg: ServiceWorkerRegistration) => {
       setRegistration(reg);
       if (reg.waiting) {
@@ -66,20 +95,12 @@ export function useServiceWorkerUpdate() {
         markWaiting(true);
         return;
       }
-      reg.addEventListener('updatefound', () => {
-        const newSW = reg.installing;
-        if (!newSW) return;
-        newSW.addEventListener('statechange', () => {
-          if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
-            setUpdateAvailable(true);
-            markWaiting(true);
-          }
-        });
-      });
+      boundReg = reg;
+      reg.addEventListener('updatefound', onUpdateFound);
     };
 
     navigator.serviceWorker.getRegistration().then((reg) => {
-      if (reg) handleUpdate(reg);
+      if (reg && !disposed) handleUpdate(reg);
     });
 
     // NOTE: No `setInterval(reg.update, …)` here, and NO `controllerchange`
@@ -87,6 +108,10 @@ export function useServiceWorkerUpdate() {
     // of "the app refreshes by itself". The browser still runs its own
     // SW lifecycle (install on load, activate when no controllers, etc.) —
     // we just don't piggy-back a forced page reload onto any of it.
+    return () => {
+      disposed = true;
+      boundReg?.removeEventListener('updatefound', onUpdateFound);
+    };
   }, []);
 
   const applyUpdate = useCallback(() => {
