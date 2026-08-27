@@ -494,17 +494,16 @@ test.describe.serial("Coda dei messaggi", () => {
     await chatPage.messageInput.press("Enter");
 
     // The command answered on the spot. The line is the one `/help` really
-    // prints (`SLASH_COMMANDS_HELP` in ChatPane): it is quoted in full, so that
-    // a list which stops naming `/status` makes noise.
+    // prints (`slashCommandsHelp` in ChatPane): it is quoted in full, so that a
+    // list which stops naming `/status` makes noise.
     //
-    // The text is ENGLISH, and that is not a slip on this line: since 646269bf9
-    // `/help` is DERIVED from `SLASH_COMMANDS` (`ChatInput`) instead of being a
-    // second hand-written list that had drifted. The descriptions in that array
-    // do not go through `tr()` — the same ones read in the composer menu. That
-    // an Italian surface prints English is a defect of its own, not of this
-    // proof: what is quoted here is WHAT ONE SEES, and the day those strings get
-    // translated this line goes red and says so.
-    await expect(page.getByText("/status: Show session status").first())
+    // The text is ITALIAN because the app runs in its default language and the
+    // descriptions now go through `tr()` (`chat.slash.status.description`), the
+    // same ones read in the composer menu. It used to be English here, and the
+    // comment on this line said the day they were translated it would go red
+    // and say so. This is that day. The command itself is NOT translated: it is
+    // what one types.
+    await expect(page.getByText("/status: Mostra lo stato della sessione").first())
       .toBeVisible({ timeout: 10_000 });
     // …and it did not end up in the queue, from where it would then have gone out
     // to the model as text.

@@ -68,19 +68,40 @@ export HOME="$DATA_DIR/.home"
 #
 # Misurato: era l'unico rosso rimasto della nightly (run 33025740083, 1 su
 # 1076), e capitava anche su un Mac che la CLI ce l'ha. Il test misurava
-# l'AMBIENTE, non il prodotto — lo stesso equivoco che il commento di TRESUME-1c
-# gia' descriveva per il caso gemello.
+# l'AMBIENTE, non il prodotto.
 #
-# Lo stub resta muto e vivo (`cat` tiene aperto lo stdin come una REPL), cosi'
-# la PTY non va in EOF nell'istante dopo lo spawn e il server puo' coniare e
-# persistere l'id di sessione — che e' cio' che TERM-01 verifica. Della CLI vera
-# quel requisito non ha bisogno: ne ha bisogno solo che esista un eseguibile con
-# quel nome, e installare quella vera in CI vorrebbe credenziali Anthropic.
+# E LO STUB DEVE CHIUDERE IL TURNO, che e' la lezione della prima versione.
+# Con `exec cat` restava muto e vivo: bastava per la PTY, ma il RUNTIME della
+# chat e' `claude-code`, cioe' passa dalla stessa CLI — e una CLI che non
+# risponde mai lascia `POST /api/chat` appesa per sempre. Misurato: la richiesta
+# non tornava entro 25s, il server continuava a dire `state: "streaming"` e il
+# composer restava su `queue`, quindi `ink-latency` aspettava 60s un'azione
+# `send` che non poteva arrivare. Un turno che non finisce e' peggio di un
+# agente assente: assente lo dici, appeso no.
+#
+# Ora emette UNA riga in stream-json e esce 0. E' il minimo che un turno chiuso
+# richiede, e resta muto su tutto il resto.
 #
 # `-f` e non `-e`: se qualcuno ci ha gia' messo un link alla CLI vera, vince lui.
 mkdir -p "$HOME/.local/bin"
 if [ ! -f "$HOME/.local/bin/claude" ]; then
-  printf '#!/usr/bin/env bash\nexec cat\n' > "$HOME/.local/bin/claude"
+  cat > "$HOME/.local/bin/claude" <<'STUB'
+#!/usr/bin/env bash
+# Stub del banco e2e: risponde una volta e chiude, cosi' il turno finisce.
+# Vedi la nota in scripts/start-test-server.sh.
+#
+# Il drenaggio in sottofondo NON e' cosmesi: chi ci lancia scrive il prompt
+# sulla nostra stdin. Se usciamo senza che nessuno tenga aperto quel capo,
+# la scrittura successiva trova la pipe chiusa e prende EPIPE — che nel
+# banco ha ucciso il server di test e con lui 200 prove in un colpo solo.
+# Questo `cat` sopravvive a noi giusto il tempo di assorbire il prompt e
+# muore da se' quando chi scrive chiude. Non tiene ne' stdout ne' stderr,
+# quindi non ritarda la chiusura del processo agli occhi di chi ci attende.
+cat >/dev/null 2>&1 &
+printf '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}\n'
+printf '{"type":"result","subtype":"success","is_error":false,"result":"ok"}\n'
+exit 0
+STUB
   chmod +x "$HOME/.local/bin/claude"
 fi
 # Dedicated PTY-bridge socket so EVERY server started via this script — the
@@ -106,8 +127,15 @@ export TOPICS_E2E="${TOPICS_E2E:-1}"
 # dall'ambiente (testServerEnv); vuoto = comportamento storico (public/ del repo),
 # che è quello giusto per chi lancia questo script a mano.
 export TOPICS_PUBLIC_DIR="${TOPICS_PUBLIC_DIR:-}"
-export GATEWAY_TOKEN="${GATEWAY_TOKEN:-test-token}"
-export GATEWAY_URL="${GATEWAY_URL:-http://127.0.0.1:18789}"
+# NIENTE GATEWAY FINTO, per la stessa ragione spiegata in
+# tests/e2e/helpers/test-server.ts: dichiarare URL e token di un gateway che non
+# ascolta fa eleggere `openclaw` a provider AI, e allora un messaggio inviato
+# apre un turno che non finisce mai — il composer resta su `queue` e chi misura
+# l'invio aspetta per sempre. Si passano solo se arrivano dall'ambiente, cosi'
+# chi vuole provare l'integrazione vera li esporta e ottiene il comportamento
+# di prima.
+if [ -n "${GATEWAY_TOKEN:-}" ]; then export GATEWAY_TOKEN; fi
+if [ -n "${GATEWAY_URL:-}" ]; then export GATEWAY_URL; fi
 
 # Ensure data + topics-home + isolated OpenClaw config/home directories exist
 mkdir -p "$DATA_DIR" "$TOPICS_HOME" "$OPENCLAW_DIR" "$HOME"

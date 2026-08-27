@@ -18,13 +18,24 @@ import { Brain, ChevronsDownUp, Cpu, FolderOpen, Gauge, Globe, HelpCircle, Info,
  *
  * `slashCommandRouting.test.ts` guards the other half: every entry here must
  * have somewhere to go.
+ *
+ * THE ENTRIES CARRY A KEY, NOT A SENTENCE. The descriptions used to be English
+ * literals in an app whose default language is Italian, and they were read on
+ * two surfaces at once: the `/` completion menu and what `/help` prints. This
+ * is a module and not a component, so `tr()` cannot be called here; whoever
+ * draws resolves the key, and there are only two such places. The `cmd` itself
+ * is NOT translated: it is what one types.
+ *
+ * `slashCommands.i18n.test.ts` checks the keys exist in both languages, so a
+ * new command with a key nobody wrote cannot print `chat.slash.x.description`
+ * to a person.
  */
 export const SLASH_COMMANDS = [
   // `Info` and not a bolt: nothing is being sped up here, a state is being
   // read. In this app the bolt means ONE thing only — speed — and it belongs to
   // Fast Mode.
-  { cmd: '/status', label: 'Status', description: 'Show session status', icon: Info },
-  { cmd: '/context', label: 'Context', description: 'Show context-window usage (tokens, budget, sources)', icon: Gauge },
+  { cmd: '/status', descriptionKey: 'chat.slash.status.description', icon: Info },
+  { cmd: '/context', descriptionKey: 'chat.slash.context.description', icon: Gauge },
   // Compaction already existed, and the app even draws its outcome (the
   // "context compacted" dividers, partitionMarkers.ts), but the ONLY way to
   // start it was the "Compact now" button inside the context warning — which
@@ -37,12 +48,12 @@ export const SLASH_COMMANDS = [
   // (`sendMessageDirect('/compact')`). Listed here it becomes a first-class
   // entry on both surfaces this array feeds: the `/` autocomplete and the
   // overflow menu, which is always reachable.
-  { cmd: '/compact', label: 'Compact', description: 'Compatta il contesto ora (riassume la storia e libera spazio)', icon: ChevronsDownUp },
-  { cmd: '/clear', label: 'Clear', description: 'Clear conversation', icon: Trash2 },
-  { cmd: '/model', label: 'Model', description: 'Change model (e.g. /model claude-opus-5[1m])', icon: Cpu },
-  { cmd: '/effort', label: 'Effort', description: 'Set reasoning effort (low|medium|high|xhigh|max)', icon: Brain },
-  { cmd: '/reasoning', label: 'Reasoning', description: 'Toggle reasoning (openclaw) / → /effort on claude-code', icon: Brain },
-  { cmd: '/agents', label: 'Agents', description: 'List agent profiles', icon: Users },
+  { cmd: '/compact', descriptionKey: 'chat.slash.compact.description', icon: ChevronsDownUp },
+  { cmd: '/clear', descriptionKey: 'chat.slash.clear.description', icon: Trash2 },
+  { cmd: '/model', descriptionKey: 'chat.slash.model.description', icon: Cpu },
+  { cmd: '/effort', descriptionKey: 'chat.slash.effort.description', icon: Brain },
+  { cmd: '/reasoning', descriptionKey: 'chat.slash.reasoning.description', icon: Brain },
+  { cmd: '/agents', descriptionKey: 'chat.slash.agents.description', icon: Users },
   // `/pause` and `/assign` used to sit around this one, offering "Pause agent
   // (@name)" and "Assign task (@name task)". Neither had a destination: no
   // handler in `ChatPane`, and not in the server's `CLI_BUILTINS` allowlist
@@ -57,9 +68,9 @@ export const SLASH_COMMANDS = [
   // interface (`server/providers/types.ts:590`) and implemented for openclaw
   // (`providers/openclaw.ts:189`). Nothing calls either. The capability and
   // the menu entry were built from opposite ends and never met.
-  { cmd: '/resume', label: 'Resume', description: 'Resume agent (@name)', icon: Play },
-  { cmd: '/project', label: 'Project', description: 'Create or open a project', icon: FolderOpen },
-  { cmd: '/browser', label: 'Browser', description: 'Open browser tab and navigate (e.g. /browser https://example.com)', icon: Globe },
-  { cmd: '/goal', label: 'Goal', description: "Obiettivo della chat: /goal <testo> · /goal fatto · /goal basta", icon: Target },
-  { cmd: '/help', label: 'Help', description: 'Show available commands', icon: HelpCircle },
+  { cmd: '/resume', descriptionKey: 'chat.slash.resume.description', icon: Play },
+  { cmd: '/project', descriptionKey: 'chat.slash.project.description', icon: FolderOpen },
+  { cmd: '/browser', descriptionKey: 'chat.slash.browser.description', icon: Globe },
+  { cmd: '/goal', descriptionKey: 'chat.slash.goal.description', icon: Target },
+  { cmd: '/help', descriptionKey: 'chat.slash.help.description', icon: HelpCircle },
 ];

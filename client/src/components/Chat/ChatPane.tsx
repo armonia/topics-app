@@ -55,8 +55,13 @@ import { loadDraftAttachments, saveDraftAttachments } from '../../state/draftAtt
  * offered more. The one place a user goes to ask "what can I type here" gave
  * the shorter, older answer — and there is no way to notice, because both
  * lists look complete on their own.
+ *
+ * A FUNCTION and not a constant, because the array carries i18n KEYS: the text
+ * only exists once a language is chosen, and it changes when the language does.
+ * The command itself is not translated, it is what one types.
  */
-const SLASH_COMMANDS_HELP = SLASH_COMMANDS.map((c) => `${c.cmd}: ${c.description}`);
+const slashCommandsHelp = (tr: (key: string) => string) =>
+  SLASH_COMMANDS.map((c) => `${c.cmd}: ${tr(c.descriptionKey)}`);
 
 /** Extract a human-readable message from an unknown thrown value. */
 function errMessage(err: unknown): string {
@@ -900,7 +905,7 @@ function ChatPaneComponent({
     }
     if (cmd === '/clear') { if (!await confirm({ title: 'Clear conversation?', body: 'A backup will be saved.', confirmLabel: 'Clear' })) return true; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); setCommandResult({ type: 'success', message: 'Conversation cleared' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     if (cmd === '/reasoning') { setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey); setCommandResult({ type: 'success', message: r.message || 'Reasoning toggled' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
-    if (cmd === '/help') { setCommandResult({ type: 'success', message: SLASH_COMMANDS_HELP.join('\n') }); return true; }
+    if (cmd === '/help') { setCommandResult({ type: 'success', message: slashCommandsHelp(tr).join('\n') }); return true; }
 
     // `/rewind` is answered here rather than forwarded, because forwarding it
     // does NOTHING and says nothing about it.
