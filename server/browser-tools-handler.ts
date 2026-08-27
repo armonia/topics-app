@@ -321,7 +321,7 @@ export async function handleBrowserAct(
   const ops = await resolveOps(service, contextId);
   return withLock(service, contextId, async () => {
     /** Set when a stale ref was followed to the number it now carries. */
-    let rerefedTo: number | undefined;
+    let followedRef: number | undefined;
     // get_text reads — no mutation, no diff.
     if (action === "get_text") {
       const r = await ops.getText({ ref });
@@ -354,7 +354,7 @@ export async function handleBrowserAct(
           throw new Error(`${msg}\nFresh snapshot (already taken for you):\n${serialize(fresh)}`);
         }
         await ops.actByRef(again, action as RefAction, payload);
-        rerefedTo = again;
+        followedRef = again;
       }
     }
     // Let a click-triggered navigation / async re-render settle before we read
@@ -378,11 +378,11 @@ export async function handleBrowserAct(
     } catch {
       /* diff best-effort */
     }
-    if (rerefedTo != null) {
-      const note = `(ref ${ref} was stale; re-snapshotted and acted on [${rerefedTo}], same element.)`;
+    if (followedRef != null) {
+      const note = `(ref ${ref} was stale; re-snapshotted and acted on [${followedRef}], same element.)`;
       snapshot = snapshot ? `${note}\n${snapshot}` : note;
     }
-    return { ok: true as const, action, ref: rerefedTo ?? ref, snapshot };
+    return { ok: true as const, action, ref: followedRef ?? ref, snapshot };
   });
 }
 

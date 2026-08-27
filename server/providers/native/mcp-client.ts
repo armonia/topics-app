@@ -161,8 +161,8 @@ class HttpMcpConnection implements McpConnection {
     const sid = res.headers.get("mcp-session-id");
     if (sid) this.sessionId = sid;
     if (!res.ok) throw new Error(`${method}: HTTP ${res.status}`);
-    const ctype = res.headers.get("content-type") || "";
-    const answer = ctype.includes("text/event-stream")
+    const contentType = res.headers.get("content-type") || "";
+    const answer = contentType.includes("text/event-stream")
       ? await readSseResponse(res, id)
       : ((await res.json()) as { result?: unknown; error?: RpcError });
     if (answer.error) throw failure(answer.error, method);

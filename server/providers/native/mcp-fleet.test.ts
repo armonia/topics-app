@@ -121,12 +121,12 @@ describe("la flotta MCP del runtime nativo", () => {
     writeConfig({ finto: { type: "http", url: server.url.href } });
     await remountMcpFleet();
 
-    const stato = mcpFleetStatus();
-    const finto = stato.servers.find((s) => s.name === "finto")!;
-    expect(finto.state).toBe("ready");
-    expect(finto.transport).toBe("http");
-    expect(finto.tools).toEqual(["mcp__finto__eco"]);
-    expect(finto.skills).toEqual(["riassumi"]);
+    const status = mcpFleetStatus();
+    const fakeServer = status.servers.find((s) => s.name === "finto")!;
+    expect(fakeServer.state).toBe("ready");
+    expect(fakeServer.transport).toBe("http");
+    expect(fakeServer.tools).toEqual(["mcp__finto__eco"]);
+    expect(fakeServer.skills).toEqual(["riassumi"]);
   });
 
   test("un server che non risponde resta nell'elenco con il suo motivo", async () => {
@@ -137,9 +137,9 @@ describe("la flotta MCP del runtime nativo", () => {
     });
     await remountMcpFleet();
 
-    const stato = mcpFleetStatus();
-    expect(stato.servers.find((s) => s.name === "rotto")!.state).toBe("failed");
-    expect(stato.servers.find((s) => s.name === "rotto")!.reason).toBeTruthy();
+    const status = mcpFleetStatus();
+    expect(status.servers.find((s) => s.name === "rotto")!.state).toBe("failed");
+    expect(status.servers.find((s) => s.name === "rotto")!.reason).toBeTruthy();
     // The other server is mounted all the same: one failure does not cost the fleet.
     expect(mcpToolSpecs().map((t) => t.name)).toContain("mcp__finto__eco");
   });
@@ -152,13 +152,13 @@ describe("la flotta MCP del runtime nativo", () => {
     });
     await remountMcpFleet();
 
-    const stato = mcpFleetStatus();
-    const chrome = stato.servers.find((s) => s.name === "chrome-devtools")!;
+    const status = mcpFleetStatus();
+    const chrome = status.servers.find((s) => s.name === "chrome-devtools")!;
     expect(chrome.state).toBe("excluded");
     expect(chrome.reason).toContain("exclusion list");
-    const pesante = stato.servers.find((s) => s.name === "pesante")!;
-    expect(pesante.state).toBe("excluded");
-    expect(pesante.reason).toContain("prompt cache");
+    const heavy = status.servers.find((s) => s.name === "pesante")!;
+    expect(heavy.state).toBe("excluded");
+    expect(heavy.reason).toContain("prompt cache");
   });
 
   test("monta anche un server stdio, con il suo processo figlio vero", async () => {

@@ -307,7 +307,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     // this stays a test about hydration rather than about a broken connection.
     await page.addInitScript(() => {
       const OrigWS = window.WebSocket;
-      class FiltroIdratazione extends OrigWS {
+      class HydrationFilter extends OrigWS {
         constructor(url: string | URL, protocols?: string | string[]) {
           super(url, protocols);
           this.addEventListener('message', (ev: MessageEvent) => {
@@ -317,7 +317,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
           }, true);
         }
       }
-      window.WebSocket = FiltroIdratazione as unknown as typeof WebSocket;
+      window.WebSocket = HydrationFilter as unknown as typeof WebSocket;
     });
 
     await goToApp(page);

@@ -33,8 +33,8 @@ const STEP = "Migrare le foto sul nuovo bucket";
 const DIPENDENTE = "Pubblicare la scheda nuova";
 // A SHORT card, on purpose: the shorter it is, the closer its geometric centre
 // gets to whatever sits at the bottom of the body.
-const BLOCCANTE_CORTO = "Chiudere il contratto";
-const BLOCCATA_CORTA = "Spedire l'ordine";
+const SHORT_BLOCKER = "Chiudere il contratto";
+const SHORT_BLOCKED = "Spedire l'ordine";
 
 let projectTopicId: string | null = null;
 const createdTasks: string[] = [];
@@ -171,26 +171,26 @@ test.describe("Chip «aspetta: …» · bloccante fuori dalla lista", () => {
    */
   test("il centro di una card bloccata apre la scheda e non scrive niente", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-26" });
-    const bloccante = await createTask(request, { text: BLOCCANTE_CORTO, status: "todo" });
-    const bloccata = await createTask(request, {
-      text: BLOCCATA_CORTA, status: "todo", blockedByTaskId: bloccante.id,
+    const blocker = await createTask(request, { text: SHORT_BLOCKER, status: "todo" });
+    const blocked = await createTask(request, {
+      text: SHORT_BLOCKED, status: "todo", blockedByTaskId: blocker.id,
     });
 
     // Every write on the tasks, whoever sends it: a GET is the board reading
     // itself, anything else is a gesture, and this gesture must have none.
-    const scritture: string[] = [];
+    const writes: string[] = [];
     page.on("request", (r) => {
       if (r.method() !== "GET" && /\/api\/boards\/[^/]+\/tasks/.test(r.url())) {
-        scritture.push(`${r.method()} ${new URL(r.url()).pathname}`);
+        writes.push(`${r.method()} ${new URL(r.url()).pathname}`);
       }
     });
 
     await page.goto("/");
     await openProjectBoard(page);
 
-    const card = page.locator(`[data-task-card="${bloccata.id}"]`);
+    const card = page.locator(`[data-task-card="${blocked.id}"]`);
     await expect(card).toBeVisible({ timeout: 10000 });
-    await expect(card.getByTestId("card-blocked-by")).toContainText(`aspetta: ${BLOCCANTE_CORTO}`);
+    await expect(card.getByTestId("card-blocked-by")).toContainText(`aspetta: ${SHORT_BLOCKER}`);
     // The shape of the fix: no row of buttons on the card, one compact key.
     await expect(card.getByTestId("task-choices")).toHaveCount(0);
     await expect(card.getByTestId("task-choices-menu")).toBeVisible();
@@ -201,9 +201,9 @@ test.describe("Chip «aspetta: …» · bloccante fuori dalla lista", () => {
     await card.click();
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
-    expect(scritture, `il click ha scritto sui task: ${scritture.join(", ")}`).toEqual([]);
+    expect(writes, `il click ha scritto sui task: ${writes.join(", ")}`).toEqual([]);
     // Still blocked after the click: the chip is the state, not the drawing.
-    await expect(drawer.getByTestId("task-blocked-by-chip")).toContainText(`aspetta: ${BLOCCANTE_CORTO}`);
+    await expect(drawer.getByTestId("task-blocked-by-chip")).toContainText(`aspetta: ${SHORT_BLOCKER}`);
     // For extenso the row is still there, in the drawer: nothing was lost, it
     // moved to the surface you reach on purpose.
     await expect(drawer.getByTestId("task-choice-unblock")).toBeVisible();

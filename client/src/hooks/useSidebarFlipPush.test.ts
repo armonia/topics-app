@@ -35,7 +35,7 @@ type Stile = Record<string, string>;
  * give a zero delta and the hook would bail out without animating - green for
  * the wrong reason.
  */
-function layerLegatoAlPad(contenuto: { style: Stile }) {
+function layerLegatoAlPad(content: { style: Stile }) {
   const style: Stile = {};
   return {
     style,
@@ -46,25 +46,25 @@ function layerLegatoAlPad(contenuto: { style: Stile }) {
       // the pad is still the old one, Last after the hook wrote the new one. It
       // is the real DOM's own sequence — the only difference is that the reflow
       // here is a subtraction.
-      left: parseFloat(contenuto.style.paddingLeft || "0"),
+      left: parseFloat(content.style.paddingLeft || "0"),
       right: 0, top: 0, bottom: 0, width: 0, height: 0,
     }),
   } as unknown as HTMLElement & { style: Stile };
 }
 
 /** The content: all it has to do is carry the `paddingLeft`. */
-function contenutoFinto() {
+function fakeContent() {
   const style: Stile = {};
   return { style } as unknown as HTMLElement & { style: Stile };
 }
 
-const globale = globalThis as unknown as Record<string, unknown>;
-let originali: Record<string, unknown> = {};
+const globals = globalThis as unknown as Record<string, unknown>;
+let originals: Record<string, unknown> = {};
 beforeEach(() => {
-  originali = {
-    requestAnimationFrame: globale.requestAnimationFrame,
-    cancelAnimationFrame: globale.cancelAnimationFrame,
-    window: globale.window,
+  originals = {
+    requestAnimationFrame: globals.requestAnimationFrame,
+    cancelAnimationFrame: globals.cancelAnimationFrame,
+    window: globals.window,
   };
   // THE FRAME IS HELD, and that is the difference between measuring something
   // and measuring nothing. Play (`translateX(0)`, the end of the slide) runs
@@ -73,13 +73,13 @@ beforeEach(() => {
   // band left to uncover. The state that matters is INVERT: the layer moved by
   // `delta` with the width that has to cover it. So the frame is SWALLOWED and
   // never run: the assertions below read the layer while it is still inverted.
-  globale.requestAnimationFrame = () => 1;
-  globale.cancelAnimationFrame = () => {};
-  globale.window = { clearTimeout: () => {}, setTimeout: () => 1 };
+  globals.requestAnimationFrame = () => 1;
+  globals.cancelAnimationFrame = () => {};
+  globals.window = { clearTimeout: () => {}, setTimeout: () => 1 };
 });
 
 afterEach(() => {
-  for (const [k, v] of Object.entries(originali)) globale[k] = v;
+  for (const [k, v] of Object.entries(originals)) globals[k] = v;
 });
 
 /**
@@ -87,17 +87,17 @@ afterEach(() => {
  * RE-RENDER is what matters, because the defect lives in the transition between
  * two states.
  */
-function montaHook(layer: HTMLElement, contenuto: HTMLElement, stato: { collapsed: boolean; expandedPad: number }) {
+function mountHook(layer: HTMLElement, content: HTMLElement, stato: { collapsed: boolean; expandedPad: number }) {
   const corrente = { ...stato };
-  const Prova = () => {
+  const Probe = () => {
     useSidebarFlipPush(
-      { current: contenuto },
+      { current: content },
       { current: layer },
       { collapsed: corrente.collapsed, expandedPad: corrente.expandedPad, enabled: true },
     );
     return null;
   };
-  const h = mount(createElement(Prova));
+  const h = mount(createElement(Probe));
   return {
     aggiorna(next: Partial<typeof corrente>) {
       Object.assign(corrente, next);
@@ -112,12 +112,12 @@ describe("useSidebarFlipPush — the strip the transform uncovers", () => {
     // Reopening: the layer starts on the left (0) and ends further right (255),
     // so `delta` is negative - the transform carries it back and uncovers 255px
     // on the edge. Those are the ones `width` has to cover.
-    const contenuto = contenutoFinto();
-    const layer = layerLegatoAlPad(contenuto);
+    const content = fakeContent();
+    const layer = layerLegatoAlPad(content);
     // First pass: closed. Fixes the starting state and writes pad 0, without
     // animating (`firstRun`).
-    const h = montaHook(layer, contenuto, { collapsed: true, expandedPad: 255 });
-    expect(contenuto.style.paddingLeft, "the first pass must commit pad 0").toBe("0px");
+    const h = mountHook(layer, content, { collapsed: true, expandedPad: 255 });
+    expect(content.style.paddingLeft, "the first pass must commit pad 0").toBe("0px");
     // Second pass: it reopens. The pad goes 0 -> 255, so between First (read
     // while the pad is still 0) and Last (read at 255) the layer moves 255px:
     // delta is NEGATIVE, the transform pulls it back and uncovers the edge.
@@ -137,17 +137,17 @@ describe("useSidebarFlipPush — the strip the transform uncovers", () => {
     // Two cycles in a row: on the second, `width` must not carry the first
     // one's value into the measurements. If it accumulated, a repeated
     // close/reopen would shift the page further on every pass.
-    const contenuto = contenutoFinto();
-    const layer = layerLegatoAlPad(contenuto);
-    const h = montaHook(layer, contenuto, { collapsed: true, expandedPad: 255 });
+    const content = fakeContent();
+    const layer = layerLegatoAlPad(content);
+    const h = mountHook(layer, content, { collapsed: true, expandedPad: 255 });
     h.aggiorna({ collapsed: false });
-    const dopoPrimo = layer.style.width;
+    const afterFirst = layer.style.width;
 
     // Closing: positive delta, no extra to add — and the previous pass's width
     // must NOT survive.
     h.aggiorna({ collapsed: true });
 
-    expect(dopoPrimo, "the first pass did not widen the layer").toBe("calc(100% + 255px)");
+    expect(afterFirst, "the first pass did not widen the layer").toBe("calc(100% + 255px)");
     expect(layer.style.width, "the previous pass's width survived").toBe("");
   });
 
@@ -155,9 +155,9 @@ describe("useSidebarFlipPush — the strip the transform uncovers", () => {
     // A width change arrives as a single commit at drag end. Animating it would
     // slide the page 200ms after the handle is released: motion nobody asked
     // for.
-    const contenuto = contenutoFinto();
-    const layer = layerLegatoAlPad(contenuto);
-    const h = montaHook(layer, contenuto, { collapsed: false, expandedPad: 255 });
+    const content = fakeContent();
+    const layer = layerLegatoAlPad(content);
+    const h = mountHook(layer, content, { collapsed: false, expandedPad: 255 });
     h.aggiorna({ expandedPad: 315 });
 
     expect(layer.style.transform).toBe("none");

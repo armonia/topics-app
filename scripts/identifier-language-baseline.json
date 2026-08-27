@@ -1,14 +1,11 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-08-26",
+  "generated": "2026-08-27",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
-      "enqueueAndTick",
-      "handleStandaloneAddPane",
       "panelLifecycle",
-      "pinnedSpaceForHandoff",
-      "unsub"
+      "pinnedSpaceForHandoff"
     ],
     "client/src/components/Auth/PairingApproval.tsx": [
       "Richiesta",
@@ -66,9 +63,7 @@
       "scelte",
       "senzaCommit",
       "senzaConsegna",
-      "snapCls",
-      "spostataAMano",
-      "widthCls"
+      "spostataAMano"
     ],
     "client/src/components/Board/DeliveryFiles.tsx": [
       "FileStat",
@@ -82,13 +77,10 @@
       "projBtnRef"
     ],
     "client/src/components/Board/KanbanBoardPane.tsx": [
-      "asgBtnRef",
-      "cls",
       "compRect",
       "lblBtnRef",
       "motivi",
       "oltreQuota",
-      "prioBtnRef",
       "progetto",
       "raf",
       "raf2",
@@ -96,41 +88,27 @@
     ],
     "client/src/components/Board/NightModeCard.tsx": [
       "caricoPct",
-      "info",
       "soglia"
     ],
     "client/src/components/Board/PreviewMedia.tsx": [
       "Lightbox",
       "expandable",
-      "mediaCls",
       "openLightbox"
     ],
     "client/src/components/Board/ProjectPicker.tsx": [
       "multi"
     ],
-    "client/src/components/Board/TaskChoiceRow.tsx": [
-      "TONE_CLS"
-    ],
     "client/src/components/Board/TaskDetail.tsx": [
-      "SubtaskNode",
-      "addSubtask",
       "descCard",
       "editCancelled",
       "escGuardRef",
       "imgs",
       "isImg",
       "mio",
-      "neutralCls",
       "openProjMenu",
-      "primaryCls",
       "prioBtnRef",
       "projChipRef",
-      "saveDesc",
-      "subtasksCard"
-    ],
-    "client/src/components/Board/atoms.tsx": [
-      "QUEUE_TONE_CLS",
-      "cls"
+      "saveDesc"
     ],
     "client/src/components/Board/cardComments.taglio.test.ts": [
       "consegna",
@@ -150,7 +128,6 @@
       "richiesta",
       "risolta",
       "risposta",
-      "seq",
       "vecchia"
     ],
     "client/src/components/Board/cardComments.thread.test.ts": [
@@ -170,9 +147,7 @@
     ],
     "client/src/components/Board/constants.ts": [
       "COMMENTO_PIEGA_CHARS",
-      "COMPACT_MD_CLS",
       "FANOUT_CHOICES",
-      "PLAN_MD_CLS",
       "RICHIESTA_PIEGA_CHARS"
     ],
     "client/src/components/Board/diffFileRows.test.ts": [
@@ -262,11 +237,7 @@
       "scivola",
       "vola"
     ],
-    "client/src/components/Browser/BrowserDevControls.tsx": [
-      "pct"
-    ],
     "client/src/components/Browser/BrowserFavicon.tsx": [
-      "BrowserFavicon",
       "showImg"
     ],
     "client/src/components/Browser/DomCoBrowse.tsx": [
@@ -304,16 +275,9 @@
       "coords",
       "img",
       "imgAspect",
-      "info",
       "mapCoordsToPage",
       "pageBboxToClient",
       "vid"
-    ],
-    "client/src/components/Browser/faviconPlaceholder.ts": [
-      "FaviconPlaceholder",
-      "faviconHost",
-      "faviconPlaceholder",
-      "faviconPlaceholderColor"
     ],
     "client/src/components/Browser/navErrorMessage.test.ts": [
       "rete"
@@ -321,15 +285,10 @@
     "client/src/components/Browser/navErrorMessage.ts": [
       "ATS_BLOCKED",
       "TLS_CODES",
-      "deadLoopbackNotice",
-      "hhmm",
-      "isLoopbackUrl",
-      "loopback",
-      "loopbackDownText"
+      "hhmm"
     ],
     "client/src/components/Browser/paneContextModel.ts": [
-      "PANE_CONTEXT_TAKE_EXPR",
-      "seq"
+      "PANE_CONTEXT_TAKE_EXPR"
     ],
     "client/src/components/ChangelogModal.tsx": [
       "ChangelogModal",
@@ -339,16 +298,13 @@
       "effettivo"
     ],
     "client/src/components/Chat/ChatInput.tsx": [
-      "atPos",
       "builtin",
       "builtinNames",
-      "cursorPos",
       "onEsc"
     ],
     "client/src/components/Chat/ChatPane.tsx": [
       "TYPING_THROTTLE_MS",
       "annullato",
-      "cmd",
       "img",
       "imgFailCount",
       "imgs",
@@ -358,11 +314,9 @@
       "sendTyping",
       "tentativo",
       "textareaRef",
-      "typingTimeoutRef",
-      "unsub"
+      "typingTimeoutRef"
     ],
     "client/src/components/Chat/CheckpointTimeline.tsx": [
-      "Checkpoint",
       "CheckpointTimeline",
       "CheckpointTimelineProps",
       "hrs"
@@ -370,8 +324,7 @@
     "client/src/components/Chat/MessageBubble.tsx": [
       "EMOJI_REGEX",
       "emojiMsg",
-      "isEmojiOnly",
-      "trimmed"
+      "isEmojiOnly"
     ],
     "client/src/components/Chat/MessageList.tsx": [
       "apertura",
@@ -405,8 +358,7 @@
       "parti"
     ],
     "client/src/components/Chat/ProviderModelPicker.tsx": [
-      "matchesProv",
-      "popoverPos"
+      "matchesProv"
     ],
     "client/src/components/Chat/ToolCards.tsx": [
       "ArgsPre",
@@ -428,7 +380,6 @@
       "lista",
       "primo",
       "secondo",
-      "seq",
       "tardi",
       "vivo"
     ],
@@ -476,12 +427,8 @@
     "client/src/components/Chat/toolCardBody.test.ts": [
       "sempre"
     ],
-    "client/src/components/Chat/toolDetail.ts": [
-      "timeout"
-    ],
     "client/src/components/Chat/toolGrouping.test.ts": [
       "parziale",
-      "seq",
       "tutta"
     ],
     "client/src/components/Chat/toolGrouping.ts": [
@@ -501,14 +448,10 @@
     ],
     "client/src/components/Chat/useVoiceRecording.ts": [
       "SondaLivello",
-      "ext",
       "sondaRef"
     ],
     "client/src/components/ChatMarkdown.tsx": [
       "BASE_REHYPE"
-    ],
-    "client/src/components/Context/ContextEnvelopeView.tsx": [
-      "cls"
     ],
     "client/src/components/Context/ContextSourceRow.tsx": [
       "textareaRef"
@@ -525,23 +468,18 @@
     "client/src/components/Editor/BreadcrumbNav.tsx": [
       "BreadcrumbNav",
       "BreadcrumbNavProps",
-      "BreadcrumbSegment",
-      "iconDef"
+      "BreadcrumbSegment"
     ],
     "client/src/components/Editor/CodeEditor.tsx": [
-      "ext",
       "langCompartment",
       "langExt",
-      "modifiedMarker",
-      "themeExts"
+      "modifiedMarker"
     ],
     "client/src/components/Editor/DiffViewer.tsx": [
-      "ext",
       "langExt",
       "langExtensions"
     ],
     "client/src/components/Editor/EditorTabs.tsx": [
-      "TabInfo",
       "closing",
       "isModified",
       "obs"
@@ -551,14 +489,6 @@
       "filename",
       "handleBreadcrumbOpen",
       "obs"
-    ],
-    "client/src/components/Editor/fileMedia.tsx": [
-      "AUDIO_EXTS",
-      "IMAGE_EXTS",
-      "PDF_EXTS",
-      "VIDEO_EXTS",
-      "ext",
-      "getFileExt"
     ],
     "client/src/components/Git/BranchList.tsx": [
       "forza",
@@ -587,8 +517,6 @@
       "cardVar",
       "fgid",
       "guardata",
-      "keyPos",
-      "pos",
       "quanti",
       "resetDndOverlays"
     ],
@@ -603,28 +531,18 @@
     "client/src/components/Layout/PanelGrid.tsx": [
       "acc",
       "desc",
-      "handleStandaloneUtilityChange",
       "handleUnsoloTopic",
-      "isPrimaryOfMultiTab",
-      "isStandaloneTabDrag",
-      "keyPos",
-      "pos"
+      "isPrimaryOfMultiTab"
     ],
     "client/src/components/Layout/ProjectWindow.tsx": [
       "sottoSlot"
     ],
     "client/src/components/Layout/SplitTree.tsx": [
-      "deltaFrac",
-      "startPos"
+      "deltaFrac"
     ],
     "client/src/components/Layout/StandaloneChatGroup.tsx": [
       "CronJobsPanel",
-      "StandaloneChatGroup",
-      "StandaloneChatGroupProps",
       "gruppoAFuoco",
-      "handleStandaloneDragLeave",
-      "handleStandaloneDragOver",
-      "handleStandaloneDrop",
       "lifecycle",
       "titoloSuperficie",
       "utilType"
@@ -654,16 +572,9 @@
       "isSplittable",
       "usePaneLifecycle"
     ],
-    "client/src/components/Layout/hooks/usePaneOrdering.ts": [
-      "STANDALONE_ACTIVE_KEY",
-      "readStandaloneActivePane",
-      "unsub",
-      "writeStandaloneActivePane"
-    ],
     "client/src/components/Layout/hooks/useProjectBrowserPanes.ts": [
       "fgid",
-      "grp",
-      "unsubWS"
+      "grp"
     ],
     "client/src/components/Layout/hooks/useProjectChatSync.ts": [
       "STABLE_MULTI_TYPES",
@@ -686,8 +597,7 @@
       "SOLO_TOMBSTONE_TTL_MS"
     ],
     "client/src/components/Layout/soloCells.ts": [
-      "reorderCellPreservingPrimary",
-      "trimmed"
+      "reorderCellPreservingPrimary"
     ],
     "client/src/components/Layout/spaceHelpers.test.ts": [
       "morto"
@@ -695,36 +605,23 @@
     "client/src/components/Layout/spaceHelpers.ts": [
       "dissolveIfEmptied"
     ],
-    "client/src/components/Layout/splitRules.ts": [
-      "standaloneSplitSurface"
-    ],
-    "client/src/components/Layout/standaloneDrop.ts": [
-      "StandaloneCrossGroupDecision",
-      "StandaloneCrossGroupDropInput",
-      "resolveStandaloneCrossGroupDrop"
-    ],
     "client/src/components/Layout/usePanelGridPersistence.ts": [
       "hsum",
       "wsum"
     ],
     "client/src/components/MessageContent.tsx": [
-      "AUDIO_EXTS",
-      "DOC_EXTS",
-      "IMAGE_EXTS",
       "ImageLightbox",
       "RipresoBanner",
       "WokenBanner",
       "approxK",
       "backticks",
       "cancelled",
-      "def",
       "fmt",
       "getTouchDist",
       "hasPreContentRows",
       "hljsReady",
       "lastTouchDist",
       "newDist",
-      "pct",
       "resto",
       "ripreso",
       "woken"
@@ -738,14 +635,12 @@
       "LucideIcon"
     ],
     "client/src/components/Modals/NewTopicModal.tsx": [
-      "cancelled",
-      "trimmedInitial"
+      "cancelled"
     ],
     "client/src/components/Modals/TopicSettingsModal.test.tsx": [
       "reso"
     ],
     "client/src/components/Modals/TopicSettingsModal.tsx": [
-      "ProviderInfo",
       "cancelled",
       "dialogRef"
     ],
@@ -756,12 +651,10 @@
     ],
     "client/src/components/Project/FileExplorer.tsx": [
       "DeleteConfirmDialog",
-      "absPath",
       "bandaErrore",
       "cartella",
       "clipboardRef",
       "copyToClipboard",
-      "droppedDirNames",
       "isMultiSelect",
       "isMultiSelected",
       "isRenaming",
@@ -772,9 +665,7 @@
       "stato"
     ],
     "client/src/components/Project/FileSearch.tsx": [
-      "multi",
-      "searchSeqRef",
-      "seq"
+      "multi"
     ],
     "client/src/components/Project/GitChanges.tsx": [
       "DiscardConfirmDialog",
@@ -791,21 +682,18 @@
       "modified",
       "motivo",
       "nonTracciati",
-      "posRami",
       "posStoria",
       "ripiego",
       "stato",
       "storiaBtnRef",
       "storiaPopRef",
       "tracciati",
-      "voce",
-      "withOrigPaths"
+      "voce"
     ],
     "client/src/components/Project/ProcessLogPane.tsx": [
       "preRef",
       "rec",
-      "stripAnsi",
-      "unsub"
+      "stripAnsi"
     ],
     "client/src/components/Project/ProjectSidebar.tsx": [
       "altezzaVera",
@@ -816,7 +704,6 @@
       "partenzaSopra",
       "partenzaSotto",
       "pavimento",
-      "procTitle",
       "riga",
       "scriviLayout",
       "sezioniRef",
@@ -827,8 +714,6 @@
       "piuManifest"
     ],
     "client/src/components/Project/diffEndpoints.ts": [
-      "DiffEndpoints",
-      "diffEndpoints",
       "nuovo",
       "vecchio"
     ],
@@ -842,9 +727,6 @@
       "SEZIONI",
       "capSezione"
     ],
-    "client/src/components/Settings/AIProvidersSection.tsx": [
-      "cmd"
-    ],
     "client/src/components/Settings/AccountSection.tsx": [
       "StatoAccount",
       "bottone",
@@ -854,10 +736,6 @@
       "indirizzo",
       "invia",
       "scollega"
-    ],
-    "client/src/components/Settings/AgentRuntimeChoice.tsx": [
-      "AgentRuntime",
-      "AgentRuntimeChoice"
     ],
     "client/src/components/Settings/DevicesSection.tsx": [
       "attivi",
@@ -933,7 +811,6 @@
     ],
     "client/src/components/Settings/ProfileStatsSection.tsx": [
       "Cifra",
-      "RelayInfo",
       "Sparkline",
       "compatto",
       "daQuando",
@@ -1008,8 +885,7 @@
       "cancelled",
       "descBits",
       "filteredRecenti",
-      "projLabel",
-      "searchTimeout"
+      "projLabel"
     ],
     "client/src/components/Shared/ConfirmDialog.tsx": [
       "ConfirmDialog",
@@ -1023,15 +899,11 @@
       "indice",
       "partenze",
       "partenzeChunk",
-      "precedente",
-      "seq"
+      "precedente"
     ],
     "client/src/components/Shared/PendingActionProgressOverlay.tsx": [
       "raf1",
       "raf2"
-    ],
-    "client/src/components/Shared/ProjectFavicon.tsx": [
-      "ProjectFavicon"
     ],
     "client/src/components/Shared/Select.test.tsx": [
       "ESENZIONI",
@@ -1058,15 +930,13 @@
       "righe"
     ],
     "client/src/components/Shared/SplitMiniMap.tsx": [
-      "SplitMapDescriptor",
       "SplitMiniMap"
     ],
     "client/src/components/Shared/Toast.test.ts": [
       "originalRaf"
     ],
     "client/src/components/Shared/Toast.tsx": [
-      "dur",
-      "posClass"
+      "dur"
     ],
     "client/src/components/Shared/Tooltip.tsx": [
       "APERTURA_MS",
@@ -1096,13 +966,11 @@
     ],
     "client/src/components/Shared/addMenuItems.ts": [
       "LucideIcon",
-      "cfg",
       "pres"
     ],
     "client/src/components/Shared/projectIconStore.ts": [
       "NONE_UNVERIFIED_TTL_MS",
       "NONE_VERIFIED_TTL_MS",
-      "endpointUrl",
       "img",
       "presenti",
       "reportImgError"
@@ -1132,7 +1000,6 @@
       "assenti",
       "chiedi",
       "ci_sono",
-      "cls",
       "oltre",
       "presenti",
       "presenza",
@@ -1172,7 +1039,6 @@
       "scelta",
       "segnoCpu",
       "segnoMem",
-      "serverSideProcs",
       "vociMisurateVisibili",
       "vociPeso",
       "vociTrattenuteVisibili"
@@ -1209,7 +1075,6 @@
       "mostraInventario",
       "mostraResidente",
       "perf",
-      "procCount",
       "segnoParziale",
       "sogliaTotale",
       "vociPeso"
@@ -1223,7 +1088,6 @@
       "gatewayOnline"
     ],
     "client/src/components/Sidebar/TopicTree.tsx": [
-      "BrowserContextInfo",
       "LucideIcon",
       "ProjectSplitMiniMap",
       "VoceIncognito",
@@ -1232,7 +1096,6 @@
       "ditoVersoIFissati",
       "dopo",
       "fissati",
-      "pos",
       "projOnFill",
       "projTier",
       "riga",
@@ -1263,7 +1126,6 @@
       "SEGNALE_OK"
     ],
     "client/src/components/Sidebar/identityLabel.test.ts": [
-      "loopback",
       "telefono"
     ],
     "client/src/components/Sidebar/identityLabel.ts": [
@@ -1302,7 +1164,6 @@
     "client/src/components/Sidebar/pinnedLayout.test.ts": [
       "anteprima",
       "cambia",
-      "dropped",
       "nuova",
       "piena",
       "storta"
@@ -1314,7 +1175,6 @@
       "unici"
     ],
     "client/src/components/Sidebar/pinnedTileMetrics.test.ts": [
-      "cls",
       "larghezza",
       "rientro",
       "risolvi"
@@ -1358,35 +1218,23 @@
       "RECONCILE_GRACE_RETRIES",
       "buf",
       "cancelled",
-      "cmd",
       "fitAddon",
-      "info",
-      "lastInfoRef",
       "obs",
       "raf",
-      "sessionInfo",
       "xterm"
     ],
     "client/src/components/Terminal/wrappedLinkProvider.ts": [
       "acc",
       "accum",
-      "curTextTrimmed",
       "endCoord",
       "indexToCoord",
-      "prevTrimmedRight",
-      "startCoord",
-      "trimmed"
+      "startCoord"
     ],
     "client/src/components/Terminal/writeCoalescer.test.ts": [
       "reentered"
     ],
     "client/src/contexts/PendingActionContext.tsx": [
-      "committed",
-      "enqueue",
-      "enqueuePendingAction"
-    ],
-    "client/src/hooks/appHookTypes.ts": [
-      "TerminalOps"
+      "committed"
     ],
     "client/src/hooks/browserCoords.test.ts": [
       "MEvt",
@@ -1440,9 +1288,6 @@
     "client/src/hooks/outboundQueue.test.ts": [
       "vecchio"
     ],
-    "client/src/hooks/outboundQueue.ts": [
-      "enqueue"
-    ],
     "client/src/hooks/reconcileMessages.test.ts": [
       "parziale",
       "utente"
@@ -1484,65 +1329,38 @@
     "client/src/hooks/useAutoResize.ts": [
       "bordi"
     ],
-    "client/src/hooks/useBackgroundShell.ts": [
-      "dropped"
-    ],
     "client/src/hooks/useChat.ts": [
-      "SEND_LOCK_TIMEOUT_MS",
       "SSE_FAILSAFE_MS",
-      "STREAM_TIMEOUT_MS",
       "arr",
       "buf",
       "clearSSEFailsafe",
-      "clearStreamTimeout",
       "correnti",
       "durevole",
       "idemKey",
       "liveDeltaRafRef",
       "passaAncheAlMittente",
-      "resetStreamTimeout",
-      "resetStreamTimeoutRef",
       "riconciliato",
       "scheduleSSEFailsafe",
       "sseFailsafeRef",
-      "streamingTimeoutRef",
       "toolUpdateRafRef",
-      "trimmed",
       "upsertMarker"
     ],
     "client/src/hooks/useChatLiveTurn.test.ts": [
       "DOPO",
       "SRV_U1",
-      "SRV_U2",
-      "frameSeq",
-      "savedClearTimeout",
-      "savedSetTimeout",
-      "seq",
-      "timerSeq"
-    ],
-    "client/src/hooks/useCheckpoints.ts": [
-      "checkpointRequest",
-      "useCheckpoints"
+      "SRV_U2"
     ],
     "client/src/hooks/useClaudeSessionState.ts": [
       "cancelled",
-      "flushRafRef",
-      "unsub"
+      "flushRafRef"
     ],
     "client/src/hooks/useCompletionNotifier.tsx": [
-      "cfg",
       "cooldownKey",
       "cooldownRef",
       "csid"
     ],
-    "client/src/hooks/useContextInspector.ts": [
-      "unsub"
-    ],
     "client/src/hooks/useCostProbe.ts": [
       "cancelled"
-    ],
-    "client/src/hooks/useDashboard.ts": [
-      "unsub"
     ],
     "client/src/hooks/useDetectedScripts.ts": [
       "VUOTO",
@@ -1552,8 +1370,6 @@
       "SondaLivello",
       "SttCapabilities",
       "chiedi",
-      "micAvailable",
-      "releaseMic",
       "riprova",
       "sondaRef",
       "spezzoni",
@@ -1567,7 +1383,6 @@
       "VocePeso"
     ],
     "client/src/hooks/useFloatingVibrancy.ts": [
-      "EASE_KEYWORDS",
       "collapsing",
       "durStr",
       "durs",
@@ -1579,8 +1394,7 @@
       "AUTOFETCH_MS",
       "autofetch",
       "eraEsplicita",
-      "pushAllaPartenza",
-      "unsub"
+      "pushAllaPartenza"
     ],
     "client/src/hooks/useGlobalBoard.ts": [
       "unregister"
@@ -1609,25 +1423,14 @@
       "vivo"
     ],
     "client/src/hooks/useKeyboardShortcuts.ts": [
-      "disarmRightCmdTap",
-      "evt",
-      "rightCmdTapAt"
-    ],
-    "client/src/hooks/useMemory.ts": [
-      "unsub"
+      "evt"
     ],
     "client/src/hooks/useMenuKeyboard.ts": [
       "isTypingSurface"
     ],
-    "client/src/hooks/useMobile.ts": [
-      "isStandalone"
-    ],
     "client/src/hooks/useModalDialog.ts": [
       "UseModalDialogOptions",
       "useModalDialog"
-    ],
-    "client/src/hooks/useOpenClawAvailable.ts": [
-      "unsub"
     ],
     "client/src/hooks/useOwnerName.ts": [
       "annuncia",
@@ -1644,7 +1447,6 @@
       "focusLoc",
       "loc",
       "onUnarchive",
-      "unsub",
       "usePanelLifecycle"
     ],
     "client/src/hooks/usePerfMetrics.ts": [
@@ -1665,16 +1467,10 @@
       "attuali",
       "cambiato",
       "eraEsplicita",
-      "figli",
-      "unsub"
-    ],
-    "client/src/hooks/useProvidersSnapshot.ts": [
-      "unsub"
+      "figli"
     ],
     "client/src/hooks/usePushNotifications.ts": [
       "arr",
-      "listSeqRef",
-      "seq",
       "setDevicePrefs",
       "unsubscribe",
       "urlBase64ToUint8Array"
@@ -1683,11 +1479,7 @@
       "cancelled"
     ],
     "client/src/hooks/useRemoteBrowser.ts": [
-      "DownloadInfo",
-      "INPUT_ACK_TIMEOUT_MS",
       "MAX_DSF",
-      "NAV_LOADING_TIMEOUT_MS",
-      "SelectedElementInfo",
       "WEBRTC_CONNECT_TIMEOUT_MS",
       "WEBRTC_ENABLED",
       "WEBRTC_MAX_ATTEMPTS",
@@ -1699,12 +1491,9 @@
       "dsf",
       "dsfRef",
       "failWebrtc",
-      "fetchInfo",
       "fetchScreenshot",
       "img",
       "imgRef",
-      "info",
-      "inputSeqRef",
       "preload",
       "psf",
       "psfChanged",
@@ -1719,9 +1508,6 @@
       "webrtcStartRef",
       "webrtcTeardownRef",
       "webrtcWatchdogRef"
-    ],
-    "client/src/hooks/useScripts.ts": [
-      "unsub"
     ],
     "client/src/hooks/useSharedViewerCount.ts": [
       "cancelled"
@@ -1769,11 +1555,6 @@
     "client/src/hooks/useSidebarState.test.ts": [
       "visti"
     ],
-    "client/src/hooks/useSidebarState.ts": [
-      "readServerSeq",
-      "seq",
-      "serverSeqRef"
-    ],
     "client/src/hooks/useSidebarSwipe.ts": [
       "BORDO_PX",
       "CURVA",
@@ -1808,27 +1589,16 @@
       "velocitaFinale"
     ],
     "client/src/hooks/useSpeech.ts": [
-      "VadHandle",
-      "releaseMic",
-      "ttsAudioRef",
-      "vadRef"
+      "ttsAudioRef"
     ],
     "client/src/hooks/useTauriBrowser.ts": [
-      "agentOpsInFlightRef",
       "cancelled",
-      "freezeSeqRef",
-      "fwd",
-      "gateLoopback",
-      "info",
-      "seq"
+      "fwd"
     ],
     "client/src/hooks/useTerminalLifecycle.ts": [
       "UseTerminalLifecycleArgs",
       "UseTerminalLifecycleReturn",
       "useTerminalLifecycle"
-    ],
-    "client/src/hooks/useTopics.ts": [
-      "isTimeout"
     ],
     "client/src/hooks/useWaitedProcess.test.ts": [
       "riga"
@@ -1846,15 +1616,11 @@
       "salvati",
       "scatola",
       "scattaITimeout",
-      "seq",
-      "seqT",
-      "timeout",
       "visti"
     ],
     "client/src/hooks/useWebSocket.ts": [
       "NOMI",
       "OFFLINE_THRESHOLD_MS",
-      "PONG_TIMEOUT_MS",
       "clearOfflineTimer",
       "daAzzerare",
       "handleOnline",
@@ -1863,12 +1629,8 @@
       "persa",
       "startOfflineTimer"
     ],
-    "client/src/hooks/useWorktrees.ts": [
-      "unsub"
-    ],
     "client/src/lib/api.ts": [
       "ProfiloGitHubClient",
-      "ScriptProcessInfo",
       "StatistichePersonaClient",
       "obj"
     ],
@@ -1905,10 +1667,7 @@
       "DiffFileStat",
       "enc",
       "isProjectlessId",
-      "quando",
-      "subtaskOpenable",
-      "subtaskQueueChip",
-      "subtaskWorkChip"
+      "quando"
     ],
     "client/src/lib/boardFlight.test.ts": [
       "colonne"
@@ -1970,26 +1729,16 @@
       "soloArchiviate"
     ],
     "client/src/lib/buildSidebarItems.ts": [
-      "BrowserContextInfo",
       "aNotif",
       "arr",
       "bNotif",
       "hostname",
       "projSubAgents",
-      "standaloneChats",
-      "standaloneTerminals",
       "utilType"
-    ],
-    "client/src/lib/burstCoalescer.test.ts": [
-      "seq"
     ],
     "client/src/lib/cacheBreakdown.test.ts": [
       "RIGA_VERA",
-      "pctCosto",
-      "pctToken"
-    ],
-    "client/src/lib/cacheBreakdown.ts": [
-      "pct"
+      "pctCosto"
     ],
     "client/src/lib/chunkReloadGuard.ts": [
       "onPreloadError"
@@ -1998,27 +1747,16 @@
       "chiusa",
       "riaperta"
     ],
-    "client/src/lib/deepLinkClick.test.ts": [
-      "DeepLinkClickDeps",
-      "deps"
-    ],
-    "client/src/lib/deepLinkClick.ts": [
-      "DeepLinkClickDeps"
-    ],
     "client/src/lib/devBundleReload.ts": [
       "unsubscribe"
     ],
     "client/src/lib/devLayoutProbe.ts": [
-      "OrigRO",
       "classNameDesc",
-      "cls",
       "desc",
       "eff",
       "gbcr",
       "geomProps",
-      "orig",
       "origRaf",
-      "origSet",
       "rafTotal",
       "rafs",
       "testid"
@@ -2029,7 +1767,6 @@
     ],
     "client/src/lib/dndTypes.ts": [
       "DND_TYPES",
-      "STANDALONE_SCOPE",
       "TIPI_NOSTRI"
     ],
     "client/src/lib/domCensus.test.ts": [
@@ -2094,7 +1831,6 @@
       "nato",
       "smonta",
       "sotto",
-      "standalone",
       "sulBordo"
     ],
     "client/src/lib/fastMode.ts": [
@@ -2111,7 +1847,6 @@
       "SessioneMisurata",
       "etichettaRadice",
       "maggiore",
-      "proc",
       "vociMisurate"
     ],
     "client/src/lib/featureWeight.test.ts": [
@@ -2152,11 +1887,9 @@
       "RIGHE_NEL_TOOLTIP",
       "bloccoTooltip",
       "coppia",
-      "def",
       "fmt",
       "mostrate",
       "parti",
-      "proc",
       "quantita",
       "quantitaBreve",
       "raggruppato",
@@ -2166,18 +1899,13 @@
       "vociPerNatura"
     ],
     "client/src/lib/fileIcons.ts": [
-      "EXT_MAP",
-      "IconDef",
-      "LucideIcon",
-      "ext",
-      "getFileIconDef"
+      "LucideIcon"
     ],
     "client/src/lib/formatTokens.test.ts": [
       "LEADERBOARD"
     ],
     "client/src/lib/fpsMonitor.test.ts": [
       "pendingRaf",
-      "pendingTimeout",
       "rafSeq"
     ],
     "client/src/lib/fpsMonitor.ts": [
@@ -2185,7 +1913,6 @@
       "getFps",
       "getFpsHistory",
       "rafId",
-      "timeoutId",
       "useFps",
       "useFpsActive",
       "useFpsHistory"
@@ -2200,7 +1927,6 @@
     "client/src/lib/gitStatusColors.test.ts": [
       "aggiunto",
       "cancellato",
-      "cls",
       "modificato",
       "nonTracciato",
       "rinominato"
@@ -2208,9 +1934,6 @@
     "client/src/lib/haptics.test.ts": [
       "cliccato",
       "creati"
-    ],
-    "client/src/lib/hoverReveal.test.ts": [
-      "cls"
     ],
     "client/src/lib/i18n-lazy.test.ts": [
       "woken"
@@ -2235,9 +1958,6 @@
     "client/src/lib/imageCrop.ts": [
       "img"
     ],
-    "client/src/lib/insertAtCaret.ts": [
-      "pos"
-    ],
     "client/src/lib/livello-audio.test.ts": [
       "SondaLivello",
       "sonda",
@@ -2257,10 +1977,6 @@
       "secondi",
       "sorgente"
     ],
-    "client/src/lib/loopbackAlive.ts": [
-      "PROBE_TIMEOUT_MS",
-      "loopbackAlive"
-    ],
     "client/src/lib/missions.test.ts": [
       "PROJ"
     ],
@@ -2269,14 +1985,8 @@
       "finto",
       "globale"
     ],
-    "client/src/lib/nativeBrowserTeardown.ts": [
-      "cmd"
-    ],
     "client/src/lib/notificationStatus.test.ts": [
       "senzaConsegna"
-    ],
-    "client/src/lib/notify/boardActionDeps.ts": [
-      "boardNotificationDeps"
     ],
     "client/src/lib/notify/messageBanner.ts": [
       "MESSAGE_BANNER_COOLDOWN_MS"
@@ -2287,35 +1997,11 @@
     "client/src/lib/notify/muteGate.ts": [
       "proj"
     ],
-    "client/src/lib/notify/notificationAction.test.ts": [
-      "NotificationActionDeps",
-      "deps"
-    ],
-    "client/src/lib/notify/notificationAction.ts": [
-      "NotificationActionDeps"
-    ],
-    "client/src/lib/notify/reviewQuestion.test.ts": [
-      "ReviewQuestionDeps",
-      "deps"
-    ],
-    "client/src/lib/notify/reviewQuestion.ts": [
-      "DEFAULT_TIMEOUT_MS",
-      "ReviewQuestionDeps",
-      "timeoutMs"
-    ],
     "client/src/lib/openTaskLink.test.ts": [
       "popstateCbs"
     ],
     "client/src/lib/openTaskLink.ts": [
       "subscribePopstateTask"
-    ],
-    "client/src/lib/osOpenPath.test.ts": [
-      "OsOpenDeps",
-      "deps"
-    ],
-    "client/src/lib/osOpenPath.ts": [
-      "OsOpenDeps",
-      "defaultOsOpenDeps"
     ],
     "client/src/lib/outsidePress.test.ts": [
       "Registrato",
@@ -2325,9 +2011,7 @@
     ],
     "client/src/lib/outsidePress.ts": [
       "GUARDIA_MS",
-      "SwallowDeps",
       "annullaAttesa",
-      "defaultDeps",
       "disarma",
       "disarmato",
       "mangia"
@@ -2346,12 +2030,10 @@
       "byWebviewLabel",
       "fetchWebviews",
       "paneIdFromWebviewLabel",
-      "proc",
       "webviewSnapshot"
     ],
     "client/src/lib/path-utils.ts": [
       "basename",
-      "trimmed",
       "tryHostname"
     ],
     "client/src/lib/popoverPosition.ts": [
@@ -2363,12 +2045,6 @@
       "unregister",
       "unregisterFirst"
     ],
-    "client/src/lib/providersSnapshotStore.ts": [
-      "unsubFrames"
-    ],
-    "client/src/lib/push/environment.ts": [
-      "standalone"
-    ],
     "client/src/lib/reducedMotion.test.ts": [
       "FintaFinestra",
       "chiesta",
@@ -2377,10 +2053,8 @@
       "vivo"
     ],
     "client/src/lib/reloadFlash.test.ts": [
-      "LIB_RS",
       "ciclo",
-      "corpo",
-      "lib"
+      "corpo"
     ],
     "client/src/lib/reloadSites.ts": [
       "CONST_RE"
@@ -2423,7 +2097,6 @@
       "vicino"
     ],
     "client/src/lib/selectionStyles.test.ts": [
-      "cls",
       "frazionari",
       "riga",
       "risolvi",
@@ -2449,9 +2122,6 @@
       "sopra",
       "visti"
     ],
-    "client/src/lib/shell/browserPaneFault.test.ts": [
-      "cmd"
-    ],
     "client/src/lib/shell/focus.ts": [
       "isFocusSilencing",
       "queried"
@@ -2469,20 +2139,16 @@
       "DESKTOP_SERVER_HOST",
       "DESKTOP_SERVER_HTTP",
       "DESKTOP_SERVER_WS",
-      "OrigES",
       "ShimmedEventSource",
-      "orig",
       "rewriting"
     ],
     "client/src/lib/shell/tauriBrowserOps.test.ts": [
       "jarCookies"
     ],
     "client/src/lib/shell/tauriBrowserOps.ts": [
-      "NATIVE_SUPPORTED_OPS",
       "StorageCookie",
       "cookieCount",
       "cookies",
-      "origUrl",
       "setPaneCookies"
     ],
     "client/src/lib/sidebarStateGroups.test.ts": [
@@ -2490,18 +2156,13 @@
       "figlioFermo",
       "figlioLavora"
     ],
-    "client/src/lib/staggeredFit.ts": [
-      "enqueueFit"
-    ],
     "client/src/lib/stt.ts": [
       "SttRequestError",
       "capabilitiesPromise",
-      "extForMime",
       "fetchSttCapabilities",
       "filename",
       "forgetSttCapabilities",
       "messaggioNotaVuota",
-      "micErrorMessage",
       "segnalaNotaVuota"
     ],
     "client/src/lib/syntaxHighlight.ts": [
@@ -2517,9 +2178,6 @@
     "client/src/lib/tabLink.test.ts": [
       "colpi",
       "enc"
-    ],
-    "client/src/lib/tabLink.ts": [
-      "unsub"
     ],
     "client/src/lib/textMorph.test.ts": [
       "lunga"
@@ -2540,20 +2198,14 @@
       "campioneNuovo"
     ],
     "client/src/lib/updater.ts": [
-      "info",
       "isAclDenial",
       "tauriUpdaterDenied"
     ],
     "client/src/lib/vad.ts": [
       "AudioCtor",
-      "VadHandle",
-      "VadOptions",
       "buf",
       "calibrating",
       "rms"
-    ],
-    "client/src/lib/windowRole.ts": [
-      "trimmed"
     ],
     "client/src/lib/wsFrameBus.ts": [
       "LifecycleHandler",
@@ -2580,7 +2232,6 @@
       "antico"
     ],
     "client/src/state/browserSiteHistory.ts": [
-      "favicon",
       "frecency"
     ],
     "client/src/state/chatQueue.test.ts": [
@@ -2589,23 +2240,14 @@
       "ripreso"
     ],
     "client/src/state/chatQueue.ts": [
-      "enqueueTurn",
       "readback",
       "rec",
       "requeueFront",
-      "trimmed",
       "unshiftTurn"
     ],
     "client/src/state/composerHandoff.ts": [
       "HANDOFF_TTL_MS",
       "claimCenteredHandoff"
-    ],
-    "client/src/state/globalDispatchCap.test.ts": [
-      "unsubMenu",
-      "unsubPanel"
-    ],
-    "client/src/state/globalDispatchCap.ts": [
-      "unsubFrames"
     ],
     "client/src/state/inAppBanner.ts": [
       "IN_APP_BANNER_TTL_MS"
@@ -2632,12 +2274,7 @@
       "rec"
     ],
     "client/src/state/pane/adapters/browserOriginStore.ts": [
-      "enqueueProjectBrowserNavigate",
-      "enqueueProjectBrowserReopen",
       "rec"
-    ],
-    "client/src/state/pane/adapters/browserTombstoneEvict.test.ts": [
-      "seq"
     ],
     "client/src/state/pane/adapters/closedTabRecord.revive409.test.ts": [
       "rec"
@@ -2658,14 +2295,9 @@
     "client/src/state/pane/adapters/paneConfig.ts": [
       "paneCapabilities"
     ],
-    "client/src/state/pane/adapters/projectLayoutSync.dedupe.test.ts": [
-      "putBodies"
-    ],
     "client/src/state/pane/adapters/projectLayoutSync.ts": [
       "MAX_RETRIES",
       "__getUnackedProjectSyncKeys",
-      "lastAppliedSeqByKey",
-      "seq",
       "unackedJsonByKey",
       "unsubscribeProjectLayout"
     ],
@@ -2675,28 +2307,14 @@
     "client/src/state/pane/adapters/tombstoneSync.ts": [
       "MAX_RETRIES",
       "__getUnackedTombstoneSyncKeys",
-      "lastAppliedSeq",
       "loc",
-      "seq",
       "unackedJson"
     ],
     "client/src/state/pane/bootstrap.test.ts": [
       "uninstallFakeWindow"
     ],
-    "client/src/state/pane/bootstrap.ts": [
-      "seq"
-    ],
-    "client/src/state/pane/devOverlay/MutationLogOverlay.test.tsx": [
-      "unsub"
-    ],
     "client/src/state/pane/devOverlay/MutationLogOverlay.tsx": [
       "ndjson"
-    ],
-    "client/src/state/pane/middleware/mutationLog.test.ts": [
-      "unsub"
-    ],
-    "client/src/state/pane/middleware/persistLocal.ts": [
-      "seq"
     ],
     "client/src/state/pane/middleware/selfEcho.ts": [
       "DEFAULT_TTL_MS",
@@ -2712,52 +2330,32 @@
     "client/src/state/pane/middleware/syncCrossTab.test.ts": [
       "uninstallFakeWindow"
     ],
-    "client/src/state/pane/middleware/syncCrossTab.ts": [
-      "incomingSeq"
-    ],
     "client/src/state/pane/middleware/syncServer.test.ts": [
       "uninstallFakeWindow"
     ],
     "client/src/state/pane/middleware/syncServer.ts": [
       "MAX_RETRIES",
       "armaSpinta",
-      "flushNowKeepalive",
-      "lastFlushedSeqOnHide",
-      "seq"
+      "flushNowKeepalive"
     ],
     "client/src/state/pane/middleware/syncWS.ts": [
-      "__getLastAppliedServerSeq",
-      "currentSeq",
-      "lastAppliedServerSeq",
-      "unsub",
       "unsubLifecycle",
       "upd"
     ],
-    "client/src/state/pane/reducers/multiClientResurrection.test.ts": [
-      "serverSeq"
-    ],
     "client/src/state/pane/reducers/panes.test.ts": [
-      "SERVER_SEQ",
       "grp",
       "mkRec",
-      "rec",
-      "seqBeforeClear"
+      "rec"
     ],
     "client/src/state/pane/reducers/panes.ts": [
       "cambiato",
-      "closedSeq",
-      "localOpenedSeq",
-      "openedSeq",
-      "pos",
-      "rec",
-      "remoteClosedSeq"
+      "rec"
     ],
     "client/src/state/pane/reducers/panes.updatePane.test.ts": [
       "statoCon"
     ],
     "client/src/state/pane/reducers/pinnedChatResurrection.test.ts": [
-      "closing",
-      "seq"
+      "closing"
     ],
     "client/src/state/pane/reducers/spaces.test.ts": [
       "localNewerRename",
@@ -2771,9 +2369,6 @@
     "client/src/state/pane/reducers/undoCausalRestamp.test.ts": [
       "prepara"
     ],
-    "client/src/state/pane/residency/registry.test.ts": [
-      "seq"
-    ],
     "client/src/state/pane/residency/registry.ts": [
       "__residencyDebug"
     ],
@@ -2782,21 +2377,14 @@
     ],
     "client/src/state/pane/store.test.ts": [
       "dopo",
-      "rec",
-      "seqBefore",
-      "serverSeq"
-    ],
-    "client/src/state/pane/store.ts": [
-      "_seq",
-      "seq"
+      "rec"
     ],
     "client/src/state/pendingAsk.test.ts": [
       "multi",
       "normale"
     ],
     "client/src/state/pendingAsk.ts": [
-      "submittedAt",
-      "trimmed"
+      "submittedAt"
     ],
     "client/src/state/profileTarget.test.ts": [
       "finestra"
@@ -2810,17 +2398,12 @@
       "paginaProfiloChiesta",
       "richiesta"
     ],
-    "client/src/state/projectGridWeights.test.ts": [
-      "unsub"
-    ],
     "client/src/state/scrollToMessage.ts": [
       "TTL_MS"
     ],
     "client/src/state/signals.ts": [
       "byCsid",
-      "cancelled",
-      "rollupGlobalAttention",
-      "rollupProjectAttention"
+      "cancelled"
     ],
     "client/src/state/streamingContract.test.ts": [
       "RigaStreaming",
@@ -2838,16 +2421,12 @@
     ],
     "client/src/state/taskBrowserTabs.test.ts": [
       "mai",
-      "uniq",
-      "unsub"
+      "uniq"
     ],
     "client/src/state/taskBrowserTabs.ts": [
       "dst",
-      "maxSeq",
       "neighbourActive",
-      "nextSeq",
       "resyncTaskTabsFromServer",
-      "seq",
       "upsertTab"
     ],
     "client/src/state/taskSessions.test.ts": [
@@ -2867,20 +2446,17 @@
     ],
     "client/src/state/useSignalsSync.ts": [
       "byCsid",
-      "cancelled",
-      "unsub"
+      "cancelled"
     ],
     "client/src/state/workLongevity.test.ts": [
       "ferma",
       "lavora"
     ],
     "client/src/test/reactHarness.ts": [
-      "depsChanged",
       "unimplemented"
     ],
     "client/src/types/index.ts": [
       "GitLineStat",
-      "TerminalSessionInfo",
       "WSTypingMessage",
       "WSUIStateInitMessage",
       "WSUIStateUpdatedMessage"
@@ -2892,7 +2468,6 @@
       "buf",
       "copies",
       "listLatencies",
-      "listTimeouts",
       "resyncGap",
       "stat",
       "synthStore"
@@ -2901,28 +2476,19 @@
       "summarise"
     ],
     "scripts/bench/cache-first-paint.ts": [
-      "PROBE_TIMEOUT_MS",
-      "cacheInfo",
       "med",
       "mss"
     ],
     "scripts/bench/concurrency.ts": [
-      "TIMEOUT_MS",
       "finiti",
       "tls"
     ],
-    "scripts/bench/latency.ts": [
-      "argv"
-    ],
     "scripts/bench/proc.ts": [
-      "ProcRow",
       "buf",
-      "lib",
       "machFootprintBytes",
       "parseSmapsRollup"
     ],
     "scripts/bench/report.test.ts": [
-      "linux",
       "readme"
     ],
     "scripts/bench/report.ts": [
@@ -2931,8 +2497,6 @@
       "spliceReadme"
     ],
     "scripts/bench/run.ts": [
-      "argv",
-      "procs",
       "readmePath"
     ],
     "scripts/bench/session-memory.ts": [
@@ -2943,21 +2507,15 @@
       "summarise"
     ],
     "scripts/bench/streaming.ts": [
-      "argv",
       "fmt",
       "fmt4"
     ],
     "scripts/bench/turn-time.ts": [
       "WORKDIR",
       "dec",
-      "info",
       "tls"
     ],
     "scripts/board-arms.ts": [
-      "RUN_TIMEOUT_MS",
-      "abs",
-      "cfgPath",
-      "cmd",
       "committed",
       "costUsd",
       "rec",
@@ -2966,10 +2524,8 @@
       "xhigh"
     ],
     "scripts/board-baseline.ts": [
-      "argv",
       "bracketCostUsd",
       "buf",
-      "classifyBy",
       "costUsd",
       "cov",
       "fmtTok",
@@ -2985,10 +2541,7 @@
       "senzaColonna"
     ],
     "scripts/board-cases.ts": [
-      "abs",
-      "argv",
       "assenti",
-      "cmd",
       "disp"
     ],
     "scripts/board-doctor.test.ts": [
@@ -3008,17 +2561,11 @@
       "wip"
     ],
     "scripts/board-doctor.ts": [
-      "CITES_SUBTASKS",
       "DENIES_SUBTASKS",
       "DESC_MINIMA",
       "NOTA_SENZA_RIASSUNTO",
       "SHA_IN_TESTO",
-      "SUBTASK_WORD",
-      "argv",
       "checkBehaviourWithoutPreview",
-      "citesSubtasks",
-      "classify",
-      "cls",
       "desc",
       "descParla",
       "elenco",
@@ -3035,7 +2582,6 @@
     ],
     "scripts/board-duplicates.ts": [
       "aperte",
-      "argv",
       "cascata",
       "conta",
       "fatte",
@@ -3047,29 +2593,21 @@
     ],
     "scripts/board-vs-chat.test.ts": [
       "agg",
-      "brk",
-      "noDeps"
+      "brk"
     ],
     "scripts/board-vs-chat.ts": [
-      "MeasureDeps",
-      "abs",
       "apcValues",
       "boardTaskStmt",
-      "cmd",
-      "deltaPctMedian",
-      "deps",
       "fmtTok",
       "fmtUsd",
       "highUsd",
       "ident",
       "lowUsd",
       "multi",
-      "pct",
       "rewritten",
       "usd"
     ],
     "scripts/branch-audit.ts": [
-      "classify",
       "deletable",
       "occupied"
     ],
@@ -3081,26 +2619,17 @@
       "boundaries"
     ],
     "scripts/check-any-budget.ts": [
-      "GLOBS",
-      "argv"
+      "GLOBS"
     ],
     "scripts/check-any.test.ts": [
-      "proc",
       "truncating"
     ],
     "scripts/check-any.ts": [
-      "abs",
-      "argv",
       "overridden",
       "scanned"
     ],
-    "scripts/check-bloat.test.ts": [
-      "abs"
-    ],
     "scripts/check-bloat.ts": [
-      "normalise",
-      "pctFiles",
-      "pctLines"
+      "normalise"
     ],
     "scripts/check-bundle-size.ts": [
       "buf",
@@ -3112,10 +2641,6 @@
     "scripts/check-deadcode-blindspots.ts": [
       "KnipJsonIssue",
       "WorkspaceGlobs",
-      "abs",
-      "argv",
-      "cfg",
-      "cmd",
       "knipPath",
       "readKnipWorkspaces",
       "stdout",
@@ -3123,7 +2648,6 @@
     ],
     "scripts/check-done-landed.ts": [
       "LandingEsito",
-      "argv",
       "capo",
       "debiti",
       "dentroDavvero",
@@ -3142,24 +2666,9 @@
       "verdetto"
     ],
     "scripts/check-drag-frames.ts": [
-      "argv",
       "committed"
     ],
-    "scripts/check-e2e-sleeps.ts": [
-      "SOURCE_EXT"
-    ],
-    "scripts/check-emdash.test.ts": [
-      "proc"
-    ],
-    "scripts/check-emdash.ts": [
-      "LOG_LOOKBACK",
-      "abs",
-      "argv"
-    ],
     "scripts/check-eslint-disable.ts": [
-      "SOURCE_EXT",
-      "abs",
-      "argv",
       "isJustified"
     ],
     "scripts/check-migration-numbers.ts": [
@@ -3167,11 +2676,7 @@
       "rimedio"
     ],
     "scripts/check-nul-bytes.ts": [
-      "abs",
       "buf"
-    ],
-    "scripts/check-preview-evidence.ts": [
-      "argv"
     ],
     "scripts/check-push-clean.ts": [
       "stdin"
@@ -3189,9 +2694,6 @@
       "scanned",
       "verdi"
     ],
-    "scripts/check-release-assets.ts": [
-      "proc"
-    ],
     "scripts/check-route-latency.test.ts": [
       "entrambe",
       "solaStorica",
@@ -3204,18 +2706,12 @@
       "rapporto"
     ],
     "scripts/check-script-naming.test.ts": [
-      "STOPWORDS",
-      "pkg"
-    ],
-    "scripts/check-scroll-fluidity.test.ts": [
-      "droppedWith"
+      "STOPWORDS"
     ],
     "scripts/check-scroll-fluidity.ts": [
-      "argv",
       "rapporto"
     ],
     "scripts/check-security.test.ts": [
-      "abs",
       "chiave",
       "conRagione",
       "copia",
@@ -3236,25 +2732,12 @@
     "scripts/check-security.ts": [
       "EXTENSIONLESS",
       "LOCKFILE_DIRS",
-      "abs",
       "advisories",
       "checkDependencies",
       "freq"
     ],
-    "scripts/check-session-growth.ts": [
-      "argv"
-    ],
-    "scripts/check-test-skips.ts": [
-      "SPEC_EXT",
-      "trimmed"
-    ],
-    "scripts/check-ui-language.test.ts": [
-      "proc"
-    ],
     "scripts/check-ui-language.ts": [
-      "abs",
-      "acc",
-      "argv"
+      "acc"
     ],
     "scripts/compress-message-blobs.test.ts": [
       "SOGLIA",
@@ -3355,7 +2838,6 @@
     ],
     "scripts/disk-report.ts": [
       "REGEN",
-      "classify",
       "proj",
       "regen"
     ],
@@ -3382,7 +2864,6 @@
       "nostro",
       "perAgente",
       "premessaGamba2",
-      "procs",
       "riga",
       "strutturale",
       "tettoVecchio",
@@ -3394,7 +2875,6 @@
       "slowest"
     ],
     "scripts/e2e-plan-shards.ts": [
-      "argv",
       "collisioni",
       "lightest",
       "sel",
@@ -3403,10 +2883,6 @@
     "scripts/e2e-shards-summary.ts": [
       "perMotivo",
       "skipped"
-    ],
-    "scripts/effort-variance.ts": [
-      "pct",
-      "proc"
     ],
     "scripts/event-loop-lag.ts": [
       "OGNI_MS",
@@ -3423,10 +2899,8 @@
       "arr"
     ],
     "scripts/fd-leak-probe.ts": [
-      "argv",
       "countFds",
-      "ctl",
-      "proc"
+      "ctl"
     ],
     "scripts/fix-node-pty-exec-bit.ts": [
       "fixNodePtyExecBit",
@@ -3446,7 +2920,6 @@
     ],
     "scripts/install-claude-hooks.ts": [
       "__dirname",
-      "cmd",
       "uninstall"
     ],
     "scripts/job-quota-live-demo.ts": [
@@ -3496,10 +2969,8 @@
     ],
     "scripts/mcp-cap-bench/bench.ts": [
       "ATTESO_PER_RICHIESTA",
-      "argv",
       "atteso",
       "buf",
-      "cfg",
       "cred",
       "dentro"
     ],
@@ -3508,12 +2979,10 @@
       "SOGLIA",
       "SOGLIA_RAW",
       "SU_DISCO",
-      "argv",
       "attesa",
       "attesi",
       "blocco",
       "buf",
-      "cfg",
       "compattazioni",
       "conta",
       "corpo",
@@ -3523,24 +2992,19 @@
       "perche",
       "primoTurno",
       "pulito",
-      "seq",
       "stderr",
       "tok",
       "turnConRitenti"
     ],
     "scripts/mcp-cap-bench/compact-sim.ts": [
-      "argv",
       "costUsd",
       "dTok",
       "scarto"
     ],
     "scripts/mcp-cap-bench/decompose.ts": [
-      "argv",
       "misure",
-      "pct",
       "prefisso",
       "promptUtente",
-      "rollup",
       "sonda",
       "sonde"
     ],
@@ -3555,9 +3019,7 @@
       "MINIMO",
       "TOOL_ESSENZIALI",
       "appaiata",
-      "argv",
       "basi",
-      "cfg",
       "cred",
       "misure",
       "mosso",
@@ -3570,14 +3032,11 @@
     ],
     "scripts/mcp-cap-bench/prefix-probe.ts": [
       "MINIMO",
-      "argv",
       "buf",
-      "cfg",
       "cred",
       "nota"
     ],
     "scripts/mcp-cap-bench/real-context-curve.ts": [
-      "argv",
       "med",
       "riassunti",
       "sidechainRequests",
@@ -3589,14 +3048,10 @@
       "dopo",
       "dopo2",
       "grassi",
-      "pct",
       "perStato",
       "simula",
       "simulaIdx",
       "stampa"
-    ],
-    "scripts/measure-ui-state-init.ts": [
-      "dropped"
     ],
     "scripts/mem-growth.ts": [
       "Campione",
@@ -3610,40 +3065,25 @@
       "srv"
     ],
     "scripts/mem-report.ts": [
-      "ExtRow",
-      "PsInfo",
       "buf",
-      "cmd",
       "commBatch",
       "compressa",
-      "extTotal",
       "fmtMB",
-      "info",
       "libc",
       "lsofTcpOut",
       "mio",
-      "mtime",
-      "procMemory",
-      "psInfo",
       "scanned"
     ],
     "scripts/new-migration.ts": [
       "presi"
     ],
     "scripts/obscura-track.ts": [
-      "applies",
-      "cmd",
-      "cmdApply",
-      "cmdBuild",
-      "cmdCheck",
-      "cmdStatus"
+      "applies"
     ],
     "scripts/prefix-budget.ts": [
       "agg",
-      "bridgeCfg",
       "est",
-      "fmt",
-      "rpc"
+      "fmt"
     ],
     "scripts/probe-boot-memory.ts": [
       "ATTESA_MAX_S",
@@ -3661,15 +3101,10 @@
       "uscita",
       "verdetto"
     ],
-    "scripts/prompt-ab.ts": [
-      "pct",
-      "proc"
-    ],
     "scripts/reload-gate-migration.test.ts": [
       "appDirFinto",
       "daPulire",
       "eseguiCancello",
-      "proc",
       "voci"
     ],
     "scripts/retitle-review-cards.ts": [
@@ -3693,39 +3128,25 @@
       "sporchi"
     ],
     "scripts/skill-listing-probe.ts": [
-      "cfg",
       "fmt"
-    ],
-    "scripts/slot.ts": [
-      "TIMEOUT_EXIT_CODE",
-      "argv",
-      "cmd"
     ],
     "scripts/stalled-parents.test.ts": [
       "SCHEMA_COMMENTI",
-      "seq",
       "testo"
     ],
     "scripts/stalled-parents.ts": [
-      "argv",
       "righe"
     ],
     "scripts/start-prod-backoff.test.ts": [
       "backoffDopoNFailure"
     ],
     "scripts/thread-vs-work.ts": [
-      "RUN_TIMEOUT_MS",
-      "argv",
       "coord",
       "fmt",
       "runCoordinator"
     ],
-    "scripts/token-live.test.ts": [
-      "proc"
-    ],
     "scripts/token-live.ts": [
       "fmt",
-      "pct",
       "preCell"
     ],
     "scripts/typecheck-server.test.ts": [
@@ -3738,30 +3159,18 @@
       "STOPWORDS"
     ],
     "scripts/watch-board-tasks.ts": [
-      "TLS_LOOPBACK",
-      "argv"
+      "TLS_LOOPBACK"
     ],
     "scripts/webcontent-owners.ts": [
-      "ProcRow",
-      "cmd",
-      "lib",
-      "nostri",
-      "webContentProcs"
+      "nostri"
     ],
     "scripts/webrtc-probe.ts": [
-      "CDP_PORT",
-      "Cdp",
-      "CdpMsg",
       "ans",
-      "argv",
-      "cdp",
-      "cdp2",
       "codecs",
       "latencies",
       "ver"
     ],
     "server/ai-bridge-singleton.test.ts": [
-      "proc",
       "srv",
       "stderr"
     ],
@@ -3785,25 +3194,14 @@
       "trovatiScorrendo"
     ],
     "server/browser-chromium-extensions.test.ts": [
-      "NOMAN",
-      "extDir"
+      "NOMAN"
     ],
     "server/browser-chromium-extensions.ts": [
-      "EXT_ID_RX",
-      "ext",
       "versionGte"
     ],
     "server/browser-chromium-sidecar.test.ts": [
       "eng",
-      "seq",
       "thunkCalls"
-    ],
-    "server/browser-chromium-sidecar.ts": [
-      "cdpEndpoint",
-      "clearTimeoutFn",
-      "linuxCandidates",
-      "setTimeoutFn",
-      "waitForCdpEndpoint"
     ],
     "server/browser-dom-cobrowse.test.ts": [
       "CSP_HTML",
@@ -3814,19 +3212,6 @@
       "buf",
       "captureAnnotatedScreenshotOnPage"
     ],
-    "server/browser-engine-registry.ts": [
-      "ChromiumEngineInfo",
-      "cachedEngineInfo",
-      "chromiumEngineInfo"
-    ],
-    "server/browser-engine-switch.test.ts": [
-      "EngineSwitchDeps",
-      "deps",
-      "makeDeps"
-    ],
-    "server/browser-engine-switch.ts": [
-      "EngineSwitchDeps"
-    ],
     "server/browser-focused-field.test.ts": [
       "email",
       "otp",
@@ -3834,7 +3219,6 @@
     ],
     "server/browser-framing.ts": [
       "FRAMING_TTL_MS",
-      "PROBE_TIMEOUT_MS",
       "addrs",
       "csp",
       "ipv4ToInt",
@@ -3844,12 +3228,8 @@
       "mapped",
       "xfo"
     ],
-    "server/browser-local-file-url.test.ts": [
-      "deps"
-    ],
     "server/browser-login-state.ts": [
-      "cookieCount",
-      "origUrl"
+      "cookieCount"
     ],
     "server/browser-native-delegate.test.ts": [
       "intruso",
@@ -3857,15 +3237,9 @@
       "nuovo",
       "vecchio"
     ],
-    "server/browser-native-delegate.ts": [
-      "timeoutMs"
-    ],
     "server/browser-native-state.test.ts": [
       "cookies",
       "decArgs"
-    ],
-    "server/browser-native-state.ts": [
-      "NativeStateDeps"
     ],
     "server/browser-network-log.test.ts": [
       "buf",
@@ -3873,41 +3247,27 @@
       "dati",
       "molte"
     ],
-    "server/browser-ops-adapter.ts": [
-      "BrowserOps",
-      "playwrightOps"
-    ],
     "server/browser-restore-cap.test.ts": [
       "riga"
     ],
     "server/browser-screenshot-file.test.ts": [
       "buf"
     ],
-    "server/browser-service-engine.test.ts": [
-      "connectOverCDP"
-    ],
     "server/browser-service.ts": [
-      "FOCUSED_FIELD_TIMEOUT_MS",
       "RRWEB_RECORD_BUNDLE",
       "RRWEB_RECORD_START",
       "RRWEB_STOP",
       "ScreencastOnFrame",
       "buf",
-      "cdp",
-      "cdpEndpoint",
-      "cdpSession",
       "clampDsf",
-      "connectOverCDP",
       "cookieDir",
       "cookies",
       "dbs",
-      "defaultCdpPort",
       "dsf",
       "editable",
       "effectiveDsf",
       "handoff",
       "href",
-      "info",
       "screencastSessions",
       "skipped",
       "txt"
@@ -3933,8 +3293,7 @@
       "ReverseHandoffOutcome",
       "cookies",
       "impronta",
-      "posato",
-      "timeoutMs"
+      "posato"
     ],
     "server/browser-site-data.heavy.test.ts": [
       "LEGGI_NOTA",
@@ -3957,48 +3316,27 @@
       "idb"
     ],
     "server/browser-snapshot.ts": [
-      "ACTION_TIMEOUT",
       "evalOnPage",
       "loc",
-      "repl",
-      "timeout"
+      "repl"
     ],
     "server/browser-store-keep-list.test.ts": [
       "troncata"
     ],
-    "server/browser-tab-inventory.test.ts": [
-      "TabInventoryDeps",
-      "baseDeps",
-      "deps",
-      "deps2"
-    ],
     "server/browser-tab-inventory.ts": [
-      "BrowserTabInfo",
-      "TabInventoryDeps",
-      "cdp",
-      "hostnameOf",
-      "timeoutMs",
-      "withTimeout"
+      "hostnameOf"
     ],
     "server/browser-tool-dispatcher.ts": [
-      "MIME_BY_EXT",
       "buf",
       "nativeScreenshotOp"
-    ],
-    "server/browser-tool-spec.ts": [
-      "BRIDGED_BROWSER_ENDPOINTS",
-      "toolNameToEndpoint"
     ],
     "server/browser-tools-adapters.ts": [
       "isPassthroughProvider"
     ],
     "server/browser-tools-handler.ts": [
-      "BrowserOps",
       "buf",
       "handleBrowserEval",
       "handleBrowserScreenshot",
-      "ops",
-      "resolveOps",
       "wantScreenshot",
       "writeAgentScreenshot"
     ],
@@ -4024,14 +3362,8 @@
       "sys",
       "tmplFiles"
     ],
-    "server/context/assemble.test.ts": [
-      "limitDropped"
-    ],
     "server/context/assemble.ts": [
-      "FS_SNAPSHOT_TTL_MS",
-      "bytesDropped",
-      "currentTopicInfo",
-      "droppedHistoryTurns"
+      "FS_SNAPSHOT_TTL_MS"
     ],
     "server/context/history-override.test.ts": [
       "troncato"
@@ -4045,20 +3377,8 @@
       "oldest",
       "rekeyInlineSent"
     ],
-    "server/context/regression.test.ts": [
-      "currentTopicInfo"
-    ],
     "server/context/snapshots.ts": [
       "arr"
-    ],
-    "server/control-tools.test.ts": [
-      "ControlDispatchDeps",
-      "deps",
-      "makeDeps"
-    ],
-    "server/control-tools.ts": [
-      "ControlDispatchDeps",
-      "SessionControlDeps"
     ],
     "server/db.ts": [
       "REGISTRY_DDL",
@@ -4066,10 +3386,6 @@
     ],
     "server/db/activity-log.test.ts": [
       "stmt"
-    ],
-    "server/db/activity-log.ts": [
-      "logStreamHardTimeout",
-      "logStreamSoftTimeout"
     ],
     "server/db/message-tree.ts": [
       "collectSubtree"
@@ -4092,7 +3408,6 @@
       "attese",
       "ddlColumns",
       "dichiarate",
-      "dropped",
       "stmt"
     ],
     "server/db/test-schema.ts": [
@@ -4107,16 +3422,10 @@
     ],
     "server/gateway-ws.ts": [
       "idempotencyKey",
-      "timeoutMs",
       "unregisterSessionHandler"
     ],
     "server/git-watcher.ts": [
       "Numstat",
-      "branchProc",
-      "headProc",
-      "logProc",
-      "revProc",
-      "statusProc",
       "toplevelProc",
       "unwatchGitDir"
     ],
@@ -4133,7 +3442,6 @@
       "decryptValue",
       "dst",
       "exp",
-      "ext",
       "isCookieBrowser",
       "keychainKey",
       "listChromeCookieHosts",
@@ -4148,7 +3456,6 @@
       "MoondreamPointResult",
       "MoondreamQueryResponse",
       "MoondreamVisionResult",
-      "endpoint",
       "resetMoondreamCounter"
     ],
     "server/lib/account.test.ts": [
@@ -4213,12 +3520,6 @@
       "vero"
     ],
     "server/lib/ai-bridge-client.ts": [
-      "ACK_TIMEOUT_MS",
-      "ATTACH_ACK_TIMEOUT_MS",
-      "PONG_TIMEOUT_MS",
-      "SPAWN_ACK_TIMEOUT_MS",
-      "SessionInfo",
-      "info",
       "isRetryableBridgeError",
       "muto"
     ],
@@ -4226,9 +3527,7 @@
       "ASK_TTL_MS",
       "DEFAULT_ASK_TTL_MS",
       "DEFAULT_BUFFER_TTL_MS",
-      "DEFAULT_TIMEOUT_MS",
       "buf",
-      "timeoutMs",
       "ttl"
     ],
     "server/lib/auth-gate.test.ts": [
@@ -4239,8 +3538,7 @@
     "server/lib/auth-gate.ts": [
       "IPV4",
       "IPV6",
-      "MUTATING",
-      "isLoopbackAddress"
+      "MUTATING"
     ],
     "server/lib/boot-catena-ripresa.test.ts": [
       "blocchi",
@@ -4250,19 +3548,13 @@
       "DDL",
       "figli",
       "notif",
-      "orig",
       "percorso",
       "righe"
     ],
     "server/lib/browser-orphan-sweep.test.ts": [
       "CASA",
       "CRASHPAD",
-      "ProcRow",
       "estraneo"
-    ],
-    "server/lib/browser-orphan-sweep.ts": [
-      "ProcRow",
-      "parseProcSnapshot"
     ],
     "server/lib/cancelled-notice.test.ts": [
       "casi",
@@ -4303,8 +3595,7 @@
     ],
     "server/lib/claude-session-state.ts": [
       "normaliseApprovalKind",
-      "obj",
-      "trimmed"
+      "obj"
     ],
     "server/lib/claude-session-tracker.test.ts": [
       "altrui",
@@ -4320,19 +3611,13 @@
       "attesArmate",
       "buf",
       "conAttesa",
-      "fileMtimeMs",
       "forkScanCooldownMs",
-      "mtime",
       "stat"
     ],
     "server/lib/claude-subagent-transcript.ts": [
       "birthtimeMs",
       "buf",
-      "mtimeMs",
       "rec"
-    ],
-    "server/lib/claude-transcript-import.ts": [
-      "trimmed"
     ],
     "server/lib/claude-transcript-title.ts": [
       "oldest"
@@ -4345,7 +3630,6 @@
       "buf",
       "codexRolloutExists",
       "codexRolloutPath",
-      "mtimeMs",
       "obj",
       "readRolloutMeta",
       "recentRolloutFiles",
@@ -4423,9 +3707,6 @@
       "nata",
       "soloIlBloccoDErrore"
     ],
-    "server/lib/env-alias.test.ts": [
-      "orig"
-    ],
     "server/lib/external-claude-sessions.ts": [
       "buf",
       "entrypoint",
@@ -4444,19 +3725,11 @@
       "FLEET_TTL_MS",
       "arr",
       "buf",
-      "lib",
-      "proc",
-      "procFootprintKB",
-      "procs",
       "sawRss",
-      "scriptsProcs",
       "suoi"
     ],
     "server/lib/gateway-sse-consumer.test.ts": [
       "enc"
-    ],
-    "server/lib/gateway-sse-consumer.ts": [
-      "INACTIVITY_TIMEOUT_MS"
     ],
     "server/lib/git-hunks.test.ts": [
       "applica",
@@ -4481,12 +3754,7 @@
       "offences"
     ],
     "server/lib/git-identity.test.ts": [
-      "cfg",
-      "cfgDir",
       "senzaIdentita"
-    ],
-    "server/lib/git-identity.ts": [
-      "proc"
     ],
     "server/lib/git-numstat.test.ts": [
       "BINARIO"
@@ -4502,7 +3770,6 @@
       "leggi",
       "parseNumstatZ",
       "primo",
-      "proc",
       "readNumstats",
       "rec",
       "secondo",
@@ -4512,8 +3779,6 @@
       "ren"
     ],
     "server/lib/git-porcelain.ts": [
-      "carriesOrigPath",
-      "orig",
       "rec"
     ],
     "server/lib/git-show.test.ts": [
@@ -4523,9 +3788,7 @@
     "server/lib/git-show.ts": [
       "Numstat",
       "SHOW_NUMSTAT_ARGS",
-      "carriesOrigPath",
-      "conteggi",
-      "orig"
+      "conteggi"
     ],
     "server/lib/git-status-cache.ts": [
       "TTL_MS",
@@ -4596,9 +3859,7 @@
       "rigaADevice"
     ],
     "server/lib/idle-gc.test.ts": [
-      "IdleGcDeps",
       "conteggio",
-      "deps",
       "esito",
       "eventi",
       "fermo",
@@ -4609,7 +3870,6 @@
       "ATTESA_RILASCIO_MS",
       "EsitoIdleGc",
       "IDLE_GC_SOGLIA_MB",
-      "IdleGcDeps",
       "dopo",
       "fonti",
       "inVolo",
@@ -4697,10 +3957,6 @@
     ],
     "server/lib/loopback-probe.test.ts": [
       "srv"
-    ],
-    "server/lib/loopback-probe.ts": [
-      "isLoopback",
-      "loopbackPortOf"
     ],
     "server/lib/machine-cores.test.ts": [
       "primo",
@@ -4793,11 +4049,9 @@
     "server/lib/permission-bridge.ts": [
       "DEFAULT_BUFFER_TTL_MS",
       "DEFAULT_REQUEST_TTL_MS",
-      "DEFAULT_TIMEOUT_MS",
       "PERMISSION_TTL_MS",
       "buf",
       "oldest",
-      "timeoutMs",
       "ttl"
     ],
     "server/lib/permission-paint.ts": [
@@ -4815,7 +4069,6 @@
     "server/lib/port-squatter.test.ts": [
       "NOSTRA",
       "SondaPortaDeps",
-      "deps",
       "visti"
     ],
     "server/lib/port-squatter.ts": [
@@ -4841,21 +4094,12 @@
       "soloIlFerro"
     ],
     "server/lib/process-tree.ts": [
-      "KillTreeDeps",
       "PROC_TABLE_TTL",
       "_childrenByPpid",
-      "_procTableAt",
-      "arr",
-      "getProcTable",
-      "proc"
+      "arr"
     ],
     "server/lib/process-wait.ts": [
-      "ProcessWatchInfo",
-      "WAIT_DEFAULT_TIMEOUT_MS",
-      "WAIT_MAX_TIMEOUT_MS",
-      "acc",
-      "clampWaitTimeout",
-      "watchSeq"
+      "acc"
     ],
     "server/lib/project-icon.test.ts": [
       "fav",
@@ -4881,7 +4125,6 @@
     "server/lib/project-scripts.ts": [
       "aggiungi",
       "arr",
-      "cfg",
       "chiave",
       "comp",
       "deno",
@@ -4892,7 +4135,6 @@
       "parsePyprojectTasks",
       "parseTaskfileTasks",
       "parseTomlTables",
-      "pkg",
       "primoChe",
       "rientro",
       "riga",
@@ -4920,7 +4162,6 @@
     ],
     "server/lib/provenienza.ts": [
       "Provenienza",
-      "loopback",
       "nudo",
       "privato",
       "provenienzaDi",
@@ -4931,8 +4172,7 @@
     ],
     "server/lib/pty-activity.ts": [
       "CSI",
-      "ESC2",
-      "classifyFrame"
+      "ESC2"
     ],
     "server/lib/quiescence.test.ts": [
       "giri",
@@ -4954,9 +4194,6 @@
     "server/lib/recipients.ts": [
       "righe",
       "tutte"
-    ],
-    "server/lib/relocate-pane.ts": [
-      "seq"
     ],
     "server/lib/ripresa-automatica.test.ts": [
       "StatoRipresa",
@@ -4985,20 +4222,6 @@
       "righe",
       "riprendiTurniInterrotti"
     ],
-    "server/lib/serial-queue.test.ts": [
-      "proc"
-    ],
-    "server/lib/serial-queue.ts": [
-      "enqueue"
-    ],
-    "server/lib/session-control-core.test.ts": [
-      "SessionControlDeps",
-      "deps",
-      "makeDeps"
-    ],
-    "server/lib/session-control-core.ts": [
-      "SessionControlDeps"
-    ],
     "server/lib/session-free-mode.test.ts": [
       "altra",
       "mia"
@@ -5008,12 +4231,6 @@
     ],
     "server/lib/slash-command-source.test.ts": [
       "segreto"
-    ],
-    "server/lib/stale-stream-sweep.ts": [
-      "StaleStreamSweepDeps"
-    ],
-    "server/lib/stale-stream-verdict.test.ts": [
-      "TIMEOUT"
     ],
     "server/lib/stripe.test.ts": [
       "CORPO",
@@ -5064,7 +4281,6 @@
       "Chiamata",
       "NESSUN_ERRORE",
       "SttAudio",
-      "cfg",
       "chiamate",
       "envVuoto",
       "erroreDi",
@@ -5074,7 +4290,6 @@
       "rotta"
     ],
     "server/lib/stt.ts": [
-      "CLOUD_TIMEOUT_MS",
       "ELEVENLABS_FALLBACK_MODEL",
       "FFMPEG_TIMEOUT_MS",
       "MAX_STT_BYTES",
@@ -5083,8 +4298,6 @@
       "SttAudio",
       "SttDeps",
       "SttError",
-      "WHISPER_TIMEOUT_MS",
-      "cfg",
       "estensioneDi",
       "ffmpeg",
       "grezzo",
@@ -5093,33 +4306,20 @@
       "resolveSttChain",
       "sttCapabilities",
       "transcribeDeepgram",
-      "transcribeGroq",
       "wav"
     ],
     "server/lib/subagent-watch.ts": [
-      "DEFAULT_WATCH_TIMEOUT_MS",
-      "SubAgentExitInfo",
-      "SubagentWatchDeps",
-      "buf",
-      "watchTimeoutMs"
-    ],
-    "server/lib/tab-resolver-deps.ts": [
-      "tabResolverDeps"
+      "buf"
     ],
     "server/lib/tab-resolver.test.ts": [
-      "ABS",
       "OTHER_PROJ",
       "PROJ",
-      "TabResolverDeps",
-      "abs",
-      "deps",
       "ignoto",
       "morto",
       "senzaHint",
       "vivo"
     ],
     "server/lib/tab-resolver.ts": [
-      "TabResolverDeps",
       "isAddressableProjectPath",
       "rec"
     ],
@@ -5146,19 +4346,16 @@
     ],
     "server/lib/topics-agent-prompt.test.ts": [
       "dopo",
-      "lang",
-      "orig"
+      "lang"
     ],
     "server/lib/transcript-fork.test.ts": [
       "asst",
       "jline",
       "molto",
-      "mtime",
       "skipped"
     ],
     "server/lib/transcript-fork.ts": [
       "buf",
-      "curMtime",
       "stat"
     ],
     "server/lib/trash.test.ts": [
@@ -5167,9 +4364,6 @@
       "sotto"
     ],
     "server/lib/trash.ts": [
-      "ext",
-      "infoDir",
-      "proc",
       "quando",
       "sistema",
       "stderr",
@@ -5183,9 +4377,6 @@
       "dichiarato",
       "primo"
     ],
-    "server/lib/turn-deadline.test.ts": [
-      "seq"
-    ],
     "server/lib/turn-deadline.ts": [
       "silenzio"
     ],
@@ -5198,16 +4389,6 @@
     "server/lib/turno-troncato.ts": [
       "TURNO_TRONCATO",
       "spiegaTurnoTroncato"
-    ],
-    "server/lib/unread-count.test.ts": [
-      "UnreadDeps",
-      "deps"
-    ],
-    "server/lib/unread-count.ts": [
-      "UnreadDeps"
-    ],
-    "server/lib/upload-allowlist.ts": [
-      "abs"
     ],
     "server/lib/verdetto-turno-interrotto.test.ts": [
       "TESTO",
@@ -5227,8 +4408,7 @@
     ],
     "server/mcp/topics-mcp-server.e2e.test.ts": [
       "buf",
-      "dec",
-      "proc"
+      "dec"
     ],
     "server/mcp/topics-mcp-server.test.ts": [
       "MODIFICANO",
@@ -5237,22 +4417,16 @@
       "emitted",
       "gambe",
       "invisibile",
-      "orig",
       "subito"
     ],
     "server/mcp/topics-mcp-server.ts": [
-      "JsonRpcNotification",
-      "JsonRpcRequest",
-      "JsonRpcResponse",
       "MODIFICA",
       "SOLA_LETTURA",
       "anteprima",
       "buf",
       "dec",
-      "endpoint",
       "loopbackTlsInit",
-      "satisfies",
-      "trimmed"
+      "satisfies"
     ],
     "server/media-error-page.ts": [
       "esc"
@@ -5273,12 +4447,7 @@
       "AcpSessionUpdate",
       "AcpTranslateState",
       "CLIENT_CAPABILITIES",
-      "CLIENT_INFO",
-      "ENV_ALLOWLIST",
-      "PROMPT_TIMEOUT_MS",
-      "TurnEndInfo",
-      "cmd",
-      "info"
+      "ENV_ALLOWLIST"
     ],
     "server/providers/acp/agents.ts": [
       "AcpAgentSpec",
@@ -5291,19 +4460,7 @@
       "CATALOGO"
     ],
     "server/providers/acp/config-options.ts": [
-      "SET_OPTION_TIMEOUT_MS",
       "assaggio"
-    ],
-    "server/providers/acp/helpers.ts": [
-      "withTimeout"
-    ],
-    "server/providers/acp/jsonrpc.ts": [
-      "JsonRpcError",
-      "JsonRpcPeer",
-      "JsonRpcPeerOptions",
-      "JsonRpcRemoteError",
-      "RPC_INTERNAL_ERROR",
-      "RPC_METHOD_NOT_FOUND"
     ],
     "server/providers/acp/protocol-version.test.ts": [
       "AcpProviderConfig",
@@ -5325,9 +4482,6 @@
       "multiSelect",
       "rec",
       "sanitiseQuestion"
-    ],
-    "server/providers/ask-user-flow.test.ts": [
-      "makeStubProc"
     ],
     "server/providers/claude-code-abort-exit.test.ts": [
       "fini"
@@ -5356,9 +4510,6 @@
       "primo",
       "secondo"
     ],
-    "server/providers/claude-code-env.test.ts": [
-      "timeout"
-    ],
     "server/providers/claude-code-reattach.test.ts": [
       "ProviderCtor",
       "prov",
@@ -5367,7 +4518,6 @@
       "vero"
     ],
     "server/providers/claude-code-subagent-coalesce.test.ts": [
-      "burstSeq",
       "ppWithSidechain",
       "sidechain"
     ],
@@ -5386,22 +4536,13 @@
       "ENV_ALLOWLIST",
       "ENV_BLOCKLIST_EXCEPTIONS",
       "ENV_BLOCKLIST_PATTERNS",
-      "FastModeInfo",
-      "INACTIVITY_TIMEOUT_MS",
-      "MESSAGE_TIMEOUT_MS",
       "PARKED_SCAN_TTL_MS",
       "certsDir",
-      "cmd",
-      "droppedForColdBoot",
-      "messageTimeout",
       "oldest",
       "oneshotKey",
       "parseCompletionStdout",
-      "parseCsvEnv",
-      "proc",
       "stderr",
       "stdout",
-      "timeoutPromise",
       "useTls"
     ],
     "server/providers/claude-models.ts": [
@@ -5409,20 +4550,12 @@
     ],
     "server/providers/claude/args.test.ts": [
       "agente",
-      "cmd",
       "lista",
       "spento"
     ],
     "server/providers/claude/args.ts": [
       "ClaudeOneshotArgsOptions",
-      "IMAGE_READ_GUARD_CMD",
-      "TRIMMED_TOOLS_CHAT",
-      "TRIMMED_TOOLS_DISPATCHED",
-      "buildClaudeOneshotArgs",
-      "trimmedTools"
-    ],
-    "server/providers/claude/background-shell.ts": [
-      "classifyShellToolResult"
+      "buildClaudeOneshotArgs"
     ],
     "server/providers/claude/cli-compat.ts": [
       "ClaudeCliCompat",
@@ -5437,21 +4570,14 @@
       "PARTIAL_SIDECHAIN",
       "SIDECHAIN_ASSISTANT"
     ],
-    "server/providers/claude/events.ts": [
-      "classifyStreamLine"
-    ],
     "server/providers/claude/sidechain-tracker.test.ts": [
-      "lastSummaries",
-      "longCmd"
+      "lastSummaries"
     ],
     "server/providers/claude/sidechain-tracker.ts": [
       "SidechainAction",
       "SidechainState",
       "SidechainTracker",
       "obj"
-    ],
-    "server/providers/claude/tool-detail.ts": [
-      "timeout"
     ],
     "server/providers/claude/woken-turn.test.ts": [
       "risveglio"
@@ -5468,15 +4594,11 @@
     ],
     "server/providers/codex.ts": [
       "ENV_ALLOWLIST",
-      "MESSAGE_TIMEOUT_MS",
       "errObj",
-      "info",
       "obj",
       "stderr",
       "stderrBuf",
-      "stdout",
-      "timeout",
-      "trimmed"
+      "stdout"
     ],
     "server/providers/codex/args.ts": [
       "CodexExecArgsOptions",
@@ -5487,13 +4609,10 @@
     ],
     "server/providers/fast-mode.ts": [
       "FAST_MODE_PRICING",
-      "FastModeInfo",
       "std"
     ],
     "server/providers/index.ts": [
-      "RUNTIME_PROVIDER",
-      "resolveAcpAgents",
-      "runtimePreferred"
+      "resolveAcpAgents"
     ],
     "server/providers/mcp-coldboot.test.ts": [
       "esclusi",
@@ -5525,14 +4644,11 @@
     ],
     "server/providers/native/auth-lock.test.ts": [
       "credPath",
-      "procs",
       "tok"
     ],
     "server/providers/native/auth.ts": [
-      "LOCK_TIMEOUT_MS",
       "acct",
-      "creds",
-      "loopback"
+      "creds"
     ],
     "server/providers/native/compaction.test.ts": [
       "codaDopo",
@@ -5543,9 +4659,6 @@
       "risultati",
       "usi",
       "vecchio"
-    ],
-    "server/providers/native/compaction.ts": [
-      "DROPPED"
     ],
     "server/providers/native/history-repair.test.ts": [
       "blocchi",
@@ -5575,15 +4688,10 @@
       "lunghi"
     ],
     "server/providers/native/permissions.test.ts": [
-      "bloccati",
-      "cmd"
-    ],
-    "server/providers/native/permissions.ts": [
-      "cmd"
+      "bloccati"
     ],
     "server/providers/native/provider.ts": [
       "SESSION_TTL_MS",
-      "TurnEndInfo",
       "causa",
       "creds",
       "sessionIsEvictable",
@@ -5597,7 +4705,6 @@
       "risposte"
     ],
     "server/providers/native/runtime.integration.test.ts": [
-      "abs",
       "rec",
       "rifiuti",
       "tok"
@@ -5614,10 +4721,8 @@
       "partito"
     ],
     "server/providers/native/tools.ts": [
-      "DEFAULT_BASH_TIMEOUT_MS",
       "MOTIVO_ANNULLATO",
       "abbatti",
-      "abs",
       "annullato",
       "chiudi"
     ],
@@ -5625,8 +4730,7 @@
       "turni"
     ],
     "server/providers/openai.ts": [
-      "tcArr",
-      "trimmed"
+      "tcArr"
     ],
     "server/providers/openclaw.ts": [
       "offlineStates"
@@ -5651,15 +4755,9 @@
     "server/providers/snapshot-manager.ts": [
       "SNAPSHOT_TTL_MS"
     ],
-    "server/providers/stop-reason.test.ts": [
-      "info"
-    ],
     "server/providers/stop-reason.ts": [
       "ACP_STOP_REASONS",
-      "TurnEndInfo",
       "cancelled",
-      "classifyResultEvent",
-      "classifyTurnError",
       "isAcpStopReason"
     ],
     "server/providers/text-delta.test.ts": [
@@ -5667,14 +4765,10 @@
       "pezzi"
     ],
     "server/providers/turn-end-registry.ts": [
-      "info",
       "oldest"
     ],
     "server/providers/types.ts": [
       "AcpProviderConfig"
-    ],
-    "server/pty-bridge-orphan.test.ts": [
-      "proc"
     ],
     "server/push-triggers.ts": [
       "SilenceableTopic",
@@ -5721,9 +4815,6 @@
       "servizio",
       "stato"
     ],
-    "server/routes/app-settings.ts": [
-      "RUNTIMES"
-    ],
     "server/routes/auth.ts": [
       "__invecchiaPendingPerTests",
       "__scadenzeArmatePerTests",
@@ -5740,7 +4831,6 @@
       "ident",
       "installazione",
       "licenza",
-      "loopback",
       "nomeDispositivo",
       "nomeSoggetto",
       "nulla",
@@ -5760,9 +4850,6 @@
       "soggetti",
       "subj",
       "tipo"
-    ],
-    "server/routes/autoname.ts": [
-      "AutoNameDeps"
     ],
     "server/routes/billing.test.ts": [
       "CaricoGettone",
@@ -5828,10 +4915,6 @@
       "sensibili"
     ],
     "server/routes/browser-bridge.ts": [
-      "BrowserBridgeDeps",
-      "TabInventoryDeps",
-      "buildTabDeps",
-      "endpoint",
       "tok"
     ],
     "server/routes/browser-close-keeps-session.test.ts": [
@@ -5841,19 +4924,9 @@
       "agentEvalMatch",
       "agentScreenshotMatch",
       "buf",
-      "cdpRegisterMatch",
-      "evalResult",
-      "info"
-    ],
-    "server/routes/chat.front-door.test.ts": [
-      "deps"
+      "evalResult"
     ],
     "server/routes/chat.ts": [
-      "ChatDeps",
-      "ControlDispatchDeps",
-      "STREAM_HARD_TIMEOUT_MS",
-      "STREAM_TIMEOUT_MS",
-      "TurnEndInfo",
       "adoptWoken",
       "adottaTurnoVivo",
       "avviso",
@@ -5861,15 +4934,9 @@
       "candidati",
       "cevt",
       "chatIdempotency",
-      "cmdMatch",
-      "cmdText",
       "conVerdetto",
-      "controlDispatchDeps",
-      "endInfo",
       "evt",
       "haProdotto",
-      "handleHardTimeout",
-      "handleSoftTimeout",
       "idempotencyKey",
       "idempotencySlot",
       "inTok",
@@ -5877,33 +4944,16 @@
       "localhostScanCarry",
       "localhostScanWindow",
       "outTok",
-      "recoverFromSoftTimeout",
       "riprendeDaSolo",
       "rowHasWorkDopoMerge",
       "scartata",
       "soloCompattazione",
-      "storedCmdMsg",
-      "tabDeps",
-      "timeoutId",
-      "timeoutMsg",
       "toolsDelTurno",
       "uevt",
       "usd",
       "usdFromProvider",
       "verdetto",
       "vuota"
-    ],
-    "server/routes/checkpoints.ts": [
-      "checkpoint",
-      "checkpoints",
-      "checkpointsRouter",
-      "createCheckpointsRouter",
-      "getCheckpointsDir",
-      "getGitInfo",
-      "gitInfo",
-      "loadCheckpoints",
-      "proc",
-      "saveCheckpoints"
     ],
     "server/routes/claude-hooks.ts": [
       "isLocalhost"
@@ -5929,62 +4979,39 @@
       "stmts",
       "wipCount"
     ],
-    "server/routes/e2e.ts": [
-      "maxSeq"
-    ],
     "server/routes/edit.ts": [
-      "EditDeps",
       "autore",
-      "regenParams",
-      "timeoutId"
+      "regenParams"
     ],
     "server/routes/files.git-commit-identity.test.ts": [
-      "cfg",
       "envSenzaIdentita"
     ],
     "server/routes/files.ts": [
-      "SEARCH_TIMEOUT_MS",
-      "addProc",
-      "applyProc",
       "assoluto",
       "azione",
       "basename",
-      "branchProc",
-      "cachedProc",
-      "checkProc",
       "daIndice",
-      "diffProc",
       "esempi",
       "esito",
       "evictOldestBackups",
-      "ext",
       "gitignorePath",
       "gitignorePatterns",
-      "headProc",
       "indici",
       "leggi",
-      "logProc",
       "modified",
       "oldestKey",
       "oldestTime",
       "parseGitignoreFlat",
-      "pkgPath",
-      "proc",
-      "remoteProc",
-      "revProc",
       "risposta",
       "scaduto",
       "stat",
       "statProc",
       "statText",
-      "statusProc",
       "stderr",
       "stdout",
-      "toplevelProc",
-      "trimmed"
+      "toplevelProc"
     ],
     "server/routes/history.ts": [
-      "HistoryDeps",
       "prov"
     ],
     "server/routes/license.test.ts": [
@@ -6008,7 +5035,6 @@
     ],
     "server/routes/media.test.ts": [
       "attivo",
-      "ext",
       "letta",
       "perEstensione",
       "troppo",
@@ -6016,7 +5042,6 @@
     ],
     "server/routes/media.ts": [
       "MULTIPART_SLACK",
-      "ext",
       "filename",
       "filepath",
       "guardie"
@@ -6044,8 +5069,7 @@
       "secondo"
     ],
     "server/routes/processes.readopt.test.ts": [
-      "LSTART",
-      "proc"
+      "LSTART"
     ],
     "server/routes/processes.session-run.test.ts": [
       "multiCtx"
@@ -6054,19 +5078,13 @@
       "PORT_CACHE_TTL",
       "SCRIPTS_CACHE_TTL",
       "TOP_PROCS_TTL",
-      "argv",
       "buf",
-      "cachedTopProcs",
-      "cachedTopProcsAt",
-      "cmd",
       "dpid",
       "esitoShellMorta",
       "pcwd",
-      "proc",
       "rilevati",
       "rilevato",
       "stat",
-      "timeoutMs",
       "unregisterPreviewProcess",
       "useTty"
     ],
@@ -6079,9 +5097,6 @@
       "dentro",
       "estranea",
       "proj"
-    ],
-    "server/routes/projects.resolve-open.test.ts": [
-      "pkg"
     ],
     "server/routes/projects.ts": [
       "esistente",
@@ -6096,7 +5111,6 @@
       "sparklineSvg"
     ],
     "server/routes/push.test.ts": [
-      "byEndpoint",
       "dbCheEsplode",
       "destinatari",
       "identita",
@@ -6113,29 +5127,12 @@
     ],
     "server/routes/status.ts": [
       "CronJobsStatus",
-      "PKG_PATH",
-      "_pkgCache",
       "fetchCronStatus",
       "lastCronStatus",
-      "mtimeMs",
-      "proc",
       "stderr",
       "stdout",
       "topicCountStmt",
       "uptimeMs"
-    ],
-    "server/routes/stream-timer.test.ts": [
-      "STREAM_HARD_TIMEOUT_MS",
-      "STREAM_TIMEOUT_MS",
-      "realClearTimeout",
-      "realSetTimeout"
-    ],
-    "server/routes/subagent-exit.ts": [
-      "SubAgentExitInfo",
-      "trimmed"
-    ],
-    "server/routes/tabs.ts": [
-      "deps"
     ],
     "server/routes/task-patch.test.ts": [
       "inserisci",
@@ -6151,13 +5148,9 @@
       "statoLanding",
       "statusAlloStop"
     ],
-    "server/routes/tasks.recapture-preview.test.ts": [
-      "fakeProc"
-    ],
     "server/routes/tasks.test.ts": [
       "NUOVI",
       "archivio",
-      "bodies",
       "candidati",
       "chiuso",
       "conDueTentativi",
@@ -6194,8 +5187,6 @@
       "capturaConsegna",
       "condivisi",
       "elenco",
-      "enqueueLand",
-      "enqueueLandOnDone",
       "esc",
       "esito",
       "fresca",
@@ -6216,26 +5207,17 @@
       "autoNameOpencodeSession",
       "buf",
       "cbs",
-      "cmd",
-      "droppedInput",
       "idemKey",
       "idempotencyCache",
-      "noteDroppedInput",
       "skipped",
       "sweepAutoNameOpencodeSessions"
     ],
-    "server/routes/topics.control.test.ts": [
-      "maxSeq"
-    ],
     "server/routes/topics.ts": [
       "PREVIEW_CACHE_TTL_MS",
-      "abs",
       "descOf",
       "detectLocalhostAutoNav",
       "localhostMatch",
-      "nextSeq",
       "normalised",
-      "procProvider",
       "rec",
       "stmt",
       "submittedAt",
@@ -6246,16 +5228,11 @@
       "arr"
     ],
     "server/routes/ui-state.ts": [
-      "curSeq",
       "layoutObj",
-      "nextSeq",
-      "recObj",
-      "server_seq",
-      "server_seqs"
+      "recObj"
     ],
     "server/routes/voice.test.ts": [
       "chiama",
-      "orig",
       "riga",
       "righe"
     ],
@@ -6326,22 +5303,13 @@
       "tutte"
     ],
     "server/services/app-settings.ts": [
-      "AgentRuntime",
-      "resolveAgentRuntime",
       "resolveOpenaiMaxTokens",
       "resolveOpenaiModel"
-    ],
-    "server/services/archive-topic.test.ts": [
-      "ArchiveTopicDeps"
-    ],
-    "server/services/archive-topic.ts": [
-      "ArchiveTopicDeps"
     ],
     "server/services/board-ask-routing.test.ts": [
       "COORD"
     ],
     "server/services/board-ask-routing.ts": [
-      "AskRoutingDeps",
       "intro"
     ],
     "server/services/board-protocol-parity.test.ts": [
@@ -6360,14 +5328,12 @@
       "WorktreeDiffStatOptions",
       "numstat",
       "oldest",
-      "proc",
       "worktreeDiffStat"
     ],
     "server/services/browser-orphan-reap.test.ts": [
       "CASA"
     ],
     "server/services/browser-orphan-reap.ts": [
-      "ReaperDeps",
       "sigkill"
     ],
     "server/services/checks-gate.test.ts": [
@@ -6388,8 +5354,6 @@
     ],
     "server/services/claude-tasks-sync.ts": [
       "TopicsTaskUpsert",
-      "fileMtimes",
-      "mtime",
       "projDir",
       "skipped",
       "upserted"
@@ -6402,21 +5366,13 @@
       "stmt"
     ],
     "server/services/delivery-backfill.ts": [
-      "BackfillDeps",
-      "backfillDeliveries",
-      "branchDeps",
       "candidati",
       "commitNuovo",
       "ptr",
       "stat"
     ],
     "server/services/delivery-branch-ref.test.ts": [
-      "DeliveryBranchDeps",
-      "chiesto",
-      "deps"
-    ],
-    "server/services/delivery-branch-ref.ts": [
-      "DeliveryBranchDeps"
+      "chiesto"
     ],
     "server/services/delivery-sheet.test.ts": [
       "righe"
@@ -6447,9 +5403,7 @@
       "buf",
       "evt",
       "existingIpcCandidates",
-      "ipcCandidates",
-      "nonceSeq",
-      "timeoutMs"
+      "ipcCandidates"
     ],
     "server/services/discord-presence.test.ts": [
       "IpcSocket",
@@ -6459,7 +5413,6 @@
       "dopoPrima"
     ],
     "server/services/discord-presence.ts": [
-      "DiscordPresenceDeps",
       "IpcConnector",
       "IpcSocket"
     ],
@@ -6477,11 +5430,7 @@
       "costo",
       "nuovi"
     ],
-    "server/services/dispatch-usage.ts": [
-      "DispatchUsageDeps"
-    ],
     "server/services/external-sessions.ts": [
-      "ExternalSessionsDeps",
       "acc",
       "ttlMs"
     ],
@@ -6522,34 +5471,24 @@
       "indiceDi",
       "indiceMain",
       "indici",
-      "landingAuditDeps",
       "nuovo",
       "trovato",
       "verdetto"
     ],
     "server/services/landing-audit-recovery.test.ts": [
       "CARD_ATTERRATA",
-      "DeliveryBranchDeps",
       "RIGA",
       "commitAtterrato",
       "commitProprio",
-      "deps",
       "ptr",
       "stat"
     ],
     "server/services/landing-audit.test.ts": [
-      "LandingAuditDeps",
       "chiesti",
-      "chiesto",
-      "deps"
+      "chiesto"
     ],
     "server/services/landing-audit.ts": [
-      "LandingAuditDeps",
-      "classifyLanding",
       "classifyLandingEsito"
-    ],
-    "server/services/landing-queue.ts": [
-      "LandingQueueDeps"
     ],
     "server/services/landing-verdict.test.ts": [
       "codice",
@@ -6573,8 +5512,6 @@
       "assentiSuMain",
       "candidati",
       "cercaSupersessione",
-      "classifyBranchLanding",
-      "classifyCommitLanding",
       "commitDiMainDopo",
       "commitDopo",
       "contaPresenti",
@@ -6610,7 +5547,6 @@
     ],
     "server/services/machine-store.ts": [
       "markStaleOffline",
-      "pkg",
       "stmts",
       "upsertLocal"
     ],
@@ -6627,14 +5563,8 @@
       "dentro"
     ],
     "server/services/orphan-census.test.ts": [
-      "CensusDeps",
-      "deps",
       "soloQuestaRiga",
       "vuote"
-    ],
-    "server/services/orphan-census.ts": [
-      "CensusDeps",
-      "CensusRunnerDeps"
     ],
     "server/services/own-commits.test.ts": [
       "SENZA_RESIDUI",
@@ -6651,28 +5581,21 @@
       "strano"
     ],
     "server/services/own-commits.ts": [
-      "proc",
       "senzaResidui"
     ],
     "server/services/pane-retirement-cascade.ts": [
       "rec"
     ],
     "server/services/preview-manager.test.ts": [
-      "PreviewManagerDeps",
       "attesa",
-      "fakeProc",
       "inAvvio",
       "prominenti",
       "sbloccaProbe"
     ],
     "server/services/preview-manager.ts": [
-      "PreviewManagerDeps",
       "nostro",
-      "proc",
-      "readyTimeoutMs",
       "reusable",
-      "spegniAlbero",
-      "trimmed"
+      "spegniAlbero"
     ],
     "server/services/profile-banner.test.ts": [
       "benFormato",
@@ -6691,9 +5614,6 @@
       "GIORNO",
       "messaggio",
       "progetto"
-    ],
-    "server/services/project-path-resolver.test.ts": [
-      "deps"
     ],
     "server/services/project-path-resolver.ts": [
       "NON_PROJECT_DOTDIR"
@@ -6729,7 +5649,6 @@
       "MotivoStream",
       "ProxyTuboDeps",
       "RISERVA_DEVICE",
-      "RelayDeps",
       "RichiestaOspite",
       "RispostaOspite",
       "RuoloSessione",
@@ -6883,11 +5802,9 @@
       "usciti"
     ],
     "server/services/retirement.test.ts": [
-      "deps",
       "inv"
     ],
     "server/services/retirement.ts": [
-      "ReconcileDeps",
       "inv"
     ],
     "server/services/review-checks.test.ts": [
@@ -6901,13 +5818,8 @@
       "visti"
     ],
     "server/services/review-checks.ts": [
-      "DEFAULT_TIMEOUT_MS",
-      "cmd",
       "exec",
-      "fmtMs",
-      "installMissingDeps",
-      "proc",
-      "timeoutMs"
+      "fmtMs"
     ],
     "server/services/task-automerge-delivery.test.ts": [
       "orfano"
@@ -6920,24 +5832,19 @@
     ],
     "server/services/task-automerge-realign.test.ts": [
       "CON_GIT_VERO",
-      "abs",
       "consegnato",
       "repoConRamoVecchio"
     ],
     "server/services/task-automerge.ts": [
-      "AutoMergeDeps",
-      "BUILD_TIMEOUT_MS",
       "LandFallout",
       "cnt",
       "landFallout",
       "perTitolo",
-      "proc",
       "titolo",
       "toccati",
       "visti"
     ],
     "server/services/task-delivery-capture.ts": [
-      "DeliveryCaptureDeps",
       "scritto"
     ],
     "server/services/task-diff-range.ts": [
@@ -6946,50 +5853,34 @@
       "oldest"
     ],
     "server/services/task-dispatcher-cap-note.test.ts": [
-      "DispatcherDeps",
-      "deps",
-      "nota",
-      "seq"
+      "nota"
     ],
     "server/services/task-dispatcher-fanout.test.ts": [
-      "DispatcherDeps",
       "Stat",
       "boardSemplice",
-      "deps",
       "righe",
-      "rotto",
-      "seq"
+      "rotto"
     ],
     "server/services/task-dispatcher-heavy-gate.test.ts": [
-      "DispatcherDeps",
       "codaConPesanteInTesta",
-      "deps",
-      "nota",
-      "seq"
+      "nota"
     ],
     "server/services/task-dispatcher-interrupted.test.ts": [
-      "DispatcherDeps",
-      "deps",
       "dette",
       "marcate",
       "righe",
-      "seedOrfana",
-      "seq"
+      "seedOrfana"
     ],
     "server/services/task-dispatcher-nudge.test.ts": [
-      "DispatcherDeps",
       "INTERO",
-      "deps",
       "processo",
       "riga",
       "seedOrfana"
     ],
     "server/services/task-dispatcher.test.ts": [
       "ALTRA",
-      "DispatcherDeps",
       "ITALIANO",
       "RECUPERABILI",
-      "TurnEndInfo",
       "accendiDispatch",
       "bloccato",
       "blocchi",
@@ -6998,7 +5889,6 @@
       "conSonda",
       "consegna",
       "contaStatement",
-      "deps",
       "dopo",
       "dopoRiavvio",
       "envelopeDiSollecito",
@@ -7021,15 +5911,12 @@
       "rimessa",
       "sbloccaAnteprima",
       "senzaEtichette",
-      "seq",
       "slimmed",
       "storico",
       "testi",
       "testo"
     ],
     "server/services/task-dispatcher.ts": [
-      "DispatcherDeps",
-      "TurnEndInfo",
       "acceso",
       "agentiVivi",
       "atteso",
@@ -7057,8 +5944,6 @@
       "sporchi",
       "stillTriaging",
       "tappo",
-      "timeoutMin",
-      "timeoutMs",
       "unsubscribeHumanHold",
       "untilHHMM",
       "vivi"
@@ -7089,21 +5974,12 @@
       "lunga"
     ],
     "server/services/task-model-picker.ts": [
-      "PickModelDeps",
       "execAvailable"
     ],
     "server/services/task-tab-persist.ts": [
-      "maxSeq",
-      "nextSeq",
-      "seq",
       "upsertTaskTab"
     ],
-    "server/services/task-tab-teardown.test.ts": [
-      "TaskTabTeardownDeps",
-      "deps"
-    ],
     "server/services/task-tab-teardown.ts": [
-      "TaskTabTeardownDeps",
       "taskSubtreeIds"
     ],
     "server/services/task-title.test.ts": [
@@ -7237,7 +6113,6 @@
       "dalDettaglio",
       "dallaLista",
       "dep",
-      "deps",
       "dettaglio",
       "di_nuovo",
       "dipendente",
@@ -7297,7 +6172,6 @@
       "detto",
       "domanda",
       "dopo",
-      "droppedCloser",
       "elenco",
       "ereditati",
       "esclusi",
@@ -7315,7 +6189,6 @@
       "opzioni",
       "primaDiNoi",
       "quanto",
-      "resolveSubtaskWork",
       "rimborso",
       "risalita",
       "scelta",
@@ -7327,8 +6200,7 @@
       "testo",
       "titolo",
       "tok",
-      "ultimaParolaDelThread",
-      "withSubtaskCounts"
+      "ultimaParolaDelThread"
     ],
     "server/services/transcript-usage.ts": [
       "buf",
@@ -7338,16 +6210,10 @@
       "filename"
     ],
     "server/services/ui-state-orphan-cleanup.ts": [
-      "baseSeq",
-      "nextSeq",
       "txn"
     ],
-    "server/services/ui-state-purge.ts": [
-      "nextSeq"
-    ],
     "server/services/url-probe-cache.ts": [
-      "CACHE_TTL_MS",
-      "PROBE_TIMEOUT_MS"
+      "CACHE_TTL_MS"
     ],
     "server/services/worktree-abandon-notice.test.ts": [
       "TTL_REASON"
@@ -7356,31 +6222,13 @@
       "chiamate",
       "senzaMain"
     ],
-    "server/services/worktree-base-ref.ts": [
-      "proc"
-    ],
     "server/services/worktree-gc-free-checkout.test.ts": [
-      "WorktreeGcDeps",
-      "absPath",
       "attivo",
       "chiuso",
-      "deps",
       "sporco"
     ],
-    "server/services/worktree-gc-residue.test.ts": [
-      "WorktreeGcDeps",
-      "absPath",
-      "deps"
-    ],
-    "server/services/worktree-gc-review-land.test.ts": [
-      "WorktreeGcDeps",
-      "absPath",
-      "deps"
-    ],
     "server/services/worktree-gc-runner.test.ts": [
-      "WorktreeGcDeps",
       "annunci",
-      "deps",
       "depsFinte",
       "esito",
       "fantasma",
@@ -7390,7 +6238,6 @@
       "toccati"
     ],
     "server/services/worktree-gc-runner.ts": [
-      "WorktreeGcDeps",
       "annuncia",
       "avviata",
       "csid",
@@ -7398,37 +6245,25 @@
       "qualcosaVivoDentro"
     ],
     "server/services/worktree-gc.test.ts": [
-      "WorktreeGcDeps",
-      "deps",
-      "makeDeps",
-      "slimmed",
-      "stuckDeps"
+      "slimmed"
     ],
     "server/services/worktree-gc.ts": [
-      "WorktreeGcDeps",
       "ttl"
     ],
     "server/services/worktree-manager.ts": [
-      "WorktreeManagerGcDeps",
-      "absPath",
       "awaitMaterialisation",
-      "installDeps",
       "materialiseOnDisk",
-      "proc",
       "stderr"
     ],
     "server/services/worktree-residue.ts": [
       "IN_CORSO",
-      "nuovo",
-      "proc"
+      "nuovo"
     ],
     "server/services/worktree-root.test.ts": [
       "casa"
     ],
     "server/services/worktree-slim.ts": [
-      "abs",
       "isSlimmableDirName",
-      "proc",
       "toPosix"
     ],
     "server/services/worktree-store.ts": [
@@ -7438,17 +6273,11 @@
     "server/spa-fallback.test.ts": [
       "pathname"
     ],
-    "server/static-assets.ts": [
-      "classifyStaticAsset"
-    ],
     "server/usage/context-window.test.ts": [
       "NUDO",
       "entrambe",
       "senzaRichiesta",
       "stretta"
-    ],
-    "server/usage/context-window.ts": [
-      "classifyContext"
     ],
     "server/usage/cost-probe.test.ts": [
       "ID_VIVO",
@@ -7473,9 +6302,6 @@
       "MODEL_PRICING",
       "findPricing",
       "pricing"
-    ],
-    "server/usage/store.ts": [
-      "enqueue"
     ],
     "server/usage/token-sql.test.ts": [
       "CASI"
@@ -7506,16 +6332,12 @@
     "server/utils.ts": [
       "KNOWN_DIRS_TTL_MS",
       "Osservatore",
-      "STREAM_TIMEOUT_MS",
       "TipoFrameProgetto",
-      "WorktreeManagerGcDeps",
-      "_worktreeGcDeps",
       "arr",
       "chiave",
       "chiuse",
       "deleteMessageSubtree",
       "eraPermesso",
-      "ext",
       "fresche",
       "osservatori",
       "riusabile",
@@ -7526,7 +6348,6 @@
       "subtree"
     ],
     "server/utils/executable.ts": [
-      "PROBE_TIMEOUT_MS",
       "semver",
       "stderr",
       "stdout"
@@ -7544,13 +6365,11 @@
       "sano"
     ],
     "server/webrtc-bridge.ts": [
-      "ANSWER_TIMEOUT_MS",
       "WebrtcBridge",
       "createWebrtcBridge"
     ],
     "server/ws-capabilities.ts": [
-      "SERVER_CAPABILITIES",
-      "pkg"
+      "SERVER_CAPABILITIES"
     ],
     "shared/account.ts": [
       "CODICI_ACCOUNT",
@@ -7577,11 +6396,8 @@
       "PARKED_REQUEUED_TAIL",
       "PARKED_REQUEUE_NOTE_LIKE",
       "REQUEUE_PARKED_LABEL",
-      "SubtaskWork",
-      "deriveSubtaskWork",
       "dietro",
-      "isRequeueParkedLabel",
-      "isUnattributedSubtask"
+      "isRequeueParkedLabel"
     ],
     "shared/browser-login-state.ts": [
       "StorageCookie",
@@ -7606,12 +6422,6 @@
     "shared/clear-messages-policy.test.ts": [
       "agenticTurn",
       "attivo"
-    ],
-    "shared/comment-author.ts": [
-      "trimmed"
-    ],
-    "shared/context-thresholds.ts": [
-      "abs"
     ],
     "shared/context-window.ts": [
       "LONG_WINDOW_FAMILIES"
@@ -7657,8 +6467,6 @@
     ],
     "shared/os-open-path.test.ts": [
       "assoc",
-      "conf",
-      "confExts",
       "plist",
       "plistExts"
     ],
@@ -7991,8 +6799,7 @@
       "testo"
     ],
     "shared/shortcuts.ts": [
-      "byCodepoint",
-      "forwardedCmdChars"
+      "byCodepoint"
     ],
     "shared/stt.ts": [
       "SttCapabilities",
@@ -8056,11 +6863,7 @@
       "tagliato"
     ],
     "shared/types.ts": [
-      "AGENT_RUNTIMES",
-      "AcpUsageUpdate",
-      "AgentRuntime",
-      "Checkpoint",
-      "DEFAULT_AGENT_RUNTIME"
+      "AcpUsageUpdate"
     ],
     "shared/ws-handshake.ts": [
       "formatZodIssues"
@@ -8073,7 +6876,6 @@
     "tests/e2e/add-menu.spec.ts": [
       "appPulita",
       "kbds",
-      "seq",
       "sovrapposti"
     ],
     "tests/e2e/banner-action-subtask.spec.ts": [
@@ -8083,12 +6885,10 @@
       "stato"
     ],
     "tests/e2e/bench-ai-latency.spec.ts": [
-      "INK_TIMEOUT_MS",
       "serialised",
       "warmup"
     ],
     "tests/e2e/bench-latency.spec.ts": [
-      "PROBE_TIMEOUT_MS",
       "fcp"
     ],
     "tests/e2e/bench-streaming.spec.ts": [
@@ -8158,8 +6958,6 @@
     ],
     "tests/e2e/board-composer-dictation.spec.ts": [
       "SECONDA",
-      "holdMic",
-      "mic",
       "stubStt"
     ],
     "tests/e2e/board-composer-persistence.spec.ts": [
@@ -8486,16 +7284,10 @@
     "tests/e2e/browser-process.spec.ts": [
       "href"
     ],
-    "tests/e2e/browser-tab-open.spec.ts": [
-      "providerInfo"
-    ],
     "tests/e2e/browser-ws-streaming.spec.ts": [
       "PERF",
       "PERF_PATH",
       "bandwidthKbps",
-      "orig",
-      "origSend",
-      "origWs",
       "screenshotImg"
     ],
     "tests/e2e/changelog.spec.ts": [
@@ -8528,10 +7320,7 @@
       "stato"
     ],
     "tests/e2e/chat-checkpoints.spec.ts": [
-      "MOCK_CHECKPOINTS",
-      "NEW_CHECKPOINT",
-      "confirmDialog",
-      "mockCheckpoints"
+      "confirmDialog"
     ],
     "tests/e2e/chat-compact-drain.spec.ts": [
       "apriCancello",
@@ -8552,7 +7341,6 @@
     ],
     "tests/e2e/chat-fast-mode.spec.ts": [
       "FAST_SERVIBILE",
-      "cls",
       "dichiaraFastMode",
       "textarea"
     ],
@@ -8593,9 +7381,6 @@
       "scroller",
       "stato",
       "statoFondo"
-    ],
-    "tests/e2e/chat-slash-claude-code.spec.ts": [
-      "runCmd"
     ],
     "tests/e2e/chat-streaming-indicator.spec.ts": [
       "distUp",
@@ -8661,7 +7446,6 @@
       "lungaNome",
       "primo",
       "rLista",
-      "rVarco",
       "scorre"
     ],
     "tests/e2e/claude-code-provider.spec.ts": [
@@ -8706,7 +7490,6 @@
       "attendiFraseDetta",
       "buf",
       "didascalia",
-      "installMicProbe",
       "irraggiungibile",
       "motivoSttIrraggiungibile",
       "readSttCapabilities",
@@ -8744,7 +7527,6 @@
       "tipi"
     ],
     "tests/e2e/drop-zones-v2.spec.ts": [
-      "STANDALONE_SCOPE_TYPE",
       "gotoAndWait"
     ],
     "tests/e2e/effort-single-surface.spec.ts": [
@@ -8806,8 +7588,7 @@
     ],
     "tests/e2e/fixtures/browser-v2.fixture.ts": [
       "FakeRTCPeerConnection",
-      "fps",
-      "timeout"
+      "fps"
     ],
     "tests/e2e/fixtures/dashboard.fixture.ts": [
       "MOCK_TIMESERIES"
@@ -8876,8 +7657,6 @@
       "etichettaRamo"
     ],
     "tests/e2e/global-setup.ts": [
-      "BUNDLE_FRESH_TIMEOUT_MS",
-      "checkpointBaseline",
       "stato"
     ],
     "tests/e2e/global-teardown.ts": [
@@ -8935,8 +7714,6 @@
       "textarea"
     ],
     "tests/e2e/helpers/api-fixtures.ts": [
-      "mySeq",
-      "timeout",
       "unarchiveTopic",
       "visti"
     ],
@@ -8969,9 +7746,6 @@
       "rispondi",
       "testo",
       "testoDi"
-    ],
-    "tests/e2e/helpers/ink.ts": [
-      "DEFAULT_TIMEOUT_MS"
     ],
     "tests/e2e/helpers/node-websocket.ts": [
       "opzioni"
@@ -9024,9 +7798,6 @@
       "sveglia",
       "vuoto"
     ],
-    "tests/e2e/helpers/server-death.ts": [
-      "cmd"
-    ],
     "tests/e2e/helpers/sse-helpers.ts": [
       "unmockChatStream"
     ],
@@ -9037,21 +7808,18 @@
     "tests/e2e/helpers/webm-duration.ts": [
       "Elemento",
       "ID_CLUSTER_TIMECODE",
-      "ID_INFO",
       "ID_TIMECODE_SCALE",
       "TIMECODE_SCALE_DEFAULT",
       "camminata",
       "corpo",
       "dur",
       "figlio",
-      "info",
       "interoBE",
       "leggiDimensione",
       "leggiElemento",
       "leggiId",
       "lunghezzaVint",
       "marcatore",
-      "pos",
       "primo",
       "tuttiUno",
       "ultimoTimecodeCluster"
@@ -9068,7 +7836,6 @@
     ],
     "tests/e2e/idle-frame-budget.spec.ts": [
       "MAX_RAF",
-      "OrigRO",
       "origRaf",
       "rafTop"
     ],
@@ -9097,9 +7864,6 @@
       "textarea"
     ],
     "tests/e2e/long-session-growth.spec.ts": [
-      "CDPSession",
-      "CdpMetrics",
-      "cdp",
       "riga"
     ],
     "tests/e2e/message-queue.spec.ts": [
@@ -9155,7 +7919,6 @@
       "Spia",
       "apriApp",
       "bordoDestro",
-      "cdp",
       "dito",
       "dopo",
       "fini",
@@ -9193,16 +7956,8 @@
       "didascalia",
       "trascina"
     ],
-    "tests/e2e/pane-server-migration.spec.ts": [
-      "bodies",
-      "seqs",
-      "timeoutMs"
-    ],
     "tests/e2e/pane-undo.spec.ts": [
       "gotoAndWait"
-    ],
-    "tests/e2e/pane-usage-tooltip.spec.ts": [
-      "info"
     ],
     "tests/e2e/panels.spec.ts": [
       "dialog",
@@ -9219,10 +7974,7 @@
       "verdetto"
     ],
     "tests/e2e/performance.spec.ts": [
-      "cls",
-      "measureCLS",
       "perfTopics",
-      "readLoadCLS",
       "sel",
       "testid"
     ],
@@ -9259,7 +8011,6 @@
       "lista",
       "mio",
       "partenza",
-      "pos",
       "quante",
       "riga",
       "schede",
@@ -9283,8 +8034,6 @@
       "tabProgetto"
     ],
     "tests/e2e/project-commands.spec.ts": [
-      "infoMsg",
-      "projectCmd",
       "textarea"
     ],
     "tests/e2e/project-rail-row-gap.spec.ts": [
@@ -9318,7 +8067,6 @@
       "dati",
       "dipinta",
       "pastiglia",
-      "procRow",
       "riga",
       "rigaBox"
     ],
@@ -9333,7 +8081,6 @@
       "dopoProc",
       "dopoTesta",
       "garantisciAperta",
-      "primaProc",
       "riquadro",
       "trascina"
     ],
@@ -9360,9 +8107,6 @@
     "tests/e2e/provider-picker.spec.ts": [
       "textarea"
     ],
-    "tests/e2e/provider-snapshot-sync.spec.ts": [
-      "origWS"
-    ],
     "tests/e2e/real-tool-calls.spec.ts": [
       "TC_MULTI_IDS",
       "img",
@@ -9378,10 +8122,6 @@
       "verificaAssoluta"
     ],
     "tests/e2e/refresh-cls.spec.ts": [
-      "CLS_BUDGET",
-      "ClsReport",
-      "cls",
-      "sessionCls",
       "testid"
     ],
     "tests/e2e/refresh-durability-board.spec.ts": [
@@ -9453,7 +8193,6 @@
     "tests/e2e/row-actions-overlay.spec.ts": [
       "EPS",
       "Rett",
-      "cmd",
       "comandoDi",
       "dopo",
       "figli",
@@ -9472,7 +8211,6 @@
       "budgetDaCalibrazione",
       "calibra",
       "corsa",
-      "dropped",
       "frazione",
       "indicePrec",
       "iniettaLentezza",
@@ -9501,8 +8239,6 @@
     "tests/e2e/settings-mobile.spec.ts": [
       "SCHEDE",
       "apriImpostazioni",
-      "cdp",
-      "emulaIlDito",
       "lista",
       "menuAperto",
       "pannello",
@@ -9768,7 +8504,6 @@
       "misure",
       "raggi",
       "riga",
-      "standaloneChat",
       "statoToggle",
       "textarea",
       "timelineToggle"
@@ -9776,7 +8511,6 @@
     "tests/e2e/spaces-switcher.spec.ts": [
       "dst",
       "gruppo2",
-      "openTwoStandaloneTabs",
       "principale",
       "principaleEntry",
       "tabAinSpace"
@@ -9810,7 +8544,6 @@
     ],
     "tests/e2e/system.spec.ts": [
       "dialog",
-      "endpoints",
       "hasDialog",
       "textarea"
     ],
@@ -9908,9 +8641,6 @@
       "openProj",
       "rec"
     ],
-    "tests/e2e/terminal-session-resume.spec.ts": [
-      "proc"
-    ],
     "tests/e2e/terminal-tab-reload.spec.ts": [
       "ricarica",
       "rinomina",
@@ -9933,8 +8663,6 @@
       "textarea"
     ],
     "tests/e2e/tool-card-legibility.spec.ts": [
-      "cmd",
-      "cmdDir",
       "corpo",
       "inerte",
       "rigaLavoro",
@@ -10087,19 +8815,7 @@
     "tests/integration/daemon-state.test.ts": [
       "stat"
     ],
-    "tests/integration/empty-turn-discard.test.ts": [
-      "seq"
-    ],
-    "tests/integration/ghost-script-evict.test.ts": [
-      "WorktreeManagerGcDeps",
-      "addProc",
-      "gcDeps",
-      "origEnv",
-      "origReap",
-      "sleepProc"
-    ],
     "tests/integration/helpers/index.ts": [
-      "abs",
       "radice"
     ],
     "tests/integration/history-payload-weight.test.ts": [
@@ -10110,11 +8826,6 @@
       "altrui",
       "primo",
       "vecchio"
-    ],
-    "tests/integration/kill-process-tree.test.ts": [
-      "KillTreeDeps",
-      "deps",
-      "proc"
     ],
     "tests/integration/license-seats-members.test.ts": [
       "CaricoGettone",
@@ -10174,9 +8885,6 @@
       "TOOL_CALLS_OBJ",
       "enc"
     ],
-    "tests/integration/message-branch-ops.test.ts": [
-      "seq"
-    ],
     "tests/integration/message-write-lean.test.ts": [
       "bloccoTool",
       "conCopia",
@@ -10191,7 +8899,6 @@
     ],
     "tests/integration/migration-071-empty-turns.test.ts": [
       "orfani",
-      "seq",
       "stmt"
     ],
     "tests/integration/migration-074-messages-timestamp-index.test.ts": [
@@ -10237,7 +8944,6 @@
       "Riga",
       "negativi",
       "restano",
-      "seq",
       "stmt"
     ],
     "tests/integration/migration-20260815013610-task-comments-index.test.ts": [
@@ -10282,17 +8988,11 @@
       "dbVero",
       "devMircea",
       "finto",
-      "seq",
       "suo",
       "turno"
     ],
     "tests/integration/preview-teardown-tree.test.ts": [
-      "PreviewManagerDeps",
-      "cmdOut",
-      "deps",
       "mgr",
-      "proc",
-      "realDeps",
       "srv"
     ],
     "tests/integration/project-broadcast-visibility.test.ts": [
@@ -10323,7 +9023,6 @@
     "tests/integration/project-worktree-domain.test.ts": [
       "projResp",
       "projUrl",
-      "tableInfo",
       "utilsPromise"
     ],
     "tests/integration/projects-org-visibility.test.ts": [
@@ -10342,8 +9041,7 @@
       "verbo"
     ],
     "tests/integration/pty-bridge-mjs.test.ts": [
-      "buf",
-      "proc"
+      "buf"
     ],
     "tests/integration/relocate-pane.test.ts": [
       "TEST_PROJ_CHAT",
@@ -10367,8 +9065,6 @@
       "righe"
     ],
     "tests/integration/stale-stream-sweep.test.ts": [
-      "StaleStreamSweepDeps",
-      "deps",
       "resyncs"
     ],
     "tests/integration/task-tab-teardown.test.ts": [
@@ -10377,15 +9073,8 @@
       "mortoTopic",
       "vivoTopic"
     ],
-    "tests/integration/terminal-revive-race.test.ts": [
-      "bodies"
-    ],
     "tests/integration/turn-end-topic-write.test.ts": [
       "dopo"
-    ],
-    "tests/integration/ui-state-orphan-cleanup.test.ts": [
-      "seqAfter1",
-      "seqs"
     ],
     "tests/integration/ultima-prosa-agente.test.ts": [
       "CARTELLO",
@@ -10398,9 +9087,7 @@
       "creazione"
     ],
     "tests/setup/bun-test-preload.ts": [
-      "DEFAULT_TEST_TIMEOUT_MS",
       "TIMEOUT_ENV_VAR",
-      "TIMEOUT_MARKER",
       "applicato",
       "daAmbiente"
     ],
@@ -10426,7 +9113,6 @@
       "riga"
     ],
     "tests/unit/bench-specs-are-nightly.test.ts": [
-      "cfg",
       "colpevoli"
     ],
     "tests/unit/bump-version.test.ts": [
@@ -10457,7 +9143,6 @@
       "commentato",
       "intrusi",
       "orfani",
-      "pkg",
       "scadute",
       "workflows"
     ],
@@ -10491,7 +9176,6 @@
       "secondo"
     ],
     "tests/unit/destinazioni.test.ts": [
-      "PKG",
       "RADICE",
       "conAmbienti",
       "esiste",
@@ -10566,7 +9250,6 @@
     "tests/unit/migration-number-collision.test.ts": [
       "dettaglio",
       "eseguiCancello",
-      "proc",
       "repoDiProva",
       "scrivi"
     ],
@@ -10586,7 +9269,6 @@
       "creati",
       "daPulire",
       "gemelle",
-      "proc",
       "registro",
       "versioni"
     ],
@@ -10600,7 +9282,6 @@
     "tests/unit/no-home-paths-tracked.test.ts": [
       "ESENTI",
       "TESTABILE",
-      "abs",
       "colpevoli",
       "tracciati",
       "utente"
@@ -10677,7 +9358,6 @@
       "POSTA_PERSONALE",
       "RADICE",
       "TESTABILE",
-      "abs",
       "colpevoli",
       "fileTracciati",
       "indirizziPersonali",
@@ -10714,16 +9394,11 @@
       "viste",
       "voce"
     ],
-    "tests/unit/playwright-core-revision-match.test.ts": [
-      "pkg"
-    ],
     "tests/unit/product-docs.test.ts": [
-      "linuxBundles",
       "readmeBlock",
       "readmePlatformClause"
     ],
     "tests/unit/product-metadata.test.ts": [
-      "pkg",
       "undeclaredBackticks"
     ],
     "tests/unit/project-veil-tint-must-equal-base.test.ts": [
@@ -10783,15 +9458,12 @@
       "bunfig",
       "costanteDichiarata",
       "dalPreload",
-      "partenza",
-      "pkg",
       "scriptCheLancianoBunTest",
       "sorgentePreload",
       "variabileDichiarata"
     ],
     "tests/unit/tests-read-tracked-files.test.ts": [
       "LETTORI",
-      "abs",
       "colpevoli",
       "falsi",
       "lettureLetterali",
@@ -10818,26 +9490,14 @@
       "atteso",
       "trovate"
     ],
-    "tests/unit/version-sources.ts": [
-      "PKG"
-    ],
-    "tests/unit/webcontent-owners.test.ts": [
-      "ProcRow"
-    ],
     "tests/unit/webm-duration.test.ts": [
       "ID_EBML",
-      "ID_INFO",
       "ID_TIMECODE",
       "ID_TIMECODE_SCALE",
-      "info",
       "uint"
     ],
     "tests/unit/worktree-naming.test.ts": [
       "adjSet"
-    ],
-    "tests/unit/ws-contract.test.ts": [
-      "defOf",
-      "innerDef"
     ],
     "tests/unit/ws-outbound-coverage.test.ts": [
       "emitted",

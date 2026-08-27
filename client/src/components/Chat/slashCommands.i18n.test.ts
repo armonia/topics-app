@@ -23,7 +23,7 @@ import { describe, it, expect } from 'bun:test';
 import { t, missingKeys } from '../../lib/i18n';
 
 /** One key per command the composer offers. Kept in the menu's own order. */
-const DESCRIZIONI: string[] = [
+const DESCRIPTIONS: string[] = [
   'chat.slash.status.description',
   'chat.slash.context.description',
   'chat.slash.compact.description',
@@ -41,18 +41,18 @@ const DESCRIZIONI: string[] = [
 
 describe('le descrizioni dei comandi slash', () => {
   it('esistono tutte in inglese: nessuna cade sul ripiego italiano', async () => {
-    const mancanti = await missingKeys('en');
-    expect(mancanti.filter((k) => k.startsWith('chat.slash.'))).toEqual([]);
+    const missing = await missingKeys('en');
+    expect(missing.filter((k) => k.startsWith('chat.slash.'))).toEqual([]);
   });
 
   it('nessuna esce come CHIAVE GREZZA, in nessuna delle due lingue', () => {
-    for (const chiave of DESCRIZIONI) {
+    for (const key of DESCRIPTIONS) {
       for (const lingua of ['it', 'en'] as const) {
-        const reso = t(chiave, lingua);
+        const rendered = t(key, lingua);
         // `t()` returns the key when it cannot find it, which is exactly what
         // one would read on screen.
-        expect(reso, `${chiave} (${lingua})`).not.toBe(chiave);
-        expect(reso.length).toBeGreaterThan(0);
+        expect(rendered, `${key} (${lingua})`).not.toBe(key);
+        expect(rendered.length).toBeGreaterThan(0);
       }
     }
   });
@@ -62,7 +62,7 @@ describe('le descrizioni dei comandi slash', () => {
     // with the array rather than generated from it: a command added without its
     // translations lands here.
     const { SLASH_COMMANDS } = await import('./slashCommands');
-    expect(SLASH_COMMANDS.map((c) => c.descriptionKey).sort()).toEqual([...DESCRIZIONI].sort());
+    expect(SLASH_COMMANDS.map((c) => c.descriptionKey).sort()).toEqual([...DESCRIPTIONS].sort());
   });
 
   it('il comando NON si traduce: è quello che si digita', async () => {
