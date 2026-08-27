@@ -578,7 +578,22 @@ export const ROW_GLYPH_SLOT = 'w-[18px] shrink-0 flex items-center justify-cente
  * nothing from the neighbours (see index.css).
  */
 export const ROW_CHEVRON = 12;
-export const ROW_CHEVRON_SLOT = 'w-3 shrink-0 flex items-center justify-center';
+/**
+ * `self-stretch` is load-bearing, and it is what makes the RESERVED slot real.
+ *
+ * The empty branch renders `<span aria-hidden>` with no content, so a plain
+ * flex item collapses to height 0 while keeping its 12px width. It is still
+ * there, still reserving the column — but anything measuring "the row's first
+ * VISIBLE child" skips it, because a zero-height box is not visible. Measured:
+ * the accordion column read 18px on the Board row (its glyph) and 153px on a
+ * chat (its whole name block), i.e. two alignments reported on a column that
+ * was actually aligned.
+ *
+ * That is not only a test-visibility problem: a zero-height box is invisible to
+ * hit-testing too, so the reserved slot could never take a click meant for it.
+ * Stretching it to the row's height makes the slot occupy what it reserves.
+ */
+export const ROW_CHEVRON_SLOT = 'w-3 self-stretch shrink-0 flex items-center justify-center';
 
 /**
  * IL BOX DI UN COMANDO IN CODA A UNA RIGA — uno solo, per tutte le righe.

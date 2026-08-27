@@ -119,14 +119,16 @@ test.describe.serial("Kanban in inglese", () => {
     // Filtri: la ricerca (che ha un nome accessibile, non solo un placeholder),
     // il chip di priorità e quello delle etichette.
     await expect(page.getByLabel("Search the tasks")).toBeVisible({ timeout: 10000 });
-    // Il chip di priorità porta DUE stringhe tradotte, e vanno provate
-    // entrambe: il suo nome accessibile è il TESTO che ci si legge sopra
-    // («Priority» — un bottone con del contenuto non prende il nome dal
-    // `title`), mentre il verso lungo vive nel `title`. Cercarlo per ruolo col
-    // testo del tooltip non lo troverebbe mai, in nessuna lingua.
-    const priorityChip = page.getByRole("button", { name: "Priority", exact: true });
-    await expect(priorityChip).toBeVisible();
-    await expect(priorityChip).toHaveAttribute("title", "Filter by priority");
+    // Priority and assignee are NOT two chips any more: since 8ad974d55 they
+    // are a single autocomplete token field, so what gets checked here are the
+    // strings that field actually exposes — its accessible label and the hint
+    // it shows while empty. Still looking for a «Priority» button would test an
+    // interface that no longer exists: the test would stay red forever saying
+    // "not translated" about something that merely changed.
+    const priorityField = page.getByTestId("filter-token-input");
+    await expect(priorityField).toBeVisible();
+    await expect(priorityField).toHaveAttribute("aria-label", "Filter by priority or assignee");
+    await expect(priorityField).toHaveAttribute("placeholder", "priority, @assignee…");
     await expect(page.getByTestId("filter-labels-chip")).toHaveAttribute("title", "Filter by label");
 
     // Il menu delle etichette: le INTESTAZIONI si traducono, i nomi delle
