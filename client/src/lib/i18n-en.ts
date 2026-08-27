@@ -1482,6 +1482,8 @@ const EN = {
   'version.nativeApp': 'Native app',
   'version.whatsNew': 'What is new in this version',
   'version.updates': 'Updates',
+  'version.incompleteInstall': 'Incomplete install.',
+  'version.incompleteInstallDetail': 'These components stayed at the previous version ({names}): they were in use when the update was installed. Quit Topics completely and reinstall.',
   'version.swReady': 'Update ready, reload',
   'version.webUpToDate': 'You are on the latest web version.',
   'version.checking': 'Checking for updates…',
