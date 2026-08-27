@@ -54,7 +54,9 @@ describe("E2E-ISO-01 · il banco non scrive nella cartella viva", () => {
   });
 
   test("il banco resta isolato con il SOLO DATA_DIR, che e' la prova dell'unificazione", () => {
-    const dataDir = "/tmp/topics-test-data-13334";
+    // Nessuno crea questa cartella: la stringa entra in `resolveStateDir` solo
+    // per verificare che torni indietro uguale.
+    const dataDir = "/tmp/topics-test-data-13334"; // allow-shared-tmp: e' un dato, non una cartella
     const env = { DATA_DIR: dataDir } as NodeJS.ProcessEnv;
     expect(resolveStateDir(ROOT, env), "topics.json, uploads/, messages/ finirebbero nel repo vivo").toBe(dataDir);
     expect(resolveDataDir(resolveStateDir(ROOT, env), env), "data/usage/ condivisa fra shard").toBe(dataDir);

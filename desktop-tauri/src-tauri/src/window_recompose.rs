@@ -24,8 +24,9 @@ pub(crate) fn rect_intersects_any(rect: (f64, f64, f64, f64), monitors: &[(f64, 
 ///
 /// Re-anchor: if the saved geometry now sits entirely off every attached screen, pull
 /// the window back onto the primary one. We do NOT touch a window that is still on a
-/// screen — `-797,-1410` is where Attilio KEEPS this window on his ultrawide, and
-/// "fixing" a position the user chose is the bug, not the cure.
+/// screen — `-797,-1410` is a real, deliberate position on an ultrawide with a
+/// display to the left, and "fixing" a place the user chose is the bug, not the
+/// cure.
 ///
 /// Bounce: grow the outer size by 1px and put it back a beat later. That is the half
 /// that was missing, and it's the half that actually repaints.
