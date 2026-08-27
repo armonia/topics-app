@@ -85,7 +85,7 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
   {
     name: "browser_observe",
     description:
-      "Read the pane as a compact ref-based accessibility snapshot — lines like `[3] button \"Sign in\"`. Use those [ref] numbers with browser_act. INCREMENTAL by default (only what changed since the last observe — ~0 tokens when stable); pass full:true for the complete list. No screenshot by default (you already see the pane); pass screenshot:true to also get an annotated JPEG.",
+      "Read the pane as a compact ref-based accessibility snapshot — lines like `[3] button \"Sign in\"`. Use those [ref] numbers with browser_act. INCREMENTAL by default (only what changed since the last observe — ~0 tokens when stable); pass full:true for the complete list. No screenshot by default (you already see the pane); pass screenshot:true to also get an image, which comes back as a FILE PATH (`screenshot_path`), never as pixels in your context.",
     schema: {
       type: "object",
       properties: {
@@ -97,7 +97,7 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
         max_elements: { type: "number", description: "Deprecated alias for max." },
         screenshot: {
           type: "boolean",
-          description: "Also include a base64 annotated screenshot (heavy; default off).",
+          description: "Also capture the pane to a file and return its path in `screenshot_path` (default off). `screenshot_boxes` tells you whether the numbered boxes are drawn on it.",
         },
       },
       required: [],

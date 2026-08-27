@@ -203,8 +203,17 @@ export interface BrowserObserveResult {
   snapshot: string;
   /** True when `snapshot` is a full listing (no prior snapshot / full requested). */
   full: boolean;
-  /** Base64 annotated JPEG — present only when screenshot:true was requested. */
-  screenshot_annotated?: string;
+  /**
+   * ABSOLUTE PATH of the annotated JPEG — present only when screenshot:true was
+   * requested and the capture succeeded. A path, never the pixels: the image
+   * used to travel back as base64, tens of thousands of tokens the caller
+   * cannot look at, on the same turn that already carries the snapshot. The
+   * file is fed to `moondream <path>` / the Read tool, or just left alone.
+   */
+  screenshot_path?: string;
+  /** Are the numbered boxes drawn on that image? The web pane annotates; the
+   *  native pane has no annotator and says so instead of implying it. */
+  screenshot_boxes?: boolean;
 }
 
 export async function handleBrowserObserve(
@@ -235,12 +244,21 @@ export async function handleBrowserObserve(
           return { url: next.url, title: next.title, count: next.elements.length, snapshot: d.text, full: d.full };
         })();
 
-    // Heavy annotated screenshot is opt-in (the user already sees the pane).
+    // Heavy annotated screenshot is opt-in (the user already sees the pane), and
+    // it lands ON DISK like every other agent-facing capture: same helper, same
+    // media dir, same prune. `browser_screenshot` learned this long ago; observe
+    // kept inlining base64 into a response that already carries the snapshot.
     if (wantScreenshot) {
       try {
         const elements = await ops.extractIndexedElements({ maxElements: max });
         observeCache.set(contextId, elements);
-        result.screenshot_annotated = await ops.captureAnnotatedScreenshot(elements);
+        const b64 = await ops.captureAnnotatedScreenshot(elements);
+        const buf = Buffer.from(b64, "base64");
+        // A PNG starts with 0x89 and a JPEG with 0xff: the annotator picks, we
+        // name the file after what it actually produced instead of assuming.
+        const ext = buf[0] === 0x89 ? "png" : "jpg";
+        result.screenshot_path = await writeAgentScreenshot(buf, contextId, ext);
+        result.screenshot_boxes = true;
         // NB: the compact ref snapshot above + the annotated JPEG already give the
         // agent both structure and pixels; the old `a11y_tree` (full ariaSnapshot)
         // duplicated the snapshot at ~3–6k tokens per call, so it's dropped.

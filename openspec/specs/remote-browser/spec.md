@@ -291,11 +291,11 @@ fails, and SHALL let a session that owns no pane list and drive another topic's 
 - **GIVEN** a context sitting on a page
 - **WHEN** the agent posts `{ full: true }` to `agent/observe`
 - **THEN** the response carries a `snapshot` of numbered ref lines (`[1] link …`), a `count` of at least 1, `full: true` and a non-empty `url`
-- **AND** `screenshot_annotated` is absent — the heavy payload is opt-in
+- **AND** `screenshot_path` is absent — the capture is opt-in
 - **WHEN** the agent observes again without `full`
 - **THEN** the response reports `full: false` and an incremental snapshot ("no element changes" / "same structure" / "navigated")
 - **WHEN** the agent observes with `{ screenshot: true }`
-- **THEN** `screenshot_annotated` is a base64 JPEG or PNG of non-trivial size
+- **THEN** `screenshot_path` is the absolute path of an image file on disk, of non-trivial size, and never the image bytes in the response
 
 #### Scenario: get-text and extract read the page
 - **GIVEN** a context sitting on a page

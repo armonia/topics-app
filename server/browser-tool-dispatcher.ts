@@ -136,6 +136,21 @@ async function nativeScreenshotOp(contextId: string): Promise<unknown> {
   return { format: "png" as const, path, bytes: buf.length };
 }
 
+/**
+ * Native-pane `browser_observe(screenshot: true)`: the snapshot from the pane's
+ * executor, the image from the same delegated capture as `browser_screenshot`.
+ * Failsoft on the image: an observe that answered its snapshot is a success, and
+ * losing the picture must not turn it into an error.
+ */
+async function nativeObserveWithShot(contextId: string, args: ToolCallArgs): Promise<unknown> {
+  const observed = await nativeDelegateRegistry.delegateOp(contextId, "browser_observe", args);
+  if (!observed || typeof observed !== "object" || "error" in observed) return observed;
+  const shot = await nativeScreenshotOp(contextId).catch(() => null);
+  const path = (shot as { path?: unknown } | null)?.path;
+  if (typeof path !== "string") return observed;
+  return { ...(observed as Record<string, unknown>), screenshot_path: path, screenshot_boxes: false };
+}
+
 async function nativeVisionOp(
   toolName: string,
   args: ToolCallArgs,
@@ -332,6 +347,15 @@ export async function dispatchBrowserToolCallByContext(
     // the web pane) so the agent never gets a base64 blob it can't view.
     if (toolName === "browser_screenshot") {
       return nativeScreenshotOp(contextId);
+    }
+    // Observe with `screenshot: true`: the native executor has no annotator, so
+    // asking it alone answered a snapshot and NO image, quietly - the caller had
+    // no way to tell "opted in" from "got it". The pixels come from the same
+    // native capture `browser_screenshot` uses, on disk like every other one;
+    // `screenshot_boxes: false` says out loud that the numbered boxes of the web
+    // pane are not drawn on this one.
+    if (toolName === "browser_observe" && (args as { screenshot?: unknown })?.screenshot === true) {
+      return nativeObserveWithShot(contextId, args);
     }
     // Login-state ops split across the seam the same way: handle persistence
     // (Topics + external stores) and Chrome Keychain decryption stay server-side,
