@@ -1,7 +1,43 @@
 # Performance Spec
 
 Performance contract for the Topics App client. All targets are testable
-assertions — instrumentation and automated enforcement are future work.
+assertions. Six of them are enforced in CI today; the rest are still contract
+only. Which is which is written below, and nowhere else.
+
+## Which budgets block CI (2026-08-27)
+
+Until today this file opened with "automated enforcement is future work" while
+`check:ink` was failing the `check` job. Two statements, opposite verdicts, and
+whoever looked at a red CI could not tell which one held. The one that was
+false is the one that got corrected: the enforcement exists.
+
+THE RULE, for every performance gate in the `check` job of `.github/workflows/ci.yml`:
+
+- **exit 1 = measured, and over budget. It BLOCKS.** A budget that was really
+  exceeded stops the run. Raising the number to get past the gate is not an
+  available move: it switches the gate off and leaves it green.
+- **exit 2 = not measured.** The bench abstained (shared runner out of scale, no
+  baseline for this machine, the probe never produced a number). The pipeline
+  continues, and the run carries an annotated `::warning` saying so. "I did not
+  measure" is a THIRD outcome and never a silent green.
+
+The six, and what each one blocks on:
+
+| gate | script | blocks on | abstains on |
+|---|---|---|---|
+| Bundle size | `check:bundle` | over budget | never (deterministic: same bytes on any machine) |
+| Route latency | `check:route-latency` | over budget | pipe out of scale, or no baseline for this runner |
+| Click-to-ink | `check:ink` | over budget | the probe produced no number |
+| Scroll fluidity | `check:scroll-fluidity` | dropped frames over budget | the machine delivers no frames at all |
+| Kanban drag | `check:drag` | frame time over budget | no baseline recorded |
+| Long-session growth | `check:growth` | growth ratio over budget | too few cycles, or heap unreadable |
+
+Everything else in this file is a contract without a gate: it is read by a
+person, not by CI, and it cannot make a run red.
+
+The rest of the targets below are advisory in the same sense they always were:
+they describe the reference machine (Apple Silicon, Chrome stable, production
+build), and a number measured somewhere else is an observation, not a verdict.
 
 ## Cumulative Layout Shift (CLS)
 
@@ -194,6 +230,7 @@ view inside any topic. The following targets are CI-enforced via
 
 - All thresholds apply to production builds on a reference machine
   (Apple Silicon, Chrome stable). Dev-mode numbers are advisory.
-- Tooling to enforce these assertions (Playwright harness, CI gate, bundle
-  size CI check) is explicitly out of scope for this spec — this file is the
-  contract, not the enforcement.
+- Tooling to enforce these assertions was out of scope when this file was
+  written. It no longer is: six of the targets have a gate in the `check` job,
+  listed at the top of this file with what each one blocks on. For the others
+  this file is still the contract and not the enforcement.

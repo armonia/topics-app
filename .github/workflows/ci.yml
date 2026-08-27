@@ -463,9 +463,22 @@ jobs:
       # su una pagina vuota, o il banco non ha scorso niente), e un rosso preso
       # su una misura che non vale e' il modo piu' rapido per far disattivare un
       # cancello.
+      # L'ASTENSIONE ORA SI VEDE: fino al 27/08/2026 l'uscita 2 spariva dentro un
+      # `|| test $? -eq 2`, cioe' un verde identico a quello di una misura andata
+      # bene. Ora lascia un warning annotato sulla run, come route-latency e ink.
+      # La regola dei sei cancelli sta scritta in performance/spec.md.
       - name: Scroll fluidity budget
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: bun run check:scroll-fluidity || test $? -eq 2
+        run: |
+          set +e
+          bun run check:scroll-fluidity
+          rc=$?
+          set -e
+          if [ "$rc" -eq 2 ]; then
+            echo "::warning title=Fluidita' dello scroll non misurata::Il banco non ha prodotto una misura utilizzabile su questo runner. Questo verde NON dice niente sui frame persi."
+            exit 0
+          fi
+          exit "$rc"
 
       # CLICK -> INK: the milliseconds between the gesture and the first frame
       # that has PAINTED the answer, on the three most frequent gestures. The
@@ -474,19 +487,34 @@ jobs:
       # `tests/e2e/ink-budget.json` is done only by this script, which was not in
       # the pipeline. A budget nobody executes is not a gate.
       #
-      # It does not tolerate exit 2 the way the two above do, because it has no
-      # such exit: it either measures or fails. The margin absorbs the gap
-      # between this runner and an Apple laptop: a 100 ms median budget against
-      # 13-23 ms measured, so 4x to 8x of headroom, and a 250 ms ceiling on any
-      # single sample against roughly 23. If it ever turns noisy, the right
-      # answer is to give it the exit 2 of its siblings ("not measurable on this
-      # machine"), not to raise the threshold: raising it would switch the gate
-      # off while leaving it green.
+      # IL TERZO ESITO E' ARRIVATO ANCHE QUI, ed e' successo esattamente come
+      # scritto sopra: «se mai diventasse rumoroso, la risposta giusta e' dargli
+      # l'uscita 2 dei fratelli, non alzare la soglia». Sulla run 33027396174
+      # (27/08/2026) il job `check' e' morto su questo passo SENZA un numero di
+      # ink nel log: la misura non era partita, e il cancello non aveva modo di
+      # dire «non ho misurato» — diceva «regressione». La soglia non e' stata
+      # toccata: resta 100 ms di mediana contro i 13-23 misurati (4x-8x di
+      # margine) e 250 ms di tetto su ogni singolo campione.
+      #
+      # ORA: uscita 1 = misurato e fuori budget, e ferma la pipeline. Uscita 2 =
+      # non misurato, e lascia un warning annotato sulla run senza fermarla.
+      # L'astensione non e' un verde: la riga di warning esiste perche' nessuno
+      # possa leggerla come «l'ink e' a posto». L'app rotta resta rossa lo
+      # stesso, ma nel job E2E, che gira questa identica spec.
       #
       # Reuses the bundle built by `verify:phase30-strip`, like check:bundle.
       - name: Click-to-ink budget
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: bun run check:ink
+        run: |
+          set +e
+          bun run check:ink
+          rc=$?
+          set -e
+          if [ "$rc" -eq 2 ]; then
+            echo "::warning title=Click-to-ink non misurato::Il banco non ha prodotto nessun numero su questo runner. Questo verde NON dice niente sulla latenza click-to-ink: la spec gira anche nel job E2E, guarda li' se l'app e' rotta."
+            exit 0
+          fi
+          exit "$rc"
 
       # FRAME TIME WHILE A CARD IS DRAGGED across the Kanban board. The goal asks
       # for a stable 60 FPS during drag and the board is the product's core
@@ -509,7 +537,16 @@ jobs:
       # stayed green, which looks like a broken gate and is not one.
       - name: Kanban drag frame budget
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: bun run check:drag || test $? -eq 2
+        run: |
+          set +e
+          bun run check:drag
+          rc=$?
+          set -e
+          if [ "$rc" -eq 2 ]; then
+            echo "::warning title=Frame del drag non misurati::Il banco non ha prodotto una misura utilizzabile su questo runner (o la baseline non c'e'). Questo verde NON dice niente sul frame time del drag."
+            exit 0
+          fi
+          exit "$rc"
 
       # WHAT A LONG SESSION ACCUMULATES: heap, DOM nodes and listeners after
       # fifty cycles of the same interaction (switch topic, close and reopen a
@@ -536,7 +573,16 @@ jobs:
       # the script answers "never recorded" BEFORE spawning the bench.
       - name: Long-session growth budget
         if: ${{ !cancelled() && steps.setup.outcome == 'success' && (github.event_name == 'push') }}
-        run: bun run check:growth || test $? -eq 2
+        run: |
+          set +e
+          bun run check:growth
+          rc=$?
+          set -e
+          if [ "$rc" -eq 2 ]; then
+            echo "::warning title=Crescita di sessione non misurata::Il banco non ha prodotto una misura utilizzabile su questo runner (o la baseline non c'e'). Questo verde NON dice niente su heap, nodi DOM e listener."
+            exit 0
+          fi
+          exit "$rc"
 
   # Runs the real E2E suite against the isolated server that globalSetup spawns
   # on :13334 (own SQLite DB under /tmp/topics-test-data) — no external
