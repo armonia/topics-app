@@ -956,6 +956,49 @@ silenzio.
 - **GIVEN** un'operazione che quel motore non può portare, col motivo scritto
 - **THEN** SHALL essere accettata, e il motivo SHALL restare leggibile
 
+### Requirement: NATIVEOPS-03 — Ogni operazione risponde per TUTTI E TRE i motori
+
+`NATIVEOPS-02` tiene simmetrici i due moduli gemelli, e in quel modo non vede due
+cose: WKWebView, che sta in linea nel guscio e non ha un confine di modulo, e
+un'asimmetria che vive FUORI da quei moduli. Le due cecità sono la stessa forma
+di operazione, e il guscio ne ha due: uno svuotamento di coda identico sui tre
+motori, riempito da un aggancio che esiste solo su macOS. Altrove torna una lista
+vuota, e chi chiama la legge come «non è successo niente». Una navigazione
+fallita su Windows non è un errore, è un silenzio, e nessuna differenza fra i due
+moduli gemelli se ne accorgerebbe mai.
+
+Il REGISTRO delle operazioni è l'elenco che il guscio espone al client: ciò che il
+client ha il permesso di chiamare. Ogni operazione del registro SHALL portare una
+dichiarazione, leggibile a macchina, che nomini i motori che la portano; e per
+OGNI motore che non la porta SHALL esserci un buco dichiarato col suo motivo.
+L'unione dei due insiemi SHALL essere i tre motori: un'operazione può essere
+indisponibile, non può essere non discussa. Un motore NON SHALL comparire insieme
+fra i portati e fra i buchi, e una dichiarazione NON SHALL sopravvivere
+all'operazione che descriveva.
+
+Un motore che non ce la fa SHALL dirlo. Il caso che `NATIVEOPS-01` copre — nessuna
+mappatura nativa — vale per l'operazione ovunque; questo è il caso «su QUESTA
+piattaforma no», e la risposta SHALL nominare l'operazione, il motore e il motivo.
+Una risposta indistinguibile dal successo — una lista vuota, un esito positivo che
+non ha fatto niente — NON SHALL valere come risposta.
+
+Questo requisito parla della DICHIARAZIONE, non del comportamento a runtime:
+WebView2 si misura su Windows e WebKitGTK su Linux, e da un Mac un `SHALL` su quei
+due sarebbe una promessa che nessuno verifica. La simmetria del sorgente invece si
+legge da qualunque macchina, ed è tutto quello che questo requisito pretende.
+
+#### Scenario: un'operazione registrata senza dichiarazione
+- **GIVEN** un comando del browser che il guscio espone al client, senza la riga che nomina i motori
+- **THEN** SHALL essere respinto
+
+#### Scenario: un motore che non compare né fra i portati né fra i buchi
+- **GIVEN** un'operazione che dichiara due motori su tre, e sul terzo tace
+- **THEN** SHALL essere respinta
+
+#### Scenario: un buco dichiarato col suo motivo
+- **GIVEN** un motore che non può portare quell'operazione, e il motivo scritto accanto
+- **THEN** SHALL essere accettato, e il motivo SHALL restare leggibile
+
 ### Requirement: ZOOM-01 — Lo zoom vive su una SCALA, e sopravvive a una navigazione
 
 I livelli di zoom SHALL formare una scala di percentuali INTERE, strettamente

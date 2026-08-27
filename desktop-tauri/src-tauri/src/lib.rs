@@ -3629,6 +3629,7 @@ static DOWNLOAD_ID: AtomicI64 = AtomicI64::new(1);
 
 /// Drain queued download start/done events for `id`'s Download menu to apply.
 /// Scoped to that pane — other panes' events stay queued for their own poll.
+// ENGINES: wkwebview, webview2, webkitgtk - portable: the wry download handler feeds this queue on the three engines.
 #[tauri::command]
 fn browser_take_download_events(id: String) -> Vec<DownloadEventMsg> {
     match DOWNLOAD_EVENTS.lock() {
@@ -3667,6 +3668,7 @@ struct DownloadProgressMsg {
     total: i64,
 }
 
+// ENGINES: wkwebview, webview2, webkitgtk - portable: stats the files the wry download handler recorded.
 #[tauri::command]
 fn browser_download_progress(id: String) -> Vec<DownloadProgressMsg> {
     // Copy out under the lock, then stat: a filesystem call per pending download
@@ -3919,6 +3921,9 @@ fn install_nav_failure_hook(wv: &tauri::Webview, pane_id: &str) {
 /// Drain queued navigation failures for `id`'s pane — same scoped-drain contract
 /// as browser_take_download_events. Non-macOS builds have no hook installed, so
 /// the queue is simply always empty there.
+// ENGINES: wkwebview - the did-fail delegate hook is objc, so only WKWebView ever fills this queue.
+// ENGINES-GAP: webview2 - no navigation-failure hook is wired there, so a failed load is silent and an empty drain reads as no errors.
+// ENGINES-GAP: webkitgtk - no load-failed hook is wired there, so a failed load is silent and an empty drain reads as no errors.
 #[tauri::command]
 fn browser_take_nav_errors(id: String) -> Vec<NavErrorMsg> {
     match NAV_ERROR_EVENTS.lock() {
@@ -4152,6 +4157,9 @@ fn remove_nav_state_observer(pane_id: &str) {
 /// Drain this pane's latest navigation state. Empty when nothing changed since
 /// the last drain, and ALWAYS empty off macOS (no observer is installed there),
 /// which is what keeps the client's eval poll load-bearing on other platforms.
+// ENGINES: wkwebview - url, title and loading arrive by KVO, an objc observer only WKWebView has.
+// ENGINES-GAP: webview2 - no KVO equivalent is wired, the client falls back to its page poll for url, title and loading.
+// ENGINES-GAP: webkitgtk - no KVO equivalent is wired, the client falls back to its page poll for url, title and loading.
 #[tauri::command]
 fn browser_take_nav_state(id: String) -> Vec<NavStateMsg> {
     match NAV_STATE_EVENTS.lock() {
@@ -4606,6 +4614,7 @@ fn no_abort<T>(label: &str, f: impl FnOnce() -> Result<T, String>) -> Result<T, 
 /// default store (no error), so isolation degrades gracefully. Applies at
 /// creation only: an already-open pane keeps whatever store it was built with
 /// (the WKWebViewConfiguration is consumed inside wry) until closed + reopened.
+// ENGINES: wkwebview, webview2, webkitgtk - per-engine arms below: data store identifier on WKWebView, per-pane data directory on the other two.
 #[tauri::command]
 fn browser_open(
     app: tauri::AppHandle,
@@ -4935,6 +4944,7 @@ fn browser_open_inner(
 }
 
 /// Navigate an existing browser pane to a new URL.
+// ENGINES: wkwebview, webview2, webkitgtk - portable: one tauri webview call, no per-engine branch.
 #[tauri::command]
 fn browser_navigate(app: tauri::AppHandle, id: String, url: String) -> Result<(), String> {
     no_abort("browser_navigate", move || browser_navigate_inner(app, id, url))
@@ -4957,6 +4967,7 @@ fn browser_navigate_inner(app: tauri::AppHandle, id: String, url: String) -> Res
 /// tab is inactive, or a pane-resize is in flight) the client passes an
 /// off-screen origin — keeping the native view alive (no reload) but out of the
 /// way so HTML overlays show through.
+// ENGINES: wkwebview, webview2, webkitgtk - per-engine arms below: layer geometry on WKWebView, plain bounds elsewhere.
 #[tauri::command]
 fn browser_set_bounds(
     app: tauri::AppHandle,
@@ -5037,6 +5048,7 @@ fn browser_set_bounds_inner(
 /// stops, timers throttle, and the content process becomes reclaimable. This is
 /// what Safari does to background tabs. Bounds are deliberately left untouched
 /// while hidden, so re-showing is instant and needs no geometry round-trip.
+// ENGINES: wkwebview, webview2, webkitgtk - portable: tauri show/hide on the webview.
 #[tauri::command]
 fn browser_set_visible(app: tauri::AppHandle, id: String, visible: bool) -> Result<(), String> {
     no_abort("browser_set_visible", move || {
@@ -5066,6 +5078,7 @@ fn browser_set_visible(app: tauri::AppHandle, id: String, visible: bool) -> Resu
 /// this animates even though plain frame changes stay deliberately instant.
 /// The client suppresses its per-frame pushes for the slide's lifetime and its
 /// transitionend settle re-pushes pixel-exact bounds afterwards.
+// ENGINES: wkwebview, webview2, webkitgtk - per-engine arms below: CoreAnimation on WKWebView, immediate bounds elsewhere.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 fn browser_animate_bounds(
@@ -5135,6 +5148,7 @@ fn browser_animate_bounds(
 /// roster in `localStorage` (`lib/shell/nativeBrowserRoster.ts`) che copre tutto
 /// ciò che ha aperto lui, ma non sopravvive a una pulizia dei dati del sito né
 /// a un crash a metà apertura. Questa lista sì, perché non è una nostra copia.
+// ENGINES: wkwebview, webview2, webkitgtk - portable: reads the tauri webview map.
 #[tauri::command]
 fn browser_list(app: tauri::AppHandle) -> Result<Vec<String>, String> {
     no_abort("browser_list", move || {
@@ -5155,6 +5169,7 @@ fn browser_list(app: tauri::AppHandle) -> Result<Vec<String>, String> {
 }
 
 /// Destroy a browser pane's native webview.
+// ENGINES: wkwebview, webview2, webkitgtk - portable: tauri close plus label bookkeeping, no per-engine branch.
 #[tauri::command]
 fn browser_close(app: tauri::AppHandle, id: String) -> Result<(), String> {
     no_abort("browser_close", move || browser_close_inner(app, id))
@@ -5561,6 +5576,7 @@ fn orphan_views(
 /// La chiusura qui è quella piena: guscio incluso e cache restituita al disco.
 /// A differenza della chiusura esplicita, non c'è un client a valle che possa
 /// fare il resto per conto suo. Se ci fosse, la pane non sarebbe orfana.
+// ENGINES: wkwebview, webview2, webkitgtk - portable: Rust side bookkeeping only, it calls no engine.
 #[tauri::command]
 fn browser_claim(app: tauri::AppHandle, window: String, ids: Vec<String>) -> Result<usize, String> {
     no_abort("browser_claim", move || {
@@ -5674,6 +5690,7 @@ fn browser_claim(app: tauri::AppHandle, window: String, ids: Vec<String>) -> Res
 /// on (no regression; the on-disk bytes are reclaimed on the next relaunch's close
 /// when nothing pins them). Fire-and-forget: we don't block the caller on the
 /// async completion.
+// ENGINES: wkwebview, webview2, webkitgtk - per-engine arms below: WKWebsiteDataStore, then browser_win and browser_linux.
 #[tauri::command]
 fn browser_purge_data_store(app: tauri::AppHandle, id: String) -> Result<(), String> {
     no_abort("browser_purge_data_store", move || {
@@ -5780,6 +5797,7 @@ fn browser_purge_data_store(app: tauri::AppHandle, id: String) -> Result<(), Str
 /// `removeDataStoreForIdentifier:` che il purge totale già usa); più vecchio =
 /// no-op via `respondsToSelector:`. Fire-and-forget come il fratello: non
 /// aspettiamo la completion asincrona.
+// ENGINES: wkwebview, webview2, webkitgtk - per-engine arms below: WKWebsiteDataStore, then browser_win and browser_linux.
 #[tauri::command]
 fn browser_purge_cache(app: tauri::AppHandle, id: String) -> Result<(), String> {
     no_abort("browser_purge_cache", move || {
@@ -6125,6 +6143,7 @@ fn forget_site_blocking(wv: &tauri::Webview, names: Vec<String>) -> Result<usize
 ///
 /// Async + spawn_blocking per lo stesso motivo di `browser_pane_get_cookies`
 /// (completion handler sul main; un comando sincrono bloccherebbe il main).
+// ENGINES: wkwebview, webview2, webkitgtk - per-engine arms below: WKWebsiteDataStore, then browser_win and browser_linux.
 #[tauri::command]
 async fn browser_site_data_records(app: tauri::AppHandle, id: String) -> Result<String, String> {
     let label = browser_label(&id);
@@ -6161,6 +6180,7 @@ async fn browser_site_data_records(app: tauri::AppHandle, id: String) -> Result<
 /// arriva porta solo `cookies`: WebView2 non ha nessuna API per-origine, quindi
 /// si cancella la sessione e NON il localStorage. macOS e Linux tolgono tutto
 /// (`WKWebsiteDataStore` / `WebsiteDataManager` sanno lavorare per record).
+// ENGINES: wkwebview, webview2, webkitgtk - per-engine arms below: WKWebsiteDataStore, then browser_win and browser_linux.
 #[tauri::command]
 async fn browser_forget_site(
     app: tauri::AppHandle,
@@ -6213,6 +6233,7 @@ async fn browser_forget_site(
 /// rimuovere store fermi da una settimana e orfani — non svuotare il browser.
 ///
 /// Ritorna quanti store ha rimosso.
+// ENGINES: wkwebview, webview2, webkitgtk - per-engine arms below: store identifiers on WKWebView, pane directories elsewhere.
 #[tauri::command]
 fn browser_reap_data_stores(
     app: tauri::AppHandle,
@@ -6524,6 +6545,7 @@ fn eval_js_blocking(wv: &tauri::Webview, js: String, preserve_focus: bool) -> Re
 /// poll tick = a frozen app). As `async` Tauri drives it off-main; we further
 /// hop to the blocking pool via `spawn_blocking` so we never stall an async
 /// runtime worker, leaving main free to service the completion handler.
+// ENGINES: wkwebview, webview2, webkitgtk - per-engine arms below: WKWebView inline, then browser_win and browser_linux.
 #[tauri::command]
 async fn browser_eval_js(app: tauri::AppHandle, id: String, js: String, preserve_focus: Option<bool>) -> Result<String, String> {
     let label = browser_label(&id);
@@ -6619,6 +6641,7 @@ fn screenshot_blocking(wv: &tauri::Webview) -> Result<String, String> {
 
 /// Screenshot the pane → base64 PNG. Async (off-main) for the same reason as
 /// browser_eval_js — the completion handler runs on the main thread.
+// ENGINES: wkwebview, webview2, webkitgtk - per-engine arms below: WKWebView inline, then browser_win and browser_linux.
 #[tauri::command]
 async fn browser_screenshot(app: tauri::AppHandle, id: String) -> Result<String, String> {
     let label = browser_label(&id);
@@ -6875,6 +6898,7 @@ fn cookies_set_blocking(wv: &tauri::Webview, cookies: Vec<CookieJson>) -> Result
 /// save_state / import_chrome dry-run diffs for the native pane. Async +
 /// spawn_blocking for the SAME reason as browser_eval_js (main-thread
 /// completion handler; a sync command would deadlock main → frozen app).
+// ENGINES: wkwebview, webview2, webkitgtk - per-engine arms below: WKWebView inline, then browser_win and browser_linux.
 #[tauri::command]
 async fn browser_pane_get_cookies(app: tauri::AppHandle, id: String) -> Result<String, String> {
     let label = browser_label(&id);
@@ -6903,6 +6927,7 @@ async fn browser_pane_get_cookies(app: tauri::AppHandle, id: String) -> Result<S
 /// Inject storageState cookies into the pane's jar (load_state / import_chrome
 /// for the native pane). Returns `{"set":n,"skipped":m}`. Async + spawn_blocking
 /// — see browser_pane_get_cookies.
+// ENGINES: wkwebview, webview2, webkitgtk - per-engine arms below: WKWebView inline, then browser_win and browser_linux.
 #[tauri::command]
 async fn browser_pane_set_cookies(
     app: tauri::AppHandle,
@@ -6935,6 +6960,7 @@ async fn browser_pane_set_cookies(
 /// Fire-and-forget JS in a pane (no return value) — the ACTION side: zoom via
 /// `document.body.style.zoom`, `window.find(...)`, click/fill/scroll. Uses the
 /// cross-platform `webview.eval()` (no native bridge needed).
+// ENGINES: wkwebview, webview2, webkitgtk - portable: one webview eval, same call on the three engines.
 #[tauri::command]
 fn browser_exec_js(app: tauri::AppHandle, id: String, js: String) -> Result<(), String> {
     no_abort("browser_exec_js", move || {
@@ -6970,6 +6996,7 @@ fn wk_nav(wv: &tauri::Webview, which: u8) {
 }
 
 /// Real "Back" — WKWebView document history (not a JS re-nav).
+// ENGINES: wkwebview, webview2, webkitgtk - per-engine arms below: WKWebView inline, then browser_win and browser_linux.
 #[tauri::command]
 fn browser_back(app: tauri::AppHandle, id: String) -> Result<(), String> {
     no_abort("browser_back", move || {
@@ -6992,6 +7019,7 @@ fn browser_back(app: tauri::AppHandle, id: String) -> Result<(), String> {
 }
 
 /// Real "Forward" — WKWebView document history.
+// ENGINES: wkwebview, webview2, webkitgtk - per-engine arms below: WKWebView inline, then browser_win and browser_linux.
 #[tauri::command]
 fn browser_forward(app: tauri::AppHandle, id: String) -> Result<(), String> {
     no_abort("browser_forward", move || {
@@ -7014,6 +7042,7 @@ fn browser_forward(app: tauri::AppHandle, id: String) -> Result<(), String> {
 }
 
 /// Real "Reload" — WKWebView reload (preserves history position, vs re-navigate).
+// ENGINES: wkwebview, webview2, webkitgtk - per-engine arms below: WKWebView inline, then browser_win and browser_linux.
 #[tauri::command]
 fn browser_reload(app: tauri::AppHandle, id: String) -> Result<(), String> {
     no_abort("browser_reload", move || {
@@ -7038,6 +7067,7 @@ fn browser_reload(app: tauri::AppHandle, id: String) -> Result<(), String> {
 /// Toggle the pane's Web Inspector (DevTools). Uses Tauri's own
 /// open/close_devtools (the `devtools` Cargo feature is enabled so it's live in
 /// release too) — no private API. Opens Safari's Web Inspector for the pane.
+// ENGINES: wkwebview, webview2, webkitgtk - portable: the tauri devtools API answers on the three engines.
 #[tauri::command]
 fn browser_toggle_devtools(app: tauri::AppHandle, id: String) -> Result<(), String> {
     no_abort("browser_toggle_devtools", move || {
@@ -7057,6 +7087,7 @@ fn browser_toggle_devtools(app: tauri::AppHandle, id: String) -> Result<(), Stri
 /// after interacting with a page a tab click can feel "stuck" in the pane. The tab
 /// strip calls this on pointer-down. Principled AppKit hygiene (not a hide/kludge):
 /// worst case it's a no-op. macOS only.
+// ENGINES: wkwebview, webview2, webkitgtk - per-engine arms below: first responder on macOS, window focus elsewhere.
 #[tauri::command]
 fn browser_release_focus(app: tauri::AppHandle, window_label: Option<String>) -> Result<(), String> {
     no_abort("browser_release_focus", move || {
@@ -7933,6 +7964,7 @@ fn ensure_window_visible(win: &tauri::Window) {
 /// it. Tutti e tre i motori: `setCustomUserAgent:` su WKWebView,
 /// `ICoreWebView2Settings2::UserAgent` su WebView2, `WebKitSettings:user-agent`
 /// su WebKitGTK.
+// ENGINES: wkwebview, webview2, webkitgtk - per-engine arms below: WKWebView inline, then browser_win and browser_linux.
 #[tauri::command]
 fn browser_set_user_agent(app: tauri::AppHandle, id: String, ua: String) -> Result<(), String> {
     no_abort("browser_set_user_agent", move || browser_set_user_agent_inner(app, id, ua))
@@ -8076,6 +8108,7 @@ fn go_to_index_blocking(wv: &tauri::Webview, index: i64) {
 
 /// Browser pane back/forward history entries (JSON). Async (off-main) like
 /// browser_eval_js — `with_webview` hops to the main thread.
+// ENGINES: wkwebview, webview2, webkitgtk - per-engine arms below: WKWebView inline, then browser_win and browser_linux.
 #[tauri::command]
 async fn browser_nav_entries(app: tauri::AppHandle, id: String) -> Result<String, String> {
     let label = browser_label(&id);
@@ -8102,6 +8135,8 @@ async fn browser_nav_entries(app: tauri::AppHandle, id: String) -> Result<String
 }
 
 /// Jump to an absolute back/forward history index.
+// ENGINES: wkwebview, webkitgtk - per-engine arms below: WKWebView inline, then browser_linux.
+// ENGINES-GAP: webview2 - WebView2 exposes no history list, so there is no index for this jump to land on (PARITY-GAP in browser_win.rs).
 #[tauri::command]
 fn browser_go_to_index(app: tauri::AppHandle, id: String, index: i64) -> Result<(), String> {
     no_abort("browser_go_to_index", move || {
