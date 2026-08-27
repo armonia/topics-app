@@ -26,13 +26,14 @@ import { useSidebarFlipPush } from "./useSidebarFlipPush";
 type Stile = Record<string, string>;
 
 /**
- * Un layer finto che si comporta come quello vero: la sua posizione dipende dal
- * `paddingLeft` scritto sul contenuto, esattamente come in un flex reale.
+ * A fake layer that behaves like the real one: its position depends on the
+ * `paddingLeft` written on the content, exactly as in a real flex row.
  *
- * E' la parte che rende il test una MISURA e non una lettura: l'hook legge la
- * posizione PRIMA di committare il pad (First) e di nuovo DOPO (Last), tutto
- * dentro lo stesso effetto. Un finto che risponde sempre uguale darebbe delta
- * zero e l'hook uscirebbe senza animare — verde per il motivo sbagliato.
+ * This is the part that makes the test a MEASUREMENT rather than a reading: the
+ * hook reads the position BEFORE committing the pad (First) and again AFTER
+ * (Last), all inside the same effect. A fake that always answers the same would
+ * give a zero delta and the hook would bail out without animating - green for
+ * the wrong reason.
  */
 function layerLegatoAlPad(contenuto: { style: Stile }) {
   const style: Stile = {};
@@ -111,9 +112,9 @@ function montaHook(layer: HTMLElement, contenuto: HTMLElement, stato: { collapse
 
 describe("useSidebarFlipPush — the strip the transform uncovers", () => {
   test("reopening the sidebar WIDENS the layer, not just moves it", () => {
-    // Riapertura: il layer parte da sinistra (0) e finisce piu' a destra (255),
-    // quindi `delta` e' negativo — la trasformata lo riporta indietro e scopre
-    // 255px sul bordo. Sono quelli che devono essere coperti da `width`.
+    // Reopening: the layer starts on the left (0) and ends further right (255),
+    // so `delta` is negative - the transform carries it back and uncovers 255px
+    // on the edge. Those are the ones `width` has to cover.
     const contenuto = contenutoFinto();
     const layer = layerLegatoAlPad(contenuto);
     // First pass: closed. Fixes the starting state and writes pad 0, without
