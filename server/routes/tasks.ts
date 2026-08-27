@@ -3014,7 +3014,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             broadcastToAll({ type: "task:updated", projectId, task });
             emitReviewReadyEdge(broadcastToAll, projectId, task, prevStatus, undefined,
               () => svc.get(taskId)?.comments);
-            triggerUrlProbe(taskId, task.outputUrl, projectId);
+            triggerUrlProbe(taskId, task.outputUrl ?? null, projectId);
             // Auto-dispatch trigger: the human dragging a task INTO todo is the
             // "vai" signal; dragging it back OUT while still queued cancels it.
             // The dispatcher itself no-ops when auto_dispatch is off for the board.
@@ -3448,7 +3448,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // thread — esattamente ciò che la card mostra come quick-reply.
           emitReviewReadyEdge(broadcastToAll, sess.projectId, task, prevStatus, undefined,
             () => svc.get(task.id)?.comments);
-          triggerUrlProbe(item.taskId, task.outputUrl, sess.projectId);
+          triggerUrlProbe(item.taskId, task.outputUrl ?? null, sess.projectId);
           return json(task);
         } catch (e) { return fail(e); }
       }

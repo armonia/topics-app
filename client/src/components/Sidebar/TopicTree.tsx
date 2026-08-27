@@ -1164,20 +1164,29 @@ export function TopicTree({
                 hanno l'icona, come è allineata a quelli della chat».
                 Il segnaposto è un punto piccolo e tenue: occupa lo spazio e non
                 pretende di dire chi sia quel progetto. */}
-            <ProjectFavicon
-              path={pp}
-              size={14}
-              // La SCATOLA è quella dell'icona vera (14px), il punto ci sta
-              // dentro centrato: un segnaposto largo 6 lascerebbe il nome a
-              // x=14 contro i 22 dell'icona, cioè lo stesso difetto più
-              // piccolo. È la scatola che allinea, non il disegno.
-              fallback={
-                <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
-                  <span className="h-1.5 w-1.5 rounded-full border border-app-text-faint" />
-                </span>
-              }
-            />
-            <span className="truncate flex-1">{item.name}</span>
+            {/* IN THE SHARED SLOT, like every other leading glyph of the
+                sidebar. The favicon used to sit in its own 14px box, and it was
+                the last glyph outside {@link ROW_GLYPH_SLOT} (18): measured,
+                that put a project name at 56px against the 60px of the board,
+                utility, terminal and browser rows. Four pixels between two
+                neighbouring rows is not a difference anybody can name, which is
+                exactly what makes a column look crooked.
+                The DRAWING stays 14px ({@link ROW_GLYPH}): it is the box that
+                aligns, not the ink. */}
+            <span className={ROW_GLYPH_SLOT} data-row-glyph-slot="favicon">
+              <ProjectFavicon
+                path={pp}
+                size={ROW_GLYPH}
+                // The neutral placeholder for a folder carrying no icon: the
+                // dot sits inside the SAME box, centred. A 6px-wide
+                // placeholder box would start this name left of the name of a
+                // project that has an icon, i.e. the same defect, smaller.
+                fallback={
+                  <span className="h-1.5 w-1.5 rounded-full border border-app-text-faint" aria-hidden="true" />
+                }
+              />
+            </span>
+            <span className="truncate flex-1" data-row-name="project">{item.name}</span>
           </button>
           {/* Window-position mini-map: where THIS project's window sits in the
               tiled top-level split (PanelGrid publishes it keyed by project

@@ -77,8 +77,19 @@ export function WindowControls({ visible }: { visible: boolean }) {
 
   return (
     <div
+      // `w-0 overflow-hidden` WHILE HIDDEN, and this is the part that matters on
+      // a narrow sidebar. `opacity-0` hides the ink but keeps the BOX: these
+      // three cells are 138px that stay reserved even when nobody can see or
+      // click them. Measured on Windows at a 255px sidebar: the z-50 group asked
+      // for 210px and had 204, so the notification bell was pushed under this
+      // group and `elementFromPoint` at its centre answered "New (Ctrl+N)" — the
+      // bell was unclickable again, the same defect as the Ctrl+K row arriving
+      // through a different door.
+      //
+      // The node stays mounted (not `hidden`, not unmounted) so the fade still
+      // plays and the keyboard order stays governed by `tabIndex` above.
       className={`app-no-drag flex items-center flex-shrink-0 -mr-[6px] transition-opacity duration-150 ${
-        visible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        visible ? 'opacity-100' : 'w-0 overflow-hidden opacity-0 pointer-events-none'
       }`}
       aria-hidden={!visible}
       {...NO_DRAG_REGION}
