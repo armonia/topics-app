@@ -1,31 +1,32 @@
 /**
- * VERIFICHE CONTRO L'APP WINDOWS INSTALLATA (non un banco).
+ * CHECKS AGAINST THE INSTALLED WINDOWS APP (not a bench).
  *
- * Punta al `topics-server` della build 2.2.176 installata sul PC Windows 11
- * (`%LOCALAPPDATA%\Topics\`, app.exe sha256 27AB5DBA24E2F8A3…), raggiunto dal
- * Mac via tunnel ssh. Serve a lasciare una misura RIPETIBILE dove finora
- * c'era solo il mio resoconto a parole.
+ * Points at the `topics-server` of the 2.2.176 build installed on the Windows
+ * 11 machine (`%LOCALAPPDATA%\Topics\`, app.exe sha256 27AB5DBA24E2F8A3...),
+ * reached from the Mac over an ssh tunnel. It exists to leave a REPEATABLE
+ * measurement where so far there was only a written account.
  *
- * Si lancia a mano (non e' nella CI: richiede quel PC acceso):
- *   ssh -f -N -L 51156:127.0.0.1:51156 zorah@100.92.197.74
+ * Run by hand (not in CI: it needs that machine powered on). Replace the
+ * placeholders with the account and address of your own Windows box:
+ *   ssh -f -N -L 51156:127.0.0.1:51156 <user>@<windows-host>
  *   TOPICS_WIN_BASE=http://127.0.0.1:51156 \
  *     npx playwright test -c playwright.windows.config.ts
  *
- * PERCHE' QUI NON C'E' NESSUNA MISURA DEL DOM, che era il mio piano iniziale.
- * L'interfaccia NON e' servita via HTTP: e' compilata dentro `app.exe` e la
- * webview la carica da `tauri://localhost` (verificato cercando quella stringa
- * nel binario). `GET /` sulla porta del server risponde 503 «Bundle not built
- * yet», che e' corretto: in produzione quel server fa solo da API. E la porta
- * di debug di WebView2 non e' aperta, ne' si puo' aprirla al volo, perche'
- * l'app e' a istanza singola — un secondo avvio con
- * `--remote-debugging-port` rientra nella finestra gia' viva (misurato: dopo
- * il lancio le istanze restano 1, pid invariato) e quella finestra e' quella
- * dell'utente, che non si tocca.
+ * WHY THERE IS NO DOM MEASUREMENT HERE, which was the initial plan. The UI is
+ * NOT served over HTTP: it is compiled into `app.exe` and the webview loads it
+ * from `tauri://localhost` (verified by looking for that string in the
+ * binary). `GET /` on the server port answers 503 "Bundle not built yet",
+ * which is correct: in production that server acts as an API only. And the
+ * WebView2 debug port is not open, nor can it be opened on the fly, because
+ * the app is single-instance: a second launch with `--remote-debugging-port`
+ * folds into the window that is already alive (measured: after the launch the
+ * instances stay 1, pid unchanged) and that window belongs to whoever is using
+ * the machine, which we do not touch.
  *
- * Quindi: le cose di geometria e pixel (pulsanti finestra, campanella, chip
- * identita', tooltip, banda grigia) restano verificate a mano sul ferro e
- * NON sono qui. Qui c'e' cio' che si puo' interrogare davvero dall'esterno,
- * che e' il contratto del server come gira su Windows.
+ * So: the geometry and pixel matters (window buttons, bell, identity chip,
+ * tooltip, grey band) stay verified by hand on the hardware and are NOT here.
+ * Here is what can genuinely be interrogated from outside, which is the
+ * server's contract as it runs on Windows.
  */
 import { test, expect } from "@playwright/test";
 
@@ -55,9 +56,9 @@ test.describe("Windows 2.2.176 — contratto del server sulla build pubblicata",
     const snap = await (await request.get("/api/providers/snapshot")).json();
     expect(Array.isArray(snap.providers)).toBe(true);
     expect(snap.providers.length).toBeGreaterThan(0);
-    // Ogni provider dice come si chiama e cosa gli serve: e' esattamente cio'
-    // che permette all'app di DIRE che un agente manca invece di aprire una
-    // tab vuota, che era il difetto segnalato il 26/08.
+    // Every provider states its name and what it needs: that is exactly what
+    // lets the app SAY an agent is missing instead of opening an empty tab,
+    // which was the defect reported on 26/08.
     for (const p of snap.providers) {
       expect(typeof p.name, JSON.stringify(p).slice(0, 80)).toBe("string");
       expect(typeof p.status).toBe("string");
@@ -70,9 +71,9 @@ test.describe("Windows 2.2.176 — contratto del server sulla build pubblicata",
   });
 
   test("WIN-SRV-05: la versione del binario coincide con quella che il server dichiara", async ({ request }) => {
-    // Prova che il server interrogato e' DAVVERO quello dell'installazione
-    // 2.2.176, non un processo di sviluppo rimasto acceso su quella porta:
-    // sarebbe il modo piu' facile di prendersi in giro da soli.
+    // Proves the server we interrogate is REALLY the one from the 2.2.176
+    // install, not a development process left running on that port: that
+    // would be the easiest way to fool ourselves.
     const v = await (await request.get("/api/version")).json();
     const s = await (await request.get("/api/system/status")).json();
     expect(v.version).toBe("2.2.176");
@@ -86,8 +87,8 @@ test.describe("Windows 2.2.176 — contratto del server sulla build pubblicata",
   test("WIN-SRV-07: il server e' su da ore e non sta perdendo memoria", async ({ request }) => {
     const s = await (await request.get("/api/system/status")).json();
     expect(s.server.uptimeMs).toBeGreaterThan(60_000);
-    // 37 MB alla misura di stanotte dopo ~2h di vita. La soglia e' larga
-    // apposta: qui interessa una perdita evidente, non il singolo megabyte.
+    // 37 MB when measured after roughly 2h of uptime. The threshold is wide
+    // on purpose: what matters here is an obvious leak, not a single MB.
     expect(s.server.memoryMB).toBeLessThan(600);
   });
 
@@ -103,7 +104,7 @@ test.describe("Windows 2.2.176 — contratto del server sulla build pubblicata",
     expect(created.status()).toBeLessThan(300);
     const topic = await created.json();
     try {
-      // `/api/topics` risponde con una MAPPA id → topic, non con un array.
+      // `/api/topics` answers with a MAP of id to topic, not with an array.
       const list = await (await request.get("/api/topics")).json();
       expect(Object.keys(list.topics)).toContain(topic.id);
     } finally {
