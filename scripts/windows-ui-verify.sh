@@ -50,6 +50,19 @@ PORTA_CDP_LOCALE=9555
 RADICE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LAVORO="${TMPDIR:-/tmp}/topics-win-ui"
 
+# `TOPICS_WIN_LOCAL=1` misura il CHECKOUT COM'E', modifiche non committate
+# comprese. Serve quando si sta curando un difetto trovato da queste stesse
+# misure: senza, si ricostruirebbe da un commit e si misurerebbe il codice di
+# prima, dando per fallita una cura che invece funziona (mi e' successo).
+if [ "${TOPICS_WIN_LOCAL:-}" = "1" ]; then
+  echo "==> 1/5 uso il bundle del checkout LOCALE (modifiche non committate incluse)"
+  (cd "$RADICE/client" && bun run build >/dev/null 2>&1)
+  rm -rf "$LAVORO/wt"
+  mkdir -p "$LAVORO/wt"
+  cp -R "$RADICE/public" "$LAVORO/wt/public"
+  echo "    bundle pronto da $(git -C "$RADICE" rev-parse --short HEAD)+locale"
+else
+
 echo "==> 1/5 ricostruisco il bundle da $TAG"
 SHA="$(git -C "$RADICE" rev-parse --short "$TAG")"
 rm -rf "$LAVORO/wt"
@@ -59,6 +72,7 @@ ln -sfn "$RADICE/node_modules" "$LAVORO/wt/node_modules"
 ln -sfn "$RADICE/client/node_modules" "$LAVORO/wt/client/node_modules" 2>/dev/null || true
 (cd "$LAVORO/wt/client" && bun run build >/dev/null 2>&1)
 echo "    bundle pronto da $SHA"
+fi
 
 echo "==> 2/5 lo copio sul PC"
 tar -czf "$LAVORO/ui.tgz" -C "$LAVORO/wt" public

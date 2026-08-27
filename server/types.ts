@@ -367,6 +367,21 @@ export interface AppContext {
   externalSessionsCount?: () => number;
   /** Of those, how many are working right now. Same cache, zero cost. */
   externalSessionsWorking?: () => number;
+  /**
+   * The `/ws/browser/:contextId` registry, counted: how many contextIds it
+   * holds and how many sockets across all of them.
+   *
+   * `wsClients` was already on `/api/system/status`; the browser registry was
+   * not, and it is the one that can grow without anybody watching - it is a
+   * Map of Sets keyed by contextId, so a key whose Set empties without being
+   * deleted is invisible from every other surface. Two numbers instead of one
+   * because they fail differently: sockets stuck means a close handler did not
+   * run, keys stuck means the empty-Set delete did not.
+   *
+   * Grafted in `server.ts`, where the registry lives. Absent in a reduced
+   * context (the tests): whoever reads falls back to 0.
+   */
+  browserWsCounts?: () => { contexts: number; sockets: number };
   relayConfig?: () => { baseUrl: string | null; installationId: string; relayId: string };
   /** The relay is connected RIGHT NOW. Different from "configured": it tells
    *  whoever creates a link whether that link will work immediately or only

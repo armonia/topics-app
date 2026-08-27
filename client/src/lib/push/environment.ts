@@ -8,6 +8,7 @@
  */
 
 import { shellKind } from '../shell';
+import { mediaQueryMatches } from '../mediaQuery';
 import { webNotificationPermission } from '../shell/app';
 import type { PushEnvironment, WebPermission } from './pushStatus';
 
@@ -57,7 +58,7 @@ function isIosWithoutInstall(): boolean {
   if (!iPhone && !iPadOs) return false;
   const standalone =
     (navigator as Navigator & { standalone?: boolean }).standalone === true ||
-    (typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches);
+    mediaQueryMatches('(display-mode: standalone)');
   return !standalone;
 }
 

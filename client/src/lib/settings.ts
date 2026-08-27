@@ -36,6 +36,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // La riga «Board generale» in cima alla sidebar: c'è perché la superficie
   // esiste, non perché oggi ci sia lavoro aperto. Vedi AppSettings.
   showBoardRow: true,
+  // Voice loop board — off by default: it takes over the microphone and
+  // speaks, which is not something to switch on for the user without asking.
+  voiceMode: 'off',
 };
 
 const STORAGE_KEY = 'app-settings';

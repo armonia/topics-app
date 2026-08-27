@@ -542,6 +542,21 @@ export const SIDEBAR_INDENT_STEP = 16;
  *
  * 18px e non 14: i due px di aria per lato tengono dentro anche i glifi che
  * lucide disegna più larghi dell'inchiostro nominale, senza toccare la colonna.
+ *
+ * AND EVERY ROW RESERVES IT, glyph or not. This is the same rule as {@link
+ * ROW_CHEVRON_SLOT}, one column to the right, and it was decided for the same
+ * reason (card 018fd91f): with the slot only on the rows that draw something,
+ * the sidebar held THREE name columns at once, measured in the live DOM at a
+ * default 256px width. A chat name started at 34px from the sidebar edge, a
+ * project name at 56 (its favicon sat in a 14px box of its own, the last glyph
+ * outside this slot), a board / utility / terminal / browser name at 60.
+ *
+ * A chat still draws NO leading glyph, and that decision is untouched: the
+ * marks (Claude / Codex) belong to real agent sessions, never to a chat. Not
+ * drawing one and not reserving its box are two separate questions, and only
+ * the first had ever been answered. The price is 26px of air on a chat row,
+ * paid knowingly: a column is read down, so the saved air is invisible and the
+ * broken alignment is not.
  */
 export const ROW_GLYPH = 14;
 export const ROW_GLYPH_SLOT = 'w-[18px] shrink-0 flex items-center justify-center';

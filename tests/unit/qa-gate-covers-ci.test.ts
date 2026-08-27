@@ -43,6 +43,7 @@ const BAR = readFileSync(join(ROOT, "scripts/qa-gate.sh"), "utf8");
  * actually written there, so this list cannot grow in silence.
  */
 const DELIBERATELY_OUT: Record<string, string> = {
+  "check:e2e-touched": "needs a base ref to diff against; in CI it runs on pull_request only",
   "check:bundle": "needs public/ already built (bun run build:client)",
   "check:route-latency": "a TIME gate: on a loaded machine it measures the machine",
   "check:ink": "a TIME gate",
@@ -52,8 +53,13 @@ const DELIBERATELY_OUT: Record<string, string> = {
 };
 
 /** Every `check:*` gate CI actually invokes. */
+// `[a-z0-9-]` and not `[a-z-]`: a name containing a DIGIT was truncated at the
+// first number, so `check:e2e-touched` read as `check:e` — a gate CI has and
+// the bar does not, i.e. a red accusing the bar of a hole it never had. The
+// first gate with a digit in its name is what surfaced this; with no digits
+// around it had never shown.
 const ciGates: Set<string> = new Set(
-  [...CI.matchAll(/bun run (check:[a-z-]+)/g)].map((m) => m[1]!),
+  [...CI.matchAll(/bun run (check:[a-z0-9-]+)/g)].map((m) => m[1]!),
 );
 
 /**
@@ -61,7 +67,7 @@ const ciGates: Set<string> = new Set(
  * `esegui <name>` lines — which is how the script itself spells them.  allow-italian: the shell function's own name
  */
 const barGates: Set<string> = new Set([
-  ...[...BAR.matchAll(/(check:[a-z-]+)(?![a-z-])/g)]
+  ...[...BAR.matchAll(/(check:[a-z0-9-]+)(?![a-z0-9-])/g)]
     .filter((m) => {
       // Only names inside the loop body count as "run". A name that appears
       // solely in a comment is an exclusion being argued, not a gate.

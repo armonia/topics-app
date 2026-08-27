@@ -30,6 +30,7 @@ import { isDesktop } from '../lib/shell';
 import { showTrafficLights, hideTrafficLights } from '../lib/shell/window';
 import { usePaneStore } from '../state/pane/store';
 import { hasVisiblePane } from '../state/pane/selectors';
+import { mediaQueryMatches } from '../lib/mediaQuery';
 
 /**
  * Il cassetto del TELEFONO: aperto o chiuso, ricordato per dispositivo.
@@ -109,7 +110,7 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
 
   // PWA standalone mode detection
   const [isPWA] = useState(() =>
-    window.matchMedia('(display-mode: standalone)').matches ||
+    mediaQueryMatches('(display-mode: standalone)') ||
     (window.navigator as unknown as { standalone?: boolean }).standalone === true,
   );
 

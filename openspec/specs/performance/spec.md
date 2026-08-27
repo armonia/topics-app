@@ -98,7 +98,15 @@ Il sistema DEVE:
    dell'EventSource del browser remoto, e i tre timer di stream (soft, grace,
    hard);
 4. **misurare la crescita nel tempo** su un banco che ripete cicli di
-   interazione, e giudicarla contro un budget per heap, nodi DOM e listener.
+   interazione, e giudicarla contro un budget per heap, nodi DOM e listener;
+5. **liberare le strutture per-contesto quando una pane browser se ne va**, e
+   per OGNI via d'uscita, non solo per quella esplicita. `BrowserService` tiene
+   sette registri chiavati per `contextId`, e il richiamo `onDestroy` è l'unico
+   modo in cui i registri che vivono in ALTRI moduli (la cache degli elementi di
+   `browser_observe`, l'istantanea dei riferimenti, il contatore delle chiamate
+   di visione) possono rimpicciolirsi. Un contesto ricreato con lo STESSO id su
+   una cache non svuotata non è solo memoria: è un `browser_act` che risolve un
+   riferimento della pagina morta.
 
 Il cancello DEVE poter diventare rosso: un banco che non ha mai fallito non è un
 banco.
@@ -118,6 +126,15 @@ banco.
 - **WHEN** il socket si chiude
 - **THEN** la sua voce è rimossa, e la voce esterna sparisce se l'insieme si svuota
 
+#### Scenario: un contesto browser che se ne va svuota anche le cache di fuori
+
+- **GIVEN** un contesto browser vivo, con le sue voci nei registri per `contextId`
+- **WHEN** il contesto se ne va, sia per chiusura esplicita sia perché la sua
+  pagina è morta e `getOrCreate` scarta la voce
+- **THEN** tutti i registri per-contesto tornano dov'erano e `onDestroy` scatta
+  una volta per contesto, così una ricreazione con lo stesso id non trova
+  un'istantanea vecchia
+
 #### Scenario: un socket semi-aperto viene mietuto
 
 - **GIVEN** un socket che non risponde al ping oltre la soglia
@@ -135,6 +152,46 @@ banco.
 - **GIVEN** una misura di cicli ripetuti entro i budget
 - **WHEN** il cancello la giudica
 - **THEN** esce zero
+
+### Requirement: LEAK-04 — Una callback che pulisce DEVE scattare una volta per ogni contesto che se ne va
+
+`BrowserService` riceve un `onDestroy(contextId)`, e il server ci appende lo
+svuotamento di tutto ciò che tiene per `contextId`: la cache degli elementi di
+`browser_observe`, la cache degli snapshot dei ref, il contatore delle chiamate
+vision. Quelle mappe vivono in altri moduli e **non hanno altro modo di
+rimpicciolire**: se la callback non scatta, non le pulisce nessuno.
+
+Quindi la domanda che conta non è «la callback è scritta giusta», è «scatta
+tutte le volte». Un contesto può andarsene in più modi, e la chiusura pulita è
+solo uno di quelli.
+
+Il sistema DEVE far scattare `onDestroy` **una volta per ogni contesto che
+lascia il servizio, qualunque sia la strada** — chiusura esplicita, sfratto,
+disconnessione del browser sottostante — e la prova DEVE essere un conteggio, non
+un'ispezione: N cicli per ciascuna strada, e il numero di callback osservate
+confrontato col numero di contesti usciti. Una callback che scatta zero volte e
+una che ne scatta due sono difetti diversi, e un contatore li distingue
+entrambi; leggere il codice non distingue nessuno dei due.
+
+### Requirement: LEAK-05 — `window.matchMedia` è un'ALLOCAZIONE, e va chiesta una volta per query
+
+`window.matchMedia(q)` sembra una lettura e non lo è: il `MediaQueryList` che
+restituisce viene registrato presso il media query matcher del documento, che
+lo tiene. Chiamarla dentro un render vuol dire coniare una lista nuova a ogni
+giro, e nessuno le raccoglie.
+
+Misurato su questa app: gli oggetti `MediaQueryList` vivi sono passati da 379 a
+1120 in 104 minuti con la macchina ferma e nessuno che la toccasse.
+
+Il sistema DEVE tenere **una sola lista per query per l'intera sessione**
+(`client/src/lib/mediaQuery.ts`), e ogni chiamante DEVE passare di lì invece di
+chiamare `window.matchMedia` inline.
+
+Il cancello DEVE misurare la PENDENZA, non il totale: si sostituisce
+`window.matchMedia` con un finto che conta, si montano e smontano i hook N
+volte, e si asserisce che il conteggio smetta di crescere coi cicli. Un totale
+assoluto passerebbe anche con un leak lento, che è esattamente la forma del
+difetto che questo requisito esiste per prendere.
 
 ### Requirement: COALESCE-01 — Il primo evento NON aspetta, la raffica costa DUE letture
 

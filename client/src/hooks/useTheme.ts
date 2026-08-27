@@ -3,6 +3,10 @@ import type { ThemeMode, WSMessage } from '../types';
 import { useServerState } from './useServerState';
 import { isTauri } from '../lib/shell';
 import { tauriInvoke } from '../lib/shell/tauri';
+import { mediaQuery, mediaQueryMatches } from '../lib/mediaQuery';
+
+/** The one query that decides what 'system' means. */
+const DARK_QUERY = '(prefers-color-scheme: dark)';
 
 /** I motivi di fallimento di `set_theme` già segnalati, per non ripetere lo
  *  stesso avviso a ogni cambio di tema. Modulo-scope: il guscio è uno per
@@ -11,7 +15,7 @@ const setThemeWarned = new Set<string>();
 
 function getEffectiveTheme(mode: ThemeMode): 'light' | 'dark' {
   if (mode === 'system') {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    return mediaQueryMatches(DARK_QUERY) ? 'dark' : 'light';
   }
   return mode;
 }
@@ -106,7 +110,8 @@ export function useTheme(onMessage?: (handler: (msg: WSMessage) => void) => () =
   useEffect(() => {
     if (themeMode !== 'system') return;
 
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const mq = mediaQuery(DARK_QUERY);
+    if (!mq) return;
     // È QUESTO il pezzo che fa funzionare «Sistema» sotto la shell desktop.
     // La WKWebView eredita l'effectiveAppearance dalla finestra: appena il Rust
     // toglie l'override (`setAppearance: nil`) e la finestra torna a ereditare
