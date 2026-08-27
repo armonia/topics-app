@@ -28,6 +28,7 @@ mod browser_eval;
 mod browser_linux;
 #[cfg(target_os = "windows")]
 mod browser_win;
+mod window_recompose;
 #[cfg(target_os = "windows")]
 mod windows_repaint;
 
@@ -1660,7 +1661,7 @@ const COLD_START_RELOAD_JS: &str = "window.location.reload()";
 /// page, a webview that lost its content) is put back on its feet. Wrapped in
 /// try/catch that reloads on failure: if we can't even inspect the DOM, the document
 /// is not in a state worth preserving.
-const RELOAD_IF_BLANK_JS: &str = "(function(){try{\
+pub(crate) const RELOAD_IF_BLANK_JS: &str = "(function(){try{\
 var r=document.getElementById('root');\
 if(r&&r.childElementCount>0)return;\
 location.reload()}catch(e){location.reload()}})()";
@@ -1669,7 +1670,7 @@ location.reload()}catch(e){location.reload()}})()";
 /// are mounted the main window is multi-webview and that lookup returns None (see the
 /// `TlWindow` note), which is precisely the state a recovery path must survive.
 /// Falls back to the webview-window lookup for the single-webview case.
-fn eval_in_main_webview(app: &tauri::AppHandle, js: &str) -> bool {
+pub(crate) fn eval_in_main_webview(app: &tauri::AppHandle, js: &str) -> bool {
     use tauri::Manager;
     if let Some(wv) = app.get_webview("main") {
         return wv.eval(js).is_ok();
@@ -3443,79 +3444,6 @@ fn unwire_live_resize_cover(wkey: usize) {
 /// user data) can reach the window. `OnceLock` because setup runs once.
 static SHELL_APP: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
 
-/// Does `rect` (logical points, top-left origin) overlap ANY currently-attached
-/// monitor? Pure geometry so it can be unit-tested without a screen: `monitors` is
-/// the list of monitor rects in the same space. A window that overlaps nothing is
-/// stranded on a display that no longer exists — the classic "the app is running but
-/// I can't see it" after unplugging the ultrawide.
-fn rect_intersects_any(rect: (f64, f64, f64, f64), monitors: &[(f64, f64, f64, f64)]) -> bool {
-    let (x, y, w, h) = rect;
-    monitors.iter().any(|&(mx, my, mw, mh)| {
-        x < mx + mw && mx < x + w && y < my + mh && my < y + h
-    })
-}
-
-/// Re-anchor + bounce the main window so the compositor is forced to produce a frame.
-///
-/// Re-anchor: if the saved geometry now sits entirely off every attached screen, pull
-/// the window back onto the primary one. We do NOT touch a window that is still on a
-/// screen — `-797,-1410` is where Attilio KEEPS this window on his ultrawide, and
-/// "fixing" a position the user chose is the bug, not the cure.
-///
-/// Bounce: grow the outer size by 1px and put it back a beat later. That is the half
-/// that was missing, and it's the half that actually repaints.
-pub(crate) fn recompose_main_window(app: &tauri::AppHandle, why: &str) {
-    use tauri::Manager;
-    let Some(win) = app.get_window("main") else { return };
-    if !win.is_visible().unwrap_or(true) || win.is_minimized().unwrap_or(false) {
-        return; // hidden to tray / minimised: nothing to recompose, and a bounce
-                // would be a visible glitch when it comes back.
-    }
-    // Read the geometry off the plain `Window` (not `window_logical_geometry`, which
-    // takes a WebviewWindow — a lookup that returns None once browser panes are up).
-    let Ok(sf) = win.scale_factor() else { return };
-    let Ok(pos) = win.outer_position() else { return };
-    let Ok(size) = win.outer_size() else { return };
-    let pos = pos.to_logical::<f64>(sf);
-    let size = size.to_logical::<f64>(sf);
-    let (x, y, w, h) = (pos.x, pos.y, size.width, size.height);
-    if w <= 0.0 || h <= 0.0 {
-        return;
-    }
-    let monitors: Vec<(f64, f64, f64, f64)> = win
-        .available_monitors()
-        .unwrap_or_default()
-        .iter()
-        .map(|m| {
-            let sf = m.scale_factor();
-            let p = m.position().to_logical::<f64>(sf);
-            let s = m.size().to_logical::<f64>(sf);
-            (p.x, p.y, s.width, s.height)
-        })
-        .collect();
-    if !monitors.is_empty() && !rect_intersects_any((x, y, w, h), &monitors) {
-        let (mx, my, _, _) = monitors[0];
-        eprintln!("[recompose] {why}: window off every screen — re-anchoring to {mx},{my}");
-        let _ = win.set_position(tauri::LogicalPosition::new(mx + 30.0, my + 80.0));
-    }
-    eprintln!("[recompose] {why}: bouncing bounds to force a redraw");
-    let _ = win.set_size(tauri::LogicalSize::new(w + 1.0, h));
-    let app2 = app.clone();
-    let (bw, bh) = (w, h);
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(120));
-        let app3 = app2.clone();
-        let _ = app2.run_on_main_thread(move || {
-            use tauri::Manager;
-            if let Some(w2) = app3.get_window("main") {
-                let _ = w2.set_size(tauri::LogicalSize::new(bw, bh));
-            }
-            // A window that came back from a dead display can also have lost its
-            // document; same conservative nudge the watchdog uses.
-            eval_in_main_webview(&app3, RELOAD_IF_BLANK_JS);
-        });
-    });
-}
 
 /// `NSApplicationDidChangeScreenParameters` / `NSWorkspaceDidWake` callback.
 #[cfg(target_os = "macos")]
@@ -3525,7 +3453,7 @@ extern "C" fn on_recompose_event(
     _notif: *mut objc2::runtime::AnyObject,
 ) {
     if let Some(app) = SHELL_APP.get() {
-        recompose_main_window(app, "display/wake");
+        window_recompose::recompose_main_window(app, "display/wake");
     }
 }
 
@@ -10663,6 +10591,14 @@ pub fn run() {
                 }
             }
 
+            // The window comes back from minimised and the webview stops
+            // painting. The hook goes HERE, outside the macOS block below, which
+            // is exactly where the first attempt put it by mistake: a line
+            // guarded for Windows inside a block that on Windows does not exist
+            // compiles nowhere, and no `cargo check` can say so.
+            #[cfg(target_os = "windows")]
+            windows_repaint::wire(app.handle());
+
             // Traffic lights hidden by default — revealed on demand when the
             // Topics menu opens (parity with the Electron shell).
             #[cfg(target_os = "macos")]
@@ -10821,10 +10757,6 @@ pub fn run() {
                             let visible = TRAFFIC_LIGHTS_VISIBLE.load(Ordering::Relaxed)
                                 || w.is_fullscreen().unwrap_or(false);
                             apply_traffic_lights(&w, visible);
-                            // Windows delivers Resized on both edges of a minimise,
-                            // which is where the un-minimize transition is visible.
-                            #[cfg(target_os = "windows")]
-                            windows_repaint::note_minimize_transition(&w.as_ref().window());
                         }
                         tauri::WindowEvent::Moved(_) => {
                             save_state_throttled(&w.as_ref().window());
@@ -11598,8 +11530,8 @@ mod bundle_rev_tests {
 
 #[cfg(test)]
 mod window_recovery_tests {
-    use super::{
-        connect_upstream_retrying, is_document_head, is_websocket_head, rect_intersects_any,
+    use super::{window_recompose::rect_intersects_any, 
+        connect_upstream_retrying, is_document_head, is_websocket_head,
         reconnect_page_response, RELOAD_IF_BLANK_JS,
     };
     use std::time::Duration;
