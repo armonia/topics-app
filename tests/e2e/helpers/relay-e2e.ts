@@ -43,7 +43,7 @@ const INSTALLAZIONE = "e2e-relay";
  * telefono — e una `Request` senza origine non esiste. Il nome non risolve e
  * non deve: nessuno lo apre davvero, il tubo lo prende da lì e basta.
  */
-const ORIGINE_RELAY = "https://relay.esempio";
+const ORIGIN_RELAY = "https://relay.esempio";
 
 /** Un filo che non è una rete: la stessa forma di `WebSocket` per i due soli
  *  versi che il client usa (mandare, e ricevere nel richiamo). */
@@ -59,7 +59,7 @@ class FiloFinto {
   close() { this.readyState = 3; }
 }
 
-export interface RispostaRelay {
+export interface ReplyRelay {
   stato: number;
   corpo: string;
 }
@@ -102,7 +102,7 @@ export interface RelayE2E {
   chiedi(
     metodo: string, percorso: string,
     extra?: { cookie?: string; corpo?: string },
-  ): Promise<RispostaRelay>;
+  ): Promise<ReplyRelay>;
   /** Un WebSocket che entra dal relay. Torna quando la stretta di mano è finita
    *  — riuscita o rifiutata: il chiamante guarda `socket.stato()`. */
   apriSocket(percorso: string, extra?: { cookie?: string }, ms?: number): Promise<SocketRelay>;
@@ -230,7 +230,7 @@ export function alzaRelayE2E(portaTunnel: number | null): RelayE2E {
   // per cui questo test parla del prodotto e non di sé stesso.
   const framePonte: Array<{ verso: "chiede" | "risponde"; f: FrameTubo }> = [];
   let ponte: ReturnType<typeof creaPonte> | null = null;
-  let macchinaViva = true;
+  let aliveMachine = true;
 
   function ponteVivo(): ReturnType<typeof creaPonte> {
     if (ponte) return ponte;
@@ -270,7 +270,7 @@ export function alzaRelayE2E(portaTunnel: number | null): RelayE2E {
   }
 
   /** Il capo del browser, ridotto a ciò che il ponte gli fa. */
-  class CapoBrowser implements SocketPonte {
+  class HeadBrowser implements SocketPonte {
     frame: string[] = [];
     chiusa: { c?: number; r?: string } | null = null;
     send(d: string | Uint8Array | ArrayBuffer): void {
@@ -286,7 +286,7 @@ export function alzaRelayE2E(portaTunnel: number | null): RelayE2E {
     framePonte,
     sessioniHost: () => client.__sessioni(),
 
-    indirizzo: (percorso) => `${ORIGINE_RELAY}/i/${INSTALLAZIONE}${percorso}`,
+    indirizzo: (percorso) => `${ORIGIN_RELAY}/i/${INSTALLAZIONE}${percorso}`,
 
     async dalBrowser(req) {
       const r = instrada(req.url);
@@ -296,7 +296,7 @@ export function alzaRelayE2E(portaTunnel: number | null): RelayE2E {
       // Il cancello del Durable Object: senza macchina collegata non c'è
       // niente a cui girare la domanda, e lo si DICE invece di aspettare che
       // scada — mezzo minuto di scheda che gira per una cosa già nota.
-      if (!macchinaViva) return macchinaSpenta();
+      if (!aliveMachine) return macchinaSpenta();
       return ponteVivo().servi(req, r.percorso, r.prefisso);
     },
 
@@ -308,13 +308,13 @@ export function alzaRelayE2E(portaTunnel: number | null): RelayE2E {
       };
       const r = instrada(req.url);
       if (!r) return vuoto;
-      if (!macchinaViva) return { ...vuoto, stato: macchinaSpenta().status };
+      if (!aliveMachine) return { ...vuoto, stato: macchinaSpenta().status };
 
       const p = ponteVivo();
       const e = await p.apriWs(req, r.percorso);
       if (!e.ok) return { ...vuoto, stato: upgradeRifiutato(e.stato).status };
 
-      const capo = new CapoBrowser();
+      const capo = new HeadBrowser();
       p.collegaWs(e.sIn, capo);
       daChiudere.push(() => p.chiudiWs(e.sIn, 1000, "fine del test"));
 
@@ -336,8 +336,8 @@ export function alzaRelayE2E(portaTunnel: number | null): RelayE2E {
     },
 
     spegniMacchina() {
-      if (!macchinaViva) return;
-      macchinaViva = false;
+      if (!aliveMachine) return;
+      aliveMachine = false;
       // Le stesse due mosse di `scollegaPonte()`: chi aspettava non aspetta
       // più, e i socket vivi si chiudono dicendo perché. Senza, resterebbero
       // aperti verso una macchina che non c'è — cioè somiglierebbero a
@@ -347,15 +347,15 @@ export function alzaRelayE2E(portaTunnel: number | null): RelayE2E {
     },
 
     async chiedi(metodo, percorso, extra = {}) {
-      let ospiteHttp: ReturnType<typeof creaOspiteHttp> | null = null;
-      const versoHost = agganciaDispositivo((p) => ospiteHttp?.ricevi(p));
-      ospiteHttp = creaOspiteHttp({ invia: versoHost });
+      let guestHttp: ReturnType<typeof creaOspiteHttp> | null = null;
+      const versoHost = agganciaDispositivo((p) => guestHttp?.ricevi(p));
+      guestHttp = creaOspiteHttp({ invia: versoHost });
 
       const h: Intestazioni = [];
       if (extra.cookie) h.push(["cookie", extra.cookie]);
       if (extra.corpo !== undefined) h.push(["content-type", "application/json"]);
 
-      const r: RispostaTubo | null = await ospiteHttp.chiedi(metodo, percorso, {
+      const r: RispostaTubo | null = await guestHttp.chiedi(metodo, percorso, {
         h, ...(extra.corpo !== undefined ? { corpo: extra.corpo } : {}),
       }).risposta;
       // `null` = la corsia è morta. Si dice con uno stato che NON esiste sul

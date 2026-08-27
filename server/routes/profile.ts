@@ -40,7 +40,7 @@ export function createProfileRouter(ctx: AppContext): RouteHandler {
 
   /** Il nome da mettere in cima al banner: il proprietario dell'installazione,
    *  se c'è. Nessun nome inventato — il banner ha già il suo ripiego. */
-  function nomeProprietario(): string | null {
+  function nameOwner(): string | null {
     try {
       const r = db.query(
         `SELECT p.display_name AS name
@@ -68,13 +68,13 @@ export function createProfileRouter(ctx: AppContext): RouteHandler {
     // l'app (il thread di una scheda, per non firmare un commento «user») non
     // puo' pagare quel conto a ogni apertura, quindi il nome ha la sua porta.
     if (method === "GET" && pathname === "/api/profile/owner") {
-      return json({ name: nomeProprietario() });
+      return json({ name: nameOwner() });
     }
 
     // ── Le statistiche ────────────────────────────────────────────────────
     if (method === "GET" && pathname === "/api/profile/stats") {
       try {
-        return json({ stats: computeProfileStats(db), name: nomeProprietario() });
+        return json({ stats: computeProfileStats(db), name: nameOwner() });
       } catch (err) {
         console.error("[Profile] stats:", err);
         return errorResponse(500, (err as Error)?.message || "Failed to compute profile stats");
@@ -115,7 +115,7 @@ export function createProfileRouter(ctx: AppContext): RouteHandler {
     if (method === "GET" && pathname === "/api/profile/banner.svg") {
       try {
         const theme = url.searchParams.get("theme") === "light" ? "light" : "dark";
-        const name = url.searchParams.get("name") ?? nomeProprietario();
+        const name = url.searchParams.get("name") ?? nameOwner();
         const svg = renderBanner(computeProfileStats(db), {
           name,
           theme,

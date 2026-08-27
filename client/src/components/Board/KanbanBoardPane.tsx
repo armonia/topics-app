@@ -400,8 +400,8 @@ function LoadAdviceChip() {
   // La CPU che la FLOTTA sta bruciando è il segnale onesto (dispatch-capacity.ts):
   // il load average della macchina intera parla soprattutto delle app di chi sta
   // al computer, e usarlo qui coloravamo di rosso un Mac che sta benissimo.
-  const oltreQuota = cap.oursCores != null && cap.budgetCores > 0 && cap.oursCores >= cap.budgetCores;
-  const severe = oltreQuota || over >= 2 || (cap.oursCores == null && cap.cores > 0 && cap.load1 / cap.cores >= 1.3);
+  const beyondQuota = cap.oursCores != null && cap.budgetCores > 0 && cap.oursCores >= cap.budgetCores;
+  const severe = beyondQuota || over >= 2 || (cap.oursCores == null && cap.cores > 0 && cap.load1 / cap.cores >= 1.3);
   const cls = severe
     ? 'bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/30 hover:bg-rose-500/25'
     : 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30 hover:bg-amber-500/25';
@@ -1653,7 +1653,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // the incoming path isn't wiped before the drawer opens.
   useEffect(() => {
     if (!global) return;
-    if (selected) { reflectTaskOpen({ taskId: selected.id }); return; }
+    if (selected) { reflectTaskOpen({ taskId: selected.id }, selected.text); return; }
     if (pendingSelect) return; // deep-link mid-flight — keep the URL
     reflectTaskClose();
     // Depend on selectedId (primitive), NOT the `selected` object: its reference

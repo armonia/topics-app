@@ -53,9 +53,9 @@ const STAMP = Date.now();
 /** Il repo che SI avvia: il suo `dev` serve la pagina che finirà sulla card. */
 const REPO = `/tmp/topics-e2e-recapture-${STAMP}`;
 /** Il repo che NON si avvia: nessuno script, quindi nessuna anteprima possibile. */
-const REPO_MUTO = `/tmp/topics-e2e-recapture-muto-${STAMP}`;
+const MUTED_REPO = `/tmp/topics-e2e-recapture-muto-${STAMP}`;
 const PROJECT_ID = boardIdForPath(REPO);
-const PROJECT_ID_MUTO = boardIdForPath(REPO_MUTO);
+const MUTED_PROJECT_ID = boardIdForPath(MUTED_REPO);
 
 /**
  * La pagina dell'anteprima. Grande e con poche parole di proposito: la foto
@@ -200,22 +200,22 @@ test.describe("Board · «Ricattura evidenza» su una card in review", () => {
   test.use({ viewport: { width: 1280, height: 680 } });
 
   let wt: WorktreeRow | null = null;
-  let wtMuto: WorktreeRow | null = null;
+  let mutedWt: WorktreeRow | null = null;
   let seeded: { taskId: string; topicId: string } | null = null;
-  let seededMuto: { taskId: string; topicId: string } | null = null;
+  let mutedSeeded: { taskId: string; topicId: string } | null = null;
 
   test.beforeAll(async ({ request }) => {
     seedRepo(REPO, "e2e-recapture", true);
-    seedRepo(REPO_MUTO, "e2e-recapture-muto", false);
+    seedRepo(MUTED_REPO, "e2e-recapture-muto", false);
     wt = await seedWorktree(request, REPO, `e2e-recapture-${STAMP}`);
-    wtMuto = await seedWorktree(request, REPO_MUTO, `e2e-recapture-muto-${STAMP}`);
+    mutedWt = await seedWorktree(request, MUTED_REPO, `e2e-recapture-muto-${STAMP}`);
 
     seeded = await seedCardInReview(request, {
       repo: REPO, projectId: PROJECT_ID, wt,
       titolo: "Catalogo: griglia nuova", topicName: "E2E-Recapture",
     });
-    seededMuto = await seedCardInReview(request, {
-      repo: REPO_MUTO, projectId: PROJECT_ID_MUTO, wt: wtMuto,
+    mutedSeeded = await seedCardInReview(request, {
+      repo: MUTED_REPO, projectId: MUTED_PROJECT_ID, wt: mutedWt,
       titolo: "Ricerca full-text", topicName: "E2E-RecaptureMuto",
     });
 
@@ -226,15 +226,15 @@ test.describe("Board · «Ricattura evidenza» su una card in review", () => {
 
   test.afterAll(async ({ request }) => {
     if (seeded) await deleteTask(request, PROJECT_ID, seeded.taskId);
-    if (seededMuto) await deleteTask(request, PROJECT_ID_MUTO, seededMuto.taskId);
+    if (mutedSeeded) await deleteTask(request, MUTED_PROJECT_ID, mutedSeeded.taskId);
     if (seeded) await deleteTopic(request, seeded.topicId);
-    if (seededMuto) await deleteTopic(request, seededMuto.topicId);
-    for (const w of [wt, wtMuto]) {
+    if (mutedSeeded) await deleteTopic(request, mutedSeeded.topicId);
+    for (const w of [wt, mutedWt]) {
       if (w) await request.delete(`${API}/worktrees/${w.id}`).catch(() => {});
       if (w && existsSync(w.absPath)) rmSync(w.absPath, { recursive: true, force: true });
     }
     rmSync(REPO, { recursive: true, force: true });
-    rmSync(REPO_MUTO, { recursive: true, force: true });
+    rmSync(MUTED_REPO, { recursive: true, force: true });
   });
 
   test.beforeEach(async ({ page }) => {
@@ -322,9 +322,9 @@ test.describe("Board · «Ricattura evidenza» su una card in review", () => {
   });
 
   test("RECAPTURE-02: niente da avviare → nessuna foto finta, una nota col motivo", async ({ page, request }) => {
-    const taskId = seededMuto!.taskId;
-    await resetProjectPanes(page.request, REPO_MUTO);
-    await seedProjectPane(page.request, REPO_MUTO);
+    const taskId = mutedSeeded!.taskId;
+    await resetProjectPanes(page.request, MUTED_REPO);
+    await seedProjectPane(page.request, MUTED_REPO);
     await page.goto("/");
     await openProjectBoard(page, /topics-e2e-recapture-muto/);
 
@@ -340,7 +340,7 @@ test.describe("Board · «Ricattura evidenza» su una card in review", () => {
     await expect(drawer.getByText(/nessuna anteprima possibile/i)).toBeVisible({ timeout: 60_000 });
     await beat(page, 2200);
 
-    const body = await readTask(request, PROJECT_ID_MUTO, taskId);
+    const body = await readTask(request, MUTED_PROJECT_ID, taskId);
     const task = taskOf(body);
     expect(task.previewImage ?? null, "nessuna evidenza falsa").toBeNull();
     expect(task.status).toBe("review");

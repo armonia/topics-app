@@ -150,8 +150,8 @@ describe("relay client · spento non toglie niente", () => {
  * The confirmation was already in the protocol, the `ready` the relay sends
  * right after attaching, and nobody was looking at it.
  */
-class SocketFintaRelay {
-  static aperte: SocketFintaRelay[] = [];
+class FakeSocketRelay {
+  static aperte: FakeSocketRelay[] = [];
   readyState = 1;
   inviati: string[] = [];
   chiusa = false;
@@ -159,15 +159,15 @@ class SocketFintaRelay {
   onmessage: ((e: { data: string }) => void) | null = null;
   onclose: (() => void) | null = null;
   onerror: (() => void) | null = null;
-  constructor() { SocketFintaRelay.aperte.push(this); }
+  constructor() { FakeSocketRelay.aperte.push(this); }
   send(d: string): void { this.inviati.push(d); }
   close(): void { this.chiusa = true; this.readyState = 3; this.onclose?.(); }
   /** The meeting point takes us in. */
   confermaReady(): void { this.onmessage?.({ data: JSON.stringify({ t: "ready", v: 1 }) }); }
 }
 
-function clientCollegato() {
-  SocketFintaRelay.aperte = [];
+function connectedClient() {
+  FakeSocketRelay.aperte = [];
   const righe: string[] = [];
   const c = creaRelayClient({
     baseUrl: "https://relay.esempio.test", relayId: "i1", segreto: SEGRETO_FINTO,
@@ -176,16 +176,16 @@ function clientCollegato() {
     segnaApertura: () => {},
     now: () => ORA,
     log: (m: string) => { righe.push(m); },
-    apriSocket: (() => new SocketFintaRelay()) as never,
+    apriSocket: (() => new FakeSocketRelay()) as never,
   });
   return { c, righe };
 }
 
 describe("relay client · «collegato» vuol dire che il relay ci ha PRESI IN CARICO", () => {
   it("un filo aperto ma non confermato NON conta come collegato", () => {
-    const { c, righe } = clientCollegato();
+    const { c, righe } = connectedClient();
     c.avvia();
-    const s = SocketFintaRelay.aperte[0]!;
+    const s = FakeSocketRelay.aperte[0]!;
     s.onopen?.();
     // The thread is open, and that is not enough: it is exactly the state in
     // which the log lied while the phone was getting `host-offline`.
@@ -195,9 +195,9 @@ describe("relay client · «collegato» vuol dire che il relay ci ha PRESI IN CA
   });
 
   it("…e con la conferma sì, e solo allora lo si annuncia", () => {
-    const { c, righe } = clientCollegato();
+    const { c, righe } = connectedClient();
     c.avvia();
-    const s = SocketFintaRelay.aperte[0]!;
+    const s = FakeSocketRelay.aperte[0]!;
     s.onopen?.();
     s.confermaReady();
     expect(c.collegato()).toBe(true);
@@ -213,19 +213,19 @@ describe("relay client · «collegato» vuol dire che il relay ci ha PRESI IN CA
     //
     // The real timer is ten seconds, and this test does not sleep on it: time
     // is moved instead of awaited.
-    const veroSetTimeout = globalThis.setTimeout;
+    const realSetTimeout = globalThis.setTimeout;
     const armati: Array<() => void> = [];
     (globalThis as { setTimeout: unknown }).setTimeout = ((fn: () => void, ms?: number) => {
       // Only the CONFIRMATION wait is captured: everything else (the retry,
       // and anyone else's timers) must keep behaving as usual.
       if (ms === 10_000) { armati.push(fn); return { unref() {} }; }
-      return veroSetTimeout(fn, ms);
+      return realSetTimeout(fn, ms);
     }) as typeof setTimeout;
 
     try {
-      const { c } = clientCollegato();
+      const { c } = connectedClient();
       c.avvia();
-      const s = SocketFintaRelay.aperte[0]!;
+      const s = FakeSocketRelay.aperte[0]!;
       s.onopen?.();
       expect(s.chiusa).toBe(false);
       expect(armati).toHaveLength(1);
@@ -236,24 +236,24 @@ describe("relay client · «collegato» vuol dire che il relay ci ha PRESI IN CA
       expect(c.collegato()).toBe(false);
       c.ferma();
     } finally {
-      (globalThis as { setTimeout: unknown }).setTimeout = veroSetTimeout;
+      (globalThis as { setTimeout: unknown }).setTimeout = realSetTimeout;
     }
   });
 
   it("…e un filo CONFERMATO non viene chiuso da quell'attesa", async () => {
     // The other direction, and without it "always close after ten seconds"
     // would pass the test above and take the relay down every ten seconds.
-    const veroSetTimeout = globalThis.setTimeout;
+    const realSetTimeout = globalThis.setTimeout;
     const armati: Array<() => void> = [];
     (globalThis as { setTimeout: unknown }).setTimeout = ((fn: () => void, ms?: number) => {
       if (ms === 10_000) { armati.push(fn); return { unref() {} }; }
-      return veroSetTimeout(fn, ms);
+      return realSetTimeout(fn, ms);
     }) as typeof setTimeout;
 
     try {
-      const { c } = clientCollegato();
+      const { c } = connectedClient();
       c.avvia();
-      const s = SocketFintaRelay.aperte[0]!;
+      const s = FakeSocketRelay.aperte[0]!;
       s.onopen?.();
       s.confermaReady();
       armati[0]!();
@@ -261,7 +261,7 @@ describe("relay client · «collegato» vuol dire che il relay ci ha PRESI IN CA
       expect(c.collegato()).toBe(true);
       c.ferma();
     } finally {
-      (globalThis as { setTimeout: unknown }).setTimeout = veroSetTimeout;
+      (globalThis as { setTimeout: unknown }).setTimeout = realSetTimeout;
     }
   });
 });

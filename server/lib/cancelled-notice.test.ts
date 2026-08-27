@@ -256,8 +256,8 @@ describe("eCartelloDiInterruzione — cosa si riprende e cosa no", () => {
 
   /** Il prefisso ⚠️ può esserci o no: la riga in `content` lo porta, il blocco no. */
   test("funziona con e senza il prefisso ⚠️", () => {
-    const conPrefisso = cancelledNotice({ end: "cancelled", cause: "server-shutdown" })!;
-    expect(eCartelloDiInterruzione(conPrefisso)).toBe(true);
-    expect(eCartelloDiInterruzione(conPrefisso.replace(/^⚠️\s*/, ""))).toBe(true);
+    const withPrefix = cancelledNotice({ end: "cancelled", cause: "server-shutdown" })!;
+    expect(eCartelloDiInterruzione(withPrefix)).toBe(true);
+    expect(eCartelloDiInterruzione(withPrefix.replace(/^⚠️\s*/, ""))).toBe(true);
   });
 });

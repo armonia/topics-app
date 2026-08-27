@@ -110,7 +110,7 @@ export interface IdleGcDeps {
   attesaMs?: number;
 }
 
-export type EsitoIdleGc =
+export type OutcomeIdleGc =
   | { azione: "saltato"; perche: string }
   | { azione: "raccolto"; primaMB: number; dopoMB: number | null };
 
@@ -139,7 +139,7 @@ export type EsitoIdleGc =
  * DECISIONE senza dover osservare la memoria vera, che in un test non è
  * governabile.
  */
-export async function giroIdleGc(deps: IdleGcDeps): Promise<EsitoIdleGc> {
+export async function giroIdleGc(deps: IdleGcDeps): Promise<OutcomeIdleGc> {
   const fonti = await deps.sorgenti();
   // Le sole due fonti che trattengono: una card che lavora, o un turno che vive
   // nel broker (che è una card adottata dopo un riavvio, non una chat).

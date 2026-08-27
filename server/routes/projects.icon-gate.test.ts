@@ -137,19 +137,19 @@ describe("GET /api/projects/icon — il cancello", () => {
   test("noto anche per le altre sorgenti: il progetto di un topic, la cwd di un terminale", async () => {
     // Fuori dal workspace: qui il progetto entra solo dalle sorgenti 2 e 4.
     const daTopic = join(root, "progetti", "da-topic");
-    const daTerminale = join(root, "progetti", "da-terminale");
-    for (const d of [daTopic, daTerminale]) {
+    const fromTerminal = join(root, "progetti", "da-terminale");
+    for (const d of [daTopic, fromTerminal]) {
       mkdirSync(d, { recursive: true });
       writeFileSync(join(d, "favicon.png"), PNG_1x1);
     }
     expect((await icon(daTopic))!.status).toBe(403);
-    expect((await icon(daTerminale))!.status).toBe(403);
+    expect((await icon(fromTerminal))!.status).toBe(403);
 
     topicPaths.push(daTopic);
-    db.run("INSERT INTO terminal_sessions (id, cwd) VALUES (?, ?)", ["s1", daTerminale]);
+    db.run("INSERT INTO terminal_sessions (id, cwd) VALUES (?, ?)", ["s1", fromTerminal]);
 
     expect((await icon(daTopic))!.status).toBe(200);
-    expect((await icon(daTerminale))!.status).toBe(200);
+    expect((await icon(fromTerminal))!.status).toBe(200);
   });
 
   test("il confine NON è «qualunque cosa dentro il workspace»: una husk senza marcatore resta negata", async () => {

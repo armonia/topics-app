@@ -64,7 +64,7 @@ function celle(page: Page): Promise<string[][]> {
 }
 
 /** Il centro del CORPO della cella che tiene `paneId` (non la barra delle tab). */
-async function centroDi(page: Page, paneId: string): Promise<[number, number]> {
+async function centerOf(page: Page, paneId: string): Promise<[number, number]> {
   const c = await celle(page);
   const idx = c.findIndex((cc) => cc.includes(paneId));
   if (idx < 0) throw new Error(`nessuna cella tiene ${paneId}, fra: ${JSON.stringify(c)}`);
@@ -137,7 +137,7 @@ test.describe("Una pane sopra un'altra pane fa un gruppo", () => {
   /** Apre una pane browser per ognuno dei topic passati e ne torna i pane id.
    *  Ogni contesto nasce nella SUA cella: due finestre affiancate, che è la
    *  situazione da cui parte il gesto. */
-  async function apriBrowser(page: Page, topicIds: string[]): Promise<string[]> {
+  async function openBrowser(page: Page, topicIds: string[]): Promise<string[]> {
     for (const id of topicIds) {
       await page.evaluate(({ tid, url }) => {
         window.dispatchEvent(new CustomEvent("browser:open-and-navigate", { detail: { topicId: tid, url } }));
@@ -151,7 +151,7 @@ test.describe("Una pane sopra un'altra pane fa un gruppo", () => {
   test("POP-01: un browser lasciato SOPRA un altro browser fa un gruppo di due tab", async ({ page }) => {
     await goToApp(page);
     await expect(page.locator(`[data-pane-id="${t1}"]`).first()).toBeVisible({ timeout: 15000 });
-    const [b1, b2] = await apriBrowser(page, [t1, t2]);
+    const [b1, b2] = await openBrowser(page, [t1, t2]);
     // Se non ci sono i due iframe, questo test non sta provando il caso che deve
     // provare: è l'iframe la superficie che si mangiava il `dragover`.
     await expect(page.locator('[data-testid="browser-iframe"]')).toHaveCount(2, { timeout: 15000 });
@@ -159,7 +159,7 @@ test.describe("Una pane sopra un'altra pane fa un gruppo", () => {
 
     await didascalia(page, "Un browser sopra l'altro browser");
     await battuta(page, 1400);
-    await trascina(page, b1, ...await centroDi(page, b2));
+    await trascina(page, b1, ...await centerOf(page, b2));
 
     // I due sono ora UNA finestra con due tab, nell'ordine «chi c'era» + «chi è
     // arrivato» (una fusione dal corpo accoda; l'indice preciso lo possiede il
@@ -178,13 +178,13 @@ test.describe("Una pane sopra un'altra pane fa un gruppo", () => {
     // difetto da cui nasce questa card, non la sua cura.
     await goToApp(page);
     await expect(page.locator(`[data-pane-id="${t1}"]`).first()).toBeVisible({ timeout: 15000 });
-    const [b1] = await apriBrowser(page, [t1]);
+    const [b1] = await openBrowser(page, [t1]);
 
     const cellaChat = (await celle(page)).find((c) => c.includes(t2));
     expect(cellaChat, "la chat deve avere una cella sua").toBeTruthy();
     await didascalia(page, "Un browser sopra una CHAT: tipi diversi");
     await battuta(page, 1400);
-    await trascina(page, b1, ...await centroDi(page, t2));
+    await trascina(page, b1, ...await centerOf(page, t2));
 
     await expect
       .poll(async () => (await celle(page)).find((c) => c.includes(t2)) ?? [], { timeout: 8000 })
@@ -196,8 +196,8 @@ test.describe("Una pane sopra un'altra pane fa un gruppo", () => {
   test("POP-03: il ritorno — una tab tolta dal gruppo torna una pane a sé", async ({ page }) => {
     await goToApp(page);
     await expect(page.locator(`[data-pane-id="${t1}"]`).first()).toBeVisible({ timeout: 15000 });
-    const [b1, b2] = await apriBrowser(page, [t1, t2]);
-    await trascina(page, b1, ...await centroDi(page, b2));
+    const [b1, b2] = await openBrowser(page, [t1, t2]);
+    await trascina(page, b1, ...await centerOf(page, b2));
     await expect
       .poll(async () => (await celle(page)).find((c) => c.includes(b2)) ?? [], { timeout: 8000 })
       .toEqual([b2, b1]);

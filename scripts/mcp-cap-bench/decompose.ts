@@ -209,11 +209,11 @@ if (existsSync(probePath)) {
  * Senza sonda non si divide niente: si dichiara il primo blocco indiviso.
  */
 const misure = ARMS.map(decompose);
-let promptUtente: number | null = null;
+let promptUser: number | null = null;
 for (const d of misure) {
   if (!d) continue;
   const sonda = sonde.get(d.toolsAtBoot);
-  if (sonda != null) { promptUtente = d.requests[0]!.context - sonda; break; }
+  if (sonda != null) { promptUser = d.requests[0]!.context - sonda; break; }
 }
 
 const out: any[] = [];
@@ -222,8 +222,8 @@ let bad = false;
 for (const d of misure) {
   if (!d) { console.error("manca uno stream-*.jsonl — gira prima il banco"); bad = true; continue; }
   const r = rollup(d);
-  const prefisso = promptUtente == null ? null : d.requests[0]!.context - promptUtente;
-  out.push({ ...d, rollup: r, prefisso, promptUtente });
+  const prefisso = promptUser == null ? null : d.requests[0]!.context - promptUser;
+  out.push({ ...d, rollup: r, prefisso, promptUser });
 
   if (AS_JSON) continue;
   console.log(`\n══ braccio ${d.arm.toUpperCase()} — ${it(d.total)} token di prompt su ${d.N} richieste`);
@@ -236,7 +236,7 @@ for (const d of misure) {
 
   if (prefisso != null) {
     row(`PREFISSO × ${d.N} richieste (prompt di sistema + schemi + elenchi)`, prefisso * d.N);
-    row(`prompt utente × ${d.N} richieste`, promptUtente! * d.N);
+    row(`prompt utente × ${d.N} richieste`, promptUser! * d.N);
   } else {
     row(`primo blocco (prefisso + prompt utente) × ${d.N} richieste`, r.primoBlocco);
     console.log("            (nessuna sonda con questo registro: il primo blocco resta indiviso)");

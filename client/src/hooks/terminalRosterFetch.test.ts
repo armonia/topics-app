@@ -36,7 +36,7 @@ import { resolve } from 'node:path';
 const SORGENTE = readFileSync(resolve(import.meta.dir, 'useTerminalLifecycle.ts'), 'utf8');
 
 /** Il corpo di `fetchTerminalSessions`, fino alla fine della sua `useCallback`. */
-function corpoDellaFetch(): string {
+function bodyOfFetch(): string {
   const inizio = SORGENTE.indexOf('const fetchTerminalSessions = useCallback(');
   expect(inizio, 'fetchTerminalSessions e cambiata di nome: aggiorna questo test').toBeGreaterThan(0);
   const fine = SORGENTE.indexOf('}, [applyRoster]);', inizio);
@@ -48,19 +48,19 @@ describe('il roster dei terminali non si crede a scatola chiusa', () => {
   test('il corpo della fetch si trova (guardia contro un verde a vuoto)', () => {
     // Senza questa, un rinominare qualsiasi renderebbe i casi sotto verdi su una
     // stringa vuota: il modo piu comune in cui un cancello smette di guardare.
-    expect(corpoDellaFetch().length).toBeGreaterThan(200);
+    expect(bodyOfFetch().length).toBeGreaterThan(200);
   });
 
   test('una risposta non-2xx non diventa un roster', () => {
-    expect(corpoDellaFetch()).toContain('r.ok');
+    expect(bodyOfFetch()).toContain('r.ok');
   });
 
   test('un corpo che non e un array non diventa un roster', () => {
-    expect(corpoDellaFetch()).toContain('Array.isArray(data)');
+    expect(bodyOfFetch()).toContain('Array.isArray(data)');
   });
 
   test('la bandiera si alza SOLO se applyRoster ha accettato', () => {
-    const corpo = corpoDellaFetch();
+    const corpo = bodyOfFetch();
     // L'unica scrittura della bandiera in questa funzione deve essere governata
     // dall'esito di `applyRoster`. La forma e pinnata: un `= true` nudo qui
     // dentro e' esattamente il difetto.

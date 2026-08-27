@@ -74,23 +74,23 @@ const cascata = vecchie.length
 
 // Quante card VIVE ha la board in tutto, sottotask compresi: e' il numero che
 // un umano vede scorrendo, e quello da cui si misura ogni alleggerimento.
-const totaleVive = (db
+const aliveTotal = (db
   .prepare("SELECT COUNT(*) AS c FROM tasks WHERE project_id = ? AND archived = 0")
   .get(PROJECT) as any)?.c ?? 0;
 
-const suAperte = conta(aperte);
-const suTutte = conta(rows);
+const onOpen = conta(aperte);
+const onAll = conta(rows);
 
 console.log(`board ${PROJECT} (${DB_PATH}, sola lettura)`);
-console.log(`  card vive in tutto:          ${totaleVive}  (radici ${rows.length}, sottotask ${totaleVive - rows.length})`);
+console.log(`  card vive in tutto:          ${aliveTotal}  (radici ${rows.length}, sottotask ${aliveTotal - rows.length})`);
 console.log(`  radici aperte / done:        ${aperte.length} / ${fatte.length}`);
-console.log(`  doppioni fra le radici APERTE: ${suAperte.groups.length} gruppi, ${suAperte.fuse} card fuse`);
-console.log(`  doppioni fra TUTTE le radici:  ${suTutte.groups.length} gruppi, ${suTutte.fuse} card fuse`);
+console.log(`  doppioni fra le radici APERTE: ${onOpen.groups.length} gruppi, ${onOpen.fuse} card fuse`);
+console.log(`  doppioni fra TUTTE le radici:  ${onAll.groups.length} gruppi, ${onAll.fuse} card fuse`);
 console.log(`  radici done piu' vecchie di ${DAYS}gg: ${vecchie.length}, che col sottoalbero valgono ${cascata} card`);
-console.log(`  card che uscirebbero dalla lista: ${suTutte.fuse + cascata} su ${totaleVive}`);
+console.log(`  card che uscirebbero dalla lista: ${onAll.fuse + cascata} su ${aliveTotal}`);
 
 if (VERBOSE) {
-  for (const g of suTutte.groups) {
+  for (const g of onAll.groups) {
     console.log(`\n[min ${g.minScore.toFixed(2)}] ${g.survivor.text}`);
     for (const d of g.duplicates) console.log(`    + ${d.text}`);
   }

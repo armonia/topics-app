@@ -46,7 +46,7 @@ const REPO = `/tmp/e2e-nota-${Date.now()}`;
 
 const PROJECT_ID = boardIdForPath(REPO);
 
-const T_CONSEGNA = "Rifare la scheda prodotto";
+const T_DELIVERY = "Rifare la scheda prodotto";
 const NOTA = "verificata: il video mostra il caso B";
 
 let topicId: string | null = null;
@@ -114,7 +114,7 @@ test.describe("Una nota su una card in review non la rigetta", () => {
     // La card deve avere un TOPIC LEGATO, o non è una review d'agente e i due
     // gesti non hanno ragione di esistere: senza agente dietro, un commento è
     // già solo un commento.
-    taskId = await createTask(request, { text: T_CONSEGNA, status: "todo" });
+    taskId = await createTask(request, { text: T_DELIVERY, status: "todo" });
     expect((await request.post(`${API}/test/tasks/${taskId}/bind-topic`, { data: { topicId: topic.id } })).ok()).toBe(true);
     expect((await request.patch(`${API}/boards/${PROJECT_ID}/tasks/${taskId}`, { data: { status: "review" } })).ok()).toBe(true);
   });
@@ -164,7 +164,7 @@ test.describe("Una nota su una card in review non la rigetta", () => {
     await beat(page);
 
     // (2) Si apre il drawer e si scrive li' la nota, col gesto quieto.
-    await page.getByTestId("kanban-column-review").getByText(T_CONSEGNA).click({ timeout: 15000 });
+    await page.getByTestId("kanban-column-review").getByText(T_DELIVERY).click({ timeout: 15000 });
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
     const nota = drawer.getByTestId("task-reply-quiet-note");

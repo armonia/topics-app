@@ -172,8 +172,8 @@ test.describe("Una frase scritta su una card in review non fonde il ramo", () =>
     //     where the incident happened — «Landa su main» is on screen and it is
     //     the first choice — and the branch really carries a commit main lacks.
     await expect(card.getByTestId("task-choice-land")).toHaveText("Landa su main");
-    const inRamo = git(REPO, ["rev-list", "--count", `main..${branch}`]).trim();
-    expect(inRamo).toBe("1");
+    const inBranch = git(REPO, ["rev-list", "--count", `main..${branch}`]).trim();
+    expect(inBranch).toBe("1");
 
     // (1) THE SEND BUTTON NAMES THE DOOR THE TEXT GOES THROUGH. It used to name
     //     the first choice, so it promised «Landa su main» and the keyboard did

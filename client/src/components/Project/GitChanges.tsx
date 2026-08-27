@@ -250,8 +250,8 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   const [showBranches, setShowBranches] = useState(false);
   /** La cronologia, ora un popover ancorato al suo bottone nella riga. */
   const [showStoria, setShowStoria] = useState(false);
-  const storiaBtnRef = useRef<HTMLButtonElement>(null);
-  const storiaPopRef = useRef<HTMLDivElement>(null);
+  const historyBtnRef = useRef<HTMLButtonElement>(null);
+  const historyPopRef = useRef<HTMLDivElement>(null);
   const [pulling, setPulling] = useState(false);
   const [pushing, setPushing] = useState(false);
   const [commitMessage, setCommitMessage] = useState('');
@@ -318,7 +318,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   // del lato scelto. Prima scrivevano `top: bottom + 4` e ricavavano il tetto
   // dallo spazio sotto: con le sezioni della barra collassate restavano 33px,
   // cioe' 21 di tetto contro un'intestazione di lista da 24,5 — zero righe.
-  const posStoria = useAnchoredPopover(showStoria, storiaBtnRef, storiaPopRef, { align: 'right' });
+  const posHistory = useAnchoredPopover(showStoria, historyBtnRef, historyPopRef, { align: 'right' });
   const branchBtnRef = useRef<HTMLButtonElement>(null);
   const posRami = useAnchoredPopover(showBranches, branchBtnRef, branchDropdownRef);
 
@@ -651,7 +651,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   useDismissable({
     open: showStoria,
     onClose: () => setShowStoria(false),
-    refs: [storiaPopRef, storiaBtnRef],
+    refs: [historyPopRef, historyBtnRef],
   });
 
   // La chiusura del menu dei file NON sta piu' qui: la porta
@@ -997,7 +997,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 promette e non da'. */}
             {hasData && gitStatus!.lastCommit?.hash && (
               <button
-                ref={storiaBtnRef}
+                ref={historyBtnRef}
                 onClick={() => setShowStoria(v => !v)}
                 aria-expanded={showStoria}
                 data-testid="git-history-button"
@@ -1267,19 +1267,19 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             fissa: vicino al bordo inferiore scorre invece di sfondare. */}
         {showStoria && createPortal(
           <div
-            ref={storiaPopRef}
+            ref={historyPopRef}
             role="dialog"
             aria-label={tr('git.history.title')}
             data-testid="git-history-popover"
             className={`fixed w-64 overflow-hidden flex flex-col ${POPOVER_PANEL}`}
             style={{
-              top: posStoria?.top ?? -9999,
-              left: posStoria?.left ?? -9999,
-              maxHeight: Math.min(posStoria?.maxHeight ?? 320, 320),
+              top: posHistory?.top ?? -9999,
+              left: posHistory?.left ?? -9999,
+              maxHeight: Math.min(posHistory?.maxHeight ?? 320, 320),
               zIndex: Z_POPOVER,
               // Nascosto per il solo fotogramma della misura, cosi' non
               // lampeggia mai nel posto sbagliato.
-              visibility: posStoria ? 'visible' : 'hidden',
+              visibility: posHistory ? 'visible' : 'hidden',
             }}
           >
             <div className="px-3 py-2 text-[11px] font-medium text-app-text-tertiary uppercase tracking-wider flex-shrink-0">
@@ -1800,8 +1800,8 @@ function DiscardConfirmDialog({ files, untracked, onConfirm, onCancel }: { files
     const parts = f.split('/');
     return parts[parts.length - 1];
   });
-  const nonTracciati = untracked.length;
-  const tracciati = files.length - nonTracciati;
+  const notTracked = untracked.length;
+  const tracciati = files.length - notTracked;
 
   return (
     <ConfirmDialog
@@ -1811,11 +1811,11 @@ function DiscardConfirmDialog({ files, untracked, onConfirm, onCancel }: { files
       onCancel={onCancel}
     >
       {tracciati > 0 && <p className="mb-3">{tr('git.discardWarning')}</p>}
-      {nonTracciati > 0 && (
+      {notTracked > 0 && (
         <p className="mb-3">
-          {nonTracciati === files.length
+          {notTracked === files.length
             ? tr('git.discardUntrackedOnly')
-            : tr('git.discardUntrackedSome').replace('{n}', String(nonTracciati))}
+            : tr('git.discardUntrackedSome').replace('{n}', String(notTracked))}
         </p>
       )}
       <div className="bg-app-hover rounded px-3 py-2 max-h-[120px] overflow-y-auto">

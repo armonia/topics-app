@@ -2074,7 +2074,7 @@ export function TopicTree({
             {projectContextMenu.muted ? <BellRing size={14} /> : <BellOff size={14} />}
             <span>{projectContextMenu.muted ? 'Riattiva notifiche' : 'Muta notifiche'}</span>
           </button>
-          <VoceIncognito
+          <EntryIncognito
             projectPath={projectContextMenu.projectPath}
             onDone={() => setProjectContextMenu(null)}
           />
@@ -2141,7 +2141,7 @@ export function TopicTree({
  * significherebbe mostrare «Rendi incognito» su un progetto che lo è già, cioè
  * offrire un gesto che non fa quello che dice.
  */
-function VoceIncognito({ projectPath, onDone }: { projectPath: string; onDone: () => void }) {
+function EntryIncognito({ projectPath, onDone }: { projectPath: string; onDone: () => void }) {
   const [progetto, setProgetto] = useState<{ id: string; incognito: boolean } | null>(null);
   useEffect(() => {
     let vivo = true;

@@ -278,7 +278,7 @@ export function PinnedTiles({
   // I due callback del dito vivono in un ref perché `clearDrag` deve restare
   // STABILE: sta nelle dipendenze di un effetto che aggancia listener a
   // `window`, e una identità nuova a ogni render li rimonterebbe a ogni render.
-  const fuoriRef = useRef({ punto: onTouchDragPoint, drop: onTouchDropOutside });
+  const outsideRef = useRef({ punto: onTouchDragPoint, drop: onTouchDropOutside });
   // L'aggiornamento sta in un effetto SENZA dipendenze, non nel corpo del
   // render: scrivere in un ref durante il render e' vietato dal compilatore
   // React («Cannot access refs during render») perche' rende il render non
@@ -286,7 +286,7 @@ export function PinnedTiles({
   // contenuto resta fresco quanto prima; il valore iniziale copre il primo
   // giro, ed e' gia' quello giusto.
   useEffect(() => {
-    fuoriRef.current = { punto: onTouchDragPoint, drop: onTouchDropOutside };
+    outsideRef.current = { punto: onTouchDragPoint, drop: onTouchDropOutside };
   });
 
   const clearDrag = useCallback(() => {
@@ -295,7 +295,7 @@ export function PinnedTiles({
     // (una chiamata, il dito che esce dallo schermo) non passa da nessun drop e
     // lascerebbe in lista una riga fantasma che non torna più indietro.
     const inVolo = dragKeyRef.current;
-    if (inVolo) fuoriRef.current.punto?.(inVolo, null);
+    if (inVolo) outsideRef.current.punto?.(inVolo, null);
     dragKeyRef.current = null;
     setDragKey(null);
     setDropAt(null);
@@ -518,7 +518,7 @@ export function PinnedTiles({
 
   /** Il dito è dentro il blocco dei fissati, anche se non su una cella. Col
    *  mouse è il `dragover` della sezione: lì il drop fissa e ACCODA. */
-  const dentroSezione = (x: number, y: number): boolean => {
+  const insideSection = (x: number, y: number): boolean => {
     const r = radice.current?.getBoundingClientRect();
     return !!r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
   };
@@ -531,7 +531,7 @@ export function PinnedTiles({
    * costruzione: chi arriva da fuori non sta muovendo nessuna tessera, ed è la
    * stessa cosa che `pinnedDropAllowed` riceve dal ramo `isForeignPane`.
    */
-  const esternoDalDito: PinnedExternalTouch = {
+  const externalFromFinger: PinnedExternalTouch = {
     move: (key, x, y) => {
       // Già fissata: non c'è niente da fissare, e disegnare una cella in arrivo
       // prometterebbe un drop che poi è un no-op.
@@ -541,7 +541,7 @@ export function PinnedTiles({
         setDropAt(null);
         setNewRowAt(null);
         setIncomingRow(null);
-        setAdopting(dentroSezione(x, y));
+        setAdopting(insideSection(x, y));
         return;
       }
       setAdopting(false);
@@ -563,7 +563,7 @@ export function PinnedTiles({
     },
     drop: (key, x, y) => {
       const target = touchTargetAt(x, y);
-      const dentro = dentroSezione(x, y);
+      const dentro = insideSection(x, y);
       clearDrag();
       if (byId.has(key) || !onPinItem) return;
       if (target && pinnedDropAllowed(rows, null, target)) {
@@ -586,7 +586,7 @@ export function PinnedTiles({
   // diretta durante l'effetto e' invisibile a chi legge il componente. Questa
   // e' la shape sanzionata per pubblicare un'API imperativa verso l'alto, e
   // fa esattamente la stessa cosa, compreso l'azzeramento allo smontaggio.
-  useImperativeHandle(externalTouch, () => esternoDalDito);
+  useImperativeHandle(externalTouch, () => externalFromFinger);
 
   const toggle = (item: SidebarItem) => {
     const willExpand = !aperta(item.id);

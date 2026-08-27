@@ -283,7 +283,7 @@ test.describe("Dal browser, per la porta d'ingresso", () => {
   });
 
   /** Una richiesta come la scriverebbe un telefono: un URL del relay, e basta. */
-  const dalTelefono = (percorso: string, extra: RequestInit = {}) =>
+  const fromPhone = (percorso: string, extra: RequestInit = {}) =>
     new Request(relay.indirizzo(percorso), extra);
 
   test("RELAY-E2E-06: una GET normale torna 200 col corpo giusto, e l'ospite resta l'ospite", async ({ request }) => {
@@ -298,7 +298,7 @@ test.describe("Dal browser, per la porta d'ingresso", () => {
 
     // 1. IL CONTROLLO POSITIVO, e insieme la cosa che mancava: una richiesta
     //    HTTPS qualunque entra e ne esce una `Response` qualunque.
-    const res = await relay.dalBrowser(dalTelefono(`/api/topics/${condivisa.id}/messages`, {
+    const res = await relay.dalBrowser(fromPhone(`/api/topics/${condivisa.id}/messages`, {
       headers: { cookie },
     }));
     expect(res.status, "una chat condivisa si legge dal ponte con una GET normale").toBe(200);
@@ -310,35 +310,35 @@ test.describe("Dal browser, per la porta d'ingresso", () => {
       headers: daOspite(cookie),
     });
     expect(dritto.status()).toBe(200);
-    const dalPonte = await res.text();
-    expect(dalPonte, "il corpo dal ponte deve essere identico a quello dalla porta").toBe(await dritto.text());
-    expect(() => JSON.parse(dalPonte) as unknown, "e deve restare JSON intero").not.toThrow();
+    const fromBridge = await res.text();
+    expect(fromBridge, "il corpo dal ponte deve essere identico a quello dalla porta").toBe(await dritto.text());
+    expect(() => JSON.parse(fromBridge) as unknown, "e deve restare JSON intero").not.toThrow();
     expect(res.headers.get("content-type") ?? "", "anche le intestazioni tornano indietro").toContain("json");
 
     // 3. E il CONFINAMENTO non cambia per essere passati dal ponte. Il peer che
     //    la macchina vede è `127.0.0.1` — cioè questo è esattamente il caso in
     //    cui un confine scritto male aprirebbe tutto.
-    const altrui = await relay.dalBrowser(dalTelefono(`/api/topics/${nascosta.id}/messages`, {
+    const altrui = await relay.dalBrowser(fromPhone(`/api/topics/${nascosta.id}/messages`, {
       headers: { cookie },
     }));
     expect([403, 404], "una chat non condivisa resta chiusa anche dal ponte").toContain(altrui.status);
 
-    const lista = await relay.dalBrowser(dalTelefono("/api/topics", { headers: { cookie } }));
+    const lista = await relay.dalBrowser(fromPhone("/api/topics", { headers: { cookie } }));
     expect(lista.status, "dal ponte non si diventa il padrone di casa").toBe(403);
 
-    const nudo = await relay.dalBrowser(dalTelefono("/api/topics"));
+    const nudo = await relay.dalBrowser(fromPhone("/api/topics"));
     expect(nudo.status, "senza identità, dal ponte, non si entra").toBe(401);
 
     // 4. …e non si scrive. Il rifiuto va guardato anche dalla porta del
     //    proprietario: un 403 su una scrittura già avvenuta sarebbe verde.
-    const patch = await relay.dalBrowser(dalTelefono(`/api/topics/${condivisa.id}`, {
+    const patch = await relay.dalBrowser(fromPhone(`/api/topics/${condivisa.id}`, {
       method: "PATCH",
       headers: { cookie, "content-type": "application/json" },
       body: JSON.stringify({ name: `E2E-Ponte-Rinominata-${stamp}` }),
     }));
     expect(patch.status, "PATCH dal ponte è rifiutata").toBe(403);
 
-    const creazione = await relay.dalBrowser(dalTelefono("/api/topics", {
+    const creazione = await relay.dalBrowser(fromPhone("/api/topics", {
       method: "POST",
       headers: { cookie, "content-type": "application/json" },
       body: JSON.stringify({ name: `E2E-Ponte-Abusiva-${stamp}` }),
@@ -382,7 +382,7 @@ test.describe("Dal browser, per la porta d'ingresso", () => {
       });
     }
 
-    const res = await relay.dalBrowser(dalTelefono(`/api/topics/${condivisa.id}/messages`, {
+    const res = await relay.dalBrowser(fromPhone(`/api/topics/${condivisa.id}/messages`, {
       headers: { cookie },
     }));
     expect(res.status).toBe(200);
@@ -419,7 +419,7 @@ test.describe("Dal browser, per la porta d'ingresso", () => {
     });
 
     const padrone = osservatorePadrone();
-    const sk = await relay.socketDalBrowser(dalTelefono("/ws", {
+    const sk = await relay.socketDalBrowser(fromPhone("/ws", {
       headers: { cookie, upgrade: "websocket", connection: "Upgrade" },
     }));
 
@@ -477,13 +477,13 @@ test.describe("Dal browser, per la porta d'ingresso", () => {
     // CONTROLLO POSITIVO: finché la macchina è collegata, la stessa identica
     // richiesta torna 200. Senza, il 503 di dopo sarebbe indistinguibile da un
     // ponte che non ha mai funzionato.
-    const prima = await relay.dalBrowser(dalTelefono(`/api/topics/${condivisa.id}/messages`, {
+    const prima = await relay.dalBrowser(fromPhone(`/api/topics/${condivisa.id}/messages`, {
       headers: { cookie },
     }));
     expect(prima.status, "con la macchina collegata si legge").toBe(200);
 
     // …e un socket vivo, che dopo dovrà morire DICENDO perché.
-    const sk = await relay.socketDalBrowser(dalTelefono("/ws", {
+    const sk = await relay.socketDalBrowser(fromPhone("/ws", {
       headers: { cookie, upgrade: "websocket", connection: "Upgrade" },
     }));
     expect(sk.stato).toBe(101);
@@ -497,7 +497,7 @@ test.describe("Dal browser, per la porta d'ingresso", () => {
     //    mezzo minuto, quindi «prima di cinque secondi» distingue una risposta
     //    da un'attesa che finisce per scadenza.
     const inizio = Date.now();
-    const dopo = await relay.dalBrowser(dalTelefono(`/api/topics/${condivisa.id}/messages`, {
+    const dopo = await relay.dalBrowser(fromPhone(`/api/topics/${condivisa.id}/messages`, {
       headers: { cookie },
     }));
     expect(dopo.status, "senza macchina collegata si risponde 503").toBe(503);

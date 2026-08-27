@@ -65,8 +65,8 @@ test.describe("git: cartella non tracciata dal repo che la contiene", () => {
 
     // Il ramo del repo ospite si legge ma non si apre: un checkout da qui
     // cambierebbe il repo di sopra sotto ai piedi dell'utente.
-    const etichettaRamo = git.locator("span").filter({ hasText: /e2e-host-repo.+ · main/ });
-    await expect(etichettaRamo).toHaveCount(1);
+    const labelBranch = git.locator("span").filter({ hasText: /e2e-host-repo.+ · main/ });
+    await expect(labelBranch).toHaveCount(1);
     await expect(git.locator("button").filter({ hasText: /· main$/ })).toHaveCount(0);
   });
 });

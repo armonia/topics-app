@@ -27,7 +27,7 @@ import {
 const AUDIO: SttAudio = { bytes: new Uint8Array([1, 2, 3, 4]), filename: "voice.webm", mimeType: "audio/webm" };
 
 /** Un env senza NIENTE: nessuna chiave, e i tre pezzi del whisper locale fissati su percorsi inesistenti. */
-function envVuoto(extra: Record<string, string | undefined> = {}): Record<string, string | undefined> {
+function emptyEnv(extra: Record<string, string | undefined> = {}): Record<string, string | undefined> {
   return {
     PATH: "",
     HOME: "/nonexistent-home-for-tests",
@@ -46,15 +46,15 @@ interface Chiamata { url: string; headers: Record<string, string>; form?: FormDa
  * come i test finiscono per NON controllare il messaggio, cioè l'unica parte
  * dell'errore che serve a chi lo legge.
  */
-const NESSUN_ERRORE = Symbol("nessun-errore");
-async function erroreDi(p: Promise<unknown>): Promise<Error> {
-  const esito = await p.then(() => NESSUN_ERRORE, (e: unknown) => e);
-  if (esito === NESSUN_ERRORE) throw new Error("atteso un errore, la promessa è invece riuscita");
+const NO_ERROR = Symbol("nessun-errore");
+async function errorOf(p: Promise<unknown>): Promise<Error> {
+  const esito = await p.then(() => NO_ERROR, (e: unknown) => e);
+  if (esito === NO_ERROR) throw new Error("atteso un errore, la promessa è invece riuscita");
   return esito as Error;
 }
 
 /** Fetch finto: registra ogni chiamata e risponde secondo una mappa host → esito. */
-function fetchFinta(rotte: { match: string; status?: number; body?: unknown; throws?: string }[]) {
+function fakeFetch(rotte: { match: string; status?: number; body?: unknown; throws?: string }[]) {
   const chiamate: Chiamata[] = [];
   const impl = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -79,7 +79,7 @@ function fetchFinta(rotte: { match: string; status?: number; body?: unknown; thr
 
 describe("resolveSttChain", () => {
   it("senza chiavi e senza whisper locale la catena è vuota, e ogni assenza ha il suo motivo", () => {
-    const { chain, all } = resolveSttChain(envVuoto());
+    const { chain, all } = resolveSttChain(emptyEnv());
     expect(chain).toHaveLength(0);
     expect(all.map(p => p.id)).toEqual(["elevenlabs", "openai", "deepgram", "groq", "local"]);
     expect(all.find(p => p.id === "openai")?.reason).toContain("OPENAI_API_KEY");
@@ -87,28 +87,28 @@ describe("resolveSttChain", () => {
   });
 
   it("una chiave presente accende il suo provider e lo mette in cima nell'ordine di default", () => {
-    const { chain } = resolveSttChain(envVuoto({ GROQ_API_KEY: "k", OPENAI_API_KEY: "k" }));
+    const { chain } = resolveSttChain(emptyEnv({ GROQ_API_KEY: "k", OPENAI_API_KEY: "k" }));
     expect(chain.map(p => p.id)).toEqual(["openai", "groq"]);
   });
 
   it("STT_PROVIDER fissa UN provider solo: chi lo scrive non vuole scoprire in bolletta di averne usato un altro", () => {
-    const { chain, pinned } = resolveSttChain(envVuoto({ STT_PROVIDER: "groq", GROQ_API_KEY: "k", OPENAI_API_KEY: "k" }));
+    const { chain, pinned } = resolveSttChain(emptyEnv({ STT_PROVIDER: "groq", GROQ_API_KEY: "k", OPENAI_API_KEY: "k" }));
     expect(pinned).toBe(true);
     expect(chain.map(p => p.id)).toEqual(["groq"]);
   });
 
   it("STT_PROVIDER accetta una lista e ne rispetta l'ordine scritto", () => {
-    const { chain } = resolveSttChain(envVuoto({ STT_PROVIDER: "groq,openai", GROQ_API_KEY: "k", OPENAI_API_KEY: "k" }));
+    const { chain } = resolveSttChain(emptyEnv({ STT_PROVIDER: "groq,openai", GROQ_API_KEY: "k", OPENAI_API_KEY: "k" }));
     expect(chain.map(p => p.id)).toEqual(["groq", "openai"]);
   });
 
   it("un nome inventato viene scartato invece di far esplodere la risoluzione", () => {
-    const { chain } = resolveSttChain(envVuoto({ STT_PROVIDER: "vaporware,openai", OPENAI_API_KEY: "k" }));
+    const { chain } = resolveSttChain(emptyEnv({ STT_PROVIDER: "vaporware,openai", OPENAI_API_KEY: "k" }));
     expect(chain.map(p => p.id)).toEqual(["openai"]);
   });
 
   it("il modello si sovrascrive per provider senza toccare gli altri", () => {
-    const { chain } = resolveSttChain(envVuoto({ OPENAI_API_KEY: "k", STT_MODEL_OPENAI: "whisper-1" }));
+    const { chain } = resolveSttChain(emptyEnv({ OPENAI_API_KEY: "k", STT_MODEL_OPENAI: "whisper-1" }));
     expect(chain[0].model).toBe("whisper-1");
   });
 });
@@ -121,7 +121,7 @@ describe("whisper locale: i binari si trovano anche col PATH scarno del Finder",
       const ffmpeg = join(dir, "ffmpeg");
       const model = join(dir, "ggml-large-v3.bin");
       for (const f of [whisper, ffmpeg, model]) writeFileSync(f, "x");
-      const env = envVuoto({ WHISPER_CLI_PATH: whisper, FFMPEG_PATH: ffmpeg, WHISPER_MODEL_PATH: model });
+      const env = emptyEnv({ WHISPER_CLI_PATH: whisper, FFMPEG_PATH: ffmpeg, WHISPER_MODEL_PATH: model });
       const cfg = localConfig(env);
       expect(cfg.whisperBin).toBe(whisper);
       expect(cfg.modelPath).toBe(model);
@@ -133,7 +133,7 @@ describe("whisper locale: i binari si trovano anche col PATH scarno del Finder",
   });
 
   it("un WHISPER_MODEL_PATH che punta al vuoto NON viene creduto sulla parola", () => {
-    expect(localConfig(envVuoto({ WHISPER_MODEL_PATH: "/nope/ggml-large-v3.bin" })).modelPath).toBeNull();
+    expect(localConfig(emptyEnv({ WHISPER_MODEL_PATH: "/nope/ggml-large-v3.bin" })).modelPath).toBeNull();
   });
 
   it("in una cartella con due modelli vince il più accurato, non il primo trovato", () => {
@@ -153,12 +153,12 @@ describe("whisper locale: i binari si trovano anche col PATH scarno del Finder",
 
 describe("cascata", () => {
   it("il primo provider che cade passa la mano, e il risultato dice CHI ha trascritto", async () => {
-    const { impl, chiamate } = fetchFinta([
+    const { impl, chiamate } = fakeFetch([
       { match: "elevenlabs.io", status: 500, body: { detail: "server on fire" } },
       { match: "api.openai.com", body: { text: "ciao mondo", languages: ["it"] } },
     ]);
     const out = await transcribe(AUDIO, {
-      env: envVuoto({ ELEVENLABS_API_KEY: "k1", OPENAI_API_KEY: "k2" }),
+      env: emptyEnv({ ELEVENLABS_API_KEY: "k1", OPENAI_API_KEY: "k2" }),
       fetchImpl: impl,
     });
     expect(out.transcript).toBe("ciao mondo");
@@ -171,22 +171,22 @@ describe("cascata", () => {
   });
 
   it("una fetch che ESPLODE (rete giù) non è diversa da un 500: si scende comunque", async () => {
-    const { impl } = fetchFinta([
+    const { impl } = fakeFetch([
       { match: "elevenlabs.io", throws: "ECONNREFUSED" },
       { match: "groq.com", body: { text: "fallback vivo" } },
     ]);
-    const out = await transcribe(AUDIO, { env: envVuoto({ ELEVENLABS_API_KEY: "k", GROQ_API_KEY: "k" }), fetchImpl: impl });
+    const out = await transcribe(AUDIO, { env: emptyEnv({ ELEVENLABS_API_KEY: "k", GROQ_API_KEY: "k" }), fetchImpl: impl });
     expect(out.provider).toBe("groq");
     expect(out.transcript).toBe("fallback vivo");
   });
 
   it("il whisper locale è l'ultimo gradino e regge quando il cloud è tutto giù", async () => {
-    const { impl } = fetchFinta([{ match: "elevenlabs.io", status: 401, body: { detail: "bad key" } }]);
+    const { impl } = fakeFetch([{ match: "elevenlabs.io", status: 401, body: { detail: "bad key" } }]);
     const dir = mkdtempSync(join(tmpdir(), "stt-cfg-"));
     try {
       for (const n of ["whisper-cli", "ffmpeg", "ggml-large-v3.bin"]) writeFileSync(join(dir, n), "x");
       const out = await transcribe(AUDIO, {
-        env: envVuoto({
+        env: emptyEnv({
           ELEVENLABS_API_KEY: "k",
           WHISPER_CLI_PATH: join(dir, "whisper-cli"),
           FFMPEG_PATH: join(dir, "ffmpeg"),
@@ -203,11 +203,11 @@ describe("cascata", () => {
   });
 
   it("caduti tutti, l'errore porta il motivo di OGNUNO — è l'unico modo perché «non trascrive» sia diagnosticabile", async () => {
-    const { impl } = fetchFinta([
+    const { impl } = fakeFetch([
       { match: "elevenlabs.io", status: 401, body: { detail: "invalid_api_key" } },
       { match: "api.openai.com", status: 429, body: { error: "rate limited" } },
     ]);
-    const err = await erroreDi(transcribe(AUDIO, { env: envVuoto({ ELEVENLABS_API_KEY: "k", OPENAI_API_KEY: "k" }), fetchImpl: impl }));
+    const err = await errorOf(transcribe(AUDIO, { env: emptyEnv({ ELEVENLABS_API_KEY: "k", OPENAI_API_KEY: "k" }), fetchImpl: impl }));
     expect(err).toBeInstanceOf(SttError);
     expect(err.message).toContain("elevenlabs");
     expect(err.message).toContain("invalid_api_key");
@@ -217,16 +217,16 @@ describe("cascata", () => {
   });
 
   it("catena vuota: l'errore elenca cosa manca, non un «STT failed»", async () => {
-    const err = await erroreDi(transcribe(AUDIO, { env: envVuoto() }));
+    const err = await errorOf(transcribe(AUDIO, { env: emptyEnv() }));
     expect(err.message).toMatch(/nessun provider/);
     expect(err.message).toContain("ELEVENLABS_API_KEY");
     expect(err.message).toContain("whisper-cli");
   });
 
   it("l'audio oltre il tetto viene rifiutato PRIMA di spendere una chiamata a pagamento", async () => {
-    const { impl, chiamate } = fetchFinta([{ match: "elevenlabs.io", body: { text: "mai arrivato" } }]);
+    const { impl, chiamate } = fakeFetch([{ match: "elevenlabs.io", body: { text: "mai arrivato" } }]);
     const grosso: SttAudio = { ...AUDIO, bytes: new Uint8Array(MAX_STT_BYTES + 1) };
-    const err = await erroreDi(transcribe(grosso, { env: envVuoto({ ELEVENLABS_API_KEY: "k" }), fetchImpl: impl }));
+    const err = await errorOf(transcribe(grosso, { env: emptyEnv({ ELEVENLABS_API_KEY: "k" }), fetchImpl: impl }));
     expect(err.message).toMatch(/troppo grande/);
     expect(chiamate).toHaveLength(0);
   });
@@ -240,15 +240,15 @@ describe("dettagli dei provider", () => {
       if (n === 1) return new Response(JSON.stringify({ detail: "model_not_found" }), { status: 422 });
       return new Response(JSON.stringify({ text: "va bene lo stesso", language_code: "it" }), { status: 200 });
     }) as unknown as typeof fetch;
-    const out = await transcribe(AUDIO, { env: envVuoto({ ELEVENLABS_API_KEY: "k" }), fetchImpl: impl });
+    const out = await transcribe(AUDIO, { env: emptyEnv({ ELEVENLABS_API_KEY: "k" }), fetchImpl: impl });
     expect(n).toBe(2);
     expect(out.model).toBe("scribe_v1");
     expect(out.transcript).toBe("va bene lo stesso");
   });
 
   it("ElevenLabs: niente diarizzazione né tag di eventi — chi detta non vuole «(laughter)» nel prompt", async () => {
-    const { impl, chiamate } = fetchFinta([{ match: "elevenlabs.io", body: { text: "x" } }]);
-    await transcribe(AUDIO, { env: envVuoto({ ELEVENLABS_API_KEY: "k" }), fetchImpl: impl });
+    const { impl, chiamate } = fakeFetch([{ match: "elevenlabs.io", body: { text: "x" } }]);
+    await transcribe(AUDIO, { env: emptyEnv({ ELEVENLABS_API_KEY: "k" }), fetchImpl: impl });
     const form = chiamate[0].form!;
     expect(form.get("model_id")).toBe("scribe_v2");
     expect(form.get("diarize")).toBe("false");
@@ -258,8 +258,8 @@ describe("dettagli dei provider", () => {
   });
 
   it("OpenAI: gpt-transcribe vuole `languages[]`, i modelli vecchi il singolare — mandarli entrambi è un 400", async () => {
-    const { impl, chiamate } = fetchFinta([{ match: "api.openai.com", body: { text: "x" } }]);
-    const base = envVuoto({ OPENAI_API_KEY: "k", STT_LANGUAGE: "it" });
+    const { impl, chiamate } = fakeFetch([{ match: "api.openai.com", body: { text: "x" } }]);
+    const base = emptyEnv({ OPENAI_API_KEY: "k", STT_LANGUAGE: "it" });
     await transcribe(AUDIO, { env: base, fetchImpl: impl });
     expect(chiamate[0].form!.get("languages[]")).toBe("it");
     expect(chiamate[0].form!.get("language")).toBeNull();
@@ -270,28 +270,28 @@ describe("dettagli dei provider", () => {
   });
 
   it("il prompt di dominio va a gpt-transcribe e NON ai modelli Whisper, dove finirebbe dentro la trascrizione", async () => {
-    const { impl, chiamate } = fetchFinta([
+    const { impl, chiamate } = fakeFetch([
       { match: "api.openai.com", body: { text: "x" } },
       { match: "groq.com", body: { text: "x" } },
     ]);
-    await transcribe(AUDIO, { env: envVuoto({ OPENAI_API_KEY: "k" }), fetchImpl: impl });
+    await transcribe(AUDIO, { env: emptyEnv({ OPENAI_API_KEY: "k" }), fetchImpl: impl });
     expect(String(chiamate[0].form!.get("prompt"))).toContain("rebase");
 
-    await transcribe(AUDIO, { env: envVuoto({ GROQ_API_KEY: "k" }), fetchImpl: impl });
+    await transcribe(AUDIO, { env: emptyEnv({ GROQ_API_KEY: "k" }), fetchImpl: impl });
     expect(chiamate[1].form!.get("prompt")).toBeNull();
   });
 
   it("STT_PROMPT vuota spegne il suggerimento anche su OpenAI", async () => {
-    const { impl, chiamate } = fetchFinta([{ match: "api.openai.com", body: { text: "x" } }]);
-    await transcribe(AUDIO, { env: envVuoto({ OPENAI_API_KEY: "k", STT_PROMPT: "" }), fetchImpl: impl });
+    const { impl, chiamate } = fakeFetch([{ match: "api.openai.com", body: { text: "x" } }]);
+    await transcribe(AUDIO, { env: emptyEnv({ OPENAI_API_KEY: "k", STT_PROMPT: "" }), fetchImpl: impl });
     expect(chiamate[0].form!.get("prompt")).toBeNull();
   });
 
   it("Deepgram: senza lingua fissata si chiede `multi`, altrimenti Nova trascrive l'italiano in fonetica inglese", async () => {
-    const { impl, chiamate } = fetchFinta([
+    const { impl, chiamate } = fakeFetch([
       { match: "deepgram.com", body: { results: { channels: [{ alternatives: [{ transcript: "buongiorno" }], detected_language: "it" }] } } },
     ]);
-    const out = await transcribe(AUDIO, { env: envVuoto({ DEEPGRAM_API_KEY: "k" }), fetchImpl: impl });
+    const out = await transcribe(AUDIO, { env: emptyEnv({ DEEPGRAM_API_KEY: "k" }), fetchImpl: impl });
     expect(new URL(chiamate[0].url).searchParams.get("language")).toBe("multi");
     expect(new URL(chiamate[0].url).searchParams.get("model")).toBe("nova-3");
     expect(out.transcript).toBe("buongiorno");
@@ -315,8 +315,8 @@ describe("il rumore che Whisper produce sul silenzio", () => {
   });
 
   it("un artefatto in risposta esce come stringa vuota, non come messaggio da incollare", async () => {
-    const { impl } = fetchFinta([{ match: "groq.com", body: { text: "Sottotitoli e revisione a cura di QTSS" } }]);
-    const out = await transcribe(AUDIO, { env: envVuoto({ GROQ_API_KEY: "k" }), fetchImpl: impl });
+    const { impl } = fakeFetch([{ match: "groq.com", body: { text: "Sottotitoli e revisione a cura di QTSS" } }]);
+    const out = await transcribe(AUDIO, { env: emptyEnv({ GROQ_API_KEY: "k" }), fetchImpl: impl });
     expect(out.transcript).toBe("");
     expect(out.provider).toBe("groq");
   });
@@ -324,7 +324,7 @@ describe("il rumore che Whisper produce sul silenzio", () => {
 
 describe("sttCapabilities", () => {
   it("dice cosa risponderà e cosa manca, così il client non deve indovinarlo", () => {
-    const caps = sttCapabilities(envVuoto({ OPENAI_API_KEY: "k" }));
+    const caps = sttCapabilities(emptyEnv({ OPENAI_API_KEY: "k" }));
     expect(caps.available).toBe(true);
     expect(caps.provider).toBe("openai");
     expect(caps.model).toBe("gpt-transcribe");
@@ -332,7 +332,7 @@ describe("sttCapabilities", () => {
   });
 
   it("senza niente configurato è `available: false` — il tasto di dettatura ha un motivo per sparire", () => {
-    const caps = sttCapabilities(envVuoto());
+    const caps = sttCapabilities(emptyEnv());
     expect(caps.available).toBe(false);
     expect(caps.provider).toBeNull();
   });

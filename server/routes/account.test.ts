@@ -71,7 +71,7 @@ function risposta(status: number, corpo: unknown): Response {
 }
 
 /** Il servizio che funziona: manda il codice e riconosce `123456`. */
-function servizioBuono(): { f: typeof fetch; chiamate: () => number } {
+function goodService(): { f: typeof fetch; chiamate: () => number } {
   let n = 0;
   const f = ((url: string, init: RequestInit) => {
     n += 1;
@@ -85,7 +85,7 @@ function servizioBuono(): { f: typeof fetch; chiamate: () => number } {
 
 /** La rete caduta, che conta anche i tentativi: serve a dimostrare che la `GET`
  *  non ne fa nessuno, invece di limitarsi a non fallire. */
-function servizioRotto(): { f: typeof fetch; chiamate: () => number } {
+function brokenService(): { f: typeof fetch; chiamate: () => number } {
   let n = 0;
   const f = (() => { n += 1; return Promise.reject(new Error("ECONNREFUSED")); }) as unknown as typeof fetch;
   return { f, chiamate: () => n };
@@ -116,7 +116,7 @@ function chiama(rotta: Rotta, method: string, percorso: string, corpo?: unknown)
   return rotta(req, url, url.pathname, method) as Promise<Response | null>;
 }
 
-interface StatoSulFilo {
+interface StateOnThread {
   configured: boolean; linked: boolean; accountId: string | null; email: string | null;
   personId: string | null; personName: string | null; linkedAt: number | null;
   ok?: boolean; reconciled?: string; code?: string;
@@ -129,11 +129,11 @@ describe("rotta account · leggere non fallisce mai e non tocca la rete", () => 
   beforeEach(() => { db = dbFresco(); });
 
   test("senza servizio configurato: 200, `configured: false`, e la persona c'è", async () => {
-    const rete = servizioRotto();
+    const rete = brokenService();
     const rotta = createAccountRouter(creaCtx(db), { env: {}, fetchImpl: rete.f });
     const r = await chiama(rotta, "GET", "/api/auth/account");
     expect(r?.status).toBe(200);
-    const b = await r!.json() as StatoSulFilo;
+    const b = await r!.json() as StateOnThread;
     expect(b.configured).toBe(false);
     expect(b.linked).toBe(false);
     expect(b.personId).toBe(proprietario(db).id);
@@ -142,9 +142,9 @@ describe("rotta account · leggere non fallisce mai e non tocca la rete", () => 
   });
 
   test("col servizio configurato la GET continua a non chiamare nessuno", async () => {
-    const rete = servizioBuono();
+    const rete = goodService();
     const rotta = createAccountRouter(creaCtx(db), { env: { TOPICS_ACCOUNT_URL: BASE }, fetchImpl: rete.f });
-    const b = await (await chiama(rotta, "GET", "/api/auth/account"))!.json() as StatoSulFilo;
+    const b = await (await chiama(rotta, "GET", "/api/auth/account"))!.json() as StateOnThread;
     expect(b.configured).toBe(true);
     expect(rete.chiamate()).toBe(0);
   });
@@ -155,7 +155,7 @@ describe("attivazione · codice via email", () => {
   beforeEach(() => { db = dbFresco(); });
 
   test("il giro completo: codice, verifica, e l'account finisce sulla persona che c'era", async () => {
-    const rete = servizioBuono();
+    const rete = goodService();
     const rotta = createAccountRouter(creaCtx(db), {
       env: { TOPICS_ACCOUNT_URL: BASE }, fetchImpl: rete.f, now: () => 4242,
     });
@@ -168,7 +168,7 @@ describe("attivazione · codice via email", () => {
 
     const v = await chiama(rotta, "POST", "/api/auth/account/verify", { email: EMAIL, code: "123456" });
     expect(v?.status).toBe(200);
-    const b = await v!.json() as StatoSulFilo;
+    const b = await v!.json() as StateOnThread;
     expect(b.ok).toBe(true);
     // Sul filo esce lo STATO e nient'altro: `reconciled` non c'è più, perché
     // nessuna superficie lo leggeva — e un campo che nessuno legge è una
@@ -183,14 +183,14 @@ describe("attivazione · codice via email", () => {
     expect((db.query("SELECT COUNT(*) AS n FROM people").get() as { n: number }).n).toBe(personeprima);
 
     // E lo stato letto dopo dice la stessa cosa: una forma sola.
-    const dopo = await (await chiama(rotta, "GET", "/api/auth/account"))!.json() as StatoSulFilo;
+    const dopo = await (await chiama(rotta, "GET", "/api/auth/account"))!.json() as StateOnThread;
     expect(dopo.linked).toBe(true);
     expect(dopo.accountId).toBe("acct-77");
     expect(dopo.email).toBe(EMAIL);
   });
 
   test("un indirizzo storto è 400; un codice sbagliato è 409 con `bad_code`", async () => {
-    const rete = servizioBuono();
+    const rete = goodService();
     const rotta = createAccountRouter(creaCtx(db), { env: { TOPICS_ACCOUNT_URL: BASE }, fetchImpl: rete.f });
 
     const storto = await chiama(rotta, "POST", "/api/auth/account/code", { email: "attilio" });
@@ -201,12 +201,12 @@ describe("attivazione · codice via email", () => {
     expect(sbagliato?.status).toBe(409);
     expect(await sbagliato!.json()).toEqual({ ok: false, code: "bad_code" });
     // E niente si è agganciato.
-    const s = await (await chiama(rotta, "GET", "/api/auth/account"))!.json() as StatoSulFilo;
+    const s = await (await chiama(rotta, "GET", "/api/auth/account"))!.json() as StateOnThread;
     expect(s.linked).toBe(false);
   });
 
   test("senza servizio configurato l'attivazione si rifiuta con un codice, non con un 5xx", async () => {
-    const rotta = createAccountRouter(creaCtx(db), { env: {}, fetchImpl: servizioRotto().f });
+    const rotta = createAccountRouter(creaCtx(db), { env: {}, fetchImpl: brokenService().f });
     const r = await chiama(rotta, "POST", "/api/auth/account/code", { email: EMAIL });
     expect(r?.status).toBe(409);
     expect(await r!.json()).toEqual({ ok: false, code: "not_configured" });
@@ -230,7 +230,7 @@ describe("i tre verbi parlano della STESSA persona", () => {
    */
   test("l'indirizzo di UN'ALTRA riga si rifiuta invece di agganciarsi lì", async () => {
     const rotta = createAccountRouter(creaCtx(db), {
-      env: { TOPICS_ACCOUNT_URL: BASE }, fetchImpl: servizioBuono().f, now: () => 4242,
+      env: { TOPICS_ACCOUNT_URL: BASE }, fetchImpl: goodService().f, now: () => 4242,
     });
     const io = proprietario(db);
     // Mircea era in rubrica con QUELL'indirizzo, e non è chi sta agendo.
@@ -244,7 +244,7 @@ describe("i tre verbi parlano della STESSA persona", () => {
     expect(rigaPersona(db, mircea).remote_id).toBeNull();
     expect(rigaPersona(db, io.id).remote_id).toBeNull();
 
-    const s = await (await chiama(rotta, "GET", "/api/auth/account"))!.json() as StatoSulFilo;
+    const s = await (await chiama(rotta, "GET", "/api/auth/account"))!.json() as StateOnThread;
     expect(s.linked).toBe(false);
     expect(s.personId).toBe(io.id);
   });
@@ -254,7 +254,7 @@ describe("i tre verbi parlano della STESSA persona", () => {
     //    codice devono poter riuscire, altrimenti «si rifiuta» passerebbe anche
     //    con una verifica rotta in ogni caso.
     const rotta = createAccountRouter(creaCtx(db), {
-      env: { TOPICS_ACCOUNT_URL: BASE }, fetchImpl: servizioBuono().f, now: () => 4242,
+      env: { TOPICS_ACCOUNT_URL: BASE }, fetchImpl: goodService().f, now: () => 4242,
     });
     const io = proprietario(db);
     // La mia riga porta quell'indirizzo da prima: è il ramo `email`, quello che
@@ -263,13 +263,13 @@ describe("i tre verbi parlano della STESSA persona", () => {
 
     const v = await chiama(rotta, "POST", "/api/auth/account/verify", { email: EMAIL, code: "123456" });
     expect(v?.status).toBe(200);
-    const b = await v!.json() as StatoSulFilo;
+    const b = await v!.json() as StateOnThread;
     expect(b.ok).toBe(true);
     expect(b.linked).toBe(true);
     expect(b.personId).toBe(io.id);
 
     // La GET dice la stessa cosa della verifica: stessa persona, stesso account.
-    const dopo = await (await chiama(rotta, "GET", "/api/auth/account"))!.json() as StatoSulFilo;
+    const dopo = await (await chiama(rotta, "GET", "/api/auth/account"))!.json() as StateOnThread;
     expect(dopo.linked).toBe(true);
     expect(dopo.accountId).toBe("acct-77");
     expect(dopo.personId).toBe(b.personId);
@@ -279,7 +279,7 @@ describe("i tre verbi parlano della STESSA persona", () => {
     // niente da togliere, quindi la prova è la colonna, non lo stato.
     const d = await chiama(rotta, "DELETE", "/api/auth/account");
     expect(d?.status).toBe(200);
-    expect(((await d!.json()) as StatoSulFilo).linked).toBe(false);
+    expect(((await d!.json()) as StateOnThread).linked).toBe(false);
     expect(rigaPersona(db, io.id).remote_id).toBeNull();
     // L'indirizzo resta: era un'etichetta della rubrica da prima dell'account.
     expect(rigaPersona(db, io.id).email).toBe(EMAIL);
@@ -292,23 +292,23 @@ describe("ORG-08 · perdere il servizio non toglie niente", () => {
 
   test("collegato ieri, servizio giù oggi: si resta collegati, e il nuovo tentativo lo dice", async () => {
     // 1. Si collega con il servizio funzionante.
-    const buono = servizioBuono();
-    const conRete = createAccountRouter(creaCtx(db), {
+    const buono = goodService();
+    const withNetwork = createAccountRouter(creaCtx(db), {
       env: { TOPICS_ACCOUNT_URL: BASE }, fetchImpl: buono.f, now: () => 100,
     });
-    await chiama(conRete, "POST", "/api/auth/account/code", { email: EMAIL });
-    const v = await chiama(conRete, "POST", "/api/auth/account/verify", { email: EMAIL, code: "123456" });
-    expect(((await v!.json()) as StatoSulFilo).linked).toBe(true);
+    await chiama(withNetwork, "POST", "/api/auth/account/code", { email: EMAIL });
+    const v = await chiama(withNetwork, "POST", "/api/auth/account/verify", { email: EMAIL, code: "123456" });
+    expect(((await v!.json()) as StateOnThread).linked).toBe(true);
 
     // 2. Il servizio sparisce.
-    const rotto = servizioRotto();
-    const senzaRete = createAccountRouter(creaCtx(db), {
+    const rotto = brokenService();
+    const withoutNetwork = createAccountRouter(creaCtx(db), {
       env: { TOPICS_ACCOUNT_URL: BASE }, fetchImpl: rotto.f,
     });
 
-    const s = await chiama(senzaRete, "GET", "/api/auth/account");
+    const s = await chiama(withoutNetwork, "GET", "/api/auth/account");
     expect(s?.status).toBe(200);
-    const b = await s!.json() as StatoSulFilo;
+    const b = await s!.json() as StateOnThread;
     expect(b.linked).toBe(true);
     expect(b.accountId).toBe("acct-77");
     expect(b.linkedAt).toBe(100);
@@ -316,21 +316,21 @@ describe("ORG-08 · perdere il servizio non toglie niente", () => {
     // ── CONTROLLO POSITIVO. Senza questo, «resta collegato» passerebbe anche
     //    con una rete perfettamente viva, e l'asserzione qui sopra non
     //    dimostrerebbe niente: il canale di osservazione va provato rotto.
-    const tentativo = await chiama(senzaRete, "POST", "/api/auth/account/code", { email: EMAIL });
+    const tentativo = await chiama(withoutNetwork, "POST", "/api/auth/account/code", { email: EMAIL });
     expect(tentativo?.status).toBe(409);
     expect(await tentativo!.json()).toEqual({ ok: false, code: "service_unreachable" });
     expect(rotto.chiamate()).toBe(1);
 
     // 3. E staccarsi funziona lo stesso: è un gesto locale.
-    const d = await chiama(senzaRete, "DELETE", "/api/auth/account");
+    const d = await chiama(withoutNetwork, "DELETE", "/api/auth/account");
     expect(d?.status).toBe(200);
-    expect(((await d!.json()) as StatoSulFilo).linked).toBe(false);
+    expect(((await d!.json()) as StateOnThread).linked).toBe(false);
     // Nessun'altra richiesta in uscita: né la GET né la DELETE ne fanno.
     expect(rotto.chiamate()).toBe(1);
   });
 
   test("nessun ramo di questa rotta risponde 5xx", async () => {
-    const rotto = servizioRotto();
+    const rotto = brokenService();
     const casi: Array<[string, string, unknown]> = [
       ["GET", "/api/auth/account", undefined],
       ["DELETE", "/api/auth/account", undefined],
@@ -353,10 +353,10 @@ describe("ORG-08 · perdere il servizio non toglie niente", () => {
 
   test("uno schema anteriore alla 084 non rompe la rotta: dice «non collegato»", async () => {
     const nudo = new Database(":memory:");
-    const rotta = createAccountRouter(creaCtx(nudo), { env: { TOPICS_ACCOUNT_URL: BASE }, fetchImpl: servizioRotto().f });
+    const rotta = createAccountRouter(creaCtx(nudo), { env: { TOPICS_ACCOUNT_URL: BASE }, fetchImpl: brokenService().f });
     const r = await chiama(rotta, "GET", "/api/auth/account");
     expect(r?.status).toBe(200);
-    const b = await r!.json() as StatoSulFilo;
+    const b = await r!.json() as StateOnThread;
     expect(b.linked).toBe(false);
     expect(b.personId).toBeNull();
   });
@@ -370,10 +370,10 @@ describe("una domanda sola, una risposta sola", () => {
     // Questo test è l'unico posto in cui quella divergenza si vede.
     const db = dbFresco();
     const ctx = creaCtx(db);
-    const account = createAccountRouter(ctx, { env: { TOPICS_ACCOUNT_URL: BASE }, fetchImpl: servizioBuono().f });
+    const account = createAccountRouter(ctx, { env: { TOPICS_ACCOUNT_URL: BASE }, fetchImpl: goodService().f });
     const auth = createAuthRouter(ctx);
 
-    const daAccount = await (await chiama(account, "GET", "/api/auth/account"))!.json() as StatoSulFilo;
+    const daAccount = await (await chiama(account, "GET", "/api/auth/account"))!.json() as StateOnThread;
 
     const url = new URL("http://127.0.0.1:3333/api/auth/me");
     const r = await auth(new Request(url), url, url.pathname, "GET");
@@ -397,7 +397,7 @@ describe("gli ospiti non arrivano qui", () => {
   });
 
   test("percorsi altrui: la rotta si sfila invece di rispondere", async () => {
-    const rotta = createAccountRouter(creaCtx(dbFresco()), { env: {}, fetchImpl: servizioRotto().f });
+    const rotta = createAccountRouter(creaCtx(dbFresco()), { env: {}, fetchImpl: brokenService().f });
     expect(await chiama(rotta, "GET", "/api/auth/me")).toBeNull();
     expect(await chiama(rotta, "PATCH", "/api/auth/account")).toBeNull();
   });

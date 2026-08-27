@@ -43,7 +43,7 @@ const planoInAttesa: ToolCall = {
   },
 };
 
-const domandaQualunque: ToolCall = {
+const questionAny: ToolCall = {
   id: 'toolu_ask',
   name: 'AskUserQuestion',
   args: {},
@@ -70,7 +70,7 @@ describe('findPendingPlan — il blocco strutturato viene prima', () => {
   test('un ask qualunque aperto NON è un piano, e blocca il ripiego', () => {
     // Due pannelli che aspettano risposte diverse sono il modo di rispondere
     // alla cosa sbagliata: qui la palla è dell'ask, e la barra tace.
-    expect(findPendingPlan({ messages: [assistant(PROSA, [domandaQualunque])], autonomy: 'ask' })).toBeNull();
+    expect(findPendingPlan({ messages: [assistant(PROSA, [questionAny])], autonomy: 'ask' })).toBeNull();
   });
 });
 

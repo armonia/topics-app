@@ -147,7 +147,7 @@ function macchina(opts: { porta: number | null; credito?: number; arretratoMax?:
 }
 
 /** L'ospite finto attaccato alla macchina: due funzioni, nessuna rete. */
-function ospiteSu(m: ReturnType<typeof macchina>, o: { credito?: number } = {}) {
+function guestOn(m: ReturnType<typeof macchina>, o: { credito?: number } = {}) {
   const ospite = creaOspiteWs({
     invia: (p) => m.sock.onmessage?.({ data: JSON.stringify({ t: "to-guest", to: SID, payload: p }) }),
     ...(o.credito !== undefined ? { credito: o.credito } : {}),
@@ -162,7 +162,7 @@ function ospiteSu(m: ReturnType<typeof macchina>, o: { credito?: number } = {}) 
 /** Il proxy NUDO, senza il client del relay attorno. Serve dove la cosa da
  *  guardare è un'opzione che `creaRelayClient` non gira — il tetto dei socket —
  *  e dove i frame che escono si vogliono leggere uno per uno. */
-function proxyNudo(opts: { porta: number; maxSocket?: number }) {
+function bareProxy(opts: { porta: number; maxSocket?: number }) {
   const arrivati: FrameTubo[] = [];
   const p = creaProxyTubo({
     portaTunnel: opts.porta,
@@ -210,7 +210,7 @@ describe("il ciclo di vita di un WebSocket dentro il tubo", () => {
   it("si apre, parla nei due versi e si chiude col suo codice", async () => {
     const up = ascoltatore();
     const m = macchina({ porta: up.porta });
-    const ospite = ospiteSu(m);
+    const ospite = guestOn(m);
 
     const messaggi: Array<string | Uint8Array> = [];
     let aperto = false;
@@ -278,7 +278,7 @@ describe("il ciclo di vita di un WebSocket dentro il tubo", () => {
   it("quando è la macchina a chiudere, codice e motivo arrivano interi", async () => {
     const up = ascoltatore();
     const m = macchina({ porta: up.porta });
-    const ospite = ospiteSu(m);
+    const ospite = guestOn(m);
     let aperto = false;
     const chiusure: Array<{ c: number; r: string }> = [];
     const sk = ospite.apri("/ws", {
@@ -297,7 +297,7 @@ describe("il ciclo di vita di un WebSocket dentro il tubo", () => {
   it("porta i byte, non solo il testo", async () => {
     const up = ascoltatore();
     const m = macchina({ porta: up.porta });
-    const ospite = ospiteSu(m);
+    const ospite = guestOn(m);
     const giu: Array<string | Uint8Array> = [];
     let aperto = false;
     const sk = ospite.apri("/ws/browser/b1", {
@@ -318,7 +318,7 @@ describe("il ciclo di vita di un WebSocket dentro il tubo", () => {
   it("quattro socket insieme hanno ognuno vita sua", async () => {
     const up = ascoltatore();
     const m = macchina({ porta: up.porta });
-    const ospite = ospiteSu(m);
+    const ospite = guestOn(m);
 
     const arrivati: string[][] = [[], [], [], []];
     const percorsi = ["/ws", "/ws/terminal/t1", "/ws/terminal/t2", "/ws/browser/b1"];
@@ -350,7 +350,7 @@ describe("il ciclo di vita di un WebSocket dentro il tubo", () => {
   it("un messaggio mandato prima della stretta di mano non si perde", async () => {
     const up = ascoltatore();
     const m = macchina({ porta: up.porta });
-    const ospite = ospiteSu(m);
+    const ospite = guestOn(m);
     const sk = ospite.apri("/ws/terminal/t1", {});
     // Nessuna attesa: si scrive mentre il socket vero sta ancora nascendo.
     sk.manda("subito");
@@ -372,22 +372,22 @@ describe("il ciclo di vita di un WebSocket dentro il tubo", () => {
   it("aprire e chiudere non consuma i canali: dopo il tetto se ne apre ancora uno", async () => {
     const up = ascoltatore();
     const m = macchina({ porta: up.porta });
-    const ospite = ospiteSu(m);
+    const ospite = guestOn(m);
 
     // Oltre il `maxStream` di serie del riassemblatore, che è 64.
     const GIRI = 70;
-    let apertiDavvero = 0;
+    let openReally = 0;
     for (let i = 0; i < GIRI; i++) {
       let aperto = false;
       const sk = ospite.apri("/ws", { suAperto: () => { aperto = true; } });
       if (!(await fino(() => aperto))) break;
-      apertiDavvero += 1;
+      openReally += 1;
       sk.chiudi();
       if (!(await fino(() => up.vivi() === 0))) break;
     }
 
     // Il conto è la misura: senza la restituzione si ferma a 64.
-    expect(apertiDavvero).toBe(GIRI);
+    expect(openReally).toBe(GIRI);
     // …e il controllo positivo che l'ascoltatore stava davvero guardando: ogni
     // giro è stata una stretta di mano vera, non un richiamo chiamato a vuoto.
     expect(up.aperti.length).toBe(GIRI);
@@ -405,7 +405,7 @@ describe("il ciclo di vita di un WebSocket dentro il tubo", () => {
    */
   it("quando è l'ospite a chiudere, la macchina restituisce comunque il PROPRIO canale", async () => {
     const up = ascoltatore();
-    const t = proxyNudo({ porta: up.porta });
+    const t = bareProxy({ porta: up.porta });
     t.apri(1);
     // Si aspetta il CANALE, non l'ascoltatore: che l'upgrade sia stato accolto
     // di sopra e che la macchina abbia aperto la sua corsia sono due eventi
@@ -436,7 +436,7 @@ describe("il ciclo di vita di un WebSocket dentro il tubo", () => {
   it("l'ospite che se ne va porta con sé il socket vero", async () => {
     const up = ascoltatore();
     const m = macchina({ porta: up.porta });
-    const ospite = ospiteSu(m);
+    const ospite = guestOn(m);
     ospite.apri("/ws/terminal/t1", {});
     expect(await fino(() => up.vivi() === 1)).toBe(true);
 
@@ -452,7 +452,7 @@ describe("l'apertura che non riesce lo dice, invece di lasciare aspettare", () =
   it("senza la porta del tunnel: 503, e nessun socket", async () => {
     const up = ascoltatore();
     const m = macchina({ porta: null });
-    const ospite = ospiteSu(m);
+    const ospite = guestOn(m);
     let stato: number | undefined;
     const sk = ospite.apri("/ws", { suChiuso: (_c, _r, s) => { stato = s; } });
     expect(await fino(() => sk.stato() === "chiuso")).toBe(true);
@@ -463,7 +463,7 @@ describe("l'apertura che non riesce lo dice, invece di lasciare aspettare", () =
   it("un percorso che sceglie un'altra destinazione: 400, e non si prova nemmeno", async () => {
     const up = ascoltatore();
     const m = macchina({ porta: up.porta });
-    const ospite = ospiteSu(m);
+    const ospite = guestOn(m);
     let stato: number | undefined;
     const sk = ospite.apri("//altra-macchina/ws", { suChiuso: (_c, _r, s) => { stato = s; } });
     expect(await fino(() => sk.stato() === "chiuso")).toBe(true);
@@ -479,7 +479,7 @@ describe("l'apertura che non riesce lo dice, invece di lasciare aspettare", () =
   it("una stretta di mano rifiutata dall'ascoltatore: 502", async () => {
     const up = ascoltatore();
     const m = macchina({ porta: up.porta });
-    const ospite = ospiteSu(m);
+    const ospite = guestOn(m);
     let stato: number | undefined;
     // `/altro` non è sotto `/ws`: l'ascoltatore risponde 404 e l'upgrade non
     // avviene.
@@ -499,7 +499,7 @@ describe("l'apertura che non riesce lo dice, invece di lasciare aspettare", () =
    */
   it("una sessione non può tenere più socket del suo tetto", async () => {
     const up = ascoltatore();
-    const t = proxyNudo({ porta: up.porta, maxSocket: 3 });
+    const t = bareProxy({ porta: up.porta, maxSocket: 3 });
 
     // Gli stream dell'ospite sono i dispari: la parità è il capo che li apre.
     for (let i = 0; i < 3; i++) t.apri(1 + i * 2);
@@ -542,7 +542,7 @@ describe("l'apertura che non riesce lo dice, invece di lasciare aspettare", () =
 
 describe("il credito: chi produce troppo in fretta si deve poter fermare", () => {
   /** Un ospite CRUDO che non restituisce mai credito — è il telefono lento. */
-  function ospiteSordo(m: ReturnType<typeof macchina>) {
+  function silentGuest(m: ReturnType<typeof macchina>) {
     const arrivati: FrameTubo[] = [];
     m.sock.consegna = (d) => {
       const msg = leggiMessaggio(JSON.parse(d));
@@ -563,7 +563,7 @@ describe("il credito: chi produce troppo in fretta si deve poter fermare", () =>
     // Una finestra da due messaggi da cinque byte: abbastanza per vedere il
     // «fermati» senza mezzo MiB di terminale.
     const m = macchina({ porta: up.porta, credito: costoMessaggio(5) * 2 });
-    const o = ospiteSordo(m);
+    const o = silentGuest(m);
 
     o.manda({ f: "open", s: 1, n: 0, k: GENERE_WS, h: scriviTestaWs({ p: "/ws/terminal/t1" }), c: true });
     expect(await fino(() => up.vivi() === 1)).toBe(true);
@@ -589,7 +589,7 @@ describe("il credito: chi produce troppo in fretta si deve poter fermare", () =>
   it("un ospite che non consuma MAI si fa chiudere, invece di far crescere la memoria", async () => {
     const up = ascoltatore();
     const m = macchina({ porta: up.porta, credito: 1, arretratoMax: 32 });
-    const o = ospiteSordo(m);
+    const o = silentGuest(m);
 
     o.manda({ f: "open", s: 1, n: 0, k: GENERE_WS, h: scriviTestaWs({ p: "/ws/terminal/t1" }), c: true });
     expect(await fino(() => up.vivi() === 1)).toBe(true);
@@ -613,7 +613,7 @@ describe("il credito: chi produce troppo in fretta si deve poter fermare", () =>
   it("il credito torna solo DOPO la consegna, non all'arrivo", async () => {
     const up = ascoltatore();
     const m = macchina({ porta: up.porta });
-    const ospite = ospiteSu(m, { credito: costoMessaggio(4) });
+    const ospite = guestOn(m, { credito: costoMessaggio(4) });
     const sk = ospite.apri("/ws", {});
 
     // Si scrive mentre la stretta di mano è ancora in corso: il messaggio
@@ -653,7 +653,7 @@ describe("proxy ws · le due righe che nessun test reggeva", () => {
     // socket nuovo viene rifiutato con `too-many-streams`. Un tetto che si
     // CONSUMA è una scadenza travestita da limite.
     const up = ascoltatore();
-    const t = proxyNudo({ porta: up.porta, maxSocket: 64 });
+    const t = bareProxy({ porta: up.porta, maxSocket: 64 });
 
     for (let i = 0; i < 64; i++) {
       const sIn = 1 + i * 4;
@@ -691,7 +691,7 @@ describe("proxy ws · le due righe che nessun test reggeva", () => {
     // mandare: passarlo pari pari a `close()` è un errore che uccide il
     // socket vero invece di chiuderlo.
     const up = ascoltatore();
-    const t = proxyNudo({ porta: up.porta });
+    const t = bareProxy({ porta: up.porta });
     t.apri(1);
     // Si aspetta il CANALE della macchina, non l'ascoltatore. È la stessa
     // ragione scritta più su, e qui era la riga che rendeva il test un dado:
@@ -732,7 +732,7 @@ describe("proxy ws · le due righe che nessun test reggeva", () => {
     // ancora arrivato niente, quindi la corsa è armata per costruzione e non
     // per fortuna.
     const up = ascoltatore({ carico: 30 });
-    const t = proxyNudo({ porta: up.porta });
+    const t = bareProxy({ porta: up.porta });
     t.apri(1);
     expect(await fino(() => up.aperti.length === 1)).toBe(true);
     // La precondizione, dichiarata: l'upgrade è accolto di sopra e il canale

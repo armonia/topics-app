@@ -374,7 +374,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   const rowThread = useMemo(() => cardCommentsFromRow(task), [task]);
   const lastComment = rowThread?.latest ?? thread?.latest ?? null;
   /** Chi parla non e' una persona ne' un agente: vedi `isMachineVoice`. */
-  const noteDiMacchina = lastComment ? isMachineVoice(lastComment) : false;
+  const notesOfMachine = lastComment ? isMachineVoice(lastComment) : false;
   const humanContext = rowThread ? rowThread.humanContext : thread?.humanContext ?? null;
   // Plain text: the context row is a single clamped line, so markdown blocks
   // would only leak their syntax into it.
@@ -1300,7 +1300,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               // senza guadagno. Il testo NON viene tagliato: e' tutto li',
               // basta un click - e chi ha ripiegato una card la ritrova
               // ripiegata, perche' lo stato vive per card.
-              className={`text-xs leading-relaxed ${noteDiMacchina ? 'text-app-text-muted' : 'text-app-text-heading'} ${COMPACT_MD_CLS} ${commentoAperto ? '' : 'line-clamp-[10]'}`}
+              className={`text-xs leading-relaxed ${notesOfMachine ? 'text-app-text-muted' : 'text-app-text-heading'} ${COMPACT_MD_CLS} ${commentoAperto ? '' : 'line-clamp-[10]'}`}
               title={`${commentAuthorLabel(lastComment.author).label}: ${stripMarkdown(lastComment.content)}`}
             >
               {/* CHI PARLA, quando non e' una persona.
@@ -1334,7 +1334,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
                   Resta `latestIsPlumbing` in `cardComments.ts`: la decisione e'
                   giusta e provata, e serve a chi vorra' disegnarla meglio. Qui
                   si toglie solo il modo in cui la disegnavo io. */}
-              {noteDiMacchina && (
+              {notesOfMachine && (
                 <span
                   data-testid="card-comment-system-tag"
                   className="mr-1 inline-flex items-center gap-1 rounded bg-white/10 px-1 py-px align-middle text-[10px] uppercase tracking-wide text-app-text-muted"

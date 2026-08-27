@@ -29,8 +29,8 @@
 import { spawnSync } from "child_process";
 
 const minuti = Number(process.argv.find((a) => /^\d+$/.test(a)) ?? 15);
-const ogniIdx = process.argv.indexOf("--every");
-const OGNI_S = ogniIdx >= 0 ? Number(process.argv[ogniIdx + 1]) : 30;
+const everyIdx = process.argv.indexOf("--every");
+const EVERY_S = everyIdx >= 0 ? Number(process.argv[everyIdx + 1]) : 30;
 
 interface Campione { t: number; deviceMB: number; serverMB: number; }
 
@@ -48,7 +48,7 @@ function leggi(): { deviceMB: number; serverMB: number } | null {
 const campioni: Campione[] = [];
 const t0 = Date.now();
 const fine = t0 + minuti * 60_000;
-console.log(`misuro per ${minuti} min, un campione ogni ${OGNI_S}s — lascia la finestra FERMA`);
+console.log(`misuro per ${minuti} min, un campione ogni ${EVERY_S}s — lascia la finestra FERMA`);
 console.log(`${"min".padStart(6)}  ${"device MB".padStart(10)}  ${"server MB".padStart(10)}`);
 
 while (Date.now() < fine) {
@@ -58,7 +58,7 @@ while (Date.now() < fine) {
     const min = ((Date.now() - t0) / 60_000).toFixed(1);
     console.log(`${min.padStart(6)}  ${String(m.deviceMB).padStart(10)}  ${String(m.serverMB).padStart(10)}`);
   }
-  await Bun.sleep(OGNI_S * 1000);
+  await Bun.sleep(EVERY_S * 1000);
 }
 
 if (campioni.length < 4) {

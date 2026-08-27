@@ -74,9 +74,9 @@ describe('one owner of the feed, N askers', () => {
     // vuoto senza che nulla lo dica.
     let vecchio = 0;
     let nuovo = 0;
-    const unhookVecchio = setBoardTasksRefresher(() => { vecchio++; });
+    const oldUnhook = setBoardTasksRefresher(() => { vecchio++; });
     setBoardTasksRefresher(() => { nuovo++; });
-    unhookVecchio();
+    oldUnhook();
     requestBoardTasksRefresh();
     expect([vecchio, nuovo]).toEqual([0, 1]);
   });

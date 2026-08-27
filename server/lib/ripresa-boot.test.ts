@@ -72,7 +72,7 @@ describe("quale chat riprende da sola", () => {
  * giusto, cioè per fortuna e non per costruzione.
  */
 describe("i guasti che NON sono un'interruzione", () => {
-  const conErrore = (text: string): RigaDaValutare => ({
+  const withError = (text: string): RigaDaValutare => ({
     ...base,
     blocks: [prosa, { kind: "error", text } as ContentBlock],
   });
@@ -85,7 +85,7 @@ describe("i guasti che NON sono un'interruzione", () => {
       "API 400",
       "Nessuna risposta: il turno si è chiuso senza produrre niente.",
     ]) {
-      expect(chatDaRiprendere(conErrore(guasto), ORA), guasto).toBe(false);
+      expect(chatDaRiprendere(withError(guasto), ORA), guasto).toBe(false);
     }
   });
 
@@ -95,7 +95,7 @@ describe("i guasti che NON sono un'interruzione", () => {
       "Turno interrotto: il processo dell'agente non dava più segni di vita e la risposta è stata chiusa.",
       "Turno interrotto: ha superato il limite di tempo concesso.",
     ]) {
-      expect(chatDaRiprendere(conErrore(c), ORA), c).toBe(true);
+      expect(chatDaRiprendere(withError(c), ORA), c).toBe(true);
     }
   });
 
@@ -105,6 +105,6 @@ describe("i guasti che NON sono un'interruzione", () => {
    * `meritaRipresaAutomatica`.
    */
   test("il cartello generico non basta", () => {
-    expect(chatDaRiprendere(conErrore("Turno interrotto prima della fine."), ORA)).toBe(false);
+    expect(chatDaRiprendere(withError("Turno interrotto prima della fine."), ORA)).toBe(false);
   });
 });

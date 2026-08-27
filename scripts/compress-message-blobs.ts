@@ -79,7 +79,7 @@ const aggiorna = DRY ? null : db.prepare(`UPDATE messages SET blocks = ?, tool_c
 let viste = 0, riscritte = 0, saltate = 0, prima = 0, dopo = 0;
 let lotto: Array<{ id: string; b: string | Uint8Array | null; t: string | Uint8Array | null }> = [];
 
-const scriviLotto = (): void => {
+const writeBatch = (): void => {
   if (DRY || lotto.length === 0) { lotto = []; return; }
   db.transaction(() => {
     for (const r of lotto) aggiorna!.run(r.b as never, r.t as never, r.id);
@@ -92,7 +92,7 @@ for (const riga of db.query(SELEZIONE).iterate() as Iterable<{ id: string; block
   viste++;
 
   const nuovi: Array<string | Uint8Array | null> = [];
-  let rigaOk = true;
+  let rowOk = true;
 
   for (const col of [riga.blocks, riga.tool_calls]) {
     if (typeof col !== "string" || col.length <= SOGLIA) { nuovi.push(col as string | null); continue; }
@@ -100,7 +100,7 @@ for (const riga of db.query(SELEZIONE).iterate() as Iterable<{ id: string; block
     // IL CONTROLLO CHE RENDE QUESTO SCRIPT DIVERSO DA UN UPDATE. Si rilegge
     // cio' che si sta per scrivere: se non torna identico, la riga resta com'e'.
     if (typeof compresso === "string" || compresso == null || decodeCol(compresso) !== col) {
-      rigaOk = false;
+      rowOk = false;
       break;
     }
     prima += Buffer.byteLength(col, "utf8");
@@ -108,15 +108,15 @@ for (const riga of db.query(SELEZIONE).iterate() as Iterable<{ id: string; block
     nuovi.push(compresso);
   }
 
-  if (!rigaOk) { saltate++; continue; }
+  if (!rowOk) { saltate++; continue; }
   lotto.push({ id: riga.id, b: nuovi[0] ?? null, t: nuovi[1] ?? null });
   riscritte++;
   if (lotto.length >= LOTTO) {
-    scriviLotto();
+    writeBatch();
     if (riscritte % 2000 === 0) console.log(`[compress] ${riscritte}/${daFare}…`);
   }
 }
-scriviLotto();
+writeBatch();
 
 const rapporto = dopo > 0 ? prima / dopo : 0;
 console.log(

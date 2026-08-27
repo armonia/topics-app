@@ -56,7 +56,7 @@ function confinato(db: Database, deviceId: string): boolean {
   return !!r?.confinato;
 }
 
-function aggiungiDispositivo(db: Database, id: string, nome: string, role: string, revoked: number | null = null) {
+function addDevice(db: Database, id: string, nome: string, role: string, revoked: number | null = null) {
   db.query(
     "INSERT INTO devices (id, name, token_hash, created_at, role, revoked_at) VALUES (?, ?, ?, ?, ?, ?)",
   ).run(id, nome, `hash-${id}`, 1, role, revoked);
@@ -67,7 +67,7 @@ describe("084 · nasce il proprietario, senza login e senza rete", () => {
   beforeEach(() => { db = dbPrima(); });
 
   test("una persona proprietaria e un'organizzazione da una", () => {
-    aggiungiDispositivo(db, "d1", "Mac di casa", "owner");
+    addDevice(db, "d1", "Mac di casa", "owner");
     applica(db);
 
     // Una migration è SQL: non può leggere `git config` né chiamare nessuno.
@@ -79,8 +79,8 @@ describe("084 · nasce il proprietario, senza login e senza rete", () => {
   });
 
   test("i dispositivi `owner` finiscono sulla persona proprietaria", () => {
-    aggiungiDispositivo(db, "d1", "Mac", "owner");
-    aggiungiDispositivo(db, "d2", "iPhone", "owner");
+    addDevice(db, "d1", "Mac", "owner");
+    addDevice(db, "d2", "iPhone", "owner");
     applica(db);
 
     const persone = db.query("SELECT DISTINCT person_id FROM devices WHERE role='owner'").all();
@@ -90,8 +90,8 @@ describe("084 · nasce il proprietario, senza login e senza rete", () => {
   });
 
   test("un OSPITE prende una persona sua, che NON è proprietaria", () => {
-    aggiungiDispositivo(db, "d1", "Mac", "owner");
-    aggiungiDispositivo(db, "d9", "Telefono di Luca", "guest");
+    addDevice(db, "d1", "Mac", "owner");
+    addDevice(db, "d9", "Telefono di Luca", "guest");
     applica(db);
 
     const suo = db.query("SELECT person_id FROM devices WHERE id='d9'").get() as { person_id: string | null };
@@ -107,11 +107,11 @@ describe("084 · nasce il proprietario, senza login e senza rete", () => {
 describe("084 · il confinamento derivato coincide con il ruolo di prima", () => {
   test("su ogni combinazione, compreso il revocato", () => {
     const db = dbPrima();
-    aggiungiDispositivo(db, "o1", "Mac", "owner");
-    aggiungiDispositivo(db, "o2", "iPhone", "owner");
-    aggiungiDispositivo(db, "g1", "Ospite A", "guest");
-    aggiungiDispositivo(db, "g2", "Ospite B revocato", "guest", 999);
-    aggiungiDispositivo(db, "o3", "Owner revocato", "owner", 999);
+    addDevice(db, "o1", "Mac", "owner");
+    addDevice(db, "o2", "iPhone", "owner");
+    addDevice(db, "g1", "Ospite A", "guest");
+    addDevice(db, "g2", "Ospite B revocato", "guest", 999);
+    addDevice(db, "o3", "Owner revocato", "owner", 999);
     applica(db);
 
     for (const [id, atteso] of [["o1", false], ["o2", false], ["o3", false], ["g1", true], ["g2", true]] as const) {
@@ -123,7 +123,7 @@ describe("084 · il confinamento derivato coincide con il ruolo di prima", () =>
 describe("084 · le concessioni sopravvivono", () => {
   test("le righe di grants restano tutte, con lo stesso significato", () => {
     const db = dbPrima();
-    aggiungiDispositivo(db, "g1", "Ospite", "guest");
+    addDevice(db, "g1", "Ospite", "guest");
     db.run("INSERT INTO tasks (id, text) VALUES ('t1','x')");
     db.run("INSERT INTO topics (id, name) VALUES ('c1','y')");
     db.query(
@@ -189,7 +189,7 @@ describe("084 · il contatore dei principali", () => {
     // di principali non vale più: senza, il filtro resta fermo a com'era al
     // momento dell'upgrade.
     const db = dbPrima();
-    aggiungiDispositivo(db, "d1", "Mac", "owner");
+    addDevice(db, "d1", "Mac", "owner");
     applica(db);
     const prima = (db.query("SELECT rev FROM principals_rev").get() as { rev: number }).rev;
 
@@ -204,7 +204,7 @@ describe("084 · il contatore dei principali", () => {
 
   test("cambia quando un dispositivo passa a un'altra persona", () => {
     const db = dbPrima();
-    aggiungiDispositivo(db, "d1", "Mac", "owner");
+    addDevice(db, "d1", "Mac", "owner");
     applica(db);
     const prima = (db.query("SELECT rev FROM principals_rev").get() as { rev: number }).rev;
     db.query("UPDATE devices SET person_id = NULL WHERE id='d1'").run();
@@ -221,7 +221,7 @@ describe("084 · cosa succede se la si rigioca", () => {
     // NON va bene è crederlo idempotente e scoprirlo durante un ripristino,
     // quindi lo si scrive qui invece di lasciarlo alla sorpresa.
     const db = dbPrima();
-    aggiungiDispositivo(db, "d1", "Mac", "owner");
+    addDevice(db, "d1", "Mac", "owner");
     applica(db);
     let esploso = false;
     try { applica(db); } catch { esploso = true; }
@@ -232,7 +232,7 @@ describe("084 · cosa succede se la si rigioca", () => {
     // È la metà che conta se un ripristino parziale rigioca la coda del file:
     // il proprietario resta uno, non ne nascono due.
     const db = dbPrima();
-    aggiungiDispositivo(db, "d1", "Mac", "owner");
+    addDevice(db, "d1", "Mac", "owner");
     applica(db);
     const conta = () => db.query(
       "SELECT (SELECT COUNT(*) FROM people) p, (SELECT COUNT(*) FROM orgs) o, (SELECT COUNT(*) FROM installation_owners) io",

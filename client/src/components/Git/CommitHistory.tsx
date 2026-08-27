@@ -28,7 +28,7 @@ import { useT } from '../../hooks/useT';
 
 const PAGINA = 20;
 
-function statoColore(status: string): string {
+function stateColor(status: string): string {
   switch (status) {
     case 'A': return 'text-green-500';
     case 'D': return 'text-red-500';
@@ -37,7 +37,7 @@ function statoColore(status: string): string {
   }
 }
 
-function RigaFile({ file, onOpen }: { file: GitCommitFile; onOpen: () => void }) {
+function RowFile({ file, onOpen }: { file: GitCommitFile; onOpen: () => void }) {
   const nome = pathBasename(file.path) || file.path;
   const dir = file.path.includes('/') ? file.path.slice(0, file.path.lastIndexOf('/')) : '';
   return (
@@ -46,7 +46,7 @@ function RigaFile({ file, onOpen }: { file: GitCommitFile; onOpen: () => void })
       title={file.origPath ? `${file.origPath} → ${file.path}` : file.path}
       className="w-full flex items-center gap-1.5 px-3 py-[3px] text-left hover:bg-app-hover transition-colors"
     >
-      <span className={`${statoColore(file.status)} text-[8px] font-bold w-[14px] text-center flex-shrink-0`}>
+      <span className={`${stateColor(file.status)} text-[8px] font-bold w-[14px] text-center flex-shrink-0`}>
         {file.status}
       </span>
       <span className="truncate text-app-text-body min-w-0">
@@ -109,7 +109,7 @@ export function CommitHistory({ projectPath, onOpenFile, reloadKey, variant = 's
   // Il dettaglio arriva in ritardo: senza questo, aprire un commit e poi
   // subito un altro lascia in vista i file del primo se la sua risposta arriva
   // per seconda.
-  const richiestaRef = useRef(0);
+  const requestRef = useRef(0);
 
   const carica = useCallback(async (quanti: number) => {
     setLoading(true);
@@ -138,19 +138,19 @@ export function CommitHistory({ projectPath, onOpenFile, reloadKey, variant = 's
     setLimit(PAGINA);
   }, [projectPath]);
 
-  const apriCommit = useCallback(async (hash: string) => {
+  const openCommit = useCallback(async (hash: string) => {
     if (apertoHash === hash) { setApertoHash(null); setDettaglio(null); return; }
-    const mio = ++richiestaRef.current;
+    const mio = ++requestRef.current;
     setApertoHash(hash);
     setDettaglio(null);
     setCaricandoDettaglio(true);
     try {
       const d = await gitApi.commitFiles(projectPath, hash);
-      if (richiestaRef.current === mio) setDettaglio(d);
+      if (requestRef.current === mio) setDettaglio(d);
     } catch {
-      if (richiestaRef.current === mio) setDettaglio(null);
+      if (requestRef.current === mio) setDettaglio(null);
     } finally {
-      if (richiestaRef.current === mio) setCaricandoDettaglio(false);
+      if (requestRef.current === mio) setCaricandoDettaglio(false);
     }
   }, [projectPath, apertoHash]);
 
@@ -216,7 +216,7 @@ export function CommitHistory({ projectPath, onOpenFile, reloadKey, variant = 's
             return (
               <div key={c.hash}>
                 <button
-                  onClick={() => apriCommit(c.hash)}
+                  onClick={() => openCommit(c.hash)}
                   aria-expanded={aperto}
                   title={`${c.message}\n${c.author} · ${c.ago}`}
                   data-testid="commit-row"
@@ -241,7 +241,7 @@ export function CommitHistory({ projectPath, onOpenFile, reloadKey, variant = 's
                       </div>
                     )}
                     {!caricandoDettaglio && dettaglio?.files.map(f => (
-                      <RigaFile
+                      <RowFile
                         key={f.path}
                         file={f}
                         onOpen={() => onOpenFile?.(f.path, c.hash)}

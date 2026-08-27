@@ -51,7 +51,7 @@ const PROFILO = '[data-testid="mobile-chrome-profile"]';
 /** La fascia dell'home indicator di un iPhone in verticale. */
 const FASCIA_IPHONE = 34;
 /** Sotto questa quota, su un iPhone, c'è il gesto di sistema e non il bottone. */
-const PAVIMENTO_ASSOLUTO = 10;
+const ABSOLUTE_FLOOR = 10;
 
 let topicId: string | null = null;
 
@@ -119,7 +119,7 @@ async function porte(page: Page) {
  *  modulo lo preferisce alla stima, ed è ciò che rende questa misura un
  *  confronto e non una tautologia: si dichiara R, si legge il raggio applicato
  *  e si verifica che sia il concentrico di QUEL R. */
-async function raggioSchermoDichiarato(page: Page, px: number | null): Promise<void> {
+async function declaredRadiusScreen(page: Page, px: number | null): Promise<void> {
   await page.evaluate((v) => {
     if (v === null) document.documentElement.style.removeProperty("--screen-corner-radius");
     else document.documentElement.style.setProperty("--screen-corner-radius", `${v}px`);
@@ -237,7 +237,7 @@ test.describe.serial("La chrome del telefono", () => {
     const dritta = await porte(page);
     const quote = dritta.map((p) => Math.round(p.daFondo));
     expect(new Set(quote).size).toBe(1);
-    for (const p of dritta) expect(p.daFondo).toBeGreaterThanOrEqual(PAVIMENTO_ASSOLUTO);
+    for (const p of dritta) expect(p.daFondo).toBeGreaterThanOrEqual(ABSOLUTE_FLOOR);
 
     // ── Angoli tondi: gli estremi SALGONO, quelli in mezzo no.
     // Con quattro scatole i «centri» sono due, e la legge non cambia: sale chi
@@ -258,7 +258,7 @@ test.describe.serial("La chrome del telefono", () => {
     expect(Math.abs(sx.daFondo - dx.daFondo)).toBeLessThanOrEqual(1);
 
     // E nessuna porta finisce sotto la quota dell'home indicator.
-    for (const p of curva) expect(p.daFondo).toBeGreaterThanOrEqual(PAVIMENTO_ASSOLUTO);
+    for (const p of curva) expect(p.daFondo).toBeGreaterThanOrEqual(ABSOLUTE_FLOOR);
 
     // Il bersaglio resta da dito anche agli estremi, che sono quelli che la
     // curva sposta.
@@ -291,11 +291,11 @@ test.describe.serial("La chrome del telefono", () => {
 
     // E fra loro, e ai lati, non resta barra premibile per finta: la somma dei
     // tasti più i tre passi è la larghezza intera dello schermo.
-    const larghezzaSchermo = await page.evaluate(() => window.innerWidth);
+    const widthScreen = await page.evaluate(() => window.innerWidth);
     const primo = misure[0];
     const ultimo = misure[misure.length - 1];
     expect(Math.round(primo.x)).toBe(0);
-    expect(Math.round(ultimo.x + ultimo.larghezza)).toBe(Math.round(larghezzaSchermo));
+    expect(Math.round(ultimo.x + ultimo.larghezza)).toBe(Math.round(widthScreen));
     for (let i = 1; i < misure.length; i++) {
       const buco = misure[i].x - (misure[i - 1].x + misure[i - 1].larghezza);
       expect(Math.round(buco)).toBeLessThanOrEqual(8);
@@ -437,7 +437,7 @@ test.describe.serial("La chrome del telefono", () => {
     // ── Schermo squadrato: nessuna curva da seguire, tutti e dodici gli
     //    angoli sono quelli standard. Nessun ramo dedicato, stesso codice.
     await fascia(page, 0);
-    await raggioSchermoDichiarato(page, null);
+    await declaredRadiusScreen(page, null);
     for (const p of await porte(page)) {
       expect(p.raggi.bassoSx).toBeCloseTo(STANDARD, 1);
       expect(p.raggi.bassoDx).toBeCloseTo(STANDARD, 1);
@@ -460,7 +460,7 @@ test.describe.serial("La chrome del telefono", () => {
     const gioco = (await porte(page))[0]!.daBordo;
     const RAGGI = [gioco + STANDARD, gioco + 17, gioco + TETTO + 18];
     for (const R of RAGGI) {
-      await raggioSchermoDichiarato(page, R);
+      await declaredRadiusScreen(page, R);
       // Le porte sono quattro, quindi i «centri» sono due: quello che conta è
       // il PRIMO e l'ULTIMO, cioè chi tocca i bordi. Aggiungere una porta non
       // ha cambiato la legge, ha cambiato quante scatole non la incontrano.
@@ -495,9 +495,9 @@ test.describe.serial("La chrome del telefono", () => {
     // appena curvo dà l'angolo standard, uno di mezzo dà un valore suo, uno
     // molto curvo batte contro il tetto. Se un giorno tornassero tutti e tre
     // uguali, questo caso resterebbe verde misurando niente — ed è successo.
-    await raggioSchermoDichiarato(page, RAGGI[1]!);
+    await declaredRadiusScreen(page, RAGGI[1]!);
     const medio = (await porte(page))[0]!;
-    await raggioSchermoDichiarato(page, RAGGI[2]!);
+    await declaredRadiusScreen(page, RAGGI[2]!);
     const largo = (await porte(page))[0]!;
     expect(medio.raggi.bassoSx).toBeGreaterThan(STANDARD);
     expect(medio.raggi.bassoSx).toBeLessThan(largo.raggi.bassoSx);
@@ -508,7 +508,7 @@ test.describe.serial("La chrome del telefono", () => {
     // nell'immagine e non c'è niente da confrontare. Si disegna: un filo alla
     // curva DICHIARATA, e sotto ci si vede se i due estremi la seguono o la
     // tagliano. È un righello sovrapposto, non un effetto.
-    await raggioSchermoDichiarato(page, RAGGI[2]!);
+    await declaredRadiusScreen(page, RAGGI[2]!);
     await page.evaluate((R) => {
       const filo = document.createElement("div");
       filo.id = "righello-arco";

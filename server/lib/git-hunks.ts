@@ -64,12 +64,12 @@ export function parseUnifiedDiff(diff: string): ParsedDiff {
   const header: string[] = [];
   const hunks: Hunk[] = [];
   let corrente: Hunk | null = null;
-  let vistoPrimoHunk = false;
+  let seenFirstHunk = false;
 
   for (const riga of righe) {
     const m = HUNK_RE.exec(riga);
     if (m) {
-      vistoPrimoHunk = true;
+      seenFirstHunk = true;
       corrente = {
         header: riga,
         context: (m[5] ?? "").trim(),
@@ -84,7 +84,7 @@ export function parseUnifiedDiff(diff: string): ParsedDiff {
       hunks.push(corrente);
       continue;
     }
-    if (!vistoPrimoHunk) {
+    if (!seenFirstHunk) {
       // Un secondo `diff --git` vuol dire che sono arrivati due file: si smette.
       if (riga.startsWith("diff --git") && header.length > 0) break;
       header.push(riga);
@@ -117,8 +117,8 @@ export function buildPatch(parsed: ParsedDiff, indici: number[]): string | null 
     const h = parsed.hunks[i];
     // Vedi l'intestazione del modulo: il lato vecchio resta, il nuovo scorre.
     const nuovoInizio = h.oldStart + delta;
-    const nuovoConto = h.oldCount + (h.added - h.removed);
-    fuori.push(`@@ -${h.oldStart},${h.oldCount} +${nuovoInizio},${nuovoConto} @@${h.context ? " " + h.context : ""}`);
+    const newAccount = h.oldCount + (h.added - h.removed);
+    fuori.push(`@@ -${h.oldStart},${h.oldCount} +${nuovoInizio},${newAccount} @@${h.context ? " " + h.context : ""}`);
     fuori.push(...h.lines);
     delta += h.added - h.removed;
   }

@@ -19,8 +19,8 @@ if (!dbPath) {
   console.error("uso: bun run scripts/measure-task-tab-teardown.ts <copia.db> [--simula-archivio N]");
   process.exit(1);
 }
-const simulaIdx = process.argv.indexOf("--simula-archivio");
-const simula = simulaIdx > 0 ? Number(process.argv[simulaIdx + 1] ?? 0) : 0;
+const simulateIdx = process.argv.indexOf("--simula-archivio");
+const simula = simulateIdx > 0 ? Number(process.argv[simulateIdx + 1] ?? 0) : 0;
 
 const db = new Database(dbPath);
 
@@ -54,7 +54,7 @@ function stampa(titolo: string, c: Census): void {
 
 // Da dove viene il peso, prima di toccare qualsiasi cosa.
 console.log("── di chi sono le righe `task-browser-*` ──");
-const perStato = db
+const perState = db
   .query(
     `SELECT COALESCE(t.status, '(task inesistente)') AS stato,
             CASE WHEN t.archived = 1 THEN 'archiviato' ELSE 'in board' END AS dove,
@@ -66,7 +66,7 @@ const perStato = db
       GROUP BY 1, 2 ORDER BY righe DESC`,
   )
   .all() as { stato: string; dove: string; righe: number; byte: number }[];
-for (const r of perStato) {
+for (const r of perState) {
   console.log(`  ${r.stato.padEnd(20)} ${r.dove.padEnd(12)} ${String(r.righe).padStart(3)} righe / ${String(r.byte).padStart(6)} byte`);
 }
 console.log("");

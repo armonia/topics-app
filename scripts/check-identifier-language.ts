@@ -92,6 +92,11 @@ export const PROJECT_WORDS = new Set([
   // `database`, and `svc` is this repository's own abbreviation for a service
   // instance - it appears in a dozen test files that predate this gate.
   "entries", "database", "svc",
+  // Another dictionary hole of the same kind: `destructure` is how every
+  // JavaScript programmer says it and no 1934 word list carries it. It appears
+  // in `state-dir-single-door.test.ts`, where the whole point of the constant is
+  // to name the SHAPE of a read the gate must catch.
+  "destructure",
 
   // the product and its parts. "org" is the schema's own word, not an
   // abbreviation someone chose in passing: the tables are `orgs` and

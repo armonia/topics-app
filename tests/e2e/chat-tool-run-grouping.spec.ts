@@ -118,7 +118,7 @@ test.describe("Corse di tool nel transcript", () => {
  * colori calcolati dallo stesso schermo, non sopravvive a un cambio di palette
  * per finta, e non può passare perché ha indovinato una costante.
  */
-const coloreDi = (loc: Locator) => loc.evaluate((el) => getComputedStyle(el).color);
+const colorOf = (loc: Locator) => loc.evaluate((el) => getComputedStyle(el).color);
 
 test.describe("Il colore di una corsa di tool", () => {
   let topicId: string;
@@ -183,24 +183,24 @@ test.describe("Il colore di una corsa di tool", () => {
     // riferimento con cui si misurano gli altri due.
     await expect(pulita.getByTestId("tool-group-title")).toHaveText("3 azioni");
     await expect(pulita.getByTestId("tool-group-errors")).toHaveCount(0);
-    const neutro = await coloreDi(pulita.getByTestId("tool-group-title"));
+    const neutro = await colorOf(pulita.getByTestId("tool-group-title"));
 
     // 1 su 5: il fallimento si vede, e si vede DOVE va detto. Il badge lo conta,
     // il titolo continua a contare le azioni e non cambia colore.
     await expect(parziale.getByTestId("tool-group-title")).toHaveText("5 azioni");
     await expect(parziale.getByTestId("tool-group-errors")).toContainText("1 fallita");
-    const rossoParziale = await coloreDi(parziale.getByTestId("tool-group-errors"));
-    const titoloParziale = await coloreDi(parziale.getByTestId("tool-group-title"));
-    expect(titoloParziale, "una fallita su cinque non è una corsa fallita").not.toBe(rossoParziale);
-    expect(titoloParziale, "resta esattamente il neutro della corsa riuscita").toBe(neutro);
+    const rossoParziale = await colorOf(parziale.getByTestId("tool-group-errors"));
+    const partialTitle = await colorOf(parziale.getByTestId("tool-group-title"));
+    expect(partialTitle, "una fallita su cinque non è una corsa fallita").not.toBe(rossoParziale);
+    expect(partialTitle, "resta esattamente il neutro della corsa riuscita").toBe(neutro);
 
     // 3 su 3: qui il rosso è dovuto, ed è ESATTAMENTE quello del suo badge.
     await expect(persa.getByTestId("tool-group-title")).toHaveText("3 azioni");
     await expect(persa.getByTestId("tool-group-errors")).toContainText("3 fallite");
-    const rossoPersa = await coloreDi(persa.getByTestId("tool-group-errors"));
-    const titoloPersa = await coloreDi(persa.getByTestId("tool-group-title"));
-    expect(titoloPersa, "nessuna azione salvata: la corsa intera è rossa").toBe(rossoPersa);
-    expect(titoloPersa, "e non è più il neutro").not.toBe(neutro);
+    const rossoPersa = await colorOf(persa.getByTestId("tool-group-errors"));
+    const lostTitle = await colorOf(persa.getByTestId("tool-group-title"));
+    expect(lostTitle, "nessuna azione salvata: la corsa intera è rossa").toBe(rossoPersa);
+    expect(lostTitle, "e non è più il neutro").not.toBe(neutro);
 
     if (isEvidenceRun()) await scattoDiConsegna(page, gruppi);
   });

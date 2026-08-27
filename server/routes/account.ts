@@ -32,7 +32,7 @@ import {
   chiediCodice, verificaCodice, type CodiceAccount, type OpzioniServizio,
 } from "../lib/account";
 
-export interface DipendenzeAccount {
+export interface DepsAccount {
   /** Iniettabile per i test; in produzione è `process.env`. Si legge a OGNI
    *  richiesta e non al boot: una variabile cambiata a caldo che non ha effetto
    *  è la trappola che `resolveAllowedOrigins` ha già pagato una volta. */
@@ -41,7 +41,7 @@ export interface DipendenzeAccount {
   now?: () => number;
 }
 
-export function createAccountRouter(ctx: AppContext, deps: DipendenzeAccount = {}): RouteHandler {
+export function createAccountRouter(ctx: AppContext, deps: DepsAccount = {}): RouteHandler {
   const { json, readJSON, db } = ctx as AppContext & {
     db: { query: (sql: string) => { get: (...a: unknown[]) => unknown; run: (...a: unknown[]) => unknown } };
   };

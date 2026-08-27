@@ -78,8 +78,8 @@ describe("isReusableHeadstone", () => {
   });
 
   it("dentro la finestra si riusa, al bordo compreso", () => {
-    const alBordo = lapide({ timestamp: new Date(ORA - HEADSTONE_WINDOW_MS).toISOString() });
-    expect(isReusableHeadstone(alBordo, ORA)).toBe(true);
+    const atEdge = lapide({ timestamp: new Date(ORA - HEADSTONE_WINDOW_MS).toISOString() });
+    expect(isReusableHeadstone(atEdge, ORA)).toBe(true);
   });
 
   it("una riga NATA DOPO l'ora chiesta non si riusa: l'orologio e' andato storto", () => {

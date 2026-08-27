@@ -175,7 +175,7 @@ describe("il runtime di casa nel registro", () => {
     // Una home finta con dentro una credenziale rende il caso quello che dice
     // di essere: «il provider c'e' ED e' connesso, quindi vince lui».
     const home = mkdtempSync(join(tmpdir(), "runtime-default-home-"));
-    const homeVero = process.env.HOME;
+    const realHome = process.env.HOME;
     mkdirSync(join(home, ".claude"), { recursive: true });
     writeFileSync(
       join(home, ".claude", ".credentials.json"),
@@ -195,8 +195,8 @@ describe("il runtime di casa nel registro", () => {
       // Nessuna variabile: vale `DEFAULT_AGENT_RUNTIME`, che è `topics`.
       expect(getDefaultProviderName()).toBe("topics");
     } finally {
-      if (homeVero === undefined) delete process.env.HOME;
-      else process.env.HOME = homeVero;
+      if (realHome === undefined) delete process.env.HOME;
+      else process.env.HOME = realHome;
       rmSync(home, { recursive: true, force: true });
     }
   });
@@ -209,7 +209,7 @@ describe("il runtime di casa nel registro", () => {
     // la credenziale invece di ereditarla: sono due esiti opposti dello stesso
     // codice, e senza controllare l'ambiente se ne misura uno a caso.
     const home = mkdtempSync(join(tmpdir(), "runtime-default-nohome-"));
-    const homeVero = process.env.HOME;
+    const realHome = process.env.HOME;
     process.env.HOME = home;
     try {
       registerProvider({ type: "claude-code" });
@@ -217,8 +217,8 @@ describe("il runtime di casa nel registro", () => {
       recomputeDefault();
       expect(getDefaultProviderName()).toBe("claude-code");
     } finally {
-      if (homeVero === undefined) delete process.env.HOME;
-      else process.env.HOME = homeVero;
+      if (realHome === undefined) delete process.env.HOME;
+      else process.env.HOME = realHome;
       rmSync(home, { recursive: true, force: true });
     }
   });

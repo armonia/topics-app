@@ -67,7 +67,7 @@ export function trayBoardGroups(
   tasks: readonly TrayTaskInput[],
   opts: { rowsPerGroup?: number } = {},
 ): TrayGroup[] {
-  const perGruppo = Math.max(1, opts.rowsPerGroup ?? TRAY_ROWS_PER_GROUP);
+  const perGroup = Math.max(1, opts.rowsPerGroup ?? TRAY_ROWS_PER_GROUP);
   const out: TrayGroup[] = [];
   for (const status of TRAY_GROUP_ORDER) {
     const miei = tasks.filter((t) => t.status === status);
@@ -75,7 +75,7 @@ export function trayBoardGroups(
     out.push({
       status,
       count: miei.length,
-      rows: miei.slice(0, perGruppo).map((t) => ({
+      rows: miei.slice(0, perGroup).map((t) => ({
         id: t.id,
         title: trayTitle(t.text),
         projectId: t.projectId,

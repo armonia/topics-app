@@ -65,11 +65,11 @@ describe("le destinazioni dichiarate sono quelle vere", () => {
     // rossa e il documento va riscritto PRIMA che qualcuno ci costruisca sopra
     // una UI di scelta.
     const dir = resolve(RADICE, ".github/workflows");
-    const conAmbienti = readdirSync(dir)
+    const withEnvironments = readdirSync(dir)
       .filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"))
       .filter((f) => /^\s*environment:/m.test(readFileSync(resolve(dir, f), "utf8")));
-    expect(conAmbienti,
-      `questi workflow dichiarano un environment, ma docs/destinazioni.md dice che non esistono: ${conAmbienti.join(", ")}`,
+    expect(withEnvironments,
+      `questi workflow dichiarano un environment, ma docs/destinazioni.md dice che non esistono: ${withEnvironments.join(", ")}`,
     ).toEqual([]);
   });
 

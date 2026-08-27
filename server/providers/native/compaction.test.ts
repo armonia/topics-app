@@ -78,9 +78,9 @@ describe("cosa sopravvive alla compattazione", () => {
   });
 
   test("la coda recente è intatta: il lavoro appena fatto serve tutto", () => {
-    const codaOriginale = h.slice(-6);
-    const codaDopo = out.messages.slice(-6);
-    expect(codaDopo).toEqual(codaOriginale);
+    const originalQueue = h.slice(-6);
+    const queueAfter = out.messages.slice(-6);
+    expect(queueAfter).toEqual(originalQueue);
   });
 
   // IL VINCOLO DELL'API, ed è quello che trasformerebbe la cura in malattia.

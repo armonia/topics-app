@@ -492,11 +492,11 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     // neither the row nor the button. Measuring a geometry is only legitimate
     // once the layout has settled: here it is retaken until both rectangles
     // exist.
-    const bottonePubblica = page.getByRole("button", { name: "Pubblica" }).first();
+    const publicButton = page.getByRole("button", { name: "Pubblica" }).first();
     await expect(async () => {
       const [boxRiga, boxBottone] = await Promise.all([
         riga.boundingBox(),
-        bottonePubblica.boundingBox(),
+        publicButton.boundingBox(),
       ]);
       expect(boxRiga, "la riga della conseguenza deve avere un rettangolo").not.toBeNull();
       expect(boxBottone, "il bottone «Pubblica» deve avere un rettangolo").not.toBeNull();
@@ -567,11 +567,11 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     // lever it is.
     const globali = pannello.getByText("Vale per tutte le board", { exact: true });
     const agente = pannello.getByText("Come lavora l'agente", { exact: true });
-    const yGlobali = (await globali.boundingBox())!.y;
-    const yAgente = (await agente.boundingBox())!.y;
-    const yPausa = (await pausa.boundingBox())!.y;
-    expect(yPausa).toBeGreaterThan(yGlobali);
-    expect(yPausa).toBeGreaterThan(yAgente);
+    const globalY = (await globali.boundingBox())!.y;
+    const yAgent = (await agente.boundingBox())!.y;
+    const yPause = (await pausa.boundingBox())!.y;
+    expect(yPause).toBeGreaterThan(globalY);
+    expect(yPause).toBeGreaterThan(yAgent);
 
     await page.screenshot({ path: join(SHOTS, "board-pausa.png"), clip: { x: 0, y: 0, width: 1440, height: 620 } });
   });

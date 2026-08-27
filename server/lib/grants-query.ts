@@ -134,7 +134,7 @@ export function grantRowsFor(
  * in entrambi i casi la domanda torna a essere quella di prima, invece di
  * cadere.
  */
-function contenitoreDi(
+function containerOf(
   db: Db,
   resourceType: ResourceType,
   resourceId: string,
@@ -169,11 +169,11 @@ export function hasGrant(
   const righe = grantRowsFor(db, principals, resourceType, resourceId);
   if (righe.length > 0) return righe[0].level !== "deny";
 
-  const dentro = contenitoreDi(db, resourceType, resourceId);
+  const dentro = containerOf(db, resourceType, resourceId);
   if (!dentro) return false;
-  const suContenitore = grantRowsFor(db, principals, dentro.tipo, dentro.id);
-  if (suContenitore.length === 0) return false;
-  return suContenitore[0].level !== "deny";
+  const onContainer = grantRowsFor(db, principals, dentro.tipo, dentro.id);
+  if (onContainer.length === 0) return false;
+  return onContainer[0].level !== "deny";
 }
 
 /**
@@ -195,7 +195,7 @@ export function reasonsFor(
   // Nessuna riga sulla risorsa: la ragione puo' essere il contenitore, e va
   // detta - un elenco di ragioni che non nomina il progetto lascerebbe chi
   // guarda a togliere un accesso che non e' li'.
-  const dentro = contenitoreDi(db, resourceType, resourceId);
+  const dentro = containerOf(db, resourceType, resourceId);
   if (!dentro) return [];
   return grantRowsFor(db, principals, dentro.tipo, dentro.id)
     .filter((r) => r.level !== "deny")

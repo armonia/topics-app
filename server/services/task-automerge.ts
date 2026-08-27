@@ -835,10 +835,10 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
            *    «chiudi sempre» — il difetto peggiore dell'insieme. */
           const titolo = (title ?? "").trim();
           if (titolo) {
-            const perTitolo = await runGit(repoPath, [
+            const perTitle = await runGit(repoPath, [
               "log", defaultBranch, "-n", "1", "-F", `--grep=${titolo}`, "--format=%H",
             ]);
-            if (perTitolo.code === 0 && perTitolo.stdout.trim()) {
+            if (perTitle.code === 0 && perTitle.stdout.trim()) {
               return { status: "nothing", branch, deliveryDrift: drift };
             }
           }

@@ -43,7 +43,7 @@ export interface OrgConPresenza {
   gente: RigaPresenza[];
 }
 
-export interface PresenzaIdentita {
+export interface PresenceIdentity {
   /** The organisations, the installation's own one first. */
   orgs: OrgConPresenza[];
   /** Who is online now, across all your organisations, with no repeats. */
@@ -58,7 +58,7 @@ export interface PresenzaIdentita {
   pronto: boolean;
 }
 
-const VUOTO: PresenzaIdentita = {
+const VUOTO: PresenceIdentity = {
   orgs: [], amiciOnline: [], amiciTotali: 0, amiciTutti: [], io: null, pronto: false,
 };
 
@@ -77,8 +77,8 @@ interface OrgApi {
  *  show them all anyway, and every extra org is one more fetch. */
 const MAX_ORG = 8;
 
-export function useIdentityPresence(enabled = true, intervalMs = INTERVALLO_MS): PresenzaIdentita {
-  const [stato, setStato] = useState<PresenzaIdentita>(VUOTO);
+export function useIdentityPresence(enabled = true, intervalMs = INTERVALLO_MS): PresenceIdentity {
+  const [stato, setStato] = useState<PresenceIdentity>(VUOTO);
 
   const leggi = useCallback(async () => {
     if (document.hidden) return;
@@ -105,7 +105,7 @@ export function useIdentityPresence(enabled = true, intervalMs = INTERVALLO_MS):
 
     const adesso = Date.now();
     const mioId = io?.id ?? null;
-    const conMembri = await Promise.all(ordinate.map(async (o): Promise<OrgConPresenza> => {
+    const withMembers = await Promise.all(ordinate.map(async (o): Promise<OrgConPresenza> => {
       let membri: MembroPresenza[] = [];
       try {
         const r = await fetch(`/api/auth/orgs/${encodeURIComponent(o.id)}/members`, { credentials: 'same-origin' });
@@ -124,13 +124,13 @@ export function useIdentityPresence(enabled = true, intervalMs = INTERVALLO_MS):
     }));
 
     setStato({
-      orgs: conMembri,
-      amiciOnline: unisciFacce(conMembri.map((o) => o.facce)),
+      orgs: withMembers,
+      amiciOnline: unisciFacce(withMembers.map((o) => o.facce)),
       // The address book IS the friends list (the people in your
       // organisations): it is the very same list the "Friends" page opens, so
       // the number here and the rows over there cannot diverge.
       amiciTotali: rubrica.filter((p) => !p.isMe).length,
-      amiciTutti: unisciGente(conMembri.map((o) => o.gente)),
+      amiciTutti: unisciGente(withMembers.map((o) => o.gente)),
       io,
       pronto: true,
     });
@@ -145,8 +145,8 @@ export function useIdentityPresence(enabled = true, intervalMs = INTERVALLO_MS):
     // write on mount is exactly what `set-state-in-effect` flags.
     const primo = setTimeout(giro, 0);
     const ogni = setInterval(giro, intervalMs);
-    const alRitorno = () => { if (!document.hidden) giro(); };
-    document.addEventListener('visibilitychange', alRitorno);
+    const atReturn = () => { if (!document.hidden) giro(); };
+    document.addEventListener('visibilitychange', atReturn);
     // A device that has just been paired changes WHO YOU ARE: waiting for the
     // next minute would mean showing the old identity at the very instant
     // somebody is looking to check that the pairing went through.
@@ -156,7 +156,7 @@ export function useIdentityPresence(enabled = true, intervalMs = INTERVALLO_MS):
       vivo = false;
       clearTimeout(primo);
       clearInterval(ogni);
-      document.removeEventListener('visibilitychange', alRitorno);
+      document.removeEventListener('visibilitychange', atReturn);
       window.removeEventListener('topics:auth-pair-resolved', giro);
       window.removeEventListener('topics:auth-device-revoked', giro);
     };

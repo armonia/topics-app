@@ -138,9 +138,9 @@ describe("un censimento sulla board può diventare rosso", () => {
   });
 
   test("ROSSA quando la colonna sparisce dal payload: contare undefined non è contare zero", () => {
-    const senzaColonna = [{ ...row() } as Record<string, unknown>];
-    delete senzaColonna[0]!.dispatchState;
-    expect(() => mustColumns(senzaColonna as unknown as BoardTask[], "dispatchState")).toThrow(/dispatchState/);
+    const withoutColumn = [{ ...row() } as Record<string, unknown>];
+    delete withoutColumn[0]!.dispatchState;
+    expect(() => mustColumns(withoutColumn as unknown as BoardTask[], "dispatchState")).toThrow(/dispatchState/);
   });
 
   test("ROSSA su una board senza task: un censimento senza denominatore non è un verde", () => {

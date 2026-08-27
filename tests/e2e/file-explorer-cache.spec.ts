@@ -224,7 +224,7 @@ test.describe("il bordo dell'accordion File non lampeggia", () => {
      * se la superficie cambiasse davvero fra i due stati, questo la leggerebbe
      * comunque diversa e la riga sotto sarebbe rossa.
      */
-    const stileARiposo = async () => {
+    const styleAtRest = async () => {
       await page.mouse.move(5, 5);
       await expect
         .poll(() => header.evaluate((el: HTMLElement) => el.matches(":hover")), {
@@ -249,7 +249,7 @@ test.describe("il bordo dell'accordion File non lampeggia", () => {
       return await stile();
     };
 
-    const aperta = await stileARiposo();
+    const aperta = await styleAtRest();
     // È una card: fondo proprio, angoli, e rientrata dai lati come ogni altra.
     expect(aperta.raggio, "l'intestazione è arrotondata come una tab").not.toBe("0px");
     expect(aperta.fondo, "l'intestazione ha un fondo suo").not.toMatch(/rgba\(0, 0, 0, 0\)/);
@@ -257,7 +257,7 @@ test.describe("il bordo dell'accordion File non lampeggia", () => {
 
     await header.click();
     await expect(header).toHaveAttribute("aria-expanded", "false");
-    const chiusa = await stileARiposo();
+    const chiusa = await styleAtRest();
 
     // Niente cambia fra i due stati: non c'è più un bordo che compare, e la
     // superficie è la stessa. Se qualcuno rimettesse una linea condizionale,

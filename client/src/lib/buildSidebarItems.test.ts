@@ -421,8 +421,8 @@ describe("buildSidebarItems — pinOnly (il pin è l'unica ancora)", () => {
     expect(project!.pinOnly).toBe(true);
     // …e senza il pin la riga non c'è affatto: è la prova che `pinOnly` non è
     // un'etichetta decorativa ma la descrizione esatta di cosa succede dopo.
-    const senzaPin = buildSidebarItems({ ...soloArchiviate, openPanels: [], pinnedIds: new Set() });
-    expect(senzaPin.find((i) => i.id === `project:${PP}`)).toBeUndefined();
+    const withoutPin = buildSidebarItems({ ...soloArchiviate, openPanels: [], pinnedIds: new Set() });
+    expect(withoutPin.find((i) => i.id === `project:${PP}`)).toBeUndefined();
   });
 
   test("lo stesso progetto con la sua tab aperta: fissato ma NON pinOnly", () => {

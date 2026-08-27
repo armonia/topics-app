@@ -855,13 +855,13 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // quando la riga porta già lavoro e il cartello non può toccare
           // `content`. È lì che sta la differenza fra «un turno giallo senza
           // spiegazione» e un errore che si legge.
-          const conVerdetto = appendErrorBlock(row, verdetto);
+          const withVerdict = appendErrorBlock(row, verdetto);
           if (notice) {
-            updateLastMessage(sessionKey, { content: notice, blocks: conVerdetto, partial: undefined, streamedAt: undefined });
+            updateLastMessage(sessionKey, { content: notice, blocks: withVerdict, partial: undefined, streamedAt: undefined });
           } else {
             // La riga si tiene il suo contenuto; cade solo il flag che la
             // dichiara ancora in volo, o il setaccio di boot la crederebbe viva.
-            updateLastMessage(sessionKey, { blocks: conVerdetto, partial: undefined, streamedAt: undefined });
+            updateLastMessage(sessionKey, { blocks: withVerdict, partial: undefined, streamedAt: undefined });
             console.warn(`[StreamWS] ${sessionKey}: turno fallito su una riga che porta già lavoro — contenuto preservato, errore aggiunto come blocco`);
           }
         } else {
@@ -1619,7 +1619,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // rifusione dello snapshot, quando `blocks` e la riga dicono la
             // verità. `content` è misurato a parte (`!fullContent.trim()`),
             // quindi qui si passa vuoto e contano solo tool e blocchi.
-            const rowHasWorkDopoMerge = () => trackedToolCallIds.length > 0
+            const rowHasWorkAfterMerge = () => trackedToolCallIds.length > 0
               || blocks.length > 0
               || rowCarriesWork({ ...(readRowForNotice(partialMsg.id) ?? { toolCallsJson: null, blocksJson: null }), content: "" });
             // Il turno che ha PROPOSTO e non ha potuto consegnare.
@@ -1759,7 +1759,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // modo in cui il vecchio bug si sarebbe ripresentato con un'altra
             // faccia.
             const soloCompattazione = compactedThisTurn;
-            if (reason === "done" && !fullContent.trim() && !rowHasWorkDopoMerge() && !askingPlanApproval && !soloCompattazione) {
+            if (reason === "done" && !fullContent.trim() && !rowHasWorkAfterMerge() && !askingPlanApproval && !soloCompattazione) {
               const emptyErrorMsg = "⚠️ Nessuna risposta: il turno si è chiuso senza produrre niente. Il tuo messaggio è ancora qui: «Riprova» lo rimanda.";
               fullContent = emptyErrorMsg;
               blocks.push({ kind: "error", text: "Nessuna risposta: il turno si è chiuso senza produrre niente." });
@@ -1943,13 +1943,13 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // portato in fondo due screenshot di una spec E2E che girava in
             // un'altra sessione. Qui passa dal cancello dell'attribuzione: è
             // suo solo ciò che ha nominato in una sua chiamata.
-            const toolsDelTurno: TurnToolTrace[] = blocks
+            const toolsOfTurn: TurnToolTrace[] = blocks
               .filter((b): b is Extract<ContentBlock, { kind: "tool" }> => b.kind === "tool")
               .map((b) => ({ name: b.toolCall.name, args: b.toolCall.args, result: b.toolCall.result }));
             setTimeout(async () => {
               try {
                 const candidati = await findNewMediaFiles(requestStartMs);
-                const { propri, altrui } = attribuisciMedia(candidati, toolsDelTurno);
+                const { propri, altrui } = attribuisciMedia(candidati, toolsOfTurn);
                 if (altrui.length > 0) {
                   console.log(`[Media] ${sessionKey}: ${altrui.length} file scartati, non nominati da questo turno — ${altrui.map((p) => p.split("/").pop()).join(", ")}`);
                 }

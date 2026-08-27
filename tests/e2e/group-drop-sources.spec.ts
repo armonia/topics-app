@@ -227,7 +227,7 @@ test.describe("Trascinare dentro una finestra", () => {
   // ── Destinazione: la CARD di un GRUPPO nella sidebar ───────────────────────
 
   /** Crea "Gruppo 2" portandoci dentro la tab `paneId` dal suo menu. */
-  async function nuovoGruppoCon(page: Page, paneId: string) {
+  async function newGroupWith(page: Page, paneId: string) {
     await page.locator(`[data-pane-id="${paneId}"]`).first().click({ button: "right" });
     await page.getByText("Sposta nel gruppo", { exact: true }).click();
     await page.getByRole("menu").getByRole("button", { name: "Nuovo gruppo" }).click();
@@ -256,14 +256,14 @@ test.describe("Trascinare dentro una finestra", () => {
 
   test("GDROP-05: dalla BARRA delle tab dentro la card di un gruppo", async ({ page }) => {
     await scena(page, [idA, idB, idC]);
-    await nuovoGruppoCon(page, idA);
+    await newGroupWith(page, idA);
     await dragOnto(page, page.locator(`[data-pane-id="${idB}"]`).first(), ...await centro(cardAltroGruppo(page)));
     await passataAllAltroGruppo(page, idB);
   });
 
   test("GDROP-06: dalla RIGA della sidebar dentro la card di un gruppo", async ({ page }) => {
     await scena(page, [idA, idB, idC]);
-    await nuovoGruppoCon(page, idA);
+    await newGroupWith(page, idA);
     const riga = page.getByTestId("sidebar-groups").getByRole("treeitem", { name: /GDROP-B-/ }).first();
     await expect(riga).toBeVisible({ timeout: 5000 });
     await dragOnto(page, riga, ...await centro(cardAltroGruppo(page)));
@@ -272,7 +272,7 @@ test.describe("Trascinare dentro una finestra", () => {
 
   test("GDROP-07: dalla TESSERA fissata dentro la card di un gruppo", async ({ page }) => {
     await scena(page, [idA, idB, idPin]);
-    await nuovoGruppoCon(page, idA);
+    await newGroupWith(page, idA);
     const tessera = page.locator(`[data-pinned-tile="${idPin}"]`).first();
     await expect(tessera).toBeVisible({ timeout: 5000 });
     await dragOnto(page, tessera, ...await centro(cardAltroGruppo(page)));

@@ -77,7 +77,7 @@ const anteprima = (page: Page): Locator => page.locator("[data-drag-preview]");
  * contratto evita tenendo un nodo solo, e senza questa riga una superficie che
  * ne montasse una seconda passerebbe.
  */
-async function anteprimaMostra(page: Page, nome: string): Promise<void> {
+async function previewShow(page: Page, nome: string): Promise<void> {
   const card = anteprima(page);
   await expect(card, "durante il gesto c'e' UNA anteprima sola").toHaveCount(1);
   await expect(card, "e si vede").toBeVisible();
@@ -93,7 +93,7 @@ async function bersaglioDichiara(bersaglio: Locator, attesi: readonly Intento[])
 }
 
 /** A gesto finito la scheda non resta incollata sopra l'interfaccia. */
-async function anteprimaSpenta(page: Page): Promise<void> {
+async function offPreview(page: Page): Promise<void> {
   await expect(anteprima(page), "a gesto finito l'anteprima sparisce").toHaveCount(0);
 }
 
@@ -123,7 +123,7 @@ async function punto(loc: Locator, fx = 0.5, fy = 0.5): Promise<{ x: number; y: 
  * a mano non si saprebbe ricostruire). Ed e' anche l'unico modo che regge in
  * WebKit, dove il drag di sistema non si pilota.
  */
-interface GestoHtml5 {
+interface GestureHtml5 {
   /** Porta il puntatore sopra `bersaglio` (un `dragenter` e un `dragover` con
    *  le coordinate vere del punto). */
   sopra(bersaglio: Locator, fx?: number, fy?: number): Promise<void>;
@@ -133,7 +133,7 @@ interface GestoHtml5 {
   annulla(): Promise<void>;
 }
 
-async function iniziaGestoHtml5(page: Page, sorgente: Locator): Promise<GestoHtml5> {
+async function iniziaGestoHtml5(page: Page, sorgente: Locator): Promise<GestureHtml5> {
   const dt: JSHandle<DataTransfer> = await page.evaluateHandle(() => new DataTransfer());
   const p = await punto(sorgente);
   await sorgente.dispatchEvent("dragstart", { dataTransfer: dt, clientX: p.x, clientY: p.y });
@@ -215,16 +215,16 @@ test.describe("Anteprima del trascinamento: le barre delle tab", () => {
     expect(nome.length, "la tab ha un'etichetta da mostrare").toBeGreaterThan(0);
 
     const gesto = await iniziaGestoHtml5(page, sorgente);
-    await anteprimaMostra(page, nome);
+    await previewShow(page, nome);
     await gesto.sopra(bersaglio);
-    await anteprimaMostra(page, nome);
+    await previewShow(page, nome);
     // `before` / `after`: sulla barra si INSERISCE accanto a una tab, non si
     // entra dentro. Il lato dipende da dove cade il puntatore ed e' il drop a
     // deciderlo, non questo test.
     await bersaglioDichiara(bersaglio, ["before", "after"]);
 
     await gesto.annulla();
-    await anteprimaSpenta(page);
+    await offPreview(page);
   });
 });
 
@@ -239,23 +239,23 @@ test.describe("Anteprima del trascinamento: le barre delle tab", () => {
  */
 test.describe("Anteprima del trascinamento: le tessere della sidebar", () => {
   const SPAZIO = "space:dprev";
-  let idRiga = "";
+  let idRow = "";
   let idTessera = "";
-  let idAltrove = "";
-  let nomeRiga = "";
+  let idElsewhere = "";
+  let nameRow = "";
   let nomeTessera = "";
 
   test.beforeAll(async ({ request }) => {
     const stamp = Date.now();
-    nomeRiga = "DPREV-RIGA-" + stamp;
+    nameRow = "DPREV-RIGA-" + stamp;
     nomeTessera = "DPREV-TESSERA-" + stamp;
-    idRiga = (await createTopic(request, nomeRiga)).id;
+    idRow = (await createTopic(request, nameRow)).id;
     idTessera = (await createTopic(request, nomeTessera)).id;
-    idAltrove = (await createTopic(request, "DPREV-ALTROVE-" + stamp)).id;
+    idElsewhere = (await createTopic(request, "DPREV-ALTROVE-" + stamp)).id;
   });
 
   test.afterAll(async ({ request }) => {
-    for (const id of [idRiga, idTessera, idAltrove]) {
+    for (const id of [idRow, idTessera, idElsewhere]) {
       if (id) await deleteTopic(request, id).catch(() => {});
     }
   });
@@ -263,7 +263,7 @@ test.describe("Anteprima del trascinamento: le tessere della sidebar", () => {
   /** Tre chat aperte, una delle quali vive in un SECONDO gruppo: e' quella che
    *  fa esistere la card da usare come bersaglio. Piu' una tessera fissata. */
   async function scena(page: Page): Promise<void> {
-    const aperte = [idRiga, idTessera, idAltrove];
+    const aperte = [idRow, idTessera, idElsewhere];
     await Promise.all(aperte.map((id) => unarchiveTopic(page.request, id)));
     await seedPaneStore(page.request, () => {
       const openedAt = Date.now();
@@ -277,9 +277,9 @@ test.describe("Anteprima del trascinamento: le tessere della sidebar", () => {
       });
       return {
         panes: {
-          [idRiga]: pane(idRiga),
+          [idRow]: pane(idRow),
           [idTessera]: pane(idTessera),
-          [idAltrove]: pane(idAltrove, SPAZIO),
+          [idElsewhere]: pane(idElsewhere, SPAZIO),
         },
         groups: {
           "group:default": { id: "group:default", paneIds: aperte, splitRatio: 1, splitAxis: "horizontal" },
@@ -323,23 +323,23 @@ test.describe("Anteprima del trascinamento: le tessere della sidebar", () => {
     // ma non sono righe dell'albero.
     const riga = page
       .locator('[aria-label="Topics sidebar"]')
-      .getByRole("treeitem", { name: new RegExp(nomeRiga) })
+      .getByRole("treeitem", { name: new RegExp(nameRow) })
       .first();
     await expect(riga).toBeVisible({ timeout: 10_000 });
     const card = cardAltroGruppo(page);
     await expect(card, "il secondo gruppo ha la sua card").toBeVisible({ timeout: 10_000 });
 
     const gesto = await iniziaGestoHtml5(page, riga);
-    await anteprimaMostra(page, nomeRiga);
+    await previewShow(page, nameRow);
     await gesto.sopra(card, 0.5, 0.4);
-    await anteprimaMostra(page, nomeRiga);
+    await previewShow(page, nameRow);
     // `into`: il rilascio porta la chat DENTRO il gruppo, non accanto.
     await bersaglioDichiara(card, ["into"]);
 
     // Qui si chiude col rilascio VERO, che e' un'altra delle cinque porte di
     // spegnimento: `dragend` e `drop` non arrivano sempre entrambi.
     await gesto.rilascia(card, 0.5, 0.4);
-    await anteprimaSpenta(page);
+    await offPreview(page);
   });
 
   test("DPREV-03: la tessera FISSATA mostra il suo nome, che sulla tessera quadrata e' proprio la cosa che sparisce", async ({ page }) => {
@@ -352,13 +352,13 @@ test.describe("Anteprima del trascinamento: le tessere della sidebar", () => {
     await expect(card).toBeVisible({ timeout: 10_000 });
 
     const gesto = await iniziaGestoHtml5(page, tessera);
-    await anteprimaMostra(page, nome);
+    await previewShow(page, nome);
     await gesto.sopra(card, 0.5, 0.4);
-    await anteprimaMostra(page, nome);
+    await previewShow(page, nome);
     await bersaglioDichiara(card, ["into"]);
 
     await gesto.annulla();
-    await anteprimaSpenta(page);
+    await offPreview(page);
   });
 });
 
@@ -378,12 +378,12 @@ test.describe("Anteprima del trascinamento: le card della board", () => {
 
   const BOARD_ID = "dprev-e2e001";
   let idTask = "";
-  let testoTask = "";
+  let textTask = "";
 
   test.beforeAll(async ({ request }) => {
-    testoTask = "DPREV Card " + Date.now();
+    textTask = "DPREV Card " + Date.now();
     const res = await request.post(`${BASE}/api/boards/${BOARD_ID}/tasks`, {
-      data: { text: testoTask, status: "todo" },
+      data: { text: textTask, status: "todo" },
     });
     expect(res.ok(), "la board accetta il task seminato").toBe(true);
     idTask = ((await res.json()) as { id: string }).id;
@@ -402,7 +402,7 @@ test.describe("Anteprima del trascinamento: le card della board", () => {
 
     const card = page.locator(`[data-task-card="${idTask}"]`);
     await expect(card).toBeVisible({ timeout: 20_000 });
-    await expect(card, "la card mostra il testo del task").toContainText(testoTask);
+    await expect(card, "la card mostra il testo del task").toContainText(textTask);
     // La colonna di arrivo dev'essere VUOTA: `boardCollision` preferisce una
     // card alla colonna che la contiene, quindi con dentro qualcosa il
     // bersaglio dichiarato sarebbe la card e non la colonna.
@@ -421,12 +421,12 @@ test.describe("Anteprima del trascinamento: le card della board", () => {
     await page.mouse.move(arrivo.x, arrivo.y, { steps: 12 });
     await page.mouse.move(arrivo.x, arrivo.y + 1, { steps: 2 });
 
-    await anteprimaMostra(page, testoTask);
+    await previewShow(page, textTask);
     await bersaglioDichiara(colonna, ["into"]);
 
     // Terza porta di spegnimento: il pulsante che si solleva.
     await page.mouse.up();
-    await anteprimaSpenta(page);
+    await offPreview(page);
   });
 
   /**
@@ -490,19 +490,19 @@ test.describe("Anteprima del trascinamento: le card della board", () => {
         await p.mouse.down();
         await p.mouse.move(presa.x + 8, presa.y + 8);
         await p.mouse.move(presa.x + 40, presa.y + 24, { steps: 8 });
-        await anteprimaMostra(p, testoTask);
+        await previewShow(p, textTask);
         await didascalia(p, "La scheda intera segue il cursore");
         await beat(p, 2200);
 
         await p.mouse.move(arrivo.x, arrivo.y, { steps: 24 });
         await p.mouse.move(arrivo.x, arrivo.y + 1, { steps: 2 });
-        await anteprimaMostra(p, testoTask);
+        await previewShow(p, textTask);
         await bersaglioDichiara(colonna, ["into"]);
         await didascalia(p, "La colonna di arrivo dice dove cade");
         await beat(p, 2200);
 
         await p.mouse.up();
-        await anteprimaSpenta(p);
+        await offPreview(p);
         await didascalia(p, "A gesto finito la scheda sparisce");
         await beat(p, 2000);
       },

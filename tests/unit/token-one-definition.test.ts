@@ -41,7 +41,7 @@ const CHIAMATE = [
 ];
 
 /** La riga che la CLI scrive nel JSONL (percorso A). */
-const rigaTranscript = (c: (typeof CHIAMATE)[number]) =>
+const rowTranscript = (c: (typeof CHIAMATE)[number]) =>
   JSON.stringify({
     type: "assistant",
     message: {
@@ -57,7 +57,7 @@ const rigaTranscript = (c: (typeof CHIAMATE)[number]) =>
   }) + "\n";
 
 /** L'evento `result` che il provider emette (percorso B). */
-const eventoResult = (c: (typeof CHIAMATE)[number]) => ({
+const eventResult = (c: (typeof CHIAMATE)[number]) => ({
   type: "result",
   usage: {
     input_tokens: c.input,
@@ -79,7 +79,7 @@ describe("token: i due percorsi collassano su una definizione sola", () => {
 
   test("percorso A (transcript) e percorso B (stream) danno lo STESSO costo", () => {
     // ── A: il lettore vero sul JSONL vero ────────────────────────────────
-    writeFileSync(path, CHIAMATE.map(rigaTranscript).join(""));
+    writeFileSync(path, CHIAMATE.map(rowTranscript).join(""));
     const sessione = createTranscriptUsageReader().read(path);
     // Il dispatcher scrive queste due colonne, e nient'altro.
     const daTask = partsFromTask({
@@ -90,7 +90,7 @@ describe("token: i due percorsi collassano su una definizione sola", () => {
     // ── B: il traduttore vero sugli eventi veri ──────────────────────────
     let turno = emptyTurnUsage();
     for (const c of CHIAMATE) {
-      const u = readResultUsage(eventoResult(c));
+      const u = readResultUsage(eventResult(c));
       turno = accumulateTurnUsage(turno, {
         inputTokens: u.inputTokens ?? 0,
         outputTokens: u.outputTokens ?? 0,
@@ -123,7 +123,7 @@ describe("token: i due percorsi collassano su una definizione sola", () => {
     // I due errori opposti, in un test solo: la vecchia card la buttava via
     // (mostrava 28.910 su 553.910 passati), la vecchia dashboard la contava a
     // prezzo pieno.
-    writeFileSync(path, CHIAMATE.map(rigaTranscript).join(""));
+    writeFileSync(path, CHIAMATE.map(rowTranscript).join(""));
     const s = createTranscriptUsageReader().read(path);
     const parts = partsFromTask({ agentTokens: s.billableTokens, agentCacheReadTokens: s.cacheReadTokens });
 

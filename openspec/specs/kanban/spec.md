@@ -2304,6 +2304,13 @@ caratteri codificati, e SHALL fare il giro completo costruzione → lettura. Una
 barra finale SHALL essere tollerata; un percorso malformato SHALL essere
 rifiutato.
 
+Davanti all'identificativo il percorso SHALL poter portare il TITOLO del task in
+forma leggibile, e quel prefisso SHALL essere DECORATIVO: la lettura SHALL
+ignorarlo del tutto e risolvere sul solo identificativo finale. Un prefisso
+sbagliato, o rimasto indietro rispetto a un titolo cambiato, SHALL aprire lo
+stesso task di un percorso senza prefisso. Una URL già ferma su quel task NON
+SHALL essere riscritta per aggiornarne la decorazione.
+
 La forma storica con la query SHALL continuare a essere LETTA, e SHALL essere
 spezzata sul PRIMO separatore. Un collegamento che porta entrambe le forme SHALL
 far vincere il percorso.
@@ -2329,6 +2336,10 @@ non-fare, non un errore. Un collegamento a un topic SHALL aprire la tab del topi
 #### Scenario: un collegamento nella forma storica
 - **GIVEN** un indirizzo con la query di una volta
 - **THEN** SHALL essere letto, e l'apertura SHALL aggiornarlo al percorso pulito
+
+#### Scenario: il titolo davanti all'identificativo non è più quello
+- **GIVEN** un collegamento con un prefisso leggibile sbagliato
+- **THEN** SHALL aprire lo stesso task di un collegamento senza prefisso
 
 #### Scenario: un'origine estranea
 - **GIVEN** un collegamento a un'altra origine

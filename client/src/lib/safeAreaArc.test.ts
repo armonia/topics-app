@@ -130,7 +130,7 @@ describe('formaFila', () => {
   /** La fila vera: tre scatole A FILO dei bordi, nessun rientro. È lo scopo del
    *  modulo — se si sta larghi 32 come la barra di stato, l'arco non tocca
    *  nessuno e non c'era niente da calcolare. */
-  const treScatole = (larghezza: number, l = 84, rientro = 0) => {
+  const threeBoxes = (larghezza: number, l = 84, rientro = 0) => {
     const passo = (larghezza - 2 * rientro - l) / 2;
     return [0, 1, 2].map((i) => ({ x: rientro + i * passo, larghezza: l }));
   };
@@ -138,7 +138,7 @@ describe('formaFila', () => {
   const fila = (larghezza: number, fascia: number, extra?: { raggio?: number; pavimento?: number }) =>
     formaFila({
       larghezza,
-      scatole: treScatole(larghezza),
+      scatole: threeBoxes(larghezza),
       raggio: extra?.raggio ?? raggioSchermo(fascia),
       pavimento: extra?.pavimento ?? pavimentoFila(fascia),
       altezza: ALTEZZA,

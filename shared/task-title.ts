@@ -40,7 +40,7 @@ export const TITOLO_MAX = 80;
  * l'inizio intero, per quanto lungo, di tre parole senza senso. Vale come rete
  * per il caso patologico (una riga senza spazi, un URL, un incolla di codice).
  */
-const TITOLO_MIN_UTILE = 24;
+const USEFUL_TITLE_MIN = 24;
 
 /** Dove finisce una frase: il punto in cui chi scrive ha già deciso. */
 const FINE_FRASE = /[.:;!?](?:\s|$)/g;
@@ -85,13 +85,13 @@ export function accorcia(riga: string): string {
     if (fine > TITOLO_MAX) break;
     fineFrase = fine;
   }
-  if (fineFrase >= TITOLO_MIN_UTILE) return s.slice(0, fineFrase).trim();
+  if (fineFrase >= USEFUL_TITLE_MIN) return s.slice(0, fineFrase).trim();
 
   // 2. Altrimenti l'ultima PAROLA intera che ci sta, più l'ellissi. Il limite
   //    è `TITOLO_MAX - 1` perché il carattere «…» occupa il suo posto.
   const finestra = s.slice(0, TITOLO_MAX - 1);
-  const ultimoSpazio = finestra.lastIndexOf(" ");
-  if (ultimoSpazio >= TITOLO_MIN_UTILE) return `${finestra.slice(0, ultimoSpazio).trimEnd()}…`;
+  const lastSpace = finestra.lastIndexOf(" ");
+  if (lastSpace >= USEFUL_TITLE_MIN) return `${finestra.slice(0, lastSpace).trimEnd()}…`;
 
   // 3. Nessuno spazio utile: una riga senza spazi (un URL, un incolla). Qui
   //    tagliare su parola è impossibile e tagliare corto darebbe un moncone:

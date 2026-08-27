@@ -19,7 +19,7 @@ import { DISPATCH_CHIP } from './constants';
 import { PARKED_STOPPED, PARKED_WAITED_OUT } from '../../lib/board';
 
 /** Ogni valore che il server può scrivere in `dispatch_state`. */
-const STATI_DEL_SERVER = [
+const STATES_OF_SERVER = [
   'queued', 'starting', 'working',        // in volo
   'waiting',                              // attesa dichiarata, torna in coda
   'needs_input', 'delivered',             // in review
@@ -29,7 +29,7 @@ const STATI_DEL_SERVER = [
 
 describe('DISPATCH_CHIP', () => {
   test('ogni stato che il server sa scrivere ha la sua riga: nessuna card muta', () => {
-    for (const stato of STATI_DEL_SERVER) {
+    for (const stato of STATES_OF_SERVER) {
       expect(DISPATCH_CHIP[stato], `manca la chip per '${stato}'`).toBeDefined();
       expect(DISPATCH_CHIP[stato].text.trim().length).toBeGreaterThan(0);
       expect(DISPATCH_CHIP[stato].cls.trim().length).toBeGreaterThan(0);

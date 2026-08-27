@@ -119,10 +119,10 @@ test.describe("sidebar progetto: la rail collassata", () => {
     // invisibile («ancora uguale, non vedi i tasti sotto il trigger», Attilio
     // 09/08). Si misura il RAPPORTO fra le due scatole, non la visibilità.
     const barraBox = (await win.locator(".pane-chrome-bar").first().boundingBox())!;
-    const rigaBox = (await riga.boundingBox())!;
+    const rowBox = (await riga.boundingBox())!;
     expect(
-      rigaBox.y,
-      `la riga deve cominciare sotto la barra (barra finisce a ${barraBox.y + barraBox.height}, riga comincia a ${rigaBox.y})`,
+      rowBox.y,
+      `la riga deve cominciare sotto la barra (barra finisce a ${barraBox.y + barraBox.height}, riga comincia a ${rowBox.y})`,
     ).toBeGreaterThanOrEqual(barraBox.y + barraBox.height - 1);
     const boxes = await strip.locator("button").evaluateAll((els) =>
       els.map((e) => Math.round(e.getBoundingClientRect().height)),
@@ -152,22 +152,22 @@ test.describe("sidebar progetto: la rail collassata", () => {
     //    aperta. Si riapre e si misura, invece di fidarsi del fatto che il
     //    componente sia lo stesso: quello che conta è che a schermo abbiano la
     //    stessa altezza e lo stesso corpo.
-    const chiusaH = boxes[0];
-    const chiusoFont = await strip.getByTestId("project-card")
+    const closedH = boxes[0];
+    const closedFont = await strip.getByTestId("project-card")
       .evaluate((el) => getComputedStyle(el).font);
     await strip.getByTestId("project-card").click();
-    const cardAperta = win.getByTestId("project-card");
-    await expect(cardAperta).toBeVisible({ timeout: 5000 });
-    const aperta = await cardAperta.evaluate((el) => ({
+    const openCard = win.getByTestId("project-card");
+    await expect(openCard).toBeVisible({ timeout: 5000 });
+    const aperta = await openCard.evaluate((el) => ({
       h: Math.round(el.getBoundingClientRect().height),
       font: getComputedStyle(el).font,
       label: el.getAttribute("aria-label"),
     }));
-    expect(aperta.h, "la card aperta è alta come quella chiusa").toBe(chiusaH);
-    expect(aperta.font, "stesso corpo").toBe(chiusoFont);
+    expect(aperta.h, "la card aperta è alta come quella chiusa").toBe(closedH);
+    expect(aperta.font, "stesso corpo").toBe(closedFont);
     expect(aperta.label, "da aperta il gesto si inverte").toBe("Nascondi la barra");
     // E si richiude, o i controlli qui sotto misurerebbero l'altro stato.
-    await cardAperta.click();
+    await openCard.click();
     await expect(strip).toBeVisible({ timeout: 5000 });
 
     // 5. IL NOME DEL PROGETTO STA DENTRO L'APERTORE, non accanto a lui.

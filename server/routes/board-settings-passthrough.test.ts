@@ -35,7 +35,7 @@ const SERVIZIO = readFileSync(resolve(dir, "../services/tasks.ts"), "utf8");
 const ROTTA = readFileSync(resolve(dir, "tasks.ts"), "utf8");
 
 /** I campi che `updateBoardSettings` sa scrivere: `if (patch.X !== undefined)`. */
-function campiDelServizio(): string[] {
+function fieldsOfService(): string[] {
   // L'IMPLEMENTAZIONE, non la dichiarazione dell'interfaccia: la stessa firma
   // compare due volte nel file e la prima non ha nessun corpo da leggere.
   const inizio = SERVIZIO.lastIndexOf("updateBoardSettings(projectId");
@@ -70,13 +70,13 @@ describe("le impostazioni della board arrivano tutte dalla rotta", () => {
     // Se una delle due estrazioni smettesse di prendere, il confronto sotto
     // passerebbe misurando zero campi: il modo piu' comune in cui un cancello
     // smette di guardare senza che nessuno se ne accorga.
-    expect(campiDelServizio().length).toBeGreaterThan(8);
+    expect(fieldsOfService().length).toBeGreaterThan(8);
     expect(campiDellaRotta().length).toBeGreaterThan(8);
   });
 
   test("ogni campo scrivibile dal servizio e' inoltrato dalla rotta", () => {
     const rotta = new Set(campiDellaRotta());
-    const mancanti = campiDelServizio().filter((c) => !rotta.has(c) && !ESENTI.has(c));
+    const mancanti = fieldsOfService().filter((c) => !rotta.has(c) && !ESENTI.has(c));
     expect(
       mancanti,
       "Questi campi il servizio li sa scrivere ma la rotta non li passa: il PATCH risponde " +

@@ -70,17 +70,17 @@ const INTERACTIVE = 'button, a, input, textarea, select, label, [role="button"],
 
 /** I comandi che aprono un'interfaccia di SISTEMA: un clic sintetico non la
  *  apre, quindi su questi non si blocca niente. */
-const DI_SISTEMA = 'select, input[type="file"]';
+const OF_SYSTEM = 'select, input[type="file"]';
 
 /** Un campo di testo va anche MESSO A FUOCO: `preventDefault` sul `touchstart`
  *  toglie al browser anche quello, e senza fuoco non sale la tastiera. */
 const DA_METTERE_A_FUOCO = 'input, textarea, [contenteditable="true"]';
 
 /** Quanto può muoversi il dito e restare un tocco. */
-const TOCCO_SLOP_PX = 10;
+const TOUCH_SLOP_PX = 10;
 /** E quanto può durare. Oltre, è una pressione lunga: quella ha già i suoi
  *  gestori e non va raddoppiata con un clic. */
-const TOCCO_MS = 700;
+const TOUCH_MS = 700;
 
 /** Solo dove il gesto esiste davvero: iPhone/iPad, e solo in standalone. Nel
  *  browser normale la barra di Safari è lì a vista e il gesto è quello che
@@ -111,7 +111,7 @@ function armaIlTocco(comando: Element, x0: number, y0: number): void {
     if (!t) return;
     const dx = t.clientX - x0;
     const dy = t.clientY - y0;
-    if (dx * dx + dy * dy > TOCCO_SLOP_PX * TOCCO_SLOP_PX) fuggito = true;
+    if (dx * dx + dy * dy > TOUCH_SLOP_PX * TOUCH_SLOP_PX) fuggito = true;
   };
   const smonta = () => {
     document.removeEventListener('touchmove', move, true);
@@ -120,7 +120,7 @@ function armaIlTocco(comando: Element, x0: number, y0: number): void {
   };
   const end = (e: TouchEvent) => {
     smonta();
-    if (fuggito || Date.now() - nato > TOCCO_MS) return;
+    if (fuggito || Date.now() - nato > TOUCH_MS) return;
     const t = e.changedTouches[0];
     if (!t) return;
     // Il campo va messo a fuoco a mano: siamo dentro un `touchend`, cioè dentro
@@ -149,9 +149,9 @@ export function edgeSwipeVerdict(
   larghezza: number,
   sotto: Element | null,
 ): { blocca: boolean; comando: Element | null } {
-  const sulBordo = clientX <= EDGE_PX || clientX >= larghezza - EDGE_PX;
-  if (!sulBordo) return { blocca: false, comando: null };
-  if (sotto?.closest(DI_SISTEMA)) return { blocca: false, comando: null };
+  const onEdge = clientX <= EDGE_PX || clientX >= larghezza - EDGE_PX;
+  if (!onEdge) return { blocca: false, comando: null };
+  if (sotto?.closest(OF_SYSTEM)) return { blocca: false, comando: null };
   return { blocca: true, comando: sotto?.closest(INTERACTIVE) ?? null };
 }
 

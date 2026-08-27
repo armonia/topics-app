@@ -24,7 +24,7 @@ import { decodeCol, encodeCol } from "../../shared/message-blob";
 const tool = (): ContentBlock =>
   ({ kind: "tool", toolCall: { id: "t", name: "Bash", args: {}, status: "success" } }) as ContentBlock;
 
-function dbConTurnoTagliato(blocks: ContentBlock[]): Database {
+function dbWithTruncatedTurn(blocks: ContentBlock[]): Database {
   const db = new Database(":memory:");
   db.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, session_key TEXT, role TEXT, blocks BLOB, sort_order INTEGER)`);
   db.prepare(`INSERT INTO messages VALUES ('u1','topic:x','user',NULL,0)`).run();
@@ -37,7 +37,7 @@ const blocchi = (db: Database, id: string): ContentBlock[] =>
 
 describe("dal turno tagliato alla ripresa, senza buchi in mezzo", () => {
   test("un turno morto sotto un tool: viene spiegato E poi ripreso", () => {
-    const db = dbConTurnoTagliato([{ kind: "text", text: "sto misurando" }, tool()]);
+    const db = dbWithTruncatedTurn([{ kind: "text", text: "sto misurando" }, tool()]);
 
     // 1. Il boot chiude e SPIEGA.
     expect(spiegaTurnoTroncato(db as never, "topic:x")).toBe(true);
@@ -61,7 +61,7 @@ describe("dal turno tagliato alla ripresa, senza buchi in mezzo", () => {
   });
 
   test("un turno finito bene non viene né spiegato né ripreso", () => {
-    const db = dbConTurnoTagliato([tool(), { kind: "text", text: "fatto, ecco il risultato" }]);
+    const db = dbWithTruncatedTurn([tool(), { kind: "text", text: "fatto, ecco il risultato" }]);
     expect(spiegaTurnoTroncato(db as never, "topic:x")).toBe(false);
     expect(chatDaRiprendere(
       { sessionKey: "topic:x", ruolo: "assistant", blocks: blocchi(db, "a1"), timestampMs: Date.now() },
@@ -70,7 +70,7 @@ describe("dal turno tagliato alla ripresa, senza buchi in mezzo", () => {
   });
 
   test("due boot di fila non riprendono due volte lo stesso turno", () => {
-    const db = dbConTurnoTagliato([{ kind: "text", text: "lavoro" }, tool()]);
+    const db = dbWithTruncatedTurn([{ kind: "text", text: "lavoro" }, tool()]);
     spiegaTurnoTroncato(db as never, "topic:x");
     // La ripresa segna il turno; il boot dopo trova la traccia e si ferma.
     const b = [...blocchi(db, "a1"), { kind: "ripreso" } as ContentBlock];

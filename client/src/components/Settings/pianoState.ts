@@ -105,11 +105,11 @@ export function giorniAllaScadenza(expiresAt: number | null, ora: number): numbe
  * fretta. Prima non serve dire niente — un conto alla rovescia che parte da un
  * anno è rumore, e il rumore addestra a non leggere.
  */
-export const GIORNI_AVVISO_SCADENZA = 30;
+export const DAYS_NOTICE_EXPIRY = 30;
 
 export function scadenzaVicina(expiresAt: number | null, ora: number): boolean {
   const g = giorniAllaScadenza(expiresAt, ora);
-  return g !== null && g <= GIORNI_AVVISO_SCADENZA;
+  return g !== null && g <= DAYS_NOTICE_EXPIRY;
 }
 
 /**
@@ -131,12 +131,12 @@ export function postiValidi(n: number): number {
 /** La chiave della frase per un rifiuto del checkout. Un codice che questa
  *  interfaccia non conosce cade su quella generica, invece di sparire: un clic
  *  senza effetto è indistinguibile da un bottone rotto. */
-const CODICI_CHECKOUT = new Set([
+const CODES_CHECKOUT = new Set([
   'not_configured', 'no_installation', 'bad_seats', 'upstream_error', 'unreachable',
 ]);
 
 export function chiaveErroreCheckout(codice: string | undefined): string {
-  return codice && CODICI_CHECKOUT.has(codice)
+  return codice && CODES_CHECKOUT.has(codice)
     ? `plan.checkoutErr.${codice}`
     : 'plan.checkoutErr.generic';
 }

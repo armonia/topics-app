@@ -40,19 +40,19 @@ const GATE = readFileSync(join(import.meta.dir, 'PairingGate.tsx'), 'utf8');
  * describing the cure instead of the cure. A guard satisfied by its own
  * documentation is guarding nothing.
  */
-const RIGHE_JSX = GATE.split('\n').filter((l) => {
+const ROWS_JSX = GATE.split('\n').filter((l) => {
   const t = l.trim();
   return !t.startsWith('//') && !t.startsWith('*') && !t.startsWith('/*') && !t.startsWith('{/*');
 });
 
 /** The full-screen container of the gate, with its classes. */
 function contenitore(): string {
-  return RIGHE_JSX.find((l) => l.includes('fixed inset-0')) ?? '';
+  return ROWS_JSX.find((l) => l.includes('fixed inset-0')) ?? '';
 }
 
 /** The child carrying the height and the alignment. */
 function corpo(): string {
-  return RIGHE_JSX.find((l) => l.includes('min-h-')) ?? '';
+  return ROWS_JSX.find((l) => l.includes('min-h-')) ?? '';
 }
 
 describe('PairingGate · whatever does not fit must still be reachable', () => {

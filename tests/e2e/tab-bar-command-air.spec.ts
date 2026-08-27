@@ -49,7 +49,7 @@ const ROW_INSET = 6;
 
 /** I due box di `ROW_ACTION_BOX` (`w-9 h-9 md:w-7 md:h-7`), in pixel. */
 const BOX_MOUSE = 28;
-const BOX_DITO = 36;
+const BOX_FINGER = 36;
 
 /** La riserva che un capo della riga si tiene per il suo comando:
  *  bordo + box + bordo. È `CHROME_ROW_ACTION_RESERVE_LEFT` (`pl-[48px]
@@ -105,14 +105,14 @@ interface Riga {
  * duplicarlo è il modo in cui i due capi della stessa barra hanno finito per
  * avere due grammatiche, che è il difetto che questo file esiste per prendere.
  */
-async function leggiRiga(page: Page): Promise<Riga> {
+async function readRow(page: Page): Promise<Riga> {
   return page.evaluate(() => {
     const arrotonda = (n: number) => Math.round(n * 10) / 10;
     const barra = document.querySelector(".pane-chrome-bar") as HTMLElement;
     const rb = barra.getBoundingClientRect();
     const strip = barra.querySelector("[class*='overflow-x-auto']") as HTMLElement | null;
-    const titoloEl = barra.querySelector('[data-testid="mobile-pane-title"]') as HTMLElement | null;
-    const rt = titoloEl?.getBoundingClientRect();
+    const titleEl = barra.querySelector('[data-testid="mobile-pane-title"]') as HTMLElement | null;
+    const rt = titleEl?.getBoundingClientRect();
     return {
       barra: { h: arrotonda(rb.height) },
       strisce: barra.querySelectorAll("[class*='overflow-x-auto']").length,
@@ -123,9 +123,9 @@ async function leggiRiga(page: Page): Promise<Riga> {
           }
         : null,
       titolo:
-        titoloEl && rt
+        titleEl && rt
           ? {
-              pl: parseFloat(getComputedStyle(titoloEl).paddingLeft),
+              pl: parseFloat(getComputedStyle(titleEl).paddingLeft),
               daSx: arrotonda(rt.left - rb.left),
             }
           : null,
@@ -170,7 +170,7 @@ async function leggiRiga(page: Page): Promise<Riga> {
  * tornare NULL per un istante. Non è un errore, è «non ancora» —
  * dereferenziandolo il poll ESPLODE invece di riprovare.
  */
-async function attendiRigaFerma(page: Page, largMax: number): Promise<void> {
+async function waitStoppedRow(page: Page, largMax: number): Promise<void> {
   const riga = page.locator(".pane-chrome-bar").first();
   let precedente = "";
   await expect
@@ -194,22 +194,22 @@ async function attendiRigaFerma(page: Page, largMax: number): Promise<void> {
 /** Apre le due chat a schermo largo e poi porta la finestra alla misura
  *  chiesta: sotto i 768px la colonna è un pannello sovrapposto e `openTopic`
  *  non arriverebbe alla riga. */
-async function apriDueChat(page: Page, request: Parameters<typeof resetPaneStore>[0], w: number, h: number) {
+async function openTwoChat(page: Page, request: Parameters<typeof resetPaneStore>[0], w: number, h: number) {
   await page.setViewportSize({ width: 1280, height: 800 });
   await resetPaneStore(request, ids);
   await goToApp(page);
   for (const n of nomi) await openTopic(page, n);
   await expect(page.locator(".pane-chrome-bar").first()).toBeVisible({ timeout: 15000 });
   await page.setViewportSize({ width: w, height: h });
-  await attendiRigaFerma(page, w);
+  await waitStoppedRow(page, w);
 }
 
 test.describe("Barra delle tab a 1280px", () => {
   let m: Riga;
 
   test.beforeEach(async ({ page, request }) => {
-    await apriDueChat(page, request, 1280, 800);
-    m = await leggiRiga(page);
+    await openTwoChat(page, request, 1280, 800);
+    m = await readRow(page);
     expect(m.tabs.length, "servono due tab per misurare i due capi").toBeGreaterThanOrEqual(2);
     expect(m.comandi.length, "nessun comando nella riga").toBeGreaterThanOrEqual(1);
     expect(m.strip, "la striscia delle tab non c'è").not.toBeNull();
@@ -240,8 +240,8 @@ test.describe("Barra delle tab a 1280px", () => {
     // Era `chromeRowInset(box)`: col dito veniva 2, cioè il bottone incollato
     // al bordo mentre la strip senza comando si ferma a 6.
     for (const c of m.comandi) {
-      const dalBordo = Math.min(c.daSx, c.daDx);
-      expect(dalBordo, `«${c.titolo}» dal bordo più vicino`).toBe(ROW_INSET);
+      const fromEdge = Math.min(c.daSx, c.daDx);
+      expect(fromEdge, `«${c.titolo}» dal bordo più vicino`).toBe(ROW_INSET);
     }
   });
 
@@ -274,8 +274,8 @@ test.describe("La riga della superficie a 390px", () => {
   let m: Riga;
 
   test.beforeEach(async ({ page, request }) => {
-    await apriDueChat(page, request, 390, 844);
-    m = await leggiRiga(page);
+    await openTwoChat(page, request, 390, 844);
+    m = await readRow(page);
   });
 
   test("ARIA-TEL-1: niente striscia, al suo posto il nome della superficie", async () => {
@@ -292,9 +292,9 @@ test.describe("La riga della superficie a 390px", () => {
     // e il verticale resta derivato — (altezza riga − box) / 2.
     expect(m.comandi.length, "comandi nella riga").toBe(1);
     const c = m.comandi[0];
-    const attesa = (m.barra.h - BOX_DITO) / 2;
-    expect(c.w, `larghezza di «${c.titolo}»`).toBe(BOX_DITO);
-    expect(c.h, `altezza di «${c.titolo}»`).toBe(BOX_DITO);
+    const attesa = (m.barra.h - BOX_FINGER) / 2;
+    expect(c.w, `larghezza di «${c.titolo}»`).toBe(BOX_FINGER);
+    expect(c.h, `altezza di «${c.titolo}»`).toBe(BOX_FINGER);
     expect(c.sopra, `aria sopra «${c.titolo}»`).toBe(attesa);
     expect(c.sotto, `aria sotto «${c.titolo}»`).toBe(attesa);
     expect(c.daSx, `«${c.titolo}» dal bordo sinistro`).toBe(ROW_INSET);
@@ -305,12 +305,12 @@ test.describe("La riga della superficie a 390px", () => {
     // bordo. È il contratto scritto accanto al ramo mobile di
     // `StandaloneChatGroup` — togliere le tab non doveva spostare niente.
     expect(m.titolo, "manca il nome della superficie").not.toBeNull();
-    expect(m.titolo?.pl, "riserva a sinistra (riapri colonna)").toBe(riserva(BOX_DITO));
+    expect(m.titolo?.pl, "riserva a sinistra (riapri colonna)").toBe(riserva(BOX_FINGER));
     // E il testo comincia DOPO il comando, non sotto: la riserva è un padding,
     // quindi il blocco parte a filo bordo e a contare è dove finisce l'incasso.
-    const inizioTesto = (m.titolo?.daSx ?? 0) + (m.titolo?.pl ?? 0);
-    expect(inizioTesto, "bordo → prima lettera del nome").toBeGreaterThanOrEqual(
-      ROW_INSET + BOX_DITO,
+    const startText = (m.titolo?.daSx ?? 0) + (m.titolo?.pl ?? 0);
+    expect(startText, "bordo → prima lettera del nome").toBeGreaterThanOrEqual(
+      ROW_INSET + BOX_FINGER,
     );
   });
 });

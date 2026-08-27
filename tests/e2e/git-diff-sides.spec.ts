@@ -149,11 +149,11 @@ test.describe("i due lati del diff", () => {
     const q = (file: string) =>
       `/api/git/show?path=${encodeURIComponent(tmpDir)}&file=${encodeURIComponent(file)}`;
 
-    const colNomeNuovo = await (await request.get(q("nuovo.md"))).text();
-    const colNomeVecchio = await (await request.get(q("vecchio.md"))).text();
+    const newColName = await (await request.get(q("nuovo.md"))).text();
+    const oldColName = await (await request.get(q("vecchio.md"))).text();
 
     // Il difetto in una riga: col nome nuovo non c'è niente da confrontare.
-    expect(colNomeNuovo.trim()).toBe("");
-    expect(colNomeVecchio).toContain("riga due");
+    expect(newColName.trim()).toBe("");
+    expect(oldColName).toContain("riga due");
   });
 });

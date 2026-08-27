@@ -1517,7 +1517,7 @@ export interface ProfiloGitHubClient {
   fetchedAt: number | null;
 }
 
-export interface StatistichePersonaClient {
+export interface StatsPersonClient {
   prompts: number;
   inputTokens: number;
   outputTokens: number;
@@ -1540,7 +1540,7 @@ export interface PersonWithProfile {
   githubLogin: string | null;
   github: ProfiloGitHubClient | null;
   /** `null` when this person does not publish their figures. */
-  stats: StatistichePersonaClient | null;
+  stats: StatsPersonClient | null;
   isMe: boolean;
   /** `null` when this person does not publish their followers. */
   counts: FollowCounts | null;

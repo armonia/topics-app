@@ -170,8 +170,8 @@ describe("tasks router (session-scoped)", () => {
     }
     // Anche dalla porta degli AGENTI: rifiutato da una e ingoiato dall'altra
     // sarebbe di nuovo il 200 muto, da un'altra parte.
-    const viaAgente = (await call(router, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { deliveryCommit: "cafe1234" }))!;
-    expect(viaAgente.status).toBe(400);
+    const viaAgent = (await call(router, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { deliveryCommit: "cafe1234" }))!;
+    expect(viaAgent.status).toBe(400);
     // E una PATCH normale continua a passare: il cancello guarda solo quei campi.
     const ok = await (await call(router, "PATCH", `/api/boards/pX/tasks/${t.id}`, { text: "rititolata" }))!.json();
     expect(ok.text).toBe("rititolata");
@@ -1898,7 +1898,7 @@ describe("valore fuori dominio: 400 con la regola, non 500 con l'SQL", () => {
   });
 
   /** Nessun pezzo di SQL deve affiorare fino al client. */
-  const senzaSql = (body: any) => {
+  const withoutSql = (body: any) => {
     const testo = JSON.stringify(body);
     expect(testo).not.toContain("CHECK");
     expect(testo).not.toContain("constraint");
@@ -1915,7 +1915,7 @@ describe("valore fuori dominio: 400 con la regola, non 500 con l'SQL", () => {
     const body = await resp.json();
     expect(body.fields).toEqual(["priority"]);
     expect(body.error).toContain("da 0 a 4");
-    senzaSql(body);
+    withoutSql(body);
     const got = await (await call(router, "GET", `/api/boards/pX/tasks/${t.id}`))!.json();
     expect(got.task.priority).toBe(1);
   });
@@ -1927,7 +1927,7 @@ describe("valore fuori dominio: 400 con la regola, non 500 con l'SQL", () => {
     const body = await resp.json();
     expect(body.fields).toEqual(["priority"]);
     expect(body.error).toContain("da 0 a 4");
-    senzaSql(body);
+    withoutSql(body);
   });
 
   test("priority con la virgola: 400 (il DB la troncherebbe in silenzio)", async () => {
@@ -1954,7 +1954,7 @@ describe("valore fuori dominio: 400 con la regola, non 500 con l'SQL", () => {
     expect(body.fields).toEqual(["status"]);
     expect(body.error).toContain("in_progress");
     expect(body.error).toContain("backlog");
-    senzaSql(body);
+    withoutSql(body);
     const got = await (await call(router, "GET", `/api/boards/pX/tasks/${t.id}`))!.json();
     expect(got.task.status).toBe(t.status);
   });
@@ -1966,7 +1966,7 @@ describe("valore fuori dominio: 400 con la regola, non 500 con l'SQL", () => {
     const body = await resp.json();
     expect(body.fields).toEqual(["status"]);
     expect(body.error).toContain("review");
-    senzaSql(body);
+    withoutSql(body);
   });
 
   // La CREAZIONE non passa dalla tabella dei campi della PATCH: qui il valore
@@ -1977,7 +1977,7 @@ describe("valore fuori dominio: 400 con la regola, non 500 con l'SQL", () => {
     const body = await resp.json();
     expect(body.code).toBe("invalid_input");
     expect(body.error).toContain("da 0 a 4");
-    senzaSql(body);
+    withoutSql(body);
   });
 });
 
@@ -2195,8 +2195,8 @@ describe("doppioni: il cancello alla creazione e la fusione", () => {
     // `survivor === a.id` e passava una volta su due: verde per fortuna, non
     // per costruzione. La scelta della superstite è coperta dove l'orologio è
     // iniettato (`task-merge.test.ts`).
-    const nelGruppo = [body.groups[0].survivor.id, ...body.groups[0].duplicates.map((d: any) => d.id)].sort();
-    expect(nelGruppo).toEqual([a.id, b.id].sort());
+    const inGroup = [body.groups[0].survivor.id, ...body.groups[0].duplicates.map((d: any) => d.id)].sort();
+    expect(inGroup).toEqual([a.id, b.id].sort());
     // Lettura: le due card sono ancora tutte e due sulla board.
     const dopo = await (await call(router, "GET", "/api/boards/pX/tasks"))!.json();
     expect(dopo.tasks.length).toBe(2);
@@ -2222,7 +2222,7 @@ describe("fan-out: la scelta del vincitore", () => {
   });
 
   /** Due tentativi finiti, ciascuno con la sua chat: la forma alla chiusura del fan-out. */
-  async function conDueTentativi(): Promise<{ taskId: string; a1: string; a2: string }> {
+  async function withTwoAttempts(): Promise<{ taskId: string; a1: string; a2: string }> {
     const task = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "due strade" }))!.json();
     for (const n of [1, 2]) {
       db.run("INSERT INTO topics (id) VALUES (?)", [`top-${n}`]);
@@ -2239,7 +2239,7 @@ describe("fan-out: la scelta del vincitore", () => {
     call(router, "POST", `/api/boards/pX/tasks/${taskId}/attempts/${attemptId}/select`);
 
   test("una seconda scelta su un ALTRO tentativo è 409 fanout_already_decided, e nomina il vincitore", async () => {
-    const { taskId, a1, a2 } = await conDueTentativi();
+    const { taskId, a1, a2 } = await withTwoAttempts();
 
     expect((await pick(taskId, a1))!.status).toBe(200);
     // Il task punta al vincitore: è l'indirezione su cui viaggia tutto il resto.
@@ -2258,7 +2258,7 @@ describe("fan-out: la scelta del vincitore", () => {
   test("ripremere sullo STESSO tentativo resta idempotente", async () => {
     // La controprova: un cancello che rifiutasse anche questo trasformerebbe un
     // doppio click innocuo in un errore da leggere.
-    const { taskId, a1 } = await conDueTentativi();
+    const { taskId, a1 } = await withTwoAttempts();
     expect((await pick(taskId, a1))!.status).toBe(200);
     expect((await pick(taskId, a1))!.status).toBe(200);
     expect(db.query("SELECT assigned_topic_id AS t FROM tasks WHERE id = ?").get(taskId)).toEqual({ t: "top-1" });
@@ -2267,7 +2267,7 @@ describe("fan-out: la scelta del vincitore", () => {
   test("un tentativo ANCORA VIVO blocca la scelta prima di tutto il resto", async () => {
     // Il 409 che c'era già: si pinza qui perché il cancello nuovo gli sta
     // accanto, e l'ordine dei due conta (un fan-out non chiuso non è «deciso»).
-    const { taskId, a1 } = await conDueTentativi();
+    const { taskId, a1 } = await withTwoAttempts();
     db.run("UPDATE task_attempts SET state = 'running' WHERE id = 'att-2'");
     const resp = (await pick(taskId, a1))!;
     expect(resp.status).toBe(409);

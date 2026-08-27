@@ -16,7 +16,7 @@ import { MODAL_LAYER } from '../../lib/modalStyles';
  * da filtrare. (La forma sbagliata l'abbiamo già provata: mettere `/api/topics`
  * in allowlist rispondeva 200 con tutte le chat.)
  */
-interface TaskCondiviso {
+interface SharedTask {
   id: string;
   text: string;
   status: string;
@@ -24,7 +24,7 @@ interface TaskCondiviso {
   preview_image: string | null;
 }
 
-interface ChatCondivisa {
+interface SharedChat {
   id: string;
   name: string;
   updated_at: string | null;
@@ -32,15 +32,15 @@ interface ChatCondivisa {
 
 export function GuestView({ deviceName }: { deviceName: string }) {
   const tr = useT();
-  const [tasks, setTasks] = useState<TaskCondiviso[]>([]);
-  const [chats, setChats] = useState<ChatCondivisa[]>([]);
+  const [tasks, setTasks] = useState<SharedTask[]>([]);
+  const [chats, setChats] = useState<SharedChat[]>([]);
   const [stato, setStato] = useState<'carico' | 'pronto' | 'errore'>('carico');
 
   const carica = useCallback(async () => {
     try {
       const r = await fetch('/api/auth/shared', { credentials: 'same-origin' });
       if (!r.ok) throw new Error(String(r.status));
-      const b = await r.json() as { tasks: TaskCondiviso[]; topics: ChatCondivisa[] };
+      const b = await r.json() as { tasks: SharedTask[]; topics: SharedChat[] };
       setTasks(b.tasks ?? []);
       setChats(b.topics ?? []);
       setStato('pronto');

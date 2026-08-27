@@ -463,12 +463,12 @@ export function useWebSocket(): UseWebSocketReturn {
           seenTopicRef.current = tid;
           // Letto PRIMA dello zero ottimistico: dopo, il conteggio sarebbe
           // sempre 0 e la POST non partirebbe mai.
-          const daAzzerare = hasUnread(unreadRef.current, tid);
+          const toReset = hasUnread(unreadRef.current, tid);
           applyUnread(prev => clearUnreadFor(prev, tid));
           // Niente da azzerare ⇒ niente round-trip. Era il costo per-switch più
           // caro: la POST fa riscrivere al server l'intera tabella unread e poi
           // trasmette a TUTTI i client un `unread:updated{0}` che non cambia nulla.
-          if (daAzzerare) topicsApi.markRead(tid).catch(() => {});
+          if (toReset) topicsApi.markRead(tid).catch(() => {});
         }, SEEN_DWELL_MS);
       }
     }

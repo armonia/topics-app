@@ -29,7 +29,7 @@ const PLIST = join(import.meta.dir, "..", "..", "desktop-tauri", "src-tauri", "I
  * Una voce si aggiunge qui quando il client inizia a usare quella capacita',
  * non quando qualcuno si accorge che non funziona.
  */
-const RICHIESTI = [
+const REQUIRED = [
   {
     chiave: "NSMicrophoneUsageDescription",
     perche: "la dettatura e la nota vocale chiamano getUserMedia({audio:true})",
@@ -39,7 +39,7 @@ const RICHIESTI = [
 describe("il guscio dichiara i permessi che chiede", () => {
   const plist = readFileSync(PLIST, "utf8");
 
-  for (const { chiave, perche } of RICHIESTI) {
+  for (const { chiave, perche } of REQUIRED) {
     test(`${chiave} — ${perche}`, () => {
       expect(plist).toContain(`<key>${chiave}</key>`);
     });

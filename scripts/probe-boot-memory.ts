@@ -64,9 +64,9 @@ const DB = arg("db", join(RADICE, "data", "topics.db"));
  * fa sfuggire un ritorno del difetto. Un tetto che non lascia respiro diventa
  * rosso per motivi che non sono il difetto, e allora si impara a ignorarlo.
  */
-const TETTO_MB = Number(arg("tetto", "600"));
+const CAP_MB = Number(arg("tetto", "600"));
 /** Oltre questo il server non sta bootando: sta facendo altro, o è morto. */
-const ATTESA_MAX_S = 90;
+const WAIT_MAX_S = 90;
 
 function esci(codice: number, msg: string): never {
   console.log(msg);
@@ -89,7 +89,7 @@ console.log(`[boot-memory] copio il DB (${Math.round(Bun.file(DB).size / 1048576
 copyFileSync(DB, join(dati, "topics.db"));
 
 /** `phys_footprint (peak)` in MB, o null. */
-function piccoMB(pid: number): number | null {
+function peakMB(pid: number): number | null {
   const r = spawnSync("/bin/bash", ["-lc", `vmmap -summary ${pid} 2>/dev/null | grep 'footprint (peak)'`], { encoding: "utf-8" });
   const m = (r.stdout ?? "").match(/([\d.]+)([MGK])/);
   if (!m) return null;
@@ -120,16 +120,16 @@ figlio.stdout?.on("data", guarda);
 figlio.stderr?.on("data", guarda);
 
 let picco: number | null = null;
-const scadenza = Date.now() + ATTESA_MAX_S * 1000;
+const scadenza = Date.now() + WAIT_MAX_S * 1000;
 // Si campiona fitto: il picco dura secondi, e un campionamento lento lo manca.
 while (Date.now() < scadenza) {
   await Bun.sleep(300);
   if (figlio.exitCode !== null) break;
-  const p = piccoMB(figlio.pid!);
+  const p = peakMB(figlio.pid!);
   if (p !== null) picco = Math.max(picco ?? 0, p);
   // Dopo il segnale di boot si continua ancora un momento: le ultime
   // allocazioni dell'avvio arrivano subito dopo la riga di log.
-  if (bootFinito && Date.now() > scadenza - (ATTESA_MAX_S - 20) * 1000) break;
+  if (bootFinito && Date.now() > scadenza - (WAIT_MAX_S - 20) * 1000) break;
 }
 
 try { figlio.kill("SIGTERM"); } catch {}
@@ -142,10 +142,10 @@ if (picco === null) {
   esci(2, "[boot-memory] non ho letto nessun picco — il server non è partito, o `vmmap` non ha risposto");
 }
 
-const verdetto = picco <= TETTO_MB ? "DENTRO" : "FUORI";
-console.log(`[boot-memory] picco di boot: ${picco} MB · tetto ${TETTO_MB} MB → ${verdetto}`);
+const verdetto = picco <= CAP_MB ? "DENTRO" : "FUORI";
+console.log(`[boot-memory] picco di boot: ${picco} MB · tetto ${CAP_MB} MB → ${verdetto}`);
 
-if (picco > TETTO_MB) {
+if (picco > CAP_MB) {
   esci(1, [
     "",
     "Il boot ha toccato più memoria di quanta gliene sia concessa.",

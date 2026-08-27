@@ -111,7 +111,7 @@ function prova(cmd: string, args: string[]): string {
  * riconoscimento che questi nomi non appartengono a una persona, quindi non
  * c'è niente da proteggere.
  */
-const ACCOUNT_DI_SERVIZIO = new Set([
+const ACCOUNT_OF_SERVICE = new Set([
   "runner", "ubuntu", "root", "admin", "build", "builder", "jenkins",
   "circleci", "travis", "vsts", "vagrant", "docker", "codespace", "gitpod",
   "github-actions", "actions", "nobody", "user", "test",
@@ -120,7 +120,7 @@ const ACCOUNT_DI_SERVIZIO = new Set([
 /** Soglia, minuscolo, dedup e account di servizio: la regola in un posto solo. */
 export function filtraTermini(grezzi: string[]): string[] {
   return [...new Set(grezzi.map((t) => t.trim().toLowerCase()))]
-    .filter((t) => t.length >= 4 && !ACCOUNT_DI_SERVIZIO.has(t));
+    .filter((t) => t.length >= 4 && !ACCOUNT_OF_SERVICE.has(t));
 }
 
 /**
@@ -129,12 +129,12 @@ export function filtraTermini(grezzi: string[]): string[] {
  * Il nome completo si spezza anche nelle sue parti: «Nome Cognome» compare
  * quasi sempre come solo nome, ed è quella la forma che rientra.
  */
-export function terminiPersonali(): string[] {
+export function personalTerms(): string[] {
   const grezzi: string[] = [];
 
-  const nomeCompleto = prova("id", ["-F"]);
-  if (nomeCompleto) {
-    grezzi.push(nomeCompleto, ...nomeCompleto.split(/\s+/));
+  const completeName = prova("id", ["-F"]);
+  if (completeName) {
+    grezzi.push(completeName, ...completeName.split(/\s+/));
   }
   grezzi.push(userInfo().username);
   grezzi.push(prova("git", ["config", "user.name"]));
@@ -188,7 +188,7 @@ function colpevoli(files: string[], termini: string[]): string[] {
 }
 
 describe("nessun dato personale in un file tracciato", () => {
-  const termini = terminiPersonali();
+  const termini = personalTerms();
   const files = tracciati();
 
   test("i termini si derivano davvero: almeno uno, e nessuno è scritto nel repo", () => {
@@ -202,7 +202,7 @@ describe("nessun dato personale in un file tracciato", () => {
     // cancello sull'identità è locale per natura — vive dove il commit nasce —
     // e lì la guardia resta durissima.
     if (process.env.CI && termini.length === 0) {
-      expect(ACCOUNT_DI_SERVIZIO.has(userInfo().username.toLowerCase())).toBe(true);
+      expect(ACCOUNT_OF_SERVICE.has(userInfo().username.toLowerCase())).toBe(true);
       return;
     }
     expect(termini.length).toBeGreaterThan(0);
@@ -248,8 +248,8 @@ describe("nessun dato personale in un file tracciato", () => {
     // all'altro verso: senza un termine da cercare, «ancora colpevole» non è una
     // domanda a cui si possa rispondere.
     if (termini.length === 0) return;
-    const ancoraColpevoli = new Set(colpevoli(files, termini));
-    const stantie = DEBITO_NOME_PROPRIETARIO.filter((f) => !ancoraColpevoli.has(f));
+    const stillOffenders = new Set(colpevoli(files, termini));
+    const stantie = DEBITO_NOME_PROPRIETARIO.filter((f) => !stillOffenders.has(f));
     expect(stantie).toEqual([]);
   });
 

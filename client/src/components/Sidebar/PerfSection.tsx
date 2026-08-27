@@ -131,8 +131,8 @@ export function PerfSection() {
   const serverSideProcs = footprint.serverProcessCount;
   // «~» = il totale copre una metà sola (telefono, o lettura della sola shell):
   // si dichiara invece di far passare una metà per il tutto.
-  const segnoMem = footprint.memPartial ? '~' : '';
-  const segnoCpu = footprint.cpuPartial ? '~' : '';
+  const signMem = footprint.memPartial ? '~' : '';
+  const signCpu = footprint.cpuPartial ? '~' : '';
 
   const serverSideTitle = fleet
     ? tr('perf.serverTitleFleet', { n: fleet.processCount })
@@ -186,7 +186,7 @@ export function PerfSection() {
     scriptsMB: fleet?.scriptsMB ?? 0,
     scriptsProcessCount: fleet?.scriptsProcessCount ?? 0,
   }, status?.timestamp);
-  const vociMisurateVisibili = vociPerNatura(vociPeso, 'misurato');
+  const measuredVisibleEntries = vociPerNatura(vociPeso, 'misurato');
   const vociTrattenuteVisibili = vociPerNatura(vociPeso, 'trattenuto');
 
   return (
@@ -247,11 +247,11 @@ export function PerfSection() {
               li' sembra una misura ed e' invece l'assenza di misura. */}
           <span className="flex items-baseline gap-2">
             <span className="tabular-nums text-[13px] font-semibold text-app-text">
-              {totalMemMB !== null ? `${segnoMem}${totalMemMB} MB` : '-'}
+              {totalMemMB !== null ? `${signMem}${totalMemMB} MB` : '-'}
             </span>
             {footprint.totalCpu !== null && (
               <span className="tabular-nums text-[11px] font-medium text-app-text-muted">
-                {tr('perf.cpuTotal', { pct: `${segnoCpu}${formatCpuPercent(footprint.totalCpu)}` })}
+                {tr('perf.cpuTotal', { pct: `${signCpu}${formatCpuPercent(footprint.totalCpu)}` })}
               </span>
             )}
           </span>
@@ -293,7 +293,7 @@ export function PerfSection() {
             poterlo sommare sarebbe inventare il numero. Vedi `featureWeight.ts`. */}
         {vociPeso.length > 0 && (
           <div data-testid="perf-inventory" className="flex flex-col gap-0.5 px-0.5 text-[10px] text-app-text-muted">
-            {vociMisurateVisibili.map(v => (
+            {measuredVisibleEntries.map(v => (
               <div key={v.id} data-testid="perf-inventory-row" className="flex items-center justify-between gap-2" title={rigaVoce(v)}>
                 <span className="truncate">{v.label}</span>
                 <span className="tabular-nums whitespace-nowrap text-app-text">

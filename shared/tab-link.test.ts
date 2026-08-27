@@ -103,6 +103,11 @@ describe('parse: alias storici e non-link', () => {
     expect(parseTabPath(`/topic/${UUID}`)).toEqual({ kind: 'chat', key: UUID });
   });
 
+  test('lo slug decorativo davanti all\'id si butta: risolve l\'uuid finale', () => {
+    expect(parseTabPath(`/task/leggibilita-del-link-${UUID}`)).toEqual({ kind: 'task', key: UUID });
+    expect(parseTabPath(`/task/tutt-altro-titolo-${UUID}/`)).toEqual({ kind: 'task', key: UUID });
+  });
+
   test('tutto ciò che non è un permalink → null', () => {
     for (const p of ['/', '/api/topics', '/assets/index.js', '/tab', '/tab/', '/tab/chat', '/tab/chat/a/b', '/tab/nope/x', '/task/a/b']) {
       expect(parseTabPath(p)).toBeNull();

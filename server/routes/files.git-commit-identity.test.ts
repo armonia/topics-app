@@ -33,7 +33,7 @@ import { join } from "node:path";
 const HARNESS = join(import.meta.dir, "files.git-commit-harness.ts");
 
 /** L'ambiente di una macchina che non sa firmare: è quello con cui i figli NASCONO. */
-function envSenzaIdentita(cfgDir: string): Record<string, string> {
+function envWithoutIdentity(cfgDir: string): Record<string, string> {
   const cfg = join(cfgDir, "gitconfig");
   writeFileSync(cfg, "[user]\n\tuseConfigOnly = true\n");
   const env: Record<string, string> = {};
@@ -60,7 +60,7 @@ describe("POST /api/git/commit senza identità git sulla macchina", () => {
 
   beforeEach(async () => {
     cfgDir = mkdtempSync(join(tmpdir(), "git-commit-cfg-"));
-    env = envSenzaIdentita(cfgDir);
+    env = envWithoutIdentity(cfgDir);
     repo = mkdtempSync(join(tmpdir(), "git-commit-repo-"));
     await run(["git", "init", "-q", "-b", "main"], repo, env);
     writeFileSync(join(repo, "a.txt"), "uno\n");

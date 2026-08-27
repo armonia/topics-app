@@ -509,8 +509,8 @@ describe("sweepOrphans", () => {
    * suo stesso processo.
    */
   it("non uccide un'anteprima ancora in AVVIO", async () => {
-    let sbloccaProbe: () => void = () => {};
-    const attesa = new Promise<void>((r) => { sbloccaProbe = r; });
+    let unlockProbe: () => void = () => {};
+    const attesa = new Promise<void>((r) => { unlockProbe = r; });
     const { h, killed } = sweepHarness({
       // `waitReady` resta appeso qui: è la finestra di boot, riprodotta.
       probe: async () => { await attesa; return true; },
@@ -526,7 +526,7 @@ describe("sweepOrphans", () => {
     expect(cleared).not.toContain(3400);
     expect(killed).not.toContain(9000);
 
-    sbloccaProbe();
+    unlockProbe();
     const res = await inAvvio;
     expect(res?.port).toBe(3400);
     // E finito l'avvio la prenotazione è rilasciata: la porta è «mia» perché è

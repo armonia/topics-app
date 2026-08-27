@@ -116,19 +116,19 @@ test.describe("pannello delle modifiche git", () => {
     // sul montaggio: appena montata la casella ha ancora l'altezza intrinseca
     // di `rows`, che non e' il valore con cui la si confronta dopo.
     await casella.fill("una riga");
-    const unaRiga = (await casella.boundingBox())!.height;
+    const oneRow = (await casella.boundingBox())!.height;
 
     await casella.fill("primo\nsecondo\nterzo\nquarto");
     await expect
       .poll(async () => (await casella.boundingBox())!.height, { timeout: 3000 })
-      .toBeGreaterThan(unaRiga);
+      .toBeGreaterThan(oneRow);
 
     // E torna indietro: senza l'azzeramento dell'altezza prima di rimisurare,
     // `scrollHeight` resta il massimo storico e la casella cresce e basta.
     await casella.fill("una riga");
     await expect
       .poll(async () => (await casella.boundingBox())!.height, { timeout: 3000 })
-      .toBe(unaRiga);
+      .toBe(oneRow);
   });
 
   test("le azioni della riga stanno dove sta il conteggio, e a riposo non occupano niente", async ({

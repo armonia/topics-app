@@ -12,12 +12,12 @@
 import { describe, test, expect, afterEach } from 'bun:test';
 import { prefersReducedMotion, resetReducedMotionCache } from './reducedMotion';
 
-type FintaFinestra = { matchMedia?: unknown };
-const g = globalThis as unknown as { window: FintaFinestra | undefined };
-const finestraVera = g.window;
+type FakeWindow = { matchMedia?: unknown };
+const g = globalThis as unknown as { window: FakeWindow | undefined };
+const realWindow = g.window;
 
 afterEach(() => {
-  g.window = finestraVera;
+  g.window = realWindow;
   resetReducedMotionCache();
 });
 

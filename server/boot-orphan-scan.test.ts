@@ -38,7 +38,7 @@ const RUNNING_RE = /"status":"(running|pending|waiting_for_input|awaiting_permis
 const SQL = `SELECT id, content, tool_calls, blocks FROM messages
              WHERE partial = 0 AND (tool_calls IS NOT NULL OR blocks IS NOT NULL)`;
 
-function dbConRighe(n: number, indiciInCorso: number[]): Database {
+function dbWithRows(n: number, indiciInCorso: number[]): Database {
   const db = new Database(":memory:");
   db.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, content TEXT, tool_calls BLOB, blocks BLOB, partial INTEGER DEFAULT 0)`);
   const ins = db.prepare(`INSERT INTO messages (id, content, tool_calls, blocks, partial) VALUES (?, ?, ?, ?, 0)`);
@@ -66,7 +66,7 @@ function trovatiScorrendo(db: Database): string[] {
   return out;
 }
 
-function trovatiCaricando(db: Database): string[] {
+function foundLoading(db: Database): string[] {
   const righe = db.prepare(SQL).all() as Array<{ id: string; tool_calls: unknown; blocks: unknown }>;
   return righe
     .filter((r) => RUNNING_RE.test((decodeCol(r.tool_calls) ?? "") + (decodeCol(r.blocks) ?? "")))
@@ -77,8 +77,8 @@ describe("setaccio dei tool orfani al boot", () => {
   it("scorrendo trova ESATTAMENTE ciò che trovava caricando tutto", () => {
     // L'invariante che protegge l'utente: un setaccio più leggero che si perde
     // un tool in corso lascia uno spinner che gira per sempre.
-    const db = dbConRighe(400, [7, 128, 399]);
-    expect(trovatiScorrendo(db)).toEqual(trovatiCaricando(db));
+    const db = dbWithRows(400, [7, 128, 399]);
+    expect(trovatiScorrendo(db)).toEqual(foundLoading(db));
     expect(trovatiScorrendo(db)).toEqual(["m7", "m128", "m399"]);
   });
 
@@ -87,21 +87,21 @@ describe("setaccio dei tool orfani al boot", () => {
     // lette, una sola tenuta. Se qualcuno riportasse un `.all()` qui dentro,
     // questo numero resterebbe 1 e il test passerebbe lo stesso — per questo
     // l'asserzione vera è che il risultato NON scala con le righe lette.
-    const poche = dbConRighe(50, [3]);
-    const molte = dbConRighe(600, [3]);
+    const poche = dbWithRows(50, [3]);
+    const molte = dbWithRows(600, [3]);
     expect(trovatiScorrendo(poche)).toHaveLength(1);
     expect(trovatiScorrendo(molte)).toHaveLength(1);
   });
 
   it("un DB senza tool in corso non trattiene niente", () => {
     // Il caso normale, ed è quello che gira a ogni riavvio: nessun orfano.
-    expect(trovatiScorrendo(dbConRighe(300, []))).toEqual([]);
+    expect(trovatiScorrendo(dbWithRows(300, []))).toEqual([]);
   });
 
   it("vede lo stato anche quando è dentro un blob compresso", () => {
     // Se questa cade, il filtro sta guardando i byte compressi invece del testo
     // — e allora non troverebbe MAI niente, in silenzio.
-    const db = dbConRighe(10, [4]);
+    const db = dbWithRows(10, [4]);
     const riga = db.prepare(`SELECT tool_calls FROM messages WHERE id = 'm4'`).get() as { tool_calls: unknown };
     expect(typeof riga.tool_calls).not.toBe("string"); // davvero compresso
     expect(trovatiScorrendo(db)).toEqual(["m4"]);

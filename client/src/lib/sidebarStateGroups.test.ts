@@ -157,8 +157,8 @@ describe('groupSidebarItemsByState', () => {
     // era cieca a tutto ciò che sta dentro un progetto — cioè quasi tutto.
     const figlioAttende = chat('f1', 'attende');
     const figlioLavora = terminal('s9', 'lavora');
-    const figlioFermo = chat('f2', 'fermo');
-    const g = groupSidebarItemsByState([project('/p', [figlioAttende, figlioLavora, figlioFermo])], {
+    const stoppedChild = chat('f2', 'fermo');
+    const g = groupSidebarItemsByState([project('/p', [figlioAttende, figlioLavora, stoppedChild])], {
       awaitingTopics: S('f1'),
       awaitingTermIds: S(),
       workingTopics: S(),

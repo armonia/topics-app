@@ -32,20 +32,20 @@ import {
  * @covers LAYOUT-02
  */
 
-interface NodoFinto {
+interface FakeNode {
   tag: string;
   attributi: Record<string, string>;
   style: { cssText: string; transform: string };
   textContent: string;
-  figli: NodoFinto[];
-  genitore: NodoFinto | null;
+  figli: FakeNode[];
+  genitore: FakeNode | null;
   setAttribute(chiave: string, valore: string): void;
   getAttribute(chiave: string): string | null;
-  appendChild(figlio: NodoFinto): NodoFinto;
+  appendChild(figlio: FakeNode): FakeNode;
   remove(): void;
 }
 
-function creaNodo(tag: string): NodoFinto {
+function createNode(tag: string): FakeNode {
   return {
     tag,
     attributi: {},
@@ -75,18 +75,18 @@ function creaNodo(tag: string): NodoFinto {
  *  secondo dato e' la lezione della WKWebView. Un nodo fuori dall'albero non ha
  *  niente da comporre e la fotografia torna vuota. */
 interface ScattoRegistrato {
-  nodo: NodoFinto;
+  nodo: FakeNode;
   x: number;
   y: number;
   eraAttaccato: boolean;
 }
 
-interface TrasferimentoFinto {
+interface FakeTransfer {
   scatti: ScattoRegistrato[];
-  setDragImage(nodo: NodoFinto, x: number, y: number): void;
+  setDragImage(nodo: FakeNode, x: number, y: number): void;
 }
 
-function creaTrasferimento(): TrasferimentoFinto {
+function createTransfer(): FakeTransfer {
   return {
     scatti: [],
     setDragImage(nodo, x, y) {
@@ -100,29 +100,29 @@ const reali = {
   window: (globalThis as { window?: unknown }).window,
 };
 
-let body: NodoFinto;
+let body: FakeNode;
 
 /** Il testo dell'intera scheda. Il finto tiene `textContent` come proprieta'
  *  semplice, quindi qui si ricompone camminando l'albero. Il vero DOM lo fa da
  *  solo con il getter aggregante. */
-function testoDi(nodo: NodoFinto): string {
+function testoDi(nodo: FakeNode): string {
   return [nodo.textContent, ...nodo.figli.map(testoDi)].join(' ');
 }
 
 /** Le anteprime attualmente attaccate al body, riconosciute dall'attributo di
  *  contratto e non dalla posizione. */
-function anteprimeMontate(): NodoFinto[] {
+function mountedPreviews(): FakeNode[] {
   return body.figli.filter((n) => n.getAttribute(DRAG_PREVIEW_ATTR) !== null);
 }
 
-function anteprimaSola(): NodoFinto {
-  const trovate = anteprimeMontate();
+function previewOnly(): FakeNode {
+  const trovate = mountedPreviews();
   expect(trovate.length, `deve esserci esattamente UNA anteprima, ce ne sono ${trovate.length}`).toBe(1);
   return trovate[0]!;
 }
 
 /** Dove il modulo ha tradotto la scheda, in pixel. */
-function traslazioneDi(nodo: NodoFinto): { x: number; y: number } {
+function traslazioneDi(nodo: FakeNode): { x: number; y: number } {
   const m = /translate3d\((-?\d+(?:\.\d+)?)px,\s*(-?\d+(?:\.\d+)?)px,\s*0\)/.exec(nodo.style.transform);
   if (!m) throw new Error(`transform non riconosciuta: "${nodo.style.transform}"`);
   return { x: Number(m[1]), y: Number(m[2]) };
@@ -132,15 +132,15 @@ function traslazioneDi(nodo: NodoFinto): { x: number; y: number } {
  *  Le costanti del modulo non sono esportate, e va bene cosi'. Quello che il
  *  contratto promette non e' un numero, e' che i due usi del punto di presa
  *  siano lo STESSO punto. */
-function presaDedotta(nodo: NodoFinto, cursoreX: number, cursoreY: number): { x: number; y: number } {
+function presaDedotta(nodo: FakeNode, cursoreX: number, cursoreY: number): { x: number; y: number } {
   const t = traslazioneDi(nodo);
   return { x: cursoreX - t.x, y: cursoreY - t.y };
 }
 
 beforeEach(() => {
-  body = creaNodo('body');
+  body = createNode('body');
   (globalThis as { document?: unknown }).document = {
-    createElement: (tag: string) => creaNodo(tag),
+    createElement: (tag: string) => createNode(tag),
     body,
     addEventListener: () => {},
     removeEventListener: () => {},
@@ -164,13 +164,13 @@ afterEach(() => {
 
 describe('startDragPreview: la scheda e la sua fotografia sono la stessa cosa', () => {
   test('monta UN nodo marcato e lo consegna a setDragImage con lo STESSO punto di presa', () => {
-    const dt = creaTrasferimento();
+    const dt = createTransfer();
     startDragPreview(
       { clientX: 420, clientY: 260, dataTransfer: dt as unknown as DataTransfer },
       { title: 'Contratto' },
     );
 
-    const card = anteprimaSola();
+    const card = previewOnly();
     expect(card.getAttribute(DRAG_PREVIEW_ATTR)).toBe('');
     expect(card.genitore, 'la scheda deve stare attaccata al body').toBe(body);
 
@@ -203,7 +203,7 @@ describe('startDragPreview: la scheda e la sua fotografia sono la stessa cosa', 
       startDragPreview({ clientX: 10, clientY: 12, dataTransfer: null }, { title: 'Senza trasporto' });
     }).not.toThrow();
     expect(dragPreviewActive()).toBe(true);
-    expect(anteprimeMontate().length).toBe(1);
+    expect(mountedPreviews().length).toBe(1);
   });
 
   test('due partenze di fila lasciano UNA sola anteprima attaccata', () => {
@@ -211,14 +211,14 @@ describe('startDragPreview: la scheda e la sua fotografia sono la stessa cosa', 
     // contratto. Un secondo `dragstart` senza che il primo gesto abbia chiuso
     // le sue porte succede davvero, per esempio quando il rilascio cade sopra
     // una vista nativa e `dragend` si perde.
-    const primo = creaTrasferimento();
+    const primo = createTransfer();
     startDragPreview({ clientX: 30, clientY: 40, dataTransfer: primo as unknown as DataTransfer }, { title: 'Prima' });
-    const vecchia = anteprimaSola();
+    const vecchia = previewOnly();
 
-    const secondo = creaTrasferimento();
+    const secondo = createTransfer();
     startDragPreview({ clientX: 90, clientY: 95, dataTransfer: secondo as unknown as DataTransfer }, { title: 'Seconda' });
 
-    const rimaste = anteprimeMontate();
+    const rimaste = mountedPreviews();
     expect(rimaste.length, 'la prima scheda deve essere stata staccata').toBe(1);
     expect(rimaste[0]).not.toBe(vecchia);
     expect(vecchia.genitore, 'la vecchia non deve restare appesa al body').toBeNull();
@@ -234,11 +234,11 @@ describe('startDragPreview: la scheda e la sua fotografia sono la stessa cosa', 
     // tenerla. Due long press di fila su due tessere diverse e' proprio il
     // gesto che lo produce.
     startTouchDragPreview({ title: 'Prima' }, 30, 40);
-    const vecchia = anteprimaSola();
+    const vecchia = previewOnly();
 
     startTouchDragPreview({ title: 'Seconda' }, 90, 95);
 
-    const rimaste = anteprimeMontate();
+    const rimaste = mountedPreviews();
     expect(rimaste.length, 'la prima scheda deve essere stata staccata').toBe(1);
     expect(rimaste[0]).not.toBe(vecchia);
     expect(vecchia.genitore, 'la vecchia non deve restare appesa al body').toBeNull();
@@ -254,25 +254,25 @@ describe('il ramo del dito: nessun fantasma di sistema, la scheda e tutto', () =
     expect(dragPreviewActive()).toBe(false);
     startTouchDragPreview({ title: 'Col dito' }, 300, 220);
     expect(dragPreviewActive()).toBe(true);
-    expect(anteprimaSola().getAttribute(DRAG_PREVIEW_ATTR)).toBe('');
+    expect(previewOnly().getAttribute(DRAG_PREVIEW_ATTR)).toBe('');
   });
 
   test('il dito e il mouse tengono la scheda nello stesso punto', () => {
     // Due rami diversi che posizionano la stessa scheda. Se uno dei due
     // cambiasse presa, sullo stesso dispositivo la scheda salterebbe fra mouse
     // e dito, e su iOS finirebbe sotto il pollice invece che accanto.
-    const dt = creaTrasferimento();
+    const dt = createTransfer();
     startDragPreview({ clientX: 512, clientY: 333, dataTransfer: dt as unknown as DataTransfer }, { title: 'X' });
-    const conMouse = anteprimaSola().style.transform;
+    const conMouse = previewOnly().style.transform;
 
     endDragPreview();
     startTouchDragPreview({ title: 'X' }, 512, 333);
-    expect(anteprimaSola().style.transform).toBe(conMouse);
+    expect(previewOnly().style.transform).toBe(conMouse);
   });
 
   test('moveDragPreview sposta il nodo, e lo sposta dove dicono le coordinate nuove', () => {
     startTouchDragPreview({ title: 'Trascinata' }, 100, 100);
-    const card = anteprimaSola();
+    const card = previewOnly();
     const prima = traslazioneDi(card);
 
     moveDragPreview(160, 210);
@@ -290,13 +290,13 @@ describe('il ramo del dito: nessun fantasma di sistema, la scheda e tutto', () =
 describe('endDragPreview: spegne davvero, e regge piu di una chiamata', () => {
   test('stacca il nodo dal documento e dragPreviewActive() torna false', () => {
     startTouchDragPreview({ title: 'Da spegnere' }, 50, 60);
-    const card = anteprimaSola();
+    const card = previewOnly();
 
     endDragPreview();
 
     expect(dragPreviewActive()).toBe(false);
     expect(card.genitore, "una scheda rimasta appesa sarebbe incollata sopra l'interfaccia").toBeNull();
-    expect(anteprimeMontate().length).toBe(0);
+    expect(mountedPreviews().length).toBe(0);
   });
 
   test('chiamarlo due volte non lancia, e la seconda non fa danni', () => {
@@ -308,7 +308,7 @@ describe('endDragPreview: spegne davvero, e regge piu di una chiamata', () => {
     endDragPreview();
     expect(() => endDragPreview()).not.toThrow();
     expect(dragPreviewActive()).toBe(false);
-    expect(anteprimeMontate().length).toBe(0);
+    expect(mountedPreviews().length).toBe(0);
   });
 
   test('spegnere senza aver mai acceso non lancia', () => {
@@ -330,7 +330,7 @@ describe('la scheda mostra la cosa che si ha in mano', () => {
       badges: ['bugfix', 'p1'],
     }, 0, 0);
 
-    const testo = testoDi(anteprimaSola());
+    const testo = testoDi(previewOnly());
     expect(testo).toContain('Rifare il drop');
     expect(testo).toContain('topics-app / In revisione');
     expect(testo).toContain('\u{1F4CC}');
@@ -343,7 +343,7 @@ describe('la scheda mostra la cosa che si ha in mano', () => {
     // opzionali, e una scheda che disegnasse comunque le loro scatole avrebbe
     // due righe di aria sotto al nome.
     startTouchDragPreview({ title: 'Solo nome' }, 0, 0);
-    expect(testoDi(anteprimaSola()).trim()).toBe('Solo nome');
+    expect(testoDi(previewOnly()).trim()).toBe('Solo nome');
   });
 });
 
@@ -392,7 +392,7 @@ describe('il bersaglio si dichiara: nome dell attributo e quattro intenti', () =
     // in compilazione, e un `toBe(4)` su un letterale scritto qui sopra non
     // potrebbe diventare rosso per nessuna modifica al codice di produzione.
     const intenti = Object.keys(INTENTI) as DropIntent[];
-    const senzaRegola = intenti.filter((intento) => {
+    const withoutRule = intenti.filter((intento) => {
       const selettori = [
         `[${DROP_ACTIVE_ATTR}='${intento}']`,
         `[${DROP_ACTIVE_ATTR}="${intento}"]`,
@@ -400,6 +400,6 @@ describe('il bersaglio si dichiara: nome dell attributo e quattro intenti', () =
       ];
       return !selettori.some((s) => css.includes(s));
     });
-    expect(senzaRegola, 'intenti senza nessuna regola nel foglio di stile').toEqual([]);
+    expect(withoutRule, 'intenti senza nessuna regola nel foglio di stile').toEqual([]);
   });
 });

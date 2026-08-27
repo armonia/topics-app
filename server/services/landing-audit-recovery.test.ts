@@ -52,7 +52,7 @@ const CARD_VIVA = "11111111-aaaa-4aaa-8aaa-111111111111";
 const CARD_ATTERRATA = "22222222-bbbb-4bbb-8bbb-222222222222";
 
 let repo: string;
-let commitProprio = "";
+let ownCommit = "";
 let commitAtterrato = "";
 
 beforeAll(() => {
@@ -69,7 +69,7 @@ beforeAll(() => {
 
   // La card VIVA: ramo con un commit suo, mai atterrato.
   git(repo, "checkout", "-q", "-b", "topics/card-viva", base);
-  commitProprio = commit(repo, "viva.ts", RIGA(1), "il lavoro della card viva");
+  ownCommit = commit(repo, "viva.ts", RIGA(1), "il lavoro della card viva");
 
   // La card ATTERRATA: ramo fuso su main con `--no-ff` come fa il land, e poi
   // POTATO. Non le resta né worktree, né ramo, né commit registrato.
@@ -103,7 +103,7 @@ describe("recupero della consegna quando il worktree non c'è più", () => {
     expect(ref).toMatchObject({ repoPath: repo, branch: "topics/card-viva", worktreePath: null });
 
     const ptr = await deliveryPointer(ref!.repoPath, ref!.branch);
-    expect(ptr?.commit).toBe(commitProprio);
+    expect(ptr?.commit).toBe(ownCommit);
   });
 
   test("e il commit ritrovato è SUO, non quello dell'altra card", async () => {
@@ -118,7 +118,7 @@ describe("recupero della consegna quando il worktree non c'è più", () => {
    */
   test("anche il diffstat si misura dal checkout, senza la cartella", async () => {
     const stat = await worktreeDiffStat(repo, { branch: "topics/card-viva" });
-    expect(stat).toMatchObject({ commit: commitProprio, filesChanged: 1 });
+    expect(stat).toMatchObject({ commit: ownCommit, filesChanged: 1 });
     expect(stat!.insertions).toBeGreaterThan(0);
   });
 
@@ -174,9 +174,9 @@ describe("l'accusa su una card di cui non resta niente", () => {
    * card non la copre.
    */
   test("un commit davvero fuori da main resta `unlanded`", async () => {
-    expect(classifyLanding(await commitStatusFromRepo(repo, commitProprio))).toBe("unlanded");
+    expect(classifyLanding(await commitStatusFromRepo(repo, ownCommit))).toBe("unlanded");
     const { recorded, alerts } = await audit(
-      { id: CARD_VIVA, projectId: "board-hash", deliveryBranch: "topics/card-viva", deliveryCommit: commitProprio },
+      { id: CARD_VIVA, projectId: "board-hash", deliveryBranch: "topics/card-viva", deliveryCommit: ownCommit },
       null,
     );
     expect(recorded).toEqual([{ id: CARD_VIVA, state: "unlanded" }]);

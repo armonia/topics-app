@@ -82,7 +82,7 @@ export function NightModeCard({ projectId, enabled, until, onChange, fetchStatus
   const info = describeNight(st, enabled, asked);
   const detail = info.detailText ?? (info.detailKey ? tr(info.detailKey) : null);
   const soglia = Math.max(1, (st?.cores ?? 1)) * MAX_LOAD_PER_CORE;
-  const caricoPct = st ? Math.min(100, Math.round((st.load1 / soglia) * 100)) : 0;
+  const loadPct = st ? Math.min(100, Math.round((st.load1 / soglia) * 100)) : 0;
 
   const toneRing =
     info.tone === 'go' ? 'border-emerald-500/40 bg-emerald-500/5'
@@ -152,8 +152,8 @@ export function NightModeCard({ projectId, enabled, until, onChange, fetchStatus
                 </div>
                 <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-white/10">
                   <div
-                    className={`h-full rounded-full transition-[width] ${caricoPct >= 100 ? 'bg-amber-400' : 'bg-emerald-400'}`}
-                    style={{ width: `${caricoPct}%` }}
+                    className={`h-full rounded-full transition-[width] ${loadPct >= 100 ? 'bg-amber-400' : 'bg-emerald-400'}`}
+                    style={{ width: `${loadPct}%` }}
                   />
                 </div>
               </div>

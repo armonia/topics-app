@@ -24,13 +24,13 @@ import { describe, expect, test } from "bun:test";
 import { forApi, type Block } from "./agent-loop";
 
 /** Un blocco come lo costruisce davvero lo streaming, impalcatura inclusa. */
-function comeDalloStream(b: Partial<Block> & { type: string }): Block {
+function asFromStream(b: Partial<Block> & { type: string }): Block {
   return { text: "", input: {}, ...b } as Block;
 }
 
 describe("i blocchi che tornano all'API", () => {
   test("il pensiero perde l'impalcatura e tiene la firma", () => {
-    const out = forApi([comeDalloStream({ type: "thinking", thinking: "ragiono", signature: "sig-abc" })]);
+    const out = forApi([asFromStream({ type: "thinking", thinking: "ragiono", signature: "sig-abc" })]);
     expect(out[0]).toEqual({ type: "thinking", thinking: "ragiono", signature: "sig-abc" });
     // La forma esatta conta: `toEqual` su un oggetto letterale boccia ogni
     // campo in più, che è precisamente ciò che l'API rifiutava.
@@ -40,19 +40,19 @@ describe("i blocchi che tornano all'API", () => {
   test("senza firma il campo non si inventa vuoto", () => {
     // Una `signature: ""` non è «nessuna firma»: è una firma sbagliata, e
     // l'API la valuta come tale.
-    const out = forApi([comeDalloStream({ type: "thinking", thinking: "ragiono" })]);
+    const out = forApi([asFromStream({ type: "thinking", thinking: "ragiono" })]);
     expect("signature" in out[0]!).toBe(false);
   });
 
   test("il pensiero oscurato porta solo il suo corpo cifrato", () => {
-    const out = forApi([comeDalloStream({ type: "redacted_thinking", data: "cifrato" })]);
+    const out = forApi([asFromStream({ type: "redacted_thinking", data: "cifrato" })]);
     expect(out[0]).toEqual({ type: "redacted_thinking", data: "cifrato" });
   });
 
   test("testo e tool_use continuano a passare interi", () => {
     const out = forApi([
-      comeDalloStream({ type: "text", text: "ciao" }),
-      comeDalloStream({ type: "tool_use", id: "t1", name: "bash", input: { cmd: "ls" } }),
+      asFromStream({ type: "text", text: "ciao" }),
+      asFromStream({ type: "tool_use", id: "t1", name: "bash", input: { cmd: "ls" } }),
     ]);
     expect(out[0]).toEqual({ type: "text", text: "ciao" });
     expect(out[1]).toEqual({ type: "tool_use", id: "t1", name: "bash", input: { cmd: "ls" } });
@@ -61,7 +61,7 @@ describe("i blocchi che tornano all'API", () => {
   test("IL PREDICATO MORDE: il vecchio passaggio verbatim sarebbe stato bocciato", () => {
     // Senza questo caso i controlli sopra resterebbero verdi anche se qualcuno
     // rimettesse `return b`, purché lo stream smettesse di aggiungere `text`.
-    const grezzo = comeDalloStream({ type: "thinking", thinking: "ragiono", signature: "sig" });
+    const grezzo = asFromStream({ type: "thinking", thinking: "ragiono", signature: "sig" });
     expect(Object.keys(grezzo)).toContain("text"); // è quello che l'API rifiuta
     expect(forApi([grezzo])[0]).not.toHaveProperty("text");
   });
