@@ -1,7 +1,7 @@
 import type { BrowserContext } from "playwright-core";
 import { existsSync, mkdirSync, writeFileSync, renameSync, unlinkSync, readFileSync, rmdirSync, readdirSync, chmodSync } from "fs";
 import { join } from "path";
-import { resolveStateDir } from "./lib/data-dir";
+import { resolveDataDir, resolveStateDir } from "./lib/data-dir";
 
 /**
  * Storage state shape derived directly from playwright-core's
@@ -34,9 +34,7 @@ export type BrowserStorageState = Awaited<ReturnType<BrowserContext["storageStat
  * A function costs a `join` per call and cannot drift. See
  * `tests/setup/bun-test-preload.ts` for the other half of this class of bug. */
 export function browserStateBaseDir(): string {
-  return process.env.DATA_DIR
-    ? join(process.env.DATA_DIR, "browser-state")
-    : join(resolveStateDir(process.cwd()), "data", "browser-state");
+  return join(resolveDataDir(resolveStateDir(process.cwd())), "browser-state");
 }
 
 function sanitize(topicId: string): string {

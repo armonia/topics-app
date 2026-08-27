@@ -56,7 +56,8 @@ the env still wins, so nothing changes until a user edits Settings in the UI.
 | `TOPICS_AUTH_OFF` | `1` disables the origin gate entirely — recovery hatch only. It no longer bypasses a token (there is none since `lan-open-same-origin`); what it switches off is the **CSRF defence**, i.e. the check that stops a website you visit from driving this server. | user/shell |
 | `NO_TLS` | Disable TLS (plain HTTP). Off a `localhost` origin this drops the browser's *secure context*: `clipboard`, `crypto.randomUUID`, `crypto.subtle`, `serviceWorker` and `mediaDevices` all become `undefined`, and terminal scrollback travels the LAN in the clear. | user/shell |
 | `GATEWAY_URL` | OpenClaw gateway URL | user |
-| `DATA_DIR` / `TOPICS_DATA_DIR` / `APP_DATA_DIR` | App data root (conversations, DB) | user/shell |
+| `TOPICS_DATA_DIR` / `DATA_DIR` | App state root (topics, messages, uploads, DB). ONE door reads both, `server/lib/data-dir.ts`: `TOPICS_DATA_DIR` wins, then `DATA_DIR`, then the repo dir. Setting either isolates ALL the state, not half of it. `DATA_DIR` also names the `data/` folder inside the root (SQLite, `browser-state/`, `usage/`), which is why the desktop launcher sets it to `<TOPICS_DATA_DIR>/data`. | user/shell |
+| `APP_DATA_DIR` | Legacy OpenClaw data root (config and sessions read from `~/.openclaw`), unrelated to the state root above | user/shell |
 | `TOPICS_HOME` | Topics home dir (state, backups, watchers) | shell |
 | `OPENCLAW_DIR` / `SESSIONS_DIR` | Legacy data/session dirs | runtime |
 | `TOPICS_WORKTREES_DIR` | Where git worktrees are created | shell |

@@ -21,6 +21,7 @@ import { createHash } from "crypto";
 import { existsSync, openSync, closeSync, statSync } from "fs";
 import { resolve, dirname, basename, join } from "path";
 import { registerFleetSocket } from "./lib/fleet-usage";
+import { envDataDir } from "./lib/data-dir";
 
 /** Callbacks for one peer (one RTCPeerConnection), routed back to its WS. */
 export interface PeerHandlers {
@@ -47,7 +48,7 @@ function socketPath(): string {
   if (override) return override;
   // Same isolation basis as the PTY bridge: cwd (+ DATA_DIR for test servers) so a
   // test/dev server never shares the production sidecar's socket.
-  const dataDir = process.env.DATA_DIR;
+  const dataDir = envDataDir();
   const basis = dataDir ? `${process.cwd()}\0${dataDir}` : process.cwd();
   const hash = createHash("md5").update(basis).digest("hex").slice(0, 8);
   return `/tmp/topics-webrtc-${hash}.sock`;

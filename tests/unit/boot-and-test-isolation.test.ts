@@ -21,7 +21,7 @@
 import { describe, test, expect } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { resolveStateDir } from "../../server/lib/data-dir";
+import { resolveDataDir, resolveStateDir } from "../../server/lib/data-dir";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const START_TEST_SERVER = readFileSync(join(ROOT, "scripts/start-test-server.sh"), "utf8");
@@ -29,39 +29,35 @@ const SERVER_TS = readFileSync(join(ROOT, "server.ts"), "utf8");
 
 describe("E2E-ISO-01 · il banco non scrive nella cartella viva", () => {
   test("resolveStateDir onora TOPICS_DATA_DIR invece della cartella del repo", () => {
-    const previous = process.env.TOPICS_DATA_DIR;
     const dedicated = join("/tmp", `topics-iso-${process.pid}-${Date.now()}`);
-    try {
-      process.env.TOPICS_DATA_DIR = dedicated;
-      expect(resolveStateDir(ROOT)).toBe(dedicated);
-    } finally {
-      if (previous === undefined) delete process.env.TOPICS_DATA_DIR;
-      else process.env.TOPICS_DATA_DIR = previous;
-    }
+    expect(resolveStateDir(ROOT, { TOPICS_DATA_DIR: dedicated } as NodeJS.ProcessEnv)).toBe(dedicated);
   });
 
-  test("IL DIFETTO: senza quella variabile lo stato cade sul REPO — ecco perche' l'export porta carico", () => {
-    const previous = process.env.TOPICS_DATA_DIR;
-    try {
-      delete process.env.TOPICS_DATA_DIR;
-      expect(resolveStateDir(ROOT)).toBe(ROOT);
-    } finally {
-      if (previous !== undefined) process.env.TOPICS_DATA_DIR = previous;
-    }
+  test("e onora anche DATA_DIR: era l'altro nome, ora entra dalla stessa porta", () => {
+    const dedicated = join("/tmp", `topics-iso-${process.pid}-${Date.now()}-vecchio`);
+    expect(resolveStateDir(ROOT, { DATA_DIR: dedicated } as NodeJS.ProcessEnv)).toBe(dedicated);
   });
 
-  test("start-test-server.sh esporta TOPICS_DATA_DIR, e lo fa derivare da DATA_DIR", () => {
-    const line = START_TEST_SERVER.split("\n").find((l) => l.trim().startsWith("export TOPICS_DATA_DIR="));
-    expect(line, "l'export e' sparito: lo stato del banco tornerebbe nel repo").toBeDefined();
-    expect(line!, "deve seguire DATA_DIR, o le due cartelle divergono").toContain("$DATA_DIR");
+  test("IL DIFETTO: senza NESSUNA delle due lo stato cade sul REPO", () => {
+    expect(resolveStateDir(ROOT, {} as NodeJS.ProcessEnv)).toBe(ROOT);
   });
 
-  test("l'export sta DOPO la riga che definisce DATA_DIR, o eredita una variabile vuota", () => {
+  test("start-test-server.sh isola con una variabile sola, e non ha piu' bisogno del ponte", () => {
     const lines = START_TEST_SERVER.split("\n");
-    const iData = lines.findIndex((l) => l.trim().startsWith("export DATA_DIR="));
-    const iState = lines.findIndex((l) => l.trim().startsWith("export TOPICS_DATA_DIR="));
-    expect(iData).toBeGreaterThanOrEqual(0);
-    expect(iState).toBeGreaterThan(iData);
+    const data = lines.find((l) => l.trim().startsWith("export DATA_DIR="));
+    expect(data, "sparita la riga che isola i dati del banco").toBeDefined();
+    const bridge = lines.find((l) => l.trim().startsWith("export TOPICS_DATA_DIR="));
+    expect(
+      bridge,
+      "la riga-ponte e' tornata: se serve, l'unificazione in server/lib/data-dir.ts si e' rotta",
+    ).toBeUndefined();
+  });
+
+  test("il banco resta isolato con il SOLO DATA_DIR, che e' la prova dell'unificazione", () => {
+    const dataDir = "/tmp/topics-test-data-13334";
+    const env = { DATA_DIR: dataDir } as NodeJS.ProcessEnv;
+    expect(resolveStateDir(ROOT, env), "topics.json, uploads/, messages/ finirebbero nel repo vivo").toBe(dataDir);
+    expect(resolveDataDir(resolveStateDir(ROOT, env), env), "data/usage/ condivisa fra shard").toBe(dataDir);
   });
 });
 
