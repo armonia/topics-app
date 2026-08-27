@@ -1,5 +1,8 @@
 import type { AppContext, RouteHandler } from "../types";
 import { transcribe, sttCapabilities, SttError, MAX_STT_BYTES, type SttDeps } from "../lib/stt";
+import { classifyIntent } from "../lib/intent-classifier";
+
+const MAX_INTENT_CHARS = 2000;
 
 // ElevenLabs voice ids are alphanumeric tokens. Validate before interpolating
 // into the API URL so a crafted `voiceId` can't redirect the request (SSRF) or
@@ -122,6 +125,22 @@ export function createVoiceRouter(ctx: AppContext, deps: Partial<SttDeps> = {}):
         const audioBuffer = await resp.arrayBuffer();
         return new Response(audioBuffer, { headers: { "Content-Type": "audio/mpeg", "Content-Length": audioBuffer.byteLength.toString() } });
       } catch (err: unknown) { return json({ error: "TTS error: " + (err instanceof Error ? err.message : String(err)) }, 500); }
+    }
+
+    // --- Voice intent (board) ---
+    //
+    // The transcript of a reply to a review announcement, reduced to
+    // approve/feedback/close — see `lib/intent-classifier.ts`. The client
+    // (the board's voice controller) carries out the action itself via
+    // `notifyActionRequest` (shared/notify-actions.ts): this endpoint never
+    // touches a task, it only decides WHAT the person meant.
+    if (method === "POST" && pathname === "/api/voice/intent") {
+      const body = (await readJSON(req)) as { text?: unknown } | null;
+      if (!body?.text || typeof body.text !== "string" || !body.text.trim()) {
+        return json({ error: "text required" }, 400);
+      }
+      const result = await classifyIntent(body.text.slice(0, MAX_INTENT_CHARS), { env, fetchImpl: doFetch });
+      return json(result);
     }
 
     return null;
