@@ -63,7 +63,7 @@ describe("gli altri tipi", () => {
   });
 
   test("shell e sconosciuti si parcheggiano, non si cancellano", () => {
-    for (const type of ["shell", "opencode", "qualcosa-di-nuovo", ""]) {
+    for (const type of ["shell", "opencode", "kimi-code", "qualcosa-di-nuovo", ""]) {
       expect(decideOnRestart({ type, hasTranscript: false })).toEqual({ action: "park" });
     }
   });
@@ -71,7 +71,7 @@ describe("gli altri tipi", () => {
   test("un transcript mancante non cancella mai una riga non-claude", () => {
     // La cancellazione è motivata SOLO da «--resume fallirebbe»: fuori dai tipi
     // claude quel ragionamento non si applica, e cancellare perderebbe la riga.
-    for (const type of ["shell", "codex", "opencode"]) {
+    for (const type of ["shell", "codex", "opencode", "kimi-code"]) {
       expect(decideOnRestart({ type, claudeSessionId: "x", hasTranscript: false }).action)
         .not.toBe("drop");
     }

@@ -21,7 +21,7 @@ test("un uuid su un tipo claude viene ripreso", () => {
 });
 
 test("sugli altri tipi l'id non significa niente e viene ignorato", () => {
-  for (const type of ["shell", "codex", "opencode"] as const) {
+  for (const type of ["shell", "codex", "opencode", "kimi-code"] as const) {
     expect(resumeIdForNewSession(UUID, type)).toBeUndefined();
   }
 });
