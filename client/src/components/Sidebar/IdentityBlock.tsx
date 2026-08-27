@@ -680,12 +680,23 @@ function RigaAmici({ online, tutti, totali }: {
         // subject the whole "which of the three exist" question was about, and
         // it is now answered by the chip's own body instead of by a zero you
         // have to go and read.
-        className={`${chipClass(ci_sono)} min-w-0 justify-center text-left`}
+        // `overflow-hidden` is not cosmetics: without it this chip's contents
+        // are laid out at full size even when the chip is squeezed to its 24px
+        // floor, and they land on the card next door. Measured in CI at 180px
+        // with four groups: 2px past its own right edge. This chip has FOUR
+        // incompressible children (glyph, faces, count, total) against the org
+        // chip's two, so it is the one of the three that actually runs out of
+        // room. The box can be innocent while the ink is not — so clip the ink.
+        className={`${chipClass(ci_sono)} min-w-0 justify-center overflow-hidden text-left`}
         title={ci_sono ? online.map((f) => f.nome).join(', ') : tr('statusBar.friends.title')}
       >
         <span data-testid="identity-glyph" className={`flex ${IDENTITY_GLYPH_BOX} flex-shrink-0 items-center justify-center ${ci_sono ? SEGNALE_OK : CHIP_INK_DIM}`}>
           <Users size={IDENTITY_GLYPH_INK} />
         </span>
+        {/* Faces give way FIRST: they are the only repeated child, hence the
+            only one that can shrink without erasing information available
+            nowhere else. The numbers beside them already say how many there
+            are, and one face fewer still reads in the `+N`. */}
         {ci_sono && <Facce facce={online} totale={online.length} />}
         {/* With people around the faces ARE the answer, so the chip drops the
             words and keeps two numbers: how many are here, out of how many you
