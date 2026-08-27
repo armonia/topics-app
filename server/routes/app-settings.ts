@@ -102,6 +102,10 @@ const FIELD_RULES: Record<keyof AppSettings, FieldRule> = {
   // non da PUT. Il campo va in FIELD_RULES per soddisfare Record<keyof AppSettings, …>
   // ma non e' mai in `body` nel PUT ordinario: skip silenzioso.
   profileShareToken: { kind: "string" },
+  // The automatic per-turn checkpoint (card b69a9c07). `null` = off, which is
+  // also the default: it writes git objects into the user's repository on every
+  // turn, so it is turned on by hand or not at all.
+  turnCheckpointsEnabled: { kind: "bool" },
 };
 
 /** Coerce+validate an incoming patch. Returns the clean patch or errors. */

@@ -23,6 +23,8 @@ import { deriveToolDetail } from "../providers/claude/tool-detail";
 import { cartelloRisveglio } from "../providers/claude/woken-turn";
 import { classifyShellToolResult } from "../providers/claude/background-shell";
 import { getSessionCliPid } from "../providers/session-pids";
+import { captureTurnCheckpoint } from "../services/turn-checkpoints";
+import { resolveTurnCheckpointsEnabled } from "../services/app-settings";
 import {
   closeBackgroundShell,
   noteBackgroundShellOutput,
@@ -419,6 +421,33 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // administrative touch happened last — a chat can be actively in use
           // for hours and still show its row from a day-old rename.
           bumpTopicActivity(matchedTopic);
+        }
+
+        // THE AUTOMATIC CHECKPOINT, and this is the only moment it can be taken.
+        //
+        // The snapshot has to be of the tree BEFORE the agent writes anything,
+        // so it goes here - after the user's message exists (the checkpoint is
+        // labelled with it) and before the provider is started. It is AWAITED
+        // rather than fired off: a snapshot racing the agent's first write is
+        // not a safety net, it is a lie about one.
+        //
+        // Off unless somebody turned it on, and never fatal: if git refuses for
+        // any reason the turn proceeds. A failed checkpoint must not cost the
+        // user their turn - it costs them the undo, which is the smaller loss.
+        if (
+          !lastUserMsg.content.trim().startsWith("/") &&
+          matchedTopic?.projectPath &&
+          resolveTurnCheckpointsEnabled()
+        ) {
+          try {
+            await captureTurnCheckpoint(
+              matchedTopic.projectPath,
+              sessionKey,
+              lastUserMsg.content.trim().slice(0, 72).replace(/\s+/g, " "),
+            );
+          } catch (err) {
+            console.warn(`[Chat] automatic checkpoint failed for ${sessionKey}:`, err);
+          }
         }
 
         // Handle board chat control commands (/ prefixed)

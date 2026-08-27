@@ -10,6 +10,7 @@ import { AGENT_RUNTIMES, DEFAULT_AGENT_RUNTIME } from '../../../../shared/types'
 import { PermissionsSection } from './PermissionsSection';
 import { SettingSelect } from './SettingSelect';
 import { AgentRuntimeChoice } from './AgentRuntimeChoice';
+import { TurnCheckpointsChoice } from './TurnCheckpointsChoice';
 import { McpFleetPanel } from './McpFleetPanel';
 import {
   STATUS_COLORS,
@@ -236,6 +237,14 @@ export function AIProvidersSection() {
             registered={(snapshot?.providers ?? []).some((e) => e.name === (settings.agentRuntime ?? DEFAULT_AGENT_RUNTIME))}
             onSave={save}
           />
+        )}
+
+        {/* Under the execution mechanics: the safety net wrapped around EVERY
+            turn that mechanic runs. The question that brings a person here is
+            "what if the agent breaks something", and the answer now sits one
+            row below the control that decides how the agent is launched. */}
+        {settings && (
+          <TurnCheckpointsChoice settings={settings} saving={saving} onSave={save} />
         )}
 
         {/* Under the runtime choice, and nowhere else: MCP tools are what that

@@ -1303,6 +1303,10 @@ export interface AppBehaviorSettings {
   /** Token opaco nel percorso /public/profile/<token>. NULL = pagina spenta.
    *  Gestito da POST/DELETE /api/app-settings/profile-token, non da PUT. */
   profileShareToken: string | null;
+  /** Topics snapshots the tree before every turn, onto a dedicated git ref.
+   *  `null` or `false` = OFF: it writes objects into the user's repository on
+   *  every turn, so it is turned on by hand or not at all. */
+  turnCheckpointsEnabled: boolean | null;
 }
 
 /**

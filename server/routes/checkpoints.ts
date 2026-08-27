@@ -24,6 +24,10 @@ async function runGit(args: string[], cwd: string): Promise<string> {
 
 // Forma del checkpoint: `shared/types.ts` (la legge il client in useCheckpoints).
 import type { Checkpoint } from "../../shared/types";
+import {
+  listTurnCheckpoints,
+  restoreTurnCheckpoint,
+} from "../services/turn-checkpoints";
 
 function getCheckpointsDir(baseDir: string): string {
   const dir = join(baseDir, "checkpoints");
@@ -176,6 +180,56 @@ export function createCheckpointsRouter(ctx: AppContext): RouteHandler {
         }
 
         return json({ ok: true, messageCount: keep, removed: truncation.deletedMessages, git: gitResult });
+      }
+    }
+
+    // GET /api/topics/:id/turn-checkpoints — the AUTOMATIC ones (per turn).
+    //
+    // A different list from the manual checkpoints above, and deliberately so:
+    // these live in git refs, not in a JSON file, they carry no message count,
+    // and restoring one does NOT touch the conversation. Merging the two lists
+    // would mean one strip where half the entries silently rewind the chat and
+    // half do not.
+    {
+      const params = matchRoute(pathname, "/api/topics/:id/turn-checkpoints");
+      if (params && method === "GET") {
+        const data = loadTopics();
+        const topic = data.topics[params.id];
+        if (!topic) return json({ error: "Topic not found" }, 404);
+        if (!topic.projectPath || !existsSync(topic.projectPath)) return json({ checkpoints: [] });
+        return json({ checkpoints: await listTurnCheckpoints(topic.projectPath, topic.sessionKey) });
+      }
+    }
+
+    // POST /api/topics/:id/turn-checkpoints/restore — this is what `/rewind` calls.
+    //
+    // Body: `{ commit? }`. Without one it restores the NEWEST checkpoint, which
+    // is the tree as it was before the last turn: "undo what just happened" is
+    // the gesture being asked for, and it should not require picking a hash.
+    {
+      const params = matchRoute(pathname, "/api/topics/:id/turn-checkpoints/restore");
+      if (params && method === "POST") {
+        const data = loadTopics();
+        const topic = data.topics[params.id];
+        if (!topic) return json({ error: "Topic not found" }, 404);
+        if (!topic.projectPath || !existsSync(topic.projectPath)) {
+          return json({ error: "This chat is not bound to a project folder" }, 400);
+        }
+
+        let body: { commit?: string } = {};
+        try { body = await req.json(); } catch {}
+
+        const list = await listTurnCheckpoints(topic.projectPath, topic.sessionKey);
+        if (list.length === 0) return json({ error: "No automatic checkpoint for this chat" }, 404);
+        const target = body.commit ? list.find((c) => c.commit === body.commit) : list[0];
+        if (!target) return json({ error: "Checkpoint not found" }, 404);
+
+        try {
+          const outcome = await restoreTurnCheckpoint(topic.projectPath, target.commit);
+          return json({ ok: true, checkpoint: target, ...outcome });
+        } catch (err: any) {
+          return json({ error: err?.message || "Restore failed" }, 500);
+        }
       }
     }
 

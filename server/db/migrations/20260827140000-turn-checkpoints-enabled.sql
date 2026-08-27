@@ -1,0 +1,16 @@
+-- Automatic per-turn checkpoints: the switch, and it starts OFF.
+--
+-- Il prefisso è un timestamp UTC (YYYYMMDDHHMMSS), non un contatore: è quello
+-- che rende impossibile la collisione fra card in parallelo. Non rinominarlo.
+--
+-- Card b69a9c07: Topics snapshots the worktree before every turn into a
+-- dedicated ref (`refs/topics/checkpoints/<session>/<seq>`, see
+-- server/services/turn-checkpoints.ts), so `/rewind` has something to go back
+-- to without anyone having remembered to press Save.
+--
+-- NULL = never touched = OFF, and that is not timidity. The feature writes git
+-- objects into a real repository on every turn the agent takes: it has to
+-- arrive without touching anybody until whoever owns that repository turns it
+-- on. A column that starts NULL means the behaviour before Settings is
+-- byte-for-byte what it was.
+ALTER TABLE app_settings ADD COLUMN turn_checkpoints_enabled INTEGER;

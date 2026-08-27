@@ -1,0 +1,159 @@
+/**
+ * The automatic per-turn checkpoint, measured against a REAL repository.
+ *
+ * Every claim this module makes is a claim about git's own state - where the
+ * ref lives, whether HEAD is still on a branch, whether the user's index moved.
+ * A fake would just be the test asserting what the author believes git does,
+ * which is precisely how the `checkout` defect survived in the manual
+ * checkpoint route until it was measured. So: a temp repo, real commands.
+ *
+ * @covers CHAT-05
+ */
+import { describe, expect, test, beforeEach, afterEach } from "bun:test";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  CHECKPOINT_REF_ROOT,
+  KEEP_PER_SESSION,
+  captureTurnCheckpoint,
+  listTurnCheckpoints,
+  restoreTurnCheckpoint,
+  dropTurnCheckpoints,
+  sessionRefSlug,
+} from "./turn-checkpoints";
+
+let repo: string;
+const git = (...a: string[]) => execFileSync("git", a, { cwd: repo, encoding: "utf8" }).trim();
+const SESSION = "topic-42/session";
+
+beforeEach(() => {
+  repo = mkdtempSync(join(tmpdir(), "topics-turnckpt-"));
+  git("init", "-b", "main");
+  git("config", "user.email", "t@t.t");
+  git("config", "user.name", "t");
+  writeFileSync(join(repo, "f.txt"), "prima\n");
+  git("add", "-A");
+  git("commit", "-m", "uno");
+});
+afterEach(() => rmSync(repo, { recursive: true, force: true }));
+
+describe("cattura", () => {
+  test("scrive un ref sotto refs/topics/checkpoints, non un ramo", async () => {
+    const c = await captureTurnCheckpoint(repo, SESSION, "turno 1");
+    expect(c).not.toBeNull();
+    expect(c!.ref.startsWith(CHECKPOINT_REF_ROOT + "/")).toBe(true);
+
+    // The point of decision 1: invisible to the commands the user lives in.
+    expect(git("branch", "--list")).not.toContain("checkpoint");
+    expect(git("log", "--oneline")).toBe(git("log", "--oneline", "main"));
+  });
+
+  test("non tocca l'indice dell'utente", async () => {
+    // Staged work must survive a snapshot untouched: the capture runs on a
+    // temporary GIT_INDEX_FILE precisely so this holds.
+    writeFileSync(join(repo, "staged.txt"), "in stage\n");
+    git("add", "staged.txt");
+    const indexBefore = git("status", "--porcelain");
+
+    await captureTurnCheckpoint(repo, SESSION, "turno 1");
+    expect(git("status", "--porcelain")).toBe(indexBefore);
+  });
+
+  test("un turno che non cambia niente non crea un secondo checkpoint", async () => {
+    await captureTurnCheckpoint(repo, SESSION, "turno 1");
+    const second = await captureTurnCheckpoint(repo, SESSION, "turno 2");
+    expect(second, "albero identico: niente da registrare").toBeNull();
+    expect((await listTurnCheckpoints(repo, SESSION)).length).toBe(1);
+  });
+
+  test("un path che non e' un repo git non e' un errore, e' un null", async () => {
+    const plain = mkdtempSync(join(tmpdir(), "topics-norepo-"));
+    try {
+      expect(await captureTurnCheckpoint(plain, SESSION, "turno")).toBeNull();
+    } finally {
+      rmSync(plain, { recursive: true, force: true });
+    }
+  });
+
+  test("la potatura tiene gli ultimi KEEP_PER_SESSION", async () => {
+    for (let i = 0; i < KEEP_PER_SESSION + 5; i++) {
+      writeFileSync(join(repo, "f.txt"), `giro ${i}\n`);
+      await captureTurnCheckpoint(repo, SESSION, `turno ${i}`);
+    }
+    const all = await listTurnCheckpoints(repo, SESSION);
+    expect(all.length).toBe(KEEP_PER_SESSION);
+    expect(all[0].label, "il piu' recente e' il primo").toBe(`turno ${KEEP_PER_SESSION + 4}`);
+  });
+});
+
+describe("ripristino", () => {
+  test("riporta il contenuto del file modificato dal turno", async () => {
+    await captureTurnCheckpoint(repo, SESSION, "prima del turno");
+    writeFileSync(join(repo, "f.txt"), "scritto dal turno\n");
+
+    const [ckpt] = await listTurnCheckpoints(repo, SESSION);
+    const out = await restoreTurnCheckpoint(repo, ckpt.commit);
+
+    expect(readFileSync(join(repo, "f.txt"), "utf8")).toBe("prima\n");
+    expect(out.restored).toBeGreaterThan(0);
+  });
+
+  test("cancella i file che il turno ha creato", async () => {
+    await captureTurnCheckpoint(repo, SESSION, "prima del turno");
+    mkdirSync(join(repo, "src"), { recursive: true });
+    writeFileSync(join(repo, "src", "nuovo.ts"), "export const x = 1\n");
+
+    const [ckpt] = await listTurnCheckpoints(repo, SESSION);
+    const out = await restoreTurnCheckpoint(repo, ckpt.commit);
+
+    expect(existsSync(join(repo, "src", "nuovo.ts")), "il file nato nel turno resta indietro").toBe(false);
+    expect(out.removed).toBe(1);
+  });
+
+  test("NON lascia il repository in detached HEAD", async () => {
+    // The half of the defect that shipped. `symbolic-ref` fails on a detached
+    // HEAD, so this is the assertion that catches a regression to `checkout`.
+    await captureTurnCheckpoint(repo, SESSION, "prima del turno");
+    writeFileSync(join(repo, "f.txt"), "scritto dal turno\n");
+
+    const [ckpt] = await listTurnCheckpoints(repo, SESSION);
+    const out = await restoreTurnCheckpoint(repo, ckpt.commit);
+
+    expect(out.branch).toBe("main");
+    expect(git("symbolic-ref", "HEAD")).toBe("refs/heads/main");
+  });
+
+  test("`checkout <hash>` invece STACCA la testa: la non-vacuita' del test sopra", async () => {
+    const c = await captureTurnCheckpoint(repo, SESSION, "prima del turno");
+    expect(() => git("checkout", c!.commit), "se questo non staccasse, il difetto non esisteva").not.toThrow();
+    expect(() => git("symbolic-ref", "HEAD")).toThrow();
+  });
+
+  test("dichiara che la conversazione NON torna indietro", async () => {
+    // Decision 3 on the wire. Two different promises; this module keeps one and
+    // says so, rather than letting a caller imply the other.
+    await captureTurnCheckpoint(repo, SESSION, "prima del turno");
+    writeFileSync(join(repo, "f.txt"), "scritto dal turno\n");
+    const [ckpt] = await listTurnCheckpoints(repo, SESSION);
+    expect((await restoreTurnCheckpoint(repo, ckpt.commit)).conversationRewound).toBe(false);
+  });
+});
+
+describe("igiene dei ref", () => {
+  test("una chiave di sessione qualsiasi diventa un nome di ref valido", async () => {
+    const nasty = "../ ..refs\\weird:name.lock";
+    expect(sessionRefSlug(nasty)).not.toContain("..");
+    expect(sessionRefSlug(nasty)).not.toMatch(/\.lock$/);
+    const c = await captureTurnCheckpoint(repo, nasty, "turno");
+    expect(c).not.toBeNull();
+    expect(git("rev-parse", "--verify", c!.ref)).toBe(c!.commit);
+  });
+
+  test("la chiusura della sessione spazza via il suo namespace", async () => {
+    await captureTurnCheckpoint(repo, SESSION, "turno 1");
+    expect(await dropTurnCheckpoints(repo, SESSION)).toBe(1);
+    expect(await listTurnCheckpoints(repo, SESSION)).toEqual([]);
+  });
+});

@@ -137,6 +137,7 @@ import m20260827005333_dispatch_idle_min from "./migrations/20260827005333-dispa
 import m20260827041036_board_deploy_command from "./migrations/20260827041036-board-deploy-command.sql" with { type: "text" };
 import m20260827041049_task_deploy_state from "./migrations/20260827041049-task-deploy-state.sql" with { type: "text" };
 import m20260827130000_terminal_session_type_kimi_code from "./migrations/20260827130000-terminal-session-type-kimi-code.sql" with { type: "text" };
+import m20260827140000_turn_checkpoints_enabled from "./migrations/20260827140000-turn-checkpoints-enabled.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -278,4 +279,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260827041036, name: "20260827041036-board-deploy-command.sql", sql: m20260827041036_board_deploy_command },
   { version: 20260827041049, name: "20260827041049-task-deploy-state.sql", sql: m20260827041049_task_deploy_state },
   { version: 20260827130000, name: "20260827130000-terminal-session-type-kimi-code.sql", sql: m20260827130000_terminal_session_type_kimi_code },
+  { version: 20260827140000, name: "20260827140000-turn-checkpoints-enabled.sql", sql: m20260827140000_turn_checkpoints_enabled },
 ];

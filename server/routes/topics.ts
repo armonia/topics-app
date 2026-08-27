@@ -31,6 +31,7 @@ import { moveTerminalPaneToProject as relocateTerminalPaneToProject, moveTopicTo
 import { bumpUnreadCount } from "../lib/unread-count";
 import { createSubagentWatcher } from "../lib/subagent-watch";
 import { archiveTopicFully } from "../services/archive-topic";
+import { dropTurnCheckpoints } from "../services/turn-checkpoints";
 import { clearRetirement, recordRetirement } from "../services/retirement";
 import { parkTopicSession } from "../lib/session-parking";
 import { parseTranscriptToMessages } from "../lib/claude-transcript-import";
@@ -1535,6 +1536,17 @@ export function createTopicsRouter(
           // ui_state is stale, so client-side reload will see a phantom id.
           if (res.purgeError) {
             return json({ error: "topic archived but ui_state purge failed", details: res.purgeError, topic: res.topic }, 500);
+          }
+          // Archiving IS the end of the session, so the automatic checkpoints
+          // go with it: they are a net for "undo the last turn", and once the
+          // chat is closed there is no last turn left to undo. Leaving them
+          // would be leaving git objects in somebody's repository forever, one
+          // namespace per chat they ever opened. Non-fatal and not awaited: a
+          // ref that refuses to die must not turn an archive into a 500.
+          if (topic.projectPath) {
+            void dropTurnCheckpoints(topic.projectPath, topic.sessionKey).catch((err) =>
+              console.warn(`[topics] checkpoint sweep failed for ${topic.sessionKey}:`, err),
+            );
           }
           return json(res.topic);
         }
