@@ -106,8 +106,15 @@ export TOPICS_E2E="${TOPICS_E2E:-1}"
 # dall'ambiente (testServerEnv); vuoto = comportamento storico (public/ del repo),
 # che è quello giusto per chi lancia questo script a mano.
 export TOPICS_PUBLIC_DIR="${TOPICS_PUBLIC_DIR:-}"
-export GATEWAY_TOKEN="${GATEWAY_TOKEN:-test-token}"
-export GATEWAY_URL="${GATEWAY_URL:-http://127.0.0.1:18789}"
+# NIENTE GATEWAY FINTO, per la stessa ragione spiegata in
+# tests/e2e/helpers/test-server.ts: dichiarare URL e token di un gateway che non
+# ascolta fa eleggere `openclaw` a provider AI, e allora un messaggio inviato
+# apre un turno che non finisce mai — il composer resta su `queue` e chi misura
+# l'invio aspetta per sempre. Si passano solo se arrivano dall'ambiente, cosi'
+# chi vuole provare l'integrazione vera li esporta e ottiene il comportamento
+# di prima.
+if [ -n "${GATEWAY_TOKEN:-}" ]; then export GATEWAY_TOKEN; fi
+if [ -n "${GATEWAY_URL:-}" ]; then export GATEWAY_URL; fi
 
 # Ensure data + topics-home + isolated OpenClaw config/home directories exist
 mkdir -p "$DATA_DIR" "$TOPICS_HOME" "$OPENCLAW_DIR" "$HOME"
