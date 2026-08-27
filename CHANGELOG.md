@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.188 — 2026-08-27
+
+### Sotto il cofano
+- Il JS gira: il renderer e' VIVO e non dipinge, quindi si forza il re-raster
+
 ## 2.2.187 — 2026-08-27
 
 ### Sotto il cofano
