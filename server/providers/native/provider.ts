@@ -30,6 +30,7 @@ import { pruneDanglingToolUses } from "./history-repair";
 import { rehydrateHistory } from "./history-rehydrate";
 import { levelFor } from "./permissions";
 import { topicsToolSpecs, type TopicsToolContext } from "./topics-tools";
+import { ensureMcpFleet, mcpToolSpecs } from "./mcp-fleet";
 import { hasCredentials, getAccessToken, readCredentials } from "./auth";
 import { getTopicWorkspaceForSession, topicsAppBaseUrl } from "../claude-code";
 import type {
@@ -413,9 +414,20 @@ export class NativeProvider implements AIProvider {
       // muovere la card che sta lavorando e' meta' agente, ed e' esattamente
       // com'era prima di questa riga.
       const topics = this.topicsContext(sessionKey);
+      // ── LA FLOTTA MCP GLOBALE, E LA LEVA CHE LA SPEGNE ──────────────────
+      //
+      // The servers configured on the machine (`~/.claude.json`) are mounted by
+      // `mcp-fleet.ts` once per process; here we only decide whether THIS
+      // session pays for them. `mcp_policy = 'bridge-only'` says no, and it is
+      // the same lever the CLI has: the tool schemas travel in the context of
+      // EVERY call of every round, so a dispatched agent working one task would
+      // pay the whole fleet on every turn for tools it never calls.
+      const fleetAllowed = readMcpPolicy(sessionKey) !== "bridge-only";
+      if (fleetAllowed) await ensureMcpFleet();
       const tools = [
         ...(workspace ? CODING_TOOLS : []),
         ...(topics ? topicsToolSpecs(topics.profile) : []),
+        ...(fleetAllowed ? mcpToolSpecs() : []),
       ];
       const out = await runAgentTurn(
         {
@@ -590,6 +602,25 @@ export class NativeProvider implements AIProvider {
  * traduce nel default (`auto-apply`). Il verso giusto in cui sbagliare è verso
  * il basso — una tabella assente non può diventare un lasciapassare.
  */
+/**
+ * The session's MCP policy, or null when there is no topic behind this key.
+ *
+ * Same column the CLI branch reads in `writeMcpConfigForSession`: one question,
+ * one answer, taken from the same place. Reading it differently on the two
+ * runtimes is exactly how they would drift.
+ */
+function readMcpPolicy(sessionKey: string): string | null {
+  try {
+    const { getDatabase } = require("../../db");
+    const row = getDatabase()
+      .prepare("SELECT mcp_policy FROM topics WHERE session_key = ? LIMIT 1")
+      .get(sessionKey) as { mcp_policy?: string | null } | undefined;
+    return row?.mcp_policy ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function readTopicAutonomy(sessionKey: string): string | null {
   try {
     const { getDatabase } = require("../../db");
