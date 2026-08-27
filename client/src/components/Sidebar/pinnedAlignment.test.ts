@@ -42,6 +42,16 @@ describe('pinned tiles: the form decides the alignment', () => {
     expect(PINNED_ALIGN.row.iconSlot).toBe(ROW_GLYPH_SLOT);
   });
 
+  test('the schematic of the split rides the ROW form only', () => {
+    // A row is read in the column, next to rows that all say where their pane
+    // sits: pinning something must not be what makes that answer disappear. A
+    // grid tile carries identity and nothing else (no subline, no timestamp, no
+    // project name), and a 16px schematic on 40px of width is a second glyph
+    // competing with the one that says what the tile is.
+    expect(PINNED_ALIGN.row.splitMap).toBe(true);
+    expect(PINNED_ALIGN.grid.splitMap).toBe(false);
+  });
+
   test('in grid form nothing is reserved on the leading side', () => {
     // A fixed box wider than what it holds, or an empty accordion box, is air
     // on one side only: that asymmetry IS "pushed to the right".

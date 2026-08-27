@@ -17,8 +17,7 @@ import { TopicSubline } from '@/components/Shared/SessionActivity';
 import { RelativeTime } from '@/components/Shared/RelativeTime';
 import { TopicStreamingSpinner } from '@/components/Layout/StreamingIndicator';
 import { sidebarRowCard, ROW_PX, ROW_GAP, ROW_H, ROW_INSET, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_CHEVRON, ROW_CHEVRON_SLOT, ROW_GLYPH_SLOT, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, ARCHIVED_ROW, TAB_LABEL_TYPE, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT } from '@/lib/selectionStyles';
-import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
-import { useSplitPosition } from '@/contexts/SplitPositionContext';
+import { RowSplitMap } from './RowSplitMap';
 import { useMobile } from '@/hooks/useMobile';
 import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
 import { useTouchDrag } from '@/hooks/useTouchDrag';
@@ -135,10 +134,6 @@ export const TopicItem = memo(function TopicItem({
   useSeenDwell(topic.id, isFocused);
   const attentionTier = useTopicAttentionFill(topic.id);
   const onFill = attentionTier !== null;
-  // Where this topic's pane sits in the standalone split grid (undefined unless
-  // it's open AND the grid is split). Rendered as the same proportional
-  // mini-map the tab shows, so the sidebar card mirrors the tab's position cue.
-  const splitPosition = useSplitPosition(topic.id);
 
   const { attributes: sortableAttributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: topic.id,
@@ -413,21 +408,12 @@ export const TopicItem = memo(function TopicItem({
         </span>
       )}
 
-      {/* Split position — the same proportional mini-map the tab bar shows,
-          this topic's cell lit. Only present when the topic is open in a split
-          grid. Rendered BEFORE the spinner/timestamp slot so the streaming
-          spinner lands at the row's trailing edge (see below). */}
-      {splitPosition && (
-        <SplitMiniMap
-          rows={splitPosition.rows}
-          rowHeights={splitPosition.rowHeights}
-          active={splitPosition.active}
-          // The map draws from currentColor, so on an attention fill it MUST
-          // inherit the fill's high-contrast tone (white on blue / dark on amber)
-          // instead of a fixed grey that vanishes on the fill — the grey-on-blue bug.
-          className={cn("flex-shrink-0", onFill ? ON_FILL_TEXT_SOFT : "text-app-text-tertiary")}
-        />
-      )}
+      {/* Split position — the same proportional mini-map every other sidebar
+          row shows, this topic's cell lit, and it comes from the ONE component
+          that decides tone and placement for all of them (see RowSplitMap).
+          Rendered BEFORE the spinner/timestamp slot so the streaming spinner
+          lands at the row's trailing edge (see below). */}
+      <RowSplitMap paneId={topic.id} onFill={onFill} />
 
       {/* Lo spinner sta FUORI dal binario quieto, ed è l'unica eccezione del
           contratto (vedi ROW_TRAIL in selectionStyles): fermare un turno e

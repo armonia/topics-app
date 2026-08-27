@@ -176,12 +176,28 @@ export interface PinnedAlignment {
   iconSlot: string;
   /** Whether the leading accordion box is reserved even when nothing opens. */
   reservesChevron: boolean;
+  /**
+   * Whether the tile carries the split schematic (see `RowSplitMap`).
+   *
+   * IN ROW FORM YES, because there the tile IS a row: it is read in the column
+   * next to chat, terminal, browser and board rows, all of which say where
+   * their pane sits in the split, and a pinned pane is the one you look for
+   * first. A pinned row was the only place in the sidebar where that answer
+   * disappeared as a side effect of pinning.
+   *
+   * IN GRID FORM NO, and it is the same rule that already sends the badge out
+   * of the flow and drops the timestamp, the subline and the project name: a
+   * grid tile shows IDENTITY and nothing else, on 40 to 100px of width. A
+   * 16px schematic there is not a position cue, it is a second glyph competing
+   * with the one that says what the tile is.
+   */
+  splitMap: boolean;
 }
 
 export const PINNED_ALIGN: Record<PinnedForm, PinnedAlignment> = {
   // A row is read inside a column: it starts where the column starts.
-  row: { justify: 'justify-start', iconSlot: ROW_GLYPH_SLOT, reservesChevron: true },
+  row: { justify: 'justify-start', iconSlot: ROW_GLYPH_SLOT, reservesChevron: true, splitMap: true },
   // A grid tile is read on its own: what identifies it takes the middle, and
   // an empty box on the leading side is exactly what pushes it off centre.
-  grid: { justify: 'justify-center', iconSlot: 'flex-shrink-0 items-center justify-center', reservesChevron: false },
+  grid: { justify: 'justify-center', iconSlot: 'flex-shrink-0 items-center justify-center', reservesChevron: false, splitMap: false },
 };
