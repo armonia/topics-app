@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "2.2.181"
+version = "2.2.190"
 description = "Topics — low-footprint desktop shell (Tauri)"
 authors = ["Armonia <hi@armonia.io>"]
 license = "MIT"
@@ -87,7 +87,11 @@ native-tls = "0.2"
 # che e fra i piu difficili da leggere. Il riferimento e Cargo.lock, non crates.io.
 [target.'cfg(target_os = "windows")'.dependencies]
 webview2-com = "0.38"
-windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com"] }
+# `Win32_UI_Input_KeyboardAndMouse` is the accelerator hook's other half
+# (`menu_chords_win.rs`): the WebView2 event says WHICH key was pressed and
+# never which modifiers were down, so those come from `GetKeyState`, and the
+# character an OEM key prints on the active layout from `MapVirtualKeyW`.
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Input_KeyboardAndMouse"] }
 
 # Linux e i BSD: stessa storia, ma con WebKitGTK. `cairo-rs` arriva gia da gtk,
 # qui si aggiunge solo la feature `png`, che serve a `write_to_png` per lo

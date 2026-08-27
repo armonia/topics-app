@@ -1893,3 +1893,36 @@ speculare.
 - **GIVEN** il guscio Tauri su macOS
 - **WHEN** il menu «Topics» si apre
 - **THEN** il componente NON SHALL rendere nessun bottone
+
+### Requirement: LAYOUT-29 — Lo schema dello split sta su OGNI voce della sidebar che rappresenta una pane aperta
+
+Lo schema proporzionale che dice in quale cella della griglia sta una pane
+(`SplitMiniMap`) era scritto tre volte in tre righe diverse: chat, terminale e
+progetto. Le altre voci della colonna non lo avevano. Misurato: un browser
+aperto in una cella, una pane di utilità e la riga della bacheca non dicevano
+niente sulla propria posizione mentre la riga accanto lo diceva, e la copia del
+progetto aveva un margine in coda (`mr-1.5`) che le sorelle non avevano.
+
+Ogni voce della sidebar che rappresenta una pane aperta SHALL mostrare lo schema
+quando la griglia è divisa: riga di chat, terminale, browser, utilità, bacheca,
+progetto e tessera fissata in forma di RIGA.
+
+In forma di GRIGLIA la tessera fissata NON SHALL mostrarlo: lì la tessera porta
+solo l'identità su 40-100px di larghezza, ed è la stessa regola che già toglie
+la subline, il tempo e il nome del progetto.
+
+Con UNA sola cella nessuna voce SHALL mostrarlo: non c'è niente rispetto a cui
+orientarsi.
+
+La decisione — sorgente, tono e posto nella riga — SHALL stare in UN solo
+componente: una seconda copia è ciò che ha prodotto il margine divergente della
+riga di progetto.
+
+#### Scenario: due celle, una chat fissata e una in lista
+- **GIVEN** due pane aperte in due celle affiancate
+- **THEN** la riga in lista SHALL mostrare lo schema
+- **AND** la tessera fissata in forma di riga SHALL mostrarlo
+
+#### Scenario: una cella sola
+- **GIVEN** una griglia non divisa
+- **THEN** nessuna voce della sidebar SHALL mostrare lo schema
