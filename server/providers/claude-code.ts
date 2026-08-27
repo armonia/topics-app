@@ -1737,6 +1737,19 @@ export class ClaudeCodeProvider implements AIProvider {
         reject(err);
       });
 
+      // A CLI that exits BEFORE reading the prompt leaves us writing into a
+      // closed pipe, and the EPIPE surfaces ASYNCHRONOUSLY as the stream tears
+      // down: it is raised inside `end()`, not inside `write()`, so no
+      // try/catch around the write can ever see it. With no listener on this
+      // stream it becomes an unhandled exception and Bun kills the WHOLE
+      // server process.
+      //
+      // Observed in CI (run 33030011608): the test server died mid-run and
+      // took ~200 never-started tests down with it. A CLI exiting early is
+      // ordinary (startup crash, wrong binary, --version), not a test-bench
+      // quirk, so this belongs here and not in the harness. The turn still
+      // ends through `close`, which reports the non-zero exit.
+      proc.stdin!.on("error", () => { /* CLI is gone; `close` reports it */ });
       proc.stdin!.write(prompt);
       proc.stdin!.end();
     });
@@ -2257,6 +2270,11 @@ export class ClaudeCodeProvider implements AIProvider {
       pp.readline = rl;
       pp.io = directIO(proc);
       proc.stderr!.on("data", (d: Buffer) => this.handleStderrData(pp, sessionKey, d));
+      // Same pipe safety net as `complete()`. Here the session is long-lived
+      // and every turn writes to the CLI's stdin, so a CLI that dies between
+      // turns makes the next write raise EPIPE asynchronously — with no
+      // listener that takes down the server instead of just this session.
+      proc.stdin!.on("error", (err) => this.onSessionErrored(pp, err));
       proc.on("close", (code) => this.onSessionClosed(pp, code));
       proc.on("error", (err) => this.onSessionErrored(pp, err));
     }
