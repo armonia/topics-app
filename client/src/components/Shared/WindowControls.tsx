@@ -1,5 +1,6 @@
 /**
- * The three window commands on Windows: minimise, maximise/restore, close.
+ * The three window commands on Windows, drawn ON THE TOPICS BUTTON: close,
+ * minimise, maximise/restore.
  *
  * They exist because on Windows the system title bar is OFF: the app draws its
  * own (`app-drag-region` in App.tsx) and leaving the native one as well meant
@@ -9,13 +10,28 @@
  * closed except through the taskbar. Removing the trim must not mean removing the
  * controls.
  *
+ * WHERE THEY SIT, and this is the whole point of the file. On macOS the three
+ * traffic lights are hidden and come out over the word "Topics" when the Topics
+ * menu opens (`trafficLightPosition { x: 12, y: 12 }` in tauri.conf.json, the
+ * label going `invisible` in App.tsx). These used to come out at the OTHER end of
+ * the same row, next to search and "+", so the same app closed its window on the
+ * left on one system and on the right on the other, and whoever moves between the
+ * two had to relearn it. Reported on the board (card 7aff3fd9): the commands
+ * should come out of the Topics button, like on the Mac. So the geometry here is
+ * copied from the Mac and not from Windows 11: same anchor (12px from the left
+ * edge of the row), same trigger (the Topics menu), and the SAME ORDER —
+ * close, minimise, maximise. The glyphs stay Windows' own, because a Windows user
+ * reads those and not three coloured dots.
+ *
+ * ABSOLUTELY POSITIONED, deliberately: the chrome row is `h-10` and its height is
+ * derived from its buttons, so these three must not be in the flow of that row —
+ * out of the flow they can neither make it taller nor push the title, the bell or
+ * the two commands on the right by a single pixel, whether they are showing or
+ * not.
+ *
  * NOT mounted on macOS or on the web: there the frame exists (on macOS it is the
  * three traffic lights, which Tauri paints over our own row via
  * `TitleBarStyle::Overlay`), and a second set would be the same mistake mirrored.
- *
- * The shape is Windows 11's own, not an invention: three 46×32 cells at the top
- * right, thin glyphs, the close one turning red. A Windows user finds them where
- * they look for them and recognises them without having to read.
  */
 import { useEffect, useState } from 'react';
 import { isTauriWindows } from '../../lib/shell';
@@ -63,12 +79,15 @@ export function WindowControls({ visible }: { visible: boolean }) {
     if (action === 'maximize') setMaximized((v) => !v);
   };
 
-  // 46×32 with 10px glyphs: the measurements of the Windows 11 bar. The
+  // 18×18 with 10px glyphs, three in a row: 54px, which is what the word "Topics"
+  // measures underneath (15px semibold) and what the three traffic lights measure
+  // on the Mac. The Windows 11 cell is 46×32 and it was right at the end of the
+  // row; over a label it would be a 138px slab covering the chevron as well. The
   // background is transparent and lights up on hover, except for close, which goes
   // to the system red — it is the one of the three that cannot be undone, and it
   // shows.
   const cellClass =
-    'h-8 w-[46px] inline-flex items-center justify-center text-app-text/80 ' +
+    'h-[18px] w-[18px] rounded inline-flex items-center justify-center text-app-text/80 ' +
     'transition-colors hover:bg-black/10 dark:hover:bg-white/10 cursor-pointer';
   // `-1` while invisible: `aria-hidden` removes the name, but on its own it does
   // not take the button out of the Tab order — and focus landing on something
@@ -77,19 +96,19 @@ export function WindowControls({ visible }: { visible: boolean }) {
 
   return (
     <div
-      // `w-0 overflow-hidden` WHILE HIDDEN, and this is the part that matters on
-      // a narrow sidebar. `opacity-0` hides the ink but keeps the BOX: these
-      // three cells are 138px that stay reserved even when nobody can see or
-      // click them. Measured on Windows at a 255px sidebar: the z-50 group asked
-      // for 210px and had 204, so the notification bell was pushed under this
-      // group and `elementFromPoint` at its centre answered "New (Ctrl+N)" — the
-      // bell was unclickable again, the same defect as the Ctrl+K row arriving
-      // through a different door.
+      // OUT OF THE FLOW, always: `absolute` over the Topics button, anchored at
+      // ROW_INSET from its left edge, which puts the first cell at x=12 — the
+      // Mac's `trafficLightPosition.x`. This also settles, by construction, the
+      // defect measured on Windows at a 255px sidebar when these three sat in the
+      // row: switched OFF they still reserved 138px, the z-50 group asked for
+      // 210px and had 204, the notification bell ended up underneath and
+      // `elementFromPoint` at its centre answered "New (Ctrl+N)". An absolute box
+      // reserves nothing, lit or unlit.
       //
       // The node stays mounted (not `hidden`, not unmounted) so the fade still
       // plays and the keyboard order stays governed by `tabIndex` above.
-      className={`app-no-drag flex items-center flex-shrink-0 -mr-[6px] transition-opacity duration-150 ${
-        visible ? 'opacity-100' : 'w-0 overflow-hidden opacity-0 pointer-events-none'
+      className={`app-no-drag absolute left-[6px] top-1/2 -translate-y-1/2 z-10 flex items-center transition-opacity duration-150 ${
+        visible ? 'opacity-100' : 'opacity-0 pointer-events-none'
       }`}
       aria-hidden={!visible}
       {...NO_DRAG_REGION}
@@ -98,6 +117,20 @@ export function WindowControls({ visible }: { visible: boolean }) {
       role="group"
       aria-label="Window controls"
     >
+      {/* CLOSE FIRST, and it is the one line of this file that will look wrong to
+          whoever knows Windows 11. It is where the Mac puts it, these three come
+          out where the Mac's come out, and the point of the whole change is that
+          the window closes in the same place on both systems. Order and position
+          are one decision, not two: keeping the Windows order under the Mac
+          anchor would put close under the pointer that on the Mac minimises. */}
+      <button type="button"
+              className={`${cellClass} hover:!bg-[#c42b1c] hover:text-white`}
+              onClick={() => command('close')}
+              aria-label="Close" title="Close" data-testid="win-close" tabIndex={tab}>
+        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+          <path d="M0 0l10 10M10 0L0 10" stroke="currentColor" strokeWidth="1" />
+        </svg>
+      </button>
       <button type="button" className={cellClass} onClick={() => command('minimize')}
               aria-label="Minimize" title="Minimize" data-testid="win-minimize" tabIndex={tab}>
         <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
@@ -118,14 +151,6 @@ export function WindowControls({ visible }: { visible: boolean }) {
             <rect x="0.5" y="0.5" width="9" height="9" />
           </svg>
         )}
-      </button>
-      <button type="button"
-              className={`${cellClass} hover:!bg-[#c42b1c] hover:text-white`}
-              onClick={() => command('close')}
-              aria-label="Close" title="Close" data-testid="win-close" tabIndex={tab}>
-        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-          <path d="M0 0l10 10M10 0L0 10" stroke="currentColor" strokeWidth="1" />
-        </svg>
       </button>
     </div>
   );
