@@ -1,5 +1,31 @@
 [
   {
+    "version": "2.2.195",
+    "date": "2026-08-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "child_reaper esce da lib.rs, e un nome italiano dallo slug dei link",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tre test asserivano la FORMA del link, non il suo contratto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I miei tre commenti erano in italiano, e i file hanno una baseline esatta",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.194",
     "date": "2026-08-27",
     "sections": {
@@ -9,6 +35,11 @@
       "internal": [
         {
           "it": "`destructure` entra in PROJECT_WORDS: e' un buco del dizionario, non italiano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il link di un task porta davanti il titolo, e la lettura lo butta",
           "en": "",
           "scope": null
         }
@@ -65,6 +96,11 @@
         },
         {
           "it": "Rinomina in inglese 706 identificatori italiani locali, baseline 6868 -> 6162",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Parita' sui tre motori: ogni operazione del browser risponde, o dichiara perche' no",
           "en": "",
           "scope": null
         },
