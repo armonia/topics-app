@@ -150,7 +150,7 @@
     "tests/e2e/helpers/api-fixtures.ts": 845,
     "server/providers/codex.ts": 843,
     "server/context/assemble.test.ts": 836,
-    "server/routes/browser-bridge.test.ts": 826,
+    "server/routes/browser-bridge.test.ts": 983,
     "server/services/worktree-gc.ts": 826,
     "tests/e2e/board.spec.ts": 825,
     "client/src/hooks/useCompletionNotifier.tsx": 821,

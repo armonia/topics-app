@@ -229,10 +229,115 @@ export function createBrowserBridgeRouter(
    * sia la pane nativa che quella web), quindi non serve un protocollo nuovo
    * che poi vivrebbe non provato accanto a questo.
    */
-  async function ensureVisiblePane(contextId: string, url: string): Promise<boolean> {
-    if (await waitForAttachedPane(contextId, PANE_WAIT_MS)) return true;
+  async function forceOpenAndWait(contextId: string, url: string): Promise<boolean> {
     broadcastToAll({ type: "browser:force-open", contextId, url });
     return waitForAttachedPane(contextId, PANE_WAIT_MS);
+  }
+
+  /**
+   * THE OPENING SEQUENCE, WRITTEN ONCE, FOR ALL THREE BRANCHES.
+   *
+   * `open-pane` has three origins (chat, board task, terminal) and each one had
+   * written its own sequence. The task branch had dropped two steps along the
+   * way: it waited for no pane and it never navigated, so it answered "Opened"
+   * while the tab sat on `about:blank` and the agent had to force the load by
+   * hand with `location.replace` (card 05105d29). Patching the third branch
+   * would only have been waiting for the fourth branch to be born with the same
+   * hole, so the sequence lives here and the three branches CALL it:
+   *
+   *   1. ANNOUNCE   the broadcast that mounts/updates the pane. It is the only
+   *                 thing that differs between branches (layout pane, drawer
+   *                 tab, near-terminal pane);
+   *   2. WAIT       for someone to attach to the contextId, BEFORE navigating:
+   *                 this is the window in which a native pane can register as
+   *                 the delegate, and therefore take the navigation itself
+   *                 instead of leaving it to a headless phantom;
+   *   3. NAVIGATE   a `browser_open` on the context. It reaches the native pane
+   *                 if one registered, otherwise the headless context, which is
+   *                 where observe/act will land anyway. This is the step that
+   *                 was missing, and it is also what re-navigates an ALREADY
+   *                 mounted tab (the client reads `initialUrl` only at mount);
+   *   4. RE-ANNOUNCE  if the navigation redirected, so the pane follows the
+   *                 final URL instead of staying on the starting one;
+   *   5. FALLBACK   if nobody attached, `browser:force-open` with the FINAL URL
+   *                 (a forced pane loads its initialUrl and nothing else:
+   *                 handing it the starting URL would leave it on the wrong
+   *                 page), then wait again.
+   *
+   * The `visible` boolean that comes out is what makes the answer HONEST: a
+   * tool that says "Opened" when it opened nothing is not a navigation defect,
+   * it is a tool lying to a caller who has no way to check.
+   *
+   * The differences between branches stay, but DECLARED as parameters instead
+   * of forgotten: `forceOpen` (the task branch turns it off, because a forced
+   * standalone pane would take the tab OUTSIDE the drawer, away from where the
+   * reviewer looks for it) and `title` (the name prescribed for the tab, or the
+   * page title when there is none).
+   */
+  async function openPaneFlow(opts: {
+    contextId: string;
+    url: string;
+    /** Title to report to the agent; absent = the navigated page's own title. */
+    title?: string;
+    projectPath: string | null;
+    service: BrowserService;
+    /** The branch's broadcast. Called again with the final URL on a redirect. */
+    announce: (url: string) => void;
+    /** `browser:force-open` fallback when no pane attaches (defaults to yes). */
+    forceOpen?: boolean;
+    /**
+     * Does a failed navigation kill the whole call? Yes by default: a chat pane
+     * that could not load has produced nothing, and an error is the truth. The
+     * task branch says no, because there the tab RECORD is the deliverable and
+     * it was already written and announced: answering 500 would tell the agent
+     * the tab does not exist while it sits in the drawer. It gets a 200 with
+     * the failure in `warning` instead, which is the same information without
+     * the lie.
+     */
+    navigationFatal?: boolean;
+  }): Promise<Response> {
+    const { contextId, url, projectPath, service, announce } = opts;
+    announce(url);
+    const attached = await waitForAttachedPane(contextId, PANE_WAIT_MS);
+    let resolvedUrl = url;
+    let pageTitle = "";
+    let navError = "";
+    try {
+      const result = (await dispatchBrowserToolCallByContext(
+        "browser_open",
+        { url },
+        contextId,
+        service,
+      )) as { url?: string; title?: string; error?: string };
+      if (result?.error) {
+        if (opts.navigationFatal !== false) return json({ error: result.error }, 502);
+        navError = result.error;
+      }
+      if (typeof result?.url === "string" && result.url) resolvedUrl = result.url;
+      pageTitle = typeof result?.title === "string" ? result.title : "";
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (opts.navigationFatal !== false) return json({ error: msg }, 500);
+      navError = msg;
+    }
+    if (resolvedUrl !== url) announce(resolvedUrl);
+    const visible = navError
+      ? false
+      : attached
+        ? true
+        : opts.forceOpen === false
+          ? false
+          : await forceOpenAndWait(contextId, resolvedUrl);
+    const portWarning = await portOwnershipWarning(resolvedUrl, projectPath);
+    const warning = [navError ? `navigation failed: ${navError}` : "", portWarning ?? ""]
+      .filter(Boolean)
+      .join(" ");
+    return json({
+      url: resolvedUrl,
+      title: opts.title ?? pageTitle,
+      visible,
+      ...(warning ? { warning } : {}),
+    });
   }
 
   /**
@@ -340,18 +445,21 @@ export function createBrowserBridgeRouter(
             // resolve to — that's what lets a terminal drive the pane, not just
             // open it.
             const ctxId = `term-${term.id}`;
-            // Broadcast so the client opens the near-terminal pane under ctxId and
-            // seeds it with `url` (initialUrl). The client's native pane drives the
-            // actual load; the agent's browser_* tools reach that same pane via the
-            // native delegate (registered under ctxId). Nothing to navigate
-            // server-side here — just ack.
-            broadcastToAll({ type: "browser:open-near-pane", paneId: `terminal:${term.id}`, contextId: ctxId, url });
-            // Il terminale può non essere una tab da nessuna parte (dispatch
-            // headless, finestra chiusa): stessa cecità della rotta chat, stesso
-            // ripiego, stessa risposta onesta.
-            const visible = await ensureVisiblePane(ctxId, url);
-            const warning = await portOwnershipWarning(url, term.cwd || null);
-            return json({ url, title: "", visible, ...(warning ? { warning } : {}) });
+            // The broadcast opens the near-terminal pane under ctxId and seeds
+            // it with `url` (initialUrl); the rest of the sequence (wait,
+            // navigate, redirect) is the shared one. The terminal may be a tab
+            // nowhere at all (headless dispatch, window closed): same blindness
+            // as the chat route, same fallback, same honest answer. The title
+            // stays empty: here the agent asked for a pane next to its
+            // terminal, not for a page to label.
+            return openPaneFlow({
+              contextId: ctxId,
+              url,
+              title: "",
+              projectPath: term.cwd || null,
+              service: browserService,
+              announce: (u) => broadcastToAll({ type: "browser:open-near-pane", paneId: `terminal:${term.id}`, contextId: ctxId, url: u }),
+            });
           }
         }
         if (!topic) return json({ error: "Topic not found" }, 404);
@@ -383,13 +491,13 @@ export function createBrowserBridgeRouter(
 
         // Task-owned browser fork (feature-flagged): the agent working a task
         // opens a browser into that task's IN-DRAWER group, not the global
-        // layout. Mirror the terminal path above — broadcast + return, NO
-        // server-side dispatchBrowserToolCallByContext: the task pane may be
-        // unmounted (drawer closed), so a headless browser_open would drive an
-        // invisible Playwright phantom. The client's RemoteBrowserPanel loads
-        // `url` (initialUrl) once the pane mounts and registers its native
-        // target under contextId; the agent's later observe/act reach that same
-        // pane because we bind topic.browserState.contextId to it here.
+        // layout. Same sequence as the other two branches (`openPaneFlow`),
+        // with two declared differences: the tab record is WRITTEN before it is
+        // announced, and visibility is settled WITHOUT the `browser:force-open`
+        // fallback, which would open a standalone pane outside the drawer, away
+        // from where the reviewer looks for it. `visible:false` here means
+        // "drawer closed": the navigation still went to the headless context,
+        // which is exactly where observe/act will land.
         const taskCtx = resolveTaskBrowserContext(topic, tabName);
         if (taskCtx) {
           topic.browserState = {
@@ -400,56 +508,41 @@ export function createBrowserBridgeRouter(
           };
           saveSingleTopic(topic);
           browserNavigatedTopics.add(topic.id);
-          // Persisti PRIMA di broadcastare: la tab è il risultato del task e un
-          // dispatch gira spesso senza nessuna finestra Topics aperta. Finché
-          // l'unico scrittore del record era il client, "nessun client
-          // connesso" voleva dire tab persa. Ora il record c'è comunque; il
-          // client che riceve `browser:open-task-tab` fa lo stesso upsert
-          // idempotente e converge.
-          persistTaskTab(taskCtx.taskId, taskCtx.contextId, url, tabName);
-          broadcastToAll({ type: "browser:open-task-tab", taskId: taskCtx.taskId, contextId: taskCtx.contextId, url, title: tabName });
-          const warning = await portOwnershipWarning(url, topic.projectPath ?? null);
-          return json({ url, title: tabName, ...(warning ? { warning } : {}) });
+          return openPaneFlow({
+            contextId: taskCtx.contextId,
+            url,
+            title: tabName,
+            projectPath: topic.projectPath ?? null,
+            service: browserService,
+            // Persist BEFORE broadcasting: the tab is the task's result and a
+            // dispatch often runs with no Topics window open at all. As long as
+            // the only writer of the record was the client, "no client
+            // connected" meant a lost tab. Now the record is there regardless;
+            // the client receiving `browser:open-task-tab` does the same
+            // idempotent upsert and converges. This holds for a redirect's
+            // landing URL too: the tab follows that one, not the starting one.
+            announce: (u) => {
+              persistTaskTab(taskCtx.taskId, taskCtx.contextId, u, tabName);
+              broadcastToAll({ type: "browser:open-task-tab", taskId: taskCtx.taskId, contextId: taskCtx.contextId, url: u, title: tabName });
+            },
+            forceOpen: false,
+            navigationFatal: false,
+          });
         }
 
         const ctxId = resolveContextIdForTopic(topic);
-        // 1. Broadcast FIRST (carrying contextId) so the client mounts/seeds the
-        //    native pane under the SAME id the agent's browser_* tools resolve to.
-        //    Previously this dispatched browser_open BEFORE the pane existed, so it
-        //    navigated an invisible Playwright phantom while the visible pane stayed
-        //    on about:blank — the reported bug. Also fixes the contextId-key
-        //    mismatch: the chat pane used to register under a random id.
-        broadcastToAll({ type: "browser:navigate", topicId: topic.id, contextId: ctxId, url });
         browserNavigatedTopics.add(topic.id);
-        try {
-          // Dispatch browser_open through the context. The dispatcher routes it to
-          // the Tauri native pane (via the native delegate registered under ctxId
-          // by the broadcast above) or, in web mode, to the Playwright context the
-          // streamed pane mirrors. Idempotent with the client's own initialUrl load
-          // and essential for re-navigating an already-open pane to a new URL.
-          const result = await dispatchBrowserToolCallByContext(
-            "browser_open",
-            { url },
-            ctxId,
-            browserService,
-          ) as { url?: string; title?: string; error?: string };
-          if (result?.error) return json({ error: result.error }, 502);
-          const resolvedUrl = typeof result?.url === "string" ? result.url : url;
-          // Re-broadcast only if the navigation redirected, so the visible pane
-          // tracks the final URL too.
-          if (resolvedUrl !== url) {
-            broadcastToAll({ type: "browser:navigate", topicId: topic.id, contextId: ctxId, url: resolvedUrl });
-          }
-          // 3. Solo ORA si può dire com'è andata: `visible` distingue la pane
-          //    montata dal contesto vivo che nessuno vede (il ripiego
-          //    force-open è già stato tentato qui dentro).
-          const visible = await ensureVisiblePane(ctxId, resolvedUrl);
-          const warning = await portOwnershipWarning(resolvedUrl, topic.projectPath ?? null);
-          return json({ url: resolvedUrl, title: result?.title ?? "", visible, ...(warning ? { warning } : {}) });
-        } catch (e: unknown) {
-          const msg = e instanceof Error ? e.message : String(e);
-          return json({ error: msg }, 500);
-        }
+        // The announcement comes BEFORE the navigation (the shared sequence
+        // guarantees it) so the client mounts/seeds the pane under the SAME id
+        // the agent's `browser_*` tools resolve to. Inverted, Playwright drove
+        // a phantom while the visible pane stayed on about:blank.
+        return openPaneFlow({
+          contextId: ctxId,
+          url,
+          projectPath: topic.projectPath ?? null,
+          service: browserService,
+          announce: (u) => broadcastToAll({ type: "browser:navigate", topicId: topic.id, contextId: ctxId, url: u }),
+        });
       }
     }
 
