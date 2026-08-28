@@ -92,7 +92,14 @@ webview2-com = "0.38"
 # the WebView2 event says WHICH key was pressed and never which modifiers were
 # down, so those come from `GetKeyState`, and the character an OEM key prints on
 # the active layout from `MapVirtualKeyW`.
-windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Input_KeyboardAndMouse"] }
+#
+# `Win32_UI_WindowsAndMessaging` is `SetWindowPos`, and it has exactly one caller:
+# `windows_repaint.rs` puts the rebuilt main webview back under its sibling
+# panes. The feature is declared here rather than inherited from wry, which
+# happens to enable it: cargo unifies features, so the build would compile
+# either way, and a call that depends on somebody else's feature list breaks the
+# day they drop it.
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
 
 # Linux e i BSD: stessa storia, ma con WebKitGTK. `cairo-rs` arriva gia da gtk,
 # qui si aggiunge solo la feature `png`, che serve a `write_to_png` per lo
