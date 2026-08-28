@@ -5045,31 +5045,15 @@
       "uno",
       "vuoto"
     ],
-    "server/services/discord-ipc.test.ts": [
-      "IpcSocket"
-    ],
     "server/services/discord-ipc.ts": [
-      "DiscordIpcError",
-      "IPC_OP",
-      "IpcConnector",
-      "IpcFrame",
-      "IpcOp",
-      "IpcSocket",
       "buf",
-      "evt",
-      "existingIpcCandidates",
-      "ipcCandidates"
+      "evt"
     ],
     "server/services/discord-presence.test.ts": [
-      "IpcSocket",
       "activities",
       "attesa",
       "attesa2",
       "dopoPrima"
-    ],
-    "server/services/discord-presence.ts": [
-      "IpcConnector",
-      "IpcSocket"
     ],
     "server/services/dispatch-capacity.test.ts": [
       "dbConImpostazioni",

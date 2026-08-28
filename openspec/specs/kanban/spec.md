@@ -2682,3 +2682,36 @@ Ogni chiave SHALL esistere in ENTRAMBE le lingue.
 #### Scenario: la colonna di partenza
 - **GIVEN** un task in attesa di essere messo in lavorazione
 - **THEN** SHALL essere nominato il gesto che lo sblocca
+
+### Requirement: KANBAN-66 — Una card che ha GIÀ consegnato non torna in lavorazione quando l'ultimo sottotask si chiude
+
+«Libera ciò che aspettava questo task» vale per un blocco fra pari: quello
+aspettava di COMINCIARE. Un padre che ha già consegnato no, e il sistema SHALL
+distinguere i due casi invece di trattarli uguale.
+
+Misurato il 28/08/2026: un padre già consegnato E atterrato restava in `review`
+solo per il blocco dei sottotask aperti. Chiudere l'ultimo con
+`PATCH {status:"done"}` rispondeva 200 e in due secondi il padre passava a
+`in_progress` con un agente sopra.
+
+I danni SHALL essere considerati due, e il secondo è quello che non si vede:
+l'agente riparte su lavoro già su main dentro un worktree nuovo e vuoto; e il
+rimettere in coda azzera `landing_state`, così la card smette di dire di essere
+atterrata mentre git continua a dire che lo è.
+
+Le porte che raggiungono il padre da un suo sottotask SHALL essere chiuse
+entrambe: il PATCH che chiude il sottotask, e il COMMENTO lasciato su di esso.
+Il segno che una card ha già prodotto SHALL essere letto da ciò che il record
+già porta — lo scatto della consegna, il verdetto di atterraggio, o la colonna
+`review` — senza indovinare.
+
+#### Scenario: si chiude l'ultimo sottotask di un padre atterrato
+- **GIVEN** un padre con `landingState` atterrato e un solo sottotask aperto
+- **WHEN** quel sottotask passa a `done`
+- **THEN** il padre SHALL restare in `review`
+- **AND** `landingState` SHALL restare atterrato
+
+#### Scenario: un blocco fra pari continua a sbloccare
+- **GIVEN** un task in `todo` che non ha mai consegnato, fermo su una dipendenza
+- **WHEN** quella dipendenza si chiude
+- **THEN** il task SHALL essere dispacciato come prima

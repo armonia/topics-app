@@ -1,7 +1,35 @@
 [
   {
-    "version": "2.2.195",
+    "version": "2.2.197",
     "date": "2026-08-28",
+    "sections": {
+      "new": [
+        {
+          "it": "Acrylic DWM backdrop on Windows",
+          "en": "",
+          "scope": "windows",
+          "breaking": false
+        }
+      ],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "`ipc` non e' gergo: e' un buco del dizionario del 1934",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La guardia sondava la vita del gateway, non l'endpoint che serve",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.195",
+    "date": "2026-08-27",
     "sections": {
       "new": [],
       "fixes": [],
@@ -18,9 +46,20 @@
           "scope": null
         },
         {
+          "it": "Rilettura dei 14 requisiti promossi: 11 reggono, 3 riscritti, 0 persi",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "I miei tre commenti erano in italiano, e i file hanno una baseline esatta",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "build:watch stays off, and public/ is a manual build",
+          "en": "",
+          "scope": null,
+          "breaking": false
         }
       ]
     }

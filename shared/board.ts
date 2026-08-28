@@ -1841,6 +1841,43 @@ export function showsLandingDebt(task: {
   return !!task.deliveryCommit;
 }
 
+/**
+ * THE CARD HAS ALREADY PRODUCED WHAT IT WAS ASKED FOR.
+ *
+ * A card waiting to START and a card that has already DELIVERED are two
+ * different things, and the board has three independent marks that say the
+ * second one: the delivery snapshot (`deliveryCommit`), the landing verdict
+ * (`landingState === 'landed'`), and the column itself (`review` = handed to a
+ * human). Any one of them is enough.
+ *
+ * Measured on 28/08 on a landed parent: closing its last subtask released it as
+ * if it were a peer blocker, and the parent went back to `in_progress` with an
+ * agent on top of work that was already on main. Two damages, and the second is
+ * the silent one: re-queueing wipes `landingState`, so the card stops saying it
+ * landed while git still says it did.
+ */
+export function hasDeliveredWork(task: {
+  status?: TaskStatus | string | null;
+  landingState?: string | null;
+  deliveryCommit?: string | null;
+}): boolean {
+  if (task.landingState === 'landed') return true;
+  if (task.deliveryCommit) return true;
+  return task.status === 'review';
+}
+
+/**
+ * ITS WORK IS ON MAIN, and that is a fact about git, not about the card cycle.
+ *
+ * Narrower than `hasDeliveredWork` on purpose: sending a delivered card back to
+ * the agent is the normal way to ask for more, but sending back a LANDED one
+ * re-opens a cycle over content that is already merged — and the re-queue
+ * clears the very field that recorded the merge.
+ */
+export function isLandedWork(task: { landingState?: string | null }): boolean {
+  return task.landingState === 'landed';
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Deploy proposed at approve (board_settings.deployCommand) — analogue of
 // `landingState`, but for running a command instead of a git merge.

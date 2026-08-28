@@ -2,12 +2,23 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.2.195 — 2026-08-28
+## 2.2.197 — 2026-08-28
+
+### Novità
+- **windows** · Acrylic DWM backdrop on Windows
+
+### Sotto il cofano
+- `ipc` non e' gergo: e' un buco del dizionario del 1934
+- La guardia sondava la vita del gateway, non l'endpoint che serve
+
+## 2.2.195 — 2026-08-27
 
 ### Sotto il cofano
 - child_reaper esce da lib.rs, e un nome italiano dallo slug dei link
 - Tre test asserivano la FORMA del link, non il suo contratto
+- Rilettura dei 14 requisiti promossi: 11 reggono, 3 riscritti, 0 persi
 - I miei tre commenti erano in italiano, e i file hanno una baseline esatta
+- build:watch stays off, and public/ is a manual build
 
 ## 2.2.194 — 2026-08-27
 

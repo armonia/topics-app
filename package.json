@@ -1,6 +1,6 @@
 {
   "name": "topics-app",
-  "version": "2.2.195",
+  "version": "2.2.197",
   "description": "Desktop workspace for coding agents: editor, diff viewer, terminal, browser and a task board, one topic at a time. Agents run inside Topics, not one process each: 200 sessions answering at once fit in 162 MB.",
   "author": "Armonia",
   "license": "MIT",
