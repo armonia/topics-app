@@ -1095,6 +1095,31 @@ fn is_document_head(head: &[u8]) -> bool {
         .is_some_and(|l| l.contains("text/html"))
 }
 
+/// Minimal HTML escaping for the one untrusted-ish value the reconnect page prints:
+/// a filesystem path. It comes from the OS app-data dir, so it can hold a user name
+/// with any character in it; printing it raw would let a `<` break the document.
+fn html_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// Set at boot when the shell DELIBERATELY refused to spawn a sidecar because the
+/// `external-server-seen` marker says this machine owns a real server (see
+/// `decide_upstream_and_spawn`). Holds the marker's path, which is the one piece of
+/// information that turns the wait from a mystery into something a person can act
+/// on. Empty/unset means "ordinary outage": the wait is temporary and needs no
+/// explanation.
+static DEGRADED_MARKER_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
 /// The page the shell serves INSTEAD of a dead navigation. Two jobs, both of which
 /// the "nothing" we served before could not do: it PAINTS (opaque background, so
 /// the transparent window stops being invisible and the user sees a state instead
@@ -1102,16 +1127,61 @@ fn is_document_head(head: &[u8]) -> bool {
 /// back the real app returns with no human in the loop. `no-store` keeps WebKit
 /// from ever caching this in place of the app.
 fn reconnect_page_response() -> Vec<u8> {
-    let body = "<!doctype html><html><head><meta charset=\"utf-8\">\
+    reconnect_page_response_for(DEGRADED_MARKER_PATH.get().map(|s| s.as_str()))
+}
+
+/// Same page, with the boot verdict passed in so it can be built without a running
+/// shell (and asserted in tests).
+///
+/// `marker` is `Some(path)` ONLY in the degraded case: the marker file exists, so
+/// this machine is known to own a real server on :3333, nobody answered there, and
+/// the shell chose to keep waiting rather than fork an empty universe (the
+/// 2026-08-13 incident, documented in `decide_upstream_and_spawn`). That choice is
+/// right and it stays; what was wrong is that it was SILENT. A machine that had a
+/// server yesterday and has none today sat on "Reconnecting" forever, with no
+/// message naming the cause and no way out short of knowing about a file nobody
+/// ever mentions. So in that case the page NAMES both: why nothing is starting, and
+/// the file to remove to get a local server back. Measured on Windows on 2026-08-28
+/// (board card d1f702ab): app up, statistics empty, ~52 MB instead of ~113, and no
+/// text on screen but "Reconnecting".
+///
+/// The page still reloads itself, so the ordinary case (server coming back) still
+/// recovers with nobody in the loop.
+fn reconnect_page_response_for(marker: Option<&str>) -> Vec<u8> {
+    let explain = match marker {
+        Some(path) => format!(
+            "<div class=\"w\"><p>This machine has already run a Topics server on port \
+{DEFAULT_UPSTREAM_PORT}, so the app waits for that one instead of starting its own. \
+Nothing is answering there now.</p>\
+<p>To start a local server instead: quit Topics, delete this file, and open it again.</p>\
+<p class=\"f\">{}</p></div>",
+            html_escape(path)
+        ),
+        None => String::new(),
+    };
+    // A one-second self-reload is right when the outage is a restart (the app comes
+    // back before the user reads anything). With a message on screen it would blink
+    // the text away every second while it is being read, so the degraded page waits
+    // longer between reloads: there, the server is not expected back in a second.
+    let reload_ms = if marker.is_some() { 3000 } else { 1000 };
+    let body = format!(
+        "<!doctype html><html><head><meta charset=\"utf-8\">\
 <title>Topics</title>\
-<style>html,body{height:100%;margin:0;background:#1c1c1e;color:#98989d;\
-font:13px/1.5 -apple-system,system-ui,sans-serif;\
-display:flex;align-items:center;justify-content:center;-webkit-user-select:none}\
-.d{width:6px;height:6px;border-radius:50%;background:#98989d;margin-right:8px;\
-animation:p 1.2s ease-in-out infinite}\
-@keyframes p{0%,100%{opacity:.25}50%{opacity:1}}</style></head>\
-<body><div class=\"d\"></div>In attesa del server\u{2026}\
-<script>setTimeout(function(){location.reload()},1000)</script></body></html>";
+<style>html,body{{height:100%;margin:0;background:#1c1c1e;color:#98989d;\
+font:13px/1.5 -apple-system,system-ui,sans-serif;-webkit-user-select:none}}\
+body{{display:flex;flex-direction:column;align-items:center;justify-content:center;\
+padding:24px;box-sizing:border-box}}\
+.r{{display:flex;align-items:center}}\
+.d{{width:6px;height:6px;border-radius:50%;background:#98989d;margin-right:8px;\
+animation:p 1.2s ease-in-out infinite}}\
+.w{{max-width:520px;margin-top:18px;text-align:center;color:#8a8a8e}}\
+.w p{{margin:8px 0}}\
+.f{{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;\
+color:#c7c7cc;word-break:break-all;-webkit-user-select:text;user-select:text}}\
+@keyframes p{{0%,100%{{opacity:.25}}50%{{opacity:1}}}}</style></head>\
+<body><div class=\"r\"><div class=\"d\"></div>Waiting for the server\u{2026}</div>{explain}\
+<script>setTimeout(function(){{location.reload()}},{reload_ms})</script></body></html>"
+    );
     format!(
         "HTTP/1.1 503 Service Unavailable\r\n\
 Content-Type: text/html; charset=utf-8\r\n\
@@ -1421,6 +1491,51 @@ fn bundled_webrtc_bridge_bin() -> Option<std::path::PathBuf> {
     Some(bin)
 }
 
+/// What the boot probe concluded. Split out from the effects (writing the marker,
+/// setting `UPSTREAM`, spawning a process) so the RULE can be tested without a
+/// tauri app, a real server or 42 seconds of waiting.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub(crate) enum BootChoice {
+    /// An external server answered on :3333. Defer to it, never spawn a sidecar.
+    Defer { tls: bool },
+    /// Nobody answered, but the marker says this machine owns a real server. Keep
+    /// pointing at :3333 and wait: forking an empty universe here is worse.
+    WaitForKnownServer,
+    /// Nobody answered and nothing was ever here. Spawn the bundled sidecar.
+    SpawnSidecar,
+}
+
+/// The boot rule itself. `probe(tls)` answers "is a Topics server listening", `gap`
+/// is the pause between rounds (a parameter only so tests do not sleep).
+///
+/// A machine that has ALREADY had a real server here is never a virgin machine, so
+/// it waits far longer (60 rounds, ~42s) and, past that, gets NO sidecar. A slow
+/// server that answers on the fiftieth round is still deferred to, which is the
+/// whole point of the long wait: see the 2026-08-13 note in the caller.
+async fn decide_boot<P, F>(seen_before: bool, gap: std::time::Duration, mut probe: P) -> BootChoice
+where
+    P: FnMut(bool) -> F,
+    F: std::future::Future<Output = bool>,
+{
+    let attempts: u32 = if seen_before { 60 } else { 8 };
+    for attempt in 0..attempts {
+        if probe(true).await {
+            return BootChoice::Defer { tls: true };
+        }
+        if probe(false).await {
+            return BootChoice::Defer { tls: false };
+        }
+        if attempt + 1 < attempts {
+            tokio::time::sleep(gap).await;
+        }
+    }
+    if seen_before {
+        BootChoice::WaitForKnownServer
+    } else {
+        BootChoice::SpawnSidecar
+    }
+}
+
 /// Boot decision: if a Topics server already answers on :3333 (external launchd /
 /// dev — try TLS first, then plain), defer to it. Otherwise spawn the bundled
 /// sidecar on a free plain-HTTP port with an isolated data dir, wait until it's
@@ -1450,38 +1565,37 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
     // "no server here" from "server busy": only this marker can.
     let marker = external_server_marker(&app);
     let seen_before = marker.exists();
-    let attempts: u32 = if seen_before { 60 } else { 8 };
-    for attempt in 0..attempts {
-        if probe_topics_server(DEFAULT_UPSTREAM_PORT, true).await {
-            eprintln!("[sidecar] external TLS server on :{DEFAULT_UPSTREAM_PORT} — deferring, no sidecar");
+    let choice = decide_boot(seen_before, std::time::Duration::from_millis(700), |tls| {
+        probe_topics_server(DEFAULT_UPSTREAM_PORT, tls)
+    })
+    .await;
+    match choice {
+        BootChoice::Defer { tls } => {
+            let kind = if tls { "TLS" } else { "plain-HTTP" };
+            eprintln!("[sidecar] external {kind} server on :{DEFAULT_UPSTREAM_PORT} — deferring, no sidecar");
             let _ = std::fs::write(&marker, "1");
+            let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls });
+            return;
+        }
+        // Still nothing, but this machine is KNOWN to own a real server: point at
+        // it and wait for it to come back. Forking an empty standalone universe
+        // here would silently hide every real topic, which is strictly worse.
+        //
+        // Waiting is right; waiting MUTELY was not. Publish the marker's path so
+        // the reconnect page can say why nothing is starting and which file to
+        // remove to get a local server instead (`reconnect_page_response_for`):
+        // before this, the only symptom was an eternal "Reconnecting".
+        BootChoice::WaitForKnownServer => {
+            eprintln!(
+                "[sidecar] no answer on :{DEFAULT_UPSTREAM_PORT} after ~42s, but this machine has a real server \
+                 (marker {}) — NOT spawning a sidecar; degrading to \"connecting\"",
+                marker.display(),
+            );
+            let _ = DEGRADED_MARKER_PATH.set(marker.display().to_string());
             let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });
             return;
         }
-        if probe_topics_server(DEFAULT_UPSTREAM_PORT, false).await {
-            eprintln!("[sidecar] external plain-HTTP server on :{DEFAULT_UPSTREAM_PORT} — deferring, no sidecar");
-            let _ = std::fs::write(&marker, "1");
-            let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls: false });
-            return;
-        }
-        if attempt + 1 < attempts {
-            tokio::time::sleep(std::time::Duration::from_millis(700)).await;
-        }
-    }
-
-    // Still nothing, but this machine is KNOWN to own a real server: point at it
-    // and let the client show "connecting" until it comes back. Forking an empty
-    // standalone universe here would silently hide every real topic, which is
-    // strictly worse than waiting.
-    if seen_before {
-        eprintln!(
-            "[sidecar] no answer on :{DEFAULT_UPSTREAM_PORT} after {}s, but this machine has a real server \
-             (marker {}) — NOT spawning a sidecar; degrading to \"connecting\"",
-            (attempts as u64 * 700) / 1000,
-            marker.display(),
-        );
-        let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });
-        return;
+        BootChoice::SpawnSidecar => {}
     }
 
     // 2) Nothing external — spawn the bundled sidecar (plain HTTP, isolated data).
@@ -11563,8 +11677,9 @@ mod bundle_rev_tests {
 #[cfg(test)]
 mod window_recovery_tests {
     use super::{window_recompose::rect_intersects_any, 
-        connect_upstream_retrying, is_document_head, is_websocket_head,
-        reconnect_page_response, RELOAD_IF_BLANK_JS,
+        connect_upstream_retrying, decide_boot, is_document_head, is_websocket_head,
+        reconnect_page_response, reconnect_page_response_for, BootChoice,
+        RELOAD_IF_BLANK_JS,
     };
     use std::time::Duration;
 
@@ -11621,6 +11736,90 @@ Upgrade: websocket\r\nConnection: Upgrade\r\nAccept: */*\r\n\r\n";
             .unwrap();
         let body = r.split("\r\n\r\n").nth(1).unwrap();
         assert_eq!(len, body.len(), "Content-Length must match the body");
+    }
+
+    /// The degraded page must NAME the cause and the file. Without this the user got
+    /// an app that does nothing and says nothing, and the only way out was a file
+    /// nobody knows exists (board card d1f702ab, measured on Windows 2026-08-28).
+    #[test]
+    fn degraded_page_names_the_cause_and_the_marker_file() {
+        let path = "C:\\Users\\x\\AppData\\Roaming\\io.armonia.topics.tauri\\external-server-seen";
+        let r = String::from_utf8(reconnect_page_response_for(Some(path))).unwrap();
+        assert!(r.contains(path), "the page must print the marker's full path");
+        assert!(r.contains("3333"), "must say WHICH server it is waiting for");
+        assert!(r.contains("delete this file"), "must give the way out");
+        assert!(r.contains("location.reload()"), "must still recover by itself");
+        let len: usize = r
+            .split("Content-Length: ")
+            .nth(1)
+            .and_then(|s| s.split("\r\n").next())
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert_eq!(len, r.split("\r\n\r\n").nth(1).unwrap().len());
+    }
+
+    /// ...and the ORDINARY outage (a restart) stays a bare dot: naming a file there
+    /// would be noise about a wait that ends by itself in two seconds.
+    #[test]
+    fn ordinary_outage_page_explains_nothing() {
+        let r = String::from_utf8(reconnect_page_response_for(None)).unwrap();
+        assert!(!r.contains("external-server-seen"));
+        assert!(!r.contains("delete this file"));
+        assert!(r.contains("Waiting for the server"));
+    }
+
+    /// A path is not HTML: a user directory holding `<` must not be able to break
+    /// the document open.
+    #[test]
+    fn marker_path_is_escaped() {
+        let r = String::from_utf8(reconnect_page_response_for(Some("/tmp/<b>/seen"))).unwrap();
+        assert!(r.contains("/tmp/&lt;b&gt;/seen"));
+        assert!(!r.contains("/tmp/<b>/seen"));
+    }
+
+    /// THE 2026-08-13 REGRESSION GUARD. Marker present and the server SLOW but alive
+    /// (it answers only on the fiftieth round): the shell must keep waiting and defer
+    /// to it. Spawning a sidecar here is what once forked an empty universe and lost
+    /// the user every task, tab and even the version number.
+    #[test]
+    fn a_slow_but_live_server_is_waited_for_never_replaced() {
+        rt().block_on(async {
+            let mut rounds = 0u32;
+            let choice = decide_boot(true, Duration::ZERO, |tls| {
+                rounds += 1;
+                // TLS probe of round 50 onwards answers; nothing before that.
+                std::future::ready(tls && rounds >= 99)
+            })
+            .await;
+            assert_eq!(choice, BootChoice::Defer { tls: true });
+        });
+    }
+
+    /// Marker present and NOBODY answers: still no sidecar (the rule stands), but the
+    /// verdict is its own case, which is what lets the page explain itself.
+    #[test]
+    fn marker_without_any_server_waits_instead_of_forking() {
+        rt().block_on(async {
+            let choice =
+                decide_boot(true, Duration::ZERO, |_| std::future::ready(false)).await;
+            assert_eq!(choice, BootChoice::WaitForKnownServer);
+        });
+    }
+
+    /// A virgin machine gets its sidecar, after a short wait and not a 42s one.
+    #[test]
+    fn virgin_machine_spawns_the_sidecar() {
+        rt().block_on(async {
+            let mut rounds = 0u32;
+            let choice = decide_boot(false, Duration::ZERO, |_| {
+                rounds += 1;
+                std::future::ready(false)
+            })
+            .await;
+            assert_eq!(choice, BootChoice::SpawnSidecar);
+            assert_eq!(rounds, 16, "8 rounds, two probes each (TLS then plain)");
+        });
     }
 
     /// The nudge must be a no-op on a LIVE app (a forced reload would throw away a

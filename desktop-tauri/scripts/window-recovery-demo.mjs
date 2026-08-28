@@ -37,7 +37,7 @@ await page.waitForTimeout(3500);
 // this is the move that used to kill the window for good.
 await page.goto(url, { waitUntil: 'domcontentloaded' }).catch(() => {});
 const down = await shot('server giu');
-if (!down.includes('In attesa del server')) {
+if (!down.includes('Waiting for the server')) {
   throw new Error(`expected the reconnect page, got: ${down.slice(0, 80)}`);
 }
 await page.waitForTimeout(1200);

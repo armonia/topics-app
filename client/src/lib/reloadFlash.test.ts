@@ -171,7 +171,7 @@ describe("reloadFlash", () => {
       // due volte: il `try` e il `catch` — se non riusciamo nemmeno a guardare
       // il DOM, quel documento non è in uno stato che valga la pena tenere.
       RELOAD_IF_BLANK_JS: { kind: "self-limiting", count: 2 },
-      reconnect_page_response: { kind: "self-limiting", count: 1 },
+      reconnect_page_response_for: { kind: "self-limiting", count: 1 },
     };
 
     const sites = RUST_SOURCES.flatMap(({ file, source }) => findReloadSites(file, source));
