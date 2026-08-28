@@ -409,7 +409,9 @@ function stripMessageCacheMarks(messages: AgentMessage[]): void {
  * share written with a one-hour TTL, which costs 2x a fresh token instead of
  * 1.25x. Adding them would bill that share twice.
  */
-function toProviderUsage(total: RoundResult["usage"]): ProviderUsage {
+export function toProviderUsage(
+  total: RoundResult["usage"],
+): Required<Pick<ProviderUsage, "inputTokens" | "outputTokens" | "cacheRead" | "cacheCreation" | "cacheCreation1h">> {
   return {
     inputTokens: total.input,
     outputTokens: total.output,
