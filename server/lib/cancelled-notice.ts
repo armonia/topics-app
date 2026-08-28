@@ -206,4 +206,10 @@ const CARTELLI_RIPRENDIBILI = [
   "Turno interrotto: ha superato il limite di tempo",
   // From 2026-08-21: the cap counts silence, so the sentence had to say so.
   "Turno interrotto: era fermo da troppo",
+  // The BOOT wording, and it is a different sentence for the same fact: this
+  // one is written by `boot-partial-sweep.ts` when the server comes back and
+  // finds a turn that died with it. It was missing here, so the notice the
+  // boot wrote was the one notice the resume could not act on - which is the
+  // exact case the resume exists for.
+  "Turno interrotto da un riavvio del server",
 ] as const;

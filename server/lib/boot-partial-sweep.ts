@@ -145,9 +145,20 @@ export function insertRestartNotification(
     "SELECT id FROM messages WHERE session_key = ? ORDER BY sort_order DESC, rowid DESC LIMIT 1"
   ).get(sessionKey) as { id: string } | null;
 
+  // AND THE VERDICT TRAVELS IN THE BLOCKS, not only in the text.
+  //
+  // The boot resume (`ripresa-boot.ts`) decides from the BLOCKS of the last
+  // message: no blocks, no decision - it has a test called exactly that. This
+  // row was born with the sentence in `content` alone, so the mechanism built
+  // to resume the turns the boot itself killed could never see the notice the
+  // boot itself had written. Both halves had tests, each with its own fake row;
+  // nobody asked whether the notice actually written was one the rule accepts.
+  // Read in the chat on 2026-08-28: "now it gives me turn interrupted by a
+  // restart", and no resume. The mechanism was on, and could not fire.
+  const verdict = JSON.stringify([{ kind: "error", text: RESTART_INTERRUPTED_MARKER }]);
   db.run(
-    `INSERT INTO messages (id, session_key, role, content, partial, timestamp, sort_order, parent_id, branch_index)
-     VALUES (?, ?, 'assistant', ?, 0, ?, ?, ?, 0)`,
-    [generateId(), sessionKey, RESTART_INTERRUPTED_MARKER, now(), nextOrder, ultimo?.id ?? null]
+    `INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order, parent_id, branch_index)
+     VALUES (?, ?, 'assistant', ?, ?, 0, ?, ?, ?, 0)`,
+    [generateId(), sessionKey, RESTART_INTERRUPTED_MARKER, verdict, now(), nextOrder, ultimo?.id ?? null]
   );
 }

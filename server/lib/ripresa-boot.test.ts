@@ -9,6 +9,9 @@
  */
 import { describe, expect, test } from "bun:test";
 import { chatDaRiprendere, FINESTRA_RIPRESA_MS, type RigaDaValutare } from "./ripresa-boot";
+import { Database } from "bun:sqlite";
+import { insertRestartNotification } from "./boot-partial-sweep";
+import { decodeCol } from "../../shared/message-blob";
 import type { ContentBlock } from "../types";
 
 const ORA = Date.UTC(2026, 7, 20, 21, 0, 0);
@@ -106,5 +109,60 @@ describe("i guasti che NON sono un'interruzione", () => {
    */
   test("il cartello generico non basta", () => {
     expect(chatDaRiprendere(withError("Turno interrotto prima della fine."), ORA)).toBe(false);
+  });
+});
+
+
+/**
+ * THE SEAM, which is the part nobody tested.
+ *
+ * Both halves had a test, each with its own fake row: on one side "the boot
+ * writes the notice", on the other "a notice shaped like this deserves the
+ * resume". In between nobody asked whether the notice the boot ACTUALLY writes
+ * is one of those. It was not, for two independent reasons: the row was born
+ * with no blocks (and the rule bails immediately - it has a test called "no
+ * blocks, no decision"), and the two sentences did not match either. The one it
+ * wrote and the one the list recognised are quoted in the assertion below, and
+ * they are the subject here, not prose:
+ *   written:    "Turno interrotto DA un riavvio del server"  allow-italian: it is the notice text itself
+ *   recognised: "Turno interrotto: il server si e' riavviato"  allow-italian: it is the notice text itself
+ *
+ * The cost, read in the chat on 2026-08-28: "now it gives me turn interrupted
+ * by a restart", and no resume. The mechanism existed, was switched on, and
+ * could not fire.
+ */
+describe("the notice the boot ACTUALLY writes is resumed", () => {
+  function noticeWrittenByBoot(): { blocks: unknown; timestampMs: number } {
+    const db = new Database(":memory:");
+    db.run(`CREATE TABLE messages (
+      id TEXT PRIMARY KEY, session_key TEXT, role TEXT, content TEXT, blocks TEXT,
+      partial INTEGER, timestamp TEXT, sort_order INTEGER, parent_id TEXT, branch_index INTEGER
+    )`);
+    db.run(
+      "INSERT INTO messages (id, session_key, role, content, partial, timestamp, sort_order, branch_index) VALUES ('m1','topic:x','user','ciao',0,'2026-08-28T20:00:00.000Z',0,0)",
+    );
+    insertRestartNotification(
+      db as unknown as Parameters<typeof insertRestartNotification>[0],
+      "topic:x",
+      { generateId: () => "avviso", now: () => "2026-08-28T20:01:00.000Z" },
+    );
+    const row = db.query("SELECT blocks, timestamp FROM messages WHERE id = 'avviso'").get() as
+      { blocks?: unknown; timestamp: string };
+    const raw = decodeCol(row.blocks);
+    return {
+      blocks: raw ? JSON.parse(raw) : null,
+      timestampMs: Date.parse(row.timestamp),
+    };
+  }
+
+  test("it carries the verdict, and the resume recognises it", () => {
+    const { blocks, timestampMs } = noticeWrittenByBoot();
+    const row: RigaDaValutare = {
+      sessionKey: "topic:x",
+      ruolo: "assistant",
+      blocks: blocks as ContentBlock[] | null,
+      timestampMs,
+    };
+    expect(chatDaRiprendere(row, timestampMs + 60_000)).toBe(true);
   });
 });

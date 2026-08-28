@@ -36,6 +36,10 @@ const DDL = `
     session_key TEXT NOT NULL,
     role TEXT NOT NULL,
     content TEXT NOT NULL DEFAULT '',
+    -- The real schema has it, and the notice carries its verdict here: without
+    -- this column the fixture could not see that the row was born blockless,
+    -- which is how the resume stayed dead with both halves green.
+    blocks TEXT,
     partial INTEGER DEFAULT 0,
     streamed_at TEXT,
     timestamp TEXT NOT NULL,

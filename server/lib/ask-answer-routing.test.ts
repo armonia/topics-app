@@ -50,9 +50,9 @@ describe("rowsCarryAsk", () => {
   });
 
   test("una domanda di un ALTRO turno non risponde per questa", () => {
-    const altrui: AskHaystackRow = {
+    const otherAsk: AskHaystackRow = {
       tool_calls: JSON.stringify([{ id: "toolu_altro", name: "ask_user_question" }]),
     };
-    expect(rowsCarryAsk([altrui], ID, decode)).toBe(false);
+    expect(rowsCarryAsk([otherAsk], ID, decode)).toBe(false);
   });
 });
