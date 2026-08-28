@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.208 — 2026-08-28
+
+### Sotto il cofano
+- Un turno tagliato veniva riportato come riuscito, e uno piantato prorogato per sempre
+- I commenti dei due file nuovi in inglese: il cancello non li vedeva finche' erano fuori da git
+
 ## 2.2.207 — 2026-08-28
 
 ### Sotto il cofano

@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.208",
+    "date": "2026-08-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un turno tagliato veniva riportato come riuscito, e uno piantato prorogato per sempre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I commenti dei due file nuovi in inglese: il cancello non li vedeva finche' erano fuori da git",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.207",
     "date": "2026-08-28",
     "sections": {
