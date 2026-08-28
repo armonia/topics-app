@@ -46,6 +46,7 @@ mod windows_repaint;
 /// and compiled on EVERY platform (no `#[cfg]` body), so a `cargo check` on any
 /// OS still catches a break in the one code path only Windows can reproduce.
 mod boot_choice;
+mod boot_degraded;
 mod reconnect_page;
 use boot_choice::{decide_boot, BootChoice};
 use reconnect_page::{reconnect_page_response, DEGRADED_MARKER_PATH};
@@ -10928,7 +10929,10 @@ pub fn run() {
             window_close_self,
             window_control,
             window_is_maximized,
-            os_open::take_os_open_paths
+            os_open::take_os_open_paths,
+            // The boot verdict, for the SPA's own offline state: the reconnect page
+            // says it too, but only a document navigation ever reaches that page.
+            boot_degraded::boot_degraded
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
