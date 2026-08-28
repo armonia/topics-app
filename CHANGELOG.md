@@ -2,7 +2,15 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.2.215 — 2026-08-29
+## 2.2.216 — 2026-08-29
+
+### Sotto il cofano
+- Il conteggio aveva due porte, e il runtime nativo ne apriva una sola
+- Il tetto di App.tsx era risalito a 2465 arrivando da un ramo vecchio
+- L'updater guardava una volta sola, e su Windows quattro release sono passate inosservate
+- Un test che salta sempre non e' un test: LABELGUTTER-02 non e' mai stato eseguito
+
+## 2.2.215 — 2026-08-28
 
 ### Sotto il cofano
 - Il contrasto delle tab si misura sui pixel, non sui colori dichiarati
@@ -11,6 +19,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.2.214 — 2026-08-28
 
 ### Sotto il cofano
+- Lo split dentro un progetto prometteva un gesto che poi ingoiava
+- Il nome di una riga della sidebar partiva 60px dal bordo, e 46 erano dentro la scheda
 - Il consumo di token non compariva: il ciclo li contava e li buttava
 
 ## 2.2.213 — 2026-08-28
