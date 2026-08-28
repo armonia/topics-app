@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.200 — 2026-08-28
+
+### Sotto il cofano
+- Il guscio dice perche' non parte un server, invece di tacere
+- La pagina di attesa e la decisione di boot escono da lib.rs
+
 ## 2.2.198 — 2026-08-28
 
 ### Sotto il cofano

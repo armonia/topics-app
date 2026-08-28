@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.200",
+    "date": "2026-08-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il guscio dice perche' non parte un server, invece di tacere",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La pagina di attesa e la decisione di boot escono da lib.rs",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.198",
     "date": "2026-08-28",
     "sections": {
