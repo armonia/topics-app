@@ -1510,6 +1510,8 @@ const EN = {
   'statusBar.agents.toLookAt': '· {n} to look at (turn finished or paused)',
   'statusBar.presenceTitle': 'The same summary Topics publishes on the Discord presence. Open sessions, how many are working now, board tasks running.',
   'statusBar.wsTitle': 'Realtime connection status to the Topics server',
+  'statusBar.degraded.why': 'Nothing is answering on port {port}. This machine has already run a Topics server, so the app waits for that one instead of starting its own.',
+  'statusBar.degraded.wayOut': 'To get a local server: quit Topics, delete this file, open it again.',
   'statusBar.versionTitle': 'Version info and updates',
   'statusBar.devBuildTitle': 'Development build (Vite dev server / hot reload). In production this badge disappears.',
   'statusBar.lastCodeUpdateAgo': ' Last code update: {t} ago.',
