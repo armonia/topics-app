@@ -23,7 +23,7 @@
  * quando il turno costa un processo intero, e qui costa un array.
  */
 
-import { runAgentTurn, type AgentMessage } from "./agent-loop";
+import { runAgentTurn, toProviderUsage, type AgentMessage } from "./agent-loop";
 import { recordTurnUsage } from "../native-usage-registry";
 import { CODING_TOOLS } from "./tools";
 import { pruneDanglingToolUses } from "./history-repair";
@@ -447,9 +447,10 @@ export class NativeProvider implements AIProvider {
         ...(topics ? topicsToolSpecs(topics.profile) : []),
         ...(fleetAllowed ? mcpToolSpecs() : []),
       ];
+      const turnModel = session.model ?? this.config.model ?? DEFAULT_MODEL;
       const out = await runAgentTurn(
         {
-          model: session.model ?? this.config.model ?? DEFAULT_MODEL,
+          model: turnModel,
           system: workspace
             ? options?.systemPrompt
             : [options?.systemPrompt, NO_WORKSPACE_NOTE].filter(Boolean).join("\n\n"),
@@ -474,7 +475,29 @@ export class NativeProvider implements AIProvider {
           // «non scorrevano più». Un giro alla volta il numero cresce mentre il
           // lavoro succede, ed è anche l'unico modo di contare un turno che
           // finisce annullato o in errore, dove il totale non torna a nessuno.
-          onRoundUsage: (u) => recordTurnUsage(sessionKey, u),
+          // TWO listeners, because the tally has two destinations and only one
+          // of them was ever wired.
+          //
+          // `recordTurnUsage` feeds the in-memory registry the dispatcher polls
+          // for the card's live chip. `handler.onCallUsage` is the OTHER door:
+          // the chat route accumulates it, writes it onto the message row and
+          // broadcasts it to the client, which is what makes a turn's token
+          // count visible in the chat and survive a reload.
+          //
+          // The native runtime never called the second one - `grep -c
+          // onCallUsage server/providers/native/` was 0, while claude-code
+          // calls it - so every row written since sessions moved to this
+          // runtime carries a NULL. Measured on the live DB on 2026-08-29: 0 of
+          // 147 assistant rows in 24h had a token count, and the last one that
+          // did was from 2026-08-24.
+          //
+          // No double count: this door ACCUMULATES per round, while `onDone`
+          // hands over the turn total and the route ASSIGNS it at finalize.
+          onRoundUsage: (u) => {
+            recordTurnUsage(sessionKey, u);
+            try { handler.onCallUsage?.({ ...toProviderUsage(u), model: turnModel }); }
+            catch { /* the measurement never stops the work */ }
+          },
         },
         handler,
       );

@@ -80,6 +80,7 @@ interface Ledger {
   done: number;
   errors: string[];
   asks: Array<{ toolCallId: string; toolName: string; kind: string }>;
+  doneMsgs: Array<Record<string, unknown>>;
 }
 
 function handler(reg: Ledger): StreamHandler {
@@ -90,7 +91,7 @@ function handler(reg: Ledger): StreamHandler {
       reg.asks.push({ toolCallId, toolName, kind: (schema as { kind: string }).kind });
     },
     onToolResult: () => {},
-    onDone: () => { reg.done++; },
+    onDone: (m) => { reg.done++; reg.doneMsgs.push((m ?? {}) as Record<string, unknown>); },
     onError: (e: string) => { reg.errors.push(e); },
   };
 }
@@ -104,7 +105,7 @@ async function turn(...bodies: string[]) {
     const body = bodies[Math.min(n++, bodies.length - 1)]!;
     return new Response(body, { status: 200 });
   }) as unknown as typeof fetch;
-  const reg: Ledger = { done: 0, errors: [], asks: [] };
+  const reg: Ledger = { done: 0, errors: [], asks: [], doneMsgs: [] };
   const history: AgentMessage[] = [{ role: "user", content: "scrivi un file" }];
   const out = await runAgentTurn(
     { model: "claude-haiku-4-5-20251001", history, toolContext: { workspace: ws }, autonomy: "auto-apply" },
@@ -164,6 +165,31 @@ describe("il giro che muore a meta' non e' una fine naturale", () => {
   test("un turn che non produce nemmeno una parola, ma si chiude, resta end_turn", async () => {
     const { out } = await turn(muteRound);
     expect(out.turnEnd.end).toBe("end_turn");
+  });
+
+  /**
+   * THE FOOTER OF A MESSAGE SHOWS TOKENS, AND SOMEBODY HAS TO HAND THEM OVER.
+   *
+   * `MessageBubble` opens the footer on `usagePromptTokens > 0`, and that value
+   * reaches it from the row the route writes, which the route fills from the
+   * usage a provider reports when the turn ends. The native loop counted every
+   * round (`total`) and then called `onDone` WITHOUT it: the numbers existed and
+   * died in the function. Measured on the live database: 0 assistant rows out of
+   * 755 carry usage for this runtime, against 103 of 104 for the CLI one.
+   *
+   * `ProviderDoneMessage.usage` was already there. The thread had every link but
+   * this one.
+   */
+  describe("l'uso del turno arriva a chi lo deve mostrare", () => {
+    test("onDone porta i token contati dal ciclo", async () => {
+      const { reg } = await turn(healthyRound);
+      expect(reg.doneMsgs.length).toBe(1);
+      const usage = reg.doneMsgs[0]!.usage as Record<string, number> | undefined;
+      expect(usage).toBeDefined();
+      // The fake round declares 10 in and 6 out (see `healthyRound`).
+      expect(usage!.inputTokens).toBeGreaterThan(0);
+      expect(usage!.outputTokens).toBeGreaterThan(0);
+    });
   });
 
   describe("una domanda all'umano si vede a schermo", () => {

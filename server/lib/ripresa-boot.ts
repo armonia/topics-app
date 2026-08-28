@@ -171,6 +171,9 @@ export async function riprendiTurniInterrotti(ctx: CtxRipresa, router: RouterCha
       console.warn(`[ripresa] ${c.sessionKey}: non riesco a segnare il turno, lo salto:`, err);
       continue;
     }
+    // The instant before the resend, so afterwards we can tell whether
+    // anything was born of it.
+    const beforeResend = new Date().toISOString();
     try {
       const url = new URL("http://localhost/api/chat");
       const body = JSON.stringify({
@@ -182,12 +185,40 @@ export async function riprendiTurniInterrotti(ctx: CtxRipresa, router: RouterCha
         new Request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body }),
         url, "/api/chat", "POST",
       );
+      // THE STATUS GETS READ, or "resumed" is a word and not a fact.
+      //
+      // Before, the body was drained and success declared whatever came back: a
+      // 400 and a working turn left the identical log line. On 2026-08-29, on
+      // topic:0299ac2d, the resume wrote its trace, said "turno ripreso" and
+      // NOTHING appeared in the chat - zero rows after that boot, while four
+      // other sessions were writing normally. The cause cannot be reconstructed
+      // afterwards, because the one piece of evidence that would settle it -
+      // what the route answered - was read by nobody.
+      if (!resp || !resp.ok) {
+        console.warn(
+          `[ripresa] ${c.sessionKey}: la route ha rifiutato il rimando (HTTP ${resp?.status ?? "nessuna risposta"}), il turno NON è ripreso`,
+        );
+        continue;
+      }
       // Lo stream si consuma fino in fondo: la route finalizza la riga quando
       // il turno finisce, non quando parte.
-      if (resp?.body) {
+      if (resp.body) {
         const reader = resp.body.getReader();
         try { while (true) { const { done } = await reader.read(); if (done) break; } }
         finally { try { reader.releaseLock(); } catch { /* già rilasciato */ } }
+      }
+      // AND A 200 IS NOT ENOUGH EITHER. The route can answer and then end the
+      // turn without depositing a row, which is exactly the measured case. So
+      // the session is asked whether it gained a message, and the answer is
+      // said out loud when it did not.
+      const gained = ctx.db.prepare(
+        `SELECT COUNT(*) AS n FROM messages WHERE session_key = ? AND timestamp > ?`,
+      ).get(c.sessionKey, beforeResend) as { n: number } | undefined;
+      if (!gained?.n) {
+        console.warn(
+          `[ripresa] ${c.sessionKey}: la route ha risposto ${resp.status} ma la sessione non ha guadagnato nessun messaggio: il turno NON è ripreso`,
+        );
+        continue;
       }
       console.log(`[ripresa] ${c.sessionKey}: turno ripreso`);
     } catch (err) {
