@@ -1433,7 +1433,7 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
     // SAY IT NOW, NOT IN FIVE MINUTES. Everything the explanation needs is already
     // true here: the marker exists, so the shell is about to wait for :3333 instead
     // of starting its own server. The loop below only decides whether to SPAWN, and
-    // on Windows reaching that decision measured between ~2 and over 5 minutes
+    // on Windows reaching that decision measured 141s and 142s on two runs
     // (2026-08-28) — the whole of which the window spent showing a bare red dot.
     // Retracted below the moment an answer arrives, so a machine whose server is
     // simply slow never keeps the sentence.

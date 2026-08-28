@@ -638,7 +638,7 @@
     "client/src/state/draftPane.ts": 33,
     "client/src/state/featureWeightCounts.test.ts": 40,
     "client/src/state/globalDispatchCap.test.ts": 33,
-    "client/src/state/globalDispatchCap.ts": 50,
+    "client/src/state/globalDispatchCap.ts": 47,
     "client/src/state/inAppBanner.test.ts": 4,
     "client/src/state/inAppBanner.ts": 23,
     "client/src/state/messageResidency.test.ts": 13,

@@ -2018,9 +2018,10 @@ nuovo — quindi il caso peggiore di un click sbagliato è un rilancio che avvia
 server locale.
 
 La spiegazione SHALL comparire mentre l'attesa e' in corso, non alla sua fine.
-Misurato il 28/08/2026 su Windows: il giro di sonde impiega fra ~2 minuti e piu'
-di 5 a concludere, non i «~42s» che il messaggio calcola, e per tutto quel tempo
-a schermo c'era solo il pallino rosso. Nulla nella frase dipende pero' dal
+Misurato due volte il 28/08/2026 su Windows, col cronometro avviato dentro la
+sessione utente: il giro di sonde impiega 141 e 142 secondi a concludere, non i
+«~42s» che il messaggio calcola assumendo rifiuti istantanei, e per tutto quel
+tempo a schermo c'era solo il pallino rosso. Nulla nella frase dipende pero' dal
 verdetto: il marcatore esiste gia' all'avvio, e «questa macchina ha un marcatore
 e sto aspettando la porta» e' vero dal primo tentativo fallito. Il verdetto
 decide se AVVIARE un server, non se la frase e' vera.

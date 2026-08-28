@@ -19,10 +19,11 @@ use crate::DEFAULT_UPSTREAM_PORT;
 /// command.
 ///
 /// IT IS SET BEFORE THE PROBE LOOP, NOT AFTER IT, AND THAT IS THE POINT.
-/// Measured on the Windows machine on 2026-08-28: the loop is 60 rounds of two
-/// connections with a gap, and reaching its verdict took between ~2 and MORE THAN
-/// 5 minutes there — not the "~42s" the message computes. For all that time the
-/// only thing on screen was a red `Offline` dot. But nothing in the explanation
+/// Measured twice on the Windows machine on 2026-08-28, with the stopwatch started
+/// inside the user session: the loop is 60 rounds of two connections with a gap,
+/// and reaching its verdict took 141s and 142s — not the "~42s" the message
+/// computes, which assumes every refusal is instant. For all that time the only
+/// thing on screen was a red `Offline` dot. But nothing in the explanation
 /// needs the verdict: `seen_before` is known at t=0, and "this machine has a
 /// marker and I am waiting for :3333" is true from the first failed probe. The
 /// verdict decides whether to SPAWN; it was never what made the sentence true.
