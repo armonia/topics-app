@@ -9,7 +9,12 @@
           "scope": "windows"
         }
       ],
-      "fixes": [],
+      "fixes": [
+        {
+          "text": "a landed parent stays in review when its last step closes",
+          "scope": "board"
+        }
+      ],
       "perf": []
     }
   },
