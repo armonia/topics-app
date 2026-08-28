@@ -18,7 +18,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import type { AppContext, ContentBlock, RouteHandler, ToolCall, Topic } from "../types";
-import { getProvider, type AIProvider, type ChatMessage, type StreamHandler } from "../providers";
+import { getProvider, type AIProvider, type ChatMessage, type ProviderDoneMessage, type ProviderUsage, type StreamHandler } from "../providers";
 import { deriveToolDetail } from "../providers/claude/tool-detail";
 import { cartelloRisveglio } from "../providers/claude/woken-turn";
 import { classifyShellToolResult } from "../providers/claude/background-shell";
@@ -2697,13 +2697,17 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
              * Reading it twice is not a risk: the fields are assigned, not
              * accumulated, and only one of `onDone` / `onAborted` ever fires.
              */
-            function captureProviderUsage(message: any): void {
+            function captureProviderUsage(message: ProviderDoneMessage | undefined): void {
               if (!message) return;
               // Capture provider-reported usage so the message footer can
               // render. Different providers shape this slightly differently:
               // claude-code → `{ input_tokens, output_tokens, ... }`,
               // codex → `{ inputTokens, outputTokens, totalTokens }`.
-              const usage = message.usage;
+              // Providers disagree on the spelling of the same count, so the
+              // known shape is widened with the legacy aliases actually read
+              // below (`input_tokens`, `prompt_tokens`, ...). They come back as
+              // `unknown` and every use is guarded by a `typeof` check.
+              const usage = message.usage as (ProviderUsage & Record<string, unknown>) | undefined;
               if (usage && typeof usage === "object") {
                 const inTok = usage.input_tokens ?? usage.inputTokens ?? usage.prompt_tokens;
                 const outTok = usage.output_tokens ?? usage.outputTokens ?? usage.completion_tokens;
@@ -2779,7 +2783,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // per chiamata di quella sessione fa 32.195 token di risposta,
                 // e la somma dei `usage_completion_tokens` finalizzati nel DB
                 // fa 32.195: combacia al token.
-                const modelOfTurn = message.model || liveModel || overrideModel || undefined;
+                // `message.model` rides the open shape, so it arrives untyped:
+                // it counts only when it is a non-empty string.
+                const reportedModel = typeof message.model === "string" ? message.model : undefined;
+                const modelOfTurn = reportedModel || liveModel || overrideModel || undefined;
                 if (typeof modelOfTurn === "string" && modelOfTurn) usageModel = modelOfTurn;
                 // ── IL COSTO DELLA CLI: TROVATO, E LASCIATO DOV'È ─────────
                 // `usage.costUsd` non esiste per claude-code: il provider
