@@ -2,10 +2,19 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.198 — 2026-08-28
+
+### Sotto il cofano
+- La misura e' del 28, non del 18
+- KANBAN-66: il test provava una regola che le spec non avevano
+
 ## 2.2.197 — 2026-08-28
 
 ### Novità
 - **windows** · Acrylic DWM backdrop on Windows
+
+### Correzioni
+- **board** · a landed parent stays in review when its last step closes
 
 ### Sotto il cofano
 - `ipc` non e' gergo: e' un buco del dizionario del 1934

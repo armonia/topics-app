@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.198",
+    "date": "2026-08-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La misura e' del 28, non del 18",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "KANBAN-66: il test provava una regola che le spec non avevano",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.197",
     "date": "2026-08-28",
     "sections": {
@@ -11,7 +32,14 @@
           "breaking": false
         }
       ],
-      "fixes": [],
+      "fixes": [
+        {
+          "it": "a landed parent stays in review when its last step closes",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
