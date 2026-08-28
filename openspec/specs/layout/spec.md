@@ -2017,6 +2017,25 @@ per costruzione — il marcatore viene riscritto appena un server vero risponde 
 nuovo — quindi il caso peggiore di un click sbagliato è un rilancio che avvia un
 server locale.
 
+La spiegazione SHALL comparire mentre l'attesa e' in corso, non alla sua fine.
+Misurato il 28/08/2026 su Windows: il giro di sonde impiega fra ~2 minuti e piu'
+di 5 a concludere, non i «~42s» che il messaggio calcola, e per tutto quel tempo
+a schermo c'era solo il pallino rosso. Nulla nella frase dipende pero' dal
+verdetto: il marcatore esiste gia' all'avvio, e «questa macchina ha un marcatore
+e sto aspettando la porta» e' vero dal primo tentativo fallito. Il verdetto
+decide se AVVIARE un server, non se la frase e' vera.
+
+Di conseguenza il fatto SHALL essere RITRATTABILE: se il server risponde a un
+giro qualunque, il guscio lo ritira, cosi' una disconnessione ordinaria piu'
+tardi non mostra una frase che offre di eliminare un marcatore che sta facendo il
+suo lavoro.
+
+#### Scenario: la macchina possiede un server lento
+- **GIVEN** il marcatore presente e la spiegazione gia' pubblicata durante l'attesa
+- **WHEN** il server risponde prima della fine del giro di sonde
+- **THEN** il guscio SHALL ritirare la spiegazione, e una disconnessione
+  successiva SHALL mostrare solo lo stato
+
 #### Scenario: la via d'uscita si percorre da lì
 - **GIVEN** la fascia mostra l'avviso perché questo avvio è quello degradato
 - **WHEN** si usa il comando offerto dall'avviso

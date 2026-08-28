@@ -18,7 +18,7 @@
 //! `reconnect_page.rs` next door: no body hidden behind a `#[cfg]`, so a
 //! `cargo check` on a Mac still covers the one path only Windows reproduces.
 
-use crate::reconnect_page::DEGRADED_MARKER_PATH;
+use crate::reconnect_page::{degraded_marker, set_degraded_marker};
 use crate::DEFAULT_UPSTREAM_PORT;
 
 /// The payload, built from the boot verdict passed in so it can be asserted without
@@ -44,7 +44,7 @@ pub(crate) fn degraded_payload(marker: Option<&str>) -> serde_json::Value {
 /// it once.
 #[tauri::command]
 pub(crate) fn boot_degraded() -> serde_json::Value {
-    degraded_payload(DEGRADED_MARKER_PATH.get().map(|s| s.as_str()))
+    degraded_payload(degraded_marker().as_deref())
 }
 
 /// What `clear_marker` decided, so the command stays a three-line wrapper and the
@@ -94,10 +94,14 @@ pub(crate) fn clear_marker(marker: Option<&str>) -> ClearVerdict {
 /// anything — the slot it would kill is empty by construction.
 #[tauri::command]
 pub(crate) fn boot_degraded_clear(app: tauri::AppHandle) -> serde_json::Value {
-    match clear_marker(DEGRADED_MARKER_PATH.get().map(|s| s.as_str())) {
+    match clear_marker(degraded_marker().as_deref()) {
         ClearVerdict::NotDegraded => serde_json::json!({ "cleared": false, "reason": "not degraded" }),
         ClearVerdict::Failed(e) => serde_json::json!({ "cleared": false, "reason": e }),
-        ClearVerdict::Restart => app.restart(),
+        ClearVerdict::Restart => {
+            // Nothing left to explain if the relaunch somehow does not happen.
+            set_degraded_marker(None);
+            app.restart()
+        }
     }
 }
 

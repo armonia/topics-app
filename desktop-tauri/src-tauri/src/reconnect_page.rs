@@ -10,13 +10,40 @@
 
 use crate::DEFAULT_UPSTREAM_PORT;
 
-/// Set at boot when the shell DELIBERATELY refused to spawn a sidecar because the
+/// Set while the shell is DELIBERATELY not spawning a sidecar because the
 /// `external-server-seen` marker says this machine owns a real server (see
 /// `decide_upstream_and_spawn`). Holds the marker's path, which is the one piece of
 /// information that turns the wait from a mystery into something a person can act
-/// on. Unset means "ordinary outage": the wait is temporary and needs no
-/// explanation. One single door, written once at boot and read by the page.
-pub(crate) static DEGRADED_MARKER_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+/// on. `None` means "ordinary outage": the wait is temporary and needs no
+/// explanation. One single door, read by the page and by the `boot_degraded`
+/// command.
+///
+/// IT IS SET BEFORE THE PROBE LOOP, NOT AFTER IT, AND THAT IS THE POINT.
+/// Measured on the Windows machine on 2026-08-28: the loop is 60 rounds of two
+/// connections with a gap, and reaching its verdict took between ~2 and MORE THAN
+/// 5 minutes there — not the "~42s" the message computes. For all that time the
+/// only thing on screen was a red `Offline` dot. But nothing in the explanation
+/// needs the verdict: `seen_before` is known at t=0, and "this machine has a
+/// marker and I am waiting for :3333" is true from the first failed probe. The
+/// verdict decides whether to SPAWN; it was never what made the sentence true.
+///
+/// Which is why this is a lock and not a `OnceLock`: published early, it must be
+/// retractable. If the server answers on round 20 the shell defers and clears it,
+/// so a later ordinary disconnection cannot show a sentence about a marker that is
+/// doing its job — the exact harm the sentence is gated against.
+static DEGRADED_MARKER: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
+
+/// The marker path to explain right now, if any.
+pub(crate) fn degraded_marker() -> Option<String> {
+    DEGRADED_MARKER.read().ok().and_then(|g| g.clone())
+}
+
+/// Publish (`Some`) or retract (`None`) the explanation.
+pub(crate) fn set_degraded_marker(path: Option<String>) {
+    if let Ok(mut g) = DEGRADED_MARKER.write() {
+        *g = path;
+    }
+}
 
 /// Minimal HTML escaping for the one untrusted-ish value the reconnect page prints:
 /// a filesystem path. It comes from the OS app-data dir, so it can hold a user name
@@ -42,7 +69,7 @@ fn html_escape(s: &str) -> String {
 /// back the real app returns with no human in the loop. `no-store` keeps WebKit
 /// from ever caching this in place of the app.
 pub(crate) fn reconnect_page_response() -> Vec<u8> {
-    reconnect_page_response_for(DEGRADED_MARKER_PATH.get().map(|s| s.as_str()))
+    reconnect_page_response_for(degraded_marker().as_deref())
 }
 
 /// Same page, with the boot verdict passed in so it can be built without a running
@@ -173,5 +200,24 @@ mod tests {
         assert!(r.contains("/tmp/&lt;b&gt;/seen"));
         assert!(!r.contains("/tmp/<b>/seen"));
         assert_length_matches(&r);
+    }
+
+    /// THE WHOLE CYCLE IN ONE TEST, deliberately: the fact lives in a process-wide
+    /// lock, so two tests touching it would race each other rather than the code.
+    ///
+    /// What it pins is the retraction. Publishing the sentence before the probe
+    /// loop is what makes it arrive in seconds instead of minutes, but it also
+    /// means it can be published on a machine whose server is merely slow. If it
+    /// could not be taken back, the next ordinary disconnection would show a
+    /// sentence offering to delete a marker that is doing its job - which is the
+    /// one harm this explanation is gated against.
+    #[test]
+    fn the_explanation_can_be_published_early_and_taken_back() {
+        assert_eq!(super::degraded_marker(), None, "si parte senza niente da spiegare");
+        super::set_degraded_marker(Some("/x/external-server-seen".to_string()));
+        assert_eq!(super::degraded_marker().as_deref(), Some("/x/external-server-seen"));
+        // The server answered on some later round: the wait is over, the sentence goes.
+        super::set_degraded_marker(None);
+        assert_eq!(super::degraded_marker(), None);
     }
 }

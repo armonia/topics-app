@@ -49,7 +49,7 @@ mod boot_choice;
 mod boot_degraded;
 mod reconnect_page;
 use boot_choice::{decide_boot, BootChoice};
-use reconnect_page::{reconnect_page_response, DEGRADED_MARKER_PATH};
+use reconnect_page::{reconnect_page_response, set_degraded_marker};
 
 /// The DWM backdrop behind the app window on Windows 11. Compiled on EVERY
 /// platform and called only from Windows, on purpose: the file next door carries
@@ -1430,6 +1430,16 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
     // "no server here" from "server busy": only this marker can.
     let marker = external_server_marker(&app);
     let seen_before = marker.exists();
+    // SAY IT NOW, NOT IN FIVE MINUTES. Everything the explanation needs is already
+    // true here: the marker exists, so the shell is about to wait for :3333 instead
+    // of starting its own server. The loop below only decides whether to SPAWN, and
+    // on Windows reaching that decision measured between ~2 and over 5 minutes
+    // (2026-08-28) — the whole of which the window spent showing a bare red dot.
+    // Retracted below the moment an answer arrives, so a machine whose server is
+    // simply slow never keeps the sentence.
+    if seen_before {
+        set_degraded_marker(Some(marker.display().to_string()));
+    }
     let choice = decide_boot(seen_before, std::time::Duration::from_millis(700), |tls| {
         probe_topics_server(DEFAULT_UPSTREAM_PORT, tls)
     })
@@ -1438,6 +1448,9 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
         BootChoice::Defer { tls } => {
             let kind = if tls { "TLS" } else { "plain-HTTP" };
             eprintln!("[sidecar] external {kind} server on :{DEFAULT_UPSTREAM_PORT} — deferring, no sidecar");
+            // The server answered: there is nothing to explain, and leaving the
+            // sentence up would offer to delete a marker that is doing its job.
+            set_degraded_marker(None);
             let _ = std::fs::write(&marker, "1");
             let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls });
             return;
@@ -1456,11 +1469,13 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
                  (marker {}) — NOT spawning a sidecar; degrading to \"connecting\"",
                 marker.display(),
             );
-            let _ = DEGRADED_MARKER_PATH.set(marker.display().to_string());
+            set_degraded_marker(Some(marker.display().to_string()));
             let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });
             return;
         }
-        BootChoice::SpawnSidecar => {}
+        // Unreachable with a marker present (that is `WaitForKnownServer`), so this
+        // clears nothing in practice; it is here so the fact has exactly one owner.
+        BootChoice::SpawnSidecar => set_degraded_marker(None),
     }
 
     // 2) Nothing external — spawn the bundled sidecar (plain HTTP, isolated data).
