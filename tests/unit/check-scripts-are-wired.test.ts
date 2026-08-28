@@ -73,6 +73,12 @@ const MOTIVI: Record<string, string> = {
     "riscrittura (`bun run scripts/scrub-history.ts` per misurare, `--check` per l'esito), " +
     "che e' l'unico momento in cui serve. Se un giorno si scaricasse la storia intera in CI, " +
     "questa riga va tolta e il cancello cablato.",
+  "check:sidecars":
+    "guarda l'ALLESTIMENTO di questa postazione, non il codice: dice se " +
+    "desktop-tauri/src-tauri/binaries c'e', cioe' se il crate Tauri e' compilabile qui. In CI " +
+    "quella cartella la costruisce (o la stubba) il workflow stesso, e non esiste un checkout " +
+    "principale da cui prenderla: il cancello uscirebbe verde per il motivo sbagliato. Gira a " +
+    "mano in un worktree, e `bun run sidecars:sync` e' la sua cura.",
   "check:previews":
     "stessa specie di report:landed: misura lo STATO DELLA BOARD, non il codice. Legge " +
     "data/topics.db e ~/.openclaw/media/task-previews, che su un checkout di CI non esistono. " +

@@ -6,4 +6,10 @@
 # Bundled sidecars — compiled per-target by CI and named binaries/<name>-<triple>:
 # topics-server (bun build --compile) and pty-bridge (cargo, from
 # desktop-tauri/pty-bridge). Build artifacts, never committed.
-/binaries/
+#
+# No trailing slash, on purpose. `/binaries/` only matches a DIRECTORY: a
+# SYMLINK with the same name slips through and `git status` shows it as `??`.
+# A dispatch worktree gets this path provisioned from the main checkout, and
+# one `git add -A` would then commit a link into somebody's home directory,
+# inside a public repo. The slash-less form covers directory, file and link.
+/binaries

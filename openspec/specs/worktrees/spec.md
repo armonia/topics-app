@@ -440,3 +440,41 @@ explain the landing rather than raise an alarm.
 - **GIVEN** a card in review whose branch was deleted by a successful land
 - **THEN** the card SHALL stay in review
 - **AND** the note SHALL explain the landing instead of warning about a lost branch
+
+### Requirement: WORKTREE-13 — A worktree is born able to compile the desktop crate
+
+A newly created worktree SHALL be given the Tauri sidecars of the main checkout
+(`desktop-tauri/src-tauri/binaries/`), because git does not track them and
+`tauri-build` refuses to compile without them: without this step no agent can
+prove a Rust change builds, nor notice it broke the build, and the first place a
+mistake appears is Windows CI.
+
+The provisioning SHALL be a CLONE and not a link wherever the filesystem shares
+blocks (`cp -Rc`, `--reflink=auto`), so that a build run inside the worktree
+cannot write through into the real checkout. A link SHALL be used only as a
+fallback. The step SHALL be best effort: it SHALL NOT prevent a worktree from
+being born, and a main checkout without sidecars is a normal state, not a
+failure.
+
+The ignore rule for that path SHALL match a SYMLINK as well as a directory. This
+is the half that is forgotten: with the trailing-slash form a provisioned link
+shows up as untracked, and one `git add -A` commits an absolute home path into a
+public repository.
+
+When the sidecars are absent the failure SHALL be legible: a check SHALL name
+the missing setup and exit with the NOT MEASURED code (97) instead of letting a
+setup problem read as a compile error.
+
+#### Scenario: a fresh worktree
+- **GIVEN** a main checkout that holds the sidecars
+- **WHEN** a worktree is created
+- **THEN** the worktree SHALL hold them too, and `git status` SHALL stay clean
+
+#### Scenario: nothing to hand over
+- **GIVEN** a main checkout without sidecars
+- **THEN** the worktree SHALL still be created, and the step SHALL report that
+  there was no source
+
+#### Scenario: run twice
+- **GIVEN** a worktree that already holds the sidecars
+- **THEN** the provisioning SHALL leave them alone and report them present
