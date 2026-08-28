@@ -2,6 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.209 — 2026-08-28
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-08-28 [skip ci]
+- Un figlio montato a runtime era irraggiungibile: la flotta lo elencava una volta sola
+- Il cancello aspettava venticinque minuti e poi tagliava lo stesso
+
 ## 2.2.208 — 2026-08-28
 
 ### Sotto il cofano

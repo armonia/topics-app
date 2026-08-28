@@ -1,5 +1,32 @@
 [
   {
+    "version": "2.2.209",
+    "date": "2026-08-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-08-28 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Un figlio montato a runtime era irraggiungibile: la flotta lo elencava una volta sola",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello aspettava venticinque minuti e poi tagliava lo stesso",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.208",
     "date": "2026-08-28",
     "sections": {
