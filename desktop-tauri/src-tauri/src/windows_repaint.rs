@@ -42,17 +42,45 @@
 //! API exposes rebuilds it, which puts the defect BELOW this file: in wry, in
 //! tauri-runtime-wry, or in the runtime.
 //!
-//! WHAT IS LEFT TO TRY, cheapest first:
-//! 1. Never enter the state: subclass the window, intercept
-//!    `WM_SYSCOMMAND`/`SC_MINIMIZE` and hide to the tray instead of iconifying.
-//!    Needs care not to break the taskbar.
-//! 2. Report upstream. The evidence above is enough for a good bug report.
+//! THE TENTH REMEDY, which is what this file now does. Every one of the nine
+//! spoke to the WINDOW or to the CONTROLLER of an existing webview: bounds,
+//! visibility, parent, scale, background, hide and show. None of them REBUILT
+//! THE WEBVIEW, and the one line in the evidence above that no attempt used is
+//! "restarting the app cures it, every time". A restart rebuilds the
+//! composition surface by rebuilding everything; `rebuild_main_webview` below
+//! rebuilds only the part that is broken, on the restore edge: it closes the
+//! "main" webview and builds another one in the same window.
 //!
-//! The hook and the trace stay. They cost nothing, and without them a future
-//! attempt cannot tell "it never ran" from "it ran and did not work" - a
-//! distinction that already cost one release cycle to learn.
+//! Why this is allowed to be the answer where a subclass on minimise is not:
+//! minimise keeps minimising, the taskbar keeps behaving, no standard gesture
+//! changes meaning. The price is that the page reloads, and this app reloads for
+//! a living - it does one on every new bundle.
+//!
+//! THE SUBCLASS IS OUT, and it is out by decision, not because nobody thought of
+//! it: intercepting `WM_SYSCOMMAND`/`SC_MINIMIZE` and hiding to the tray does
+//! repair the symptom, but it takes minimise away from the person using the app,
+//! and a gesture the whole system agrees on is not ours to redefine to dodge a
+//! repaint bug. Do not bring it back without that decision being taken again.
+//!
+//! It can still fail: if the surface is owned at a level that recreating the
+//! controller does not touch, this becomes a tenth `3/79` in the table. The
+//! trace says which of the two happened, and that is the whole point of the
+//! trace: "it never ran" and "it ran and did not help" have already cost one
+//! release cycle to tell apart.
+//!
+//! HOW TO JUDGE IT, unchanged from the nine: `probe2.ps1` on the real machine,
+//! which crops the window rect and compares the window with itself before and
+//! after a minimise/restore. It passes when the rows carrying pixels go back to
+//! 79/79, not 3/79. `repaint.log` next to the installed app must carry a
+//! `rebuild: rebuilt ...` line for that restore; anything else there names what
+//! stopped it.
+//!
+//! WHAT IS STILL OUT OF SCOPE: reporting it upstream (wry /
+//! tauri-runtime-wry / the runtime). The evidence above is enough for a good bug
+//! report, and a report is public, so it waits for an explicit word.
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 /// What `is_minimized()` said the last time an event came through. The
 /// un-minimize edge is a TRANSITION, not a state, so it can only be seen by
@@ -117,8 +145,169 @@ fn make_transparent(app: &tauri::AppHandle) {
     });
 }
 
+/// One rebuild at a time. `Resized` and `Focused` both feed the edge detector
+/// and only one of them can see a given transition, so this is not the thing
+/// that de-duplicates them: it is the guard for a restore that arrives while the
+/// previous rebuild is still creating its webview, which would try to take the
+/// label "main" twice.
+static REBUILDING: AtomicBool = AtomicBool::new(false);
+
+/// Set this to anything to leave the webview alone on restore. The escape hatch
+/// exists because a rebuild that goes wrong leaves the window with no webview at
+/// all, and "start it once with the variable set" is a recovery that does not
+/// need a downgrade.
+const REBUILD_OFF_VAR: &str = "TOPICS_NO_WEBVIEW_REBUILD";
+
+/// THE TENTH REMEDY. Close the "main" webview and build another one in the same
+/// window, on the restore edge.
+///
+/// Runs on a thread of its own, and it has to: `Window::add_child` marshals the
+/// build to the main thread and BLOCKS on the answer, so calling it from the
+/// window-event handler (which is already on the main thread) would deadlock the
+/// event loop. Everything the main thread has to do arrives as queued messages,
+/// in order, on the same event-loop channel: close, then the z-order fix, then
+/// the build.
+///
+/// Two things this is careful about, both paid for elsewhere in the tree:
+/// - NO ORPHANS. The main webview of a window is already a CHILD webview here
+///   (tauri's `unstable` feature is on, so a webview window is built through
+///   `build_as_child`), and dropping a child wry webview both closes the
+///   WebView2 controller and destroys its container HWND. So this is the same
+///   creation path the window was born with, torn down the same way, and not the
+///   asymmetric case that leaked WebContent processes on macOS.
+/// - Z-ORDER. Browser panes are sibling child webviews of this same window, and
+///   a freshly created child HWND goes on TOP of its siblings. The main webview
+///   was the FIRST child when the app started, so it belongs at the bottom;
+///   `sink_to_bottom` puts it back there, otherwise the rebuilt UI would cover
+///   every open pane.
+fn rebuild_main_webview(app: &tauri::AppHandle) {
+    if std::env::var_os(REBUILD_OFF_VAR).is_some() {
+        trace(app, "rebuild: off by TOPICS_NO_WEBVIEW_REBUILD");
+        return;
+    }
+    if REBUILDING.swap(true, Ordering::SeqCst) {
+        trace(app, "rebuild: one already in flight");
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let line = rebuild_now(&app);
+        trace(&app, &line);
+        REBUILDING.store(false, Ordering::SeqCst);
+    });
+}
+
+/// The rebuild itself, off the main thread. Returns the line to trace, so every
+/// exit of this function says what happened - including the ones that decided to
+/// do nothing.
+fn rebuild_now(app: &tauri::AppHandle) -> String {
+    use tauri::Manager;
+    // Let the restore land first. The edge is seen from `WM_SIZE`, which arrives
+    // while the window is still being put back on screen.
+    std::thread::sleep(Duration::from_millis(200));
+    let Some(win) = app.get_window("main") else {
+        return "rebuild: no main window".into();
+    };
+    if win.is_minimized().unwrap_or(false) {
+        return "rebuild: minimized again, skipped".into();
+    }
+    if !win.is_visible().unwrap_or(true) {
+        // Hidden to the tray is not the restore we are curing, and building a
+        // webview for an invisible window would only pay the reload twice.
+        return "rebuild: window not visible, skipped".into();
+    }
+    let Some(old) = app.get_webview("main") else {
+        return "rebuild: no main webview".into();
+    };
+    // Rebuild on the page the app is ON, not on the one it booted with: when the
+    // server is down the shell parks the window on its own explanation page, and
+    // sending it back to index.html would hide that. Anything that is not http
+    // falls back to the config default, because that is the only value a fresh
+    // webview can resolve on its own.
+    let url = old.url().ok().filter(|u| matches!(u.scheme(), "http" | "https"));
+    let Ok(size) = win.inner_size() else {
+        return "rebuild: no inner size".into();
+    };
+    if let Err(e) = old.close() {
+        return format!("rebuild: close failed: {e}");
+    }
+    // Two goes. If the first build fails the window is left with no webview at
+    // all, which is worse than the grey it was curing, so it is worth one retry
+    // before giving up and saying so in the trace.
+    for attempt in 1..=2 {
+        let target = match &url {
+            Some(u) => tauri::WebviewUrl::External(u.clone()),
+            None => tauri::WebviewUrl::App("index.html".into()),
+        };
+        let builder = tauri::webview::WebviewBuilder::new("main", target)
+            // Same webview attributes the config gives the main window, because
+            // this webview IS the main window's content: a see-through
+            // background so the DWM Acrylic backdrop shows through (this is the
+            // same A:0 `make_transparent` asserts at startup, asked for at
+            // creation instead of after it), and no wry drag-drop handler,
+            // without which HTML5 drag and drop dies.
+            .transparent(true)
+            .disable_drag_drop_handler()
+            // Mandatory here and not for a window-born webview: tauri only
+            // tracks a child webview's size against the window when it was asked
+            // to. Without this the rebuilt UI would keep the size the window had
+            // at rebuild time forever.
+            .auto_resize();
+        match win.add_child(
+            builder,
+            tauri::PhysicalPosition::new(0, 0),
+            size,
+        ) {
+            Ok(wv) => {
+                sink_to_bottom(&wv);
+                let shown = url
+                    .as_ref()
+                    .map(|u| u.as_str().to_string())
+                    .unwrap_or_else(|| "index.html".into());
+                return format!("rebuild: rebuilt {shown} (attempt {attempt})");
+            }
+            Err(e) if attempt == 2 => return format!("rebuild: build failed: {e}"),
+            Err(e) => {
+                trace(app, &format!("rebuild: attempt {attempt} failed: {e}, retrying"));
+                std::thread::sleep(Duration::from_millis(300));
+            }
+        }
+    }
+    "rebuild: unreachable".into()
+}
+
+/// Put a freshly built child webview back UNDER its siblings. See the z-order
+/// note on `rebuild_main_webview` for why. `ParentWindow()` on the controller is
+/// the container HWND wry created for this webview, which is the child window
+/// whose order matters; the closure runs on the main thread, where window
+/// messages belong.
+fn sink_to_bottom(wv: &tauri::Webview) {
+    let _ = wv.with_webview(|platform| unsafe {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SetWindowPos, HWND_BOTTOM, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+        };
+        // `ParentWindow` answers through an out parameter, so the handle starts
+        // null and stays null if the call fails.
+        let mut hwnd = HWND::default();
+        if platform.controller().ParentWindow(&mut hwnd).is_err() || hwnd.is_invalid() {
+            return;
+        }
+        let _ = SetWindowPos(
+            hwnd,
+            Some(HWND_BOTTOM),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+    });
+}
+
 /// Called on every window event this file subscribes to. Records the transition
-/// and nothing else: see the header for why there is no repair here any more.
+/// and, when the transition is the way back UP from minimised, runs the tenth
+/// remedy.
 ///
 /// Both `Resized` and `Focused` are watched. tao emits `Resized` from `WM_SIZE`,
 /// and `WM_SIZE(SIZE_MINIMIZED)` arrives 0x0 — a runtime that skips it would
@@ -132,7 +321,11 @@ pub(crate) fn note_window_event(win: &tauri::Window, kind: &'static str) {
     if before == now {
         return;
     }
-    trace(&win.app_handle().clone(), &format!("{kind}: minimized {before} -> {now}"));
+    let app = win.app_handle().clone();
+    trace(&app, &format!("{kind}: minimized {before} -> {now}"));
+    if before && !now {
+        rebuild_main_webview(&app);
+    }
 }
 
 /// Subscribe the main window. Registered from `run()` OUTSIDE any macOS block,
