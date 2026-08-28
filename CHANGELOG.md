@@ -13,6 +13,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - The spend surface speaks the app's language
 - The cap box reads the store instead of mirroring it through an effect
 - Il «~42s» erano fra due e piu' di cinque minuti, e la frase aspettava la fine
+- I secondi muti sono 141 e 142, non «piu' di cinque minuti»
 
 ## 2.2.204 — 2026-08-28
 
