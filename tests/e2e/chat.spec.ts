@@ -89,11 +89,29 @@ test.describe.serial("Chat", () => {
     // (the server's sendChat calls ${GATEWAY_URL}/v1/chat/completions server-side,
     // which Playwright page.route cannot intercept). In CI without gateway, skip.
     const gatewayUrl = process.env.GATEWAY_URL || "http://127.0.0.1:18789";
-    const gatewayUp = await request
-      .get(`${gatewayUrl}/healthz`, { timeout: 2000, ignoreHTTPSErrors: true })
-      .then((r) => r.ok())
-      .catch(() => false);
-    test.skip(!gatewayUp, `AI gateway at ${gatewayUrl} not reachable — cannot verify real streaming abort`);
+    // Probe the endpoint this test NEEDS, not just liveness. `/healthz` answers
+    // `{"ok":true}` on a gateway that serves only its web UI and has no
+    // OpenAI-compatible route at all, so the old guard let the test through and
+    // it then died 15s later on a streaming indicator that never came — a red
+    // that named the UI and meant "the gateway has no completions endpoint".
+    //
+    // An EMPTY body on purpose: a live route rejects it (400/401/422) without
+    // spending a completion, while a missing route is a 404. So 404 alone means
+    // "not available here", and every other answer means the route is there and
+    // this test must really run.
+    const completions = await request
+      .post(`${gatewayUrl}/v1/chat/completions`, {
+        data: {},
+        timeout: 4000,
+        ignoreHTTPSErrors: true,
+        failOnStatusCode: false,
+      })
+      .then((r) => r.status())
+      .catch(() => 0);
+    test.skip(
+      completions === 0 || completions === 404,
+      `AI gateway at ${gatewayUrl} serves no /v1/chat/completions (${completions || "unreachable"}) — cannot verify real streaming abort`,
+    );
 
     await goToApp(page);
     await openTestChat(page);
