@@ -2,6 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.210 — 2026-08-28
+
+### Sotto il cofano
+- Un giro che moriva a meta' tornava come una fine naturale
+- Il timer soft si sospendeva quando il tool veniva annunciato, non quando parte
+- I nomi del test nuovo erano italiani, e il cancello non li aveva visti
+
 ## 2.2.209 — 2026-08-28
 
 ### Sotto il cofano

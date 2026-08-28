@@ -1,5 +1,31 @@
 [
   {
+    "version": "2.2.210",
+    "date": "2026-08-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un giro che moriva a meta' tornava come una fine naturale",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il timer soft si sospendeva quando il tool veniva annunciato, non quando parte",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I nomi del test nuovo erano italiani, e il cancello non li aveva visti",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.209",
     "date": "2026-08-28",
     "sections": {
