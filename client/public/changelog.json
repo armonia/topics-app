@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.203",
+    "date": "2026-08-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La croce sull'avviso di versione durava quattro secondi",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.201",
     "date": "2026-08-28",
     "sections": {
