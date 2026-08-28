@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.214 — 2026-08-28
+
+### Sotto il cofano
+- Il consumo di token non compariva: il ciclo li contava e li buttava
+
 ## 2.2.213 — 2026-08-28
 
 ### Sotto il cofano

@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.214",
+    "date": "2026-08-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il consumo di token non compariva: il ciclo li contava e li buttava",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.213",
     "date": "2026-08-28",
     "sections": {
