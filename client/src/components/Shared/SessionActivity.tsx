@@ -185,7 +185,13 @@ function TopicPreviewLine({ topicId, onFill, className = '' }: {
   // ora c'è sempre, piena o vuota: l'altezza è la stessa prima e dopo.
   // (Con la copia locale delle anteprime questo caso resta solo al PRIMO avvio
   // vero, quando non c'è ancora niente in cache — vedi state/topicPreviews.)
-  if (!preview) return <span aria-hidden="true" className="block h-[11px]" />;
+  // The empty line is as tall as a full one: `truncate-tight` rounds its line
+  // box up to an even number of pixels (12 at 11px, see `index.css`), and its
+  // negative margin gives back the padding, so a subline that SAYS something
+  // occupies exactly 12px of margin box. A placeholder of any other height
+  // would move the name above it by the difference, which is the very jump the
+  // paragraph above exists to prevent.
+  if (!preview) return <span aria-hidden="true" className="block h-3" />;
   // Il marcatore dei messaggi TUOI. Senza, un «ok, procedi» sotto al nome si
   // legge come una risposta dell'agente, ed è il contrario: è la convenzione
   // delle app di messaggistica («Tu: …»), due lettere e i due punti. Non

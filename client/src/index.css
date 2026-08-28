@@ -113,11 +113,38 @@
  * Chi la usa NON deve mettere anche `truncate` o `leading-none`: li contiene
  * già. E non deve mettere un `mt-*` sul figlio per distanziare — il margine
  * qui è occupato: la distanza si dà con `gap-*` sul contenitore. */
+/*
+ * AND THE LINE BOX IS ROUNDED UP TO AN EVEN NUMBER OF PIXELS, because a margin
+ * box as tall as the font size cannot be centred on a whole pixel.
+ *
+ * The margin box of this utility is exactly its line height (the padding and
+ * the negative margin cancel out). With `line-height: 1` that is the font size,
+ * and every size used here is ODD: 11, 13. Centring an odd box inside an EVEN
+ * card (a row is 34 or 44, a tab 28 or 36) lands the text on a HALF pixel, and
+ * Blink then floors the half-leading, so the glyphs are rasterised across two
+ * sub-pixel rows: the label reads slightly higher and softer than the label of
+ * the card next to it, which declares its line height (`leading-5`) and lands
+ * on a whole one. Measured in the app on 28/08: a terminal row's name started
+ * at 8.5px from the top of its row against 9px for a browser row in the SAME
+ * list, and a chat name at 1.5px. That is the reported defect ("some tabs have
+ * the label not aligned vertically"), and it is the same failure the note above
+ * `TAB_LABEL_TYPE` in `lib/selectionStyles.ts` describes for the tab strip.
+ *
+ * Rounding UP keeps the promise of the paragraph above: the box never shrinks,
+ * so nothing that fits today gets clipped tomorrow. 11 becomes 12, 13 becomes
+ * 14, an already even size stays where it is. The vertical rhythm moves by at
+ * most one pixel, and only where it was on a fraction.
+ *
+ * `round()` is Baseline 2024 (Chromium 125, Safari 15.4, Firefox 118) and the
+ * declaration above is the fallback for anything older: an unparsable value
+ * drops the declaration, not the rule.
+ */
 @utility truncate-tight {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   line-height: 1;
+  line-height: round(up, 1em, 2px);
   padding-block: 0.15em;
   margin-block: -0.15em;
 }

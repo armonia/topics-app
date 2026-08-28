@@ -50,9 +50,10 @@ export function SkeletonTopicList({ count = 5 }: { count?: number }) {
       {Array.from({ length: count }).map((_, i) => (
         <div key={i} className={`flex items-center ${ROW_GAP} ${ROW_H} ${ROW_PX} animate-pulse`}>
           <div className={`w-5 h-5 flex-shrink-0 ${BAR}`} />
-          {/* Stessa impaginazione verticale del contenuto vero: 13 + 3 + 11
-              (vedi il blocco nome/subline in TopicItem). */}
-          <div className="flex-1 min-w-0 flex flex-col justify-center gap-[3px]">
+          {/* Same vertical layout as the real content: 14 + 4 + 12 (see the
+              name/subline block in TopicItem, which keeps every part even so
+              the two lines land on whole pixels). */}
+          <div className="flex-1 min-w-0 flex flex-col justify-center gap-1">
             <div
               className={`h-3 ${BAR}`}
               // Deterministic per-row width (was Math.random() during render,

@@ -384,12 +384,18 @@ export const TopicItem = memo(function TopicItem({
           riga muta. Sul telefono, dove la sidebar è a tutto schermo, è la
           superficie principale per capire di cosa parla una chat.
           On an attention fill the name goes white (fixes grey-on-blue). */}
-      {/* `gap-[3px]` e non `mt-[3px]` sulla subline: le due righe usano
-          `truncate-tight`, che si prende il margine verticale per allargare la
-          zona di taglio senza alzare la riga — un `mt` sul figlio lo
-          sovrascriverebbe e le code tornerebbero tagliate. Il totale resta
-          quello di prima: 13 + 3 + 11. */}
-      <div className="flex-1 min-w-0 flex flex-col justify-center gap-[3px]">
+      {/* A gap and not an `mt-[3px]` on the subline: both lines use
+          `truncate-tight`, which spends its vertical margin to widen the
+          clipping zone without moving the line, and an `mt` on the child would
+          overwrite it and bring the clipped descenders back.
+          THE GAP IS EVEN, AND THAT IS THE WHOLE POINT: this block is centred
+          inside a row that is 34px (44 on a phone), so its own height has to be
+          even too or the two lines land on a HALF pixel and rasterise soft.
+          The parts are 14 + 4 + 12 = 30: `truncate-tight` rounds each line box
+          up to an even number of pixels (see its note in `index.css`), and the
+          gap follows. With the old 13 + 3 + 11 = 27 the name started at 1.5px
+          from the top of the row, measured on 28/08. */}
+      <div className="flex-1 min-w-0 flex flex-col justify-center gap-1">
         <span data-row-name="chat" className={cn(
           "truncate-tight",
           onFill && cn("font-semibold", ON_FILL_TEXT),
