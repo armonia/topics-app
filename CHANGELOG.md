@@ -2,6 +2,15 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.197 — 2026-08-28
+
+### Novità
+- **windows** · Acrylic DWM backdrop on Windows
+
+### Sotto il cofano
+- `ipc` non e' gergo: e' un buco del dizionario del 1934
+- La guardia sondava la vita del gateway, non l'endpoint che serve
+
 ## 2.2.195 — 2026-08-27
 
 ### Sotto il cofano
