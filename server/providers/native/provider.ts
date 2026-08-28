@@ -433,7 +433,11 @@ export class NativeProvider implements AIProvider {
       // pay the whole fleet on every turn for tools it never calls.
       const fleetAllowed = readMcpPolicy(sessionKey) !== "bridge-only";
       if (fleetAllowed) await ensureMcpFleet();
-      const tools = [
+      // Composed at every round, not once: `mcpToolSpecs()` is the live fleet,
+      // and a child mounted by this very turn must be callable by the next
+      // round. `fleetAllowed` and `workspace` stay captured, read once per turn
+      // as before: the per-session policy is not the thing that changes.
+      const tools = () => [
         ...(workspace ? CODING_TOOLS : []),
         ...(topics ? topicsToolSpecs(topics.profile) : []),
         ...(fleetAllowed ? mcpToolSpecs() : []),
@@ -538,7 +542,7 @@ export class NativeProvider implements AIProvider {
       {
         model: options?.model ?? this.config.model ?? DEFAULT_MODEL,
         history,
-        tools: [],
+        tools: () => [],
         toolContext: { workspace: this.config.defaultWorkspace ?? "" },
       },
       {

@@ -53,7 +53,7 @@ describeIfAuth("il runtime nativo, senza nessuna CLI", () => {
     const rec = recorder();
     const history: AgentMessage[] = [{ role: "user", content: "Rispondi con la sola parola PONG." }];
     const out = await runAgentTurn(
-      { model: "claude-haiku-4-5-20251001", history, toolContext: { workspace: ws }, tools: [] },
+      { model: "claude-haiku-4-5-20251001", history, toolContext: { workspace: ws }, tools: () => [] },
       rec.handler,
     );
     expect(rec.errors).toEqual([]);
@@ -199,7 +199,7 @@ describeIfAuth("il runtime nativo, senza nessuna CLI", () => {
     }));
     await Promise.all(sessions.map((s) =>
       runAgentTurn(
-        { model: "claude-haiku-4-5-20251001", history: s.history, toolContext: { workspace: ws }, tools: [] },
+        { model: "claude-haiku-4-5-20251001", history: s.history, toolContext: { workspace: ws }, tools: () => [] },
         s.rec.handler,
       ),
     ));

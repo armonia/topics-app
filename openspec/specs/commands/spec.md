@@ -890,6 +890,54 @@ deve reggere e' la stretta di mano e la chiamata.
 - **GIVEN** un server configurato che non viene montato
 - **THEN** il motivo SHALL essere esposto insieme all'assenza
 
+### Requirement: MCPSRV-03 — La lista degli strumenti di un server e' viva, non la fotografia del montaggio
+
+Un server MCP puo' guadagnare strumenti mentre il processo vive: e' esattamente
+cio' che fa un gateway quando monta un figlio su richiesta dell'agente. La
+flotta li elencava una volta sola al montaggio, quindi lo strumento nuovo
+restava irraggiungibile e l'agente che lo chiamava leggeva «unknown MCP tool»
+per uno strumento che il server offriva davvero.
+
+Un server che dichiara `tools.listChanged` SHALL essere ri-elencato dopo ogni
+chiamata RIUSCITA a un suo strumento, da solo: senza chiudere connessioni,
+senza rimontare la flotta e senza toccare gli altri server. Il predicato SHALL
+essere la dichiarazione del server, non un elenco di nomi di strumenti che
+montano: un elenco del genere marcisce al primo strumento nuovo.
+
+Il ri-elenco SHALL essere concluso prima che la chiamata restituisca il suo
+risultato. La garanzia da dare e' che quando lo strumento che monta RITORNA, i
+suoi strumenti nuovi sono gia' richiamabili: un agente dispacciato ha un turno
+solo, e fra «deterministico» e «prima o poi» passa la differenza fra funziona e
+non funziona.
+
+Il registro offerto al modello SHALL essere quello del giro, non quello
+dell'inizio del turno, altrimenti lo strumento comparso viene visto solo dal
+turno dopo.
+
+Gli schemi consegnati all'API SHALL essere copie. I punti di interruzione della
+cache si scrivono IN PLACE sull'ultimo strumento dell'array; con una lista che
+puo' crescere a meta' turno i marcatori si accumulano sugli schemi memorizzati
+fino a superare il tetto, e l'API rifiuta il turno intero. L'ordine SHALL essere
+stabile per nome, perche' cancellare e reinserire le voci di un server le
+sposta in fondo e cambia l'array serializzato anche quando l'insieme e'
+identico, invalidando il prefisso cachato senza che nessuno abbia guadagnato
+niente.
+
+#### Scenario: uno strumento che monta un figlio lo rende chiamabile subito
+- **GIVEN** un server che dichiara `tools.listChanged` e uno strumento che ne fa comparire un altro
+- **WHEN** l'agente chiama quello strumento
+- **THEN** lo strumento comparso SHALL essere richiamabile senza rimontare la flotta
+
+#### Scenario: il ri-elenco costa una chiamata sola, e solo a chi lo dichiara
+- **GIVEN** un server che dichiara `tools.listChanged` e uno che non lo dichiara
+- **WHEN** si chiama uno strumento per ciascuno
+- **THEN** SHALL essere ri-elencato solo il primo
+
+#### Scenario: gli schemi consegnati al modello non tornano marchiati
+- **GIVEN** un registro gia' consegnato una volta e marcato per la cache
+- **WHEN** lo si richiede di nuovo
+- **THEN** nessuno schema SHALL portare il marcatore della lettura precedente
+
 ### Requirement: CMD-COMMA-01 — La scorciatoia delle Impostazioni cede solo a chi POSSIEDE il tasto
 
 `⌘,` e `Ctrl+,` SHALL aprire le Impostazioni. La palette dei comandi lo

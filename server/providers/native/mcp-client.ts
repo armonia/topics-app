@@ -49,6 +49,15 @@ export interface McpPromptDescriptor {
 export interface McpConnection {
   readonly transport: "http" | "stdio";
   readonly serverInfo: { name?: string; version?: string } | null;
+  /**
+   * The server said its tool list can change while it runs.
+   *
+   * It is the value of a handshake we already perform: `initialize` answers
+   * with `capabilities`, we store it, and until now we only ever read
+   * `.prompts` out of it. Reading `.tools.listChanged` too costs no traffic and
+   * is what tells the fleet which servers are worth re-listing.
+   */
+  readonly listChanged: boolean;
   listTools(): Promise<McpToolDescriptor[]>;
   listPrompts(): Promise<McpPromptDescriptor[]>;
   callTool(name: string, args: Record<string, unknown>): Promise<{ content: string; isError: boolean }>;
@@ -58,6 +67,17 @@ export interface McpConnection {
 interface RpcError {
   code?: number;
   message?: string;
+}
+
+/**
+ * Did the server say its tool list can change while it runs?
+ *
+ * Shared by both transports because it reads the same handshake answer: the
+ * two connection classes differ in how they talk, not in what `capabilities`
+ * means.
+ */
+function declaresListChanged(capabilities: Record<string, unknown>): boolean {
+  return Boolean((capabilities as { tools?: { listChanged?: boolean } }).tools?.listChanged);
 }
 
 function rpcMessage(id: number, method: string, params?: unknown) {
@@ -201,6 +221,9 @@ class HttpMcpConnection implements McpConnection {
     await this.notify("notifications/initialized");
   }
 
+
+  get listChanged(): boolean { return declaresListChanged(this.capabilities); }
+
   async listTools(): Promise<McpToolDescriptor[]> {
     const result = (await this.send("tools/list", {}, CONNECT_TIMEOUT_MS)) as { tools?: McpToolDescriptor[] };
     return result?.tools ?? [];
@@ -317,6 +340,9 @@ class StdioMcpConnection implements McpConnection {
       child.stdin?.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
     } catch { /* best-effort */ }
   }
+
+
+  get listChanged(): boolean { return declaresListChanged(this.capabilities); }
 
   async listTools(): Promise<McpToolDescriptor[]> {
     const result = (await this.send("tools/list", {}, CONNECT_TIMEOUT_MS)) as { tools?: McpToolDescriptor[] };

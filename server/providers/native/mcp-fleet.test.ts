@@ -1,5 +1,6 @@
 /**
  * @covers MCPSRV-02
+ * @covers MCPSRV-03
  *
  * The native runtime mounts the globally configured MCP servers.
  *
@@ -17,6 +18,7 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { applyPromptCache, countCacheBreakpoints, MAX_CACHE_BREAKPOINTS } from "../prompt-cache";
 import {
   remountMcpFleet,
   closeMcpFleet,
@@ -217,5 +219,172 @@ describe("i tool MCP passano dal cancello dei permessi", () => {
     // `read_file` is always allowed; `mcp__x__read_file` is not: it comes from outside.
     expect(decide("read_file", {}, "ask").allow).toBe(true);
     expect(decide("mcp__x__read_file", {}, "ask").allow).toBe(false);
+  });
+});
+
+
+/**
+ * A server whose tool list GROWS: this is the gateway in miniature.
+ *
+ * Calling `mount` makes `search` appear in the next `tools/list`, exactly the
+ * way a gateway child does. `listHits` counts the list calls, so a test can
+ * prove the re-list happened once and only on the server that asked for it.
+ */
+function startGrowingServer(declaresListChanged: boolean) {
+  let grown = false;
+  let listHits = 0;
+  const listener = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    async fetch(req) {
+      const msg = (await req.json()) as { id?: number; method: string; params?: { name?: string } };
+      if (msg.id === undefined) return new Response(null, { status: 202 });
+      const reply = (result: unknown) => Response.json({ jsonrpc: "2.0", id: msg.id, result });
+      switch (msg.method) {
+        case "initialize":
+          return reply({
+            protocolVersion: PROTOCOL,
+            capabilities: {
+              tools: declaresListChanged ? { listChanged: true } : {},
+              prompts: {},
+            },
+            serverInfo: { name: "growing", version: "0.0.1" },
+          });
+        case "tools/list": {
+          listHits += 1;
+          const tools: unknown[] = [
+            { name: "mount", description: "Mounts a child.", inputSchema: { type: "object", properties: {} } },
+          ];
+          if (grown) {
+            tools.push({
+              name: "search",
+              description: "Exists only after mount.",
+              inputSchema: { type: "object", properties: {} },
+            });
+          }
+          return reply({ tools });
+        }
+        case "prompts/list":
+          return reply({ prompts: [] });
+        case "tools/call":
+          if (msg.params?.name === "mount") grown = true;
+          return reply({ content: [{ type: "text", text: "ok" }] });
+        default:
+          return Response.json({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: "no" } });
+      }
+    },
+  });
+  return {
+    url: listener.url.href,
+    hits: () => listHits,
+    stop: () => listener.stop(true),
+    reset: () => { grown = false; listHits = 0; },
+  };
+}
+
+describe("la lista degli strumenti di un server e viva", () => {
+  let growing: ReturnType<typeof startGrowingServer>;
+  let quiet: ReturnType<typeof startGrowingServer>;
+
+  beforeAll(() => {
+    growing = startGrowingServer(true);
+    quiet = startGrowingServer(false);
+  });
+
+  afterAll(() => {
+    growing.stop();
+    quiet.stop();
+  });
+
+  test("uno strumento che monta un figlio lo rende chiamabile subito", async () => {
+    growing.reset();
+    writeConfig({ growing: { type: "http", url: growing.url } });
+    await remountMcpFleet();
+
+    // The state the agent starts from: the child does not exist yet.
+    expect(mcpToolSpecs().map((t) => t.name)).toEqual(["mcp__growing__mount"]);
+
+    const mounted = await executeMcpTool("mcp__growing__mount", {});
+    expect(mounted.isError).toBeFalsy();
+
+    // THE BUG, in one line: on HEAD this says only `mcp__growing__mount`, and
+    // the call below answers `unknown MCP tool: mcp__growing__search`.
+    expect(mcpToolSpecs().map((t) => t.name)).toContain("mcp__growing__search");
+
+    const used = await executeMcpTool("mcp__growing__search", {});
+    expect(used.isError).toBeFalsy();
+  });
+
+  test("il ri-elenco costa una chiamata sola, e solo a chi lo dichiara", async () => {
+    growing.reset();
+    quiet.reset();
+    writeConfig({
+      growing: { type: "http", url: growing.url },
+      quiet: { type: "http", url: quiet.url },
+    });
+    await remountMcpFleet();
+    expect(growing.hits()).toBe(1);
+    expect(quiet.hits()).toBe(1);
+
+    await executeMcpTool("mcp__growing__mount", {});
+    await executeMcpTool("mcp__quiet__mount", {});
+
+    // One extra list for the server that declared it, none for the other.
+    expect(growing.hits()).toBe(2);
+    expect(quiet.hits()).toBe(1);
+  });
+
+  test("un ri-elenco non sposta i tool degli altri server", async () => {
+    growing.reset();
+    quiet.reset();
+    writeConfig({
+      alpha: { type: "http", url: server.url.href },
+      growing: { type: "http", url: growing.url },
+      quiet: { type: "http", url: quiet.url },
+    });
+    await remountMcpFleet();
+    const before = mcpToolSpecs().map((t) => t.name);
+
+    await executeMcpTool("mcp__growing__mount", {});
+    const after = mcpToolSpecs().map((t) => t.name);
+
+    expect(after).toEqual([...after].sort());
+    expect(after.filter((n) => !n.startsWith("mcp__growing__"))).toEqual(
+      before.filter((n) => !n.startsWith("mcp__growing__")),
+    );
+    const grownStatus = mcpFleetStatus().servers.find((s) => s.name === "growing")!;
+    expect(grownStatus.tools).toContain("mcp__growing__search");
+  });
+
+  test("gli schemi consegnati al modello non tornano marchiati", async () => {
+    growing.reset();
+    writeConfig({ growing: { type: "http", url: growing.url } });
+    await remountMcpFleet();
+
+    // `applyPromptCache` marks the LAST tool in place. If the registry hands
+    // out its stored objects, that marker sticks to the fleet itself and every
+    // later read carries it, so the breakpoints pile up until the API refuses
+    // the whole turn for having more than MAX_CACHE_BREAKPOINTS of them.
+    const round = () => {
+      const params = {
+        model: "m",
+        max_tokens: 1,
+        system: "s",
+        messages: [{ role: "user" as const, content: "hi" }],
+        tools: mcpToolSpecs() as never,
+      };
+      applyPromptCache(params);
+      return countCacheBreakpoints(params);
+    };
+
+    const first = round();
+    await executeMcpTool("mcp__growing__mount", {});
+    const second = round();
+    const third = round();
+
+    expect(mcpToolSpecs().some((t) => "cache_control" in t)).toBe(false);
+    expect(second).toBe(first);
+    expect(third).toBe(first);
+    expect(third).toBeLessThanOrEqual(MAX_CACHE_BREAKPOINTS);
   });
 });

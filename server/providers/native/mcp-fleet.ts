@@ -20,7 +20,7 @@
  */
 
 import { resolveInheritedMcp, type McpServerDef } from "../mcp-inheritance";
-import { connectMcpServer, type McpConnection } from "./mcp-client";
+import { connectMcpServer, type McpConnection, type McpToolDescriptor } from "./mcp-client";
 import type { ToolSpec, ToolResult } from "./tools";
 
 export const MCP_TOOL_PREFIX = "mcp__";
@@ -177,9 +177,80 @@ export async function remountMcpFleet(): Promise<void> {
   await ensureMcpFleet();
 }
 
-/** The tool schemas to append to the native registry. Empty until mounted. */
+/**
+ * The tool schemas to append to the native registry. Empty until mounted.
+ *
+ * SORTED, and COPIES. Both words earn their keep once the list can change
+ * while the process runs.
+ *
+ * Sorted, because a re-list deletes a server's entries and puts them back,
+ * which moves them to the end of the Map's insertion order. The serialized
+ * array would then differ even when the set is identical, and the order of
+ * `params.tools` is the FIRST cache breakpoint of the prefix: a session would
+ * pay a full cache miss for having gained nothing.
+ *
+ * Copies, because `applyPromptCache` marks the last tool IN PLACE. Handing out
+ * the stored objects means that marker sticks to the fleet itself, so every
+ * later read carries it and the breakpoints pile up round after round until
+ * the API refuses the whole turn for exceeding the cap.
+ */
 export function mcpToolSpecs(): ToolSpec[] {
-  return [...toolsByName.values()].map((t) => t.spec);
+  return [...toolsByName.values()]
+    .map((t) => ({ ...t.spec }))
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+}
+
+/**
+ * Re-list ONE server, in place, without touching the others.
+ *
+ * This is what makes a tool mounted at runtime reachable. A gateway that
+ * mounts a child on the agent's request grows its own tool list, and the
+ * fleet used to hold the photograph taken at mount time: the agent called the
+ * new tool and read `unknown MCP tool` for something the server really offered.
+ *
+ * Deliberately NOT `remountMcpFleet()`, which is a hammer: that one closes
+ * every connection and empties both maps before refilling them, so for the
+ * whole rebuild any other session's tool call answers `unknown MCP tool` for
+ * the ENTIRE fleet, and every stdio server pays its cold start again.
+ */
+export async function relistMcpServer(name: string): Promise<void> {
+  const conn = connections.get(name);
+  if (!conn) return;
+  let tools: McpToolDescriptor[];
+  try {
+    tools = await conn.listTools();
+  } catch {
+    // The tool call itself succeeded; a stale list beats an empty one.
+    return;
+  }
+  // Re-read the connection NOW, not from the closure: a refresh may have
+  // replaced the maps while we were awaiting, and this answer would then
+  // belong to a connection that is already dead.
+  if (connections.get(name) !== conn) return;
+
+  // One synchronous pass, so no reader can observe a half-empty map.
+  for (const [full, entry] of [...toolsByName.entries()]) {
+    if (entry.server === name) toolsByName.delete(full);
+  }
+  const mountedNames: string[] = [];
+  for (const t of tools) {
+    if (!t?.name) continue;
+    const full = mcpToolName(name, t.name);
+    toolsByName.set(full, {
+      server: name,
+      tool: t.name,
+      spec: {
+        name: full,
+        description: t.description || `${t.name} (MCP server ${name})`,
+        input_schema: normalizeSchema(t.inputSchema),
+      },
+    });
+    mountedNames.push(full);
+  }
+  const status = statuses.find((st) => st.name === name);
+  // The settings panel is the second surface that used to go quiet: it kept
+  // showing the boot list and still said `ready`.
+  if (status) status.tools = mountedNames;
 }
 
 export function mcpFleetStatus(): McpFleetStatus {
@@ -207,6 +278,17 @@ export async function executeMcpTool(name: string, input: Record<string, unknown
   if (!conn) return { content: `MCP server '${mounted.server}' is not connected`, isError: true };
   try {
     const out = await conn.callTool(mounted.tool, input);
+    // A SUCCESSFUL call may have changed this server's own tool list: that is
+    // exactly what a gateway does when the agent asks it to mount a child.
+    //
+    // The predicate is the server's DECLARATION, not a list of tool names that
+    // mount things: such a list rots the moment a server gains a new one.
+    //
+    // Serialized on purpose, not fire-and-forget. The guarantee worth giving is
+    // that when the mounting tool RETURNS, its new tools are already callable:
+    // a dispatched agent has one turn, and the difference between deterministic
+    // and eventually is the difference between works and does not.
+    if (!out.isError && conn.listChanged) await relistMcpServer(mounted.server);
     return { content: out.content, isError: out.isError };
   } catch (err) {
     return { content: err instanceof Error ? err.message : String(err), isError: true };

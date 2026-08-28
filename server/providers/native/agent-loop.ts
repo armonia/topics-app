@@ -101,7 +101,17 @@ export interface AgentTurnOptions {
   model: string;
   maxTokens?: number;
   system?: string;
-  tools?: ToolSpec[];
+  /**
+   * The tool registry, read once PER ROUND rather than once per turn.
+   *
+   * A thunk and not an array because a server's tool list is alive: the agent
+   * can mount a gateway child mid-turn, and with a frozen array the tool it
+   * just created would be invisible until the next turn. The result is
+   * byte-identical from round to round until the fleet actually changes, so
+   * the cached prefix survives; when it does change the prefix is invalidated,
+   * and that is the price worth paying over a round wasted on unknown tools.
+   */
+  tools?: () => ToolSpec[];
   toolContext: ToolContext;
   /** La conversazione finora. Viene ESTESA in place: è la memoria della sessione. */
   history: AgentMessage[];
@@ -184,7 +194,7 @@ async function streamOnce(
       ...(opts.system ? [{ type: "text", text: opts.system }] : []),
     ],
   };
-  const tools = opts.tools ?? CODING_TOOLS;
+  const tools = opts.tools?.() ?? CODING_TOOLS;
   if (tools.length > 0) body.tools = tools;
 
   // I BREAKPOINT DI CACHE, e qui pesano più che altrove. Un turno d'agente non
