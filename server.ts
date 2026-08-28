@@ -116,7 +116,7 @@ import { createBillingRouter, isBillingWebhookPath } from "./server/routes/billi
 import { createAccountRouter } from "./server/routes/account";
 import { createPeopleRouter } from "./server/routes/people";
 import { getGatewayWS } from "./server/gateway-ws";
-import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider, resolveTurnAlive } from "./server/providers";
+import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider, resolveTurnAlive, resolveSessionOwner, childAliveForSweep } from "./server/providers";
 import { aiBridgeEnabled, ClaudeCodeProvider } from "./server/providers/claude-code";
 import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers/stop-reason";
 import { recordTurnEnd, takeTurnEnd } from "./server/providers/turn-end-registry";
@@ -4164,10 +4164,16 @@ const staleStreamTimer = setInterval(() => {
   // tutto nel cablaggio, e un test ci arrivava solo aspettando sette minuti
   // contro un server vero. Con le dipendenze iniettate due tick costano un
   // millisecondo.
-  const prov = tryGetProvider("claude-code") as {
-    isTurnProcessAlive?: (sk: string) => boolean;
-    resyncStream?: (sk: string) => Promise<boolean>;
-  } | undefined;
+  // THE PROBE GOES TO WHOEVER OWNS THE SESSION, not to claude-code.
+  //
+  // `tryGetProvider("claude-code")` stood here, and it is the defect that on
+  // 2026-08-28 killed a live turn (topic:0299ac2d, inside a three-minute bash).
+  // For a NATIVE session that provider reads its own `processes` map, does not
+  // find it, and answers `false` instead of staying quiet: `staleStreamVerdict`
+  // discards anything that is not `true`, so for every native turn "rescue" and
+  // "extend" were unreachable and three minutes of silence were enough to close
+  // it. The dispatcher had already been fixed with `resolveTurnAlive` (see
+  // above); the sweeper, ten lines further down, had not.
   sweepStaleStreams({
     now: () => Date.now(),
     timeoutMs: STALE_STREAM_TIMEOUT_MS,
@@ -4177,10 +4183,15 @@ const staleStreamTimer = setInterval(() => {
     silence: staleStreamSilence,
     getMessageById,
     humanHoldAgeMs,
-    childAlive: (sk) => prov?.isTurnProcessAlive?.(sk),
+    childAlive: (sk) => childAliveForSweep(sk),
     resyncStream: (sk) => {
-      prov?.resyncStream?.(sk)
-        .catch((err) => console.warn(`[StaleStream] resync failed for ${sk}:`, err));
+      // The rescue went to claude-code too: for somebody else's turn it was a
+      // mute no-op, a recovery attempt that attempted nothing.
+      const owner = resolveSessionOwner(sk) as
+        | { resyncStream?: (sk: string) => Promise<boolean> }
+        | null;
+      owner?.resyncStream?.(sk)
+        ?.catch((err) => console.warn(`[StaleStream] resync failed for ${sk}:`, err));
     },
     cancelAsk,
     updateStreamActivity: (sk) => ctx.updateStreamActivity(sk),

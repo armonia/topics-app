@@ -611,6 +611,50 @@ export function initProvider(config?: ProviderConfig): AIProvider {
  * provider che non riconosce la sessione o che non ha la sonda risponde `null`,
  * ed è la risposta onesta: nessuno viene sepolto sull'ignoranza di nessuno.
  */
+/**
+ * Which provider owns this session, when anyone can say.
+ *
+ * Same routing rule as `resolveTurnAlive`, exposed because the liveness probe
+ * was not the only thing being asked of the wrong provider: the sweeper's
+ * `resyncStream` was hardwired to `claude-code` too, so the rescue attempt for
+ * somebody else's turn was a silent no-op — a recovery that recovered nothing.
+ */
+export function resolveSessionOwner(sessionKey: string): unknown | null {
+  for (const [, p] of _providers) {
+    const probe = p as unknown as { ownsSession?: (sk: string) => boolean };
+    if (typeof probe.ownsSession !== "function") continue;
+    try {
+      if (probe.ownsSession(sessionKey)) return p;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * The probe the stale-stream sweeper must use — given a NAME, because the defect
+ * lived entirely in the WIRING and an unnamed expression cannot be tested.
+ *
+ * Measured on 2026-08-28 against a real turn (topic:0299ac2d): the sweeper asked
+ * `claude-code` whether the child of a NATIVE session was alive. That provider
+ * reads its own `processes` map, does not find a session that was never its own,
+ * and answers `false` — "I looked and it is dead" — instead of staying quiet.
+ * `staleStreamVerdict` discards anything that is not `true`, so for every native
+ * turn the "rescue" and "extend" branches were unreachable by construction: three
+ * minutes of silence was enough to close a turn, alive or not. The signature was
+ * already in the logs and nobody had read it: 64 finalizations, ZERO extensions,
+ * all 18 killed sessions on provider `topics`, all 12 protected ones claude-code.
+ *
+ * `null` (nobody can answer) becomes `undefined`, which the pure rule treats as
+ * dead. That is deliberate and unchanged: a sweeper that never finalizes would
+ * leave partial messages hanging forever. What changes is only WHO answers — the
+ * provider that actually holds the session.
+ */
+export function childAliveForSweep(sessionKey: string): boolean | undefined {
+  return resolveTurnAlive(sessionKey) ?? undefined;
+}
+
 export function resolveTurnAlive(sessionKey: string): boolean | null {
   for (const [, p] of _providers) {
     const probe = p as unknown as {
