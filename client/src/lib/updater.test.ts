@@ -78,3 +78,46 @@ describe("an available update is announced, because it no longer arrives by itse
     expect(shouldShowUpdaterToast(s, quiet)).toBe(false);
   });
 });
+
+describe('closing the banner means "not this version"', () => {
+  // 2026-08-27, reported twice in one evening:
+  //   "mi dice ANCORA nuova versione v2.2.200 disponibile"  allow-italian: the
+  //   reported words are what this test pins.
+  // Nothing was wrong with the message - the machine was 23 versions behind -
+  // but the "x" bought about four seconds. The boot check
+  // runs on every launch, an available update publishes non-silent on purpose,
+  // and the component reset `dismissed` on every status event, so the banner
+  // came back for the same version forever.
+  const seen = { dismissed: false, versionPopoverOpen: false, dismissedVersion: '2.2.200' };
+
+  test('the dismissed version stays quiet across a new check', () => {
+    expect(
+      shouldShowUpdaterToast({ state: 'update-available', version: '2.2.200' }, seen),
+    ).toBe(false);
+  });
+
+  test('a newer version speaks again — the rule must not become a mute button', () => {
+    expect(
+      shouldShowUpdaterToast({ state: 'update-available', version: '2.2.203' }, seen),
+    ).toBe(true);
+  });
+
+  test('only update-available is versioned: ready and error are not silenced', () => {
+    // `ready` is a downloaded binary waiting for a restart, `error` is something
+    // that just went wrong. Neither is "the announcement of version X", so the
+    // memory of a closed announcement must not reach them.
+    expect(shouldShowUpdaterToast({ state: 'ready', version: '2.2.200' }, seen)).toBe(true);
+    expect(shouldShowUpdaterToast({ state: 'error', error: 'boom' }, seen)).toBe(true);
+  });
+
+  test('nothing dismissed yet — the banner shows', () => {
+    const fresh = { dismissed: false, versionPopoverOpen: false, dismissedVersion: null };
+    expect(
+      shouldShowUpdaterToast({ state: 'update-available', version: '2.2.200' }, fresh),
+    ).toBe(true);
+  });
+
+  test('an update with no version cannot be remembered, so it always shows', () => {
+    expect(shouldShowUpdaterToast({ state: 'update-available' }, seen)).toBe(true);
+  });
+});

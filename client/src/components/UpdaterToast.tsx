@@ -30,13 +30,25 @@
 import { useEffect, useState } from 'react';
 import { useT } from '../hooks/useT';
 import { RefreshCw, Check, AlertCircle, Download } from 'lucide-react';
-import { getUpdaterApi, shouldShowUpdaterToast, type UpdaterStatus } from '@/lib/updater';
+import {
+  getUpdaterApi,
+  readDismissedUpdateVersion,
+  shouldShowUpdaterToast,
+  writeDismissedUpdateVersion,
+  type UpdaterStatus,
+} from '@/lib/updater';
 import { SidebarUpdateBanner } from './Shared/SidebarUpdateBanner';
 
 export function UpdaterToast() {
   const tr = useT();
   const [status, setStatus] = useState<UpdaterStatus>({ state: 'idle' });
   const [dismissed, setDismissed] = useState<boolean>(false);
+  // Closing the banner has to outlive the next status event, or it means
+  // nothing: read the last dismissed version once, keep it in state so the
+  // click takes effect without a reload. See shouldShowUpdaterToast.
+  const [dismissedVersion, setDismissedVersion] = useState<string | null>(() =>
+    readDismissedUpdateVersion(),
+  );
   // While the VersionPopover is open it OWNS the update surface: it anchors to
   // the same version chip and carries the full check/download/install flow, so
   // this toast rendering too stacked two update cards on top of each other
@@ -96,7 +108,7 @@ export function UpdaterToast() {
   // della sidebar: la larghezza gliela dà il layout, e non c'è nessuna
   // geometria da rileggere a mano.)
 
-  if (!shouldShowUpdaterToast(status, { dismissed, versionPopoverOpen })) return null;
+  if (!shouldShowUpdaterToast(status, { dismissed, versionPopoverOpen, dismissedVersion })) return null;
 
   const isReady = status.state === 'ready';
   const isError = status.state === 'error';
@@ -124,7 +136,19 @@ export function UpdaterToast() {
       }
       title={title}
       // Sticky on ready: no close button. Otherwise allow dismiss.
-      onDismiss={isReady ? undefined : () => setDismissed(true)}
+      onDismiss={
+        isReady
+          ? undefined
+          : () => {
+              setDismissed(true);
+              // On an available update the gesture also names the version, so
+              // the next check does not undo it.
+              if (status.state === 'update-available' && status.version) {
+                writeDismissedUpdateVersion(status.version);
+                setDismissedVersion(status.version);
+              }
+            }
+      }
     >
       {status.state === 'update-available' && (
         <button

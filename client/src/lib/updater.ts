@@ -36,12 +36,33 @@ export interface UpdaterStatus {
  */
 export function shouldShowUpdaterToast(
   status: UpdaterStatus,
-  opts: { dismissed: boolean; versionPopoverOpen: boolean },
+  opts: { dismissed: boolean; versionPopoverOpen: boolean; dismissedVersion?: string | null },
 ): boolean {
   if (status.state === 'idle') return false;      // niente da dire
   if (opts.dismissed) return false;               // l'utente l'ha chiuso
   if (opts.versionPopoverOpen) return false;      // lo direbbe due volte
   if (status.silent) return false;                // esito di un controllo al boot
+  // "x" HAS TO MEAN SOMETHING LONGER THAN FOUR SECONDS.
+  //
+  // Reported live 2026-08-27, twice, in these words:
+  //   "mi dice ANCORA nuova versione v2.2.200 disponibile"  allow-italian: the
+  //   report is the subject of the rule; the word carrying it means "still".
+  // The banner was right - that version existed and the machine was 23 behind -
+  // but closing it bought nothing. Every launch runs a check
+  // ~4s in, an available update is published non-silent by design (see the
+  // adapter), and the component's own listener resets `dismissed` on every
+  // status event. Dismissal was therefore scoped to a status change, i.e. to
+  // almost nothing.
+  //
+  // The fix is not to hide the update: that rule lived here once and was
+  // removed for a good reason, written out below. It is to give the close
+  // button the meaning a person reads into it - "not THIS version" - and let a
+  // genuinely newer one speak again.
+  if (
+    status.state === 'update-available' &&
+    !!status.version &&
+    status.version === opts.dismissedVersion
+  ) return false;
   // AN `autoUpdate` SUPPRESSION USED TO LIVE HERE, and its own last test said
   // why it had to go: "la regola vale solo dove l'aggiornamento arriva davvero
   // da se'". allow-italian: the removed rule's words are the argument for
@@ -52,6 +73,31 @@ export function shouldShowUpdaterToast(
   // case it was not written for: a visible window, an update that now waits for a
   // click, and an app with no way left to mention it.
   return true;
+}
+
+/** Where the dismissed version is remembered. Per browser profile, like every
+ *  other "I have seen this" flag in the client. */
+const DISMISSED_UPDATE_KEY = 'topics:updater:dismissed-version';
+
+/** The version whose banner the user closed, or null. Never throws: a locked
+ *  or unavailable storage means "nothing dismissed", which shows the banner -
+ *  the safe side, because the update is real. */
+export function readDismissedUpdateVersion(): string | null {
+  try {
+    return window.localStorage.getItem(DISMISSED_UPDATE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** Remember (or, with null, forget) the closed version. */
+export function writeDismissedUpdateVersion(version: string | null): void {
+  try {
+    if (version) window.localStorage.setItem(DISMISSED_UPDATE_KEY, version);
+    else window.localStorage.removeItem(DISMISSED_UPDATE_KEY);
+  } catch {
+    /* storage unavailable: the banner comes back, which is the honest default */
+  }
 }
 
 export interface ElectronUpdater {
