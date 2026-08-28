@@ -97,6 +97,11 @@ export const PROJECT_WORDS = new Set([
   // in `state-dir-single-door.test.ts`, where the whole point of the constant is
   // to name the SHAPE of a read the gate must catch.
   "destructure",
+  // Same hole again: `exec` is how every programmer says "execute" (exec,
+  // execSync, execve) and the 1934 list has none of them. It arrived with
+  // `onToolExecStart`, the signal that tells a tool ANNOUNCED apart from a
+  // tool RUNNING.
+  "exec", "executing",
 
   // the product and its parts. "org" is the schema's own word, not an
   // abbreviation someone chose in passing: the tables are `orgs` and

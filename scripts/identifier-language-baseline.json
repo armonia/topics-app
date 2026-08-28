@@ -2720,7 +2720,6 @@
       "ctl"
     ],
     "scripts/fix-node-pty-exec-bit.ts": [
-      "fixNodePtyExecBit",
       "prebuilds"
     ],
     "scripts/gen-migrations-manifest.ts": [
@@ -3227,7 +3226,6 @@
       "isCookieBrowser",
       "keychainKey",
       "listChromeCookieHosts",
-      "pExecFile",
       "pfx",
       "toCdpCookie"
     ],
@@ -4302,7 +4300,6 @@
       "stdout"
     ],
     "server/providers/codex/args.ts": [
-      "CodexExecArgsOptions",
       "buildCodexOneshotArgs"
     ],
     "server/providers/default-preference-acp.test.ts": [
@@ -5402,7 +5399,6 @@
       "visti"
     ],
     "server/services/review-checks.ts": [
-      "exec",
       "fmtMs"
     ],
     "server/services/task-automerge-delivery.test.ts": [
@@ -5537,9 +5533,6 @@
     "server/services/task-model-picker.test.ts": [
       "corpo",
       "lunga"
-    ],
-    "server/services/task-model-picker.ts": [
-      "execAvailable"
     ],
     "server/services/task-tab-persist.ts": [
       "upsertTaskTab"
