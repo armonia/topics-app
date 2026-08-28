@@ -945,6 +945,12 @@ const boardGlobalCapSchema = z.looseObject({
   type: z.literal('board:global-cap'),
   maxAgentsAuto: z.boolean(),
   maxAgents: z.number(),
+  // The two SPEND caps in USD cents, on the same '*' row and therefore in the
+  // same announcement: zero means unlimited, and that is the starting state.
+  // Optional: a server older than the counter does not send them, and the panel
+  // must read "no cap" instead of failing to update.
+  agentCostCapCents: z.optional(z.number()),
+  agentCostCapCents24h: z.optional(z.number()),
 });
 
 const boardSettingsSchema = z.looseObject({

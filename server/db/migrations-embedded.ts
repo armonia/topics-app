@@ -138,6 +138,8 @@ import m20260827041036_board_deploy_command from "./migrations/20260827041036-bo
 import m20260827041049_task_deploy_state from "./migrations/20260827041049-task-deploy-state.sql" with { type: "text" };
 import m20260827130000_terminal_session_type_kimi_code from "./migrations/20260827130000-terminal-session-type-kimi-code.sql" with { type: "text" };
 import m20260827140000_turn_checkpoints_enabled from "./migrations/20260827140000-turn-checkpoints-enabled.sql" with { type: "text" };
+import m20260828094441_spesa_agenti_in_centesimi from "./migrations/20260828094441-spesa-agenti-in-centesimi.sql" with { type: "text" };
+import m20260828094444_tetti_di_spesa_spenti from "./migrations/20260828094444-tetti-di-spesa-spenti.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -280,4 +282,6 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260827041049, name: "20260827041049-task-deploy-state.sql", sql: m20260827041049_task_deploy_state },
   { version: 20260827130000, name: "20260827130000-terminal-session-type-kimi-code.sql", sql: m20260827130000_terminal_session_type_kimi_code },
   { version: 20260827140000, name: "20260827140000-turn-checkpoints-enabled.sql", sql: m20260827140000_turn_checkpoints_enabled },
+  { version: 20260828094441, name: "20260828094441-spesa-agenti-in-centesimi.sql", sql: m20260828094441_spesa_agenti_in_centesimi },
+  { version: 20260828094444, name: "20260828094444-tetti-di-spesa-spenti.sql", sql: m20260828094444_tetti_di_spesa_spenti },
 ];

@@ -15,8 +15,10 @@
  * the file: whoever asks "where is this text" starts from what they can see.
  */
 import type { Dict } from './i18n-types';
+import SPEND_IT from './i18n-spend-it';
 
 const IT: Dict = {
+  ...SPEND_IT,
   'toolgroup.cost': 'Costo sommato delle azioni del gruppo',
 
   'app.showArchived': 'Mostra archiviati',

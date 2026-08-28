@@ -517,6 +517,10 @@ export interface BoardTask {
   agentMs: number;
   agentTokens: number;
   agentCacheReadTokens: number;
+  /** The agent's spend on this card, in USD cents. Priced by the server (the
+   *  price list lives there): multiplying tokens by a rate in here would give a
+   *  number different from the server's, i.e. two truths. */
+  agentCostCents: number;
   /** Direct-children counters (board badges: "↳ done/total"). */
   subtaskCount: number;
   subtaskDoneCount: number;
@@ -709,6 +713,22 @@ export interface GlobalSettings {
   maxAgentsAuto: boolean;
   /** The fixed machine-wide cap used when `maxAgentsAuto` is off. */
   maxAgents: number;
+  /**
+   * THE TWO SPEND CAPS in USD cents, and they are born at ZERO: zero means
+   * unlimited, i.e. no brake, which is the state of a fresh install. The client
+   * proposes no value for them: the cap line shows up only if a person wrote one.
+   */
+  agentCostCapCents: number;
+  agentCostCapCents24h: number;
+  /** What the agents have SPENT: the rolling 24h window and the total. Always
+   *  read, even with the caps off: they are the reason the counter exists. */
+  agentSpendCents24h: number;
+  agentSpendCentsTotal: number;
+  /** The share of consumption that could NOT be priced (model with no price
+   *  list), in equivalent tokens. Shown next to the number, or the total would
+   *  pretend to be complete. */
+  agentUnpricedCostTokens24h: number;
+  agentUnpricedCostTokensTotal: number;
 }
 
 /** One commit that a publish (push) would ship. */
@@ -999,6 +1019,16 @@ export const boardApi = {
       body: JSON.stringify({
         ...(patch.auto !== undefined ? { maxAgentsAuto: patch.auto } : {}),
         ...(patch.max !== undefined ? { maxAgents: patch.max } : {}),
+      }),
+    }),
+  /** Write the SPEND caps (a person, from the settings). Zero clears a cap: it
+   *  is the same door as the concurrency cap, row '*'. */
+  setSpendCaps: (patch: { perTaskCents?: number; perDayCents?: number }) =>
+    req<GlobalSettings>('/all-boards/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        ...(patch.perTaskCents !== undefined ? { agentCostCapCents: patch.perTaskCents } : {}),
+        ...(patch.perDayCents !== undefined ? { agentCostCapCents24h: patch.perDayCents } : {}),
       }),
     }),
 };

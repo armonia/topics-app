@@ -104,7 +104,7 @@ describe('currentCapLimit', () => {
     // Il numero fisso resta scritto sotto, ma in auto non è lui a valere:
     // mostrarlo sarebbe una bugia comoda, e il dispatcher applicherebbe altro.
     adoptGlobalCap({ maxAgentsAuto: true, maxAgents: 5 });
-    expect(currentCapLimit({ cap: { auto: true, max: 5 }, capacity: null, saving: false })).toBe(null);
+    expect(currentCapLimit({ cap: { auto: true, max: 5 }, capacity: null, saving: false, spend: null })).toBe(null);
   });
 });
 

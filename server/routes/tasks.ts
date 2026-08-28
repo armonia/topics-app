@@ -32,6 +32,7 @@ import { findDuplicateGroups } from "../../shared/task-similarity";
 import { isPreviewablePath } from "../../shared/media-kind";
 import { parseTaskPatch, unapplicableFieldsBody, checkConstraintBody, type FieldRead } from "./task-patch";
 import { getTerminalSessionById } from "./terminal";
+import { applySpendCapPatch, hasSpendCapPatch, spendCapFields, spendSnapshot } from "./task-spend-caps";
 import { deliverAnswer } from "../lib/ask-user-bridge";
 import { answerRoutedAsk, pendingRoutedAsk } from "../services/board-ask-routing";
 import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, isArchiveParkedLabel, isLandActionLabel, isPromoteParkedLabel, isPublishActionLabel, isRequeueParkedLabel, isTakeOverParkedLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
@@ -2066,7 +2067,14 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       if (method === "GET") {
         try {
           const cap = svc.getGlobalCap();
-          return json({ autoDispatch: svc.getGlobalAutoDispatch(), maxAgentsAuto: cap.auto, maxAgents: cap.max });
+          // The spend travels with the caps and is read even when they are off:
+          // `task-spend-caps.ts` says why, and owns the field names.
+          return json({
+            autoDispatch: svc.getGlobalAutoDispatch(),
+            maxAgentsAuto: cap.auto,
+            maxAgents: cap.max,
+            ...spendSnapshot(svc),
+          });
         } catch (e) { return fail(e); }
       }
       if (method === "PATCH") {
@@ -2074,8 +2082,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const hasAuto = typeof body?.autoDispatch === "boolean";
         const hasCapAuto = typeof body?.maxAgentsAuto === "boolean";
         const hasCapMax = Number.isFinite(body?.maxAgents);
-        if (!hasAuto && !hasCapAuto && !hasCapMax) {
-          return json({ error: "autoDispatch, maxAgentsAuto (boolean) and/or maxAgents (number) required", code: "invalid_input" }, 400);
+        const hasSpend = hasSpendCapPatch(body);
+        if (!hasAuto && !hasCapAuto && !hasCapMax && !hasSpend) {
+          return json({ error: "autoDispatch, maxAgentsAuto (boolean), maxAgents, agentCostCapCents and/or agentCostCapCents24h (number) required", code: "invalid_input" }, 400);
         }
         try {
           let autoDispatch = svc.getGlobalAutoDispatch();
@@ -2091,9 +2100,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               max: hasCapMax ? body.maxAgents : undefined,
             });
           }
+          // The spend caps are written by a PERSON, from here. Zero clears a cap.
+          if (hasSpend) applySpendCapPatch(svc, body);
           const cap = svc.getGlobalCap();
-          broadcastToAll({ type: "board:global-cap", maxAgentsAuto: cap.auto, maxAgents: cap.max });
-          return json({ autoDispatch, maxAgentsAuto: cap.auto, maxAgents: cap.max });
+          const caps = spendCapFields(svc);
+          broadcastToAll({ type: "board:global-cap", maxAgentsAuto: cap.auto, maxAgents: cap.max, ...caps });
+          return json({ autoDispatch, maxAgentsAuto: cap.auto, maxAgents: cap.max, ...caps });
         } catch (e) { return fail(e); }
       }
       return null;

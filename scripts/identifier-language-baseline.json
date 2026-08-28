@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-08-27",
+  "generated": "2026-08-28",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -409,9 +409,6 @@
     "client/src/components/Chat/toolGrouping.test.ts": [
       "parziale",
       "tutta"
-    ],
-    "client/src/components/Chat/toolGrouping.ts": [
-      "usd"
     ],
     "client/src/components/Chat/toolIcons.ts": [
       "LucideIcon"
@@ -2373,16 +2370,13 @@
     ],
     "scripts/board-arms.ts": [
       "committed",
-      "costUsd",
       "rec",
       "resummarise",
       "summarise",
       "xhigh"
     ],
     "scripts/board-baseline.ts": [
-      "bracketCostUsd",
       "buf",
-      "costUsd",
       "cov",
       "fmtTok",
       "makeRng",
@@ -2390,8 +2384,7 @@
       "numstatCache",
       "quantile",
       "rng",
-      "skipped",
-      "usdPerMRead"
+      "skipped"
     ],
     "scripts/board-cases.ts": [
       "assenti",
@@ -2447,12 +2440,9 @@
       "boardTaskStmt",
       "fmtTok",
       "fmtUsd",
-      "highUsd",
       "ident",
-      "lowUsd",
       "multi",
-      "rewritten",
-      "usd"
+      "rewritten"
     ],
     "scripts/branch-audit.ts": [
       "deletable",
@@ -2805,7 +2795,6 @@
       "compattazioni",
       "conta",
       "corpo",
-      "costUsd",
       "cred",
       "dTok",
       "perche",
@@ -2816,7 +2805,6 @@
       "turnConRitenti"
     ],
     "scripts/mcp-cap-bench/compact-sim.ts": [
-      "costUsd",
       "dTok",
       "scarto"
     ],
@@ -4635,8 +4623,6 @@
       "scartata",
       "soloCompattazione",
       "uevt",
-      "usd",
-      "usdFromProvider",
       "verdetto",
       "vuota"
     ],

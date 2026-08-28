@@ -34,6 +34,13 @@ import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
 import { CODE_GATES_RULE, DISPATCH_CHIP_QUEUED, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap } from "./dispatch-capacity";
+import {
+  bookSessionCost,
+  createSpendBrake,
+  overTaskSpendCap,
+  taskSpendMessage,
+  type SessionLedger,
+} from "./task-dispatcher-spend-cap";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import {
   classifyTurnError,
@@ -823,6 +830,25 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       return reason;
     } catch { return null; }
   }
+
+  // THE SPEND BRAKE lives in `task-dispatcher-spend-cap.ts`: it is born OFF
+  // (zero = unlimited), it refuses the NEXT turn instead of cutting one in half,
+  // and it fails OPEN on anything it cannot read. What stays here is the wiring
+  // and the note in the card's thread, which needs `noteHold`.
+  const spendBrake = createSpendBrake({
+    getSpendCaps: () => deps.svc.getSpendCaps(),
+    spent24hCents: () => deps.svc.agentSpend().cents24h,
+    log,
+  });
+
+  /**
+   * "The next turn does not start, and here is how much and which cap". Once per
+   * episode, like the other waits: the difference is that this one does not
+   * dissolve on its own, so the sentence also says what dissolves it.
+   */
+  function noteSpendHold(task: Task, capCents: number): void {
+    noteHold(spendHeldNoted, task, taskSpendMessage(task.agentCostCents, capCents));
+  }
   /**
    * Errori del PROVIDER di fila su un task, per non fargli pagare i tentativi.
    *
@@ -1050,6 +1076,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // Stessa disciplina: una nota per EPISODIO. Si svuota nel giro in cui il tetto
   // torna a lasciar passare quella card, così la prossima pienezza lo ridice.
   const capHeldNoted = new Set<string>();
+  // Tasks already told "you are over the spend cap". Same discipline as the sets
+  // above, with one difference that matters: this wait does not end by itself.
+  // The cap is raised (or the card is closed) by a person, so the note is
+  // forgotten only when the card really starts again, and in the meantime it is
+  // not repeated at every poll.
+  const spendHeldNoted = new Set<string>();
   // Da QUANDO un task pesante è trattenuto dal carico (ms). Serve al tetto
   // dell'attesa (`HEAVY_HOLD_MAX_MS`): senza un istante di inizio «trattenuto da
   // troppo» non è una condizione misurabile, è un'impressione. Si azzera appena
@@ -1288,8 +1320,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // durante un turno vivo lo sposta sotto i piedi di chi sta lavorando —
   // 40.000 al posto di 90.000, misurato. Con una riga per sessione, ogni
   // contatore si muove solo per conto proprio e solo verso l'alto.
-  interface SessionLedger { offset: SessionUsage; tokens: number; cacheRead: number; }
-  interface TaskLedger { base: number; baseCacheRead: number; sessions: Map<string, SessionLedger>; }
+  //
+  // THE CENTS travel on the same row as the tokens, and the row itself
+  // (`SessionLedger`) plus the pricing of one session live in
+  // `task-dispatcher-spend-cap.ts`.
+  interface TaskLedger { base: number; baseCacheRead: number; baseCents: number; sessions: Map<string, SessionLedger>; }
   const usageLedgers = new Map<string, TaskLedger>();
 
   /** Il registro non serve più quando il task esce dalle mani del dispatcher. */
@@ -1300,17 +1335,34 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * qui, da una lettura RIUSCITA: è il punto che rende impossibile ri-ancorare
    * su uno zero finto.
    */
-  function usageRow(taskId: string, sessionKey: string, reading: SessionUsage): SessionLedger | null {
+  function usageRow(taskId: string, sessionKey: string, reading: SessionUsage, model?: string | null): SessionLedger | null {
     let ledger = usageLedgers.get(taskId);
     if (!ledger) {
       const t = deps.svc.get(taskId)?.task;
       if (!t) return null;
-      ledger = { base: t.agentTokens ?? 0, baseCacheRead: t.agentCacheReadTokens ?? 0, sessions: new Map() };
+      ledger = {
+        base: t.agentTokens ?? 0,
+        baseCacheRead: t.agentCacheReadTokens ?? 0,
+        baseCents: t.agentCostCents ?? 0,
+        sessions: new Map(),
+      };
       usageLedgers.set(taskId, ledger);
     }
     let s = ledger.sessions.get(sessionKey);
-    if (!s) { s = { offset: reading, tokens: 0, cacheRead: 0 }; ledger.sessions.set(sessionKey, s); }
+    if (!s) {
+      s = { offset: reading, tokens: 0, cacheRead: 0, costCents: 0, unpricedCostTokens: 0, model: model ?? taskModel(taskId) };
+      ledger.sessions.set(sessionKey, s);
+    }
+    // The model can arrive after the anchor (from a path that did not hold it).
+    // A hole gets filled, nothing gets overwritten: changing it mid-session would
+    // re-price backwards tokens already counted at the other rate.
+    else if (!s.model && model) s.model = model;
     return s;
+  }
+
+  /** The model written on the card: the fallback when the path does not carry one. */
+  function taskModel(taskId: string): string | null {
+    try { return deps.svc.get(taskId)?.task.model ?? null; } catch { return null; }
   }
 
   /**
@@ -1322,12 +1374,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * in cui il vecchio codice prendeva `usage0`, e la sola differenza è che
    * adesso quel punto SOPRAVVIVE al turno.
    */
-  function anchorUsage(taskId: string, sessionKey: string): SessionUsage | null {
+  function anchorUsage(taskId: string, sessionKey: string, model?: string | null): SessionUsage | null {
     if (!sessionKey) return null;
     try {
       const reading = sessionUsage(sessionKey);
       if (!reading) return null;
-      usageRow(taskId, sessionKey, reading);
+      usageRow(taskId, sessionKey, reading, model);
       return reading;
     } catch { return null; }
   }
@@ -1338,20 +1390,28 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * due volte non conta due volte, e non chiamarla affatto per un turno non
    * perde quel turno — lo recupera la chiamata dopo.
    */
-  function bookUsageFloor(taskId: string, sessionKey: string): void {
+  function bookUsageFloor(taskId: string, sessionKey: string, model?: string | null): void {
     if (!sessionKey) return;
     try {
       const reading = sessionUsage(sessionKey);
       if (!reading) return;                       // non si sa: non si muove niente
-      const s = usageRow(taskId, sessionKey, reading);
+      const s = usageRow(taskId, sessionKey, reading, model);
       if (!s) return;
       s.tokens = Math.max(s.tokens, reading.billableTokens - s.offset.billableTokens);
       s.cacheRead = Math.max(s.cacheRead, reading.cacheReadTokens - s.offset.cacheReadTokens);
+      bookSessionCost(s, reading);
       const ledger = usageLedgers.get(taskId)!;
       let tokens = ledger.base;
       let cacheRead = ledger.baseCacheRead;
-      for (const row of ledger.sessions.values()) { tokens += row.tokens; cacheRead += row.cacheRead; }
-      emit(deps.svc.raiseAgentUsage({ taskId, tokens, cacheReadTokens: cacheRead }));
+      let costCents = ledger.baseCents;
+      let unpriced = 0;
+      for (const row of ledger.sessions.values()) {
+        tokens += row.tokens;
+        cacheRead += row.cacheRead;
+        costCents += row.costCents;
+        unpriced += row.unpricedCostTokens;
+      }
+      emit(deps.svc.raiseAgentUsage({ taskId, tokens, cacheReadTokens: cacheRead, costCents, unpricedCostTokens: unpriced }));
     } catch { /* metrics never break the loop */ }
   }
 
@@ -1875,7 +1935,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       const timeoutMs = Math.max(1, settings.timeoutMin) * 60_000;
       const idleMs = Math.max(1, settings.idleMin) * 60_000;
       const t0 = Date.now();
-      const usage0 = anchorUsage(taskId, sessionKey);
+      const usage0 = anchorUsage(taskId, sessionKey, chosenModel ?? null);
       startLiveTurn(task, sessionKey, t0, usage0, chosenModel ?? null);
       let turnEnd: TurnEndInfo | undefined;
       try {
@@ -1892,7 +1952,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // è assoluto e monotono, quindi scriverli qui e riscriverli dopo non è un
       // doppio conteggio — mentre non scriverli affatto era la perdita
       // definitiva (il turno dopo si ri-ancorava più avanti).
-      bookUsageFloor(taskId, sessionKey);
+      bookUsageFloor(taskId, sessionKey, chosenModel ?? null);
       // Buried by the liveness net while this promise hung on a dead child: the
       // net already closed the turn (accounting + recovery) and a fresh run may
       // own the task by now. A zombie books no TIME and touches no worktree —
@@ -2070,7 +2130,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (idx === 1) {
         try { deps.svc.bindTopic({ taskId: task.id, topicId: topic.topicId }); } catch { /* il fan-out vive lo stesso */ }
       }
-      usage0 = anchorUsage(task.id, sessionKey);
+      usage0 = anchorUsage(task.id, sessionKey, opts.model ?? null);
       const turnEnd = (await deps.runTurn(sessionKey, buildFanoutKickoff(task, idx, total), {
         timeoutMs: opts.timeoutMs,
         idleMs: opts.idleMs,
@@ -2111,7 +2171,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // registro tiene una riga per SESSIONE e le somma, quindi N tentativi su N
     // sessioni si sommano da soli: è l'unico posto in cui la somma è la
     // risposta giusta, e qui la dà la stessa funzione degli altri.
-    if (sessionKey) { bookUsageFloor(task.id, sessionKey); recordTurnMs(task.id, t0); }
+    if (sessionKey) { bookUsageFloor(task.id, sessionKey, opts.model ?? null); recordTurnMs(task.id, t0); }
   }
 
   /** Pota worktree e chat dei tentativi di un task (il vincitore, se c'è, resta). */
@@ -2801,7 +2861,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // Il pavimento prima del tetto: se la macchina non regge un altro agente,
     // il messaggio aspetta esattamente come aspetterebbe per uno slot pieno —
     // stessa coda, stesso chip, stessa promessa che niente si perde.
-    const floorBlock = admissionBlock();
+    // The spend brake comes through the SAME door as the resource floor, and for
+    // the same reason: the message is not lost, it waits. A cap that refused only
+    // new dispatches would let through the turn that starts from a review
+    // rejection, which is exactly the extra turn on an already expensive card.
+    const floorBlock = admissionBlock() ?? spendBrake.dayBlock() ?? spendBrake.taskBlock(t.agentCostCents);
     // Le corse dei gate occupano slot come gli agenti: un resume che trovasse
     // un posto «libero» ignorando i gate lancerebbe un agente in piu' proprio
     // mentre la macchina e' gia' al limite per i check.
@@ -2858,7 +2922,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       let idleMin = 5;
       try { idleMin = deps.svc.getBoardSettings(t.projectId).dispatchIdleMin; } catch { /* default */ }
       const t0 = Date.now();
-      const usage0 = anchorUsage(taskId, sessionKey);
+      const usage0 = anchorUsage(taskId, sessionKey, t.model ?? null);
       startLiveTurn(t, sessionKey, t0, usage0, t.model ?? null);
       // IL SOLLECITO PASSA DAL CANCELLO, LA RIPRESA NO.
       //
@@ -2883,7 +2947,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         })) || undefined;
       }
       catch (err) { log(`resume turn failed for ${taskId}`, err); turnEnd = classifyTurnError(err); }
-      bookUsageFloor(taskId, sessionKey);   // prima della guardia: vedi launch
+      bookUsageFloor(taskId, sessionKey, t.model ?? null);   // prima della guardia: vedi launch
       if (!ownsRun(taskId, runId)) return; // buried mid-turn (see launch)
       endLiveTurn(taskId);
       recordTurnMs(taskId, t0);
@@ -2914,7 +2978,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       let idleMin = 5;
       try { idleMin = deps.svc.getBoardSettings(t.projectId).dispatchIdleMin; } catch { /* default */ }
       const t0 = Date.now();
-      const usage0 = anchorUsage(taskId, sessionKey);
+      const usage0 = anchorUsage(taskId, sessionKey, t.model ?? null);
       startLiveTurn(t, sessionKey, t0, usage0, t.model ?? null);
       let turnEnd: TurnEndInfo | undefined;
       try {
@@ -2924,7 +2988,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         })) || undefined;
       }
       catch (err) { log(`reattach turn failed for ${taskId}`, err); turnEnd = classifyTurnError(err); }
-      bookUsageFloor(taskId, sessionKey);   // prima della guardia: vedi launch
+      bookUsageFloor(taskId, sessionKey, t.model ?? null);   // prima della guardia: vedi launch
       if (!ownsRun(taskId, runId)) return; // buried mid-turn (see launch)
       endLiveTurn(taskId);
       recordTurnMs(taskId, t0);
@@ -3241,7 +3305,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // nuovo ad aprire una worktree, cioè a consumare esattamente la risorsa che
     // sta finendo. Letto una volta per tick: la domanda è sulla macchina, non
     // sulla card, e chiederlo per ogni todo sarebbe una statfs per riga.
-    const floorBlock = admissionBlock();
+    const floorBlock = admissionBlock() ?? spendBrake.dayBlock();
+    // The spend caps, read ONCE per tick from the same '*' row that carries the
+    // concurrency cap. With the caps off (zero = unlimited, the state of a fresh
+    // install) this is the only extra read of the loop: no sum over the spend
+    // ledger, and the per-card check below leaves immediately.
+    const caps = spendBrake.caps();
 
     // Chi NON è più trattenuto dal tetto dimentica l'episodio, così una prossima
     // attesa lo dice di nuovo invece di restare muta. Si guarda chi è PARTITO
@@ -3300,6 +3369,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
 
     for (const [idx, t] of todos.entries()) {
       if (inFlight.has(t.id)) continue;
+      // PER-CARD SPEND BRAKE, and only when a cap is set. Not a `break`: this
+      // card does not start, the others have nothing to do with it (the per-card
+      // cap is its own). The line in the thread is written once per episode and
+      // says how much and which cap, because the wait does not dissolve by itself.
+      if (caps.perTaskCents > 0 && overTaskSpendCap(t.agentCostCents, caps.perTaskCents)) {
+        noteSpendHold(t, caps.perTaskCents);
+        continue;
+      }
       if (floorBlock) {
         // Il chip, non un commento: qui si passa a ogni tick, e un commento per
         // tick trasformerebbe un disco pieno in mille righe nel thread. La card
@@ -3459,6 +3536,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // volta che quella card aspetta un posto tornerebbe a restare muta, che è
       // esattamente il difetto che si sta chiudendo.
       capHeldNoted.delete(t.id);
+      // Same for the spend brake: this card started, so the episode is closed. If
+      // it goes through the cap again tomorrow, it says so again.
+      spendHeldNoted.delete(t.id);
       if (forced) {
         const atteso = Math.round(heldForMs(t) / 60_000);
         heavyHoldSince.delete(t.id);
@@ -3648,7 +3728,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // `else` era il terzo posto in cui un turno spariva. Il tempo no — senza
     // `turnStartedAt` non c'è un inizio da cui misurarlo, e un'attesa inventata
     // è peggio di un'attesa mancante.
-    bookUsageFloor(taskId, slot.sessionKey);
+    bookUsageFloor(taskId, slot.sessionKey, lt?.model ?? null);
     if (lt) recordTurnMs(taskId, lt.turnStartedAt);
     log(`liveness: sessione ${slot.sessionKey} morta con il turno ancora aperto → recupero il task ${taskId}`);
     // The rule lives in `lib/dead-run-note.ts`, pure and tested: applied here.
@@ -3996,6 +4076,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     for (const t of retryWaits.values()) clearTimeout(t);
     retryWaits.clear();
     waitingForSlot.clear();
+    spendHeldNoted.clear();
     pendingResume.clear();
     // Senza questa riga un dispatcher spento resterebbe iscritto e continuerebbe
     // a scrivere chip su un DB che non è più il suo — e i test, che ne creano

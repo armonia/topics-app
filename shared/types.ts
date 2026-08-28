@@ -626,6 +626,21 @@ export interface SessionCostProbe {
   messages: number;
   model: string | null;
   lastTurn: TurnCostProbe | null;
+  /**
+   * THE AGENT'S SPEND on this session, in dollars, when the session is the one of
+   * a board card.
+   *
+   * It belongs here because without it the probe was BLIND precisely on the
+   * agent: it sums `messages.cost_cents`, which is the chat ledger, while a
+   * dispatched agent writes on the card (`tasks.agent_cost_cents`). Two ledgers
+   * that do not add up on their own, and the second one appeared in no dollar
+   * figure at all. `0` = no card behind this session (or nothing spent).
+   */
+  agentUsd: number;
+  /** The card's equivalent consumption that could NOT be priced (model with no
+   *  price list), in tokens. Shown next to the number: a total that stays quiet
+   *  about the part it cannot price makes itself look complete. */
+  agentUnpricedCostTokens: number;
 }
 
 /** Forma del broadcast WS `providers:snapshot`. */
