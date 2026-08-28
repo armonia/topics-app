@@ -138,13 +138,16 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   const isError = status === 'error';
 
   // True when the whole point of the call is the question — the SDK's
-  // `AskUserQuestion` or its Topics MCP bridge twin (see
-  // server/providers/ask-user-detector.ts, which matches the same two names).
+  // `AskUserQuestion`, its Topics MCP bridge twin, or the BARE name the native
+  // runtime uses (it imports the same handlers without a fleet prefix). See
+  // server/providers/ask-user-detector.ts, which matches the same three names.
   // For those the args and the form are the same content, so the row shows
   // the form alone; every other suspended tool keeps its card too.
   const askIsTheWholeCall =
     toolCall.userInputSchema?.kind === 'questions' &&
-    (toolCall.name === 'AskUserQuestion' || toolCall.name.endsWith('__ask_user_question'));
+    (toolCall.name === 'AskUserQuestion'
+      || toolCall.name === 'ask_user_question'
+      || toolCall.name.endsWith('__ask_user_question'));
 
   // Auto-open rows that NEED to be open: sub-agent (action log is the
   // primary signal), waiting_for_input (the form is the row's whole

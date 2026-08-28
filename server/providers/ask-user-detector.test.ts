@@ -215,6 +215,30 @@ describe("detectUserInputRequest — unknown tools pass through", () => {
     expect(detectUserInputRequest({ name: "WebFetch", input: { url: "https://x" } })).toBeNull();
   });
 
+  /**
+   * THE NAME THE NATIVE RUNTIME USES.
+   *
+   * The same Topics tool arrives under two names. Through the MCP fleet it is
+   * `mcp__topics__ask_user_question`; the native runtime imports the very same
+   * handlers straight from `mcp/topics-mcp-server` (`topicsToolSpecs`), so
+   * there it is the BARE `ask_user_question`.
+   *
+   * Only the first one used to match, and the consequence was not a cosmetic
+   * one: the panel is rendered from this detector's verdict (the route comment
+   * on `/api/sessions/:key/ask-user` says it in as many words - it only
+   * supplies the answer CHANNEL). No verdict, no form: on 2026-08-28 a chat sat
+   * on a `running` ask with the question in the database and no control on
+   * screen for the human to answer it. The turn cannot end, and nobody can
+   * unblock it.
+   */
+  test("il nome NUDO del runtime nativo e' la stessa domanda", () => {
+    const schema = detectUserInputRequest({
+      name: "ask_user_question",
+      input: { questions: [{ question: "Come procediamo?", options: [{ label: "A" }, { label: "B" }] }] },
+    });
+    expect(schema?.kind).toBe("questions");
+  });
+
   test("name that prefix-matches askuser but isn't exact → null", () => {
     expect(
       detectUserInputRequest({

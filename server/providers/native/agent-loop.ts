@@ -23,6 +23,7 @@
 
 import { getAccessToken } from "./auth";
 import { CODING_TOOLS, executeTool, type ToolContext, type ToolSpec } from "./tools";
+import { detectUserInputRequest } from "../ask-user-detector";
 import { decide, DEFAULT_AUTONOMY } from "./permissions";
 import { applyPromptCache } from "../prompt-cache";
 import { needsCompaction, compact, windowFor } from "./compaction";
@@ -579,6 +580,22 @@ export async function runAgentTurn(
       // model was still writing the call; whoever suspends a watchdog on "a
       // tool is running" must hang it on this signal, not on that one.
       handler.onToolExecStart?.(t.id!);
+      // A TOOL THAT ASKS THE HUMAN NEEDS A FORM ON SCREEN, and this is where
+      // the native runtime says so.
+      //
+      // The panel is rendered from the detector's verdict - the answer channel
+      // (`/api/sessions/:key/ask-user`) only carries the reply back, and its
+      // own comment says the form is already up by the time it starts waiting.
+      // The CLI provider has always called the detector here; this runtime
+      // never did, so `ask_user_question` blocked the turn with the question
+      // sitting in the database and no control on screen. Observed on
+      // 2026-08-28: a chat parked for minutes, unanswerable by anyone.
+      //
+      // Fired BEFORE the call, because the handler is what blocks: it long
+      // polls for the answer, so anything published afterwards would arrive
+      // once the wait is already over.
+      const askSchema = detectUserInputRequest({ name: t.name!, input: t.input ?? {} });
+      if (askSchema) handler.onUserInputRequired?.(t.id!, t.name!, askSchema);
       const verdict = decide(t.name!, (t.input ?? {}) as Record<string, unknown>, opts.autonomy ?? DEFAULT_AUTONOMY);
       // Tre famiglie di tool, un solo giro. I mestieri di Topics passano dai
       // loro handler (`topics-tools.ts`), quelli di macchina dai nostri, e i

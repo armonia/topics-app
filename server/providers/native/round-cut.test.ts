@@ -79,21 +79,32 @@ const muteRound = sse([
 interface Ledger {
   done: number;
   errors: string[];
+  asks: Array<{ toolCallId: string; toolName: string; kind: string }>;
 }
 
 function handler(reg: Ledger): StreamHandler {
   return {
     onTextDelta: () => {},
     onToolStart: () => {},
+    onUserInputRequired: (toolCallId, toolName, schema) => {
+      reg.asks.push({ toolCallId, toolName, kind: (schema as { kind: string }).kind });
+    },
     onToolResult: () => {},
     onDone: () => { reg.done++; },
     onError: (e: string) => { reg.errors.push(e); },
   };
 }
 
-async function turn(corpo: string) {
-  globalThis.fetch = (async () => new Response(corpo, { status: 200 })) as unknown as typeof fetch;
-  const reg: Ledger = { done: 0, errors: [] };
+async function turn(...bodies: string[]) {
+  // One body per ROUND, the last one repeating. A round that ends with
+  // `tool_use` sends the loop back for another, so a single body would replay
+  // the same round until the loop's own cap.
+  let n = 0;
+  globalThis.fetch = (async () => {
+    const body = bodies[Math.min(n++, bodies.length - 1)]!;
+    return new Response(body, { status: 200 });
+  }) as unknown as typeof fetch;
+  const reg: Ledger = { done: 0, errors: [], asks: [] };
   const history: AgentMessage[] = [{ role: "user", content: "scrivi un file" }];
   const out = await runAgentTurn(
     { model: "claude-haiku-4-5-20251001", history, toolContext: { workspace: ws }, autonomy: "auto-apply" },
@@ -154,4 +165,47 @@ describe("il giro che muore a meta' non e' una fine naturale", () => {
     const { out } = await turn(muteRound);
     expect(out.turnEnd.end).toBe("end_turn");
   });
+
+  describe("una domanda all'umano si vede a schermo", () => {
+    /**
+     * THE PANEL IS RENDERED FROM THIS SIGNAL, not from the answer channel: the
+     * `/api/sessions/:key/ask-user` route says so in its own comment, it only
+     * carries the reply back. The CLI provider has always emitted it; this
+     * runtime never did, so on 2026-08-28 a chat sat on a `running` ask with the
+     * question in the database and nothing on screen to answer it. The turn
+     * cannot end and nobody can unblock it.
+     */
+    test("il ciclo nativo chiede l'input PRIMA di eseguire il tool che blocca", async () => {
+      const { reg } = await turn(askRound, healthyRound);
+      expect(reg.asks.length).toBe(1);
+      expect(reg.asks[0]!.toolName).toBe("ask_user_question");
+      expect(reg.asks[0]!.toolCallId).toBe("tu_ask");
+      // `questions`, not the `raw` fallback: the human gets buttons, not a blob.
+      expect(reg.asks[0]!.kind).toBe("questions");
+    });
+
+    test("un tool qualunque non apre nessun pannello", async () => {
+      const { reg } = await turn(healthyRound);
+      expect(reg.asks.length).toBe(0);
+    });
+  });
 });
+/**
+ * A round in which the model asks the HUMAN, using the bare name the native
+ * runtime gives the tool (it imports the Topics handlers straight from
+ * `mcp/topics-mcp-server`, so there is no fleet prefix).
+ */
+const askRound = sse([
+  { type: "message_start", message: { usage: { input_tokens: 5 } } },
+  { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "tu_ask", name: "ask_user_question", input: {} } },
+  {
+    type: "content_block_delta",
+    index: 0,
+    delta: {
+      type: "input_json_delta",
+      partial_json: '{"questions":[{"header":"Doc","question":"Come procediamo?","options":[{"label":"A","description":"a"},{"label":"B","description":"b"}]}]}',
+    },
+  },
+  { type: "content_block_stop", index: 0 },
+  { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 4 } },
+]);

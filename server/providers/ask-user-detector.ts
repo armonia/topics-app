@@ -41,8 +41,26 @@ export function detectUserInputRequest(toolUse: ToolUseLike): UserInputSchema | 
   // where it is absent, so the model can never emit it. The Topics bridge
   // re-exposes the exact same contract as `mcp__topics__ask_user_question`
   // (see server/mcp/topics-mcp-server.ts) — same `questions` input shape — so
-  // it renders through the identical `kind: "questions"` panel. Match either.
-  if (toolUse.name === "AskUserQuestion" || toolUse.name.endsWith("__ask_user_question")) {
+  // it renders through the identical `kind: "questions"` panel.
+  //
+  // AND THE BARE NAME, which is the SAME tool once more. The native runtime
+  // imports the Topics handlers straight from `mcp/topics-mcp-server`
+  // (`topicsToolSpecs`), so there the tool has no fleet prefix at all: it is
+  // plain `ask_user_question`. Matching only the prefixed form left that
+  // runtime with a question nobody could answer - the panel is rendered from
+  // THIS verdict (the `/api/sessions/:key/ask-user` route only supplies the
+  // answer channel, and says so), so no verdict meant no form. Observed on
+  // 2026-08-28: a chat parked on a `running` ask, the question sitting in the
+  // database, and no control on screen. The turn cannot end and nobody can
+  // unblock it.
+  //
+  // Exact match on the bare name, not a suffix: `endsWith("ask_user_question")`
+  // would also swallow somebody else's `my_ask_user_question`.
+  if (
+    toolUse.name === "AskUserQuestion"
+    || toolUse.name === "ask_user_question"
+    || toolUse.name.endsWith("__ask_user_question")
+  ) {
     const input = toolUse.input as { questions?: unknown } | undefined;
     if (!input || !Array.isArray(input.questions) || input.questions.length === 0) {
       // Malformed: fall through to raw so the user can still answer.
