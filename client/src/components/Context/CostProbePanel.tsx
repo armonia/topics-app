@@ -67,12 +67,12 @@ export function CostProbePanel({ probe }: { probe: SessionCostProbe | null }) {
           data-testid="cost-probe-agent"
           className="mt-0.5 mb-1.5 flex items-baseline justify-between text-[11px] text-app-text-secondary"
         >
-          <span>Agente della board</span>
+          <span>{tr('cost.agent')}</span>
           <span className="tabular-nums font-medium text-app-text">
             {dollari(agentUsd)}
             {probe.agentUnpricedCostTokens > 0 && (
               <span className="ml-1 font-normal text-app-text-muted" data-testid="cost-probe-agent-unpriced">
-                (+{formatTokens(probe.agentUnpricedCostTokens)} non prezzabili)
+                {tr('cost.agentUnpriced', { tokens: formatTokens(probe.agentUnpricedCostTokens) })}
               </span>
             )}
           </span>

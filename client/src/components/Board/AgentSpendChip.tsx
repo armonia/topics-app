@@ -19,16 +19,13 @@
  * At zero spend there is no chip: a fresh install does not gain a placeholder
  * that says $0.00.
  */
+import { useT } from '../../hooks/useT';
 import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
 import { formatTokens } from '../../lib/formatTokens';
-
-/** Cents to dollars. Above one hundred dollars the cents are noise. */
-export function spendLabel(cents: number): string {
-  const v = cents / 100;
-  return v >= 100 ? `$${Math.round(v).toLocaleString('it-IT')}` : `$${v.toFixed(2)}`;
-}
+import { spendLabel } from './spendFormat';
 
 export function AgentSpendChip() {
+  const tr = useT();
   const spend = useGlobalDispatchCap().spend;
   if (!spend) return null;
   if (spend.cents24h <= 0 && spend.centsTotal <= 0) return null;
@@ -39,27 +36,27 @@ export function AgentSpendChip() {
     ? 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30'
     : 'bg-white/5 text-app-text-secondary';
 
-  const parti = [
-    `Agenti: ${spendLabel(spend.cents24h)} nelle ultime 24 ore`,
-    `${spendLabel(spend.centsTotal)} in tutto`,
+  const parts = [
+    tr('board.spend.chipWindow', { amount: spendLabel(spend.cents24h) }),
+    tr('board.spend.total', { amount: spendLabel(spend.centsTotal) }),
   ];
   if (spend.unpriced24h > 0) {
-    parti.push(`${formatTokens(spend.unpriced24h)} token non prezzabili non sono in questa cifra`);
+    parts.push(tr('board.spend.chipUnpriced', { tokens: formatTokens(spend.unpriced24h) }));
   }
   // The cap line ONLY if there is a cap: on an install without caps the tooltip
   // must not name a limit, not even to say there is none.
   if (capped) {
-    parti.push(
+    parts.push(
       over
-        ? `tetto giornaliero superato (${spendLabel(spend.capDayCents)}): il turno successivo non parte`
-        : `restano ${spendLabel(Math.max(0, spend.capDayCents - spend.cents24h))} sul tetto giornaliero`,
+        ? tr('board.spend.chipOver', { cap: spendLabel(spend.capDayCents) })
+        : tr('board.spend.chipLeft', { amount: spendLabel(Math.max(0, spend.capDayCents - spend.cents24h)) }),
     );
   }
 
   return (
     <span
       data-testid="agent-spend-chip"
-      title={parti.join(' · ')}
+      title={parts.join(' · ')}
       className={`flex h-6 items-center gap-1 rounded px-2 text-[11px] font-medium tabular-nums ${cls}`}
     >
       {spendLabel(spend.cents24h)}

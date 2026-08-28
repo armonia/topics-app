@@ -15,8 +15,10 @@
  * degraded state is one the app was always able to be in.
  */
 import type { Dict } from './i18n-types';
+import SPEND_EN from './i18n-spend-en';
 
 const EN = {
+  ...SPEND_EN,
   'toolgroup.cost': 'Summed cost of the actions in the group',
 
   'app.showArchived': 'Show archived',
