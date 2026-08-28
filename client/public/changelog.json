@@ -1,5 +1,42 @@
 [
   {
+    "version": "2.2.213",
+    "date": "2026-08-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "I comandi finestra toccavano il bottone Topics, e su Windows la finestra aveva due barre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un 503 su una risposta valida: la domanda si cercava solo nell'ultima riga",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La ripresa automatica non poteva vedere il cartello che la doveva accendere",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "propose amici-e-account (friends, account section, two-device proof)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "App.tsx sforava il tetto: la spiegazione torna accanto ai numeri",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.212",
     "date": "2026-08-28",
     "sections": {

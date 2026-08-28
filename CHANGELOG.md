@@ -2,6 +2,15 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.213 — 2026-08-28
+
+### Sotto il cofano
+- I comandi finestra toccavano il bottone Topics, e su Windows la finestra aveva due barre
+- Un 503 su una risposta valida: la domanda si cercava solo nell'ultima riga
+- La ripresa automatica non poteva vedere il cartello che la doveva accendere
+- propose amici-e-account (friends, account section, two-device proof)
+- App.tsx sforava il tetto: la spiegazione torna accanto ai numeri
+
 ## 2.2.212 — 2026-08-28
 
 ### Sotto il cofano
