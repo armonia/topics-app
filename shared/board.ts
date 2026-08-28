@@ -1850,7 +1850,7 @@ export function showsLandingDebt(task: {
  * (`landingState === 'landed'`), and the column itself (`review` = handed to a
  * human). Any one of them is enough.
  *
- * Measured on 18/08 on a landed parent: closing its last subtask released it as
+ * Measured on 28/08 on a landed parent: closing its last subtask released it as
  * if it were a peer blocker, and the parent went back to `in_progress` with an
  * agent on top of work that was already on main. Two damages, and the second is
  * the silent one: re-queueing wipes `landingState`, so the card stops saying it
