@@ -2183,3 +2183,37 @@ ridisegnato. Quel bersaglio SHALL quindi non accendersi affatto.
 - **GIVEN** lo stesso progetto con un gruppo e una pane
 - **WHEN** la scheda passa sopra la striscia a tutta larghezza
 - **THEN** la striscia SHALL non accendersi, e il rilascio SHALL non cambiare l'albero
+
+### Requirement: LAYOUT-30 — L'aria a sinistra del nome di una riga si paga UNA VOLTA, non una per colonna riservata
+
+La sidebar riserva due colonne che molte righe lasciano vuote: quella
+dell'accordion (LAYOUT-26) e quella del glifo di testa (LAYOUT-27). Una chat non
+disegna ne' l'uno ne' l'altro, ed e' la famiglia di righe piu' numerosa.
+
+`ROW_GAP` e' l'aria fra due PEZZI che devono respirare. Pagarla intera attorno a
+una scatola che non contiene niente la trasforma in rientro: sommata al rientro,
+al padding della riga e alle due scatole, portava la prima lettera a 60px dal
+bordo, misurati nel DOM vivo con un rect di `Range` sul nodo di testo.
+
+Una riga della sidebar SHALL quindi far cominciare l'inchiostro del nome entro
+`SIDEBAR_LABEL_GUTTER_MAX` dal bordo della sidebar, alla profondita' zero. Le
+colonne riservate SHALL chiudersi verso destra di META' gap e non di tutto: dove
+le due scatole disegnano davvero qualcosa — un progetto mostra chevron e poi
+favicon — a gap zero i due inchiostri arriverebbero a 2px e si leggerebbero come
+uno solo.
+
+Il rientro per profondita' NON e' compreso in questo tetto: e' una differenza
+VOLUTA, ed e' il modo in cui si legge la gerarchia. `SIDEBAR_INDENT_STEP` SHALL
+restare vivo e maggiore di zero.
+
+#### Scenario: la prima lettera alla profondita' zero
+- **GIVEN** la sidebar aperta con almeno una riga di chat alla profondita' zero
+- **WHEN** si misura la distanza fra il bordo sinistro della sidebar e il primo
+  inchiostro del nome, con un rect di `Range` sul nodo di testo
+- **THEN** quella distanza SHALL essere entro `SIDEBAR_LABEL_GUTTER_MAX`
+
+#### Scenario: la gerarchia si legge ancora
+- **GIVEN** due righe a profondita' diverse
+- **WHEN** si confrontano le due partenze del nome
+- **THEN** la differenza SHALL essere almeno `SIDEBAR_INDENT_STEP`, cioe' il
+  tetto sul rientro costante SHALL non aver spianato l'albero

@@ -263,3 +263,33 @@ with nobody the wiser.
 #### Scenario: a build that knows nothing keeps quiet
 - **GIVEN** a build with no recorded fingerprints (dev, or CI stub sidecars)
 - **THEN** no warning SHALL be shown
+
+### Requirement: UPDATER-03 — L'app RIGUARDA, non controlla una volta sola all'avvio
+
+Il controllo all'avvio basta a un'app che si riavvia. Topics e' un elemento di
+avvio che resta aperto per giorni: se quel controllo e' l'unico automatico,
+allora per una macchina accesa da mercoledi' non esiste nessun aggiornamento.
+
+Misurato sul PC Windows il 29/08/2026: l'ultimo pacchetto scaricato era la
+2.2.211 delle 21:23 del 28, e nel frattempo erano uscite la 2.2.212, 2.2.213,
+2.2.214 e 2.2.215 — nessuna scaricata. La catena di rilascio era sana
+(`latest.json` porta la voce `windows-x86_64` firmata) e la macchina sapeva
+aggiornarsi: nessuno gliel'ha piu' chiesto. Una correzione poteva quindi essere
+spedita e la persona su Windows continuava a vedere il difetto, perche' la cura
+stava due versioni piu' avanti di quanto la sua app le avrebbe mai proposto.
+
+L'app SHALL quindi ripetere il controllo a intervalli mentre resta aperta, e
+quel ripetersi SHALL essere SILENZIOSO come quello di avvio (UPDATER-01): un
+controllo periodico che annuncia «sei aggiornato» sarebbe un avviso che nessuno
+ha chiesto, quattro volte al giorno. Lo smontaggio SHALL fermare il giro, o una
+pagina che rimonta ne accumulerebbe uno in piu' ogni volta.
+
+#### Scenario: la macchina resta accesa
+- **GIVEN** l'app avviata e lasciata aperta oltre il periodo di ricontrollo
+- **WHEN** viene pubblicata una versione nuova dopo il controllo di avvio
+- **THEN** l'app SHALL controllare di nuovo senza nessun gesto dell'utente
+
+#### Scenario: si smonta
+- **GIVEN** il giro dei controlli avviato
+- **WHEN** viene fermato
+- **THEN** SHALL non arrivare nessun controllo successivo

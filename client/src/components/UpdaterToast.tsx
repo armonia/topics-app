@@ -38,6 +38,7 @@ import {
   type UpdaterStatus,
 } from '@/lib/updater';
 import { SidebarUpdateBanner } from './Shared/SidebarUpdateBanner';
+import { startUpdateChecks } from '@/lib/shell/updateCheckSchedule';
 
 export function UpdaterToast() {
   const tr = useT();
@@ -88,9 +89,14 @@ export function UpdaterToast() {
     // status arriva marcato non-silenzioso. Il controllo dal menu resta
     // rumoroso: lì l'esito l'ha chiesto l'utente, e "sei aggiornato" è la
     // risposta. (Entrambi gli host, Electron e Tauri.)
-    const bootCheck = window.setTimeout(() => {
+    // AND THEN IT LOOKS AGAIN. The boot check alone is enough for an app that
+    // gets restarted; Topics is a login item that stays open for days, so that
+    // single check was everything that ever happened. The why, and the
+    // measurement on the Windows machine, live in
+    // `lib/shell/updateCheckSchedule.ts`.
+    const stopChecks = startUpdateChecks(() => {
       api.checkForUpdates({ silent: true }).catch(() => {});
-    }, 4000);
+    });
 
     // Native menu "Controlla aggiornamenti…" (Tauri) dispatches this DOM event.
     const onMenuCheck = () => { api.checkForUpdates().catch(() => {}); };
@@ -98,7 +104,7 @@ export function UpdaterToast() {
 
     return () => {
       off?.();
-      window.clearTimeout(bootCheck);
+      stopChecks();
       window.removeEventListener('topics:check-for-updates', onMenuCheck);
     };
   }, []);

@@ -1,27 +1,26 @@
 /**
- * I TOKEN DEL RUNTIME NATIVO DEVONO USCIRE DALLA PORTA CHE LI SCRIVE SULLA RIGA.
+ * THE NATIVE RUNTIME'S TOKENS MUST LEAVE BY THE DOOR THAT WRITES THEM ON THE ROW.
  *
- * ── Il guasto ───────────────────────────────────────────────────────────────
- * Il conteggio di un turno ha DUE destinazioni, e il runtime nativo ne serviva
- * una sola. `recordTurnUsage` riempie il registro in memoria che il dispatcher
- * rilegge per il chip vivo sulla card; `handler.onCallUsage` e' l'altra porta,
- * quella che la rotta della chat accumula, deposita sulla colonna della riga e
- * spedisce al client. Il provider nativo non ha mai chiamato la seconda:
- * `grep -c onCallUsage server/providers/native/` dava 0, mentre claude-code la
- * chiama. Misurato sul DB vivo il 29/08/2026: 0 righe assistant su 147 nelle
- * ultime 24 ore portavano un conteggio, e l'ultima che ce l'aveva era del
- * 24/08 — il giorno in cui le sessioni sono passate a questo runtime.
- * Segnalato con queste parole: «non vedo piu' il consumo token nella chat
- * topics».
+ * ── The defect ──────────────────────────────────────────────────────────────
+ * A turn's tally has TWO destinations and the native runtime served only one.
+ * `recordTurnUsage` fills the in-memory registry the dispatcher polls for the
+ * card's live chip; `handler.onCallUsage` is the OTHER door: the chat route
+ * accumulates it, writes it onto the message row and broadcasts it to the
+ * client. The native provider never called the second one - `grep -c
+ * onCallUsage server/providers/native/` was 0, while claude-code calls it.
+ * Measured on the live DB on 2026-08-29: 0 of 147 assistant rows in the last 24
+ * hours carried a token count, and the last one that did was from 2026-08-24,
+ * the day sessions moved to this runtime. The report, in the user's own words:
+ * "non vedo piu' il consumo token nella chat topics". // allow-italian: quoted report
  *
- * Qui si guida il provider VERO (`sendChat`, non il ciclo sotto) contro un
- * finto stream SSE di due giri, e si guarda cosa arriva a `onCallUsage`. Il
- * ciclo aveva gia' il suo test (`round-usage.test.ts`, USAGE-03) e restava
- * verde con il difetto in piedi: il buco non era nel ciclo, era nel cablaggio
- * del provider, che nessun test attraversava.
+ * This drives the REAL provider (`sendChat`, not the loop underneath) against a
+ * fake two-round SSE stream and watches what reaches `onCallUsage`. The loop
+ * already had its own test (`round-usage.test.ts`, USAGE-03) and stayed green
+ * with the defect standing: the hole was not in the loop, it was in the
+ * provider's wiring, which no test crossed.
  *
- * Niente rete e niente credenziali vere: la `HOME` del test contiene un token
- * finto ma fresco, che e' tutto cio' che serve per non passare dal rinnovo.
+ * No network and no real credentials: the test's `HOME` holds a fake but fresh
+ * token, which is all it takes to skip the refresh path.
  * @covers USAGE-04
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
@@ -31,17 +30,17 @@ import { join } from "path";
 import { NativeProvider } from "./provider";
 import type { StreamHandler } from "../types";
 
-const HOME_VERA = process.env.HOME;
-const fetchVero = globalThis.fetch;
-let casa: string;
-let ws: string;
+const REAL_HOME = process.env.HOME;
+const realFetch = globalThis.fetch;
+let home: string;
+let workspace: string;
 
-/** Un evento SSE come lo manda l'API. */
+/** One SSE event, shaped the way the API sends it. */
 function sse(events: unknown[]): string {
   return events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join("");
 }
 
-const giroConTool = sse([
+const roundWithTool = sse([
   {
     type: "message_start",
     message: {
@@ -54,12 +53,12 @@ const giroConTool = sse([
     },
   },
   { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "tu_1", name: "read_file", input: {} } },
-  { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: '{"path":"non-esiste.txt"}' } },
+  { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: '{"path":"does-not-exist.txt"}' } },
   { type: "content_block_stop", index: 0 },
   { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 20 } },
 ]);
 
-const giroFinale = sse([
+const finalRound = sse([
   {
     type: "message_start",
     message: {
@@ -72,12 +71,12 @@ const giroFinale = sse([
     },
   },
   { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
-  { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "fatto" } },
+  { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "done" } },
   { type: "content_block_stop", index: 0 },
   { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 5 } },
 ]);
 
-type Consegna = {
+type Delivered = {
   inputTokens: number;
   outputTokens: number;
   cacheRead: number;
@@ -86,74 +85,75 @@ type Consegna = {
   model?: string;
 };
 
-function registratore(consegne: Consegna[]): StreamHandler {
+function recorder(into: Delivered[]): StreamHandler {
   return {
     onTextDelta: () => {},
     onToolStart: () => {},
     onToolResult: () => {},
     onDone: () => {},
     onError: () => {},
-    onCallUsage: (u) => consegne.push(u as Consegna),
+    onCallUsage: (u) => into.push(u as Delivered),
   };
 }
 
-describe("il provider nativo e la porta che scrive i token sulla riga", () => {
+describe("the native provider and the door that writes tokens on the row", () => {
   beforeAll(() => {
-    casa = mkdtempSync(join(tmpdir(), "native-callusage-home-"));
-    ws = mkdtempSync(join(tmpdir(), "native-callusage-ws-"));
-    mkdirSync(join(casa, ".claude"), { recursive: true });
+    home = mkdtempSync(join(tmpdir(), "native-callusage-home-"));
+    workspace = mkdtempSync(join(tmpdir(), "native-callusage-ws-"));
+    mkdirSync(join(home, ".claude"), { recursive: true });
     writeFileSync(
-      join(casa, ".claude", ".credentials.json"),
+      join(home, ".claude", ".credentials.json"),
       JSON.stringify({
-        claudeAiOauth: { accessToken: "finto-ma-fresco", refreshToken: "r", expiresAt: Date.now() + 3_600_000 },
+        claudeAiOauth: { accessToken: "fake-but-fresh", refreshToken: "r", expiresAt: Date.now() + 3_600_000 },
       }),
     );
-    process.env.HOME = casa;
+    process.env.HOME = home;
   });
 
   afterAll(() => {
-    globalThis.fetch = fetchVero;
-    if (HOME_VERA === undefined) delete process.env.HOME; else process.env.HOME = HOME_VERA;
-    for (const d of [casa, ws]) { try { rmSync(d, { recursive: true, force: true }); } catch { /* scratch */ } }
+    globalThis.fetch = realFetch;
+    if (REAL_HOME === undefined) delete process.env.HOME; else process.env.HOME = REAL_HOME;
+    for (const d of [home, workspace]) { try { rmSync(d, { recursive: true, force: true }); } catch { /* scratch */ } }
   });
 
-  test("ogni giro esce da onCallUsage, non solo dal registro interno", async () => {
-    const risposte = [giroConTool, giroFinale];
-    globalThis.fetch = (async () => new Response(risposte.shift() ?? giroFinale, { status: 200 })) as unknown as typeof fetch;
+  test("every round leaves through onCallUsage, not only through the internal registry", async () => {
+    const queue = [roundWithTool, finalRound];
+    globalThis.fetch = (async () => new Response(queue.shift() ?? finalRound, { status: 200 })) as unknown as typeof fetch;
 
-    const consegne: Consegna[] = [];
-    const provider = new NativeProvider({ type: "native", defaultWorkspace: ws, model: "claude-haiku-4-5-20251001" });
-    await provider.sendChat("topic:prova-usage", "leggi un file", registratore(consegne));
+    const delivered: Delivered[] = [];
+    const provider = new NativeProvider({ type: "native", defaultWorkspace: workspace, model: "claude-haiku-4-5-20251001" });
+    await provider.sendChat("topic:usage-probe", "read a file", recorder(delivered));
 
-    // DUE consegne, una per giro. Una sola vorrebbe dire che il conteggio
-    // arriva tutto alla fine, che era il guasto gia' curato nel ciclo; zero
-    // vuol dire che questa porta non e' collegata, che era il guasto qui.
-    expect(consegne.length).toBe(2);
+    // TWO deliveries, one per round. One would mean the tally only arrives at
+    // the end, which was the defect already cured inside the loop; zero means
+    // this door is not connected, which was the defect here.
+    expect(delivered.length).toBe(2);
   });
 
-  test("la forma consegnata e' quella che la rotta sa leggere", async () => {
-    const risposte = [giroFinale];
-    globalThis.fetch = (async () => new Response(risposte.shift() ?? giroFinale, { status: 200 })) as unknown as typeof fetch;
+  test("the delivered shape is the one the route knows how to read", async () => {
+    const queue = [finalRound];
+    globalThis.fetch = (async () => new Response(queue.shift() ?? finalRound, { status: 200 })) as unknown as typeof fetch;
 
-    const consegne: Consegna[] = [];
-    const provider = new NativeProvider({ type: "native", defaultWorkspace: ws, model: "claude-haiku-4-5-20251001" });
-    await provider.sendChat("topic:prova-forma", "di' fatto", registratore(consegne));
+    const delivered: Delivered[] = [];
+    const provider = new NativeProvider({ type: "native", defaultWorkspace: workspace, model: "claude-haiku-4-5-20251001" });
+    await provider.sendChat("topic:shape-probe", "say done", recorder(delivered));
 
-    expect(consegne.length).toBe(1);
-    const u = consegne[0];
-    // I nomi contano quanto i numeri: la rotta legge `inputTokens`, e il ciclo
-    // internamente li chiama `input`/`cacheWrite`. Una traduzione mancata qui
-    // lascerebbe la colonna vuota lo stesso, con tutti i campi a posto ma con
-    // le chiavi sbagliate — cioe' il difetto tornerebbe senza rompere niente.
+    expect(delivered.length).toBe(1);
+    const u = delivered[0];
+    // The names matter as much as the numbers: the route reads `inputTokens`,
+    // while the loop calls them `input`/`cacheWrite` internally. A missing
+    // translation here would leave the column empty just the same, with every
+    // field present under the wrong key - the defect would come back without
+    // breaking anything.
     expect(u.inputTokens).toBe(200);
     expect(u.outputTokens).toBe(5);
     expect(u.cacheRead).toBe(20);
     expect(u.cacheCreation).toBe(5);
-    // Quota DISGIUNTA, non un addendo: e' la parte di `cacheCreation` scritta
-    // con la durata di un'ora. Sommarla la conterebbe due volte nel prezzo.
+    // A DISJOINT share, not an addend: the part of `cacheCreation` written with
+    // a one-hour TTL. Adding it would bill that share twice.
     expect(u.cacheCreation1h).toBe(1);
-    // Senza il modello la rotta non sa a che tariffa contare, e il turno esce
-    // con i token ma senza prezzo.
+    // Without the model the route cannot pick a rate, and the turn comes out
+    // with its tokens but no price.
     expect(u.model).toBe("claude-haiku-4-5-20251001");
   });
 });
