@@ -189,6 +189,11 @@ export class NativeProvider implements AIProvider {
     "thinking",
     "sessions",
     "abort",
+    // Announcing a tool and running it are two distinct moments here, and the
+    // loop says so (`onToolExecStart`): the call is executed only after the
+    // round has closed, so between the two there is a window in which nothing
+    // is running. See `toolsSuspendSoftTimer`.
+    "tool-phases",
     // Stateless verso l'esterno: vedi l'intestazione.
     "history",
   ]);

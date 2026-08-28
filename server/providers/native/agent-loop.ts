@@ -312,6 +312,13 @@ async function streamOnce(
             // I frammenti si CONCATENANO: parsarli singolarmente è l'errore
             // classico su questo stream.
             partialJson.set(ev.index, (partialJson.get(ev.index) ?? "") + d.partial_json);
+            // A BYTE ARRIVING IS A SIGN OF LIFE, and it has to be said out
+            // loud. Writing the argument of a `write_file` that holds a whole
+            // document takes minutes during which nothing else is emitted:
+            // silent here, the route's watchdog would count that as a dead
+            // stream the moment it stops suspending itself on a tool that has
+            // only been ANNOUNCED. The turn is alive; the call has not started.
+            if (block?.id) handler.onToolActivity?.(block.id);
           }
           break;
         }
@@ -567,6 +574,11 @@ export async function runAgentTurn(
       // tool come un altro: l'agente lo legge, capisce perché, e cambia strada.
       // Farlo fallire con un'eccezione gli farebbe sparire il turno sotto i
       // piedi per una regola che poteva semplicemente rispettare.
+      // FROM HERE THE TOOL IS RUNNING, and this is the only place that knows
+      // it. The announcement went out at `content_block_start`, while the
+      // model was still writing the call; whoever suspends a watchdog on "a
+      // tool is running" must hang it on this signal, not on that one.
+      handler.onToolExecStart?.(t.id!);
       const verdict = decide(t.name!, (t.input ?? {}) as Record<string, unknown>, opts.autonomy ?? DEFAULT_AUTONOMY);
       // Tre famiglie di tool, un solo giro. I mestieri di Topics passano dai
       // loro handler (`topics-tools.ts`), quelli di macchina dai nostri, e i

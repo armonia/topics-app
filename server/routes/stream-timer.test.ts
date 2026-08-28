@@ -37,6 +37,12 @@
  *      due difetti erano speculari — watchdog spento dopo l'ultimo risultato di
  *      tool, «sta rallentando» spurio al primo tool del turno.
  *
+ *  11. An ANNOUNCED tool is not a working tool. On providers that tell the two
+ *      apart (`tool-phases`) the suspension hangs on the start of EXECUTION,
+ *      not on the announcement: otherwise the fastest guard is blind for the
+ *      whole window in which the model writes the call. On providers that
+ *      cannot tell them apart, the announcement keeps counting.
+ *
  * @covers CHAT-REL-03
  *
  * The replica below is kept in one-to-one structural correspondence with
@@ -46,6 +52,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { toolsSuspendSoftTimer } from "../lib/soft-timer-suspension";
 
 // ── Replica of the route timer state machine (mirror of topics.ts) ──────
 // Constants match the production values exactly. Don't drift them.
@@ -64,6 +71,8 @@ interface Harness {
   state: "streaming" | "soft-timed-out" | "finalized";
   fullContent: string;
   trackedToolCallIds: string[];
+  /** Mirror of `executingToolCallIds`: tools that REALLY started. */
+  executingToolCallIds: string[];
   log: string[];
   /** Callbacks the route would actually run; we just record them. */
   events: string[];
@@ -72,12 +81,19 @@ interface Harness {
   providerAlive: boolean;
 }
 
-/** Build a fresh state machine wired to a Harness for inspection. */
-function build() {
+/**
+ * Build a fresh state machine wired to a Harness for inspection.
+ *
+ * `signalsExecStart` mirrors `topicProvider.capabilities.has("tool-phases")`:
+ * false is the CLI, which never says when a call starts running, so for it the
+ * announcement keeps counting as execution.
+ */
+function build(signalsExecStart = false) {
   const h: Harness = {
     state: "streaming",
     fullContent: "",
     trackedToolCallIds: [],
+    executingToolCallIds: [],
     log: [],
     events: [],
     providerAlive: false,
@@ -109,7 +125,11 @@ function build() {
   const armSoft = () => {
     if (h.state !== "streaming") return;
     if (softTimer) clearTimeout(softTimer);
-    if (h.trackedToolCallIds.length > 0) { softTimer = null; return; }
+    if (toolsSuspendSoftTimer({
+      announced: h.trackedToolCallIds.length,
+      executing: h.executingToolCallIds.length,
+      providerSignalsExecStart: signalsExecStart,
+    })) { softTimer = null; return; }
     softTimer = setTimeout(() => {
       if (h.state !== "streaming") return;
       h.state = "soft-timed-out";
@@ -147,6 +167,13 @@ function build() {
   const settleTool = (id: string) => {
     const i = h.trackedToolCallIds.indexOf(id);
     if (i >= 0) h.trackedToolCallIds.splice(i, 1);
+    const r = h.executingToolCallIds.indexOf(id);
+    if (r >= 0) h.executingToolCallIds.splice(r, 1);
+    onEvent();
+  };
+  /** Mirror of `markToolExecuting`: the call is running now, not announced. */
+  const onToolExecStart = (id: string) => {
+    if (!h.executingToolCallIds.includes(id)) h.executingToolCallIds.push(id);
     onEvent();
   };
   const onToolResult = settleTool;
@@ -200,7 +227,7 @@ function build() {
     h.events.push("sse-closed");
   };
 
-  return { h, onEvent, onToolStart, onToolResult, onDispatchedToolDone, finalize, externalAbort };
+  return { h, onEvent, onToolStart, onToolExecStart, onToolResult, onDispatchedToolDone, finalize, externalAbort };
 }
 
 // We use bun's fake timers via setTimeout monkey-patching: bun:test's
@@ -534,6 +561,67 @@ describe("l'insieme dei tool si aggiorna PRIMA di riarmare il timer", () => {
       advance(STREAM_TIMEOUT_MS + 1);
       expect(h.state).toBe("soft-timed-out");
       expect(h.events).toContain("soft-timeout");
+    });
+  });
+});
+
+/**
+ * ANNOUNCING A TOOL IS NOT RUNNING ONE (2026-08-28).
+ *
+ * `onToolStart` fires at `content_block_start`: the model has started WRITING
+ * the call, and on the native runtime execution only happens once the round has
+ * closed. Suspending the soft timer there switched the fastest guard off for
+ * that whole window (two minutes in the measured case), and a turn that died
+ * inside it told nobody. The line not to cross is the other one: a tool that
+ * really RUNS for a long time must keep suspending it.
+ */
+describe("annunciato non è in esecuzione", () => {
+  test("tool annunciato e mai partito: il timer resta armato e il cartello arriva", () => {
+    withFakeTimers((advance) => {
+      const { h, onToolStart } = build(true);
+      onToolStart("annunciato-mai-partito");
+      advance(STREAM_TIMEOUT_MS + 1);
+      expect(h.state).toBe("soft-timed-out");
+      expect(h.events).toContain("soft-timeout");
+      // And with no events the turn closes, instead of hanging open forever.
+      advance(STREAM_GRACE_MS + 1);
+      expect(h.state).toBe("finalized");
+      expect(h.events).toContain("grace-expired");
+    });
+  });
+
+  test("tool che ESEGUE a lungo: sospeso come prima, la build da 12 minuti è salva", () => {
+    withFakeTimers((advance) => {
+      const { h, onToolStart, onToolExecStart } = build(true);
+      onToolStart("build");
+      advance(3_000); // the model finishes writing the call
+      onToolExecStart("build");
+      advance(12 * 60_000);
+      expect(h.state).toBe("streaming");
+      expect(h.events).not.toContain("soft-timeout");
+    });
+  });
+
+  test("finito il tool, il timer torna armato: l'esecuzione esce dall'insieme", () => {
+    withFakeTimers((advance) => {
+      const { h, onToolStart, onToolExecStart, onToolResult } = build(true);
+      onToolStart("t");
+      onToolExecStart("t");
+      advance(5 * 60_000);
+      expect(h.events).toEqual([]);
+      onToolResult("t");
+      advance(STREAM_TIMEOUT_MS + 1);
+      expect(h.state).toBe("soft-timed-out");
+    });
+  });
+
+  test("il provider che non sa distinguere non perde niente: l'annuncio sospende", () => {
+    withFakeTimers((advance) => {
+      const { h, onToolStart } = build(false);
+      onToolStart("cli-tool");
+      advance(STREAM_TIMEOUT_MS * 3);
+      expect(h.state).toBe("streaming");
+      expect(h.events).not.toContain("soft-timeout");
     });
   });
 });

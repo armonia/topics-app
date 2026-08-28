@@ -94,6 +94,7 @@ import { createIdempotencyCache } from "../lib/idempotency-cache";
 import { avvisoPerTurno, abortLogTitle } from "../lib/cancelled-notice";
 import { toolOutcomeAtTurnEnd } from "../lib/tool-finalize-status";
 import { providerSurvivesRestart } from "../lib/quiescence";
+import { toolsSuspendSoftTimer } from "../lib/soft-timer-suspension";
 
 /**
  * Le chiavi dei messaggi gia' presi, per riconoscere una ripetizione.
@@ -914,6 +915,26 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           let lastSaveChunk = 0;
           const SAVE_INTERVAL = 10;
           const trackedToolCallIds: string[] = [];
+          /**
+           * The ids of the tools that are actually RUNNING, not merely announced.
+           *
+           * `trackedToolCallIds` is filled in `onToolStart`, which fires at
+           * `content_block_start`: the model has begun WRITING the call, and on
+           * the native runtime execution only happens once the round has closed.
+           * Suspending the soft timer on that set switches the fastest guard off
+           * for the whole writing window, two minutes in the case measured on
+           * 2026-08-28. Only tools somebody saw START enter here. See
+           * `toolsSuspendSoftTimer`.
+           */
+          const executingToolCallIds: string[] = [];
+          /**
+           * Can this provider tell "announced" from "running"? One that does not
+           * declare it will never emit `onToolExecStart`, so for it the
+           * announcement keeps counting as execution: demanding a signal it
+           * cannot send would turn every long CLI tool into a false "the stream
+           * is slowing down".
+           */
+          const providerSignalsExecStart = topicProvider.capabilities.has("tool-phases");
           // Il tempo passato fermi su una domanda: si apre in `onUserInputRequired`,
           // si chiude quando quel tool consegna il risultato, e alla fine si
           // sottrae da `latencyMs`. Senza, la durata scritta sotto il messaggio è
@@ -1217,7 +1238,13 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           const armSoftTimer = () => {
             if (streamState !== "streaming") return;
             if (softTimer) clearTimeout(softTimer);
-            if (trackedToolCallIds.length > 0) { softTimer = null; return; }
+            // ANNOUNCED IS NOT RUNNING. The rule and the reason live in
+            // `lib/soft-timer-suspension.ts`; here it is only read.
+            if (toolsSuspendSoftTimer({
+              announced: trackedToolCallIds.length,
+              executing: executingToolCallIds.length,
+              providerSignalsExecStart,
+            })) { softTimer = null; return; }
             softTimer = setTimeout(handleSoftTimeout, STREAM_TIMEOUT_MS);
           };
 
@@ -1428,6 +1455,23 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           const settleTrackedTool = (toolCallId: string) => {
             const idx = trackedToolCallIds.indexOf(toolCallId);
             if (idx >= 0) trackedToolCallIds.splice(idx, 1);
+            const running = executingToolCallIds.indexOf(toolCallId);
+            if (running >= 0) executingToolCallIds.splice(running, 1);
+            resetStreamTimer();
+          };
+
+          /**
+           * The tool is running from now on. Both sets carry the id: the
+           * announcement stays what it is (the row is already on screen), and
+           * this is what suspends the soft timer.
+           *
+           * Called by `onToolExecStart` for providers that declare `tool-phases`
+           * and, for the tools the ROUTE executes itself (`browser_*`, control
+           * tools), at the moment the route dispatches them - there, announcing
+           * and starting really are the same instant.
+           */
+          const markToolExecuting = (toolCallId: string) => {
+            if (!executingToolCallIds.includes(toolCallId)) executingToolCallIds.push(toolCallId);
             resetStreamTimer();
           };
 
@@ -2109,6 +2153,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // through the same onToolResult update path used by every other tool, so
               // the chat UI shows identical lifecycle (running -> success/error).
               if (name.startsWith('browser_') && matchedTopic && browserService) {
+                // The route runs it itself: here announcing and starting ARE the
+                // same instant, so the suspension is earned.
+                markToolExecuting(toolCallId);
                 dispatchBrowserToolCall(name, args || {}, matchedTopic, browserService)
                   .then((result) => {
                     const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
@@ -2168,6 +2215,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // running→success/error lifecycle. Fire-and-forget: single-turn SDK
               // providers don't need the result back to continue.
               if (isControlTool(name) && matchedTopic) {
+                markToolExecuting(toolCallId);
                 dispatchControlToolCall(name, args || {}, matchedTopic, controlDispatchDeps)
                   .then((confirmation) => {
                     const controlEndedAt = Date.now();
@@ -2202,6 +2250,15 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   console.warn(`[BrowserMonitor] ⚠ Topic ${matchedTopic.id.slice(0,8)} used browser with profile="${profile || 'default'}" instead of "topics"`);
                 }
               }
+            },
+
+            onToolExecStart: (toolCallId: string) => {
+              // The provider (native runtime) is about to EXECUTE the call it
+              // announced earlier. Only from here does the tool suspend the soft
+              // timer: between the announcement and this instant the turn was
+              // just a stream being listened to, and a stream can be dead.
+              updateStreamActivity(sessionKey);
+              markToolExecuting(toolCallId);
             },
 
             onToolUpdate: (toolCallId: string, _partialResult: string) => {
@@ -2249,9 +2306,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // blocks timeline in-memory for the current stream, and
               // (3) broadcast a typed WS event so connected clients open
               // the form immediately. The soft inactivity timer stays
-              // suspended naturally because `trackedToolCallIds` still
-              // contains this id — see the `running` invariant in
-              // `stream-timer.test.ts`.
+              // suspended naturally: the tool that is asking is RUNNING (it
+              // started executing before it could ask), so it is in the set
+              // that suspends — see the `running` invariant in
+              // `stream-timer.test.ts` and `toolsSuspendSoftTimer`.
               // Da qui in poi il turno non lavora: aspetta noi. Il cronometro
               // dell'attesa parte, e quel pezzo non finirà nella durata del turno.
               humanWait.open(toolCallId, Date.now());

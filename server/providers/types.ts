@@ -117,6 +117,12 @@ export type ProviderCapability =
   | "sessions"       // session management (pause, resume, history)
   | "abort"          // can abort an in-progress stream
   | "context"        // injects external context (OpenClaw SOUL.md, etc.)
+  | "tool-phases"    // tells ANNOUNCING a tool apart from RUNNING it: emits
+                     // `onToolExecStart` when execution actually begins. A
+                     // consumer that suspends a watchdog "because a tool is
+                     // running" must wait for that signal on these providers;
+                     // on the others the announcement is all there is, and it
+                     // keeps meaning "running" (see `toolsSuspendSoftTimer`).
   | "history";       // accepts options.history on sendChat (stateless providers
                      // that need the full transcript every turn — claude, openai).
                      // Providers without this flag manage history internally
@@ -180,6 +186,24 @@ export interface StreamHandler {
   onTextDelta: (text: string, fullText: string) => void;
   onThinkingDelta?: (text: string) => void;
   onToolStart: (toolCallId: string, name: string, args?: ToolArgs) => void;
+  /**
+   * THE TOOL IS RUNNING NOW - not announced, running.
+   *
+   * `onToolStart` fires at `content_block_start`, the moment the model starts
+   * WRITING the call: nothing is executing yet, and on the native runtime the
+   * call is executed only once the whole round has closed. Between the two
+   * there is a window - two minutes, in the case measured on 2026-08-28 - in
+   * which a consumer that suspends its silence watchdog "because a tool is
+   * running" is simply blind, while the only thing happening is a stream that
+   * may well be dead.
+   *
+   * Only providers declaring the `tool-phases` capability emit this. The
+   * others cannot tell the two moments apart (a CLI executes the call itself
+   * and never says when), so for them the announcement keeps counting as
+   * execution: that is the 12-minute build protection, and it must not be
+   * traded away for this.
+   */
+  onToolExecStart?: (toolCallId: string) => void;
   onToolUpdate?: (toolCallId: string, partialResult: string) => void;
   /**
    * The tool's input is now complete. With `--include-partial-messages`

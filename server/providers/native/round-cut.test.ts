@@ -125,8 +125,8 @@ describe("il giro che muore a meta' non e' una fine naturale", () => {
     expect(out.turnEnd.end).not.toBe("end_turn");
     expect(out.turnEnd.end).toBe("error");
     expect(out.turnEnd.cause).toBe("provider-error");
-    // E si esce dalla porta giusta: `onError` fa scrivere il cartello alla
-    // route, `onDone` no. Era da li' che il turno moriva zitto.
+    // And it leaves through the right door: `onError` makes the route write a
+    // notice, `onDone` does not. That door is where the turn died in silence.
     expect(reg.errors.length).toBe(1);
     expect(reg.done).toBe(0);
   });
