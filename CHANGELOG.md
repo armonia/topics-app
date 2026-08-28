@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.215 — 2026-08-29
+
+### Sotto il cofano
+- Il contrasto delle tab si misura sui pixel, non sui colori dichiarati
+- «Turno ripreso» era una parola, non un fatto
+
 ## 2.2.214 — 2026-08-28
 
 ### Sotto il cofano

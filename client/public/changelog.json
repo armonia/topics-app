@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.215",
+    "date": "2026-08-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il contrasto delle tab si misura sui pixel, non sui colori dichiarati",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "«Turno ripreso» era una parola, non un fatto",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.214",
     "date": "2026-08-28",
     "sections": {
