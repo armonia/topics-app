@@ -1,3 +1,4 @@
+import { rowsCarryAsk, type AskHaystackRow } from "../lib/ask-answer-routing";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
 import { join, resolve, dirname } from "path";
 import { detectProjectPath } from "../lib/detect-project-path";
@@ -2264,11 +2265,14 @@ export function createTopicsRouter(
         if (response.kind !== 'questions') return false;
         if (hasPendingAsk(sessionKey)) return true;
         try {
-          const row = ctx.db.prepare(
-            "SELECT tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1",
-          ).get(sessionKey) as { tool_calls?: unknown; blocks?: unknown } | undefined;
-          const haystack = `${decodeCol(row?.tool_calls) ?? ''}${decodeCol(row?.blocks) ?? ''}`;
-          return haystack.includes(toolCallId) && haystack.includes('ask_user_question');
+          // NOT ONLY THE LAST ROW - the rule and its measurement live in
+          // `lib/ask-answer-routing.ts`. The window is short on purpose: the
+          // question being answered belongs to this exchange, and a scan of the
+          // whole session would cost a table walk per answer.
+          const rows = ctx.db.prepare(
+            "SELECT tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 20",
+          ).all(sessionKey) as AskHaystackRow[];
+          return rowsCarryAsk(rows, toolCallId, decodeCol);
         } catch { return false; }
       })();
       if (answeringBridgeAsk) {
