@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Activity, BarChart3, BookOpen, ChevronRight, Clock, Cpu, Globe, Kanban, LayoutGrid, MessageSquare, TerminalSquare, UserRound, Wrench, type LucideIcon } from 'lucide-react';
 import { getProjectLabel, sidebarItemPaneId, type SidebarItem } from '../../lib/buildSidebarItems';
 import type { AttentionTier } from '../../types';
-import { attentionSurface, RESTING_SURFACE, ROW_CHEVRON, ROW_CHEVRON_SLOT, ROW_GAP, ROW_PX, SELECTED_SURFACE, TAB_LABEL } from '../../lib/selectionStyles';
+import { attentionSurface, RESTING_SURFACE, ROW_CHEVRON, ROW_CHEVRON_SLOT, ROW_CHEVRON_SLOT_BARE, ROW_GAP, ROW_PX, SELECTED_SURFACE, TAB_LABEL } from '../../lib/selectionStyles';
 import { useMobile } from '../../hooks/useMobile';
 import { openContextMenuAt } from '../../hooks/useLongPress';
 import { useTouchDrag } from '../../hooks/useTouchDrag';
@@ -527,7 +527,13 @@ export function PinnedTile({
       {expandable ? (
         <span
           data-testid="pinned-chevron-slot"
-          className={`${ROW_CHEVRON_SLOT} ${
+          // THE BARE BOX IN GRID FORM, and it is the mirror that demands it.
+          // The list version closes by 4px on its right (ROW_LEAD_TIGHTEN):
+          // that is right in a COLUMN, where the box leads a shared gutter. In
+          // grid the same 12px are mirrored empty on the other side to keep the
+          // identity centred, and a box that closes on one side only would push
+          // that centre off by 2px. The mirror is a symmetry argument.
+          className={`${isRow ? ROW_CHEVRON_SLOT : ROW_CHEVRON_SLOT_BARE} ${
             // UNDER 74px THE HINT DOES NOT FIT, and this is the sum, not a
             // taste: 16 of inset + 12 of chevron + 8 of gap + 18 of icon + 8
             // + 12 of mirror = 74. Below that the pieces overflow the tile and
