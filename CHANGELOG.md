@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.212 — 2026-08-28
+
+### Sotto il cofano
+- Una domanda dell'agente che nessuno poteva rispondere
+
 ## 2.2.211 — 2026-08-28
 
 ### Sotto il cofano

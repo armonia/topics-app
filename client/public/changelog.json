@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.212",
+    "date": "2026-08-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Una domanda dell'agente che nessuno poteva rispondere",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.211",
     "date": "2026-08-28",
     "sections": {
