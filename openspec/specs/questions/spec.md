@@ -520,3 +520,40 @@ modalità.
 #### Scenario: una richiesta senza il nome dello strumento
 - **GIVEN** un carico incompleto
 - **THEN** SHALL essere restituito un rifiuto
+
+### Requirement: PERM-08 — Chi ha DECISO vede la decisione, anche se e' la finestra da cui ha spedito
+
+Una finestra che ha mandato il messaggio riceve il turno sul proprio stream SSE,
+quindi gli eventi WebSocket della stessa sessione le vengono scartati: li
+riceverebbe due volte. Le eccezioni sono gli eventi che sull'SSE non esistono
+affatto, e per quelli scartare vuol dire non riceverli MAI.
+
+`stream:tool_permission_required` era gia' un'eccezione, aggiunta perche' senza
+di lui quella finestra era cieca al pannello che la stava aspettando. Il gemello
+no, e questo rendeva il rimedio precedente meta' rimedio: il pannello compariva e
+non spariva piu'. Cliccato «Consenti», lo strumento partiva davvero e la risposta
+scorreva sotto, mentre i quattro bottoni restavano grigi con la rotella per tutta
+la durata dello strumento. Su una Bash o un sotto-agente sono minuti.
+`stream:tool_permission_resolved` e' l'UNICO scrittore dell'esito, sull'SSE non
+c'e' un frame equivalente e la risposta HTTP non porta il verdetto.
+
+L'esito di un permesso SHALL quindi raggiungere anche la finestra che possiede
+l'SSE di quella sessione. La finestra da cui si e' spedito e' proprio quella in
+cui decidere e' il caso normale, visto che il pannello le viene mostrato apposta.
+
+La lista di quelle eccezioni SHALL stare in un posto solo e SHALL essere
+misurabile: si e' dimostrata incompleta due volte, e dentro un hook di duemila
+righe non poteva fallire in un test. Un evento SHALL entrarci solo se scrive uno
+stato FISSO sulla riga: riceverlo due volte deve lasciare lo stesso identico
+stato, perche' un evento che ACCUMULA raddoppierebbe.
+
+#### Scenario: decido dalla finestra da cui ho spedito
+- **GIVEN** una finestra che possiede l'SSE della sessione e un pannello di permesso aperto
+- **WHEN** l'utente sceglie un esito e il server emette `stream:tool_permission_resolved`
+- **THEN** quell'evento SHALL essere consegnato a quella finestra, e il pannello
+  SHALL lasciare il posto all'esito invece di restare a girare
+
+#### Scenario: chi accumula resta fuori
+- **GIVEN** la lista delle eccezioni
+- **WHEN** vi si cerca un evento che porta un delta (testo, contatore)
+- **THEN** SHALL non esserci: consegnarlo due volte raddoppierebbe cio' che disegna

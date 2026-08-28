@@ -49,6 +49,7 @@ import {
   decideMessageResidency,
   type MessageResidencyInput,
 } from '../state/messageResidency';
+import { senderAlsoSees } from './senderAlsoSees';
 import {
   EXPIRED_QUEUE_KEY,
   OUTBOUND_QUEUE_KEY,
@@ -1204,8 +1205,10 @@ export function useChat() {
     // Non può duplicare niente, per lo stesso motivo dell'usage: il gestore
     // SCRIVE uno stato fisso sulla tool call (`awaiting_permission` + la
     // richiesta), non accumula — riceverlo due volte lascia lo stesso stato.
-    const passaAncheAlMittente =
-      event.type === 'stream:usage' || event.type === 'stream:tool_permission_required';
+    // The list itself now lives in `senderAlsoSees.ts`, with the rule for
+    // adding to it and a test that counts it: it turned out to be incomplete
+    // twice, and here it could not fail in a test.
+    const passaAncheAlMittente = senderAlsoSees(event.type);
     if (localSSESessionsRef.current.has(sessionKey) && !passaAncheAlMittente) {
       if (event.type === 'stream:end' || event.type === 'stream:error') scheduleSSEFailsafe(sessionKey);
       return;
