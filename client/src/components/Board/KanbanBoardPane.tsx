@@ -46,6 +46,7 @@ import { taskActionWord } from './taskActionWords';
 import { TaskDetail } from './TaskDetail';
 import { BoardSettingsPanel } from './BoardSettingsPanel';
 import { GlobalOnlySettingsPanel } from './BoardSettingsSections';
+import { AgentSpendChip } from './AgentSpendChip';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
 import { MISSIONS, type Mission } from '../../lib/missions';
 import { useDevInstall } from '../../hooks/useDevInstall';
@@ -1726,6 +1727,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           <span className="text-xs font-semibold text-app-text">{tr('board.toolbar.general')}<span className="hidden sm:inline">{tr('board.toolbar.generalSuffix')}</span></span>
         )}
         <LoadAdviceChip />
+        {/* THE DOLLARS, always and with nothing to set up: this is the number
+            that was missing. Next to the load chip because they answer the same
+            question from two sides (what am I burning now, what has it cost). */}
+        <AgentSpendChip />
         <WorktreeControl
           count={worktreeCount}
           branches={branchInv}

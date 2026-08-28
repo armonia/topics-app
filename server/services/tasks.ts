@@ -5266,18 +5266,18 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     },
 
     getSpendCaps(): { perTaskCents: number; perDayCents: number } {
-      // Stessa riga e stessa lettura del tetto di concorrenza: vedi
-      // `readSpendCaps`. Zero (e NULL, su un db che non ha ancora la colonna) =
-      // illimitato, che e' lo stato in cui nasce l'installazione.
+      // Same row and same read as the concurrency cap: see `readSpendCaps`. Zero
+      // (and NULL, on a db that does not have the column yet) = unlimited, which
+      // is the state a fresh install is born in.
       return readSpendCaps(db);
     },
 
     setSpendCaps(patch: { perTaskCents?: number; perDayCents?: number }): { perTaskCents: number; perDayCents: number } {
       db.prepare("INSERT OR IGNORE INTO board_settings (project_id, max_agents) VALUES (?, 3)").run(GLOBAL_SETTINGS_KEY);
-      // Nessun clamp verso l'alto e nessun minimo diverso da zero: il tetto e'
-      // una cifra che una persona sceglie, e l'unico valore che il codice
-      // interpreta e' lo zero (= spento). Un negativo sarebbe un tetto che
-      // blocca tutto senza dirlo, quindi vale zero.
+      // No upper clamp and no minimum other than zero: the cap is a figure a
+      // person chooses, and the only value the code interprets is zero (= off). A
+      // negative one would be a cap that blocks everything without saying so, so
+      // it counts as zero.
       const clean = (v: number) => Math.max(0, Math.trunc(Number.isFinite(v) ? v : 0));
       if (patch.perTaskCents !== undefined) {
         db.prepare("UPDATE board_settings SET agent_cost_cap_cents = ? WHERE project_id = ?")
@@ -5291,9 +5291,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     },
 
     agentSpend(): { cents24h: number; centsTotal: number; unpricedCostTokens24h: number; unpricedCostTokensTotal: number } {
-      // Il libro timbrato, letto in due tagli. `catch` largo: un db che non ha
-      // ancora la tabella (harness minimo) deve leggere «zero speso», non far
-      // cadere la rotta che disegna l'header della board.
+      // The dated ledger, read in two cuts. Wide `catch`: a db without the table
+      // yet (minimal harness) has to read "nothing spent", not bring down the
+      // route that draws the board header.
       try {
         const since = new Date(Date.parse(now()) - 24 * 60 * 60 * 1000).toISOString();
         const w = db.prepare(

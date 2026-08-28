@@ -826,39 +826,38 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     } catch { return null; }
   }
 
-  // ── IL FRENO DI SPESA, che nasce SPENTO ───────────────────────────────────
+  // ── THE SPEND BRAKE, and it is born OFF ───────────────────────────────────
   //
-  // Due tetti, entrambi a zero su un'installazione nuova, e zero vuol dire
-  // ILLIMITATO: finché nessuno scrive un numero, questo blocco di codice non
-  // deve costare niente e non deve cambiare niente. Il dispatcher si comporta
-  // esattamente come si comportava prima.
+  // Two caps, both zero on a fresh install, and zero means UNLIMITED: until
+  // somebody writes a number, this block of code must cost nothing and change
+  // nothing. The dispatcher behaves exactly as it behaved before.
   //
-  // COSA COSTA A TETTI SPENTI: una lettura della riga '*' per tick, la stessa
-  // che il tick fa già per il tetto di concorrenza. Nessuna somma sul libro
-  // della spesa, nessuna lettura in più per card: la prima cosa che fa ogni
-  // funzione qui sotto è tornare indietro.
+  // WHAT IT COSTS WITH THE CAPS OFF: one read of the '*' row per tick, the same
+  // row the tick already reads for the concurrency cap. No sum over the spend
+  // ledger, no extra read per card: the first thing every function below does is
+  // turn around and leave.
   //
-  // FRENO, NON TAGLIO: si rifiuta il turno SUCCESSIVO. Un turno ucciso a metà
-  // butta via lavoro già pagato, che è il modo di rendere il tetto più costoso
-  // del problema che risolve.
+  // BRAKE, NOT CUT: the NEXT turn is refused. A turn killed halfway throws away
+  // work already paid for, which is how a cap ends up costing more than the
+  // problem it solves.
   //
-  // FAIL OPEN: un'eccezione, un numero che non si sa leggere, una spesa non
-  // prezzabile lasciano passare. Si chiude solo su un numero attendibile sopra
-  // il tetto. Sbagliare verso il blocco ferma lavoro buono per un errore di
-  // misura; sbagliare verso il via costa una card cara, che è esattamente ciò
-  // che il contatore rende visibile.
+  // FAIL OPEN: an exception, a number that cannot be read, spend that cannot be
+  // priced all let the turn through. It closes only on a trustworthy number
+  // above the cap. Erring towards the block stops good work over a measurement
+  // error; erring towards the go costs one expensive card, which is exactly what
+  // the counter makes visible.
   function spendCaps(): { perTaskCents: number; perDayCents: number } {
     try { return deps.svc.getSpendCaps(); } catch { return { perTaskCents: 0, perDayCents: 0 }; }
   }
 
-  /** Ultimo blocco giornaliero già annunciato nel log, per non ripeterlo. */
+  /** The last daily block already announced in the log, so it is said once. */
   let lastSpendBlock = false;
   /**
-   * Il tetto per MACCHINA su finestra mobile 24h: un motivo, oppure `null`.
+   * The per-MACHINE cap over a rolling 24h window: a reason, or `null`.
    *
-   * Vive accanto ad `admissionBlock` e si consulta dove si consulta quello: il
-   * giorno peggiore misurato (2.569 USD) era fatto di molte card ciascuna sotto
-   * il proprio tetto, quindi il tetto per card non lo avrebbe visto passare.
+   * It lives beside `admissionBlock` and is consulted where that one is: the
+   * worst measured day (2,569 USD) was made of many cards each below its own
+   * cap, so the per-card cap would never have seen it go by.
    */
   function spendBlock(): string | null {
     const caps = spendCaps();
@@ -878,10 +877,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   }
 
   /**
-   * Il tetto per CARD, cumulativo: `true` se questa card ha sfondato.
+   * The per-CARD cap, cumulative: `true` when this card has gone through it.
    *
-   * Legge il numero che ha già in mano (`task.agentCostCents`, arrivato con la
-   * riga): a tetto spento non c'è nemmeno questa lettura, perché si esce prima.
+   * It reads the number it already holds (`task.agentCostCents`, which came with
+   * the row): with the cap off there is not even this read, because we leave first.
    */
   function overTaskSpendCap(task: Task, caps: { perTaskCents: number }): boolean {
     if (caps.perTaskCents <= 0) return false;
@@ -890,21 +889,21 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     return spent >= caps.perTaskCents;
   }
 
-  /** Centesimi → dollari, come si scrive a una persona. */
+  /** Cents to dollars, the way it is written to a person. */
   function usd(cents: number): string {
     return `${(cents / 100).toFixed(2)} USD`;
   }
 
   /**
-   * «Il turno successivo non parte, ed ecco quanto e quale tetto». Una volta per
-   * episodio, come le altre attese: la differenza è che questa non si scioglie
-   * da sé, quindi la frase dice anche cosa la scioglie.
+   * "The next turn does not start, and here is how much and which cap". Once per
+   * episode, like the other waits: the difference is that this one does not
+   * dissolve on its own, so the sentence also says what dissolves it.
    */
   function noteSpendHold(task: Task, capCents: number): void {
     noteHold(spendHeldNoted, task, taskSpendMessage(task, capCents));
   }
 
-  /** La frase, scritta una volta: la usano il freno del tick e quello del resume. */
+  /** The sentence, written once: the tick brake and the resume brake share it. */
   function taskSpendMessage(task: Task, capCents: number): string {
     return (
       `Tetto di spesa per card raggiunto: ${usd(task.agentCostCents ?? 0)} su un tetto di ${usd(capCents)}. ` +
@@ -912,7 +911,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     );
   }
 
-  /** Il freno per card come MOTIVO, per la porta che ne vuole uno (il resume). */
+  /** The per-card brake as a REASON, for the door that wants one (the resume). */
   function taskSpendBlock(task: Task): string | null {
     const caps = spendCaps();
     if (caps.perTaskCents <= 0) return null;
@@ -1146,11 +1145,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // Stessa disciplina: una nota per EPISODIO. Si svuota nel giro in cui il tetto
   // torna a lasciar passare quella card, così la prossima pienezza lo ridice.
   const capHeldNoted = new Set<string>();
-  // Task a cui si è già detto «hai superato il tetto di spesa». Stessa
-  // disciplina degli insiemi qui sopra, con una differenza che conta: questa
-  // attesa non finisce da sé. Il tetto si alza (o la card si chiude) per mano di
-  // una persona, quindi la nota si dimentica solo quando la card riparte
-  // davvero, e nel frattempo non si ripete a ogni poll.
+  // Tasks already told "you are over the spend cap". Same discipline as the sets
+  // above, with one difference that matters: this wait does not end by itself.
+  // The cap is raised (or the card is closed) by a person, so the note is
+  // forgotten only when the card really starts again, and in the meantime it is
+  // not repeated at every poll.
   const spendHeldNoted = new Set<string>();
   // Da QUANDO un task pesante è trattenuto dal carico (ms). Serve al tetto
   // dell'attesa (`HEAVY_HOLD_MAX_MS`): senza un istante di inizio «trattenuto da
@@ -1391,21 +1390,21 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // 40.000 al posto di 90.000, misurato. Con una riga per sessione, ogni
   // contatore si muove solo per conto proprio e solo verso l'alto.
   //
-  // I CENTESIMI viaggiano sulla stessa riga dei token, e non a fianco in una
-  // struttura loro: il costo si calcola dal DELTA di ogni componente contro
-  // l'ancoraggio di QUESTA sessione (fresco, output, scrittura 5m, scrittura
-  // 1h, rilettura) per il listino del modello che ha girato LI'. Un fan-out apre
-  // sessioni con modelli diversi: un unico moltiplicatore per task prezzerebbe
-  // il tentativo su Sonnet alla tariffa di Opus.
+  // THE CENTS travel on the same row as the tokens, not beside them in a
+  // structure of their own: the cost comes from the DELTA of every component
+  // against the anchor of THIS session (fresh, output, 5m write, 1h write,
+  // re-read) at the price list of the model that ran THERE. A fan-out opens
+  // sessions with different models: one multiplier per task would price the
+  // Sonnet attempt at the Opus rate.
   interface SessionLedger {
     offset: SessionUsage;
     tokens: number;
     cacheRead: number;
-    /** Spesa di questa sessione, in centesimi, monotona come i token. */
+    /** This session's spend, in cents, monotone like the tokens. */
     costCents: number;
-    /** Consumo equivalente che NON si e' potuto prezzare (modello senza listino). */
+    /** Equivalent consumption that could NOT be priced (model with no price list). */
     unpricedCostTokens: number;
-    /** Il modello che gira su questa sessione. `null` = spesa non prezzabile. */
+    /** The model running on this session. `null` = spend that cannot be priced. */
     model: string | null;
   }
   interface TaskLedger { base: number; baseCacheRead: number; baseCents: number; sessions: Map<string, SessionLedger>; }
@@ -1437,14 +1436,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       s = { offset: reading, tokens: 0, cacheRead: 0, costCents: 0, unpricedCostTokens: 0, model: model ?? taskModel(taskId) };
       ledger.sessions.set(sessionKey, s);
     }
-    // Il modello puo' arrivare dopo l'ancoraggio (una strada che non lo aveva in
-    // mano). Si riempie un buco, non si sovrascrive: cambiarlo a meta' sessione
-    // riprezzerebbe all'indietro token gia' contati con l'altro listino.
+    // The model can arrive after the anchor (from a path that did not hold it).
+    // A hole gets filled, nothing gets overwritten: changing it mid-session would
+    // re-price backwards tokens already counted at the other rate.
     else if (!s.model && model) s.model = model;
     return s;
   }
 
-  /** Il modello scritto sulla card, ripiego quando la strada non lo porta. */
+  /** The model written on the card: the fallback when the path does not carry one. */
   function taskModel(taskId: string): string | null {
     try { return deps.svc.get(taskId)?.task.model ?? null; } catch { return null; }
   }
@@ -1500,23 +1499,24 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   }
 
   /**
-   * QUANTO E' COSTATO, in centesimi, dal delta dei componenti contro l'ancoraggio.
+   * HOW MUCH IT COST, in cents, from the component deltas against the anchor.
    *
-   * Due esiti e non uno, ed e' la differenza che rende il numero credibile:
+   * Two outcomes and not one, and the difference is what makes the number
+   * believable:
    *
-   *  · modello con listino ⇒ i centesimi salgono, con lo stesso pavimento dei
-   *    token (una lettura che regredisce non sottrae, chiamarla due volte non
-   *    conta due volte);
-   *  · modello SENZA listino (o assente) ⇒ i centesimi non si muovono di un
-   *    passo, e il consumo equivalente finisce in `unpricedCostTokens`.
-   *    Tariffare zero uno sconosciuto lo renderebbe indistinguibile da un turno
-   *    gratis, e un tetto che ignora in silenzio una fetta di spesa e' un tetto
-   *    decorativo: la quota si MOSTRA accanto al numero.
+   *  · model with a price list, and the cents rise, with the same floor as the
+   *    tokens (a reading that regresses does not subtract, calling it twice does
+   *    not count twice);
+   *  · model with NO price list (or none at all), and the cents do not move one
+   *    step: the equivalent consumption goes into `unpricedCostTokens`. Billing
+   *    an unknown model at zero would make it indistinguishable from a free
+   *    turn, and a cap that silently ignores a slice of the spend is a
+   *    decorative cap, so that slice is SHOWN next to the number.
    *
-   * I componenti si tariffano per quello che sono (`calculateCostWithCache`): la
-   * rilettura di cache costa un decimo di un token fresco e in un turno agentico
-   * e' la quota dominante, quindi contarla a prezzo pieno gonfierebbe il conto di
-   * circa dieci volte.
+   * The components are billed for what they are (`calculateCostWithCache`): a
+   * cache re-read costs a tenth of a fresh token and in an agentic turn it is the
+   * dominant share, so counting it at full price would inflate the bill about
+   * tenfold.
    */
   function bookSessionCost(s: SessionLedger, reading: SessionUsage): void {
     const d = (now: number, then: number) => Math.max(0, now - then);
@@ -1531,10 +1531,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       );
       return;
     }
-    // `cacheWrite1hTokens` e' un SOTTOINSIEME di `cacheWriteTokens`, mentre le
-    // due tariffe di `calculateCostWithCache` vogliono quote DISGIUNTE (1.25× a
-    // cinque minuti, 2× a un'ora): passarle entrambe intere conterebbe due volte
-    // le scritture a un'ora, che su una sessione reale erano il 100% del totale.
+    // `cacheWrite1hTokens` is a SUBSET of `cacheWriteTokens`, while the two rates
+    // of `calculateCostWithCache` want DISJOINT shares (1.25x at five minutes, 2x
+    // at one hour): passing both whole would count the one-hour writes twice, and
+    // on a real session those were 100% of the total.
     const write1h = d(reading.cacheWrite1hTokens, s.offset.cacheWrite1hTokens);
     const write = d(reading.cacheWriteTokens, s.offset.cacheWriteTokens);
     const usd = calculateCostWithCache({
@@ -2994,10 +2994,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // Il pavimento prima del tetto: se la macchina non regge un altro agente,
     // il messaggio aspetta esattamente come aspetterebbe per uno slot pieno —
     // stessa coda, stesso chip, stessa promessa che niente si perde.
-    // Il freno di spesa passa dalla STESSA porta del pavimento, e per la stessa
-    // ragione: il messaggio non si perde, aspetta. Un tetto che rifiutasse solo
-    // i dispatch nuovi lascerebbe passare il turno che parte da un rifiuto in
-    // review, cioè esattamente il turno in più su una card già cara.
+    // The spend brake comes through the SAME door as the resource floor, and for
+    // the same reason: the message is not lost, it waits. A cap that refused only
+    // new dispatches would let through the turn that starts from a review
+    // rejection, which is exactly the extra turn on an already expensive card.
     const floorBlock = admissionBlock() ?? spendBlock() ?? taskSpendBlock(t);
     // Le corse dei gate occupano slot come gli agenti: un resume che trovasse
     // un posto «libero» ignorando i gate lancerebbe un agente in piu' proprio
@@ -3439,10 +3439,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // sta finendo. Letto una volta per tick: la domanda è sulla macchina, non
     // sulla card, e chiederlo per ogni todo sarebbe una statfs per riga.
     const floorBlock = admissionBlock() ?? spendBlock();
-    // I tetti di spesa, letti UNA volta per tick dalla stessa riga '*' che porta
-    // il tetto di concorrenza. A tetti spenti (zero = illimitato, lo stato di
-    // un'installazione nuova) questa e' l'unica lettura in piu' del giro: nessuna
-    // somma sul libro della spesa, e il controllo per card qui sotto esce subito.
+    // The spend caps, read ONCE per tick from the same '*' row that carries the
+    // concurrency cap. With the caps off (zero = unlimited, the state of a fresh
+    // install) this is the only extra read of the loop: no sum over the spend
+    // ledger, and the per-card check below leaves immediately.
     const caps = spendCaps();
 
     // Chi NON è più trattenuto dal tetto dimentica l'episodio, così una prossima
@@ -3502,10 +3502,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
 
     for (const [idx, t] of todos.entries()) {
       if (inFlight.has(t.id)) continue;
-      // FRENO DI SPESA PER CARD, e solo se un tetto e' impostato. Non e' un
-      // `break`: questa card non parte, le altre non c'entrano niente (il tetto
-      // per card e' suo). La riga nel thread si scrive una volta per episodio e
-      // dice quanto e quale tetto, perche' l'attesa non si scioglie da se'.
+      // PER-CARD SPEND BRAKE, and only when a cap is set. Not a `break`: this
+      // card does not start, the others have nothing to do with it (the per-card
+      // cap is its own). The line in the thread is written once per episode and
+      // says how much and which cap, because the wait does not dissolve by itself.
       if (caps.perTaskCents > 0 && overTaskSpendCap(t, caps)) {
         noteSpendHold(t, caps.perTaskCents);
         continue;
@@ -3669,8 +3669,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // volta che quella card aspetta un posto tornerebbe a restare muta, che è
       // esattamente il difetto che si sta chiudendo.
       capHeldNoted.delete(t.id);
-      // Lo stesso vale per il freno di spesa: questa card e' partita, quindi
-      // l'episodio e' chiuso. Se domani sfonda di nuovo il tetto, lo ridice.
+      // Same for the spend brake: this card started, so the episode is closed. If
+      // it goes through the cap again tomorrow, it says so again.
       spendHeldNoted.delete(t.id);
       if (forced) {
         const atteso = Math.round(heldForMs(t) / 60_000);

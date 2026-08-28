@@ -15,6 +15,7 @@
 import { Bot, X } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { GlobalCapControl } from './GlobalCapControl';
+import { SpendCapControl } from './SpendCapControl';
 
 /** The panel is not "Auto-dispatch": it holds effort, model, language, worktree,
  *  fan-out, night mode, auto-merge, MCP. Naming it after its first row made that
@@ -67,6 +68,15 @@ export function GlobalSettingsSection({ dispatchOn, onToggleDispatch }: {
           change here shows up there without a reload, and the other way round. */}
       <div className="border-y border-app-border-subtle py-2">
         <GlobalCapControl />
+      </div>
+
+      {/* THE SPEND, and the spend caps, in the same place and for the same
+          reason: they belong to the MACHINE and live on the same reserved row.
+          The dollars are always visible; the two caps are born empty, and empty
+          means unlimited. Whoever looks for "how much am I spending" finds it
+          next to "how many agents at once", the other question about the same tap. */}
+      <div className="border-b border-app-border-subtle pb-2">
+        <SpendCapControl />
       </div>
     </>
   );

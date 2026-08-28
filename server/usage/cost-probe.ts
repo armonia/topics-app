@@ -177,7 +177,47 @@ export function computeCostProbe(
     messages: rows.length,
     model,
     lastTurn,
+    // The agent spend is NOT computed here: this function is pure and sees only
+    // the chat rows. `probeSessionCost`, which has the db, fills it in.
+    agentUsd: 0,
+    agentUnpricedCostTokens: 0,
   };
+}
+
+/**
+ * WHAT THE AGENT SPENT behind this session, when there is a card behind it.
+ *
+ * The probe sums the CHAT ledger (`messages.cost_cents`); a dispatched agent
+ * writes to the BOARD ledger (`tasks.agent_cost_cents`). Two ledgers that do not
+ * add up on their own, and until the second one reached this far the panel showed
+ * zero dollars on a card that had cost ninety.
+ *
+ * The link goes through the shape of a topic's `sessionKey` (`topic:` plus the
+ * first eight characters of the id), the same one the dispatcher composes.
+ * Errs safe: anything that does not add up is worth zero, i.e. "I do not know",
+ * which here is the only honest answer.
+ */
+function agentSpendForSession(db: Database, sessionKey: string): { cents: number; unpricedCostTokens: number } {
+  try {
+    const row = db
+      .prepare(
+        `SELECT COALESCE(agent_cost_cents, 0) AS cents, id
+           FROM tasks
+          WHERE assigned_topic_id IS NOT NULL AND 'topic:' || substr(assigned_topic_id, 1, 8) = ?
+          ORDER BY updated_at DESC LIMIT 1`,
+      )
+      .get(sessionKey) as { cents?: number; id?: string } | null;
+    if (!row?.id) return { cents: 0, unpricedCostTokens: 0 };
+    const u = db
+      .prepare("SELECT COALESCE(SUM(unpriced_cost_tokens), 0) AS u FROM agent_spend WHERE task_id = ?")
+      .get(row.id) as { u?: number } | null;
+    return {
+      cents: Math.max(0, Math.trunc(row.cents ?? 0)),
+      unpricedCostTokens: Math.max(0, Math.trunc(u?.u ?? 0)),
+    };
+  } catch {
+    return { cents: 0, unpricedCostTokens: 0 };
+  }
 }
 
 /** Le righe della sessione, in ordine di conversazione. */
@@ -247,5 +287,7 @@ export function probeSessionCost(
   // dopo l'N-esimo. Usarla farebbe passare il test con un numero preso da fuori
   // dalla finestra che si sta misurando.
   const live = opts?.limitMessages ? null : getSessionContext(db, sessionKey);
-  return computeCostProbe(rows, live ? { usedTokens: live.usedTokens, windowTokens: live.windowTokens, model: live.model } : null);
+  const probe = computeCostProbe(rows, live ? { usedTokens: live.usedTokens, windowTokens: live.windowTokens, model: live.model } : null);
+  const agent = agentSpendForSession(db, sessionKey);
+  return { ...probe, agentUsd: agent.cents / 100, agentUnpricedCostTokens: agent.unpricedCostTokens };
 }

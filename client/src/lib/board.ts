@@ -517,9 +517,9 @@ export interface BoardTask {
   agentMs: number;
   agentTokens: number;
   agentCacheReadTokens: number;
-  /** Spesa dell'agente su questa card, in centesimi USD. Prezzata dal server
-   *  (il listino sta la'): moltiplicare i token per una tariffa qui dentro
-   *  darebbe un numero diverso da quello del server, cioe' due verita'. */
+  /** The agent's spend on this card, in USD cents. Priced by the server (the
+   *  price list lives there): multiplying tokens by a rate in here would give a
+   *  number different from the server's, i.e. two truths. */
   agentCostCents: number;
   /** Direct-children counters (board badges: "↳ done/total"). */
   subtaskCount: number;
@@ -714,20 +714,19 @@ export interface GlobalSettings {
   /** The fixed machine-wide cap used when `maxAgentsAuto` is off. */
   maxAgents: number;
   /**
-   * I DUE TETTI DI SPESA in centesimi USD, e nascono a ZERO: zero vuol dire
-   * illimitato, cioe' nessun freno, che e' lo stato di un'installazione nuova.
-   * Il client non ne propone nessun valore: la riga del tetto compare solo se
-   * una persona ne ha scritto uno.
+   * THE TWO SPEND CAPS in USD cents, and they are born at ZERO: zero means
+   * unlimited, i.e. no brake, which is the state of a fresh install. The client
+   * proposes no value for them: the cap line shows up only if a person wrote one.
    */
   agentCostCapCents: number;
   agentCostCapCents24h: number;
-  /** Quanto hanno SPESO gli agenti: la finestra mobile 24h e il totale. Si
-   *  leggono sempre, anche a tetti spenti: sono il motivo del contatore. */
+  /** What the agents have SPENT: the rolling 24h window and the total. Always
+   *  read, even with the caps off: they are the reason the counter exists. */
   agentSpendCents24h: number;
   agentSpendCentsTotal: number;
-  /** La quota di consumo che NON si e' potuta prezzare (modello senza listino),
-   *  in token equivalenti. Si mostra accanto al numero, o il totale farebbe
-   *  finta di essere completo. */
+  /** The share of consumption that could NOT be priced (model with no price
+   *  list), in equivalent tokens. Shown next to the number, or the total would
+   *  pretend to be complete. */
   agentUnpricedCostTokens24h: number;
   agentUnpricedCostTokensTotal: number;
 }
@@ -1022,8 +1021,8 @@ export const boardApi = {
         ...(patch.max !== undefined ? { maxAgents: patch.max } : {}),
       }),
     }),
-  /** Scrivere i tetti di SPESA (una persona, dalle impostazioni). Zero cancella
-   *  il tetto: e' la stessa porta del tetto di concorrenza, riga '*'. */
+  /** Write the SPEND caps (a person, from the settings). Zero clears a cap: it
+   *  is the same door as the concurrency cap, row '*'. */
   setSpendCaps: (patch: { perTaskCents?: number; perDayCents?: number }) =>
     req<GlobalSettings>('/all-boards/settings', {
       method: 'PATCH',

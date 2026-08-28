@@ -89,18 +89,18 @@ export function readGlobalCap(db: Database): { auto: boolean; max: number } {
 }
 
 /**
- * I DUE TETTI DI SPESA, in centesimi USD, dalla stessa riga riservata.
+ * THE TWO SPEND CAPS, in USD cents, from the same reserved row.
  *
- * Zero (e NULL, cioè un db che non ha ancora la colonna) vuol dire ILLIMITATO,
- * e non è un ripiego difensivo: è lo stato in cui nasce l'installazione. Il
- * freno esiste come leva e non come comportamento, quindi il valore neutro deve
- * essere quello che non fa niente.
+ * Zero (and NULL, i.e. a db that does not have the column yet) means UNLIMITED,
+ * and that is not a defensive fallback: it is the state a fresh install is born
+ * in. The brake exists as a lever, not as a behaviour, so the neutral value has
+ * to be the one that does nothing.
  *
- * Sta accanto a `readGlobalCap` per la stessa ragione per cui quello sta qui: i
- * lettori sono due (il tick del dispatcher e la rotta delle impostazioni) e
- * «cosa vuol dire zero in questa colonna» va scritto una volta sola. La lettura
- * è UNA query sulla riga '*', la stessa forma di sopra: a tetti spenti il costo
- * del freno nel giro del dispatcher è questa riga e nient'altro.
+ * It sits next to `readGlobalCap` for the same reason that one sits here: there
+ * are two readers (the dispatcher tick and the settings route) and "what zero
+ * means in this column" has to be written once. The read is ONE query on the '*'
+ * row, the same shape as above: with the caps off, the whole cost of the brake
+ * inside the dispatcher loop is this single row.
  */
 export function readSpendCaps(db: Database): { perTaskCents: number; perDayCents: number } {
   let r: { agent_cost_cap_cents?: number | null; agent_cost_cap_cents_24h?: number | null } | undefined;
@@ -109,9 +109,9 @@ export function readSpendCaps(db: Database): { perTaskCents: number; perDayCents
       .prepare("SELECT agent_cost_cap_cents, agent_cost_cap_cents_24h FROM board_settings WHERE project_id = ?")
       .get(GLOBAL_SETTINGS_KEY) as typeof r;
   } catch {
-    // Colonna assente (harness minimo, db più vecchio della migration): nessun
-    // tetto. Un `throw` qui fermerebbe il tick per una lettura che, spenta, non
-    // decide niente.
+    // Column absent (minimal harness, db older than the migration): no cap. A
+    // `throw` here would stop the tick over a read that, switched off, decides
+    // nothing at all.
     return { perTaskCents: 0, perDayCents: 0 };
   }
   const clean = (v: number | null | undefined) =>

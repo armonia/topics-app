@@ -37,13 +37,33 @@ export interface GlobalDispatchCapState {
   capacity: DispatchCapacity | null;
   /** Una scrittura è in volo: l'interruttore non va ribaltato due volte. */
   saving: boolean;
+  /**
+   * THE SPEND and THE SPEND CAPS, from the same '*' row and therefore from the
+   * same store: the spend in dollars is ALWAYS read, the caps are zero until a
+   * person writes them, and zero means unlimited. `null` = not read yet, which is
+   * not "no cap".
+   */
+  spend: SpendState | null;
+}
+
+/** What the server says about the spend: the two caps and the two ledger cuts. */
+export interface SpendState {
+  /** Per-card cap, in cents. 0 = unlimited (no brake). */
+  capTaskCents: number;
+  /** Per-machine cap over a rolling 24h window, in cents. 0 = unlimited. */
+  capDayCents: number;
+  cents24h: number;
+  centsTotal: number;
+  /** Equivalent consumption that cannot be priced (no price list), in tokens. */
+  unpriced24h: number;
+  unpricedTotal: number;
 }
 
 /** Ogni quanto si rilegge la macchina. Era il periodo del chip del carico, che
  *  ora legge di qui invece di sondare per conto suo. */
 const CAPACITY_POLL_MS = 15000;
 
-const EMPTY: GlobalDispatchCapState = { cap: null, capacity: null, saving: false };
+const EMPTY: GlobalDispatchCapState = { cap: null, capacity: null, saving: false, spend: null };
 
 /** L'IDENTITÀ conta: `useSyncExternalStore` richiama lo snapshot a ogni render e
  *  un oggetto nuovo ogni volta è un ciclo infinito. Si sostituisce solo quando
@@ -74,6 +94,65 @@ export function adoptGlobalCap(next: { maxAgentsAuto?: boolean; maxAgents?: numb
   const max = typeof next.maxAgents === 'number' ? clampGlobalCap(next.maxAgents) : state.cap?.max ?? 3;
   if (state.cap && state.cap.auto === auto && state.cap.max === max) return;
   publish({ ...state, cap: { auto, max } });
+}
+
+/**
+ * The AUTHORITATIVE spend: the server's answer, or the frame from another window
+ * that changed a cap (that one carries only the caps, not the totals, so the
+ * totals stay as they were instead of dropping to zero).
+ */
+export function adoptSpend(next: {
+  agentCostCapCents?: number;
+  agentCostCapCents24h?: number;
+  agentSpendCents24h?: number;
+  agentSpendCentsTotal?: number;
+  agentUnpricedCostTokens24h?: number;
+  agentUnpricedCostTokensTotal?: number;
+}): void {
+  const prev = state.spend;
+  const num = (v: number | undefined, fallback: number) =>
+    typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.trunc(v) : (v === 0 ? 0 : fallback);
+  const spend: SpendState = {
+    capTaskCents: num(next.agentCostCapCents, prev?.capTaskCents ?? 0),
+    capDayCents: num(next.agentCostCapCents24h, prev?.capDayCents ?? 0),
+    cents24h: num(next.agentSpendCents24h, prev?.cents24h ?? 0),
+    centsTotal: num(next.agentSpendCentsTotal, prev?.centsTotal ?? 0),
+    unpriced24h: num(next.agentUnpricedCostTokens24h, prev?.unpriced24h ?? 0),
+    unpricedTotal: num(next.agentUnpricedCostTokensTotal, prev?.unpricedTotal ?? 0),
+  };
+  if (
+    prev && prev.capTaskCents === spend.capTaskCents && prev.capDayCents === spend.capDayCents &&
+    prev.cents24h === spend.cents24h && prev.centsTotal === spend.centsTotal &&
+    prev.unpriced24h === spend.unpriced24h && prev.unpricedTotal === spend.unpricedTotal
+  ) return;
+  publish({ ...state, spend });
+}
+
+/**
+ * Writing a spend cap. Optimistic and then authoritative, like `saveGlobalCap`.
+ * Zero clears the cap, and the client never proposes a value: a pre-filled cap is
+ * a cap nobody chose.
+ */
+export async function saveSpendCaps(patch: { perTaskCents?: number; perDayCents?: number }): Promise<void> {
+  const before = state.spend;
+  if (before) {
+    publish({
+      ...state,
+      saving: true,
+      spend: {
+        ...before,
+        capTaskCents: patch.perTaskCents !== undefined ? Math.max(0, Math.trunc(patch.perTaskCents)) : before.capTaskCents,
+        capDayCents: patch.perDayCents !== undefined ? Math.max(0, Math.trunc(patch.perDayCents)) : before.capDayCents,
+      },
+    });
+  }
+  try {
+    const g = await boardApi.setSpendCaps(patch);
+    publish({ ...state, saving: false });
+    adoptSpend(g);
+  } catch {
+    publish({ ...state, spend: before, saving: false });
+  }
 }
 
 /** L'ultima lettura della macchina (sonda o test). */
@@ -123,6 +202,7 @@ async function refreshCap(): Promise<void> {
   try {
     const g = await boardApi.getGlobalSettings();
     adoptGlobalCap(g);
+    adoptSpend(g);
   } catch { /* si tiene l'ultimo */ }
 }
 
@@ -138,9 +218,13 @@ let pollId: ReturnType<typeof setInterval> | null = null;
 function start(): void {
   unsubFrames = subscribeFrames(
     (frame) => {
-      const f = frame as { type?: string; maxAgentsAuto?: boolean; maxAgents?: number } | null;
+      const f = frame as {
+        type?: string; maxAgentsAuto?: boolean; maxAgents?: number;
+        agentCostCapCents?: number; agentCostCapCents24h?: number;
+      } | null;
       if (!f || f.type !== 'board:global-cap') return;
       adoptGlobalCap(f);
+      adoptSpend(f);
     },
     { types: ['board:global-cap'] },
   );
@@ -148,10 +232,9 @@ function start(): void {
   void refreshCapacity();
   pollId = setInterval(() => {
     void refreshCapacity();
-    // Il tetto si legge una volta e poi arriva dal broadcast, ma se la PRIMA
-    // lettura è caduta (server giù al montaggio) non ci sarebbe un secondo
-    // tentativo, e la riga resterebbe su «Leggo il limite…» per sempre.
-    if (!state.cap) void refreshCap();
+    // The SPEND is re-read like the machine, and for the same reason: it moves on
+    // its own while nobody touches anything. The cap arrives by broadcast.
+    void refreshCap();
   }, CAPACITY_POLL_MS);
 }
 

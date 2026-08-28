@@ -945,12 +945,12 @@ const boardGlobalCapSchema = z.looseObject({
   type: z.literal('board:global-cap'),
   maxAgentsAuto: z.boolean(),
   maxAgents: z.number(),
-  // I due tetti di SPESA in centesimi USD, sulla stessa riga '*' e quindi sullo
-  // stesso annuncio: zero vuol dire illimitato, ed e' lo stato di partenza.
-  // Facoltativi: un server piu' vecchio del contatore non li manda, e il
-  // pannello deve leggere «nessun tetto» invece di non aggiornarsi.
-  agentCostCapCents: z.number().optional(),
-  agentCostCapCents24h: z.number().optional(),
+  // The two SPEND caps in USD cents, on the same '*' row and therefore in the
+  // same announcement: zero means unlimited, and that is the starting state.
+  // Optional: a server older than the counter does not send them, and the panel
+  // must read "no cap" instead of failing to update.
+  agentCostCapCents: z.optional(z.number()),
+  agentCostCapCents24h: z.optional(z.number()),
 });
 
 const boardSettingsSchema = z.looseObject({

@@ -136,21 +136,21 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   -- executes.
   deploy_state TEXT,
   deploy_command_at_propose TEXT,
-  -- 20260828094441: quanto ha SPESO l'agente su questa card, in centesimi USD.
-  -- Sale con un pavimento MAX (raiseAgentUsage) e non e' derivabile dai token:
-  -- lo stesso milione di token vale da 12 a 49 USD secondo modello e cache.
+  -- 20260828094441: what the agent has SPENT on this card, in USD cents. It
+  -- rises with a MAX floor (raiseAgentUsage) and is not derivable from the
+  -- tokens: the same million tokens is worth 12 to 49 USD depending on the model
+  -- and on the cache.
   agent_cost_cents INTEGER NOT NULL DEFAULT 0
 )`;
 
 /**
- * `agent_spend` — il libro TIMBRATO della spesa degli agenti (migration
- * 20260828094441).
+ * `agent_spend` — the DATED ledger of agent spend (migration 20260828094441).
  *
- * Sta qui e non in un harness perche' `raiseAgentUsage` ci scrive dentro a ogni
- * booking: senza la tabella non fallisce il test della spesa, falliscono tutti
- * quelli che fanno girare un turno. La colonna cumulativa sulla card risponde a
- * «quanto e' costata questa card»; queste righe rispondono a «quanto e' stato
- * speso nelle ultime 24 ore», che da un cumulativo non si ricava.
+ * It lives here and not in one harness because `raiseAgentUsage` writes into it
+ * at every booking: without the table it is not the spend test that fails, it is
+ * every test that runs a turn. The cumulative column on the card answers "what
+ * did this card cost"; these rows answer "how much was spent in the last 24
+ * hours", which a cumulative number cannot give.
  */
 export const AGENT_SPEND_DDL = `CREATE TABLE IF NOT EXISTS agent_spend (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
