@@ -1786,7 +1786,9 @@ const IT: Dict = {
   // a server this machine had and no longer has. Without them the whole message on
   // screen was one red dot. Measured on Windows on 2026-08-28 (card d1f702ab).
   'statusBar.degraded.why': 'Nessun server sulla porta {port}. Questa macchina ne ha già avuto uno, quindi Topics aspetta quello invece di avviarne uno suo.',
-  'statusBar.degraded.wayOut': 'Per avere un server locale: chiudi Topics, elimina questo file, riapri.',
+  'statusBar.degraded.wayOut': 'Per avere un server locale qui, Topics deve dimenticare quel server: elimina questo file e riparti.',
+  'statusBar.degraded.fix': 'Avvia un server locale',
+  'statusBar.degraded.fixFailed': "Non ci sono riuscito: elimina il file a mano e riapri Topics.",
   'statusBar.versionTitle': 'Info versione e aggiornamenti',
   'statusBar.devBuildTitle': 'Build di sviluppo (Vite dev server / hot reload). In produzione questo badge sparisce.',
   'statusBar.lastCodeUpdateAgo': ' Ultimo aggiornamento codice: {t} fa.',

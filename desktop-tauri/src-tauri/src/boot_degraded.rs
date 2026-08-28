@@ -47,6 +47,60 @@ pub(crate) fn boot_degraded() -> serde_json::Value {
     degraded_payload(DEGRADED_MARKER_PATH.get().map(|s| s.as_str()))
 }
 
+/// What `clear_marker` decided, so the command stays a three-line wrapper and the
+/// decision can be asserted without a shell.
+#[derive(Debug, PartialEq)]
+pub(crate) enum ClearVerdict {
+    /// This boot is not the degraded one: do nothing at all.
+    NotDegraded,
+    /// The marker is gone (removed now, or already absent) — relaunch.
+    Restart,
+    /// It is still there and the app would come back to the same wait.
+    Failed(String),
+}
+
+/// Remove the marker that caused the wait.
+///
+/// UNTIL NOW THE WAY OUT WAS A SENTENCE. The notice printed the file's absolute
+/// path and asked the person to quit the app, find that path in a file manager and
+/// delete it by hand — on Windows, inside AppData, on the machine where the thing
+/// that stopped working IS the app. Naming the way out was the first half; this is
+/// the second.
+///
+/// It is gated on the VERDICT, not on an argument the caller picks: `marker` is
+/// `Some` only when this boot already concluded degraded, which happens once, in
+/// `decide_upstream_and_spawn`. On a healthy boot the answer is `NotDegraded` and
+/// nothing is touched, so no webview can delete a marker that is doing its job.
+///
+/// Reversible by construction: the shell writes the marker again the moment it
+/// finds a real server on the port, so the worst case of a wrong click is one
+/// relaunch that starts a local server.
+pub(crate) fn clear_marker(marker: Option<&str>) -> ClearVerdict {
+    let Some(path) = marker else { return ClearVerdict::NotDegraded };
+    match std::fs::remove_file(path) {
+        Ok(()) => ClearVerdict::Restart,
+        // Already gone: the wait has no cause left, so the relaunch is still right.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => ClearVerdict::Restart,
+        Err(e) => ClearVerdict::Failed(e.to_string()),
+    }
+}
+
+/// Delete the marker and relaunch. Returns only when nothing was done — on success
+/// the process is replaced, so the caller's promise never settles.
+///
+/// `app.restart()` does not raise `RunEvent::Exit`, so `kill_sidecar` never runs
+/// here. That orphans nothing: this command only acts on the degraded verdict, and
+/// reaching that verdict means `decide_upstream_and_spawn` returned BEFORE spawning
+/// anything — the slot it would kill is empty by construction.
+#[tauri::command]
+pub(crate) fn boot_degraded_clear(app: tauri::AppHandle) -> serde_json::Value {
+    match clear_marker(DEGRADED_MARKER_PATH.get().map(|s| s.as_str())) {
+        ClearVerdict::NotDegraded => serde_json::json!({ "cleared": false, "reason": "not degraded" }),
+        ClearVerdict::Failed(e) => serde_json::json!({ "cleared": false, "reason": e }),
+        ClearVerdict::Restart => app.restart(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::degraded_payload;
@@ -70,5 +124,32 @@ mod tests {
         let v = degraded_payload(None);
         assert_eq!(v["degraded"], false);
         assert!(v["markerPath"].is_null());
+    }
+
+    /// The command is gated on the boot verdict: with no marker there is nothing
+    /// to undo, and a webview that asks anyway must not restart the app.
+    #[test]
+    fn a_healthy_boot_clears_nothing() {
+        assert_eq!(super::clear_marker(None), super::ClearVerdict::NotDegraded);
+    }
+
+    /// The file is really removed, and the answer says "relaunch".
+    #[test]
+    fn the_marker_is_removed_and_the_app_relaunches() {
+        let p = std::env::temp_dir().join("topics-clear-marker-test");
+        std::fs::write(&p, "1").unwrap();
+        let v = super::clear_marker(Some(p.to_str().unwrap()));
+        assert_eq!(v, super::ClearVerdict::Restart);
+        assert!(!p.exists(), "the marker had to be gone");
+    }
+
+    /// Already gone is not a failure: the wait has no cause left either way, so
+    /// the relaunch is still the right answer and the user sees no error for
+    /// having clicked twice.
+    #[test]
+    fn an_absent_marker_still_relaunches() {
+        let p = std::env::temp_dir().join("topics-clear-marker-absent");
+        let _ = std::fs::remove_file(&p);
+        assert_eq!(super::clear_marker(Some(p.to_str().unwrap())), super::ClearVerdict::Restart);
     }
 }

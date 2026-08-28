@@ -73,6 +73,28 @@ export function fetchBootDegraded(): Promise<BootDegraded | null> {
 
 let cached: Promise<BootDegraded | null> | null = null;
 
+/**
+ * Do the way out instead of describing it: the shell deletes the marker and
+ * relaunches itself.
+ *
+ * Resolves ONLY when nothing happened — on success the process is replaced, so
+ * this promise never settles and there is no "done" state to draw. The string it
+ * resolves with is why it did not: an older shell without the command, or a boot
+ * that was not the degraded one (the shell gates on its own verdict, so a click
+ * cannot remove a marker that is doing its job).
+ */
+export async function clearBootDegraded(): Promise<string> {
+  if (shellKind !== 'tauri') return 'no shell';
+  try {
+    const r = await tauriInvoke<unknown>('boot_degraded_clear');
+    const o = (r && typeof r === 'object' ? r : {}) as { reason?: unknown };
+    return typeof o.reason === 'string' && o.reason ? o.reason : 'unchanged';
+  } catch {
+    // An older shell has no such command; the printed path is still the way out.
+    return 'unsupported';
+  }
+}
+
 /** What the offline surface has to print: the two sentences (as catalogue keys, so
  *  the language stays where every other string lives) plus the marker's path. */
 export interface DegradedNotice {

@@ -22,7 +22,7 @@ import { ChangelogModal } from '../ChangelogModal';
 import type { ConnectionStatus } from '@/types';
 import { ROW_INSET, SIDEBAR_ACTIVE, SIDEBAR_HOVER } from '@/lib/selectionStyles';
 import { isDesktop } from '@/lib/shell';
-import { degradedNotice, fetchBootDegraded, type BootDegraded } from '@/lib/shell/bootDegraded';
+import { clearBootDegraded, degradedNotice, fetchBootDegraded, type BootDegraded } from '@/lib/shell/bootDegraded';
 import { getVersion, relaunch } from '@/lib/shell/app';
 import { useMobile } from '@/hooks/useMobile';
 import { useT } from '@/hooks/useT';
@@ -495,6 +495,8 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
    * every ordinary outage — see `bootDegraded.ts` for why that asymmetry matters.
    */
   const [degraded, setDegraded] = useState<BootDegraded | null>(null);
+  // Set only when the button failed: on success the process is replaced.
+  const [degradedFixFailed, setDegradedFixFailed] = useState(false);
   useEffect(() => {
     let alive = true;
     void fetchBootDegraded().then((d) => {
@@ -591,6 +593,26 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           <span className="font-mono text-app-text-secondary select-text break-all">
             {degradedLines.markerPath}
           </span>
+          {/* THE WAY OUT, DONE. Printing an AppData path and asking the person to
+              quit the app, find it in a file manager and delete it by hand is a
+              way out only on paper — and it is asked on the machine where the app
+              is the thing that stopped working. The button does exactly what the
+              sentence describes; the path stays above it, because a shell too old
+              for the command still has only that. */}
+          <button
+            type="button"
+            data-testid="boot-degraded-fix"
+            className="mt-1 self-start underline underline-offset-2 hover:no-underline"
+            onClick={async () => {
+              setDegradedFixFailed(false);
+              await clearBootDegraded();
+              // Reached only when nothing happened: a success never returns here.
+              setDegradedFixFailed(true);
+            }}
+          >
+            {tr('statusBar.degraded.fix')}
+          </button>
+          {degradedFixFailed && <span>{tr('statusBar.degraded.fixFailed')}</span>}
         </div>
       )}
       <div

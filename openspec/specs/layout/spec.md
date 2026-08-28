@@ -2003,3 +2003,25 @@ ignorare.
 #### Scenario: una disconnessione qualunque
 - **GIVEN** nessun marcatore, e il server semplicemente non risponde adesso
 - **THEN** la fascia SHALL mostrare solo lo stato, senza alcun avviso aggiuntivo
+
+Nominare la via d'uscita era la prima metà. La seconda: l'avviso SHALL offrire un
+comando che la PERCORRE — il guscio elimina il marcatore e si rilancia — perché
+«chiudi l'app, apri il gestore file, entra in AppData, cancella questo file,
+riapri» è una via d'uscita solo sulla carta, e viene chiesta proprio sulla
+macchina dove la cosa che non funziona è l'app. Il percorso SHALL restare stampato
+sopra il comando: un guscio troppo vecchio per quel comando ha ancora solo quello.
+
+Il comando SHALL essere subordinato al VERDETTO DI AVVIO del guscio, non a un
+argomento che sceglie chi chiama: su un avvio sano non tocca niente. È reversibile
+per costruzione — il marcatore viene riscritto appena un server vero risponde di
+nuovo — quindi il caso peggiore di un click sbagliato è un rilancio che avvia un
+server locale.
+
+#### Scenario: la via d'uscita si percorre da lì
+- **GIVEN** la fascia mostra l'avviso perché questo avvio è quello degradato
+- **WHEN** si usa il comando offerto dall'avviso
+- **THEN** il marcatore SHALL essere eliminato e il guscio SHALL rilanciarsi
+
+#### Scenario: lo stesso comando su un avvio sano
+- **GIVEN** un avvio in cui il guscio NON ha concluso lo stato degradato
+- **THEN** il comando SHALL non eliminare niente e non rilanciare

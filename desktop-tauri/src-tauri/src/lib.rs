@@ -10932,7 +10932,8 @@ pub fn run() {
             os_open::take_os_open_paths,
             // The boot verdict, for the SPA's own offline state: the reconnect page
             // says it too, but only a document navigation ever reaches that page.
-            boot_degraded::boot_degraded
+            boot_degraded::boot_degraded,
+            boot_degraded::boot_degraded_clear
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
