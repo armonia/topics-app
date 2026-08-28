@@ -83,6 +83,11 @@ export interface Block {
   /** La firma del pensiero: arriva a pezzi via `signature_delta`, e senza di
    *  lei il blocco non e' rimandabile indietro. */
   signature?: string;
+  /** The arguments arrived truncated (the round was cut while the model was
+   *  writing them) and `input` is a fallback empty object, not the call the model
+   *  meant to make. Whoever reads this block must NOT treat it as a successful
+   *  call. */
+  inputTruncated?: boolean;
   /** Il corpo di un `redacted_thinking`, che l'API rimanda cifrato. */
   data?: string;
 }
@@ -304,8 +309,25 @@ async function streamOnce(
         case "content_block_stop": {
           const raw = partialJson.get(ev.index);
           if (raw !== undefined && blocks[ev.index]) {
+            // TRUNCATED ARGUMENTS ARE REPORTED, NOT FAKED INTO AN EMPTY OBJECT.
+            //
+            // This `catch` silently replaced an incomplete JSON with `{}`, and the
+            // defect measured on 2026-08-28 (topic:4c935add, three times out of
+            // three) runs right through here: the model was writing a whole
+            // document inside the argument of a `write_file`, blew through the
+            // output cap halfway into the JSON, and the call was left in the
+            // database with `args: {}` and a green tick. A tool with no arguments
+            // does not exist: saying so in the log is the only way for the next
+            // occurrence to be visible instead of reconstructed from the wreckage.
             try { blocks[ev.index]!.input = raw ? JSON.parse(raw) : {}; }
-            catch { blocks[ev.index]!.input = {}; }
+            catch {
+              console.warn(
+                `[agent-loop] argomenti troncati per il tool ${blocks[ev.index]!.name ?? "?"} `
+                + `(${raw.length} byte non leggibili): il giro e' stato tagliato a meta' della chiamata`,
+              );
+              blocks[ev.index]!.input = {};
+              blocks[ev.index]!.inputTruncated = true;
+            }
             partialJson.delete(ev.index);
             const b = blocks[ev.index]!;
             handler.onToolArgsUpdate?.(b.id!, b.input as any);

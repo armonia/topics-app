@@ -41,10 +41,22 @@ function harness(opts?: {
   content?: string;
   silentMs?: number;
   humanHoldAgeMs?: number | null;
+  /**
+   * A tool of this turn is EXECUTING. It is the difference between "silent
+   * because it is working" and "silent, full stop": no clock touches the first,
+   * the second declares itself stuck after ten minutes.
+   */
+  toolRunning?: boolean;
 }): Harness {
   const clock = { t: Date.UTC(2026, 7, 15, 12, 0, 0) };
   const silent = opts?.silentMs ?? 7 * MIN;
-  const rows = new Map([[MSG, { content: opts?.content ?? "", partial: true }]]);
+  const rows = new Map<string, { content: string; partial: boolean; tool_calls?: string }>([
+    [MSG, {
+      content: opts?.content ?? "",
+      partial: true,
+      ...(opts?.toolRunning ? { tool_calls: '[{"id":"t1","name":"bash","status":"running"}]' } : {}),
+    }],
+  ]);
   const warnings: string[] = [];
   const aborted: string[] = [];
   const resyncs: string[] = [];
@@ -100,13 +112,17 @@ describe("un figlio VIVO non viene chiuso dall'orologio", () => {
    * che il figlio è vivo, due tick. La riga parziale deve restare intatta.
    */
   test("due tick a 7 minuti di silenzio: la riga parziale non si tocca", () => {
-    const h = harness({ alive: true, silentMs: 7 * MIN });
+    const h = harness({ alive: true, silentMs: 7 * MIN, toolRunning: true });
     expect(sweepStaleStreams(h.deps).get(SK)).toBe("rescued");
     expect(h.resyncs).toEqual([SK]);
     // Passa un altro giro di silenzio: il soccorso è speso, il figlio è vivo.
     h.clock.t += 4 * MIN;
     expect(sweepStaleStreams(h.deps).get(SK)).toBe("extended");
-    expect(h.rows.get(MSG)).toEqual({ content: "", partial: true });
+    // On the FIELDS, not on the whole object: the row now also carries the
+    // running tool, and a `toEqual` on the object would pin the shape of the
+    // fixture instead of the fact that matters — the partial was left alone.
+    expect(h.rows.get(MSG)?.content).toBe("");
+    expect(h.rows.get(MSG)?.partial).toBe(true);
     expect(h.turnsEnded).toEqual([]);
     expect(h.aborted).toEqual([]);
     expect(h.deps.activeStreams.has(SK)).toBe(true);
@@ -115,7 +131,7 @@ describe("un figlio VIVO non viene chiuso dall'orologio", () => {
   });
 
   test("dieci tick di fila non lo consumano: la proroga non è un conto alla rovescia", () => {
-    const h = harness({ alive: true, silentMs: 4 * MIN });
+    const h = harness({ alive: true, silentMs: 4 * MIN, toolRunning: true });
     for (let i = 0; i < 10; i++) {
       sweepStaleStreams(h.deps);
       h.clock.t += 4 * MIN;
@@ -160,7 +176,7 @@ describe("il numero nel log è il silenzio VERO", () => {
    * proroghe, e un turno zitto da mezz'ora si annunciava sempre uguale.
    */
   test("l'età cresce di proroga in proroga invece di restare inchiodata", () => {
-    const h = harness({ alive: true, silentMs: 4 * MIN });
+    const h = harness({ alive: true, silentMs: 4 * MIN, toolRunning: true });
     sweepStaleStreams(h.deps); // rescue: spende il soccorso
     const eta_: number[] = [];
     for (let i = 0; i < 3; i++) {
@@ -174,7 +190,7 @@ describe("il numero nel log è il silenzio VERO", () => {
   });
 
   test("se il turno ricomincia a parlare il conteggio riparte", () => {
-    const h = harness({ alive: true, silentMs: 4 * MIN });
+    const h = harness({ alive: true, silentMs: 4 * MIN, toolRunning: true });
     sweepStaleStreams(h.deps); // rescue
     h.clock.t += 5 * MIN;
     sweepStaleStreams(h.deps); // extend, silenzio 9 min
@@ -220,5 +236,41 @@ describe("le voci rimaste indietro si buttano in silenzio", () => {
     sweepStaleStreams(h.deps);
     expect(h.deps.rescued.size).toBe(0);
     expect(h.deps.silence.size).toBe(0);
+  });
+});
+
+/**
+ * THE THIRD STATE, live: alive, silent and with nothing in flight.
+ *
+ * The tests above said "a LIVE child is never closed by the clock", and they
+ * meant a child that is WORKING — the 12-minute build. What they encoded was
+ * only "alive", and on 2026-08-28 the difference cost real work: once the probe
+ * was fixed to tell the truth about who owns the session, `topic:0299ac2d` hung
+ * for FIFTEEN MINUTES with zero characters and zero tools, extended on every
+ * tick, until it was stopped by hand.
+ *
+ * "The process is alive" does not mean "the turn is moving". From here down the
+ * two cases sit side by side, so the line that separates them is visible.
+ * @covers CHAT-01
+ */
+describe("alive is not enough: it must also be doing something", () => {
+  test("with a tool in flight no clock closes it, however long", () => {
+    const h = harness({ alive: true, silentMs: 4 * MIN, toolRunning: true });
+    for (let i = 0; i < 20; i++) {
+      sweepStaleStreams(h.deps);
+      h.clock.t += 4 * MIN;
+    }
+    expect(h.rows.get(MSG)?.partial).toBe(true);
+    expect(h.turnsEnded).toEqual([]);
+  });
+
+  test("with nothing in flight, past the cap it closes and the turn ends", () => {
+    const h = harness({ alive: true, silentMs: 4 * MIN, toolRunning: false });
+    for (let i = 0; i < 20; i++) {
+      sweepStaleStreams(h.deps);
+      h.clock.t += 4 * MIN;
+    }
+    expect(h.rows.get(MSG)?.partial).toBe(false);
+    expect(h.turnsEnded).toEqual([SK]);
   });
 });

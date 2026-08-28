@@ -58,7 +58,7 @@ export interface StaleStreamSweepDeps {
   rescued: Set<string>;
   /** Da quando ciascuno tace davvero (vedi `SilenceMark`). */
   silence: Map<string, SilenceMark>;
-  getMessageById: (id: string) => { content?: unknown; partial?: boolean } | null | undefined;
+  getMessageById: (id: string) => { content?: unknown; partial?: boolean; tool_calls?: unknown } | null | undefined;
   /** L'età di un pannello aperto sull'umano (domanda o permesso), o `null`. */
   humanHoldAgeMs: (sessionKey: string) => number | null;
   /** `undefined` = il provider non sa rispondere, che qui vale «morto». */
@@ -86,6 +86,32 @@ export type SweepOutcome = "dropped" | "held" | "rescued" | "extended" | "finali
 /**
  * Un giro completo. Restituisce l'esito per sessione, in ordine di visita.
  */
+/**
+ * Is a tool of this turn EXECUTING right now?
+ *
+ * It separates "silent because it is working" from "silent, full stop", which is
+ * the difference between extending and closing. Read off the row the sweeper is
+ * already holding, so it costs no new dependency.
+ *
+ * When in doubt it answers `true`, deliberately: a format that will not parse
+ * must not turn into a death sentence. Erring this way costs a few more minutes
+ * of waiting; erring the other way closes a healthy turn, which is the mistake
+ * this file exists in order not to repeat.
+ */
+function hasRunningTool(raw: unknown): boolean {
+  if (raw === null || raw === undefined || raw === "") return false;
+  try {
+    const list = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (!Array.isArray(list)) return true;
+    return list.some((t) => {
+      const st = (t as { status?: unknown } | null)?.status;
+      return st === "running" || st === "pending";
+    });
+  } catch {
+    return true;
+  }
+}
+
 export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, SweepOutcome> {
   const now = deps.now();
   const outcomes = new Map<string, SweepOutcome>();
@@ -174,8 +200,13 @@ export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, Sweep
     // and handleHardTimeout already do in routes/chat.ts.
     const verdict = staleStreamVerdict({
       silentMs: now - lastActivity,
+      // The TRUE silence: `now - lastActivity` drops back under the threshold on
+      // every extension, so the frozen cap must be compared against this one or
+      // it never fires at all.
+      trueSilenceMs: now - silenceSince,
       timeoutMs: deps.timeoutMs,
       childAlive: deps.childAlive(sessionKey),
+      toolRunning: hasRunningTool(partial.tool_calls),
       alreadyResynced: deps.rescued.has(sessionKey),
     });
     if (verdict === "ok") continue;
@@ -200,6 +231,17 @@ export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, Sweep
       deps.silence.set(sessionKey, { since: silenceSince, bumpedTo: now });
       outcomes.set(sessionKey, "extended");
       continue;
+    }
+    if (verdict === "frozen") {
+      // ALIVE BUT STOPPED. The process is there, no tool is running, and not a
+      // byte has arrived in ten minutes: this is not a turn working in silence,
+      // it is a stuck turn. Extending it again means leaving it hanging forever
+      // — measured on 2026-08-28 on topic:0299ac2d, fifteen minutes with zero
+      // characters produced, until it was stopped by hand.
+      deps.warn(
+        `[StaleStream] ${sessionKey} vivo ma fermo da ${Math.round((now - silenceSince) / 60_000)} min `
+        + `senza tool in corso: e' piantato, lo chiudo`,
+      );
     }
     deps.info(`[StaleStream] Auto-clearing stale stream for ${sessionKey}`);
     deps.rescued.delete(sessionKey);

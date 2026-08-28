@@ -261,3 +261,38 @@ describe("eCartelloDiInterruzione — cosa si riprende e cosa no", () => {
     expect(eCartelloDiInterruzione(withPrefix.replace(/^⚠️\s*/, ""))).toBe(true);
   });
 });
+
+describe("a turn cut by the output cap is not a finished turn", () => {
+  /**
+   * 2026-08-28, topic:4c935add, three times out of three. The model was writing a
+   * whole document inside the argument of a `write_file`, blew through
+   * `max_tokens` halfway into the JSON, and the round exited as if it had
+   * finished. NOTHING appeared in the chat: no notice, no explanation, and the
+   * file the user was waiting for did not exist. `cancelledNotice` stays silent
+   * on everything that is not `cancelled`, and nobody had ever asked what happens
+   * when a turn ends cut instead of cancelled.
+   */
+  test("it says so, instead of staying silent", () => {
+    const a = avvisoPerTurno({ end: "max_tokens" }, { haProdotto: false });
+    expect(a).toContain("tagliata");
+    expect(a).toContain("limite di lunghezza");
+  });
+
+  test("it does NOT promise \"Riprova\", which is the wrong advice here", () => {
+    // Resending the same message blows through the same cap: the button would
+    // retry the road that just failed.
+    const a = avvisoPerTurno({ end: "max_tokens" }, { haProdotto: false });
+    expect(a).not.toContain("Riprova");
+    expect(a).toContain("pezzi");
+  });
+
+  test("if something had arrived, it says so and asks for the rest a piece at a time", () => {
+    const a = avvisoPerTurno({ end: "max_tokens" }, { haProdotto: true });
+    expect(a).toContain("resta qui sotto");
+    expect(a).toContain("un pezzo alla volta");
+  });
+
+  test("a turn that finished normally keeps no notice at all", () => {
+    expect(avvisoPerTurno({ end: "end_turn" }, { haProdotto: true })).toBeNull();
+  });
+});

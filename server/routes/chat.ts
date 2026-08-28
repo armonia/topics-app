@@ -92,6 +92,7 @@ import { permissionModeForAutonomy, planModeFor } from "../lib/autonomy-mode";
 import { findPlanAwaitingApproval, shouldAskPlanApproval, planApprovalSchema } from "../lib/plan-approval";
 import { createIdempotencyCache } from "../lib/idempotency-cache";
 import { avvisoPerTurno, abortLogTitle } from "../lib/cancelled-notice";
+import { toolOutcomeAtTurnEnd } from "../lib/tool-finalize-status";
 import { providerSurvivesRestart } from "../lib/quiescence";
 
 /**
@@ -1666,12 +1667,19 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             //   - "aborted":  user clicked stop. Tools did not complete; mark
             //                 as error with reason so the UI doesn't show a
             //                 misleading green ✓.
-            const finalizeStatus: 'success' | 'error' = reason === 'done' ? 'success' : 'error';
-            const finalizeError = reason === 'aborted'
-              ? 'Aborted by user'
-              : reason === 'error'
-              ? (errorMsg || 'Stream ended with error')
-              : undefined;
+            // A CUT TURN LEAVES NO SUCCESSFUL TOOLS BEHIND.
+            //
+            // `reason === 'done'` alone said "success" even when the round had
+            // ended because the model blew through the output cap halfway into
+            // the call: the tool had NEVER run, and it stayed on screen with a
+            // green tick and an empty result. Measured on 2026-08-28 on
+            // topic:4c935add, three times out of three: `Tool start: write_file`
+            // in the log, ZERO `Tool result`, and no file on disk. A green tick on
+            // a write that never happened is worse than an error, because whoever
+            // reads it stops looking.
+            const outcome = toolOutcomeAtTurnEnd(reason, turnEnd, errorMsg);
+            const finalizeStatus: 'success' | 'error' = outcome.status;
+            const finalizeError = outcome.error;
             const finalizeEndedAt = Date.now();
             for (const tcId of trackedToolCallIds) {
               if (finalizeStatus === 'error') {

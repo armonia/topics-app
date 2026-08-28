@@ -119,6 +119,24 @@ export function avvisoPerTurno(
   info: TurnEndInfo,
   opts: { haProdotto: boolean; riprendeDaSolo?: boolean },
 ): string | null {
+  // A TURN CUT BY THE OUTPUT CAP IS NOT A FINISHED TURN.
+  //
+  // Measured on 2026-08-28 on topic:4c935add, three times out of three. The model
+  // was writing a whole document INSIDE the argument of a `write_file`, blew
+  // through `max_tokens` halfway into the JSON, and from there: the truncated
+  // arguments would not parse, the tool never ran, and the round exited as if it
+  // had finished. Nothing appeared in the chat — no notice, no "Retry" — and the
+  // tool kept a green tick on a write that never happened. What the user saw was
+  // a chat stopping for no reason and a file that does not exist.
+  //
+  // "Retry" would be the wrong advice here: resending the same message blows
+  // through the same cap. The tail says the only thing that changes the outcome.
+  if (info.end === "max_tokens") {
+    const perche = "⚠️ Risposta tagliata: ha raggiunto il limite di lunghezza di un singolo turno.";
+    return opts.haProdotto
+      ? `${perche} Quello che era già arrivato resta qui sotto: chiedi il resto un pezzo alla volta.`
+      : `${perche} Richiedila divisa in più pezzi, o falla scrivere su file a blocchi invece che tutta in una volta.`;
+  }
   const perche = cancelledNotice(info);
   if (!perche) return null;
   if (opts.riprendeDaSolo) return `${perche} Riprendo da solo: non serve che tu faccia niente.`;
