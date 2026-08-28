@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.211 — 2026-08-28
+
+### Sotto il cofano
+- La label nasceva su mezzo pixel: line box dispari dentro una riga pari
+
 ## 2.2.210 — 2026-08-28
 
 ### Sotto il cofano

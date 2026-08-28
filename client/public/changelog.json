@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.211",
+    "date": "2026-08-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La label nasceva su mezzo pixel: line box dispari dentro una riga pari",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.210",
     "date": "2026-08-28",
     "sections": {
