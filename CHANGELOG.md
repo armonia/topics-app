@@ -14,6 +14,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **windows** · Acrylic DWM backdrop on Windows
 
 ### Correzioni
+- **worktrees** · provision Tauri sidecars into fresh worktrees
 - **board** · a landed parent stays in review when its last step closes
 
 ### Sotto il cofano

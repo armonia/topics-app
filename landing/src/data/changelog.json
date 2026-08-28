@@ -11,6 +11,10 @@
       ],
       "fixes": [
         {
+          "text": "provision Tauri sidecars into fresh worktrees",
+          "scope": "worktrees"
+        },
+        {
           "text": "a landed parent stays in review when its last step closes",
           "scope": "board"
         }
