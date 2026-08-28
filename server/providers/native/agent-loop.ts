@@ -537,7 +537,7 @@ export async function runAgentTurn(
       // «user» è precisamente ciò che ha fatto sparire la spiegazione.
       const causa = stopCauseFromSignal(opts.signal);
       const end: TurnEndInfo = causa ? { end: "cancelled", cause: causa } : { end: "cancelled" };
-      handler.onAborted?.({ result: finalText, turnEnd: end });
+      handler.onAborted?.({ result: finalText, turnEnd: end, usage: toProviderUsage(total) });
       return { turnEnd: end, text: finalText, usage: total };
     }
 
@@ -684,7 +684,7 @@ export async function runAgentTurn(
       if (opts.signal?.aborted) {
         const causa = stopCauseFromSignal(opts.signal);
         const end: TurnEndInfo = causa ? { end: "cancelled", cause: causa } : { end: "cancelled" };
-        handler.onAborted?.({ result: finalText, turnEnd: end });
+        handler.onAborted?.({ result: finalText, turnEnd: end, usage: toProviderUsage(total) });
         return { turnEnd: end, text: finalText, usage: total };
       }
     }
