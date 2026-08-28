@@ -521,6 +521,30 @@ export const SECTION_CARD =
 export const SIDEBAR_INDENT_STEP = 16;
 
 /**
+ * THE TWO RESERVED COLUMNS CLOSE ON THEIR RIGHT, by half a row gap.
+ *
+ * {@link ROW_GAP} is the air between the PIECES of a row, two things that have
+ * to breathe. The leading columns are not two things: they are two RESERVED
+ * boxes, and on the most numerous row family (a chat) they are both EMPTY.
+ * Paying the full content gap around a box that holds nothing is how the first
+ * letter of every label ended up 60px from the edge (card 14c086a5).
+ *
+ * Four and not zero: where the boxes DO draw something (a project shows its
+ * chevron then its favicon) the two inks would come within 2px and read as one.
+ * Four leaves 6px, since the glyph box already carries 2px of air per side.
+ *
+ * IT IS THE GAP THAT PAYS, NOT THE BOXES AND NOT THE INDENT: the boxes keep the
+ * width cards 150ebafb and 018fd91f gave them, so the sidebar keeps ONE name
+ * column, and {@link SIDEBAR_INDENT_STEP} is untouched, so the tree still reads
+ * as a tree. Result pinned in px by {@link SIDEBAR_LABEL_GUTTER_MAX}.
+ *
+ * A negative margin and not a smaller `gap`: the gap belongs to the row's flex
+ * container and would move the TRAILING side too, where the commands live and
+ * where nobody complained.
+ */
+export const ROW_LEAD_TIGHTEN = '-mr-1';
+
+/**
  * IL GLIFO IN TESTA A UNA RIGA — una misura sola, e uno slot che non balla.
  *
  * Era scritto a mano in quattro punti, e il numero scelto era il peggiore
@@ -559,7 +583,27 @@ export const SIDEBAR_INDENT_STEP = 16;
  * broken alignment is not.
  */
 export const ROW_GLYPH = 14;
-export const ROW_GLYPH_SLOT = 'w-[18px] self-stretch shrink-0 flex items-center justify-center';
+export const ROW_GLYPH_SLOT = `w-[18px] self-stretch shrink-0 flex items-center justify-center ${ROW_LEAD_TIGHTEN}`;
+
+/**
+ * HOW FAR THE FIRST LETTER OF A ROW SITS FROM THE EDGE OF THE COLUMN, in px, at
+ * the FIRST level. A ceiling, not a measure: a row may come in under it.
+ *
+ * Reported on 28/08 (card 14c086a5): "a lot of space in the sidebar tabs, left
+ * of the labels, for nothing". Measured before touching anything, in the live
+ * DOM, with a Range rect over the text node: a round 60px, on the board row as
+ * on a chat. The sum: inset 6, row padding 8, accordion box 12, ROW_GAP 8,
+ * glyph box 18, ROW_GAP 8, and on a chat the two boxes are EMPTY.
+ *
+ * It is 52 now, the two gaps between the reserved columns being worth 4 instead
+ * of 8 (see {@link ROW_LEAD_TIGHTEN}). What did NOT pay: the indent per depth
+ * ({@link SIDEBAR_INDENT_STEP}, which is how the hierarchy is read), the row
+ * height, `truncate-tight`, and the width of the boxes.
+ *
+ * `tests/e2e/sidebar-label-gutter.spec.ts` measures it in the real DOM, because
+ * nothing about this distance can be decided by eye: the change is 8px.
+ */
+export const SIDEBAR_LABEL_GUTTER_MAX = 52;
 
 /**
  * THE ACCORDION SLOT — one box for every chevron that opens a sidebar row.
@@ -608,7 +652,16 @@ export const ROW_CHEVRON = 12;
  * hit-testing too, so the reserved slot could never take a click meant for it.
  * Stretching it to the row's height makes the slot occupy what it reserves.
  */
-export const ROW_CHEVRON_SLOT = 'w-3 self-stretch shrink-0 flex items-center justify-center';
+export const ROW_CHEVRON_SLOT_BARE = 'w-3 self-stretch shrink-0 flex items-center justify-center';
+/**
+ * The accordion box AS A LIST ROW USES IT: the box above, closed on its right
+ * by {@link ROW_LEAD_TIGHTEN}, because in a list the box leads a column and not
+ * a piece of content. A CENTRED tile takes {@link ROW_CHEVRON_SLOT_BARE}
+ * instead: in grid form the pinned tile mirrors the trigger's weight on the
+ * other side to keep the identity in the middle, and a box that closes on one
+ * side only would push that centre off by 2px.
+ */
+export const ROW_CHEVRON_SLOT = `${ROW_CHEVRON_SLOT_BARE} ${ROW_LEAD_TIGHTEN}`;
 
 /**
  * IL BOX DI UN COMANDO IN CODA A UNA RIGA — uno solo, per tutte le righe.
