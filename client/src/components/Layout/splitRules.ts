@@ -54,3 +54,54 @@ export function canSplitPane(ctx: SplitContext): boolean {
 export function standaloneSplitSurface(gridItemKey: string): SplitSurface {
   return gridItemKey.startsWith('solo:') ? 'standalone-solo' : 'standalone-pool';
 }
+
+/** A tab released on the edge band of a group, described by where it came from. */
+export interface SplitDropContext {
+  /** Which tiling surface hosts the group the tab is being dropped ON. */
+  surface: SplitSurface;
+  /** Panes in the group the tab is being dragged OUT of. */
+  sourceGroupSize: number;
+  /** The drop lands on the very group the tab already lives in. */
+  sameGroup: boolean;
+  /**
+   * The drop is on a full-width strip: the pane moves into a NEW row spanning
+   * every column, instead of splitting one group in two.
+   */
+  fullRow?: boolean;
+  /**
+   * How many groups the surface currently holds. Only read for `fullRow`, and
+   * only to tell apart the one arrangement that cannot change: the only pane of
+   * the only group, moved into a row of its own.
+   */
+  totalGroups?: number;
+}
+
+/**
+ * True when a drag-to-edge release must actually split.
+ *
+ * Same question as `canSplitPane`, asked from the DRAG path instead of the
+ * context menu, and answered by the same rule — that identity is the point.
+ * The two paths had drifted: the project surface offered "Split" in the menu
+ * (which auto-spawns a draft companion, see `useProjectLayout.handleSplitGroup`)
+ * while `GroupLayout`'s drop handler refused the same gesture whenever the
+ * source group held a single pane. A project window that opens with one pane in
+ * one group is the common case, so drag-to-split was dead exactly where it was
+ * first tried: the edge preview painted, the release did nothing.
+ *
+ * Because a drop on ANOTHER group always yields two visible cells whatever the
+ * source held, the source's size only matters for a self-drop.
+ *
+ * A `dragover` cannot read the payload's VALUES, so the caller resolves the
+ * source group through the module shelf (`dragPayload.draggedPaneId`) to ask
+ * this the same question the drop will ask. Preview and outcome must agree:
+ * a promised gesture that no-ops is worse than one never offered.
+ */
+export function canDropSplit(ctx: SplitDropContext): boolean {
+  // A full-row drop always takes the pane OUT of its group, so it reshapes the
+  // tree in every arrangement but one: the only pane of the only group, which
+  // lands in a new spanning row while its emptied group is dropped — the same
+  // tree, redrawn. Refuse that one rather than promise a no-op.
+  if (ctx.fullRow) return ctx.sourceGroupSize > 1 || (ctx.totalGroups ?? 2) > 1;
+  if (!ctx.sameGroup) return true;
+  return canSplitPane({ surface: ctx.surface, groupSize: ctx.sourceGroupSize });
+}

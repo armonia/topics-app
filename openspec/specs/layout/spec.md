@@ -2092,3 +2092,94 @@ suo lavoro.
 #### Scenario: lo stesso comando su un avvio sano
 - **GIVEN** un avvio in cui il guscio NON ha concluso lo stato degradato
 - **THEN** il comando SHALL non eliminare niente e non rilanciare
+
+### Requirement: DNDSPLIT-01 — La tabella dei casi: sorgente x destinazione x albero atteso
+
+Il trascinamento di una scheda vive oggi in piu' posti — la barra delle schede di
+una pane, la griglia dei pannelli, i divisori, la sidebar — e ogni posto aveva
+imparato le sue regole per conto suo. Questo requisito e' la MAPPA: l'elenco
+numerato dei casi, cosi' che «tutti i comportamenti» sia una lista che si conta e
+non un aggettivo.
+
+Ci sono DUE superfici affiancate, e la regola generale e' che si comportino allo
+stesso modo dove la domanda e' la stessa:
+
+- **STD** — la griglia della finestra autonoma (`PanelGrid`), con i divisori di
+  inserimento fra celle (`InsertDividers`);
+- **PRJ** — la griglia dentro un progetto (`GroupLayout`), che disegna gruppi.
+
+Entrambe rendono attraverso `SplitTree`. L'esito di ogni caso SHALL essere
+verificato sull'ALBERO del risultato — quante foglie, con quale contenuto, sotto
+quale asse di split — e non sull'aspetto: l'albero SHALL essere leggibile dal DOM
+tramite `[data-split-surface]`, `[data-split-node]` (l'asse: `row` o `col`) e
+`[data-split-leaf]` (l'identita' della foglia).
+
+**La tabella.** Sorgente: una scheda trascinata dalla sua barra, salvo dove detto.
+
+| # | Sorgente | Destinazione | Esito atteso sull'albero |
+|---|---|---|---|
+| 1 | scheda | altra posizione della PROPRIA barra | stesse foglie, stesso albero; cambia solo l'ordine dentro la foglia |
+| 2 | scheda | barra di un'ALTRA pane, stessa superficie | la scheda lascia la foglia d'origine ed entra in quella di arrivo all'indice puntato; nessuna foglia nuova |
+| 3 | scheda | fascia di bordo sinistro/destro del corpo di una pane | nasce una foglia accanto: split `row` di arieta' +1 |
+| 4 | scheda | fascia di bordo alto/basso del corpo di una pane | nasce una foglia sopra/sotto la SOLA colonna puntata: split `col` di arieta' +1 |
+| 5 | scheda | centro del corpo di una pane | nessuna foglia nuova: la scheda si unisce al gruppo di quella foglia |
+| 6 | scheda | divisore fra due celle | la scheda entra come foglia FRA le due, sull'asse di quel divisore |
+| 7 | scheda | striscia a tutta larghezza (estremo alto/basso) | nasce una riga che copre TUTTE le colonne: arieta' +1 sullo split radice `col` |
+| 8 | scheda | area vuota della griglia | la scheda si apre nella griglia; nessuna foglia perduta |
+| 9 | scheda | fuori dalla finestra | la pane si stacca; la superficie d'origine resta coerente (nessuna foglia vuota) |
+| 10 | scheda di un progetto | qualunque bersaglio di UN'ALTRA superficie | rifiutata: nessun disegno di anteprima, nessun cambio d'albero da nessuna delle due parti |
+| 11 | riga della sidebar | corpo di una pane | l'argomento si apre e si unisce a quella foglia |
+| 12 | tessera fissata | griglia | come 11 |
+
+Il numero del caso vale su ENTRAMBE le superfici: `STD-3` e `PRJ-3` sono la
+stessa domanda posta due volte, e SHALL avere lo stesso esito.
+
+**La regola che tiene insieme la tabella**: un gesto OFFERTO SHALL riuscire, e un
+gesto che sara' rifiutato SHALL non essere offerto. In termini di eventi: se il
+`dragover` di un bersaglio disegna l'anteprima, il `drop` sullo stesso bersaglio
+SHALL produrre il cambio d'albero promesso. La condizione «si puo' splittare?»
+SHALL essere UNA sola funzione (`splitRules.ts`), interrogata sia dai menu sia
+dai percorsi di trascinamento.
+
+#### Scenario: l'albero e' leggibile dal DOM
+- **GIVEN** una superficie di tiling qualunque disegnata
+- **THEN** ogni nodo di split SHALL portare `data-split-node` con il suo asse e
+  `data-split-arity` con il numero di figli, e ogni foglia `data-split-leaf` con
+  la sua identita'
+
+#### Scenario: anteprima e esito non divergono
+- **GIVEN** un bersaglio che durante il `dragover` accende la sua anteprima
+- **WHEN** la scheda viene rilasciata su quel bersaglio
+- **THEN** l'albero SHALL cambiare come l'anteprima prometteva
+
+### Requirement: DNDSPLIT-02 — Dentro un progetto lo split parte anche da UNA sola pane
+
+Il guasto segnalato. Un progetto si apre con un gruppo solo, che contiene una
+pane sola: e' la prima cosa che chiunque vede. Trascinando quella scheda sulla
+fascia di bordo del proprio corpo, l'anteprima si accendeva e il rilascio non
+faceva niente — perche' il gestore del drop rifiutava di sua iniziativa ogni
+rilascio in cui il gruppo di partenza aveva una pane sola, mentre il MENU offriva
+lo stesso split e `handleSplitGroup` lo sapeva gia' eseguire (crea una bozza
+compagna nel gruppo d'origine, come fa la superficie autonoma).
+
+Il rifiuto SHALL essere tolto: la domanda «questo rilascio deve splittare?» SHALL
+essere posta a `splitRules.canDropSplit`, che per un rilascio sul PROPRIO gruppo
+risponde esattamente quello che `canSplitPane` risponde al menu. Un rilascio su
+un ALTRO gruppo SHALL sempre splittare, qualunque cosa contenesse il gruppo di
+partenza.
+
+Resta rifiutato UN solo caso, ed e' rifiutato perche' non cambierebbe niente: il
+rilascio a tutta larghezza dell'unica pane dell'unico gruppo, che finirebbe in
+una riga nuova mentre il suo gruppo svuotato viene tolto — lo stesso albero,
+ridisegnato. Quel bersaglio SHALL quindi non accendersi affatto.
+
+#### Scenario: progetto con una pane sola, split sul bordo
+- **GIVEN** un progetto con un gruppo che contiene una pane
+- **WHEN** la sua scheda viene rilasciata sulla fascia di bordo destro del corpo
+- **THEN** l'albero SHALL avere due foglie sotto uno split `row`, e il gruppo
+  d'origine SHALL conservare una pane visibile (una bozza compagna)
+
+#### Scenario: il gesto a tutta larghezza che non cambierebbe niente
+- **GIVEN** lo stesso progetto con un gruppo e una pane
+- **WHEN** la scheda passa sopra la striscia a tutta larghezza
+- **THEN** la striscia SHALL non accendersi, e il rilascio SHALL non cambiare l'albero

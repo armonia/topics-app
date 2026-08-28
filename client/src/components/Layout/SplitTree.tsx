@@ -64,6 +64,13 @@ export function SplitTree({ node, renderLeaf, gutter = 0, onResize, onEqualize, 
   const horizontal = node.dir === 'row';
   return (
     <div
+      // The SHAPE of the tiling, published so a test can assert the tree a
+      // gesture produced instead of a screenshot of it: leaves already carry
+      // `data-split-leaf`, this is the split above them and the axis it runs on.
+      // Reading `[data-split-node]` / `[data-split-leaf]` nesting under
+      // `[data-split-surface]` reconstructs the whole layout.
+      data-split-node={node.dir}
+      data-split-arity={node.children.length}
       style={{
         display: 'flex',
         flexDirection: horizontal ? 'row' : 'column',
