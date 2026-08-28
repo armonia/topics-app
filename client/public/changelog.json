@@ -1,7 +1,7 @@
 [
   {
     "version": "2.2.195",
-    "date": "2026-08-28",
+    "date": "2026-08-27",
     "sections": {
       "new": [],
       "fixes": [],
@@ -18,9 +18,20 @@
           "scope": null
         },
         {
+          "it": "Rilettura dei 14 requisiti promossi: 11 reggono, 3 riscritti, 0 persi",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "I miei tre commenti erano in italiano, e i file hanno una baseline esatta",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "build:watch stays off, and public/ is a manual build",
+          "en": "",
+          "scope": null,
+          "breaking": false
         }
       ]
     }
