@@ -77,7 +77,7 @@
     "tests/e2e/sidebar-pinned-tiles.spec.ts": 2586,
     "server/utils.ts": 2403,
     "server/routes/tasks.test.ts": 2372,
-    "client/src/App.tsx": 2465,
+    "client/src/App.tsx": 2338,
     "server/browser-service.ts": 2225,
     "client/src/components/Board/KanbanBoardPane.tsx": 2222,
     "server/mcp/topics-mcp-server.ts": 2167,
