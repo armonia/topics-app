@@ -417,6 +417,36 @@ export function forApi(blocks: Block[]): Block[] {
 }
 
 /**
+ * HOW A ROUND THAT DID NOT ASK FOR TOOLS ENDED.
+ *
+ * The rule that matters is the second one, and it was missing. `stop_reason`
+ * was read for `max_tokens` and NOTHING else: every other value, `null`
+ * included, came out as `{end: "end_turn"}` - a natural end, no notice, no
+ * retry. And `null` is precisely the value you get when the SSE body ends
+ * without a `message_delta`, that is when the stream dies halfway through.
+ *
+ * The tell is the one already written for a truncated call: a round that
+ * carries `tool_use` blocks and did NOT close with `tool_use` was INTERRUPTED
+ * while the model was writing the call. Whatever the reason. A healthy turn
+ * closes with `end_turn` and no `tool_use` block, so this never touches it.
+ *
+ * `max_tokens` keeps its own end even with tool blocks: the output cap cut it,
+ * which is a different (and honest) sentence, and the dispatcher already knows
+ * that one means "compact and resume".
+ */
+function roundEnd(stopReason: string | null, toolUseCount: number): TurnEndInfo {
+  if (stopReason === "max_tokens") return { end: "max_tokens" };
+  if (toolUseCount > 0) {
+    const detail =
+      `il giro portava ${toolUseCount} chiamata/e a strumenti ma si e' chiuso con `
+      + `stop_reason=${stopReason ?? "null"}: lo stream si e' interrotto mentre il modello `
+      + `scriveva la chiamata, il turno non e' finito da solo`;
+    return { end: "error", cause: "provider-error", detail };
+  }
+  return { end: "end_turn" };
+}
+
+/**
  * Il turno completo: gira finché il modello non ha più tool da chiedere.
  *
  * IL CICLO È IL PUNTO. `stop_reason: "tool_use"` significa «ho chiesto degli
@@ -518,10 +548,15 @@ export async function runAgentTurn(
     const toolUses = round.blocks.filter((b) => b.type === "tool_use");
     if (round.stopReason !== "tool_use" || toolUses.length === 0) {
       finalText = currentText(round.blocks);
-      const end: TurnEndInfo =
-        round.stopReason === "max_tokens"
-          ? { end: "max_tokens" }
-          : { end: "end_turn" };
+      const end = roundEnd(round.stopReason, toolUses.length);
+      if (end.end === "error") {
+        // A CUT ROUND IS NOT A FINISHED TURN, so it does not leave through
+        // `onDone`: the route finalizes an `onError` with a notice, and the
+        // dispatcher retries. Going out of the door marked "finished" is
+        // exactly what made this death silent.
+        handler.onError(end.detail ?? "il giro si e' interrotto a meta'");
+        return { turnEnd: end, text: finalText, usage: total };
+      }
       handler.onDone?.({ result: finalText, turnEnd: end });
       return { turnEnd: end, text: finalText, usage: total };
     }
