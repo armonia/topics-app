@@ -33,6 +33,7 @@ import { useSidebarFlipPush } from './hooks/useSidebarFlipPush';
 import { useSidebarSwipe, mobileDrawerStyle } from './hooks/useSidebarSwipe';
 import { isDesktop, isTauri, isTauriWindows } from './lib/shell';
 import { selectDirectory } from './lib/shell/app';
+import { TOPICS_LABEL_MIN_W_WINDOWS } from './lib/shell/windowControlsGeometry';
 import { initDevBundleReload } from './lib/devBundleReload';
 import { initDevLayoutProbe } from './lib/devLayoutProbe';
 import { initDevHeapProbe } from './lib/devHeapProbe';
@@ -1501,7 +1502,16 @@ function App() {
                 // di progetto hanno `project-toggle-*`.
                 data-testid="sidebar-topics-menu"
               >
-                <span className={`font-semibold text-app-text tracking-[-0.01em] truncate ${isMobile ? 'text-[17px]' : 'text-[15px]'} ${(isTauriMac || isTauriWindows) && showTopicsMenu ? 'invisible' : ''}`}>Topics</span>
+                {/* THE MINIMUM WIDTH IS FOR THE WINDOW COMMANDS, and on Windows
+                    it holds with the menu closed too. There the three commands
+                    come out OVER this label (absolute, `WindowControls`) and the
+                    room left between them and the chevron was whatever the word
+                    "Topics" happened to leave in the system font: two or three
+                    pixels in Segoe UI, i.e. the two groups touching (card
+                    3198947b). Reserving it only while the menu is open would
+                    move the chevron under the pointer that just clicked it. The
+                    arithmetic is in `windowControlsGeometry.ts`. */}
+                <span className={`font-semibold text-app-text tracking-[-0.01em] truncate ${isMobile ? 'text-[17px]' : 'text-[15px]'} ${isTauriWindows ? TOPICS_LABEL_MIN_W_WINDOWS : ''} ${(isTauriMac || isTauriWindows) && showTopicsMenu ? 'invisible' : ''}`}>Topics</span>
                 {/* 14, come il glifo di «Cerca» e del «+» che gli stanno accanto sulla
                     STESSA riga — misurato: era 12 contro i loro 14, e il raggio
                     6 contro 8. Tre elementi affiancati con tre forme diverse

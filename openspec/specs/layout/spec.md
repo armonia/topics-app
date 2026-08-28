@@ -1933,6 +1933,53 @@ speculare.
 - **THEN** l'altezza della riga NON SHALL cambiare
 - **AND** nessun altro elemento della riga SHALL spostarsi
 
+FRA I DUE GRUPPI CI SHALL essere respiro, e la misura SHALL essere dichiarata,
+non ereditata da un font. I tre comandi sono assoluti, quindi non riservano
+niente: lo spazio fra loro e il chevron del bottone «Topics» era quello che
+avanzava dalla parola sotto, e la parola e' nel font di SISTEMA. Su Windows 11
+(Segoe UI) avanzavano due o tre pixel e i due gruppi si leggevano come uno solo.
+L'etichetta SHALL quindi portare una larghezza minima calcolata dall'ancora e
+dalla dimensione delle celle, tale da lasciare almeno 12px — due volte
+`ROW_INSET` — fra il bordo destro del gruppo e il bordo sinistro del chevron.
+
+Quella larghezza SHALL valere nei DUE stati del menu, aperto e chiuso: riservarla
+solo a comandi accesi sposterebbe il chevron nell'istante in cui il menu si apre,
+cioe' sotto il puntatore che l'ha appena cliccato.
+
+#### Scenario: i due gruppi non si toccano
+- **GIVEN** il guscio Tauri su Windows, col menu «Topics» aperto
+- **WHEN** si misura fra il gruppo dei comandi e il chevron del bottone
+- **THEN** la distanza SHALL essere di almeno 12px
+
+### Requirement: WINMENU-01 — Su Windows la finestra NON SHALL avere una barra dei menu
+
+Il menu nativo (Topics / Edit / View / Window / Help) su macOS e' la striscia in
+cima allo SCHERMO e li' SHALL restare: senza, un guscio WKWebView non ha ne'
+Cmd+C/V/X/A/Z ne' Reload. Su Windows lo stesso menu e' una riga dentro la
+FINESTRA, subito sopra il chrome che la app disegna da se' (la cornice di sistema
+e' spenta, `set_decorations(false)`): e' una seconda barra in una finestra che ne
+ha gia' una propria. Non compra nemmeno le scorciatoie, perche' nel message loop
+non chiama nessuno `TranslateAcceleratorW` — a farle funzionare e' il gancio
+`menu_chords_win` — e ogni voce che elenca e' raggiungibile dalla app.
+
+Il menu su Windows NON SHALL essere costruito affatto: non nascosto. Un
+`hide_menu()` lascia il menu attaccato alla finestra, quindi un `set_menu` o uno
+`show_menu` successivo, o una finestra creata dopo che eredita il menu di app,
+riportano la riga. Un menu che non esiste non puo' tornare da solo.
+
+Nella finestra NON SHALL comparire nessuna riga di menu: nemmeno una riga vuota
+alta zero.
+
+#### Scenario: si apre la finestra su Windows
+- **GIVEN** il guscio Tauri su Windows
+- **WHEN** la finestra principale si mostra
+- **THEN** NON SHALL esistere nessuna barra dei menu nella finestra
+
+#### Scenario: le scorciatoie del menu continuano a funzionare
+- **GIVEN** la finestra su Windows senza menu
+- **WHEN** si preme Ctrl+R, Ctrl+0, Ctrl+= o Ctrl+-
+- **THEN** l'azione SHALL partire lo stesso, dal gancio delle scorciatoie
+
 #### Scenario: sul Mac non montano
 - **GIVEN** il guscio Tauri su macOS
 - **WHEN** il menu «Topics» si apre

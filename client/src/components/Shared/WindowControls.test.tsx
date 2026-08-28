@@ -27,6 +27,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { ComponentType } from 'react';
+import { TOPICS_LABEL_MIN_PX, TOPICS_LABEL_MIN_W_WINDOWS } from '../../lib/shell/windowControlsGeometry';
 
 // ONE EXPORT IS OVERRIDDEN, and the rest of the facade is left ALONE. Faking the
 // host is not enough: `isTauriWindows` is a module CONSTANT, computed the first
@@ -109,5 +110,38 @@ describe('where they are mounted', () => {
 
   test('the "Topics" label makes room for them, as it does for the traffic lights', () => {
     expect(app()).toContain("(isTauriMac || isTauriWindows) && showTopicsMenu ? 'invisible' : ''");
+  });
+});
+
+/**
+ * THE ROOM BETWEEN THE TWO GROUPS, which is a number and not an impression.
+ *
+ * The commands are absolute: they reserve nothing, so what keeps them off the
+ * Topics chevron is the width of the word underneath - a system font, i.e. not a
+ * layout contract. On Windows 11 (Segoe UI) it left two or three pixels and the
+ * two groups read as one (card 3198947b). The width is now DECLARED, and these
+ * three facts are what the declaration is computed from: change a cell size or
+ * the anchor and the arithmetic has to be redone here first.
+ */
+describe('the reserved room', () => {
+  test('the minimum width and its class say the same number', () => {
+    expect(TOPICS_LABEL_MIN_W_WINDOWS).toBe(`min-w-[${TOPICS_LABEL_MIN_PX}px]`);
+  });
+
+  test('cells and anchor are the ones the arithmetic assumes', () => {
+    const html = renderToStaticMarkup(<WindowControls visible />);
+    // 3 cells of 18 anchored at 6 = the group ends at 60 inside the wrapper.
+    expect((html.match(/h-\[18px\] w-\[18px\]/g) || []).length).toBe(3);
+    expect(html).toContain('left-[6px]');
+    expect(TOPICS_LABEL_MIN_PX).toBe(60);
+  });
+
+  test('the label reserves it on Windows, and in BOTH states of the menu', () => {
+    const s = readFileSync(join(import.meta.dir, '..', '..', 'App.tsx'), 'utf8');
+    const label = s.slice(s.indexOf('>Topics</span>') - 400, s.indexOf('>Topics</span>'));
+    expect(label).toContain('isTauriWindows ? TOPICS_LABEL_MIN_W_WINDOWS');
+    // Not conditioned on the menu being open: a width that appears with the
+    // menu moves the chevron under the pointer that has just clicked it.
+    expect(label).not.toContain('showTopicsMenu ? TOPICS_LABEL_MIN_W_WINDOWS');
   });
 });

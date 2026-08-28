@@ -9816,7 +9816,11 @@ pub fn run() {
     let dev_serve: Option<DevServe> = resolve_dev_serve();
     let dev_serve_for_proto = dev_serve.clone();
 
-    tauri::Builder::default()
+    // THE CHAIN IS BROKEN IN TWO right before `.menu()`, and that is the whole
+    // reason this is a `let` and not one expression: the native menu is built on
+    // macOS and Linux and NOT on Windows, and a `#[cfg]` cannot be hung on a
+    // method call in the middle of a builder chain. It can be hung on a `let`.
+    let builder = tauri::Builder::default()
         // Custom `tauri` asset protocol (overrides Tauri's built-in: when a user
         // registers "tauri", the internal one is skipped — see manager/webview.rs).
         // In dev mode it disk-serves /public with embedded fallback; otherwise it's
@@ -9977,117 +9981,139 @@ pub fn run() {
         // restore/save wiring); position stays centered (`center: true` in tauri.conf.json).
         // Auto-update — reads plugins.updater (endpoint + pubkey) from tauri.conf.json.
         // Inert until a signed release is published; the client drives check/install.
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        // Native menu — a WKWebView shell with NO app menu also has no working
-        // Cmd+C/V/X/A/Z and no Reload. Build the standard macOS menus plus an
-        // explicit View ▸ Reload (Cmd+R), matching the Electron app.
-        .menu(|handle| {
-            use tauri::menu::{MenuBuilder, MenuItem, SubmenuBuilder};
-            let reload = MenuItem::with_id(handle, "reload", "Reload", true, Some("CmdOrCtrl+R"))?;
-            // Nessun acceleratore: Cmd+Shift+R e' "Record voice" nell'app (lo dice
-            // il pannello delle scorciatoie e il tooltip del microfono). Il menu
-            // teneva la scorciatoia buona per un doppione del Reload qui sopra —
-            // e quando il fuoco stava in una webview figlia partiva davvero,
-            // ricaricando l'app al posto di far partire il dettato. La voce resta,
-            // cliccabile; la scorciatoia torna a chi la documenta.
-            //
-            // Da SOLO questo non basta e non bastava: il monitor NSEvent (cerca
-            // `!shift_r`) intercetta il tasto prima del menu e prima della
-            // webview. Sono due porte sulla stessa scorciatoia — se ne riapri una
-            // la riapri per tutti.
-            let force_reload =
-                MenuItem::with_id(handle, "force-reload", "Force Reload", true, None::<&str>)?;
-            let zoom_in = MenuItem::with_id(handle, "zoom-in", "Zoom In", true, Some("CmdOrCtrl+="))?;
-            let zoom_out = MenuItem::with_id(handle, "zoom-out", "Zoom Out", true, Some("CmdOrCtrl+-"))?;
-            let zoom_reset =
-                MenuItem::with_id(handle, "zoom-reset", "Actual Size", true, Some("CmdOrCtrl+0"))?;
-            // No accelerator: the Cmd/Ctrl+Alt+T chord is owned by the global
-            // shortcut (works unfocused too); a menu accelerator on the same chord
-            // would double-fire and cancel the toggle when the window is focused.
-            let always_on_top =
-                MenuItem::with_id(handle, "always-on-top", "Always on Top", true, None::<&str>)?;
-            // Reset the focused window's split layout — flattens the panel tree
-            // back to a single pane. The client already listens on the per-window
-            // `topics:reset-split-layout` CustomEvent bus (GroupLayout / PanelGrid),
-            // gated on which surface is App-focused, so we just dispatch it on the
-            // focused window's webview (see the "reset-split-layout" menu handler).
-            // No accelerator: the Command Palette already exposes this action, and a
-            // menu chord risks colliding with a future pane shortcut.
-            let reset_panels =
-                MenuItem::with_id(handle, "reset-split-layout", "Reimposta pannelli", true, None::<&str>)?;
-            // "Open at Login" (Electron parity). Toggling registers/removes the
-            // LaunchAgent immediately. NOTE: we cannot read the current enabled state
-            // here — the .menu() closure runs BEFORE the autostart plugin's setup
-            // manages its AutoLaunchManager, so is_enabled() would panic. Plain label.
-            let open_at_login =
-                MenuItem::with_id(handle, "open-at-login", "Apri al login", true, None::<&str>)?;
-            // Custom Quit (not the predefined .quit()) so ⌘Q sets QUITTING before
-            // exiting — otherwise the hide-to-tray CloseRequested handler would
-            // swallow the quit and trap the app in the tray.
-            let app_quit =
-                MenuItem::with_id(handle, "app-quit", "Quit Topics", true, Some("CmdOrCtrl+Q"))?;
-            // "Check for Updates…" — drives the same client-side updater flow as the
-            // sidebar Version popover (dispatches a DOM event the client listens for,
-            // which calls updater_check → UpdaterToast). Without a manual entry point
-            // the only trigger was the version popover; this makes it discoverable.
-            let check_updates = MenuItem::with_id(
-                handle,
-                "check-updates",
-                "Controlla aggiornamenti…",
-                true,
-                None::<&str>,
-            )?;
-            let app_menu = SubmenuBuilder::new(handle, "Topics")
-                .about(None)
-                .separator()
-                .item(&check_updates)
-                .separator()
-                .hide()
-                .hide_others()
-                .show_all()
-                .separator()
-                .item(&app_quit)
-                .build()?;
-            let edit_menu = SubmenuBuilder::new(handle, "Edit")
-                .undo()
-                .redo()
-                .separator()
-                .cut()
-                .copy()
-                .paste()
-                .select_all()
-                .build()?;
-            let view_menu = SubmenuBuilder::new(handle, "View")
-                .item(&reload)
-                .item(&force_reload)
-                .separator()
-                .item(&zoom_in)
-                .item(&zoom_out)
-                .item(&zoom_reset)
-                .separator()
-                .item(&reset_panels)
-                .separator()
-                .item(&always_on_top)
-                .item(&open_at_login)
-                .separator()
-                .fullscreen()
-                .build()?;
-            // NOTE: no `.close_window()` — its default ⌘W accelerator would close
-            // the whole window, but in Topics ⌘W closes the focused PANE (handled
-            // in the renderer, useKeyboardShortcuts). The window is closed via the
-            // traffic-light button. (A pane-close menu accelerator that also works
-            // when a child browser webview holds focus lands in the browser phase.)
-            let window_menu = SubmenuBuilder::new(handle, "Window")
-                .minimize()
-                .maximize()
-                .build()?;
-            let help_github =
-                MenuItem::with_id(handle, "help-github", "Topics on GitHub", true, None::<&str>)?;
-            let help_menu = SubmenuBuilder::new(handle, "Help").item(&help_github).build()?;
-            MenuBuilder::new(handle)
-                .items(&[&app_menu, &edit_menu, &view_menu, &window_menu, &help_menu])
-                .build()
-        })
+        .plugin(tauri_plugin_updater::Builder::new().build());
+
+    // Native menu — a WKWebView shell with NO app menu also has no working
+    // Cmd+C/V/X/A/Z and no Reload. Build the standard macOS menus plus an
+    // explicit View ▸ Reload (Cmd+R), matching the Electron app.
+    //
+    // NOT ON WINDOWS, and it is not a matter of taste. There the menu is not a
+    // strip at the top of the SCREEN, it is a row inside the WINDOW: with the
+    // system frame off (`set_decorations(false)` in setup) that row lands right
+    // above the app's own chrome, so the window carries two bars again. It buys
+    // nothing either: no accelerator of it ever fired, because nobody calls
+    // `TranslateAcceleratorW` in the message loop (see `menu_chords_win`, which
+    // is what actually makes Ctrl+R, Ctrl+0 and the rest work), and every entry
+    // it lists is reachable from the app itself. Reported from a Windows build
+    // (card 3198947b): "the View / Help bar we can disable altogether".
+    //
+    // Removed and not hidden: `hide_menu()` leaves the menu attached to the
+    // window, so a later `set_menu`/`show_menu` from anywhere brings the row
+    // back, and any window built afterwards inherits the app-wide menu. A menu
+    // that is never built cannot come back on its own.
+    #[cfg(not(target_os = "windows"))]
+    let builder = builder.menu(|handle| {
+        use tauri::menu::{MenuBuilder, MenuItem, SubmenuBuilder};
+        let reload = MenuItem::with_id(handle, "reload", "Reload", true, Some("CmdOrCtrl+R"))?;
+        // Nessun acceleratore: Cmd+Shift+R e' "Record voice" nell'app (lo dice
+        // il pannello delle scorciatoie e il tooltip del microfono). Il menu
+        // teneva la scorciatoia buona per un doppione del Reload qui sopra —
+        // e quando il fuoco stava in una webview figlia partiva davvero,
+        // ricaricando l'app al posto di far partire il dettato. La voce resta,
+        // cliccabile; la scorciatoia torna a chi la documenta.
+        //
+        // Da SOLO questo non basta e non bastava: il monitor NSEvent (cerca
+        // `!shift_r`) intercetta il tasto prima del menu e prima della
+        // webview. Sono due porte sulla stessa scorciatoia — se ne riapri una
+        // la riapri per tutti.
+        let force_reload =
+            MenuItem::with_id(handle, "force-reload", "Force Reload", true, None::<&str>)?;
+        let zoom_in = MenuItem::with_id(handle, "zoom-in", "Zoom In", true, Some("CmdOrCtrl+="))?;
+        let zoom_out = MenuItem::with_id(handle, "zoom-out", "Zoom Out", true, Some("CmdOrCtrl+-"))?;
+        let zoom_reset =
+            MenuItem::with_id(handle, "zoom-reset", "Actual Size", true, Some("CmdOrCtrl+0"))?;
+        // No accelerator: the Cmd/Ctrl+Alt+T chord is owned by the global
+        // shortcut (works unfocused too); a menu accelerator on the same chord
+        // would double-fire and cancel the toggle when the window is focused.
+        let always_on_top =
+            MenuItem::with_id(handle, "always-on-top", "Always on Top", true, None::<&str>)?;
+        // Reset the focused window's split layout — flattens the panel tree
+        // back to a single pane. The client already listens on the per-window
+        // `topics:reset-split-layout` CustomEvent bus (GroupLayout / PanelGrid),
+        // gated on which surface is App-focused, so we just dispatch it on the
+        // focused window's webview (see the "reset-split-layout" menu handler).
+        // No accelerator: the Command Palette already exposes this action, and a
+        // menu chord risks colliding with a future pane shortcut.
+        let reset_panels =
+            MenuItem::with_id(handle, "reset-split-layout", "Reimposta pannelli", true, None::<&str>)?;
+        // "Open at Login" (Electron parity). Toggling registers/removes the
+        // LaunchAgent immediately. NOTE: we cannot read the current enabled state
+        // here — the .menu() closure runs BEFORE the autostart plugin's setup
+        // manages its AutoLaunchManager, so is_enabled() would panic. Plain label.
+        let open_at_login =
+            MenuItem::with_id(handle, "open-at-login", "Apri al login", true, None::<&str>)?;
+        // Custom Quit (not the predefined .quit()) so ⌘Q sets QUITTING before
+        // exiting — otherwise the hide-to-tray CloseRequested handler would
+        // swallow the quit and trap the app in the tray.
+        let app_quit =
+            MenuItem::with_id(handle, "app-quit", "Quit Topics", true, Some("CmdOrCtrl+Q"))?;
+        // "Check for Updates…" — drives the same client-side updater flow as the
+        // sidebar Version popover (dispatches a DOM event the client listens for,
+        // which calls updater_check → UpdaterToast). Without a manual entry point
+        // the only trigger was the version popover; this makes it discoverable.
+        let check_updates = MenuItem::with_id(
+            handle,
+            "check-updates",
+            "Controlla aggiornamenti…",
+            true,
+            None::<&str>,
+        )?;
+        let app_menu = SubmenuBuilder::new(handle, "Topics")
+            .about(None)
+            .separator()
+            .item(&check_updates)
+            .separator()
+            .hide()
+            .hide_others()
+            .show_all()
+            .separator()
+            .item(&app_quit)
+            .build()?;
+        let edit_menu = SubmenuBuilder::new(handle, "Edit")
+            .undo()
+            .redo()
+            .separator()
+            .cut()
+            .copy()
+            .paste()
+            .select_all()
+            .build()?;
+        let view_menu = SubmenuBuilder::new(handle, "View")
+            .item(&reload)
+            .item(&force_reload)
+            .separator()
+            .item(&zoom_in)
+            .item(&zoom_out)
+            .item(&zoom_reset)
+            .separator()
+            .item(&reset_panels)
+            .separator()
+            .item(&always_on_top)
+            .item(&open_at_login)
+            .separator()
+            .fullscreen()
+            .build()?;
+        // NOTE: no `.close_window()` — its default ⌘W accelerator would close
+        // the whole window, but in Topics ⌘W closes the focused PANE (handled
+        // in the renderer, useKeyboardShortcuts). The window is closed via the
+        // traffic-light button. (A pane-close menu accelerator that also works
+        // when a child browser webview holds focus lands in the browser phase.)
+        let window_menu = SubmenuBuilder::new(handle, "Window")
+            .minimize()
+            .maximize()
+            .build()?;
+        let help_github =
+            MenuItem::with_id(handle, "help-github", "Topics on GitHub", true, None::<&str>)?;
+        let help_menu = SubmenuBuilder::new(handle, "Help").item(&help_github).build()?;
+        MenuBuilder::new(handle)
+            .items(&[&app_menu, &edit_menu, &view_menu, &window_menu, &help_menu])
+            .build()
+    });
+
+    builder
+        // Kept on every platform: on Windows there is no menu to click any more,
+        // but `run_menu_action` is also the body the keyboard chords run
+        // (`menu_chords_win`), and this handler is inert without a menu.
         .on_menu_event(|app, event| run_menu_action(app, event.id().0.as_str()))
         .setup(move |app| {
             // Il path del PRIMO lancio: `topics /Users/x/progetto`, o il doppio
