@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.204 — 2026-08-28
+
+### Sotto il cofano
+- La via d'uscita dall'attesa adesso si percorre, non si legge soltanto
+
 ## 2.2.203 — 2026-08-28
 
 ### Sotto il cofano

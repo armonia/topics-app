@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.204",
+    "date": "2026-08-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La via d'uscita dall'attesa adesso si percorre, non si legge soltanto",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.203",
     "date": "2026-08-28",
     "sections": {
