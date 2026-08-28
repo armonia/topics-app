@@ -24,6 +24,7 @@
 import { getAccessToken } from "./auth";
 import { CODING_TOOLS, executeTool, type ToolContext, type ToolSpec } from "./tools";
 import { detectUserInputRequest } from "../ask-user-detector";
+import type { ProviderUsage } from "../types";
 import { decide, DEFAULT_AUTONOMY } from "./permissions";
 import { applyPromptCache } from "../prompt-cache";
 import { needsCompaction, compact, windowFor } from "./compaction";
@@ -401,6 +402,23 @@ function stripMessageCacheMarks(messages: AgentMessage[]): void {
  *
  * Si manda a ogni tipo di blocco esattamente ciò che quel tipo ammette.
  */
+/**
+ * The loop's own tally, in the shape every consumer downstream already speaks.
+ *
+ * `cacheCreation1h` is a SUBSET of `cacheCreation`, not an addend: it is the
+ * share written with a one-hour TTL, which costs 2x a fresh token instead of
+ * 1.25x. Adding them would bill that share twice.
+ */
+function toProviderUsage(total: RoundResult["usage"]): ProviderUsage {
+  return {
+    inputTokens: total.input,
+    outputTokens: total.output,
+    cacheRead: total.cacheRead,
+    cacheCreation: total.cacheWrite,
+    cacheCreation1h: total.cacheWrite1h,
+  };
+}
+
 export function forApi(blocks: Block[]): Block[] {
   return blocks.map((b) => {
     switch (b.type) {
@@ -565,7 +583,19 @@ export async function runAgentTurn(
         handler.onError(end.detail ?? "il giro si e' interrotto a meta'");
         return { turnEnd: end, text: finalText, usage: total };
       }
-      handler.onDone?.({ result: finalText, turnEnd: end });
+      // THE COUNT TRAVELS WITH THE END, or nobody ever sees it.
+      //
+      // The footer under a message opens on `usagePromptTokens > 0`, and that
+      // number reaches the row from the usage a provider reports when the turn
+      // ends. This loop counted every round into `total` and then called
+      // `onDone` without it: the numbers existed and died here. Measured on the
+      // live database - 0 assistant rows out of 755 carry usage for this
+      // runtime, against 103 of 104 for the CLI one, which is why the chat
+      // showed no consumption at all.
+      //
+      // `recordTurnUsage` does NOT cover this: it feeds an in-memory registry
+      // whose only reader is its own test, and it empties on every restart.
+      handler.onDone?.({ result: finalText, turnEnd: end, usage: toProviderUsage(total) });
       return { turnEnd: end, text: finalText, usage: total };
     }
 
