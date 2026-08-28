@@ -2,10 +2,23 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.205 — 2026-08-28
+
+### Sotto il cofano
+- Spesa agenti in centesimi: la colonna sulla card e il libro timbrato
+- Il contatore in dollari e il freno che nasce spento
+- Il freno di spesa: fail open sul non prezzabile, quota visibile senza allarmi
+- Take the spend brake out of the two files that were over their ceiling
+- Names in English, and usd is a word this project owns
+- The spend surface speaks the app's language
+- The cap box reads the store instead of mirroring it through an effect
+- Il «~42s» erano fra due e piu' di cinque minuti, e la frase aspettava la fine
+
 ## 2.2.204 — 2026-08-28
 
 ### Sotto il cofano
 - La via d'uscita dall'attesa adesso si percorre, non si legge soltanto
+- La domanda arrivava 145 secondi prima della risposta
 
 ## 2.2.203 — 2026-08-28
 
