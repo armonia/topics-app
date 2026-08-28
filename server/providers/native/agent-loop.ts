@@ -405,15 +405,34 @@ function stripMessageCacheMarks(messages: AgentMessage[]): void {
 /**
  * The loop's own tally, in the shape every consumer downstream already speaks.
  *
+ * `inputTokens` IS THE WHOLE PROMPT, cache included, and that is the contract
+ * of the column it ends up in.
+ *
+ * The API reports `input_tokens` as the FRESH share only: cache reads and cache
+ * writes are counted apart. Handing that number over as-is looks harmless and
+ * is not, because `messages.usage_prompt_tokens` means the opposite everywhere
+ * else in this repo (see `partsFromMessage` in shared/token-cost.ts, which
+ * SUBTRACTS the cache read from it, and the note on top of profile-stats.ts).
+ * Measured on the live database: 1448 rows out of 1448 written by the CLI
+ * runtime satisfy `usage_prompt_tokens >= cache_read_tokens`, against 0 out of
+ * 6 written by this one. On a real turn it was 14 instead of 234564, so the
+ * billable share came out as `max(0, 14 - 230541)` = zero and the whole turn
+ * vanished from the profile and the person stats.
+ *
+ * The price was never wrong: `splitPromptTokens` rebuilds the fresh share by
+ * subtracting the cache columns, which are reported separately and correctly.
+ * Only this column was, and only for this runtime.
+ *
  * `cacheCreation1h` is a SUBSET of `cacheCreation`, not an addend: it is the
  * share written with a one-hour TTL, which costs 2x a fresh token instead of
- * 1.25x. Adding them would bill that share twice.
+ * 1.25x. Adding them would bill that share twice. `cacheWrite1h` is therefore
+ * NOT summed into the total below either, for the same reason.
  */
 export function toProviderUsage(
   total: RoundResult["usage"],
 ): Required<Pick<ProviderUsage, "inputTokens" | "outputTokens" | "cacheRead" | "cacheCreation" | "cacheCreation1h">> {
   return {
-    inputTokens: total.input,
+    inputTokens: total.input + total.cacheRead + total.cacheWrite,
     outputTokens: total.output,
     cacheRead: total.cacheRead,
     cacheCreation: total.cacheWrite,

@@ -20,7 +20,8 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { runAgentTurn, type AgentMessage } from "./agent-loop";
-import type { StreamHandler } from "../types";
+import type { StreamHandler, ProviderUsage } from "../types";
+import { partsFromMessage } from "../../../shared/token-cost";
 
 const HOME_VERA = process.env.HOME;
 let casa: string;
@@ -118,5 +119,61 @@ describe("l'uso del runtime nativo, giro per giro", () => {
     );
     expect(out.usage.cacheWrite).toBe(10);
     expect(out.usage.cacheWrite1h).toBe(10);
+  });
+
+  /**
+   * THE COLUMN MEANS "THE WHOLE PROMPT", and this runtime used to write a
+   * tenth of a percent of it.
+   *
+   * The API reports `input_tokens` as the fresh share alone. Passed on as-is it
+   * landed in `messages.usage_prompt_tokens`, which everywhere else in the repo
+   * is the total WITH cache inside it: `partsFromMessage` subtracts the cache
+   * read from it, so a real turn with 14 fresh and 230541 read produced a
+   * billable share of `max(0, 14 - 230541)` = zero and disappeared from the
+   * profile and the person stats. On the live database: 1448 CLI rows out of
+   * 1448 satisfied `prompt >= cache_read`, 0 native rows out of 6 did.
+   * @covers USAGE-03
+   */
+  test("l'uso consegnato a fine turno porta il prompt INTERO, cache compresa", async () => {
+    const risposte = [giroConTool, giroFinale];
+    globalThis.fetch = (async () => new Response(risposte.shift() ?? giroFinale, { status: 200 })) as unknown as typeof fetch;
+
+    let consegnato: ProviderUsage | undefined;
+    const h = handler();
+    h.onDone = (m) => { consegnato = m?.usage; };
+
+    const out = await runAgentTurn(
+      { model: "claude-haiku-4-5-20251001", history: [{ role: "user", content: "vai" }], toolContext: { workspace: ws }, autonomy: "auto-apply" },
+      h,
+    );
+
+    // 300 fresh + 30 read + 10 written: the prompt as the column counts it.
+    expect(consegnato?.inputTokens).toBe(340);
+    expect(consegnato?.outputTokens).toBe(25);
+    // The shares stay reported separately TOO, because the price bills them at
+    // three different rates. They are inside the total, not beside it.
+    expect(consegnato?.cacheRead).toBe(30);
+    expect(consegnato?.cacheCreation).toBe(10);
+    // The one-hour share is a SUBSET of the write, so it does not enter the
+    // total a second time: 340, not 350.
+    expect(consegnato?.cacheCreation1h).toBe(10);
+
+    // THE CONTRACT, written the way whoever consumes the row reads it.
+    expect(consegnato!.inputTokens!).toBeGreaterThanOrEqual(consegnato!.cacheRead!);
+
+    // And the whole way down to the shape the chat uses: the billable share is
+    // what is NOT a cache read, i.e. fresh + write + answer. It used to come
+    // out as 25 (the answer alone), because the subtraction went below zero.
+    const parti = partsFromMessage({
+      usagePromptTokens: consegnato?.inputTokens,
+      usageCompletionTokens: consegnato?.outputTokens,
+      cacheReadTokens: consegnato?.cacheRead,
+    });
+    expect(parti).toEqual({ billable: 335, cacheRead: 30 });
+
+    // The live registry does NOT change: there the usage stays raw, round by
+    // round, and it is the source of the chip on the card. The two measures
+    // coexist without ever being added to each other.
+    expect(out.usage.input).toBe(300);
   });
 });
