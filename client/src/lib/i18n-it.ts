@@ -1782,6 +1782,11 @@ const IT: Dict = {
   'statusBar.agents.toLookAt': '· {n} da guardare (turno finito o in pausa)',
   'statusBar.presenceTitle': 'Lo stesso riepilogo che Topics pubblica sulla presence Discord. Sessioni aperte, quante lavorano adesso, task della board in corso.',
   'statusBar.wsTitle': 'Stato connessione realtime al server Topics',
+  // The two lines of the wait that does NOT end by itself: the shell is waiting for
+  // a server this machine had and no longer has. Without them the whole message on
+  // screen was one red dot. Measured on Windows on 2026-08-28 (card d1f702ab).
+  'statusBar.degraded.why': 'Nessun server sulla porta {port}. Questa macchina ne ha già avuto uno, quindi Topics aspetta quello invece di avviarne uno suo.',
+  'statusBar.degraded.wayOut': 'Per avere un server locale: chiudi Topics, elimina questo file, riapri.',
   'statusBar.versionTitle': 'Info versione e aggiornamenti',
   'statusBar.devBuildTitle': 'Build di sviluppo (Vite dev server / hot reload). In produzione questo badge sparisce.',
   'statusBar.lastCodeUpdateAgo': ' Ultimo aggiornamento codice: {t} fa.',

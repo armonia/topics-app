@@ -22,6 +22,7 @@ import { ChangelogModal } from '../ChangelogModal';
 import type { ConnectionStatus } from '@/types';
 import { ROW_INSET, SIDEBAR_ACTIVE, SIDEBAR_HOVER } from '@/lib/selectionStyles';
 import { isDesktop } from '@/lib/shell';
+import { degradedNotice, fetchBootDegraded, type BootDegraded } from '@/lib/shell/bootDegraded';
 import { getVersion, relaunch } from '@/lib/shell/app';
 import { useMobile } from '@/hooks/useMobile';
 import { useT } from '@/hooks/useT';
@@ -479,6 +480,30 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
     refs: [statusBtnRef, statusDropdownRef],
   });
 
+  /**
+   * WHY THE SHELL'S BOOT VERDICT IS READ HERE, measured on Windows 2.2.199 on
+   * 2026-08-28 (board card d1f702ab). When the `external-server-seen` marker says
+   * this machine owns a real server on :3333 and nobody answers there, the shell
+   * deliberately waits instead of forking an empty universe over a slow-but-alive
+   * server (the 2026-08-13 incident). That rule stays. What was broken is that the
+   * only thing on screen was this bar's red dot: the shell's explanation lives on
+   * the reconnect page, which the proxy serves in place of a DOCUMENT navigation,
+   * and the window loads its bundle from the app's own scheme, so nobody ever gets
+   * there. The wait was total and mute, and the way out was a file nobody names.
+   *
+   * One question per app life (the verdict is decided once at boot), and null for
+   * every ordinary outage — see `bootDegraded.ts` for why that asymmetry matters.
+   */
+  const [degraded, setDegraded] = useState<BootDegraded | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void fetchBootDegraded().then((d) => {
+      if (alive) setDegraded(d);
+    });
+    return () => { alive = false; };
+  }, []);
+  const degradedLines = degradedNotice(degraded, wsStatus);
+
   // Close on sidebar collapse. The status bar lives inside the sidebar but the
   // dropdown is portaled to <body> (position:fixed), so when the (overlay)
   // sidebar slides away the dropdown stays floating over the content — "la
@@ -544,6 +569,30 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           media query. L'altezza base viene da `isMobile` e non da `min-h-*`
           perché un `minHeight` in linea scavalcherebbe comunque la classe: due
           fonti per la stessa misura sono due fonti che divergono. */}
+      {/* THE MUTE WAIT, SPOKEN. This is the one state where "reconnecting" is a
+          lie by omission: nothing is coming back on its own, because the shell is
+          waiting for a server this machine used to have and no longer has. The
+          sentence names the cause and prints the marker's full path, which is the
+          only way out and lives in a directory nobody visits. It appears ONLY on
+          the shell's explicit verdict (`bootDegraded.ts`), so an ordinary restart
+          still shows just the amber dot. It WRAPS and the path is selectable: a
+          path you cannot read or copy is not a way out. */}
+      {degradedLines && (
+        <div
+          data-testid="boot-degraded-notice"
+          className={`flex flex-col gap-0.5 pt-1 pb-1.5 text-[11px] leading-snug ${SEGNALE_ATTESA}`}
+          style={{
+            paddingLeft: isMobile ? 'max(32px, var(--sal))' : ROW_INSET,
+            paddingRight: isMobile ? 'max(32px, var(--sar))' : ROW_INSET,
+          }}
+        >
+          <span>{tr(degradedLines.whyKey, { port: degradedLines.port })}</span>
+          <span>{tr(degradedLines.wayOutKey)}</span>
+          <span className="font-mono text-app-text-secondary select-text break-all">
+            {degradedLines.markerPath}
+          </span>
+        </div>
+      )}
       <div
         data-testid="sidebar-status-bar"
         className="flex items-center gap-2 flex-shrink-0"
