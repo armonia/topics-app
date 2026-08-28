@@ -1,7 +1,23 @@
 [
   {
-    "version": "2.2.216",
+    "version": "2.2.217",
     "date": "2026-08-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "In dev l'app non chiede piu' di installare una versione che hai gia' nei sorgenti",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.216",
+    "date": "2026-08-28",
     "sections": {
       "new": [],
       "fixes": [],

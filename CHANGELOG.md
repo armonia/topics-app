@@ -2,7 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.2.216 — 2026-08-29
+## 2.2.217 — 2026-08-29
+
+### Sotto il cofano
+- In dev l'app non chiede piu' di installare una versione che hai gia' nei sorgenti
+
+## 2.2.216 — 2026-08-28
 
 ### Sotto il cofano
 - Il conteggio aveva due porte, e il runtime nativo ne apriva una sola
