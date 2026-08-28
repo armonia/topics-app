@@ -42,6 +42,14 @@ mod window_recompose;
 #[cfg(target_os = "windows")]
 mod windows_repaint;
 
+/// The boot rule and the page that explains its degraded verdict. Both are pure
+/// and compiled on EVERY platform (no `#[cfg]` body), so a `cargo check` on any
+/// OS still catches a break in the one code path only Windows can reproduce.
+mod boot_choice;
+mod reconnect_page;
+use boot_choice::{decide_boot, BootChoice};
+use reconnect_page::{reconnect_page_response, DEGRADED_MARKER_PATH};
+
 /// The DWM backdrop behind the app window on Windows 11. Compiled on EVERY
 /// platform and called only from Windows, on purpose: the file next door carries
 /// the scar of a Windows-only line inside a macOS-only block, which "compiled
@@ -1095,35 +1103,6 @@ fn is_document_head(head: &[u8]) -> bool {
         .is_some_and(|l| l.contains("text/html"))
 }
 
-/// The page the shell serves INSTEAD of a dead navigation. Two jobs, both of which
-/// the "nothing" we served before could not do: it PAINTS (opaque background, so
-/// the transparent window stops being invisible and the user sees a state instead
-/// of a ghost), and it RELOADS ITSELF every second — so the moment the server is
-/// back the real app returns with no human in the loop. `no-store` keeps WebKit
-/// from ever caching this in place of the app.
-fn reconnect_page_response() -> Vec<u8> {
-    let body = "<!doctype html><html><head><meta charset=\"utf-8\">\
-<title>Topics</title>\
-<style>html,body{height:100%;margin:0;background:#1c1c1e;color:#98989d;\
-font:13px/1.5 -apple-system,system-ui,sans-serif;\
-display:flex;align-items:center;justify-content:center;-webkit-user-select:none}\
-.d{width:6px;height:6px;border-radius:50%;background:#98989d;margin-right:8px;\
-animation:p 1.2s ease-in-out infinite}\
-@keyframes p{0%,100%{opacity:.25}50%{opacity:1}}</style></head>\
-<body><div class=\"d\"></div>In attesa del server\u{2026}\
-<script>setTimeout(function(){location.reload()},1000)</script></body></html>";
-    format!(
-        "HTTP/1.1 503 Service Unavailable\r\n\
-Content-Type: text/html; charset=utf-8\r\n\
-Content-Length: {}\r\n\
-Cache-Control: no-store\r\n\
-Connection: close\r\n\r\n{}",
-        body.len(),
-        body
-    )
-    .into_bytes()
-}
-
 /// Connect to the upstream, RETRYING until `grace` runs out. The old code gave up on
 /// the first `ECONNREFUSED`, which is exactly what a server restart looks like for
 /// the second or two it takes to rebind — one unlucky reload in that window left the
@@ -1450,38 +1429,37 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
     // "no server here" from "server busy": only this marker can.
     let marker = external_server_marker(&app);
     let seen_before = marker.exists();
-    let attempts: u32 = if seen_before { 60 } else { 8 };
-    for attempt in 0..attempts {
-        if probe_topics_server(DEFAULT_UPSTREAM_PORT, true).await {
-            eprintln!("[sidecar] external TLS server on :{DEFAULT_UPSTREAM_PORT} — deferring, no sidecar");
+    let choice = decide_boot(seen_before, std::time::Duration::from_millis(700), |tls| {
+        probe_topics_server(DEFAULT_UPSTREAM_PORT, tls)
+    })
+    .await;
+    match choice {
+        BootChoice::Defer { tls } => {
+            let kind = if tls { "TLS" } else { "plain-HTTP" };
+            eprintln!("[sidecar] external {kind} server on :{DEFAULT_UPSTREAM_PORT} — deferring, no sidecar");
             let _ = std::fs::write(&marker, "1");
+            let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls });
+            return;
+        }
+        // Still nothing, but this machine is KNOWN to own a real server: point at
+        // it and wait for it to come back. Forking an empty standalone universe
+        // here would silently hide every real topic, which is strictly worse.
+        //
+        // Waiting is right; waiting MUTELY was not. Publish the marker's path so
+        // the reconnect page can say why nothing is starting and which file to
+        // remove to get a local server instead (`reconnect_page_response_for`):
+        // before this, the only symptom was an eternal "Reconnecting".
+        BootChoice::WaitForKnownServer => {
+            eprintln!(
+                "[sidecar] no answer on :{DEFAULT_UPSTREAM_PORT} after ~42s, but this machine has a real server \
+                 (marker {}) — NOT spawning a sidecar; degrading to \"connecting\"",
+                marker.display(),
+            );
+            let _ = DEGRADED_MARKER_PATH.set(marker.display().to_string());
             let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });
             return;
         }
-        if probe_topics_server(DEFAULT_UPSTREAM_PORT, false).await {
-            eprintln!("[sidecar] external plain-HTTP server on :{DEFAULT_UPSTREAM_PORT} — deferring, no sidecar");
-            let _ = std::fs::write(&marker, "1");
-            let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls: false });
-            return;
-        }
-        if attempt + 1 < attempts {
-            tokio::time::sleep(std::time::Duration::from_millis(700)).await;
-        }
-    }
-
-    // Still nothing, but this machine is KNOWN to own a real server: point at it
-    // and let the client show "connecting" until it comes back. Forking an empty
-    // standalone universe here would silently hide every real topic, which is
-    // strictly worse than waiting.
-    if seen_before {
-        eprintln!(
-            "[sidecar] no answer on :{DEFAULT_UPSTREAM_PORT} after {}s, but this machine has a real server \
-             (marker {}) — NOT spawning a sidecar; degrading to \"connecting\"",
-            (attempts as u64 * 700) / 1000,
-            marker.display(),
-        );
-        let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });
-        return;
+        BootChoice::SpawnSidecar => {}
     }
 
     // 2) Nothing external — spawn the bundled sidecar (plain HTTP, isolated data).
@@ -11562,9 +11540,9 @@ mod bundle_rev_tests {
 
 #[cfg(test)]
 mod window_recovery_tests {
-    use super::{window_recompose::rect_intersects_any, 
+    use super::{
         connect_upstream_retrying, is_document_head, is_websocket_head,
-        reconnect_page_response, RELOAD_IF_BLANK_JS,
+        window_recompose::rect_intersects_any, RELOAD_IF_BLANK_JS,
     };
     use std::time::Duration;
 
@@ -11600,27 +11578,6 @@ Upgrade: websocket\r\nConnection: Upgrade\r\nAccept: */*\r\n\r\n";
     fn accept_html_is_enough_without_sec_fetch_dest() {
         let head = b"GET / HTTP/1.1\r\nHost: x\r\nAccept: text/html\r\n\r\n";
         assert!(is_document_head(head));
-    }
-
-    /// The whole point of the page is that it PAINTS (opaque background — the window
-    /// is transparent, so "nothing" is invisible, not white) and comes back BY ITSELF.
-    #[test]
-    fn reconnect_page_paints_and_self_reloads() {
-        let r = String::from_utf8(reconnect_page_response()).unwrap();
-        assert!(r.starts_with("HTTP/1.1 503 "));
-        assert!(r.contains("Content-Type: text/html"));
-        assert!(r.contains("Cache-Control: no-store"), "must never be cached over the app");
-        assert!(r.contains("location.reload()"), "must recover with no human in the loop");
-        assert!(r.contains("background:#1c1c1e"), "must paint opaque pixels");
-        let len: usize = r
-            .split("Content-Length: ")
-            .nth(1)
-            .and_then(|s| s.split("\r\n").next())
-            .unwrap()
-            .parse()
-            .unwrap();
-        let body = r.split("\r\n\r\n").nth(1).unwrap();
-        assert_eq!(len, body.len(), "Content-Length must match the body");
     }
 
     /// The nudge must be a no-op on a LIVE app (a forced reload would throw away a
