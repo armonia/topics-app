@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.201 — 2026-08-28
+
+### Sotto il cofano
+- Lo stato offline della SPA nomina la causa e il file, non solo il rosso
+- CHROME-10: l'attesa muta diventa un requisito
+
 ## 2.2.200 — 2026-08-28
 
 ### Sotto il cofano
