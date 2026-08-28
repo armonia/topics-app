@@ -12,7 +12,8 @@ import { CHROME_BAR, CHROME_BAR_CONSUMED, CHROME_BAR_H_VAR, CHROME_BAR_SUB, CHRO
 import { PaneKeepAlive } from './PaneKeepAlive';
 import { usePaneResidency } from './hooks/usePaneResidency';
 import { usePaneAlive } from '../../state/paneLiveness';
-import { canSplitPane } from './splitRules';
+import { canSplitPane, canDropSplit } from './splitRules';
+import { draggedPaneId } from '../../lib/dragPayload';
 import { pushUndo } from '../../contexts/UndoContext';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useT } from '../../hooks/useT';
@@ -455,10 +456,19 @@ export function GroupLayout({
     const sourceScope = e.dataTransfer.getData(DND_TYPES.PANE_TAB_SCOPE);
     if (dndScope && sourceScope && sourceScope !== dndScope) return;
 
-    // Self-drop from a solo group would no-op in handleSplitGroup — the
-    // dragover above already suppressed the preview; refuse the drop too so
-    // it can't fire through a stale cached edge.
-    if (sourceGroupId === groupId && (groupMap.get(sourceGroupId)?.paneIds.length ?? 0) <= 1) {
+    // Splittable at all? ONE predicate, the same the context menu is gated on
+    // (splitRules.canDropSplit → canSplitPane). This used to be an inline
+    // "source group holds a single pane → refuse", which contradicted both the
+    // menu and handleSplitGroup: the latter auto-spawns a draft companion for
+    // exactly that case, so a project opened with one pane in one group painted
+    // the edge preview and then swallowed the release.
+    if (
+      !canDropSplit({
+        surface: 'project',
+        sourceGroupSize: groupMap.get(sourceGroupId)?.paneIds.length ?? 0,
+        sameGroup: sourceGroupId === groupId,
+      })
+    ) {
       edgeDropTargetRef.current = null;
       setEdgeDropTarget(null);
       return;
@@ -524,8 +534,34 @@ export function GroupLayout({
     e.dataTransfer.types.includes(DND_TYPES.PANE_TAB_GROUP) &&
     dragMatchesScope(e.dataTransfer.types, dndScope), [dndScope]);
 
+  /**
+   * Would a full-width-row release reshape anything, given the group `size` the
+   * pane is leaving? Asked by the strips' `dragover` (which reads the source off
+   * the module shelf, since a dragover cannot read payload VALUES) and again by
+   * their `drop` (which reads it off the dataTransfer) — one predicate, so the
+   * strip never lights up for a release that would redraw the same tree.
+   */
+  const fullRowWouldReshape = useCallback((size: number | undefined) =>
+    size === undefined ||
+    canDropSplit({
+      surface: 'project',
+      sourceGroupSize: size,
+      sameGroup: true,
+      fullRow: true,
+      totalGroups: groups.length,
+    }), [groups.length]);
+
+  /** Size of the group the pane in flight left, or undefined when the drag came
+   *  from another window (the shelf is empty there — only the drop can tell). */
+  const draggedGroupSize = useCallback((): number | undefined => {
+    const paneId = draggedPaneId();
+    if (!paneId) return undefined;
+    return groups.find(g => g.paneIds.includes(paneId))?.paneIds.length;
+  }, [groups]);
+
   const handleFullRowDragOver = useCallback((side: 'top' | 'bottom') => (e: React.DragEvent) => {
     if (!onSplitGroup || !isPaneTabDrag(e)) return;
+    if (!fullRowWouldReshape(draggedGroupSize())) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = 'move'; // WKWebView: signal acceptance (see handleGroupContentDragOver)
@@ -533,7 +569,7 @@ export function GroupLayout({
     // only ONE intent (full-width) shows while the pointer is on the strip.
     if (edgeDropTargetRef.current) { edgeDropTargetRef.current = null; setEdgeDropTarget(null); }
     if (fullRowDropRef.current !== side) { fullRowDropRef.current = side; setFullRowDrop(side); }
-  }, [onSplitGroup, isPaneTabDrag, edgeDropTargetRef, fullRowDropRef]);
+  }, [onSplitGroup, isPaneTabDrag, edgeDropTargetRef, fullRowDropRef, fullRowWouldReshape, draggedGroupSize]);
 
   const handleFullRowDragLeave = useCallback((e: React.DragEvent) => {
     const rt = e.relatedTarget as Node | null;
@@ -554,11 +590,13 @@ export function GroupLayout({
     if (!sourcePaneId || !sourceGroupId) return;
     const sourceScope = e.dataTransfer.getData(DND_TYPES.PANE_TAB_SCOPE);
     if (dndScope && sourceScope && sourceScope !== dndScope) return;
+    // Same predicate the strip's dragover used to decide whether to light up.
+    if (!fullRowWouldReshape(groupMap.get(sourceGroupId)?.paneIds.length)) return;
     e.preventDefault();
     e.stopPropagation();
     // targetGroupId '' → handler falls back to first/last row for the new row.
     onSplitGroup?.(sourceGroupId, sourcePaneId, '', side, { fullRow: true });
-  }, [onSplitGroup, dndScope, fullRowDropRef]);
+  }, [onSplitGroup, dndScope, fullRowDropRef, fullRowWouldReshape, groupMap]);
 
   /* ---- Interior row-gap strips: the ONLY gesture that inserts a full-width
    * row BETWEEN two existing rows. The extreme strips above cover "above the
