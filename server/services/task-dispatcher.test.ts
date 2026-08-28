@@ -2246,6 +2246,24 @@ describe("blocked-by + context reuse", () => {
     expect(h.turns.length).toBe(1);
   });
 
+  it("a dependent that ALREADY DELIVERED is not re-dispatched by onBlockerDone", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    const a = h.svc.create({ projectId: PID, status: "todo", text: "blocker" });
+    const b = h.svc.create({ projectId: PID, status: "todo", text: "already delivered", blockedByTaskId: a.id });
+    h.svc.update({ taskId: a.id, actor: "human", by: "u", patch: { status: "backlog" } });
+    // b carries the marks of a finished job: a delivery commit, and a landing
+    // verdict saying the content is on main.
+    h.db.prepare("UPDATE tasks SET delivery_commit = 'abc1234', landing_state = 'landed' WHERE id = ?").run(b.id);
+    h.svc.update({ taskId: a.id, actor: "human", by: "u", patch: { status: "done" } });
+    h.dispatcher.onBlockerDone(a.id);
+    await new Promise((r) => setTimeout(r, 30)); // grace (10ms in harness) + tick
+    await flush();
+    expect(h.task(b.id)!.status).toBe("todo");      // no claim
+    expect(h.task(b.id)!.landingState).toBe("landed"); // and the git fact survives
+    expect(h.turns.length).toBe(0);
+  });
+
   it("reuseBlockerContext rides the blocker's topic (no fresh topic/worktree)", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
