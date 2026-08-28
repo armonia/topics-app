@@ -40,3 +40,17 @@ export function useDevInstall(): boolean {
   }, []);
   return dev;
 }
+
+/**
+ * The same answer, AWAITED instead of watched.
+ *
+ * `useDevInstall` starts at `false` and flips to `true` when the probe returns.
+ * That is right for drawing: the worst case is one frame where an internal
+ * surface is not there yet. It is wrong for DECIDING whether to start
+ * something, because a caller reading the state on the first pass would read
+ * "not a dev install" and start anyway. Whoever has to choose awaits this,
+ * which is the same memoized promise: no extra request.
+ */
+export function whenDevInstallKnown(): Promise<boolean> {
+  return probeDevInstall();
+}
