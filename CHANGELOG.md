@@ -6,6 +6,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - Lo stato offline della SPA nomina la causa e il file, non solo il rosso
+- Il decimo rimedio non stuzzica la webview: la butta e la rifa'
 - CHROME-10: l'attesa muta diventa un requisito
 
 ## 2.2.200 — 2026-08-28
