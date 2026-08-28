@@ -38,6 +38,7 @@ import {
   isValidWorktreeName,
 } from "../utils/worktree-naming";
 import { makeSerialQueue } from "../lib/serial-queue";
+import { provisionTauriSidecars } from "./worktree-sidecars";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { topicsHome } from "./daemon-state";
@@ -385,6 +386,28 @@ export function createWorktreeManager(
       `[WorktreeManager] created { project: ${projectPath}, worktree: ${absPath}, mode: ${input.mode}, base_ref: ${input.baseRef}, ms: ${ms} }`,
     );
     await installDeps(absPath);
+    await provisionSidecars(projectPath, absPath);
+  }
+
+  /**
+   * THE TAURI SIDECARS, or the Rust crate cannot be compiled here.
+   *
+   * Same shape of fault as `installDeps`, on another gate: `git worktree add`
+   * materialises TRACKED files, and `desktop-tauri/src-tauri/binaries/` is a
+   * build artifact, so a fresh worktree cannot even run `cargo check` (tauri
+   * refuses on the missing resource path before compiling a line). An agent
+   * delivering Rust from here has no way to prove it builds, and no way to
+   * notice it broke the build: the whole risk lands on Windows CI, a round
+   * later. See `worktree-sidecars.ts` for why this clones instead of linking.
+   *
+   * Best effort, like the install: no sidecars in the main checkout is the
+   * normal state of a fresh clone, not a reason to refuse a worktree.
+   */
+  async function provisionSidecars(projectPath: string, absPath: string): Promise<void> {
+    const res = await provisionTauriSidecars(projectPath, absPath);
+    const line = `[WorktreeManager] tauri sidecars { worktree: ${absPath}, status: ${res.status}, ms: ${res.ms} }`;
+    if (res.status === "failed") console.warn(`${line} ${res.reason ?? ""}`);
+    else console.log(line);
   }
 
   /**

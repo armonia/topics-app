@@ -49,6 +49,8 @@
     "check:ref-callbacks": "bun run scripts/check-ref-callbacks.ts",
     "check:nul": "bun run scripts/check-nul-bytes.ts",
     "check:emdash": "bun run scripts/check-emdash.ts",
+    "check:sidecars": "bun run scripts/check-tauri-sidecars.ts",
+    "sidecars:sync": "bun run scripts/check-tauri-sidecars.ts --fix",
     "check:ui-language": "bun run scripts/check-ui-language.ts",
     "check:comment-language": "bun run scripts/check-comment-language.ts",
     "check:identifier-language": "bun run scripts/check-identifier-language.ts",
