@@ -2592,8 +2592,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                 error:
                   `i checks pre-review sono ROSSI${red ? ` (\`${red.name}\`)` : ""}` +
                   `${cur.checksAt ? `, ultimo giro ${cur.checksAt}` : ""}. ` +
-                  "Rimandalo all'agente, oppure approva comunque se il rosso non c'entra con questa " +
-                  "consegna, rimandando la decisione con force: true.",
+                  "Rimandalo all'agente, oppure approva comunque con force: true se il rosso non c'entra con questa consegna.",
                 code: "checks_failed",
               }, 409);
             }

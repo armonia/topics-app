@@ -1,7 +1,9 @@
 /**
+ * @covers KANBAN-66
+ *
  * A LANDED PARENT DOES NOT GO BACK TO WORK WHEN ITS LAST STEP CLOSES.
  *
- * Measured on 18/08: a parent that had already delivered AND landed was sitting
+ * Measured on 28/08: a parent that had already delivered AND landed was sitting
  * in `review` only because of the `open_subtasks` gate. Closing the step with
  * `PATCH {status:"done"}` answered 200, and within two seconds the parent moved
  * to `in_progress` with an agent on top of it. Two damages: the agent restarts
