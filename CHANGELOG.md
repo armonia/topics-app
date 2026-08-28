@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.207 — 2026-08-28
+
+### Sotto il cofano
+- Lo spazzino chiedeva a claude-code se fosse vivo un figlio non suo
+
 ## 2.2.205 — 2026-08-28
 
 ### Sotto il cofano

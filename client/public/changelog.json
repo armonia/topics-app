@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.207",
+    "date": "2026-08-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Lo spazzino chiedeva a claude-code se fosse vivo un figlio non suo",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.205",
     "date": "2026-08-28",
     "sections": {
