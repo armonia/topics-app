@@ -31,7 +31,7 @@ import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
 import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
-import { CODE_GATES_RULE, DISPATCH_CHIP_QUEUED, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters } from "../../shared/board";
+import { CODE_GATES_RULE, DISPATCH_CHIP_QUEUED, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap } from "./dispatch-capacity";
 import type { OutboundMessage } from "../../shared/ws-outbound";
@@ -3614,6 +3614,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     try { dependents = deps.svc.listBlockedBy(taskId); } catch { return; }
     for (const dep of dependents) {
       if (dep.status !== "todo" || dep.parentTaskId) continue;
+      // "Release whatever was waiting on this task" is right for a peer blocker:
+      // that one was waiting to START. A card that has ALREADY DELIVERED is not,
+      // and re-dispatching it puts an agent on a fresh empty worktree over work
+      // that is already merged. `hasDeliveredWork` reads the marks the record
+      // already carries; nothing here has to guess.
+      if (hasDeliveredWork(dep)) continue;
       try { onEnterTodo(dep.projectId, dep.id); } catch { /* best-effort */ }
     }
   }

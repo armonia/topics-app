@@ -26,7 +26,7 @@ import { titoloMigliore } from "../services/task-title";
 import type { AIProvider } from "../providers";
 import { resolvePrincipals } from "../lib/principals";
 import type { OutboundMessage } from "../../shared/ws-outbound";
-import { isAgentWorking, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
+import { isAgentWorking, isLandedWork, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
 import { findDuplicateGroups } from "../../shared/task-similarity";
 import { isPreviewablePath } from "../../shared/media-kind";
@@ -2592,7 +2592,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                 error:
                   `i checks pre-review sono ROSSI${red ? ` (\`${red.name}\`)` : ""}` +
                   `${cur.checksAt ? `, ultimo giro ${cur.checksAt}` : ""}. ` +
-                  "Rimandalo all'agente, oppure approva comunque se il rosso non c'entra con questa consegna.",
+                  "Rimandalo all'agente, oppure approva comunque se il rosso non c'entra con questa " +
+                  "consegna, rimandando la decisione con force: true.",
                 code: "checks_failed",
               }, 409);
             }
@@ -2955,7 +2956,14 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             //    boundary; if idle it continues immediately. This is the
             //    Claude-Code steering path — add a message while it runs and it
             //    picks it up.
-            if (dispatcher && root && root.assignedTopicId && (root.status === "review" || root.status === "in_progress")) {
+            // …UNLESS THAT CARD IS ALREADY ON MAIN. The reject that re-kicks the
+            // agent also wipes `landing_state`, so a comment on a landed card
+            // (or on one of its steps) put an agent back to work over merged
+            // content AND made the card stop saying it had landed. The comment
+            // is already saved and broadcast above: on a landed card it stays a
+            // note, and the card stays in review, where it is approvable.
+            if (dispatcher && root && root.assignedTopicId && !isLandedWork(root)
+                && (root.status === "review" || root.status === "in_progress")) {
               if (root.status === "review") {
                 const rejected = svc.reviewDecision({
                   taskId: root.id, by: HUMAN, decision: "reject", projectId: bComments.projectId,
