@@ -138,6 +138,21 @@ export interface Task {
   agentMs: number;
   agentTokens: number;
   agentCacheReadTokens: number;
+  /**
+   * What the agent has SPENT on this card, in USD cents.
+   *
+   * Not derivable from the tokens above: the same million tokens is worth 12 to
+   * 49 USD depending on the model and on how much of it was a cache re-read, so
+   * a client that multiplied tokens by a rate would print a number nobody can
+   * reconcile with a bill. Priced once, server side, with the price list that
+   * already exists (server/usage/pricing.ts).
+   *
+   * Zero can mean two different things and the difference matters: no work yet,
+   * or work whose model has no price list. The second one is counted apart (see
+   * `agent_spend.unpriced_cost_tokens`) so it can be SHOWN instead of silently
+   * billed as free.
+   */
+  agentCostCents: number;
   /** Nobody chose a priority: the dispatched agent evaluates and sets one. */
   priorityAuto: boolean;
   /** Model override for the agent topic. null = auto (provider default). */

@@ -517,6 +517,10 @@ export interface BoardTask {
   agentMs: number;
   agentTokens: number;
   agentCacheReadTokens: number;
+  /** Spesa dell'agente su questa card, in centesimi USD. Prezzata dal server
+   *  (il listino sta la'): moltiplicare i token per una tariffa qui dentro
+   *  darebbe un numero diverso da quello del server, cioe' due verita'. */
+  agentCostCents: number;
   /** Direct-children counters (board badges: "↳ done/total"). */
   subtaskCount: number;
   subtaskDoneCount: number;

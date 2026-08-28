@@ -135,7 +135,29 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   -- a later edit to the board's command must not change what a running deploy
   -- executes.
   deploy_state TEXT,
-  deploy_command_at_propose TEXT
+  deploy_command_at_propose TEXT,
+  -- 20260828094441: quanto ha SPESO l'agente su questa card, in centesimi USD.
+  -- Sale con un pavimento MAX (raiseAgentUsage) e non e' derivabile dai token:
+  -- lo stesso milione di token vale da 12 a 49 USD secondo modello e cache.
+  agent_cost_cents INTEGER NOT NULL DEFAULT 0
+)`;
+
+/**
+ * `agent_spend` — il libro TIMBRATO della spesa degli agenti (migration
+ * 20260828094441).
+ *
+ * Sta qui e non in un harness perche' `raiseAgentUsage` ci scrive dentro a ogni
+ * booking: senza la tabella non fallisce il test della spesa, falliscono tutti
+ * quelli che fanno girare un turno. La colonna cumulativa sulla card risponde a
+ * «quanto e' costata questa card»; queste righe rispondono a «quanto e' stato
+ * speso nelle ultime 24 ore», che da un cumulativo non si ricava.
+ */
+export const AGENT_SPEND_DDL = `CREATE TABLE IF NOT EXISTS agent_spend (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id TEXT NOT NULL,
+  at TEXT NOT NULL,
+  cents INTEGER NOT NULL,
+  unpriced_cost_tokens INTEGER NOT NULL DEFAULT 0
 )`;
 
 /**
@@ -202,7 +224,8 @@ INSERT OR IGNORE INTO app_settings (id, auto_dispatch) VALUES (1, 0);`;
 export const TASKS_FK_STUBS_DDL = `CREATE TABLE IF NOT EXISTS agent_profiles (id TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS topics (id TEXT PRIMARY KEY);
 ${APP_SETTINGS_DDL}
-${TERMINAL_SESSIONS_DDL}`;
+${TERMINAL_SESSIONS_DDL};
+${AGENT_SPEND_DDL}`;
 
 /** `task_labels` — identica alla 097, meno i commenti. */
 export const TASK_LABELS_DDL = `CREATE TABLE IF NOT EXISTS task_labels (

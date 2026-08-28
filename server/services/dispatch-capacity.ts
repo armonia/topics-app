@@ -89,6 +89,37 @@ export function readGlobalCap(db: Database): { auto: boolean; max: number } {
 }
 
 /**
+ * I DUE TETTI DI SPESA, in centesimi USD, dalla stessa riga riservata.
+ *
+ * Zero (e NULL, cioè un db che non ha ancora la colonna) vuol dire ILLIMITATO,
+ * e non è un ripiego difensivo: è lo stato in cui nasce l'installazione. Il
+ * freno esiste come leva e non come comportamento, quindi il valore neutro deve
+ * essere quello che non fa niente.
+ *
+ * Sta accanto a `readGlobalCap` per la stessa ragione per cui quello sta qui: i
+ * lettori sono due (il tick del dispatcher e la rotta delle impostazioni) e
+ * «cosa vuol dire zero in questa colonna» va scritto una volta sola. La lettura
+ * è UNA query sulla riga '*', la stessa forma di sopra: a tetti spenti il costo
+ * del freno nel giro del dispatcher è questa riga e nient'altro.
+ */
+export function readSpendCaps(db: Database): { perTaskCents: number; perDayCents: number } {
+  let r: { agent_cost_cap_cents?: number | null; agent_cost_cap_cents_24h?: number | null } | undefined;
+  try {
+    r = db
+      .prepare("SELECT agent_cost_cap_cents, agent_cost_cap_cents_24h FROM board_settings WHERE project_id = ?")
+      .get(GLOBAL_SETTINGS_KEY) as typeof r;
+  } catch {
+    // Colonna assente (harness minimo, db più vecchio della migration): nessun
+    // tetto. Un `throw` qui fermerebbe il tick per una lettura che, spenta, non
+    // decide niente.
+    return { perTaskCents: 0, perDayCents: 0 };
+  }
+  const clean = (v: number | null | undefined) =>
+    Number.isFinite(v) && (v as number) > 0 ? Math.trunc(v as number) : 0;
+  return { perTaskCents: clean(r?.agent_cost_cap_cents), perDayCents: clean(r?.agent_cost_cap_cents_24h) };
+}
+
+/**
  * Quanti agenti insieme, davvero, adesso. La formula sta in `shared/board.ts`:
  * la legge anche il client, che con essa scrive «3 di 8» nel pannello
  * impostazioni della board. Qui resta il nome da cui la importano il dispatcher

@@ -31,7 +31,7 @@ import { imageShape } from "./image-shape";
 import { renderDeliverySheet } from "./delivery-sheet";
 import { isDeliverySheetPath } from "../../shared/media-kind";
 import { NUDGE_CLAIM_MS, gateNudge } from "./nudge-gate";
-import { readGlobalCap } from "./dispatch-capacity";
+import { readGlobalCap, readSpendCaps } from "./dispatch-capacity";
 import { liveAgentCount } from "./agent-census";
 
 // The statuses and the thread's shape live in `shared/board.ts`, so the client
@@ -721,7 +721,18 @@ export interface TaskService {
    * resta additivo e resta su `recordAgentUsage`: il wall-clock è per-turno e
    * non si ricava da una lettura di sessione.
    */
-  raiseAgentUsage(args: { taskId: string; tokens: number; cacheReadTokens: number }): Task;
+  raiseAgentUsage(args: {
+    taskId: string; tokens: number; cacheReadTokens: number;
+    /**
+     * The absolute spend in USD cents, same floor discipline as the tokens.
+     * Optional because not every caller can price what it read: absent means
+     * «I do not know», which must never lower a number somebody else knew.
+     */
+    costCents?: number;
+    /** Cost-equivalent tokens whose model had NO price list, so the cents above
+     *  do not contain them. Absolute, like the rest. */
+    unpricedCostTokens?: number;
+  }): Task;
   /**
    * Snapshot what the agent delivered, at the moment it delivers it (→ review).
    * The branch is reaped once it lands, so the COMMIT is the only durable handle
@@ -832,6 +843,23 @@ export interface TaskService {
   getGlobalCap(): { auto: boolean; max: number };
   /** Update the GLOBAL cap (row '*': max_agents_auto / max_agents). */
   setGlobalCap(patch: { auto?: boolean; max?: number }): { auto: boolean; max: number };
+  /**
+   * THE TWO SPEND CAPS, and they are born OFF: zero means unlimited, and zero is
+   * what a fresh install carries. The lever exists; the behaviour does not until
+   * a person writes a number. Same reserved row '*' as the concurrency cap: the
+   * brake belongs to the machine, and one cap per board would multiply into no
+   * cap at all.
+   */
+  getSpendCaps(): { perTaskCents: number; perDayCents: number };
+  /** Write the caps (a PERSON does this, from the settings). Zero clears one. */
+  setSpendCaps(patch: { perTaskCents?: number; perDayCents?: number }): { perTaskCents: number; perDayCents: number };
+  /**
+   * Agent spend on this machine: the rolling 24h window and the whole book, with
+   * the share that could NOT be priced beside each. The unpriced number travels
+   * with the money on purpose: a cap that silently ignores part of the spend is
+   * decorative, so whoever draws the figure can say how much of it is missing.
+   */
+  agentSpend(): { cents24h: number; centsTotal: number; unpricedCostTokens24h: number; unpricedCostTokensTotal: number };
 }
 
 /** Reserved board_settings row that carries the global auto-dispatch switch. */
@@ -2093,6 +2121,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       agentMs: r.agent_ms ?? 0,
       agentTokens: r.agent_tokens ?? 0,
       agentCacheReadTokens: r.agent_cache_read_tokens ?? 0,
+      agentCostCents: r.agent_cost_cents ?? 0,
       priorityAuto: r.priority_auto == null ? true : !!r.priority_auto,
       // Il modello mostrato deve SEMPRE riflettere ciò che ha girato davvero:
       // `tasks.model` può essere nullo («auto») anche dopo il dispatch, ma il
@@ -4730,11 +4759,47 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    raiseAgentUsage({ taskId, tokens, cacheReadTokens }): Task {
+    raiseAgentUsage({ taskId, tokens, cacheReadTokens, costCents, unpricedCostTokens }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       const tok = Math.max(0, Math.trunc(tokens || 0));
       const cr = Math.max(0, Math.trunc(cacheReadTokens || 0));
+      // THE MONEY, and it is written in two places on purpose: the cumulative
+      // column on the card (what this card cost) and a DATED row in the ledger
+      // (what was spent, when). A rolling 24h window is not derivable from the
+      // first one - «the cards touched today» would carry yesterday's spend of
+      // those same cards - and the card's own number is not derivable from the
+      // ledger without a sum on every read.
+      //
+      // Only the DELTA of the floor becomes a ledger row: `raiseAgentUsage` is
+      // called several times per turn with the same absolute total, so booking
+      // the total every time would multiply the window by the number of calls.
+      const cents = Math.max(0, Math.trunc(costCents ?? 0));
+      const unpriced = Math.max(0, Math.trunc(unpricedCostTokens ?? 0));
+      if (costCents != null || unpricedCostTokens != null) {
+        const before = db.prepare("SELECT COALESCE(agent_cost_cents, 0) AS c FROM tasks WHERE id = ?")
+          .get(taskId) as { c: number } | null;
+        const prevCents = Math.max(0, Math.trunc(before?.c ?? 0));
+        db.prepare("UPDATE tasks SET agent_cost_cents = MAX(COALESCE(agent_cost_cents, 0), ?) WHERE id = ?")
+          .run(cents, taskId);
+        const deltaCents = Math.max(0, cents - prevCents);
+        // The unpriced share rides on the same row: a booking that could not be
+        // priced moves no cents but must still leave a trace, or the panel would
+        // show a cap that quietly ignores part of the spend.
+        //
+        // Its «what I knew before» is the SUM of the ledger and not a column on
+        // the card, because that sum IS the absolute total: one more column
+        // would be the same number written twice, free to diverge.
+        const seenUnpriced = unpriced > 0
+          ? (db.prepare("SELECT COALESCE(SUM(unpriced_cost_tokens), 0) AS u FROM agent_spend WHERE task_id = ?")
+              .get(taskId) as { u: number } | null)?.u ?? 0
+          : 0;
+        const deltaUnpriced = Math.max(0, unpriced - Math.max(0, Math.trunc(seenUnpriced)));
+        if (deltaCents > 0 || deltaUnpriced > 0) {
+          db.prepare("INSERT INTO agent_spend (task_id, at, cents, unpriced_cost_tokens) VALUES (?, ?, ?, ?)")
+            .run(taskId, now(), deltaCents, deltaUnpriced);
+        }
+      }
       // `COALESCE` prima di `MAX`, e non è una cintura: lo `max()` scalare di
       // SQLite torna NULL se UNO degli argomenti è NULL, quindi su una card che
       // non ha mai contato niente (`agent_tokens` NULL) il pavimento avrebbe
@@ -5198,6 +5263,54 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         db.prepare("UPDATE board_settings SET max_agents = ? WHERE project_id = ?").run(clampGlobalCap(patch.max), GLOBAL_SETTINGS_KEY);
       }
       return this.getGlobalCap();
+    },
+
+    getSpendCaps(): { perTaskCents: number; perDayCents: number } {
+      // Stessa riga e stessa lettura del tetto di concorrenza: vedi
+      // `readSpendCaps`. Zero (e NULL, su un db che non ha ancora la colonna) =
+      // illimitato, che e' lo stato in cui nasce l'installazione.
+      return readSpendCaps(db);
+    },
+
+    setSpendCaps(patch: { perTaskCents?: number; perDayCents?: number }): { perTaskCents: number; perDayCents: number } {
+      db.prepare("INSERT OR IGNORE INTO board_settings (project_id, max_agents) VALUES (?, 3)").run(GLOBAL_SETTINGS_KEY);
+      // Nessun clamp verso l'alto e nessun minimo diverso da zero: il tetto e'
+      // una cifra che una persona sceglie, e l'unico valore che il codice
+      // interpreta e' lo zero (= spento). Un negativo sarebbe un tetto che
+      // blocca tutto senza dirlo, quindi vale zero.
+      const clean = (v: number) => Math.max(0, Math.trunc(Number.isFinite(v) ? v : 0));
+      if (patch.perTaskCents !== undefined) {
+        db.prepare("UPDATE board_settings SET agent_cost_cap_cents = ? WHERE project_id = ?")
+          .run(clean(patch.perTaskCents), GLOBAL_SETTINGS_KEY);
+      }
+      if (patch.perDayCents !== undefined) {
+        db.prepare("UPDATE board_settings SET agent_cost_cap_cents_24h = ? WHERE project_id = ?")
+          .run(clean(patch.perDayCents), GLOBAL_SETTINGS_KEY);
+      }
+      return this.getSpendCaps();
+    },
+
+    agentSpend(): { cents24h: number; centsTotal: number; unpricedCostTokens24h: number; unpricedCostTokensTotal: number } {
+      // Il libro timbrato, letto in due tagli. `catch` largo: un db che non ha
+      // ancora la tabella (harness minimo) deve leggere «zero speso», non far
+      // cadere la rotta che disegna l'header della board.
+      try {
+        const since = new Date(Date.parse(now()) - 24 * 60 * 60 * 1000).toISOString();
+        const w = db.prepare(
+          "SELECT COALESCE(SUM(cents), 0) AS c, COALESCE(SUM(unpriced_cost_tokens), 0) AS u FROM agent_spend WHERE at >= ?",
+        ).get(since) as { c: number; u: number } | null;
+        const t = db.prepare(
+          "SELECT COALESCE(SUM(cents), 0) AS c, COALESCE(SUM(unpriced_cost_tokens), 0) AS u FROM agent_spend",
+        ).get() as { c: number; u: number } | null;
+        return {
+          cents24h: Math.max(0, Math.trunc(w?.c ?? 0)),
+          centsTotal: Math.max(0, Math.trunc(t?.c ?? 0)),
+          unpricedCostTokens24h: Math.max(0, Math.trunc(w?.u ?? 0)),
+          unpricedCostTokensTotal: Math.max(0, Math.trunc(t?.u ?? 0)),
+        };
+      } catch {
+        return { cents24h: 0, centsTotal: 0, unpricedCostTokens24h: 0, unpricedCostTokensTotal: 0 };
+      }
     },
 
     getBoardSettings(projectId: string): BoardSettings {
