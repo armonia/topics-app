@@ -2066,7 +2066,25 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       if (method === "GET") {
         try {
           const cap = svc.getGlobalCap();
-          return json({ autoDispatch: svc.getGlobalAutoDispatch(), maxAgentsAuto: cap.auto, maxAgents: cap.max });
+          // La SPESA viaggia con i tetti, e si legge anche quando i tetti sono
+          // spenti: il numero in dollari e' il motivo per cui esiste il
+          // contatore, la riga del tetto e' un extra che compare solo se
+          // qualcuno l'ha impostato. `unpricedCostTokens24h` dice quanta parte
+          // di quel numero non si e' potuta prezzare, cosi' il totale non fa
+          // finta di essere completo.
+          const caps = svc.getSpendCaps();
+          const spend = svc.agentSpend();
+          return json({
+            autoDispatch: svc.getGlobalAutoDispatch(),
+            maxAgentsAuto: cap.auto,
+            maxAgents: cap.max,
+            agentCostCapCents: caps.perTaskCents,
+            agentCostCapCents24h: caps.perDayCents,
+            agentSpendCents24h: spend.cents24h,
+            agentSpendCentsTotal: spend.centsTotal,
+            agentUnpricedCostTokens24h: spend.unpricedCostTokens24h,
+            agentUnpricedCostTokensTotal: spend.unpricedCostTokensTotal,
+          });
         } catch (e) { return fail(e); }
       }
       if (method === "PATCH") {
@@ -2074,8 +2092,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const hasAuto = typeof body?.autoDispatch === "boolean";
         const hasCapAuto = typeof body?.maxAgentsAuto === "boolean";
         const hasCapMax = Number.isFinite(body?.maxAgents);
-        if (!hasAuto && !hasCapAuto && !hasCapMax) {
-          return json({ error: "autoDispatch, maxAgentsAuto (boolean) and/or maxAgents (number) required", code: "invalid_input" }, 400);
+        const hasSpendTask = Number.isFinite(body?.agentCostCapCents);
+        const hasSpendDay = Number.isFinite(body?.agentCostCapCents24h);
+        if (!hasAuto && !hasCapAuto && !hasCapMax && !hasSpendTask && !hasSpendDay) {
+          return json({ error: "autoDispatch, maxAgentsAuto (boolean), maxAgents, agentCostCapCents and/or agentCostCapCents24h (number) required", code: "invalid_input" }, 400);
         }
         try {
           let autoDispatch = svc.getGlobalAutoDispatch();
@@ -2091,9 +2111,31 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               max: hasCapMax ? body.maxAgents : undefined,
             });
           }
+          // I TETTI DI SPESA: li scrive una PERSONA, da qui. Zero cancella il
+          // tetto, e zero e' anche il valore con cui nasce l'installazione:
+          // nessun valore suggerito, nessun default acceso.
+          if (hasSpendTask || hasSpendDay) {
+            svc.setSpendCaps({
+              perTaskCents: hasSpendTask ? body.agentCostCapCents : undefined,
+              perDayCents: hasSpendDay ? body.agentCostCapCents24h : undefined,
+            });
+          }
           const cap = svc.getGlobalCap();
-          broadcastToAll({ type: "board:global-cap", maxAgentsAuto: cap.auto, maxAgents: cap.max });
-          return json({ autoDispatch, maxAgentsAuto: cap.auto, maxAgents: cap.max });
+          const caps = svc.getSpendCaps();
+          broadcastToAll({
+            type: "board:global-cap",
+            maxAgentsAuto: cap.auto,
+            maxAgents: cap.max,
+            agentCostCapCents: caps.perTaskCents,
+            agentCostCapCents24h: caps.perDayCents,
+          });
+          return json({
+            autoDispatch,
+            maxAgentsAuto: cap.auto,
+            maxAgents: cap.max,
+            agentCostCapCents: caps.perTaskCents,
+            agentCostCapCents24h: caps.perDayCents,
+          });
         } catch (e) { return fail(e); }
       }
       return null;

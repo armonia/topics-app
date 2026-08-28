@@ -34,6 +34,8 @@ import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
 import { CODE_GATES_RULE, DISPATCH_CHIP_QUEUED, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap } from "./dispatch-capacity";
+import { calculateCostWithCache, modelPrice } from "../usage/pricing";
+import { costTokens } from "../../shared/token-cost";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import {
   classifyTurnError,
@@ -823,6 +825,100 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       return reason;
     } catch { return null; }
   }
+
+  // ── IL FRENO DI SPESA, che nasce SPENTO ───────────────────────────────────
+  //
+  // Due tetti, entrambi a zero su un'installazione nuova, e zero vuol dire
+  // ILLIMITATO: finché nessuno scrive un numero, questo blocco di codice non
+  // deve costare niente e non deve cambiare niente. Il dispatcher si comporta
+  // esattamente come si comportava prima.
+  //
+  // COSA COSTA A TETTI SPENTI: una lettura della riga '*' per tick, la stessa
+  // che il tick fa già per il tetto di concorrenza. Nessuna somma sul libro
+  // della spesa, nessuna lettura in più per card: la prima cosa che fa ogni
+  // funzione qui sotto è tornare indietro.
+  //
+  // FRENO, NON TAGLIO: si rifiuta il turno SUCCESSIVO. Un turno ucciso a metà
+  // butta via lavoro già pagato, che è il modo di rendere il tetto più costoso
+  // del problema che risolve.
+  //
+  // FAIL OPEN: un'eccezione, un numero che non si sa leggere, una spesa non
+  // prezzabile lasciano passare. Si chiude solo su un numero attendibile sopra
+  // il tetto. Sbagliare verso il blocco ferma lavoro buono per un errore di
+  // misura; sbagliare verso il via costa una card cara, che è esattamente ciò
+  // che il contatore rende visibile.
+  function spendCaps(): { perTaskCents: number; perDayCents: number } {
+    try { return deps.svc.getSpendCaps(); } catch { return { perTaskCents: 0, perDayCents: 0 }; }
+  }
+
+  /** Ultimo blocco giornaliero già annunciato nel log, per non ripeterlo. */
+  let lastSpendBlock = false;
+  /**
+   * Il tetto per MACCHINA su finestra mobile 24h: un motivo, oppure `null`.
+   *
+   * Vive accanto ad `admissionBlock` e si consulta dove si consulta quello: il
+   * giorno peggiore misurato (2.569 USD) era fatto di molte card ciascuna sotto
+   * il proprio tetto, quindi il tetto per card non lo avrebbe visto passare.
+   */
+  function spendBlock(): string | null {
+    const caps = spendCaps();
+    if (caps.perDayCents <= 0) { lastSpendBlock = false; return null; }
+    try {
+      const spent = deps.svc.agentSpend().cents24h;
+      if (spent < caps.perDayCents) {
+        if (lastSpendBlock) log("coda ripartita: la spesa delle ultime 24 ore è rientrata sotto il tetto");
+        lastSpendBlock = false;
+        return null;
+      }
+      const reason = `spesa: ${usd(spent)} negli ultimi 24h su un tetto di ${usd(caps.perDayCents)}`;
+      if (!lastSpendBlock) log(`coda ferma — ${reason}`);
+      lastSpendBlock = true;
+      return reason;
+    } catch { return null; }   // fail open
+  }
+
+  /**
+   * Il tetto per CARD, cumulativo: `true` se questa card ha sfondato.
+   *
+   * Legge il numero che ha già in mano (`task.agentCostCents`, arrivato con la
+   * riga): a tetto spento non c'è nemmeno questa lettura, perché si esce prima.
+   */
+  function overTaskSpendCap(task: Task, caps: { perTaskCents: number }): boolean {
+    if (caps.perTaskCents <= 0) return false;
+    const spent = task.agentCostCents ?? 0;
+    if (!Number.isFinite(spent) || spent <= 0) return false;   // fail open
+    return spent >= caps.perTaskCents;
+  }
+
+  /** Centesimi → dollari, come si scrive a una persona. */
+  function usd(cents: number): string {
+    return `${(cents / 100).toFixed(2)} USD`;
+  }
+
+  /**
+   * «Il turno successivo non parte, ed ecco quanto e quale tetto». Una volta per
+   * episodio, come le altre attese: la differenza è che questa non si scioglie
+   * da sé, quindi la frase dice anche cosa la scioglie.
+   */
+  function noteSpendHold(task: Task, capCents: number): void {
+    noteHold(spendHeldNoted, task, taskSpendMessage(task, capCents));
+  }
+
+  /** La frase, scritta una volta: la usano il freno del tick e quello del resume. */
+  function taskSpendMessage(task: Task, capCents: number): string {
+    return (
+      `Tetto di spesa per card raggiunto: ${usd(task.agentCostCents ?? 0)} su un tetto di ${usd(capCents)}. ` +
+      `Il turno successivo non parte. Alza il tetto dalle impostazioni della board, oppure chiudi la card.`
+    );
+  }
+
+  /** Il freno per card come MOTIVO, per la porta che ne vuole uno (il resume). */
+  function taskSpendBlock(task: Task): string | null {
+    const caps = spendCaps();
+    if (caps.perTaskCents <= 0) return null;
+    return overTaskSpendCap(task, caps) ? taskSpendMessage(task, caps.perTaskCents) : null;
+  }
+
   /**
    * Errori del PROVIDER di fila su un task, per non fargli pagare i tentativi.
    *
@@ -1050,6 +1146,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // Stessa disciplina: una nota per EPISODIO. Si svuota nel giro in cui il tetto
   // torna a lasciar passare quella card, così la prossima pienezza lo ridice.
   const capHeldNoted = new Set<string>();
+  // Task a cui si è già detto «hai superato il tetto di spesa». Stessa
+  // disciplina degli insiemi qui sopra, con una differenza che conta: questa
+  // attesa non finisce da sé. Il tetto si alza (o la card si chiude) per mano di
+  // una persona, quindi la nota si dimentica solo quando la card riparte
+  // davvero, e nel frattempo non si ripete a ogni poll.
+  const spendHeldNoted = new Set<string>();
   // Da QUANDO un task pesante è trattenuto dal carico (ms). Serve al tetto
   // dell'attesa (`HEAVY_HOLD_MAX_MS`): senza un istante di inizio «trattenuto da
   // troppo» non è una condizione misurabile, è un'impressione. Si azzera appena
@@ -1288,8 +1390,25 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // durante un turno vivo lo sposta sotto i piedi di chi sta lavorando —
   // 40.000 al posto di 90.000, misurato. Con una riga per sessione, ogni
   // contatore si muove solo per conto proprio e solo verso l'alto.
-  interface SessionLedger { offset: SessionUsage; tokens: number; cacheRead: number; }
-  interface TaskLedger { base: number; baseCacheRead: number; sessions: Map<string, SessionLedger>; }
+  //
+  // I CENTESIMI viaggiano sulla stessa riga dei token, e non a fianco in una
+  // struttura loro: il costo si calcola dal DELTA di ogni componente contro
+  // l'ancoraggio di QUESTA sessione (fresco, output, scrittura 5m, scrittura
+  // 1h, rilettura) per il listino del modello che ha girato LI'. Un fan-out apre
+  // sessioni con modelli diversi: un unico moltiplicatore per task prezzerebbe
+  // il tentativo su Sonnet alla tariffa di Opus.
+  interface SessionLedger {
+    offset: SessionUsage;
+    tokens: number;
+    cacheRead: number;
+    /** Spesa di questa sessione, in centesimi, monotona come i token. */
+    costCents: number;
+    /** Consumo equivalente che NON si e' potuto prezzare (modello senza listino). */
+    unpricedCostTokens: number;
+    /** Il modello che gira su questa sessione. `null` = spesa non prezzabile. */
+    model: string | null;
+  }
+  interface TaskLedger { base: number; baseCacheRead: number; baseCents: number; sessions: Map<string, SessionLedger>; }
   const usageLedgers = new Map<string, TaskLedger>();
 
   /** Il registro non serve più quando il task esce dalle mani del dispatcher. */
@@ -1300,17 +1419,34 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * qui, da una lettura RIUSCITA: è il punto che rende impossibile ri-ancorare
    * su uno zero finto.
    */
-  function usageRow(taskId: string, sessionKey: string, reading: SessionUsage): SessionLedger | null {
+  function usageRow(taskId: string, sessionKey: string, reading: SessionUsage, model?: string | null): SessionLedger | null {
     let ledger = usageLedgers.get(taskId);
     if (!ledger) {
       const t = deps.svc.get(taskId)?.task;
       if (!t) return null;
-      ledger = { base: t.agentTokens ?? 0, baseCacheRead: t.agentCacheReadTokens ?? 0, sessions: new Map() };
+      ledger = {
+        base: t.agentTokens ?? 0,
+        baseCacheRead: t.agentCacheReadTokens ?? 0,
+        baseCents: t.agentCostCents ?? 0,
+        sessions: new Map(),
+      };
       usageLedgers.set(taskId, ledger);
     }
     let s = ledger.sessions.get(sessionKey);
-    if (!s) { s = { offset: reading, tokens: 0, cacheRead: 0 }; ledger.sessions.set(sessionKey, s); }
+    if (!s) {
+      s = { offset: reading, tokens: 0, cacheRead: 0, costCents: 0, unpricedCostTokens: 0, model: model ?? taskModel(taskId) };
+      ledger.sessions.set(sessionKey, s);
+    }
+    // Il modello puo' arrivare dopo l'ancoraggio (una strada che non lo aveva in
+    // mano). Si riempie un buco, non si sovrascrive: cambiarlo a meta' sessione
+    // riprezzerebbe all'indietro token gia' contati con l'altro listino.
+    else if (!s.model && model) s.model = model;
     return s;
+  }
+
+  /** Il modello scritto sulla card, ripiego quando la strada non lo porta. */
+  function taskModel(taskId: string): string | null {
+    try { return deps.svc.get(taskId)?.task.model ?? null; } catch { return null; }
   }
 
   /**
@@ -1322,12 +1458,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * in cui il vecchio codice prendeva `usage0`, e la sola differenza è che
    * adesso quel punto SOPRAVVIVE al turno.
    */
-  function anchorUsage(taskId: string, sessionKey: string): SessionUsage | null {
+  function anchorUsage(taskId: string, sessionKey: string, model?: string | null): SessionUsage | null {
     if (!sessionKey) return null;
     try {
       const reading = sessionUsage(sessionKey);
       if (!reading) return null;
-      usageRow(taskId, sessionKey, reading);
+      usageRow(taskId, sessionKey, reading, model);
       return reading;
     } catch { return null; }
   }
@@ -1338,21 +1474,78 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * due volte non conta due volte, e non chiamarla affatto per un turno non
    * perde quel turno — lo recupera la chiamata dopo.
    */
-  function bookUsageFloor(taskId: string, sessionKey: string): void {
+  function bookUsageFloor(taskId: string, sessionKey: string, model?: string | null): void {
     if (!sessionKey) return;
     try {
       const reading = sessionUsage(sessionKey);
       if (!reading) return;                       // non si sa: non si muove niente
-      const s = usageRow(taskId, sessionKey, reading);
+      const s = usageRow(taskId, sessionKey, reading, model);
       if (!s) return;
       s.tokens = Math.max(s.tokens, reading.billableTokens - s.offset.billableTokens);
       s.cacheRead = Math.max(s.cacheRead, reading.cacheReadTokens - s.offset.cacheReadTokens);
+      bookSessionCost(s, reading);
       const ledger = usageLedgers.get(taskId)!;
       let tokens = ledger.base;
       let cacheRead = ledger.baseCacheRead;
-      for (const row of ledger.sessions.values()) { tokens += row.tokens; cacheRead += row.cacheRead; }
-      emit(deps.svc.raiseAgentUsage({ taskId, tokens, cacheReadTokens: cacheRead }));
+      let costCents = ledger.baseCents;
+      let unpriced = 0;
+      for (const row of ledger.sessions.values()) {
+        tokens += row.tokens;
+        cacheRead += row.cacheRead;
+        costCents += row.costCents;
+        unpriced += row.unpricedCostTokens;
+      }
+      emit(deps.svc.raiseAgentUsage({ taskId, tokens, cacheReadTokens: cacheRead, costCents, unpricedCostTokens: unpriced }));
     } catch { /* metrics never break the loop */ }
+  }
+
+  /**
+   * QUANTO E' COSTATO, in centesimi, dal delta dei componenti contro l'ancoraggio.
+   *
+   * Due esiti e non uno, ed e' la differenza che rende il numero credibile:
+   *
+   *  · modello con listino ⇒ i centesimi salgono, con lo stesso pavimento dei
+   *    token (una lettura che regredisce non sottrae, chiamarla due volte non
+   *    conta due volte);
+   *  · modello SENZA listino (o assente) ⇒ i centesimi non si muovono di un
+   *    passo, e il consumo equivalente finisce in `unpricedCostTokens`.
+   *    Tariffare zero uno sconosciuto lo renderebbe indistinguibile da un turno
+   *    gratis, e un tetto che ignora in silenzio una fetta di spesa e' un tetto
+   *    decorativo: la quota si MOSTRA accanto al numero.
+   *
+   * I componenti si tariffano per quello che sono (`calculateCostWithCache`): la
+   * rilettura di cache costa un decimo di un token fresco e in un turno agentico
+   * e' la quota dominante, quindi contarla a prezzo pieno gonfierebbe il conto di
+   * circa dieci volte.
+   */
+  function bookSessionCost(s: SessionLedger, reading: SessionUsage): void {
+    const d = (now: number, then: number) => Math.max(0, now - then);
+    const model = s.model;
+    if (!model || !modelPrice(model)) {
+      s.unpricedCostTokens = Math.max(
+        s.unpricedCostTokens,
+        costTokens({
+          billable: d(reading.billableTokens, s.offset.billableTokens),
+          cacheRead: d(reading.cacheReadTokens, s.offset.cacheReadTokens),
+        }),
+      );
+      return;
+    }
+    // `cacheWrite1hTokens` e' un SOTTOINSIEME di `cacheWriteTokens`, mentre le
+    // due tariffe di `calculateCostWithCache` vogliono quote DISGIUNTE (1.25× a
+    // cinque minuti, 2× a un'ora): passarle entrambe intere conterebbe due volte
+    // le scritture a un'ora, che su una sessione reale erano il 100% del totale.
+    const write1h = d(reading.cacheWrite1hTokens, s.offset.cacheWrite1hTokens);
+    const write = d(reading.cacheWriteTokens, s.offset.cacheWriteTokens);
+    const usd = calculateCostWithCache({
+      model,
+      freshInputTokens: d(reading.inputTokens, s.offset.inputTokens),
+      outputTokens: d(reading.outputTokens, s.offset.outputTokens),
+      cacheCreationTokens: Math.max(0, write - write1h),
+      cacheCreation1hTokens: write1h,
+      cacheReadTokens: d(reading.cacheReadTokens, s.offset.cacheReadTokens),
+    });
+    s.costCents = Math.max(s.costCents, Math.round(usd * 100));
   }
 
   /**
@@ -1875,7 +2068,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       const timeoutMs = Math.max(1, settings.timeoutMin) * 60_000;
       const idleMs = Math.max(1, settings.idleMin) * 60_000;
       const t0 = Date.now();
-      const usage0 = anchorUsage(taskId, sessionKey);
+      const usage0 = anchorUsage(taskId, sessionKey, chosenModel ?? null);
       startLiveTurn(task, sessionKey, t0, usage0, chosenModel ?? null);
       let turnEnd: TurnEndInfo | undefined;
       try {
@@ -1892,7 +2085,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // è assoluto e monotono, quindi scriverli qui e riscriverli dopo non è un
       // doppio conteggio — mentre non scriverli affatto era la perdita
       // definitiva (il turno dopo si ri-ancorava più avanti).
-      bookUsageFloor(taskId, sessionKey);
+      bookUsageFloor(taskId, sessionKey, chosenModel ?? null);
       // Buried by the liveness net while this promise hung on a dead child: the
       // net already closed the turn (accounting + recovery) and a fresh run may
       // own the task by now. A zombie books no TIME and touches no worktree —
@@ -2070,7 +2263,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (idx === 1) {
         try { deps.svc.bindTopic({ taskId: task.id, topicId: topic.topicId }); } catch { /* il fan-out vive lo stesso */ }
       }
-      usage0 = anchorUsage(task.id, sessionKey);
+      usage0 = anchorUsage(task.id, sessionKey, opts.model ?? null);
       const turnEnd = (await deps.runTurn(sessionKey, buildFanoutKickoff(task, idx, total), {
         timeoutMs: opts.timeoutMs,
         idleMs: opts.idleMs,
@@ -2111,7 +2304,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // registro tiene una riga per SESSIONE e le somma, quindi N tentativi su N
     // sessioni si sommano da soli: è l'unico posto in cui la somma è la
     // risposta giusta, e qui la dà la stessa funzione degli altri.
-    if (sessionKey) { bookUsageFloor(task.id, sessionKey); recordTurnMs(task.id, t0); }
+    if (sessionKey) { bookUsageFloor(task.id, sessionKey, opts.model ?? null); recordTurnMs(task.id, t0); }
   }
 
   /** Pota worktree e chat dei tentativi di un task (il vincitore, se c'è, resta). */
@@ -2801,7 +2994,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // Il pavimento prima del tetto: se la macchina non regge un altro agente,
     // il messaggio aspetta esattamente come aspetterebbe per uno slot pieno —
     // stessa coda, stesso chip, stessa promessa che niente si perde.
-    const floorBlock = admissionBlock();
+    // Il freno di spesa passa dalla STESSA porta del pavimento, e per la stessa
+    // ragione: il messaggio non si perde, aspetta. Un tetto che rifiutasse solo
+    // i dispatch nuovi lascerebbe passare il turno che parte da un rifiuto in
+    // review, cioè esattamente il turno in più su una card già cara.
+    const floorBlock = admissionBlock() ?? spendBlock() ?? taskSpendBlock(t);
     // Le corse dei gate occupano slot come gli agenti: un resume che trovasse
     // un posto «libero» ignorando i gate lancerebbe un agente in piu' proprio
     // mentre la macchina e' gia' al limite per i check.
@@ -2858,7 +3055,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       let idleMin = 5;
       try { idleMin = deps.svc.getBoardSettings(t.projectId).dispatchIdleMin; } catch { /* default */ }
       const t0 = Date.now();
-      const usage0 = anchorUsage(taskId, sessionKey);
+      const usage0 = anchorUsage(taskId, sessionKey, t.model ?? null);
       startLiveTurn(t, sessionKey, t0, usage0, t.model ?? null);
       // IL SOLLECITO PASSA DAL CANCELLO, LA RIPRESA NO.
       //
@@ -2883,7 +3080,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         })) || undefined;
       }
       catch (err) { log(`resume turn failed for ${taskId}`, err); turnEnd = classifyTurnError(err); }
-      bookUsageFloor(taskId, sessionKey);   // prima della guardia: vedi launch
+      bookUsageFloor(taskId, sessionKey, t.model ?? null);   // prima della guardia: vedi launch
       if (!ownsRun(taskId, runId)) return; // buried mid-turn (see launch)
       endLiveTurn(taskId);
       recordTurnMs(taskId, t0);
@@ -2914,7 +3111,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       let idleMin = 5;
       try { idleMin = deps.svc.getBoardSettings(t.projectId).dispatchIdleMin; } catch { /* default */ }
       const t0 = Date.now();
-      const usage0 = anchorUsage(taskId, sessionKey);
+      const usage0 = anchorUsage(taskId, sessionKey, t.model ?? null);
       startLiveTurn(t, sessionKey, t0, usage0, t.model ?? null);
       let turnEnd: TurnEndInfo | undefined;
       try {
@@ -2924,7 +3121,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         })) || undefined;
       }
       catch (err) { log(`reattach turn failed for ${taskId}`, err); turnEnd = classifyTurnError(err); }
-      bookUsageFloor(taskId, sessionKey);   // prima della guardia: vedi launch
+      bookUsageFloor(taskId, sessionKey, t.model ?? null);   // prima della guardia: vedi launch
       if (!ownsRun(taskId, runId)) return; // buried mid-turn (see launch)
       endLiveTurn(taskId);
       recordTurnMs(taskId, t0);
@@ -3241,7 +3438,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // nuovo ad aprire una worktree, cioè a consumare esattamente la risorsa che
     // sta finendo. Letto una volta per tick: la domanda è sulla macchina, non
     // sulla card, e chiederlo per ogni todo sarebbe una statfs per riga.
-    const floorBlock = admissionBlock();
+    const floorBlock = admissionBlock() ?? spendBlock();
+    // I tetti di spesa, letti UNA volta per tick dalla stessa riga '*' che porta
+    // il tetto di concorrenza. A tetti spenti (zero = illimitato, lo stato di
+    // un'installazione nuova) questa e' l'unica lettura in piu' del giro: nessuna
+    // somma sul libro della spesa, e il controllo per card qui sotto esce subito.
+    const caps = spendCaps();
 
     // Chi NON è più trattenuto dal tetto dimentica l'episodio, così una prossima
     // attesa lo dice di nuovo invece di restare muta. Si guarda chi è PARTITO
@@ -3300,6 +3502,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
 
     for (const [idx, t] of todos.entries()) {
       if (inFlight.has(t.id)) continue;
+      // FRENO DI SPESA PER CARD, e solo se un tetto e' impostato. Non e' un
+      // `break`: questa card non parte, le altre non c'entrano niente (il tetto
+      // per card e' suo). La riga nel thread si scrive una volta per episodio e
+      // dice quanto e quale tetto, perche' l'attesa non si scioglie da se'.
+      if (caps.perTaskCents > 0 && overTaskSpendCap(t, caps)) {
+        noteSpendHold(t, caps.perTaskCents);
+        continue;
+      }
       if (floorBlock) {
         // Il chip, non un commento: qui si passa a ogni tick, e un commento per
         // tick trasformerebbe un disco pieno in mille righe nel thread. La card
@@ -3459,6 +3669,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // volta che quella card aspetta un posto tornerebbe a restare muta, che è
       // esattamente il difetto che si sta chiudendo.
       capHeldNoted.delete(t.id);
+      // Lo stesso vale per il freno di spesa: questa card e' partita, quindi
+      // l'episodio e' chiuso. Se domani sfonda di nuovo il tetto, lo ridice.
+      spendHeldNoted.delete(t.id);
       if (forced) {
         const atteso = Math.round(heldForMs(t) / 60_000);
         heavyHoldSince.delete(t.id);
@@ -3648,7 +3861,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // `else` era il terzo posto in cui un turno spariva. Il tempo no — senza
     // `turnStartedAt` non c'è un inizio da cui misurarlo, e un'attesa inventata
     // è peggio di un'attesa mancante.
-    bookUsageFloor(taskId, slot.sessionKey);
+    bookUsageFloor(taskId, slot.sessionKey, lt?.model ?? null);
     if (lt) recordTurnMs(taskId, lt.turnStartedAt);
     log(`liveness: sessione ${slot.sessionKey} morta con il turno ancora aperto → recupero il task ${taskId}`);
     // The rule lives in `lib/dead-run-note.ts`, pure and tested: applied here.
@@ -3996,6 +4209,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     for (const t of retryWaits.values()) clearTimeout(t);
     retryWaits.clear();
     waitingForSlot.clear();
+    spendHeldNoted.clear();
     pendingResume.clear();
     // Senza questa riga un dispatcher spento resterebbe iscritto e continuerebbe
     // a scrivere chip su un DB che non è più il suo — e i test, che ne creano

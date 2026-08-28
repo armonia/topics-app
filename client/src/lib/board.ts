@@ -713,6 +713,23 @@ export interface GlobalSettings {
   maxAgentsAuto: boolean;
   /** The fixed machine-wide cap used when `maxAgentsAuto` is off. */
   maxAgents: number;
+  /**
+   * I DUE TETTI DI SPESA in centesimi USD, e nascono a ZERO: zero vuol dire
+   * illimitato, cioe' nessun freno, che e' lo stato di un'installazione nuova.
+   * Il client non ne propone nessun valore: la riga del tetto compare solo se
+   * una persona ne ha scritto uno.
+   */
+  agentCostCapCents: number;
+  agentCostCapCents24h: number;
+  /** Quanto hanno SPESO gli agenti: la finestra mobile 24h e il totale. Si
+   *  leggono sempre, anche a tetti spenti: sono il motivo del contatore. */
+  agentSpendCents24h: number;
+  agentSpendCentsTotal: number;
+  /** La quota di consumo che NON si e' potuta prezzare (modello senza listino),
+   *  in token equivalenti. Si mostra accanto al numero, o il totale farebbe
+   *  finta di essere completo. */
+  agentUnpricedCostTokens24h: number;
+  agentUnpricedCostTokensTotal: number;
 }
 
 /** One commit that a publish (push) would ship. */
@@ -1003,6 +1020,16 @@ export const boardApi = {
       body: JSON.stringify({
         ...(patch.auto !== undefined ? { maxAgentsAuto: patch.auto } : {}),
         ...(patch.max !== undefined ? { maxAgents: patch.max } : {}),
+      }),
+    }),
+  /** Scrivere i tetti di SPESA (una persona, dalle impostazioni). Zero cancella
+   *  il tetto: e' la stessa porta del tetto di concorrenza, riga '*'. */
+  setSpendCaps: (patch: { perTaskCents?: number; perDayCents?: number }) =>
+    req<GlobalSettings>('/all-boards/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        ...(patch.perTaskCents !== undefined ? { agentCostCapCents: patch.perTaskCents } : {}),
+        ...(patch.perDayCents !== undefined ? { agentCostCapCents24h: patch.perDayCents } : {}),
       }),
     }),
 };
