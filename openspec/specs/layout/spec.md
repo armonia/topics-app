@@ -1970,3 +1970,36 @@ riga di progetto.
 #### Scenario: una cella sola
 - **GIVEN** una griglia non divisa
 - **THEN** nessuna voce della sidebar SHALL mostrare lo schema
+
+### Requirement: CHROME-10 — Un'attesa che non finirà da sola SHALL dire perché, e nominare la via d'uscita
+
+Il guscio nativo può decidere deliberatamente di NON avviare un server locale:
+quando il marcatore dice che questa macchina possiede un server vero e nessuno
+risponde, aspettare è giusto — biforcare un universo vuoto sopra un server lento
+ma vivo è il guasto peggiore, ed è già costato task e schede una volta.
+
+Quella scelta SHALL restare. Ciò che NON è ammesso è che sia MUTA.
+
+Misurato il 28/08/2026 su Windows: l'unica cosa a schermo era il pallino rosso
+della fascia di stato. La spiegazione del guscio viveva sulla pagina che il proxy
+serve al posto di una navigazione di DOCUMENTO, ma la finestra carica il proprio
+bundle dallo schema dell'app e a quella pagina non ci arriva nessuno. L'attesa
+era totale, muta, e la via d'uscita era un file che nessuno nomina.
+
+Quando il guscio è in quello stato, la fascia di stato SHALL mostrare la causa e
+il PERCORSO COMPLETO del file che la rimuove. Il percorso SHALL andare a capo ed
+essere selezionabile: un percorso che non si può leggere né copiare non è una via
+d'uscita.
+
+Il verdetto SHALL venire dal guscio, non dal server: il server è precisamente ciò
+che manca. E SHALL comparire SOLO su quel verdetto esplicito — una disconnessione
+ordinaria resta il pallino e basta, o l'avviso diventa rumore che si impara a
+ignorare.
+
+#### Scenario: la macchina possiede un server che oggi non c'è
+- **GIVEN** il marcatore presente e nessun server che risponde
+- **THEN** la fascia di stato SHALL portare la causa e il percorso del marcatore
+
+#### Scenario: una disconnessione qualunque
+- **GIVEN** nessun marcatore, e il server semplicemente non risponde adesso
+- **THEN** la fascia SHALL mostrare solo lo stato, senza alcun avviso aggiuntivo

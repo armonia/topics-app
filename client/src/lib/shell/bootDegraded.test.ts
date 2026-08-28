@@ -1,4 +1,6 @@
 /**
+ * @covers CHROME-10
+ *
  * The shell's boot verdict, as the SPA reads it.
  *
  * The rule this pins down is the ASYMMETRY. The explanation ("this machine has
