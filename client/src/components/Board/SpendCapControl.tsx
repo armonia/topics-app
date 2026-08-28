@@ -21,34 +21,35 @@
  * shared module store. Two copies of the same number on two surfaces are how one
  * window shows a cap the other has already changed.
  */
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useT } from '../../hooks/useT';
 import { formatTokens } from '../../lib/formatTokens';
 import { saveSpendCaps, useGlobalDispatchCap } from '../../state/globalDispatchCap';
+import { capBoxValue, spendLabel } from './spendFormat';
 
-/** Cents to dollars, the way it is written to a person. */
-function usd(cents: number): string {
-  const v = cents / 100;
-  return v >= 100 ? `$${Math.round(v).toLocaleString('it-IT')}` : `$${v.toFixed(2)}`;
-}
-
-/** The box value: empty when there is no cap (zero is not a cap). */
-function boxValue(cents: number): string {
-  return cents > 0 ? String(Math.round(cents / 100)) : '';
-}
+/** What is being typed into a box right now. `undefined` = nothing is, so the
+ *  box shows the cap the store holds. */
+interface CapDraft { task?: string; day?: string }
 
 export function SpendCapControl() {
+  const tr = useT();
   const s = useGlobalDispatchCap();
   const spend = s.spend;
-  // The boxes are typed into: without a local state, every keystroke would be a
-  // write to the server and a value coming back rewritten mid-word. The write
-  // happens when the field loses focus, or on Enter.
-  const [perTask, setPerTask] = useState<string>('');
-  const [perDay, setPerDay] = useState<string>('');
-  useEffect(() => {
-    if (!spend) return;
-    setPerTask(boxValue(spend.capTaskCents));
-    setPerDay(boxValue(spend.capDayCents));
-  }, [spend?.capTaskCents, spend?.capDayCents]);
+  // THE STORE IS THE VALUE, the draft is only what a finger is in the middle of.
+  //
+  // The boxes are typed into, so the typed text cannot go straight to the server:
+  // that would be one write per keystroke and a value coming back rewritten
+  // mid-word. The write happens when the field loses focus, or on Enter.
+  //
+  // What is NOT here any more is the mirror. The cap used to be copied into two
+  // `useState`s by an effect that re-ran on every change of the authoritative
+  // value, and a synchronous `setState` inside an effect paints the stale text
+  // first and then renders again over it (`react-hooks/set-state-in-effect`
+  // says exactly this). There is no second source to synchronise with: the
+  // store already IS the value, so the box reads it directly and only falls
+  // back to a local string while somebody is editing. The draft is dropped on
+  // commit, which is the moment the store becomes right again.
+  const [draft, setDraft] = useState<CapDraft>({});
 
   if (!spend) return null;
 
@@ -56,59 +57,66 @@ export function SpendCapControl() {
     const dollars = raw.trim() === '' ? 0 : Number(raw);
     const cents = Number.isFinite(dollars) && dollars > 0 ? Math.round(dollars * 100) : 0;
     void saveSpendCaps(which === 'task' ? { perTaskCents: cents } : { perDayCents: cents });
+    // `saveSpendCaps` publishes the new value optimistically and synchronously,
+    // so letting the draft go here shows the committed cap, not the old one.
+    setDraft((d) => ({ ...d, [which]: undefined }));
   };
 
   const capTask = spend.capTaskCents;
   const capDay = spend.capDayCents;
   const overDay = capDay > 0 && spend.cents24h >= capDay;
+  const perTask = draft.task ?? capBoxValue(capTask);
+  const perDay = draft.day ?? capBoxValue(capDay);
 
   return (
     <div className="space-y-1" data-testid="spend-cap-control">
       <p className="text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">
-        Spesa degli agenti
+        {tr('board.spend.title')}
       </p>
 
       {/* THE NUMBER, always. The total beside the window: 24 hours says whether
           last night went wrong, the total says what the whole thing has cost. */}
       <p className="text-[12px] font-medium text-app-text-heading" data-testid="spend-24h">
-        {usd(spend.cents24h)} nelle ultime 24h
+        {tr('board.spend.window', { amount: spendLabel(spend.cents24h) })}
         {spend.centsTotal > 0 && (
-          <span className="font-normal text-app-text-secondary"> · {usd(spend.centsTotal)} in tutto</span>
+          <span className="font-normal text-app-text-secondary">
+            {' · '}{tr('board.spend.total', { amount: spendLabel(spend.centsTotal) })}
+          </span>
         )}
       </p>
       {spend.unpriced24h > 0 && (
         <p className="text-[11px] leading-snug text-app-text-secondary" data-testid="spend-unpriced">
-          {formatTokens(spend.unpriced24h)} token non prezzabili (modello senza listino): non sono in questa cifra.
+          {tr('board.spend.unpriced', { tokens: formatTokens(spend.unpriced24h) })}
         </p>
       )}
 
       {/* THE CAPS. Empty = no limit, and the placeholder says so, not a tooltip. */}
       <div className="space-y-1 pt-0.5">
         <label className="flex items-center justify-between gap-3">
-          <span className="text-[11px] text-app-text-muted">Tetto per card (USD)</span>
+          <span className="text-[11px] text-app-text-muted">{tr('board.spend.capTask')}</span>
           <input
             type="number"
             min={0}
-            placeholder="nessuno"
+            placeholder={tr('board.spend.capNone')}
             data-testid="spend-cap-task"
             value={perTask}
             disabled={s.saving}
-            onChange={(e) => setPerTask(e.target.value)}
+            onChange={(e) => { const v = e.target.value; setDraft((d) => ({ ...d, task: v })); }}
             onBlur={(e) => commit('task', e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') commit('task', (e.target as HTMLInputElement).value); }}
             className="w-20 shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-right text-app-text outline-none"
           />
         </label>
         <label className="flex items-center justify-between gap-3">
-          <span className="text-[11px] text-app-text-muted">Tetto per macchina, 24h (USD)</span>
+          <span className="text-[11px] text-app-text-muted">{tr('board.spend.capDay')}</span>
           <input
             type="number"
             min={0}
-            placeholder="nessuno"
+            placeholder={tr('board.spend.capNone')}
             data-testid="spend-cap-day"
             value={perDay}
             disabled={s.saving}
-            onChange={(e) => setPerDay(e.target.value)}
+            onChange={(e) => { const v = e.target.value; setDraft((d) => ({ ...d, day: v })); }}
             onBlur={(e) => commit('day', e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') commit('day', (e.target as HTMLInputElement).value); }}
             className="w-20 shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-right text-app-text outline-none"
@@ -125,18 +133,18 @@ export function SpendCapControl() {
           className={`text-[11px] leading-snug ${overDay ? 'text-amber-300' : 'text-app-text-secondary'}`}
         >
           {overDay
-            ? `Tetto giornaliero superato (${usd(spend.cents24h)} su ${usd(capDay)}): il turno successivo non parte.`
-            : `Restano ${usd(Math.max(0, capDay - spend.cents24h))} prima del tetto giornaliero.`}
+            ? tr('board.spend.overDay', { spent: spendLabel(spend.cents24h), cap: spendLabel(capDay) })
+            : tr('board.spend.leftDay', { amount: spendLabel(Math.max(0, capDay - spend.cents24h)) })}
         </p>
       )}
       {capTask > 0 && (
         <p className="text-[11px] leading-snug text-app-text-secondary" data-testid="spend-cap-task-note">
-          Una card che arriva a {usd(capTask)} non fa partire il turno successivo, e lo scrive nel suo thread.
+          {tr('board.spend.capTaskNote', { cap: spendLabel(capTask) })}
         </p>
       )}
       {capTask === 0 && capDay === 0 && (
         <p className="text-[11px] leading-snug text-app-text-faint" data-testid="spend-cap-off">
-          Nessun tetto: nessun freno, nessun avviso. Il numero sopra si vede comunque.
+          {tr('board.spend.noCaps')}
         </p>
       )}
     </div>
