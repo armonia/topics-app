@@ -53,9 +53,24 @@ export function parseBootDegraded(raw: unknown): BootDegraded | null {
 }
 
 /**
- * Ask the shell whether this boot is the degraded one. One question per app life:
- * the verdict is decided once at boot and never changes, so the answer is cached
- * (including the null, so a web client asks nothing at all).
+ * Ask the shell whether this boot is the degraded one.
+ *
+ * ONLY A YES IS CACHED, and that asymmetry is the whole point. Measured on the
+ * Windows machine on 2026-08-28, with a stopwatch on the shell's own stderr: the
+ * window paints at about +5s, and the boot verdict lands at about +150s. The
+ * probe loop is sixty rounds of two connections with a gap between them, which on
+ * that machine is minutes rather than the "~42s" its own message claims. So a
+ * question asked once, at mount, is asked roughly 145 seconds before the shell has
+ * an answer — and caching that "no" meant the explanation could never appear for
+ * the whole life of the app. The bar said `Offline` and nothing else, which is
+ * exactly the state this was written to cure.
+ *
+ * A yes is terminal: the verdict is written once and never unset, so it is cached
+ * and never asked again. A no may simply be early, so it is not cached and the
+ * caller is free to ask again — which it should do only while disconnected, since
+ * a connected app has nothing to explain.
+ *
+ * Off Tauri the null IS cached: there is no shell to change its mind.
  */
 export function fetchBootDegraded(): Promise<BootDegraded | null> {
   if (cached) return cached;
@@ -63,12 +78,18 @@ export function fetchBootDegraded(): Promise<BootDegraded | null> {
     cached = Promise.resolve(null);
     return cached;
   }
-  cached = tauriInvoke<unknown>('boot_degraded')
+  const asked = tauriInvoke<unknown>('boot_degraded')
     .then(parseBootDegraded)
     // An older shell has no such command. Silence is the right answer: the client
     // then behaves exactly as it did before this existed.
     .catch(() => null);
-  return cached;
+  // Hold the in-flight promise so concurrent callers share one round trip, then
+  // keep it only if the answer was a yes.
+  cached = asked;
+  void asked.then((d) => {
+    if (!d && cached === asked) cached = null;
+  });
+  return asked;
 }
 
 let cached: Promise<BootDegraded | null> | null = null;

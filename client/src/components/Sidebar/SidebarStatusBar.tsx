@@ -491,19 +491,28 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
    * and the window loads its bundle from the app's own scheme, so nobody ever gets
    * there. The wait was total and mute, and the way out was a file nobody names.
    *
-   * One question per app life (the verdict is decided once at boot), and null for
-   * every ordinary outage — see `bootDegraded.ts` for why that asymmetry matters.
+   * ASKED WHILE OFFLINE, not once at mount. Measured on that machine: the window
+   * paints at about +5s and the shell's verdict lands at about +150s, so a single
+   * question at mount is asked long before there is an answer and the explanation
+   * never arrived. A yes is terminal and stops the asking; a connection stops it
+   * too, because a connected app has nothing to explain. See `bootDegraded.ts`.
    */
   const [degraded, setDegraded] = useState<BootDegraded | null>(null);
   // Set only when the button failed: on success the process is replaced.
   const [degradedFixFailed, setDegradedFixFailed] = useState(false);
+  const connected = wsStatus === 'connected';
   useEffect(() => {
+    if (degraded || connected) return;
     let alive = true;
-    void fetchBootDegraded().then((d) => {
-      if (alive) setDegraded(d);
-    });
-    return () => { alive = false; };
-  }, []);
+    const ask = () => {
+      void fetchBootDegraded().then((d) => {
+        if (alive && d) setDegraded(d);
+      });
+    };
+    ask();
+    const t = window.setInterval(ask, 5000);
+    return () => { alive = false; window.clearInterval(t); };
+  }, [degraded, connected]);
   const degradedLines = degradedNotice(degraded, wsStatus);
 
   // Close on sidebar collapse. The status bar lives inside the sidebar but the

@@ -68,3 +68,23 @@ describe('what the offline surface prints', () => {
     expect(degradedNotice(null, 'offline')).toBeNull();
   });
 });
+
+describe('a "no" may just be early, so it is not remembered', () => {
+  // Measured on the Windows machine on 2026-08-28, stopwatch on the shell's own
+  // stderr: the window paints at ~+5s, the boot verdict lands at ~+150s. The
+  // probe loop is 60 rounds of two connections with a gap, which on that machine
+  // takes minutes, not the "~42s" its message claims. A question asked once at
+  // mount is therefore asked ~145s before there is an answer — and caching that
+  // "no" meant the explanation could never appear at all. Photographed twice on
+  // the hardware: verdict reached, marker set, and the bar still said only
+  // "Offline".
+  test('the payload of a boot that has not decided yet parses to null', () => {
+    // This is the answer the shell gives for the first ~150s: not degraded YET.
+    expect(parseBootDegraded({ degraded: false, markerPath: null, port: 3333 })).toBeNull();
+  });
+
+  test('and the same shell later answers degraded, with the path', () => {
+    const late = parseBootDegraded({ degraded: true, markerPath: '/x/external-server-seen', port: 3333 });
+    expect(late?.markerPath).toBe('/x/external-server-seen');
+  });
+});
