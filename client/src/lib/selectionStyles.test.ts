@@ -3,6 +3,8 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
+  SIDEBAR_INDENT_STEP,
+  SIDEBAR_LABEL_GUTTER_MAX,
   CHROME_ROW_ACTION_INSET,
   CHROME_ROW_ACTION_INSET_LEFT,
   CHROME_ROW_ACTION_RESERVE,
@@ -337,5 +339,35 @@ describe('le due famiglie di altezza, e le tre misure interne', () => {
     // `TAB_LABEL_TYPE` sarebbe esattamente la copia da cui veniamo.
     expect(TAB_LABEL.startsWith(TAB_LABEL_TYPE)).toBe(true);
     expect(TAB_LABEL_TYPE).not.toContain('text-app-text');
+  });
+});
+
+/**
+ * THE INDENT PER DEPTH SURVIVES THE GUTTER TRIM.
+ *
+ * Card 14c086a5 cut the constant air left of a sidebar name from 60px to 52 by
+ * closing the two reserved columns (accordion, head glyph) by half a gap. The
+ * indent per depth is a DIFFERENT number and a wanted difference: it is how the
+ * tree reads as a tree, and it must not be collateral damage.
+ *
+ * This lives here because the e2e that claimed to guard it could not. Measured
+ * on 2026-08-29: the hermetic world is flat, so its conditional guard on a
+ * single depth fired on every run and the assertion never executed once, while
+ * the suite counted it as a test. The seeded-row version is on the board.
+ * @covers LAYOUT-30
+ */
+describe('the sidebar indent survives the gutter trim (LAYOUT-30)', () => {
+  test('the indent step is alive and bigger than a hairline', () => {
+    // Zero would flatten the tree; 1-2px would be indistinguishable from the
+    // rounding of the trim that this card applied.
+    expect(SIDEBAR_INDENT_STEP).toBeGreaterThan(4);
+  });
+
+  test('the gutter budget is a real budget, and the two numbers are independent', () => {
+    // A budget above the pre-cure 60px would accept the defect it was written
+    // against; one at or below the indent step would make the two numbers the
+    // same knob, and trimming one would silently move the other.
+    expect(SIDEBAR_LABEL_GUTTER_MAX).toBeLessThan(60);
+    expect(SIDEBAR_LABEL_GUTTER_MAX).toBeGreaterThan(SIDEBAR_INDENT_STEP);
   });
 });

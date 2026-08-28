@@ -101,21 +101,12 @@ test.describe("sidebar: the air left of a label", () => {
     ).toBeLessThanOrEqual(SIDEBAR_LABEL_GUTTER_MAX);
   });
 
-  test("LABELGUTTER-02: the depth indent is still readable", async ({ page }) => {
-    test.info().annotations.push({ type: "spec", description: "LAYOUT-30" });
-    await goToApp(page);
-    await expect(page.locator('[role="tree"]').first()).toBeVisible({ timeout: 15000 });
-
-    const labels = await readLabels(page);
-    const insets = [...new Set(labels.map((l) => Math.round(l.rowInset)))].sort((a, b) => a - b);
-    // A world with a single level has nothing to compare: the guarantee then
-    // lives in the unit test that reads the constant.
-    test.skip(insets.length < 2, "no nested sidebar row in this world");
-    const step = insets[1] - insets[0];
-    expect(
-      step,
-      `two consecutive depths are ${step}px apart: the tree reads flat. The indent step ` +
-        `is ${SIDEBAR_INDENT_STEP}px and shrinking the CONSTANT gutter must not touch it.`,
-    ).toBe(SIDEBAR_INDENT_STEP);
-  });
+  // (LABELGUTTER-02 lived here and SKIPPED EVERY TIME. Measured on 2026-08-29:
+  // the hermetic world is flat - two rows, both at inset 0 - so the guard
+  // its conditional guard on a single depth fired on every run, and the assertion
+  // never executed once, while the suite reported it as a test. Seeding a
+  // nested row over `POST /api/topics` creates the topic but it does not reach
+  // the sidebar, so the honest e2e is real work, not a one-line edit: it is on
+  // the board. The constant it guarded is asserted in
+  // `client/src/lib/selectionStyles.test.ts`, where it can actually fail.)
 });
