@@ -122,7 +122,7 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
     db, svc, dispatcher, turns,
     task: (id: string) => svc.get(id)?.task,
     comments: (id: string) => (svc.get(id)?.comments ?? []).map((c) => c.content),
-    righeSpesa: (id: string) =>
+    spendNotes: (id: string) =>
       (svc.get(id)?.comments ?? []).filter((c) => c.content.includes("Tetto di spesa per card")).length,
   };
 }
@@ -171,12 +171,12 @@ describe("il contatore in centesimi", () => {
     seedTask(db, "c2");
 
     svc.raiseAgentUsage({ taskId: "c2", tokens: 100_000, cacheReadTokens: 0, costCents: 0, unpricedCostTokens: 100_000 });
-    const spesa = svc.agentSpend();
+    const spend = svc.agentSpend();
     expect(svc.get("c2")!.task.agentCostCents).toBe(0);
-    expect(spesa.cents24h).toBe(0);
+    expect(spend.cents24h).toBe(0);
     // The number is there and it can be SHOWN: that is the difference between
     // "free" and "I cannot price it".
-    expect(spesa.unpricedCostTokens24h).toBe(100_000);
+    expect(spend.unpricedCostTokens24h).toBe(100_000);
 
     // It does not add to itself at every booking: it is an absolute, like the cents.
     svc.raiseAgentUsage({ taskId: "c2", tokens: 100_000, cacheReadTokens: 0, costCents: 0, unpricedCostTokens: 100_000 });
@@ -191,11 +191,11 @@ describe("il contatore in centesimi", () => {
     //   read   2_000_000 x 5 x 0.1     = 1_000_000
     //   output    20_000 x 25          =   500_000
     //   total  3_125_000 / 1e6         = 3.125 USD, i.e. 313 cents
-    const letto = usage({ inputTokens: 200_000, outputTokens: 20_000, cacheWriteTokens: 100_000, cacheReadTokens: 2_000_000 });
+    const read = usage({ inputTokens: 200_000, outputTokens: 20_000, cacheWriteTokens: 100_000, cacheReadTokens: 2_000_000 });
     // The first reading is the ANCHOR (turn start, nothing consumed yet); the
     // later ones carry the turn. The bill is always a delta against the anchor.
-    let letture = 0;
-    const h = harness({ getSessionUsage: () => (letture++ === 0 ? usage({}) : letto) });
+    let reads = 0;
+    const h = harness({ getSessionUsage: () => (reads++ === 0 ? usage({}) : read) });
     board(h);
     seedTask(h.db, "d1", { model: "claude-opus-5" });
 
@@ -234,7 +234,7 @@ describe("i tetti nascono spenti", () => {
     // already past `in_progress`): what matters is that no brake held it, and that
     // the thread names no cap.
     expect(h.turns.length).toBeGreaterThanOrEqual(1);
-    expect(h.righeSpesa("e1")).toBe(0);
+    expect(h.spendNotes("e1")).toBe(0);
   });
 
   it("i tetti li scrive una persona, e zero li cancella", () => {
@@ -261,10 +261,10 @@ describe("il freno, a tetto impostato", () => {
     expect(h.task("f1")!.status).toBe("todo");
     expect(h.task("f1")!.dispatchState).toBe("queued");
     // One line per episode, with the two numbers that make it checkable.
-    expect(h.righeSpesa("f1")).toBe(1);
-    const nota = h.comments("f1").join("\n");
-    expect(nota).toContain("27.40 USD");
-    expect(nota).toContain("25.00 USD");
+    expect(h.spendNotes("f1")).toBe(1);
+    const note = h.comments("f1").join("\n");
+    expect(note).toContain("27.40 USD");
+    expect(note).toContain("25.00 USD");
   });
 
   it("sotto il tetto non cambia niente: la card parte", async () => {
@@ -277,7 +277,7 @@ describe("il freno, a tetto impostato", () => {
     await flush();
 
     expect(h.turns.length).toBeGreaterThanOrEqual(1);
-    expect(h.righeSpesa("f2")).toBe(0);
+    expect(h.spendNotes("f2")).toBe(0);
   });
 
   it("il tetto per MACCHINA su 24h ferma anche le card che stanno sotto al proprio", async () => {

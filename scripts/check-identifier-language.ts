@@ -120,6 +120,10 @@ export const PROJECT_WORDS = new Set([
   "ref", "refs", "props", "prop", "attr", "attrs", "elem", "btn", "nav", "auth",
   "admin", "repo", "repos", "sha", "diff", "diffs", "commit", "commits", "git",
   "npm", "bun", "vite", "react", "playwright", "sse", "mcp", "pty", "ptys", "ipc",
+  // The ISO 4217 code of the currency this repo prices in. Every model price
+  // list, every cost probe and every spend cap is denominated in it, so the
+  // three letters are the name of the thing, not an abbreviation of a word.
+  "usd",
   // The browser pane's own nouns. `web2` is a 1934 dictionary: it does not
   // carry `download`, and the feature it names is a menu on screen.
   "download", "downloads",

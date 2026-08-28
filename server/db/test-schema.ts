@@ -152,7 +152,7 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
  * did this card cost"; these rows answer "how much was spent in the last 24
  * hours", which a cumulative number cannot give.
  */
-export const AGENT_SPEND_DDL = `CREATE TABLE IF NOT EXISTS agent_spend (
+export const AGENT_SPEND_SCHEMA_SQL = `CREATE TABLE IF NOT EXISTS agent_spend (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   task_id TEXT NOT NULL,
   at TEXT NOT NULL,
@@ -225,7 +225,7 @@ export const TASKS_FK_STUBS_DDL = `CREATE TABLE IF NOT EXISTS agent_profiles (id
 CREATE TABLE IF NOT EXISTS topics (id TEXT PRIMARY KEY);
 ${APP_SETTINGS_DDL}
 ${TERMINAL_SESSIONS_DDL};
-${AGENT_SPEND_DDL}`;
+${AGENT_SPEND_SCHEMA_SQL}`;
 
 /** `task_labels` — identica alla 097, meno i commenti. */
 export const TASK_LABELS_DDL = `CREATE TABLE IF NOT EXISTS task_labels (
