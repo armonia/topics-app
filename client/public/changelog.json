@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.201",
+    "date": "2026-08-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Lo stato offline della SPA nomina la causa e il file, non solo il rosso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "CHROME-10: l'attesa muta diventa un requisito",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.200",
     "date": "2026-08-28",
     "sections": {
