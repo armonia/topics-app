@@ -162,11 +162,33 @@ describe("quiescenceVerdict — il tetto dell'attesa e' un tetto vero", () => {
   const CHAT = 60_000;
   const base = { startedAt: 0, capMs: CAP, chatCapMs: CHAT };
 
-  test("IL DIFETTO: con una card in volo, oltre il tetto si SCADE", () => {
-    // Con il rinnovo questo caso non arrivava mai: `deadline` era sempre
-    // `now + capMs`, cioe' sempre nel futuro.
+  /**
+   * The cap is real - the verdict changes when promised - but it is not a
+   * death sentence. With the old renewal this case never arrived: `deadline`
+   * was always `now + capMs`, always in the future. The cap expires; what lies
+   * on the other side is a DEFERRAL, not a cut.
+   */
+  test("con una card in volo, oltre il tetto si RINVIA", () => {
     expect(quiescenceVerdict({ ...base, busy: "1 card", unrecoverable: 1, now: CAP + 1 }))
-      .toBe("scaduto");
+      .toBe("rinvia");
+  });
+
+  /**
+   * THE NEW INVARIANT, and the reason for all the rest: a clock never kills
+   * work that does not come back.
+   *
+   * Before, the deadline went ahead regardless. On 2026-08-28, topic:0299ac2d,
+   * the log shows it in two consecutive lines: the stream had been silent for
+   * a minute, the gate counted it in flight for 1500s and restarted anyway,
+   * and the chat was left holding "turn interrupted by a server restart".
+   * Whoever waits on a turn nobody will re-adopt must keep waiting: the window
+   * arrives, and meanwhile the deferral is visible in the log.
+   */
+  test("un turno che non torna non viene MAI tagliato dall'orologio", () => {
+    for (const now of [CAP, CAP + 1, CAP * 2, CAP * 100, CAP * 10_000]) {
+      expect(quiescenceVerdict({ ...base, busy: "1 card", unrecoverable: 1, now }))
+        .not.toBe("scaduto");
+    }
   });
 
   test("prima del tetto si aspetta, anche a lungo", () => {
@@ -190,11 +212,15 @@ describe("quiescenceVerdict — il tetto dell'attesa e' un tetto vero", () => {
     // Alla stessa ora, una card starebbe ancora aspettando.
     expect(quiescenceVerdict({ ...base, busy: "1 card", unrecoverable: 1, now: CHAT + 1 }))
       .toBe("aspetta");
+    // The difference is not only duration: a re-adoptable chat gets cut, a
+    // card does not. What comes back on its own may be interrupted.
   });
 
-  test("il confine e' incluso: AL tetto si scade, non un giro dopo", () => {
+  test("il confine e' incluso: AL tetto il verdetto cambia, non un giro dopo", () => {
+    expect(quiescenceVerdict({ ...base, busy: "1 card", unrecoverable: 1, now: CAP - 1 }))
+      .toBe("aspetta");
     expect(quiescenceVerdict({ ...base, busy: "1 card", unrecoverable: 1, now: CAP }))
-      .toBe("scaduto");
+      .toBe("rinvia");
   });
 
   /**
@@ -208,7 +234,7 @@ describe("quiescenceVerdict — il tetto dell'attesa e' un tetto vero", () => {
     let giri = 0;
     for (;;) {
       const v = quiescenceVerdict({ ...base, busy: "1 card", unrecoverable: 1, now });
-      if (v === "scaduto") break;
+      if (v === "rinvia") break;
       now += 500;
       if (++giri > 10_000) throw new Error("l'attesa non e' mai scaduta: il rinnovo e' tornato");
     }
@@ -233,38 +259,73 @@ describe("quiescenceVerdict — il tetto dell'attesa e' un tetto vero", () => {
  * caso del task 235afe11.
  */
 describe("il cancello, in tempo reale", () => {
-  test("con una card che non molla: aspetta, poi esce, e dice la verita'", async () => {
-    const CAP = 800, CHAT = 200;
-    const inizio = Date.now();
-    let logged = false;
-    let uscita: string | null = null;
+  const CAP = 800, CHAT = 200;
 
+  /** The exact shape of the `waitForDispatcherQuiescent` loop. */
+  async function runGate(stillWorking: () => number) {
+    const inizio = Date.now();
+    let waited = false;
+    let deferrals = 0;
     for (;;) {
-      // `whatIsStillWorking()` che risponde sempre «1 card in volo».
-      const busy = "1 turno/i di card della board", cards = 1, unadoptable = 0;
+      const cards = stillWorking();
+      const busy = cards > 0 ? `${cards} turno/i di card della board` : null;
       const verdetto = quiescenceVerdict({
-        busy, unrecoverable: cards + unadoptable,
+        busy, unrecoverable: cards,
         now: Date.now(), startedAt: inizio, capMs: CAP, chatCapMs: CHAT,
       });
-      if (verdetto === "scaduto") {
-        // La stessa frase di server.ts: una card NON viene riadottata.
-        uscita = `${cards} card: turno perso, rimessa in coda (riparte da capo, il worktree resta)`;
-        break;
-      }
-      logged = true;
-      // Rete di sicurezza: col difetto di prima si arrivava qui e basta.
-      if (Date.now() - inizio > 10_000) { uscita = "MAI USCITO"; break; }
+      if (verdetto === "procedi") return { exit: "quiescente", deferrals, waited, ms: Date.now() - inizio };
+      if (verdetto === "scaduto") return { exit: "tagliato", deferrals, waited, ms: Date.now() - inizio };
+      if (verdetto === "rinvia") deferrals += 1;
+      waited = true;
+      if (Date.now() - inizio > 6_000) return { exit: "appeso", deferrals, waited, ms: Date.now() - inizio };
       await new Promise((r) => setTimeout(r, 50));
     }
+  }
 
-    // 1. E' USCITO: e' l'asserzione che il rinnovo rendeva impossibile.
-    expect(uscita).not.toBe("MAI USCITO");
-    // 2. Ma ha ASPETTATO: un cancello che esce subito non protegge nessuno.
-    expect(logged).toBe(true);
-    expect(Date.now() - inizio).toBeGreaterThanOrEqual(CAP);
-    // 3. E dice cosa succede davvero a una card: riparte da capo, non «viene
-    //    ripresa». Era la stessa specie di bugia di «stream aborted by user».
-    expect(uscita).toContain("rimessa in coda");
-    expect(uscita).not.toContain("reload-resilience");
+  /**
+   * THE 2026-08-28 CASE. A card that will not let go must NEVER produce a cut:
+   * before, at 1500s, the gate restarted anyway and the chat was left holding
+   * "turn interrupted by a server restart".
+   */
+  test("una card che non molla viene RINVIATA, non tagliata", async () => {
+    const out = await runGate(() => 1);
+    expect(out.exit).not.toBe("tagliato");
+    // The deferral is not mute: past the cap, every loop declares it.
+    expect(out.deferrals).toBeGreaterThan(0);
+  }, 15_000);
+
+  /**
+   * And the deferral is not a block: the moment the work ends, the restart
+   * goes. This is the half that makes the absence of a second cap acceptable.
+   */
+  test("finito il lavoro, il riavvio parte da solo", async () => {
+    const inizio = Date.now();
+    // The card lets go AFTER the cap, so the gate must have crossed it.
+    const out = await runGate(() => (Date.now() - inizio > CAP * 2 ? 0 : 1));
+    expect(out.exit).toBe("quiescente");
+    expect(out.waited).toBe(true);
+    expect(out.deferrals).toBeGreaterThan(0);
+    expect(out.ms).toBeGreaterThanOrEqual(CAP);
+  }, 15_000);
+
+  /**
+   * What comes back is still cut: a re-adoptable chat restarts by itself, and
+   * waiting for it like a card would kill hot reload for anyone with a
+   * conversation open.
+   */
+  test("una chat riadottabile si taglia ancora, al suo tetto corto", async () => {
+    const inizio = Date.now();
+    let uscita: string | null = null;
+    for (;;) {
+      const verdetto = quiescenceVerdict({
+        busy: "1 chat in streaming", unrecoverable: 0,
+        now: Date.now(), startedAt: inizio, capMs: CAP, chatCapMs: CHAT,
+      });
+      if (verdetto === "scaduto") { uscita = "tagliato"; break; }
+      if (Date.now() - inizio > 6_000) { uscita = "MAI USCITO"; break; }
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(uscita).toBe("tagliato");
+    expect(Date.now() - inizio).toBeGreaterThanOrEqual(CHAT);
   }, 15_000);
 });

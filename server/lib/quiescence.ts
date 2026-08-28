@@ -114,6 +114,29 @@ export function unadoptableStreams(
  *
  * `now` è un parametro perché un tetto si prova facendolo scadere, non
  * aspettando venticinque minuti.
+ *
+ * THE CAP IS NOT A DEATH SENTENCE (2026-08-28). On expiry the restart went
+ * ahead anyway, and the cost reads in two consecutive production log lines:
+ *
+ *     [StreamWS] Soft timeout: no data for 60s on topic:0299ac2d (grace 60s)
+ *     [quiescence] 1 chat in streaming (topic:0299ac2d) - still in flight at
+ *                  the deadline after 1500s, proceeding anyway
+ *
+ * and then, in the chat itself, "turn interrupted by a server restart".
+ * Waiting twenty-five minutes and cutting anyway protects nobody: it postpones
+ * the damage, and lands it on a turn that is often not even the one being
+ * waited for, because in twenty-five minutes the set of working turns has
+ * turned over completely.
+ *
+ * So what does NOT come back is not cut: it is DEFERRED. The window arrives,
+ * and meanwhile the deferral shows up in the log instead of passing in
+ * silence. There is no second cap beyond the deferral: that would be the same
+ * cut with a bigger number on it.
+ *
+ * What DOES come back (a chat on a runtime that can re-adopt) is still cut at
+ * its short deadline: that turn restarts by itself and the reader sees a
+ * pause, while waiting for it like a card would kill hot reload for anyone
+ * with a conversation open.
  */
 export function quiescenceVerdict(args: {
   /** Che cosa trattiene, o `null` se niente. */
@@ -127,10 +150,12 @@ export function quiescenceVerdict(args: {
   capMs: number;
   /** Tetto per una chat che verrà riadottata: la sua pausa è visibile, non persa. */
   chatCapMs: number;
-}): "procedi" | "aspetta" | "scaduto" {
+}): "procedi" | "aspetta" | "scaduto" | "rinvia" {
   if (!args.busy) return "procedi";
-  const tetto = args.unrecoverable > 0 ? args.capMs : args.chatCapMs;
-  return args.now - args.startedAt >= tetto ? "scaduto" : "aspetta";
+  const unrecoverable = args.unrecoverable > 0;
+  const tetto = unrecoverable ? args.capMs : args.chatCapMs;
+  if (args.now - args.startedAt < tetto) return "aspetta";
+  return unrecoverable ? "rinvia" : "scaduto";
 }
 
 /**

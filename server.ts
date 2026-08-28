@@ -3,7 +3,7 @@ import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
 import { bonificaTurniMuti } from "./server/lib/verdetto-turno-interrotto";
 import { riprendiTurniInterrotti } from "./server/lib/ripresa-boot";
 import { spiegaTurnoTroncato } from "./server/lib/turno-troncato";
-import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, readlinkSync, realpathSync } from "fs";
+import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, rmSync, readlinkSync, realpathSync } from "fs";
 import { timingSafeEqual } from "crypto";
 import type { ServerWebSocket } from "bun";
 import type { WSData } from "./server/types";
@@ -13,7 +13,7 @@ import { shouldServeSpaFallback } from "./server/spa-fallback";
 import { classifyStaticAsset } from "./server/static-assets";
 import {
   acquireLock, releaseLock, writeState, readState,
-  uptimeMsSince, LiveLockError, worktreeIsolationHome, worktreeIsolationEnv,
+  uptimeMsSince, LiveLockError, worktreeIsolationHome, worktreeIsolationEnv, topicsHome,
 } from "./server/services/daemon-state";
 import {
   startUiStateBackupTicker, snapshotUiStateNow,
@@ -35,6 +35,7 @@ import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowli
 import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { describeInFlight, unadoptableStreams, quiescenceVerdict } from "./server/lib/quiescence";
+import { touchReloadDeferred, clearReloadDeferred } from "./server/lib/reload-deferred";
 import { sondaPorta, messaggioEsito, sondaRealeDeps } from "./server/lib/port-squatter";
 import { giroIdleGc, IDLE_GC_EVERY_MS } from "./server/lib/idle-gc";
 import { configureNativeHistorySource } from "./server/providers/native/history-rehydrate";
@@ -5185,6 +5186,7 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
   // che gira per intero, prima che lo script perda la pazienza.
   const inizio = Date.now();
   let logged = false;
+  let ultimoRinvioLoggatoS = -60;
   for (;;) {
     const { busy, cards, unadoptable } = await whatIsStillWorking();
     if (!busy) break;
@@ -5245,6 +5247,23 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
     // script. Una card che parte mentre stiamo già uscendo prende il tempo che
     // resta e poi, se non basta, muore DICENDOLO: è meglio di un'attesa che non
     // finisce e di un taglio che nessuno annuncia.
+    if (verdetto === "rinvia") {
+      // NON SI TAGLIA CHI NON TORNA. Si rinvia, e lo si dichiara: allo script,
+      // con un battito su file, perche' altrimenti manda il SIGTERM al posto
+      // nostro; e nel log, una riga al minuto, perche' un riavvio che non
+      // arriva senza spiegazione e' peggio di uno che taglia.
+      touchReloadDeferred();
+      const attesaS = Math.round((Date.now() - inizio) / 1000);
+      if (attesaS - ultimoRinvioLoggatoS >= 60) {
+        ultimoRinvioLoggatoS = attesaS;
+        console.warn(
+          `[quiescence] ${label}: riavvio RINVIATO da ${attesaS}s — ${busy} non tornerebbe se lo tagliassi. ` +
+          `Riparto appena finisce; per forzare adesso: launchctl kickstart -k gui/$(id -u)/com.armonia.topics-server`,
+        );
+      }
+      await new Promise((r) => setTimeout(r, 500));
+      continue;
+    }
     if (verdetto === "scaduto") {
       // LA FRASE DICE LA VERITA' SU CHI SI STA TAGLIANDO, e sono tre sorti
       // diverse — non una.
@@ -5270,8 +5289,10 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
     }
     await new Promise((r) => setTimeout(r, 500));
   }
+  clearReloadDeferred();
   if (logged) console.log(`[quiescence] ${label}: tutto finito — si procede col riavvio`);
 }
+
 
 /**
  * IL GC DI RIPOSO — restituire al sistema la memoria dei picchi passati.

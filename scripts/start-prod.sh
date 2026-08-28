@@ -340,8 +340,38 @@ if [ "${TOPICS_SERVER_WATCH:-0}" = "1" ]; then
             QCAP_S=$(( ${TOPICS_QUIESCENCE_CAP_MS:-1500000} / 1000 ))
             QWAIT=$(( QCAP_S + 60 ))
             echo "[start-prod]   aspetto che il server $SP si chiuda da solo (cap suo: $((QCAP_S / 60)) min)"
+            #
+            # IL RINVIO DEL SERVER BATTE QUESTO OROLOGIO (2026-08-28).
+            #
+            # Il server non taglia piu' un turno che nessuno riadotterebbe:
+            # quando il tetto scade e c'e' ancora lavoro di quel tipo in volo,
+            # RINVIA il riavvio e lo dichiara scrivendo un battito in
+            # $TOPICS_HOME/reload-deferred. Senza guardarlo, questo `while`
+            # scadrebbe comunque e manderebbe il SIGTERM: cioe' ucciderebbe il
+            # turno proprio mentre il server lo sta proteggendo, e il rinvio
+            # sarebbe la stessa morte di prima con un log piu' gentile.
+            #
+            # Il battito e' un ISTANTE, non una bandiera: un file rimasto li'
+            # da un server morto invecchia e smette di trattenere, quindi un
+            # server davvero appeso prende il SIGTERM come prima.
+            DEFER_FILE="${TOPICS_HOME:-$HOME/.topics}/reload-deferred"
+            DEFER_STALE_S=30
+            deferring() {
+              [ -f "$DEFER_FILE" ] || return 1
+              _m=$(stat -f %m "$DEFER_FILE" 2>/dev/null || echo 0)
+              [ $(( $(date +%s) - _m )) -lt "$DEFER_STALE_S" ]
+            }
             WAITED=0
-            while kill -0 "$SP" 2>/dev/null && [ "$WAITED" -lt "$QWAIT" ]; do
+            DEFER_SAID=0
+            while kill -0 "$SP" 2>/dev/null; do
+              if deferring; then
+                if [ "$DEFER_SAID" = 0 ]; then
+                  echo "[start-prod]   il server RINVIA il riavvio: sta proteggendo un turno che non tornerebbe. Aspetto lui, non l'orologio."
+                  DEFER_SAID=1
+                fi
+              elif [ "$WAITED" -ge "$QWAIT" ]; then
+                break
+              fi
               sleep 2
               WAITED=$((WAITED + 2))
             done
