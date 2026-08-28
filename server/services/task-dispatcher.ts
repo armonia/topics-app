@@ -34,8 +34,13 @@ import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
 import { CODE_GATES_RULE, DISPATCH_CHIP_QUEUED, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap } from "./dispatch-capacity";
-import { calculateCostWithCache, modelPrice } from "../usage/pricing";
-import { costTokens } from "../../shared/token-cost";
+import {
+  bookSessionCost,
+  createSpendBrake,
+  overTaskSpendCap,
+  taskSpendMessage,
+  type SessionLedger,
+} from "./task-dispatcher-spend-cap";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import {
   classifyTurnError,
@@ -826,73 +831,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     } catch { return null; }
   }
 
-  // ── THE SPEND BRAKE, and it is born OFF ───────────────────────────────────
-  //
-  // Two caps, both zero on a fresh install, and zero means UNLIMITED: until
-  // somebody writes a number, this block of code must cost nothing and change
-  // nothing. The dispatcher behaves exactly as it behaved before.
-  //
-  // WHAT IT COSTS WITH THE CAPS OFF: one read of the '*' row per tick, the same
-  // row the tick already reads for the concurrency cap. No sum over the spend
-  // ledger, no extra read per card: the first thing every function below does is
-  // turn around and leave.
-  //
-  // BRAKE, NOT CUT: the NEXT turn is refused. A turn killed halfway throws away
-  // work already paid for, which is how a cap ends up costing more than the
-  // problem it solves.
-  //
-  // FAIL OPEN: an exception, a number that cannot be read, spend that cannot be
-  // priced all let the turn through. It closes only on a trustworthy number
-  // above the cap. Erring towards the block stops good work over a measurement
-  // error; erring towards the go costs one expensive card, which is exactly what
-  // the counter makes visible.
-  function spendCaps(): { perTaskCents: number; perDayCents: number } {
-    try { return deps.svc.getSpendCaps(); } catch { return { perTaskCents: 0, perDayCents: 0 }; }
-  }
-
-  /** The last daily block already announced in the log, so it is said once. */
-  let lastSpendBlock = false;
-  /**
-   * The per-MACHINE cap over a rolling 24h window: a reason, or `null`.
-   *
-   * It lives beside `admissionBlock` and is consulted where that one is: the
-   * worst measured day (2,569 USD) was made of many cards each below its own
-   * cap, so the per-card cap would never have seen it go by.
-   */
-  function spendBlock(): string | null {
-    const caps = spendCaps();
-    if (caps.perDayCents <= 0) { lastSpendBlock = false; return null; }
-    try {
-      const spent = deps.svc.agentSpend().cents24h;
-      if (spent < caps.perDayCents) {
-        if (lastSpendBlock) log("coda ripartita: la spesa delle ultime 24 ore è rientrata sotto il tetto");
-        lastSpendBlock = false;
-        return null;
-      }
-      const reason = `spesa: ${usd(spent)} negli ultimi 24h su un tetto di ${usd(caps.perDayCents)}`;
-      if (!lastSpendBlock) log(`coda ferma — ${reason}`);
-      lastSpendBlock = true;
-      return reason;
-    } catch { return null; }   // fail open
-  }
-
-  /**
-   * The per-CARD cap, cumulative: `true` when this card has gone through it.
-   *
-   * It reads the number it already holds (`task.agentCostCents`, which came with
-   * the row): with the cap off there is not even this read, because we leave first.
-   */
-  function overTaskSpendCap(task: Task, caps: { perTaskCents: number }): boolean {
-    if (caps.perTaskCents <= 0) return false;
-    const spent = task.agentCostCents ?? 0;
-    if (!Number.isFinite(spent) || spent <= 0) return false;   // fail open
-    return spent >= caps.perTaskCents;
-  }
-
-  /** Cents to dollars, the way it is written to a person. */
-  function usd(cents: number): string {
-    return `${(cents / 100).toFixed(2)} USD`;
-  }
+  // THE SPEND BRAKE lives in `task-dispatcher-spend-cap.ts`: it is born OFF
+  // (zero = unlimited), it refuses the NEXT turn instead of cutting one in half,
+  // and it fails OPEN on anything it cannot read. What stays here is the wiring
+  // and the note in the card's thread, which needs `noteHold`.
+  const spendBrake = createSpendBrake({
+    getSpendCaps: () => deps.svc.getSpendCaps(),
+    spent24hCents: () => deps.svc.agentSpend().cents24h,
+    log,
+  });
 
   /**
    * "The next turn does not start, and here is how much and which cap". Once per
@@ -900,24 +847,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * dissolve on its own, so the sentence also says what dissolves it.
    */
   function noteSpendHold(task: Task, capCents: number): void {
-    noteHold(spendHeldNoted, task, taskSpendMessage(task, capCents));
+    noteHold(spendHeldNoted, task, taskSpendMessage(task.agentCostCents, capCents));
   }
-
-  /** The sentence, written once: the tick brake and the resume brake share it. */
-  function taskSpendMessage(task: Task, capCents: number): string {
-    return (
-      `Tetto di spesa per card raggiunto: ${usd(task.agentCostCents ?? 0)} su un tetto di ${usd(capCents)}. ` +
-      `Il turno successivo non parte. Alza il tetto dalle impostazioni della board, oppure chiudi la card.`
-    );
-  }
-
-  /** The per-card brake as a REASON, for the door that wants one (the resume). */
-  function taskSpendBlock(task: Task): string | null {
-    const caps = spendCaps();
-    if (caps.perTaskCents <= 0) return null;
-    return overTaskSpendCap(task, caps) ? taskSpendMessage(task, caps.perTaskCents) : null;
-  }
-
   /**
    * Errori del PROVIDER di fila su un task, per non fargli pagare i tentativi.
    *
@@ -1390,23 +1321,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // 40.000 al posto di 90.000, misurato. Con una riga per sessione, ogni
   // contatore si muove solo per conto proprio e solo verso l'alto.
   //
-  // THE CENTS travel on the same row as the tokens, not beside them in a
-  // structure of their own: the cost comes from the DELTA of every component
-  // against the anchor of THIS session (fresh, output, 5m write, 1h write,
-  // re-read) at the price list of the model that ran THERE. A fan-out opens
-  // sessions with different models: one multiplier per task would price the
-  // Sonnet attempt at the Opus rate.
-  interface SessionLedger {
-    offset: SessionUsage;
-    tokens: number;
-    cacheRead: number;
-    /** This session's spend, in cents, monotone like the tokens. */
-    costCents: number;
-    /** Equivalent consumption that could NOT be priced (model with no price list). */
-    unpricedCostTokens: number;
-    /** The model running on this session. `null` = spend that cannot be priced. */
-    model: string | null;
-  }
+  // THE CENTS travel on the same row as the tokens, and the row itself
+  // (`SessionLedger`) plus the pricing of one session live in
+  // `task-dispatcher-spend-cap.ts`.
   interface TaskLedger { base: number; baseCacheRead: number; baseCents: number; sessions: Map<string, SessionLedger>; }
   const usageLedgers = new Map<string, TaskLedger>();
 
@@ -1496,56 +1413,6 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       }
       emit(deps.svc.raiseAgentUsage({ taskId, tokens, cacheReadTokens: cacheRead, costCents, unpricedCostTokens: unpriced }));
     } catch { /* metrics never break the loop */ }
-  }
-
-  /**
-   * HOW MUCH IT COST, in cents, from the component deltas against the anchor.
-   *
-   * Two outcomes and not one, and the difference is what makes the number
-   * believable:
-   *
-   *  · model with a price list, and the cents rise, with the same floor as the
-   *    tokens (a reading that regresses does not subtract, calling it twice does
-   *    not count twice);
-   *  · model with NO price list (or none at all), and the cents do not move one
-   *    step: the equivalent consumption goes into `unpricedCostTokens`. Billing
-   *    an unknown model at zero would make it indistinguishable from a free
-   *    turn, and a cap that silently ignores a slice of the spend is a
-   *    decorative cap, so that slice is SHOWN next to the number.
-   *
-   * The components are billed for what they are (`calculateCostWithCache`): a
-   * cache re-read costs a tenth of a fresh token and in an agentic turn it is the
-   * dominant share, so counting it at full price would inflate the bill about
-   * tenfold.
-   */
-  function bookSessionCost(s: SessionLedger, reading: SessionUsage): void {
-    const d = (now: number, then: number) => Math.max(0, now - then);
-    const model = s.model;
-    if (!model || !modelPrice(model)) {
-      s.unpricedCostTokens = Math.max(
-        s.unpricedCostTokens,
-        costTokens({
-          billable: d(reading.billableTokens, s.offset.billableTokens),
-          cacheRead: d(reading.cacheReadTokens, s.offset.cacheReadTokens),
-        }),
-      );
-      return;
-    }
-    // `cacheWrite1hTokens` is a SUBSET of `cacheWriteTokens`, while the two rates
-    // of `calculateCostWithCache` want DISJOINT shares (1.25x at five minutes, 2x
-    // at one hour): passing both whole would count the one-hour writes twice, and
-    // on a real session those were 100% of the total.
-    const write1h = d(reading.cacheWrite1hTokens, s.offset.cacheWrite1hTokens);
-    const write = d(reading.cacheWriteTokens, s.offset.cacheWriteTokens);
-    const usd = calculateCostWithCache({
-      model,
-      freshInputTokens: d(reading.inputTokens, s.offset.inputTokens),
-      outputTokens: d(reading.outputTokens, s.offset.outputTokens),
-      cacheCreationTokens: Math.max(0, write - write1h),
-      cacheCreation1hTokens: write1h,
-      cacheReadTokens: d(reading.cacheReadTokens, s.offset.cacheReadTokens),
-    });
-    s.costCents = Math.max(s.costCents, Math.round(usd * 100));
   }
 
   /**
@@ -2998,7 +2865,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // the same reason: the message is not lost, it waits. A cap that refused only
     // new dispatches would let through the turn that starts from a review
     // rejection, which is exactly the extra turn on an already expensive card.
-    const floorBlock = admissionBlock() ?? spendBlock() ?? taskSpendBlock(t);
+    const floorBlock = admissionBlock() ?? spendBrake.dayBlock() ?? spendBrake.taskBlock(t.agentCostCents);
     // Le corse dei gate occupano slot come gli agenti: un resume che trovasse
     // un posto «libero» ignorando i gate lancerebbe un agente in piu' proprio
     // mentre la macchina e' gia' al limite per i check.
@@ -3438,12 +3305,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // nuovo ad aprire una worktree, cioè a consumare esattamente la risorsa che
     // sta finendo. Letto una volta per tick: la domanda è sulla macchina, non
     // sulla card, e chiederlo per ogni todo sarebbe una statfs per riga.
-    const floorBlock = admissionBlock() ?? spendBlock();
+    const floorBlock = admissionBlock() ?? spendBrake.dayBlock();
     // The spend caps, read ONCE per tick from the same '*' row that carries the
     // concurrency cap. With the caps off (zero = unlimited, the state of a fresh
     // install) this is the only extra read of the loop: no sum over the spend
     // ledger, and the per-card check below leaves immediately.
-    const caps = spendCaps();
+    const caps = spendBrake.caps();
 
     // Chi NON è più trattenuto dal tetto dimentica l'episodio, così una prossima
     // attesa lo dice di nuovo invece di restare muta. Si guarda chi è PARTITO
@@ -3506,7 +3373,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // card does not start, the others have nothing to do with it (the per-card
       // cap is its own). The line in the thread is written once per episode and
       // says how much and which cap, because the wait does not dissolve by itself.
-      if (caps.perTaskCents > 0 && overTaskSpendCap(t, caps)) {
+      if (caps.perTaskCents > 0 && overTaskSpendCap(t.agentCostCents, caps.perTaskCents)) {
         noteSpendHold(t, caps.perTaskCents);
         continue;
       }
