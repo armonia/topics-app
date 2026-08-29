@@ -434,12 +434,32 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
     await expect(form.getByTestId("ask-submit")).toHaveCount(0, { timeout: 8_000 });
     await expect(form).toHaveCount(0);
 
-    // And it does not come back. The list is virtualized, so a row that leaves
-    // the viewport and remounts would re-arm a panel over a question already
-    // answered: what closes it has to be the row's state, not the component's.
-    // DELIBERATE FIXED WAIT: the assertion is that NOTHING reappears, and no
-    // condition means "a while has passed without a comeback".
-    await page.waitForTimeout(1500);
-    await expect(form).toHaveCount(0);
+    // WHAT THIS TEST DELIBERATELY DOES NOT ASSERT, and why the note is here
+    // rather than in a commit nobody will read again.
+    //
+    // The first version ended with `await page.waitForTimeout(1500)` and a
+    // second `toHaveCount(0)`, to say "and it does not come back" - the worry
+    // being that the list is virtualised, so a row that scrolls out and
+    // remounts could re-arm a panel over a question already answered.
+    //
+    // Three ways to say it without a clock were tried and all three are worse:
+    //   - polling the PANEL after scrolling proves nothing, it is already at
+    //     zero from the assertion above and the poll passes on the first tick
+    //     without a pixel having moved;
+    //   - polling the ROW never goes to zero: over 15s of wheel with 25 extra
+    //     messages seeded, Virtuoso keeps that row mounted, so the eviction the
+    //     assertion needs does not happen here;
+    //   - seeding one more message and waiting for it on screen never shows it,
+    //     because a seed writes the database and no socket pushes it to a page
+    //     that is already open.
+    // And the pause itself was worth nothing: it would have been just as green
+    // on a build that rendered nothing at all.
+    //
+    // So the remount is covered where it can actually be measured, one layer
+    // down: `toolUpdatePatch` carries `userResponse` alongside the status, so a
+    // row that mounts a second time is built from the SERVER's state and comes
+    // back answered. That is a pure function with its own unit test
+    // (`client/src/hooks/toolUpdatePatch.test.ts`). Putting a sleep here would
+    // have claimed the same thing without checking it.
   });
 });
