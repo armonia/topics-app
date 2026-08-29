@@ -92,6 +92,14 @@ export const PROJECT_WORDS = new Set([
   // `database`, and `svc` is this repository's own abbreviation for a service
   // instance - it appears in a dozen test files that predate this gate.
   "entries", "database", "svc",
+  // `ttl` is time-to-live, the standard name for "how long this stays alive"
+  // in caching and networking, and it is already this repository's own word:
+  // `HANDOFF_TTL_MS` in `composerHandoff.ts` and `IN_APP_BANNER_TTL_MS` in
+  // `inAppBanner.ts` both predate the gate. Only the SCREAMING_CASE spelling
+  // got through, because the splitter never saw the acronym on its own; the
+  // camelCase `ttlMs` did, and there is no English word to rename it to that
+  // would say the same thing.
+  "ttl",
   // Another dictionary hole of the same kind: `destructure` is how every
   // JavaScript programmer says it and no 1934 word list carries it. It appears
   // in `state-dir-single-door.test.ts`, where the whole point of the constant is

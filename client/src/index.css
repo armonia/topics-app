@@ -2949,6 +2949,50 @@ html.native-frost:not(.dark) .chrome-glass {
   @apply backdrop-blur-xl backdrop-saturate-150;
 }
 
+/* THE LABEL CARRIES ITS OWN GROUND, and only where it needs one.
+ *
+ * `--code-bg` is `hsl(220 4.2% 17%)` in BOTH themes: code is always dark here.
+ * In dark that costs nothing, the ink is light and the worst reading over a
+ * full sweep is 6.88:1. In light the ink is `--text` (`hsl(220 3.5% 10.6%)`)
+ * and a fence sliding under the glass takes the tail of the label with it:
+ * dark on dark. Backdrop spread across the sweep is 0.0271 in dark against
+ * 0.6725 in light, which is the whole asymmetry in one number.
+ *
+ * It was invisible until the transcript actually reached the glass. While the
+ * wrapper above was clipping it (see `.chrome-passthrough-y`) the backdrop was
+ * the flat cell background at spread 0.0000, so the AA assertion in
+ * `chrome-bar-worst-case-contrast.spec.ts` was true about a surface nobody
+ * could see.
+ *
+ * A HALO, NOT A VEIL, and the difference is the point. Two things were tried
+ * first and are recorded so they are not tried again:
+ *
+ *   - `backdrop-brightness` on the TILE does nothing at all - the measurement
+ *     was identical to sixteen decimals. An element with a `backdrop-filter`
+ *     IS A BACKDROP ROOT for its descendants, so a filter on the tab card sees
+ *     only what is painted inside the bar, and the bar paints `transparent`.
+ *     Nested backdrop filters are not additive.
+ *   - The same lift on the BAR bleaches the transcript between one tab and the
+ *     next, which is the floating look this bar exists to have, and a tint on
+ *     the bar is the veil a card already asked for once and had reverted.
+ *
+ * The halo is the same colour as the surface the label would have had, so on a
+ * light backdrop it is invisible - it paints light on light. It appears only
+ * under the dark band, which is the only moment it is needed, and it leaves
+ * the resting appearance of the bar untouched pixel for pixel. It is also the
+ * honest thing to measure: the halo IS the ink's local ground.
+ *
+ * Light only. In dark the ink is already light and a light halo would eat it. */
+.pane-chrome-bar [data-testid="pane-tab-label"] {
+  text-shadow:
+    0 0 2px var(--bg),
+    0 0 4px var(--bg),
+    0 0 6px var(--bg);
+}
+.dark .pane-chrome-bar [data-testid="pane-tab-label"] {
+  text-shadow: none;
+}
+
 /* IL TRASCRITTO SI RIPRENDE I 40px DELLA BARRA — ma solo se è lui il primo.
  *
  * La cella di ogni pane tiene un rientro pari all'altezza della barra

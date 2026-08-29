@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-08-28",
+  "generated": "2026-08-29",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -367,7 +367,6 @@
       "vivo"
     ],
     "client/src/components/Chat/coalesceToolRun.ts": [
-      "CACHE_TTL_MS",
       "fondibile"
     ],
     "client/src/components/Chat/emptyStateContext.ts": [
@@ -558,9 +557,6 @@
       "rec",
       "retitled",
       "targetLoc"
-    ],
-    "client/src/components/Layout/soloCellTombstones.ts": [
-      "SOLO_TOMBSTONE_TTL_MS"
     ],
     "client/src/components/Layout/soloCells.ts": [
       "reorderCellPreservingPrimary"
@@ -902,7 +898,6 @@
       "pres"
     ],
     "client/src/components/Shared/projectIconStore.ts": [
-      "NONE_UNVERIFIED_TTL_MS",
       "NONE_VERIFIED_TTL_MS",
       "img",
       "presenti",
@@ -1174,9 +1169,6 @@
     "client/src/hooks/chatRequestPayload.ts": [
       "speso",
       "testo"
-    ],
-    "client/src/hooks/focusIntent.ts": [
-      "FOCUS_INTENT_TTL_MS"
     ],
     "client/src/hooks/liveTurn.test.ts": [
       "utente"
@@ -1864,9 +1856,6 @@
     "client/src/lib/notify/messageBanner.ts": [
       "MESSAGE_BANNER_COOLDOWN_MS"
     ],
-    "client/src/lib/notify/messageBannerClaim.ts": [
-      "TTL_MS"
-    ],
     "client/src/lib/notify/muteGate.ts": [
       "proj"
     ],
@@ -1897,7 +1886,6 @@
     ],
     "client/src/lib/paneUsage.ts": [
       "ShellWebview",
-      "TTL_MS",
       "byWebviewLabel",
       "fetchWebviews",
       "paneIdFromWebviewLabel",
@@ -2110,9 +2098,6 @@
       "HANDOFF_TTL_MS",
       "claimCenteredHandoff"
     ],
-    "client/src/state/inAppBanner.ts": [
-      "IN_APP_BANNER_TTL_MS"
-    ],
     "client/src/state/layout/goldenGeometry.test.ts": [
       "EPS"
     ],
@@ -2144,7 +2129,6 @@
       "rec"
     ],
     "client/src/state/pane/adapters/closedTabRecord.ts": [
-      "TOMBSTONE_TTL_MS",
       "idempotencyKey"
     ],
     "client/src/state/pane/adapters/hooks/useClosedTabs.ts": [
@@ -2178,8 +2162,6 @@
       "ndjson"
     ],
     "client/src/state/pane/middleware/selfEcho.ts": [
-      "DEFAULT_TTL_MS",
-      "TTL_MS",
       "__getLastEmittedServerSeq",
       "lastEmittedServerSeq"
     ],
@@ -2253,9 +2235,6 @@
       "dimenticaPaginaProfilo",
       "paginaProfiloChiesta",
       "richiesta"
-    ],
-    "client/src/state/scrollToMessage.ts": [
-      "TTL_MS"
     ],
     "client/src/state/signals.ts": [
       "byCsid",
@@ -3007,7 +2986,6 @@
       "readonly"
     ],
     "server/browser-framing.ts": [
-      "FRAMING_TTL_MS",
       "addrs",
       "csp",
       "ipv4ToInt",
@@ -3142,9 +3120,6 @@
       "skipped",
       "sys",
       "tmplFiles"
-    ],
-    "server/context/assemble.ts": [
-      "FS_SNAPSHOT_TTL_MS"
     ],
     "server/context/history-override.test.ts": [
       "troncato"
@@ -3296,11 +3271,7 @@
       "muto"
     ],
     "server/lib/ask-user-bridge.ts": [
-      "ASK_TTL_MS",
-      "DEFAULT_ASK_TTL_MS",
-      "DEFAULT_BUFFER_TTL_MS",
-      "buf",
-      "ttl"
+      "buf"
     ],
     "server/lib/auth-gate.test.ts": [
       "ammesse",
@@ -3451,9 +3422,7 @@
       "vietati"
     ],
     "server/lib/device-auth.ts": [
-      "PAIRING_CODE_TTL_MS",
       "SESSION_COOKIE",
-      "SESSION_TTL_MS",
       "buildClearedSessionCookie",
       "buildSessionCookie",
       "readSessionCookie"
@@ -3483,7 +3452,6 @@
       "sessioni"
     ],
     "server/lib/fleet-usage.ts": [
-      "FLEET_TTL_MS",
       "arr",
       "buf",
       "sawRss",
@@ -3545,7 +3513,6 @@
       "conteggi"
     ],
     "server/lib/git-status-cache.ts": [
-      "TTL_MS",
       "oldestKey",
       "oldestTs"
     ],
@@ -3554,7 +3521,6 @@
       "ProfiloGitHub",
       "Riga",
       "TTL_ERRORE_MS",
-      "TTL_MS",
       "fresca",
       "loginValido",
       "profilo",
@@ -3590,8 +3556,7 @@
     "server/lib/idempotency-cache.ts": [
       "IdempotencyCache",
       "IdempotencyCacheOptions",
-      "createIdempotencyCache",
-      "ttlMs"
+      "createIdempotencyCache"
     ],
     "server/lib/identity.test.ts": [
       "RADICE",
@@ -3771,12 +3736,8 @@
       "mia"
     ],
     "server/lib/permission-bridge.ts": [
-      "DEFAULT_BUFFER_TTL_MS",
-      "DEFAULT_REQUEST_TTL_MS",
-      "PERMISSION_TTL_MS",
       "buf",
-      "oldest",
-      "ttl"
+      "oldest"
     ],
     "server/lib/permission-paint.ts": [
       "arr"
@@ -3818,7 +3779,6 @@
       "soloIlFerro"
     ],
     "server/lib/process-tree.ts": [
-      "PROC_TABLE_TTL",
       "_childrenByPpid",
       "arr"
     ],
@@ -4235,7 +4195,6 @@
       "ENV_ALLOWLIST",
       "ENV_BLOCKLIST_EXCEPTIONS",
       "ENV_BLOCKLIST_PATTERNS",
-      "PARKED_SCAN_TTL_MS",
       "certsDir",
       "oldest",
       "oneshotKey",
@@ -4385,7 +4344,6 @@
       "bloccati"
     ],
     "server/providers/native/provider.ts": [
-      "SESSION_TTL_MS",
       "causa",
       "creds",
       "sessionIsEvictable",
@@ -4402,9 +4360,6 @@
       "rec",
       "rifiuti",
       "tok"
-    ],
-    "server/providers/native/session-eviction.test.ts": [
-      "TTL"
     ],
     "server/providers/native/thinking-blocks.test.ts": [
       "grezzo"
@@ -4443,9 +4398,6 @@
     "server/providers/runtime-default-safety.test.ts": [
       "acpMissing",
       "acpPresent"
-    ],
-    "server/providers/snapshot-manager.ts": [
-      "SNAPSHOT_TTL_MS"
     ],
     "server/providers/stop-reason.ts": [
       "ACP_STOP_REASONS",
@@ -4630,7 +4582,6 @@
       "pathnameParts"
     ],
     "server/routes/context.ts": [
-      "CONTEXT_CACHE_TTL",
       "filepath"
     ],
     "server/routes/crashedTurnNotice.test.ts": [
@@ -4737,9 +4688,6 @@
       "multiCtx"
     ],
     "server/routes/processes.ts": [
-      "PORT_CACHE_TTL",
-      "SCRIPTS_CACHE_TTL",
-      "TOP_PROCS_TTL",
       "buf",
       "dpid",
       "esitoShellMorta",
@@ -4864,7 +4812,6 @@
       "sweepAutoNameOpencodeSessions"
     ],
     "server/routes/topics.ts": [
-      "PREVIEW_CACHE_TTL_MS",
       "descOf",
       "detectLocalhostAutoNav",
       "localhostMatch",
@@ -5050,8 +4997,7 @@
       "nuovi"
     ],
     "server/services/external-sessions.ts": [
-      "acc",
-      "ttlMs"
+      "acc"
     ],
     "server/services/goals.test.ts": [
       "nuovo",
@@ -5753,12 +5699,6 @@
     "server/services/ui-state-orphan-cleanup.ts": [
       "txn"
     ],
-    "server/services/url-probe-cache.ts": [
-      "CACHE_TTL_MS"
-    ],
-    "server/services/worktree-abandon-notice.test.ts": [
-      "TTL_REASON"
-    ],
     "server/services/worktree-base-ref.test.ts": [
       "chiamate",
       "senzaMain"
@@ -5785,9 +5725,6 @@
     ],
     "server/services/worktree-gc.test.ts": [
       "slimmed"
-    ],
-    "server/services/worktree-gc.ts": [
-      "ttl"
     ],
     "server/services/worktree-manager.ts": [
       "awaitMaterialisation",
@@ -5865,7 +5802,6 @@
       "seminaLapide"
     ],
     "server/utils.ts": [
-      "KNOWN_DIRS_TTL_MS",
       "Osservatore",
       "TipoFrameProgetto",
       "arr",
