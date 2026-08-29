@@ -19,3 +19,4 @@ export { clampScrollOffset } from './scrollOffset';
 // Hook adapters (React wrappers around usePaneStore selectors).
 export { loadPanelOrder } from './hooks/usePanelOrder';
 export { useClosedTabs } from './hooks/useClosedTabs';
+

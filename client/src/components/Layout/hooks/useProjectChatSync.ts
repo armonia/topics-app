@@ -36,6 +36,8 @@ import {
   createPaneId,
   getBrowserTombstones,
   getTerminalTombstones,
+  getViewTombstones,
+  viewTombstoneKey,
   getBrowserContextFromPaneId,
   getTerminalSessionFromPaneId,
 } from '../../../state/pane/adapters';
@@ -346,6 +348,12 @@ export function useProjectChatSync(
         // (useProjectLayout.ts). Chats stay shielded by their archived flag below.
         const browserTombstones = getBrowserTombstones();
         const terminalTombstones = getTerminalTombstones();
+        // And the SINGLETON VIEWS (board, git, files, processes...). They were
+        // the hole: the union already skips a remote singleton whose type the
+        // local client STILL holds, which hid it until you closed the LAST one
+        // of its kind - i.e. exactly the case a person hits. Closing the board
+        // tab and reloading brought it back.
+        const viewTombstones = getViewTombstones();
         const isTombstoned = (p: Pane): boolean => {
           if (p.type === 'browser') {
             const ctx = getBrowserContextFromPaneId(p.id);
@@ -354,6 +362,9 @@ export function useProjectChatSync(
           if (p.type === 'terminal') {
             const sid = getTerminalSessionFromPaneId(p.id);
             return !!sid && terminalTombstones.has(sid);
+          }
+          if (!STABLE_MULTI_TYPES.has(p.type)) {
+            return viewTombstones.has(viewTombstoneKey(projectPath, p.type));
           }
           return false;
         };

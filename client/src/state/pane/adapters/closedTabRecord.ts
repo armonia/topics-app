@@ -436,3 +436,62 @@ export function selectProjectBrowserReopen(
     ) ?? null
   );
 }
+
+// View-pane tombstones — the third and last kind, for the per-project SINGLETON
+// views (board, git, files, processes, dashboard, activity…). Same store, same
+// TTL, same reason, and the reason is written twice already a few lines up:
+// «the close committed at unload (flushPendingActions), where the React
+// persistence-save effect never re-runs to drop the pane from `nonChatPanes`».
+//
+// Terminals and browsers were protected; these were not, and the hydrate in
+// `useProjectChatSync` is a UNION with no tombstone on the wire. So closing the
+// board tab and reloading brought it back — reported on 30/08. It could only
+// bite the singletons: the union already skips a remote singleton whose type
+// the local client STILL holds, which hid the hole until the moment you closed
+// the last one of its kind, i.e. exactly the case the user hits.
+//
+// Keyed by project AND type because that is what a singleton is here: one board
+// per project window, created with a random uuid, so the id cannot be the key.
+const VIEW_TOMBSTONE_KEY = 'project-view-tombstones';
+
+interface ViewTombstone { key: string; ts: number }
+
+/** `<projectPath>::<paneType>` — the identity of a per-project singleton view. */
+export function viewTombstoneKey(projectPath: string, type: string): string {
+  return `${projectPath}::${type}`;
+}
+
+function readViewTombstones(): ViewTombstone[] {
+  try {
+    const raw = localStorage.getItem(VIEW_TOMBSTONE_KEY);
+    if (!raw) return [];
+    const list = JSON.parse(raw) as ViewTombstone[];
+    const now = Date.now();
+    return list.filter(t => now - t.ts < TOMBSTONE_TTL_MS);
+  } catch { return []; }
+}
+
+function writeViewTombstones(list: ViewTombstone[]): void {
+  try { localStorage.setItem(VIEW_TOMBSTONE_KEY, JSON.stringify(list)); }
+  catch { /* quota / private mode */ }
+}
+
+export function addViewTombstone(projectPath: string, type: string): void {
+  const key = viewTombstoneKey(projectPath, type);
+  const list = readViewTombstones().filter(t => t.key !== key);
+  list.push({ key, ts: Date.now() });
+  writeViewTombstones(list);
+  notifyTombstoneChange('browser');
+}
+
+/** Reopening one is the ONLY thing that clears it: a tombstone that outlives
+ *  the user's next click would make the pane unopenable. */
+export function clearViewTombstone(projectPath: string, type: string): void {
+  const key = viewTombstoneKey(projectPath, type);
+  writeViewTombstones(readViewTombstones().filter(t => t.key !== key));
+  notifyTombstoneChange('browser');
+}
+
+export function getViewTombstones(): Set<string> {
+  return new Set(readViewTombstones().map(t => t.key));
+}

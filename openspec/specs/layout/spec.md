@@ -2250,3 +2250,37 @@ restare vivo e maggiore di zero.
 - **WHEN** si confrontano le due partenze del nome
 - **THEN** la differenza SHALL essere almeno `SIDEBAR_INDENT_STEP`, cioe' il
   tetto sul rientro costante SHALL non aver spianato l'albero
+
+### Requirement: LAYOUT-31 — Chiudere una vista di progetto la chiude anche dopo un ricaricamento
+
+Le viste SINGLETON di una finestra di progetto (bacheca, git, file, processi,
+cruscotto, attivita') SHALL lasciare una LAPIDE quando vengono chiuse, come gia'
+fanno terminali e browser.
+
+Non e' una precauzione: l'istantanea `nonChatPanes` sopravvive a una chiusura
+che si consuma allo scaricamento della pagina — dove l'effetto di persistenza di
+React non gira piu' per toglierla — e l'idratazione del progetto e' una UNIONE.
+Senza lapide la tab tornava al ricaricamento successivo. Il buco restava
+nascosto perche' l'unione salta gia' una vista remota il cui genere il client
+tiene ancora: si vedeva solo chiudendo l'ULTIMA del suo genere, cioe' esattamente
+il gesto di una persona.
+
+La lapide SHALL essere per PROGETTO e per GENERE: una vista singleton nasce con
+un uuid casuale, quindi l'id non puo' essere la chiave, e sbagliarla
+chiuderebbe la bacheca di tutti i progetti insieme.
+
+Riaprire la vista SHALL togliere la lapide, da OGNI porta di apertura: una
+lapide che sopravvive al clic successivo trasforma «chiusa» in «sparita».
+
+#### Scenario: la bacheca chiusa e la pagina ricaricata
+- **GIVEN** la bacheca di un progetto chiusa
+- **WHEN** la pagina viene ricaricata
+- **THEN** la bacheca NON SHALL ricomparire
+
+#### Scenario: un altro progetto
+- **GIVEN** la bacheca chiusa in un progetto
+- **THEN** la bacheca di un ALTRO progetto SHALL restare aperta
+
+#### Scenario: riaprirla
+- **GIVEN** una vista chiusa e poi riaperta dal menu
+- **THEN** SHALL restare aperta anche dopo un ricaricamento

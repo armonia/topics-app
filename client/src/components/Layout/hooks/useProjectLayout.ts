@@ -48,7 +48,11 @@ import {
   addTerminalTombstone,
   clearTerminalTombstone,
   addBrowserTombstone,
+  addViewTombstone,
   clearBrowserTombstone,
+  clearViewTombstone,
+  getViewTombstones,
+  viewTombstoneKey,
   getBrowserTombstones,
   recordBrowserOrigin,
   drainProjectBrowserReopens,
@@ -241,11 +245,18 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     // re-ran to drop it — so consult the browser tombstone the same way the
     // terminal-sync effect consults getTerminalTombstones() for terminals.
     const browserTombstones = getBrowserTombstones();
+    // Same for the SINGLETON VIEWS (board, git, files, processes...): the
+    // persisted snapshot outlives a close that committed at unload, and without
+    // this the board tab came back on every reload.
+    const viewTombstones = getViewTombstones();
     const seed: Pane[] = stripWrapperPaneId(initial?.nonChatPanes || [], projectPath)
       .filter(p => {
-        if (p.type !== 'browser') return true;
-        const ctx = getBrowserContextFromPaneId(p.id);
-        return !(ctx && browserTombstones.has(ctx));
+        if (p.type === 'browser') {
+          const ctx = getBrowserContextFromPaneId(p.id);
+          return !(ctx && browserTombstones.has(ctx));
+        }
+        if (p.type === 'chat' || p.type === 'terminal') return true;
+        return !viewTombstones.has(viewTombstoneKey(projectPath, p.type));
       });
     const seenIds = new Set(seed.map(p => p.id));
     for (const topicId of initial?.openChatTopicIds || []) {
@@ -598,6 +609,14 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
               : undefined,
         });
 
+        // A SINGLETON VIEW closes with a tombstone, like the other two kinds.
+        // Not "just in case": the persisted `nonChatPanes` snapshot outlives a
+        // close committed at unload, and the project hydrate is a UNION - so
+        // without this the board tab came back on the next reload (30/08).
+        if (pane.type !== 'chat' && pane.type !== 'terminal' && pane.type !== 'browser') {
+          addViewTombstone(projectPath, pane.type);
+        }
+
         if (pane.type === 'terminal') {
           const sessionId = getTerminalSessionFromPaneId(paneId);
           if (sessionId) {
@@ -936,6 +955,12 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   const handleAddPaneToGroup = useCallback(
     async (groupId: string, type: PaneType, subType?: string, paneKey?: string) => {
       const config = getPaneConfig(type);
+      // Reopening one is the ONLY thing that lifts its tombstone. Without this,
+      // a view closed once could never be reopened for the tombstone's whole
+      // lifetime - the hydrate would keep filtering it straight back out.
+      if (type !== 'chat' && type !== 'terminal' && type !== 'browser') {
+        clearViewTombstone(projectPath, type);
+      }
       if (config.singleton) {
         const targetGroup = groups.find(g => g.id === groupId);
         const groupPaneIds = new Set(targetGroup?.paneIds || []);
@@ -1065,6 +1090,11 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     async (type: PaneType, subType?: string, paneKey?: string) => {
       const config = PANE_CONFIG[type];
       if (!config || config.fixed) return;
+      // The OTHER opening door - a project with no groups yet. It has to lift
+      // the tombstone too, or a view closed once stays unopenable from here.
+      if (type !== 'chat' && type !== 'terminal' && type !== 'browser') {
+        clearViewTombstone(projectPath, type);
+      }
 
       let paneId: string;
       let paneTitle: string;
