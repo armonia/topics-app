@@ -31,6 +31,7 @@ import { landedMergeRange } from "./task-diff-range";
 import { gitEnvFor } from "../lib/git-identity";
 import { MIGRATIONS_DIR, findNumberCollisions } from "../../shared/migration-numbers";
 import { makeSerialQueue } from "../lib/serial-queue";
+import { bundleBreakageReason } from "../lib/client-bundle";
 
 export type AutoMergeResult =
   | {
@@ -283,7 +284,18 @@ export interface AutoMergeDeps {
    * 5-minute kill switch (a wedged vite must never pin the approve queue).
    */
   runBuild?: (cwd: string) => Promise<GitRunResult>;
+  /**
+   * Injected for tests. Default: read `<repo>/public` and say what is missing
+   * for it to be a servable bundle (`null` = it is one).
+   */
+  verifyBundle?: (publicDir: string) => string | null;
   log?: (msg: string, err?: unknown) => void;
+}
+
+/** What `buildClient` answers: the exit code, plus what is ON DISK afterwards. */
+export interface BuildOutcome extends GitRunResult {
+  /** What is missing from `public/` after the build, or `null` when it is whole. */
+  artifact?: string | null;
 }
 
 async function defaultRunGit(cwd: string, args: string[]): Promise<GitRunResult> {
@@ -328,6 +340,7 @@ async function defaultRunBuild(cwd: string): Promise<GitRunResult> {
 export function createTaskAutoMerge(deps: AutoMergeDeps) {
   const runGit = deps.runGit ?? defaultRunGit;
   const runBuild = deps.runBuild ?? defaultRunBuild;
+  const verifyBundle = deps.verifyBundle ?? bundleBreakageReason;
   const log = deps.log ?? (() => {});
 
   // Serialize per repo path so two approvals on the same project never run
@@ -1048,8 +1061,37 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
    * Rides the same per-repo queue as tryMerge, so a build never overlaps a
    * merge (or another build) on the same checkout.
    */
-  function buildClient(repoPath: string): Promise<GitRunResult> {
-    return chain(repoPath, () => runBuild(repoPath));
+  /**
+   * Rebuild the client after a landing, and CHECK WHAT CAME OUT.
+   *
+   * The exit code is not the artifact. On 29/08, after three back-to-back
+   * lands, `public/assets/` was empty and `public/index.html` gone: the build
+   * had been killed between the wipe and the write (the server restarts, which
+   * a land itself can trigger). The card said "landed", the gates were green,
+   * and the only broken thing was what people see. The next land did not
+   * notice either, because it looks at the branch, not at the artifact.
+   *
+   * So: build, look at `public/`, and if it is not servable rebuild ONCE. If it
+   * is still broken the answer is non-zero, with the reason, and the card says
+   * so instead of closing in silence.
+   */
+  async function buildClient(repoPath: string): Promise<BuildOutcome> {
+    return chain(repoPath, async () => {
+      const publicDir = join(repoPath, "public");
+      let res = await runBuild(repoPath);
+      let broken = verifyBundle(publicDir);
+      if (res.code === 0 && !broken) return { ...res, artifact: null };
+      log(`[land] client bundle not servable after build (${broken ?? `exit ${res.code}`}), rebuilding once`);
+      res = await runBuild(repoPath);
+      broken = verifyBundle(publicDir);
+      if (res.code === 0 && !broken) return { ...res, artifact: null };
+      return {
+        ...res,
+        // An exit-0 build that produced nothing must not answer 0.
+        code: res.code === 0 ? 2 : res.code,
+        artifact: broken,
+      };
+    });
   }
 
   /**

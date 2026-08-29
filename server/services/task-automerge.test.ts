@@ -620,7 +620,10 @@ describe("task-automerge", () => {
       await enter();
       return { code: 0, stdout: "built", stderr: "" };
     };
-    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run, runBuild });
+    // The bundle check is stubbed out: this test is about the queue, and the
+    // real one would look at a `public/` that no fake repo has (see
+    // task-automerge-build-artifact.test.ts for the check itself).
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run, runBuild, verifyBundle: () => null });
     const [, , build] = await Promise.all([
       am.tryMerge("a", "x"),
       am.tryMerge("b", "y"),

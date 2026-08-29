@@ -92,6 +92,13 @@ export const PROJECT_WORDS = new Set([
   // `database`, and `svc` is this repository's own abbreviation for a service
   // instance - it appears in a dozen test files that predate this gate.
   "entries", "database", "svc",
+  // Three dictionary holes of the same kind, all of them already this
+  // repository's own vocabulary before the names that tripped on them existed:
+  // `automerge` names the service in `server/services/task-automerge.ts`,
+  // `tsc` is the TypeScript compiler binary invoked from `package.json`, and
+  // `readme` is the file every repository has. None of them is a word to
+  // translate: renaming would make the code say something less true.
+  "automerge", "tsc", "readme",
   // `ttl` is time-to-live, the standard name for "how long this stays alive"
   // in caching and networking, and it is already this repository's own word:
   // `HANDOFF_TTL_MS` in `composerHandoff.ts` and `IN_APP_BANNER_TTL_MS` in
