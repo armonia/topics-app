@@ -93,23 +93,72 @@ export interface RestoreOutcome {
 
 type GitResult = { code: number; stdout: string; stderr: string };
 
-async function git(args: string[], cwd: string, env?: Record<string, string>): Promise<GitResult> {
+/**
+ * HOW LONG A SINGLE `git` MAY TAKE, and why waiting forever was not an option.
+ *
+ * Every checkpoint runs on the user's turn, BEFORE the agent is allowed to
+ * write: the turn waits for this. And git is not a pure computation, it takes
+ * `index.lock`. Another process holding that lock (an editor auto-fetching, a
+ * second agent on the same repository, a crashed git that left the file
+ * behind) makes the command sit there, and without a ceiling the user's turn
+ * sits with it, forever, without one line in the log to explain the silence.
+ *
+ * Past this the child is killed and the failure is REPORTED: a checkpoint that
+ * did not happen is a small loss, a turn that never starts is the whole app.
+ * The window is wide enough for a big repository (`write-tree` over a large
+ * worktree) and short enough that nobody thinks the app crashed.
+ */
+export const GIT_TIMEOUT_MS = 30_000;
+
+/**
+ * One `git`, with a ceiling. Exported, and with the ceiling as a parameter,
+ * only so the ceiling can be PROVEN in milliseconds instead of thirty seconds:
+ * a test that has to wait half a minute to watch a timeout is a test nobody
+ * runs. Callers inside this module pass no ceiling and get `GIT_TIMEOUT_MS`.
+ */
+export async function runGit(
+  args: string[], cwd: string, env?: Record<string, string>, timeoutMs: number = GIT_TIMEOUT_MS,
+): Promise<GitResult> {
   const proc = Bun.spawn(["git", ...args], {
     cwd,
     stdout: "pipe",
     stderr: "pipe",
     env: env ? { ...process.env, ...env } : process.env,
   });
-  const [stdout, stderr] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ]);
-  const code = await proc.exited;
-  return { code, stdout: stdout.trim(), stderr: stderr.trim() };
+  const work = (async (): Promise<GitResult> => {
+    const [stdout, stderr] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    const code = await proc.exited;
+    return { code, stdout: stdout.trim(), stderr: stderr.trim() };
+  })();
+  // The pipes are NOT waited on past the ceiling either, and that is not a
+  // detail: a killed process can leave a grandchild holding the write end, and
+  // reading to EOF would then wait exactly as long as the command we just gave
+  // up on. Measured here: the test with a stand-in `git` that sleeps hung for
+  // the full sleep even though the child had already been killed.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const alarm = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), timeoutMs); });
+  let done: GitResult | null;
+  try {
+    done = await Promise.race([work, alarm]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+  if (done) return done;
+  // 124 is what `timeout(1)` answers, and the reason is written down: whoever
+  // reads the log must not have to guess why a checkpoint did not happen.
+  void work.catch(() => { /* nobody is listening any more */ });
+  console.warn(
+    `[turn-checkpoints] git ${args[0]} exceeded ${timeoutMs} ms, killing it (index.lock held by another process?)`,
+  );
+  try { proc.kill(); } catch { /* already gone */ }
+  return { code: 124, stdout: "", stderr: `git ${args[0]} timed out after ${timeoutMs} ms and was killed` };
 }
 
 async function gitOrThrow(args: string[], cwd: string, env?: Record<string, string>): Promise<string> {
-  const r = await git(args, cwd, env);
+  const r = await runGit(args, cwd, env);
   if (r.code !== 0) throw new Error(r.stderr || `git ${args[0]} exited ${r.code}`);
   return r.stdout;
 }
@@ -140,7 +189,7 @@ function seqToRefLeaf(seq: number): string {
 
 export async function isGitRepo(projectPath: string): Promise<boolean> {
   if (!projectPath || !existsSync(projectPath)) return false;
-  const r = await git(["rev-parse", "--is-inside-work-tree"], projectPath);
+  const r = await runGit(["rev-parse", "--is-inside-work-tree"], projectPath);
   return r.code === 0 && r.stdout === "true";
 }
 
@@ -154,7 +203,7 @@ export async function isGitRepo(projectPath: string): Promise<boolean> {
 export async function listTurnCheckpoints(projectPath: string, sessionKey: string): Promise<TurnCheckpoint[]> {
   if (!(await isGitRepo(projectPath))) return [];
   const prefix = sessionRefPrefix(sessionKey);
-  const r = await git(
+  const r = await runGit(
     ["for-each-ref", "--format=%(refname)%09%(objectname)%09%(subject)%09%(creatordate:iso-strict)", prefix],
     projectPath,
   );
@@ -207,13 +256,13 @@ export async function captureTurnCheckpoint(
     const existing = await listTurnCheckpoints(projectPath, sessionKey);
     const latest = existing[0];
     if (latest) {
-      const lastTree = await git(["rev-parse", `${latest.commit}^{tree}`], projectPath);
+      const lastTree = await runGit(["rev-parse", `${latest.commit}^{tree}`], projectPath);
       if (lastTree.code === 0 && lastTree.stdout === tree) return null;
     }
 
     // Parent = HEAD when there is one, so `git diff HEAD <checkpoint>` reads
     // naturally. On an unborn branch there is no parent and that is fine.
-    const head = await git(["rev-parse", "HEAD"], projectPath);
+    const head = await runGit(["rev-parse", "HEAD"], projectPath);
     const parentArgs = head.code === 0 && head.stdout ? ["-p", head.stdout] : [];
 
     const createdAt = new Date().toISOString();
@@ -242,7 +291,7 @@ export async function captureTurnCheckpoint(
 export async function pruneTurnCheckpoints(projectPath: string, sessionKey: string): Promise<number> {
   const all = await listTurnCheckpoints(projectPath, sessionKey);
   const doomed = all.slice(KEEP_PER_SESSION);
-  for (const c of doomed) await git(["update-ref", "-d", c.ref, c.commit], projectPath);
+  for (const c of doomed) await runGit(["update-ref", "-d", c.ref, c.commit], projectPath);
   return doomed.length;
 }
 
@@ -250,20 +299,20 @@ export async function pruneTurnCheckpoints(projectPath: string, sessionKey: stri
  *  net has no reason to outlive the conversation it was protecting. */
 export async function dropTurnCheckpoints(projectPath: string, sessionKey: string): Promise<number> {
   const all = await listTurnCheckpoints(projectPath, sessionKey);
-  for (const c of all) await git(["update-ref", "-d", c.ref, c.commit], projectPath);
+  for (const c of all) await runGit(["update-ref", "-d", c.ref, c.commit], projectPath);
   return all.length;
 }
 
 /** Every path the worktree currently holds that git would track, checkpoint
  *  or not: tracked files plus untracked-but-not-ignored ones. */
 async function currentWorktreePaths(projectPath: string): Promise<Set<string>> {
-  const r = await git(["ls-files", "--cached", "--others", "--exclude-standard", "-z"], projectPath);
+  const r = await runGit(["ls-files", "--cached", "--others", "--exclude-standard", "-z"], projectPath);
   if (r.code !== 0) return new Set();
   return new Set(r.stdout.split("\0").filter(Boolean));
 }
 
 async function treePaths(projectPath: string, commit: string): Promise<Set<string>> {
-  const r = await git(["ls-tree", "-r", "--name-only", "-z", commit], projectPath);
+  const r = await runGit(["ls-tree", "-r", "--name-only", "-z", commit], projectPath);
   if (r.code !== 0) return new Set();
   return new Set(r.stdout.split("\0").filter(Boolean));
 }
@@ -308,7 +357,7 @@ export async function restoreTurnCheckpoint(projectPath: string, commit: string)
     }
   }
 
-  const head = await git(["symbolic-ref", "--short", "HEAD"], projectPath);
+  const head = await runGit(["symbolic-ref", "--short", "HEAD"], projectPath);
   return {
     restored: inCheckpoint.size,
     removed,

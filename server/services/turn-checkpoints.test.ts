@@ -22,6 +22,8 @@ import {
   restoreTurnCheckpoint,
   dropTurnCheckpoints,
   sessionRefSlug,
+  runGit,
+  GIT_TIMEOUT_MS,
 } from "./turn-checkpoints";
 
 let repo: string;
@@ -155,5 +157,49 @@ describe("igiene dei ref", () => {
     await captureTurnCheckpoint(repo, SESSION, "turno 1");
     expect(await dropTurnCheckpoints(repo, SESSION)).toBe(1);
     expect(await listTurnCheckpoints(repo, SESSION)).toEqual([]);
+  });
+});
+
+/**
+ * A GIT THAT NEVER COMES BACK MUST NOT TAKE THE TURN WITH IT.
+ *
+ * The checkpoint runs on the user's turn, before the agent may write anything,
+ * and git is not a pure computation: it takes `index.lock`. Another process
+ * holding that lock (a second agent on the same repository, an editor, a
+ * crashed git that left the file behind) used to park the turn there forever,
+ * with no ceiling and not one line in the log to explain the silence. It is
+ * the same shape of failure as the boot resume waiting on a route that never
+ * answers, and it gets the same answer: a ceiling, a kill, and a spoken reason.
+ *
+ * The stand-in for the lock is a `git` on PATH that sleeps: what is under test
+ * is our ceiling, not git's locking, and this way the proof costs 200 ms
+ * instead of thirty seconds.
+ */
+describe("un git appeso viene ucciso e lo dice", () => {
+  let fakeDir: string;
+  let realPath: string | undefined;
+
+  beforeEach(() => {
+    fakeDir = mkdtempSync(join(tmpdir(), "git-fakeDir-"));
+    writeFileSync(join(fakeDir, "git"), "#!/bin/sh\nsleep 30\n", { mode: 0o755 });
+    realPath = process.env.PATH;
+    process.env.PATH = `${fakeDir}:${realPath ?? ""}`;
+  });
+
+  afterEach(() => {
+    if (realPath === undefined) delete process.env.PATH; else process.env.PATH = realPath;
+    try { rmSync(fakeDir, { recursive: true, force: true }); } catch { /* scratch */ }
+  });
+
+  test("torna entro il tetto invece di aspettare per sempre", async () => {
+    const started = Date.now();
+    const r = await runGit(["status"], fakeDir, undefined, 150);
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(r.code).not.toBe(0);
+    expect(r.stderr).toContain("timed out");
+  });
+
+  test("il tetto di produzione lascia respirare un repository grande", () => {
+    expect(GIT_TIMEOUT_MS).toBeGreaterThanOrEqual(10_000);
   });
 });
