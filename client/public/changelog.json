@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.225",
+    "date": "2026-08-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La deriva del bundle si vede dove si legge la versione (STATUSLINE-03)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il build del client non lascia più public/ svuotata",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.224",
     "date": "2026-08-29",
     "sections": {
