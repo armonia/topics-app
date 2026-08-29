@@ -3027,11 +3027,12 @@ html.native-frost:not(.dark) .chrome-glass {
  * the resting appearance of the bar untouched pixel for pixel. It is also the
  * honest thing to measure: the halo IS the ink's local ground.
  *
- * STILL LOAD-BEARING WITH THE TAB GLASS ON. Falsified on 29/08 with the card's
- * own blur in place: dropping the halo takes the dark worst case to 1.14:1. A
- * 6-14% wash over a bright band does not make AA even once the band is blurred,
- * so the two are not alternatives - the tile gives the tab a body, the halo
- * gives the ink a ground.
+ * STILL LOAD-BEARING WITH THE TAB GLASS ON, and still after the tabs were given
+ * real body on 30/08. Falsified twice, at both alphas: dropping the halo takes
+ * the dark worst case to 1.14:1 at the old fills and to 4.03:1 at the new ones
+ * (under AA), with light at 1.05:1 both times. The three are not alternatives -
+ * the blur softens what passes, the fill gives the tab a body, and the halo
+ * gives the INK its own ground.
  *
  * BOTH THEMES, since 29/08. It used to be light-only, on the measured ground
  * that in dark the backdrop spread was 0.0271 against 0.6725 in light - but

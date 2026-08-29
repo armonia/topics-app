@@ -78,6 +78,41 @@ export const SELECTED_SURFACE_SOFT =
  * esattamente la copia: due posti che dicono la stessa cosa divergono al primo
  * che viene corretto da solo.
  */
+
+/**
+ * THE SAME GRAMMAR, WITH BODY: the three surfaces AS THE CHROME BAR WEARS THEM.
+ *
+ * A tab in the chrome bar is no longer a card on a chrome fill. The bar paints
+ * nothing and blurs nothing (CHROME-01, 29/08), so a tab sits DIRECTLY on the
+ * transcript, and at the desktop alphas above you could read the text through
+ * it - reported on 30/08.
+ *
+ * The numbers are not invented. This file already measured the same problem one
+ * breakpoint away: at rest, 0.05/0.06 steps off its ground by 1.10:1 and
+ * 1.12:1, "on the threshold of perceptibility", and the mobile branch was
+ * lifted to 0.08/0.10 to reach 1.18:1 and 1.25:1. The desktop kept the values
+ * that had already been judged too faint - which was survivable while a chrome
+ * fill sat underneath, and stopped being survivable when it went away.
+ *
+ * So: the measured-readable step, plus one, because the ground here is not a
+ * flat fill but MOVING TEXT, and a card has to beat the darkest thing that can
+ * slide under it, not the average.
+ *
+ * Only the chrome bar takes these. The sidebar rows keep the originals: they
+ * sit on the sidebar's own fill, which never moved and never needed body.
+ */
+export const TAB_RESTING_SURFACE =
+  'bg-black/[0.14] dark:bg-white/[0.16] hover:bg-black/[0.18] dark:hover:bg-white/[0.22] ' +
+  'max-md:bg-black/[0.16] max-md:dark:bg-white/[0.18]';
+
+export const TAB_SELECTED_SURFACE =
+  'bg-black/[0.22] dark:bg-white/[0.30] text-app-text ' +
+  'max-md:bg-black/[0.24] max-md:dark:bg-white/[0.34]';
+
+export const TAB_SELECTED_SURFACE_SOFT =
+  'bg-black/[0.10] dark:bg-white/[0.12] text-app-text-secondary ' +
+  'max-md:bg-black/[0.14] max-md:dark:bg-white/[0.18]';
+
 export const RESTING_FILL_MOBILE = 'max-md:bg-black/[0.08] max-md:dark:bg-white/[0.10]';
 export const RESTING_SURFACE =
   'bg-black/[0.05] dark:bg-white/[0.06] hover:bg-black/[0.08] dark:hover:bg-white/[0.10] ' +

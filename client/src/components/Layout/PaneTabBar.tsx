@@ -30,7 +30,7 @@ import { SessionElapsed } from '../Shared/SessionActivity';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useT } from '../../hooks/useT';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
-import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_GAP, CARD_H, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, TAB_GAP_CLASS, attentionSurface, ON_FILL_TEXT_SOFT, TAB_LABEL } from '../../lib/selectionStyles';
+import { TAB_SELECTED_SURFACE, TAB_SELECTED_SURFACE_SOFT, TAB_RESTING_SURFACE, ROW_PX, ROW_GAP, CARD_H, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, TAB_GAP_CLASS, attentionSurface, ON_FILL_TEXT_SOFT, TAB_LABEL } from '../../lib/selectionStyles';
 import { POPOVER_SURFACE, Z_CONTEXT_MENU, POPOVER_MARGIN } from '@/lib/popoverStyles';
 import { computeMenuPosition, type AnchorRect } from '@/lib/popoverPosition';
 import { ensurePaneUsageFresh, formatPaneUsageLine, subscribePaneUsage, getPaneUsageVersion } from '@/lib/paneUsage';
@@ -1174,14 +1174,14 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               attentionTier
                 ? attentionSurface(attentionTier)
                 : isFullyActive
-                  ? SELECTED_SURFACE
+                  ? TAB_SELECTED_SURFACE
                   : isActiveDimmed
-                    ? SELECTED_SURFACE_SOFT
+                    ? TAB_SELECTED_SURFACE_SOFT
                     // NESSUN colore qui: il testo lo porta `TAB_LABEL` ed è
                     // pieno per tutte. A dire quale tab è quella corrente ci
                     // pensa la superficie — spegnere anche il testo lo diceva
                     // due volte, e la seconda male.
-                    : RESTING_SURFACE
+                    : TAB_RESTING_SURFACE
             } ${isDragged ? 'opacity-40' : ''}`}
             // Fuori dal trascinamento della finestra, SINCRONAMENTE al montaggio.
             // Questa riga era già scritta a mano proprio qui, e il commento che
