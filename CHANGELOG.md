@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.225 — 2026-08-29
+
+### Sotto il cofano
+- La deriva del bundle si vede dove si legge la versione (STATUSLINE-03)
+- Il build del client non lascia più public/ svuotata
+
 ## 2.2.224 — 2026-08-29
 
 ### Sotto il cofano
