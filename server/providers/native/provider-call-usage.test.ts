@@ -145,10 +145,23 @@ describe("the native provider and the door that writes tokens on the row", () =>
     // translation here would leave the column empty just the same, with every
     // field present under the wrong key - the defect would come back without
     // breaking anything.
-    expect(u.inputTokens).toBe(200);
+    // 225, not the 200 the API reports as `input_tokens`. THE CONTRACT IS THE
+    // TOTAL: `prompt = fresh + read + creation + creation1h`
+    // (`client/src/types/index.ts`), and the three cache columns are its
+    // disjoint breakdown. This case used to assert 200, which is the fresh share
+    // alone - a test that pinned the defect in place. Measured on the live DB on
+    // 2026-08-29 before the cure: rows carried prompt=28 next to 881.663 read
+    // from cache, so anyone trusting the column was off by four orders of
+    // magnitude.
+    expect(u.inputTokens).toBe(200 + 20 + 5);
     expect(u.outputTokens).toBe(5);
     expect(u.cacheRead).toBe(20);
     expect(u.cacheCreation).toBe(5);
+    // And the contract itself, not just the numbers: the total can never be
+    // smaller than the share read from cache. This is the invariant a future
+    // change has to break loudly instead of quietly.
+    expect(u.inputTokens).toBeGreaterThanOrEqual(u.cacheRead);
+    expect(u.inputTokens).toBeGreaterThanOrEqual(u.cacheRead + u.cacheCreation);
     // A DISJOINT share, not an addend: the part of `cacheCreation` written with
     // a one-hour TTL. Adding it would bill that share twice.
     expect(u.cacheCreation1h).toBe(1);
