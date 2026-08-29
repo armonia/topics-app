@@ -415,3 +415,63 @@ TENUTO: lasciar cadere è irreversibile, tenere costa 41 byte.
 #### Scenario: card che il database non conosce
 - **GIVEN** un ref di consegna il cui task non è in questo database
 - **THEN** il ref NON SHALL essere lasciato cadere
+
+### Requirement: LAND-10 — Il land verifica l'ARTEFATTO, non il codice d'uscita
+
+Quando un land ricostruisce il client, il sistema SHALL controllare che il
+bundle SERVITO sia utilizzabile, e NON SHALL fidarsi del solo codice d'uscita
+del build.
+
+Un bundle e' rotto quando `index.html` manca, o quando manca uno degli asset
+che `index.html` referenzia: e' la definizione che si puo' misurare, perche' e'
+esattamente cio' che il browser va a chiedere.
+
+Misurato il 29/08/2026: dopo tre land di fila `public/assets/` era vuota e
+`public/index.html` sparito. `vite build` gira con `emptyOutDir` — svuota
+prima, scrive dopo — ed era stato ucciso in mezzo. Ogni cancello era verde e la
+card diceva «client ricostruito»: l'unica cosa rotta era la pagina che la gente
+carica.
+
+#### Scenario: il build esce zero e il bundle non c'e'
+- **GIVEN** un build che ritorna 0 e una `public/` senza `index.html`
+- **THEN** il land SHALL dichiarare il guasto invece di chiudere in silenzio
+
+#### Scenario: il build fallisce ma il bundle servito e' ancora buono
+- **GIVEN** un build non-zero e una `public/` completa di prima
+- **THEN** cio' che si serve NON SHALL essere peggiorato dal tentativo
+
+### Requirement: LAND-11 — Si pubblica un bundle COMPLETO, mai una cartella a meta'
+
+Il build SHALL scrivere altrove e SHALL pubblicare su `public/` solo quando
+l'artefatto e' completo, cosi' che la finestra in cui la cartella e' vuota non
+esista.
+
+L'ordine SHALL essere: prima tutto tranne `index.html`, poi `index.html`. Una
+pagina non puo' chiedere un asset che nessun `index.html` nomina ancora, quindi
+finche' l'ultimo file non e' al suo posto quello che si serve resta il bundle
+precedente, intero.
+
+Gli avanzi del bundle precedente SHALL essere rimossi solo dopo, e solo quando
+sono abbastanza vecchi da non poter essere richiesti da una pagina ancora
+aperta.
+
+#### Scenario: il build muore a meta'
+- **GIVEN** un build interrotto dopo aver scritto in staging
+- **THEN** `public/` SHALL contenere ancora il bundle precedente, completo
+
+### Requirement: LAND-12 — Un bundle rotto mentre il server e' SU e' un allarme
+
+Lo stato della cartella servita SHALL essere controllato periodicamente e SHALL
+essere leggibile: una riga di errore esplicita nel momento in cui si rompe e
+ripetuta finche' dura, una riga quando torna, e lo stato interrogabile da
+`/__daemon/healthz`.
+
+Il server nasconde bene questo guasto: risponde dall'ultima shell buona che ha
+in memoria, quindi il processo sembra sano mentre una finestra nuova prende un
+503. Senza qualcosa che misuri la cartella, nessuno lo sa.
+
+#### Scenario: la cartella si svuota mentre il server gira
+- **GIVEN** un server su e un `index.html` che sparisce
+- **THEN** SHALL comparire una riga d'errore che dice cosa manca, e
+  `healthz` SHALL dichiararlo
+

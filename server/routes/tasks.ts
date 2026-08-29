@@ -1220,9 +1220,16 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               kind: build.code === 0 ? "service" : "comment",
               content: build.code === 0
                 ? "Client ricostruito: la modifica è visibile (hard refresh se non appare)."
-                : `Build client fallita (exit ${build.code}). Lancia \`bun run build:client\` a mano.`,
+                : build.artifact
+                  // A build can exit 0 and leave nothing behind: on 29/08
+                  // `public/assets/` stayed empty and `index.html` was gone,
+                  // while the card said "rebuilt". When the artifact is still
+                  // not there after two attempts the card says so - what is
+                  // broken is the thing people see.
+                  ? `⚠️ Client NON servibile dopo due build: manca ${build.artifact}. L'app serve da \`public/\`: lancia \`bun run build:client\` e guarda l'errore.`
+                  : `Build client fallita (exit ${build.code}). Lancia \`bun run build:client\` a mano.`,
             });
-            if (build.code !== 0) console.error("[land] build:client failed for", taskId, build.stderr.slice(-2000));
+            if (build.code !== 0) console.error("[land] build:client failed for", taskId, build.artifact ?? build.stderr.slice(-2000));
           }
           if (res.touchedNative) {
             svc.addComment({ taskId, author: "system", content: "Il landing tocca desktop-tauri/: per vederlo nel shell nativo serve un rebuild dell'app (cargo build + relaunch)." });

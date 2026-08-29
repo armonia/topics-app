@@ -59,6 +59,12 @@
         // orphaned for months. List the three families that really are
         // entrypoints and let everything else in `scripts/` be checked.
         "scripts/check-*.ts!",            // wired to package.json / CI
+        // `bun run build:client` (and `cd client && bun run build`, which now
+        // delegates here): vite builds into a staging dir and this publishes
+        // the result into public/ only once whole. Nobody imports it - it is a
+        // command - but its publishing rules live next to it in
+        // `build-client-publish.ts`, which its test does import.
+        "scripts/build-client.ts!",
         "scripts/typecheck-*.ts!",
         // I banchi: uno per asse, si lanciano a mano (`bun run bench` li chiama
         // tutti, ma ognuno vive anche da solo) e nessuno li importa, quindi per

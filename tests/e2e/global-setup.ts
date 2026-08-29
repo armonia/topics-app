@@ -10,7 +10,7 @@
  */
 
 import { spawn, execFileSync, execSync, type ChildProcess } from "child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "fs";
 import { homedir } from "os";
 import { join, resolve } from "path";
 import {
@@ -23,6 +23,8 @@ import {
   testServerEnv,
 } from "./helpers/test-server";
 import { acquireRunLock, releaseRunLock } from "./helpers/run-lock";
+// Same question the build, the land and the runtime probe ask: one authority.
+import { missingBundleAssets } from "../../server/lib/client-bundle";
 import { SERVER_DEATH_GRACE_MS, portHolders } from "./helpers/server-death";
 
 // Test server runs WITHOUT TLS for simplicity (NO_TLS=1)
@@ -140,31 +142,6 @@ async function snapshotBundle(): Promise<string> {
       `Probabile: un build del client in corso che riscrive public/ di continuo. ` +
       `Aspetta che finisca e rilancia.`,
   );
-}
-
-/**
- * Cosa manca perché `dir` sia un bundle servibile. Vuoto = va bene.
- *
- * Non basta "gli asset citati esistono": `index.html` stesso può essere a metà.
- * Visto davvero — la copia ha beccato vite fra il `create` e il `write`, e ne è
- * uscito un `index.html` di ZERO byte. Un file vuoto non cita nessun asset,
- * quindi il controllo degli asset passava a vuoto, il server serviva una pagina
- * bianca e tutti i test fallivano dicendo che non trovavano la sidebar. Prima
- * si verifica che il file sia INTERO (chiuso, e con dentro l'entry del client),
- * poi che ciò che cita ci sia.
- */
-function missingBundleAssets(dir: string): string[] {
-  const entry = join(dir, "index.html");
-  if (!existsSync(entry)) return ["index.html"];
-  const html = readFileSync(entry, "utf8");
-  if (!html.trim()) return ["index.html (vuoto)"];
-  if (!/<\/html>\s*$/.test(html)) return ["index.html (troncato)"];
-  const refs = new Set<string>();
-  for (const m of html.matchAll(/(?:src|href)="(\/[^"]+)"/g)) refs.add(m[1]);
-  // Senza il modulo di entry la pagina si carica e non fa niente: bianca, e il
-  // rosso accusa il primo componente che qualcuno cerca.
-  if (![...refs].some((r) => /^\/assets\/.*\.js$/.test(r))) return ["index.html (senza entry /assets/*.js)"];
-  return [...refs].filter((ref) => !existsSync(join(dir, ref.replace(/^\//, ""))));
 }
 
 /** Quanto si aspetta che il watcher finisca di ricostruire, prima di arrendersi. */

@@ -164,6 +164,7 @@ import { createWorktreesRouter } from "./server/routes/worktrees";
 import { createMachinesRouter } from "./server/routes/machines";
 import { initVapid } from "./server/push-service";
 import { startDevBundleReload, readBundleRev, stampBundleRev } from "./server/lib/dev-bundle-reload";
+import { startBundleProbe } from "./server/lib/bundle-probe";
 // `pendingAskAgeMs`/`hasPendingAsk` non si importano più qui: chiedere della
 // sola domanda era il difetto. Restano il verdetto e il TTL, che valgono per
 // entrambi i silenzi.
@@ -2322,6 +2323,12 @@ const devBundleReload = startDevBundleReload({
   broadcastToAll,
 });
 
+// The bundle probe: `public/` gone while the server is up is an alarm, not a
+// detail. It is the only thing that measures what people actually load - the
+// gates look at the code, the land looked at the branch. Its verdict is also
+// on `/__daemon/healthz`, so a script can ask.
+const bundleProbe = startBundleProbe({ publicDir: PUBLIC_DIR });
+
 // NOTE: the session attention monitor is NOT auto-started. It runs only when
 // the user enables it from Topics (POST /api/master/monitor) — nothing runs
 // "a caso". Default OFF on every server start. See session-monitor.ts.
@@ -2662,10 +2669,14 @@ const opzioniServer = {
         });
       }
       if (method === "GET" && pathname === "/__daemon/healthz") {
+        const bundle = bundleProbe.check();
         return new Response(JSON.stringify({
           pid: fresh.pid,
           startedAt: fresh.startedAt,
           uptime_ms: uptimeMsSince(fresh.startedAt),
+          // What the browser would get right now: `ok:false` means the app
+          // serves nothing, whatever the rest of this object says.
+          bundle: { ok: bundle.ok, missing: bundle.reason, since: bundle.since },
         }), { status: 200, headers: { "content-type": "application/json" } });
       }
       if (method === "POST" && pathname === "/__daemon/shutdown") {

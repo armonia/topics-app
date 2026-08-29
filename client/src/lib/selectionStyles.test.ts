@@ -350,10 +350,12 @@ describe('le due famiglie di altezza, e le tre misure interne', () => {
  * indent per depth is a DIFFERENT number and a wanted difference: it is how the
  * tree reads as a tree, and it must not be collateral damage.
  *
- * This lives here because the e2e that claimed to guard it could not. Measured
- * on 2026-08-29: the hermetic world is flat, so its conditional guard on a
- * single depth fired on every run and the assertion never executed once, while
- * the suite counted it as a test. The seeded-row version is on the board.
+ * These are assertions on the CONSTANTS, and they are the cheap half of the
+ * guard: they cannot see a CSS that flattens the tree while the numbers stay
+ * intact. The geometric half is measured in the live DOM by LABELGUTTER-02
+ * (`tests/e2e/sidebar-label-gutter.spec.ts`), which seeds a project row with a
+ * chat inside it and subtracts the two insets. That e2e used to skip on every
+ * run against a flat world; since it seeds its own second depth, it runs.
  * @covers LAYOUT-30
  */
 describe('the sidebar indent survives the gutter trim (LAYOUT-30)', () => {

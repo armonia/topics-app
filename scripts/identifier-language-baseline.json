@@ -2320,17 +2320,6 @@
       "machFootprintBytes",
       "parseSmapsRollup"
     ],
-    "scripts/bench/report.test.ts": [
-      "readme"
-    ],
-    "scripts/bench/report.ts": [
-      "README_BEGIN",
-      "README_END",
-      "spliceReadme"
-    ],
-    "scripts/bench/run.ts": [
-      "readmePath"
-    ],
     "scripts/bench/session-memory.ts": [
       "rssMb",
       "tls"
@@ -2919,12 +2908,6 @@
       "fmt",
       "preCell"
     ],
-    "scripts/typecheck-server.test.ts": [
-      "fakeTsc"
-    ],
-    "scripts/typecheck-server.ts": [
-      "TSC"
-    ],
     "scripts/ui-language-words.ts": [
       "STOPWORDS"
     ],
@@ -3103,7 +3086,6 @@
       "writeAgentScreenshot"
     ],
     "server/context/adapt-dedup.test.ts": [
-      "README",
       "normale",
       "nota",
       "nuovo",
@@ -6895,9 +6877,6 @@
       "tooltipTrattenuti",
       "totale"
     ],
-    "tests/e2e/file-context-menu.spec.ts": [
-      "readmeItem"
-    ],
     "tests/e2e/file-explorer-cache.spec.ts": [
       "albero",
       "aperta",
@@ -6914,21 +6893,17 @@
       "newfileItem",
       "newfileRow",
       "nuovo",
-      "readmeContainer",
-      "readmeRow",
       "riga"
     ],
     "tests/e2e/file-explorer-panels.spec.ts": [
-      "breadcrumb",
-      "readmeItem"
+      "breadcrumb"
     ],
     "tests/e2e/file-explorer.spec.ts": [
       "breadcrumb",
       "newfileItem",
       "newfileTabContainer",
       "newfileTabSpan",
-      "newfileTxt",
-      "readmeItem"
+      "newfileTxt"
     ],
     "tests/e2e/files-trash.spec.ts": [
       "fuori",
@@ -6974,7 +6949,6 @@
       "dentro",
       "iniziale",
       "pannello",
-      "readme",
       "riga",
       "righe",
       "rinominato",
@@ -8573,10 +8547,6 @@
       "testo",
       "viste",
       "voce"
-    ],
-    "tests/unit/product-docs.test.ts": [
-      "readmeBlock",
-      "readmePlatformClause"
     ],
     "tests/unit/product-metadata.test.ts": [
       "undeclaredBackticks"
