@@ -1,85 +1,71 @@
 import type { PaneType } from '../state/pane/types';
+import { surfaceForPaneType } from './chromeBarSurfaces';
 
 /**
  * Background tier of a layout CELL hosting a content pane (GroupLayout and
- * StandaloneChatGroup keep-alive wrappers — one decision, two call sites).
+ * StandaloneChatGroup keep-alive wrappers - one decision, two call sites).
+ *
+ * THE DECISION IS NOT HERE ANY MORE, IT IS IN THE TABLE. Which tier a pane gets
+ * (and whether its content passes under the glass, and what the labels measure
+ * over it) is one row of `CHROME_BAR_SURFACES` in `chromeBarSurfaces.ts`. This
+ * function is a lookup into that row, so the tier and the reason for it cannot
+ * drift apart: they are the same record.
  *
  * Three tiers under a native-backdrop shell (macOS vibrancy, Windows acrylic):
- * - '' (fully transparent): `project` and `terminal` — they paint their own
- *   chrome and frost themselves;
- * - `pane-frost`: chat topics + kanban + browser — frosted tier (transparent
- *   under `.native-frost`, opaque `bg-surface` fallback on the web; see
- *   index.css);
- * - `bg-surface`: every other pane keeps the opaque content backdrop that
- *   keeps dense text crisp (dashboard tables, file trees, session viewers).
+ * '' fully transparent for panes that paint their own chrome, `pane-frost` for
+ * the frosted tier, `bg-surface` for the opaque backdrop that keeps dense text
+ * crisp. Which pane sits in which, and why, is the table.
  *
- * IL BROWSER STA NEL LIVELLO SMERIGLIATO, E LO DICE IL TIPO.
+ * THE BROWSER IS IN THE FROSTED TIER, AND IT IS THE TYPE THAT SAYS SO. The cell
+ * of a browser pane has no dense text to keep crisp: under the toolbar there is
+ * a NATIVE webview painting its own opaque background. The only part of that
+ * cell anybody really sees is the CHROME STRIP on top, so the background the
+ * cell takes IS the background read under the tabs and the toolbar.
  *
- * La cella di una pane browser non ha testo denso da tenere nitido: sotto la
- * toolbar c'e' una webview NATIVA, che dipinge il suo fondo opaco per conto
- * suo (`NativeBrowserPlaceholder`). L'unica parte di quella cella che si vede
- * davvero e' la STRISCIA DI CHROME in cima — la barra delle tab e la toolbar
- * dell'indirizzo, entrambe senza fondo proprio — quindi il fondo che prende la
- * cella E' il fondo che si legge sotto le tab e la toolbar.
- *
- * Era gia' l'intenzione, ma la diceva una regola CSS che guardava la FORMA DEL
- * DOM invece del tipo: `html.electron-mac :has(> [data-testid="browser-native-panel"])`
- * pretendeva il pannello come figlio DIRETTO della cella. Dove un chiamante
- * interpone un div — le tab browser di una task sulla board — la regola non
- * agganciava, la cella restava `bg-surface` opaca, e la stessa pane usciva di
- * due tinte diverse a seconda di CHI la montava. E' la deriva gia' pagata due
- * volte da questa famiglia (la barra del progetto contro quella di primo
- * livello): la tinta di una superficie non deve dipendere da dove sta
- * nell'albero. Qui la decide il tipo, come per chat, kanban e terminale, e
- * nessun wrapper la puo' piu' cambiare.
+ * That was already the intent, but a CSS rule was stating it by looking at the
+ * SHAPE OF THE DOM instead of the type:
+ * `html.electron-mac :has(> [data-testid="browser-native-panel"])` required the
+ * panel to be a DIRECT child of the cell. Where a caller interposes a div (the
+ * browser tabs of a task on the board) the rule did not attach, the cell stayed
+ * opaque `bg-surface`, and the same pane came out in two different tints
+ * depending on WHO mounted it. It is the drift this family has already paid for
+ * twice (the project bar against the top-level one): the tint of a surface must
+ * not depend on where it sits in the tree.
  */
 export function paneCellBg(type: PaneType): string {
-  if (type === 'project' || type === 'terminal') return '';
-  if (type === 'chat' || type === 'kanban' || type === 'board' || type === 'browser') return 'pane-frost';
-  return 'bg-surface';
+  return surfaceForPaneType(type).cellBg;
 }
 
 /**
- * CHI PASSA SOTTO LA BARRA DELLE TAB E CHI NO.
+ * WHO PASSES UNDER THE TAB BAR AND WHO DOES NOT - the list is in
+ * `chromeBarSurfaces.ts`, one row per surface, with its reason and the contrast
+ * measured over it. What follows is why the inset is the same for everybody.
  *
- * Da quando la barra è un vetro fuori dal flusso (`.pane-chrome-bar`,
- * index.css), la cella di una pane comincia in cima alla card — cioè DIETRO la
- * barra. Per la conversazione è esattamente ciò che si vuole: i messaggi le
- * scorrono sotto e il varco in cima lo mette la lista (l'`Header` di Virtuoso
- * in MessageList), così a riposo non c'è niente di nascosto e in movimento
- * c'è la profondità.
+ * Since the bar became a pane of glass out of the flow (`.pane-chrome-bar`,
+ * index.css), a pane's cell begins at the top of the card, that is BEHIND the
+ * bar. For the conversation that is exactly what is wanted: the messages scroll
+ * under it and the list itself provides the gutter at the top (Virtuoso's
+ * `Header` in MessageList), so at rest nothing is hidden and in motion there is
+ * depth.
  *
- * ATTENZIONE, e l'ho scoperto misurando: «la chat» non è solo il trascritto.
- * Sopra di lui, nella stessa colonna, ci stanno dei blocchi che compaiono e
- * spariscono — il banner «collego questo progetto?», l'esito di un comando, i
- * messaggi appuntati, e sul telefono la striscia di attività della sessione.
- * Lasciando la cella senza rientro finivano DIETRO il vetro: un banner che
- * chiede una cosa e non si vede è peggio di un banner che non c'è.
+ * CAREFUL, and this was found by measuring: "the chat" is not only the
+ * transcript. Above it, in the same column, sit blocks that appear and
+ * disappear - the "connect this project?" banner, the outcome of a command, the
+ * pinned messages, and on the phone the session activity strip. Leaving the
+ * cell without an inset put those BEHIND the glass, and a banner that asks
+ * something and cannot be seen is worse than a banner that is not there.
  *
- * Quindi il rientro ce l'hanno TUTTE le celle, chat compresa, e a passare sotto
- * la barra è il solo trascritto — che se lo riprende con un margine negativo, e
- * solo quando è davvero lui il primo della colonna (`.chat-under-chrome`,
- * index.css). Se sopra di lui c'è un banner, il varco vale zero e il rientro
- * della cella fa già il suo lavoro: nessuno dei due conta due volte.
+ * So ALL cells carry the inset, the chat included, and the only thing that
+ * passes under the bar is the transcript, which takes it back with a negative
+ * margin and only when it really is first in the column
+ * (`.chat-under-chrome`, index.css). If there is a banner above it, the gutter
+ * is worth zero and the cell inset is already doing the job: neither counts
+ * twice.
  *
- * Per tutte le altre pane il rientro basta e avanza, e non è prudenza: è che
- * non potrebbero passare sotto nemmeno volendo.
- *
- *  · **terminale** — xterm è una griglia di righe misurata sul contenitore. Non
- *    esiste un «contenuto scrollato» a cui aggiungere un varco: ogni riga che
- *    finisce sotto la barra è una riga persa, e la prima è quella che stai
- *    scrivendo.
- *  · **browser** — sulla shell Tauri la pane è una WKWebView NATIVA, disegnata
- *    SOPRA tutto il DOM. Lì «passare sotto» si inverte: sarebbe la barra a
- *    sparire dietro la webview. È l'unico caso in cui il difetto non è estetico.
- *  · **tabelle e alberi densi** (dashboard, file, sessioni) — hanno la loro
- *    intestazione sticky in cima. Due intestazioni sovrapposte non sono un
- *    effetto, sono un pasticcio.
- *
- * Il rientro è espresso in `var(--chrome-bar-h)` e non in un `pt-10` scritto a
- * mano: l'altezza la dichiara UNA volta la card che possiede la barra, e la
- * stessa variabile la legge anche il varco della chat. Un numero solo, due
- * lettori — se la riga di chrome cambia altezza, si muovono insieme.
+ * The inset is expressed in `var(--chrome-bar-h)` and not in a hand-written
+ * `pt-10`: the height is declared ONCE by the card that owns the bar, and the
+ * same variable is read by the chat gutter. One number, two readers - if the
+ * chrome row changes height, they move together.
  */
 export function paneCellTopInset(_type: PaneType): string {
   return 'pt-[var(--chrome-bar-h,0px)]';
