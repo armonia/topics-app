@@ -28,6 +28,7 @@
  * sta in `nativeNavIsFresh` (lib/shell/browserPagePoll).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { nextAgentActive } from './agentActivity';
 import { tauriInvoke, currentWindowLabel } from '../lib/shell/tauri';
 import { markBrowserViewLive, markBrowserViewDead } from '../lib/shell/nativeBrowserRoster';
 import { currentOverlays, decideFreeze, liveSlotRect, onOcclusionChange, type OverlayRect } from '../lib/shell/browserOcclusion';
@@ -1435,19 +1436,34 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       }
       const result = parseBrowserWsMessage(raw);
       if (!result.ok || result.data.type !== 'agent_active') return;
-      setAgentActive(Boolean(result.data.active));
+      setAgentActive(nextAgentActive({ kind: 'frame', active: Boolean(result.data.active) }));
       if (result.data.active && result.data.action) setAgentAction(result.data.action);
+    };
+    // A SOCKET THAT DIED IS NOT REPORTING ANYTHING. The `false` that switches
+    // the pill off is emitted from the delegation lock's `try/finally`, so on a
+    // healthy socket it always arrives - and on a dead one it never does. There
+    // was no `close` and no `error` handler here, so the spinner kept turning
+    // on a page idle for hours. The two real causes both close the socket: the
+    // server restarting (SIGTERM from the file watcher, many times a day) and
+    // the 90s reaper on sleep or a network drop. The rule lives in
+    // `agentActivity.ts`, where it can fail in a test.
+    const deadHandler = () => {
+      setAgentActive(nextAgentActive({ kind: 'disconnected' }));
     };
     try {
       ws = new WebSocket(`${serverWsBase()}/ws/browser/${encodeURIComponent(id)}`);
       ws.addEventListener('open', openHandler);
       ws.addEventListener('message', messageHandler);
+      ws.addEventListener('close', deadHandler);
+      ws.addEventListener('error', deadHandler);
     } catch { /* ws construction failed — pill stays off, no delegation */ }
     return () => {
       closed = true;
       if (ws) {
         ws.removeEventListener('open', openHandler);
         ws.removeEventListener('message', messageHandler);
+        ws.removeEventListener('close', deadHandler);
+        ws.removeEventListener('error', deadHandler);
         try { ws.close(); } catch { /* ignore */ }
       }
     };

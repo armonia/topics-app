@@ -43,8 +43,22 @@ export const UPDATE_RECHECK_MS = 6 * 60 * 60_000;
  */
 export function startUpdateChecks(
   check: () => void,
-  opts: { bootDelayMs?: number; periodMs?: number } = {},
+  opts: { bootDelayMs?: number; periodMs?: number; devInstall?: boolean } = {},
 ): () => void {
+  // A DEV INSTALL IS NOT OFFERED A PACKAGED BUILD.
+  //
+  // On the machine that builds the app the client bundle is hot-delivered from
+  // `public/` (that is what `topics-dev.json` and `server.devReload` mean), so
+  // the number on screen tracks the repo while the shell stays at whatever was
+  // last installed. The automatic check then announces a "new version" that the
+  // person there has already got in source, over and over. Reported twice. The
+  // second report, in the user's own words:
+  // "ancora in locale mi porta le finestrelle NUOVA VERSIONE anche se sono in dev" // allow-italian: quoted report
+  //
+  // Only the AUTOMATIC checks stop. The menu item and the version popover still
+  // check and still say what they find: asking is a deliberate gesture, and the
+  // shell really can be behind. What goes away is the nagging.
+  if (opts.devInstall) return () => {};
   const boot = setTimeout(check, opts.bootDelayMs ?? UPDATE_BOOT_DELAY_MS);
   const repeat = setInterval(check, opts.periodMs ?? UPDATE_RECHECK_MS);
   return () => {
