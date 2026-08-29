@@ -2,10 +2,18 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.229 — 2026-08-29
+
+### Sotto il cofano
+- Inventario delle superfici sotto la barra, e lo strumento di contrasto diventa un helper
+
 ## 2.2.228 — 2026-08-29
 
 ### Sotto il cofano
+- Split-dnd matrix: the ten missing rows, and the strip that ate the tab bar
 - Un orfano si giudica dall'ETÀ: total_assets torna a essere misurato
+- Nomi in inglese, e `affordance` è una parola di questo progetto
+- La matrice split-dnd è completa (12/12), e la striscia non si mangia più la barra
 
 ## 2.2.226 — 2026-08-29
 
