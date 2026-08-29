@@ -23,7 +23,7 @@
     "start": "bun run server.ts",
     "dev:server": "bun --watch run server.ts",
     "dev:client": "cd client && bun run dev",
-    "build:client": "cd client && bun run build",
+    "build:client": "bun run scripts/build-client.ts",
     "build:client:watch": "cd client && bun run build:watch",
     "build:cli": "bun build cli/topics.ts --compile --outfile dist/topics",
     "bump": "bash scripts/bump-version.sh",
