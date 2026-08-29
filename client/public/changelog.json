@@ -1,5 +1,47 @@
 [
   {
+    "version": "2.2.224",
+    "date": "2026-08-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "LABELGUTTER-02 torna a girare: lo spec si semina la profondità invece di sperarla",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.223",
+    "date": "2026-08-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La card del gruppo restava blu su una chat gia letta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nomi in inglese e requisito scritto: i due cancelli che la board non esegue",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La card del gruppo restava blu su una chat già letta",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.221",
     "date": "2026-08-29",
     "sections": {

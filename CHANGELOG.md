@@ -2,6 +2,18 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.224 — 2026-08-29
+
+### Sotto il cofano
+- LABELGUTTER-02 torna a girare: lo spec si semina la profondità invece di sperarla
+
+## 2.2.223 — 2026-08-29
+
+### Sotto il cofano
+- La card del gruppo restava blu su una chat gia letta
+- Nomi in inglese e requisito scritto: i due cancelli che la board non esegue
+- La card del gruppo restava blu su una chat già letta
+
 ## 2.2.221 — 2026-08-29
 
 ### Sotto il cofano

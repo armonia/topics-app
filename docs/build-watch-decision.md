@@ -9,6 +9,21 @@ This file exists because "it is off" and "it is off on purpose" are different
 states, and only the second one survives the next person who finds the disabled
 plist and wonders why.
 
+**The dates, since they have already been read wrong once.** The plist was
+created on 2026-07-19 (birth time) and moved into `disabled/` on 2026-08-04
+(change time): it ran for sixteen days, it was not switched on and off in a
+single afternoon. `stat -f '%SB %Sc'` on the file says both, and a report on
+2026-08-29 that read only the modification time concluded the opposite.
+
+**What the decision costs, and it was paid on 2026-08-29.** The bundle on disk
+was frozen at 2.2.211 while the repo was at 2.2.215: four versions of client
+fixes were committed, landed and released, and none of them was on screen. Every
+symptom of it was a question about the app ("I should be in dev mode and I don't
+see the marker", "the token counter is gone from the chat") and not one of them
+pointed at the build. This is the bill for a hand-rebuilt artefact, so it gets
+paid with a signal rather than with a watcher: see "What covers the risk"
+below.
+
 ## What a rebuild costs, measured
 
 Measured on the machine that actually runs the agents, in an isolated worktree,
@@ -72,12 +87,39 @@ by a unit test). In CI it already runs right after `verify:phase30-strip`, which
 builds. Bolting a 25 second build onto the local bar would tax every run to
 re-measure something CI measures correctly on a fresh bundle.
 
+## Why not a scheduled rebuild either (once an hour, or on wake)
+
+The third road, and the one this file did not answer until 2026-08-29: rebuild
+on a timer instead of on every save, so the bundle is never days behind and the
+windows are not reloaded in bursts.
+
+It changes the FREQUENCY and nothing else, and only one of the five objections
+above was about frequency. A timer still builds from a checkout that is never
+clean (2), still publishes a bundle that never saw `tsc -b` (3), still rewrites
+`public/` under a running E2E suite (4), and still reloads every open window
+when it lands (5). The hour is one anybody can predict and nobody is watching.
+It buys back the invisibility of the drift, which is the only thing that hurt,
+and it pays for it with an automaton that publishes unreviewed work while the
+person is looking elsewhere.
+
+The drift is covered directly instead, by the signal below. A build that has to
+be asked for is a build somebody is looking at.
+
 ## What covers the risk instead
 
 * **A stale bundle is no longer invisible.** Since `96f9659ef`
   (GATE-BUNDLE-FRESH-01) `check:bundle` compares mtimes and exits 2 without
   measuring, naming both instants and the file that moved. It can no longer
   deliver a verdict on yesterday's build.
+* **The drift is visible where the version is read.** The status-bar chip shows
+  the version the SERVER reports (it re-reads `package.json` fresh, so a bump is
+  never stale), while `__APP_VERSION__` is baked into the bundle at `vite build`.
+  When the two disagree the bundle on screen is not the repo, and since
+  STATUSLINE-03 the chip carries a mark and the version popover says both
+  numbers plus the command that closes the gap. The comparison is one function,
+  `client/src/components/Sidebar/bundleDrift.ts`. This is the answer to the
+  2026-08-29 incident above: the build stays manual, but it can no longer be
+  four versions behind without saying so.
 * **Live client work has a live tool**: `bun run dev:client`.
 * **The production bundle has a deliberate moment**: `bun run build:client`,
   before you exercise `:3333`, and before `check:bundle`.
