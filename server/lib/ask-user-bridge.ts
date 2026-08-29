@@ -227,6 +227,20 @@ export function hasPendingAsk(sessionKey: string): boolean {
 }
 
 /**
+ * Every session with a question open right now, for whoever has to reason
+ * about ALL of them instead of one: the restart gate, which must not cut a
+ * panel somebody was about to answer.
+ *
+ * This map is the FAST path there and never the only one. It empties on every
+ * restart while the child keeps polling and the row on disk still carries the
+ * open question, so a caller that stops here protects the first question and
+ * none of those that survived an earlier restart.
+ */
+export function pendingAskKeys(): string[] {
+  return [...activeAsks.keys()];
+}
+
+/**
  * How long the open ask has been on screen, or `null` if none is open.
  *
  * `hasPendingAsk` answers "is there a question?"; this answers "and for how

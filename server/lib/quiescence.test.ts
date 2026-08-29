@@ -59,8 +59,24 @@ describe("describeInFlight — che cosa trattiene un riavvio pianificato", () =>
     expect(out).not.toContain("topic:bbb");
   });
 
+  /**
+   * HISTORICAL HOLE #4, and it is the one the other three cannot see BY
+   * CONSTRUCTION: they all answer "who is working", and a chat parked on a
+   * question is not working - it is waiting for a person. On 2026-08-28 at
+   * 19:05, topic:4c935add, an open panel with two questions died with the turn
+   * while the log of that same window shows deferrals for the board cards and
+   * none for the chat.
+   */
+  test("una chat ferma su una domanda trattiene", () => {
+    const out = describeInFlight({ ...nothing, askOpenKeys: ["topic:4c935add"] });
+    expect(out).not.toBeNull();
+    expect(out).toContain("topic:4c935add");
+    expect(out).toContain("domanda");
+  });
+
   test("liste vuote non sono «qualcosa in volo»", () => {
     expect(describeInFlight({ cards: 0, streamKeys: [], brokerOpenKeys: [] })).toBeNull();
+    expect(describeInFlight({ cards: 0, streamKeys: [], brokerOpenKeys: [], askOpenKeys: [] })).toBeNull();
   });
 });
 
@@ -221,6 +237,37 @@ describe("quiescenceVerdict — il tetto dell'attesa e' un tetto vero", () => {
       .toBe("aspetta");
     expect(quiescenceVerdict({ ...base, busy: "1 card", unrecoverable: 1, now: CAP }))
       .toBe("rinvia");
+  });
+
+  /**
+   * A QUESTION IS NEVER CUT BY THE CLOCK, and it does not wait out the cap
+   * first either.
+   *
+   * The cap asks "how long can this finish by itself?" and an open question
+   * never can: what ends it is a person. Serving the cap would only mean that
+   * for those minutes the deferral is not declared and the heartbeat that
+   * holds off `start-prod.sh` is not written - so the script's own SIGTERM
+   * would cut the panel anyway, which is exactly what happened on 2026-08-28.
+   */
+  test("una domanda aperta, e nient'altro in volo, si RINVIA", () => {
+    for (const now of [0, CHAT, CHAT + 1, CAP, CAP * 100]) {
+      expect(quiescenceVerdict({
+        ...base, busy: "1 chat ferma su una domanda", unrecoverable: 0, parkedAsks: 1, now,
+      })).toBe("rinvia");
+    }
+  });
+
+  /**
+   * THE OTHER HALF, or it is a block instead of a deferral: once answered, the
+   * question stops holding anything and the ordinary caps take over again.
+   */
+  test("una domanda RISPOSTA non trattiene piu' il riavvio", () => {
+    expect(quiescenceVerdict({
+      ...base, busy: "1 chat", unrecoverable: 0, parkedAsks: 0, now: CHAT + 1,
+    })).toBe("scaduto");
+    expect(quiescenceVerdict({
+      ...base, busy: null, unrecoverable: 0, parkedAsks: 0, now: CHAT + 1,
+    })).toBe("procedi");
   });
 
   /**

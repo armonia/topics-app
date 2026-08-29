@@ -133,16 +133,33 @@ altre chat.
 - **GIVEN** una riga con contenuto illeggibile
 - **THEN** le altre chat SHALL essere lette lo stesso
 
-### Requirement: HOLD-05 — Prima di riavviare si guarda in TRE posti, e il tetto scade davvero
+### Requirement: HOLD-05 — Prima di riavviare si guarda in QUATTRO posti, e il tetto scade davvero
 
-Prima di riavviare, «c'è ancora lavoro in volo?» SHALL essere chiesto a TRE
-sorgenti: le carte della board, le chat che stanno scrivendo IN QUESTO processo, e
-i turni visibili SOLO al ponte. I due buchi storici sono esattamente due di
-queste: una chat che scrive non era vista come una carta, e un turno adottato
-dopo un riavvio è invisibile a entrambe.
+Prima di riavviare, «c'è ancora lavoro in volo?» SHALL essere chiesto a QUATTRO
+sorgenti: le carte della board, le chat che stanno scrivendo IN QUESTO processo,
+i turni visibili SOLO al ponte, e le chat ferme su una DOMANDA aperta. I buchi
+storici sono esattamente tre di queste: una chat che scrive non era vista come
+una carta, un turno adottato dopo un riavvio è invisibile a entrambe, e una chat
+ferma su una domanda non sta LAVORANDO — quindi non compariva fra ciò che
+trattiene, e il riavvio la tagliava.
 
-Solo l'assenza in TUTTE E TRE SHALL autorizzare il riavvio. Elenchi vuoti NON
+Solo l'assenza in TUTTE E QUATTRO SHALL autorizzare il riavvio. Elenchi vuoti NON
 SHALL contare come «qualcosa in volo».
+
+Una domanda aperta SHALL far RINVIARE il riavvio SUBITO, senza servire prima
+nessun tetto: un tetto misura quanto ci mette una cosa a finire da sé, e una
+domanda finisce solo quando risponde una persona. Un turno tagliato si può
+rilanciare; una domanda tagliata porta via il contesto in cui aveva senso, e chi
+stava per rispondere non sa nemmeno che gli è stata tolta di mano.
+
+Una domanda aperta SHALL essere un fatto della RIGA e non della memoria del
+processo: il registro in memoria si svuota a ogni riavvio, quindi da solo
+proteggerebbe la prima domanda e nessuna di quelle sopravvissute a un riavvio
+precedente.
+
+Il rinvio SHALL avere una fine: una domanda RISPOSTA, o più vecchia della finestra
+di vita di una domanda, NON SHALL trattenere più niente — altrimenti è un blocco,
+non un rinvio.
 
 Quando più sorgenti trattengono insieme, SHALL essere nominata la più economica e
 più certa: il registro non deve costare più della decisione.
@@ -167,3 +184,11 @@ provider assente non promette niente.
 #### Scenario: chat riadottabile contro carta
 - **GIVEN** una chat riadottabile e una carta, entrambe in volo
 - **THEN** SHALL essere applicato un tetto diverso a ciascuna
+
+#### Scenario: una chat ferma su una domanda
+- **GIVEN** una sessione con una domanda aperta e nient'altro in volo
+- **THEN** il riavvio SHALL essere rinviato, non tagliato
+
+#### Scenario: la domanda è stata risposta
+- **GIVEN** una sessione la cui domanda è già stata risposta
+- **THEN** il riavvio NON SHALL essere trattenuto da quella domanda

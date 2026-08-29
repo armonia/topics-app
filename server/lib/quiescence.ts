@@ -21,6 +21,11 @@
  * (le card e gli stream sono in RAM e si guardano a ogni giro, il broker si paga
  * e si guarda di rado), qui resta solo la decisione — pura, e quindi provabile.
  *
+ * A FOURTH SOURCE, 2026-08-28: a chat parked on a question. The three above
+ * all answer "who is WORKING", and a chat waiting for a human is not working,
+ * so it held nothing and the restart cut it. It is the case that deserves the
+ * deferral most, not least - see `askOpenKeys` below.
+ *
  * L'ORDINE NON È ESTETICO. La stringa finisce in un log che qualcuno leggerà
  * mentre si chiede perché il suo salvataggio non è ancora andato in produzione:
  * si nomina la fonte più economica e più certa per prima, così la risposta più
@@ -43,6 +48,24 @@ export interface QuiescenceSources {
    * dicono «fermo», e lo dicono con verità.
    */
   brokerOpenKeys: readonly string[];
+  /**
+   * Chat sitting on an OPEN QUESTION: the panel is on screen and nobody has
+   * answered it yet.
+   *
+   * The odd one out, because such a chat is not working: it is waiting for a
+   * person. That is exactly why it belongs here. A working turn that gets cut
+   * can be run again; a question that gets cut takes away the context that
+   * made it make sense, and whoever was about to answer is never told it was
+   * taken out of their hands. Measured on 2026-08-28 at 19:05, topic:4c935add:
+   * an open panel with two questions died with the turn, the chat kept "turn
+   * interrupted by a server restart", and the log of that same window shows
+   * deferrals for the board cards and none for the chat.
+   *
+   * Optional because a caller that has no cheap way to know (the idle gc, for
+   * one, which must NOT be held back by a chat waiting on a human) simply does
+   * not pass it.
+   */
+  askOpenKeys?: readonly string[];
 }
 
 /**
@@ -150,8 +173,24 @@ export function quiescenceVerdict(args: {
   capMs: number;
   /** Tetto per una chat che verrà riadottata: la sua pausa è visibile, non persa. */
   chatCapMs: number;
+  /**
+   * Chat parked on a question nobody has answered yet. No cap applies to them:
+   * see the note above.
+   */
+  parkedAsks?: number;
 }): "procedi" | "aspetta" | "scaduto" | "rinvia" {
   if (!args.busy) return "procedi";
+  // A QUESTION IS DEFERRED AT ONCE, WITHOUT SERVING THE CAP FIRST.
+  //
+  // The cap answers "how long can this finish by itself?", and an open question
+  // never can: what ends it is a person, and a person does not arrive faster
+  // because a clock is running. Making it wait its twenty-five minutes would
+  // only mean that for those minutes the deferral is not DECLARED, and the
+  // heartbeat that keeps `start-prod.sh` from firing its own SIGTERM is not
+  // written: the question would be cut by the very script this gate exists to
+  // get ahead of. The loop re-reads the sources twice a second, so the instant
+  // the answer lands this stops holding anything.
+  if ((args.parkedAsks ?? 0) > 0) return "rinvia";
   const unrecoverable = args.unrecoverable > 0;
   const tetto = unrecoverable ? args.capMs : args.chatCapMs;
   if (args.now - args.startedAt < tetto) return "aspetta";
@@ -173,6 +212,13 @@ export function describeInFlight(sources: QuiescenceSources): string | null {
   }
   if (brokerOpenKeys.length > 0) {
     return `${brokerOpenKeys.length} turno/i di chat aperti nel broker (${brokerOpenKeys.join(", ")})`;
+  }
+  // Last because it is the dearest to compute (it reads rows), not because it
+  // matters least: this is the one source whose loss is unrecoverable by
+  // definition.
+  const askOpenKeys = sources.askOpenKeys ?? [];
+  if (askOpenKeys.length > 0) {
+    return `${askOpenKeys.length} chat ferma/e su una domanda (${askOpenKeys.join(", ")})`;
   }
   return null;
 }
