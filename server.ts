@@ -35,6 +35,7 @@ import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowli
 import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { describeInFlight, unadoptableStreams, quiescenceVerdict } from "./server/lib/quiescence";
+import { chatsParkedOnQuestion } from "./server/lib/parked-asks";
 import { touchReloadDeferred, clearReloadDeferred } from "./server/lib/reload-deferred";
 import { sondaPorta, messaggioEsito, sondaRealeDeps } from "./server/lib/port-squatter";
 import { giroIdleGc, IDLE_GC_EVERY_MS } from "./server/lib/idle-gc";
@@ -166,7 +167,7 @@ import { startDevBundleReload, readBundleRev, stampBundleRev } from "./server/li
 // `pendingAskAgeMs`/`hasPendingAsk` non si importano più qui: chiedere della
 // sola domanda era il difetto. Restano il verdetto e il TTL, che valgono per
 // entrambi i silenzi.
-import { pendingAskVerdict, cancelAsk, ASK_TTL_MS } from "./server/lib/ask-user-bridge";
+import { pendingAskVerdict, cancelAsk, pendingAskKeys, ASK_TTL_MS } from "./server/lib/ask-user-bridge";
 // The stale-stream rule, pure so it can be tested without a server: the
 // finalize decision must never be reachable while the child process is alive.
 import { staleStreamVerdict } from "./server/lib/stale-stream-verdict";
@@ -5108,6 +5109,8 @@ async function openBrokerChatTurns(): Promise<string[]> {
 
 let brokerProbeCache: { at: number; open: string[] } = { at: 0, open: [] };
 
+let askProbeCache: { at: number; parked: string[] } = { at: 0, parked: [] };
+
 /**
  * Che cosa sta ancora lavorando — e perché il riavvio aspetta. `null` = niente.
  *
@@ -5125,7 +5128,7 @@ let brokerProbeCache: { at: number; open: string[] } = { at: 0, open: [] };
  * adottati che vivono solo nel broker. Le prime due sono gratis e si guardano a
  * ogni giro; la terza si paga, e si guarda ogni QUIESCENCE_BROKER_PROBE_MS.
  */
-async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number }> {
+async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; parkedAsks: number }> {
   const cards = taskDispatcher.busyCount();
   const streamKeys = [...activeStreams.keys()];
   // La sonda del broker si paga, e si paga solo quando serve: se una fonte più
@@ -5150,7 +5153,27 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
   // il turno è nato): qui si conta e basta, senza toccare il DB né il registro
   // dei provider — questo giro batte due volte al secondo.
   const unadoptable = unadoptableStreams(activeStreams.values()).length;
-  return { busy: describeInFlight({ cards, streamKeys, brokerOpenKeys: brokerOpen }), cards, unadoptable };
+  // THE FOURTH SOURCE: whoever is waiting for a PERSON. The three above answer
+  // "who is WORKING", and a chat parked on a question is not working, so it
+  // held nothing and the restart cut it (why it deserves the deferral most:
+  // see `parked-asks.ts`). Same economy as the broker probe: it reads rows, so
+  // it is paid at the probe cadence, and not at all when a card is in flight
+  // - there the verdict is already a deferral, and a STALE list must not
+  // decide, since a question answered meanwhile would defer for nobody.
+  let parked: string[] = [];
+  if (cards === 0) {
+    const now = Date.now();
+    if (now - askProbeCache.at >= QUIESCENCE_BROKER_PROBE_MS) {
+      askProbeCache = { at: now, parked: chatsParkedOnQuestion(ctx.db, decodeCol, { now, ttlMs: ASK_TTL_MS, fastPathKeys: pendingAskKeys() }) };
+    }
+    parked = askProbeCache.parked;
+  }
+  return {
+    busy: describeInFlight({ cards, streamKeys, brokerOpenKeys: brokerOpen, askOpenKeys: parked }),
+    cards,
+    unadoptable,
+    parkedAsks: parked.length,
+  };
 }
 
 async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_MS): Promise<void> {
@@ -5188,7 +5211,7 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
   let logged = false;
   let ultimoRinvioLoggatoS = -60;
   for (;;) {
-    const { busy, cards, unadoptable } = await whatIsStillWorking();
+    const { busy, cards, unadoptable, parkedAsks } = await whatIsStillWorking();
     if (!busy) break;
     // La REGOLA sta in `lib/quiescence.ts`, pura e provata: qui si applica.
     // Viveva dentro questo loop, e li' dentro nessun test poteva raggiungerla
@@ -5198,6 +5221,7 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
       busy, unrecoverable: cards + unadoptable,
       now: Date.now(), startedAt: inizio,
       capMs, chatCapMs: QUIESCENCE_CHAT_CAP_MS,
+      parkedAsks,
     });
     // DUE ATTESE, PERCHE' SONO DUE DANNI DIVERSI.
     //
