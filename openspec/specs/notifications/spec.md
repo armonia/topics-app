@@ -588,3 +588,38 @@ segno di visto lo renderebbe muto su un evento che nessuno ha guardato.
   stesso gruppo sono tutte lette
 - **THEN** la card del gruppo resta accesa per il terminale
 
+### Requirement: NOTIF-SEEN-01 — Una notifica il cui soggetto e' andato avanti NON SHALL restare accesa
+
+Il contatore della campanella e quello del chrome (tray e icona dell'app: un
+solo numero, una sola chiamata, non possono divergere fra loro) contano cose
+diverse per costruzione. Il chrome conta LAVORO PENDENTE, cioe' stato vivo; la
+campanella conta EVENTI in un registro a 30 giorni. La differenza fra i due non
+e' un difetto.
+
+Il difetto e' che gli eventi non si spengono. Una notifica SHALL essere
+considerata vista quando il fatto che la ha prodotta non e' piu' vero:
+
+- un avviso di card in review, quando la card non e' piu' in `review`;
+- un avviso di task parcheggiato, quando il task non attende piu' una risposta;
+- l'avviso di un comando finito, che segnala un fatto transitorio.
+
+Misurato il 29/08/2026: 400 righe non viste contro una decina di segnali vivi.
+74 erano avvisi di card gia' approvate, 1 di un task gia' ripartito, 325 di
+terminali finiti. `markTargetNotificationsSeen` esisteva gia' e le avrebbe
+spente, ma in tutto il repository ha UN SOLO chiamante, e solo per i topic.
+
+Cio' che e' ancora da guardare NON SHALL essere spento: una correzione che
+spegne troppo ruba un avviso, e chi lo perde non ha modo di sapere che c'era.
+
+#### Scenario: la card e' stata approvata tre settimane fa
+- **WHEN** una riga `task-review` punta a un task che non e' piu' in `review`
+- **THEN** SHALL risultare vista
+
+#### Scenario: la card e' ancora in attesa
+- **WHEN** una riga `task-review` punta a un task ancora in `review`
+- **THEN** NON SHALL essere toccata
+
+#### Scenario: il comando e' appena finito
+- **WHEN** un avviso di sessione e' piu' recente della finestra di grazia
+- **THEN** NON SHALL essere spento: e' ancora una notizia
+

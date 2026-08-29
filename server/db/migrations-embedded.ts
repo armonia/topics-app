@@ -140,6 +140,7 @@ import m20260827130000_terminal_session_type_kimi_code from "./migrations/202608
 import m20260827140000_turn_checkpoints_enabled from "./migrations/20260827140000-turn-checkpoints-enabled.sql" with { type: "text" };
 import m20260828094441_spesa_agenti_in_centesimi from "./migrations/20260828094441-spesa-agenti-in-centesimi.sql" with { type: "text" };
 import m20260828094444_tetti_di_spesa_spenti from "./migrations/20260828094444-tetti-di-spesa-spenti.sql" with { type: "text" };
+import m20260829173000_notifiche_il_cui_soggetto_e_andato_avanti from "./migrations/20260829173000-notifiche-il-cui-soggetto-e-andato-avanti.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -284,4 +285,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260827140000, name: "20260827140000-turn-checkpoints-enabled.sql", sql: m20260827140000_turn_checkpoints_enabled },
   { version: 20260828094441, name: "20260828094441-spesa-agenti-in-centesimi.sql", sql: m20260828094441_spesa_agenti_in_centesimi },
   { version: 20260828094444, name: "20260828094444-tetti-di-spesa-spenti.sql", sql: m20260828094444_tetti_di_spesa_spenti },
+  { version: 20260829173000, name: "20260829173000-notifiche-il-cui-soggetto-e-andato-avanti.sql", sql: m20260829173000_notifiche_il_cui_soggetto_e_andato_avanti },
 ];
