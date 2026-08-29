@@ -520,3 +520,86 @@ modalità.
 #### Scenario: una richiesta senza il nome dello strumento
 - **GIVEN** un carico incompleto
 - **THEN** SHALL essere restituito un rifiuto
+
+### Requirement: PERM-08 — Chi ha DECISO vede la decisione, anche se e' la finestra da cui ha spedito
+
+Una finestra che ha mandato il messaggio riceve il turno sul proprio stream SSE,
+quindi gli eventi WebSocket della stessa sessione le vengono scartati: li
+riceverebbe due volte. Le eccezioni sono gli eventi che sull'SSE non esistono
+affatto, e per quelli scartare vuol dire non riceverli MAI.
+
+`stream:tool_permission_required` era gia' un'eccezione, aggiunta perche' senza
+di lui quella finestra era cieca al pannello che la stava aspettando. Il gemello
+no, e questo rendeva il rimedio precedente meta' rimedio: il pannello compariva e
+non spariva piu'. Cliccato «Consenti», lo strumento partiva davvero e la risposta
+scorreva sotto, mentre i quattro bottoni restavano grigi con la rotella per tutta
+la durata dello strumento. Su una Bash o un sotto-agente sono minuti.
+`stream:tool_permission_resolved` e' l'UNICO scrittore dell'esito, sull'SSE non
+c'e' un frame equivalente e la risposta HTTP non porta il verdetto.
+
+L'esito di un permesso SHALL quindi raggiungere anche la finestra che possiede
+l'SSE di quella sessione. La finestra da cui si e' spedito e' proprio quella in
+cui decidere e' il caso normale, visto che il pannello le viene mostrato apposta.
+
+La lista di quelle eccezioni SHALL stare in un posto solo e SHALL essere
+misurabile: si e' dimostrata incompleta due volte, e dentro un hook di duemila
+righe non poteva fallire in un test. Un evento SHALL entrarci solo se scrive uno
+stato FISSO sulla riga: riceverlo due volte deve lasciare lo stesso identico
+stato, perche' un evento che ACCUMULA raddoppierebbe.
+
+#### Scenario: decido dalla finestra da cui ho spedito
+- **GIVEN** una finestra che possiede l'SSE della sessione e un pannello di permesso aperto
+- **WHEN** l'utente sceglie un esito e il server emette `stream:tool_permission_resolved`
+- **THEN** quell'evento SHALL essere consegnato a quella finestra, e il pannello
+  SHALL lasciare il posto all'esito invece di restare a girare
+
+#### Scenario: chi accumula resta fuori
+- **GIVEN** la lista delle eccezioni
+- **WHEN** vi si cerca un evento che porta un delta (testo, contatore)
+- **THEN** SHALL non esserci: consegnarlo due volte raddoppierebbe cio' che disegna
+
+### Requirement: ASK-09 — Una domanda risposta SMETTE di sembrare in invio, senza ricaricare
+
+Il pannello di una domanda ha un solo interruttore per spegnersi, e sta in un
+altro processo: `ToolInputForm` azzera `submitting` unicamente nel suo `catch`,
+perche' conta di essere SMONTATO quando la riga esce da `waiting_for_input`. Tre
+strade del server annunciano proprio quella transizione con un
+`stream:tool_update`, e tutte e tre non portano nessun `partialResult` perche'
+non c'e' output da mostrare. Il client entrava in quel gestore solo se il
+parziale c'era: l'annuncio cadeva nel vuoto.
+
+Cosi' il bottone restava grigio con la rotella e la scritta «Invio…», le opzioni
+disabilitate e la riga col pallino ambra «in attesa di te», mentre il turno nuovo
+scorreva sotto. Sul ramo del piano era definitivo: quel pannello e' appeso a un
+tool che il server retro-marca a fine turno, quindi nessun provider emettera' mai
+un `stream:tool_result` per quell'id, e un secondo annuncio non arrivera'.
+
+Un avviso di aggiornamento di uno strumento SHALL quindi poter portare lo STATO
+oltre al parziale, e il client SHALL applicarlo. Le due cose sono distinte: il
+parziale e' un DELTA sull'output, lo stato e' un FATTO sulla riga, e un avviso
+puo' portare l'uno, l'altro, entrambi o nessuno dei due. La risposta data SHALL
+viaggiare con la transizione, cosi' la riga la mostra senza un ricaricamento.
+
+Uno stato SCONOSCIUTO sul filo SHALL essere rifiutato invece che scritto:
+parcheggerebbe la riga in uno stato che nessun renderer conosce, cioe' lo stesso
+pannello bloccato da un'altra porta.
+
+NON SHALL bastare azzerare `submitting` alla fine dell'invio: l'elenco dei
+messaggi e' virtualizzato, quindi una riga che esce dal viewport e rimonta
+tornerebbe col pannello RIARMATO su una domanda gia' risposta, cioe' invitando a
+rispondere due volte. Lo stato deve arrivare dal server.
+
+#### Scenario: la transizione annunciata senza parziale
+- **GIVEN** una domanda risposta, e il server che ne annuncia il ritorno a `running`
+- **WHEN** l'avviso arriva senza `partialResult`
+- **THEN** la riga SHALL cambiare stato, e il pannello SHALL lasciare il posto alla risposta
+
+#### Scenario: l'unico annuncio del piano
+- **GIVEN** un pannello di approvazione piano, appeso a uno strumento gia' concluso
+- **WHEN** l'utente approva e il server annuncia `success`
+- **THEN** quell'unico avviso SHALL bastare, perche' non ne arrivera' un secondo
+
+#### Scenario: uno stato che non esiste
+- **GIVEN** un avviso che porta uno stato sconosciuto
+- **WHEN** viene applicato
+- **THEN** la riga SHALL restare com'era

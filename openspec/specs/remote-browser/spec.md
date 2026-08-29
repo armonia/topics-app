@@ -1696,3 +1696,45 @@ a warning built on a missing fact.
 #### Scenario: the owner cannot be established
 - **GIVEN** a listener whose working directory cannot be read
 - **THEN** no warning SHALL be produced
+
+### Requirement: BROWSER-AGENT-PILL-01 — Un socket morto NON sta riferendo niente
+
+La pillola sulla tab e la rotella sulla riga in sidebar leggono un booleano solo,
+«l'agente sta guidando questa pane». Aveva un ingresso solo — il frame
+`agent_active` — e quindi un solo modo di spegnersi: il `false` mandato dal
+server. Quel `false` esce dal `try/finally` del lock di delega, percio' su un
+socket sano arriva sempre.
+
+Su un socket MORTO non arriva mai, e non c'era nient'altro a spegnere la
+pillola: `setAgentActive` aveva esattamente due siti in tutto il repo, lo
+`useState(false)` iniziale e quel frame. Il socket non aveva `close`, non aveva
+`error` e non aveva riconnessione, quindi la rotella continuava a girare su una
+pagina ferma da ore.
+
+Le due cause vere chiudono entrambe il socket invece di perdere un singolo
+frame: il riavvio del server (il watcher manda SIGTERM a ogni salvataggio sotto
+`server/`, cioe' molte volte al giorno mentre si lavora) e il reaper a 90 secondi
+su sonno o caduta di rete.
+
+La disconnessione SHALL quindi essere un INGRESSO di quello stato, non
+un'assenza di ingresso: alla chiusura o all'errore del socket la pane SHALL
+smettere di dichiarare che l'agente sta guidando. La regola SHALL essere pura e
+misurabile: dentro un effetto non poteva fallire in un test.
+
+I due ingressi SHALL essere ASSOLUTI, cioe' la regola NON SHALL tenere conto del
+valore precedente: una regola che lo impastasse lascerebbe un frame perduto
+sopravvivere al proprio socket, che e' il guasto stesso.
+
+Questo NON copre la riconnessione, che il ramo streaming ha (backoff, piu' il
+tasto «prendi il controllo») e questa pane no: quello e' lavoro a parte. Qui si
+chiede solo di non MENTIRE mentre manca.
+
+#### Scenario: il server si riavvia mentre una tool-call e' in volo
+- **GIVEN** una pane browser con la pillola accesa
+- **WHEN** il socket si chiude prima che arrivi il `false`
+- **THEN** la pillola SHALL spegnersi
+
+#### Scenario: il socket va in errore
+- **GIVEN** la stessa pane
+- **WHEN** il socket emette un errore
+- **THEN** la pillola SHALL spegnersi allo stesso modo

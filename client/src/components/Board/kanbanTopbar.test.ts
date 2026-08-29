@@ -220,3 +220,59 @@ describe("3. i suggerimenti progetto stanno dentro il selettore", () => {
     expect(new Set(declarations).size, `misure diverse fra loro: ${[...new Set(declarations)].join(", ")}`).toBe(1);
   });
 });
+
+describe("4. la barra non porta piu' un titolo ne' un numero di spesa", () => {
+  // Both were READINGS, not controls, and both said something that was already
+  // said elsewhere: the label repeated the name of the tab holding the pane, the
+  // chip repeated a figure the gear panel shows with its total, its unpriced
+  // share and the caps that act on it. On a strip that overflows by
+  // construction, a reading costs the filters their width.
+  test("il titolo della board generale non e' piu' nella barra", () => {
+    const code = codeWithoutComments(PANE);
+    expect(code, "l'etichetta statica e' tornata in barra").not.toContain("board.toolbar.general");
+  });
+
+  test("il chip della spesa non e' piu' in barra", () => {
+    const code = codeWithoutComments(PANE);
+    expect(code, "il chip dei dollari e' tornato in barra").not.toContain("AgentSpendChip");
+  });
+
+  test("ma la spesa si vede ancora, nel pannello del ⚙", () => {
+    // Removing the chip is only safe while the number lives somewhere reachable
+    // from EVERY board, the general one included: that is this section, which
+    // the global-only panel mounts too.
+    const sections = readFileSync(join(DIR, "BoardSettingsSections.tsx"), "utf8");
+    expect(sections).toContain("SpendCapControl");
+    const globalPanel = sections.slice(sections.indexOf("export function GlobalOnlySettingsPanel"));
+    expect(globalPanel, "la board generale resterebbe senza nessun posto in cui vedere la spesa").toContain("GlobalSettingsSection");
+  });
+});
+
+describe("5. i filtri hanno un guscio solo", () => {
+  const FIELD = readFileSync(join(DIR, "FilterTokenField.tsx"), "utf8");
+  const CONSTANTS = readFileSync(join(DIR, "constants.ts"), "utf8");
+
+  test("i quattro controlli passano tutti da `filterFieldClass`", () => {
+    // Search box + labels chip live in the pane, the token field and the project
+    // picker in their own files. Four controls on one row: one shell.
+    expect(codeWithoutComments(PANE).match(/filterFieldClass\(/g) ?? [], "ricerca ed etichette devono chiedere il guscio comune").toHaveLength(2);
+    expect(codeWithoutComments(FIELD)).toContain("filterFieldClass(");
+    expect(codeWithoutComments(PICKER)).toContain("filterFieldClass(");
+  });
+
+  test("nessuno dei quattro si ridisegna il guscio a mano", () => {
+    // The shape of a hand-rolled shell: its own height plus its own background,
+    // on the same element. It is how the three variants were born.
+    const handRolled = /h-6[^"`]*bg-(black|white)\//;
+    expect(handRolled.test(codeWithoutComments(FIELD)), "il campo dei token si e' rifatto il fondo da solo").toBe(false);
+    const filters = codeWithoutComments(PANE).slice(codeWithoutComments(PANE).indexOf("function InlineFilters"));
+    expect(handRolled.test(filters), "un filtro della barra si e' rifatto il fondo da solo").toBe(false);
+  });
+
+  test("lo stato attivo e' UNA dichiarazione, e la scrive il guscio", () => {
+    // "I am narrowing the board" has to look identical on the search box, on the
+    // token field and on the two chips: one active branch, in one place.
+    const active = [...CONSTANTS.matchAll(/bg-black\/15 text-app-text dark:bg-white\/15/g)];
+    expect(active, "lo stato attivo del guscio non si trova piu'").toHaveLength(1);
+  });
+});

@@ -39,6 +39,7 @@ import {
 } from '@/lib/updater';
 import { SidebarUpdateBanner } from './Shared/SidebarUpdateBanner';
 import { startUpdateChecks } from '@/lib/shell/updateCheckSchedule';
+import { whenDevInstallKnown } from '@/hooks/useDevInstall';
 
 export function UpdaterToast() {
   const tr = useT();
@@ -68,7 +69,6 @@ export function UpdaterToast() {
   useEffect(() => {
     const api = getUpdaterApi();
     if (!api) return;
-    api.status().then(setStatus).catch(() => {});
     const off = api.onStatus((s) => {
       setStatus(s);
       // Re-show on every state change so a previously-dismissed error
@@ -89,13 +89,29 @@ export function UpdaterToast() {
     // status arriva marcato non-silenzioso. Il controllo dal menu resta
     // rumoroso: lì l'esito l'ha chiesto l'utente, e "sei aggiornato" è la
     // risposta. (Entrambi gli host, Electron e Tauri.)
-    // AND THEN IT LOOKS AGAIN. The boot check alone is enough for an app that
-    // gets restarted; Topics is a login item that stays open for days, so that
-    // single check was everything that ever happened. The why, and the
-    // measurement on the Windows machine, live in
-    // `lib/shell/updateCheckSchedule.ts`.
-    const stopChecks = startUpdateChecks(() => {
-      api.checkForUpdates({ silent: true }).catch(() => {});
+    // AND THEN IT LOOKS AGAIN, unless this is the machine that builds the app.
+    // The boot check alone is enough for an app that gets restarted; Topics is
+    // a login item that stays open for days, so that single check was
+    // everything that ever happened. Both the repeat and the dev exemption, and
+    // the measurements behind them, live in `lib/shell/updateCheckSchedule.ts`.
+    //
+    // The answer is AWAITED, not read from state: `useDevInstall` starts at
+    // false, so a component reading it here would schedule the checks before
+    // the probe came back and the nagging would survive the fix.
+    let stopChecks = () => {};
+    let alive = true;
+    void whenDevInstallKnown().then((devInstall) => {
+      if (!alive) return;
+      // THE STORED STATUS IS NOT REPLAYED ON A DEV INSTALL EITHER. The host
+      // remembers the last outcome, so an "update-available" found once comes
+      // back at every launch on its own - stopping the checks would silence the
+      // cause and leave the symptom. Outside dev it is seeded as before: a
+      // download left half-done, or a build already waiting for a restart, has
+      // to be visible without waiting for the next check.
+      if (!devInstall) api.status().then(setStatus).catch(() => {});
+      stopChecks = startUpdateChecks(() => {
+        api.checkForUpdates({ silent: true }).catch(() => {});
+      }, { devInstall });
     });
 
     // Native menu "Controlla aggiornamenti…" (Tauri) dispatches this DOM event.
@@ -103,6 +119,7 @@ export function UpdaterToast() {
     window.addEventListener('topics:check-for-updates', onMenuCheck);
 
     return () => {
+      alive = false;
       off?.();
       stopChecks();
       window.removeEventListener('topics:check-for-updates', onMenuCheck);

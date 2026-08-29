@@ -49,6 +49,8 @@ import {
   decideMessageResidency,
   type MessageResidencyInput,
 } from '../state/messageResidency';
+import { senderAlsoSees } from './senderAlsoSees';
+import { toolUpdatePatch, type ToolUpdateEvent } from './toolUpdatePatch';
 import {
   EXPIRED_QUEUE_KEY,
   OUTBOUND_QUEUE_KEY,
@@ -1204,8 +1206,10 @@ export function useChat() {
     // Non può duplicare niente, per lo stesso motivo dell'usage: il gestore
     // SCRIVE uno stato fisso sulla tool call (`awaiting_permission` + la
     // richiesta), non accumula — riceverlo due volte lascia lo stesso stato.
-    const passaAncheAlMittente =
-      event.type === 'stream:usage' || event.type === 'stream:tool_permission_required';
+    // The list itself now lives in `senderAlsoSees.ts`, with the rule for
+    // adding to it and a test that counts it: it turned out to be incomplete
+    // twice, and here it could not fail in a test.
+    const passaAncheAlMittente = senderAlsoSees(event.type);
     if (localSSESessionsRef.current.has(sessionKey) && !passaAncheAlMittente) {
       if (event.type === 'stream:end' || event.type === 'stream:error') scheduleSSEFailsafe(sessionKey);
       return;
@@ -1366,6 +1370,16 @@ export function useChat() {
         // stesso stato. Vedi `bufferToolUpdate`.
         if (event.toolCallId && typeof event.partialResult === 'string') {
           bufferToolUpdate(sessionKey, event.toolCallId, event.partialResult);
+        }
+        // AND THE STATUS, which is this event's other half. A `tool_update`
+        // with no partial announces a transition - an answered question going
+        // back to `running` - and it used to be dropped, so the panel stayed on
+        // its spinner. The whole account is in `toolUpdatePatch`.
+        {
+          const patch = toolUpdatePatch(event as ToolUpdateEvent);
+          if (patch && event.toolCallId) {
+            applyToolPatch(sessionKey, event.toolCallId, (tc) => ({ ...tc, ...patch }));
+          }
         }
         break;
 

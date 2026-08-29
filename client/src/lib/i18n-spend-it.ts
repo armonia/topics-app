@@ -28,11 +28,6 @@ const SPEND_IT: Dict = {
   'board.spend.capTaskNote': 'Una card che arriva a {cap} non fa partire il turno successivo, e lo scrive nel suo thread.',
   'board.spend.noCaps': 'Nessun tetto: nessun freno, nessun avviso. Il numero sopra si vede comunque.',
 
-  'board.spend.chipWindow': 'Agenti: {amount} nelle ultime 24 ore',
-  'board.spend.chipUnpriced': '{tokens} token non prezzabili non sono in questa cifra',
-  'board.spend.chipOver': 'tetto giornaliero superato ({cap}): il turno successivo non parte',
-  'board.spend.chipLeft': 'restano {amount} sul tetto giornaliero',
-
   'cost.agent': 'Agente della board',
   'cost.agentUnpriced': '(+{tokens} non prezzabili)',
 };

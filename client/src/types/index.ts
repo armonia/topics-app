@@ -13,6 +13,7 @@ export type {
 // payload WS qui sotto li usano. Import separato, non è una ridondanza.
 import type {
   UserInputSchema,
+  ToolUserResponse,
   AcpUsageUpdate,
   ClaudeSessionState,
   WSProvidersSnapshotMessage,
@@ -498,6 +499,10 @@ export interface WSStreamToolUpdateMessage {
   sessionKey: string;
   toolCallId: string;
   partialResult?: string;
+  /** Present when the event announces a transition instead of more output. */
+  status?: ToolCall['status'];
+  /** The answer that caused the transition, so the row can show it at once. */
+  userResponse?: ToolUserResponse;
 }
 export interface WSStreamToolDetailMessage {
   type: 'stream:tool_detail';

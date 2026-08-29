@@ -2301,6 +2301,13 @@ export function createTopicsRouter(
           sessionKey,
           topicId: topic?.id,
           toolCallId,
+          // THE STATUS TRAVELS, or the panel never switches off. The call
+          // above writes it to the DB and this announcement used to stay
+          // silent about it: the client entered only when a `partialResult`
+          // was present, so the transition reached nobody and the form sat on
+          // its spinner until a reload. See `toolUpdatePatch` on the client.
+          status: 'running',
+          userResponse: normalised,
         });
         return json({ ok: true, submittedAt });
       }
@@ -2324,6 +2331,13 @@ export function createTopicsRouter(
           sessionKey,
           topicId: topicForPlan?.id,
           toolCallId,
+          // This is the ONLY announcement that will ever arrive: the plan
+          // hangs off a tool already finished, which Topics back-marks at the
+          // end of the turn, so no provider will emit a `stream:tool_result`
+          // for this id. Without the status in here the plan panel spun
+          // forever while the new turn scrolled underneath.
+          status: 'success',
+          userResponse: { ...response, submittedAt },
         });
         return json({ ok: true, submittedAt });
       }
@@ -2407,8 +2421,15 @@ export function createTopicsRouter(
         sessionKey,
         topicId: topic?.id,
         toolCallId,
-        // No partialResult — this is just a status transition. The next
+        // No partialResult - this is just a status transition. The next
         // tool_result event will carry the actual content from the model.
+        //
+        // But the transition NOW travels. This announcement used to carry the
+        // id alone, and the client entered only when a `partialResult` was
+        // present: the transition never arrived, and the panel sat on its
+        // spinner for the whole duration of the tool instead of an instant.
+        status: 'running',
+        userResponse: normalised,
       });
 
       return json({ ok: true, submittedAt });

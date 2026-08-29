@@ -63,4 +63,26 @@ describe('when the app looks for a new version', () => {
     // morning's release, and it is four requests a day, not forty.
     expect(UPDATE_RECHECK_MS).toBe(6 * 60 * 60_000);
   });
+  test('a dev install is not nagged: zero automatic checks', async () => {
+    let calls = 0;
+    const stop = startUpdateChecks(() => { calls++; }, { bootDelayMs: 5, periodMs: 10, devInstall: true });
+    await wait(40);
+    stop();
+    // Not "fewer": ZERO. On the machine that builds the app the bundle is
+    // hot-delivered, so the version on screen tracks the repo while the shell
+    // stays where it was installed, and every check announces a version the
+    // person there already has in source. Reported twice.
+    expect(calls).toBe(0);
+  });
+
+  test('outside a dev install nothing changes', async () => {
+    let calls = 0;
+    const stop = startUpdateChecks(() => { calls++; }, { bootDelayMs: 5, periodMs: 20, devInstall: false });
+    try {
+      await wait(10);
+      // The exemption must not have swallowed the boot check for everyone else:
+      // that would trade one silence for a worse one.
+      expect(calls).toBe(1);
+    } finally { stop(); }
+  });
 });
