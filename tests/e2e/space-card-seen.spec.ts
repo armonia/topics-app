@@ -137,6 +137,7 @@ test.describe("Card di un gruppo: si spegne quando hai letto la chat dentro", ()
   });
 
   test("un turno finito dentro il gruppo accende la card, leggerlo la spegne per sempre", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "SEEN-01" });
     // The intercept goes in BEFORE the goto, or the initial connection escapes it.
     const ws = await interceptWebSocket(page);
     await goToApp(page);
@@ -145,12 +146,12 @@ test.describe("Card di un gruppo: si spegne quando hai letto la chat dentro", ()
     // by TWO elements: the outer card (the drop target for a tab dragged into
     // the group) and the header row inside it. Only the row is a tab, and only
     // the row carries the tier.
-    const cardGruppo = page.locator(`[role="tab"][data-space-id="${SPACE_ID}"]`);
-    const cardPrincipale = page.locator(`[role="tab"][data-space-id="${DEFAULT_SPACE_ID}"]`);
-    await expect(cardGruppo).toBeVisible({ timeout: 20000 });
+    const groupCard = page.locator(`[role="tab"][data-space-id="${SPACE_ID}"]`);
+    const mainCard = page.locator(`[role="tab"][data-space-id="${DEFAULT_SPACE_ID}"]`);
+    await expect(groupCard).toBeVisible({ timeout: 20000 });
 
     // Clean start: no tier on the group.
-    await expect(cardGruppo).not.toHaveAttribute("data-attention", /input|done/);
+    await expect(groupCard).not.toHaveAttribute("data-attention", /input|done/);
 
     // The turn of the chat INSIDE the group ends.
     ws.send({
@@ -161,20 +162,20 @@ test.describe("Card di un gruppo: si spegne quando hai letto la chat dentro", ()
 
     // The card says it: "there is something in here waiting for you". This is
     // the only thing that says so while the group is closed.
-    await expect(cardGruppo).toHaveAttribute("data-attention", "done", { timeout: 15000 });
+    await expect(groupCard).toHaveAttribute("data-attention", "done", { timeout: 15000 });
 
     // The user goes into the group and stays on the chat past the "seen"
     // threshold (SEEN_DWELL_MS = 1200 ms). Switching group makes that chat the
     // active pane, which is what arms the threshold. The fill must fall BY
     // ITSELF, with no further click. This is the assertion that was red.
-    await cardGruppo.getByRole("button", { name: SPACE_NAME, exact: true }).click();
-    await expect(cardGruppo).not.toHaveAttribute("data-attention", /input|done/, { timeout: 15000 });
+    await groupCard.getByRole("button", { name: SPACE_NAME, exact: true }).click();
+    await expect(groupCard).not.toHaveAttribute("data-attention", /input|done/, { timeout: 15000 });
 
     // And here is the bug: move the focus elsewhere. The old rollup lit up
     // again, because the only thing hiding it was "this card is the active one
     // right now", which is transitory.
-    await cardPrincipale.getByRole("button", { name: DEFAULT_SPACE_NAME, exact: true }).click();
-    await expect(cardPrincipale).toHaveAttribute("aria-selected", "true", { timeout: 10000 });
+    await mainCard.getByRole("button", { name: DEFAULT_SPACE_NAME, exact: true }).click();
+    await expect(mainCard).toHaveAttribute("aria-selected", "true", { timeout: 10000 });
 
     // A CLOCK, not a sleep. A negative assertion is true of this instant too,
     // so it needs a window in which the card WOULD have had the time to light
@@ -191,12 +192,12 @@ test.describe("Card di un gruppo: si spegne quando hai letto la chat dentro", ()
       sessionKey: outsideSessionKey,
       state: { phase: "awaiting-approval", rev: 1, claudeSessionId: outsideSessionKey },
     });
-    await expect(cardPrincipale).toHaveAttribute("data-attention", "input", { timeout: 15000 });
+    await expect(mainCard).toHaveAttribute("data-attention", "input", { timeout: 15000 });
 
     // Still dark, with the app awake and busy around it. The phase inside is
     // still `awaiting-user`, so it is the "seen" mark holding, not the absence
     // of state.
-    await expect(cardGruppo).not.toHaveAttribute("data-attention", /input|done/);
+    await expect(groupCard).not.toHaveAttribute("data-attention", /input|done/);
 
     // A NEW turn has to light it again: going dark forever is the opposite bug,
     // and a gate with no reset is exactly how you get there. The "seen" mark
@@ -218,13 +219,13 @@ test.describe("Card di un gruppo: si spegne quando hai letto la chat dentro", ()
       sessionKey: outsideSessionKey,
       state: { phase: "running", rev: 2, claudeSessionId: outsideSessionKey },
     });
-    await expect(cardPrincipale).not.toHaveAttribute("data-attention", /input|done/, { timeout: 15000 });
+    await expect(mainCard).not.toHaveAttribute("data-attention", /input|done/, { timeout: 15000 });
 
     ws.send({
       type: "session:state",
       sessionKey: insideSessionKey,
       state: { phase: "awaiting-user", rev: 3, claudeSessionId: insideSessionKey },
     });
-    await expect(cardGruppo).toHaveAttribute("data-attention", "done", { timeout: 15000 });
+    await expect(groupCard).toHaveAttribute("data-attention", "done", { timeout: 15000 });
   });
 });

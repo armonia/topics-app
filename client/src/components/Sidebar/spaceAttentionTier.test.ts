@@ -18,6 +18,9 @@
  * moves.
  *
  * Run: `bun test client/src/components/Sidebar/spaceAttentionTier.test.ts`
+ *
+ * @covers SEEN-01
+ * @covers SEEN-02
  */
 import { describe, it, expect } from 'bun:test';
 import { spaceAttentionTier } from './useSpaceCards';
