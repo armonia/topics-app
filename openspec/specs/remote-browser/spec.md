@@ -1738,3 +1738,46 @@ chiede solo di non MENTIRE mentre manca.
 - **GIVEN** la stessa pane
 - **WHEN** il socket emette un errore
 - **THEN** la pillola SHALL spegnersi allo stesso modo
+
+### Requirement: BROWSER-NATIVE-RECONNECT-01 — La delega deve ripartire da sola
+
+Una pane NATIVA e' guidabile da un agente solo finche' e' REGISTRATA come
+esecutore del proprio contesto su `/ws/browser/:contextId`: il server non agisce
+su quella pane, le DELEGA ogni tool-call su quel socket. Nessun socket, nessun
+controllo dell'agente.
+
+Quel socket veniva aperto una volta sola al montaggio e non veniva mai riaperto.
+Muore per motivi ordinari: il riavvio del server (il watcher manda SIGTERM a
+ogni salvataggio sotto `server/`, molte volte al giorno), il sonno della
+macchina, un buco di rete. Dopo, la pane restava montata e dall'aspetto normale,
+e non rispondeva piu' a nessuna tool-call finche' qualcuno non la chiudeva e
+riapriva. Niente lo diceva.
+
+Il socket dell'esecutore nativo SHALL quindi RICONNETTERSI da solo, con backoff
+esponenziale limitato da un tetto, e a ogni apertura SHALL rimandare
+`register_native_executor`: e' quella riregistrazione a rendere la pane di nuovo
+raggiungibile su un server appena riavviato, che ha il registro vuoto. Una
+riconnessione riuscita SHALL riazzerare la scala del backoff.
+
+La pane NON SHALL doversi rimontare per riconnettersi: rimontare e' esattamente
+la cura manuale che il difetto imponeva, e un test che riapre la pane prova il
+montaggio, non la riconnessione.
+
+Se il server risponde `register_native_executor_rejected` — un esecutore vivo
+serve gia' quel contesto, cioe' siamo la seconda pane — la pane SHALL smettere di
+riprovare invece di bussare in ciclo su un contesto altrui.
+
+#### Scenario: il server si riavvia mentre la pane resta aperta
+- **GIVEN** una pane nativa registrata come esecutore
+- **WHEN** il server si riavvia e il socket muore, senza toccare la pane
+- **THEN** la pane SHALL riaprire il socket da sola e rimandare `register_native_executor`
+- **AND** una tool-call delegata SUCCESSIVA SHALL essere eseguita e risposta
+
+#### Scenario: il server resta giu'
+- **GIVEN** un socket che muore e un server che non torna
+- **THEN** i tentativi SHALL allargarsi (1s, 2s, 4s, 8s) fino a un tetto di 10s
+
+#### Scenario: la pane si smonta con una riconnessione in attesa
+- **GIVEN** un socket morto e un tentativo gia' armato
+- **WHEN** la pane si smonta
+- **THEN** nessun socket nuovo SHALL essere aperto

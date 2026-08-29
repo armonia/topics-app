@@ -28,14 +28,13 @@
  * sta in `nativeNavIsFresh` (lib/shell/browserPagePoll).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { nextAgentActive } from './agentActivity';
+import { startNativeExecutorSocket } from './nativeExecutorSocket';
 import { tauriInvoke, currentWindowLabel } from '../lib/shell/tauri';
 import { markBrowserViewLive, markBrowserViewDead } from '../lib/shell/nativeBrowserRoster';
 import { currentOverlays, decideFreeze, liveSlotRect, onOcclusionChange, type OverlayRect } from '../lib/shell/browserOcclusion';
 import { serverWsBase } from '../lib/shell/net';
 import { executeNativeBrowserOp } from '../lib/shell/tauriBrowserOps';
 import { stepZoom, DEFAULT_ZOOM, zoomApplyJs, zoomDrifted } from '../lib/shell/zoomScale';
-import { parseBrowserWsMessage } from '../../../shared/browser-ws-messages';
 import {
   DESCRIBE_ELEMENT_FN,
   formatElementContext,
@@ -1398,75 +1397,45 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   //    contextId, then run each delegated `browser_op` against the real WKWebView
   //    via the native browser_* commands and reply — so a server-side agent can
   //    drive the native pane (the ops that map; the rest get a streaming-mode hint).
+  //
+  // A SOCKET THAT DIED IS NOT REPORTING ANYTHING, AND IT COMES BACK BY ITSELF.
+  // The pill's `false` is emitted from the delegation lock's `try/finally`, so
+  // on a healthy socket it always arrives and on a dead one it never does; and
+  // a socket that stays dead takes the delegation with it, because the server
+  // reaches this pane only through the executor registration. Both causes are
+  // ordinary - the server restarting (SIGTERM from the file watcher, many times
+  // a day) and the 90s reaper on sleep or a network drop - so the loop lives in
+  // `nativeExecutorSocket.ts`, where the socket and the clock are injected and
+  // the reconnection can fail in a test WITHOUT remounting the pane.
   useEffect(() => {
-    let ws: WebSocket | null = null;
-    let closed = false;
-    const openHandler = () => {
-      try { ws?.send(JSON.stringify({ type: 'register_native_executor' })); } catch { /* ignore */ }
-    };
-    const messageHandler = (e: MessageEvent) => {
-      let raw: unknown;
-      try { raw = JSON.parse(typeof e.data === 'string' ? e.data : ''); } catch { return; }
-      const m = raw as { type?: string; opId?: string; tool?: string; args?: unknown; active?: boolean; action?: string };
-      if (m && m.type === 'browser_op' && typeof m.opId === 'string' && typeof m.tool === 'string') {
-        // A background pane is hidden (see setNativeVisible), and a hidden NSView
-        // can't be snapshotted or laid out — so wake it for the duration of the
-        // op. It stays parked off-screen throughout, so nothing appears to the
-        // user. The settle gives WebKit a beat to paint the newly-unhidden view
-        // before a screenshot op reads it, which would otherwise come back blank.
+    const run = startNativeExecutorSocket({
+      url: `${serverWsBase()}/ws/browser/${encodeURIComponent(id)}`,
+      // A background pane is hidden (see setNativeVisible), and a hidden NSView
+      // can't be snapshotted or laid out — so wake it for the duration of the
+      // op. It stays parked off-screen throughout, so nothing appears to the
+      // user. The settle gives WebKit a beat to paint the newly-unhidden view
+      // before a screenshot op reads it, which would otherwise come back blank.
+      runOp: async (tool, args) => {
         agentOpsInFlightRef.current += 1;
-        void setNativeVisible(true)
-          .then(async (woke) => {
-            if (woke) await new Promise((r) => setTimeout(r, 150));
-            return executeNativeBrowserOp(id, m.tool!, m.args, tauriInvoke);
-          })
-          .then((out) => {
-            if (closed) return;
-            try { ws?.send(JSON.stringify({ type: 'browser_op_result', opId: m.opId, ...out })); } catch { /* ignore */ }
-          })
-          .finally(() => {
-            agentOpsInFlightRef.current -= 1;
-            // Last op out re-hides, unless the pane became genuinely visible or
-            // the agent formally attached in the meantime.
-            if (agentOpsInFlightRef.current === 0 && !isVisibleRef.current && !agentActiveRef.current) {
-              void setNativeVisible(false);
-            }
-          });
-        return;
-      }
-      const result = parseBrowserWsMessage(raw);
-      if (!result.ok || result.data.type !== 'agent_active') return;
-      setAgentActive(nextAgentActive({ kind: 'frame', active: Boolean(result.data.active) }));
-      if (result.data.active && result.data.action) setAgentAction(result.data.action);
-    };
-    // A SOCKET THAT DIED IS NOT REPORTING ANYTHING. The `false` that switches
-    // the pill off is emitted from the delegation lock's `try/finally`, so on a
-    // healthy socket it always arrives - and on a dead one it never does. There
-    // was no `close` and no `error` handler here, so the spinner kept turning
-    // on a page idle for hours. The two real causes both close the socket: the
-    // server restarting (SIGTERM from the file watcher, many times a day) and
-    // the 90s reaper on sleep or a network drop. The rule lives in
-    // `agentActivity.ts`, where it can fail in a test.
-    const deadHandler = () => {
-      setAgentActive(nextAgentActive({ kind: 'disconnected' }));
-    };
-    try {
-      ws = new WebSocket(`${serverWsBase()}/ws/browser/${encodeURIComponent(id)}`);
-      ws.addEventListener('open', openHandler);
-      ws.addEventListener('message', messageHandler);
-      ws.addEventListener('close', deadHandler);
-      ws.addEventListener('error', deadHandler);
-    } catch { /* ws construction failed — pill stays off, no delegation */ }
-    return () => {
-      closed = true;
-      if (ws) {
-        ws.removeEventListener('open', openHandler);
-        ws.removeEventListener('message', messageHandler);
-        ws.removeEventListener('close', deadHandler);
-        ws.removeEventListener('error', deadHandler);
-        try { ws.close(); } catch { /* ignore */ }
-      }
-    };
+        try {
+          const woke = await setNativeVisible(true);
+          if (woke) await new Promise((r) => setTimeout(r, 150));
+          return await executeNativeBrowserOp(id, tool, args, tauriInvoke);
+        } finally {
+          agentOpsInFlightRef.current -= 1;
+          // Last op out re-hides, unless the pane became genuinely visible or
+          // the agent formally attached in the meantime.
+          if (agentOpsInFlightRef.current === 0 && !isVisibleRef.current && !agentActiveRef.current) {
+            void setNativeVisible(false);
+          }
+        }
+      },
+      onAgentActive: (active, action) => {
+        setAgentActive(active);
+        if (active && action) setAgentAction(action);
+      },
+    });
+    return () => run.stop();
     // setNativeVisible is useCallback([id]), so it never re-opens the socket on
     // its own — isVisible/agentActive are read through refs for that reason.
   }, [id, setNativeVisible]);
