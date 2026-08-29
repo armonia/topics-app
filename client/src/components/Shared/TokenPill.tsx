@@ -28,7 +28,19 @@ export function TokenPill({ icon, label, onRemove, removeLabel, title, className
         type="button"
         aria-label={removeLabel}
         onClick={(e) => { e.stopPropagation(); onRemove(); }}
-        className="ml-0.5 text-blue-400 hover:text-blue-600 dark:hover:text-blue-200"
+        // THE RING THAT ESCAPED THE FIELD. The app's one focus rule
+        // (index.css, @layer base) paints `outline: 2px solid var(--primary)`
+        // with `outline-offset: 2px` on every button. Around a 12px X inside a
+        // 24px-tall filter shell that ring is drawn OUTSIDE the rounded
+        // rectangle, and reads as a border sprouting off the control.
+        // allow-italian: «esce un bordo quando faccio focus» (29/08)
+        //
+        // Silenced AND replaced in the same place: a ring is a box-shadow, so
+        // it costs no layout, and `ring-inset` cannot leave the box by
+        // construction. Dropping the outline without putting the ring back
+        // would leave this button - which is also the chat's @-mention pill -
+        // with no visible focus at all.
+        className="ml-0.5 rounded-sm text-blue-400 hover:text-blue-600 dark:hover:text-blue-200 outline-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/70"
       >
         <X size={12} />
       </button>

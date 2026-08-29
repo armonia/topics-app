@@ -2743,3 +2743,35 @@ l'elevazione.
 - **GIVEN** una card con anteprima, in tema chiaro e in tema scuro
 - **THEN** il filo superiore SHALL leggere piu' chiaro dei fili laterali
 - **AND** i pixel della card sopra l'anteprima SHALL restare piatti
+
+### Requirement: KANBAN-68 — Il fuoco su un filtro resta DENTRO il filtro
+
+L'app ha una sola regola di fuoco (`index.css`, `@layer base`): `outline: 2px
+solid var(--primary)` con `outline-offset: 2px`. Su un controllo alto 24px
+quell'anello viene disegnato FUORI dal rettangolo arrotondato, e attorno al
+bottone da 12px che toglie un token sborda dal campo: e' il bordo segnalato il
+29/08.
+
+Un controllo della riga dei filtri NON SHALL far disegnare a nessuno dei propri
+discendenti l'outline globale, e SHALL invece portare un anello `inset`: un
+anello e' una `box-shadow`, quindi non sposta il layout, e `inset` gli vieta di
+sporgere per costruzione.
+
+L'anello SHALL esserci davvero. Togliere l'outline e basta lascerebbe un
+controllo SENZA nessun segno di fuoco, che e' peggio del bordo: la verifica
+SHALL misurare entrambe le meta'.
+
+L'affordance da tastiera NON SHALL essere tolta per ottenere il risultato: il
+bottone che rimuove un token SHALL restare raggiungibile col Tab e portare il
+proprio anello. Un rimedio per sottrazione (`tabIndex=-1`) soddisferebbe le
+prime due meta' cancellando questa.
+
+#### Scenario: il campo dei filtri a fuoco
+- **GIVEN** il campo dei filtri con un token, messo a fuoco
+- **THEN** nessun suo discendente SHALL disegnare un outline
+- **AND** il guscio SHALL portare una `box-shadow` `inset`
+
+#### Scenario: il bottone che toglie un token
+- **GIVEN** quel bottone messo a fuoco
+- **THEN** NON SHALL disegnare un outline
+- **AND** SHALL portare il proprio anello `inset`

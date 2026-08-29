@@ -288,8 +288,31 @@ export const RICHIESTA_PIEGA_CHARS = 190;
  * `h-6` explicit (not `py-*`) because an `<input>`, which the UA line-height
  * makes taller, has to land on the exact same height as a button.
  */
+/**
+ * The focus ring of a filter control: 1px, INSET, on the SHELL.
+ *
+ * The app's one focus rule (`index.css`, `@layer base`) paints
+ * `outline: 2px solid var(--primary)` with `outline-offset: 2px` on every
+ * button and input. On a 24px-tall control that ring is drawn OUTSIDE the
+ * rounded rectangle and escapes the field. A ring is a box-shadow, so it costs
+ * no layout, and `ring-inset` cannot leave the shell by construction.
+ *
+ * Two selectors because this class dresses two kinds of element: a chip IS the
+ * focus target (`focus-visible:`), a field CONTAINS it
+ * (`has-[:focus-visible]:`). Nothing in `index.css` changes - on a normal-sized
+ * button the global offset ring is right, and rewriting it would reach the
+ * whole app.
+ *
+ * It also fills a hole: `filterInputClass` carries `outline-none` with no
+ * replacement, so tabbing onto the search input showed nothing at all.
+ */
+export const filterFocusRingClass =
+  'outline-none focus-visible:outline-none has-[:focus-visible]:outline-none ' +
+  'focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/70 ' +
+  'has-[:focus-visible]:ring-1 has-[:focus-visible]:ring-inset has-[:focus-visible]:ring-primary/70';
+
 export const filterFieldClass = (active: boolean) =>
-  `flex h-6 shrink-0 items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors ${
+  `flex h-6 shrink-0 items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors ${filterFocusRingClass} ${
     active
       ? 'bg-black/15 text-app-text dark:bg-white/15'
       : 'bg-black/5 text-app-text-heading hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10'
