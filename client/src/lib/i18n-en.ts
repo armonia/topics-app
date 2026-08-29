@@ -940,8 +940,6 @@ const EN = {
   'board.toolbar.missionsTitle': 'Missions: extra jobs for the project session, next to the board. The text lands in its composer: sending it is up to you.',
   'board.toolbar.thisProject': 'This project',
   'board.toolbar.allProjects': 'All projects',
-  'board.toolbar.general': 'Board',
-  'board.toolbar.generalSuffix': ' overview',
   'board.toolbar.dispatchSettings': 'Auto-dispatch settings',
   'board.composer.placeholder': 'Describe a task for the agent…',
   'board.composer.subtaskOf': 'Subtask of',

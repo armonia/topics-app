@@ -35,7 +35,7 @@ import { scrollDelta } from '../../lib/scrollDelta';
 import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
 import { UnifiedDiff } from './UnifiedDiff';
 import { useConfirm } from '../../hooks/useConfirm';
-import { CREATED_FLASH_MS, filterChipClass, PRIORITY_DOT, PRIORITY_LABEL, type LiveUsage, type OpenTask } from './constants';
+import { CREATED_FLASH_MS, filterFieldClass, filterInputClass, PRIORITY_DOT, PRIORITY_LABEL, type LiveUsage, type OpenTask } from './constants';
 import { boardCollision } from './format';
 import { FilterTokenField } from './FilterTokenField';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
@@ -46,7 +46,6 @@ import { taskActionWord } from './taskActionWords';
 import { TaskDetail } from './TaskDetail';
 import { BoardSettingsPanel } from './BoardSettingsPanel';
 import { GlobalOnlySettingsPanel } from './BoardSettingsSections';
-import { AgentSpendChip } from './AgentSpendChip';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
 import { MISSIONS, type Mission } from '../../lib/missions';
 import { useDevInstall } from '../../hooks/useDevInstall';
@@ -546,9 +545,10 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
 
   const anyActive = filters.priority.length + filters.assignedTo.length + filters.projectId.length + filters.labels.length + (filters.text ? 1 : 0) > 0;
 
-  // Il chip dei filtri vive in `constants.ts`: lo divide con il selettore
-  // progetto, che si e' portato via i suoi suggerimenti.
-  const chip = filterChipClass;
+  // The shell of every filter control lives in `constants.ts`: the search box
+  // here, the labels chip below, the token field and the project picker all
+  // wear it, and they name it — no local alias, so a grep for the shell finds
+  // every control that wears it.
   const menuHeader = 'px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted';
 
   return (
@@ -558,15 +558,18 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
        stessi chip finivano a disegnarsi sopra i comandi accanto — la striscia
        dei progetti si guadagnava lo spazio togliendolo ai filtri veri. */
     <div className="flex min-w-0 grow items-center gap-1.5">
-      {/* Search — always visible */}
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-app-text-secondary" />
+      {/* Search — always visible. The shell is the SAME `filterFieldClass` the
+          chips wear, and the magnifier is a flex child of it instead of an
+          absolutely positioned glyph over a padded input: one control, built
+          like the others, and it darkens like the others once you type. */}
+      <div className={`${filterFieldClass(filters.text.length > 0)} w-28 sm:w-40`}>
+        <Search className="pointer-events-none h-3 w-3 shrink-0 text-app-text-secondary" />
         <input
           value={filters.text}
           onChange={(e) => onFiltersChange({ ...filters, text: e.target.value })}
           placeholder={tr('board.filter.searchPlaceholder')}
           aria-label={tr('board.filter.searchLabel')}
-          className="h-6 w-28 rounded-md bg-black/5 pl-6 pr-1.5 text-[11px] leading-none text-app-text outline-none placeholder:text-app-placeholder focus:bg-black/10 dark:bg-white/5 dark:focus:bg-white/10 sm:w-40"
+          className={filterInputClass}
         />
       </div>
 
@@ -588,7 +591,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
         ref={lblBtnRef} onClick={() => setLblOpen(true)}
         data-testid="filter-labels-chip"
         title={tr('board.filter.labelsTitle')}
-        className={chip(filters.labels.length > 0)}
+        className={filterFieldClass(filters.labels.length > 0)}
       >
         <Tag className="h-3 w-3 shrink-0" />
         {filters.labels.length === 1 ? filters.labels[0] : tr('board.filter.labels')}
@@ -1712,7 +1715,18 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           archivio, impostazioni) portano il proprio bordo quando servono. */}
       <div className="relative shrink-0">
       <div ref={toolbarScrollRef} data-testid="board-toolbar" className="flex items-center gap-1 overflow-x-auto px-2 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0 sm:px-3">
-        {canToggle ? (
+        {/* Inside a project the two buttons are a CHOICE, so they stay. On the
+            general board there used to be a static label here saying which board
+            this is: the tab that carries the pane already says it, in the same
+            window, a centimetre away. A title that repeats its own tab is not
+            information, it is width taken from the filters.
+
+            The spend chip ($x.xx / 24h) stood next to it and is gone for the
+            same reason it was easy to remove: it was a READING, not a control.
+            The figure, the total, the unpriced share and the caps live together
+            in the gear panel (`SpendCapControl`), which is also the only place
+            where the number can be acted upon. */}
+        {canToggle && (
           <>
             <button
               onClick={() => setMode('project')}
@@ -1723,14 +1737,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
               className={`rounded px-2 py-0.5 text-xs ${mode === 'all' ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
             >{tr('board.toolbar.allProjects')}</button>
           </>
-        ) : (
-          <span className="text-xs font-semibold text-app-text">{tr('board.toolbar.general')}<span className="hidden sm:inline">{tr('board.toolbar.generalSuffix')}</span></span>
         )}
         <LoadAdviceChip />
-        {/* THE DOLLARS, always and with nothing to set up: this is the number
-            that was missing. Next to the load chip because they answer the same
-            question from two sides (what am I burning now, what has it cost). */}
-        <AgentSpendChip />
         <WorktreeControl
           count={worktreeCount}
           branches={branchInv}

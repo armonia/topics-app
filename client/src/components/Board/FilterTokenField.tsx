@@ -27,7 +27,7 @@ import { useT } from '../../hooks/useT';
 import { fuzzyScore } from '../../lib/fuzzyScore';
 import { SuggestionMenu } from '../Shared/SuggestionMenu';
 import { TokenPill } from '../Shared/TokenPill';
-import { PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER } from './constants';
+import { filterFieldClass, filterInputClass, filterTokenPillClass, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER } from './constants';
 
 type Token =
   | { kind: 'priority'; value: number; label: string }
@@ -101,8 +101,12 @@ export function FilterTokenField({
   const hasTokens = priority.length > 0 || assignedTo.length > 0;
 
   return (
+    // The shell is `filterFieldClass`, like every other filter on the row, and
+    // `active` says the same thing here as on a chip: this control is narrowing
+    // the board. Before, a field holding three tokens looked as idle as an
+    // empty one.
     <div
-      className="relative flex h-6 shrink-0 items-center gap-1 rounded-md bg-black/5 px-1.5 dark:bg-white/5"
+      className={`${filterFieldClass(hasTokens)} relative`}
       data-testid="filter-token-field"
     >
       {priority.map((p) => (
@@ -112,7 +116,7 @@ export function FilterTokenField({
           label={PRIORITY_LABEL[p]}
           onRemove={() => onPriorityChange(priority.filter((x) => x !== p))}
           removeLabel={tr('board.filter.removeToken', { label: PRIORITY_LABEL[p] })}
-          className="inline-flex shrink-0 items-center gap-1 rounded bg-black/10 px-1.5 py-0.5 text-[11px] font-medium text-app-text-heading dark:bg-white/10"
+          className={filterTokenPillClass}
         />
       ))}
       {assignedTo.map((a) => (
@@ -121,7 +125,7 @@ export function FilterTokenField({
           label={`@${a}`}
           onRemove={() => onAssignedToChange(assignedTo.filter((x) => x !== a))}
           removeLabel={tr('board.filter.removeToken', { label: a })}
-          className="inline-flex shrink-0 items-center gap-1 rounded bg-black/10 px-1.5 py-0.5 text-[11px] font-medium text-app-text-heading dark:bg-white/10"
+          className={filterTokenPillClass}
         />
       ))}
       <input
@@ -133,7 +137,7 @@ export function FilterTokenField({
         placeholder={hasTokens ? '' : tr('board.filter.priorityAssigneePlaceholder')}
         aria-label={tr('board.filter.priorityAssigneeLabel')}
         data-testid="filter-token-input"
-        className="h-5 min-w-[56px] flex-1 bg-transparent text-[11px] leading-none text-app-text outline-none placeholder:text-app-placeholder"
+        className={`${filterInputClass} min-w-[56px]`}
       />
       <SuggestionMenu
         visible={open}

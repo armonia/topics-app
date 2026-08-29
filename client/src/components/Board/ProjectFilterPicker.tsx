@@ -48,7 +48,7 @@ import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsSto
 import { countsSummary, projectTaskCounts } from '../../lib/projectTaskCounts';
 import { ProjectPickerBody } from './ProjectPicker';
 import { ProjectTaskCounts } from './atoms';
-import { filterChipClass } from './constants';
+import { filterFieldClass } from './constants';
 
 /**
  * The breathing room between the content and the shell's edge, per side (px).
@@ -278,7 +278,7 @@ export function ProjectFilterPicker({ tasks, mode, selectedIds: selectedFilterId
         ref={btnRef} onClick={() => setOpen(true)}
         data-testid="filter-project-chip"
         title={soleProject ? tr('board.filter.projectNamed', { name: soleProject.name }) : tr('board.filter.projectTitle')}
-        className={`${filterChipClass(selectedFilterIds.length > 0)} min-w-0 ${CHIP_MAX}`}
+        className={`${filterFieldClass(selectedFilterIds.length > 0)} min-w-0 ${CHIP_MAX}`}
       >
         {soleProject && <ChipIcon path={soleProject.path} />}
         <span className="min-w-0 truncate">{soleProject ? soleProject.name : tr('common.project')}</span>
@@ -315,7 +315,7 @@ export function ProjectFilterPicker({ tasks, mode, selectedIds: selectedFilterId
                 aria-hidden={!shown}
                 tabIndex={shown ? 0 : -1}
                 data-testid={`project-filter-chip-${p.projectId}`}
-                className={`${filterChipClass(on)} min-w-0 ${CHIP_MAX} ${shown ? '' : 'invisible'}`}
+                className={`${filterFieldClass(on)} min-w-0 ${CHIP_MAX} ${shown ? '' : 'invisible'}`}
               >
                 <ChipIcon path={p.path} />
                 <span className="min-w-0 truncate">{p.name}</span>
