@@ -138,9 +138,9 @@ describe("l'uso del runtime nativo, giro per giro", () => {
     const risposte = [giroConTool, giroFinale];
     globalThis.fetch = (async () => new Response(risposte.shift() ?? giroFinale, { status: 200 })) as unknown as typeof fetch;
 
-    let consegnato: ProviderUsage | undefined;
+    let delivered: ProviderUsage | undefined;
     const h = handler();
-    h.onDone = (m) => { consegnato = m?.usage; };
+    h.onDone = (m) => { delivered = m?.usage; };
 
     const out = await runAgentTurn(
       { model: "claude-haiku-4-5-20251001", history: [{ role: "user", content: "vai" }], toolContext: { workspace: ws }, autonomy: "auto-apply" },
@@ -148,28 +148,28 @@ describe("l'uso del runtime nativo, giro per giro", () => {
     );
 
     // 300 fresh + 30 read + 10 written: the prompt as the column counts it.
-    expect(consegnato?.inputTokens).toBe(340);
-    expect(consegnato?.outputTokens).toBe(25);
+    expect(delivered?.inputTokens).toBe(340);
+    expect(delivered?.outputTokens).toBe(25);
     // The shares stay reported separately TOO, because the price bills them at
     // three different rates. They are inside the total, not beside it.
-    expect(consegnato?.cacheRead).toBe(30);
-    expect(consegnato?.cacheCreation).toBe(10);
+    expect(delivered?.cacheRead).toBe(30);
+    expect(delivered?.cacheCreation).toBe(10);
     // The one-hour share is a SUBSET of the write, so it does not enter the
     // total a second time: 340, not 350.
-    expect(consegnato?.cacheCreation1h).toBe(10);
+    expect(delivered?.cacheCreation1h).toBe(10);
 
     // THE CONTRACT, written the way whoever consumes the row reads it.
-    expect(consegnato!.inputTokens!).toBeGreaterThanOrEqual(consegnato!.cacheRead!);
+    expect(delivered!.inputTokens!).toBeGreaterThanOrEqual(delivered!.cacheRead!);
 
     // And the whole way down to the shape the chat uses: the billable share is
     // what is NOT a cache read, i.e. fresh + write + answer. It used to come
     // out as 25 (the answer alone), because the subtraction went below zero.
-    const parti = partsFromMessage({
-      usagePromptTokens: consegnato?.inputTokens,
-      usageCompletionTokens: consegnato?.outputTokens,
-      cacheReadTokens: consegnato?.cacheRead,
+    const shares = partsFromMessage({
+      usagePromptTokens: delivered?.inputTokens,
+      usageCompletionTokens: delivered?.outputTokens,
+      cacheReadTokens: delivered?.cacheRead,
     });
-    expect(parti).toEqual({ billable: 335, cacheRead: 30 });
+    expect(shares).toEqual({ billable: 335, cacheRead: 30 });
 
     // The live registry does NOT change: there the usage stays raw, round by
     // round, and it is the source of the chip on the card. The two measures
@@ -195,9 +195,9 @@ describe("l'uso del runtime nativo, giro per giro", () => {
       return new Response(giroConTool, { status: 200 });
     }) as unknown as typeof fetch;
 
-    let annullato: ProviderUsage | undefined;
+    let aborted: ProviderUsage | undefined;
     const h = handler();
-    h.onAborted = (m) => { annullato = m?.usage; };
+    h.onAborted = (m) => { aborted = m?.usage; };
 
     const out = await runAgentTurn(
       {
@@ -212,8 +212,8 @@ describe("l'uso del runtime nativo, giro per giro", () => {
 
     expect(out.turnEnd.end).toBe("cancelled");
     // 100 fresh + 10 read + 7 written, from the single round that did run.
-    expect(annullato?.inputTokens).toBe(117);
-    expect(annullato?.outputTokens).toBe(20);
-    expect(annullato?.cacheRead).toBe(10);
+    expect(aborted?.inputTokens).toBe(117);
+    expect(aborted?.outputTokens).toBe(20);
+    expect(aborted?.cacheRead).toBe(10);
   });
 });

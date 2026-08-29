@@ -40,6 +40,15 @@ import { eCartelloDiInterruzione } from "./cancelled-notice";
 /** Quanto indietro si va a riprendere. Oltre, è storia. */
 export const FINESTRA_RIPRESA_MS = 30 * 60 * 1000;
 
+/**
+ * How many times the same row may be retried, across different boots.
+ *
+ * Three, because two cut resumes in a row are plausible bad luck on a machine
+ * that restarts the server on every save, while three failures say the problem
+ * is not the moment: it is that turn.
+ */
+export const MAX_RESUME_ATTEMPTS = 3;
+
 export interface RigaDaValutare {
   sessionKey: string;
   /** L'ultimo messaggio della chat: ruolo, blocchi, quando. */
@@ -61,8 +70,24 @@ export function chatDaRiprendere(r: RigaDaValutare, oraMs: number): boolean {
   // Fuori finestra: una risposta che arriva domani a una domanda di ieri è
   // rumore, non un recupero.
   if (oraMs - r.timestampMs > FINESTRA_RIPRESA_MS) return false;
-  // Già ripreso: mai due volte, e la traccia è nel turno stesso.
-  if (r.blocks.some((b) => b?.kind === "ripreso")) return false;
+  // Resumed TOO MANY times. The trace lives on the turn itself, and it is
+  // COUNTED instead of being a switch.
+  //
+  // Why a counter and not a yes/no. The trace is written BEFORE the resend, on
+  // purpose: written after, a resend that dies halfway would be retried at every
+  // boot forever, which is the only way this function can do more damage than
+  // the fault it cures. As a switch, though, that price was paid on the first
+  // try: a resend that got CUT - the server restarting while the resumed turn
+  // was running - burned the single chance, and from then on every boot skipped
+  // that row, under a notice promising it would resume on its own.
+  //
+  // Measured on 2026-08-29 on topic:0299ac2d, reported four times by the user.
+  // Of its four answers, the TWO that never resumed are exactly the two marked;
+  // the two that did resume carried no trace.
+  //
+  // Three attempts: two cut resumes are bad luck, ten are a loop. The loop stays
+  // impossible, the bad luck does not.
+  if (r.blocks.filter((b) => b?.kind === "ripreso").length >= MAX_RESUME_ATTEMPTS) return false;
   // E soprattutto: c'è il verdetto di un'interruzione NOSTRA? Un turno chiuso
   // dall'utente non ce l'ha (`cancelledNotice` tace su `user`), quindi questo
   // controllo è anche il modo in cui il suo Ferma viene rispettato.

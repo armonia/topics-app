@@ -9,7 +9,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
-  chatDaRiprendere, FINESTRA_RIPRESA_MS, riprendiTurniInterrotti,
+  chatDaRiprendere, FINESTRA_RIPRESA_MS, MAX_RESUME_ATTEMPTS, riprendiTurniInterrotti,
   RESPONSE_CEILING_MS, STREAM_CEILING_MS, type RigaDaValutare,
 } from "./ripresa-boot";
 import { Database } from "bun:sqlite";
@@ -46,9 +46,26 @@ describe("quale chat riprende da sola", () => {
     expect(chatDaRiprendere({ ...base, blocks: [prosa] }, ORA)).toBe(false);
   });
 
-  test("già ripreso: mai due volte", () => {
-    const b = [...base.blocks!, { kind: "ripreso" } as ContentBlock];
-    expect(chatDaRiprendere({ ...base, blocks: b }, ORA)).toBe(false);
+  test("già ripreso: si CONTA, non è un interruttore", () => {
+    // The defect this case used to guard the wrong way. The trace is written
+    // BEFORE the resend, on purpose: written after, a resend that dies halfway
+    // would be retried forever. As a switch, though, that price was paid on the
+    // first try, and a resend that got CUT - the server restarting while the
+    // resumed turn was running - burned the single chance. From then on every
+    // boot skipped that row, under a notice promising it would resume on its own.
+    //
+    // Measured on 2026-08-29 on topic:0299ac2d, reported four times: of its four
+    // answers, the two that never resumed were exactly the two marked.
+    const con = (n: number) => [
+      ...base.blocks!,
+      ...Array.from({ length: n }, () => ({ kind: "ripreso" }) as ContentBlock),
+    ];
+    // One cut attempt does not close the door: that is the user's real case.
+    expect(chatDaRiprendere({ ...base, blocks: con(1) }, ORA)).toBe(true);
+    expect(chatDaRiprendere({ ...base, blocks: con(2) }, ORA)).toBe(true);
+    // And the loop stays impossible, which is what the old case protected.
+    expect(chatDaRiprendere({ ...base, blocks: con(MAX_RESUME_ATTEMPTS) }, ORA)).toBe(false);
+    expect(chatDaRiprendere({ ...base, blocks: con(MAX_RESUME_ATTEMPTS + 5) }, ORA)).toBe(false);
   });
 
   test("fuori finestra: non si risponde a una domanda di ieri", () => {
