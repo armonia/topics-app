@@ -5,13 +5,16 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.2.221 — 2026-08-29
 
 ### Sotto il cofano
+- Tolta la sonnellina: quello che doveva provare non lo provava
 - La fine del turno buttava via l'unico evento che spegne i pannelli
+- La pane browser nativa non riconnetteva: morto il socket, l'agente non la guida più
 
 ## 2.2.220 — 2026-08-29
 
 ### Sotto il cofano
 - `ttl` è una parola di questo progetto, e il cancello la pagava in 25 file
 - Il budget del bundle confrontava con un numero che nessuno aveva mai misurato
+- La fine del turno buttava via l'unico evento che spegne i pannelli
 
 ## 2.2.219 — 2026-08-29
 
