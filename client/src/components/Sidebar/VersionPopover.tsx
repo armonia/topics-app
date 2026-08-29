@@ -15,6 +15,7 @@ import { useDismissable } from '@/hooks/useDismissable';
 import { POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
 import { isDesktop } from '@/lib/shell';
 import { useT } from '@/hooks/useT';
+import type { BundleDrift } from './bundleDrift';
 
 function platformLabel(): string {
   // The desktop shell (Tauri) exposes no native platform field — derive it from
@@ -32,6 +33,7 @@ export function VersionPopover({
   anchorEl,
   appVersion,
   shellVersion,
+  drift,
   isDev,
   buildDate,
   buildSha,
@@ -44,6 +46,10 @@ export function VersionPopover({
   /** The native desktop shell binary version — shown only when it differs from
    *  the client (i.e. after a client-only hot-deploy, before a shell release). */
   shellVersion?: string;
+  /** Set when the bundle on screen is NOT the version the repo is at: `public/`
+   *  is rebuilt by hand, so it can sit days behind. Null when they agree, or
+   *  when one of the two facts is missing. */
+  drift?: BundleDrift | null;
   isDev: boolean;
   buildDate: string;
   /** Git short-hash of the webapp build ('' when unavailable) — the freshness
@@ -163,6 +169,23 @@ export function VersionPopover({
           <div className="flex justify-between"><span>{tr('version.nativeApp')}</span><span className="text-app-text-secondary tabular-nums">v{shellVersion}</span></div>
         )}
       </div>
+
+      {/* The number above says which version the REPO is at. When `public/` is
+          older than that, the code on screen is a different thing, and this is
+          the only place that says so: the chip cannot hold a sentence, and the
+          question "which version am I on" is already answered here. */}
+      {drift && (
+        <div
+          data-testid="version-bundle-drift"
+          className="flex gap-1.5 rounded border border-amber-500/30 bg-amber-500/10 p-2 text-[11px] text-amber-600 dark:text-amber-400"
+        >
+          <AlertCircle size={12} className="mt-0.5 shrink-0" />
+          <span>
+            <span className="font-medium">{tr('version.drift')}</span>{' '}
+            {tr('version.driftDetail', { bundle: drift.bundle, repo: drift.repo })}
+          </span>
+        </div>
+      )}
 
       {/* Novità — opens the full navigable changelog modal */}
       <div className="border-t border-app-border pt-2.5">

@@ -429,6 +429,47 @@ senza il percorso.
 - **GIVEN** una larghezza misurata pari a zero
 - **THEN** SHALL essere annunciato, non taciuto
 
+### Requirement: STATUSLINE-03 — Il numero di versione dice quale CODICE è a schermo
+
+Il chip di versione preferisce `/api/version` — il numero che il server rilegge
+fresco dal package.json — così un bump si vede subito invece di aspettare una
+ricostruzione. `public/` però è un artefatto di deploy che si muove SOLO quando
+qualcuno lancia `bun run build:client` (decisione misurata in
+`docs/build-watch-decision.md`). Quando il bundle resta indietro, quel chip
+mostra il numero del REPO mentre a schermo gira il codice vecchio: misurato il
+29/08/2026, bundle fermo alla 2.2.211 col repo alla 2.2.215.
+
+I due fatti stanno GIÀ nel client: `__APP_VERSION__` è cotto nel bundle al
+`vite build`, `/api/version` è letto vivo dal server. Il sistema SHALL
+CONFRONTARLI e SHALL dichiarare la divergenza dove si legge il numero, con il
+gesto che la chiude.
+
+Un fatto MANCANTE NON SHALL essere una divergenza: senza server raggiungibile,
+o quando il server risponde `0.0.0` perché non ha potuto leggere niente, il
+segnale SHALL tacere. Sotto il server di sviluppo (HMR) il segnale SHALL tacere
+comunque: lì il codice a schermo è vivo e la define cotta è ferma all'avvio, e
+la loro differenza non è una deriva.
+
+#### Scenario: il bundle è indietro rispetto al repo
+- **GIVEN** un bundle cotto alla 2.2.211 e un server che risponde 2.2.215
+- **THEN** la divergenza SHALL essere dichiarata, con entrambi i numeri
+
+### Requirement: STATUSLINE-03b — Un fatto MANCANTE non è una divergenza
+
+Il rovescio di STATUSLINE-03, e sta in un requisito suo perché è la metà che
+un cancello di regressione dimentica per prima: il confronto ha due termini, e
+quando il secondo non c'è il segnale SHALL tacere invece di inventare una
+deriva.
+
+Vale in tre modi: server irraggiungibile, server che risponde `0.0.0` perché
+non ha potuto leggere niente, e server di sviluppo (HMR) — lì il codice a
+schermo è vivo mentre la define cotta è ferma all'avvio, e la loro differenza
+non è una deriva ma il funzionamento normale.
+
+#### Scenario: nessun server da interrogare
+- **GIVEN** un bundle cotto e nessuna versione di repo
+- **THEN** NON SHALL essere dichiarata nessuna divergenza
+
 ### Requirement: TOPIC-LINK-01 — Un collegamento fra discorsi è SIMMETRICO e si scrive ATOMICAMENTE
 
 Un collegamento fra due discorsi SHALL valere da ENTRAMBE le parti, e SHALL essere
