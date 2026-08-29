@@ -1,5 +1,42 @@
 [
   {
+    "version": "2.2.230",
+    "date": "2026-08-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-08-29 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Il chip di versione dice anche quale guscio aggiorna l'updater",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "`@covers` non sapeva leggere il suffisso che questo stesso cancello raccomanda",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il numero che leggi dice anche quale guscio aggiorna l'updater",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo sweep spazza per età, e usa la stessa raggiungibilità del cancello",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.229",
     "date": "2026-08-29",
     "sections": {
@@ -40,6 +77,11 @@
         },
         {
           "it": "La matrice split-dnd è completa (12/12), e la striscia non si mangia più la barra",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Inventario delle superfici sotto la barra di chrome, con la misura accanto",
           "en": "",
           "scope": null
         }

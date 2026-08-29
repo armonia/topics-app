@@ -2,6 +2,15 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.230 — 2026-08-29
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-08-29 [skip ci]
+- Il chip di versione dice anche quale guscio aggiorna l'updater
+- `@covers` non sapeva leggere il suffisso che questo stesso cancello raccomanda
+- Il numero che leggi dice anche quale guscio aggiorna l'updater
+- Lo sweep spazza per età, e usa la stessa raggiungibilità del cancello
+
 ## 2.2.229 — 2026-08-29
 
 ### Sotto il cofano
@@ -14,6 +23,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Un orfano si giudica dall'ETÀ: total_assets torna a essere misurato
 - Nomi in inglese, e `affordance` è una parola di questo progetto
 - La matrice split-dnd è completa (12/12), e la striscia non si mangia più la barra
+- Inventario delle superfici sotto la barra di chrome, con la misura accanto
 
 ## 2.2.226 — 2026-08-29
 
