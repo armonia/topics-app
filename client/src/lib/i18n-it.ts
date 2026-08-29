@@ -1791,6 +1791,10 @@ const IT: Dict = {
   'statusBar.degraded.fixFailed': "Non ci sono riuscito: elimina il file a mano e riapri Topics.",
   'statusBar.versionTitle': 'Info versione e aggiornamenti',
   'statusBar.devBuildTitle': 'Build di sviluppo (Vite dev server / hot reload). In produzione questo badge sparisce.',
+  // The two sentences the badge next to the number cannot hold: what a
+  // development install is, and which number an update actually replaces.
+  'statusBar.devInstallTitle': 'Installazione di sviluppo: il client arriva da se\' a ogni ricostruzione. Il guscio nativo no, quello resta la versione installata.',
+  'statusBar.shellGapTitle': 'A schermo gira il client v{client}, l\'app installata e\' la v{shell}. L\'aggiornamento sostituisce l\'app, non il client.',
   'statusBar.lastCodeUpdateAgo': ' Ultimo aggiornamento codice: {t} fa.',
   'statusBar.lastCodeUpdate': 'Ultimo aggiornamento codice: {t} fa',
   // Il nome dello stato, per chi non vede l'icona: da quando il badge e' solo

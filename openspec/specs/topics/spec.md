@@ -470,6 +470,36 @@ non è una deriva ma il funzionamento normale.
 - **GIVEN** un bundle cotto e nessuna versione di repo
 - **THEN** NON SHALL essere dichiarata nessuna divergenza
 
+### Requirement: STATUSLINE-03c — Il numero in evidenza dice anche quale GUSCIO aggiorna l'updater
+
+Su una macchina di sviluppo i numeri veri sono TRE e non due: il guscio nativo
+installato (quello che l'updater sostituisce davvero), il bundle client in
+`public/` (quello che gira a schermo) e il `package.json` del repo (quello che
+`/api/version` legge). Misurati: 2.2.179, 2.2.211, 2.2.214.
+
+Il chip SHALL continuare a seguire il CLIENT: è il segnale «il deploy è
+atterrato», e sovrascriverlo con il numero del guscio faceva leggere un client
+appena consegnato col numero vecchio. Ma quando guscio e client divergono il
+chip SHALL DIRLO, nominando il numero del guscio, senza che si debba aprire
+niente: altrimenti l'avviso di nuova versione che il guscio merita davvero
+sembra un difetto dell'avviso.
+
+L'avviso di aggiornamento del guscio NON SHALL essere zittito in modalità di
+sviluppo: la consegna a caldo aggiorna il client, non il guscio, e tacerlo
+toglierebbe l'unico segnale che dice a che versione è l'app installata.
+
+Lo stato «installazione di sviluppo» (`devReload`, cioè `topics-dev.json`)
+SHALL essere leggibile dalla riga di stato e non solo dentro il pannello della
+versione, perché è la ragione per cui il secondo numero resta indietro.
+
+#### Scenario: guscio alla 2.2.179, client alla 2.2.214
+- **GIVEN** il ponte del guscio che risponde 2.2.179 e un client alla 2.2.214
+- **THEN** il chip SHALL mostrare 2.2.214 e SHALL nominare anche la 2.2.179
+
+#### Scenario: app installata e allineata
+- **GIVEN** guscio e client sullo stesso numero
+- **THEN** il chip SHALL restare largo un numero solo
+
 ### Requirement: TOPIC-LINK-01 — Un collegamento fra discorsi è SIMMETRICO e si scrive ATOMICAMENTE
 
 Un collegamento fra due discorsi SHALL valere da ENTRAMBE le parti, e SHALL essere
