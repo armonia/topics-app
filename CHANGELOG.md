@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.234 — 2026-08-29
+
+### Sotto il cofano
+- Il vetro e' la scheda, non la barra
+
 ## 2.2.233 — 2026-08-29
 
 ### Sotto il cofano
