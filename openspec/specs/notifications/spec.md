@@ -549,3 +549,42 @@ sbagliando verso il silenzio.
 #### Scenario: un progetto con un percorso che è prefisso di uno silenziato
 - **GIVEN** un percorso simile ma diverso
 - **THEN** NON SHALL essere silenziato
+
+### Requirement: SEEN-01
+
+Il pallino di attenzione su una card di GRUPPO SHALL spegnersi quando la chat
+che l'ha acceso viene letta, senza aspettare il messaggio successivo.
+
+Il segnale grezzo non basta a deciderlo. Una fase come `awaiting-user` non si
+spegne da sola: resta finche' non arriva un altro turno. Quindi l'unica cosa
+che puo' abbassare quel pallino e' il segno di «visto», e il rollup del gruppo
+SHALL applicare lo stesso cancello `seenSubjects` che il rollup di un pannello
+di PROGETTO applicava gia'.
+
+#### Scenario: la chat letta non tiene acceso il gruppo
+
+- **WHEN** una chat dentro un gruppo finisce il turno e la card prende il
+  pallino, e poi quella chat viene aperta e letta
+- **THEN** la card del gruppo torna neutra insieme alla riga e alla tab, e non
+  resta un'intestazione accesa sopra righe tutte calme
+
+#### Scenario: il gruppo principale e' una card come le altre
+
+- **WHEN** la chat letta sta nel gruppo principale invece che in uno spazio
+- **THEN** vale la stessa regola: nessun ramo esente
+
+### Requirement: SEEN-02
+
+Il cancello del «visto» SHALL valere per il ramo delle chat e NON SHALL toccare
+il ramo dei terminali.
+
+Un terminale segnala per conto suo (un comando finito, un processo morto) e non
+ha una nozione di lettura che coincida con quella di una chat. Spegnerlo col
+segno di visto lo renderebbe muto su un evento che nessuno ha guardato.
+
+#### Scenario: il ramo dei terminali resta intatto
+
+- **WHEN** un terminale dentro un gruppo ha un segnale attivo e le chat dello
+  stesso gruppo sono tutte lette
+- **THEN** la card del gruppo resta accesa per il terminale
+

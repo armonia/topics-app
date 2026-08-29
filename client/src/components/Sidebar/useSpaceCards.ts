@@ -40,8 +40,22 @@ interface AttentionSets {
  * leggono la barra delle tab e le righe della sidebar — parità di badge,
  * nessuna matematica privata di questo componente. Serve soprattutto quando la
  * card è chiusa: è l'unica cosa che dice "là dentro ti aspettano".
+ *
+ * A read chat no longer feeds the 'done' branch: `seenSubjects` gates it, the
+ * same fix the PROJECT tab already got in `projectAttentionTier`. Without it the
+ * card kept its blue dot after you read the chat, because a Claude phase like
+ * `awaiting-user` does not clear by itself — it stays until the next turn, so
+ * the row and the tab went quiet while the group header stayed lit.
+ *
+ * The 'input' branch is deliberately NOT gated. `awaitingInputTopics` also
+ * carries `askWaitingTopics`, which never goes through `applyNewAttention`: a
+ * seen mark on a pending question would never be cleared, and the card would go
+ * mute for good on a request that is still waiting for an answer.
+ *
+ * Exported for the unit test: the hook around it needs a React store, the rule
+ * does not.
  */
-function spaceAttentionTier(
+export function spaceAttentionTier(
   spaceId: string,
   panes: Record<string, Pane>,
   spaces: Record<string, SpaceMeta>,
@@ -55,6 +69,7 @@ function spaceAttentionTier(
     if (pane.type === 'chat') {
       const topicId = pane.topicId ?? pane.id;
       if (sig.awaitingInputTopics.has(topicId)) return 'input';
+      if (sig.seenSubjects.has(topicId)) continue;
       if (sig.awaitingFeedbackTopics.has(topicId)) hasDone = true;
     } else if (pane.type === 'terminal') {
       const sid = pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id);
