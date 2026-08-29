@@ -65,8 +65,8 @@ test.describe("Version chip vs the bundle on screen", () => {
     }
   });
 
-  test("STATUSLINE-03: with no repo version to compare, nothing is declared", async ({ page }) => {
-    test.info().annotations.push({ type: "spec", description: "STATUSLINE-03" });
+  test("STATUSLINE-03b: with no repo version to compare, nothing is declared", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "STATUSLINE-03b" });
 
     // The server is unreachable for this fact: a standalone bundle, or a server
     // that could not read a version. A missing fact is not a drift.

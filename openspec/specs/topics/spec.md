@@ -454,6 +454,18 @@ la loro differenza non è una deriva.
 - **GIVEN** un bundle cotto alla 2.2.211 e un server che risponde 2.2.215
 - **THEN** la divergenza SHALL essere dichiarata, con entrambi i numeri
 
+### Requirement: STATUSLINE-03b — Un fatto MANCANTE non è una divergenza
+
+Il rovescio di STATUSLINE-03, e sta in un requisito suo perché è la metà che
+un cancello di regressione dimentica per prima: il confronto ha due termini, e
+quando il secondo non c'è il segnale SHALL tacere invece di inventare una
+deriva.
+
+Vale in tre modi: server irraggiungibile, server che risponde `0.0.0` perché
+non ha potuto leggere niente, e server di sviluppo (HMR) — lì il codice a
+schermo è vivo mentre la define cotta è ferma all'avvio, e la loro differenza
+non è una deriva ma il funzionamento normale.
+
 #### Scenario: nessun server da interrogare
 - **GIVEN** un bundle cotto e nessuna versione di repo
 - **THEN** NON SHALL essere dichiarata nessuna divergenza
