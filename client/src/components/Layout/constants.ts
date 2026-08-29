@@ -32,3 +32,15 @@ export const EDGE_DROP_PX = 30;
  * (they previously used 0.10 and 0.05 independently).
  */
 export const MIN_PANE_FRACTION = 0.1;
+
+/**
+ * Height of a group's tab-bar chrome row (Tailwind `h-10` = 2.5rem = 40px).
+ *
+ * The TOP full-width-row drop strip is offset by this on BOTH surfaces so it
+ * clears the first row's tab bar instead of sitting on top of it. A strip with
+ * `pointer-events: auto` over the bar swallows clicks and steals the tab-move
+ * drops aimed at the bar: the project layout learned that first, and the
+ * standalone grid was still paying it (a tab dropped on the first row's bar
+ * landed in a new full-width row instead of that bar).
+ */
+export const TAB_BAR_H = 40;

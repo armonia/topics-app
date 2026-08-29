@@ -92,6 +92,11 @@ export const PROJECT_WORDS = new Set([
   // `database`, and `svc` is this repository's own abbreviation for a service
   // instance - it appears in a dozen test files that predate this gate.
   "entries", "database", "svc",
+  // `affordance` is design vocabulary this repository already speaks - the
+  // file `tests/e2e/chat-affordances-audit.spec.ts` predates the gate - and no
+  // 1934 word list carries it. There is no English word to rename it to that
+  // means the same thing: "control" and "handle" both say less.
+  "affordance", "affordances",
   // Three dictionary holes of the same kind, all of them already this
   // repository's own vocabulary before the names that tripped on them existed:
   // `automerge` names the service in `server/services/task-automerge.ts`,

@@ -21,6 +21,15 @@ import { DRAG_SLOP_PX } from '../../hooks/useGridResize';
 export interface CellSubStackProps {
   stack?: PanelGridCellStack;
   primary: React.ReactNode;
+  /**
+   * Identity of the primary slot, published as `data-split-leaf` when the cell
+   * really hosts a stack. The stack IS a split of that cell along `col`, so
+   * without these attributes a top/bottom edge drop changed the layout and
+   * left no trace in the tree the DOM publishes (DNDSPLIT-01 asks for every
+   * split node to be readable). Absent for hosts that have no key to give:
+   * the attributes are then simply not written.
+   */
+  primaryKey?: string;
   /** Rendered for each item in `stack.items`. Index matches stack.items[i]. */
   renderStackItem: (itemKey: string, idx: number) => React.ReactNode;
   /**
@@ -36,6 +45,7 @@ export interface CellSubStackProps {
 export function CellSubStack({
   stack,
   primary,
+  primaryKey,
   renderStackItem,
   onResize,
   isDragActive: _isDragActive,
@@ -54,10 +64,19 @@ export function CellSubStack({
     : Array.from({ length: totalSlots }, () => 1 / totalSlots);
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden">
+    <div
+      className="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden"
+      // Same contract as SplitTree's own nodes: a stack is a `col` split of the
+      // hosting cell, with one slot per pane. It lives INSIDE the cell the tree
+      // renders as a leaf, so a reader that stops at `data-split-leaf` sees the
+      // coarse shape and one that keeps walking sees the finer one.
+      data-split-node="col"
+      data-split-arity={totalSlots}
+    >
       <div
         className="flex flex-col min-h-0 min-w-0 overflow-hidden"
         style={{ flex: `${heights[0]} 1 0%` }}
+        data-split-leaf={primaryKey}
       >
         {primary}
       </div>
@@ -71,6 +90,7 @@ export function CellSubStack({
           <div
             className="flex flex-col min-h-0 min-w-0 overflow-hidden"
             style={{ flex: `${heights[i + 1]} 1 0%` }}
+            data-split-leaf={itemKey}
           >
             {renderStackItem(itemKey, i)}
           </div>
