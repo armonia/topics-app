@@ -11,6 +11,7 @@
  *   - a content write NEVER touches tool_calls,
  *   - finalize / partial-only updates NEVER blank the body.
   * @covers MSGOWN-01
+  * @covers ASK-10
  */
 
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
@@ -198,6 +199,30 @@ describe("message field-ownership on updateMessage", () => {
     // …e l'ask è chiusa: chi fosse bloccato sul bridge fallisce pulito invece
     // di restare appeso a una risposta che non arriverà.
     expect(hasPendingAsk(SK)).toBe(false);
+  });
+
+  test("endStream lascia in piedi l'ask esentata: l'approvazione del piano nasce dalla FINE del turno, non ci sopravvive per sbaglio", () => {
+    // The plan panel is installed BY `finalizeStream`, and a few hundred lines
+    // later the same function closes the stream: without the exemption the
+    // question was born `error` in the database, the panel on screen would
+    // never have been honoured, and after a reload even the bar above the
+    // composer was gone, because `findPendingAsk` looks for
+    // `waiting_for_input`. Answering that panel opens a NEW turn: there is no
+    // dead rendez-vous to cancel here.
+    const msg = ctx.createPartialMessage(SK, "assistant");
+    ctx.startStream(SK, msg.id);
+    ctx.addToolCallToLastMessage(SK, tool("t9", { name: "Write", status: "waiting_for_input" }));
+    ctx.addToolCallToLastMessage(SK, tool("t10", { status: "running" }));
+
+    const interrupted = ctx.endStream(SK, { keepAwaiting: ["t9"] });
+
+    // The exempt one is not among the interrupted, and stays clickable.
+    expect(interrupted.map(t => t.id)).toEqual(["t10"]);
+    const row = ctx.getMessageById(msg.id)!;
+    expect(row.toolCalls?.find(t => t.id === "t9")?.status).toBe("waiting_for_input");
+    // The exemption covers the named id, not the rule: the tool hanging next to
+    // it is closed as always.
+    expect(row.toolCalls?.find(t => t.id === "t10")?.status).toBe("error");
   });
 
   test("a timeout marker sets content but preserves the tool timeline", () => {

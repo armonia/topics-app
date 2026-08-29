@@ -603,3 +603,31 @@ rispondere due volte. Lo stato deve arrivare dal server.
 - **GIVEN** un avviso che porta uno stato sconosciuto
 - **WHEN** viene applicato
 - **THEN** la riga SHALL restare com'era
+
+### Requirement: ASK-10 -- La fine del turno consegna quello che ha spento, e non spegne il pannello che nasce da lei
+
+Chiudere uno stream ANNULLA ogni strumento rimasto in attesa di un umano: il
+turno e' finito, e un clic non raggiungerebbe piu' nessuno. La chiusura SHALL
+percio' consegnare l'elenco di quel che ha annullato a chi la invoca, e quelle
+righe SHALL essere annunciate ai client vivi: e' l'unico evento capace di
+spegnere un pannello gia' a schermo, e scartarlo lasciava a schermo un pannello
+cliccabile sopra una riga che in archivio era gia' `error`.
+
+L'approvazione del piano SHALL essere l'eccezione, ed e' esente per la sua
+origine: quel pannello lo installa la fine del turno stessa, la sua risposta
+apre un turno NUOVO invece di sbloccare quello finito, e nessun fornitore
+emettera' mai un risultato per quello strumento. Annullarlo li' significherebbe
+scriverlo `error` prima che qualcuno lo veda, e togliere anche la barra sopra il
+composer al ricaricamento successivo, che cerca `waiting_for_input`.
+L'esenzione SHALL valere per l'identificativo nominato e non per la regola:
+ogni altro strumento appeso accanto viene chiuso come sempre.
+
+#### Scenario: il pannello che il turno finito si lascia dietro
+- **GIVEN** una domanda ancora a schermo quando il turno si chiude
+- **WHEN** lo stream finisce
+- **THEN** la riga SHALL essere annullata E annunciata, cosi' il pannello sparisce senza ricaricare
+
+#### Scenario: il piano sopravvive alla fine che lo ha creato
+- **GIVEN** un'approvazione di piano installata dalla chiusura del turno
+- **WHEN** la stessa chiusura annulla gli strumenti in attesa
+- **THEN** quel pannello SHALL restare `waiting_for_input`, cliccabile e onorato
