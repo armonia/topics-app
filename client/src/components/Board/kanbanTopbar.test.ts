@@ -252,18 +252,23 @@ describe("5. i filtri hanno un guscio solo", () => {
   const FIELD = readFileSync(join(DIR, "FilterTokenField.tsx"), "utf8");
   const CONSTANTS = readFileSync(join(DIR, "constants.ts"), "utf8");
 
-  test("i quattro controlli passano tutti da `filterFieldClass`", () => {
-    // Search box + labels chip live in the pane, the token field and the project
-    // picker in their own files. Four controls on one row: one shell.
-    expect(codeWithoutComments(PANE).match(/filterFieldClass\(/g) ?? [], "ricerca ed etichette devono chiedere il guscio comune").toHaveLength(2);
+  test("i DUE controlli rimasti passano entrambi da `filterFieldClass`", () => {
+    // Were four: a search box and a labels chip in the pane, plus the token
+    // field and the project picker in their own files. Since 29/08 the first
+    // three are ONE field (`FilterTokenField`), so the pane itself owns no
+    // filter shell at all - which is the strongest form of "one shell": the row
+    // cannot grow a fourth variant in a file that no longer knows the class.
+    expect(codeWithoutComments(PANE).match(/filterFieldClass\(/g) ?? [], "il pane non deve rifarsi un guscio suo").toHaveLength(0);
     expect(codeWithoutComments(FIELD)).toContain("filterFieldClass(");
     expect(codeWithoutComments(PICKER)).toContain("filterFieldClass(");
   });
 
-  test("nessuno dei quattro si ridisegna il guscio a mano", () => {
-    // The shape of a hand-rolled shell: its own height plus its own background,
-    // on the same element. It is how the three variants were born.
-    const handRolled = /h-6[^"`]*bg-(black|white)\//;
+  test("nessuno dei due si ridisegna il guscio a mano", () => {
+    // The shape of a hand-rolled shell: its own height plus its own FILL, on
+    // the same element. `hover:bg-*` is excluded on purpose - a hover tint on
+    // the 24px reset button is not a shell, and matching it would forbid the
+    // one affordance that button has.
+    const handRolled = /h-6[^"`]*(?<!hover:)bg-(black|white)\//;
     expect(handRolled.test(codeWithoutComments(FIELD)), "il campo dei token si e' rifatto il fondo da solo").toBe(false);
     const filters = codeWithoutComments(PANE).slice(codeWithoutComments(PANE).indexOf("function InlineFilters"));
     expect(handRolled.test(filters), "un filtro della barra si e' rifatto il fondo da solo").toBe(false);

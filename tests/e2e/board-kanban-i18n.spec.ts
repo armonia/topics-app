@@ -116,26 +116,26 @@ test.describe.serial("Kanban in inglese", () => {
     await page.goto("/");
     await openProjectBoard(page);
 
-    // Filtri: la ricerca (che ha un nome accessibile, non solo un placeholder),
-    // il chip di priorità e quello delle etichette.
-    await expect(page.getByLabel("Search the tasks")).toBeVisible({ timeout: 10000 });
-    // Priority and assignee are NOT two chips any more: since 8ad974d55 they
-    // are a single autocomplete token field, so what gets checked here are the
-    // strings that field actually exposes — its accessible label and the hint
-    // it shows while empty. Still looking for a «Priority» button would test an
-    // interface that no longer exists: the test would stay red forever saying
-    // "not translated" about something that merely changed.
-    const priorityField = page.getByTestId("filter-token-input");
-    await expect(priorityField).toBeVisible();
-    await expect(priorityField).toHaveAttribute("aria-label", "Filter by priority or assignee");
-    await expect(priorityField).toHaveAttribute("placeholder", "priority, @assignee…");
-    await expect(page.getByTestId("filter-labels-chip")).toHaveAttribute("title", "Filter by label");
+    // ONE FIELD since 29/08: search, priority, who-closes, kind and assignee
+    // all live there, and the group captions moved into its dropdown instead of
+    // two separate menus. Still looking for a "Priority" or "Label" chip would
+    // measure an interface that no longer exists: it would stay red forever
+    // saying "not translated" about something that merely changed.
+    const field = page.getByTestId("filter-token-input");
+    await expect(field).toBeVisible({ timeout: 10000 });
+    await expect(field).toHaveAttribute("aria-label", "Search the tasks");
+    await expect(field).toHaveAttribute("placeholder", "search, priority, @agent, label…");
 
-    // Il menu delle etichette: le INTESTAZIONI si traducono, i nomi delle
-    // etichette no (sono dati, il server ci confronta sopra in `whoCloses`).
-    await page.getByTestId("filter-labels-chip").click();
+    // The catalogue opens ON CLICK, with nothing typed: the CAPTIONS are
+    // translated, the label names are not (they are data - the server compares
+    // against them in `whoCloses`).
+    await field.click();
     await expect(page.getByText("Who closes it")).toBeVisible({ timeout: 5000 });
     await expect(page.getByText("Kind")).toBeVisible();
+    // Anchored to the caption's id and not to its text: "Priority" alone also
+    // catches the composer's "Auto priority" chip, and `exact` cannot help -
+    // the caption carries the cap's "+N" next to the name.
+    await expect(page.locator("#bff-cap-priority")).toHaveText(/Priority/);
     await expect(page.getByRole("option", { name: "visibile", exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
 

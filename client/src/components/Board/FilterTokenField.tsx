@@ -1,172 +1,260 @@
 /**
- * FilterTokenField — priority + assignee, as ONE token field with autocomplete.
+ * FilterTokenField — the board's ONE filter field: free text AND the four
+ * closed vocabularies (priority, who-closes, kind, assignee) in a single
+ * control, replacing a search box, two chip+`Menu` dropdowns and a token field
+ * that only knew two of the four.
  *
- * Before, these were two independent chip+`Menu` pickers: click a chip, a
- * dropdown opens with a static option list, click a row. Fine for four
- * priorities, but the same shape does not scale to assignees on a board with
- * a dozen agents, and it is a different gesture from every OTHER "pick one of
- * many" field in the app — the composer's @-file mention, which you type into
- * and see matches as you go.
+ * THE TENSION, and how it is resolved. One input holding an OPEN vocabulary
+ * (free text over task titles) and CLOSED ones (the tokens) is where this
+ * design normally breaks: you type "auth", the board narrows to six cards, and
+ * a panel lands on top of those six saying "no results" about a search that
+ * produced six. Three rules, none of them a convention anyone has to learn:
  *
- * So this is that gesture, replicated: a controlled input, trigger detection
- * (here trivial — the whole field IS the trigger, there is no textarea sharing
- * it with prose) and an array of tokens, exactly ChatInput's `message` +
- * `mentionedFiles` shape. The chrome is not reinvented: `SuggestionMenu` is
- * the shell extracted from `FileMentionMenu`, `TokenPill` is `FilePill`
- * generalised past "a file", and dismissal is the same `useDismissable`
- * (inside `SuggestionMenu`) every other menu in the app uses.
+ *   1. the input's value IS `filters.text` - always, with no prefix syntax, so
+ *      the board narrows as you type exactly as it did before;
+ *   2. the panel is mounted only when there is at least one row, so the empty
+ *      state cannot be reached and nothing floats over a board that answered;
+ *   3. rows are always filtered by that same text, so a row is on screen only
+ *      BECAUSE the query matched it - which is what makes consuming the query
+ *      on pick correct by construction rather than a guess about intent.
  *
- * The PROJECT filter stays `ProjectFilterPicker`, untouched: it already has a
- * search box (`ProjectPickerBody`) and its own suggestion strip, and three
- * regression suites (`kanbanChipMetrics.test.ts`, `ProjectFilterPicker.test.ts`,
- * `kanbanTopbar.test.ts`, all `@covers KANBAN-12`) pin that it exists and is
- * used exactly as it is.
+ * The PROJECT filter stays `ProjectFilterPicker`, untouched: it has its own
+ * search box and its own inline chip strip, and three suites pin it.
  */
 import { useMemo, useRef, useState } from 'react';
+import { Check, Search, Tag } from 'lucide-react';
 import { useT } from '../../hooks/useT';
-import { fuzzyScore } from '../../lib/fuzzyScore';
+import { POPOVER_ITEM } from '../../lib/popoverStyles';
+import { CLOSER_LABELS, KIND_LABELS, type TaskLabel } from '../../lib/board';
 import { SuggestionMenu } from '../Shared/SuggestionMenu';
 import { TokenPill } from '../Shared/TokenPill';
-import { filterFieldClass, filterInputClass, filterTokenPillClass, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER } from './constants';
+import { buildFilterRows, type FilterGroup, type FilterOption } from './filterRows';
+import {
+  filterFieldClass, filterInputClass, filterMenuCaptionClass, filterTokenPillClass,
+  PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, type BoardFieldFilters,
+} from './constants';
 
-type Token =
-  | { kind: 'priority'; value: number; label: string }
-  | { kind: 'assignee'; value: string; label: string };
+const LISTBOX_ID = 'board-filter-listbox';
+const GROUP_KEY: Record<FilterGroup, string> = {
+  priority: 'board.filter.priority',
+  closer: 'board.filter.whoCloses',
+  kind: 'board.filter.kind',
+  assignee: 'board.filter.assignee',
+};
+const CAPTION_ID: Record<FilterGroup, string> = {
+  priority: 'bff-cap-priority', closer: 'bff-cap-closer', kind: 'bff-cap-kind', assignee: 'bff-cap-assignee',
+};
+/** An assignee is free text, and an `id` has to be a valid token. */
+const optionId = (o: FilterOption) => `bff-${o.group}-${String(o.value).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
 
-export function FilterTokenField({
-  priority, assignedTo, assignees, onPriorityChange, onAssignedToChange,
-}: {
-  priority: readonly number[];
-  assignedTo: readonly string[];
-  /** Assignees seen on the current task set — the ONLY source of assignee
-   *  suggestions, same as the dropdown it replaces. */
+export function FilterTokenField({ value, onChange, assignees }: {
+  value: BoardFieldFilters;
+  /**
+   * ONE patch, ONE call - and the pane applies it as `{...filters, ...next}`.
+   * Four separate callbacks would mean a pick that also clears the text fires
+   * two `setFilters`, both built from the same `filters` captured in that
+   * render: the second wins and the token that was just added is gone.
+   */
+  onChange: (next: BoardFieldFilters) => void;
+  /** Assignees seen on the current task set - the only source of suggestions. */
   assignees: readonly string[];
-  onPriorityChange: (p: number[]) => void;
-  onAssignedToChange: (a: string[]) => void;
 }) {
   const tr = useT();
+  const shellRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  // -1 = NOTHING preselected. `text` is live, so Enter on a preselected first
+  // row would silently turn what you typed into a token and drop your search;
+  // and with the picked rows kept in the list (they carry the check), a blind
+  // Enter could just as well REMOVE a filter that was already on. One extra
+  // ArrowDown, and typing can never hijack anything.
+  const [cursor, setCursor] = useState(-1);
 
-  // Suggestions never repeat a token already picked — same rule the old
-  // dropdowns followed by ticking a check mark instead of hiding the row; a
-  // TEXT field has no room for a disabled-but-visible option.
-  const options = useMemo<Token[]>(() => [
-    ...PRIORITY_ORDER.filter((p) => !priority.includes(p)).map((p) => ({ kind: 'priority' as const, value: p, label: PRIORITY_LABEL[p] })),
-    ...assignees.filter((a) => !assignedTo.includes(a)).map((a) => ({ kind: 'assignee' as const, value: a, label: a })),
-  ], [priority, assignedTo, assignees]);
+  const closerTitle = (l: TaskLabel): string =>
+    l === 'visibile' ? tr('board.filter.labelVisibleTitle')
+      : l === 'decisione' ? tr('board.filter.labelDecisionTitle')
+        : tr('board.filter.labelInvisibleTitle');
 
-  const filtered = useMemo(() => {
-    const q = query.trim();
-    if (!q) return options;
-    return options
-      .map((o) => ({ o, score: fuzzyScore(q, o.label) }))
-      .filter((r) => r.score.match)
-      .sort((a, b) => b.score.score - a.score.score)
-      .map((r) => r.o);
-  }, [options, query]);
+  const options = useMemo<FilterOption[]>(() => [
+    ...PRIORITY_ORDER.map((p) => ({ group: 'priority' as const, value: p, label: PRIORITY_LABEL[p]! })),
+    ...CLOSER_LABELS.map((l) => ({ group: 'closer' as const, value: l, label: l, title: closerTitle(l) })),
+    ...KIND_LABELS.map((l) => ({ group: 'kind' as const, value: l, label: l })),
+    ...assignees.map((a) => ({ group: 'assignee' as const, value: a, label: a })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [assignees, tr]);
 
-  const addToken = (t: Token) => {
-    if (t.kind === 'priority') onPriorityChange([...priority, t.value].sort((a, b) => b - a));
-    else onAssignedToChange([...assignedTo, t.value]);
-    setQuery('');
-    setSelectedIndex(0);
-    // Multi-select is a run of picks (chat's @mention only ever inserts one,
-    // this field routinely wants three): keep the field focused and the menu
-    // open on the now-shorter list instead of forcing a re-click per token.
+  const rows = useMemo(() => buildFilterRows(options, value.text), [options, value.text]);
+
+  const picked = (o: FilterOption) =>
+    o.group === 'priority' ? value.priority.includes(o.value)
+      : o.group === 'assignee' ? value.assignedTo.includes(o.value)
+        : value.labels.includes(o.value as TaskLabel);
+
+  // Rows TOGGLE. A picked row does not vanish (that was the old two-genre
+  // rule): it stays with the check, so the panel is the COMPLETE picture of the
+  // filter and untoggling is the same click that toggled.
+  const toggle = (o: FilterOption) => {
+    const on = picked(o);
+    // `text: ''` is safe by rule 3 above: this row was on screen because the
+    // query matched it, so the query WAS the reach for this token; leaving it
+    // on would narrow twice with the same intent and usually empty the board.
+    if (o.group === 'priority') {
+      onChange({ ...value, text: '', priority: on ? value.priority.filter((x) => x !== o.value) : [...value.priority, o.value].sort((a, b) => b - a) });
+    } else if (o.group === 'assignee') {
+      onChange({ ...value, text: '', assignedTo: on ? value.assignedTo.filter((x) => x !== o.value) : [...value.assignedTo, o.value] });
+    } else {
+      const l = o.value as TaskLabel;
+      onChange({ ...value, text: '', labels: on ? value.labels.filter((x) => x !== l) : [...value.labels, l] });
+    }
+    // Back to -1 so a second Enter cannot undo what the first just did.
+    setCursor(-1);
     inputRef.current?.focus();
   };
 
-  // Backspace on an EMPTY field removes the most recently added token — the
-  // same affordance a browser's tag input gives, and the reason `Token[]`
-  // instead of two independent arrays would have been the wrong shape: "the
-  // last one" has to mean something across both kinds.
-  const removeLast = () => {
-    if (assignedTo.length > 0) onAssignedToChange(assignedTo.slice(0, -1));
-    else if (priority.length > 0) onPriorityChange(priority.slice(0, -1));
-  };
+  const pills = [
+    ...value.priority.map((p) => ({ key: `priority-${p}`, icon: <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[p]}`} />, label: PRIORITY_LABEL[p]!, remove: () => onChange({ ...value, priority: value.priority.filter((x) => x !== p) }) })),
+    ...value.labels.map((l) => ({ key: `label-${l}`, icon: <Tag className="h-2.5 w-2.5 shrink-0" />, label: l as string, remove: () => onChange({ ...value, labels: value.labels.filter((x) => x !== l) }) })),
+    ...value.assignedTo.map((a) => ({ key: `assignee-${a}`, icon: undefined, label: `@${a}`, remove: () => onChange({ ...value, assignedTo: value.assignedTo.filter((x) => x !== a) }) })),
+  ];
+  // Backspace eats the pill the caret is sitting next to - the RIGHTMOST one
+  // DRAWN, whatever kind it is. The old rule was "assignees first, then
+  // priorities", which agreed with the eye only by accident of render order;
+  // with three kinds it would stop agreeing.
+  const removeLast = () => pills.at(-1)?.remove();
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (open && filtered.length > 0) {
-      if (e.key === 'ArrowDown') { e.preventDefault(); setSelectedIndex((i) => (i + 1) % filtered.length); return; }
-      if (e.key === 'ArrowUp') { e.preventDefault(); setSelectedIndex((i) => (i - 1 + filtered.length) % filtered.length); return; }
-      if (e.key === 'Enter') { e.preventDefault(); addToken(filtered[selectedIndex]!); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setCursor((i) => (rows.length === 0 ? -1 : (i + 1) % rows.length)); return; }
+    if (e.key === 'ArrowUp') { e.preventDefault(); setOpen(true); setCursor((i) => (rows.length === 0 ? -1 : (i <= 0 ? rows.length - 1 : i - 1))); return; }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      // Enter is never destructive on its own: with nothing on the cursor it
+      // means "I am done typing" - the text keeps filtering, the list gets out
+      // of the way. A row is applied only once the arrows (or the pointer) have
+      // deliberately put the cursor on it.
+      const row = cursor >= 0 ? rows[cursor] : undefined;
+      if (row) toggle(row.opt); else setOpen(false);
+      return;
     }
-    if (e.key === 'Escape') { e.preventDefault(); setOpen(false); return; }
-    if (e.key === 'Backspace' && query === '') { removeLast(); }
+    if (e.key === 'Escape') { e.preventDefault(); setOpen(false); setCursor(-1); return; }
+    // Tab leaves the field. The panel is on <body>, so leaving it open would
+    // strand a floating list on screen with no owner and a combobox still
+    // claiming an active descendant.
+    if (e.key === 'Tab') { setOpen(false); setCursor(-1); return; }
+    if (e.key === 'Backspace' && value.text === '') removeLast();
   };
 
-  const hasTokens = priority.length > 0 || assignedTo.length > 0;
+  const active = value.text.length > 0 || pills.length > 0;
+  const cursorRow = cursor >= 0 ? rows[cursor] : undefined;
+  // Nothing to offer, nothing on screen: this is what makes the "no results"
+  // state unreachable.
+  const menuOpen = open && rows.length > 0;
 
   return (
-    // The shell is `filterFieldClass`, like every other filter on the row, and
-    // `active` says the same thing here as on a chip: this control is narrowing
-    // the board. Before, a field holding three tokens looked as idle as an
-    // empty one.
     <div
-      className={`${filterFieldClass(hasTokens)} relative`}
+      ref={shellRef}
       data-testid="filter-token-field"
+      onMouseDown={(e) => {
+        // Clicking the shell is clicking the field - except on a pill's remove
+        // button, which has its own job.
+        if ((e.target as HTMLElement).closest('button')) return;
+        setOpen(true);
+        if (e.target !== inputRef.current) { e.preventDefault(); inputRef.current?.focus(); }
+      }}
+      // No `grow`: the row's free space belongs to the project strip, as it did
+      // when a fixed-width search box sat here. `max-w` so a run of tokens
+      // cannot swallow the bar; the bar itself already scrolls.
+      className={`${filterFieldClass(active)} min-w-[8rem] max-w-[24rem] sm:min-w-[15rem]`}
     >
-      {priority.map((p) => (
+      <Search className="pointer-events-none h-3 w-3 shrink-0 text-app-text-secondary" />
+      {/* Every token is drawn, and every remove button stays a Tab stop. A `+N`
+          counter would take the hidden tokens OUT of the DOM: a board narrowed
+          on five conditions would announce itself as an empty search box. */}
+      {pills.map((p) => (
         <TokenPill
-          key={`priority-${p}`}
-          icon={<span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[p]}`} />}
-          label={PRIORITY_LABEL[p]}
-          onRemove={() => onPriorityChange(priority.filter((x) => x !== p))}
-          removeLabel={tr('board.filter.removeToken', { label: PRIORITY_LABEL[p] })}
-          className={filterTokenPillClass}
-        />
-      ))}
-      {assignedTo.map((a) => (
-        <TokenPill
-          key={`assignee-${a}`}
-          label={`@${a}`}
-          onRemove={() => onAssignedToChange(assignedTo.filter((x) => x !== a))}
-          removeLabel={tr('board.filter.removeToken', { label: a })}
+          key={p.key} icon={p.icon} label={p.label} onRemove={p.remove}
+          removeLabel={tr('board.filter.removeToken', { label: p.label })}
           className={filterTokenPillClass}
         />
       ))}
       <input
         ref={inputRef}
-        value={query}
-        onChange={(e) => { setQuery(e.target.value); setOpen(true); setSelectedIndex(0); }}
+        value={value.text}
+        onChange={(e) => { onChange({ ...value, text: e.target.value }); setOpen(true); setCursor(-1); }}
         onFocus={() => setOpen(true)}
         onKeyDown={onKeyDown}
-        placeholder={hasTokens ? '' : tr('board.filter.priorityAssigneePlaceholder')}
-        aria-label={tr('board.filter.priorityAssigneeLabel')}
+        role="combobox"
+        aria-expanded={menuOpen}
+        aria-controls={LISTBOX_ID}
+        aria-autocomplete="list"
+        aria-activedescendant={cursorRow ? optionId(cursorRow.opt) : undefined}
+        // The accessible name does NOT change: this is still the board's search
+        // box, it just accepts more. Other suites address this control by that
+        // name, and after the merge the name is still TRUE.
+        aria-label={tr('board.filter.searchLabel')}
+        placeholder={pills.length > 0 ? '' : tr('board.filter.allPlaceholder')}
         data-testid="filter-token-input"
         className={`${filterInputClass} min-w-[56px]`}
       />
       <SuggestionMenu
-        visible={open}
-        items={filtered}
-        getKey={(t) => `${t.kind}-${t.value}`}
-        selectedIndex={selectedIndex}
-        onClose={() => setOpen(false)}
-        inputRef={inputRef}
-        headerLabel={tr('board.filter.priorityAssignee')}
-        filterBadge={query || undefined}
-        emptyLabel={tr('palette.noResults')}
+        visible={menuOpen}
+        items={rows}
+        getKey={(r) => optionId(r.opt)}
+        selectedIndex={cursor}
+        onClose={() => { setOpen(false); setCursor(-1); }}
+        inputRef={shellRef}
+        anchorRef={shellRef}
+        listboxId={LISTBOX_ID}
+        listboxLabel={tr('board.filter.header')}
+        multiSelectable
+        headerLabel={tr('board.filter.header')}
+        filterBadge={value.text || undefined}
+        hint={tr('board.filter.fieldHint')}
         position="below"
-        className="w-48"
-        renderItem={(t, idx, { selected }) => (
-          <button
-            type="button"
-            role="option"
-            aria-selected={selected}
-            onClick={() => addToken(t)}
-            onMouseEnter={() => setSelectedIndex(idx)}
-            className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition-colors ${
-              selected ? 'bg-primary/15 text-app-text' : 'text-app-text hover:bg-app-hover'
-            }`}
-          >
-            {t.kind === 'priority'
-              ? <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[t.value]}`} />
-              : <span className="w-1.5 shrink-0 text-center text-app-text-muted">@</span>}
-            <span className="truncate">{t.label}</span>
-          </button>
+        className="w-64"
+        maxHeightClass="max-h-[23rem]"
+        renderItem={(r, idx, { selected }) => (
+          <>
+            {r.head && (
+              // Decoration for the eye. The screen reader gets the group from
+              // each option's `aria-describedby`, which points HERE: putting the
+              // group into the option's NAME would make every row announce its
+              // group twice and break every `getByRole("option", { name })`.
+              <p role="presentation" id={CAPTION_ID[r.opt.group]} className={filterMenuCaptionClass}>
+                {tr(GROUP_KEY[r.opt.group])}
+                {r.more > 0 && <span className="ml-1 font-normal normal-case tracking-normal text-app-text-muted">+{r.more}</span>}
+              </p>
+            )}
+            <button
+              type="button"
+              role="option"
+              id={optionId(r.opt)}
+              // `aria-selected` says PICKED - the meaning it has in a
+              // multi-select listbox. The keyboard cursor travels on
+              // `aria-activedescendant`, not here.
+              aria-selected={picked(r.opt)}
+              aria-describedby={CAPTION_ID[r.opt.group]}
+              title={r.opt.group === 'closer' ? r.opt.title : undefined}
+              // The rows live in a portal at the end of <body>: a Tab stop there
+              // is a jump across the DOM away from the field that owns them.
+              // The arrows drive this list, and the header hint says so.
+              tabIndex={-1}
+              // Keep the caret - and `aria-activedescendant` - on the input: a
+              // click that stole focus would leave the combobox claiming an
+              // active descendant it no longer owns.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => toggle(r.opt)}
+              onMouseEnter={() => setCursor(idx)}
+              className={`${POPOVER_ITEM} ${selected ? 'bg-primary/15' : ''}`}
+            >
+              {r.opt.group === 'priority'
+                ? <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[r.opt.value]}`} />
+                : r.opt.group === 'assignee'
+                  ? <span className="w-1.5 shrink-0 text-center text-app-text-muted">@</span>
+                  : <Tag className="h-3 w-3 shrink-0 text-app-text-muted" />}
+              <span className="min-w-0 flex-1 truncate">{r.opt.label}</span>
+              {picked(r.opt) && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+            </button>
+          </>
         )}
       />
     </div>

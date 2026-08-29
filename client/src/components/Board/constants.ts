@@ -1,7 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import { PackageCheck, Hourglass, Square, TimerOff } from 'lucide-react';
 import { MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT } from '../../lib/board';
-import type { TaskStatus } from '../../lib/board';
+import type { TaskLabel, TaskStatus } from '../../lib/board';
 import { EFFORT_TIERS } from '../../lib/effortTiers';
 
 /** Compact prose for the shared ChatMarkdown renderer inside small board
@@ -334,3 +334,26 @@ export const filterInputClass =
  */
 export const filterTokenPillClass =
   'inline-flex shrink-0 items-center gap-1 rounded border border-app-border-light bg-black/5 px-1.5 py-0.5 text-[11px] font-medium text-app-text-heading dark:bg-white/10';
+
+/** Caption of a group inside a filter dropdown. It was a local string inside
+ *  `InlineFilters`; the field that owns the menu now owns the class. */
+export const filterMenuCaptionClass =
+  'px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted';
+
+/**
+ * The board's five filter axes. It used to be declared TWICE inside
+ * `KanbanBoardPane` - `BoardFilters` for the props and `Filters` for the state -
+ * which is the same shape in two places, i.e. two shapes waiting to drift.
+ */
+export interface BoardFilters {
+  priority: number[];
+  assignedTo: string[];
+  text: string;
+  projectId: string[];
+  /** Labels in AND: "only the visible ones in review" is this plus the column. */
+  labels: TaskLabel[];
+}
+
+/** What the ONE field owns: every axis except the project, which keeps its own
+ *  control (it already has a search box and an inline chip strip of its own). */
+export type BoardFieldFilters = Omit<BoardFilters, 'projectId'>;

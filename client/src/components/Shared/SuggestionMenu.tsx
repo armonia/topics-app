@@ -1,6 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Search } from 'lucide-react';
-import { POPOVER_PANEL } from '@/lib/popoverStyles';
+import { POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
+import { computeMenuPosition } from '@/lib/popoverPosition';
 import { useDismissable } from '@/hooks/useDismissable';
 import { Spinner } from './Spinner';
 
@@ -49,15 +51,41 @@ export interface SuggestionMenuProps<T> {
   /** Extra attributes spread on the root, e.g. `data-mention-menu` — the
    *  legacy hook ChatInput's textarea keydown handler queries by selector. */
   rootAttrs?: Record<string, string | boolean | undefined>;
+  /**
+   * When given, the panel is PORTALLED to <body> and positioned against this
+   * element instead of being absolutely positioned inside it.
+   *
+   * The board's filter bar needs it: the toolbar is `overflow-x-auto`, and per
+   * CSS Overflow 3 any value other than `visible` on one axis computes the
+   * OTHER axis to `auto` too - so the bar clips its own children vertically,
+   * with the scrollbar switched off. A panel hanging off a 24px shell inside that bar is
+   * cut down to nothing.
+   *
+   * Deliberately NOT `Menu`: under 768px `Menu` becomes a bottom sheet with a
+   * full-screen scrim, and the input that DRIVES this list stays up in the
+   * toolbar, under that scrim. Touching it to fix your query would close the
+   * list. A picker you type into cannot live in a sheet its field is not in.
+   */
+  anchorRef?: React.RefObject<HTMLElement | null>;
+  /** `id` of the inner listbox, so the caller's combobox can `aria-controls` it. */
+  listboxId?: string;
+  /** Accessible name of the listbox. */
+  listboxLabel?: string;
+  /** The rows are toggles, not a single choice. */
+  multiSelectable?: boolean;
+  /** Panel height cap (default `max-h-64`). */
+  maxHeightClass?: string;
 }
 
 export function SuggestionMenu<T>({
   visible, items, getKey, selectedIndex, renderItem, onClose, inputRef,
   headerIcon, headerLabel, filterBadge, hint, loading, loadingLabel, emptyLabel,
   position = 'above', className, rootAttrs,
+  anchorRef, listboxId, listboxLabel, multiSelectable, maxHeightClass,
 }: SuggestionMenuProps<T>) {
   const menuRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
   useDismissable({
     open: visible,
@@ -70,15 +98,54 @@ export function SuggestionMenu<T>({
     itemRefs.current[selectedIndex]?.scrollIntoView({ block: 'nearest' });
   }, [selectedIndex]);
 
+  // Placed BEFORE paint, and re-placed while open. No reset when it closes: the
+  // next open recomputes in the same layout pass, and `visibility` hides the
+  // one frame in which a stale position could show.
+  useLayoutEffect(() => {
+    if (!visible || !anchorRef) return;
+    const place = () => {
+      const a = anchorRef.current;
+      const panel = menuRef.current;
+      if (!a || !panel) return;
+      const next = computeMenuPosition(
+        a.getBoundingClientRect(),
+        { width: panel.offsetWidth, height: panel.offsetHeight },
+        { align: 'left' },
+      );
+      setPos({ top: next.top, left: next.left });
+    };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [visible, anchorRef]);
+
   if (!visible) return null;
 
   const posCls = position === 'above' ? 'bottom-full mb-1' : 'top-full mt-1';
+  const cap = maxHeightClass ?? 'max-h-64';
 
-  return (
+  const panel = (
     <div
       ref={menuRef}
       {...rootAttrs}
-      className={`absolute ${posCls} left-0 right-0 ${POPOVER_PANEL} z-50 overflow-hidden max-h-64 flex flex-col ${className ?? ''}`}
+      // Anchored mode is a floating panel on <body>: it carries the same
+      // `data-popover` marker `Menu` carries, so whoever asks "is the focus in
+      // a popover or in a field of the page" gets the same answer here.
+      {...(anchorRef ? { 'data-popover': '' } : {})}
+      className={
+        anchorRef
+          ? `fixed ${POPOVER_PANEL} overflow-hidden ${cap} flex flex-col ${className ?? ''}`
+          : `absolute ${posCls} left-0 right-0 ${POPOVER_PANEL} z-50 overflow-hidden ${cap} flex flex-col ${className ?? ''}`
+      }
+      style={
+        anchorRef
+          ? { top: pos?.top ?? 0, left: pos?.left ?? 0, zIndex: Z_POPOVER, visibility: pos ? 'visible' : 'hidden' }
+          : undefined
+      }
     >
       <div className="px-3 py-1.5 border-b border-app-border flex items-center gap-2">
         {headerIcon ?? <Search size={12} className="text-app-text-secondary" />}
@@ -88,7 +155,13 @@ export function SuggestionMenu<T>({
         <span className="text-[11px] text-app-text-muted">{hint ?? '↑↓ navigate · Enter select · Esc close'}</span>
       </div>
 
-      <div role="listbox" className="overflow-y-auto flex-1">
+      <div
+        role="listbox"
+        id={listboxId}
+        aria-label={listboxLabel}
+        aria-multiselectable={multiSelectable || undefined}
+        className="overflow-y-auto flex-1"
+      >
         {loading ? (
           <div className="px-3 py-4 text-center text-[12px] text-app-text-muted">
             <Spinner size="md" className="mx-auto mb-2" />
@@ -113,4 +186,6 @@ export function SuggestionMenu<T>({
       </div>
     </div>
   );
+
+  return anchorRef ? createPortal(panel, document.body) : panel;
 }

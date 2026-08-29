@@ -1,7 +1,7 @@
 /**
  * board-filter-focus.spec.ts — the focus ring of a filter control stays INSIDE it.
  *
- * @covers KANBAN-68
+ * @covers KANBAN-68, KANBAN-69
  *
  * THE DEFECT, reported on 29/08: focusing the priority field draws a border
  * that sprouts off the control. The app has exactly one focus rule
@@ -137,5 +137,39 @@ test.describe("il fuoco su un filtro della board", () => {
     });
     expect(suX.outlineStyle, "la X del token disegna ancora l'outline globale").toBe("none");
     expect(suX.boxShadow, "la X a fuoco deve avere il suo anello").toContain("inset");
+  });
+
+  test("KANBAN-69: il catalogo si apre al volo, e non contraddice mai la board", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-69" });
+    await page.goto("/");
+    await openProjectBoard(page);
+
+    const input = page.getByTestId("filter-token-input");
+    await expect(input).toBeVisible({ timeout: 15000 });
+
+    // (a) AT REST the catalogue is already there: clicking with nothing typed
+    // shows WHAT can be filtered, grouped. This is the half a search box never
+    // had - you cannot type towards something you do not know exists.
+    await input.click();
+    await expect(page.getByRole("option").first()).toBeVisible({ timeout: 10000 });
+    const groups = await page.locator('[id^="bff-cap-"]').count();
+    expect(groups, "il catalogo deve aprirsi raggruppato").toBeGreaterThanOrEqual(3);
+
+    // (b) A CAP THAT DECLARES ITSELF. Truncating in silence reads as "there is
+    // nothing else"; the caption carries what is left behind.
+    const withRest = await page.locator('[id^="bff-cap-"]').filter({ hasText: /\+\d/ }).count();
+    expect(withRest, "nessun gruppo dichiara quanto resta").toBeGreaterThan(0);
+
+    // (c) THE INVARIANT THE WHOLE DESIGN RESTS ON: a query that matches no
+    // catalogue entry must NOT mount the panel — while the board stays narrowed
+    // on that same text. A panel saying "nothing found" over a board that DID
+    // answer is a lie the user reads before they read the board.
+    await input.fill("zzzqqqx");
+    await expect(page.getByRole("option")).toHaveCount(0, { timeout: 10000 });
+    await expect(input, "il testo deve restare a filtrare la board").toHaveValue("zzzqqqx");
+
+    // (d) And a query that DOES match lifts the cap and offers the row.
+    await input.fill("visib");
+    await expect(page.getByRole("option", { name: "visibile", exact: true })).toBeVisible({ timeout: 10000 });
   });
 });

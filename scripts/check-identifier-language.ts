@@ -111,6 +111,7 @@ export const PROJECT_WORDS = new Set([
   // got through, because the splitter never saw the acronym on its own; the
   // camelCase `ttlMs` did, and there is no English word to rename it to that
   // would say the same thing.
+  "listbox", // ARIA role name, not a word any dictionary carries
   "ttl",
   // Another dictionary hole of the same kind: `destructure` is how every
   // JavaScript programmer says it and no 1934 word list carries it. It appears

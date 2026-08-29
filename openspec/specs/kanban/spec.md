@@ -2775,3 +2775,50 @@ prime due meta' cancellando questa.
 - **GIVEN** quel bottone messo a fuoco
 - **THEN** NON SHALL disegnare un outline
 - **AND** SHALL portare il proprio anello `inset`
+
+### Requirement: KANBAN-69 — I filtri della board sono UN campo, e il campo non contraddice mai la board
+
+La ricerca, la priorita', chi chiude, il genere e l'assegnatario SHALL vivere in
+UN SOLO campo. Il filtro per PROGETTO NON SHALL entrarci: ha gia' una ricerca
+propria e una striscia di chip in linea.
+
+Il valore dell'input SHALL essere il testo di ricerca, sempre, senza sintassi a
+prefissi: la board si restringe scrivendo esattamente come prima.
+
+IL PANNELLO NON SHALL MAI CONTRADDIRE LA BOARD. Le righe SHALL essere sempre
+filtrate dallo stesso testo, e il pannello SHALL essere montato solo se c'e'
+almeno una riga: lo stato «nessun risultato» e' cosi' IRRAGGIUNGIBILE, perche' un
+pannello che dice «niente» sopra una board che si e' ristretta sullo stesso
+testo e' una bugia che si legge prima della board. Poiche' una riga puo' stare a
+schermo solo PERCHE' la query l'ha prodotta, consumare la query quando la riga
+viene scelta e' corretto per costruzione.
+
+A RIPOSO il campo SHALL mostrare il catalogo: cliccandolo, senza aver scritto
+niente, SHALL comparire cosa si puo' filtrare, raggruppato. Ogni gruppo SHALL
+mostrarne alcuni e dichiarare quanti ne restano: un tetto che tronca in silenzio
+si legge come «non c'e' altro». Una query SHALL togliere il tetto — cio' verso
+cui si sta scrivendo non puo' essere la cosa nascosta dietro il «+N».
+
+Il cursore da tastiera SHALL partire da NESSUNA riga: con il testo vivo, un
+Invio su una riga preselezionata trasformerebbe in token cio' che si sta
+scrivendo, e con le righe scelte che restano in lista potrebbe anche TOGLIERE un
+filtro gia' acceso.
+
+Ogni token attivo SHALL essere disegnato, e il suo bottone di rimozione SHALL
+restare una fermata di Tab: un contatore «+N» toglierebbe i token dal DOM, e una
+board ristretta su cinque condizioni si annuncerebbe come una ricerca vuota.
+
+#### Scenario: il catalogo a riposo
+- **GIVEN** il campo dei filtri cliccato, senza testo
+- **THEN** SHALL mostrare i gruppi con le loro intestazioni
+- **AND** ogni gruppo troncato SHALL dichiarare quanti ne restano
+
+#### Scenario: una query che non trova niente
+- **GIVEN** un testo che non corrisponde a nessuna voce del catalogo
+- **THEN** il pannello NON SHALL essere montato
+- **AND** la board SHALL restare ristretta su quel testo
+
+#### Scenario: scegliere una voce
+- **GIVEN** una voce raggiunta con le frecce e applicata
+- **THEN** SHALL diventare un token
+- **AND** il testo SHALL essere consumato

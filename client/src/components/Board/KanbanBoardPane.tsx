@@ -13,7 +13,7 @@ import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { PoliteKeyboardSensor, PoliteMouseSensor, PoliteTouchSensor } from './dndSensors';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { AlertTriangle, Archive, Check, ChevronDown, ChevronRight, Search, Settings, Tag, Target, UploadCloud, X } from 'lucide-react';
+import { AlertTriangle, Archive, ChevronDown, ChevronRight, Settings, Target, UploadCloud, X } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
 import { Spinner } from '../Shared/Spinner';
@@ -23,8 +23,8 @@ import { useTaskSessionResolver } from '../../hooks/useTaskSession';
 import { useBoardFeed } from '../../hooks/useBoardFeed';
 import {
   boardApi, boardIdForPath, isProjectlessId, showsLandingDebt, TASK_STATUSES,
-  CLOSER_LABELS, KIND_LABELS, STATUS_LABEL,
-  type BoardTask, type TaskStatus, type BoardSettings, type TaskLabel,
+  STATUS_LABEL,
+  type BoardTask, type TaskStatus, type BoardSettings,
   type PublishProject, type DiffBundle,
 } from '../../lib/board';
 import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
@@ -35,7 +35,7 @@ import { scrollDelta } from '../../lib/scrollDelta';
 import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
 import { UnifiedDiff } from './UnifiedDiff';
 import { useConfirm } from '../../hooks/useConfirm';
-import { CREATED_FLASH_MS, filterFieldClass, filterInputClass, PRIORITY_DOT, PRIORITY_LABEL, type LiveUsage, type OpenTask } from './constants';
+import { CREATED_FLASH_MS, filterFocusRingClass, PRIORITY_DOT, PRIORITY_LABEL, type BoardFilters, type LiveUsage, type OpenTask } from './constants';
 import { boardCollision } from './format';
 import { FilterTokenField } from './FilterTokenField';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
@@ -497,33 +497,11 @@ function MissionsMenu({ onStart }: { onStart: (m: Mission) => void }) {
  * blocco (`GlobalSettingsSection`: interruttore + `GlobalCapControl`) su ogni
  * board, anche quella generale, quindi togliendo il ▾ non sparisce niente. */
 
-interface BoardFilters {
-  priority: number[]; assignedTo: string[]; text: string; projectId: string[]; labels: TaskLabel[];
-}
-
 interface FilterPanelProps {
   filters: BoardFilters;
   onFiltersChange: (filters: BoardFilters) => void;
   tasks: readonly BoardTask[];
   mode: 'project' | 'all';
-}
-
-/** Row inside a filter dropdown — same markup as the composer's picker options
- *  (dot/label + emerald check when selected), so filters and the create-task
- *  input share one visual language. */
-function FilterOption({ selected, onClick, dot, label, title }: {
-  selected: boolean; onClick: () => void; dot?: React.ReactNode; label: string; title?: string;
-}) {
-  return (
-    <button
-      role="option" aria-selected={selected} onClick={onClick} title={title}
-      className={POPOVER_ITEM}
-    >
-      {dot}
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-      {selected && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-    </button>
-  );
 }
 
 /** Filters shown INLINE in the board header. Built from the SAME picker primitive
@@ -532,13 +510,6 @@ function FilterOption({ selected, onClick, dot, label, title }: {
  *  "let the agent decide" makes no sense, so it's dropped. */
 function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelProps) {
   const tr = useT();
-  const lblBtnRef = useRef<HTMLButtonElement>(null);
-  const [lblOpen, setLblOpen] = useState(false);
-
-  const toggleLabel = (l: TaskLabel) => {
-    const updated = filters.labels.includes(l) ? filters.labels.filter((x) => x !== l) : [...filters.labels, l];
-    onFiltersChange({ ...filters, labels: updated });
-  };
   const reset = () => onFiltersChange({ priority: [], assignedTo: [], text: '', projectId: [], labels: [] });
 
   const assignees = Array.from(new Set(tasks.map((t) => t.assignedTo).filter(Boolean) as string[])).sort();
@@ -549,7 +520,6 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
   // here, the labels chip below, the token field and the project picker all
   // wear it, and they name it — no local alias, so a grep for the shell finds
   // every control that wears it.
-  const menuHeader = 'px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted';
 
   return (
     /* `grow` e NON `flex-1`: la riga dei filtri deve arrivare fino al gruppo di
@@ -558,67 +528,28 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
        stessi chip finivano a disegnarsi sopra i comandi accanto — la striscia
        dei progetti si guadagnava lo spazio togliendolo ai filtri veri. */
     <div className="flex min-w-0 grow items-center gap-1.5">
-      {/* Search — always visible. The shell is the SAME `filterFieldClass` the
-          chips wear, and the magnifier is a flex child of it instead of an
-          absolutely positioned glyph over a padded input: one control, built
-          like the others, and it darkens like the others once you type. */}
-      <div className={`${filterFieldClass(filters.text.length > 0)} w-28 sm:w-40`}>
-        <Search className="pointer-events-none h-3 w-3 shrink-0 text-app-text-secondary" />
-        <input
-          value={filters.text}
-          onChange={(e) => onFiltersChange({ ...filters, text: e.target.value })}
-          placeholder={tr('board.filter.searchPlaceholder')}
-          aria-label={tr('board.filter.searchLabel')}
-          className={filterInputClass}
-        />
-      </div>
-
-      {/* Priority + assignee — ONE token field with autocomplete, replacing the
-          two chip+Menu dropdowns. See `FilterTokenField.tsx`. */}
+      {/* ONE field: text, priority, who-closes, kind and assignee, with the
+          catalogue in its own dropdown. See `FilterTokenField.tsx`. The project
+          keeps its own picker (it already has a search box and an inline chip
+          strip), and the reset keeps its own button. */}
       <FilterTokenField
-        priority={filters.priority}
-        assignedTo={filters.assignedTo}
+        value={{ priority: filters.priority, assignedTo: filters.assignedTo, text: filters.text, labels: filters.labels }}
+        onChange={(next) => onFiltersChange({ ...filters, ...next })}
         assignees={assignees}
-        onPriorityChange={(priority) => onFiltersChange({ ...filters, priority })}
-        onAssignedToChange={(assignedTo) => onFiltersChange({ ...filters, assignedTo })}
       />
-
-
-      {/* Etichette — chip + Menu. Il caso d'uso che le ha fatte nascere si
-          compone qui: «visibile» acceso mentre si guarda la colonna Review è
-          esattamente la lista che un umano deve guardare. */}
-      <button
-        ref={lblBtnRef} onClick={() => setLblOpen(true)}
-        data-testid="filter-labels-chip"
-        title={tr('board.filter.labelsTitle')}
-        className={filterFieldClass(filters.labels.length > 0)}
-      >
-        <Tag className="h-3 w-3 shrink-0" />
-        {filters.labels.length === 1 ? filters.labels[0] : tr('board.filter.labels')}
-        {filters.labels.length > 1 && <span className="tabular-nums text-app-text-secondary">·{filters.labels.length}</span>}
-        <ChevronDown className="h-3 w-3 text-app-text-muted" />
-      </button>
-      <Menu open={lblOpen} anchorRef={lblBtnRef} onClose={() => setLblOpen(false)} minWidth={200} role="listbox">
-        <p className={menuHeader}>{tr('board.filter.whoCloses')}</p>
-        {CLOSER_LABELS.map((l) => (
-          <FilterOption
-            key={l} selected={filters.labels.includes(l)} onClick={() => toggleLabel(l)} label={l}
-            title={l === 'visibile'
-              ? tr('board.filter.labelVisibleTitle')
-              : l === 'decisione'
-                ? tr('board.filter.labelDecisionTitle')
-                : tr('board.filter.labelInvisibleTitle')}
-          />
-        ))}
-        <p className={menuHeader}>{tr('board.filter.kind')}</p>
-        {KIND_LABELS.map((l) => (
-          <FilterOption key={l} selected={filters.labels.includes(l)} onClick={() => toggleLabel(l)} label={l} />
-        ))}
-      </Menu>
 
       {/* Reset — only when something is active */}
       {anyActive && (
-        <button onClick={reset} title={tr('board.filter.reset')} className="rounded p-0.5 text-app-text-muted hover:bg-white/10 hover:text-app-text">
+        <button
+          onClick={reset}
+          title={tr('board.filter.reset')}
+          data-testid="filter-reset"
+          // `h-6 w-6` and not `p-0.5`: a 12px icon with 2px of padding is a
+          // 16px target, the smallest on the row. Same inset ring as the
+          // shells: being the smallest target, it is also the one the global
+          // offset outline overflows worst.
+          className={`grid h-6 w-6 shrink-0 place-items-center rounded ${filterFocusRingClass} text-app-text-muted hover:bg-white/10 hover:text-app-text`}
+        >
           <X className="h-3 w-3" />
         </button>
       )}
@@ -754,16 +685,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   const [dispatchOn, setDispatchOn] = useState<boolean | null>(null);
 
   // Filters state + localStorage persistence (per board / per 'all' view).
-  interface Filters {
-    priority: number[];
-    assignedTo: string[];
-    text: string;
-    projectId: string[];
-    /** Etichette in AND — «solo le visibili in review» è questo più la colonna. */
-    labels: TaskLabel[];
-  }
+  // The shape lives in `constants.ts` as `BoardFilters`: it used to be declared
+  // twice in this file, which is the same shape in two places, i.e. two shapes
+  // waiting to drift.
   const storageKey = `board:filters-${mode === 'all' ? 'all' : projectId}`;
-  const [filters, setFilters] = useState<Filters>(() => {
+  const [filters, setFilters] = useState<BoardFilters>(() => {
     try {
       const stored = localStorage.getItem(storageKey);
       // `labels` è arrivato dopo: un filtro salvato da una versione precedente
