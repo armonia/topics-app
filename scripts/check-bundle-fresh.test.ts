@@ -79,6 +79,40 @@ describe("newestMtime — la misura", () => {
   it("una cartella che non esiste da' zero, non un'eccezione", () => {
     expect(newestMtime(join(tmpdir(), "topics-fresh-che-non-esiste-mai")).at).toBe(0);
   });
+
+  // GATE-BUNDLE-FRESH-01 measured this in the wild: a delivery touching only
+  // client/src/lib/selectionStyles.test.ts got refused by assertFresh's
+  // "bundle older than sources" message, even though Vite never imports a
+  // `.test.ts` into any chunk. The two tests below are the two ways that regresses:
+  // silently ignoring a real source change would be worse than the false
+  // positive it replaces.
+  it("un .test.ts NON conta come sorgente: non spedisce in nessun chunk", () => {
+    const root = tree();
+    const old = fileAt(root, "a/reale.ts", 1_000_000);
+    fileAt(root, "a/b/recente.test.ts", 2_000_000);
+    const got = newestMtime(root);
+    expect(got.at).toBe(1_000_000_000);
+    expect(got.file).toBe(old);
+  });
+
+  it("un .test.tsx dentro __tests__/ NON conta neanche lui", () => {
+    const root = tree();
+    const old = fileAt(root, "a/reale.tsx", 1_000_000);
+    mkdirSync(join(root, "a", "__tests__"), { recursive: true });
+    fileAt(root, "a/__tests__/recente.test.tsx", 2_000_000);
+    const got = newestMtime(root);
+    expect(got.at).toBe(1_000_000_000);
+    expect(got.file).toBe(old);
+  });
+
+  it("un vero file sorgente conta ancora, e vince se e' il piu' recente", () => {
+    const root = tree();
+    fileAt(root, "a/vecchio.test.ts", 1_000_000);
+    const real = fileAt(root, "a/b/recente.ts", 2_000_000);
+    const got = newestMtime(root);
+    expect(got.at).toBe(2_000_000_000);
+    expect(got.file).toBe(real);
+  });
 });
 
 describe("il cancello lo usa davvero", () => {
