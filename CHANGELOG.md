@@ -2,7 +2,16 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.2.217 — 2026-08-29
+## 2.2.218 — 2026-08-29
+
+### Sotto il cofano
+- Cliccato «Consenti», i bottoni restavano grigi: l'esito non arrivava a chi aveva deciso
+- Le domande restavano «in invio»: l'annuncio che le spegneva cadeva nel vuoto
+- La rotella della tab browser girava su una pagina ferma da ore: il socket era morto
+- Un titolo che ripete la propria scheda non e' informazione, e' larghezza tolta ai filtri
+- La ripresa al boot aspettava una route che non tornava, e con lei si fermava il boot
+
+## 2.2.217 — 2026-08-28
 
 ### Sotto il cofano
 - In dev l'app non chiede piu' di installare una versione che hai gia' nei sorgenti
