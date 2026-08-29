@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.236 — 2026-08-29
+
+### Sotto il cofano
+- Il bordo sul fuoco usciva dal campo: era l'outline globale su una X da 12px
+
 ## 2.2.235 — 2026-08-29
 
 ### Sotto il cofano

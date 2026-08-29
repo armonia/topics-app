@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.236",
+    "date": "2026-08-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il bordo sul fuoco usciva dal campo: era l'outline globale su una X da 12px",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.235",
     "date": "2026-08-29",
     "sections": {
