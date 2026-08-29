@@ -19,6 +19,7 @@ import { useFeatureWeights } from '@/hooks/useFeatureWeights';
 import { bloccoTooltip } from '@/lib/featureWeightText';
 import { VersionPopover } from './VersionPopover';
 import { bundleDrift } from './bundleDrift';
+import { VersionChip } from './VersionChip';
 import { ChangelogModal } from '../ChangelogModal';
 import type { ConnectionStatus } from '@/types';
 import { ROW_INSET, SIDEBAR_ACTIVE, SIDEBAR_HOVER } from '@/lib/selectionStyles';
@@ -419,6 +420,15 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
     if (!isDesktop) return;
     getVersion().then(v => { if (v) setShellVersion(v); }).catch(() => {});
   }, []);
+  // A DEVELOPMENT INSTALL IS A FACT ABOUT THE MACHINE, not about the build.
+  //
+  // `isDev` is the Vite dev server, always false in the desktop app, which runs
+  // the built bundle. `devReload` is the server hot-delivering `public/`
+  // (`topics-dev.json`), which is exactly the state the desktop machine that
+  // builds Topics is in, and until now it was readable only by opening the
+  // version popover. Reported: the person could not see they were in
+  // development mode, and read the repo number as "I am up to date".
+  const devInstall = isDev || !!status?.server?.devReload;
 
   const handleRefresh = async () => {
     // Immediate spin so the click is acknowledged (in Electron the app then
@@ -810,40 +820,20 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
         )}
 
         <span className="ml-auto flex-shrink-0 flex items-center gap-1.5 text-[11px] text-app-text-secondary tabular-nums whitespace-nowrap">
-          {appVersion && (
-            <button
-              data-version-anchor
-              onClick={(e) => { setVersionAnchor(e.currentTarget); setShowVersionPopover(v => !v); }}
-              className={`tap-expand-y text-app-text-muted hover:text-app-text-secondary ${SIDEBAR_HOVER} rounded px-1 py-1 -mx-0.5 transition-colors ${showVersionPopover ? `${SIDEBAR_ACTIVE} text-app-text-secondary` : ''}`}
-              title={drift
-                ? tr('version.driftTitle', { bundle: drift.bundle, repo: drift.repo })
-                : tr('statusBar.versionTitle')}
-            >
-              v{appVersion}
-              {/* A stale bundle gets a mark, not a banner: the number is read
-                  many times a day and the drift is rare, so it costs one dot
-                  next to it and the full sentence in the popover, which is
-                  where a version question is already answered. */}
-              {drift && (
-                <span
-                  data-testid="version-drift-dot"
-                  className={`inline-block align-middle ml-1 w-1.5 h-1.5 rounded-full ${PALLINO_ATTESA}`}
-                />
-              )}
-            </button>
-          )}
-          {/* In dev the build age rides INSIDE this badge ("dev · 12m") instead
-              of costing a second chip plus its gap — the two always appeared
-              together, and separating them is what tipped the bar past the
-              sidebar width. */}
-          {isDev && (
-            <span
-              className={`px-1 rounded bg-amber-500/15 ${SEGNALE_ATTESA} font-medium text-[10px] leading-tight`}
-              title={tr('statusBar.devBuildTitle') + (lastChangeTime ? tr('statusBar.lastCodeUpdateAgo', { t: formatBuildTime(lastChangeTime) }) : '')}
-            >
-              dev{lastChangeTime ? ` · ${formatBuildTime(lastChangeTime)}` : ''}
-            </span>
-          )}
+          {/* The chip and its badge live in VersionChip: the divergence between
+              the client on screen and the shell the updater replaces is a thing
+              a test has to be able to MOUNT, and this component does not mount
+              (perf metrics, system status, shell bridge, a dozen stores). */}
+          <VersionChip
+            appVersion={appVersion}
+            shellVersion={shellVersion}
+            drift={drift}
+            devInstall={devInstall}
+            hmrAge={isDev && lastChangeTime ? formatBuildTime(lastChangeTime) : undefined}
+            desktop={isDesktop}
+            popoverOpen={showVersionPopover}
+            onOpen={(anchor) => { setVersionAnchor(anchor); setShowVersionPopover(v => !v); }}
+          />
           {/* Quiet "auto-update" badge: the server has dev bundle hot-delivery ON
               (topics-dev.json) so windows self-reload on each rebuild — no popup.
               Driven by server status, so it shows in the PROD-minified desktop

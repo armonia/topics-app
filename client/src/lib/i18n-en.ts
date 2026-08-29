@@ -1516,6 +1516,10 @@ const EN = {
   'statusBar.degraded.fixFailed': 'That did not work: delete the file by hand and reopen Topics.',
   'statusBar.versionTitle': 'Version info and updates',
   'statusBar.devBuildTitle': 'Development build (Vite dev server / hot reload). In production this badge disappears.',
+  // The two sentences the badge next to the number cannot hold: what a
+  // development install is, and which number an update actually replaces.
+  'statusBar.devInstallTitle': 'Development install: the client arrives on its own at every rebuild. The native shell does not, it stays at the installed version.',
+  'statusBar.shellGapTitle': 'The screen runs client v{client}, the installed app is v{shell}. An update replaces the app, not the client.',
   'statusBar.lastCodeUpdateAgo': ' Last code update: {t} ago.',
   'statusBar.lastCodeUpdate': 'Last code update: {t} ago',
   'statusBar.autoUpdate': 'Auto-update on',
