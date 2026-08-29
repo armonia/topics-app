@@ -114,11 +114,24 @@ export default defineConfig({
           'markdown': ['react-markdown', 'remark-gfm'],
           'editor': ['@codemirror/view', '@codemirror/state', '@codemirror/language', '@codemirror/commands', '@codemirror/theme-one-dark'],
           'icons': ['lucide-react'],
-          // dnd-kit is pulled into the EAGER main chunk by the sidebar's
-          // TopicItem (useSortable), not just the lazy KanbanBoardPane. Split it
-          // so it downloads in parallel and caches independently of the churny
-          // app entry chunk (it's a stable dependency that rarely changes).
-          'dnd-kit': ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'],
+          // NO ENTRY FOR dnd-kit, and removing it is half the win.
+          //
+          // The comment that stood here said dnd-kit landed in the EAGER main
+          // chunk "by the sidebar's TopicItem (useSortable)". True when it was
+          // written, and false from the day topic reordering was deleted: that
+          // hook has been inert ever since (see TopicItem.tsx).
+          //
+          // But removing the hook alone was worth 113 bytes, because THIS entry
+          // was what kept the chunk alive. An object-form entry forces the chunk
+          // to exist even when nothing imports it from an eager path, and Rollup
+          // parks the react-dom CJS stub inside it - the same "1KB stub" the
+          // `react-vendor` comment above names. The result: `react-vendor`
+          // opened with a static `import` from `dnd-kit-*.js`, and the
+          // `modulepreload` stayed in `index.html` for dead code.
+          //
+          // Without this entry dnd-kit lands whole, in a single copy, inside
+          // `KanbanBoardPane-*.js`, which is already `lazy()`. Measured: the
+          // critical path goes from 6 files to 5, -12.267 gz.
         },
       },
     },

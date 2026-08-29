@@ -5,8 +5,6 @@ import type { Topic } from '@/types';
 import { useTopicPendingStatus } from '@/contexts/PendingActionContext';
 import { PendingActionRing } from '@/components/Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '@/components/Shared/PendingActionProgressOverlay';
-import { useSortable } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import { rememberDraggedPane } from '@/lib/dragPayload';
 import { startDragPreview } from '@/lib/dragPreview';
 import { getProjectLabel } from '@/lib/buildSidebarItems';
@@ -64,7 +62,6 @@ interface TopicItemProps {
   /** Set when this topic is open in ANOTHER window (pop-out presence). Renders
    *  the trailing AppWindow glyph; the row click focuses that window. */
   detachedWindowLabel?: string;
-  sortable?: boolean;
   /** IL TRASPORTO DEL DITO. Col mouse la riga si trascina da sé (`draggable` +
    *  `dragstart`), e chi la riceve la fissa. Su iOS quegli eventi da un tocco
    *  non arrivano mai, quindi il gesto va costruito: chi disegna la riga dice
@@ -106,7 +103,6 @@ export const TopicItem = memo(function TopicItem({
   onStopStreaming,
   pinned,
   detachedWindowLabel,
-  sortable,
   touchDrag,
 }: TopicItemProps) {
   // Depth indent lives on the LEFT MARGIN, not padding — so a sub-tab's CARD
@@ -135,20 +131,27 @@ export const TopicItem = memo(function TopicItem({
   const attentionTier = useTopicAttentionFill(topic.id);
   const onFill = attentionTier !== null;
 
-  const { attributes: sortableAttributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: topic.id,
-    disabled: !sortable,
-  });
-  // Exclude aria-disabled from sortable attributes — it prevents Playwright clicks
-  // and isn't meaningful for treeitem semantics (the item is always interactive, just not always draggable)
-  const { 'aria-disabled': _ariaDisabled, role: _role, ...attributes } = sortableAttributes;
-
-  const sortableStyle = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-    marginLeft,
-  };
+  // NO `useSortable` HERE, and its absence is the point.
+  //
+  // It was here, and for months it did nothing. The `sortable` prop was never
+  // passed - the only call site is `TopicTree.tsx`, fourteen props and that one
+  // is not among them - so `disabled` was always true, and `@dnd-kit/core`
+  // returns `listeners: undefined` when disabled. The sidebar mounts neither a
+  // `DndContext` nor a `SortableContext`, so `transform` came from the null
+  // context and was `null`, `transition` `undefined`, `isDragging` `false`. The
+  // topic reordering that hook served was deleted along with its scenario
+  // (TOPIC-12), and `topicsApi.reorder` has no callers left.
+  //
+  // It cost 17 KB gz on the CRITICAL PATH of every cold start, not by itself
+  // but because it kept the `'dnd-kit'` entry in `manualChunks` alive: an
+  // object-form entry forces the chunk to exist, and Rollup parks the react-dom
+  // CJS stub inside it, giving `react-vendor` a static arc to it. Removing the
+  // hook WITHOUT removing the entry is worth 113 bytes; removing both takes the
+  // critical path from 6 files to 5.
+  //
+  // The row's own drag never went through here and has not changed: mouse via
+  // `draggable` + `handleDragStart`, finger via `useLongPress`/`useTouchDrag`.
+  const sortableStyle = { marginLeft };
 
   // Tieni premuto = tasto destro. Su touch il menu contestuale non aveva altra
   // porta, e quella che c'era — il «...» con dentro Fissa e Archivia — era un
@@ -233,14 +236,7 @@ export const TopicItem = memo(function TopicItem({
 
   return (
     <div
-      ref={setNodeRef}
-      {...attributes}
-      {...listeners}
-      {
-        // Dopo `listeners` di proposito: se dnd-kit montasse handler di touch,
-        // il gesto della riga deve restare uno solo — questo.
-        ...lp.handlers
-      }
+      {...lp.handlers}
       data-pressing={lp.pressed || undefined}
       // Il drag nativo si spegne solo dove NON c'è un puntatore: il lift di
       // HTML5 contende lo stesso dito del long-press, e vince lui.
@@ -248,9 +244,8 @@ export const TopicItem = memo(function TopicItem({
       // `!isTouch` non basta come condizione, ed era lo stesso errore che il
       // blocco in cima a `useMobile` racconta: su un ibrido (portatile
       // touchscreen, iPad col trackpad) `isTouch` è vero MA il mouse c'è, e
-      // spegnere lì il drag toglie l'unico trasporto che la riga ha — la
-      // sidebar non monta un `DndContext`, quindi i `listeners` di `useSortable`
-      // sono inerti e resta solo `handleDragStart`. Trascinare una chat nella
+      // spegnere lì il drag toglie l'unico trasporto che la riga ha: resta
+      // solo `handleDragStart`. Trascinare una chat nella
       // griglia diventava impossibile con il mouse, su una macchina che il mouse
       // ce l'ha. Con `hasHover` il dito ha il suo gesto e il mouse il suo.
       draggable={(hasHover || !isTouch) && !archived}
@@ -304,8 +299,7 @@ export const TopicItem = memo(function TopicItem({
         sidebarRowCard({ focused: isFocused, open: isOpen, attention: attentionTier, nested: depth > 0 }),
         // Preview panels show italic name
         isPreview && 'italic',
-        archived && ARCHIVED_ROW,
-        isDragging && 'opacity-50'
+        archived && ARCHIVED_ROW
       )}
       style={sortableStyle}
       // Il clic che il browser sintetizza dopo un long-press andato a segno si

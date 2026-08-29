@@ -198,7 +198,37 @@
     "riordino diventasse pigro, il critical path scenderebbe del 3%: piu' di sei",
     "giri di crescita come questo. Non e' un import sbagliato — e' un hook, e i",
     "hook non si importano dentro un `await` — quindi vuole il suo lavoro, non una",
-    "riga."
+    "riga.",
+    "",
+    "2026-08-29 (secondo giro): LA LEVA E' STATA TIRATA, e la nota del 27/08 che la",
+    "descriveva era SBAGLIATA nel punto che contava. Diceva: dnd-kit e' eager per",
+    "«un solo import fuori dalla board, `useSortable` in Sidebar/TopicItem.tsx, che",
+    "riordina i topic». Due cose false:",
+    "  · quell'hook non riordinava niente. La prop `sortable` non gliela passava",
+    "    nessuno (unico call site: TopicTree.tsx, quattordici prop e quella non",
+    "    c'e'), quindi `disabled` era sempre vero e dnd-kit restituisce",
+    "    `listeners: undefined` quando e' disabilitato. La sidebar non monta un",
+    "    `DndContext`, quindi transform/transition/isDragging erano nulli. Il",
+    "    riordino era gia' stato cancellato col suo scenario (TOPIC-12), e",
+    "    `topicsApi.reorder` non ha piu' chiamanti.",
+    "  · non era quell'import a tenere eager il chunk. Toglierlo da solo vale 113",
+    "    byte. A tenerlo in piedi era la voce `'dnd-kit'` in `manualChunks`: una",
+    "    voce in forma di oggetto forza il chunk a esistere, e Rollup ci parcheggia",
+    "    dentro lo stub CJS di react-dom, dando a `react-vendor` un arco statico",
+    "    verso di lui. Il `modulepreload` restava su codice morto.",
+    "",
+    "Tolti INSIEME (misurato, `bun run build:client` vero, non una copia isolata):",
+    "    critical_path  6 file  raw 1.947.537  gz 576.753   prima",
+    "                   5 file  raw 1.910.577  gz 564.486   dopo",
+    "    delta          -1 file  -36.960 raw   -12.267 gz",
+    "`dnd-kit` sparisce dai modulepreload di index.html: restano icons, markdown,",
+    "react-vendor. Il costo non evapora, si SPOSTA: finisce intero e in copia unica",
+    "dentro `KanbanBoardPane-*.js`, che e' gia' `lazy()`. Chi apre la board lo paga",
+    "una volta la', invece che a ogni avvio chiunque.",
+    "",
+    "`critical_path` scende ai numeri misurati: il cricchetto si STRINGE di 12 KB.",
+    "`entry_eager` non si tocca (408.809 gz, dentro la tolleranza del 404.298",
+    "registrato) e `total_assets` nemmeno."
   ],
   "updated": "2026-08-29",
   "tolerance_pct": 2,
@@ -207,9 +237,9 @@
     "gz": 404298
   },
   "critical_path": {
-    "raw": 1947537,
-    "gz": 576753,
-    "files": 6
+    "raw": 1910577,
+    "gz": 564486,
+    "files": 5
   },
   "total_assets": {
     "raw": 8710731

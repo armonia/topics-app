@@ -66,8 +66,13 @@ async function openTopicViaSearch(
 }
 
 /** Find a topic in the sidebar.
- *  Note: dnd-kit's useSortable overrides role="treeitem" with role="button"
- *  on sortable topic items, so we search for buttons in the sidebar.
+ *
+ *  A note used to sit here saying dnd-kit's `useSortable` overrode
+ *  `role="treeitem"` with `role="button"`. It was already false when written -
+ *  that `role` was stripped by the spread right below the hook - and it is
+ *  doubly false now that the hook is gone. The locator anchors on
+ *  `[aria-label]` rather than on the role, so nothing ever depended on it: it
+ *  was stale documentation pointing at a cause that does not exist.
  *
  *  Qui c'era prima un «apri la sezione Chat se è chiusa». Le intestazioni per
  *  TIPO non esistono più in nessuna vista (28b4aaeb, «Via la vista per tipo»):
@@ -77,8 +82,8 @@ async function ensureTopicVisible(
   page: import("@playwright/test").Page,
   name: RegExp
 ) {
-  // Find the topic in the sidebar (rendered as button due to dnd-kit sortable)
-  // Use CSS attribute selector to match aria-label exactly (avoid matching "Archive E2E-...")
+  // Exact attribute, not the role: `aria-label` separates the chat from
+  // "Archive E2E-...", which a partial match would also take.
   const sidebar = page.locator('[aria-label="Topics sidebar"]');
   const nameStr = name.source.replace(/[\\^$.*+?()[\]{}|]/g, "");
   const topicItem = sidebar.locator(`[aria-label="${nameStr}"]`);
