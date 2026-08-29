@@ -8,7 +8,17 @@
       "perf": [],
       "internal": [
         {
+          "it": "Tolta la sonnellina: quello che doveva provare non lo provava",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "La fine del turno buttava via l'unico evento che spegne i pannelli",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La pane browser nativa non riconnetteva: morto il socket, l'agente non la guida più",
           "en": "",
           "scope": null
         }
@@ -30,6 +40,11 @@
         },
         {
           "it": "Il budget del bundle confrontava con un numero che nessuno aveva mai misurato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La fine del turno buttava via l'unico evento che spegne i pannelli",
           "en": "",
           "scope": null
         }
