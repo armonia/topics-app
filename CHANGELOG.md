@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.232 — 2026-08-29
+
+### Sotto il cofano
+- La campanella contava 400, il resto della app contava 10, e nessuno spegneva gli eventi
+- Il cancello di lingua non vedeva il test: l'avevo lanciato prima di git add
+
 ## 2.2.231 — 2026-08-29
 
 ### Sotto il cofano

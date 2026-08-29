@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.232",
+    "date": "2026-08-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La campanella contava 400, il resto della app contava 10, e nessuno spegneva gli eventi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello di lingua non vedeva il test: l'avevo lanciato prima di git add",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.231",
     "date": "2026-08-29",
     "sections": {
