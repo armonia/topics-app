@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.238",
+    "date": "2026-08-30",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Chiudere la bacheca e ricaricare la riportava indietro: mancava la lapide",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.237",
     "date": "2026-08-29",
     "sections": {
