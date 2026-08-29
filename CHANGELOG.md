@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.235 — 2026-08-29
+
+### Sotto il cofano
+- L'anteprima del task entra nella famiglia edge-lit, e lo spigolo si vede
+
 ## 2.2.234 — 2026-08-29
 
 ### Sotto il cofano

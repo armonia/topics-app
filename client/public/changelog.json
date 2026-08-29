@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.235",
+    "date": "2026-08-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "L'anteprima del task entra nella famiglia edge-lit, e lo spigolo si vede",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.234",
     "date": "2026-08-29",
     "sections": {
