@@ -58,7 +58,19 @@ function assertBuilt(): void {
   }
 }
 
-/** Newest mtime under a directory tree, in epoch ms. 0 when nothing is there. */
+/** A file (or directory) that never ships into a chunk: Vite does not import
+ *  it from anywhere, so touching it cannot change a byte of `public/`. Same
+ *  set the shipped-line count already carves out in the comments of
+ *  `scripts/bundle-baseline.json` (`.test.ts` files, explicitly called out
+ *  there as not shipping). */
+function isNonShipping(name: string, isDir: boolean): boolean {
+  if (isDir) return name === "__tests__";
+  return /\.test\.tsx?$/.test(name) || /\.spec\.tsx?$/.test(name);
+}
+
+/** Newest mtime under a directory tree, in epoch ms. 0 when nothing is there.
+ *  Skips test files and folders: they never end up in a chunk, so they must
+ *  never be the reason `assertFresh` demands a rebuild. */
 export function newestMtime(dir: string): { at: number; file: string } {
   let best = { at: 0, file: "" };
   const walk = (d: string): void => {
@@ -69,7 +81,9 @@ export function newestMtime(dir: string): { at: number; file: string } {
       const full = join(d, name);
       let st;
       try { st = statSync(full); } catch { continue; }
-      if (st.isDirectory()) { walk(full); continue; }
+      const isDir = st.isDirectory();
+      if (isNonShipping(name, isDir)) continue;
+      if (isDir) { walk(full); continue; }
       if (st.mtimeMs > best.at) best = { at: st.mtimeMs, file: full };
     }
   };
