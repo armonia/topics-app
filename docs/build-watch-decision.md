@@ -87,6 +87,24 @@ by a unit test). In CI it already runs right after `verify:phase30-strip`, which
 builds. Bolting a 25 second build onto the local bar would tax every run to
 re-measure something CI measures correctly on a fresh bundle.
 
+## Why not a scheduled rebuild either (once an hour, or on wake)
+
+The third road, and the one this file did not answer until 2026-08-29: rebuild
+on a timer instead of on every save, so the bundle is never days behind and the
+windows are not reloaded in bursts.
+
+It changes the FREQUENCY and nothing else, and only one of the five objections
+above was about frequency. A timer still builds from a checkout that is never
+clean (2), still publishes a bundle that never saw `tsc -b` (3), still rewrites
+`public/` under a running E2E suite (4), and still reloads every open window
+when it lands (5). The hour is one anybody can predict and nobody is watching.
+It buys back the invisibility of the drift, which is the only thing that hurt,
+and it pays for it with an automaton that publishes unreviewed work while the
+person is looking elsewhere.
+
+The drift is covered directly instead, by the signal below. A build that has to
+be asked for is a build somebody is looking at.
+
 ## What covers the risk instead
 
 * **A stale bundle is no longer invisible.** Since `96f9659ef`
