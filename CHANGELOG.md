@@ -2,6 +2,18 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.219 — 2026-08-29
+
+### Sotto il cofano
+- La colonna dei token diceva 14 su un prompt da 234.000
+- Un turno annullato non e' un turno gratis
+- Il tipo di un messaggio non e' `any`
+- Una chat ferma su una domanda ora trattiene il riavvio
+- La ripresa aveva UNA sola occasione e la spendeva prima di lavorare
+- Due test asserivano il difetto: un secondo interruttore e un totale che non lo era
+- Sotto il vetro non passava una parola: il trascritto era tagliato prima di arrivarci
+- Sotto la banda scura l'etichetta spariva, e il cancello la dava per buona
+
 ## 2.2.218 — 2026-08-29
 
 ### Sotto il cofano

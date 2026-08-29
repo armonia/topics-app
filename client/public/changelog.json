@@ -1,5 +1,56 @@
 [
   {
+    "version": "2.2.219",
+    "date": "2026-08-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La colonna dei token diceva 14 su un prompt da 234.000",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un turno annullato non e' un turno gratis",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tipo di un messaggio non e' `any`",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una chat ferma su una domanda ora trattiene il riavvio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La ripresa aveva UNA sola occasione e la spendeva prima di lavorare",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due test asserivano il difetto: un secondo interruttore e un totale che non lo era",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sotto il vetro non passava una parola: il trascritto era tagliato prima di arrivarci",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sotto la banda scura l'etichetta spariva, e il cancello la dava per buona",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.218",
     "date": "2026-08-29",
     "sections": {
