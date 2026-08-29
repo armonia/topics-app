@@ -50,6 +50,7 @@ import {
   type MessageResidencyInput,
 } from '../state/messageResidency';
 import { senderAlsoSees } from './senderAlsoSees';
+import { toolUpdatePatch, type ToolUpdateEvent } from './toolUpdatePatch';
 import {
   EXPIRED_QUEUE_KEY,
   OUTBOUND_QUEUE_KEY,
@@ -1369,6 +1370,16 @@ export function useChat() {
         // stesso stato. Vedi `bufferToolUpdate`.
         if (event.toolCallId && typeof event.partialResult === 'string') {
           bufferToolUpdate(sessionKey, event.toolCallId, event.partialResult);
+        }
+        // AND THE STATUS, which is this event's other half. A `tool_update`
+        // with no partial announces a transition - an answered question going
+        // back to `running` - and it used to be dropped, so the panel stayed on
+        // its spinner. The whole account is in `toolUpdatePatch`.
+        {
+          const patch = toolUpdatePatch(event as ToolUpdateEvent);
+          if (patch && event.toolCallId) {
+            applyToolPatch(sessionKey, event.toolCallId, (tc) => ({ ...tc, ...patch }));
+          }
         }
         break;
 
