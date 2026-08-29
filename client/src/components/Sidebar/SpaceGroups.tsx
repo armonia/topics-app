@@ -191,6 +191,11 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
         aria-selected={card.active}
         data-space-id={card.id}
         data-testid={card.active ? 'space-row-active' : 'space-row'}
+        // The card's attention tier, readable from outside. Same contract the
+        // tab bar exposes: a test reads THIS, not a Tailwind class, because a
+        // class is a rendering detail and renaming one would turn a dead
+        // locator into an empty green.
+        data-attention={card.tier ?? undefined}
         onContextMenu={(e) => { e.preventDefault(); setRenameDraft(null); setMenu({ x: e.clientX, y: e.clientY }); }}
         {...press.handlers}
         data-pressing={press.pressed || undefined}
