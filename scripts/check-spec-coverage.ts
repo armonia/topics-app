@@ -197,7 +197,25 @@ function readTests(): FileTest[] {
         if (valid.length) fromAnnotation.push(...valid);
         else muteAnnotations.push({ file: f.slice(ROOT.length), desc: m[1]! });
       }
-      const fromCovers = [...text.matchAll(/@covers\s+([A-Z0-9,\s-]+)/g)]
+      // THE CLASS HAS TO CARRY THE SUFFIX, and for a while it did not.
+      //
+      // The convention this gate itself recommends for a variant of the same
+      // scenario is a lowercase letter (`TOPBAR-04` / `TOPBAR-04b`), and the
+      // validator below accepts it. The EXTRACTION did not: `[A-Z0-9,\s-]`
+      // stops at the letter, so `@covers STATUSLINE-03c` was read as
+      // `STATUSLINE-03`.
+      //
+      // That is not a missing declaration, it is a WRONG one: the suffixed
+      // requirement looks uncovered while the base requirement looks proven by
+      // a test that does not prove it. Same shape as a `@covers` typed with
+      // the id of another requirement, except produced by the tool.
+      //
+      // Measured 2026-08-29 on `client/src/components/Sidebar/shellGap.test.ts`,
+      // which declared `STATUSLINE-03c` and was reported as covering nothing.
+      // The annotation channel above never had the bug: it splits first and
+      // filters after, which is why `STATUSLINE-03b` went through a week
+      // earlier and nobody saw the hole.
+      const fromCovers = [...text.matchAll(/@covers\s+([A-Za-z0-9,\s-]+)/g)]
         .flatMap((m) => m[1]!.split(/[,\s]+/))
         .filter((s: string) => /^[A-Z][A-Z0-9-]*-\d+[a-z]?$/.test(s));
       const covers = [...new Set([...fromAnnotation, ...fromCovers])];
