@@ -20,7 +20,8 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { runAgentTurn, type AgentMessage } from "./agent-loop";
-import type { StreamHandler } from "../types";
+import type { StreamHandler, ProviderUsage } from "../types";
+import { partsFromMessage } from "../../../shared/token-cost";
 
 const HOME_VERA = process.env.HOME;
 let casa: string;
@@ -118,5 +119,101 @@ describe("l'uso del runtime nativo, giro per giro", () => {
     );
     expect(out.usage.cacheWrite).toBe(10);
     expect(out.usage.cacheWrite1h).toBe(10);
+  });
+
+  /**
+   * THE COLUMN MEANS "THE WHOLE PROMPT", and this runtime used to write a
+   * tenth of a percent of it.
+   *
+   * The API reports `input_tokens` as the fresh share alone. Passed on as-is it
+   * landed in `messages.usage_prompt_tokens`, which everywhere else in the repo
+   * is the total WITH cache inside it: `partsFromMessage` subtracts the cache
+   * read from it, so a real turn with 14 fresh and 230541 read produced a
+   * billable share of `max(0, 14 - 230541)` = zero and disappeared from the
+   * profile and the person stats. On the live database: 1448 CLI rows out of
+   * 1448 satisfied `prompt >= cache_read`, 0 native rows out of 6 did.
+   * @covers USAGE-03
+   */
+  test("l'uso consegnato a fine turno porta il prompt INTERO, cache compresa", async () => {
+    const risposte = [giroConTool, giroFinale];
+    globalThis.fetch = (async () => new Response(risposte.shift() ?? giroFinale, { status: 200 })) as unknown as typeof fetch;
+
+    let delivered: ProviderUsage | undefined;
+    const h = handler();
+    h.onDone = (m) => { delivered = m?.usage; };
+
+    const out = await runAgentTurn(
+      { model: "claude-haiku-4-5-20251001", history: [{ role: "user", content: "vai" }], toolContext: { workspace: ws }, autonomy: "auto-apply" },
+      h,
+    );
+
+    // 300 fresh + 30 read + 10 written: the prompt as the column counts it.
+    expect(delivered?.inputTokens).toBe(340);
+    expect(delivered?.outputTokens).toBe(25);
+    // The shares stay reported separately TOO, because the price bills them at
+    // three different rates. They are inside the total, not beside it.
+    expect(delivered?.cacheRead).toBe(30);
+    expect(delivered?.cacheCreation).toBe(10);
+    // The one-hour share is a SUBSET of the write, so it does not enter the
+    // total a second time: 340, not 350.
+    expect(delivered?.cacheCreation1h).toBe(10);
+
+    // THE CONTRACT, written the way whoever consumes the row reads it.
+    expect(delivered!.inputTokens!).toBeGreaterThanOrEqual(delivered!.cacheRead!);
+
+    // And the whole way down to the shape the chat uses: the billable share is
+    // what is NOT a cache read, i.e. fresh + write + answer. It used to come
+    // out as 25 (the answer alone), because the subtraction went below zero.
+    const shares = partsFromMessage({
+      usagePromptTokens: delivered?.inputTokens,
+      usageCompletionTokens: delivered?.outputTokens,
+      cacheReadTokens: delivered?.cacheRead,
+    });
+    expect(shares).toEqual({ billable: 335, cacheRead: 30 });
+
+    // The live registry does NOT change: there the usage stays raw, round by
+    // round, and it is the source of the chip on the card. The two measures
+    // coexist without ever being added to each other.
+    expect(out.usage.input).toBe(300);
+  });
+
+  /**
+   * A CANCELLED TURN HAS STILL BEEN PAID FOR.
+   *
+   * The loop called `onAborted` with the text and the reason but without the
+   * usage, so a turn stopped by the watchdog or by the human's Stop - after the
+   * model had already worked through several rounds - finalized its row with
+   * tokens, cost and model empty, and looked free.
+   * @covers USAGE-03
+   */
+  test("un turno annullato a meta' consegna comunque quel che ha consumato", async () => {
+    // The first round runs, then the stop arrives: the loop checks the signal
+    // at the top of the next iteration and leaves through `onAborted`.
+    const stop = new AbortController();
+    globalThis.fetch = (async () => {
+      stop.abort();
+      return new Response(giroConTool, { status: 200 });
+    }) as unknown as typeof fetch;
+
+    let aborted: ProviderUsage | undefined;
+    const h = handler();
+    h.onAborted = (m) => { aborted = m?.usage; };
+
+    const out = await runAgentTurn(
+      {
+        model: "claude-haiku-4-5-20251001",
+        history: [{ role: "user", content: "vai" }],
+        toolContext: { workspace: ws },
+        autonomy: "auto-apply",
+        signal: stop.signal,
+      },
+      h,
+    );
+
+    expect(out.turnEnd.end).toBe("cancelled");
+    // 100 fresh + 10 read + 7 written, from the single round that did run.
+    expect(aborted?.inputTokens).toBe(117);
+    expect(aborted?.outputTokens).toBe(20);
+    expect(aborted?.cacheRead).toBe(10);
   });
 });

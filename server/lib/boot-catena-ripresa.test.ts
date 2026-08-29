@@ -17,7 +17,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { spiegaTurnoTroncato } from "./turno-troncato";
-import { chatDaRiprendere } from "./ripresa-boot";
+import { chatDaRiprendere, MAX_RESUME_ATTEMPTS } from "./ripresa-boot";
 import type { ContentBlock } from "../types";
 import { decodeCol, encodeCol } from "../../shared/message-blob";
 
@@ -69,15 +69,25 @@ describe("dal turno tagliato alla ripresa, senza buchi in mezzo", () => {
     )).toBe(false);
   });
 
-  test("due boot di fila non riprendono due volte lo stesso turno", () => {
+  test("i boot di fila non riprendono lo stesso turno all'infinito", () => {
     const db = dbWithTruncatedTurn([{ kind: "text", text: "lavoro" }, tool()]);
     spiegaTurnoTroncato(db as never, "topic:x");
-    // La ripresa segna il turno; il boot dopo trova la traccia e si ferma.
-    const b = [...blocchi(db, "a1"), { kind: "ripreso" } as ContentBlock];
-    expect(chatDaRiprendere(
+    // The resume marks the turn, and the trace is COUNTED, not a switch: one cut
+    // resend must not close the door, because a resend cut by a server restart
+    // was burning the row's single chance and leaving the chat stuck forever
+    // under a notice promising it would resume on its own. Measured on
+    // topic:0299ac2d, reported four times.
+    const con = (n: number) => [
+      ...blocchi(db, "a1"),
+      ...Array.from({ length: n }, () => ({ kind: "ripreso" }) as ContentBlock),
+    ];
+    const valuta = (b: ContentBlock[]) => chatDaRiprendere(
       { sessionKey: "topic:x", ruolo: "assistant", blocks: b, timestampMs: Date.now() },
       Date.now(),
-    )).toBe(false);
+    );
+    expect(valuta(con(1))).toBe(true);
+    // What this case has always protected: the loop stays impossible.
+    expect(valuta(con(MAX_RESUME_ATTEMPTS))).toBe(false);
     // E nemmeno la spiegazione si ripete.
     expect(spiegaTurnoTroncato(db as never, "topic:x")).toBe(false);
   });

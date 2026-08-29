@@ -271,6 +271,20 @@ for (const nome of ["dark", "light"] as const) {
       description: `${nome}: worst ${min.ratio.toFixed(2)}:1 (tab #${min.i}, offset ${min.off}) su ${worst.length} letture`,
     });
 
+    // THE PREMISE OF THE WHOLE MEASURE, and for weeks it was false. A backdrop
+    // that never changes across fourteen scroll offsets over deliberately
+    // hostile content is not a hard backdrop: it is NO backdrop. It was exactly
+    // 0.0000 while the transcript, risen under the bar by its negative margin,
+    // was being clipped by an `overflow: hidden` wrapper in between - so the
+    // "worst case" this spec reported was the flat cell background, the easiest
+    // case there is, and the AA verdict below was true about a surface nobody
+    // could see. The threshold is deliberately tiny: it separates "something
+    // passes under the glass" from "nothing does", not one design from another.
+    expect(
+      spread,
+      "il fondale sotto la barra non cambia MAI durante la passata: sotto il vetro non ci scorre niente, e la lettura di contrasto qui sotto sta misurando lo sfondo della cella (vedi `.chrome-passthrough-y` in index.css)",
+    ).toBeGreaterThan(0.0005);
+
     expect(
       min.ratio,
       `l'etichetta della tab deve reggere WCAG AA (${AA_TESTO}:1) sul backdrop worst, non su quello medio`,

@@ -1455,7 +1455,11 @@ function ChatPaneComponent({
   return (
     <div
       ref={paneRootRef}
-      className="relative flex flex-col min-w-0 min-h-0 overflow-hidden flex-1 w-full max-w-full"
+      // `chrome-passthrough-y` and not `overflow-hidden`: the transcript inside
+      // rises by the height of the chrome bar and has to be PAINTED up there,
+      // not just laid out there. The horizontal containment is unchanged. See
+      // the block on `.chrome-passthrough-y` in index.css.
+      className="relative flex flex-col min-w-0 min-h-0 chrome-passthrough-y flex-1 w-full max-w-full"
       // Un clic QUALUNQUE dentro la pane la rende tua: da lì in poi una chat
       // nuova non si richiude più da sola. In cattura, perché deve valere anche
       // per i clic che un figlio si tiene per sé. Vedi `state/draftPane.ts`.

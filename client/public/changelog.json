@@ -1,7 +1,43 @@
 [
   {
-    "version": "2.2.217",
+    "version": "2.2.218",
     "date": "2026-08-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Cliccato «Consenti», i bottoni restavano grigi: l'esito non arrivava a chi aveva deciso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le domande restavano «in invio»: l'annuncio che le spegneva cadeva nel vuoto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La rotella della tab browser girava su una pagina ferma da ore: il socket era morto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un titolo che ripete la propria scheda non e' informazione, e' larghezza tolta ai filtri",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La ripresa al boot aspettava una route che non tornava, e con lei si fermava il boot",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.217",
+    "date": "2026-08-28",
     "sections": {
       "new": [],
       "fixes": [],

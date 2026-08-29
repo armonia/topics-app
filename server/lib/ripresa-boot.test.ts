@@ -8,7 +8,10 @@
  * @covers RESUME-01, RESUME-03
  */
 import { describe, expect, test } from "bun:test";
-import { chatDaRiprendere, FINESTRA_RIPRESA_MS, type RigaDaValutare } from "./ripresa-boot";
+import {
+  chatDaRiprendere, FINESTRA_RIPRESA_MS, MAX_RESUME_ATTEMPTS, riprendiTurniInterrotti,
+  RESPONSE_CEILING_MS, STREAM_CEILING_MS, type RigaDaValutare,
+} from "./ripresa-boot";
 import { Database } from "bun:sqlite";
 import { insertRestartNotification } from "./boot-partial-sweep";
 import { decodeCol } from "../../shared/message-blob";
@@ -43,9 +46,26 @@ describe("quale chat riprende da sola", () => {
     expect(chatDaRiprendere({ ...base, blocks: [prosa] }, ORA)).toBe(false);
   });
 
-  test("già ripreso: mai due volte", () => {
-    const b = [...base.blocks!, { kind: "ripreso" } as ContentBlock];
-    expect(chatDaRiprendere({ ...base, blocks: b }, ORA)).toBe(false);
+  test("già ripreso: si CONTA, non è un interruttore", () => {
+    // The defect this case used to guard the wrong way. The trace is written
+    // BEFORE the resend, on purpose: written after, a resend that dies halfway
+    // would be retried forever. As a switch, though, that price was paid on the
+    // first try, and a resend that got CUT - the server restarting while the
+    // resumed turn was running - burned the single chance. From then on every
+    // boot skipped that row, under a notice promising it would resume on its own.
+    //
+    // Measured on 2026-08-29 on topic:0299ac2d, reported four times: of its four
+    // answers, the two that never resumed were exactly the two marked.
+    const con = (n: number) => [
+      ...base.blocks!,
+      ...Array.from({ length: n }, () => ({ kind: "ripreso" }) as ContentBlock),
+    ];
+    // One cut attempt does not close the door: that is the user's real case.
+    expect(chatDaRiprendere({ ...base, blocks: con(1) }, ORA)).toBe(true);
+    expect(chatDaRiprendere({ ...base, blocks: con(2) }, ORA)).toBe(true);
+    // And the loop stays impossible, which is what the old case protected.
+    expect(chatDaRiprendere({ ...base, blocks: con(MAX_RESUME_ATTEMPTS) }, ORA)).toBe(false);
+    expect(chatDaRiprendere({ ...base, blocks: con(MAX_RESUME_ATTEMPTS + 5) }, ORA)).toBe(false);
   });
 
   test("fuori finestra: non si risponde a una domanda di ieri", () => {
@@ -164,5 +184,105 @@ describe("the notice the boot ACTUALLY writes is resumed", () => {
       timestampMs,
     };
     expect(chatDaRiprendere(row, timestampMs + 60_000)).toBe(true);
+  });
+});
+
+/**
+ * THE RESUME MUST COME BACK, even when the route does not.
+ *
+ * Measured on 2026-08-29 (topic:0299ac2d): the boot printed "1 turno/i  allow-italian: quoted log line
+ * interrotto/i da riprendere" and then, for 488 lines to the end of the file,  allow-italian: quoted log line
+ * nothing about that session. Not the success line, not the refusal line, and
+ * not even `[HTTP] POST /api/chat received`, which is the first statement of
+ * the chat handler and runs before any await. So `await router(...)` had not
+ * returned and never would: the resume, and with it the last link of the boot
+ * chain, stopped there in silence.
+ *
+ * These two tests are that failure, reproduced in a second: a route that never
+ * answers, and a route that answers and then never closes the stream. Before
+ * the ceilings they would both hang forever, which is exactly the bug. What is
+ * asserted is not "it goes fast" but three facts: the function RETURNS, it
+ * SAYS in the log where it gave up, and the trace is already written so the
+ * next boot does not resend the same turn a second time.
+ *
+ * @covers RESUME-01
+ */
+describe("una route che non risponde non pianta il boot", () => {
+  const nowIso = () => new Date().toISOString();
+
+  function dbWithCutTurn(): Database {
+    const db = new Database(":memory:");
+    db.run(`CREATE TABLE messages (
+      id TEXT PRIMARY KEY, session_key TEXT, role TEXT, content TEXT, blocks TEXT,
+      partial INTEGER, timestamp TEXT, sort_order INTEGER, parent_id TEXT, branch_index INTEGER
+    )`);
+    db.run(
+      "INSERT INTO messages (id, session_key, role, content, partial, timestamp, sort_order, branch_index) VALUES ('m1','topic:x','user','misura la ripresa',0,?,0,0)",
+      [nowIso()],
+    );
+    insertRestartNotification(
+      db as unknown as Parameters<typeof insertRestartNotification>[0],
+      "topic:x",
+      { generateId: () => "avviso", now: nowIso },
+    );
+    return db;
+  }
+
+  const ctxOf = (db: Database): Parameters<typeof riprendiTurniInterrotti>[0] => ({ db, getTopicBySessionKey: () => ({ archived: false }) });
+
+  /** Runs the resume against a ceiling of its own: a test that can hang is the
+   *  same silence it is meant to catch, so the wait is bounded here too. */
+  async function withinTwoSeconds(work: Promise<void>): Promise<"done" | "hung"> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const alarm = new Promise<"hung">((r) => { timer = setTimeout(() => r("hung"), 2_000); });
+    try { return await Promise.race([work.then(() => "done" as const), alarm]); }
+    finally { if (timer !== undefined) clearTimeout(timer); }
+  }
+
+  /** Runs `work` with `console.warn` captured, and hands back BOTH what it
+   *  returned and what it said: the log line is half the claim here. */
+  async function withWarn<T>(work: () => Promise<T>): Promise<{ result: T; lines: string[] }> {
+    const said: string[] = [];
+    const real = console.warn;
+    console.warn = (...args: unknown[]) => { said.push(args.map(String).join(" ")); };
+    try { return { result: await work(), lines: said }; } finally { console.warn = real; }
+  }
+
+  test("il router che non risponde mai: la funzione torna e lo dice", async () => {
+    const db = dbWithCutTurn();
+    const { result: outcome, lines } = await withWarn(() => withinTwoSeconds(
+      riprendiTurniInterrotti(ctxOf(db), () => new Promise<Response>(() => { /* never */ }), { responseMs: 60 }),
+    ));
+    expect(outcome).toBe("done");
+    expect(lines.join("\n")).toContain("topic:x");
+    expect(lines.join("\n")).toContain("non ha risposto");
+    // The trace is there anyway: the next boot does not resend this turn.
+    const after = db.query("SELECT blocks FROM messages WHERE id = 'avviso'").get() as { blocks?: unknown };
+    const blocks = JSON.parse(decodeCol(after.blocks) ?? "[]") as ContentBlock[];
+    expect(blocks.some((b) => b?.kind === "ripreso")).toBe(true);
+  });
+
+  test("lo stream che non finisce mai: stesso stop, un passo più in là", async () => {
+    const db = dbWithCutTurn();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(new TextEncoder().encode("data: {}\n\n")); },
+      // no close(): the route answered, the turn never ends
+    });
+    const { result: outcome, lines } = await withWarn(() => withinTwoSeconds(
+      riprendiTurniInterrotti(
+        ctxOf(db),
+        () => new Response(body, { status: 200 }),
+        { responseMs: 500, streamMs: 60 },
+      ),
+    ));
+    expect(outcome).toBe("done");
+    expect(lines.join("\n")).toContain("non è finito entro");
+  });
+
+  test("i tetti di produzione sono minuti, non secondi", () => {
+    // A tight ceiling would kill the real resumes: the response is headers,
+    // the stream is the whole turn.
+    expect(RESPONSE_CEILING_MS).toBeGreaterThanOrEqual(30_000);
+    expect(STREAM_CEILING_MS).toBeGreaterThanOrEqual(5 * 60_000);
   });
 });
