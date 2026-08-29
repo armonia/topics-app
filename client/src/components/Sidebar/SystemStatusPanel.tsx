@@ -3,6 +3,7 @@ import { AlertTriangle, Clock, DollarSign, Layers, MessageSquare, RefreshCw, Rot
 import { useSystemStatus } from '../../hooks/useSystemStatus';
 import { useOpenClawAvailable } from '../../hooks/useOpenClawAvailable';
 import { openclawControlApi } from '../../lib/api';
+import { runGatewayRestart } from '../../lib/openclawRestart';
 import { usePaneStore } from '../../state/pane/store';
 
 function formatUptime(ms: number): string {
@@ -173,20 +174,22 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
                 return;
               }
               setConfirmingRestart(false);
-              setRestarting(true);
               // SAME DEFECT AS THE «Ricarica» OF A TERMINAL TAB, and the same  allow-italian: quoted UI string
               // cure: the empty `catch {}` swallowed every refusal, and the
               // button went back from «Riavvio…» to «Riavvia» as if it had gone  allow-italian: quoted UI string
               // fine. Whoever is watching has no way to tell a restart that
               // worked from one that never started — and the next move of the
               // two is the opposite: wait, or go and see why.
-              try {
-                await openclawControlApi.restart();
-                setTimeout(refresh, 3000);
-              } catch (e) {
-                setErroreRiavvio(e instanceof Error ? e.message : 'Riavvio non riuscito');
-              }
-              setRestarting(false);
+              //
+              // The attempt itself is `runGatewayRestart`, so the two states it
+              // has to leave behind (a refusal shown, a retry that clears the
+              // band) are covered by a test instead of by this handler's shape.
+              await runGatewayRestart({
+                restart: () => openclawControlApi.restart(),
+                setRestarting,
+                setError: setErroreRiavvio,
+                scheduleRefresh: () => setTimeout(refresh, 3000),
+              });
             }}
             disabled={restarting}
             className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] rounded transition-colors whitespace-nowrap ${

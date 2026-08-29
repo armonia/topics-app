@@ -7,10 +7,11 @@
  * posto in cui il segnale compare. Con la preferenza `native` questa lista resta
  * vuota per costruzione — non c'è nessun ramo che la riempie.
  */
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useT } from '../../hooks/useT';
 import { Bell, X } from 'lucide-react';
 import { useInAppBannerStore, IN_APP_BANNER_TTL_MS } from '../../state/inAppBanner';
+import { clearBannerTimers, syncBannerTimers } from '../../state/inAppBannerTimers';
 import { openTaskInApp, openTopicInApp, selfTaskLinkTarget, selfTopicLinkTarget } from '../../lib/openTaskLink';
 import { runNotificationAction } from '../../lib/notify/notificationAction';
 import { boardNotificationDeps } from '../../lib/notify/boardActionDeps';
@@ -45,11 +46,19 @@ export function InAppBanners() {
 
   // Un timer PER banner, non uno globale: due segnali arrivati a mezzo secondo
   // di distanza devono sparire a mezzo secondo di distanza, non insieme.
+  //
+  // The map has to outlive the render, otherwise the effect's cleanup restarts
+  // every timer at each new signal and the whole list dies together with the
+  // last arrival. `syncBannerTimers` keeps the running ones and only arms what
+  // is new.
+  const timerHandles = useRef(new Map<string, number>());
   useEffect(() => {
-    if (banners.length === 0) return;
-    const timers = banners.map((b) => setTimeout(() => dismiss(b.id), IN_APP_BANNER_TTL_MS));
-    return () => timers.forEach(clearTimeout);
+    syncBannerTimers(banners, timerHandles.current, { ttlMs: IN_APP_BANNER_TTL_MS, onExpire: dismiss });
   }, [banners, dismiss]);
+  useEffect(() => {
+    const handles = timerHandles.current;
+    return () => clearBannerTimers(handles);
+  }, []);
 
   if (banners.length === 0) return null;
 

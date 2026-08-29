@@ -113,6 +113,33 @@ Chiudere un avviso SHALL togliere SOLO quello.
 - **GIVEN** nessun segnale dichiarato
 - **THEN** SHALL restare entrambi
 
+### Requirement: PRESENCE-14 — Ogni avviso in pagina ha il SUO tempo, e la colonna ha un tetto
+
+Ogni avviso in pagina SHALL avere una scadenza PROPRIA: due segnali arrivati a
+mezzo secondo di distanza SHALL sparire a mezzo secondo di distanza. L'arrivo di
+un avviso NUOVO NON SHALL rimettere in vita quelli già in corsa — con una
+scadenza sola per l'intera lista, tre avvisi a t=0/3/6 morivano tutti insieme a
+t=14 invece che a 8/11/14, e un avviso vecchio di quasi otto secondi tornava ad
+averne otto ogni volta che ne arrivava un altro.
+
+Uno STESSO segnale mostrato di nuovo SHALL ripartire da capo: è una notizia
+nuova, non il residuo della precedente.
+
+Un avviso CHIUSO — a mano o dal suo tempo — NON SHALL lasciare una scadenza che
+scatta a vuoto, e chiudere la pagina NON SHALL lasciare niente a ticchettare.
+
+La colonna SHALL avere un TETTO: una raffica di avvisi con etichetta per-task non
+ha nulla che la freni, e senza tetto la lista cresce finché copre la finestra.
+Oltre il tetto SHALL restare i più recenti.
+
+#### Scenario: tre avvisi a distanza di tre secondi
+- **GIVEN** tre avvisi mostrati a t=0, t=3 e t=6 con scadenza di otto secondi
+- **THEN** SHALL sparire a 8, 11 e 14, uno per volta
+
+#### Scenario: raffica oltre il tetto
+- **GIVEN** più avvisi del tetto
+- **THEN** SHALL restare il numero massimo, e SHALL essere gli ultimi arrivati
+
 ### Requirement: PRESENCE-12 — Quattro socket con la stessa etichetta sono UNA finestra
 
 I socket che non hanno mai ANNUNCIATO un identificativo di finestra SHALL essere

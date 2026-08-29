@@ -775,11 +775,38 @@ export const autoNameApi = {
 };
 
 // OpenClaw Control API
+interface OpenClawRestartResult {
+  ok: boolean;
+  output?: string;
+  error?: string;
+  exitCode?: number;
+}
+
+/** What to show when the restart failed but nobody said why. */
+function restartFailureMessage({ error, output, exitCode }: OpenClawRestartResult): string {
+  const said = (error || output || '').trim();
+  if (said) return said.split('\n').slice(-3).join('\n');
+  return exitCode === undefined ? 'Riavvio non riuscito' : `Riavvio non riuscito (codice ${exitCode})`;
+}
+
 export const openclawControlApi = {
-  async restart(): Promise<{ ok: boolean; output?: string; error?: string }> {
-    return request<{ ok: boolean; output?: string; error?: string }>('/openclaw/restart', {
+  /**
+   * THE COMMON FAILURE IS A 200.
+   *
+   * `POST /api/openclaw/restart` answers `{ ok: false, exitCode }` with HTTP 200
+   * when `openclaw gateway restart` exits non-zero: the transport worked, the
+   * restart did not. `request()` only throws on `!response.ok`, so reading just
+   * the status code sent the most frequent failure straight into the success
+   * branch, in silence, and the button went back from «Riavvio…» to «Riavvia»  allow-italian: quoted UI strings
+   * as if all was well. The envelope is the verdict here, so this reads it and
+   * fails like any other refusal.
+   */
+  async restart(): Promise<OpenClawRestartResult> {
+    const result = await request<OpenClawRestartResult>('/openclaw/restart', {
       method: 'POST',
     });
+    if (!result.ok) throw new ApiError(200, restartFailureMessage(result));
+    return result;
   },
 };
 

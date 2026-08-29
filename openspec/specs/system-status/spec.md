@@ -144,3 +144,32 @@ lenta.
 #### Scenario: oltre il tetto
 - **GIVEN** più righe del tetto
 - **THEN** la tabella SHALL restare al tetto
+
+### Requirement: SYSTEM-02 — Un riavvio fallito si vede, e un riavvio riuscito spegne l'allarme
+
+La rotta di riavvio del gateway risponde HTTP 200 con `ok: false` e il codice di
+uscita quando il comando esce non-zero: il trasporto ha funzionato, il riavvio
+no. Il client SHALL leggere l'ESITO NELLA BUSTA e NON SHALL fidarsi del solo
+codice di stato — altrimenti il fallimento PIÙ COMUNE finisce nel ramo del
+successo in silenzio, e il pulsante torna da «Riavvio…» a «Riavvia» come se
+fosse andato bene.
+
+Un fallimento SHALL portare il motivo dato dal server; se il server non ne dà
+uno, SHALL portare almeno il codice di uscita. Un server irraggiungibile, un 404
+(provider non openclaw), un 500 e un 401 SHALL finire nello stesso ramo di
+fallimento.
+
+Ogni NUOVO tentativo SHALL partire dal silenzio: la banda d'errore SHALL essere
+azzerata all'inizio del tentativo, così un secondo riavvio riuscito la SPEGNE.
+Lo smontaggio del pannello NON SHALL essere l'unico modo di azzerarla — il
+pannello non si chiude quando ci si clicca dentro, quindi la banda rossa restava
+accanto a un Gateway tornato verde.
+
+#### Scenario: uscita non-zero con HTTP 200
+- **GIVEN** una risposta `{ ok: false, exitCode: 1 }` con stato 200
+- **THEN** SHALL essere mostrato un fallimento, e NESSUN aggiornamento SHALL essere programmato
+
+#### Scenario: secondo tentativo riuscito
+- **GIVEN** un fallimento già mostrato
+- **WHEN** un nuovo tentativo riesce
+- **THEN** la banda d'errore SHALL essere spenta
