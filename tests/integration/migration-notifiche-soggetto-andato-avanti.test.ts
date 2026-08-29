@@ -1,18 +1,18 @@
 /**
- * `20260829173000-notifiche-il-cui-soggetto-e-andato-avanti.sql` — la
- * campanella smette di contare cose gia' successe.
+ * `20260829173000-notifiche-il-cui-soggetto-e-andato-avanti.sql`  allow-italian: the migration's own filename
+ * - the bell
+ * stops counting things that already happened.
  *
- * IL DIFETTO, misurato su `data/topics.db` il 29/08/2026: 400 notifiche non
- * viste contro una decina di segnali vivi nel resto della app. Non erano due
- * letture dello stesso insieme, erano due insiemi — il chrome conta LAVORO
- * PENDENTE, la campanella conta EVENTI in un registro a 30 giorni — e nessuno
- * spegneva gli eventi. Delle 400: 74 `task-review` di card gia' approvate, 1
- * `task-parked`, 325 `session` di terminali finiti.
+ * THE DEFECT, measured on `data/topics.db` on 2026-08-29: 400 unseen
+ * notifications against about ten live signals in the rest of the app. Those
+ * were not two readings of one set, they were two sets - the chrome counts
+ * PENDING WORK, the bell counts EVENTS in a 30-day log - and nothing ever
+ * cleared the events. Of the 400: 74 `task-review` for cards already approved,
+ * 1 `task-parked`, 325 `session` for terminals long finished.
  *
- * Il codice nuovo non basta: vale per le righe FUTURE, e queste sono a schermo
- * adesso. Il test gira il FILE della migration, non una sua copia riscritta
- * qui, e su dati che riproducono i tre casi veri piu' i tre che NON deve
- * toccare.
+ * New code is not enough: it applies to FUTURE rows, and these are on screen
+ * now. This runs the migration FILE, not a copy rewritten here, over data that
+ * reproduces the three real cases plus the four it must NOT touch.
  *
  * @covers NOTIF-SEEN-01
  */
@@ -28,9 +28,9 @@ const SQL = fs.readFileSync(
 );
 
 const ORA = new Date().toISOString();
-const IERI = new Date(Date.now() - 26 * 3600_000).toISOString();
+const YESTERDAY = new Date(Date.now() - 26 * 3600_000).toISOString();
 
-function mondo(): Database {
+function world(): Database {
   const db = new Database(":memory:");
   db.run(`CREATE TABLE tasks (id TEXT PRIMARY KEY, status TEXT, dispatch_state TEXT)`);
   db.run(`CREATE TABLE notification_log (
@@ -50,52 +50,52 @@ function mondo(): Database {
       [id, created, kind, "t", tk, ti, `${kind}:${ti ?? id}`, gk],
     );
 
-  // DA SPEGNERE
-  n("a", "task-review", "task", "t-done", IERI, "task:t-done");
-  n("b", "task-parked", "task", "t-done", IERI, "task:t-done");
-  n("c", "session", null, null, IERI, null);
-  // DA NON TOCCARE
-  n("d", "task-review", "task", "t-review", IERI, "task:t-review");   // la card e' ancora in review
-  n("e", "task-parked", "task", "t-parked", IERI, "task:t-parked");   // ancora in attesa
-  n("f", "session", null, null, ORA, null);                            // finito ADESSO
-  n("g", "chat-message", "topic", "top-1", IERI, "topic:top-1");      // un altro genere
+  // TO BE CLEARED
+  n("a", "task-review", "task", "t-done", YESTERDAY, "task:t-done");
+  n("b", "task-parked", "task", "t-done", YESTERDAY, "task:t-done");
+  n("c", "session", null, null, YESTERDAY, null);
+  // TO BE LEFT ALONE
+  n("d", "task-review", "task", "t-review", YESTERDAY, "task:t-review");   // still in review
+  n("e", "task-parked", "task", "t-parked", YESTERDAY, "task:t-parked");   // still waiting
+  n("f", "session", null, null, ORA, null);                            // finished JUST NOW
+  n("g", "chat-message", "topic", "top-1", YESTERDAY, "topic:top-1");      // another kind
   return db;
 }
 
-const spente = (db: Database) =>
+const cleared = (db: Database) =>
   new Set(
     (db.query("SELECT id FROM notification_log WHERE seen_at IS NOT NULL").all() as { id: string }[]).map((r) => r.id),
   );
 
 describe("le notifiche il cui soggetto e' andato avanti", () => {
   test("prima della migration NESSUNA e' vista: il rosso c'e'", () => {
-    const db = mondo();
-    expect(spente(db).size).toBe(0);
+    const db = world();
+    expect(cleared(db).size).toBe(0);
     db.close();
   });
 
   test("spegne l'avviso di una card che non e' piu' in quello stato", () => {
-    const db = mondo();
+    const db = world();
     db.run(SQL);
-    const s = spente(db);
+    const s = cleared(db);
     expect(s.has("a")).toBe(true);
     expect(s.has("b")).toBe(true);
     db.close();
   });
 
   test("spegne il terminale finito piu' di un'ora fa", () => {
-    const db = mondo();
+    const db = world();
     db.run(SQL);
-    expect(spente(db).has("c")).toBe(true);
+    expect(cleared(db).has("c")).toBe(true);
     db.close();
   });
 
   test("NON tocca cio' che e' ancora da guardare", () => {
-    // E' la meta' che conta: una migration che spegne troppo ruba un avviso, e
-    // chi lo perde non ha modo di sapere che c'era.
-    const db = mondo();
+    // The half that matters: a migration that clears too much steals a
+    // warning, and whoever loses it has no way to know it was there.
+    const db = world();
     db.run(SQL);
-    const s = spente(db);
+    const s = cleared(db);
     expect(s.has("d"), "una card ancora in review").toBe(false);
     expect(s.has("e"), "un task ancora in attesa di risposta").toBe(false);
     expect(s.has("f"), "un terminale finito adesso").toBe(false);
@@ -104,14 +104,14 @@ describe("le notifiche il cui soggetto e' andato avanti", () => {
   });
 
   test("rigirarla non cambia niente", () => {
-    // Le migration si riapplicano quando qualcuno ricostruisce un database da
-    // zero: il secondo giro deve essere un no-op, non una seconda mano di
-    // vernice su righe gia' spente.
-    const db = mondo();
+    // Migrations re-run whenever someone rebuilds a database from scratch:
+    // the second pass has to be a no-op, not a second coat of paint over rows
+    // that are already cleared.
+    const db = world();
     db.run(SQL);
-    const primo = spente(db);
+    const first = cleared(db);
     db.run(SQL);
-    expect(spente(db)).toEqual(primo);
+    expect(cleared(db)).toEqual(first);
     db.close();
   });
 });
