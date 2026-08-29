@@ -135,7 +135,9 @@ test.describe("Etichette · chi chiude la card, e il filtro che la trova", () =>
 
     // 2° stato: il filtro `visibile` acceso. Resta UNA card — la lista che un
     // umano deve guardare, senza aprire un solo diff.
-    await page.getByTestId("filter-labels-chip").click();
+    // The label filter has no chip of its own any more: since 29/08 it lives in
+    // the one filter field, which opens its catalogue as soon as you click it.
+    await page.getByTestId("filter-token-input").click();
     await page.getByRole("option", { name: "visibile", exact: true }).click();
     await page.keyboard.press("Escape");
     await expect(page.locator("[data-task-card]")).toHaveCount(1);
@@ -144,8 +146,14 @@ test.describe("Etichette · chi chiude la card, e il filtro che la trova", () =>
     await beat(page, 2600);
 
     // E il filtro si inverte: le invisibili sono due, il piano non è fra loro.
-    await page.getByTestId("filter-labels-chip").click();
+    await page.getByTestId("filter-token-input").click();
+    // Rows are TOGGLES: a picked entry stays in the list with its check, and
+    // clicking it again turns it off. It used to vanish, and turning it back on
+    // meant a round trip through the menu.
     await page.getByRole("option", { name: "visibile", exact: true }).click();
+    // `invisibile` is the third of its group, so at rest it sits behind the
+    // `+1` - which is a button: you open it, you do not guess it.
+    await page.getByTestId("filter-more-closer").click();
     await page.getByRole("option", { name: "invisibile", exact: true }).click();
     await page.keyboard.press("Escape");
     await expect(page.locator("[data-task-card]")).toHaveCount(2);

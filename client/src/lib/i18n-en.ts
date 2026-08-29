@@ -926,6 +926,7 @@ const EN = {
   'board.filter.allPlaceholder': 'search, priority, @agent, label…',
   'board.filter.header': 'Filters',
   'board.filter.fieldHint': '↑↓ pick · Enter apply · ⌫ remove · Esc close',
+  'board.filter.showAll': 'Show the other {n}',
   'board.filter.reset': 'Reset the filters',
   'board.filter.labelVisibleTitle': 'Touches client/src: a human looks at it before it closes',
   'board.filter.labelDecisionTitle': 'A plan, a search, a document, or no code at all: a human always decides it',

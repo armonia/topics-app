@@ -69,21 +69,30 @@ export function FilterTokenField({ value, onChange, assignees }: {
   // Enter could just as well REMOVE a filter that was already on. One extra
   // ArrowDown, and typing can never hijack anything.
   const [cursor, setCursor] = useState(-1);
+  // Groups the user opened by clicking their `+N`. Reset with the panel: the
+  // next time it opens it opens on the catalogue again, not on whatever was
+  // unfolded ten minutes ago.
+  const [expanded, setExpanded] = useState<ReadonlySet<FilterGroup>>(() => new Set());
 
-  const closerTitle = (l: TaskLabel): string =>
-    l === 'visibile' ? tr('board.filter.labelVisibleTitle')
-      : l === 'decisione' ? tr('board.filter.labelDecisionTitle')
-        : tr('board.filter.labelInvisibleTitle');
+  const options = useMemo<FilterOption[]>(() => {
+    // The three closer labels carry an explanation, and it is built HERE rather
+    // than in a helper outside the memo: a function declared in the body is a
+    // new identity on every render, so `exhaustive-deps` would want it in the
+    // list and the memo would recompute every time - which is the opposite of
+    // why it exists.
+    const closerTitle = (l: TaskLabel): string =>
+      l === 'visibile' ? tr('board.filter.labelVisibleTitle')
+        : l === 'decisione' ? tr('board.filter.labelDecisionTitle')
+          : tr('board.filter.labelInvisibleTitle');
+    return [
+      ...PRIORITY_ORDER.map((p) => ({ group: 'priority' as const, value: p, label: PRIORITY_LABEL[p]! })),
+      ...CLOSER_LABELS.map((l) => ({ group: 'closer' as const, value: l, label: l, title: closerTitle(l) })),
+      ...KIND_LABELS.map((l) => ({ group: 'kind' as const, value: l, label: l })),
+      ...assignees.map((a) => ({ group: 'assignee' as const, value: a, label: a })),
+    ];
+  }, [assignees, tr]);
 
-  const options = useMemo<FilterOption[]>(() => [
-    ...PRIORITY_ORDER.map((p) => ({ group: 'priority' as const, value: p, label: PRIORITY_LABEL[p]! })),
-    ...CLOSER_LABELS.map((l) => ({ group: 'closer' as const, value: l, label: l, title: closerTitle(l) })),
-    ...KIND_LABELS.map((l) => ({ group: 'kind' as const, value: l, label: l })),
-    ...assignees.map((a) => ({ group: 'assignee' as const, value: a, label: a })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [assignees, tr]);
-
-  const rows = useMemo(() => buildFilterRows(options, value.text), [options, value.text]);
+  const rows = useMemo(() => buildFilterRows(options, value.text, undefined, expanded), [options, value.text, expanded]);
 
   const picked = (o: FilterOption) =>
     o.group === 'priority' ? value.priority.includes(o.value)
@@ -135,7 +144,7 @@ export function FilterTokenField({ value, onChange, assignees }: {
       if (row) toggle(row.opt); else setOpen(false);
       return;
     }
-    if (e.key === 'Escape') { e.preventDefault(); setOpen(false); setCursor(-1); return; }
+    if (e.key === 'Escape') { e.preventDefault(); setOpen(false); setCursor(-1); setExpanded(new Set()); return; }
     // Tab leaves the field. The panel is on <body>, so leaving it open would
     // strand a floating list on screen with no owner and a combobox still
     // claiming an active descendant.
@@ -200,7 +209,7 @@ export function FilterTokenField({ value, onChange, assignees }: {
         items={rows}
         getKey={(r) => optionId(r.opt)}
         selectedIndex={cursor}
-        onClose={() => { setOpen(false); setCursor(-1); }}
+        onClose={() => { setOpen(false); setCursor(-1); setExpanded(new Set()); }}
         inputRef={shellRef}
         anchorRef={shellRef}
         listboxId={LISTBOX_ID}
@@ -221,7 +230,26 @@ export function FilterTokenField({ value, onChange, assignees }: {
               // group twice and break every `getByRole("option", { name })`.
               <p role="presentation" id={CAPTION_ID[r.opt.group]} className={filterMenuCaptionClass}>
                 {tr(GROUP_KEY[r.opt.group])}
-                {r.more > 0 && <span className="ml-1 font-normal normal-case tracking-normal text-app-text-muted">+{r.more}</span>}
+                {r.more > 0 && (
+                  // A COUNTER YOU CAN OPEN. A cap that announces what it hides
+                  // and gives no way through is worse than one that hides in
+                  // silence: it tells you something is there and leaves you
+                  // typing a name you would have to already know.
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    data-testid={`filter-more-${r.opt.group}`}
+                    aria-label={tr('board.filter.showAll', { n: r.more })}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setExpanded((s) => new Set(s).add(r.opt.group));
+                    }}
+                    className="ml-1 rounded font-normal normal-case tracking-normal text-app-text-muted hover:text-app-text"
+                  >
+                    +{r.more}
+                  </button>
+                )}
               </p>
             )}
             <button

@@ -64,6 +64,14 @@ describe('buildFilterRows', () => {
     expect(new Set(seen).size).toBe(seen.length);
   });
 
+  test('an expanded group ignores the cap, and only that one', () => {
+    // The `+N` is a button: without this the third closer label was reachable
+    // only by typing a name you would have to already know.
+    const rows = buildFilterRows(OPTS, '', REST_CAP, new Set(['closer'] as const));
+    expect(rows.filter((r) => r.opt.group === 'closer').length).toBe(3);
+    expect(rows.filter((r) => r.opt.group === 'priority').length).toBe(REST_CAP);
+  });
+
   test('only the first row of a group carries the caption', () => {
     const rows = buildFilterRows(OPTS, '');
     for (const g of FILTER_GROUP_ORDER) {

@@ -1115,6 +1115,7 @@ const IT: Dict = {
   'board.filter.allPlaceholder': 'cerca, priorità, @agente, etichetta…',
   'board.filter.header': 'Filtri',
   'board.filter.fieldHint': '↑↓ scegli · Invio applica · ⌫ toglie · Esc chiude',
+  'board.filter.showAll': 'Mostra le altre {n}',
   'board.filter.reset': 'Resetta filtri',
   'board.filter.labelVisibleTitle': 'Tocca client/src: la guarda un umano prima di chiuderla',
   'board.filter.labelDecisionTitle': 'Un piano, una ricerca, un documento, o nessun codice: la decide un umano, sempre',

@@ -48,6 +48,15 @@ export function buildFilterRows(
   options: readonly FilterOption[],
   text: string,
   cap = REST_CAP,
+  /**
+   * Groups whose cap the user has lifted by hand.
+   *
+   * Without this the `+N` is a truncation that ANNOUNCES itself and offers no
+   * way through: the third closer label could be reached only by typing a name
+   * you would have to already know. Measured the hard way - `board-labels`
+   * went red on exactly that row.
+   */
+  expanded?: ReadonlySet<FilterGroup>,
 ): FilterRow[] {
   const q = text.trim();
   const out: FilterRow[] = [];
@@ -62,7 +71,7 @@ export function buildFilterRows(
           .sort((a, b) => b.s.score - a.s.score)
           .map((r) => r.o)
       : inGroup;
-    const shown = q ? matched : matched.slice(0, cap);
+    const shown = q || expanded?.has(g) ? matched : matched.slice(0, cap);
     shown.forEach((o, i) =>
       out.push({ opt: o, head: i === 0, more: i === 0 ? matched.length - shown.length : 0 }),
     );
