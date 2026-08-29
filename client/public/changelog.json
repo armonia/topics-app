@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.220",
+    "date": "2026-08-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "`ttl` è una parola di questo progetto, e il cancello la pagava in 25 file",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il budget del bundle confrontava con un numero che nessuno aveva mai misurato",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.219",
     "date": "2026-08-29",
     "sections": {
@@ -43,7 +64,27 @@
           "scope": null
         },
         {
+          "it": "Una domanda accende l'ambra, e la spegne quando la leggi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La pane browser tornava vuota dopo un trascinamento perso: il contatore ora ha la stessa cintura del resto del repo",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Sotto la banda scura l'etichetta spariva, e il cancello la dava per buona",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un trascinamento perso non lascia più la pane browser vuota",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un TTL per banner, e una colonna che non mangia la finestra",
           "en": "",
           "scope": null
         }
