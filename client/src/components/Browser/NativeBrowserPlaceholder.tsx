@@ -18,6 +18,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { Loader2 } from 'lucide-react';
 import type { NativeBrowserHandle } from './browserDevTypes';
+import { installNativeViewDragGate } from './nativeViewDragGate';
 
 /** Inset (px) of each native WebContentsView vs its placeholder. 0 = the page
  *  fills the pane edge-to-edge (no visible "padding" frame), so the browser
@@ -102,57 +103,36 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
   // implementation inset the view by a top strip on every tool call, making the
   // page visibly jump — which is exactly what we're removing here.
 
-  // Track HTML5 drag operations globally. dragstart fires once when the
-  // user begins dragging anything (a tab in PaneTabBar, an item from a
-  // list, a file from outside, …). dragend fires when the drag concludes
-  // (drop or cancel). We hide the WebContentsView for the duration so
-  // React-rendered drag previews/indicators are visible.
-  useEffect(() => {
-    let count = 0;
-    const onStart = () => {
-      count += 1;
-      if (count === 1) {
-        setDragging(true);
-        // Hide the OS-level view IMMEDIATELY, synchronously in the dragstart
-        // handler — do NOT wait for the setDragging re-render + bounds effect +
-        // IPC round-trip. The WebContentsView composites ABOVE the DOM, so until
-        // it's gone a tab-drag's dragover/drop that crosses this pane is eaten by
-        // the view (the OS routes the pointer to the view, not the React drop
-        // target). That latency is why a browser tab "won't drag" to split: the
-        // very first drag motion lands on the still-visible view. setBoundsRef
-        // dodges the stale-closure trap (this effect has [] deps).
-        if (viewIdRef.current) {
-          try { setBoundsRef.current({ x: 0, y: 0, width: 0, height: 0 }); } catch { /* view gone */ }
-        }
-        if (import.meta.env.DEV) console.debug('[dnd-debug] view hide on dragstart, viewId=', viewIdRef.current);
+  // Track drag gestures globally. A drag begins (a tab in PaneTabBar, an item
+  // from a list, a file from outside, a divider resize) and the WebContentsView
+  // has to get out of the way for its duration, so React-rendered drag
+  // previews/indicators are visible and drop targets under this pane are
+  // reachable. The counter and its three release doors live in
+  // `nativeViewDragGate` — `dragend`/`drop` alone would leave this pane blank
+  // forever when the shell eats them (see the module header).
+  useEffect(() => installNativeViewDragGate({
+    onOcclude: () => {
+      setDragging(true);
+      // Hide the OS-level view IMMEDIATELY, synchronously in the dragstart
+      // handler — do NOT wait for the setDragging re-render + bounds effect +
+      // IPC round-trip. The WebContentsView composites ABOVE the DOM, so until
+      // it's gone a tab-drag's dragover/drop that crosses this pane is eaten by
+      // the view (the OS routes the pointer to the view, not the React drop
+      // target). That latency is why a browser tab "won't drag" to split: the
+      // very first drag motion lands on the still-visible view. setBoundsRef
+      // dodges the stale-closure trap (this effect has [] deps).
+      if (viewIdRef.current) {
+        try { setBoundsRef.current({ x: 0, y: 0, width: 0, height: 0 }); } catch { /* view gone */ }
       }
-    };
-    const onEnd = () => {
-      count = Math.max(0, count - 1);
-      if (count === 0) {
-        // Tiny defer so the drop animation completes before the view
-        // re-mounts at full bounds (avoids a 1-frame flicker).
-        setTimeout(() => setDragging(false), 60);
-        if (import.meta.env.DEV) console.debug('[dnd-debug] view restore on dragend');
-      }
-    };
-    window.addEventListener('dragstart', onStart, true);
-    window.addEventListener('dragend', onEnd, true);
-    window.addEventListener('drop', onEnd, true);
-    // A divider RESIZE is a raw mousedown-drag, not an HTML5 drag, so it never
-    // fires dragstart. Without this the OS-level WebContentsView stays on top
-    // during a resize and swallows the pointer, freezing the drag the moment it
-    // crosses a browser pane. useGridResize dispatches these on real drag only.
-    window.addEventListener('topics:pane-resize-start', onStart, true);
-    window.addEventListener('topics:pane-resize-end', onEnd, true);
-    return () => {
-      window.removeEventListener('dragstart', onStart, true);
-      window.removeEventListener('dragend', onEnd, true);
-      window.removeEventListener('drop', onEnd, true);
-      window.removeEventListener('topics:pane-resize-start', onStart, true);
-      window.removeEventListener('topics:pane-resize-end', onEnd, true);
-    };
-  }, []);
+      if (import.meta.env.DEV) console.debug('[dnd-debug] view hide on dragstart, viewId=', viewIdRef.current);
+    },
+    onRelease: () => {
+      // Tiny defer so the drop animation completes before the view
+      // re-mounts at full bounds (avoids a 1-frame flicker).
+      setTimeout(() => setDragging(false), 60);
+      if (import.meta.env.DEV) console.debug('[dnd-debug] view restore on drag end');
+    },
+  }), []);
 
   // Drive setBounds from layout. ResizeObserver catches size changes on the
   // placeholder itself, but split-layout drag, sidebar collapse, sibling
