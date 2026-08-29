@@ -11,6 +11,11 @@
           "it": "Un file di test non può chiedere una ricostruzione: nel bundle non entra",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "Il caso «five daemons racing» smetteva di misurare la gara e misurava il cronometro",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -37,6 +42,12 @@
           "it": "Il build del client non lascia più public/ svuotata",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "bundle — skip test files when measuring source freshness",
+          "en": "",
+          "scope": null,
+          "breaking": false
         }
       ]
     }

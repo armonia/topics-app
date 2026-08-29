@@ -6,6 +6,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - Un file di test non può chiedere una ricostruzione: nel bundle non entra
+- Il caso «five daemons racing» smetteva di misurare la gara e misurava il cronometro
 
 ## 2.2.225 — 2026-08-29
 
@@ -13,6 +14,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - I requisiti che questa consegna prova non esistevano, e ne rivendicava uno di un altro
 - La deriva del bundle si vede dove si legge la versione (STATUSLINE-03)
 - Il build del client non lascia più public/ svuotata
+- bundle — skip test files when measuring source freshness
 
 ## 2.2.224 — 2026-08-29
 
