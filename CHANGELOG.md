@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.221 — 2026-08-29
+
+### Sotto il cofano
+- La fine del turno buttava via l'unico evento che spegne i pannelli
+
 ## 2.2.220 — 2026-08-29
 
 ### Sotto il cofano
