@@ -334,8 +334,8 @@ async function boxOf(page: Page, selector: string) {
   return box;
 }
 
-/** The centre of a box: the "merge into this pane" point of the 5-zone model. */
-function centre(box: { x: number; y: number; width: number; height: number }) {
+/** The center of a box: the "merge into this pane" point of the 5-zone model. */
+function center(box: { x: number; y: number; width: number; height: number }) {
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
 
@@ -387,7 +387,7 @@ test.describe("Drag-and-drop and split: the case table", () => {
   let idPin = "";
   let nameC = "";
   /** A chat that lives INSIDE the project, so its window has something to draw. */
-  let idPrj = "";
+  let projectId = "";
 
   test.beforeAll(async ({ request }) => {
     topic = await createTopic(request, `dnd-matrix-${Date.now()}`);
@@ -400,7 +400,7 @@ test.describe("Drag-and-drop and split: the case table", () => {
     // The project needs a real directory and a chat of its own, or its window
     // opens on the empty state and draws no tree to assert against.
     mkdirSync(PROJECT_PATH, { recursive: true });
-    idPrj = (await createTopic(request, `dnd-matrix-prj-${Date.now()}`, { projectPath: PROJECT_PATH })).id;
+    projectId = (await createTopic(request, `dnd-matrix-prj-${Date.now()}`, { projectPath: PROJECT_PATH })).id;
   });
 
   test.afterAll(async ({ request }) => {
@@ -566,15 +566,15 @@ test.describe("Drag-and-drop and split: the case table", () => {
     expect(await tabsWithPane(page, idC), "and it lives in the column that was pointed at").toContain(idA);
   });
 
-  test("STD-5: the centre of a pane body merges, it does not split", async ({ page, request }) => {
+  test("STD-5: the center of a pane body merges, it does not split", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "DNDSPLIT-01" });
     await openStandalone(page, request, [idA, idB, idC]);
     const cellA = await splitOff(page, idA, "Dividi a destra");
     const before = await readTree(page);
 
-    const res = await dragTabTo(page, `[data-pane-id="${idB}"]`, centre(await boxOf(page, cellA)));
+    const res = await dragTabTo(page, `[data-pane-id="${idB}"]`, center(await boxOf(page, cellA)));
 
-    expect(res.previewed, "the centre must accept the merge it previews").toBe(true);
+    expect(res.previewed, "the center must accept the merge it previews").toBe(true);
     await expect
       .poll(() => tabsWithPane(page, idA), { timeout: 5000, message: "the tab must join the group it was dropped into" })
       .toEqual([idA, idB]);
@@ -591,9 +591,9 @@ test.describe("Drag-and-drop and split: the case table", () => {
     // column is the full-width strip at the container's bottom edge. Here it is
     // setup, not the subject: without two rows there is no boundary to aim at.
     await startDrag(page, `[data-pane-id="${idC}"]`);
-    await dragOverPoint(page, centre(await boxOf(page, await cellOf(page, idB))));
+    await dragOverPoint(page, center(await boxOf(page, await cellOf(page, idB))));
     await page.locator('[data-full-row-zone="bottom"]').waitFor({ state: "attached", timeout: 5000 });
-    const strip = centre(await boxOf(page, '[data-full-row-zone="bottom"]'));
+    const strip = center(await boxOf(page, '[data-full-row-zone="bottom"]'));
     expect(await dragOverPoint(page, strip), "the full-width strip offers the row it draws").toBe(true);
     await dropAtPoint(page, strip);
     await endDrag(page, strip);
@@ -612,9 +612,9 @@ test.describe("Drag-and-drop and split: the case table", () => {
     // (The SplitTree divider itself is deliberately drop-inert: its grab band is
     // neutralised mid-drag so edge drops reach the cells underneath.)
     await startDrag(page, `[data-pane-id="${idPin}"]`);
-    await dragOverPoint(page, centre(await boxOf(page, await cellOf(page, idB))));
+    await dragOverPoint(page, center(await boxOf(page, await cellOf(page, idB))));
     await page.locator("[data-row-gap-zone]").first().waitFor({ state: "attached", timeout: 5000 });
-    const gap = centre(await boxOf(page, "[data-row-gap-zone]"));
+    const gap = center(await boxOf(page, "[data-row-gap-zone]"));
     const previewed = await dragOverPoint(page, gap);
     await dropAtPoint(page, gap);
     await endDrag(page, gap);
@@ -644,7 +644,7 @@ test.describe("Drag-and-drop and split: the case table", () => {
     expect(await page.locator("[data-split-surface]").count(), "no surface while nothing is open").toBe(0);
 
     const empty = await boxOf(page, '[role="main"]');
-    const res = await dragTabTo(page, `[data-pinned-tile="${idPin}"]`, centre(empty), {
+    const res = await dragTabTo(page, `[data-pinned-tile="${idPin}"]`, center(empty), {
       scope: null,
       expect: "application/x-panel-id",
     });
@@ -690,7 +690,7 @@ test.describe("Drag-and-drop and split: the case table", () => {
       .put(`${E2E_BASE}/api/ui-state/grid-layout`, { data: { gridRows: [], gridRowHeights: [], soloTopicIds: [] } })
       .catch(() => {});
     await seedProjectPane(request, PROJECT_PATH);
-    await seedProjectInnerChats(request, PROJECT_PATH, [idPrj]);
+    await seedProjectInnerChats(request, PROJECT_PATH, [projectId]);
     await goToApp(page);
     await page.locator('[data-pane-id^="project:"]').first().click();
     await expect
@@ -726,9 +726,9 @@ test.describe("Drag-and-drop and split: the case table", () => {
       const tab = document.querySelector(`[data-pane-id*="${id}"]`);
       const surface = tab?.closest("[data-split-surface]");
       return !!surface && surface !== document.querySelector("[data-split-surface]");
-    }, idPrj);
+    }, projectId);
     expect(inProject, "the dragged tab must belong to the project window, not to the grid").toBe(true);
-    await startDrag(page, `[data-pane-id*="${idPrj}"]`, { scope: PROJECT_PATH });
+    await startDrag(page, `[data-pane-id*="${projectId}"]`, { scope: PROJECT_PATH });
     await dragOverPoint(page, edge);
 
     // Counted on THIS surface only: the project window, dragging a tab of its
@@ -737,8 +737,8 @@ test.describe("Drag-and-drop and split: the case table", () => {
     const splitAffordances = await page.evaluate(() => {
       const root = document.querySelector("[data-split-surface]");
       if (!root) return -1;
-      const sel = "[data-grid-split-overlay], [data-full-row-zone], [data-row-gap-zone]";
-      return Array.from(root.querySelectorAll(sel)).filter((el) => el.closest("[data-split-surface]") === root).length;
+      const selector = "[data-grid-split-overlay], [data-full-row-zone], [data-row-gap-zone]";
+      return Array.from(root.querySelectorAll(selector)).filter((el) => el.closest("[data-split-surface]") === root).length;
     });
     expect(splitAffordances, "no split target of another surface lights up for a foreign tab").toBe(0);
     await endDrag(page, edge);
@@ -755,7 +755,7 @@ test.describe("Drag-and-drop and split: the case table", () => {
 
     // The sidebar row is identified by what a person reads on it, since that is
     // all the row publishes: `role=treeitem` plus its topic name.
-    const res = await dragTabTo(page, `[role="treeitem"][aria-label="${nameC}"]`, centre(await boxOf(page, cellA)), {
+    const res = await dragTabTo(page, `[role="treeitem"][aria-label="${nameC}"]`, center(await boxOf(page, cellA)), {
       scope: null,
       expect: "application/x-panel-id",
     });
@@ -775,7 +775,7 @@ test.describe("Drag-and-drop and split: the case table", () => {
     const before = await readTree(page);
     await page.locator(`[data-pinned-tile="${idPin}"]`).first().waitFor({ state: "visible", timeout: 10000 });
 
-    const res = await dragTabTo(page, `[data-pinned-tile="${idPin}"]`, centre(await boxOf(page, cellA)), {
+    const res = await dragTabTo(page, `[data-pinned-tile="${idPin}"]`, center(await boxOf(page, cellA)), {
       scope: null,
       expect: "application/x-panel-id",
     });
