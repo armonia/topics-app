@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.229",
+    "date": "2026-08-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Inventario delle superfici sotto la barra, e lo strumento di contrasto diventa un helper",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.228",
     "date": "2026-08-29",
     "sections": {
@@ -8,7 +24,22 @@
       "perf": [],
       "internal": [
         {
+          "it": "Split-dnd matrix: the ten missing rows, and the strip that ate the tab bar",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Un orfano si giudica dall'ETÀ: total_assets torna a essere misurato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nomi in inglese, e `affordance` è una parola di questo progetto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La matrice split-dnd è completa (12/12), e la striscia non si mangia più la barra",
           "en": "",
           "scope": null
         }
