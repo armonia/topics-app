@@ -14,15 +14,23 @@
  */
 
 import { recordNotification } from "./db/notification-log";
-import { countUnseenNotifications } from "./db/notification-log";
+import { countUnseenNotifications, markTargetNotificationsSeen } from "./db/notification-log";
 import type { NotificationRecordInput, NotificationRow } from "../shared/notification-log";
 
 let announce: ((row: NotificationRow, unseen: number) => void) | null = null;
+let announceSeen: ((unseen: number) => void) | null = null;
 let topicArchived: ((topicId: string) => boolean) | null = null;
 
 export function configureNotificationRegistry(opts: {
   /** Dillo a tutte le finestre: contatore live + ultima riga. */
   announce: (row: NotificationRow, unseen: number) => void;
+  /**
+   * The same, the other way round: rows CLEARED, so the counter alone. It sits
+   * next to `announce` on purpose - lighting the bell and clearing it are one
+   * fact seen from two sides, and keeping them apart is how 400 unseen rows
+   * accumulated against ten live signals.
+   */
+  announceSeen: (unseen: number) => void;
   /**
    * Questo topic è archiviato? OBBLIGATORIO di proposito. Le sessioni dei topic
    * archiviati hanno già notificato per mesi dopo che la chat era sparita
@@ -33,12 +41,14 @@ export function configureNotificationRegistry(opts: {
   isTopicArchived: (topicId: string) => boolean;
 }): void {
   announce = opts.announce;
+  announceSeen = opts.announceSeen;
   topicArchived = opts.isTopicArchived;
 }
 
 /** Solo per i test. */
 export function __resetNotificationRegistry(): void {
   announce = null;
+  announceSeen = null;
   topicArchived = null;
 }
 
@@ -61,4 +71,26 @@ export function recordAndAnnounce(input: NotificationRecordInput): NotificationR
     console.warn("[notification-log] announce failed:", (err as Error)?.message || err);
   }
   return row;
+}
+
+/**
+ * LOOKING AT THE THING IS HAVING SEEN IT, from the server side.
+ *
+ * `markTargetNotificationsSeen` knows how to clear the rows but not how to tell
+ * anyone, and the counter lives in EVERY open window: without the edge, whoever
+ * has the app in front of them keeps seeing the bell lit on a task they just
+ * approved, until they reload.
+ *
+ * Zero rows touched means there was nothing to clear: no edge, so clients are
+ * not woken for nothing. Same discipline as `recordAndAnnounce`, reversed.
+ */
+export function markTargetSeenAndAnnounce(targetKind: string, targetId: string): number {
+  const changed = markTargetNotificationsSeen(targetKind, targetId);
+  if (changed <= 0) return 0;
+  try {
+    announceSeen?.(countUnseenNotifications());
+  } catch (err) {
+    console.warn("[notification-log] announce seen failed:", (err as Error)?.message || err);
+  }
+  return changed;
 }

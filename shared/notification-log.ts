@@ -144,6 +144,26 @@ export function approvalNotificationKey(approvalId: string): string {
  * Senza bersaglio non c'è gruppo: una notifica che non porta da nessuna parte
  * risponde solo per sé.
  */
+/**
+ * A TERMINAL'S GROUP, written once.
+ *
+ * A terminal is not a target: no route selects a single tab, so
+ * `targetKind`/`targetId` stay empty and the default group would be `null`. But
+ * the group exists and it is the session, and the row has to be born with this
+ * key to be clearable later.
+ *
+ * The point of the function is that the BIRTH key and the CLEARING key are the
+ * same byte: rows are born here (`useCompletionNotifier`) and cleared by
+ * `markTargetNotificationsSeen('terminal', id)`, which recomposes `kind:id` on
+ * its own. Two hand-written literals drifting by one character would leave the
+ * rows lit without breaking anything - which is the original defect.
+ */
+export const TERMINAL_TARGET_KIND = 'terminal';
+
+export function terminalNotificationGroupKey(sessionId: string): string {
+  return `${TERMINAL_TARGET_KIND}:${sessionId}`;
+}
+
 export function defaultNotificationGroupKey(
   targetKind: NotificationTargetKind | null | undefined,
   targetId: string | null | undefined,

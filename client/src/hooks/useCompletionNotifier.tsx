@@ -23,6 +23,7 @@ import {
   chatNotificationKey,
   taskParkedNotificationKey,
   taskReviewNotificationKey,
+  terminalNotificationGroupKey,
   type NotificationKind,
 } from '../../../shared/notification-log';
 import type { TopicTaskResolver } from './useTaskTopicIndex';
@@ -239,6 +240,15 @@ export function useCompletionNotifier({
        *  `taskId`): senza un bersaglio il click nella cronologia non porta da
        *  nessuna parte, ed è metà della richiesta. */
       topicId?: string | null;
+      /**
+       * The group, when there IS one but it is not the target. With no target
+       * the server derives none (`defaultNotificationGroupKey` returns `null`,
+       * and rightly so: a row that leads nowhere answers only for itself) - but
+       * a terminal does have a group, and it is the session. 325 `session` rows
+       * out of 400 unseen, measured on 2026-08-29, were born without a key: no
+       * gesture could mark them seen.
+       */
+      groupKey?: string | null;
     },
     taskId?: string | null,
     tag?: string,
@@ -283,6 +293,7 @@ export function useCompletionNotifier({
       targetKind: target?.kind ?? null,
       targetId: target?.id ?? null,
       dedupeKey: log.dedupeKey,
+      groupKey: log.groupKey ?? null,
       source: 'banner',
     });
   }, []);
@@ -616,7 +627,7 @@ export function useCompletionNotifier({
           decision.title,
           decision.body,
           cfg.notificationsSound,
-          { dedupeKey: `terminal:${decision.dedupeKey}`, topicId: ts.topicId },
+          { dedupeKey: `terminal:${decision.dedupeKey}`, topicId: ts.topicId, groupKey: terminalNotificationGroupKey(ts.id) },
         );
         return;
       }
@@ -806,7 +817,7 @@ export function useCompletionNotifier({
         label,
         statusBody('completed'),
         cfg.notificationsSound,
-        { dedupeKey: `terminal:${cooldownKey}`, topicId: ts?.topicId },
+        { dedupeKey: `terminal:${cooldownKey}`, topicId: ts?.topicId, groupKey: terminalNotificationGroupKey(msg.id) },
       );
   });
 }

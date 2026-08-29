@@ -48,6 +48,25 @@ export function recordNotificationSent(input: NotificationRecordInput): void {
   }
 }
 
+/**
+ * Mark seen BY TARGET: "I looked at this thing", not "I looked at the list".
+ * Fire-and-forget like `recordNotificationSent` - the real gesture is opening
+ * the terminal, and it must not be able to fail because the registry did not
+ * answer.
+ */
+export function markTargetSeen(targetKind: string, targetId: string): void {
+  try {
+    void fetch('/api/notifications/seen', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetKind, targetId }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch {
+    /* never propagate: the registry must not break opening a tab */
+  }
+}
+
 /** Segna viste: tutte fino a un istante, e/o alcune righe puntuali. */
 export async function markNotificationsSeen(body: { ids?: string[]; upTo?: string }): Promise<number> {
   const r = await fetch('/api/notifications/seen', {

@@ -26,6 +26,8 @@ import { useEffect, useMemo } from 'react';
 import { create } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 import { isWindowAwake } from './windowAwake';
+import { markTargetSeen } from '../lib/notify/history';
+import { TERMINAL_TARGET_KIND } from '../../../shared/notification-log';
 import type { Topic, TerminalSessionInfo, ClaudeSessionPhase, ClaudeSessionState, AttentionTier } from '../types';
 import { useTopics, useTerminalSessions } from '../contexts/TopicsContext';
 
@@ -615,7 +617,21 @@ export const signalsActions = {
   setBrowserBusy: (paneId: string, busy: boolean) => useSignalsStore.getState().setBrowserBusy(paneId, busy),
   setTerminalBusy: (id: string, busy: boolean) => useSignalsStore.getState().setTerminalBusy(id, busy),
   markTerminalFinished: (id: string) => useSignalsStore.getState().markTerminalFinished(id),
-  clearTerminalFinished: (id: string) => useSignalsStore.getState().clearTerminalFinished(id),
+  /**
+   * OPENING THE TERMINAL THAT FINISHED IS HAVING SEEN IT, and from here the
+   * REGISTRY knows it too. Before, this cleared only the live signal - the dot
+   * on the tab - and the history row stayed lit forever: 325 `session` rows out
+   * of 400 unseen, measured on 2026-08-29, that no natural gesture touched.
+   *
+   * It lives in the facade and not in the store because the store is pure: the
+   * three UI gestures (tab bar, tree, single pane) all pass through here. So
+   * does the echo of another window over WS, and that is fine - that call
+   * clears zero rows and the server announces nothing.
+   */
+  clearTerminalFinished: (id: string) => {
+    useSignalsStore.getState().clearTerminalFinished(id);
+    markTargetSeen(TERMINAL_TARGET_KIND, id);
+  },
   markTerminalReloading: (id: string) => useSignalsStore.getState().markTerminalReloading(id),
   clearTerminalReloading: (id: string) => useSignalsStore.getState().clearTerminalReloading(id),
   reconcileTerminals: (roster: TerminalRosterEntry[]) => useSignalsStore.getState().reconcileTerminals(roster),

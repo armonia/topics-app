@@ -57,6 +57,7 @@ import { CLOSER_LABELS, KIND_LABELS, deriveCloser, deriveKind, isCloserLabel, is
 import { findNeighbours, type Neighbour } from "../../shared/task-similarity";
 import type { TaskStatus, TaskComment, CardComment, BoardSettings, BoardSettingsPatch, BlockerRef, QueueReason, SubtaskWork, TaskWeight } from "../../shared/board";
 import type { Task, CreateTaskInput, UpdateTaskPatch, ListTasksInput } from "./task-shapes";
+import { markTargetSeenAndAnnounce } from "../notification-registry";
 
 export type Actor = "human" | "agent";
 
@@ -3379,6 +3380,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // tabella e finora non lo usava nessuno.
       if (patch.status !== undefined && current === "review" && patch.status !== "review") {
         settleReviewApproval(taskId, patch.status === "done" ? "approved" : "expired", by, now());
+        // The bell was ringing for a "needs review" card nobody reviews any
+        // more: the subject of the notification moved on, the row did not. 74
+        // `task-review` rows out of 400 unseen, measured on 2026-08-29. It goes
+        // here, next to the approval, because this is the ONLY line every exit
+        // from review crosses - the board drag, `update({status})` over MCP,
+        // archiving.
+        markTargetSeenAndAnnounce("task", taskId);
       }
       // Status history: every applied transition lands in the thread with its
       // author — the timeline answers "chi l'ha spostato e quando".
@@ -3637,6 +3645,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         ).run(target, ts, ts, taskId);
       }
       logStatus(taskId, "review", target, by);
+      // As in `update()`: this door writes the status in raw SQL and does not
+      // go through there. Approving and rejecting are both "I looked at it".
+      markTargetSeenAndAnnounce("task", taskId);
       // L'approvazione è la porta per cui uno step passa a `done` più spesso di
       // ogni altra, e scrive lo stato a SQL grezzo: senza questa riga il padre
       // non se ne accorgerebbe proprio nel caso più comune.

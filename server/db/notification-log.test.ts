@@ -30,7 +30,8 @@ import {
   markTargetNotificationsSeen,
   recordNotification,
 } from "./notification-log";
-import { configureNotificationRegistry, recordAndAnnounce, __resetNotificationRegistry } from "../notification-registry";
+import { configureNotificationRegistry, markTargetSeenAndAnnounce, recordAndAnnounce, __resetNotificationRegistry } from "../notification-registry";
+import { createTaskService } from "../services/tasks";
 import { NOTIFICATION_DEDUPE_MS, NOTIFICATION_MAX_AGE_DAYS, NOTIFICATION_MAX_ROWS } from "../../shared/notification-log";
 
 let tmpRoot: string;
@@ -167,6 +168,7 @@ describe("recordAndAnnounce — il cancello degli archiviati", () => {
     const announced: string[] = [];
     configureNotificationRegistry({
       announce: (row) => { announced.push(row.title); },
+      announceSeen: () => {},
       isTopicArchived: (id) => id === "archiviato",
     });
     const dead = recordAndAnnounce({ kind: "chat-message", title: "rumore", dedupeKey: "chat:archiviato", targetKind: "topic", targetId: "archiviato" });
@@ -180,7 +182,7 @@ describe("recordAndAnnounce — il cancello degli archiviati", () => {
   test("un doppione non viene annunciato una seconda volta", () => {
     wipe();
     let calls = 0;
-    configureNotificationRegistry({ announce: () => { calls++; }, isTopicArchived: () => false });
+    configureNotificationRegistry({ announce: () => { calls++; }, announceSeen: () => {}, isTopicArchived: () => false });
     recordAndAnnounce({ kind: "task-review", title: "T", dedupeKey: "task-review:t9" });
     recordAndAnnounce({ kind: "task-review", title: "T", dedupeKey: "task-review:t9" });
     expect(calls).toBe(1);
@@ -253,5 +255,136 @@ describe("markTargetNotificationsSeen — leggere una chat spegne la sua campane
     notifica("t1", "una");
     expect(markTargetNotificationsSeen("topic", "")).toBe(0);
     expect(countUnseenNotifications()).toBe(1);
+  });
+});
+
+/**
+ * THE OTHER TWO GESTURES. Reading a chat was the only one the registry knew
+ * about; a card leaving review and a terminal being opened are the two that
+ * account for the rest of the backlog measured on 2026-08-29 - 74 `task-review`
+ * rows and 325 `session` rows out of 400 unseen.
+ *
+ * The task case needs nothing new: the group key of a target is `kind:id`, so
+ * `("task", id)` already addresses it. The terminal case does: a terminal is
+ * not a target (there is no route that selects one tab), so its rows are born
+ * with an explicit `groupKey` instead.
+ *
+ * @covers NOTIF-SEEN-01
+ */
+describe("markTargetNotificationsSeen — task e terminali, non solo le chat", () => {
+  test("a card leaving review clears its own review row and nothing else", () => {
+    wipe();
+    recordNotification({ kind: "task-review", title: "mia", body: "", targetKind: "task", targetId: "task-1", dedupeKey: "task-review:task-1" });
+    recordNotification({ kind: "task-review", title: "altrui", body: "", targetKind: "task", targetId: "task-2", dedupeKey: "task-review:task-2" });
+    expect(countUnseenNotifications()).toBe(2);
+
+    expect(markTargetNotificationsSeen("task", "task-1")).toBe(1);
+    expect(countUnseenNotifications()).toBe(1);
+    expect(listNotifications().find((r) => r.seenAt === null)?.targetId).toBe("task-2");
+  });
+
+  test("a parked card and its review row are the same target, so one gesture clears both", () => {
+    // Both are `task:<id>`: this is the reason not to invent a second notion of
+    // grouping - the card is one thing to look at, whatever woke it.
+    wipe();
+    recordNotification({ kind: "task-review", title: "consegnata", body: "", targetKind: "task", targetId: "task-9", dedupeKey: "task-review:task-9" });
+    recordNotification({ kind: "task-parked", title: "domanda", body: "", targetKind: "task", targetId: "task-9", dedupeKey: "task-parked:task-9" });
+    expect(markTargetNotificationsSeen("task", "task-9")).toBe(2);
+    expect(countUnseenNotifications()).toBe(0);
+  });
+
+  test("opening a terminal clears the rows born with its own group key", () => {
+    wipe();
+    recordNotification({ kind: "session", title: "finito", body: "", dedupeKey: "terminal:a-1", groupKey: "terminal:sess-a" });
+    recordNotification({ kind: "session", title: "finito ancora", body: "", dedupeKey: "terminal:a-2", groupKey: "terminal:sess-a" });
+    recordNotification({ kind: "session", title: "un altro", body: "", dedupeKey: "terminal:b-1", groupKey: "terminal:sess-b" });
+    expect(countUnseenNotifications()).toBe(3);
+
+    expect(markTargetNotificationsSeen("terminal", "sess-a")).toBe(2);
+    expect(countUnseenNotifications()).toBe(1);
+  });
+
+  test("a session row born WITHOUT a group key stays unreachable - which is why it gets one", () => {
+    // This is the defect itself, kept as a test: 325 rows written this way were
+    // extinguishable by nothing. It documents that the fix has to happen at
+    // birth, not at the gesture.
+    wipe();
+    recordNotification({ kind: "session", title: "orfana", body: "", dedupeKey: "terminal:orphan" });
+    expect(markTargetNotificationsSeen("terminal", "orphan")).toBe(0);
+    expect(countUnseenNotifications()).toBe(1);
+  });
+});
+
+/**
+ * THE WHOLE CHAIN, over the real migrations: a card leaves review and its bell
+ * goes quiet by itself. This is the only place it can be measured - the task
+ * service's own bench runs on a separate in-memory handle that the notification
+ * registry cannot see, so an assertion there would be green over a dead wire.
+ *
+ * @covers NOTIF-SEEN-01
+ */
+describe("una card che esce da review spegne la propria campanella", () => {
+  const project = "proj-seen";
+
+  function bench() {
+    wipe();
+    const db = getDatabase();
+    db.run("DELETE FROM tasks");
+    return createTaskService(db);
+  }
+
+  function inReview(s: ReturnType<typeof createTaskService>) {
+    const t = s.create({ projectId: project, text: "work" });
+    s.addComment({ taskId: t.id, author: "claude", content: "consegna" });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    recordNotification({
+      kind: "task-review", title: "da rivedere", body: "",
+      targetKind: "task", targetId: t.id, dedupeKey: `task-review:${t.id}`,
+    });
+    expect(countUnseenNotifications()).toBe(1);
+    return t;
+  }
+
+  test("approving it (reviewDecision) clears the row", () => {
+    const s = bench();
+    const t = inReview(s);
+    s.reviewDecision({ taskId: t.id, by: "human", decision: "approve" });
+    expect(countUnseenNotifications()).toBe(0);
+  });
+
+  test("rejecting it clears the row too - it has been looked at either way", () => {
+    const s = bench();
+    const t = inReview(s);
+    s.reviewDecision({ taskId: t.id, by: "human", decision: "reject", comment: "no" });
+    expect(countUnseenNotifications()).toBe(0);
+  });
+
+  test("dragging it out of review on the board clears it as well", () => {
+    // The exit that is NOT `reviewDecision`: `update({status})` from the board
+    // or from MCP. It was the strand that left 74 rows lit.
+    const s = bench();
+    const t = inReview(s);
+    s.update({ taskId: t.id, actor: "human", by: "human", patch: { status: "backlog" } });
+    expect(countUnseenNotifications()).toBe(0);
+  });
+
+  test("entering review does NOT clear anything", () => {
+    // The half that keeps it honest: only leaving is a gesture of having looked.
+    const s = bench();
+    inReview(s);
+    expect(countUnseenNotifications()).toBe(1);
+  });
+
+  test("markTargetSeenAndAnnounce announces once, and stays silent when it changed nothing", () => {
+    wipe();
+    let announced = 0;
+    configureNotificationRegistry({
+      announce: () => {}, announceSeen: () => { announced++; }, isTopicArchived: () => false,
+    });
+    recordNotification({ kind: "task-review", title: "x", body: "", targetKind: "task", targetId: "t-x", dedupeKey: "task-review:t-x" });
+    expect(markTargetSeenAndAnnounce("task", "t-x")).toBe(1);
+    expect(markTargetSeenAndAnnounce("task", "t-x")).toBe(0);
+    expect(announced, "un fronte che non cambia niente sveglia ogni client per nulla").toBe(1);
+    __resetNotificationRegistry();
   });
 });
