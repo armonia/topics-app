@@ -18,6 +18,7 @@ import { ensurePaneUsageFresh, webviewSnapshot } from '@/lib/paneUsage';
 import { useFeatureWeights } from '@/hooks/useFeatureWeights';
 import { bloccoTooltip } from '@/lib/featureWeightText';
 import { VersionPopover } from './VersionPopover';
+import { bundleDrift } from './bundleDrift';
 import { ChangelogModal } from '../ChangelogModal';
 import type { ConnectionStatus } from '@/types';
 import { ROW_INSET, SIDEBAR_ACTIVE, SIDEBAR_HOVER } from '@/lib/selectionStyles';
@@ -408,6 +409,11 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
     return () => { alive = false; };
   }, []);
   const appVersion = runtimeVersion || BUILD_APP_VERSION;
+  // Preferring the runtime number cured one lie and created its mirror: when
+  // `public/` is older than the repo the chip reads the REPO version while the
+  // screen runs the old bundle, and until now nothing said so. Both facts are
+  // right here, so compare them (see bundleDrift.ts for the measured incident).
+  const drift = bundleDrift(BUILD_APP_VERSION, runtimeVersion, { hmr: isDev });
   const [shellVersion, setShellVersion] = useState('');
   useEffect(() => {
     if (!isDesktop) return;
@@ -809,9 +815,21 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
               data-version-anchor
               onClick={(e) => { setVersionAnchor(e.currentTarget); setShowVersionPopover(v => !v); }}
               className={`tap-expand-y text-app-text-muted hover:text-app-text-secondary ${SIDEBAR_HOVER} rounded px-1 py-1 -mx-0.5 transition-colors ${showVersionPopover ? `${SIDEBAR_ACTIVE} text-app-text-secondary` : ''}`}
-              title={tr('statusBar.versionTitle')}
+              title={drift
+                ? tr('version.driftTitle', { bundle: drift.bundle, repo: drift.repo })
+                : tr('statusBar.versionTitle')}
             >
               v{appVersion}
+              {/* A stale bundle gets a mark, not a banner: the number is read
+                  many times a day and the drift is rare, so it costs one dot
+                  next to it and the full sentence in the popover, which is
+                  where a version question is already answered. */}
+              {drift && (
+                <span
+                  data-testid="version-drift-dot"
+                  className={`inline-block align-middle ml-1 w-1.5 h-1.5 rounded-full ${PALLINO_ATTESA}`}
+                />
+              )}
             </button>
           )}
           {/* In dev the build age rides INSIDE this badge ("dev · 12m") instead
@@ -909,6 +927,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           anchorEl={versionAnchor}
           appVersion={appVersion}
           shellVersion={shellVersion}
+          drift={drift}
           isDev={isDev}
           buildDate={BUILD_TIME ? formatBuildDate(BUILD_TIME) : ''}
           buildSha={BUILD_SHA}
