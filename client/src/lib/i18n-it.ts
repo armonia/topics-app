@@ -1129,8 +1129,6 @@ const IT: Dict = {
   'board.toolbar.missionsTitle': 'Missioni: compiti in più per la sessione di progetto, accanto alla board. Il testo arriva nel suo composer: a mandarlo sei tu.',
   'board.toolbar.thisProject': 'Questo progetto',
   'board.toolbar.allProjects': 'Tutti i progetti',
-  'board.toolbar.general': 'Board',
-  'board.toolbar.generalSuffix': ' generale',
   'board.toolbar.dispatchSettings': 'Impostazioni auto-dispatch',
   'board.composer.placeholder': "Descrivi un task per l'agent…",
   'board.composer.subtaskOf': 'Sottotask di',

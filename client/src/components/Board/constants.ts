@@ -268,18 +268,46 @@ export const COMMENTO_PIEGA_CHARS = 620;
 export const RICHIESTA_PIEGA_CHARS = 190;
 
 /**
- * Il CHIP dei filtri della board: lo stesso aspetto che il composer del task
- * usa per i suoi selettori (modello, priorita', progetto), cosi' filtri e
- * creazione parlano una lingua sola.
+ * THE SHELL OF EVERY FILTER CONTROL in the board toolbar: the search box, the
+ * priority/assignee token field, the labels chip and the project picker wear
+ * this and nothing else. It is also the look the task composer gives its own
+ * pickers (model, priority, project), so filtering and creating speak one
+ * language.
  *
- * Sta qui e non dentro la barra perche' ora lo usano due file: la riga dei
- * filtri e il selettore progetto, che si e' portato via i suoi suggerimenti.
- * `h-6` esplicito (non `py-*`) perche' l'`<input>` della ricerca, che dalla
- * line-height dell'UA viene piu' alto, deve stare alla stessa identica altezza.
+ * WHY ONE FUNCTION AND NOT FOUR CLASS STRINGS. They were four: the chips came
+ * through here, the search `<input>` styled itself (no hover, no active state,
+ * its own text token) and the token field styled its own wrapper (`px-1.5`,
+ * `gap-1`, and idle-looking even while it held three tokens). Four controls on
+ * one row, three paddings and two ways of saying "I am filtering something".
+ * The differences were invisible one at a time and obvious side by side.
+ *
+ * `active` is the SAME statement everywhere: this control is currently
+ * narrowing the board. Text typed in the search box, tokens in the field,
+ * labels or projects picked - all of them darken the shell the same way.
+ *
+ * `h-6` explicit (not `py-*`) because an `<input>`, which the UA line-height
+ * makes taller, has to land on the exact same height as a button.
  */
-export const filterChipClass = (active: boolean) =>
+export const filterFieldClass = (active: boolean) =>
   `flex h-6 shrink-0 items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors ${
     active
       ? 'bg-black/15 text-app-text dark:bg-white/15'
       : 'bg-black/5 text-app-text-heading hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10'
   }`;
+
+/**
+ * The INPUT that lives inside one of those shells (search, token field): it
+ * brings no background and no ring of its own, because the shell around it is
+ * already the field. Shared so the two inputs cannot drift apart again.
+ */
+export const filterInputClass =
+  'h-5 min-w-0 flex-1 bg-transparent text-[11px] leading-none text-app-text outline-none placeholder:text-app-placeholder';
+
+/**
+ * A PILL inside the token field: the value the field holds. It sits on an
+ * ACTIVE shell (a field with tokens is filtering), so it is declared one step
+ * lighter than that shell in both themes plus a token border, otherwise the
+ * pills melt into the field the moment it darkens.
+ */
+export const filterTokenPillClass =
+  'inline-flex shrink-0 items-center gap-1 rounded border border-app-border-light bg-black/5 px-1.5 py-0.5 text-[11px] font-medium text-app-text-heading dark:bg-white/10';
