@@ -273,6 +273,15 @@ interface SignalsState {
   // chat topics in the LOUD 'input' tier (awaiting-approval) — subset of
   // awaitingFeedbackTopics. Amber fill; the rest is calm blue done-unseen.
   awaitingInputTopics: Set<string>;
+  // The set the rising edge of `seenSubjects` is measured against: EVERY chat
+  // subject that is currently asking for you, blue 'done' and amber 'input'
+  // alike (an in-app ask_user_question lives only in awaitingInputTopics).
+  // It has to be its own field. Reusing awaitingFeedbackTopics for both jobs
+  // is what broke this: a topic held by an open question never entered that
+  // set, so every pass looked like a fresh rising edge and wiped the "seen"
+  // flag forever, and the amber could never be dismissed. Written only by
+  // applyNewAttention, which is also its only reader.
+  attentionEdgeTopics: ReadonlySet<string>;
   // Soggetti (topicId o terminalSessionId) che l'utente ha DAVVERO guardato: sono
   // stati davanti, con la finestra sveglia, per SEEN_DWELL_MS continui. È il gate
   // di FOCUS WINS — vedi `attentionFillFor` — e sostituisce "è selezionata", che
@@ -297,10 +306,11 @@ interface SignalsState {
   setTopicSet: (key: TopicSetKey, ids: Set<string>) => void;
   /** Segna un soggetto come VISTO (la soglia è scattata). Idempotente. */
   markSubjectSeen: (id: string) => void;
-  /** Annulla il "visto" dei soggetti che ENTRANO ora in awaiting. Va chiamata
-   *  PRIMA di sostituire `awaitingFeedbackTopics`, o il fronte di salita è già
-   *  perso. */
-  applyNewAttention: (nextAwaiting: ReadonlySet<string>) => void;
+  /** Clears the "seen" flag of the chat subjects that ENTER the attention set
+   *  now. Takes the full set that wants you (awaiting-feedback plus the topics
+   *  parked on an open question) and keeps its own previous value in
+   *  `attentionEdgeTopics`, so no call order can lose the edge. */
+  applyNewAttention: (nextAttention: ReadonlySet<string>) => void;
   setBrowserBusy: (paneId: string, busy: boolean) => void;
   setTerminalBusy: (id: string, busy: boolean) => void;
   markTerminalFinished: (id: string) => void;
@@ -353,7 +363,7 @@ export interface TerminalRosterEntry {
 
 type TopicSetKey = 'liveStreamTopics' | 'hydratedStreamTopics' | 'claudeAttentionTopics' | 'awaitingFeedbackTopics' | 'awaitingInputTopics';
 
-export function setsEqual(a: Set<string>, b: Set<string>): boolean {
+export function setsEqual(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
   if (a.size !== b.size) return false;
   for (const v of a) if (!b.has(v)) return false;
   return true;
@@ -459,6 +469,7 @@ export const useSignalsStore = create<SignalsState>((set) => ({
   claudeAttentionTopics: new Set(),
   awaitingFeedbackTopics: new Set(),
   awaitingInputTopics: new Set(),
+  attentionEdgeTopics: new Set(),
   seenSubjects: new Set(),
   terminalFinishedIds: new Set(),
   terminalReloadingIds: new Set(),
@@ -472,13 +483,19 @@ export const useSignalsStore = create<SignalsState>((set) => ({
   // set è letto da OGNI riga e OGNI tab.
   markSubjectSeen: (id: string) =>
     set((s) => (s.seenSubjects.has(id) ? s : { seenSubjects: new Set(s.seenSubjects).add(id) })),
-  // Applica il fronte di salita degli awaiting: chiamata dal solo populatore
-  // (useSignalsSync) subito PRIMA di sostituire l'insieme awaiting, così il
-  // confronto prev→next è quello vero.
-  applyNewAttention: (nextAwaiting: ReadonlySet<string>) =>
+  // Applies the rising edge of the chat attention set. The set it compares
+  // against is the one IT stored last time (attentionEdgeTopics), never one of
+  // the tier sets: those are rewritten for their own reasons and a subject
+  // missing from them would read as a new edge on every single pass.
+  applyNewAttention: (nextAttention: ReadonlySet<string>) =>
     set((s) => {
-      const next = resetSeenOnNewAttention(s.seenSubjects, s.awaitingFeedbackTopics, nextAwaiting);
-      return next === s.seenSubjects ? s : { seenSubjects: next };
+      const seenSubjects = resetSeenOnNewAttention(s.seenSubjects, s.attentionEdgeTopics, nextAttention);
+      const edgeChanged = !setsEqual(s.attentionEdgeTopics, nextAttention);
+      if (!edgeChanged && seenSubjects === s.seenSubjects) return s;
+      return {
+        ...(edgeChanged ? { attentionEdgeTopics: nextAttention } : {}),
+        ...(seenSubjects === s.seenSubjects ? {} : { seenSubjects }),
+      };
     }),
 
   setBrowserBusy: (paneId, busy) =>
@@ -591,7 +608,7 @@ export const signalsActions = {
   setClaudeAttentionTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('claudeAttentionTopics', ids),
   setAwaitingFeedbackTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('awaitingFeedbackTopics', ids),
   setAwaitingInputTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('awaitingInputTopics', ids),
-  applyNewAttention: (nextAwaiting: ReadonlySet<string>) => useSignalsStore.getState().applyNewAttention(nextAwaiting),
+  applyNewAttention: (nextAttention: ReadonlySet<string>) => useSignalsStore.getState().applyNewAttention(nextAttention),
   markSubjectSeen: (id: string) => useSignalsStore.getState().markSubjectSeen(id),
   setSessionActivity: (activity: Map<string, SessionActivitySignal>) => useSignalsStore.getState().setSessionActivity(activity),
   setSessionLastActivity: (activity: Map<string, number>) => useSignalsStore.getState().setSessionLastActivity(activity),

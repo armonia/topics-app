@@ -99,6 +99,75 @@ describe('resetSeenOnNewAttention — un nuovo "tocca a te" annulla il visto', (
 });
 
 /**
+ * The chat rising edge measures itself against ITS OWN previous set.
+ *
+ * A chat parked on an in-app `ask_user_question` never reaches an
+ * awaiting-* phase (it stays tool-running), so it only ever shows up in
+ * `awaitingInputTopics`. Feeding the union to `applyNewAttention` is what
+ * lights the amber, but the comparison term has to be that same union, kept in
+ * `attentionEdgeTopics`. Comparing against `awaitingFeedbackTopics` (the blue
+ * "done" set, which the ask topic never enters) turns every pass into a fresh
+ * rising edge: the amber would light and never go out again, not even after
+ * you read the question. Hence the three-pass test below: a single pass would
+ * pass with the broken version too.
+ */
+describe('applyNewAttention e una domanda aperta: si accende una volta, poi si spegne', () => {
+  const S = (...ids: string[]) => new Set(ids);
+  const reset = () => useSignalsStore.setState({
+    seenSubjects: new Set(),
+    awaitingFeedbackTopics: new Set(),
+    awaitingInputTopics: new Set(),
+    attentionEdgeTopics: new Set(),
+  });
+  const st = () => useSignalsStore.getState();
+  const seen = () => st().seenSubjects;
+  // One pass of useSignalsSync's effect: the union first, then the tier sets.
+  const pass = (awaiting: Set<string>, input: Set<string>) => {
+    st().applyNewAttention(new Set([...awaiting, ...input]));
+    st().setTopicSet('awaitingFeedbackTopics', awaiting);
+    st().setTopicSet('awaitingInputTopics', input);
+  };
+
+  test('la domanda arriva mentre la chat è vista ⇒ il visto cade (l ambra si accende)', () => {
+    reset();
+    st().markSubjectSeen('c1');
+    pass(S(), S('c1'));
+    expect(seen().has('c1')).toBe(false);
+  });
+
+  test('tre giri con la STESSA domanda aperta ⇒ il visto si azzera una volta sola', () => {
+    reset();
+    st().markSubjectSeen('c1');
+    pass(S(), S('c1'));            // rising edge: seen cleared
+    expect(seen().has('c1')).toBe(false);
+    st().markSubjectSeen('c1');    // the human opens the chat and reads it
+    pass(S(), S('c1'));            // same question still open
+    pass(S(), S('c1'));
+    expect(seen().has('c1')).toBe(true);
+  });
+
+  test('domanda chiusa e riaperta ⇒ nuovo fronte, il visto cade di nuovo', () => {
+    reset();
+    st().markSubjectSeen('c1');
+    pass(S(), S('c1'));
+    st().markSubjectSeen('c1');
+    pass(S(), S());                // the answer closes the question
+    expect(seen().has('c1')).toBe(true);
+    pass(S(), S('c1'));            // a second question
+    expect(seen().has('c1')).toBe(false);
+  });
+
+  test('niente cambia ⇒ stesso riferimento di seenSubjects (contratto anti-render)', () => {
+    reset();
+    pass(S('c1'), S());
+    st().markSubjectSeen('c1');
+    const before = seen();
+    pass(S('c1'), S());
+    expect(seen()).toBe(before);
+  });
+});
+
+/**
  * Il fronte di salita vale anche per i TERMINALI.
  *
  * `applyNewAttention` annulla il visto delle CHAT, e per anni è stata l'unica

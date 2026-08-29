@@ -57,17 +57,18 @@ export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSes
   // can pick amber vs blue.
   useEffect(() => {
     const awaiting = deriveAwaitingFeedbackTopics(topics, claudeSessions);
-    // ORDINE CRITICO: il "visto" si annulla sul FRONTE DI SALITA degli awaiting,
-    // quindi va applicato mentre l'insieme precedente è ancora nello store. Dopo
-    // la sostituzione il confronto prev→next non esiste più e una tab che ha
-    // appena finito un nuovo turno resterebbe "vista" — cioè muta.
-    signalsActions.applyNewAttention(awaiting);
-    signalsActions.setAwaitingFeedbackTopics(awaiting);
     // Due sorgenti, un solo insieme: le fasi del terminale (awaiting-approval) e
     // le chat sospese su una domanda. Per chi guarda la sidebar è la stessa cosa
-    // — la palla è sua — quindi è giusto che sia lo stesso colore.
+    // (la palla è sua) quindi è giusto che sia lo stesso colore.
     const input = deriveAwaitingInputTopics(topics, claudeSessions);
     for (const id of askWaitingTopics) input.add(id);
+    // The "seen" flag is cleared on the rising edge of EVERYTHING that wants
+    // you, so the union goes in: a chat parked on an in-app ask_user_question
+    // is only ever in `input` (its phase stays tool-running), and feeding just
+    // `awaiting` left it seen, hence with no amber fill. applyNewAttention
+    // keeps its own copy of this union, so the call order no longer matters.
+    signalsActions.applyNewAttention(new Set([...awaiting, ...input]));
+    signalsActions.setAwaitingFeedbackTopics(awaiting);
     signalsActions.setAwaitingInputTopics(input);
   }, [topics, claudeSessions, askWaitingTopics]);
 
