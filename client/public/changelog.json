@@ -1,7 +1,23 @@
 [
   {
-    "version": "2.2.238",
+    "version": "2.2.239",
     "date": "2026-08-30",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Le tab della barra prendono corpo: erano ferme ai valori gia' giudicati troppo deboli",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.238",
+    "date": "2026-08-29",
     "sections": {
       "new": [],
       "fixes": [],

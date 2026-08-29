@@ -2,7 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.2.238 — 2026-08-30
+## 2.2.239 — 2026-08-30
+
+### Sotto il cofano
+- Le tab della barra prendono corpo: erano ferme ai valori gia' giudicati troppo deboli
+
+## 2.2.238 — 2026-08-29
 
 ### Sotto il cofano
 - Chiudere la bacheca e ricaricare la riportava indietro: mancava la lapide
