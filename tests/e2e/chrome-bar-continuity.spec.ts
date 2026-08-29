@@ -1,7 +1,7 @@
 /**
  * Le righe di chrome stanno sullo STESSO terreno del contenuto.
  *
- * «Dovrebbe esserci continuità di sfondi fra contenuto e tabbar» (Attilio,
+ * «Dovrebbe esserci continuità di sfondi fra contenuto e tabbar» (l'utente,
  * 09/08). Non c'era, e in tutte e quattro le combinazioni. Campionando il pixel
  * dipinto a y=0..73 (le due righe) contro y=74 (il contenuto):
  *   scuro  web  #0e0f12 contro #1b1c1d  → 13
@@ -124,7 +124,7 @@ test.describe("continuità: le righe di chrome e il contenuto", () => {
   });
 
   for (const tema of ["dark", "light"] as const) {
-    test(`CONT-1 (${tema}): la riga di chrome NON dipinge — il vetro è il blur`, async ({ page }) => {
+    test(`CONT-1 (${tema}): la riga di chrome NON dipinge e NON sfoca — le tab galleggiano e basta`, async ({ page }) => {
       test.info().annotations.push({ type: "spec", description: "CHROME-01" });
       await shell(page, { mac: false, dark: tema === "dark" });
 
@@ -133,16 +133,17 @@ test.describe("continuità: le righe di chrome e il contenuto", () => {
       // SUPERFICIE sotto (scarto zero per costruzione), e infine nessuna tinta
       // — perché stendere un colore su se stesso non serviva a niente che il
       // `backdrop-filter` non facesse già. «Il bg tabbar doveva essere
-      // trasparente così appariva tutto in floating» (Attilio, 09/08).
+      // trasparente così appariva tutto in floating» (richiesta del 09/08: ).
       const { velo } = await tinte(page);
       expect(rgba(velo)[3], `il velo deve essere trasparente (${velo})`).toBe(0);
 
-      // E il blur resta: è LUI a rendere leggibili i nomi delle tab mentre
-      // sotto passano i messaggi. Senza, questa non è una barra che galleggia,
-      // è una barra che non c'è.
+      // E NEMMENO IL BLUR: «volevo senza sfondo non blurrato» (richiesta del 29/08: ).
+      // Una banda smerigliata si legge come uno sfondo quanto una tinta, e i
+      // nomi restano leggibili grazie all'ALONE sull'etichetta, misurato da
+      // `chrome-bar-worst-case-contrast.spec.ts`.
       const sfocatura = await page.locator(".pane-chrome-bar").first()
         .evaluate((el) => getComputedStyle(el).backdropFilter);
-      expect(sfocatura, "la barra deve continuare a sfocare ciò che le passa sotto").toMatch(/blur/);
+      expect(sfocatura, `la barra non deve filtrare niente (${sfocatura})`).toBe("none");
     });
   }
 

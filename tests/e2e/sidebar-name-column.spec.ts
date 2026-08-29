@@ -70,7 +70,7 @@ test.describe("sidebar: the name column", () => {
     await cleanupFileProject(request, project);
   });
 
-  test("ROWALIGN-03: a chat name and a project name start at the same x", async ({ page }) => {
+  test("ROWALIGN-03: rows that draw a glyph share one column; a chat starts left of it", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-27" });
     await goToApp(page);
     // `.first()`: with a project seeded the sidebar carries a second tree (the
@@ -84,13 +84,31 @@ test.describe("sidebar: the name column", () => {
     // is guarded elsewhere. The shallowest row left is the top level.
     const top = Math.min(...names.map((n) => n.rowLeft));
     const topNames = names.filter((n) => Math.abs(n.rowLeft - top) < 1);
-    const starts = [...new Set(topNames.map((n) => n.left))];
 
+    // REVERSED ON 29/08. allow-italian: «vedo ancora spazio prima delle label nelle tab della sidebar»
+    // The one shared column was bought with an empty box
+    // in front of every chat name, and that box is the space complained about.
+    // What is left to guard is the half that still holds: the rows that DO
+    // draw a leading glyph must agree with each other, so the column they form
+    // is a column and not a scatter.
+    const withGlyph = topNames.filter((n) => n.kind !== "chat");
+    const glyphStarts = [...new Set(withGlyph.map((n) => n.left))];
     expect(
-      starts.length,
-      `at the top level the sidebar names start at ${starts.length} different x: ` +
-        `${starts.join(", ")}. One column, one alignment. Names: ` +
-        topNames.map((n) => `${n.kind}:${n.text}=${n.left}`).join(" | "),
-    ).toBe(1);
+      glyphStarts.length,
+      `rows with a leading glyph start at ${glyphStarts.length} different x: ` +
+        `${glyphStarts.join(", ")}. Names: ` +
+        withGlyph.map((n) => `${n.kind}:${n.text}=${n.left}`).join(" | "),
+    ).toBeLessThanOrEqual(1);
+
+    // And the chat starts STRICTLY left of them - the space is gone, not moved.
+    const chats = topNames.filter((n) => n.kind === "chat");
+    if (chats.length && glyphStarts.length) {
+      const chatStart = Math.min(...chats.map((n) => n.left));
+      expect(
+        chatStart,
+        `a chat name starts at ${chatStart}, a row with a glyph at ${glyphStarts[0]}: ` +
+          "the chat must no longer reserve the empty leading box.",
+      ).toBeLessThan(glyphStarts[0]!);
+    }
   });
 });

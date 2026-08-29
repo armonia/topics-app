@@ -740,7 +740,7 @@
     --text-placeholder: hsl(220 2.8% 48%);
     /* LE SUPERFICI SCURE ERANO TUTTE ×1,14 PIÙ CHIARE DEL DISEGNO.
      *
-     * Attilio, 07/08: «vedo ancora un blu o un grigio troppo chiaro da alcune
+     * l'utente, 07/08: «vedo ancora un blu o un grigio troppo chiaro da alcune
      * parti». Misurato (scratchpad/tokens.mjs), ed è un effetto SISTEMATICO,
      * non un token sbagliato: questi cinque sono tarati per staccare da
      * `--bg-surface` (11% di lightness), e sotto i 768px si ritrovano sotto
@@ -982,7 +982,7 @@ html {
  * proprio inchiostro. Sommati ai sei della lista fanno dodici fra due cose
  * DIPINTE, dove fra due card ce ne sono sei.
  *
- * È la «doppia spaziatura sotto la topbar della sidebar» (Attilio, 08 e 09/08,
+ * È la «doppia spaziatura sotto la topbar della sidebar» (l'utente, 08 e 09/08,
  * tre volte). La sua diagnosi era esatta: «derivante forse dal fatto che prima
  * c'era il bordo sotto» — con il filo si leggeva «spazio, linea, spazio», cioè
  * un separatore; tolto il filo restano due spazi in fila.
@@ -1639,7 +1639,7 @@ input[type="range"]::-webkit-slider-thumb {
  * Queste due regole dipingevano il figlio DIRETTO del contenitore di primo
  * livello, cioè la riga INTERA, da bordo a bordo. Il risultato era una fascia a
  * tutta larghezza: «sono full width i progetti invece di essere card... hanno
- * uno sfondo forse la riga» (Attilio). Vero, ed era il contrario di ciò che
+ * uno sfondo forse la riga» (l'utente). Vero, ed era il contrario di ciò che
  * servivano a fare — nascevano per togliere i filetti separatori, e hanno
  * sostituito una linea con una banda.
  *
@@ -1663,7 +1663,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* ── LA CODA DI UNA RIGA: il comando ci passa SOPRA, non in mezzo ────────────
  *
- * Attilio, 09/08: «il tasto chiusura deve essere sempre a fine tab, andando in
+ * l'utente, 09/08: «il tasto chiusura deve essere sempre a fine tab, andando in
  * hover sulle icone invece inutili». Sono due frasi, ed è la seconda a decidere
  * la meccanica: il comando non CHIEDE un posto in fila, ci passa sopra, e ciò
  * che copre in quel momento non serve.
@@ -1707,7 +1707,7 @@ input[type="range"]::-webkit-slider-thumb {
 /* IL «+» DELLA BARRA: col mouse esce al passaggio, col dito resta.
  *
  * «Facciamo in modo che i + da desktop escano solo all'hover (tabbar)»
- * (Attilio, 10/08). È la stessa idea di `.row-actions` un piano più su — un
+ * (richiesta del 10/08: ). È la stessa idea di `.row-actions` un piano più su — un
  * comando non deve stare acceso mentre non lo stai usando — con la stessa
  * distinzione fra i due dispositivi: dove l'hover non esiste, un comando
  * rivelato dall'hover è un comando che non esiste, quindi col dito resta
@@ -1772,7 +1772,7 @@ input[type="range"]::-webkit-slider-thumb {
      * bordo, mentre il badge che sostituisce ne sta 8. Passando il mouse su una
      * tab il pallino della notifica spariva e il cerchio di chiusura compariva
      * SEI PIXEL PIÙ A SINISTRA — «il tasto, cerchietto per chiudere una tab, non
-     * è ben posizionato» (Attilio, 10/08). Due cose che si danno il cambio nello
+     * è ben posizionato» (richiesta del 10/08: ). Due cose che si danno il cambio nello
      * stesso posto devono stare nello stesso posto.
      *
      * Quindi si scala l'incasso di metà della differenza fra scatola e glifo, e
@@ -1819,7 +1819,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* IL BORDO RIFLESSO — la luce che cade sul bordo alto di una card.
  *
- * Attilio, 07/08: «una sorta di bordo riflesso sulle card, molto minimo, non
+ * l'utente, 07/08: «una sorta di bordo riflesso sulle card, molto minimo, non
  * invasivo, ma ti dà un feel completamente diverso anche quando la card non è
  * selezionata. Da applicare a tutti gli elementi con border radius e flottanti:
  * le tab, ma anche i tasti come + e il cerca».
@@ -1848,7 +1848,7 @@ input[type="range"]::-webkit-slider-thumb {
  * come fa `.tap-expand`.
  *
  * ── I CAPELLI SONO DUE, E DEVONO ESSERCI ENTRAMBI ──────────────────────────
- * Attilio, 08/08: «il bordo delle pin sembra piatto sopra». Non è la curva: il
+ * l'utente, 08/08: «il bordo delle pin sembra piatto sopra». Non è la curva: il
  * `::before` ha `inset: 0` e `border-radius: inherit`, nessun ospite porta un
  * `border`, quindi padding-box e border-box coincidono e un'ombra inset è
  * clippata alla scatola ARROTONDATA — lungo l'arco il capello si assottiglia
@@ -1975,7 +1975,7 @@ html.native-frost.dark .edge-lit::before {
 
 /* UNA CURVA SOLA, E LA FINESTRA CHE LA CONTIENE.
  *
- * Attilio, 07/08: «il + a destra nella tabbar dell'app è forse troppo poco
+ * l'utente, 07/08: «il + a destra nella tabbar dell'app è forse troppo poco
  * rotondo e stona con il bordo della finestra del Mac, dovremmo uniformare
  * tutto bene». È vero e si vedeva solo lì: quel bottone sta a pochi pixel
  * dall'angolo in alto a destra della finestra, che sotto la shell mac è
@@ -2013,7 +2013,7 @@ html.native-frost.dark .edge-lit::before {
 /* UN COMANDO SU UN PIANO DI VETRO — il «+», il cerca, il tasto che riapre la
  * colonna.
  *
- * Attilio, 07/08: «da app mi sembrano di uno schema di colore diverso rispetto
+ * l'utente, 07/08: «da app mi sembrano di uno schema di colore diverso rispetto
  * al grigio blur dell'app attuale». Esatto, ed è strutturale: sotto la shell
  * mac tutto il chrome è UNA lastra translucida (vedi §vibrancy in fondo — la
  * sidebar, le barre delle tab e i fondali dei gruppi dipingono tutti la stessa
@@ -2037,7 +2037,7 @@ html.native-frost.dark .raised-control:hover { background-color: rgb(255 255 255
 
 /* LO STESSO COMANDO, MA APPOGGIATO SU CONTENUTO VIVO.
  *
- * Attilio, 08/08: «il + in overlay è un velo, sotto ci si legge attraverso».
+ * l'utente, 08/08: «il + in overlay è un velo, sotto ci si legge attraverso».
  * Ed è vero proprio dove conta: `.raised-control` è opaco solo sul WEB, mentre
  * sotto la shell mac — cioè nell'app che si guarda — vale 6% in chiaro e 10%
  * al buio. Per un bottone in fila va bene: sotto di lui c'è la lastra e basta.
@@ -2505,7 +2505,7 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
  *    partiva a (16 − 7,5) / 2 = 4,25px. Un quadrato di 3px che nasce su un
  *    quarto di pixel non ha un bordo: ha due colonne di sub-pixel sbiadite. Da
  *    vicino il glifo si legge sfocato, ed è metà del «il loader non è ben
- *    posizionato» (Attilio, 10/08). Adesso il glifo è 10×12: (16 − 10) / 2 = 3
+ *    posizionato» (richiesta del 10/08: ). Adesso il glifo è 10×12: (16 − 10) / 2 = 3
  *    e (16 − 12) / 2 = 2, tutti e due interi.
  *  · estetico — un solo pixel acceso alla volta su uno spento è un segno
  *    povero, e da fermo (l'attesa) diventava letteralmente «quel coso fermo».
@@ -2723,7 +2723,7 @@ html.electron-mac #root {
  * #151519 — è quello che vale, ed era l'unico punto della finestra ad averlo:
  * tutto il resto si fermava alla prima mano (#242426). Il gradino di quindici
  * livelli sul bordo basso delle barre era esattamente la seconda mano.
- * («Era meglio la versione più scura», Attilio 09/08, scegliendo il tono scuro
+ * («Era meglio la versione più scura», l'utente 09/08, scegliendo il tono scuro
  * PER TUTTO e non solo per le barre.)
  *
  * Quindi la seconda mano non si toglie e non si sposta: DIVENTA la prima. La
@@ -2863,7 +2863,7 @@ html.native-frost:not(.dark) .chrome-glass {
  * trappola della barra del progetto: annidata dentro un altro vetro, la regola
  * anti-doppio-strato la spegneva e la sua tinta usciva diversa da quella della
  * riga sopra. «Ancora alcuni colori non sono uniformati (es. browser)»
- * (Attilio, 09/08): era questo, e la causa è la stessa di prima — la posizione
+ * (richiesta del 09/08: ): era questo, e la causa è la stessa di prima — la posizione
  * nel DOM, non una scelta.
  *
  * Sul web dipinge `--chrome-overlay-bg`, la stessa tinta della barra delle tab,
@@ -2887,7 +2887,7 @@ html.native-frost:not(.dark) .chrome-glass {
  * (`absolute`), la conversazione parte da sopra e le passa SOTTO, e a separarle
  * non c'è più una linea ma la PROFONDITÀ — il blur dice «questo è davanti»
  * meglio di quanto un pixel di bordo dicesse «questo è un'altra zona».
- * (Attilio, 08/08: «rimuovere la linea sotto la tab bar, togliendo anche
+ * (richiesta del 08/08: «rimuovere la linea sotto la tab bar, togliendo anche
  * l'eventuale sfondo, in modo da creare un effetto overlay».)
  *
  * IL FONDO NON SPARISCE, si fa vetro, ed è il punto che va capito prima di
@@ -2915,7 +2915,7 @@ html.native-frost:not(.dark) .chrome-glass {
  * domanda giusta è: a cosa serve stendere un colore su se stesso? A mascherare
  * ciò che scorre — che è esattamente ciò che fa il `backdrop-filter`, senza
  * dover scegliere un'opacità. «Il bg tabbar doveva essere trasparente così
- * appariva tutto in floating» (Attilio, 09/08): tolto il fondo, quello che si
+ * appariva tutto in floating» (richiesta del 09/08: ): tolto il fondo, quello che si
  * vede sono le CARD delle tab appoggiate sul contenuto, che è la forma che
  * questa barra ha sempre voluto avere.
  *
@@ -2928,7 +2928,7 @@ html.native-frost:not(.dark) .chrome-glass {
  * ribaltato. La card chiedeva PIU' trasparenza — «la topbar dovrebbe essere
  * trasparente cosi' da far andare i messaggi sotto le tab» — e la consegna
  * aveva aggiunto un velo al 72%, cioe' l'opposto, cancellando il commento qui
- * sopra insieme alla frase di Attilio che lo motivava.
+ * sopra insieme alla frase di l'utente che lo motivava.
  *
  * L'ha detto `chrome-bar-continuity.spec.ts` («la riga di chrome NON dipinge —
  * il vetro e' il blur»), che i cancelli di review non eseguono: quella card era
@@ -2939,6 +2939,17 @@ html.native-frost:not(.dark) .chrome-glass {
  * che SE c'e' un velo, la sua tinta e' quella della superficie e non quella del
  * chrome. Con `transparent` non c'e' velo, e l'invariante e' soddisfatto a
  * vuoto — che e' la forma piu' forte, non la piu' debole. */
+/* NO BLUR EITHER (richiesta del 29/08: «volevo senza sfondo non blurrato»).
+ *
+ * The veil went first and the blur stayed, on the argument that the blur WAS
+ * the glass. It is not what was asked for: a frosted band still reads as a
+ * background, and what this bar wants is the tab cards floating over the
+ * transcript with nothing in between.
+ *
+ * What made the blur load-bearing was legibility of the tab names over moving
+ * text, and that job now belongs to the halo on the label below - which is the
+ * honest instrument for it, because it paints the ink's own local ground
+ * instead of bleaching everyone else's. */
 .pane-chrome-bar {
   position: absolute;
   inset-inline: 0;
@@ -2946,7 +2957,6 @@ html.native-frost:not(.dark) .chrome-glass {
   /* Sopra il contenuto, sotto i popover (z-50) e le anteprime di split. */
   z-index: 20;
   background-color: var(--chrome-overlay-bg);
-  @apply backdrop-blur-xl backdrop-saturate-150;
 }
 
 /* THE LABEL CARRIES ITS OWN GROUND, and only where it needs one.
@@ -2982,15 +2992,19 @@ html.native-frost:not(.dark) .chrome-glass {
  * the resting appearance of the bar untouched pixel for pixel. It is also the
  * honest thing to measure: the halo IS the ink's local ground.
  *
- * Light only. In dark the ink is already light and a light halo would eat it. */
+ * BOTH THEMES, since 29/08. It used to be light-only, on the measured ground
+ * that in dark the backdrop spread was 0.0271 against 0.6725 in light - but
+ * that was measured THROUGH the blur. With the blur gone (see the bar above) a
+ * bright band reaches the light ink directly and the worst reading fell to
+ * 1.26:1, caught by `chrome-bar-worst-case-contrast.spec.ts`. `--bg` is
+ * theme-dependent, so the same three shadows paint a DARK halo in dark: the
+ * rule was always "the ink carries its own ground", and only the ground
+ * changes. */
 .pane-chrome-bar [data-testid="pane-tab-label"] {
   text-shadow:
     0 0 2px var(--bg),
     0 0 4px var(--bg),
     0 0 6px var(--bg);
-}
-.dark .pane-chrome-bar [data-testid="pane-tab-label"] {
-  text-shadow: none;
 }
 
 /* IL TRASCRITTO SI RIPRENDE I 40px DELLA BARRA — ma solo se è lui il primo.

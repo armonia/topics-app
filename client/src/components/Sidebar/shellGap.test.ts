@@ -48,9 +48,12 @@ describe('shell gap', () => {
 });
 
 describe('badge text', () => {
-  test('a dev install whose shell is behind says both things', () => {
-    const badge = versionBadgeText({ client: '2.2.214', shell: '2.2.179' }, true);
-    expect(badge).toBe('dev \u00b7 v2.2.179');
+  test('a dev install says only "dev", whatever else is true', () => {
+    // Asked on 29/08. allow-italian: «la chip dev basta solo dev»
+    // The shell gap is real and
+    // still measured - it just does not belong in a badge that shares about
+    // 200px with six other things.
+    expect(versionBadgeText({ client: '2.2.214', shell: '2.2.179' }, true)).toBe('dev');
   });
 
   test('an installed app whose shell is behind names the shell number', () => {
@@ -63,8 +66,8 @@ describe('badge text', () => {
     expect(versionBadgeText(null, true)).toBe('dev');
   });
 
-  test('under the dev server the build age rides inside the same badge', () => {
-    expect(versionBadgeText(null, true, '12m')).toBe('dev \u00b7 12m');
+  test('the build age does not ride along either', () => {
+    expect(versionBadgeText(null, true, '12m')).toBe('dev');
   });
 
   test('an ordinary installed app carries no badge at all', () => {

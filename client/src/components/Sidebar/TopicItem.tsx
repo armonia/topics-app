@@ -14,7 +14,7 @@ import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { TopicSubline } from '@/components/Shared/SessionActivity';
 import { RelativeTime } from '@/components/Shared/RelativeTime';
 import { TopicStreamingSpinner } from '@/components/Layout/StreamingIndicator';
-import { sidebarRowCard, ROW_PX, ROW_GAP, ROW_H, ROW_INSET, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_CHEVRON, ROW_CHEVRON_SLOT, ROW_GLYPH_SLOT, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, ARCHIVED_ROW, TAB_LABEL_TYPE, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_GAP, ROW_H, ROW_INSET, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_CHEVRON, ROW_CHEVRON_SLOT, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, ARCHIVED_ROW, TAB_LABEL_TYPE, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT } from '@/lib/selectionStyles';
 import { RowSplitMap } from './RowSplitMap';
 import { useMobile } from '@/hooks/useMobile';
 import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
@@ -357,20 +357,16 @@ export const TopicItem = memo(function TopicItem({
           (Claude / Codex) stanno solo sulle sessioni agente vere, le righe
           terminale, mai su una chat. */}
 
-      {/* THE LEADING-GLYPH COLUMN, RESERVED EVEN THOUGH A CHAT DRAWS NOTHING IN
-          IT. Not drawing a glyph on a chat and not reserving its box are two
-          different decisions, and only the first one was ever taken: the second
-          was inherited. Measured in the live sidebar (card 018fd91f): with a
-          project name at 56px, a board / terminal / browser name at 60px and a
-          chat name at 34px, one list carried THREE name columns.
+      {/* NO RESERVED COLUMN ON A CHAT (richiesta del 29/08: «vedo ancora spazio
+          prima delle label nelle tab della sidebar»).
 
-          The rule is the one {@link ROW_CHEVRON_SLOT} already applies one
-          column to the left, and for the same reason: a column is read down,
-          so the air saved on the row that has nothing to show is invisible and
-          the broken alignment is not. The chat keeps NO mark of its own, which
-          is what the decision above protects; what it gains is the box, empty,
-          so every name in the sidebar starts at the same pixel. */}
-      <span aria-hidden="true" data-row-glyph-slot="empty" className={ROW_GLYPH_SLOT} />
+          The empty 18px box used to be kept so that every name in the sidebar
+          started at the same pixel - a column is read down, and the ragged
+          left edge was more visible than the air saved. That trade was made
+          against the alignment; it has now been made against the space, and
+          the space wins: a chat draws no glyph, so it starts at the row's own
+          padding. Rows that DO have a glyph still render it in the shared slot,
+          so their column is unchanged. */}
 
       {/* Nome + subline. La subline dice SEMPRE qualcosa (vedi TopicSubline):
           lo stato live mentre la sessione è viva, l'ultimo messaggio quando è

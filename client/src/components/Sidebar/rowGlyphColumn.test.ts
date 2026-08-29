@@ -48,18 +48,19 @@ function source(file: string): string {
 }
 
 describe('the leading-glyph column of the sidebar', () => {
-  test('the chat row reserves the glyph box although it draws nothing in it', () => {
-    // The row family the card is about. A chat carries NO mark of its own (the
-    // Claude / Codex marks belong to real agent sessions, never to a chat) and
-    // that decision is untouched: what it reserves is the BOX, empty, so its
-    // name starts where every other name starts.
+  test('the chat row reserves NOTHING: its name starts at the row padding', () => {
+    // REVERSED ON 29/08. allow-italian: «vedo ancora spazio prima delle label nelle tab della sidebar»
+    // The empty box bought one shared name column at the cost of
+    // `ROW_GLYPH_SLOT` plus one gap of dead air on every chat - and the air is
+    // what is actually looked at all day. The trade is now made the other way;
+    // the rows that DO draw a glyph still use the shared slot, so the column
+    // they form is unchanged.
     const reserved = source('TopicItem.tsx').match(/data-row-glyph-slot="empty"/g) ?? [];
     expect(
       reserved.length,
-      'TopicItem.tsx must reserve the leading-glyph box on the chat row: without it ' +
-        `a chat name starts ${widthPx(ROW_GLYPH_SLOT)}px plus one row gap left of a ` +
-        'project name, and the sidebar carries two name columns.',
-    ).toBe(1);
+      'the chat row must not reserve an empty leading box: that box IS the ' +
+        `${widthPx(ROW_GLYPH_SLOT)}px of space in front of the label.`,
+    ).toBe(0);
   });
 
   test('no leading glyph is drawn outside the shared slot', () => {

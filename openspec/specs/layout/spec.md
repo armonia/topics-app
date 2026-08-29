@@ -299,14 +299,23 @@ The system SHALL support sidebar toggle, pane tab bar interactions including clo
 - **AND** the content area updates to show the selected pane
 - **AND** the total tab count remains stable
 
-### Requirement: CHROME-01 — Le righe di chrome NON dipingono: la continuità è il vetro
+### Requirement: CHROME-01 — Le righe di chrome NON dipingono e NON sfocano: le schede galleggiano
 
 Le righe di chrome NON SHALL dipingere uno sfondo proprio: fra contenuto e barre
 ci deve essere CONTINUITÀ, e uno sfondo proprio produce un gradino visibile —
 misurato su entrambi i temi e su entrambi i gusci, fino a quattordici livelli di
 differenza.
 
-La tinta SHALL venire dalla superficie SOTTO, attraverso la sfocatura.
+La barra delle schede NON SHALL nemmeno SFOCARE ciò che le passa sotto
+(«volevo senza sfondo non blurrato», l'utente 29/08): una banda smerigliata si
+legge come uno sfondo tanto quanto una tinta, e ciò che questa barra deve
+mostrare sono le CARD delle schede appoggiate sul trascritto, senza niente in
+mezzo.
+
+La leggibilità dei nomi sopra il testo in movimento SHALL essere retta
+dall'ALONE sull'etichetta, non da uno strato steso su tutta la barra: l'alone
+dipinge il terreno LOCALE dell'inchiostro invece di sbiancare il contenuto di
+tutti, e si misura dove il difetto vive (CHROME-CONTRAST).
 
 Sotto il guscio nativo SHALL dipingere UNA SOLA superficie — il guscio della
 finestra — e NESSUNA riga, né la prima né quella annidata.
@@ -319,6 +328,10 @@ primo messaggio SHALL fermarsi al fondo della barra.
 #### Scenario: una riga di chrome
 - **GIVEN** una qualunque riga di chrome, in entrambi i temi
 - **THEN** NON SHALL avere uno sfondo opaco proprio
+
+#### Scenario: la barra delle schede
+- **GIVEN** la barra delle schede, in entrambi i temi
+- **THEN** il suo `backdrop-filter` SHALL essere `none`
 
 #### Scenario: la conversazione che scorre
 - **GIVEN** una chat che scorre sotto la barra
@@ -1196,10 +1209,15 @@ scatola sua da 14px, l'ultimo glifo fuori dallo slot condiviso), quello della
 bacheca, delle utilità, dei terminali e dei browser a 60. Tre incolonnamenti nella
 stessa lista, e nessuna riga sbagliata da sola.
 
-Ogni riga della sidebar SHALL riservare lo slot del glifo di testa, anche quando
-non ci disegna niente: NON disegnare un glifo e NON riservarne la scatola sono due
-decisioni distinte, e la chat aveva presa solo la prima. Una chat NON SHALL
-guadagnare un marchio proprio: i marchi (Claude / Codex) restano delle sessioni
+**RIBALTATO IL 29/08/2026.** «Vedo ancora spazio prima delle label nelle tab
+della sidebar» (l'utente): la colonna unica si comprava con una scatola VUOTA
+davanti a ogni nome di chat, e quella scatola E' lo spazio di cui si parla. Il
+baratto era fra un incolonnamento che si legge scorrendo l'occhio in verticale e
+dell'aria morta che si guarda tutto il giorno: adesso vince l'aria.
+
+Una riga che NON disegna un glifo di testa NON SHALL riservarne la scatola: il
+suo nome comincia al padding della riga. Una chat NON SHALL guadagnare un
+marchio proprio per riempirla — i marchi (Claude / Codex) restano delle sessioni
 agente vere.
 
 Ogni glifo di testa SHALL stare nello STESSO slot, favicon di progetto compresa:
@@ -1213,11 +1231,15 @@ riguarda resterebbe fuori dalla misura.
 
 #### Scenario: una chat e un progetto allo stesso livello
 - **GIVEN** una chat di primo livello e un progetto di primo livello
-- **THEN** i due nomi SHALL cominciare dallo STESSO pixel
+- **THEN** il nome della chat SHALL cominciare a SINISTRA di quello del progetto
 
 #### Scenario: una riga di chat
 - **GIVEN** una chat, che non porta nessun glifo di testa
-- **THEN** SHALL riservare comunque il riquadro del glifo
+- **THEN** NON SHALL riservare il riquadro del glifo
+
+#### Scenario: due righe che un glifo ce l'hanno
+- **GIVEN** un progetto e un terminale di primo livello
+- **THEN** i due nomi SHALL cominciare dallo STESSO pixel
 
 ### Requirement: POPOVER-01 — Uno alla volta, ma un FIGLIO non caccia il genitore
 

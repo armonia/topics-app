@@ -60,13 +60,16 @@ export function shellGap(
  * that does NOT arrive on its own, so "dev" is the reason the second number is
  * old.
  *
- *   dev install, shell behind -> "dev . v2.2.179"
- *   shell behind only         -> "v2.2.179"
- *   dev install only          -> "dev"
+ *   dev install       -> "dev", and nothing else
+ *   shell behind only -> "v2.2.179"
  *
- * `hmrAge` is the "last code change" the Vite dev server tracks; it rides
- * inside the badge instead of costing a chip of its own, and only under the dev
- * server, where there is no packaged shell to disagree with.
+ * ON A DEV INSTALL THE BADGE SAYS ONLY "dev".
+ * allow-italian: «la chip dev basta solo dev» (29/08)
+ * It used to also carry the HMR age and the shell version,
+ * on the argument that a dev install is the reason the second number is stale -
+ * true, and still not worth three facts in a badge that has to fit next to six
+ * other things. `hmrAge` stays in the signature: the caller still measures it,
+ * and it is one line away from being shown again if it is ever wanted.
  *
  * Returns null when there is nothing true to say, and the chip stays one number
  * wide - which is the normal case for an installed app.
@@ -74,13 +77,8 @@ export function shellGap(
 export function versionBadgeText(
   gap: ShellGap | null,
   devInstall: boolean,
-  hmrAge?: string,
+  _hmrAge?: string,
 ): string | null {
-  const parts: string[] = [];
-  if (devInstall) {
-    parts.push('dev');
-    if (hmrAge) parts.push(hmrAge);
-  }
-  if (gap) parts.push(`v${gap.shell}`);
-  return parts.length ? parts.join(' \u00b7 ') : null;
+  if (devInstall) return 'dev';
+  return gap ? `v${gap.shell}` : null;
 }
