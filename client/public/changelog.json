@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.221",
+    "date": "2026-08-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La fine del turno buttava via l'unico evento che spegne i pannelli",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.220",
     "date": "2026-08-29",
     "sections": {
