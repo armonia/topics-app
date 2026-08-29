@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.223 — 2026-08-29
+
+### Sotto il cofano
+- La card del gruppo restava blu su una chat già letta
+
 ## 2.2.221 — 2026-08-29
 
 ### Sotto il cofano
