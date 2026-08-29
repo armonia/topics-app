@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.231",
+    "date": "2026-08-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "`useSortable` nella sidebar era morto, e teneva 12 KB sul critical path di ogni avvio",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.230",
     "date": "2026-08-29",
     "sections": {

@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.231 — 2026-08-29
+
+### Sotto il cofano
+- `useSortable` nella sidebar era morto, e teneva 12 KB sul critical path di ogni avvio
+
 ## 2.2.230 — 2026-08-29
 
 ### Sotto il cofano
