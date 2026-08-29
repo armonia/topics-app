@@ -124,7 +124,7 @@ export function ChatPanel({
 
   return (
     <>
-      <div data-testid="chat-panel" role="region" aria-label={`${topic.name} panel`} className={`relative flex flex-col flex-1 min-h-0 bg-surface overflow-hidden transition-colors duration-100 ${isDragOver ? 'bg-primary/3' : ''}`} onClick={onFocus}>
+      <div data-testid="chat-panel" role="region" aria-label={`${topic.name} panel`} className={`relative flex flex-col flex-1 min-h-0 bg-surface chrome-passthrough-y transition-colors duration-100 ${isDragOver ? 'bg-primary/3' : ''}`} onClick={onFocus}>
         {/* Header — skipped in `bodyOnly` mode (parent owns it). On mobile
             with tabs: floating overlay with blur for scroll-through effect. */}
         {!bodyOnly && <div className={`flex items-center ${headerLeft
@@ -226,9 +226,14 @@ export function ChatPanel({
         )}
 
         {/* Main Content with optional Context Inspector slide-out */}
-        <div className="flex-1 flex min-h-0 overflow-hidden relative">
-          <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-            <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+        {/* The three nested wrappers between the cell and the transcript keep
+            the horizontal containment and let the vertical through
+            (`chrome-passthrough-y`): the chat rises under the chrome bar by a
+            negative margin, and a single `overflow-hidden` anywhere on this
+            chain cuts those pixels off. See index.css. */}
+        <div className="flex-1 flex min-h-0 chrome-passthrough-y relative">
+          <div className="flex-1 flex flex-col min-w-0 chrome-passthrough-y">
+            <div className="flex-1 min-h-0 chrome-passthrough-y flex flex-col">
               <ChatPane
                 topic={topic}
                 isFocused={isFocused}

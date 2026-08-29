@@ -2948,6 +2948,7 @@ html.native-frost:not(.dark) .chrome-glass {
   background-color: var(--chrome-overlay-bg);
   @apply backdrop-blur-xl backdrop-saturate-150;
 }
+
 /* IL TRASCRITTO SI RIPRENDE I 40px DELLA BARRA — ma solo se è lui il primo.
  *
  * La cella di ogni pane tiene un rientro pari all'altezza della barra
@@ -2971,6 +2972,41 @@ html.native-frost:not(.dark) .chrome-glass {
 .chat-under-chrome:first-child {
   margin-top: calc(-1 * var(--chrome-bar-h, 0px));
   --chat-gutter: var(--chrome-bar-h, 0px);
+}
+
+/* THE FLOAT HAS TO REACH THE PIXELS, and a negative margin alone does not take
+ * it there. `.chat-under-chrome:first-child` rises by the height of the bar,
+ * but it rises OUT of its parent, and every wrapper between the pane cell and
+ * the transcript was `overflow: hidden` starting at y=40 (the cell keeps the
+ * inset, `paneCellTopInset`). So the transcript did move up and then got its
+ * top 40px cut off by the first wrapper on the way. Everything MEASURABLE was
+ * right - the rects, the gutter, the position of the bar - and nothing was
+ * visible: under the glass there was the flat cell background, never a word.
+ * `chrome-bar-worst-case-contrast.spec.ts` read it as a backdrop spread of
+ * exactly 0.0000 across a whole scroll sweep, which is what "nothing passes
+ * under here" looks like as a number.
+ *
+ * The pair below is the only one that lets the vertical through while keeping
+ * the horizontal contained: `clip` on x, `visible` on y. `hidden` on x would
+ * force y to compute to `auto` (per CSS Overflow 3, a `visible` paired with a
+ * non-`visible`/non-`clip` value becomes `auto`) and turn the wrapper into a
+ * scroll container - a second scroller inside the chat, which is a worse bug
+ * than the one being fixed. `clip` is not a scroll container, so `visible`
+ * stays `visible`.
+ *
+ * WHAT STILL CLIPS, and it is the one that matters: the pane CELL. It keeps
+ * `overflow: hidden` and its padding box starts at the top edge of the pane,
+ * so the transcript risen by 40 ends flush with the cell instead of spilling
+ * into the tab bar of the pane above. The inset stays on the cell too, so the
+ * blocks at the top of the chat (banners, pinned messages) are still born under
+ * the glass and still legible.
+ *
+ * Guarded by `chrome-bar-overlay.spec.ts` (OVERLAY-6, which walks the ancestor
+ * chain and fails naming the wrapper that clips) and measured on the composited
+ * pixels by `chrome-bar-worst-case-contrast.spec.ts`. */
+.chrome-passthrough-y {
+  overflow-x: clip;
+  overflow-y: visible;
 }
 
 /* La regola `!important` di `html.native-frost .chrome-glass` (qui sopra)

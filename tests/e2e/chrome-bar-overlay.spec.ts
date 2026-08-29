@@ -187,6 +187,80 @@ test.describe("La riga di chrome sta SOPRA la pane, non prima di lei", () => {
   });
 
   /**
+   * WHAT OVERLAY-4 CANNOT SEE: the rects are right and the pixels are cut.
+   *
+   * The transcript rises under the bar with a NEGATIVE MARGIN, so it leaves its
+   * own parent box. Every wrapper between the pane cell and the transcript used
+   * to be `overflow: hidden` starting at the bottom of the bar (the cell holds
+   * the inset), and a clipped element still reports the rect it would have had:
+   * `getBoundingClientRect` knows nothing about clipping. That is why OVERLAY-1
+   * and OVERLAY-4 stayed green for weeks over a bar with nothing but flat
+   * background under it, and why the defect was only ever found by reading
+   * composited pixels (`chrome-bar-worst-case-contrast.spec.ts`, backdrop
+   * spread 0.0000 across a whole sweep).
+   *
+   * This case measures the CAUSE, so the red says which element to open. The
+   * pixels are measured by the contrast spec; here the ancestor chain is walked
+   * and each wrapper is asked whether it clips vertically. Two clipping
+   * mechanisms are checked, because either one alone does it: `overflow-y`
+   * anything but `visible`, and paint containment (`contain: paint|content|
+   * strict`), which clips without touching `overflow`.
+   *
+   * THE CELL IS EXCLUDED ON PURPOSE, and it is not a gap in the check: it is
+   * the one clip that has to survive. It cuts exactly on the top edge of the
+   * pane, so the transcript risen by 40 stops flush instead of spilling into
+   * the pane above. Asserted here as well, so "fixing" a future red by opening
+   * up the cell fails immediately.
+   */
+  test("OVERLAY-6: fra cella e trascritto nessun antenato ritaglia in verticale", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHROME-01" });
+    await apri(page, request, longId, longName);
+    await expect(barra(page)).toBeVisible({ timeout: 15000 });
+
+    const catena = await contenitore(page).evaluate((start) => {
+      const clipY = (s: CSSStyleDeclaration) =>
+        s.overflowY !== "visible" || /\b(paint|content|strict)\b/.test(s.contain);
+      const nome = (el: Element) => {
+        const shell = el.getAttribute("data-pane-shell");
+        const testId = el.getAttribute("data-testid");
+        const cls = String(el.className || "").split(/\s+/).filter(Boolean).slice(0, 4).join(".");
+        return [el.tagName.toLowerCase(), shell ? `[pane-shell]` : "", testId ? `[${testId}]` : "", cls ? `.${cls}` : ""].join("");
+      };
+      const fra: { nome: string; overflowY: string; contain: string; clip: boolean }[] = [];
+      let cella: { nome: string; clip: boolean } | null = null;
+      for (let el = start.parentElement; el; el = el.parentElement) {
+        const s = getComputedStyle(el);
+        if (el.hasAttribute("data-pane-shell")) {
+          cella = { nome: nome(el), clip: clipY(s) };
+          break;
+        }
+        fra.push({ nome: nome(el), overflowY: s.overflowY, contain: s.contain, clip: clipY(s) });
+      }
+      return { fra, cella, partenza: nome(start) };
+    });
+
+    expect(catena.cella, "nessuna cella `[data-pane-shell]` sopra il trascritto").not.toBeNull();
+
+    // Printed whatever the verdict: the chain is the map of the problem, and a
+    // card that has to decide where to put a wrapper should not have to
+    // re-derive it from the components.
+    console.log(
+      `\n[CATENA] ${catena.partenza} → ${catena.fra.map((n) => `${n.nome} (overflow-y:${n.overflowY}${n.clip ? " ✂" : ""})`).join(" → ")} → ${catena.cella?.nome}\n`,
+    );
+
+    const offenders = catena.fra.filter((n) => n.clip);
+    expect(
+      offenders.map((n) => n.nome),
+      "un wrapper fra la cella e il trascritto ritaglia in verticale: il trascritto risale sotto la barra e viene tagliato proprio li'. Serve `chrome-passthrough-y` (overflow-x: clip; overflow-y: visible)",
+    ).toEqual([]);
+
+    expect(
+      catena.cella!.clip,
+      "la CELLA della pane ha smesso di ritagliare: senza quel taglio il trascritto risalito esce dal bordo superiore della pane",
+    ).toBe(true);
+  });
+
+  /**
    * L'ALTRA META' DELL'EFFETTO, e quella che si rompe per prima.
    *
    * OVERLAY-2 misura il varco dove la lista NON scorre. Il caso che si vede
