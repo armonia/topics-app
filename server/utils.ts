@@ -1692,8 +1692,15 @@ export function createAppContext(baseDir: string): AppContext {
    * panel still inviting an answer 22 minutes after its turn had been closed,
    * with a Retry banner right underneath. The ask is cancelled here for the
    * same reason: whoever is blocked on it must fail, not hang.
+   *
+   * `keepAwaiting` is the ONE exception, and it exists because one ask is not
+   * a leftover: the plan approval is posted BY the end of the turn, and its
+   * answer starts a new turn instead of unblocking this one. Cancelling it
+   * here would kill the panel a few lines after installing it. Anything not
+   * named in this list keeps the rule above.
    */
-  function endStream(sessionKey: string): ToolCall[] {
+  function endStream(sessionKey: string, opts?: { keepAwaiting?: readonly string[] }): ToolCall[] {
+    const keepAwaiting = new Set(opts?.keepAwaiting ?? []);
     const stream = activeStreams.get(sessionKey);
     const interrupted: ToolCall[] = [];
     if (stream?.messageId) {
@@ -1713,6 +1720,9 @@ export function createAppContext(baseDir: string): AppContext {
           // lo stesso motivo, quindi la condizione è il predicato condiviso e
           // non due `if` che possono divergere.
           if (tc && isAwaitingHuman(tc.status)) {
+            // An ask that outlives the turn on purpose: leave it exactly as it
+            // is, panel included.
+            if (keepAwaiting.has(tc.id)) return false;
             const eraPermesso = tc.status === 'awaiting_permission';
             tc.status = 'error';
             if (tc.endedAt == null) tc.endedAt = endedAt;

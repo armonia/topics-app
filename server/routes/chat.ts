@@ -1911,7 +1911,41 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               ? discardIfEmptyTurn(sessionKey, finalizedMsg)
               : null;
             if (discardedMessageId) console.log(`[StreamWS] ${sessionKey}: turno vuoto scartato (${discardedMessageId})`);
-            endStream(sessionKey);
+            // Two things this call does, and both used to be thrown away here.
+            //
+            // It CANCELS every tool still awaiting a human, because the turn is
+            // over and a click would reach nobody. The plan approval is the one
+            // ask that must survive: this same function installed it a few
+            // hundred lines above, its answer opens a NEW turn, and no provider
+            // will ever send a result for that id. Without the exemption the
+            // panel was already `error` in the database before anyone saw it,
+            // and after a reload even the bar above the composer was gone,
+            // because `findPendingAsk` looks for `waiting_for_input`.
+            //
+            // And it RETURNS what it cancelled. That list is the only event
+            // able to switch off a panel already on screen: dropped, the form
+            // stayed grey on `Invio...` over a turn that no longer exists. The
+            // stale-stream sweeper announces its own list the same way.
+            const interrupted = endStream(
+              sessionKey,
+              askingPlanApproval && pendingPlan ? { keepAwaiting: [pendingPlan.toolCallId] } : undefined,
+            );
+            for (const tc of interrupted) {
+              broadcastStreamToTopic({
+                type: "stream:tool_result",
+                sessionKey,
+                topicId: matchedTopic?.id,
+                toolCallId: tc.id,
+                status: "error",
+                // The row's own output, not an empty string: cancelling a tool
+                // does not erase what it had already printed, and the database
+                // still has it, so a screen wiped here would come back on the
+                // next reload.
+                result: tc.result,
+                error: tc.error,
+                endedAt: tc.endedAt,
+              }, matchedTopic?.id);
+            }
             topicProvider.unregisterStreamHandler?.(sessionKey, handler);
 
             // Detect sub-agent launches

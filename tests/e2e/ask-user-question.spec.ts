@@ -30,6 +30,8 @@ const BASE = E2E_BASE;
  * È un COMPORTAMENTO: video acceso, il .webm è la prova. Le parti pure hanno
  * unit test dedicati (ask-user-bridge.test.ts, ask-user-detector.test.ts,
  * topics-mcp-server.test.ts → callAskUserQuestion).
+ *
+ * @covers ASK-09
  */
 test.use({ video: "on" });
 
@@ -392,5 +394,52 @@ test.describe.serial("Pannello AskUserQuestion nativo", () => {
     expect(result.cancelled).toBeFalsy();
     expect(result.answers).toEqual({ [question]: "Bun" });
     expect(result.legs).toBeGreaterThan(5);
+  });
+
+  test("risposto, il pannello si spegne da solo: nessun reload, nessun aiuto dal test", async ({ page, chatPage, request }) => {
+    // Reported as «graficamente le domande restano in invio anche se vanno avanti». // allow-italian: the report, verbatim
+    // The button went grey on its "sending" label and stayed there while the
+    // new turn scrolled underneath, until a reload.
+    //
+    // No WS injection here, and that is the whole point. The other tests in
+    // this file push a `stream:tool_result` of their own to make the panel go
+    // away, so the only announcement the server sends BY ITSELF on an answer
+    // was never under test: `stream:tool_update` carrying the new status. That
+    // announcement used to be dropped by the client (it entered the handler
+    // only when a partial result was present) and nothing else was coming.
+    const toolCallId = "toolu_ask_unmount";
+    const question = "Quale runtime?";
+    const options = [{ label: "Bun" }, { label: "Node" }];
+    await seedAsk(request, toolCallId, question, options);
+    const bridge = registerBridgeAsk(request, [{ question, header: "Scelta", options }]);
+
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(topicName));
+    await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
+
+    const form = page.locator(`[data-testid="tool-input-form-${toolCallId}"]`);
+    await expect(form).toBeVisible({ timeout: 15_000 });
+
+    await form.locator('input[type="radio"][value="Bun"]').check();
+    await form.getByTestId("ask-submit").click();
+
+    // The answer reached the model, which is the precondition: the panel must
+    // switch off because the row moved on, not because the click did anything
+    // locally.
+    const result = await bridge;
+    expect(result.answers).toEqual({ [question]: "Bun" });
+
+    // A few seconds, no reload, nobody remounting the pane.
+    await expect(form.getByTestId("ask-submit")).toHaveCount(0, { timeout: 8_000 });
+    await expect(form).toHaveCount(0);
+
+    // And it does not come back. The list is virtualized, so a row that leaves
+    // the viewport and remounts would re-arm a panel over a question already
+    // answered: what closes it has to be the row's state, not the component's.
+    // DELIBERATE FIXED WAIT: the assertion is that NOTHING reappears, and no
+    // condition means "a while has passed without a comeback".
+    await page.waitForTimeout(1500);
+    await expect(form).toHaveCount(0);
   });
 });

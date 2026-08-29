@@ -498,7 +498,7 @@ export interface AppContext {
   updateStreamActivity: (sessionKey: string, isThinking?: boolean) => void;
   updateStreamContent: (sessionKey: string, content: string, thinking: string) => void;
   getStreamContent: (sessionKey: string) => { content: string; thinking: string; messageId: string } | null;
-  endStream: (sessionKey: string) => ToolCall[];
+  endStream: (sessionKey: string, opts?: { keepAwaiting?: readonly string[] }) => ToolCall[];
   isStreaming: (sessionKey: string) => ActiveStream | undefined;
   readJSON: (req: Request) => Promise<any>;
   json: (data: any, status?: number) => Response;
