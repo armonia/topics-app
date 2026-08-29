@@ -1,5 +1,79 @@
 [
   {
+    "version": "2.2.228",
+    "date": "2026-08-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un orfano si giudica dall'ETÀ: total_assets torna a essere misurato",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.226",
+    "date": "2026-08-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il caso \"five daemons racing\" smette di misurare il cronometro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un file di test non può chiedere una ricostruzione: nel bundle non entra",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il caso «five daemons racing» smetteva di misurare la gara e misurava il cronometro",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.225",
+    "date": "2026-08-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "I requisiti che questa consegna prova non esistevano, e ne rivendicava uno di un altro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La deriva del bundle si vede dove si legge la versione (STATUSLINE-03)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il build del client non lascia più public/ svuotata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "bundle — skip test files when measuring source freshness",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.224",
     "date": "2026-08-29",
     "sections": {
@@ -9,6 +83,26 @@
       "internal": [
         {
           "it": "LABELGUTTER-02 torna a girare: lo spec si semina la profondità invece di sperarla",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La deriva del bundle si vede dove si legge la versione (STATUSLINE-03)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il build del client non lascia piu' public/ svuotata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chiude anche la terza strada: perche' nemmeno una ricostruzione pianificata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il rovescio di STATUSLINE-03 è un requisito suo, non una variante senza nome",
           "en": "",
           "scope": null
         }

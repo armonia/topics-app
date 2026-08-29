@@ -3,7 +3,7 @@
  */
 import { describe, test, expect, afterEach } from "bun:test";
 import net from "node:net";
-import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync, openSync, closeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -78,13 +78,94 @@ async function muteOwner(sock: string): Promise<{ pid: number; alive: () => bool
   };
 }
 
-function spawnDaemon(sock: string, store: string) {
+type Daemon = {
+  proc: Bun.Subprocess;
+  /** Everything the daemon has printed so far, readable while it is still alive. */
+  said: () => string;
+};
+
+let daemonSeq = 0;
+
+/**
+ * THE DAEMON'S STDERR GOES TO A FILE, never to a pipe.
+ *
+ * Two reasons, both paid for. Reading the stream of a process that is still
+ * alive blocks the reader until that process exits, so a piped stderr can only
+ * be read after the fact: useless exactly when you want to know what a daemon
+ * that has NOT exited is doing. And a pipe nobody reads is a second way to lose
+ * the account: it is the parent's event loop that has to drain it, and under a
+ * full suite that loop has other things to do.
+ *
+ * A file has neither problem: the daemon writes, anybody reads, at any moment.
+ * It is the probe that caught the defect fixed in 553e60409, after the first
+ * attempt at reading the pipes hung on a daemon that was still alive.
+ */
+function spawnDaemon(sock: string, store: string): Daemon {
+  const errPath = join(tmpdir(), `abs-daemon-${process.pid}-${daemonSeq++}.err`);
+  const fd = openSync(errPath, "w");
   const proc = Bun.spawn(
     [process.execPath, BRIDGE, "--socket", sock, "--store-dir", store, "--parent-pid", String(process.pid)],
-    { stdout: "pipe", stderr: "pipe" },
+    { stdout: "ignore", stderr: fd },
   );
-  cleanups.push(() => { try { proc.kill(9); } catch { /* already dead */ } });
-  return proc;
+  cleanups.push(() => {
+    try { proc.kill(9); } catch { /* already dead */ }
+    try { closeSync(fd); } catch { /* already closed */ }
+    try { rmSync(errPath, { force: true }); } catch { /* already gone */ }
+  });
+  return {
+    proc,
+    said: () => { try { return readFileSync(errPath, "utf8"); } catch { return ""; } },
+  };
+}
+
+/**
+ * Is this daemon still running? TWO answers have to agree.
+ *
+ * `exitCode` is the parent's bookkeeping and it is only as fresh as the
+ * parent's event loop; `kill(pid, 0)` is the kernel, but it also succeeds on a
+ * zombie that has exited and not been reaped yet. A process is running only if
+ * both say so, which makes this reading immune to the two ways of being wrong
+ * at once instead of picking one of them.
+ */
+function stillRunning(d: Daemon): boolean {
+  if (d.proc.exitCode !== null || d.proc.signalCode !== null) return false;
+  try { process.kill(d.proc.pid, 0); return true; } catch { return false; }
+}
+
+/** What a daemon decided, in its own words, shortened to the decisive bit. */
+function verdictOf(d: Daemon): string {
+  const line = d.said().trim().split("\n")[0] ?? "";
+  if (!line) return `never spoke (exit ${d.proc.exitCode ?? "none"})`;
+  if (line.includes("Listening on")) return "owner";
+  if (line.includes("already taking over")) return "lost the lock";
+  if (line.includes("healthy bridge already")) return "found the owner";
+  if (line.includes("NOT evicting it")) return "backed off";
+  return line.replace("[AI Bridge] ", "");
+}
+
+/**
+ * The verdict of the race as ONE sentence: either the expected outcome, or what
+ * happened instead with every daemon's own account attached.
+ *
+ * It is a string and not five separate assertions on purpose. When this case
+ * fails it fails on a machine nobody is watching, and the only thing that
+ * arrives is the diff of the comparison: it has to carry the whole story, and
+ * above all it has to distinguish "the race is broken" from "the machine never
+ * started these processes", which is what a count of survivors could not say.
+ */
+function diagnose(racers: Daemon[], answering: boolean, reachCeilingMs: number): string {
+  const report = racers.map((d, i) => `#${i} ${verdictOf(d)}${stillRunning(d) ? " (alive)" : ""}`).join(", ");
+  const mute = racers.filter((d) => d.said().trim().length === 0).length;
+  const owners = racers.filter((d) => d.said().includes("Listening on")).length;
+  const running = racers.filter(stillRunning).length;
+  if (mute > 0) {
+    return `${mute} of ${racers.length} daemons never reached the race within ${reachCeilingMs} ms. `
+      + `That is the machine failing to start them, not the race failing: ${report}`;
+  }
+  if (owners !== 1) return `${owners} daemons took the same socket: ${report}`;
+  if (running !== 1) return `${running} daemons still running after the race: ${report}`;
+  if (!answering) return `nobody answers on the socket: ${report}`;
+  return "one owner listening, four losers gone";
 }
 
 function someoneListening(sock: string, timeoutMs = 1_000): Promise<boolean> {
@@ -106,9 +187,9 @@ describe("ai-bridge · socket ownership", () => {
     const owner = await muteOwner(sock);
     expect(owner.alive()).toBe(true);
 
-    const proc = spawnDaemon(sock, store);
-    const exitCode = await proc.exited;
-    const stderr = await new Response(proc.stderr).text();
+    const newcomer = spawnDaemon(sock, store);
+    const exitCode = await newcomer.proc.exited;
+    const stderr = newcomer.said();
 
     // The newcomer backs off...
     expect(exitCode).not.toBe(0);
@@ -129,7 +210,7 @@ describe("ai-bridge · socket ownership", () => {
     writeFileSync(sock, "");
     writeFileSync(pidPathFor(sock), "999999");
 
-    const proc = spawnDaemon(sock, store);
+    const taker = spawnDaemon(sock, store);
 
     // The patience is a CEILING, not a measurement: the daemon only has to take
     // the socket. At 8 s it fell over inside the whole `test:unit`, where
@@ -168,7 +249,7 @@ describe("ai-bridge · socket ownership", () => {
         await Bun.sleep(100);
       }
     }
-    expect(pid).toBe(String(proc.pid));
+    expect(pid).toBe(String(taker.proc.pid));
   }, 40_000);
 
   test("five daemons racing for a free socket leave exactly ONE listening", async () => {
@@ -177,57 +258,54 @@ describe("ai-bridge · socket ownership", () => {
 
     const racers = Array.from({ length: 5 }, () => spawnDaemon(sock, store));
 
-    // Wait for the race to settle: the losers EXIT, which is the whole point.
-    // Before the fix they all ended up listening and stayed alive forever.
-    /* THE DEADLINE, and why it was not enough.
+    /* WHAT THIS CASE CLAIMS, and what it used to measure instead.
      *
-     * Measured: under the whole suite this case failed at **12,198 ms** against
-     * a deadline of 12,000 - a fifth of a second short. On its own it always
-     * passes (three runs out of three, ~2 s). So it is not a defect of the
-     * race: it is that five processes being born, probing and dying take longer
-     * when the machine is already running 876 test files.
+     * The claim: five daemons started together on a free socket end with ONE
+     * owner listening and four losers gone. Before the fix in `ai-bridge.mjs`
+     * (553e60409) two of them printed "Listening" on the same path and stayed
+     * alive forever.
      *
-     * Time is not what this case proves. The claim is "the losers EXIT, and
-     * exactly one is left listening"; how long they take is a detail of the
-     * environment. A deadline calibrated on an idle machine turns that claim
-     * into a measurement of the machine's speed, and produces a red that
-     * accuses the race while talking about the load.
+     * What it measured until now: a stopwatch. It counted, at a fixed deadline,
+     * how many processes had not exited yet, so every growth of the suite moved
+     * the red. Raising the deadline is not a fix and it was tried: at 42 s it
+     * still failed with two survivors, because a survivor that has not even
+     * REACHED the race is not slow at the race, it is late to be born.
      *
-     * The test's ceiling (30 s) stays the real safety net: if the losers really
-     * do NOT exit - the defect this case exists to catch - here we wait in vain
-     * and the red arrives all the same, only later. */
-    const deadline = Date.now() + PROBE_MS * 4 + 18_000;
-    let alive = racers.length;
-    while (Date.now() < deadline) {
-      alive = racers.filter((p) => p.exitCode === null && p.signalCode === null).length;
-      if (alive <= 1) break;
+     * So the case now asks the daemons themselves, in two steps that are two
+     * different questions:
+     *
+     *   1. did all five reach the race? Every path through `start()` prints
+     *      exactly one line before it decides, so silence means the machine
+     *      never got that process going. That is a fact about the load, and
+     *      when it is what happened the red says so in those words instead of
+     *      accusing the race.
+     *
+     *   2. given that they all raced, how did it end? Exactly one "Listening",
+     *      four losers actually gone, and the socket answering. None of this is
+     *      a duration, so no threshold has to be retuned when the suite grows:
+     *      the ceilings below are only there so that a hang ends as a red
+     *      instead of a hung test. */
+    const REACH_CEILING_MS = 25_000;
+    const reachDeadline = Date.now() + REACH_CEILING_MS;
+    while (Date.now() < reachDeadline && !racers.every((d) => d.said().trim().length > 0)) {
+      await Bun.sleep(100);
+    }
+
+    // The losers exit as soon as they have spoken: `process.exit(1)` is the
+    // statement right after the line they printed, so what is left to wait for
+    // is the teardown of a process, not a decision. The window is wide because
+    // it costs nothing when things go right (the loop leaves at the first
+    // reading) and it is only spent on the way to a red.
+    const settleDeadline = Date.now() + PROBE_MS * 10;
+    while (Date.now() < settleDeadline && racers.filter(stillRunning).length > 1) {
       await Bun.sleep(200);
     }
 
-    expect(alive).toBe(1);
-    // ── IF THIS LINE IS RED, DO NOT BLAME THE LOAD FIRST.
-    //    The deadline comment above explains well why it is generous, but it
-    //    also gives the impression that a red here is always slowness. On 24/08
-    //    it was not: waiting BEYOND the deadline, the losers that had not
-    //    exited within 24s did not exit at 30, 45 or 60 either. They stayed
-    //    alive, and two of them had printed "Listening" on the same path.
-    //
-    //    Cause found and fixed in `ai-bridge.mjs` (553e60409): the pid was
-    //    written INSIDE the `listen()` callback, so there was an instant in
-    //    which the socket accepted and the pid file did not exist. Whoever
-    //    probed in there read `timeout` with no owner recorded, concluded
-    //    "free" and took over from a live process. Now the pid is written
-    //    first, and a `timeout` counts as "somebody is listening" even with no
-    //    pid.
-    //
-    //    Before: 2 failures out of 12. After: 30 runs out of 30 green, and
-    //    rebuilding the old code brings the defect back (1 in 20). If this line
-    //    comes up red again, the useful probe writes the daemons' stderr to
-    //    FILES: reading the stream of a still-live process blocks the reader.
-    expect(await someoneListening(sock)).toBe(true);
-    // 45 s and not 30: the internal deadline reaches 24, and a ceiling that
-    // fires BEFORE that wait would make it useless - the test would die of a
-    // bun timeout instead of saying how many daemons stayed alive, which is the
-    // only useful piece of information when this case really fails.
+    const OK = "one owner listening, four losers gone";
+    expect(diagnose(racers, await someoneListening(sock), REACH_CEILING_MS)).toBe(OK);
+    // 45 s of ceiling against the 25 + 15 of internal waiting: the test must
+    // have room to reach its own comparison, because the sentence that
+    // comparison prints is the only useful thing when this case really fails.
+    // A bun timeout firing first would replace it with silence.
   }, 45_000);
 });

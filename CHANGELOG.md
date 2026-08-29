@@ -2,10 +2,34 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.228 — 2026-08-29
+
+### Sotto il cofano
+- Un orfano si giudica dall'ETÀ: total_assets torna a essere misurato
+
+## 2.2.226 — 2026-08-29
+
+### Sotto il cofano
+- Il caso "five daemons racing" smette di misurare il cronometro
+- Un file di test non può chiedere una ricostruzione: nel bundle non entra
+- Il caso «five daemons racing» smetteva di misurare la gara e misurava il cronometro
+
+## 2.2.225 — 2026-08-29
+
+### Sotto il cofano
+- I requisiti che questa consegna prova non esistevano, e ne rivendicava uno di un altro
+- La deriva del bundle si vede dove si legge la versione (STATUSLINE-03)
+- Il build del client non lascia più public/ svuotata
+- bundle — skip test files when measuring source freshness
+
 ## 2.2.224 — 2026-08-29
 
 ### Sotto il cofano
 - LABELGUTTER-02 torna a girare: lo spec si semina la profondità invece di sperarla
+- La deriva del bundle si vede dove si legge la versione (STATUSLINE-03)
+- Il build del client non lascia piu' public/ svuotata
+- Chiude anche la terza strada: perche' nemmeno una ricostruzione pianificata
+- Il rovescio di STATUSLINE-03 è un requisito suo, non una variante senza nome
 
 ## 2.2.223 — 2026-08-29
 
