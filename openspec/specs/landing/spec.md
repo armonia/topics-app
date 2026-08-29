@@ -455,9 +455,28 @@ Gli avanzi del bundle precedente SHALL essere rimossi solo dopo, e solo quando
 sono abbastanza vecchi da non poter essere richiesti da una pagina ancora
 aperta.
 
+L'eta' SHALL essere la SOLA esenzione dello sweep: un asset che `index.html`
+non raggiunge e che ha passato la finestra di grazia SHALL essere rimosso anche
+se apparteneva al bundle appena sostituito. Un'esenzione in piu' lo faceva
+sopravvivere a ogni giro successivo, e un avanzo oltre la finestra spegne la
+misura di `total_assets` in `check:bundle`.
+
+Raggiungibile SHALL voler dire raggiungibile lungo tutta la catena dei
+riferimenti (`import()` pigri, `modulepreload`, i font citati da un CSS), la
+stessa che il cancello del bundle usa per contare gli orfani: due definizioni
+diverse di orfano vogliono dire che il cancello conta un avanzo che lo sweep
+non toglie mai.
+
 #### Scenario: il build muore a meta'
 - **GIVEN** un build interrotto dopo aver scritto in staging
 - **THEN** `public/` SHALL contenere ancora il bundle precedente, completo
+
+#### Scenario: tre build con la finestra scaduta fra un giro e l'altro
+- **GIVEN** tre pubblicazioni di fila, distanziate piu' della finestra di grazia
+- **THEN** `public/assets` SHALL non contenere nessun file irraggiungibile da
+  `index.html` e piu' vecchio della finestra
+- **AND** `check:bundle` SHALL stampare un numero per `total_assets` senza
+  nessuna pulizia a mano
 
 ### Requirement: LAND-12 — Un bundle rotto mentre il server e' SU e' un allarme
 

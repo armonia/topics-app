@@ -24,7 +24,7 @@ import {
   statSync,
 } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { missingBundleAssets } from "../server/lib/client-bundle";
+import { missingBundleAssets, unreachableAssets } from "../server/lib/client-bundle";
 
 /**
  * How old an unreferenced asset must be before the sweep removes it. A second
@@ -85,19 +85,31 @@ export function publishBundle(staging: string, publicDir: string, now = Date.now
     copyAtomic(join(staging, rel), join(publicDir, rel));
   }
   const indexPath = join(publicDir, "index.html");
-  const previous = referencedAssets(indexPath);
   copyAtomic(join(staging, "index.html"), indexPath);
 
   // Checked on what is actually being served, not on what was built.
   const missing = missingBundleAssets(publicDir);
   if (missing.length > 0) return { broken: missing.slice(0, 5).join(", "), swept: 0 };
 
-  const kept = referencedAssets(indexPath);
+  // AGE IS THE ONLY EXEMPTION, and it used to be two. The bundle the previous
+  // index.html pointed at was also kept whatever its age, which reads like
+  // caution and is a hole: after two builds far enough apart, the entry of the
+  // one before last is unreachable, older than the window, and protected
+  // anyway. It survives every later sweep, `check:bundle` sees a leftover past
+  // the grace window and stops measuring `total_assets` - a budget switched
+  // off in silence (measured 2026-08-29 on `index-DIcBEokb.js`, 93 min old,
+  // alive through two builds that swept 79 and 158 files).
+  //
+  // Nothing is lost by dropping it: the assets of the build we just replaced
+  // were copied here seconds ago, so the window already covers the page loaded
+  // just before the flip, and it covers a second build in flight too.
   const assetsDir = join(publicDir, "assets");
   let swept = 0;
   if (existsSync(assetsDir)) {
-    for (const rel of walk(assetsDir)) {
-      if (kept.has(rel) || previous.has(rel)) continue;
+    // Unreachable means unreachable THROUGH the whole chain, the same walk the
+    // bundle gate counts orphans with: a lazy chunk nobody names in index.html
+    // is still part of this build.
+    for (const rel of unreachableAssets(assetsDir, referencedAssets(indexPath))) {
       const full = join(assetsDir, rel);
       try {
         if (now - statSync(full).mtimeMs < SWEEP_MIN_AGE_MS) continue;

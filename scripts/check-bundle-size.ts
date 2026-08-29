@@ -30,6 +30,7 @@
  */
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { unreachableAssets } from "../server/lib/client-bundle";
 import { SWEEP_MIN_AGE_MS } from "./build-client-publish";
 
 const PUBLIC_DIR = "public";
@@ -240,35 +241,11 @@ export function splitOrphansByAge(
  * a clean copy: 168 files, 0 orphans).
  */
 function orphanAssets(critical: string[]): string[] {
-  const all = new Set(readdirSync(ASSETS_DIR).filter((f) => statSync(join(ASSETS_DIR, f)).isFile()));
-  const reachable = new Set<string>();
-  const queue: string[] = [];
-  for (const f of critical) {
-    const name = f.replace(/^assets\//, "");
-    if (all.has(name) && !reachable.has(name)) {
-      reachable.add(name);
-      queue.push(name);
-    }
-  }
-  // Un nome di file emesso da Vite è sempre `<base>-<hash>.<ext>`; cercarlo come
-  // testo copre sia `import("./chunk-x.js")` sia `url(/assets/font-x.woff2)`,
-  // senza dover interpretare il JS minificato.
-  const token = /[\w.@-]+\.(?:js|mjs|css|woff2?|ttf|otf|eot|png|svg|jpe?g|gif|webp|avif|json|wasm|map)/g;
-  while (queue.length > 0) {
-    const file = queue.pop()!;
-    // Solo i file di TESTO possono citarne altri: un .woff2 o un .png letto come
-    // utf8 darebbe solo rumore da scandire.
-    if (!/\.(?:js|mjs|css|json|map|svg)$/.test(file)) continue;
-    const text = readFileSync(join(ASSETS_DIR, file), "utf8");
-    for (const m of text.matchAll(token)) {
-      const name = m[0];
-      if (all.has(name) && !reachable.has(name)) {
-        reachable.add(name);
-        queue.push(name);
-      }
-    }
-  }
-  return [...all].filter((f) => !reachable.has(f)).sort();
+  // The walk itself lives in `server/lib/client-bundle.ts`, where the publish
+  // sweep reads it too: what this gate counts and what the sweep deletes have
+  // to be the same set, or one of the two is measuring a tree the other one
+  // never cleans.
+  return unreachableAssets(ASSETS_DIR, critical);
 }
 
 /** The eager entry: the largest `assets/index-*.js` on the critical path.

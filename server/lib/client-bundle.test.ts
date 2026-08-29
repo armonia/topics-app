@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bundleBreakageReason, missingBundleAssets } from "./client-bundle";
+import { bundleBreakageReason, missingBundleAssets, unreachableAssets } from "./client-bundle";
 
 function bundleDir(build: (dir: string) => void): string {
   const dir = mkdtempSync(join(tmpdir(), "bundle-check-"));
@@ -65,5 +65,55 @@ describe("missingBundleAssets", () => {
     });
     expect(missingBundleAssets(dir)).toEqual(["/assets/index-bbb.css"]);
     rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("unreachableAssets", () => {
+  const assets = (files: Record<string, string>): string => {
+    const dir = mkdtempSync(join(tmpdir(), "reach-"));
+    for (const [name, body] of Object.entries(files)) {
+      mkdirSync(join(dir, name, ".."), { recursive: true });
+      writeFileSync(join(dir, name), body);
+    }
+    return dir;
+  };
+
+  test("follows lazy imports: a chunk index.html never names is not an orphan", () => {
+    const dir = assets({
+      "index-aaa.js": 'import("./lazy-bbb.js")',
+      "lazy-bbb.js": "export default 1",
+      "leftover-ccc.js": "export default 2",
+    });
+    expect(unreachableAssets(dir, ["/assets/index-aaa.js"])).toEqual(["leftover-ccc.js"]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("follows a font cited by a CSS url()", () => {
+    const dir = assets({
+      "index-aaa.js": "export default 1",
+      "index-aaa.css": "@font-face{src:url(/assets/inter-ddd.woff2)}",
+      "inter-ddd.woff2": "not really a font",
+    });
+    expect(unreachableAssets(dir, ["assets/index-aaa.js", "assets/index-aaa.css"])).toEqual([]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a cycle between two chunks does not hang the walk", () => {
+    const dir = assets({
+      "a-1.js": 'import("./b-2.js")',
+      "b-2.js": 'import("./a-1.js")',
+    });
+    expect(unreachableAssets(dir, ["a-1.js"])).toEqual([]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("no roots at all: everything on disk is unreachable", () => {
+    const dir = assets({ "a-1.js": "export default 1", "sub/b-2.js": "export default 2" });
+    expect(unreachableAssets(dir, [])).toEqual(["a-1.js", "sub/b-2.js"]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a directory that is not there gives no orphans, not an exception", () => {
+    expect(unreachableAssets(join(tmpdir(), "reach-nope-9999"), ["a.js"])).toEqual([]);
   });
 });
