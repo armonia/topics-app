@@ -312,10 +312,20 @@ legge come uno sfondo tanto quanto una tinta, e ciò che questa barra deve
 mostrare sono le CARD delle schede appoggiate sul trascritto, senza niente in
 mezzo.
 
+IL VETRO SHALL essere la SCHEDA, non la barra: la card di ogni scheda SHALL
+sfocare ciò che le sta dietro, così che quello che galleggia sul trascritto
+siano le schede e non una banda. Le due cose sono UNA: un elemento con un
+`backdrop-filter` è un BACKDROP ROOT per i suoi discendenti, quindi finché
+filtra la barra il filtro sulla card NON SHALL avere alcun effetto (misurato
+identico a sedici decimali). Rimettere la sfocatura sulla barra spegne quella
+della scheda, in silenzio.
+
 La leggibilità dei nomi sopra il testo in movimento SHALL essere retta
 dall'ALONE sull'etichetta, non da uno strato steso su tutta la barra: l'alone
 dipinge il terreno LOCALE dell'inchiostro invece di sbiancare il contenuto di
-tutti, e si misura dove il difetto vive (CHROME-CONTRAST).
+tutti, e si misura dove il difetto vive (CHROME-CONTRAST). L'alone e il vetro
+della scheda NON SHALL essere trattati come alternative: col solo vetro della
+scheda il caso peggiore in tema scuro misura 1,14:1.
 
 Sotto il guscio nativo SHALL dipingere UNA SOLA superficie — il guscio della
 finestra — e NESSUNA riga, né la prima né quella annidata.
@@ -332,6 +342,7 @@ primo messaggio SHALL fermarsi al fondo della barra.
 #### Scenario: la barra delle schede
 - **GIVEN** la barra delle schede, in entrambi i temi
 - **THEN** il suo `backdrop-filter` SHALL essere `none`
+- **AND** quello della card di una scheda SHALL contenere una sfocatura
 
 #### Scenario: la conversazione che scorre
 - **GIVEN** una chat che scorre sotto la barra

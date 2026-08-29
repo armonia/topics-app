@@ -2959,6 +2959,28 @@ html.native-frost:not(.dark) .chrome-glass {
   background-color: var(--chrome-overlay-bg);
 }
 
+/* THE GLASS IS THE TAB, NOT THE BAR.
+ *
+ * The bar carries no tint and no filter (see above), so what floats over the
+ * transcript are the tab CARDS - and a card is glass only if it blurs what is
+ * behind it. Their surfaces were already translucent (`bg-black/[0.06]`,
+ * `dark:bg-white/[0.14]`): a 6% wash over moving text is not a background, it
+ * is a stain. The filter is what turns it into one.
+ *
+ * THIS ONLY WORKS BECAUSE THE BAR STOPPED FILTERING. An element with a
+ * `backdrop-filter` is a BACKDROP ROOT for everything inside it, so while the
+ * bar filtered, this exact rule measured identical to sixteen decimals - the
+ * card could only see what the bar painted, and the bar painted nothing.
+ * Nested backdrop filters are not additive. Putting the blur back on the bar
+ * silently kills this one.
+ *
+ * `@apply backdrop-blur-*` and not a hand-written pair: Lightning CSS collapses
+ * the raw declaration onto `-webkit-` alone, which Blink ignores, and the blur
+ * disappears without a word (same trap as `.glass-surface`). */
+.pane-chrome-bar .row-card {
+  @apply backdrop-blur-lg backdrop-saturate-150;
+}
+
 /* THE LABEL CARRIES ITS OWN GROUND, and only where it needs one.
  *
  * `--code-bg` is `hsl(220 4.2% 17%)` in BOTH themes: code is always dark here.
@@ -2991,6 +3013,12 @@ html.native-frost:not(.dark) .chrome-glass {
  * under the dark band, which is the only moment it is needed, and it leaves
  * the resting appearance of the bar untouched pixel for pixel. It is also the
  * honest thing to measure: the halo IS the ink's local ground.
+ *
+ * STILL LOAD-BEARING WITH THE TAB GLASS ON. Falsified on 29/08 with the card's
+ * own blur in place: dropping the halo takes the dark worst case to 1.14:1. A
+ * 6-14% wash over a bright band does not make AA even once the band is blurred,
+ * so the two are not alternatives - the tile gives the tab a body, the halo
+ * gives the ink a ground.
  *
  * BOTH THEMES, since 29/08. It used to be light-only, on the measured ground
  * that in dark the backdrop spread was 0.0271 against 0.6725 in light - but

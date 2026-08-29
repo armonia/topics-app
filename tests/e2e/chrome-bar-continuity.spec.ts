@@ -144,6 +144,14 @@ test.describe("continuità: le righe di chrome e il contenuto", () => {
       const sfocatura = await page.locator(".pane-chrome-bar").first()
         .evaluate((el) => getComputedStyle(el).backdropFilter);
       expect(sfocatura, `la barra non deve filtrare niente (${sfocatura})`).toBe("none");
+
+      // THE GLASS IS THE TAB. Both assertions live here because they are one
+      // fact: while the bar filtered it was a BACKDROP ROOT and the filter on
+      // the card saw nothing. Putting the blur back on the bar silently kills
+      // the card's.
+      const cardFilter = await page.locator(".pane-chrome-bar .row-card").first()
+        .evaluate((el) => getComputedStyle(el).backdropFilter);
+      expect(cardFilter, `la card della scheda deve sfocare cio' che le sta dietro (${cardFilter})`).toMatch(/blur/);
     });
   }
 
