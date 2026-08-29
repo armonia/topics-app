@@ -30,13 +30,32 @@
  * the sharpest luminance edges the transcript can put under the chrome), and
  * the number this spec asserts on is the WORST reading, never the mean.
  *
- * HOW GLYPH AND BACKDROP ARE SEPARATED. Inside a label's rect the glyphs are a
- * minority of the pixels and the backdrop is the bulk, so the median luminance
- * of the clip is the backdrop and the far percentile, on whichever side the
- * text colour sits, is the glyph core. Antialiasing fills the space between the
- * two and is deliberately excluded: it belongs to neither term.
+ * HOW GLYPH AND GROUND ARE SEPARATED, and why not by percentiles. The first
+ * version read one capture and called the median the backdrop and a far tail
+ * the glyph. That works while the rect is one surface, and this rect is not:
+ * a tab sitting half over a fenced block is bimodal, the median lands on a
+ * value that exists nowhere, and the far tail is the LIGHT HALF OF THE GROUND
+ * rather than the ink. Measured on the real page: it reported glyph 0.8714
+ * while the light-theme ink is `--text`, luminance 0.011. It was not reading
+ * the text at all, and it moved the WRONG WAY for two different fixes that a
+ * contact sheet shows working.
+ *
+ * So the glyph is identified rather than estimated. The rect is captured three
+ * times: with the ink forced white, with it forced black, and with it removed
+ * (`color: transparent`). The first two differ ONLY where the glyph covers a
+ * pixel, whatever lies beneath, so their difference is a COVERAGE MASK that
+ * owes nothing to the contrast under test. The third is the ground, and each
+ * core pixel is judged against the ground AT THAT SAME PIXEL - so a label
+ * lying across a hard luminance edge is judged on the half that is actually
+ * hard, instead of on an average of the two.
+ *
+ * The obvious cheaper mask - "which pixels changed when the ink went away" -
+ * is the one thing that cannot work here, and it was tried: ink that vanishes
+ * into its ground changes nothing, so the defect erases itself from its own
+ * measurement. It scored 9.38:1 on a label a contact sheet shows going
+ * illegible.
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
@@ -108,55 +127,101 @@ interface Reading {
  * rather than in Node: it keeps the spec free of an image-decoding dependency,
  * and the browser that painted the pixels is also the one that reads them.
  */
-async function readLabel(page: Page, box: { x: number; y: number; width: number; height: number }): Promise<Reading> {
-  const png = (await page.screenshot({ clip: box })).toString("base64");
+async function readLabel(
+  page: Page,
+  el: Locator,
+  box: { x: number; y: number; width: number; height: number },
+): Promise<Reading> {
+  // The ink colour as DECLARED, read from the same settled frame the captures
+  // come from. Using it is safe here in a way it was not before, because it is
+  // no longer used to guess which side of a histogram the glyphs are on: it is
+  // one of the two terms of the ratio, and the other is measured.
+  const ink = await el.evaluate((n) => getComputedStyle(n as HTMLElement).color);
+
+  // THREE CAPTURES, and the third is the one that makes this honest.
+  //
+  // The glyph mask cannot be derived from "how much did the picture change
+  // when the ink went away", because ink that VANISHES INTO ITS GROUND changes
+  // nothing - which is the defect being hunted, filtered out by the very step
+  // meant to drop antialiasing. Measured: with that mask the sweep reported
+  // 9.38:1 on a label a contact sheet shows going illegible.
+  //
+  // So the mask comes from two captures that differ ONLY in the ink colour,
+  // white against black. A pixel the glyph covers changes between those two
+  // whatever lies beneath it, and a pixel it does not cover changes not at
+  // all. The size of the change is COVERAGE, so thresholding it keeps the core
+  // of the stroke and drops its antialiased edge - and now that threshold is
+  // about the glyph's geometry rather than about its contrast, which is the
+  // quantity under test and must not be used to decide what to measure.
+  const capture = async (declared: string) => {
+    await el.evaluate((n, c) => { (n as HTMLElement).style.color = c; }, declared);
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    return (await page.screenshot({ clip: box })).toString("base64");
+  };
+  const whiteInk = await capture("#ffffff");
+  const blackInk = await capture("#000000");
+  // `color: transparent` removes the GLYPH FILL and nothing else. Layout does
+  // not move, and a `text-shadow` keeps painting - shadows are cast from the
+  // glyph outlines, not from the fill - so a halo stays in this capture, which
+  // is correct: a halo IS part of the ink's ground.
+  const groundShot = await capture("transparent");
+  await el.evaluate((n) => { (n as HTMLElement).style.color = ""; });
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+
   return page.evaluate(
-    async (png: string) => {
-      const bin = atob(png);
-      const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      const decoded = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
-      const cv = new OffscreenCanvas(decoded.width, decoded.height);
-      const ctx = cv.getContext("2d")!;
-      ctx.drawImage(decoded, 0, 0);
-      const px = ctx.getImageData(0, 0, decoded.width, decoded.height).data;
-
-      const f = (c: number) => {
-        const s = c / 255;
-        return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+    async ([a, b, c, declared]: [string, string, string, string]) => {
+      const decode = async (png: string) => {
+        const bin = atob(png);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const decoded = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+        const cv = new OffscreenCanvas(decoded.width, decoded.height);
+        const ctx = cv.getContext("2d")!;
+        ctx.drawImage(decoded, 0, 0);
+        return ctx.getImageData(0, 0, decoded.width, decoded.height).data;
       };
-      const lums: number[] = [];
-      for (let i = 0; i < px.length; i += 4) {
-        lums.push(0.2126 * f(px[i]) + 0.7152 * f(px[i + 1]) + 0.0722 * f(px[i + 2]));
-      }
-      lums.sort((a, b) => a - b);
-      const pct = (p: number) => lums[Math.max(0, Math.min(lums.length - 1, Math.round(p * (lums.length - 1))))];
+      const f = (v: number) => {
+        const x = v / 255;
+        return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+      };
+      const lum = (px: Uint8ClampedArray, i: number) =>
+        0.2126 * f(px[i]) + 0.7152 * f(px[i + 1]) + 0.0722 * f(px[i + 2]);
 
-      // Backdrop: the bulk of the rect. Glyph core: the tail that lies FARTHER
-      // from the backdrop, whichever side that is.
-      //
-      // Picking the side from the declared text colour is what the first draft
-      // did, and it was wrong in a way worth recording. The colour is read at
-      // one instant and the frame is captured at another, so a theme that
-      // settles between the two makes the reader take the tail on the wrong
-      // side of the histogram. It does not fail loudly: it returns the
-      // backdrop against itself, a flat 1.00:1, which reads like a real
-      // contrast catastrophe and is only a bookkeeping error. Deriving the
-      // side from the pixels removes the second instant, and with it the bug.
-      //
-      // Ink that genuinely vanished into its backdrop still fails, and for the
-      // right reason: if neither tail departs from the median, the farther tail
-      // IS the median and the ratio collapses to 1 on its own.
-      const backdrop = pct(0.5);
-      const alto = pct(0.97);
-      const basso = pct(0.03);
-      const glyph = Math.abs(alto - backdrop) >= Math.abs(backdrop - basso) ? alto : basso;
-      const ratio = (Math.max(glyph, backdrop) + 0.05) / (Math.min(glyph, backdrop) + 0.05);
-      return { ratio, glyph, backdrop };
+      const [pxB, pxN, pxT] = await Promise.all([decode(a), decode(b), decode(c)]);
+      const n = Math.min(pxB.length, pxN.length, pxT.length);
+
+      const rgb = declared.match(/[\d.]+/g)!.map(Number);
+      const inkLum = 0.2126 * f(rgb[0]) + 0.7152 * f(rgb[1]) + 0.0722 * f(rgb[2]);
+
+      const coverage: number[] = [];
+      const ground: number[] = [];
+      for (let i = 0; i < n; i += 4) {
+        coverage.push(Math.abs(lum(pxB, i) - lum(pxN, i)));
+        ground.push(lum(pxT, i));
+      }
+      const fullCoverage = Math.max(...coverage);
+      // No glyph in the rect at all: nothing to judge, and saying 1.00:1 would
+      // be a finding about a label that is not there.
+      if (fullCoverage < 0.01) return { ratio: Number.POSITIVE_INFINITY, glyph: inkLum, backdrop: inkLum };
+
+      const readings: { r: number; g: number }[] = [];
+      for (let k = 0; k < coverage.length; k++) {
+        if (coverage[k] < fullCoverage * 0.5) continue;
+        const g = ground[k];
+        readings.push({ r: (Math.max(inkLum, g) + 0.05) / (Math.min(inkLum, g) + 0.05), g });
+      }
+      if (readings.length === 0) return { ratio: Number.POSITIVE_INFINITY, glyph: inkLum, backdrop: inkLum };
+
+      // WORST, but robust: the 5th percentile rather than the single darkest
+      // sample, so one stray pixel cannot condemn a label a person can read.
+      readings.sort((x, y) => x.r - y.r);
+      const picked = readings[Math.min(readings.length - 1, Math.round(0.05 * (readings.length - 1)))];
+      return { ratio: picked.r, glyph: inkLum, backdrop: picked.g };
     },
-    png,
+    [whiteInk, blackInk, groundShot, ink] as [string, string, string, string],
   );
 }
+
 
 /** Put the document in the requested theme and wait for it to really be there. */
 
@@ -251,7 +316,7 @@ for (const nome of ["dark", "light"] as const) {
         // artefact of the method and not a finding about the design.
         const text = ((await et.textContent()) ?? "").trim();
         if (!text) continue;
-        const l = await readLabel(page, box);
+        const l = await readLabel(page, et, box);
         worst.push({ ratio: l.ratio, i, off, text, backdrop: l.backdrop });
       }
     }
