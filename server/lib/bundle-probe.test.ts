@@ -1,3 +1,6 @@
+/**
+ * @covers LAND-12
+ */
 import { describe, expect, test } from "bun:test";
 import { startBundleProbe } from "./bundle-probe";
 

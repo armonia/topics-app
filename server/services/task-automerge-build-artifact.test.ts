@@ -6,7 +6,7 @@
  * write after) and had been killed in between. Every gate was green and the
  * card said "client rebuilt": the only broken thing was the app people load.
  *
- * @covers LAND-04
+ * @covers LAND-10
  */
 import { describe, test, expect } from "bun:test";
 import { createTaskAutoMerge } from "./task-automerge";
