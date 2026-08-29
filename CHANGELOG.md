@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.233 — 2026-08-29
+
+### Sotto il cofano
+- Le notifiche di task e terminale ora si spengono da sole
+- Tre correzioni chieste a voce: barra senza vetro, chip solo dev, label a filo
+
 ## 2.2.232 — 2026-08-29
 
 ### Sotto il cofano
