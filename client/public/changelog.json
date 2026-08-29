@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.228",
+    "date": "2026-08-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un orfano si giudica dall'ETÀ: total_assets torna a essere misurato",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.226",
     "date": "2026-08-29",
     "sections": {
@@ -7,6 +23,11 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "Il caso \"five daemons racing\" smette di misurare il cronometro",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "Un file di test non può chiedere una ricostruzione: nel bundle non entra",
           "en": "",
