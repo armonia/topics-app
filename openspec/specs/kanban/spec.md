@@ -2715,3 +2715,31 @@ già porta — lo scatto della consegna, il verdetto di atterraggio, o la colonn
 - **GIVEN** un task in `todo` che non ha mai consegnato, fermo su una dipendenza
 - **WHEN** quella dipendenza si chiude
 - **THEN** il task SHALL essere dispacciato come prima
+
+### Requirement: KANBAN-67 — L'anteprima ha uno spigolo che dice da che parte viene la luce
+
+L'anteprima di una card SHALL portare il riflesso di bordo dell'app (`edge-lit`),
+lo stesso delle tessere e dei comandi flottanti, e NON una copia a mano del
+vestito del composer. Il filo alto SHALL leggere PIU' CHIARO dei lati in
+entrambi i temi: e' la sola prova che il riflesso e' stato DIPINTO e non solo
+dichiarato, perche' un'ombra `inset` su un elemento rimpiazzato (`img`, `video`)
+non dipinge nulla mentre `getComputedStyle` la riporta parola per parola.
+Misurato: prima 44/44 in scuro e 232/232 in chiaro, dopo 67/53 e 235/222.
+
+L'anteprima SHALL conservare il proprio confine su qualunque contenuto: una
+schermata bianca su una card bianca SHALL restare delimitata. Il bordo del media
+NON SHALL essere tolto lasciando solo il riflesso: al 4% quel perimetro chiude
+una forma, non ne disegna il confine.
+
+L'anteprima NON SHALL proiettare ombra sulla card che la contiene: la card e'
+l'oggetto che galleggia, e un figlio piu' pesante del genitore inverte
+l'elevazione.
+
+#### Scenario: una schermata bianca su una card bianca
+- **GIVEN** una card con anteprima tutta bianca, in tema chiaro
+- **THEN** il confine dell'anteprima SHALL essere distinguibile dal suo interno
+
+#### Scenario: la luce viene da sopra
+- **GIVEN** una card con anteprima, in tema chiaro e in tema scuro
+- **THEN** il filo superiore SHALL leggere piu' chiaro dei fili laterali
+- **AND** i pixel della card sopra l'anteprima SHALL restare piatti

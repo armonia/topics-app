@@ -1901,6 +1901,19 @@ input[type="range"]::-webkit-slider-thumb {
    Acrylic carries its own gradient too, so Windows needs the drier reflection
    for exactly the same reason. These two branches are what the desktop app
    shows; the two above apply in a plain browser. */
+/* ITS HOST CAN BE A PHOTOGRAPH, and then the class goes on the WRAPPER.
+ *
+ * The rule above ("only on a card that HAS a fill") is satisfied by a delivered
+ * screenshot better than by any tint: it is opaque edge to edge. But the class
+ * must NOT go on the `<img>`/`<video>` itself. An inset shadow paints above the
+ * background and BELOW the content, and on a replaced element the bitmap IS the
+ * content - so the ring would be invisible while `getComputedStyle` still
+ * reported it word for word. On a wrapper the `::before` is a positioned
+ * descendant and paints above the media, which is why `PreviewMedia.tsx`
+ * carries the class on the wrapper and keeps the media's own `border`
+ * underneath: this perimeter is 0.04/0.045 alpha, a hairline that CLOSES a
+ * shape rather than one that draws a boundary. Dropping the media's border and
+ * leaving only this ring measures no boundary at all on a white screenshot. */
 html.native-frost .edge-lit::before {
   box-shadow:
     inset 0 1px 0 0 rgb(255 255 255 / 0.32),

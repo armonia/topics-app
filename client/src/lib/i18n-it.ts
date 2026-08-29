@@ -219,7 +219,6 @@ const IT: Dict = {
   'board.unlanded.show': 'Mostra commit e diff da pubblicare',
   'board.mission.toProject': 'Alla sessione di progetto, accanto alla board',
   'board.mission.doneWhen': 'finita quando: {what}',
-  'board.allProjectsCount': '{n} task · tutti i progetti',
 
   'downloads.title': 'Download',
   'downloads.active': '{n} download in corso',

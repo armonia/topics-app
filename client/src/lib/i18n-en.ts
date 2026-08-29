@@ -219,7 +219,6 @@ const EN = {
   'board.unlanded.show': 'Show commits and diff to publish',
   'board.mission.toProject': 'To the project session, next to the board',
   'board.mission.doneWhen': 'done when: {what}',
-  'board.allProjectsCount': '{n} tasks · every project',
 
   'downloads.title': 'Downloads',
   'downloads.active': '{n} downloads in progress',

@@ -391,7 +391,41 @@ export function PreviewMedia({ path, paths, variant, onOpenTab }: {
     <div
       ref={wrapRef}
       data-testid={`preview-${variant}`}
-      className={`group/preview relative @container ${variant === 'card' ? 'mb-1.5' : 'mt-2'}`}
+      // THE COMPOSER'S FLOAT, minus the two thirds of it that are physically
+      // unavailable here.
+      //
+      // A floating card is a ground, a gap and a LIT EDGE. The preview cannot
+      // have the first two: the card behind it is an opaque `bg-surface`, so a
+      // tint under the media paints a pixel the bitmap covers whole, and a
+      // `backdrop-filter` blurs a flat fill back into the same flat fill. Two
+      // different kinds of nothing, neither of which fails a test.
+      //
+      // The third one this app already owns as a shared class, asked for on
+      // 07/08 for exactly this shape (elements with a radius that float):
+      // `.edge-lit`. So the preview JOINS that family instead of copying the
+      // composer's numbers, and cannot drift from it.
+      //
+      // WHY THE CLASS GOES HERE AND NOT ON THE MEDIA. `.edge-lit` draws with an
+      // `inset` box-shadow on a `::before`, and an inset shadow paints UNDER
+      // the element's content: on a replaced element (`<img>`, `<video>`) the
+      // bitmap IS the content, so the ring would be invisible while
+      // `getComputedStyle` still reported it word for word. On this wrapper the
+      // `::before` is a positioned descendant and paints ABOVE the media. The
+      // wrapper's box equals the media's box (no padding, the overlays are
+      // absolute), so the hairlines land on the media's own 1px border and eat
+      // no image pixels.
+      //
+      // NO SHADOW, deliberately. The card is the thing that floats; a child
+      // with a heavier shadow than its parent inverts the elevation. It would
+      // not even show: on the dark surface `shadow-md shadow-black/40` measures
+      // 1.106:1, under this repo's own 1.17:1 threshold for a step to read.
+      //
+      // `rounded` is NOT decoration here: `.edge-lit::before` inherits the
+      // radius, so it must stay EQUAL to the media's `rounded` in `mediaCls`.
+      // `board-preview-edge.spec.ts` asserts the two agree. `relative` stays
+      // explicit even though `.edge-lit` sets it: the absolute overlays below
+      // depend on it.
+      className={`group/preview edge-lit relative rounded @container ${variant === 'card' ? 'mb-1.5' : 'mt-2'}`}
     >
       {media}
       {/* I gesti stanno nello stesso angolo, in colonna: "apri come tab" per

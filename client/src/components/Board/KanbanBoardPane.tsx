@@ -1754,7 +1754,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           <InlineFilters filters={filters} onFiltersChange={setFilters} tasks={tasks} mode={mode} />
         </div>
         <div className="ml-auto flex items-center gap-2">
-          {mode === 'all' && <span className="hidden text-[11px] text-app-text-muted sm:inline">{tr('board.allProjectsCount', { n: tasks.length })}</span>}
+          {/* THE COUNT IS GONE (asked on 29/08): in "all" mode the toggle two
+              controls to the left already says which scope you are in, and the
+              readout restated it in words next to a number nobody acts on. A
+              board that has to tell you what it is showing is a board whose
+              controls are not reading. */}
           {/* (Qui stava il chip delle sessioni Claude avviate a mano in un
               terminale, col suo «Continua qui» che le adottava in una topic.
               Tolto su richiesta di Attilio il 13/08: in barra era un numero che
