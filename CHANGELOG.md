@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.237 — 2026-08-29
+
+### Sotto il cofano
+- Un campo solo per filtrare la board, e il catalogo si apre al volo
+- Il «+N» del catalogo si apre: era una troncatura che si annunciava e non si apriva
+
 ## 2.2.236 — 2026-08-29
 
 ### Sotto il cofano

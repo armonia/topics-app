@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.237",
+    "date": "2026-08-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un campo solo per filtrare la board, e il catalogo si apre al volo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il «+N» del catalogo si apre: era una troncatura che si annunciava e non si apriva",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.236",
     "date": "2026-08-29",
     "sections": {
