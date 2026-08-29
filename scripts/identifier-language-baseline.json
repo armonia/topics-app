@@ -6559,9 +6559,6 @@
       "progetto",
       "quanti"
     ],
-    "tests/e2e/board-toolbar-overflow.spec.ts": [
-      "affordance"
-    ],
     "tests/e2e/board-topbar-legibility.spec.ts": [
       "agente",
       "canale",

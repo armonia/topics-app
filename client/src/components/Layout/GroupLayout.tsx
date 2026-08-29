@@ -25,12 +25,7 @@ import { SplitTree } from './SplitTree';
 import { type LayoutNode } from '../../state/layout/layoutTree';
 import { buildShallowGridTree } from '../../state/layout/legacyAdapters';
 import { pxToWeightDelta, resizeWeights } from '../../state/layout/splitController';
-import { MIN_PANE_FRACTION } from './constants';
-
-/** Height of a group's tab-bar chrome row (Tailwind `h-10` = 2.5rem = 40px).
- *  The TOP full-width-row drop strip is offset by this so it clears the first
- *  row's tab bar instead of sitting on top of it (see FullWidthRowZone). */
-const TAB_BAR_H = 40;
+import { MIN_PANE_FRACTION, TAB_BAR_H } from './constants';
 
 interface GroupLayoutProps {
   panes: Pane[];
@@ -1190,6 +1185,7 @@ export function GroupLayout({
         <CellSubStack
           stack={subStack}
           primary={renderGroupBlock(gid, rowIdx, seen)}
+          primaryKey={gid}
           renderStackItem={(stackedId) => renderGroupBlock(stackedId, rowIdx, seen)}
           onResize={(nextHeights) => onUpdateRows(setColumnStackHeights(rows, gid, nextHeights))}
         />

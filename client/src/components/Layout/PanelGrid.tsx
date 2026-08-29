@@ -18,7 +18,7 @@ import { usePaneStore } from '../../state/pane/store';
 import { useServerHydrated } from '../../hooks/useServerHydrated';
 import { ColumnInsertDivider, RowInsertDivider } from './InsertDividers';
 import { CellSubStack } from './CellSubStack';
-import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH, MIN_PANE_FRACTION } from './constants';
+import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH, MIN_PANE_FRACTION, TAB_BAR_H } from './constants';
 import { detectDropZone, type DropZone } from '../../lib/dropZone';
 import { SplitRegion, CenterRegion, FullWidthRowZone, RowGapDropZone } from './DropOverlay';
 import { splitColumnWidths, appendColumnWidths, chooseSplitOrientation, weightedWidths, equalizeWidths } from './gridWidths';
@@ -2565,6 +2565,7 @@ export function PanelGrid({
           <CellSubStack
             stack={stack}
             primary={primaryGroup}
+            primaryKey={key}
             renderStackItem={(stackKey) => {
               const stackItem = itemMap.get(stackKey);
               if (!stackItem) return null;
@@ -2697,6 +2698,10 @@ export function PanelGrid({
             key={side}
             side={side}
             active={fullRowDrop === side}
+            // Clear the first row's tab bar, exactly like the project layout:
+            // a strip laid over that bar takes the drops meant for it, so
+            // moving a tab into the first row's group was unreachable.
+            edgeOffset={side === 'top' ? TAB_BAR_H : 0}
             onDragOver={handleFullRowDragOver(side)}
             onDragLeave={handleFullRowDragLeave}
             onDrop={handleFullRowDrop(side)}
@@ -2804,6 +2809,7 @@ export function PanelGrid({
                         <CellSubStack
                           stack={stack}
                           primary={primaryGroup}
+                          primaryKey={key}
                           renderStackItem={(stackKey) => {
                             const stackItem = itemMap.get(stackKey);
                             if (!stackItem) return null;

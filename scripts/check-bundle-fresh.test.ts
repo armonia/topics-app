@@ -20,7 +20,8 @@ import { describe, it, expect } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, utimesSync, readFileSync } from "fs";
 import { join, resolve } from "path";
 import { tmpdir } from "os";
-import { isStale, newestMtime } from "./check-bundle-size";
+import { isStale, newestMtime, splitOrphansByAge, totalAssetsRaw } from "./check-bundle-size";
+import { SWEEP_MIN_AGE_MS } from "./build-client-publish";
 
 const SRC = readFileSync(resolve(import.meta.dir, "check-bundle-size.ts"), "utf8");
 
@@ -139,5 +140,89 @@ describe("il cancello lo usa davvero", () => {
   it("il messaggio nomina il comando che ricostruisce", () => {
     expect(SRC).toContain("bun run build:client");
     expect(SRC).toContain("poi rilancia");
+  });
+});
+
+/**
+ * The orphan branch, both ways. Measured 2026-08-29, right after LAND-11:
+ * since the publish step sweeps only what is older than `SWEEP_MIN_AGE_MS`,
+ * every clean build leaves the previous entry chunk behind on purpose, so the
+ * gate found an orphan every single time and `total_assets` went back to never
+ * being measured. Age is the whole difference, and both directions have to
+ * hold: a young leftover must not stop the measure, an old one must.
+ */
+describe("splitOrphansByAge - deliberato o avanzo vero", () => {
+  const NOW = 1_000_000_000_000;
+  const WINDOW = 30 * 60_000;
+
+  it("piu' giovane della finestra: lo sweep lo tiene apposta, non invalida niente", () => {
+    const got = splitOrphansByAge([{ name: "index-OLD.js", mtimeMs: NOW - 60_000 }], NOW, WINDOW);
+    expect(got.kept).toEqual(["index-OLD.js"]);
+    expect(got.stale).toEqual([]);
+  });
+
+  it("piu' vecchio della finestra: e' un avanzo vero e il cancello ha ragione a dirlo", () => {
+    const got = splitOrphansByAge([{ name: "vecchio-X.js", mtimeMs: NOW - WINDOW - 1 }], NOW, WINDOW);
+    expect(got.kept).toEqual([]);
+    expect(got.stale).toEqual(["vecchio-X.js"]);
+  });
+
+  it("separa i due gruppi nello stesso giro, e li ordina", () => {
+    const got = splitOrphansByAge(
+      [
+        { name: "b-recente.js", mtimeMs: NOW - 1_000 },
+        { name: "z-vecchio.js", mtimeMs: NOW - WINDOW * 2 },
+        { name: "a-recente.js", mtimeMs: NOW - 2_000 },
+      ],
+      NOW,
+      WINDOW,
+    );
+    expect(got.kept).toEqual(["a-recente.js", "b-recente.js"]);
+    expect(got.stale).toEqual(["z-vecchio.js"]);
+  });
+
+  it("nessun orfano: nessuno dei due gruppi", () => {
+    const got = splitOrphansByAge([], NOW, WINDOW);
+    expect(got.kept).toEqual([]);
+    expect(got.stale).toEqual([]);
+  });
+
+  it("usa la STESSA finestra dello sweep, non una sua costante", () => {
+    // Two numbers that must agree drift apart; this one is imported.
+    const borderline = [{ name: "x.js", mtimeMs: NOW - SWEEP_MIN_AGE_MS - 1 }];
+    expect(splitOrphansByAge(borderline, NOW).stale).toEqual(["x.js"]);
+    expect(splitOrphansByAge([{ name: "x.js", mtimeMs: NOW }], NOW).kept).toEqual(["x.js"]);
+  });
+});
+
+describe("totalAssetsRaw - il numero descrive QUESTA build", () => {
+  it("somma i file della cartella", () => {
+    const root = tree();
+    writeFileSync(join(root, "a.js"), "12345");
+    writeFileSync(join(root, "b.js"), "123");
+    expect(totalAssetsRaw(new Set(), root)).toBe(8);
+  });
+
+  it("esclude gli avanzi tenuti apposta: sono della build PRIMA", () => {
+    const root = tree();
+    writeFileSync(join(root, "a.js"), "12345");
+    writeFileSync(join(root, "index-VECCHIO.js"), "123");
+    expect(totalAssetsRaw(new Set(["index-VECCHIO.js"]), root)).toBe(5);
+  });
+});
+
+describe("il cancello usa davvero l'eta'", () => {
+  it("il budget total_assets scatta sugli avanzi VERI, non su un orfano qualunque", () => {
+    expect(SRC).toContain('if (stale.length === 0) check("total_assets.raw"');
+  });
+
+  it("il totale non conta gli avanzi tenuti apposta", () => {
+    expect(SRC).toContain("totalAssetsRaw(new Set(kept))");
+  });
+
+  it("il messaggio nomina la causa vera, non il watcher spento dal 2026-08-04", () => {
+    const msg = SRC.slice(SRC.indexOf("NON MISURABILE"), SRC.indexOf("Primi orfani"));
+    expect(msg).toContain("SWEEP_MIN_AGE_MS");
+    expect(msg).not.toContain("build:watch");
   });
 });
