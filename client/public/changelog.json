@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.253",
+    "date": "2026-08-31",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il permalink coniato sull'altra porta dell'app apriva una seconda copia di Topics",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo spazzino scambiava la PROPRIA proroga per attivita' del turno, e non vedeva mai un tool in corso",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.252",
     "date": "2026-08-30",
     "sections": {

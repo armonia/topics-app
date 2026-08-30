@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.253 — 2026-08-31
+
+### Sotto il cofano
+- Il permalink coniato sull'altra porta dell'app apriva una seconda copia di Topics
+- Lo spazzino scambiava la PROPRIA proroga per attivita' del turno, e non vedeva mai un tool in corso
+
 ## 2.2.252 — 2026-08-30
 
 ### Sotto il cofano
