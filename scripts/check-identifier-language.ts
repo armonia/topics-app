@@ -86,6 +86,11 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // Another dictionary hole: `clipboard` is plain English in 2026 and the 1934
+  // list does not carry it. It reaches identifiers through the DOM itself
+  // (`navigator.clipboard`, `ClipboardEvent`), so renaming around it would make
+  // the code read worse than the platform it calls.
+  "clipboard",
   // A dictionary hole, not jargon. `/usr/share/dict/words` is a 1934 legacy and
   // does not carry words today's English uses without thinking: `entries`
   // (Object.entries) is as English as `entry`, which it does carry. Same for

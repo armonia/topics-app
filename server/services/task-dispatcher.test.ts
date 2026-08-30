@@ -2182,6 +2182,19 @@ describe("task-dispatcher", () => {
     expect(kickoff).not.toContain("già chiuso");
   });
 
+  it("kickoff names the files attached to the card (a task born with a screenshot)", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    // The board composer writes them like this at birth: a human comment
+    // carrying the paths. Without the kickoff line the agent reads "as in the
+    // picture" and has no picture.
+    h.svc.addComment({ taskId: "t1", author: "human", content: "Allegati al task.", media: ["/tmp/shot.png"] });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.turns[0].content).toContain("/tmp/shot.png");
+  });
+
   it("buffers a resume landing while the turn is in flight and delivers it on the same tab at turn end", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });

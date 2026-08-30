@@ -2822,3 +2822,38 @@ board ristretta su cinque condizioni si annuncerebbe come una ricerca vuota.
 - **GIVEN** una voce raggiunta con le frecce e applicata
 - **THEN** SHALL diventare un token
 - **AND** il testo SHALL essere consumato
+
+### Requirement: KANBAN-70 — Un'immagine entra nel task da dove il task nasce
+
+Il composer che CREA un task SHALL accettare file: incollando un'immagine
+(`paste`), trascinandoci sopra dei file, o dalla graffetta. Il campo che apre un
+lavoro non SHALL essere piu' povero del thread della card che ne nasce.
+
+Un incolla di solo testo SHALL restare un incolla di testo. Un trascinamento che
+non porta file (una pane del layout, una card della board, una selezione) NON
+SHALL essere intercettato: il drag&drop della board SHALL continuare a
+funzionare sotto quello degli allegati.
+
+Gli allegati SHALL essere visibili prima dell'invio, uno per uno rimovibili, e
+SHALL viaggiare DENTRO la creazione del task: il server li scrive sulla card
+prima di dispacciarla, cosi' l'agente che la prende li ha gia' davanti. Il
+kickoff SHALL nominare i file allegati alla card, o una descrizione che dice
+«come nell'immagine» arriverebbe senza immagine.
+
+Il thread di un task SHALL accettare gli stessi due gesti, incolla e
+trascinamento.
+
+#### Scenario: incollo uno screenshot nel composer della board
+- **GIVEN** il composer della board con del testo scritto
+- **WHEN** ci si incolla un'immagine
+- **THEN** SHALL comparire come allegato in attesa, con la sua miniatura
+- **AND** il task creato SHALL avere quel file sulla card
+
+#### Scenario: trascino un file sul composer
+- **GIVEN** un trascinamento che porta file sopra il composer
+- **THEN** il composer SHALL dichiarare che li accetta
+- **AND** al rilascio il file SHALL diventare un allegato in attesa
+
+#### Scenario: un trascinamento senza file
+- **GIVEN** un trascinamento che non porta file
+- **THEN** il composer NON SHALL reagire

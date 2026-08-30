@@ -609,8 +609,6 @@
     "client/src/components/Project/FileExplorer.tsx": [
       "DeleteConfirmDialog",
       "cartella",
-      "clipboardRef",
-      "copyToClipboard",
       "isMultiSelect",
       "isMultiSelected",
       "isRenaming",
@@ -6362,7 +6360,6 @@
       "ATTESO",
       "DESCRIZIONE",
       "TITOLO",
-      "clipboard",
       "copia",
       "pannello",
       "voce"
@@ -6754,7 +6751,6 @@
       "scroller"
     ],
     "tests/e2e/chat.spec.ts": [
-      "clipboard",
       "eccedenza",
       "scroller",
       "textarea"
@@ -7800,7 +7796,6 @@
     "tests/e2e/tab-permalink.spec.ts": [
       "inventato",
       "morto",
-      "stubClipboard",
       "vivo"
     ],
     "tests/e2e/tab-state-view.spec.ts": [

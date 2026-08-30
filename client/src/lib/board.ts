@@ -653,6 +653,13 @@ export interface CreateTaskBody {
   status?: TaskStatus;
   /** Nest under this task (subtask, unlimited depth). */
   parentTaskId?: string | null;
+  /**
+   * Files attached to the task AT BIRTH (absolute paths from /api/upload). The
+   * server writes them as the thread's first message, before dispatching: the
+   * screenshot the work was asked with is on the card from the start, not a
+   * comment landing after the agent has already left.
+   */
+  media?: string[];
   /** Dispatch contract: the agent plans first, implements after human approval. */
   planFirst?: boolean;
   /** Model the dispatched agent runs on; omitted/null = provider default ("Auto"). */

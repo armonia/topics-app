@@ -92,6 +92,25 @@ describe("tasks router (session-scoped)", () => {
     expect(hres.status).toBe(201);
   });
 
+  test("POST create with media attaches the files to the newborn card", async () => {
+    // The board composer takes pasted/dropped images: they travel inside the
+    // create, so they are on the card BEFORE the dispatcher looks at it. A
+    // path that is not absolute is refused, so it never becomes an attachment.
+    const created = await (await call(router, "POST", "/api/boards/pX/tasks", {
+      text: "Il bottone e' storto", media: ["/tmp/shot.png", "not-a-path.png"],
+    }))!.json();
+    const got = await (await call(router, "GET", `/api/boards/pX/tasks/${created.id}`))!.json();
+    const withMedia = got.comments.filter((c: any) => c.media.length > 0);
+    expect(withMedia.length).toBe(1);
+    expect(withMedia[0].media).toEqual(["/tmp/shot.png"]);
+  });
+
+  test("POST create without media adds no attachment comment", async () => {
+    const created = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "niente file" }))!.json();
+    const got = await (await call(router, "GET", `/api/boards/pX/tasks/${created.id}`))!.json();
+    expect(got.comments.every((c: any) => c.media.length === 0)).toBe(true);
+  });
+
   test("POST create with parent_task_id nests; cross-board parent is 404", async () => {
     const parent = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "epic" }))!.json();
     const kid = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "part", parent_task_id: parent.id }))!.json();

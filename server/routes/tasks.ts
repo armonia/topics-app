@@ -2425,6 +2425,24 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               blockedByTaskId: typeof body?.blockedByTaskId === "string" ? body.blockedByTaskId : null,
               reuseBlockerContext: body?.reuseBlockerContext === true,
             });
+            // THE BIRTH ATTACHMENTS, BEFORE THE DISPATCH.
+            //
+            // The board composer now takes images and files (paste, drop,
+            // paperclip): they arrive inside the create and not through a
+            // separate POST /comments, for one reason only. The dispatch fires
+            // a few lines below, so a comment sent after the response would
+            // race the kickoff and the agent would read the card without the
+            // screenshot the task exists for. Written here, the files are on
+            // the card before anybody picks it up.
+            const bornMedia = filterMedia(body?.media) ?? [];
+            if (bornMedia.length) {
+              try {
+                svc.addComment({
+                  taskId: task.id, author: HUMAN, content: "Allegati al task.",
+                  media: bornMedia, projectId: effectiveProjectId,
+                });
+              } catch (err) { console.warn(`[Tasks] birth attachments failed for ${task.id}:`, err); }
+            }
             broadcastToAll({ type: "task:created", projectId: effectiveProjectId, task });
             // Il titolo leggibile: vedi `titoloInSottofondo`. Vale per
             // ENTRAMBI i creatori — questa rotta e quella di `create_task`.

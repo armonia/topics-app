@@ -13,6 +13,7 @@ import { ShareControl } from '../Share/ShareControl';
 import { Spinner } from '../Shared/Spinner';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { getMediaUrl } from '../../lib/api';
+import { dragCarriesFiles, filesFromDrop, imagesFromClipboard, uploadAttachment, MAX_ATTACHMENTS, type StagedAttachment } from '../../lib/attachments';
 import { isImagePath, isPdfPath, isVideoPath } from '../../lib/mediaKind';
 import { isSupersededPreviewNote } from '../../../../shared/preview-retirement';
 import { isResolvedParkedQuestion } from '../../../../shared/parked-question';
@@ -1030,20 +1031,19 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   };
 
   // Attachments: same pipeline as the native chat — POST /api/upload (multipart)
-  // → absolute path, rendered via /api/media. Staged here until send.
-  const [attachments, setAttachments] = useState<Array<{ path: string; name: string; isImage: boolean }>>([]);
+  // → absolute path, rendered via /api/media. Staged here until send. The
+  // upload itself lives in `lib/attachments`, shared with the composer that
+  // creates a task: same gesture on both surfaces, one implementation.
+  const [attachments, setAttachments] = useState<StagedAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [fileDragOver, setFileDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadFiles = async (files: FileList | File[]) => {
     setUploading(true);
     try {
-      for (const file of Array.from(files).slice(0, 8 - attachments.length)) {
-        const fd = new FormData();
-        fd.append('file', file);
-        const r = await fetch('/api/upload', { method: 'POST', body: fd });
-        const d = await r.json().catch(() => null) as { path?: string; error?: string } | null;
-        if (!r.ok || !d?.path) throw new Error(d?.error || 'upload fallito');
-        setAttachments((prev) => [...prev, { path: d.path!, name: file.name, isImage: file.type.startsWith('image/') }]);
+      for (const file of Array.from(files).slice(0, MAX_ATTACHMENTS - attachments.length)) {
+        const staged = await uploadAttachment(file);
+        setAttachments((prev) => [...prev, staged]);
       }
       setError(null);
     } catch (e) { showError(e); }
@@ -2813,7 +2813,31 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               colonna. È l'invariante che il guscio esiste per garantire —
               Approva/Rimanda indietro/Landa dentro il viewport a qualunque altezza di
               finestra e con qualunque combinazione di sezioni aperte. */}
-          <div className="shrink-0 border-t border-app-border p-2">
+          {/* DROPPING A FILE IN HERE ATTACHES IT. Paste was already on the
+              text field, drag and drop was not: a captured screenshot could be
+              pasted, the same screenshot saved to disk had no way in. The drop
+              zone is the whole delivery area, not the field's own thirty
+              pixels: whoever drags aims at the composer. A drag carrying NO
+              file (a layout pane, a text selection) leaves it alone, through
+              `dragCarriesFiles`. */}
+          <div
+            className={`relative shrink-0 border-t p-2 ${fileDragOver ? 'border-emerald-400/60 bg-emerald-500/5' : 'border-app-border'}`}
+            onDragOver={(e) => { if (!dragCarriesFiles(e.dataTransfer)) return; e.preventDefault(); e.stopPropagation(); setFileDragOver(true); }}
+            onDragLeave={(e) => { if (e.currentTarget.contains(e.relatedTarget as Node | null)) return; setFileDragOver(false); }}
+            onDrop={(e) => {
+              if (!dragCarriesFiles(e.dataTransfer)) return;
+              e.preventDefault(); e.stopPropagation();
+              setFileDragOver(false);
+              const files = filesFromDrop(e.dataTransfer);
+              if (files.length) void uploadFiles(files);
+            }}
+            data-testid="task-thread-dropzone"
+          >
+            {fileDragOver && (
+              <div className="pointer-events-none absolute inset-1 z-10 flex items-center justify-center rounded border border-dashed border-emerald-400/60 bg-app-bg/70 text-[11px] text-emerald-300">
+                {tr('board.task.dropToAttach')}
+              </div>
+            )}
             {/* L'errore dell'ultima azione, PRIMA riga della zona di decisione:
                 sta appiccicato ai bottoni che l'hanno prodotto (Approva, Landa,
                 le scelte, il composer) e resta nel viewport quanto loro. In
@@ -2916,7 +2940,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 onChange={(e) => { if (e.target.files?.length) void uploadFiles(e.target.files); e.target.value = ''; }}
               />
               <button
-                onClick={() => fileInputRef.current?.click()} disabled={uploading || attachments.length >= 8}
+                onClick={() => fileInputRef.current?.click()} disabled={uploading || attachments.length >= MAX_ATTACHMENTS}
                 title={tr('board.task.attachFileTitle')}
                 className="rounded p-1.5 text-app-text-secondary hover:bg-white/10 disabled:opacity-40"
               >{uploading ? <Spinner size="md" tone="current" /> : <Paperclip className="h-4 w-4" />}</button>
@@ -2941,9 +2965,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 placeholder={isAgentReview ? tr('board.task.replyPlaceholder', { sendBack: sendBackLabel }) : agentBusy ? tr('board.task.steerPlaceholder') : tr('board.task.commentPlaceholder')}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
                 onPaste={(e) => {
-                  const imgs = Array.from(e.clipboardData?.items ?? [])
-                    .filter((i) => i.kind === 'file' && i.type.startsWith('image/'))
-                    .map((i) => i.getAsFile()).filter((f): f is File => !!f);
+                  const imgs = imagesFromClipboard(e.clipboardData);
                   if (imgs.length) { e.preventDefault(); void uploadFiles(imgs); }
                 }}
                 className="flex-1 resize-none rounded bg-white/5 px-2 py-1.5 text-sm text-app-text outline-none"

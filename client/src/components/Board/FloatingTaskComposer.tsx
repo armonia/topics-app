@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Check, ChevronDown, ClipboardList, CornerDownRight, Link2, Loader2, Lock, Send, Sparkles, X } from 'lucide-react';
+import { Check, ChevronDown, ClipboardList, CornerDownRight, Link2, Loader2, Lock, Paperclip, Send, Sparkles, X } from 'lucide-react';
 import { Menu } from '../Shared/Menu';
 import { useToast } from '../Shared/Toast';
 import { insertAtCaret } from '../../lib/insertAtCaret';
@@ -15,6 +15,8 @@ import { ProjectPickerBody } from './ProjectPicker';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
 import { useT } from '../../hooks/useT';
 import { DictationButton } from '../Shared/DictationButton';
+import { getMediaUrl } from '../../lib/api';
+import { dragCarriesFiles, filesFromDrop, imagesFromClipboard, uploadAttachment, MAX_ATTACHMENTS, type StagedAttachment } from '../../lib/attachments';
 import { titoloDaTesto } from '../../../../shared/task-title';
 
 /** Le due colonne in cui un task può NASCERE, nell'ordine in cui il menu le
@@ -84,6 +86,17 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
 }) {
   const [text, setText] = useState('');
   const [focused, setFocused] = useState(false);
+  /* THE ATTACHMENTS OF THE TASK BEING BORN.
+     A card's thread accepted a pasted image; this field, which is where the
+     work actually starts, accepted nothing: no paste, no drop, no paperclip.
+     Whoever opened the board holding a screenshot of the error had to create
+     the task, open it, and attach the file afterwards.
+     Files upload straight away (`/api/upload`) and wait here: they travel with
+     the create, and the server writes them on the card as its first message. */
+  const [attachments, setAttachments] = useState<StagedAttachment[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [planFirst, setPlanFirst] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   // Avvio: dove nasce il task (Todo = parte, Backlog = resta ferma) e se prima
@@ -216,6 +229,23 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   }, []);
   const dictationError = useCallback((m: string) => toast.error(m), [toast]);
 
+  /* An attached file uploads AT ONCE: by the time Enter is pressed the task
+     must be born with its files, not wait for a second network round. Past the
+     cap the extra files are dropped (the paperclip is already disabled, so the
+     limit is visible before it bites). */
+  const addFiles = async (files: File[] | FileList) => {
+    const list = Array.from(files);
+    if (!list.length) return;
+    setUploading(true);
+    try {
+      for (const file of list.slice(0, MAX_ATTACHMENTS - attachments.length)) {
+        const staged = await uploadAttachment(file);
+        setAttachments((prev) => [...prev, staged]);
+      }
+    } catch (e) { onError(e instanceof Error ? e.message : 'upload failed'); }
+    finally { setUploading(false); }
+  };
+
   // Task composer hotkey listener (Cmd+Shift+;)
   useEffect(() => {
     const handleTaskComposerFocus = () => {
@@ -227,7 +257,8 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   }, []);
   // The Menu portals to <body>, so focus leaves the wrapper while it's open —
   // keep the composer expanded anyway.
-  const expanded = focused || projOpen || modelOpen || prioOpen || startOpen || text.trim().length > 0;
+  const expanded = focused || projOpen || modelOpen || prioOpen || startOpen || text.trim().length > 0
+    || attachments.length > 0 || dragOver;
 
   const onFocus = () => {
     setFocused(true);
@@ -349,11 +380,16 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
       const created = await boardApi.create(target, {
         text: title, description, status: birthStatus, planFirst,
         model: model ?? undefined, priority: prio ?? undefined,
+        // Attachments ride INSIDE the create, like the intake link: the server
+        // writes them on the card before dispatching it, so the agent that
+        // picks it up already has them instead of seeing them land later.
+        ...(attachments.length ? { media: attachments.map((a) => a.path) } : {}),
         ...(link?.kind === 'subtask' ? { parentTaskId: link.proposal.targetTaskId } : {}),
         ...(link?.kind === 'chain' ? { blockedByTaskId: link.proposal.targetTaskId, reuseBlockerContext: true } : {}),
         ...(link ? { intakeLink: true, intakeReason: link.proposal.reason } : {}),
       });
       setText('');
+      setAttachments([]);
       setPlanFirst(false);
       setBirthStatus('todo');
       setModel(null);
@@ -382,16 +418,35 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
         onFocusCapture={onFocus}
         onBlurCapture={onBlurCapture}
         onPointerDownCapture={onPointerDownCapture}
+        // DRAG A FILE ONTO THE PILL AND IT IS ATTACHED. The target is the
+        // whole pill, not the text field: whoever drags aims at the object they
+        // can see. A drag with no file (a layout pane, a text selection, a
+        // board card) passes through, via `dragCarriesFiles`, or the board
+        // would lose its own drag and drop underneath this one.
+        onDragOver={(e) => { if (!dragCarriesFiles(e.dataTransfer)) return; e.preventDefault(); e.stopPropagation(); setDragOver(true); }}
+        onDragLeave={(e) => { if (e.currentTarget.contains(e.relatedTarget as Node | null)) return; setDragOver(false); }}
+        onDrop={(e) => {
+          if (!dragCarriesFiles(e.dataTransfer)) return;
+          e.preventDefault(); e.stopPropagation();
+          setDragOver(false);
+          void addFiles(filesFromDrop(e.dataTransfer));
+        }}
         data-testid="board-task-composer"
         // @container: la riga dei chip qui sotto si compatta sulla larghezza di
         // QUESTA card — cioè della pane — non del viewport. I breakpoint `sm:`
         // non scattano mai dentro una pane stretta su uno schermo largo, che è
         // il caso normale in un layout a riquadri. Stesso schema del composer
         // della chat (ChatInput.tsx).
-        className={`input-glass @container pointer-events-auto w-full max-w-2xl rounded-2xl border shadow-2xl shadow-black/50 transition-all duration-200 ease-out ${
-          expanded ? '-translate-y-2 border-app-border-light' : 'translate-y-0 border-app-border'
+        className={`input-glass @container pointer-events-auto relative w-full max-w-2xl rounded-2xl border shadow-2xl shadow-black/50 transition-all duration-200 ease-out ${
+          dragOver ? '-translate-y-2 border-emerald-400/70' : expanded ? '-translate-y-2 border-app-border-light' : 'translate-y-0 border-app-border'
         }`}
       >
+        {dragOver && (
+          <div
+            data-testid="composer-drop-hint"
+            className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border border-dashed border-emerald-400/70 bg-app-bg/70 text-xs text-emerald-300"
+          >{tr('board.composer.dropToAttach')}</div>
+        )}
         <textarea
           value={text} rows={1}
           ref={(el) => { taRef.current = el; autoGrow(el); }}
@@ -400,11 +455,41 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
           onKeyUp={saveCursor}
           onClick={saveCursor}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
+          // A pasted image becomes an attachment and NOT text: without this,
+          // pasting a screenshot into the field did nothing at all. Every other
+          // paste (text, a link) behaves exactly as before.
+          onPaste={(e) => {
+            const images = imagesFromClipboard(e.clipboardData);
+            if (images.length) { e.preventDefault(); void addFiles(images); }
+          }}
           placeholder={tr('board.composer.placeholder')}
           className={`block max-h-40 w-full resize-none overflow-y-auto bg-transparent px-3.5 py-3 text-sm leading-5 text-app-text outline-none transition-[min-height] duration-200 ease-out placeholder:text-app-placeholder ${
             expanded ? 'min-h-[4.5rem]' : 'min-h-0'
           }`}
         />
+        {/* The staged attachments: a thumbnail for images, the name for
+            everything else. What you are about to send is visible before you
+            send it, and one x removes it. Same shape as a task's thread. */}
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-2.5 pb-2" data-testid="composer-attachments">
+            {attachments.map((a) => (
+              <span key={a.path} className="group/att relative">
+                {a.isImage ? (
+                  <img src={getMediaUrl(a.path)} alt={a.name} title={a.name} className="h-12 w-12 rounded object-cover" />
+                ) : (
+                  <span className="flex max-w-[10rem] items-center gap-1 rounded bg-black/5 px-1.5 py-1 text-[11px] text-app-text-heading dark:bg-white/10">
+                    <Paperclip className="h-3 w-3 shrink-0" /><span className="truncate">{a.name}</span>
+                  </span>
+                )}
+                <button
+                  onClick={() => setAttachments((prev) => prev.filter((p) => p.path !== a.path))}
+                  title={tr('board.task.removeAttachmentTitle')}
+                  className="absolute -right-1.5 -top-1.5 hidden rounded-full bg-elevated p-0.5 text-app-text group-hover/att:block"
+                ><X className="h-2.5 w-2.5" /></button>
+              </span>
+            ))}
+          </div>
+        )}
         {/* Intake. Una riga sola, sopra i chip: la proposta con il PERCHÉ a
             portata di occhio (title = la frase intera), e due bottoni — quello
             consigliato acceso, l'altro a un click. Il terzo bottone è "no": il
@@ -643,6 +728,21 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
           {/* Lo STESSO bottone del thread di un task e della chat: estratto in
               `Shared/DictationButton` perche' tre copie divergono, e sono gia'
               divergite una volta (il thread non ce l'aveva affatto). */}
+          {/* The paperclip next to the microphone: paste and drop are the fast
+              gestures, but without a button nobody learns that this field takes
+              files at all, and on a phone neither gesture exists. */}
+          <input
+            ref={fileInputRef} type="file" multiple className="hidden"
+            data-testid="composer-file-input"
+            onChange={(e) => { if (e.target.files?.length) void addFiles(e.target.files); e.target.value = ''; }}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading || attachments.length >= MAX_ATTACHMENTS}
+            title={tr('board.composer.attachTitle')}
+            data-testid="composer-attach"
+            className="shrink-0 rounded-lg p-1.5 text-app-text-secondary hover:bg-black/10 disabled:opacity-40 dark:hover:bg-white/10"
+          >{uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}</button>
           <DictationButton
             testId="task-composer-dictation"
             onText={insertDictated}

@@ -1611,6 +1611,20 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         );
       }
     } catch { /* board senza albero: il task resta quello che è */ }
+    // THE FILES ATTACHED TO THE CARD ARE PART OF THE BRIEF. The board composer
+    // lets a task be born with images (a screenshot of the bug, a mock-up), and
+    // they live in the thread, which the kickoff does not read. Without this
+    // line the agent starts on a description that says "as in the picture" and
+    // has no picture. Paths only, so nothing is loaded that is not opened.
+    try {
+      const attached = Array.from(new Set((deps.svc.get(task.id)?.comments ?? []).flatMap((c) => c.media ?? [])));
+      if (attached.length) {
+        parts.push(
+          "",
+          `Files attached to this card (on disk, read them if they help): ${attached.slice(0, 12).join(" ")}`,
+        );
+      }
+    } catch { /* thread unreadable: the task text still stands on its own */ }
     return parts;
   }
 
