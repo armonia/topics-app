@@ -33,7 +33,7 @@
 // This module never strips the deep-link on load (a refresh must recover the
 // drawer); the path returns to '/' only when the drawer is closed.
 
-import { serverHttpBase } from './shell/net';
+import { isAppLoopbackOrigin, serverHttpBase } from './shell/net';
 import { taskIdFromSegment, taskLinkSegment } from '../../../shared/task-slug';
 
 // Legacy query form (`?task=<projectId>~<taskId>`), kept for read back-compat.
@@ -144,9 +144,14 @@ export function isSelfOrigin(origin: string): boolean {
   if (origin === window.location.origin) return true;
   const serverBase = serverHttpBase();
   if (serverBase) {
-    try { return origin === new URL(serverBase).origin; } catch { /* fall through */ }
+    try { if (origin === new URL(serverBase).origin) return true; } catch { /* fall through */ }
   }
-  return false;
+  // The third case, and the one the two above cannot cover: the SAME app reached
+  // on its OTHER loopback port. The shell can only mint 13333 (its webview knows
+  // no other door) while the web client and the agent tools mint 3333, so every
+  // permalink that crosses between them used to miss both equalities and leave
+  // through the system browser. See `isAppLoopbackOrigin`.
+  return isAppLoopbackOrigin(origin);
 }
 
 /** If `url` is a SELF-origin board deep-link, return its target so the caller

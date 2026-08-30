@@ -25,6 +25,39 @@ export function serverHttpBase(): string {
   return isTauri ? DESKTOP_SERVER_HTTP : '';
 }
 
+// The two loopback ports this app answers on: the shell's TLS proxy (PROXY_PORT
+// in src-tauri/src/lib.rs) and the data server behind it (DEFAULT_UPSTREAM_PORT).
+// A permalink copied anywhere in the app is born on one of the two — the shell
+// can only offer 13333 (its webview knows no other door), the web client and the
+// agent tool descriptions say 3333.
+const APP_LOOPBACK_PORTS = new Set(['13333', '3333']);
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
+
+/**
+ * True when `origin` is THIS app reached over loopback, on either of its ports.
+ *
+ * It does not claim the origin is reachable from here — it claims the link
+ * SPEAKS OF this server, so the path can be resolved against the current origin
+ * instead of being handed to the system browser. Which is what the boot path
+ * already does: `consumeTabLinkFromUrl` reads `location.pathname` and never
+ * looks at the origin at all. Only the CLICK path disagreed, and the price was
+ * a permalink copied in the desktop shell opening a SECOND FULL COPY of Topics
+ * in a browser tab — same WebSocket, same pane-store — instead of switching tab.
+ *
+ * Deliberately narrow: loopback hosts only, and only our own two ports.
+ * A wider rule (any loopback port) would swallow a link pointing at some other
+ * local dev server that happens to use our path grammar.
+ */
+export function isAppLoopbackOrigin(origin: string): boolean {
+  try {
+    const u = new URL(origin);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+    return LOOPBACK_HOSTS.has(u.hostname) && APP_LOOPBACK_PORTS.has(u.port);
+  } catch {
+    return false;
+  }
+}
+
 /** WebSocket base, e.g. 'ws://127.0.0.1:3333' (Tauri) or '<proto>//<host>' (web). */
 export function serverWsBase(): string {
   if (isTauri) return DESKTOP_SERVER_WS;

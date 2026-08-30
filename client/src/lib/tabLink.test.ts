@@ -945,4 +945,46 @@ describe('deep-link in una finestra STACCATA (`?topics=`)', () => {
     expect(deepLinkClickRoute('https://evil.example/tab/chat/t1')).toEqual({ via: 'external' });
     expect(deepLinkClickRoute('')).toEqual({ via: 'external' });
   });
+
+  // TABOPEN-01, the app's OTHER port.
+  //
+  // The desktop shell can only mint one address, `http://127.0.0.1:13333` (its
+  // proxy: the webview knows no other door), while the web client and the agent
+  // tool descriptions mint `:3333`. Until the cure neither surface recognised
+  // the other's permalink: `isSelfOrigin` was an exact match against at most two
+  // strings, so the link left as `external` and opened A SECOND FULL COPY of
+  // Topics in a browser tab — same WebSocket, same pane-store — instead of
+  // switching tab. That is the damage `deepLinkClick.ts` states it wants to
+  // avoid.
+  //
+  // The BOOT path never had this problem: `consumeTabLinkFromUrl` reads the
+  // pathname alone. Here the click stops being the only one that disagrees.
+  test('il permalink coniato sull ALTRA porta dell app si apre in-app, non in una seconda copia', () => {
+    // Web client (or phone) receiving a link minted INSIDE the shell.
+    stubWindow('https://localhost:3333/');
+    expect(deepLinkClickRoute('http://127.0.0.1:13333/tab/chat/topic-1'))
+      .toEqual({ via: 'tab', target: { kind: 'chat', key: 'topic-1' } });
+    expect(deepLinkClickRoute('http://127.0.0.1:13333/task/t-42'))
+      .toEqual({ via: 'task', target: { taskId: 't-42' } });
+
+    // And the opposite direction, the everyday one: a `:3333` link (the shape
+    // agents write, taught by the tool descriptions) clicked inside the shell,
+    // where the page origin is 13333.
+    stubWindow('http://127.0.0.1:13333/');
+    expect(deepLinkClickRoute('https://127.0.0.1:3333/tab/chat/topic-1'))
+      .toEqual({ via: 'tab', target: { kind: 'chat', key: 'topic-1' } });
+    expect(deepLinkClickRoute('https://localhost:3333/tab/panel/board'))
+      .toEqual({ via: 'tab', target: { kind: 'panel', key: 'board' } });
+  });
+
+  // The cure's boundary, narrow on purpose: NOT "any loopback port". Another dev
+  // server on this machine that happens to use our grammar stays an external
+  // link, and so does a foreign origin — even when the path is a perfect
+  // permalink.
+  test('un altra origine locale NON diventa nostra per il solo fatto di essere loopback', () => {
+    stubWindow('https://localhost:3333/');
+    expect(deepLinkClickRoute('http://localhost:4600/tab/chat/topic-1')).toEqual({ via: 'external' });
+    expect(deepLinkClickRoute('http://127.0.0.1:8080/task/t-42')).toEqual({ via: 'external' });
+    expect(deepLinkClickRoute('https://evil.example/tab/panel/board')).toEqual({ via: 'external' });
+  });
 });

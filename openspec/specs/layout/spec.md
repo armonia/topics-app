@@ -1361,6 +1361,17 @@ assoluta o relativa, e SHALL leggere anche gli alias storici — è un SOVRAINSI
 del bersaglio dei soli task. Un'origine estranea, o spazzatura, SHALL valere
 NIENTE, e chi chiama apre nel browser esterno.
 
+**«Propria origine» SHALL comprendere ENTRAMBE le porte in loopback su cui
+questa app si serve**: il proxy del guscio e il server dietro di lui. Il guscio
+può coniare un solo indirizzo — la sua webview non conosce altra porta — mentre
+il client web e le descrizioni dei tool dell'agente ne coniano un altro, e un
+permalink che attraversa fra le due SHALL aprire la tab invece di uscire nel
+browser, dove diventerebbe una SECONDA COPIA dell'app sullo stesso WebSocket e
+sullo stesso pane-store. Il percorso di BOOT era già cieco all'origine: qui
+smette di essere il click l'unico in disaccordo. Il confine SHALL restare
+stretto: un'ALTRA origine locale — qualunque altra porta, anche in loopback —
+NON SHALL diventare nostra per il solo fatto di essere locale.
+
 Ogni tipo SHALL avere il proprio ramo, tutti su eventi che l'app già gestisce: la
 chat porta il TOPIC e mai l'identificativo della pane; il terminale passa dalla
 porta che guarda ENTRAMBE le superfici; il progetto apre o mette a fuoco la propria
