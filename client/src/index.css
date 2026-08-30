@@ -3416,9 +3416,36 @@ html.native-frost [role="region"][aria-label$=" panel"] > .bg-surface {
  * utilities on the same elements (Tailwind v4 puts utilities in @layer, which
  * always loses to unlayered CSS). */
 .floating-splits [data-split-card],
-.floating-splits [role="navigation"][aria-label="Topics sidebar"],
 .floating-splits [data-testid="space-switcher"] {
   background-color: var(--bg);
+}
+/* THE SIDEBAR NEEDS `!important`, AND IT IS ANSWERING ONE, NOT DECORATING.
+ *
+ * The block above that kills compounding under `.native-frost` lists the
+ * sidebar BY NAME with `transparent !important`
+ * (`html.native-frost.dark [role="navigation"][aria-label="Topics sidebar"]`,
+ * and the light twin). That is right in the normal case: there the shell paints
+ * the single veil and a second coat on the sidebar would make it darker than
+ * the panes beside it.
+ *
+ * In floating mode the shell has no veil left to share, so the same declaration
+ * stops preventing a double coat and starts removing the only one. Measured on
+ * the shipped bundle, floating on: card `rgba(8, 10, 14, 0.72)`, spaces bar the
+ * same, sidebar `rgba(0, 0, 0, 0)` - so the sidebar alone fell through to the
+ * bare material. Reported: "quando metto floating windows cambia lo sfondo
+ * sidebar ancora ma non dovrebbe". allow-italian: the report is quoted verbatim
+ *
+ * BOTH HALVES OF THE SELECTOR ARE LOAD BEARING, and getting them wrong is how
+ * the first attempt at this rule still measured `rgba(0, 0, 0, 0)`. The other
+ * declaration is `!important`, so this one has to be too - and among two
+ * `!important` rules the more specific wins, not the later one. Theirs is
+ * (0,4,1): `html` + `.native-frost` + `.dark` (or `:not(.dark)`, which counts
+ * its argument) + the two attributes. A bare `.floating-splits [role][aria-label]`
+ * is (0,3,0) and loses. Repeating `html.native-frost` here brings it to the same
+ * (0,4,1), and a tie IS decided by source order - this block is ~550 lines
+ * further down. */
+html.native-frost .floating-splits [role="navigation"][aria-label="Topics sidebar"] {
+  background-color: var(--bg) !important;
 }
 /* A card inside a card must NOT paint a second coat: two veils over the same
  * spot would make a project panel darker than everything around it, which is

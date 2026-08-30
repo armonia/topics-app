@@ -22,6 +22,16 @@
  * background - which is ALLOWED to go bare, that is what makes a gap a gap -
  * but the ground a person actually looks at, wherever the veil happens to ride.
  *
+ * AND IT CHECKS EVERY FLOATING SURFACE, not one. The first version of this file
+ * measured a `[data-split-card]` only, and passed while the SIDEBAR was still
+ * falling through to the bare material - because the block that kills
+ * compounding under `.native-frost` names the sidebar with `transparent
+ * !important` at specificity (0,4,1), which a bare `.floating-splits [role]
+ * [aria-label]` at (0,3,0) loses to even with `!important` of its own. A person
+ * found that, not this test: "quando metto floating windows cambia lo sfondo sidebar ancora ma non dovrebbe". allow-italian: the report is quoted verbatim
+ * So the loop below covers the card, the sidebar and the Spaces strip, and a
+ * fourth floating surface added tomorrow belongs in it.
+ *
  * WHY ON A CLASS AND NOT BY DRIVING THE SETTING. The preference only renders on
  * a desktop shell (`isDesktop`), which a Playwright page is not, and the
  * platform is carried by a class on `<html>` (`windows-acrylic`, `tauri-mac`)
@@ -46,26 +56,42 @@ const CLEAR = /rgba\(\s*0,\s*0,\s*0,\s*0\s*\)/;
  * the veil is allowed to MOVE between the two, and a person cannot tell which
  * element paints it. What they can tell is the colour.
  */
-async function groundOverContent(page: import("@playwright/test").Page, platformClass: string) {
+async function groundsOverContent(page: import("@playwright/test").Page, platformClass: string) {
   return page.evaluate((cls) => {
     const root = document.documentElement;
     const before = root.className;
     const shell = document.createElement("div");
     // The shell's own classes, as App.tsx builds them.
     shell.className = "flex bg-app-bg overflow-hidden max-w-[100vw]";
-    shell.style.cssText = "position:fixed;left:-9999px;top:0;width:400px;height:200px";
-    const card = document.createElement("div");
-    card.setAttribute("data-split-card", "");
-    card.style.cssText = "width:200px;height:200px";
-    shell.appendChild(card);
+    shell.style.cssText = "position:fixed;left:-9999px;top:0;width:600px;height:200px";
+    const make = (html: string) => {
+      const holder = document.createElement("div");
+      holder.innerHTML = html;
+      return holder.firstElementChild as HTMLElement;
+    };
+    // Every surface that floats. A new one belongs here the day it is added.
+    const surfaces: Record<string, HTMLElement> = {
+      scheda: make('<div data-split-card style="width:200px;height:200px"></div>'),
+      sidebar: make('<nav role="navigation" aria-label="Topics sidebar" style="width:200px;height:200px"></nav>'),
+      spazi: make('<div data-testid="space-switcher" style="width:200px;height:40px"></div>'),
+    };
+    for (const el of Object.values(surfaces)) shell.appendChild(el);
     document.body.appendChild(shell);
-    root.className = `${cls} native-frost`;
+    root.className = `${cls} native-frost dark`;
 
     const clear = (c: string) => /rgba\(\s*0,\s*0,\s*0,\s*0\s*\)/.test(c);
+    // "Ground" is the topmost painted layer above that area: the surface's own
+    // background when it has one, else the shell's. That indirection is the
+    // point - the veil is allowed to MOVE between the two, and a person cannot
+    // tell which element paints it. What they can tell is the colour.
     const read = () => {
-      const onCard = getComputedStyle(card).backgroundColor;
       const onShell = getComputedStyle(shell).backgroundColor;
-      return { ground: clear(onCard) ? onShell : onCard, onCard, onShell };
+      const out: Record<string, { ground: string; own: string }> = {};
+      for (const [name, el] of Object.entries(surfaces)) {
+        const own = getComputedStyle(el).backgroundColor;
+        out[name] = { ground: clear(own) ? onShell : own, own };
+      }
+      return { onShell, surfaces: out };
     };
     const off = read();
     shell.classList.add("floating-splits");
@@ -77,24 +103,28 @@ async function groundOverContent(page: import("@playwright/test").Page, platform
 }
 
 test.describe("Floating splits and the window's ground", () => {
-  // ONE test, because it is ONE invariant across every platform: the ground a
-  // person looks at is the same before and after, and the shell is free to go
-  // bare underneath so the gaps can exist at all.
-  test("LAYOUT-32: the ground under the content does not move, on any platform", async ({ page }) => {
+  // ONE test, because it is ONE invariant across every platform and every
+  // floating surface: the ground a person looks at is the same before and
+  // after, and the shell is free to go bare underneath so the gaps can exist.
+  test("LAYOUT-32: the ground under the content does not move, on any surface or platform", async ({ page }) => {
     await goToApp(page);
 
     for (const cls of ["windows-acrylic", "tauri-mac", "electron-mac"]) {
-      const g = await groundOverContent(page, cls);
-      expect(
-        g.off.ground,
-        `con \`${cls}\` il guscio deve avere un fondo da confrontare: se e' gia' nudo da spento, questo test non misura niente`,
-      ).not.toMatch(CLEAR);
-      expect(
-        g.on.ground,
-        `con \`${cls}\` accendere i pannelli fluttuanti ha cambiato il terreno SOTTO IL CONTENUTO ` +
-          `(${g.off.ground} -> ${g.on.ground}): il velo deve spostarsi sulle schede, non sparire. ` +
-          `Guscio ${g.off.onShell} -> ${g.on.onShell}, scheda ${g.off.onCard} -> ${g.on.onCard}`,
-      ).toBe(g.off.ground);
+      const g = await groundsOverContent(page, cls);
+      for (const name of Object.keys(g.off.surfaces)) {
+        const before = g.off.surfaces[name];
+        const after = g.on.surfaces[name];
+        expect(
+          before.ground,
+          `con \`${cls}\` la superficie «${name}» deve avere un fondo da confrontare: se e' gia' nuda da spento, questo test non misura niente`,
+        ).not.toMatch(CLEAR);
+        expect(
+          after.ground,
+          `con \`${cls}\` accendere i pannelli fluttuanti ha cambiato il terreno sotto «${name}» ` +
+            `(${before.ground} -> ${after.ground}): il velo deve spostarsi sulla superficie, non sparire. ` +
+            `Guscio ${g.off.onShell} -> ${g.on.onShell}, superficie ${before.own} -> ${after.own}`,
+        ).toBe(before.ground);
+      }
     }
   });
 
@@ -102,14 +132,16 @@ test.describe("Floating splits and the window's ground", () => {
   // opaque again": the SHELL has to go bare, or there are no gaps to see.
   test("LAYOUT-32b: the shell goes bare underneath, so a gap is a gap", async ({ page }) => {
     await goToApp(page);
-    const g = await groundOverContent(page, "tauri-mac");
+    const g = await groundsOverContent(page, "tauri-mac");
     expect(
       g.on.onShell,
       "il guscio deve restare nudo in modalita' fluttuante: e' lo spazio fra le schede a mostrare il materiale nativo",
     ).toMatch(CLEAR);
-    expect(
-      g.on.onCard,
-      "e la scheda deve portare il velo, altrimenti il terreno sotto il contenuto se ne va con il guscio",
-    ).not.toMatch(CLEAR);
+    for (const [name, s] of Object.entries(g.on.surfaces)) {
+      expect(
+        s.own,
+        `e «${name}» deve portare il velo, altrimenti il terreno sotto di essa se ne va con il guscio`,
+      ).not.toMatch(CLEAR);
+    }
   });
 });
