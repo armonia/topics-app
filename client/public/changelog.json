@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.252",
+    "date": "2026-08-30",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Una cwd con un symlink faceva dichiarare morta una sessione claude viva",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.251",
     "date": "2026-08-30",
     "sections": {
