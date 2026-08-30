@@ -2,6 +2,18 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.246 — 2026-08-30
+
+### Sotto il cofano
+- Il debounce dell'auto-share era piu' corto del campionamento: non filtrava, rimandava
+- La guardia sull'auto-share sta sul sorgente, perche' nient'altro puo' vederla
+- Un re-export che non serviva a nessuno faceva rosso il cancello del codice morto
+
+## 2.2.245 — 2026-08-30
+
+### Sotto il cofano
+- Il decimo rimedio torna acceso: l'avevo spento su una misura che non misurava
+
 ## 2.2.244 — 2026-08-30
 
 ### Sotto il cofano

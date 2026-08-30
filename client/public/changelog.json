@@ -1,18 +1,44 @@
 [
   {
+    "version": "2.2.246",
+    "date": "2026-08-30",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il debounce dell'auto-share era piu' corto del campionamento: non filtrava, rimandava",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La guardia sull'auto-share sta sul sorgente, perche' nient'altro puo' vederla",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un re-export che non serviva a nessuno faceva rosso il cancello del codice morto",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.245",
     "date": "2026-08-30",
     "sections": {
       "new": [],
-      "fixes": [
-        {
-          "it": "Su Windows la finestra torna a disegnarsi dopo minimizza e ripristina, invece di restare vuota",
-          "en": "On Windows the window paints again after minimise and restore, instead of staying empty",
-          "scope": "windows"
-        }
-      ],
+      "fixes": [],
       "perf": [],
-      "internal": []
+      "internal": [
+        {
+          "it": "Il decimo rimedio torna acceso: l'avevo spento su una misura che non misurava",
+          "en": "",
+          "scope": null
+        }
+      ]
     }
   },
   {
