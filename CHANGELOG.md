@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.244 — 2026-08-30
+
+### Sotto il cofano
+- L'etichetta della tab e' mezzo pixel bassa, e togliere quel mezzo pixel costa la baseline
+
 ## 2.2.243 — 2026-08-30
 
 ### Sotto il cofano

@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.244",
+    "date": "2026-08-30",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "L'etichetta della tab e' mezzo pixel bassa, e togliere quel mezzo pixel costa la baseline",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.243",
     "date": "2026-08-30",
     "sections": {
