@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.241 — 2026-08-30
+
+### Sotto il cofano
+- Le tab prendono il fondo del design system, e l'ombra sul testo se ne va
+
 ## 2.2.240 — 2026-08-30
 
 ### Sotto il cofano

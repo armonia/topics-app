@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.241",
+    "date": "2026-08-30",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Le tab prendono il fondo del design system, e l'ombra sul testo se ne va",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.240",
     "date": "2026-08-30",
     "sections": {
