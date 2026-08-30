@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.248 — 2026-08-30
+
+### Sotto il cofano
+- I pannelli fluttuanti toglievano lo sfondo alla finestra, non solo ai vuoti
+
 ## 2.2.247 — 2026-08-30
 
 ### Sotto il cofano

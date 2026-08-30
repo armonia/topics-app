@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.248",
+    "date": "2026-08-30",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "I pannelli fluttuanti toglievano lo sfondo alla finestra, non solo ai vuoti",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.247",
     "date": "2026-08-30",
     "sections": {
