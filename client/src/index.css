@@ -2989,10 +2989,25 @@ html.native-frost:not(.dark) .chrome-glass {
  * popover surface is retuned the tabs follow, which is the whole point of
  * taking the token instead of copying its value. */
 :root {
-  --tab-bg-rest: color-mix(in srgb, var(--popover-bg, var(--bg-surface)) 80%, transparent);
-  --tab-bg-rest-hover: color-mix(in srgb, var(--popover-bg, var(--bg-surface)) 90%, transparent);
-  --tab-bg-soft: color-mix(in srgb, var(--popover-bg, var(--bg-surface)) 64%, transparent);
-  --tab-bg-sel: color-mix(in srgb, var(--popover-bg, var(--bg-surface)) 96%, transparent);
+  --tab-bg-rest: color-mix(in srgb, var(--tab-ink) 93%, transparent);
+  --tab-bg-rest-hover: color-mix(in srgb, var(--tab-ink) 97%, transparent);
+  --tab-bg-soft: color-mix(in srgb, var(--tab-ink) 82%, transparent);
+  --tab-bg-sel: color-mix(in srgb, var(--tab-ink) 99%, transparent);
+  /* THE TINT, and WHICH token it really is.
+   *
+   * `--popover-bg` is declared ONLY inside `@media (max-width: 767px)`, so on a
+   * desktop it does not exist and every use of it falls through to
+   * `--bg-surface`. Naming that here instead of leaving a fallback buried in
+   * four `color-mix` calls: on a phone the tabs take the popover surface, on a
+   * desktop the pane surface, and both are the design system's own answer for
+   * the ground under something that floats.
+   *
+   * The alphas were 64-96 and the tabs still read see-through, twice: at 80% a
+   * fifth of the transcript comes through, and over moving text a fifth is
+   * plenty to read. They are high on purpose and stop short of 100 - the fill
+   * and the card's `backdrop-filter` are ONE material, and an opaque fill makes
+   * that filter inert. */
+  --tab-ink: var(--popover-bg, var(--bg-surface));
 }
 
 /* THE GLASS IS THE TAB, NOT THE BAR.
