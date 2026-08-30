@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.247 — 2026-08-30
+
+### Sotto il cofano
+- Il proxy sceglieva la porta prima che qualcuno la decidesse, e ci restava per sempre
+
 ## 2.2.246 — 2026-08-30
 
 ### Sotto il cofano

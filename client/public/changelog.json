@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.247",
+    "date": "2026-08-30",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il proxy sceglieva la porta prima che qualcuno la decidesse, e ci restava per sempre",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.246",
     "date": "2026-08-30",
     "sections": {
