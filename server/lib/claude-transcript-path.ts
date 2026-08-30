@@ -11,6 +11,7 @@
  * which is exactly what the reaper/reconcile needs to decide whether a row is
  * worth keeping (resumable) or truly dead.
  */
+import { existsSync, realpathSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 
@@ -40,9 +41,55 @@ export function claudeProjectDirName(cwd: string): string {
   return cwd.replace(/[^A-Za-z0-9]/g, "-");
 }
 
-/** Absolute path to a session's transcript JSONL (may or may not exist). */
+/**
+ * The names a transcript can be filed under, best guess first.
+ *
+ * A SYMLINKED cwd files it under a different name than the one we hold. The CLI
+ * derives the folder from its own `process.cwd()`, which the OS reports
+ * RESOLVED; Topics holds the path the session was started with, which can be the
+ * link. Measured on this machine: a live claude-code session with
+ * `cwd = ~/.openclaw/workspace/neuture-proposal`, a symlink to
+ * `~/Projects/neuture-proposal`. Looking only under the unresolved name finds
+ * nothing, and "no transcript" is not a cosmetic answer - it is what makes
+ * `decideOnRestart` return `drop`, i.e. the session is thrown away instead of
+ * resumed.
+ *
+ * Both names are offered because neither is always right: a session started
+ * through the link resolves, one started at the real path never had a link to
+ * resolve, and a cwd that no longer exists cannot be resolved at all. Order is
+ * resolved-then-raw, and the raw one is what a caller gets when nothing exists
+ * yet - so a fresh session is still filed where it was always filed.
+ */
+export function claudeTranscriptCandidates(cwd: string, sessionId: string): string[] {
+  const name = (dir: string) => join(homedir(), ".claude", "projects", claudeProjectDirName(dir), `${sessionId}.jsonl`);
+  const raw = name(cwd);
+  let resolved = raw;
+  try {
+    resolved = name(realpathSync(cwd));
+  } catch {
+    // The cwd is gone, or unreadable: the unresolved name is all there is.
+  }
+  return resolved === raw ? [raw] : [resolved, raw];
+}
+
+/**
+ * Absolute path to a session's transcript JSONL (may or may not exist).
+ *
+ * Answers with the candidate that EXISTS when one does, so a caller that only
+ * asks "is it there" gets the truth and a caller that reads it opens the right
+ * file. Costs one extra `existsSync` on a symlinked cwd and none otherwise -
+ * `claudeTranscriptCandidates` returns a single name when the two coincide.
+ */
 export function claudeTranscriptPath(cwd: string, sessionId: string): string {
-  return join(homedir(), ".claude", "projects", claudeProjectDirName(cwd), `${sessionId}.jsonl`);
+  const candidates = claudeTranscriptCandidates(cwd, sessionId);
+  for (const candidate of candidates) {
+    try {
+      if (existsSync(candidate)) return candidate;
+    } catch {
+      // Unreadable is the same as absent for this question.
+    }
+  }
+  return candidates[candidates.length - 1];
 }
 
 /**

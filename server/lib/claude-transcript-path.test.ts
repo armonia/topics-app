@@ -2,8 +2,10 @@
  * @covers EXTSESS-07
  */
 import { describe, it, expect } from "bun:test";
-import { claudeProjectDirName, claudeTranscriptPath, isTranscriptOrphaned } from "./claude-transcript-path";
-import { homedir } from "os";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { homedir, tmpdir } from "os";
+import { join } from "path";
+import { claudeProjectDirName, claudeTranscriptCandidates, claudeTranscriptPath, isTranscriptOrphaned } from "./claude-transcript-path";
 
 describe("claudeProjectDirName", () => {
   it("encodes / and . as - (matches Claude Code's projects dir naming)", () => {
@@ -91,5 +93,61 @@ describe("isTranscriptOrphaned", () => {
 
   it("no updated_at (0) skips the grace guard and still evaluates existence", () => {
     expect(isTranscriptOrphaned({ ...base, updatedAtMs: 0, transcriptExists: () => false })).toBe(true);
+  });
+});
+
+/**
+ * A SYMLINKED CWD FILES THE TRANSCRIPT UNDER ANOTHER NAME.
+ *
+ * The CLI derives its folder from `process.cwd()`, which the OS reports
+ * RESOLVED; Topics holds the path the session was started with, which can be
+ * the link. Looking only under the unresolved name finds nothing, and "no
+ * transcript" is what makes `decideOnRestart` return `drop` - the session is
+ * thrown away instead of resumed. Measured on a live machine: a claude-code
+ * session whose cwd was `~/.openclaw/workspace/<name>`, a symlink into
+ * `~/Projects/<name>`.
+ */
+describe("claudeTranscriptCandidates", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "transcript-symlink-"));
+  const real = join(tmp, "real-project");
+  const link = join(tmp, "linked-project");
+  mkdirSync(real, { recursive: true });
+  symlinkSync(real, link);
+
+  it("offers the RESOLVED name first when the cwd is a symlink", () => {
+    const candidates = claudeTranscriptCandidates(link, "abc");
+    expect(candidates).toHaveLength(2);
+    expect(candidates[0]).toContain(claudeProjectDirName(realpathSync(link)));
+    expect(candidates[1]).toContain(claudeProjectDirName(link));
+    expect(candidates[0]).not.toBe(candidates[1]);
+  });
+
+  it("on an already-resolved cwd there is one name, as before", () => {
+    // `realpathSync` and not `real`: on macOS even `/var` is a symlink into
+    // `/private/var`, so a temp directory is NOT an already-resolved path - the
+    // first run of this test found that out by failing.
+    const resolved = realpathSync(real);
+    expect(claudeTranscriptCandidates(resolved, "abc")).toEqual([
+      claudeTranscriptPath(resolved, "abc"),
+    ]);
+  });
+
+  it("a cwd that does not exist breaks nothing", () => {
+    const gone = join(tmp, "mai-esistita");
+    expect(claudeTranscriptCandidates(gone, "abc")).toHaveLength(1);
+  });
+
+  it("claudeTranscriptPath returns the candidate that EXISTS, not the first", () => {
+    // The transcript is filed under the UNRESOLVED name: this is the case where
+    // resolving and nothing else would have broken a session that used to work.
+    const dir = join(homedir(), ".claude", "projects", claudeProjectDirName(link));
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, "solo-qui.jsonl");
+    writeFileSync(file, "{}\n");
+    try {
+      expect(claudeTranscriptPath(link, "solo-qui")).toBe(file);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
