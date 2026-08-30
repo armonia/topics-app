@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.249 — 2026-08-30
+
+### Sotto il cofano
+- Il velo scende sulle schede invece di sparire: la cura di prima su macOS non faceva niente
+
 ## 2.2.248 — 2026-08-30
 
 ### Sotto il cofano

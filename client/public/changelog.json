@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.249",
+    "date": "2026-08-30",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il velo scende sulle schede invece di sparire: la cura di prima su macOS non faceva niente",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.248",
     "date": "2026-08-30",
     "sections": {
