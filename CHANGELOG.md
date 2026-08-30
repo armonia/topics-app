@@ -2,7 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.2.239 — 2026-08-30
+## 2.2.240 — 2026-08-30
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-08-30 [skip ci]
+- I tre comandi entrano nel trigger, e sono piu' piccoli: via una riga di chrome
+
+## 2.2.239 — 2026-08-29
 
 ### Sotto il cofano
 - Le tab della barra prendono corpo: erano ferme ai valori gia' giudicati troppo deboli

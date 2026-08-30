@@ -1,7 +1,29 @@
 [
   {
-    "version": "2.2.239",
+    "version": "2.2.240",
     "date": "2026-08-30",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-08-30 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "I tre comandi entrano nel trigger, e sono piu' piccoli: via una riga di chrome",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.239",
+    "date": "2026-08-29",
     "sections": {
       "new": [],
       "fixes": [],
