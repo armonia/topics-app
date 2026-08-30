@@ -404,8 +404,8 @@ describe("reloadHeldNotice — oltre il tetto il cancello parla", () => {
   test("nomina la chat quando il nome si conosce, altrimenti ripiega su cosa trattiene", () => {
     const conNome = reloadHeldNotice({ ...base, waitedMs: CAP, holderName: "Rotating Image Gallery" });
     expect(conNome!.body).toContain("«Rotating Image Gallery»");
-    const senza = reloadHeldNotice({ ...base, waitedMs: CAP, holderName: "   " });
-    expect(senza!.body).toContain("topic:0299ac2d");
+    const nameless = reloadHeldNotice({ ...base, waitedMs: CAP, holderName: "   " });
+    expect(nameless!.body).toContain("topic:0299ac2d");
   });
 
   test("la chiave del dedup distingue DUE attese: la prossima puo avvisare di nuovo", () => {
