@@ -156,6 +156,10 @@ static REBUILDING: AtomicBool = AtomicBool::new(false);
 /// exists because a rebuild that goes wrong leaves the window with no webview at
 /// all, and "start it once with the variable set" is a recovery that does not
 /// need a downgrade.
+/// The rebuild is OPT-IN since 30/08, and the measurement that turned it round
+/// is in `note_window_event`. The old opt-OUT name still works, so anyone with
+/// it set in an environment keeps the behaviour they asked for.
+const REBUILD_ON_VAR: &str = "TOPICS_WEBVIEW_REBUILD";
 const REBUILD_OFF_VAR: &str = "TOPICS_NO_WEBVIEW_REBUILD";
 
 /// THE TENTH REMEDY. Close the "main" webview and build another one in the same
@@ -183,6 +187,10 @@ const REBUILD_OFF_VAR: &str = "TOPICS_NO_WEBVIEW_REBUILD";
 fn rebuild_main_webview(app: &tauri::AppHandle) {
     if std::env::var_os(REBUILD_OFF_VAR).is_some() {
         trace(app, "rebuild: off by TOPICS_NO_WEBVIEW_REBUILD");
+        return;
+    }
+    if std::env::var_os(REBUILD_ON_VAR).is_none() {
+        trace(app, "rebuild: not armed (set TOPICS_WEBVIEW_REBUILD=1)");
         return;
     }
     if REBUILDING.swap(true, Ordering::SeqCst) {
@@ -324,6 +332,29 @@ pub(crate) fn note_window_event(win: &tauri::Window, kind: &'static str) {
     let app = win.app_handle().clone();
     trace(&app, &format!("{kind}: minimized {before} -> {now}"));
     if before && !now {
+        // THE CHEAP REMEDY FIRST, AND BY DEFAULT THE ONLY ONE.
+        //
+        // Measured on the PC on 30/08, same machine, same session, rebuild ON
+        // against rebuild OFF, counting the rows of the window rect that carry
+        // pixels plus the distinct colours, before minimising and at three
+        // moments after the restore:
+        //
+        //   rebuild OFF   79/79 rows every time, colours 218 / 218 / 218
+        //   rebuild ON    79/79 rows every time, colours 192 / 245 / 245
+        //
+        // Two readings. The grey does NOT come back without the rebuild - the
+        // window never goes flat and the colour count does not move by one unit
+        // across the three instants. And with the rebuild the count DOES move,
+        // because the page is reloading: that is the flash a person sees, and
+        // the state it comes back with is not the state it left.
+        //
+        // So the tenth remedy is opt-in now. It cured nothing here and it was
+        // the only thing producing the disturbance - which is the positive
+        // control that was missing when it shipped. The machinery stays, whole,
+        // behind `TOPICS_WEBVIEW_REBUILD`: if the composition surface ever dies
+        // again, the cure is one variable away and the probe above says how to
+        // prove it.
+        crate::window_recompose::recompose_main_window(&app, "windows/restore");
         rebuild_main_webview(&app);
     }
 }

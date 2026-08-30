@@ -100,7 +100,8 @@ for (const nome of ["dark", "light"] as const) {
     // Reported whatever the verdict: a card that needs the number to decide an
     // exception should not have to re-run the suite to see it.
     console.log(
-      `\n[MISURA ${nome}] ${sweep.samples.length} letture, spread backdrop ${sweep.spread.toFixed(4)}, peggiori: ${sweep.card}\n`,
+      `\n[MISURA ${nome}] ${sweep.samples.length} letture, spread dietro l'etichetta ${sweep.spread.toFixed(4)}, ` +
+        `spread sulla barra nuda ${sweep.spreadBarra.toFixed(4)}, peggiori: ${sweep.card}\n`,
     );
     test.info().annotations.push({
       type: "misura",
@@ -116,8 +117,17 @@ for (const nome of ["dark", "light"] as const) {
     // case there is, and the AA verdict below was true about a surface nobody
     // could see. The threshold is deliberately tiny: it separates "something
     // passes under the glass" from "nothing does", not one design from another.
+    // MEASURED ON THE BARE BAR, between two cards, and no longer behind the
+    // label. Behind the label was the right place while the text sat on the
+    // transcript; since the cards took the design system's surface (30/08) the
+    // ground behind a label IS the card's fill, so that number goes to 0.0000
+    // by right - and this guard, which exists to catch a transcript that never
+    // reaches the glass, went red on a correct design (CI 33306162264). The bar
+    // paints nothing, so between two cards the transcript really does pass:
+    // there the question still has an answer. Measured: 0.0717 dark and 0.8671
+    // light on the bare bar, against 0.0010 and 0.0248 behind the label.
     expect(
-      sweep.spread,
+      sweep.spreadBarra,
       "il fondale sotto la barra non cambia MAI durante la passata: sotto il vetro non ci scorre niente, e la lettura di contrasto qui sotto sta misurando lo sfondo della cella (vedi `.chrome-passthrough-y` in index.css)",
     ).toBeGreaterThan(BACKDROP_SPREAD_FLOOR);
 

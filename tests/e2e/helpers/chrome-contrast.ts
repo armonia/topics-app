@@ -98,6 +98,20 @@ export interface SweepResult {
   worst: LabelSample;
   /** Max minus min backdrop luminance over every sample: does anything move under the glass. */
   spread: number;
+  /**
+   * The same question asked where it still means something: the bar's own strip
+   * BETWEEN the tab cards.
+   *
+   * `spread` is the swing of the backdrop BEHIND A LABEL, and it was the right
+   * place while the label sat on the transcript. Since the cards were given the
+   * design system's surface (30/08) the ground behind a label is the card's own
+   * fill, so that number legitimately goes to 0.0000 - and the premise guard,
+   * which exists to catch a transcript that never reaches the glass, started
+   * firing on a design that is correct. The bar paints nothing, so between two
+   * cards the transcript really does pass: that is where "something goes under
+   * the glass" is still a question with an answer.
+   */
+  spreadBarra: number;
   /** Every sample, worst first. */
   samples: LabelSample[];
   /** The five worst, formatted for a console line a card can quote. */
@@ -237,6 +251,28 @@ export async function setTheme(page: Page, dark: boolean): Promise<void> {
  * all (a terminal grid, a native webview) it is also the honest way to find out,
  * because it asks the page instead of assuming.
  */
+/** Mean luminance of a clip, from a real screenshot. */
+async function meanOf(
+  page: Page,
+  clip: { x: number; y: number; width: number; height: number },
+): Promise<number> {
+  const shot = (await page.screenshot({ clip })).toString("base64");
+  return page.evaluate(async (b64) => {
+    const im = new Image();
+    im.src = "data:image/png;base64," + b64;
+    await im.decode();
+    const c = document.createElement("canvas");
+    c.width = im.width;
+    c.height = im.height;
+    const g = c.getContext("2d")!;
+    g.drawImage(im, 0, 0);
+    const d = g.getImageData(0, 0, im.width, im.height).data;
+    let sum = 0;
+    for (let i = 0; i < d.length; i += 4) sum += 0.2126 * d[i]! + 0.7152 * d[i + 1]! + 0.0722 * d[i + 2]!;
+    return sum / (d.length / 4) / 255;
+  }, shot);
+}
+
 export async function sweepChromeLabels(
   page: Page,
   opts: { bar: Locator; body: Locator; dark: boolean; offsets?: number; wheelStep?: number },
@@ -258,6 +294,17 @@ export async function sweepChromeLabels(
   await page.mouse.move(area!.x + area!.width / 2, area!.y + area!.height / 2);
 
   const samples: LabelSample[] = [];
+  const bareBar: number[] = [];
+  // A slice of the bar with no card under it: to the RIGHT of the last tab,
+  // where the strip runs on to the end of the row. Taken once - the cards do
+  // not move during a sweep.
+  const lastLabel = await labels.nth(howMany - 1).boundingBox();
+  const bareStrip = {
+    x: Math.round((lastLabel?.x ?? area!.x) + (lastLabel?.width ?? 0) + 24),
+    y: Math.round(barRect!.y + 4),
+    width: 8,
+    height: Math.max(4, Math.round(barRect!.height) - 8),
+  };
   for (let off = 0; off < offsets; off++) {
     if (off > 0) await page.mouse.wheel(0, -wheelStep);
     // The theme is re-asserted at every step, not just once at the top: the app
@@ -270,6 +317,10 @@ export async function sweepChromeLabels(
     // polled. A fixed pause guesses at the compositor and is wrong in both
     // directions: too short on a loaded machine, wasted on an idle one.
     await waitForSettledFrame(page, barRect!);
+
+    // The bar's own strip, clear of every card: `bareStrip` is computed once, from
+    // the gap to the right of the last tab, and sampled at every offset.
+    bareBar.push(await meanOf(page, bareStrip));
 
     for (let i = 0; i < howMany; i++) {
       const el = labels.nth(i);
@@ -291,6 +342,7 @@ export async function sweepChromeLabels(
   return {
     worst: samples[0],
     spread: Math.max(...backdrops) - Math.min(...backdrops),
+    spreadBarra: Math.max(...bareBar) - Math.min(...bareBar),
     samples,
     card: samples.slice(0, 5).map((s) => `${s.ratio.toFixed(2)}:1@${s.offset}`).join(" | "),
   };
