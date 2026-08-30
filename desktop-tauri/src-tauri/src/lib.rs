@@ -1144,14 +1144,85 @@ async fn run_tls_proxy() {
             return;
         }
     };
-    let up = *UPSTREAM.get().unwrap_or(&Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });
-    proxy_loop(listener, up).await
+    proxy_loop(listener, UpstreamSource::Decided).await
+}
+
+/// Where a proxied connection should go, and WHEN that is decided.
+///
+/// THE BUG THIS TYPE EXISTS FOR. `run_tls_proxy` used to read `UPSTREAM` ONCE,
+/// at start, falling back to the external server on :3333 when it was still
+/// unset. But `decide_upstream_and_spawn` runs CONCURRENTLY and takes as long as
+/// probing :3333 takes - up to ~42s on a machine with the marker, and on a
+/// virgin machine the sidecar has to be spawned and given a port first. The
+/// proxy almost always won that race, latched onto :3333/TLS, and never looked
+/// again. Then the sidecar came up on its own free port, `UPSTREAM` was set to
+/// it, and nobody read it: every API call and every WebSocket was piped at a
+/// port with nothing behind it.
+///
+/// Measured on a clean install of 2.2.246 (Windows, no external server):
+/// `topics-server` alive on :58406, proxy listening on :13333, nothing at all on
+/// :3333 - and a raw request to the proxy connects in 4ms and gets NOTHING back,
+/// because `connect_upstream_retrying` is dutifully holding for a server that
+/// does not exist. What a person sees is `Offline`, then `Connecting` forever,
+/// on a build where the sidecar is running perfectly two ports away.
+///
+/// So the target is resolved PER CONNECTION. `Fixed` keeps the outage test able
+/// to name its own upstream without touching the global.
+#[derive(Clone, Copy)]
+enum UpstreamSource {
+    /// A target chosen by the caller (the outage test).
+    ///
+    /// Only the test constructs it, and the test module is `#[cfg(test)]`, so a
+    /// release build sees a variant nobody builds. Silenced HERE and with a
+    /// reason rather than left to hum: warning noise is how a real dead branch
+    /// hides.
+    #[cfg_attr(not(test), allow(dead_code))]
+    Fixed(Upstream),
+    /// Whatever the boot decision chose - read at connection time, waited for if
+    /// the decision has not landed yet.
+    Decided,
+}
+
+/// How long a connection waits for the boot decision before giving up on it.
+///
+/// Longer than the decision can take (the `WaitForKnownServer` path probes :3333
+/// for ~42s), because the alternative to waiting is guessing, and guessing is
+/// exactly what produced a permanent "Connecting". A connection that waits is a
+/// page that takes a moment to appear; a connection that guesses wrong is an app
+/// that never works until it is relaunched.
+const UPSTREAM_DECISION_WAIT: std::time::Duration = std::time::Duration::from_secs(75);
+
+impl UpstreamSource {
+    /// The target for one connection.
+    ///
+    /// Returns `None` only when the decision never landed inside
+    /// `UPSTREAM_DECISION_WAIT`, which means the boot task itself is wedged: the
+    /// caller then serves the reconnect page rather than piping the connection
+    /// into a port nobody chose.
+    async fn resolve(self) -> Option<Upstream> {
+        match self {
+            UpstreamSource::Fixed(u) => Some(u),
+            UpstreamSource::Decided => {
+                if let Some(u) = UPSTREAM.get() {
+                    return Some(*u);
+                }
+                let deadline = std::time::Instant::now() + UPSTREAM_DECISION_WAIT;
+                while std::time::Instant::now() < deadline {
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    if let Some(u) = UPSTREAM.get() {
+                        return Some(*u);
+                    }
+                }
+                None
+            }
+        }
+    }
 }
 
 /// The accept loop, split out from `run_tls_proxy` so the outage behaviour (hold →
 /// reconnect page → self-recovery) can be driven end-to-end in a test against a real
 /// browser, on an ephemeral port, without touching :13333 or a live server.
-async fn proxy_loop(listener: tokio::net::TcpListener, up: Upstream) {
+async fn proxy_loop(listener: tokio::net::TcpListener, source: UpstreamSource) {
     use tokio::io::copy_bidirectional;
 
     let tls = match native_tls::TlsConnector::builder()
@@ -1169,13 +1240,11 @@ async fn proxy_loop(listener: tokio::net::TcpListener, up: Upstream) {
         }
     };
     println!(
-        "[proxy] loopback proxy {} -> {}127.0.0.1:{}",
+        "[proxy] loopback proxy {} -> upstream resolved per connection",
         listener
             .local_addr()
             .map(|a| a.to_string())
             .unwrap_or_default(),
-        if up.tls { "https://" } else { "http://" },
-        up.port
     );
 
     loop {
@@ -1191,6 +1260,17 @@ async fn proxy_loop(listener: tokio::net::TcpListener, up: Upstream) {
             // it's already out of the socket, `copy_bidirectional` can't see it.
             let head = read_request_head(&mut inbound).await;
             let doc = is_document_head(&head);
+            // AND ONLY NOW ASK WHERE TO GO. Reading the boot decision here, rather
+            // than once when the loop started, is what keeps a connection that
+            // arrives during the decision from being piped at a guess.
+            let Some(up) = source.resolve().await else {
+                eprintln!("[proxy] no upstream decided after {UPSTREAM_DECISION_WAIT:?}");
+                if doc {
+                    let _ = inbound.write_all(&reconnect_page_response()).await;
+                    let _ = inbound.flush().await;
+                }
+                return;
+            };
             let grace = if doc { UPSTREAM_GRACE_DOC } else { UPSTREAM_GRACE };
             let upstream = match connect_upstream_retrying(up.port, grace).await {
                 Some(s) => s,
@@ -11588,7 +11668,8 @@ mod bundle_rev_tests {
 mod window_recovery_tests {
     use super::{
         connect_upstream_retrying, is_document_head, is_websocket_head,
-        window_recompose::rect_intersects_any, RELOAD_IF_BLANK_JS,
+        window_recompose::rect_intersects_any, Upstream, UpstreamSource, RELOAD_IF_BLANK_JS,
+        UPSTREAM,
     };
     use std::time::Duration;
 
@@ -11607,6 +11688,56 @@ Accept: text/html,application/xhtml+xml\r\nSec-Fetch-Dest: document\r\n\r\n";
 Accept: application/json\r\nSec-Fetch-Dest: empty\r\n\r\n";
     const WS: &[u8] = b"GET /ws HTTP/1.1\r\nHost: 127.0.0.1:13333\r\n\
 Upgrade: websocket\r\nConnection: Upgrade\r\nAccept: */*\r\n\r\n";
+
+    /// A CONNECTION THAT ARRIVES BEFORE THE BOOT DECISION MUST WAIT FOR IT.
+    ///
+    /// The proxy used to read `UPSTREAM` ONCE, when its accept loop started, and
+    /// fall back to the external server on :3333 while the value was still unset.
+    /// `decide_upstream_and_spawn` runs concurrently and is SLOW - it probes
+    /// :3333 first, and on a virgin machine it then has to spawn the sidecar and
+    /// give it a port - so the proxy won that race essentially always, latched
+    /// onto :3333, and never looked again. Measured on a clean install of
+    /// 2.2.246: sidecar alive on :58406, proxy listening, NOTHING on :3333, and
+    /// every request held until it timed out. What a person saw was `Offline`
+    /// and then `Connecting`, for ever, on a build whose server was running two
+    /// ports away.
+    ///
+    /// This is that sequence: ask before anybody decided, and the answer must
+    /// not arrive until it does - and then it must be the decided value, not the
+    /// default.
+    #[test]
+    fn una_connessione_prima_della_decisione_aspetta_invece_di_indovinare() {
+        rt().block_on(async {
+            assert!(
+                UPSTREAM.get().is_none(),
+                "questo test deve girare prima che qualcuno decida l'upstream",
+            );
+            let pending = tokio::spawn(UpstreamSource::Decided.resolve());
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            assert!(
+                !pending.is_finished(),
+                "ha risposto senza che nessuno avesse deciso: e' il difetto, \
+                 il proxy sceglieva una porta per conto suo",
+            );
+            let _ = UPSTREAM.set(Upstream { port: 61234, tls: false });
+            let got = pending.await.unwrap().expect("la decisione e' arrivata");
+            assert_eq!(got.port, 61234, "ha usato il default invece della decisione");
+            assert!(!got.tls);
+        });
+    }
+
+    /// And a caller that names its own target is answered without consulting the
+    /// global at all - which is what lets the outage test drive a proxy on an
+    /// ephemeral port while a real decision exists in the same process.
+    #[test]
+    fn un_bersaglio_esplicito_non_guarda_la_decisione() {
+        rt().block_on(async {
+            let fixed = UpstreamSource::Fixed(Upstream { port: 4242, tls: true });
+            let got = fixed.resolve().await.expect("un bersaglio esplicito e' sempre pronto");
+            assert_eq!(got.port, 4242);
+            assert!(got.tls);
+        });
+    }
 
     /// Only a top-level navigation may be answered with the reconnect page: an XHR
     /// gets HTML where it wanted JSON, and a WebSocket gets a broken handshake.
@@ -11700,7 +11831,7 @@ Upgrade: websocket\r\nConnection: Upgrade\r\nAccept: */*\r\n\r\n";
 /// transparent, titlebar-less window with nothing to paint — i.e. invisible.
 #[cfg(test)]
 mod window_recovery_demo {
-    use super::{proxy_loop, Upstream};
+    use super::{proxy_loop, Upstream, UpstreamSource};
 
     /// Minimal HTTP server standing in for the Topics server: one fixed page whose
     /// marker (`TOPICS`) the browser checks for. Killed by aborting its task, which
@@ -11748,7 +11879,7 @@ Content-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{}",
             let proxy_port = proxy_listener.local_addr().unwrap().port();
 
             let server = tokio::spawn(fake_app_server(up_port));
-            tokio::spawn(proxy_loop(proxy_listener, Upstream { port: up_port, tls: false }));
+            tokio::spawn(proxy_loop(proxy_listener, UpstreamSource::Fixed(Upstream { port: up_port, tls: false })));
             tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
             // The camera + browser, on its own clock (see window-recovery-demo.mjs).
