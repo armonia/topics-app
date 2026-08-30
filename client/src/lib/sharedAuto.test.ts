@@ -130,3 +130,38 @@ test('e un solo campione alto in mezzo a zeri non sposta mai niente', () => {
     expect(s.shared).toBe(false);
   }
 });
+
+/**
+ * WHERE THE FOLD LIVES, asserted on the source, because nothing else can see it.
+ *
+ * `auto` mode only runs under Tauri (`isTauri && mode === 'auto'`), so in a plain
+ * browser the panel always takes the streaming branch and no E2E can drive this
+ * decision at all. What CAN be checked is the structural rule the trap turns on:
+ * the fold has to be fed one reading per poll, and only the hook that polls sees
+ * every reading - a caller keyed on the count sees it only when it CHANGES, so a
+ * steady 1 would deliver one confirmation and then nothing, and the pane would
+ * never join a session somebody really is watching.
+ *
+ * The repo already asserts on source where the invariant is structural (see
+ * `rowGlyphColumn.test.ts`). This is that: if `stepAutoShare` reappears in the
+ * panel, the fold has moved back out to where it cannot work.
+ */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+const source = (rel: string) => readFileSync(join(import.meta.dir, '..', rel), 'utf8');
+
+test('il fold sta nell hook che campiona, non nel pannello', () => {
+  const hook = source('hooks/useSharedViewerCount.ts');
+  expect(hook).toContain('stepAutoShare');
+  const panel = source('components/Browser/RemoteBrowserPanel.tsx');
+  expect(panel).not.toContain('stepAutoShare(');
+});
+
+test('e non e tornato un timer al posto della conferma a campioni', () => {
+  const panel = source('components/Browser/RemoteBrowserPanel.tsx');
+  // The 1200ms debounce over a 2000ms poll: a timer shorter than the sampling
+  // period is latency, not a filter. Any reintroduction reads like this one did.
+  expect(panel).not.toMatch(/setTimeout\(\s*\(\)\s*=>\s*setAutoShare/);
+  expect(panel).not.toContain('setAutoShared(');
+});
