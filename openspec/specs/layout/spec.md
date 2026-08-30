@@ -2295,28 +2295,32 @@ lapide che sopravvive al clic successivo trasforma «chiusa» in «sparita».
 - **GIVEN** una vista chiusa e poi riaperta dal menu
 - **THEN** SHALL restare aperta anche dopo un ricaricamento
 
-### Requirement: LAYOUT-32 — Accendere i pannelli fluttuanti SHALL cambiare i vuoti, non il fondo della finestra
+### Requirement: LAYOUT-32 — Accendere i pannelli fluttuanti SHALL cambiare i vuoti, non il terreno sotto il contenuto
 
-I pannelli fluttuanti staccano gli split in schede con un vuoto fra loro. Su
-macOS il guscio diventa trasparente di proposito: la vibrancy per-regione
-dipinge dietro le schede, quindi nei vuoti si vede il desktop. Su Windows quella
-vibrancy non esiste — i backdrop DWM sono per FINESTRA e non hanno un
-equivalente per-regione — e togliere lo sfondo al guscio non apre i vuoti: fa
-cadere l'intera finestra sulla sfocatura del desktop.
+I pannelli fluttuanti staccano gli split in schede arrotondate con un vuoto fra
+loro, perché fra le schede si veda il materiale nativo. Cio' che NON devono
+cambiare e' il terreno sotto il CONTENUTO: il centro di una chat, di un
+terminale, della board.
 
-Quindi il fondo del guscio SHALL restare quello che era quando la preferenza si
-accende, su ogni piattaforma priva di vibrancy per-regione; e SHALL diventare
-trasparente dove quella vibrancy c'è. Una preferenza di disposizione non sposta
-il terreno.
+Sotto `native-frost` non dipinge nient'altro nell'albero — `html`, `body`,
+`#root`, `#main-content`, `.content-flip-layer`, la sidebar e ogni
+`.chrome-glass` sono esplicitamente trasparenti — quindi l'unico strato colorato
+di tutta la finestra e' il velo `--bg` del guscio. Toglierlo non apre i vuoti: li
+toglie ovunque. Il velo SHALL quindi spostarsi sulle superfici fluttuanti, non
+sparire; e il guscio SHALL restare nudo sotto di esse, perche' e' li' che il
+vuoto diventa un vuoto.
 
-#### Scenario: su Windows il fondo non si muove
-- **GIVEN** il guscio con la classe di piattaforma `windows-acrylic`
+Una preferenza di disposizione non sposta il terreno.
+
+#### Scenario: il terreno sotto una scheda resta quello di prima
+- **GIVEN** il guscio con una qualunque classe di piattaforma (`windows-acrylic`, `tauri-mac`, `electron-mac`)
 - **WHEN** si accende `floating-splits`
-- **THEN** il `background-color` calcolato del guscio è identico a prima
-- **AND** i vuoti fra le schede restano smerigliati, non trasparenti
+- **THEN** lo strato dipinto piu' in alto sopra l'area di una scheda ha lo stesso colore di prima
+- **AND** non importa quale elemento lo dipinga: il velo puo' cambiare di padrone, non di valore
 
-#### Scenario: su macOS il fondo diventa trasparente
-- **GIVEN** il guscio con la classe di piattaforma `tauri-mac` o `electron-mac`
-- **WHEN** si accende `floating-splits`
-- **THEN** il `background-color` calcolato del guscio è completamente trasparente
-- **AND** i vuoti mostrano la vibrancy nativa
+#### Scenario: il guscio resta nudo, cosi' i vuoti esistono
+- **GIVEN** il guscio in modalita' fluttuante
+- **WHEN** si guarda lo spazio FRA due schede
+- **THEN** li' non c'e' velo, e si vede il materiale nativo
+- **AND** su macOS la vibrancy per-regione copre le schede, quindi il materiale nudo e' esattamente il vuoto
+- **AND** su Windows, dove la vibrancy per-regione non esiste, i vuoti si leggono smerigliati

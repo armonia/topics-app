@@ -3375,32 +3375,55 @@ html.native-frost [role="region"][aria-label$=" panel"] > .bg-surface {
    * hair of separation, no more. */
   --float-gap: 2px;
   --float-radius: 10px;
+  /* Bare, so the GAPS show the native material. The veil this used to remove
+   * from the whole window now rides on the cards instead — see the block
+   * below, which is where the reported defect was. */
+  background-color: transparent;
 }
 
-/* AND THE SHELL GOES TRANSPARENT ONLY WHERE THERE IS SOMETHING BEHIND IT.
+/* THE VEIL MOVES DOWN ONTO THE CARDS. IT DOES NOT DISAPPEAR.
  *
- * Transparent so the gaps reveal the native window vibrancy underneath. No
- * !important needed: this unlayered rule already beats the layered Tailwind
- * `bg-app-bg` utility on the same element (Tailwind v4 puts utilities in
- * @layer, which always loses to unlayered CSS).
+ * This is where the reported defect lived: "quando metto floating windows
+ * cambia lo sfondo finestre ma non dovrebbe", reported twice, and the second
+ * time after a first cure that did nothing on macOS.
  *
- * IT USED TO BE UNCONDITIONAL, and on Windows that is a different feature.
- * `useFloatingVibrancy` says it in as many words: per-region vibrancy is
- * macOS-only, DWM backdrops are whole-window and have no per-region
- * equivalent, so on Windows "the gaps between the cards are FROSTED" and
- * transparent gaps showing the live desktop are the macOS half of the feature.
- * The CSS did not have that gate: turning floating splits on took the shell's
- * background away on Windows too, and with nothing per-region underneath the
- * WHOLE window fell through to the Acrylic blur of the desktop. Reported
- * 30/08: "quando metto floating windows cambia lo sfondo finestre ma non
- * dovrebbe" - and it is not the gaps that changed, it is the ground.
+ * WHY TAKING THE SHELL'S BACKGROUND AWAY EMPTIED THE WHOLE WINDOW. Under
+ * `.native-frost` NOTHING else in the tree paints: `html`/`body`/`#root`,
+ * `#main-content`, `.content-flip-layer`, the sidebar and every `.chrome-glass`
+ * are all explicitly transparent (see the blocks above), so the ONE coloured
+ * layer in the entire window is this wrapper's `bg-app-bg` -> `--bg`, an
+ * `hsl(... / 0.72)` veil over the native material. Zeroing it does not open the
+ * 4px gaps: it removes the veil EVERYWHERE, and the middle of a chat jumps from
+ * the composite (20.6, 22.0, 24.4) to bare vibrancy (53, 53, 51) - about 32
+ * levels per channel, which is the whole window changing colour.
  *
- * So the transparency is gated to the two macOS shells. Windows keeps its
- * background, which is exactly what the hook's own comment promises: frosted
- * chrome, frosted gaps, and a window whose ground does not move when a layout
- * preference is toggled. */
-.electron-mac .floating-splits,
-.tauri-mac .floating-splits {
+ * The rule that did it carried a justification that had expired: "each chrome
+ * surface still frosts because it carries its own `.chrome-glass` tint". That
+ * was true when it was written (e74afb802, 19/06) and stopped being true on
+ * 09/08 (48607c79e), which set `.chrome-glass` to transparent under
+ * `.native-frost`. From then on the sentence described a layer that no longer
+ * existed, and nobody re-measured.
+ *
+ * So the veil goes onto the floating surfaces themselves. Content keeps exactly
+ * the ground it had, and what changes is only what the feature is FOR: the gaps
+ * between the cards, the inset beside the sidebar, and the rounded corners.
+ * On macOS the desktop still shows through there - the native per-region
+ * vibrancy covers the cards and nothing else (`useFloatingVibrancy.ts`), so the
+ * bare material is exactly the gap. On Windows, where there is no per-region
+ * vibrancy, the gaps read as frosted, which is what that hook already promised.
+ *
+ * No `!important` needed: these unlayered rules beat the layered Tailwind
+ * utilities on the same elements (Tailwind v4 puts utilities in @layer, which
+ * always loses to unlayered CSS). */
+.floating-splits [data-split-card],
+.floating-splits [role="navigation"][aria-label="Topics sidebar"],
+.floating-splits [data-testid="space-switcher"] {
+  background-color: var(--bg);
+}
+/* A card inside a card must NOT paint a second coat: two veils over the same
+ * spot would make a project panel darker than everything around it, which is
+ * the compounding the `#main-content` block above exists to prevent. */
+.floating-splits [data-split-card] [data-split-card] {
   background-color: transparent;
 }
 
