@@ -393,6 +393,30 @@ export const ROW_GAP = 'gap-2';
  * 20 e non meno: `truncate` porta `overflow:hidden`, e un'interlinea più stretta
  * dell'altezza del carattere taglia le discendenti (già successo, vedi la nota
  * su truncate + leading-none). 1,21em di Inter a 14px fanno 16,9 < 20.
+ *
+ * AND THE HALF PIXEL THAT REMAINS CANNOT BE TAKEN AWAY. With the baseline on a
+ * whole pixel, the rectangle the eye calls "the label" (cap height down to the
+ * baseline) still sits below the row's axis, because its centre is half a cap
+ * height from the baseline. Measured with `tests/manual/win-label-ink.js`, a
+ * 28px tab and a 13px face:
+ *
+ *   Windows, Segoe UI    ascent 14  descent 3  cap 9.00   +0.50
+ *   macOS,  system-ui    ascent 13  descent 3  cap 9.16   +0.42
+ *
+ * That is the reported defect ("the label of the sidebar tabs is not vertically
+ * aligned", Windows, 30/08). The obvious cure - `text-box-edge: cap alphabetic`,
+ * the same trim that centres the digit of the count pill in `cap-box` - REALLY
+ * DOES REMOVE IT (measured: 0.00 on both engines, tails intact with 0.35em of
+ * padding), and in exchange the baseline is born on a half pixel:
+ * `tab-label-baseline.spec.ts` goes red on LABEL-1 and LABEL-2, which is the
+ * worse defect already cured here once (the text reads higher and softer).
+ *
+ * This is not a choice between two tastes, it is arithmetic: the centre of the
+ * cap box sits `cap/2` from the baseline, and with a cap of 9 (Windows) or 9.16
+ * (macOS) that point lands on a half pixel whenever the baseline lands on a
+ * whole one. No card height and no line height reconcile them, because on macOS
+ * the cap height is not even an integer. So the grid wins and the half pixel
+ * stays: whoever reopens this, reopen it holding these numbers.
  */
 export const TAB_LABEL_TYPE = 'text-[14px] md:text-[13px] font-medium leading-5';
 export const TAB_LABEL = `${TAB_LABEL_TYPE} text-app-text`;
