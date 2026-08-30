@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.242 — 2026-08-30
+
+### Sotto il cofano
+- Anche il trigger del progetto prende il materiale della barra
+
 ## 2.2.241 — 2026-08-30
 
 ### Sotto il cofano

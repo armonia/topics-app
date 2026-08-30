@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.242",
+    "date": "2026-08-30",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Anche il trigger del progetto prende il materiale della barra",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.241",
     "date": "2026-08-30",
     "sections": {
