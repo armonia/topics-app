@@ -38,7 +38,6 @@ export const DEBITO_NOME_PROPRIETARIO: readonly string[] = [
   "client/src/components/Board/taskMedia.test.ts",
   "client/src/components/Layout/GroupLayout.tsx",
   "client/src/components/Layout/PaneTabBar.tsx",
-  "client/src/components/Layout/ProjectWindow.tsx",
   "client/src/components/Layout/StreamingIndicator.tsx",
   "client/src/components/Project/ProjectSidebar.tsx",
   "client/src/components/Project/projectSidebarHeights.ts",

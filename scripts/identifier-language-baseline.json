@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-08-29",
+  "generated": "2026-08-30",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -500,9 +500,6 @@
       "handleUnsoloTopic",
       "isPrimaryOfMultiTab"
     ],
-    "client/src/components/Layout/ProjectWindow.tsx": [
-      "sottoSlot"
-    ],
     "client/src/components/Layout/SplitTree.tsx": [
       "deltaFrac"
     ],
@@ -657,7 +654,6 @@
       "partenzaSopra",
       "partenzaSotto",
       "pavimento",
-      "riga",
       "striscia"
     ],
     "client/src/components/Project/ScriptRunner.tsx": [
@@ -7312,7 +7308,6 @@
     "tests/e2e/project-rail-row-gap.spec.ts": [
       "PROJ",
       "primo",
-      "riga",
       "varco"
     ],
     "tests/e2e/project-scripts.spec.ts": [
@@ -7334,8 +7329,7 @@
       "contenuto",
       "dati",
       "dipinta",
-      "pastiglia",
-      "riga"
+      "pastiglia"
     ],
     "tests/e2e/project-sidebar-sections-resize.spec.ts": [
       "PROJ",

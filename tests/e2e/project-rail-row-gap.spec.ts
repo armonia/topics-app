@@ -38,7 +38,7 @@ test.describe("la riga dei comandi del progetto e ciò che le sta sotto", () => 
   test.beforeAll(() => { mkdirSync(PROJ, { recursive: true }); });
   test.afterAll(() => { rmSync(PROJ, { recursive: true, force: true }); });
 
-  test("RAILGAP-1: fra i comandi e il contenuto non resta una fascia vuota", async ({ page, request }) => {
+  test("RAILGAP-1: i comandi non si portano dietro nessuna riga", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "RAILGAP-01" });
     await resetPaneStore(request, []);
     await seedProjectPane(request, PROJ);
@@ -50,44 +50,36 @@ test.describe("la riga dei comandi del progetto e ciò che le sta sotto", () => 
     const win = page.locator(`[data-testid="project-window"][data-project-path="${PROJ}"]`);
     await expect(win).toHaveCount(1, { timeout: 15000 });
 
-    // I comandi vivono solo a sidebar CHIUSA — è la forma in cui il difetto si
-    // vedeva.
+    // I comandi vivono solo a sidebar CHIUSA.
     await win.getByRole("button", { name: "Nascondi la barra" }).click();
-    const riga = win.locator('[data-testid="project-rail-row"]');
-    await expect(riga).toBeVisible({ timeout: 10000 });
 
-    const misura = await win.evaluate((root) => {
-      const riga = root.querySelector('[data-testid="project-rail-row"]') as HTMLElement;
-      const barra = root.querySelector(".pane-chrome-bar") as HTMLElement;
-      // Il primo elemento DIPINTO sotto la riga, qualunque esso sia: si cerca il
-      // primo nodo il cui rettangolo comincia sotto la riga e ha area vera.
-      const tutti = Array.from(root.querySelectorAll<HTMLElement>("*"));
-      const gr = riga.getBoundingClientRect();
-      let primo: { top: number; tag: string } | null = null;
-      for (const el of tutti) {
-        if (riga.contains(el) || el.contains(riga)) continue;
-        const r = el.getBoundingClientRect();
-        if (r.width < 8 || r.height < 8) continue;
-        if (r.top < gr.bottom - 0.5) continue;
-        if (!primo || r.top < primo.top) primo = { top: r.top, tag: `${el.tagName}.${el.className?.toString().slice(0, 40)}` };
-      }
-      return {
-        barraH: barra.getBoundingClientRect().height,
-        rigaTop: gr.top,
-        rigaBottom: gr.bottom,
-        primoTop: primo?.top ?? null,
-        primoTag: primo?.tag ?? null,
-      };
-    });
+    // THERE IS NO ROW ANY MORE, since 30/08. The three commands live INSIDE the
+    // title card, in line with the tabs, so the band this spec watched cannot
+    // exist: nothing produces it. The original defect - `--chrome-bar-h`
+    // reserved twice - could only come back by putting a row into the flow
+    // under the bar again, and that is what is measured here.
+    await expect(
+      win.locator('[data-testid="project-rail-row"]'),
+      "e' tornata una riga dei comandi sotto la barra: e' la forma in cui l'altezza della barra veniva contata due volte",
+    ).toHaveCount(0);
 
-    expect(misura.primoTop, "niente di dipinto sotto la riga: la misura non regge").not.toBeNull();
-    const varco = misura.primoTop! - misura.rigaBottom;
-    expect(
-      varco,
-      `fra la riga dei comandi e «${misura.primoTag}» passano ${varco.toFixed(1)}px ` +
-      `(barra ${misura.barraH.toFixed(1)}px). Se il varco ≈ l'altezza della barra, ` +
-      `è di nuovo contata due volte — vedi CHROME_BAR_CONSUMED.`,
-    ).toBeLessThanOrEqual(COLUMN_GAP + 1);
+    const card = win.locator('[data-testid="project-card-shell"]');
+    await expect(card).toBeVisible({ timeout: 10000 });
+
+    // And the three commands sit INSIDE that card, not beside it and not under it.
+    const inside = await card.evaluate((el) => ({
+      comandi: el.querySelectorAll('[data-testid="project-rail-button"]').length,
+      alti: Array.from(el.querySelectorAll<HTMLElement>('button')).map((b) => Math.round(b.getBoundingClientRect().top)),
+      cardTop: Math.round(el.getBoundingClientRect().top),
+      cardBottom: Math.round(el.getBoundingClientRect().bottom),
+    }));
+    expect(inside.comandi, "i comandi non sono dentro la card del titolo").toBeGreaterThanOrEqual(3);
+    // One row: every button of the card starts at the same height, inside the
+    // card's box. If anyone stacks them again, this falls.
+    for (const t of inside.alti) {
+      expect(t, `un comando esce dalla card (${t} contro ${inside.cardTop}-${inside.cardBottom})`).toBeGreaterThanOrEqual(inside.cardTop - 1);
+      expect(t).toBeLessThanOrEqual(inside.cardBottom);
+    }
 
     // NON si asserisce anche il valore di `--chrome-bar-h` sotto la riga. Ci
     // ho provato: la riga e' PORTALATA nel suo slot, quindi nel DOM non ha il

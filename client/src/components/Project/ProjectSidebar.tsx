@@ -58,16 +58,6 @@ interface ProjectSidebarProps {
    * colonna deve dire dove va la sua forma chiusa.
    */
   inlineSlot: HTMLElement;
-  /**
-   * Dove vanno i TRE COMANDI da colonna chiusa: una riga sotto la card del
-   * titolo, non in fila con lei. «Devono proprio trovarsi a tasti come prima,
-   * la riga sotto il titolo quando la sidebar è chiusa» (Attilio, 09/08).
-   *
-   * Sono due nodi e non uno perché stanno su due piani diversi: la card vive
-   * DENTRO la riga delle tab (è una tab fra le tab), i comandi sotto di essa —
-   * e in una riga alta 34 due file non ci stanno.
-   */
-  belowSlot: HTMLElement;
 }
 
 type SectionId = 'files' | 'git' | 'processes';
@@ -124,15 +114,54 @@ function ProjectCard({
   collapsed,
   onToggle,
   className = '',
+  trailing,
 }: {
   projectPath: string;
   name: string;
   collapsed: boolean;
   onToggle: () => void;
   className?: string;
+  /**
+   * The three rail commands, WHEN THEY LIVE INSIDE THIS CARD.
+   *
+   * They used to sit on a row of their own under the trigger (09/08, «devono
+   * essere sotto il trigger sidebar progetto»), which cost the project window a
+   * whole second row of chrome for three 28px buttons. Asked on 30/08 to go
+   * INSIDE it instead - so the card becomes the container and the toggle
+   * becomes one element within it, rather than the card being the toggle.
+   *
+   * A `<button>` cannot contain buttons, so when this is given the surface
+   * moves OUT of the toggle and onto a wrapper: same class, same box, one row.
+   */
+  trailing?: React.ReactNode;
 }) {
   const tr = useT();
   const etichetta = collapsed ? tr('project.sidebar.expand') : tr('project.sidebar.hide');
+  const cardCls = `group edge-lit flex items-center gap-1.5 ${ROW_PX} h-9 md:h-7 ${TAB_LABEL} ${RESTING_SURFACE} rounded-lg transition-colors select-none min-w-0`;
+  if (trailing) {
+    return (
+      <div className={`${cardCls} ${className}`} data-testid="project-card-shell">
+        <button
+          onClick={onToggle}
+          title={`${name} · ${etichetta}`}
+          aria-label={etichetta}
+          aria-expanded={!collapsed}
+          data-testid="project-card"
+          // Surface-less: the wrapper above IS the card now. Without this the
+          // toggle would paint a second fill inside the first and read as a
+          // card inside a card.
+          className="flex min-w-0 flex-1 items-center gap-1.5 bg-transparent cursor-pointer"
+        >
+          <ProjectFavicon path={projectPath} size={14} width={18} />
+          <span className="truncate flex-1 text-left">{name}</span>
+          {collapsed
+            ? <PanelLeftOpen size={14} aria-hidden className="flex-shrink-0 text-app-text-tertiary" />
+            : <PanelLeftClose size={14} aria-hidden className="flex-shrink-0 text-app-text-tertiary" />}
+        </button>
+        {trailing}
+      </div>
+    );
+  }
   return (
     <button
       onClick={onToggle}
@@ -140,7 +169,7 @@ function ProjectCard({
       aria-label={etichetta}
       aria-expanded={!collapsed}
       data-testid="project-card"
-      className={`group edge-lit flex items-center gap-1.5 ${ROW_PX} h-9 md:h-7 ${TAB_LABEL} ${RESTING_SURFACE} rounded-lg transition-colors cursor-pointer select-none min-w-0 ${className}`}
+      className={`${cardCls} cursor-pointer ${className}`}
     >
       {/* L'icona c'è solo se il progetto ne spedisce una davvero: `ProjectFavicon`
           senza `fallback` non rende NIENTE e non occupa larghezza (decisione di
@@ -179,6 +208,7 @@ function ProjectCard({
  * e con la rail se n'è andato anche il ramo che la disegnava.
  */
 function RailButton({
+  compact = false,
   icon: Icon,
   active,
   onClick,
@@ -194,6 +224,8 @@ function RailButton({
   badge?: number | null;
   tone?: 'primary' | 'success' | 'danger';
   dot?: boolean;
+  /** Inside the collapsed title card, where a row-sized box does not fit. */
+  compact?: boolean;
 }) {
   const toneClass = tone === 'danger'
     ? 'bg-red-500 text-white'
@@ -206,11 +238,19 @@ function RailButton({
       title={title}
       aria-label={title}
       aria-expanded={active}
-      className={`relative ${ROW_ACTION_BOX} flex items-center justify-center rounded-lg edge-lit transition-colors flex-shrink-0 ${
+      // A stable anchor: the tests used to find these through the row that
+      // contained them, and that row is gone.
+      data-testid="project-rail-button"
+      // COMPACT INSIDE THE CARD. `ROW_ACTION_BOX` is a ROW's action box (36/28):
+      // it was right when these lived on a row of their own, and it fills a
+      // 28px-tall card edge to edge - «devono essere piu' piccoli, seno' esce
+      // brutto nel trigger» (30/08). One step down, and the card keeps its own
+      // padding around them.
+      className={`relative ${compact ? 'w-6 h-6 md:w-5 md:h-5' : ROW_ACTION_BOX} flex items-center justify-center rounded-md edge-lit transition-colors flex-shrink-0 ${
         active ? 'text-primary bg-primary/10' : `${RAISED_CONTROL} text-app-text`
       }`}
     >
-      <Icon size={16} />
+      <Icon size={compact ? 13 : 16} />
       {/* LA PASTIGLIA STA IN BASSO, e senza anello.
           Stava a `-top-1`, cioè un pixel SOPRA il bottone. Finché la riga era
           alta 40 e il bottone centrato, quel pixel cadeva dentro i 6 di aria; da
@@ -245,7 +285,6 @@ export function ProjectSidebar({
   onWSMessage,
   onOpenProcessLog,
   inlineSlot,
-  belowSlot,
 }: ProjectSidebarProps) {
   const tr = useT();
   // I quattro comandi dell'intestazione «Files» (nuovo file, nuova cartella,
@@ -651,12 +690,14 @@ export function ProjectSidebar({
     const comandi = () => (
       <>
         <RailButton
+          compact
           icon={FolderTree}
           active={expandedSections.files}
           onClick={open('files')}
           title={tr('project.sidebar.files')}
         />
         <RailButton
+          compact
           icon={GitBranch}
           active={expandedSections.git}
           onClick={open('git')}
@@ -673,6 +714,7 @@ export function ProjectSidebar({
           dot={!!git && git.fileCount === 0 && (git.ahead > 0 || git.behind > 0)}
         />
         <RailButton
+          compact
           icon={CirclePlay}
           active={expandedSections.processes}
           onClick={open('processes')}
@@ -713,40 +755,24 @@ export function ProjectSidebar({
               una card col nome accanto — e Attilio ha tolto la seconda: due
               card a 6px di distanza per dire la stessa cosa. La forma giusta
               era una sola: il titolo È il bottone che apre. */}
+          {/* I TRE COMANDI STANNO DENTRO LA CARD, non su una riga sotto.
+              Erano sotto dal 09/08, e la riga sotto costava alla finestra di
+              progetto una fascia di chrome intera per tre bottoni da 28px.
+              Chiesto il 30/08 di portarli dentro il trigger: una card sola, in
+              fila con le tab, che contiene il nome e i comandi. */}
           <ProjectCard
             projectPath={projectPath}
             name={projectName}
             collapsed
             onToggle={onToggleCollapse}
-            className="max-w-[180px] flex-shrink"
+            className="max-w-[280px] flex-shrink"
+            trailing={comandi()}
           />
         </div>,
         inlineSlot,
     );
 
-    // I TRE COMANDI, UNA RIGA SOTTO. La card del titolo sta in fila con le tab;
-    // i comandi escono dalla barra e si appoggiano sotto di lei, allineati al
-    // suo bordo sinistro (`pl-1.5` = lo stesso ROW_INSET della striscia).
-    // «Ora sono sulla destra, ma devono essere sotto il trigger sidebar
-    // progetto» (Attilio, 09/08): erano a destra perché stavano DENTRO la
-    // striscia, in fila dopo la card.
-    const riga = createPortal(
-      <div
-        data-testid="project-rail-row"
-        // `pb-[6px]` e non il mezzo passo: le pastiglie stanno a `-bottom-1`, cioè
-        // quattro pixel SOTTO la scatola del bottone (ci sono finite per non
-        // essere tagliate dalla barra in cima, 09/08). Con tre soli pixel di
-        // coda sbordavano dalla riga di uno; sei le contengono e sono anche il
-        // passo pieno della colonna.
-        className={`flex items-center ${TAB_GAP_CLASS} pl-1.5 pb-[6px] mt-[var(--chrome-bar-h,0px)] flex-shrink-0 app-no-drag`}
-        {...NO_DRAG_REGION}
-      >
-        {comandi()}
-      </div>,
-      belowSlot,
-    );
-
-    return <>{striscia}{riga}</>;
+    return striscia;
   }
 
   // On mobile: render as overlay on top of content.

@@ -108,43 +108,50 @@ test.describe("sidebar progetto: la rail collassata", () => {
       `il comando (centro ${btnCenter}) deve stare sulla mediana del contenuto della riga (${contenuto.center})`,
     ).toBeLessThanOrEqual(1);
 
-    // 4. E STESSA MISURA di una tab: in fila con loro, un comando più alto o
-    //    più basso respira diverso dalla sua vicina — è il difetto tolto dal
-    //    «+» il 09/08, che qui rientrerebbe dalla porta di servizio.
-    const riga = win.getByTestId("project-rail-row");
-    await expect(riga, "i tre comandi stanno in una riga SOTTO il titolo").toBeVisible({ timeout: 10000 });
-    // SOTTO significa sotto: `toBeVisible()` non sa niente di occlusione, e la
-    // riga nasceva nel flusso della cella a y=0 — cioè esattamente dietro
-    // `.pane-chrome-bar`, che è `position:absolute; top:0`. Test verde, riga
-    // invisibile («ancora uguale, non vedi i tasti sotto il trigger», Attilio
-    // 09/08). Si misura il RAPPORTO fra le due scatole, non la visibilità.
-    const barraBox = (await win.locator(".pane-chrome-bar").first().boundingBox())!;
-    const rowBox = (await riga.boundingBox())!;
-    expect(
-      rowBox.y,
-      `la riga deve cominciare sotto la barra (barra finisce a ${barraBox.y + barraBox.height}, riga comincia a ${rowBox.y})`,
-    ).toBeGreaterThanOrEqual(barraBox.y + barraBox.height - 1);
-    const boxes = await strip.locator("button").evaluateAll((els) =>
-      els.map((e) => Math.round(e.getBoundingClientRect().height)),
-    );
-    // Il metro è una TAB VERA della stessa barra quando ce n'è una; qui la
-    // finestra di progetto nasce senza tab aperte, e allora vale la misura che
-    // il breakpoint impone a questa larghezza (`ROW_ACTION_BOX`: `md:w-7` = 28
-    // sopra i 768px, che è dove gira questo progetto). Scritto così e non con
-    // un ternario che restituisce lo stesso numero da tutte e due le parti —
-    // quello sarebbe un'asserzione che non può fallire.
-    // `count()` prima di `evaluate()`: un locator vuoto non fallisce subito, ASPETTA
-    // il suo timeout — trenta secondi buttati e poi la pagina chiusa sotto al test.
+    // 4. I TRE COMANDI STANNO DENTRO LA CARD, non su una riga sotto.
+    //    Erano sotto dal 09/08; dal 30/08 la card del titolo li contiene, cosi'
+    //    la finestra di progetto non spende una fascia di chrome intera per tre
+    //    bottoni. Si misura il RAPPORTO fra le scatole, non la visibilita': una
+    //    riga nel flusso a y=0 finiva esattamente dietro `.pane-chrome-bar` e
+    //    passava questo test restando invisibile.
+    await expect(
+      win.getByTestId("project-rail-row"),
+      "e' tornata la riga dei comandi sotto il titolo",
+    ).toHaveCount(0);
+    const shell = strip.getByTestId("project-card-shell");
+    await expect(shell).toBeVisible({ timeout: 5000 });
+    const commands = shell.getByTestId("project-rail-button");
+    await expect(commands).toHaveCount(3);
+    const inside = await shell.evaluate((el) => {
+      const box = el.getBoundingClientRect();
+      return Array.from(el.querySelectorAll<HTMLElement>('[data-testid="project-rail-button"]')).map((b) => {
+        const r = b.getBoundingClientRect();
+        return { top: r.top >= box.top - 1, bottom: r.bottom <= box.bottom + 1, h: Math.round(r.height) };
+      });
+    });
+    for (const c of inside) {
+      expect(c.top && c.bottom, `un comando esce dalla card: ${JSON.stringify(inside)}`).toBe(true);
+    }
+
+    //    E SONO PIU' PICCOLI DELLA CARD che li contiene. «Devono essere piu'
+    //    piccoli, seno' esce brutto nel trigger» (30/08): a misura di riga
+    //    riempivano la card da bordo a bordo e l'aria attorno spariva.
+    const cardH = Math.round((await shell.boundingBox())!.height);
+    for (const c of inside) {
+      expect(c.h, `un comando e' alto quanto la card (${c.h} su ${cardH})`).toBeLessThan(cardH);
+    }
+
+    //    La CARD invece resta alta come una tab: in fila con loro, un elemento
+    //    piu' alto o piu' basso respira diverso dalla sua vicina.
+    // `count()` prima di `evaluate()`: un locator vuoto non fallisce subito,
+    // ASPETTA il suo timeout.
     const tab = tabRow.locator("[data-pane-id]").first();
     const tabH = (await tab.count()) > 0
       ? await tab.evaluate((e) => Math.round(e.getBoundingClientRect().height))
       : null;
     const attesa = tabH ?? 28;
-    for (const h of boxes) {
-      // La card del progetto è una tab, i comandi sono box quadrati della
-      // stessa misura: una sola altezza per tutta la striscia.
-      expect(h, `altezza di un elemento della striscia: ${boxes.join(", ")}`).toBe(attesa);
-    }
+    expect(cardH, `la card del progetto deve misurare come una tab (${cardH} contro ${attesa})`).toBe(attesa);
+    const boxes = [cardH];
 
     // 4-bis. E LA STESSA CARD ANCHE DA APERTA. «Tieni la stessa card per quando
     //    si apre» (Attilio, 09/08): erano due cose diverse — un bottone col solo
@@ -186,7 +193,7 @@ test.describe("sidebar progetto: la rail collassata", () => {
     // 6. La pastiglia git porta il numero delle modifiche.
     //    Il ramo arriva dallo store, quindi si aspetta invece di leggere subito:
     //    al primo montaggio l'etichetta e ancora quella senza ramo.
-    const gitBtn = riga.getByRole("button", { name: /Modifiche git/ });
+    const gitBtn = shell.getByRole("button", { name: /Modifiche git/ });
     await expect
       .poll(async () => (await gitBtn.getAttribute("aria-label")) ?? "", { timeout: 15000 })
       .toMatch(/Modifiche git · .+/);
@@ -204,10 +211,12 @@ test.describe("sidebar progetto: la rail collassata", () => {
     //    contatori vengono tagliati dalla top bar» (Attilio, 09/08).
     //
     //    Si misura il CONTENIMENTO, non la posizione: sopra o sotto è una scelta
-    //    che può cambiare, «dentro la riga» no.
+    //    che può cambiare, «dentro la riga» no. Il contenitore da cui non deve
+    //    uscire è la CARD del titolo, da quando i comandi ci stanno dentro
+    //    (30/08); prima era la riga sotto, che non esiste più.
     const pastiglia = await gitBtn.locator("span").first().evaluate((el) => {
       const r = el.getBoundingClientRect();
-      const barra = el.closest('[data-testid="project-rail-row"]')!.getBoundingClientRect();
+      const barra = el.closest('[data-testid="project-card-shell"]')!.getBoundingClientRect();
       return {
         sopra: Math.round((r.top - barra.top) * 10) / 10,
         sotto: Math.round((barra.bottom - r.bottom) * 10) / 10,
