@@ -320,12 +320,22 @@ filtra la barra il filtro sulla card NON SHALL avere alcun effetto (misurato
 identico a sedici decimali). Rimettere la sfocatura sulla barra spegne quella
 della scheda, in silenzio.
 
-La leggibilità dei nomi sopra il testo in movimento SHALL essere retta
-dall'ALONE sull'etichetta, non da uno strato steso su tutta la barra: l'alone
-dipinge il terreno LOCALE dell'inchiostro invece di sbiancare il contenuto di
-tutti, e si misura dove il difetto vive (CHROME-CONTRAST). L'alone e il vetro
-della scheda NON SHALL essere trattati come alternative: col solo vetro della
-scheda il caso peggiore in tema scuro misura 1,14:1.
+La leggibilità dei nomi sopra il testo in movimento SHALL essere retta dal FONDO
+DELLA SCHEDA, preso dalla superficie che il design system usa per ciò che
+galleggia su contenuto denso (`--popover-bg`), e NON da un'ombra sull'etichetta.
+
+Un'ombra sul testo NON SHALL essere usata. Era il rimedio a un terreno che
+mancava — la scheda portava un velo al 5-30% e il trascritto ci passava
+attraverso — e con un fondo vero diventa una seconda risposta a una domanda che
+non esiste più, che si legge come una sbavatura attorno alle lettere. Misurato:
+col velo e senza ombra il caso peggiore era 1,05:1; col fondo del design system
+e senza ombra è 14,44:1 in chiaro e 11,58:1 in scuro.
+
+Il fondo SHALL avere alpha, non essere opaco: è un solo materiale con la
+sfocatura della scheda, e un fondo opaco renderebbe quel filtro inerte.
+
+Il fondo SHALL essere DERIVATO dal token, non ricopiato: il giorno in cui la
+superficie dei popover viene ritarata, le schede SHALL seguirla.
 
 Sotto il guscio nativo SHALL dipingere UNA SOLA superficie — il guscio della
 finestra — e NESSUNA riga, né la prima né quella annidata.

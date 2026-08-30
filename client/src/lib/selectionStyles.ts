@@ -102,16 +102,13 @@ export const SELECTED_SURFACE_SOFT =
  * sit on the sidebar's own fill, which never moved and never needed body.
  */
 export const TAB_RESTING_SURFACE =
-  'bg-black/[0.14] dark:bg-white/[0.16] hover:bg-black/[0.18] dark:hover:bg-white/[0.22] ' +
-  'max-md:bg-black/[0.16] max-md:dark:bg-white/[0.18]';
+  'bg-[var(--tab-bg-rest)] hover:bg-[var(--tab-bg-rest-hover)]';
 
 export const TAB_SELECTED_SURFACE =
-  'bg-black/[0.22] dark:bg-white/[0.30] text-app-text ' +
-  'max-md:bg-black/[0.24] max-md:dark:bg-white/[0.34]';
+  'bg-[var(--tab-bg-sel)] text-app-text';
 
 export const TAB_SELECTED_SURFACE_SOFT =
-  'bg-black/[0.10] dark:bg-white/[0.12] text-app-text-secondary ' +
-  'max-md:bg-black/[0.14] max-md:dark:bg-white/[0.18]';
+  'bg-[var(--tab-bg-soft)] text-app-text-secondary';
 
 export const RESTING_FILL_MOBILE = 'max-md:bg-black/[0.08] max-md:dark:bg-white/[0.10]';
 export const RESTING_SURFACE =

@@ -2972,6 +2972,29 @@ html.native-frost:not(.dark) .chrome-glass {
   background-color: var(--chrome-overlay-bg);
 }
 
+/* THE THREE TAB FILLS, DERIVED FROM THE DESIGN SYSTEM'S OWN SURFACE.
+ *
+ * `--popover-bg` is what this app already paints under anything floating over
+ * busy content, and a tab in the chrome bar is exactly that. Before, the tab
+ * wore a black/white alpha wash - a TINT, not a surface: the transcript came
+ * through it, and the label needed a halo of its own to stay legible. Asked on
+ * 30/08 for the opposite: no shadow on the text, just the design system's
+ * colour and the blur.
+ *
+ * Alpha and not opaque, because the blur has to have something to do: these
+ * are one material with `.pane-chrome-bar .row-card`'s `backdrop-filter`, and
+ * an opaque fill would make that filter a no-op.
+ *
+ * Derived with `color-mix` instead of three hand-written colours: the day the
+ * popover surface is retuned the tabs follow, which is the whole point of
+ * taking the token instead of copying its value. */
+:root {
+  --tab-bg-rest: color-mix(in srgb, var(--popover-bg, var(--bg-surface)) 80%, transparent);
+  --tab-bg-rest-hover: color-mix(in srgb, var(--popover-bg, var(--bg-surface)) 90%, transparent);
+  --tab-bg-soft: color-mix(in srgb, var(--popover-bg, var(--bg-surface)) 64%, transparent);
+  --tab-bg-sel: color-mix(in srgb, var(--popover-bg, var(--bg-surface)) 96%, transparent);
+}
+
 /* THE GLASS IS THE TAB, NOT THE BAR.
  *
  * The bar carries no tint and no filter (see above), so what floats over the
@@ -2994,60 +3017,22 @@ html.native-frost:not(.dark) .chrome-glass {
   @apply backdrop-blur-lg backdrop-saturate-150;
 }
 
-/* THE LABEL CARRIES ITS OWN GROUND, and only where it needs one.
+/* NO HALO ON THE LABEL, and the reason it is gone is the reason it existed.
  *
- * `--code-bg` is `hsl(220 4.2% 17%)` in BOTH themes: code is always dark here.
- * In dark that costs nothing, the ink is light and the worst reading over a
- * full sweep is 6.88:1. In light the ink is `--text` (`hsl(220 3.5% 10.6%)`)
- * and a fence sliding under the glass takes the tail of the label with it:
- * dark on dark. Backdrop spread across the sweep is 0.0271 in dark against
- * 0.6725 in light, which is the whole asymmetry in one number.
+ * The halo painted the ink's own local ground because there WAS no ground: the
+ * bar paints nothing, the bar does not blur, and the tab wore a 5-30% wash that
+ * the transcript came straight through. Give the tab the design system's actual
+ * surface (`--tab-bg-*` above) and the ground is real, so a shadow on the text
+ * is a second answer to a question that no longer exists - and it reads as
+ * exactly what it is, a smudge around the letters.
+ * allow-italian: «le tab non dovrebbero avere ombra sul testo» (30/08)
  *
- * It was invisible until the transcript actually reached the glass. While the
- * wrapper above was clipping it (see `.chrome-passthrough-y`) the backdrop was
- * the flat cell background at spread 0.0000, so the AA assertion in
- * `chrome-bar-worst-case-contrast.spec.ts` was true about a surface nobody
- * could see.
- *
- * A HALO, NOT A VEIL, and the difference is the point. Two things were tried
- * first and are recorded so they are not tried again:
- *
- *   - `backdrop-brightness` on the TILE does nothing at all - the measurement
- *     was identical to sixteen decimals. An element with a `backdrop-filter`
- *     IS A BACKDROP ROOT for its descendants, so a filter on the tab card sees
- *     only what is painted inside the bar, and the bar paints `transparent`.
- *     Nested backdrop filters are not additive.
- *   - The same lift on the BAR bleaches the transcript between one tab and the
- *     next, which is the floating look this bar exists to have, and a tint on
- *     the bar is the veil a card already asked for once and had reverted.
- *
- * The halo is the same colour as the surface the label would have had, so on a
- * light backdrop it is invisible - it paints light on light. It appears only
- * under the dark band, which is the only moment it is needed, and it leaves
- * the resting appearance of the bar untouched pixel for pixel. It is also the
- * honest thing to measure: the halo IS the ink's local ground.
- *
- * STILL LOAD-BEARING WITH THE TAB GLASS ON, and still after the tabs were given
- * real body on 30/08. Falsified twice, at both alphas: dropping the halo takes
- * the dark worst case to 1.14:1 at the old fills and to 4.03:1 at the new ones
- * (under AA), with light at 1.05:1 both times. The three are not alternatives -
- * the blur softens what passes, the fill gives the tab a body, and the halo
- * gives the INK its own ground.
- *
- * BOTH THEMES, since 29/08. It used to be light-only, on the measured ground
- * that in dark the backdrop spread was 0.0271 against 0.6725 in light - but
- * that was measured THROUGH the blur. With the blur gone (see the bar above) a
- * bright band reaches the light ink directly and the worst reading fell to
- * 1.26:1, caught by `chrome-bar-worst-case-contrast.spec.ts`. `--bg` is
- * theme-dependent, so the same three shadows paint a DARK halo in dark: the
- * rule was always "the ink carries its own ground", and only the ground
- * changes. */
-.pane-chrome-bar [data-testid="pane-tab-label"] {
-  text-shadow:
-    0 0 2px var(--bg),
-    0 0 4px var(--bg),
-    0 0 6px var(--bg);
-}
+ * `chrome-bar-worst-case-contrast.spec.ts` is what keeps this honest: it
+ * measures the label against the WORST backdrop that slides under the bar, so
+ * if the fill ever goes back to being a tint the number falls and the gate
+ * says so. Measured: 1.05:1 with the wash and no halo, 14.44:1 with the surface
+ * and no halo. The halo was compensating for a ground that was missing, which
+ * is why removing BOTH reads better than either. */
 
 /* IL TRASCRITTO SI RIPRENDE I 40px DELLA BARRA — ma solo se è lui il primo.
  *
