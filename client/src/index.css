@@ -3375,10 +3375,32 @@ html.native-frost [role="region"][aria-label$=" panel"] > .bg-surface {
    * hair of separation, no more. */
   --float-gap: 2px;
   --float-radius: 10px;
-  /* Transparent so the gaps reveal the native window vibrancy underneath.
-   * No !important needed: this unlayered rule already beats the layered
-   * Tailwind `bg-app-bg` utility on the same element (Tailwind v4 puts
-   * utilities in @layer, which always loses to unlayered CSS). */
+}
+
+/* AND THE SHELL GOES TRANSPARENT ONLY WHERE THERE IS SOMETHING BEHIND IT.
+ *
+ * Transparent so the gaps reveal the native window vibrancy underneath. No
+ * !important needed: this unlayered rule already beats the layered Tailwind
+ * `bg-app-bg` utility on the same element (Tailwind v4 puts utilities in
+ * @layer, which always loses to unlayered CSS).
+ *
+ * IT USED TO BE UNCONDITIONAL, and on Windows that is a different feature.
+ * `useFloatingVibrancy` says it in as many words: per-region vibrancy is
+ * macOS-only, DWM backdrops are whole-window and have no per-region
+ * equivalent, so on Windows "the gaps between the cards are FROSTED" and
+ * transparent gaps showing the live desktop are the macOS half of the feature.
+ * The CSS did not have that gate: turning floating splits on took the shell's
+ * background away on Windows too, and with nothing per-region underneath the
+ * WHOLE window fell through to the Acrylic blur of the desktop. Reported
+ * 30/08: "quando metto floating windows cambia lo sfondo finestre ma non
+ * dovrebbe" - and it is not the gaps that changed, it is the ground.
+ *
+ * So the transparency is gated to the two macOS shells. Windows keeps its
+ * background, which is exactly what the hook's own comment promises: frosted
+ * chrome, frosted gaps, and a window whose ground does not move when a layout
+ * preference is toggled. */
+.electron-mac .floating-splits,
+.tauri-mac .floating-splits {
   background-color: transparent;
 }
 

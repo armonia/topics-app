@@ -2294,3 +2294,29 @@ lapide che sopravvive al clic successivo trasforma «chiusa» in «sparita».
 #### Scenario: riaprirla
 - **GIVEN** una vista chiusa e poi riaperta dal menu
 - **THEN** SHALL restare aperta anche dopo un ricaricamento
+
+### Requirement: LAYOUT-32 — Accendere i pannelli fluttuanti SHALL cambiare i vuoti, non il fondo della finestra
+
+I pannelli fluttuanti staccano gli split in schede con un vuoto fra loro. Su
+macOS il guscio diventa trasparente di proposito: la vibrancy per-regione
+dipinge dietro le schede, quindi nei vuoti si vede il desktop. Su Windows quella
+vibrancy non esiste — i backdrop DWM sono per FINESTRA e non hanno un
+equivalente per-regione — e togliere lo sfondo al guscio non apre i vuoti: fa
+cadere l'intera finestra sulla sfocatura del desktop.
+
+Quindi il fondo del guscio SHALL restare quello che era quando la preferenza si
+accende, su ogni piattaforma priva di vibrancy per-regione; e SHALL diventare
+trasparente dove quella vibrancy c'è. Una preferenza di disposizione non sposta
+il terreno.
+
+#### Scenario: su Windows il fondo non si muove
+- **GIVEN** il guscio con la classe di piattaforma `windows-acrylic`
+- **WHEN** si accende `floating-splits`
+- **THEN** il `background-color` calcolato del guscio è identico a prima
+- **AND** i vuoti fra le schede restano smerigliati, non trasparenti
+
+#### Scenario: su macOS il fondo diventa trasparente
+- **GIVEN** il guscio con la classe di piattaforma `tauri-mac` o `electron-mac`
+- **WHEN** si accende `floating-splits`
+- **THEN** il `background-color` calcolato del guscio è completamente trasparente
+- **AND** i vuoti mostrano la vibrancy nativa
