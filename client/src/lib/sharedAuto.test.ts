@@ -45,3 +45,88 @@ test('a shared pane that is NOT watching does not subtract itself', () => {
   expect(computeAutoShared(1, false, false)).toBe(true);
   expect(computeAutoShared(0, false, true)).toBe(false);
 });
+
+/**
+ * ONE READING MUST NOT MOVE THE PANE, and until 30/08 it did.
+ *
+ * The decision above is sampled by `useSharedViewerCount` every 2000ms, and the
+ * caller "debounced" the flip with a 1200ms `setTimeout`. 1200 < 2000: a timer
+ * shorter than the sampling period cannot filter anything - it only postpones.
+ * A single poll that reads 1 commits the flip 800ms BEFORE the next poll can
+ * say 0, so any blip of the viewer count moves the pane off its native webview
+ * for a full cycle: the streaming start screen, an error if the server-side
+ * Chromium is not there, and the `Nativo`/`DOM` chips appearing out of nowhere.
+ * That is the report "the browsers change and go from the start screen to an
+ * error, showing native/dom chips at random" (30/08).
+ *
+ * And the blips are ordinary. A native pane holds a `/ws/browser/:id` socket
+ * and is excluded from the count by `_nativeDelegate` - but that flag is set
+ * when its `register_native_executor` frame ARRIVES, so between the socket
+ * opening and that frame the pane counts as a viewer OF ITSELF. That window
+ * opens on every reconnection, and reconnections are routine: the server
+ * restarts on every save under `server/`, the machine sleeps, and since
+ * `nativeExecutorSocket.ts` the pane retries on a 1s..10s ladder for as long as
+ * the server is down.
+ *
+ * So the confirmation is counted in SAMPLES, not in milliseconds: the same
+ * answer twice in a row, whatever the cadence is.
+ */
+import { stepAutoShare, AUTO_SHARE_CONFIRMATIONS } from './sharedAuto';
+
+test('un solo campione non sposta la pane: serve la conferma', () => {
+  // Native, alone. One poll says "someone is here" and the next says nobody.
+  let s = { shared: false, agreeing: 0 };
+  s = stepAutoShare(s, computeAutoShared(1, s.shared));
+  expect(s.shared).toBe(false); // it is a candidate, not a decision
+  s = stepAutoShare(s, computeAutoShared(0, s.shared));
+  expect(s.shared).toBe(false);
+  expect(s.agreeing).toBe(0); // and the streak is back to nothing
+});
+
+test('due campioni d accordo la spostano', () => {
+  let s = { shared: false, agreeing: 0 };
+  s = stepAutoShare(s, computeAutoShared(1, s.shared));
+  s = stepAutoShare(s, computeAutoShared(1, s.shared));
+  expect(s.shared).toBe(true);
+  expect(s.agreeing).toBe(0); // the streak resets once the flip is spent
+});
+
+test('e il ritorno a nativa chiede la stessa conferma', () => {
+  let s = { shared: true, agreeing: 0 };
+  // shared and alone: the count includes me, so 1 means "nobody else".
+  s = stepAutoShare(s, computeAutoShared(1, s.shared));
+  expect(s.shared).toBe(true);
+  s = stepAutoShare(s, computeAutoShared(1, s.shared));
+  expect(s.shared).toBe(false);
+});
+
+test('la soglia e in campioni, e vale almeno due', () => {
+  expect(AUTO_SHARE_CONFIRMATIONS).toBeGreaterThanOrEqual(2);
+});
+
+/**
+ * THE TRAP THE FOLD HAS TO SIT INSIDE THE HOOK FOR, written down as a sequence.
+ *
+ * A caller that keys an effect on the viewer count only ever sees it CHANGE:
+ * `setState` with the same number bails out of the render, so two identical
+ * readings in a row reach the caller as ONE. Counting agreements out there would
+ * mean a phone that opens the tab and keeps it open moves the count 0 → 1 once
+ * and never again: one confirmation, then silence, and a desktop pane that never
+ * joins the session it exists to join.
+ *
+ * Fed poll by poll — which is what `useSharedViewerCount` now does — the same
+ * steady reading confirms itself and the pane crosses over.
+ */
+test('un valore fermo, ma letto a ogni giro, arriva a confermarsi', () => {
+  let s = { shared: false, agreeing: 0 };
+  for (const count of [1, 1]) s = stepAutoShare(s, computeAutoShared(count, s.shared));
+  expect(s.shared).toBe(true);
+});
+
+test('e un solo campione alto in mezzo a zeri non sposta mai niente', () => {
+  let s = { shared: false, agreeing: 0 };
+  for (const count of [0, 0, 1, 0, 0, 1, 0, 1, 0]) {
+    s = stepAutoShare(s, computeAutoShared(count, s.shared));
+    expect(s.shared).toBe(false);
+  }
+});

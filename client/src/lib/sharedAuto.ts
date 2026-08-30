@@ -45,3 +45,43 @@ export function computeAutoShared(
   const others = Math.max(0, viewerCount - (selfCounted ? 1 : 0));
   return others >= 1;
 }
+
+/**
+ * How many polls in a row must agree before the pane actually changes side.
+ *
+ * IN SAMPLES, NOT IN MILLISECONDS, and that is the whole point. The count is
+ * sampled every 2000ms (`useSharedViewerCount`) and the caller used to guard the
+ * flip with a 1200ms `setTimeout` it called a debounce. A timer shorter than the
+ * sampling period cannot filter a blip - it only postpones it: the single
+ * reading committed 800ms before the next poll could contradict it. Counting
+ * agreements instead makes the guard independent of both cadences.
+ *
+ * Two and not three: two costs at most one extra poll (~2s) before the pane
+ * follows a phone that really did open the tab, and it already kills every
+ * single-sample blip, which is the whole observed population.
+ */
+export const AUTO_SHARE_CONFIRMATIONS = 2;
+
+/** Where the auto decision stands: the side the pane is on, and how many polls
+ *  in a row have now asked for the other one. */
+export interface AutoShareState {
+  shared: boolean;
+  agreeing: number;
+}
+
+/**
+ * Fold one poll into the decision.
+ *
+ * `want` is `computeAutoShared(...)` for THIS reading. Agreeing with where the
+ * pane already is clears the streak; asking for the other side builds it, and
+ * the flip happens only when the streak reaches `AUTO_SHARE_CONFIRMATIONS`.
+ *
+ * Pure, so the sequence that produced the defect can be written down as a test
+ * instead of being reproduced with a phone and a stopwatch.
+ */
+export function stepAutoShare(state: AutoShareState, want: boolean): AutoShareState {
+  if (want === state.shared) return state.agreeing === 0 ? state : { ...state, agreeing: 0 };
+  const agreeing = state.agreeing + 1;
+  if (agreeing < AUTO_SHARE_CONFIRMATIONS) return { ...state, agreeing };
+  return { shared: want, agreeing: 0 };
+}

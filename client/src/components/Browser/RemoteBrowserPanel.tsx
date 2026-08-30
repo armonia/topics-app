@@ -23,7 +23,7 @@ import { stepMatchIndex, formatMatchCounter } from './findInPageModel';
 import { useBrowserSpawner } from '../../state/browserSpawner';
 import { signalsActions } from '../../state/signals';
 import { isTauri } from '../../lib/shell';
-import { computeAutoShared, type ShareMode } from '../../lib/sharedAuto';
+import { type ShareMode } from '../../lib/sharedAuto';
 import { installViewportZoomGuard } from '../../lib/viewportZoomGuard';
 import { useSharedViewerCount } from '../../hooks/useSharedViewerCount';
 import { useTaskTabLoginState } from '../../hooks/useTaskTabLoginState';
@@ -169,37 +169,33 @@ export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlCh
   // server session (no native shell). Per-device + persisted (localStorage).
   const [mode, setMode] = useState<ShareMode>(() => (isTauri ? readShareMode(contextId) : 'shared'));
   // Auto-share's live decision: whether AUTO currently wants the shared session.
-  const [autoShared, setAutoShared] = useState(false);
+  // The polling and the fold that guards it both live in the hook below.
   // Re-read when the pane is reused for a different context id — the "adjust
   // state during render on prop change" pattern (no effect, no cascading render).
   const [sharedCtx, setSharedCtx] = useState(contextId);
   if (sharedCtx !== contextId) {
     setSharedCtx(contextId);
     setMode(isTauri ? readShareMode(contextId) : 'shared');
-    setAutoShared(false);
   }
 
   // Poll the server's viewer count ONLY in auto mode on desktop. A native pane
   // holds no streaming WS, so the count is exactly the number of OTHER devices
-  // watching the shared session (see useSharedViewerCount / computeAutoShared).
+  // watching the shared session; the hook turns that into the decision, and it
+  // takes the same answer twice before moving the pane (see `stepAutoShare`).
+  //
+  // WHAT THAT REPLACED. There was a 1200ms `setTimeout` here called a debounce,
+  // over a count polled every 2000ms: shorter than the sampling period, so it
+  // filtered nothing and only postponed. A single blip committed the flip 800ms
+  // before the next poll could contradict it - and blips are routine, because a
+  // native pane counts as a viewer of ITSELF in the window between its socket
+  // opening and its `register_native_executor` frame, which reopens on every
+  // reconnection. Symptom: the pane leaves its native webview for a full cycle,
+  // showing the streaming start screen, an error when no server-side Chromium is
+  // up, and the `Nativo`/`DOM` chips out of nowhere. Reported 30/08 as "the
+  // browsers change and go from the start screen to an error, showing native/dom
+  // chips at random".
   const autoEnabled = isTauri && mode === 'auto';
-  const viewerCount = useSharedViewerCount(contextId, autoEnabled);
-  useEffect(() => {
-    // Pinned mode: `shared` is derived from `mode`, not autoShared → nothing to do.
-    if (!autoEnabled) return;
-    // `isVisible`: whether the server is counting THIS pane. A shared pane that
-    // left the screen reports set_watching:false and drops out of the count, so
-    // subtracting itself anyway read "the phone is watching" as "nobody is
-    // here" — and the pane bounced shared→native→shared every 1200ms for as
-    // long as the phone looked. Under Tauri (the only place 'auto' runs) the
-    // iframe path never applies, so on-screen == counted.
-    const want = computeAutoShared(viewerCount, autoShared, isVisible);
-    if (want === autoShared) return;
-    // Debounce flaps (async, not a synchronous in-effect setState): a reconnecting
-    // phone must not bounce the pane native↔shared.
-    const t = setTimeout(() => setAutoShared(want), 1200);
-    return () => clearTimeout(t);
-  }, [autoEnabled, viewerCount, autoShared, isVisible]);
+  const autoShared = useSharedViewerCount(contextId, autoEnabled, isVisible);
 
   // Effective render: pinned mode wins; in auto it follows the live decision.
   const shared = mode === 'shared' ? true : mode === 'native' ? false : autoShared;
