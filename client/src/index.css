@@ -3013,7 +3013,16 @@ html.native-frost:not(.dark) .chrome-glass {
  * `@apply backdrop-blur-*` and not a hand-written pair: Lightning CSS collapses
  * the raw declaration onto `-webkit-` alone, which Blink ignores, and the blur
  * disappears without a word (same trap as `.glass-surface`). */
-.pane-chrome-bar .row-card {
+.pane-chrome-bar .row-card,
+/* And the project's collapsed trigger, which is a card in this same row and has
+ * to be the same material: without the filter it would be the one tinted card
+ * in the strip that does not blur what passes under it.
+ *
+ * `.tab-glass` and not the two testids it can be: whichever element carries the
+ * FILL carries this class, and only that one. Putting it on both would give the
+ * transparent inner button a `backdrop-filter` of its own INSIDE the shell's -
+ * a nested backdrop root, which is the trap documented on the tab tile above. */
+.pane-chrome-bar .tab-glass {
   @apply backdrop-blur-lg backdrop-saturate-150;
 }
 

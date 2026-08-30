@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { ChevronRight, FolderTree, GitBranch, CirclePlay, RefreshCw, PanelLeftOpen, PanelLeftClose, FilePlus, FolderPlus, ChevronsDownUp } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
-import { RAISED_CONTROL, RESTING_SURFACE, ROW_ACTION_BOX, ROW_PX, SECTION_CARD, TAB_GAP_CLASS, TAB_LABEL } from '../../lib/selectionStyles';
+import { RAISED_CONTROL, RESTING_SURFACE, ROW_ACTION_BOX, ROW_PX, SECTION_CARD, TAB_GAP_CLASS, TAB_LABEL, TAB_RESTING_SURFACE } from '../../lib/selectionStyles';
 import { capSezione } from './projectSidebarHeights';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { ScriptRunner } from './ScriptRunner';
@@ -137,7 +137,16 @@ function ProjectCard({
 }) {
   const tr = useT();
   const etichetta = collapsed ? tr('project.sidebar.expand') : tr('project.sidebar.hide');
-  const cardCls = `group edge-lit flex items-center gap-1.5 ${ROW_PX} h-9 md:h-7 ${TAB_LABEL} ${RESTING_SURFACE} rounded-lg transition-colors select-none min-w-0`;
+  // LA CARD PRENDE IL MATERIALE DELLA SUPERFICIE SU CUI GALLEGGIA.
+  //
+  // Collapsed it lives IN the chrome bar, in line with the tabs, and there the
+  // ground is the transcript: it takes the tab surface, the one derived from
+  // the design system's floating-over-content token, plus the bar's blur. Open
+  // it lives in the sidebar header, on the sidebar's own fill, and there the
+  // row surface is right - a tab-weight fill would read as a card sitting on a
+  // card. Same component, same box, two materials because there are two
+  // grounds.
+  const cardCls = `group edge-lit flex items-center gap-1.5 ${ROW_PX} h-9 md:h-7 ${TAB_LABEL} ${collapsed ? `tab-glass ${TAB_RESTING_SURFACE}` : RESTING_SURFACE} rounded-lg transition-colors select-none min-w-0`;
   if (trailing) {
     return (
       <div className={`${cardCls} ${className}`} data-testid="project-card-shell">
