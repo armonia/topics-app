@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.251",
+    "date": "2026-08-30",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La tab claude-code che sparisce e' PARCHEGGIATA, e la potatura decideva prima di sapere",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.250",
     "date": "2026-08-30",
     "sections": {

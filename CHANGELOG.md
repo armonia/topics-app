@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.251 — 2026-08-30
+
+### Sotto il cofano
+- La tab claude-code che sparisce e' PARCHEGGIATA, e la potatura decideva prima di sapere
+
 ## 2.2.250 — 2026-08-30
 
 ### Sotto il cofano
