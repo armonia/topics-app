@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.243 — 2026-08-30
+
+### Sotto il cofano
+- Le tab si caricano al 93%: all'80 un quinto del trascritto passava ancora
+- La premessa del contrasto misurava dietro l'etichetta, dove ora non passa piu' niente
+
 ## 2.2.242 — 2026-08-30
 
 ### Sotto il cofano

@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.243",
+    "date": "2026-08-30",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Le tab si caricano al 93%: all'80 un quinto del trascritto passava ancora",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La premessa del contrasto misurava dietro l'etichetta, dove ora non passa piu' niente",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.242",
     "date": "2026-08-30",
     "sections": {
