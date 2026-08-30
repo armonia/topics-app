@@ -160,6 +160,159 @@ static REBUILDING: AtomicBool = AtomicBool::new(false);
 /// need a downgrade.
 const REBUILD_OFF_VAR: &str = "TOPICS_NO_WEBVIEW_REBUILD";
 
+/// DID THE WINDOW ACTUALLY COME BACK BLANK? Ask the pixels, because nothing else
+/// can tell.
+///
+/// Every API-level check reports healthy in BOTH states - the header above lists
+/// them: the renderer answers `ExecuteScript`, every HWND is present, visible and
+/// correctly sized, the window is not layered. The only thing that differs is
+/// what is on the glass, so that is what gets read.
+///
+/// WHAT IT COUNTS, and why not "is it neutral". A flat grey wash is as neutral as
+/// the interface, and so is a blurred wallpaper behind an Acrylic backdrop - a
+/// probe that asked for neutral pixels answered "79 of 79 rows painted" for a
+/// window a screenshot shows as EMPTY, and a working remedy was turned off on the
+/// strength of it. What a drawn interface has and a wash does not is EDGES: text,
+/// borders, icons. A row counts when two neighbouring samples differ in luminance
+/// by more than a wash ever does. Measured on the real machine, minimise +
+/// restore, twice per arm: healthy 77/77 rows, blank 1/77. The threshold sits far
+/// from both.
+///
+/// `PrintWindow` with `PW_RENDERFULLCONTENT` reads the window's OWN buffer, so
+/// this works while the window is occluded and cannot accidentally measure
+/// whatever is in front of it - which `CopyFromScreen` would.
+///
+/// Returns `None` when the question cannot be answered (window too small, GDI
+/// refused, PrintWindow failed). The caller treats that as "do the remedy": a
+/// probe that cannot see must not be the reason a broken window stays broken.
+#[cfg(target_os = "windows")]
+fn rows_with_drawing(hwnd: isize) -> Option<(usize, usize)> {
+    use windows::Win32::Foundation::{HWND, RECT};
+    use windows::Win32::Graphics::Gdi::{
+        CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits,
+        ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HGDIOBJ,
+    };
+    // `PrintWindow` lives under `Storage::Xps` in this crate's metadata, not next
+    // to the other window calls - the flag constant does live in
+    // `WindowsAndMessaging`, which is why the two imports look unrelated.
+    use windows::Win32::Storage::Xps::{PrintWindow, PRINT_WINDOW_FLAGS};
+    use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, PW_RENDERFULLCONTENT};
+
+    /// Only a step this big is ink. A wash - flat fill or blurred wallpaper -
+    /// never gets here between neighbouring samples.
+    const STEP: i32 = 24;
+    /// Sampling grid, in device pixels. Coarse on purpose: this runs on the
+    /// restore path and the answer is 77-vs-1, not a close call.
+    const ROW_STRIDE: i32 = 12;
+    const COL_STRIDE: usize = 3;
+
+    unsafe {
+        let hwnd = HWND(hwnd as *mut core::ffi::c_void);
+        let mut rect = RECT::default();
+        if GetWindowRect(hwnd, &mut rect).is_err() {
+            return None;
+        }
+        let w = rect.right - rect.left;
+        let h = rect.bottom - rect.top;
+        // A minimised or absurd window has nothing to say.
+        if w < 200 || h < 200 {
+            return None;
+        }
+
+        let screen = GetDC(None);
+        if screen.is_invalid() {
+            return None;
+        }
+        let dc = CreateCompatibleDC(Some(screen));
+        let bmp = CreateCompatibleBitmap(screen, w, h);
+        if dc.is_invalid() || bmp.is_invalid() {
+            if !dc.is_invalid() {
+                let _ = DeleteDC(dc);
+            }
+            if !bmp.is_invalid() {
+                let _ = DeleteObject(HGDIOBJ(bmp.0));
+            }
+            ReleaseDC(None, screen);
+            return None;
+        }
+        let old = SelectObject(dc, HGDIOBJ(bmp.0));
+        let drew = PrintWindow(hwnd, dc, PRINT_WINDOW_FLAGS(PW_RENDERFULLCONTENT)).as_bool();
+
+        let mut answer = None;
+        if drew {
+            // Top-down 32bpp, so row 0 is the top and every pixel is 4 bytes.
+            let mut info = BITMAPINFO::default();
+            info.bmiHeader = BITMAPINFOHEADER {
+                biSize: core::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: w,
+                biHeight: -h,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            };
+            let mut px = vec![0u8; (w as usize) * (h as usize) * 4];
+            let got = GetDIBits(
+                dc,
+                bmp,
+                0,
+                h as u32,
+                Some(px.as_mut_ptr() as *mut core::ffi::c_void),
+                &mut info,
+                DIB_RGB_COLORS,
+            );
+            if got != 0 {
+                let stride = (w as usize) * 4;
+                let mut rows = 0usize;
+                let mut inked = 0usize;
+                let mut y = 8;
+                while y < h - 8 {
+                    rows += 1;
+                    let base = (y as usize) * stride;
+                    let mut prev = -1i32;
+                    let mut x = 12usize;
+                    while x < (w as usize) - 12 {
+                        let p = base + x * 4;
+                        // BGRA in memory.
+                        let lum = (299 * px[p + 2] as i32 + 587 * px[p + 1] as i32 + 114 * px[p] as i32) / 1000;
+                        if prev >= 0 && (lum - prev).abs() > STEP {
+                            inked += 1;
+                            break;
+                        }
+                        prev = lum;
+                        x += COL_STRIDE;
+                    }
+                    y += ROW_STRIDE;
+                }
+                answer = Some((inked, rows));
+            }
+        }
+
+        SelectObject(dc, old);
+        let _ = DeleteObject(HGDIOBJ(bmp.0));
+        let _ = DeleteDC(dc);
+        ReleaseDC(None, screen);
+        answer
+    }
+}
+
+/// Is the window blank enough to be worth a rebuild?
+///
+/// A healthy window measured 77 of 77 rows with ink and a blank one 1 of 77, so
+/// a tenth of the rows is a floor no real interface can fall under and no blank
+/// window can reach. `None` from the probe means "could not look", and that
+/// answers YES: the remedy must not be skipped because the probe went blind.
+#[cfg(target_os = "windows")]
+fn looks_blank(hwnd: isize) -> (bool, String) {
+    match rows_with_drawing(hwnd) {
+        Some((inked, rows)) if rows > 0 => {
+            let blank = inked * 10 < rows;
+            (blank, format!("{inked}/{rows} righe con disegno"))
+        }
+        _ => (true, "sonda cieca".to_string()),
+    }
+}
+
 /// THE TENTH REMEDY. Close the "main" webview and build another one in the same
 /// window, on the restore edge.
 ///
@@ -203,10 +356,15 @@ fn rebuild_main_webview(app: &tauri::AppHandle) {
 /// exit of this function says what happened - including the ones that decided to
 /// do nothing.
 fn rebuild_now(app: &tauri::AppHandle) -> String {
-    use tauri::Manager;
     // Let the restore land first. The edge is seen from `WM_SIZE`, which arrives
     // while the window is still being put back on screen.
     std::thread::sleep(Duration::from_millis(200));
+    rebuild_core(app)
+}
+
+/// The rebuild, once the restore has landed.
+fn rebuild_core(app: &tauri::AppHandle) -> String {
+    use tauri::Manager;
     let Some(win) = app.get_window("main") else {
         return "rebuild: no main window".into();
     };
@@ -217,6 +375,34 @@ fn rebuild_now(app: &tauri::AppHandle) -> String {
         // Hidden to the tray is not the restore we are curing, and building a
         // webview for an invisible window would only pay the reload twice.
         return "rebuild: window not visible, skipped".into();
+    }
+    // AND ONLY IF IT REALLY CAME BACK BLANK.
+    //
+    // The remedy costs a page reload, and this fired on EVERY restore - so a
+    // window that came back perfectly still paid it, every time. Two reports,
+    // and they are the same one seen from two sides, quoted in their own words:
+    // "se nascondi la finestra e la riapri per un attimo non si vede nulla" and "quando riapri la finestra esce vuota per un po'". allow-italian: the reports are quoted verbatim
+    // That "for a while" IS the reload, and it lands on top of whatever the app
+    // was doing - a chat pane included.
+    //
+    // A short second sleep before looking: the first 200ms let the restore land,
+    // these let the compositor put the first frame up, so a window that is
+    // merely SLOW is not read as broken.
+    //
+    // IT USED TO BE 400ms AND THAT WAS PAID BY EVERYBODY. Measured on the PC,
+    // time from restore to the window drawing again: 1540 / 1806 / 1745 ms, of
+    // which this wait was a fifth. On a machine where the window really does come
+    // back blank every time - and that one does, 1/77 rows three times out of
+    // three - the gate never skips, so every millisecond here is added to the
+    // blank a person is watching. 60ms is enough for a first frame and cheap
+    // enough to spend on a check that might save a whole reload.
+    std::thread::sleep(Duration::from_millis(60));
+    if let Ok(handle) = win.hwnd() {
+        let (blank, misura) = looks_blank(handle.0 as isize);
+        if !blank {
+            return format!("rebuild: window painted ({misura}), skipped");
+        }
+        trace(app, &format!("rebuild: window looks blank ({misura})"));
     }
     let Some(old) = app.get_webview("main") else {
         return "rebuild: no main webview".into();
@@ -325,6 +511,19 @@ pub(crate) fn note_window_event(win: &tauri::Window, kind: &'static str) {
     }
     let app = win.app_handle().clone();
     trace(&app, &format!("{kind}: minimized {before} -> {now}"));
+    // REBUILDING WHILE THE WINDOW IS HIDDEN DOES NOT WORK, and it was worth
+    // asking: the remedy's whole cost is visible, so doing it on the way DOWN
+    // would have cost nothing anybody could see. Measured on the PC, time from
+    // restore to the window drawing again, three cycles per arm:
+    //
+    //   rebuild on restore        962 / 814 / 853 ms
+    //   rebuild on minimise      1145 / 1149 / 1119 ms
+    //
+    // And the trace says why it is WORSE rather than merely useless: the webview
+    // built while minimised comes back blank too - zero rows with drawing -
+    // so the restore rebuilds a SECOND time, and that one falls back to
+    // `index.html` because the fresh webview had not navigated yet. Two rebuilds
+    // and a lost URL. The surface dies on the way back, not on the way down.
     if before && !now {
         // THE REMEDY STAYS ON, AND HERE IS THE MEASUREMENT THAT SETTLES IT.
         //

@@ -58,6 +58,9 @@ export function useProjectTerminalSync({
    *  ripristinabile, quindi le loro tab non vanno potate. Vuoto finché la
    *  risposta non arriva — e vuoto è il comportamento di prima. */
   const dormantIdsRef = useRef<ReadonlySet<string>>(new Set());
+  /** Has the dormant list answered (or failed)? While this is false the prune
+   *  removes nothing - see the comment inside `setPanes`. */
+  const dormantLoadedRef = useRef(false);
   /** Ultimo roster visto, per ripassare il prune se la lista delle dormienti
    *  arriva dopo (le due fetch non hanno un ordine garantito). */
   const lastRosterRef = useRef<TerminalRosterEntry[]>([]);
@@ -123,6 +126,32 @@ export function useProjectTerminalSync({
           // (a dead session restored from a previous run). Keep never-seen ids
           // while the roster is empty/unproven — see terminalReconcile for why
           // this stops a refresh from losing live tabs.
+          // NOTHING IS PRUNED UNTIL THE PARKED LIST IS IN.
+          //
+          // The roster and the dormant list are fetched together and answer in
+          // no guaranteed order - and in practice the roster wins: its fetch is
+          // issued first and reads an in-memory Map. At that instant
+          // `rosterAuthoritative` is already true and `dormantIdsRef` is still
+          // empty, so a PARKED tab falls through to the last branch of
+          // `shouldKeepRestoredTerminalPane` and is pruned.
+          //
+          // And the second pass below cannot put it back: the prune is
+          // destructive (`prev.filter`), so that pass gets a `prev` the pane has
+          // already left, and the only re-add path (`toAdd`) is built from the
+          // ROSTER - where a dormant session is absent by construction. By then
+          // the loss is already written down: `projectPersistence` saves
+          // localStorage with no debounce, so on the NEXT reload the tab is gone
+          // from the snapshot too.
+          //
+          // Reported: "se faccio ricarica su una claude code si perde". allow-italian: the report is quoted verbatim
+          // In the live DB the terminal sessions are 1 active and 35 dormant,
+          // every one of them claude-code: the tab that disappears is almost
+          // always a parked one.
+          //
+          // So the prune waits until it knows. If the dormant fetch fails the
+          // flag is raised anyway with an empty set: from there on the behaviour
+          // is exactly what it was - never worse.
+          if (!dormantLoadedRef.current) return true;
           return shouldKeepRestoredTerminalPane(sid, sessionIds, seen, rosterAuthoritative, dormantIdsRef.current);
         });
         // Relabel existing terminal tabs from the live roster. Returns the same
@@ -175,14 +204,19 @@ export function useProjectTerminalSync({
     fetch(`/api/terminal/sessions/dormant?cwd=${encodeURIComponent(projectPath)}`)
       .then(r => r.json())
       .then((dormant: { id: string }[]) => {
-        if (!Array.isArray(dormant)) return;
-        dormantIdsRef.current = new Set(dormant.map(d => d.id));
-        // Il roster è già arrivato mentre questa risposta era in volo: ripassa
-        // il prune con l'informazione nuova, o le tab parcheggiate sono già
-        // state potate (e la potatura si persiste).
+        if (Array.isArray(dormant)) dormantIdsRef.current = new Set(dormant.map(d => d.id));
+        // Now pruning may happen: the filter above keeps everything while this
+        // flag is false, so this is the FIRST pass that removes anything, not a
+        // second pass trying to put something back.
+        dormantLoadedRef.current = true;
         syncTerminals(lastRosterRef.current);
       })
-      .catch(() => {});
+      .catch(() => {
+        // No answer: carry on with the empty set, which is exactly the old
+        // behaviour. Not knowing must not turn into "never prune".
+        dormantLoadedRef.current = true;
+        syncTerminals(lastRosterRef.current);
+      });
 
     return onWSMessage((msg: WSMessage) => {
       const m = msg as unknown as { type?: string; sessions?: unknown };

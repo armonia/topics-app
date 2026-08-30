@@ -124,3 +124,31 @@ describe("shouldKeepRestoredTerminalPane — sessioni parcheggiate", () => {
     expect(shouldKeepRestoredTerminalPane("s1", set("s1"), set("s1"), true, set("s1"))).toBe(true);
   });
 });
+
+/**
+ * THE PRUNE MUST NOT RUN BEFORE THE PARKED LIST IS IN.
+ *
+ * `useProjectTerminalSync` fetches the roster and the dormant list together, in
+ * no guaranteed order, and in practice the roster answers first: its fetch is
+ * issued first and reads an in-memory Map while the other runs a query. This is
+ * that instant, expressed as arguments: an authoritative roster, a pane whose id
+ * nobody has seen, and a dormant set that has not arrived yet.
+ *
+ * The decision below is correct in isolation - with no evidence that the session
+ * is parked, an authoritative roster that does not list it means a corpse. What
+ * was wrong was ASKING at that moment, because the answer is destructive and the
+ * second pass cannot undo it: the pane has already left `prev`, and the only
+ * re-add path is built from the roster, where a dormant session never appears.
+ *
+ * So this test pins the shape of the trap rather than a changed verdict: the
+ * same id flips from pruned to kept purely because the dormant set arrived. The
+ * caller is what must wait, and it does (`dormantLoadedRef`).
+ */
+test('una parcheggiata non ancora nota viene potata: per questo il chiamante aspetta', () => {
+  const roster = new Set(['live-1']);
+  const seen = new Set<string>();
+  // The dormant list is still in flight.
+  expect(shouldKeepRestoredTerminalPane('parked-1', roster, seen, true, new Set())).toBe(false);
+  // The same instant, with the answer in hand.
+  expect(shouldKeepRestoredTerminalPane('parked-1', roster, seen, true, new Set(['parked-1']))).toBe(true);
+});

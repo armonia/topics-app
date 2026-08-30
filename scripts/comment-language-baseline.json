@@ -194,7 +194,7 @@
     "client/src/components/Layout/hooks/useProjectChatSync.ts": 8,
     "client/src/components/Layout/hooks/useProjectFileOpen.ts": 26,
     "client/src/components/Layout/hooks/useProjectLayout.ts": 38,
-    "client/src/components/Layout/hooks/useProjectTerminalSync.ts": 42,
+    "client/src/components/Layout/hooks/useProjectTerminalSync.ts": 40,
     "client/src/components/Layout/soloCellTombstones.ts": 1,
     "client/src/components/Layout/spaceHelpers.test.ts": 6,
     "client/src/components/Layout/spaceHelpers.ts": 76,

@@ -99,7 +99,12 @@ webview2-com = "0.38"
 # happens to enable it: cargo unifies features, so the build would compile
 # either way, and a call that depends on somebody else's feature list breaks the
 # day they drop it.
-windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
+# `Win32_Graphics_Gdi` is here for ONE thing: asking the window whether it
+# actually painted, before paying for the repaint remedy (see
+# `src/windows_repaint.rs`). PrintWindow + GetDIBits is the only signal that
+# distinguishes "came back blank" from "came back fine" — every API-level check
+# reports healthy in both cases.
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Storage_Xps", "Win32_System_Com", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
 
 # Linux e i BSD: stessa storia, ma con WebKitGTK. `cairo-rs` arriva gia da gtk,
 # qui si aggiunge solo la feature `png`, che serve a `write_to_png` per lo
