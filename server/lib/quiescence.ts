@@ -198,6 +198,62 @@ export function quiescenceVerdict(args: {
 }
 
 /**
+ * WHAT THE CAP IS FOR, now that it does not cut.
+ *
+ * `quiescenceVerdict` never returns "scaduto" for work that will not come back:
+ * a clock must not kill it, and that invariant was paid for on 2026-08-28 with
+ * a chat left holding "turn interrupted by a server restart". The consequence
+ * is that the wait has no end of its own, and that is CORRECT — but it left the
+ * long cap doing nothing at all except changing a log line.
+ *
+ * Measured on 2026-08-30: a restart was deferred for 4599 seconds, 102 log
+ * lines, because one chat held a `bash` tool that had started a server in the
+ * FOREGROUND and would never return. Nothing was broken; nothing could ever
+ * finish either. The one person who could end it in five seconds had no way to
+ * know, because the only trace was a line in a file nobody tails.
+ *
+ * So past the cap the gate stops being silent and ASKS. It still does not cut:
+ * it says who is holding the restart and lets the person decide. Once per wait,
+ * because a decision repeated every minute is noise, not information.
+ *
+ * A time cap on the tool itself was measured and rejected: over 10.887 real
+ * tool calls (14 days) the median is 1,6 s and p99.9 is 10,8 minutes, but the
+ * longest — 80 minutes — is a genuine `bun run typecheck`, with `test:unit` at
+ * 26 and a client build at 20. Half way through, an 80-minute typecheck and a
+ * foreground server are indistinguishable, so any cap that catches the second
+ * kills the first. Asking a person costs nothing and cannot be wrong.
+ */
+export interface ReloadHeldNotice {
+  title: string;
+  body: string;
+  dedupeKey: string;
+}
+
+export function reloadHeldNotice(args: {
+  /** How long this wait has been going. */
+  waitedMs: number;
+  /** The long cap: past it the wait has no end of its own. */
+  capMs: number;
+  /** What is holding, already worded by `describeInFlight`. */
+  busy: string;
+  /** Readable name of the holding chat, when it is known. */
+  holderName?: string | null;
+  /** Identifies THIS wait, so the next one may speak again. */
+  waitId: string;
+}): ReloadHeldNotice | null {
+  if (args.waitedMs < args.capMs) return null;
+  const min = Math.round(args.waitedMs / 60_000);
+  const chi = args.holderName?.trim() ? `«${args.holderName.trim()}»` : args.busy;
+  return {
+    title: "Un riavvio del server sta aspettando",
+    body:
+      `${chi} ha un turno in corso da ${min} minuti, e il riavvio non taglia un turno che non tornerebbe. `
+      + "Se e' piantato, fermalo dalla chat: il riavvio parte da solo subito dopo.",
+    dedupeKey: `reload-held:${args.waitId}`,
+  };
+}
+
+/**
  * Una frase che dice che cosa trattiene il riavvio, o `null` se niente.
  *
  * `null` è l'unica risposta che autorizza il riavvio: chi chiama non deve

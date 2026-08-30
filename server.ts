@@ -34,7 +34,7 @@ import { setLocalFileServing } from "./server/browser-local-file-url";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
-import { describeInFlight, unadoptableStreams, quiescenceVerdict } from "./server/lib/quiescence";
+import { describeInFlight, unadoptableStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
 import { chatsParkedOnQuestion } from "./server/lib/parked-asks";
 import { touchReloadDeferred, clearReloadDeferred } from "./server/lib/reload-deferred";
 import { sondaPorta, messaggioEsito, sondaRealeDeps } from "./server/lib/port-squatter";
@@ -131,6 +131,7 @@ import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
 import { createDeliveryCapture, type DeliveryCapture } from "./server/services/task-delivery-capture";
 import { createPushRouter } from "./server/routes/push";
 import { createNotificationsRouter } from "./server/routes/notifications";
+import { recordAndAnnounce } from "./server/notification-registry";
 import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } from "./server/routes/ui-state";
 import { createProvidersRouter } from "./server/routes/providers";
 import { createAppSettingsRouter } from "./server/routes/app-settings";
@@ -5139,7 +5140,7 @@ let askProbeCache: { at: number; parked: string[] } = { at: 0, parked: [] };
  * adottati che vivono solo nel broker. Le prime due sono gratis e si guardano a
  * ogni giro; la terza si paga, e si guarda ogni QUIESCENCE_BROKER_PROBE_MS.
  */
-async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; parkedAsks: number }> {
+async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; parkedAsks: number; holder: string | null }> {
   const cards = taskDispatcher.busyCount();
   const streamKeys = [...activeStreams.keys()];
   // La sonda del broker si paga, e si paga solo quando serve: se una fonte più
@@ -5163,7 +5164,12 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
   // La risposta è già sulla voce dello stream (`survivesRestart`, decisa quando
   // il turno è nato): qui si conta e basta, senza toccare il DB né il registro
   // dei provider — questo giro batte due volte al secondo.
-  const unadoptable = unadoptableStreams(activeStreams.values()).length;
+  // CHI trattiene, non solo QUANTI. Serve per nominare la chat nella notifica
+  // che il cancello manda oltre il tetto: un avviso che dice «una chat» manda a
+  // cercare, uno che dice quale porta dove si decide (il click apre il topic).
+  // Le non riadottabili per prime: sono quelle il cui lavoro non torna.
+  const unadoptableKeys = unadoptableStreams(activeStreams.values());
+  const unadoptable = unadoptableKeys.length;
   // THE FOURTH SOURCE: whoever is waiting for a PERSON. The three above answer
   // "who is WORKING", and a chat parked on a question is not working, so it
   // held nothing and the restart cut it (why it deserves the deferral most:
@@ -5184,6 +5190,12 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
     cards,
     unadoptable,
     parkedAsks: parked.length,
+    // STESSA PRIORITA' di `describeInFlight`, o la notifica nomina un soggetto
+    // che non e' quello che trattiene: quando a trattenere e' una card la frase
+    // parla di card, e qui non c'e' un topic da nominare — meglio `null` e il
+    // ripiego su `busy` che il nome della prima chat che passa. Fra gli stream
+    // vince la NON riadottabile: e' quella il cui lavoro non torna.
+    holder: cards > 0 ? null : (unadoptableKeys[0] ?? streamKeys[0] ?? brokerOpen[0] ?? parked[0] ?? null),
   };
 }
 
@@ -5221,8 +5233,12 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
   const inizio = Date.now();
   let logged = false;
   let ultimoRinvioLoggatoS = -60;
+  // Una sola chiamata per attesa: oltre il tetto il cancello avvisa una persona
+  // invece di tagliare (vedi `reloadHeldNotice`). Ripeterlo ogni minuto sarebbe
+  // rumore, e il log gia' lo fa per chi lo legge.
+  let avvisato = false;
   for (;;) {
-    const { busy, cards, unadoptable, parkedAsks } = await whatIsStillWorking();
+    const { busy, cards, unadoptable, parkedAsks, holder } = await whatIsStillWorking();
     if (!busy) break;
     // La REGOLA sta in `lib/quiescence.ts`, pura e provata: qui si applica.
     // Viveva dentro questo loop, e li' dentro nessun test poteva raggiungerla
@@ -5270,9 +5286,21 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
     // minuti ballano tre punti di turni salvati contro 1,3 minuti di attesa in
     // piu', una differenza che non vale un secondo numero da tenere allineato
     // a mano (e' la stessa ragione per cui `start-prod.sh` deriva la sua
-    // finestra da qui invece di riscriverla). Chi sfonda anche quello (10 su
-    // 94) prende comunque il cartello, che e' il punto di tutto il resto di
-    // questo lavoro: un turno tagliato ora lo DICE.
+    // finestra da qui invece di riscriverla).
+    //
+    // E CHI SFONDA ANCHE QUELLO NON VIENE TAGLIATO. Qui c'era scritto che
+    // «prende comunque il cartello», e non e' vero: per un turno che non torna
+    // `quiescenceVerdict` non restituisce MAI "scaduto" — e' l'invariante del
+    // 28/08, con un test che la fissa fino a `CAP * 10_000`. Il commento
+    // sbagliato e' costato un'ora di indagine il 30/08, quando il codice
+    // sembrava rotto perche' contraddiceva la riga sopra di se'.
+    //
+    // Quello che il tetto fa davvero, adesso: smette di tacere. Oltre la
+    // scadenza il cancello manda UNA notifica che nomina la chat che trattiene
+    // (`reloadHeldNotice`), e la decisione resta a una persona. Il 30/08 un
+    // riavvio e' rimasto in attesa 4599 secondi con la sola traccia in un log
+    // che nessuno guardava; saputolo, l'utente l'ha sbloccato in cinque
+    // secondi. Un'attesa senza fine e' accettabile, un'attesa MUTA no.
     //
     // La scadenza NON si rinnova più a ogni giro: si sceglie fra due tetti
     // fissi, calcolati all'inizio dell'attesa (vedi in cima alla funzione). Il
@@ -5288,6 +5316,38 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
       // nostro; e nel log, una riga al minuto, perche' un riavvio che non
       // arriva senza spiegazione e' peggio di uno che taglia.
       touchReloadDeferred();
+      // OLTRE IL TETTO SI CHIAMA UNA PERSONA. Non si taglia — l'invariante
+      // «un orologio non uccide lavoro che non torna» resta intera — ma
+      // nemmeno si tace: il 30/08 un riavvio e' rimasto in attesa 4599s con la
+      // sola traccia in un file che nessuno guardava, e l'utente l'ha sbloccato
+      // in cinque secondi appena l'ha saputo. Best-effort: un registro che non
+      // scrive non deve fermare l'attesa.
+      if (!avvisato) {
+        const avviso = reloadHeldNotice({
+          waitedMs: Date.now() - inizio,
+          capMs,
+          busy,
+          holderName: holder ? (ctx.getTopicBySessionKey(holder)?.name ?? null) : null,
+          waitId: `${label}:${inizio}`,
+        });
+        if (avviso) {
+          avvisato = true;
+          try {
+            const topicId = holder ? (ctx.getTopicBySessionKey(holder)?.id ?? null) : null;
+            recordAndAnnounce({
+              kind: "session",
+              title: avviso.title,
+              body: avviso.body,
+              targetKind: topicId ? "topic" : null,
+              targetId: topicId,
+              dedupeKey: avviso.dedupeKey,
+              source: "push",
+            });
+          } catch (err) {
+            console.warn("[quiescence] avviso di riavvio trattenuto non registrato:", err);
+          }
+        }
+      }
       const attesaS = Math.round((Date.now() - inizio) / 1000);
       if (attesaS - ultimoRinvioLoggatoS >= 60) {
         ultimoRinvioLoggatoS = attesaS;

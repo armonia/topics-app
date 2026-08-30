@@ -9,7 +9,7 @@
  * @covers HOLD-05
  */
 import { test, expect, describe } from "bun:test";
-import { describeInFlight, unadoptableStreams, providerSurvivesRestart, quiescenceVerdict } from "./quiescence";
+import { describeInFlight, unadoptableStreams, providerSurvivesRestart, quiescenceVerdict, reloadHeldNotice } from "./quiescence";
 
 const nothing = { cards: 0, streamKeys: [], brokerOpenKeys: [] };
 
@@ -375,4 +375,47 @@ describe("il cancello, in tempo reale", () => {
     expect(uscita).toBe("tagliato");
     expect(Date.now() - inizio).toBeGreaterThanOrEqual(CHAT);
   }, 15_000);
+});
+
+/**
+ * THE CAP CALLS A PERSON, instead of cutting.
+ *
+ * `quiescenceVerdict` never returns "scaduto" for work that will not come back,
+ * and that invariant stands. Its price is a wait with no end of its own: on
+ * 2026-08-30 a restart was deferred for 4599 seconds across 102 log lines, held
+ * by a chat whose `bash` had started a server in the foreground. Nobody knew
+ * until someone read the file.
+ */
+describe("reloadHeldNotice — oltre il tetto il cancello parla", () => {
+  const CAP = 25 * 60_000;
+  const base = { capMs: CAP, busy: "1 chat in streaming (topic:0299ac2d)", waitId: "w1" };
+
+  test("prima del tetto non dice niente: l attesa e ancora normale", () => {
+    expect(reloadHeldNotice({ ...base, waitedMs: 0 })).toBeNull();
+    expect(reloadHeldNotice({ ...base, waitedMs: CAP - 1 })).toBeNull();
+  });
+
+  test("AL tetto avvisa, e dice da quanto", () => {
+    const n = reloadHeldNotice({ ...base, waitedMs: CAP });
+    expect(n).not.toBeNull();
+    expect(n!.body).toContain("25 minuti");
+  });
+
+  test("nomina la chat quando il nome si conosce, altrimenti ripiega su cosa trattiene", () => {
+    const conNome = reloadHeldNotice({ ...base, waitedMs: CAP, holderName: "Rotating Image Gallery" });
+    expect(conNome!.body).toContain("«Rotating Image Gallery»");
+    const senza = reloadHeldNotice({ ...base, waitedMs: CAP, holderName: "   " });
+    expect(senza!.body).toContain("topic:0299ac2d");
+  });
+
+  test("la chiave del dedup distingue DUE attese: la prossima puo avvisare di nuovo", () => {
+    const a = reloadHeldNotice({ ...base, waitedMs: CAP })!;
+    const b = reloadHeldNotice({ ...base, waitId: "w2", waitedMs: CAP })!;
+    expect(a.dedupeKey).not.toBe(b.dedupeKey);
+  });
+
+  test("non promette un taglio: dice che il riavvio NON taglia", () => {
+    const n = reloadHeldNotice({ ...base, waitedMs: CAP * 4 })!;
+    expect(n.body).toContain("non taglia");
+  });
 });
