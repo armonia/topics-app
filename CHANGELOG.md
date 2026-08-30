@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.250 — 2026-08-30
+
+### Sotto il cofano
+- La sidebar era l'unica superficie a restare senza velo: perdeva contro un !important
+
 ## 2.2.249 — 2026-08-30
 
 ### Sotto il cofano

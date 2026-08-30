@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.250",
+    "date": "2026-08-30",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La sidebar era l'unica superficie a restare senza velo: perdeva contro un !important",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.249",
     "date": "2026-08-30",
     "sections": {
