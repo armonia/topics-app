@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AUTO_SHARE_CONFIRMATIONS, computeAutoShared, stepAutoShare, type AutoShareState } from '../lib/sharedAuto';
+import { computeAutoShared, stepAutoShare, type AutoShareState } from '../lib/sharedAuto';
 
 /** How often the viewer count is sampled. The confirmation below is counted in
  *  SAMPLES, so this number and the guard can never disagree the way a 1200ms
@@ -95,4 +95,3 @@ export function useSharedViewerCount(contextId: string, enabled: boolean, isVisi
   return enabled && decided.ctx === contextId ? decided.shared : false;
 }
 
-export { AUTO_SHARE_CONFIRMATIONS };
