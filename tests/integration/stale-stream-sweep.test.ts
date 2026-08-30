@@ -50,11 +50,22 @@ function harness(opts?: {
 }): Harness {
   const clock = { t: Date.UTC(2026, 7, 15, 12, 0, 0) };
   const silent = opts?.silentMs ?? 7 * MIN;
-  const rows = new Map<string, { content: string; partial: boolean; tool_calls?: string }>([
+  // THE SHAPE IS `rowToMessage`'s (server/utils.ts:574-641), not the raw SQLite
+  // row's: in production `getMessageById` hydrates the row and writes
+  // `toolCalls` in camelCase. A fake handing back `tool_calls` kept green a
+  // branch the product never took.
+  const rows = new Map<string, { content: string; partial: boolean; toolCalls?: unknown; blocks?: unknown }>([
     [MSG, {
       content: opts?.content ?? "",
       partial: true,
-      ...(opts?.toolRunning ? { tool_calls: '[{"id":"t1","name":"bash","status":"running"}]' } : {}),
+      ...(opts?.toolRunning
+        ? {
+            toolCalls: [{ id: "t1", name: "bash", status: "running" }],
+            // The client renders tool state from the BLOCKS when they exist,
+            // and the shape there is nested: `{kind:'tool', toolCall:{status}}`.
+            blocks: [{ kind: "tool", toolCall: { id: "t1", name: "bash", status: "running" } }],
+          }
+        : {}),
     }],
   ]);
   const warnings: string[] = [];
@@ -86,7 +97,12 @@ function harness(opts?: {
     // ciò che rendeva illeggibile il numero nel messaggio di log.
     updateStreamActivity: (sk) => {
       const s = activeStreams.get(sk);
-      if (s) s.lastActivity = new Date(clock.t).toISOString();
+      // `+1`: the real bump (server/utils.ts:1657-1663) stamps `new Date()`
+      // WHEN it is called, i.e. after the `now` the tick captured at its top.
+      // Stamping exactly `now` was the one value for which the "the turn
+      // started talking again" comparison did not fire: the test lived in a
+      // pose production never takes.
+      if (s) s.lastActivity = new Date(clock.t + 1).toISOString();
     },
     getTopicId: () => "topic-1",
     // Come il vero `ctx.endStream`: chiude i tool rimasti 'running' E toglie la

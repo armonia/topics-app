@@ -58,7 +58,13 @@ export interface StaleStreamSweepDeps {
   rescued: Set<string>;
   /** Da quando ciascuno tace davvero (vedi `SilenceMark`). */
   silence: Map<string, SilenceMark>;
-  getMessageById: (id: string) => { content?: unknown; partial?: boolean; tool_calls?: unknown } | null | undefined;
+  /** The HYDRATED row, not the raw one: in production this is
+   *  `ctx.getMessageById` (server/utils.ts:2163), which goes through
+   *  `rowToMessage` and therefore hands over `toolCalls` in camelCase — never
+   *  `tool_calls`. The type spells it out because the wrong key here is not a
+   *  compile error: it is `undefined` at runtime, and an `undefined` makes a
+   *  working turn look idle. */
+  getMessageById: (id: string) => { content?: unknown; partial?: boolean; toolCalls?: unknown; blocks?: unknown } | null | undefined;
   /** L'età di un pannello aperto sull'umano (domanda o permesso), o `null`. */
   humanHoldAgeMs: (sessionKey: string) => number | null;
   /** `undefined` = il provider non sa rispondere, che qui vale «morto». */
@@ -104,12 +110,43 @@ function hasRunningTool(raw: unknown): boolean {
     const list = typeof raw === "string" ? JSON.parse(raw) : raw;
     if (!Array.isArray(list)) return true;
     return list.some((t) => {
-      const st = (t as { status?: unknown } | null)?.status;
+      const entry = t as { status?: unknown; toolCall?: { status?: unknown } } | null;
+      // Two shapes, one rule: a `tool_calls` entry carries the status at the
+      // top, a timeline block nests it (`{kind:'tool', toolCall}`).
+      const st = entry?.status ?? entry?.toolCall?.status;
       return st === "running" || st === "pending";
     });
   } catch {
     return true;
   }
+}
+
+/**
+ * Push the stream's clock forward and record WHERE it actually landed.
+ *
+ * Reading the stamp back is the only way to tell "the turn started talking
+ * again" from "I moved it myself". `now` is captured ONCE at the top of the
+ * tick, while `updateStreamActivity` stamps `new Date()` when it is called —
+ * a few milliseconds later. Recording `now` as `bumpedTo` therefore made
+ * `lastActivity > bumpedTo` true on EVERY following tick: the silence mark was
+ * dropped as if the turn had resumed, and `trueSilenceMs` fell back to the
+ * distance between two ticks every time.
+ *
+ * What that cost: the `frozen` cap (ten minutes) was unreachable for EVERY
+ * stream, with or without a running tool — so the 2026-08-28 cure could never
+ * fire at all. Its signature in the log is the "silent for N min" number nailed
+ * to the same value for dozens of consecutive lines instead of growing.
+ */
+function bumpAndMark(
+  deps: StaleStreamSweepDeps,
+  sessionKey: string,
+  stream: SweepableStream,
+  since: number,
+  fallback: number,
+): void {
+  deps.updateStreamActivity(sessionKey);
+  const stamped = new Date(stream.lastActivity).getTime();
+  deps.silence.set(sessionKey, { since, bumpedTo: Number.isFinite(stamped) ? stamped : fallback });
 }
 
 export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, SweepOutcome> {
@@ -206,7 +243,11 @@ export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, Sweep
       trueSilenceMs: now - silenceSince,
       timeoutMs: deps.timeoutMs,
       childAlive: deps.childAlive(sessionKey),
-      toolRunning: hasRunningTool(partial.tool_calls),
+      // BOTH columns. `tool_calls` is the list, `blocks` the timeline the
+      // client renders when present: tool state lives in each of them, and
+      // reading only one leaves half the product uncovered. Same reason
+      // `finalizeOrphanedRunningTools` finalizes the two together.
+      toolRunning: hasRunningTool(partial.toolCalls) || hasRunningTool(partial.blocks),
       alreadyResynced: deps.rescued.has(sessionKey),
     });
     if (verdict === "ok") continue;
@@ -216,8 +257,7 @@ export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, Sweep
       deps.resyncStream(sessionKey);
       // Push lastActivity forward so the rescue gets a full round to land;
       // real output re-bumps it and the stream leaves this path entirely.
-      deps.updateStreamActivity(sessionKey);
-      deps.silence.set(sessionKey, { since: silenceSince, bumpedTo: now });
+      bumpAndMark(deps, sessionKey, stream, silenceSince, now);
       outcomes.set(sessionKey, "rescued");
       continue;
     }
@@ -227,8 +267,7 @@ export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, Sweep
       // quiet child is pure noise, so this leg only bumps the clock.
       // Il numero è il silenzio VERO, non la distanza dall'ultima proroga.
       deps.warn(`[StaleStream] ${sessionKey} silent for ${Math.round((now - silenceSince) / 60_000)} min but its child is ALIVE: extending (a live turn is never killed by a clock)`);
-      deps.updateStreamActivity(sessionKey);
-      deps.silence.set(sessionKey, { since: silenceSince, bumpedTo: now });
+      bumpAndMark(deps, sessionKey, stream, silenceSince, now);
       outcomes.set(sessionKey, "extended");
       continue;
     }
