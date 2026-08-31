@@ -39,14 +39,32 @@ for (const [nome, platform] of [["Mac", "MacIntel"], ["non-Mac", "Linux x86_64"]
       if (!b) return null;
       const r = b.getBoundingClientRect();
       const group = b.parentElement!.getBoundingClientRect();
-      const elementOnTop = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-      return { sporge: Math.round(r.right - group.right), riceveIlClick: b.contains(elementOnTop) };
+      const elementOnTop = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) as HTMLElement | null;
+      // WHO is on top, not just whether somebody is. The identical defect in
+      // August was solved the moment Playwright named the culprit
+      // (`div.cursor-col-resize` intercepts pointer events); a boolean sends
+      // whoever reads the red back to guessing, and the guess costs a CI round
+      // trip each time. The rect comes too: a covering element that is nowhere
+      // near the bell means the layout had not settled, which is a different
+      // defect from one that overlaps by construction.
+      const on = elementOnTop?.getBoundingClientRect();
+      return {
+        sporge: Math.round(r.right - group.right),
+        riceveIlClick: b.contains(elementOnTop),
+        bell: [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)],
+        chiCopre: elementOnTop
+          ? `${elementOnTop.tagName.toLowerCase()}${elementOnTop.getAttribute('data-testid') ? `[${elementOnTop.getAttribute('data-testid')}]` : ''}.${(elementOnTop.getAttribute('class') || '').slice(0, 80)} @${on ? [Math.round(on.left), Math.round(on.top), Math.round(on.right), Math.round(on.bottom)].join(',') : '?'}`
+          : 'nessuno (elementFromPoint ha risposto null)',
+      };
     });
     expect(misura, "the bell must exist in the row").not.toBeNull();
 
     // The click reaches the button and not what sits on top of it: that is the
     // property that matters, and the only one a user would notice.
-    expect(misura!.riceveIlClick, "something covers the bell").toBe(true);
+    expect(
+      misura!.riceveIlClick,
+      `something covers the bell — on top: ${misura!.chiCopre}; bell @${misura!.bell.join(",")}`,
+    ).toBe(true);
     // And it does not stick out of the group holding it: that is the CAUSE, and
     // measuring it fails the test where the defect starts, not where it shows.
     expect(misura!.sporge, "the bell sticks out of its group").toBeLessThanOrEqual(0);
