@@ -177,7 +177,7 @@ function pairRows(db: Db, me: string, other: string): PairRow[] {
  * would be three instants and the counts would disagree with the lists
  * underneath them for as long as somebody was looking.
  */
-export function relazioni(db: Db, me: string): FriendshipEdge[] {
+export function relations(db: Db, me: string): FriendshipEdge[] {
   if (!me) return [];
   let rows: PairRow[];
   try {
@@ -216,7 +216,7 @@ export function relazioni(db: Db, me: string): FriendshipEdge[] {
 
 /** Where I stand with one person. `none` for a stranger, for myself, and on a
  *  database that cannot answer. */
-export function stato(db: Db, me: string, other: string): FriendshipState {
+export function state(db: Db, me: string, other: string): FriendshipState {
   if (!me || !other || me === other) return "none";
   try {
     return strongest(pairRows(db, me, other))?.state ?? "none";
@@ -227,13 +227,13 @@ export function stato(db: Db, me: string, other: string): FriendshipState {
 
 /** The people I am actually friends with. This is the list that widens the
  *  reachable set, so it contains accepted relations and nothing else. */
-export function amici(db: Db, me: string): string[] {
-  return relazioni(db, me).filter((e) => e.state === "friends").map((e) => e.personId);
+export function friends(db: Db, me: string): string[] {
+  return relations(db, me).filter((e) => e.state === "friends").map((e) => e.personId);
 }
 
 /** Requests waiting for MY answer, newest first. */
-export function inArrivo(db: Db, me: string): Array<{ id: string; since: number }> {
-  return relazioni(db, me).filter((e) => e.state === "pending_in")
+export function incoming(db: Db, me: string): Array<{ id: string; since: number }> {
+  return relations(db, me).filter((e) => e.state === "pending_in")
     .map((e) => ({ id: e.personId, since: e.since }));
 }
 
@@ -246,14 +246,14 @@ export function inArrivo(db: Db, me: string): Array<{ id: string; since: number 
  * refused. The state on the profile says the same non-committal thing a
  * pending one does; only this server knows the difference.
  */
-export function inUscita(db: Db, me: string): Array<{ id: string; since: number }> {
-  return relazioni(db, me).filter((e) => e.state === "pending_out")
+export function outgoing(db: Db, me: string): Array<{ id: string; since: number }> {
+  return relations(db, me).filter((e) => e.state === "pending_out")
     .map((e) => ({ id: e.personId, since: e.since }));
 }
 
 /** Whatever holds now, with no refusal attached. */
 const settled = (db: Db, me: string, other: string): FriendshipOutcome =>
-  ({ state: stato(db, me, other), refused: null });
+  ({ state: state(db, me, other), refused: null });
 
 /**
  * NO SELF-FRIENDSHIP, and the rule lives here with its message rather than in
@@ -285,7 +285,7 @@ const NOT_YOURSELF = { status: 400, message: "cannot befriend yourself" };
  * an unfriend later leaves both of them free to ask again instead of
  * resurrecting a refusal they had both moved past.
  */
-export function richiedi(db: Db, me: string, other: string, now = Date.now()): FriendshipOutcome {
+export function request(db: Db, me: string, other: string, now = Date.now()): FriendshipOutcome {
   if (!me || !other || me === other) return { state: "none", refused: NOT_YOURSELF };
   try {
     const rows = pairRows(db, me, other);
@@ -325,14 +325,14 @@ export function richiedi(db: Db, me: string, other: string, now = Date.now()): F
  * produce an error, and one that invents a request should not silently
  * succeed.
  */
-export function accetta(db: Db, me: string, other: string, now = Date.now()): FriendshipOutcome {
+export function accept(db: Db, me: string, other: string, now = Date.now()): FriendshipOutcome {
   if (!me || !other || me === other) return { state: "none", refused: NOT_YOURSELF };
   try {
     const rows = pairRows(db, me, other);
     if (rows.some((r) => r.st === "accepted")) return settled(db, me, other);
     const theirs = rows.find((r) => r.mine === 0);
     if (theirs?.st !== "pending") {
-      return { state: stato(db, me, other), refused: { status: 409, message: "no pending friend request from that person" } };
+      return { state: state(db, me, other), refused: { status: 409, message: "no pending friend request from that person" } };
     }
     db.query("UPDATE friendships SET state = 'accepted', decided_at = ? WHERE requester_id = ? AND addressee_id = ?")
       .run(now, other, me);
@@ -356,13 +356,13 @@ export function accetta(db: Db, me: string, other: string, now = Date.now()): Fr
  * to draw `declined_out` exactly like a request still pending. The asymmetry
  * is the point: only one of the two states lets you ask again.
  */
-export function rifiuta(db: Db, me: string, other: string, now = Date.now()): FriendshipOutcome {
+export function decline(db: Db, me: string, other: string, now = Date.now()): FriendshipOutcome {
   if (!me || !other || me === other) return { state: "none", refused: NOT_YOURSELF };
   try {
     const theirs = pairRows(db, me, other).find((r) => r.mine === 0);
     if (theirs?.st === "declined") return settled(db, me, other);
     if (theirs?.st !== "pending") {
-      return { state: stato(db, me, other), refused: { status: 409, message: "no pending friend request from that person" } };
+      return { state: state(db, me, other), refused: { status: 409, message: "no pending friend request from that person" } };
     }
     db.query("UPDATE friendships SET state = 'declined', decided_at = ? WHERE requester_id = ? AND addressee_id = ?")
       .run(now, other, me);
@@ -388,7 +388,7 @@ export function rifiuta(db: Db, me: string, other: string, now = Date.now()): Fr
  * same call `unfollow` makes, and a caller cancelling twice is a caller whose
  * screen was one poll behind.
  */
-export function annulla(db: Db, me: string, other: string): FriendshipOutcome {
+export function cancel(db: Db, me: string, other: string): FriendshipOutcome {
   if (!me || !other || me === other) return { state: "none", refused: null };
   try {
     db.query(`

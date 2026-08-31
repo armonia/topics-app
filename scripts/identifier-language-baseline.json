@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-08-30",
+  "generated": "2026-08-31",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -520,7 +520,6 @@
     "client/src/components/Layout/hooks/projectPersistence.ts": [
       "hsum",
       "lraw",
-      "primaries",
       "unsubscribeFromProjectLayout"
     ],
     "client/src/components/Layout/hooks/standaloneTypes.ts": [
@@ -913,7 +912,6 @@
       "Ferro",
       "MAX_FACCE",
       "MAX_FACCE_ORG",
-      "OrgConPresenza",
       "RigaAmici",
       "RigaIo",
       "Voce",
@@ -923,7 +921,6 @@
       "oltre",
       "presenti",
       "presenza",
-      "primo",
       "vivi"
     ],
     "client/src/components/Sidebar/MobileChromeBar.tsx": [
@@ -946,13 +943,8 @@
       "clickable"
     ],
     "client/src/components/Sidebar/PerfSection.tsx": [
-      "FpsSample",
       "FpsSparkline",
-      "PerfSection",
       "PerfStat",
-      "fps",
-      "fpsColor",
-      "perf",
       "scelta",
       "vociPeso",
       "vociTrattenuteVisibili"
@@ -978,19 +970,14 @@
     ],
     "client/src/components/Sidebar/SidebarStatusBar.tsx": [
       "fmtMB",
-      "fps",
-      "gatewayOnline",
       "hmrWs",
-      "perf",
       "vociPeso"
     ],
     "client/src/components/Sidebar/SidebarSystemMenu.tsx": [
-      "VOCE",
-      "vivo"
+      "VOCE"
     ],
     "client/src/components/Sidebar/SystemStatusPanel.tsx": [
-      "formatUptime",
-      "gatewayOnline"
+      "formatUptime"
     ],
     "client/src/components/Sidebar/TopicTree.tsx": [
       "LucideIcon",
@@ -1038,26 +1025,20 @@
     "client/src/components/Sidebar/orgPresence.test.ts": [
       "ADESSO",
       "accesa",
-      "facce",
       "membri",
       "righe",
       "spenta",
       "tanto"
     ],
     "client/src/components/Sidebar/orgPresence.ts": [
-      "FacciaPresenza",
       "MembroPresenza",
       "PRESENZA_MS",
-      "RigaPresenza",
       "RigaRubrica",
       "facceOnline",
       "gentePresenza",
       "gia",
       "gruppo",
-      "online",
       "presentiOra",
-      "unisciFacce",
-      "unisciGente",
       "visti"
     ],
     "client/src/components/Sidebar/pinnedLayout.test.ts": [
@@ -1294,19 +1275,10 @@
       "vResizing"
     ],
     "client/src/hooks/useIdentityPresence.ts": [
-      "FacciaPresenza",
-      "INTERVALLO_MS",
       "MembroPresenza",
-      "OrgConPresenza",
-      "RigaPresenza",
-      "VUOTO",
       "adesso",
-      "leggi",
       "membri",
-      "mioId",
-      "ogni",
-      "primo",
-      "vivo"
+      "mioId"
     ],
     "client/src/hooks/useKeyboardShortcuts.ts": [
       "evt"
@@ -1336,9 +1308,7 @@
       "usePanelLifecycle"
     ],
     "client/src/hooks/usePerfMetrics.ts": [
-      "PerfMetrics",
-      "TAURI_GPU",
-      "usePerfMetrics"
+      "TAURI_GPU"
     ],
     "client/src/hooks/usePresenceSummary.ts": [
       "INTERVALLO_MS",
@@ -1504,7 +1474,6 @@
       "NOMI",
       "OFFLINE_THRESHOLD_MS",
       "clearOfflineTimer",
-      "handleOnline",
       "offlineTimerRef",
       "perdiIlFilo",
       "persa",
@@ -1769,13 +1738,7 @@
       "rafSeq"
     ],
     "client/src/lib/fpsMonitor.ts": [
-      "FpsSample",
-      "getFps",
-      "getFpsHistory",
-      "rafId",
-      "useFps",
-      "useFpsActive",
-      "useFpsHistory"
+      "rafId"
     ],
     "client/src/lib/fuzzyScore.test.ts": [
       "consecutivi",
@@ -6634,8 +6597,6 @@
       "href"
     ],
     "tests/e2e/browser-ws-streaming.spec.ts": [
-      "PERF",
-      "PERF_PATH",
       "bandwidthKbps",
       "screenshotImg"
     ],
@@ -6898,8 +6859,7 @@
       "nuovo"
     ],
     "tests/e2e/fixtures/browser-v2.fixture.ts": [
-      "FakeRTCPeerConnection",
-      "fps"
+      "FakeRTCPeerConnection"
     ],
     "tests/e2e/fixtures/dashboard.fixture.ts": [
       "MOCK_TIMESERIES"
@@ -7245,7 +7205,6 @@
       "verdetto"
     ],
     "tests/e2e/performance.spec.ts": [
-      "perfTopics",
       "sel",
       "testid"
     ],
@@ -8047,8 +8006,7 @@
     "tests/integration/machines.test.ts": [
       "flipped",
       "renResp",
-      "renUrl",
-      "stillOnline"
+      "renUrl"
     ],
     "tests/integration/master-sessions.test.ts": [
       "arr",

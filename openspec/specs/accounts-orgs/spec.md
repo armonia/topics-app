@@ -159,6 +159,33 @@ essere riuscita.
 - **GIVEN** un database privo di quelle colonne
 - **THEN** SHALL valere i difetti, e l'indirizzo SHALL essere chiuso
 
+### Requirement: FRIEND-01 — L'amicizia è UNA riga e DUE situazioni, e un rifiuto deve significare qualcosa
+
+Accanto al seguito asimmetrico (FOLLOW-01) sta una seconda relazione, che si
+CHIEDE e si RISPONDE. Il grafo SHALL essere una riga sola per coppia, ma lo
+stato che le due parti vedono NON SHALL essere lo stesso: chi ha chiesto aspetta,
+chi è stato chiesto risponde. Un'implementazione che riportasse lo stesso stato a
+entrambi metterebbe il bottone «Accetta» davanti a chi la richiesta l'ha mandata,
+e passerebbe qualunque prova che guarda da un lato solo.
+
+**Un rifiuto SHALL sopravvivere alla riga.** Chi è stato rifiutato NON SHALL
+poter richiedere di nuovo; chi ha rifiutato SHALL poterlo fare. Cancellare la
+riga al rifiuto lascia verdi tutte le prove sui conteggi e riapre la porta a chi
+è stato appena mandato via.
+
+**Due persone che si chiedono a vicenda si stanno accordando**: la seconda
+richiesta SHALL atterrare come un'accettazione, mai come una seconda riga che
+nessuno risponderà.
+
+Il rifiuto NON SHALL essere detto a chi l'ha subito: l'interfaccia SHALL offrire
+a ogni stato almeno un gesto, esattamente UN gesto primario, e la risposta SHALL
+comparire solo dal lato che è stato chiesto. Ogni stato SHALL avere un
+identificativo di prova distinto, o un e2e può agganciare il bottone sbagliato.
+
+**Ogni funzione SHALL sopravvivere a un database SENZA la tabella**, che è ogni
+installazione che non ha ancora eseguito la migration: la degradazione si MISURA
+su uno schema costruito apposta, non si dichiara in un commento.
+
 ### Requirement: ACCOUNT-03 — La porta dell'account NON risponde MAI con un guasto del server
 
 NESSUN ramo di questa porta SHALL rispondere con un errore del server. Il modo in

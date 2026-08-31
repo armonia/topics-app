@@ -22,12 +22,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { peopleApi, type PersonWithProfile } from '@/lib/api';
 import {
-  facceOnline, unisciFacce, presentiOra, gentePresenza, unisciGente,
-  type FacciaPresenza, type MembroPresenza, type RigaPresenza,
+  facceOnline, mergeFaces, presentiOra, gentePresenza, mergePeople,
+  type PresenceFace, type MembroPresenza, type PresenceRow,
 } from '@/components/Sidebar/orgPresence';
 
 /** One organisation, with whoever is present inside it right now. */
-export interface OrgConPresenza {
+export interface OrgWithPresence {
   id: string;
   nome: string;
   logoUrl: string | null;
@@ -38,33 +38,33 @@ export interface OrgConPresenza {
   /** How many members it has in total (you included): the "2 of 7" denominator. */
   membri: number;
   /** The faces of whoever is online, already sorted. */
-  facce: FacciaPresenza[];
+  faces: PresenceFace[];
   /** EVERY member, present ones first: the list the dropdown opens onto. */
-  gente: RigaPresenza[];
+  people: PresenceRow[];
 }
 
 export interface PresenceIdentity {
   /** The organisations, the installation's own one first. */
-  orgs: OrgConPresenza[];
+  orgs: OrgWithPresence[];
   /** Who is online now, across all your organisations, with no repeats. */
-  amiciOnline: FacciaPresenza[];
+  amiciOnline: PresenceFace[];
   /** How many people you know in total, you excluded: the friends denominator. */
   amiciTotali: number;
   /** Everyone you know, present first: the list behind the friends dropdown. */
-  amiciTutti: RigaPresenza[];
+  amiciTutti: PresenceRow[];
   /** Me, from the address book: the face and the name on the first row. */
   io: PersonWithProfile | null;
   /** `false` until the first round trip is back, so the rows do not flicker. */
   pronto: boolean;
 }
 
-const VUOTO: PresenceIdentity = {
+const EMPTY: PresenceIdentity = {
   orgs: [], amiciOnline: [], amiciTotali: 0, amiciTutti: [], io: null, pronto: false,
 };
 
 /** Every minute: the online threshold is five, so recounting more often
  *  changes nothing and costs one fetch per organisation. */
-const INTERVALLO_MS = 60_000;
+const INTERVAL_MS = 60_000;
 
 interface OrgApi {
   id: string;
@@ -77,10 +77,10 @@ interface OrgApi {
  *  show them all anyway, and every extra org is one more fetch. */
 const MAX_ORG = 8;
 
-export function useIdentityPresence(enabled = true, intervalMs = INTERVALLO_MS): PresenceIdentity {
-  const [stato, setStato] = useState<PresenceIdentity>(VUOTO);
+export function useIdentityPresence(enabled = true, intervalMs = INTERVAL_MS): PresenceIdentity {
+  const [state, setStato] = useState<PresenceIdentity>(EMPTY);
 
-  const leggi = useCallback(async () => {
+  const read = useCallback(async () => {
     if (document.hidden) return;
     // The address book and the organisations in parallel: they are
     // independent, and in series the friends row would wait on the org row for
@@ -105,7 +105,7 @@ export function useIdentityPresence(enabled = true, intervalMs = INTERVALLO_MS):
 
     const adesso = Date.now();
     const mioId = io?.id ?? null;
-    const withMembers = await Promise.all(ordinate.map(async (o): Promise<OrgConPresenza> => {
+    const withMembers = await Promise.all(ordinate.map(async (o): Promise<OrgWithPresence> => {
       let membri: MembroPresenza[] = [];
       try {
         const r = await fetch(`/api/auth/orgs/${encodeURIComponent(o.id)}/members`, { credentials: 'same-origin' });
@@ -118,19 +118,19 @@ export function useIdentityPresence(enabled = true, intervalMs = INTERVALLO_MS):
         installazione: !!o.installation,
         online: presentiOra(membri, mioId, adesso),
         membri: membri.length,
-        facce: facceOnline(membri, rubrica, mioId, adesso),
-        gente: gentePresenza(membri, rubrica, mioId, adesso),
+        faces: facceOnline(membri, rubrica, mioId, adesso),
+        people: gentePresenza(membri, rubrica, mioId, adesso),
       };
     }));
 
     setStato({
       orgs: withMembers,
-      amiciOnline: unisciFacce(withMembers.map((o) => o.facce)),
+      amiciOnline: mergeFaces(withMembers.map((o) => o.faces)),
       // The address book IS the friends list (the people in your
       // organisations): it is the very same list the "Friends" page opens, so
       // the number here and the rows over there cannot diverge.
       amiciTotali: rubrica.filter((p) => !p.isMe).length,
-      amiciTutti: unisciGente(withMembers.map((o) => o.gente)),
+      amiciTutti: mergePeople(withMembers.map((o) => o.people)),
       io,
       pronto: true,
     });
@@ -138,13 +138,13 @@ export function useIdentityPresence(enabled = true, intervalMs = INTERVALLO_MS):
 
   useEffect(() => {
     if (!enabled) return;
-    let vivo = true;
-    const giro = () => { if (vivo) void leggi(); };
+    let alive = true;
+    const giro = () => { if (alive) void read(); };
     // After the first paint, not during it: at the bottom of the sidebar none
     // of these numbers is needed in the first frame, and a synchronous state
     // write on mount is exactly what `set-state-in-effect` flags.
-    const primo = setTimeout(giro, 0);
-    const ogni = setInterval(giro, intervalMs);
+    const first = setTimeout(giro, 0);
+    const each = setInterval(giro, intervalMs);
     const atReturn = () => { if (!document.hidden) giro(); };
     document.addEventListener('visibilitychange', atReturn);
     // A device that has just been paired changes WHO YOU ARE: waiting for the
@@ -153,14 +153,14 @@ export function useIdentityPresence(enabled = true, intervalMs = INTERVALLO_MS):
     window.addEventListener('topics:auth-pair-resolved', giro);
     window.addEventListener('topics:auth-device-revoked', giro);
     return () => {
-      vivo = false;
-      clearTimeout(primo);
-      clearInterval(ogni);
+      alive = false;
+      clearTimeout(first);
+      clearInterval(each);
       document.removeEventListener('visibilitychange', atReturn);
       window.removeEventListener('topics:auth-pair-resolved', giro);
       window.removeEventListener('topics:auth-device-revoked', giro);
     };
-  }, [enabled, intervalMs, leggi]);
+  }, [enabled, intervalMs, read]);
 
-  return stato;
+  return state;
 }

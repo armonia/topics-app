@@ -29,19 +29,19 @@ export function FriendsTab() {
   // The polling, the hidden-window guard and the refresh-after-a-gesture all
   // live in the hook, which was written for this screen and until now had no
   // caller. This component only draws.
-  const { friends, incoming, outgoing, pronto, accetta, rifiuta, annulla } = useFriendship();
+  const { friends, incoming, outgoing, pronto, accept, decline, cancel } = useFriendship();
   const [busy, setBusy] = useState<string | null>(null);
 
   const act = useCallback(async (id: string, what: 'accept' | 'decline' | 'cancel') => {
     setBusy(id);
     try {
-      await (what === 'accept' ? accetta(id) : what === 'decline' ? rifiuta(id) : annulla(id));
+      await (what === 'accept' ? accept(id) : what === 'decline' ? decline(id) : cancel(id));
     } catch {
       // The rule refused it (409: the request was withdrawn while this screen
       // held it). The hook reloads on its own tick and the row corrects itself.
     }
     setBusy(null);
-  }, [accetta, rifiuta, annulla]);
+  }, [accept, decline, cancel]);
 
   // Nothing until the first answer is in: an empty state that turns into three
   // lists half a second later reads as a bug in the lists, not as loading.

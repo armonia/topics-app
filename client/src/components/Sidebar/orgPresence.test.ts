@@ -15,7 +15,7 @@
  * @covers STATUSLINE-01
  */
 import { describe, it, expect } from 'bun:test';
-import { presentiOra, facceOnline, unisciFacce, gentePresenza, unisciGente, PRESENZA_MS } from './orgPresence';
+import { presentiOra, facceOnline, mergeFaces, gentePresenza, mergePeople, PRESENZA_MS } from './orgPresence';
 
 const ADESSO = 1_700_000_000_000;
 const poco = ADESSO - 60_000;
@@ -47,12 +47,12 @@ describe('presentiOra', () => {
 
 describe('facceOnline', () => {
   it('da le facce di chi c e ora, il piu recente per primo', () => {
-    const facce = facceOnline(membri, rubrica, 'io', ADESSO);
-    expect(facce.map((f) => f.id)).toEqual(['b', 'a']);
-    expect(facce[0].nome).toBe('Bruno Verdi');
-    expect(facce[0].avatarUrl).toBeNull();
-    expect(facce[0].iniziali).toBe('BV');
-    expect(facce[1].avatarUrl).toBe('a.png');
+    const faces = facceOnline(membri, rubrica, 'io', ADESSO);
+    expect(faces.map((f) => f.id)).toEqual(['b', 'a']);
+    expect(faces[0].nome).toBe('Bruno Verdi');
+    expect(faces[0].avatarUrl).toBeNull();
+    expect(faces[0].iniziali).toBe('BV');
+    expect(faces[1].avatarUrl).toBe('a.png');
   });
 
   it('non mette mai te per primo nell elenco di chi altro c e', () => {
@@ -61,13 +61,13 @@ describe('facceOnline', () => {
   });
 
   it('ripiega sul nome dei membri quando la rubrica non ha ancora risposto', () => {
-    const facce = facceOnline([{ id: 'z', lastSeenAt: poco, name: 'Zeta Uno' }], [], 'io', ADESSO);
-    expect(facce.map((f) => `${f.nome}/${f.iniziali}`)).toEqual(['Zeta Uno/ZU']);
+    const faces = facceOnline([{ id: 'z', lastSeenAt: poco, name: 'Zeta Uno' }], [], 'io', ADESSO);
+    expect(faces.map((f) => `${f.nome}/${f.iniziali}`)).toEqual(['Zeta Uno/ZU']);
   });
 
   it('un ultimo accesso nel futuro conta come presente', () => {
-    const facce = facceOnline([{ id: 'f', lastSeenAt: ADESSO + 60_000 }], rubrica, 'io', ADESSO);
-    expect(facce.map((f) => f.id)).toEqual(['f']);
+    const faces = facceOnline([{ id: 'f', lastSeenAt: ADESSO + 60_000 }], rubrica, 'io', ADESSO);
+    expect(faces.map((f) => f.id)).toEqual(['f']);
   });
 });
 
@@ -75,7 +75,7 @@ describe('unisciFacce', () => {
   it('la stessa persona in due organizzazioni resta una faccia sola', () => {
     const a = { id: 'a', nome: 'Anna Rossi', avatarUrl: null, iniziali: 'AR' };
     const b = { id: 'b', nome: 'Bruno Verdi', avatarUrl: null, iniziali: 'BV' };
-    expect(unisciFacce([[a, b], [a]]).map((f) => f.id)).toEqual(['a', 'b']);
+    expect(mergeFaces([[a, b], [a]]).map((f) => f.id)).toEqual(['a', 'b']);
   });
 });
 
@@ -109,12 +109,12 @@ describe('unisciGente', () => {
     // mistakes: it is the one that makes people stop writing to them.
     const spenta = { id: 'a', nome: 'Anna Rossi', avatarUrl: null, iniziali: 'AR', presente: false, vistoA: tanto };
     const accesa = { id: 'a', nome: 'Anna Rossi', avatarUrl: null, iniziali: 'AR', presente: true, vistoA: poco };
-    expect(unisciGente([[spenta], [accesa]]).map((r) => r.presente)).toEqual([true]);
+    expect(mergePeople([[spenta], [accesa]]).map((r) => r.presente)).toEqual([true]);
   });
 
   it('non ripete chi sta in due organizzazioni', () => {
     const a = { id: 'a', nome: 'Anna Rossi', avatarUrl: null, iniziali: 'AR', presente: true, vistoA: poco };
     const b = { id: 'b', nome: 'Bruno Verdi', avatarUrl: null, iniziali: 'BV', presente: false, vistoA: tanto };
-    expect(unisciGente([[a, b], [a]]).map((r) => r.id)).toEqual(['a', 'b']);
+    expect(mergePeople([[a, b], [a]]).map((r) => r.id)).toEqual(['a', 'b']);
   });
 });

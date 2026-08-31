@@ -1977,7 +1977,7 @@ function App() {
           {isMobile && (
             <>
               <SidebarSystemMenu
-                onOpenChangelog={(versione) => { setShowTopicsMenu(false); setShowChangelogFromMenu(versione); }}
+                onOpenChangelog={(version) => { setShowTopicsMenu(false); setShowChangelogFromMenu(version); }}
               />
               <div className="my-1 border-t border-app-border" />
             </>

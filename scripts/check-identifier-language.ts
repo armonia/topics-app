@@ -91,6 +91,10 @@ export const PROJECT_WORDS = new Set([
   // (`navigator.clipboard`, `ClipboardEvent`), so renaming around it would make
   // the code read worse than the platform it calls.
   "clipboard",
+  // Same hole, five more: `online` and `primaries` are everyday English, `fps`
+  // and `perf` are the units this codebase measures in, and `strongest` is a
+  // regular superlative the 1934 list simply does not carry.
+  "online", "primaries", "fps", "perf", "strongest",
   // A dictionary hole, not jargon. `/usr/share/dict/words` is a 1934 legacy and
   // does not carry words today's English uses without thinking: `entries`
   // (Object.entries) is as English as `entry`, which it does carry. Same for

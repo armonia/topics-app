@@ -29,8 +29,8 @@ import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { usePerfMetrics } from '@/hooks/usePerfMetrics';
 import { useFps } from '@/lib/fpsMonitor';
 import { computeTopicsFootprint } from '@/lib/topicsFootprint';
-import { livelloCarico, parolaCarico, tintaCarico } from './loadTint';
-import { pubblicaCarico } from '@/state/systemLoad';
+import { loadLevel, loadWord, loadTint } from './loadTint';
+import { publishLoad } from '@/state/systemLoad';
 import { useT } from '@/hooks/useT';
 
 /**
@@ -43,9 +43,9 @@ import { useT } from '@/hooks/useT';
  * covers the shell process alone and three gigabytes of shell is not a state
  * that occurs before the machine is long gone.
  */
-const SOGLIA_DISPOSITIVO_MB = 3072;
-const SOGLIA_DISPOSITIVO_PARZIALE_MB = 1024;
-const SOGLIA_SERVER_MB = 6144;
+const DEVICE_THRESHOLD_MB = 3072;
+const DEVICE_PARTIAL_THRESHOLD_MB = 1024;
+const SERVER_THRESHOLD_MB = 6144;
 
 export function TopicsLoadDot() {
   const tr = useT();
@@ -76,25 +76,25 @@ export function TopicsLoadDot() {
     sampleKey: status?.timestamp,
   });
 
-  const memCeilingMB = (appMemMB !== null ? (isPartialMem ? SOGLIA_DISPOSITIVO_PARZIALE_MB : SOGLIA_DISPOSITIVO_MB) : 0)
-    + (usage.serverMB !== null ? SOGLIA_SERVER_MB : 0);
-  const { livello, misurato } = livelloCarico({
+  const memCeilingMB = (appMemMB !== null ? (isPartialMem ? DEVICE_PARTIAL_THRESHOLD_MB : DEVICE_THRESHOLD_MB) : 0)
+    + (usage.serverMB !== null ? SERVER_THRESHOLD_MB : 0);
+  const { livello, misurato } = loadLevel({
     cpu: usage.totalCpu,
     memMB: usage.totalMB,
     memCeilingMB,
   });
-  const parziale = usage.memPartial || usage.cpuPartial;
+  const partial = usage.memPartial || usage.cpuPartial;
 
   // Published for the menu, which spells the same sample out in words. Written
   // in an effect and not during render: a render that writes to a store outside
   // React is the one shape that can tear a concurrent render.
   useEffect(() => {
-    pubblicaCarico({ livello, misurato, totalMB: usage.totalMB, totalCpu: usage.totalCpu, fps, parziale });
-  }, [livello, misurato, usage.totalMB, usage.totalCpu, fps, parziale]);
+    publishLoad({ livello, misurato, totalMB: usage.totalMB, totalCpu: usage.totalCpu, fps, partial });
+  }, [livello, misurato, usage.totalMB, usage.totalCpu, fps, partial]);
 
-  const titolo = misurato
-    ? tr(`statusBar.load.${parolaCarico(livello)}`, {
-        mem: usage.totalMB !== null ? formatMB(usage.totalMB, parziale) : '-',
+  const title = misurato
+    ? tr(`statusBar.load.${loadWord(livello)}`, {
+        mem: usage.totalMB !== null ? formatMB(usage.totalMB, partial) : '-',
         cpu: usage.totalCpu !== null ? Math.round(usage.totalCpu).toString() : '-',
         fps: fps > 0 ? fps.toString() : '-',
       })
@@ -107,14 +107,14 @@ export function TopicsLoadDot() {
       // sampling a pixel and reverse engineering a hue.
       data-load={livello.toFixed(2)}
       data-measured={misurato ? 'true' : 'false'}
-      title={titolo}
+      title={title}
       // `flex-shrink-0`: the title next to it truncates, this does not. A dot
       // that shrinks is a dot that becomes an artefact.
       className="ml-0.5 h-2 w-2 flex-shrink-0 rounded-full"
       style={{
         // Unmeasured is not painted as calm: an outline says "no reading" where
         // a green fill would say "all good", and those are different facts.
-        backgroundColor: misurato ? tintaCarico(livello) : 'transparent',
+        backgroundColor: misurato ? loadTint(livello) : 'transparent',
         boxShadow: misurato ? undefined : 'inset 0 0 0 1px var(--text-muted)',
       }}
     />
@@ -123,7 +123,7 @@ export function TopicsLoadDot() {
 
 /** The same short form the old strip used: gigabytes past a thousand, and the
  *  leading "~" when the figure covers one half of the app instead of both. */
-function formatMB(mb: number, parziale: boolean): string {
-  const testo = mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`;
-  return parziale ? `~${testo}` : testo;
+function formatMB(mb: number, partial: boolean): string {
+  const text = mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`;
+  return partial ? `~${text}` : text;
 }

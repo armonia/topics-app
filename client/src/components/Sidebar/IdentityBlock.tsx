@@ -75,10 +75,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { Bot, Building2, ChevronRight, Hourglass, ListChecks, MessagesSquare, Monitor, Smartphone, Users } from 'lucide-react';
 import { subscribeSession, type SessionState } from '@/lib/auth/session';
 import { etichettaIdentita } from './identityLabel';
-import { useIdentityPresence, type OrgConPresenza } from '@/hooks/useIdentityPresence';
+import { useIdentityPresence, type OrgWithPresence } from '@/hooks/useIdentityPresence';
 import { usePresenceSummary } from '@/hooks/usePresenceSummary';
 import { apriProfilo, openPersonProfile } from '@/state/profileTarget';
-import { unisciFacce, unisciGente, type FacciaPresenza, type RigaPresenza } from './orgPresence';
+import { mergeFaces, mergePeople, type PresenceFace, type PresenceRow } from './orgPresence';
 import { IDENTITY_GLYPH_BOX, IDENTITY_GLYPH_INK, ROW_INSET, TIER_DONE_TEXT } from '@/lib/selectionStyles';
 import { CHIP_INK_DIM, ORG_MARKS_IN_CHIP, SUBJECT_FLOOR, chipClass } from './identityChip';
 import { PALLINO_OK, SEGNALE_ATTESA, SEGNALE_OK } from './chromeSignals';
@@ -195,11 +195,11 @@ function RigaIo({ presenza, onOpenDevices }: {
     // After the first paint: nobody needs the device count in the first frame,
     // and a synchronous state write on mount is exactly what
     // `set-state-in-effect` flags.
-    const primo = setTimeout(chiedi, 0);
+    const first = setTimeout(chiedi, 0);
     window.addEventListener('topics:auth-pair-resolved', chiedi);
     window.addEventListener('topics:auth-device-revoked', chiedi);
     return () => {
-      clearTimeout(primo);
+      clearTimeout(first);
       window.removeEventListener('topics:auth-pair-resolved', chiedi);
       window.removeEventListener('topics:auth-device-revoked', chiedi);
     };
@@ -397,7 +397,7 @@ function RigaIo({ presenza, onOpenDevices }: {
  * organisation is and how you end up in one: same reason the people chip stays
  * at zero, and the same person is the one who needs it.
  */
-function RowOrgs({ orgs }: { orgs: OrgConPresenza[] }) {
+function RowOrgs({ orgs }: { orgs: OrgWithPresence[] }) {
   // No leading glyph any more: it was there to tell one ROW from the next, and
   // there are no rows left. Alignment survives without it: every subject now
   // opens with a mark of the same IDENTITY_GLYPH_BOX size (the face, a group
@@ -475,13 +475,13 @@ function EmptyOrgChip() {
  * a digit that answers a question nobody asked, and the logo is already the
  * whole answer at that size.
  */
-function OrgsChip({ orgs }: { orgs: OrgConPresenza[] }) {
+function OrgsChip({ orgs }: { orgs: OrgWithPresence[] }) {
   const tr = useT();
   const [aperto, setAperto] = useState(false);
   const [chip, setChip] = useState<HTMLButtonElement | null>(null);
-  const facce = unisciFacce(orgs.map((o) => o.facce));
-  const gente = unisciGente(orgs.map((o) => o.gente));
-  const online = gente.filter((p) => p.presente).length;
+  const faces = mergeFaces(orgs.map((o) => o.faces));
+  const people = mergePeople(orgs.map((o) => o.people));
+  const online = people.filter((p) => p.presente).length;
   const sola = orgs.length === 1 ? orgs[0] : null;
   return (
     <>
@@ -497,7 +497,7 @@ function OrgsChip({ orgs }: { orgs: OrgConPresenza[] }) {
         className={`${chipClass(true)} justify-center text-app-text-secondary`}
         title={[
           orgs.map((o) => o.nome).join('\n'),
-          online > 0 ? tr('statusBar.orgs.presence', { n: online, tot: gente.length }) : '',
+          online > 0 ? tr('statusBar.orgs.presence', { n: online, tot: people.length }) : '',
         ].filter(Boolean).join('\n')}
       >
         {/* The marks, stacked the way the faces are: past the second they
@@ -524,7 +524,7 @@ function OrgsChip({ orgs }: { orgs: OrgConPresenza[] }) {
             popover this chip opens lists the people by name. */}
         {online > 0 && (
           <span data-testid="org-chip-online" className={`hidden flex-none items-center @[300px]/identity:flex ${SEGNALE_OK}`}>
-            <Facce facce={facce} max={MAX_FACCE_ORG} totale={online} />
+            <Facce faces={faces} max={MAX_FACCE_ORG} totale={online} />
           </span>
         )}
       </button>
@@ -541,7 +541,7 @@ function OrgsChip({ orgs }: { orgs: OrgConPresenza[] }) {
                 : <Building2 size={12} className="flex-shrink-0 text-app-text-muted" />}
               <span className="truncate">{sola ? sola.nome : tr('statusBar.orgs.title')}</span>
               <span className="ml-auto flex-shrink-0 font-normal text-app-text-muted tabular-nums">
-                {tr('statusBar.orgs.presence', { n: online, tot: gente.length })}
+                {tr('statusBar.orgs.presence', { n: online, tot: people.length })}
               </span>
             </>
           }
@@ -551,7 +551,7 @@ function OrgsChip({ orgs }: { orgs: OrgConPresenza[] }) {
               would be the panel saying the same word twice to make room for a
               structure that has nothing to hold. */}
           {sola
-            ? <Elenco gente={sola.gente} vuoto={tr('statusBar.orgs.alone')} />
+            ? <Elenco people={sola.people} vuoto={tr('statusBar.orgs.alone')} />
             : (
               <div className="max-h-[240px] overflow-y-auto">
                 {orgs.map((o) => (
@@ -563,7 +563,7 @@ function OrgsChip({ orgs }: { orgs: OrgConPresenza[] }) {
                         {tr('statusBar.friends.count', { n: o.online, tot: o.membri })}
                       </span>
                     </div>
-                    <Elenco gente={o.gente} vuoto={tr('statusBar.orgs.alone')} />
+                    <Elenco people={o.people} vuoto={tr('statusBar.orgs.alone')} />
                   </div>
                 ))}
               </div>
@@ -589,7 +589,7 @@ function OrgsChip({ orgs }: { orgs: OrgConPresenza[] }) {
  * carries the `identity-glyph` marker only at the band size: the popover uses
  * the bigger one, which opens nothing.
  */
-function Logo({ org, size }: { org: OrgConPresenza; size: 3.5 | 5 }) {
+function Logo({ org, size }: { org: OrgWithPresence; size: 3.5 | 5 }) {
   const inBanda = size !== 5;
   const cls = inBanda ? `${IDENTITY_GLYPH_BOX} text-[7px]` : 'h-5 w-5 text-[9px]';
   const marker = inBanda ? 'identity-glyph' : undefined;
@@ -628,8 +628,8 @@ function Logo({ org, size }: { org: OrgConPresenza; size: 3.5 | 5 }) {
  * which is where friends are actually managed.
  */
 function RigaAmici({ online, tutti, totali }: {
-  online: FacciaPresenza[];
-  tutti: RigaPresenza[];
+  online: PresenceFace[];
+  tutti: PresenceRow[];
   totali: number;
 }) {
   const tr = useT();
@@ -665,7 +665,7 @@ function RigaAmici({ online, tutti, totali }: {
             only one that can shrink without erasing information available
             nowhere else. The numbers beside them already say how many there
             are, and one face fewer still reads in the `+N`. */}
-        {ci_sono && <Facce facce={online} totale={online.length} />}
+        {ci_sono && <Facce faces={online} totale={online.length} />}
         {/* With people around the faces ARE the answer, so the chip drops the
             words and keeps two numbers: how many are here, out of how many you
             know. Alone, the chip says its own name instead, because a chip that
@@ -696,7 +696,7 @@ function RigaAmici({ online, tutti, totali }: {
             </>
           }
         >
-          <Elenco gente={tutti} vuoto={tr('statusBar.friends.none')} suggerimento={tr('statusBar.friends.noneHint')} />
+          <Elenco people={tutti} vuoto={tr('statusBar.friends.none')} suggerimento={tr('statusBar.friends.noneHint')} />
           <div className="border-t border-app-border py-1">
             <Azione onClick={() => { setAperto(false); apriProfilo('followers'); }} testId="friends-open-all">
               {tr('statusBar.friends.manage')}
@@ -759,13 +759,13 @@ const SIGNALS: Record<SignalKind, {
  * glue it to the edge. Seven rows and a half is the point where you can see
  * there is more below without the panel turning into a page.
  */
-function Elenco({ gente, vuoto, suggerimento }: {
-  gente: RigaPresenza[];
+function Elenco({ people, vuoto, suggerimento }: {
+  people: PresenceRow[];
   vuoto: string;
   suggerimento?: string;
 }) {
   const tr = useT();
-  if (gente.length === 0) {
+  if (people.length === 0) {
     return (
       <div className="px-3 py-3 text-[11px] text-app-text-muted">
         <div>{vuoto}</div>
@@ -773,8 +773,8 @@ function Elenco({ gente, vuoto, suggerimento }: {
       </div>
     );
   }
-  const presenti = gente.filter((p) => p.presente);
-  const assenti = gente.filter((p) => !p.presente);
+  const presenti = people.filter((p) => p.presente);
+  const assenti = people.filter((p) => !p.presente);
   return (
     <div className="max-h-[188px] overflow-y-auto py-1">
       {presenti.map((p) => <Persona key={p.id} p={p} />)}
@@ -800,7 +800,7 @@ function Elenco({ gente, vuoto, suggerimento }: {
  * their profile, otherwise there are faces the app shows you and refuses to
  * tell you anything about, and the profile page might as well not exist.
  */
-function Persona({ p }: { p: RigaPresenza }) {
+function Persona({ p }: { p: PresenceRow }) {
   return (
     <button
       type="button"
@@ -858,17 +858,17 @@ function Azione({ onClick, children, testId }: {
  * nobody can tell apart, each as wide as the digit that would count them; the
  * `+N` says the same thing in less room and stays readable.
  */
-function Facce({ facce, max = MAX_FACCE, totale }: {
-  facce: FacciaPresenza[];
+function Facce({ faces, max = MAX_FACCE, totale }: {
+  faces: PresenceFace[];
   max?: number;
   /** How many are online in total: the `+N` counts the ones with no face too. */
   totale?: number;
 }) {
-  if (facce.length === 0) return null;
-  const oltre = (totale ?? facce.length) - Math.min(facce.length, max);
+  if (faces.length === 0) return null;
+  const oltre = (totale ?? faces.length) - Math.min(faces.length, max);
   return (
     <span className="flex flex-shrink-0 items-center">
-      {facce.slice(0, max).map((f, i) => (
+      {faces.slice(0, max).map((f, i) => (
         <span
           key={f.id}
           data-testid="presence-face"

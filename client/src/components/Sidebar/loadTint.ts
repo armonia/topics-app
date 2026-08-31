@@ -56,12 +56,12 @@ export const CPU_CEILING = 80;
  * `null` would only push the same decision one level up. What it does instead
  * is answer `misurato: false`, and the caller says so in words.
  */
-export function livelloCarico(input: LoadInput): { livello: number; misurato: boolean } {
-  const parti: number[] = [];
-  if (input.cpu !== null) parti.push(clamp01(input.cpu / CPU_CEILING));
-  if (input.memMB !== null && input.memCeilingMB > 0) parti.push(clamp01(input.memMB / input.memCeilingMB));
-  if (parti.length === 0) return { livello: 0, misurato: false };
-  return { livello: Math.max(...parti), misurato: true };
+export function loadLevel(input: LoadInput): { livello: number; misurato: boolean } {
+  const parts: number[] = [];
+  if (input.cpu !== null) parts.push(clamp01(input.cpu / CPU_CEILING));
+  if (input.memMB !== null && input.memCeilingMB > 0) parts.push(clamp01(input.memMB / input.memCeilingMB));
+  if (parts.length === 0) return { livello: 0, misurato: false };
+  return { livello: Math.max(...parts), misurato: true };
 }
 
 function clamp01(n: number): number {
@@ -88,7 +88,7 @@ function clamp01(n: number): number {
  * The hue goes 150 (green) to 0 (red) THROUGH amber, which is the direction the
  * eye already reads as "getting worse" without a legend.
  */
-export function tintaCarico(livello: number): string {
+export function loadTint(livello: number): string {
   const l = clamp01(livello);
   const hue = 150 - 150 * l;
   const sat = 62 + 18 * l;
@@ -104,7 +104,7 @@ export function tintaCarico(livello: number): string {
  */
 export type LoadWord = 'calmo' | 'caldo' | 'carico';
 
-export function parolaCarico(livello: number): LoadWord {
+export function loadWord(livello: number): LoadWord {
   const l = clamp01(livello);
   if (l < 0.45) return 'calmo';
   if (l < 0.75) return 'caldo';

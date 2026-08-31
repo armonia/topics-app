@@ -1,3 +1,6 @@
+/**
+ * @covers FRIEND-01
+ */
 import { describe, it, expect } from 'bun:test';
 import { friendshipButtons, friendshipNoteKey } from './friendshipActions';
 import type { FriendshipState } from '../../../../shared/friendship';

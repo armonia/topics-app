@@ -5,13 +5,13 @@ import { isDesktop } from '@/lib/shell';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
 import { useFpsActive } from '@/lib/fpsMonitor';
-import { useCarico } from '@/state/systemLoad';
+import { useLoad } from '@/state/systemLoad';
 import { useT } from '@/hooks/useT';
 import { PerfSection } from './PerfSection';
 import { VersionChip } from './VersionChip';
 import { VersionPopover } from './VersionPopover';
 import { bundleDrift } from './bundleDrift';
-import { tintaCarico } from './loadTint';
+import { loadTint } from './loadTint';
 
 declare const __APP_VERSION__: string;
 declare const __BUILD_TIME__: string;
@@ -61,7 +61,7 @@ const SystemStatusPanel = lazy(importSystemStatusPanel);
  *  predicate is the same one the header uses: a `md:` breakpoint here would be
  *  a second mechanism deciding the same thing, and two mechanisms in one row
  *  diverge. */
-function voce(isMobile: boolean): string {
+function item(isMobile: boolean): string {
   return 'w-full flex items-center gap-2.5 px-3 text-app-text hover:bg-app-hover transition-colors '
     + (isMobile ? 'py-3 text-[14px]' : 'py-1.5 text-[12px] coarse:py-3 coarse:text-[14px]');
 }
@@ -71,7 +71,7 @@ export interface SidebarSystemMenuProps {
    *  chiede e qui la si conosce già: farla ri-cercare a chi ospita la modale
    *  sarebbe un secondo modo di rispondere a «che versione gira», e i due
    *  divergono il giorno di un auto-update. */
-  onOpenChangelog: (versione: string) => void;
+  onOpenChangelog: (version: string) => void;
   /** The finger or the mouse. Passed in rather than measured here: the header
    *  that owns this menu has already decided, and deciding twice is how the
    *  trigger and its panel end up sized for two different hands. */
@@ -86,7 +86,7 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false }: Sidebar
   const [ancora, setAncora] = useState<HTMLButtonElement | null>(null);
   const [mostraVersione, setMostraVersione] = useState(false);
   const [riavviando, setRiavviando] = useState(false);
-  const carico = useCarico();
+  const load = useLoad();
   const { updateAvailable } = useServiceWorkerUpdate();
   // Only while the menu is open, which is the only time this component exists:
   // the panel is mounted by the portal on demand, so this poll starts and stops
@@ -102,23 +102,23 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false }: Sidebar
   // cambiata dopo la build di questo bundle: si chiede, e si ripiega su quella
   // compilata solo se non risponde.
   useEffect(() => {
-    let vivo = true;
-    void getVersion().then((v) => { if (vivo && v) setVersioneGuscio(v); }).catch(() => {});
+    let alive = true;
+    void getVersion().then((v) => { if (alive && v) setVersioneGuscio(v); }).catch(() => {});
     // `/api/version` re-reads package.json, so it is the truth right after a
     // bump, while the baked constant is frozen at build time. The chip follows
     // the CLIENT, which is what a deploy moves.
     void fetch('/api/version', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: { version?: string } | null) => { if (vivo && d?.version) setVersioneServer(d.version); })
+      .then((d: { version?: string } | null) => { if (alive && d?.version) setVersioneServer(d.version); })
       .catch(() => {});
-    return () => { vivo = false; };
+    return () => { alive = false; };
   }, []);
 
   // DERIVED, not synchronised. The server answer wins when it arrives and the
   // constant baked at build time holds until then. Keeping this in a state that
   // an effect copied over meant two sources for one number, and the effect that
   // copied them is exactly what `react-hooks/set-state-in-effect` forbids.
-  const versione = versioneServer || (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '');
+  const version = versioneServer || (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '');
 
   const isDev = import.meta.env.DEV;
   const drift = bundleDrift(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '', versioneServer, { hmr: isDev });
@@ -127,7 +127,7 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false }: Sidebar
   // "no" on the very machine that rebuilds Topics all day.
   const devInstall = isDev || !!status?.server?.devReload;
 
-  const riavvia = async () => {
+  const restart = async () => {
     setRiavviando(true);
     if (isDesktop) {
       try { await relaunch(); return; } catch { /* fall through to the web path */ }
@@ -144,8 +144,8 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false }: Sidebar
     void reloadAllWindows();
   };
 
-  const VOCE = voce(isMobile);
-  const glifo = isMobile ? 18 : 14;
+  const VOCE = item(isMobile);
+  const glyph = isMobile ? 18 : 14;
 
   return (
     <div data-testid="sidebar-system-menu">
@@ -156,19 +156,19 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false }: Sidebar
         aria-expanded={mostraStato}
         data-testid="menu-system-status"
       >
-        <Gauge size={glifo} className="flex-shrink-0" />
+        <Gauge size={glyph} className="flex-shrink-0" />
         <span className="flex-1 text-left">Prestazioni e sistema</span>
         {/* THE HEADLINE THE STRIP USED TO SHOW, and the dot's own colour with
             it. One number for memory and one for CPU: the halves, the metric
             and the inventory are in the panel below, which is what "open" now
             means. */}
-        {carico && (
+        {load && (
           <span data-testid="menu-load-summary" className="flex flex-shrink-0 items-center gap-1.5 text-app-text-secondary tabular-nums">
-            {carico.misurato && (
-              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: tintaCarico(carico.livello) }} />
+            {load.misurato && (
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: loadTint(load.livello) }} />
             )}
-            {carico.totalMB !== null && <span>{carico.parziale ? '~' : ''}{formatMB(carico.totalMB)}</span>}
-            {carico.totalCpu !== null && <span>{Math.round(carico.totalCpu)}%</span>}
+            {load.totalMB !== null && <span>{load.partial ? '~' : ''}{formatMB(load.totalMB)}</span>}
+            {load.totalCpu !== null && <span>{Math.round(load.totalCpu)}%</span>}
           </span>
         )}
         <ChevronRight size={isMobile ? 16 : 14} className={`flex-shrink-0 text-app-text-tertiary transition-transform ${mostraStato ? 'rotate-90' : ''}`} />
@@ -187,11 +187,11 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false }: Sidebar
           "dev install" badge, and a button wrapping a button is invalid HTML
           the browser takes apart on its own. */}
       <div className={`${VOCE} cursor-default`} data-testid="menu-version">
-        <Tag size={glifo} className="flex-shrink-0" />
+        <Tag size={glyph} className="flex-shrink-0" />
         <span className="flex-1 text-left">Versione</span>
         <span className="flex flex-shrink-0 items-center gap-1.5 text-[12px] tabular-nums">
           <VersionChip
-            appVersion={versione}
+            appVersion={version}
             shellVersion={versioneGuscio}
             drift={drift}
             devInstall={devInstall}
@@ -207,14 +207,14 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false }: Sidebar
           clears the caches and reloads. Same intention, two machines. */}
       <button
         type="button"
-        onClick={riavvia}
+        onClick={restart}
         disabled={riavviando}
         className={`${VOCE} ${updateAvailable ? 'text-primary' : ''}`}
         data-testid="menu-restart"
       >
         {isDesktop
-          ? <RotateCcw size={glifo} className={`flex-shrink-0 ${riavviando ? 'animate-spin' : ''}`} />
-          : <RefreshCw size={glifo} className={`flex-shrink-0 ${riavviando ? 'animate-spin' : ''}`} />}
+          ? <RotateCcw size={glyph} className={`flex-shrink-0 ${riavviando ? 'animate-spin' : ''}`} />
+          : <RefreshCw size={glyph} className={`flex-shrink-0 ${riavviando ? 'animate-spin' : ''}`} />}
         <span className="flex-1 text-left">
           {isDesktop ? tr('statusBar.restartApp') : updateAvailable ? tr('statusBar.updateAvailable') : tr('statusBar.reload')}
         </span>
@@ -223,14 +223,14 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false }: Sidebar
       {mostraVersione && (
         <VersionPopover
           anchorEl={ancora}
-          appVersion={versione}
+          appVersion={version}
           shellVersion={versioneGuscio}
           drift={drift}
           isDev={isDev}
           buildDate={typeof __BUILD_TIME__ !== 'undefined' && __BUILD_TIME__ ? formatBuildDate(__BUILD_TIME__) : ''}
           buildSha={typeof __BUILD_SHA__ !== 'undefined' ? __BUILD_SHA__ : ''}
           onClose={() => setMostraVersione(false)}
-          onOpenChangelog={() => { setMostraVersione(false); onOpenChangelog(versione); }}
+          onOpenChangelog={() => { setMostraVersione(false); onOpenChangelog(version); }}
         />
       )}
     </div>

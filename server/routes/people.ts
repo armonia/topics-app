@@ -82,7 +82,7 @@ import {
   privacyPersona, setPrivacy, type ProfilePrivacy,
 } from "../lib/follows";
 import {
-  richiedi, accetta, rifiuta, annulla, stato, amici, relazioni,
+  request, accept, decline, cancel, state, friends, relations,
   type FriendshipState, type FriendshipEdge, type FriendshipOutcome,
 } from "../lib/friendships";
 
@@ -191,7 +191,7 @@ export function createPeopleRouter(ctx: AppContext, deps: DepsPeople = {}): Rout
       out.add(io);
       for (const id of idFollowing(db as never, io)) out.add(id);
       for (const id of idFollower(db as never, io)) out.add(id);
-      for (const id of amici(db as never, io)) out.add(id);
+      for (const id of friends(db as never, io)) out.add(id);
     }
     return out;
   }
@@ -374,7 +374,7 @@ export function createPeopleRouter(ctx: AppContext, deps: DepsPeople = {}): Rout
       // ONE read and three lists. Three calls would be three instants, and the
       // friends count would disagree with the requests under it for exactly as
       // long as somebody was looking at both.
-      const every = relazioni(db as never, io);
+      const every = relations(db as never, io);
       const bucket = (state: FriendshipState) => withSince(every.filter((e) => e.state === state), io);
       return json({
         friends: bucket("friends"),
@@ -406,8 +406,8 @@ export function createPeopleRouter(ctx: AppContext, deps: DepsPeople = {}): Rout
       // does not exist answers 409 whoever the id belongs to, including an id
       // that never existed.
       return friendshipReply(pAccept
-        ? accetta(db as never, io, id)
-        : rifiuta(db as never, io, id));
+        ? accept(db as never, io, id)
+        : decline(db as never, io, id));
     }
 
     // POST | DELETE /api/people/:id/friend
@@ -419,7 +419,7 @@ export function createPeopleRouter(ctx: AppContext, deps: DepsPeople = {}): Rout
       // Withdrawing my request or ending a friendship: ungated for the same
       // reason as the answer above. Leaving a relation must never depend on
       // still being able to see the other end of it.
-      if (method === "DELETE") return friendshipReply(annulla(db as never, io, pFriend.id));
+      if (method === "DELETE") return friendshipReply(cancel(db as never, io, pFriend.id));
 
       // The POST is NOT gated on the reachable set, exactly like the follow
       // POST and for the same reason: asking is how somebody ENTERS it, and
@@ -432,7 +432,7 @@ export function createPeopleRouter(ctx: AppContext, deps: DepsPeople = {}): Rout
       // the rule and its message live in one place. The follow route checks it
       // inline; that is the older shape, and duplicating it was the point of
       // moving the reason next to the rule.
-      return friendshipReply(richiedi(db as never, io, b.row.id));
+      return friendshipReply(request(db as never, io, b.row.id));
     }
 
     // POST | DELETE /api/people/:id/follow
@@ -556,7 +556,7 @@ export function createPeopleRouter(ctx: AppContext, deps: DepsPeople = {}): Rout
         // round trip for a field the first one already knows. Always present
         // and never `null`, because a missing field would be a sixth value on
         // top of the five and every client would have to decide what it meant.
-        friendship: stato(db as never, io ?? "", chi.id),
+        friendship: state(db as never, io ?? "", chi.id),
         // Only to the person themself, and only here: the settings screen has
         // to know the current state of what it is about to change, and nobody
         // else has any use for it.

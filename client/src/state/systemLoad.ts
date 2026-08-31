@@ -16,7 +16,7 @@
  */
 import { useSyncExternalStore } from 'react';
 
-export interface CaricoSistema {
+export interface SystemLoad {
   /** 0 to 1, as `livelloCarico` computes it. */
   livello: number;
   /** False when nothing at all could be measured: the dot is drawn anyway, and
@@ -30,14 +30,14 @@ export interface CaricoSistema {
   fps: number;
   /** True when one of the two halves of the figure is missing, which is what
    *  the leading "~" says on screen. */
-  parziale: boolean;
+  partial: boolean;
 }
 
-let corrente: CaricoSistema | null = null;
-const iscritti = new Set<() => void>();
+let corrente: SystemLoad | null = null;
+const subscribers = new Set<() => void>();
 
 /** Called by the single owner on every new sample. */
-export function pubblicaCarico(c: CaricoSistema): void {
+export function publishLoad(c: SystemLoad): void {
   // Identical samples are not republished: the perf poll fires every five
   // seconds and an idle machine produces the same numbers, which would be one
   // re-render per subscriber per tick for no change on screen.
@@ -46,22 +46,22 @@ export function pubblicaCarico(c: CaricoSistema): void {
     && corrente.totalMB === c.totalMB
     && corrente.totalCpu === c.totalCpu
     && corrente.fps === c.fps
-    && corrente.parziale === c.parziale
+    && corrente.partial === c.partial
     && corrente.misurato === c.misurato) return;
   corrente = c;
-  for (const fn of iscritti) fn();
+  for (const fn of subscribers) fn();
 }
 
 function subscribe(fn: () => void): () => void {
-  iscritti.add(fn);
-  return () => { iscritti.delete(fn); };
+  subscribers.add(fn);
+  return () => { subscribers.delete(fn); };
 }
 
-function snapshot(): CaricoSistema | null {
+function snapshot(): SystemLoad | null {
   return corrente;
 }
 
 /** The last published load, or null until the first sample lands. */
-export function useCarico(): CaricoSistema | null {
+export function useLoad(): SystemLoad | null {
   return useSyncExternalStore(subscribe, snapshot, snapshot);
 }

@@ -1,4 +1,6 @@
 /**
+ * @covers FRIEND-01
+ *
  * THE FRIENDSHIP GRAPH, on a schema built by hand.
  *
  * Four things are worth a test here, and the obvious one ("a request becomes a
@@ -21,7 +23,7 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import {
-  richiedi, accetta, rifiuta, annulla, stato, amici, inArrivo, inUscita,
+  request, accept, decline, cancel, state, friends, incoming, outgoing,
 } from "./friendships";
 
 /** The two tables these functions touch, and only the columns they read. */
@@ -67,68 +69,68 @@ describe("asking and being asked", () => {
   beforeEach(() => { db = fullSchema(); });
 
   test("a request is one row, and the two people read it differently", () => {
-    expect(richiedi(db, "ada", "bea", 10)).toEqual({ state: "pending_out", refused: null });
+    expect(request(db, "ada", "bea", 10)).toEqual({ state: "pending_out", refused: null });
 
-    expect(stato(db, "ada", "bea")).toBe("pending_out");
-    expect(stato(db, "bea", "ada")).toBe("pending_in");
+    expect(state(db, "ada", "bea")).toBe("pending_out");
+    expect(state(db, "bea", "ada")).toBe("pending_in");
     expect(rowCount(db)).toBe(1);
 
-    expect(inUscita(db, "ada")).toEqual([{ id: "bea", since: 10 }]);
-    expect(inArrivo(db, "bea")).toEqual([{ id: "ada", since: 10 }]);
+    expect(outgoing(db, "ada")).toEqual([{ id: "bea", since: 10 }]);
+    expect(incoming(db, "bea")).toEqual([{ id: "ada", since: 10 }]);
     // Nothing is a friendship yet: a request must not widen anybody's reach.
-    expect(amici(db, "ada")).toEqual([]);
-    expect(amici(db, "bea")).toEqual([]);
+    expect(friends(db, "ada")).toEqual([]);
+    expect(friends(db, "bea")).toEqual([]);
   });
 
   test("befriending yourself is refused with a reason, and leaves no row", () => {
-    const r = richiedi(db, "ada", "ada", 10);
+    const r = request(db, "ada", "ada", 10);
     expect(r.state).toBe("none");
     expect(r.refused?.status).toBe(400);
     expect(rowCount(db)).toBe(0);
   });
 
   test("asking twice is asking once, and the original moment survives", () => {
-    richiedi(db, "ada", "bea", 10);
-    expect(richiedi(db, "ada", "bea", 999)).toEqual({ state: "pending_out", refused: null });
+    request(db, "ada", "bea", 10);
+    expect(request(db, "ada", "bea", 999)).toEqual({ state: "pending_out", refused: null });
 
     expect(rowCount(db)).toBe(1);
-    expect(inUscita(db, "ada")).toEqual([{ id: "bea", since: 10 }]);
+    expect(outgoing(db, "ada")).toEqual([{ id: "bea", since: 10 }]);
   });
 
   test("BOTH asking is agreeing: the second request accepts the first", () => {
-    richiedi(db, "ada", "bea", 10);
-    expect(richiedi(db, "bea", "ada", 20)).toEqual({ state: "friends", refused: null });
+    request(db, "ada", "bea", 10);
+    expect(request(db, "bea", "ada", 20)).toEqual({ state: "friends", refused: null });
 
     // One row, not two: the two gestures were the same intention.
     expect(rowCount(db)).toBe(1);
-    expect(stato(db, "ada", "bea")).toBe("friends");
-    expect(stato(db, "bea", "ada")).toBe("friends");
-    expect(amici(db, "ada")).toEqual(["bea"]);
-    expect(amici(db, "bea")).toEqual(["ada"]);
+    expect(state(db, "ada", "bea")).toBe("friends");
+    expect(state(db, "bea", "ada")).toBe("friends");
+    expect(friends(db, "ada")).toEqual(["bea"]);
+    expect(friends(db, "bea")).toEqual(["ada"]);
     // Neither side is left waiting for an answer that already arrived.
-    expect(inArrivo(db, "ada")).toEqual([]);
-    expect(inUscita(db, "bea")).toEqual([]);
+    expect(incoming(db, "ada")).toEqual([]);
+    expect(outgoing(db, "bea")).toEqual([]);
   });
 
   test("a stranger is `none`, and so am I to myself", () => {
-    expect(stato(db, "ada", "cy")).toBe("none");
-    expect(stato(db, "ada", "ada")).toBe("none");
+    expect(state(db, "ada", "cy")).toBe("none");
+    expect(state(db, "ada", "ada")).toBe("none");
   });
 });
 
 describe("answering", () => {
   let db: Database;
-  beforeEach(() => { db = fullSchema(); richiedi(db, "ada", "bea", 10); });
+  beforeEach(() => { db = fullSchema(); request(db, "ada", "bea", 10); });
 
   test("only the addressee can accept: the sender gets a 409", () => {
-    const r = accetta(db, "ada", "bea", 20);
+    const r = accept(db, "ada", "bea", 20);
     expect(r.refused?.status).toBe(409);
     expect(r.state).toBe("pending_out");
-    expect(stato(db, "bea", "ada")).toBe("pending_in");
+    expect(state(db, "bea", "ada")).toBe("pending_in");
   });
 
   test("accepting writes the moment it was answered, and keeps the moment it was asked", () => {
-    expect(accetta(db, "bea", "ada", 20)).toEqual({ state: "friends", refused: null });
+    expect(accept(db, "bea", "ada", 20)).toEqual({ state: "friends", refused: null });
 
     const row = db.query("SELECT state AS st, created_at AS c, decided_at AS d FROM friendships").get() as
       { st: string; c: number; d: number };
@@ -136,21 +138,21 @@ describe("answering", () => {
   });
 
   test("accepting a friendship that already holds is not an error", () => {
-    accetta(db, "bea", "ada", 20);
-    expect(accetta(db, "bea", "ada", 99)).toEqual({ state: "friends", refused: null });
+    accept(db, "bea", "ada", 20);
+    expect(accept(db, "bea", "ada", 99)).toEqual({ state: "friends", refused: null });
     // The moment it was answered does not move: it happened once.
     expect((db.query("SELECT decided_at AS d FROM friendships").get() as { d: number }).d).toBe(20);
   });
 
   test("accepting a request nobody sent is a 409, not a silent success", () => {
-    const r = accetta(db, "ada", "cy", 20);
+    const r = accept(db, "ada", "cy", 20);
     expect(r.refused?.status).toBe(409);
     expect(r.state).toBe("none");
-    expect(amici(db, "ada")).toEqual([]);
+    expect(friends(db, "ada")).toEqual([]);
   });
 
   test("refusing KEEPS the row: that is what stops the request coming back", () => {
-    expect(rifiuta(db, "bea", "ada", 20)).toEqual({ state: "none", refused: null });
+    expect(decline(db, "bea", "ada", 20)).toEqual({ state: "none", refused: null });
 
     expect(rowCount(db)).toBe(1);
     const row = db.query("SELECT state AS st, decided_at AS d FROM friendships").get() as
@@ -159,60 +161,60 @@ describe("answering", () => {
   });
 
   test("the refusal is not announced: it reads as a request still out", () => {
-    rifiuta(db, "bea", "ada", 20);
+    decline(db, "bea", "ada", 20);
 
     // The sender is told something the client draws exactly like `pending_out`.
-    expect(stato(db, "ada", "bea")).toBe("declined_out");
+    expect(state(db, "ada", "bea")).toBe("declined_out");
     // And it is NOT in the outgoing list, or the sender would learn from the
     // list disappearing what the state was careful not to say.
-    expect(inUscita(db, "ada")).toEqual([]);
+    expect(outgoing(db, "ada")).toEqual([]);
     // The refuser has no relation at all: that is the state in which asking is
     // allowed, and they are the one person who may.
-    expect(stato(db, "bea", "ada")).toBe("none");
-    expect(inArrivo(db, "bea")).toEqual([]);
+    expect(state(db, "bea", "ada")).toBe("none");
+    expect(incoming(db, "bea")).toEqual([]);
   });
 
   test("REFUSED MEANS REFUSED: the same person cannot ask again", () => {
-    rifiuta(db, "bea", "ada", 20);
+    decline(db, "bea", "ada", 20);
 
-    const r = richiedi(db, "ada", "bea", 30);
+    const r = request(db, "ada", "bea", 30);
     expect(r.refused?.status).toBe(409);
     expect(r.state).toBe("declined_out");
     // Nothing new was written and nothing was reopened.
     expect(rowCount(db)).toBe(1);
-    expect(inArrivo(db, "bea")).toEqual([]);
+    expect(incoming(db, "bea")).toEqual([]);
   });
 
   test("the person who refused can still ask in their turn", () => {
-    rifiuta(db, "bea", "ada", 20);
+    decline(db, "bea", "ada", 20);
 
-    expect(richiedi(db, "bea", "ada", 30)).toEqual({ state: "pending_out", refused: null });
+    expect(request(db, "bea", "ada", 30)).toEqual({ state: "pending_out", refused: null });
     // An open question beats a closed past: the sender of the old refused
     // request must see something they can accept, not their own refusal.
-    expect(stato(db, "ada", "bea")).toBe("pending_in");
-    expect(inArrivo(db, "ada")).toEqual([{ id: "bea", since: 30 }]);
+    expect(state(db, "ada", "bea")).toBe("pending_in");
+    expect(incoming(db, "ada")).toEqual([{ id: "bea", since: 30 }]);
   });
 
   test("agreeing after a refusal leaves ONE row, so a later unfriend is not haunted by it", () => {
-    rifiuta(db, "bea", "ada", 20);
-    richiedi(db, "bea", "ada", 30);
-    accetta(db, "ada", "bea", 40);
+    decline(db, "bea", "ada", 20);
+    request(db, "bea", "ada", 30);
+    accept(db, "ada", "bea", 40);
 
     expect(rowCount(db)).toBe(1);
-    expect(stato(db, "ada", "bea")).toBe("friends");
+    expect(state(db, "ada", "bea")).toBe("friends");
 
-    annulla(db, "ada", "bea");
+    cancel(db, "ada", "bea");
     // Both are free again: the old refusal did not survive the friendship.
     expect(rowCount(db)).toBe(0);
-    expect(richiedi(db, "ada", "bea", 50).state).toBe("pending_out");
+    expect(request(db, "ada", "bea", 50).state).toBe("pending_out");
   });
 
   test("refusing twice is refusing once, and refusing nothing is a 409", () => {
-    rifiuta(db, "bea", "ada", 20);
-    expect(rifiuta(db, "bea", "ada", 99)).toEqual({ state: "none", refused: null });
+    decline(db, "bea", "ada", 20);
+    expect(decline(db, "bea", "ada", 99)).toEqual({ state: "none", refused: null });
     expect((db.query("SELECT decided_at AS d FROM friendships").get() as { d: number }).d).toBe(20);
 
-    expect(rifiuta(db, "cy", "ada", 20).refused?.status).toBe(409);
+    expect(decline(db, "cy", "ada", 20).refused?.status).toBe(409);
   });
 });
 
@@ -221,48 +223,48 @@ describe("undoing", () => {
   beforeEach(() => { db = fullSchema(); });
 
   test("withdrawing my own request removes it, and both are free again", () => {
-    richiedi(db, "ada", "bea", 10);
-    expect(annulla(db, "ada", "bea")).toEqual({ state: "none", refused: null });
+    request(db, "ada", "bea", 10);
+    expect(cancel(db, "ada", "bea")).toEqual({ state: "none", refused: null });
 
     expect(rowCount(db)).toBe(0);
-    expect(inArrivo(db, "bea")).toEqual([]);
-    expect(richiedi(db, "bea", "ada", 20).state).toBe("pending_out");
+    expect(incoming(db, "bea")).toEqual([]);
+    expect(request(db, "bea", "ada", 20).state).toBe("pending_out");
   });
 
   test("unfriending works from EITHER side, and leaves nothing behind", () => {
-    richiedi(db, "ada", "bea", 10);
-    accetta(db, "bea", "ada", 20);
+    request(db, "ada", "bea", 10);
+    accept(db, "bea", "ada", 20);
 
     // The one who did NOT send the original request ends it.
-    expect(annulla(db, "ada", "bea")).toEqual({ state: "none", refused: null });
+    expect(cancel(db, "ada", "bea")).toEqual({ state: "none", refused: null });
     expect(rowCount(db)).toBe(0);
-    expect(amici(db, "bea")).toEqual([]);
+    expect(friends(db, "bea")).toEqual([]);
   });
 
   test("I cannot cancel away a refusal I was given", () => {
-    richiedi(db, "ada", "bea", 10);
-    rifiuta(db, "bea", "ada", 20);
+    request(db, "ada", "bea", 10);
+    decline(db, "bea", "ada", 20);
 
-    annulla(db, "ada", "bea");
+    cancel(db, "ada", "bea");
 
     expect(rowCount(db)).toBe(1);
-    expect(stato(db, "ada", "bea")).toBe("declined_out");
-    expect(richiedi(db, "ada", "bea", 30).refused?.status).toBe(409);
+    expect(state(db, "ada", "bea")).toBe("declined_out");
+    expect(request(db, "ada", "bea", 30).refused?.status).toBe(409);
   });
 
   test("I cannot withdraw a request somebody sent ME", () => {
-    richiedi(db, "bea", "ada", 10);
+    request(db, "bea", "ada", 10);
 
-    annulla(db, "ada", "bea");
+    cancel(db, "ada", "bea");
 
     // Still there, still mine to answer: refusing is `rifiuta`, and a refusal
     // is remembered while a cancellation is not.
     expect(rowCount(db)).toBe(1);
-    expect(inArrivo(db, "ada")).toEqual([{ id: "bea", since: 10 }]);
+    expect(incoming(db, "ada")).toEqual([{ id: "bea", since: 10 }]);
   });
 
   test("cancelling what is not there is not an error", () => {
-    expect(annulla(db, "ada", "cy")).toEqual({ state: "none", refused: null });
+    expect(cancel(db, "ada", "cy")).toEqual({ state: "none", refused: null });
   });
 });
 
@@ -271,44 +273,44 @@ describe("the three lists", () => {
   beforeEach(() => { db = fullSchema(); });
 
   test("one read, three answers, newest first", () => {
-    richiedi(db, "ada", "bea", 10);
-    accetta(db, "bea", "ada", 15);
-    richiedi(db, "ada", "cy", 20);
+    request(db, "ada", "bea", 10);
+    accept(db, "bea", "ada", 15);
+    request(db, "ada", "cy", 20);
     db.run("INSERT INTO people (id, display_name) VALUES ('dee', 'dee')");
-    richiedi(db, "dee", "ada", 30);
+    request(db, "dee", "ada", 30);
 
-    expect(amici(db, "ada")).toEqual(["bea"]);
-    expect(inUscita(db, "ada")).toEqual([{ id: "cy", since: 20 }]);
-    expect(inArrivo(db, "ada")).toEqual([{ id: "dee", since: 30 }]);
+    expect(friends(db, "ada")).toEqual(["bea"]);
+    expect(outgoing(db, "ada")).toEqual([{ id: "cy", since: 20 }]);
+    expect(incoming(db, "ada")).toEqual([{ id: "dee", since: 30 }]);
 
     db.run("INSERT INTO people (id, display_name) VALUES ('eve', 'eve')");
-    richiedi(db, "eve", "ada", 40);
-    expect(inArrivo(db, "ada").map((r) => r.id)).toEqual(["eve", "dee"]);
+    request(db, "eve", "ada", 40);
+    expect(incoming(db, "ada").map((r) => r.id)).toEqual(["eve", "dee"]);
   });
 
   test("a REVOKED person leaves the lists, and the row stays for the day it is lifted", () => {
-    richiedi(db, "ada", "bea", 10);
-    accetta(db, "bea", "ada", 15);
-    richiedi(db, "cy", "ada", 20);
+    request(db, "ada", "bea", 10);
+    accept(db, "bea", "ada", 15);
+    request(db, "cy", "ada", 20);
     db.run("UPDATE people SET revoked_at = 1 WHERE id = 'bea'");
 
-    expect(amici(db, "ada")).toEqual([]);
-    expect(inArrivo(db, "ada")).toEqual([{ id: "cy", since: 20 }]);
+    expect(friends(db, "ada")).toEqual([]);
+    expect(incoming(db, "ada")).toEqual([{ id: "cy", since: 20 }]);
     expect(rowCount(db)).toBe(2);
 
     db.run("UPDATE people SET revoked_at = NULL WHERE id = 'bea'");
-    expect(amici(db, "ada")).toEqual(["bea"]);
+    expect(friends(db, "ada")).toEqual(["bea"]);
   });
 
   test("deleting a person takes their requests with them", () => {
     db.run("PRAGMA foreign_keys = ON");
-    richiedi(db, "ada", "bea", 10);
-    richiedi(db, "cy", "bea", 11);
+    request(db, "ada", "bea", 10);
+    request(db, "cy", "bea", 11);
 
     db.run("DELETE FROM people WHERE id = 'ada'");
 
     expect(rowCount(db)).toBe(1);
-    expect(inArrivo(db, "bea")).toEqual([{ id: "cy", since: 11 }]);
+    expect(incoming(db, "bea")).toEqual([{ id: "cy", since: 11 }]);
   });
 });
 
@@ -317,20 +319,20 @@ describe("a schema older than the migration", () => {
   beforeEach(() => { db = oldSchema(); });
 
   test("nothing throws, and nothing claims a relation that is not there", () => {
-    expect(() => richiedi(db, "ada", "bea", 10)).not.toThrow();
-    expect(richiedi(db, "ada", "bea", 10)).toEqual({ state: "none", refused: null });
-    expect(accetta(db, "ada", "bea", 10)).toEqual({ state: "none", refused: null });
-    expect(rifiuta(db, "ada", "bea", 10)).toEqual({ state: "none", refused: null });
-    expect(annulla(db, "ada", "bea")).toEqual({ state: "none", refused: null });
-    expect(stato(db, "ada", "bea")).toBe("none");
-    expect(amici(db, "ada")).toEqual([]);
-    expect(inArrivo(db, "ada")).toEqual([]);
-    expect(inUscita(db, "ada")).toEqual([]);
+    expect(() => request(db, "ada", "bea", 10)).not.toThrow();
+    expect(request(db, "ada", "bea", 10)).toEqual({ state: "none", refused: null });
+    expect(accept(db, "ada", "bea", 10)).toEqual({ state: "none", refused: null });
+    expect(decline(db, "ada", "bea", 10)).toEqual({ state: "none", refused: null });
+    expect(cancel(db, "ada", "bea")).toEqual({ state: "none", refused: null });
+    expect(state(db, "ada", "bea")).toBe("none");
+    expect(friends(db, "ada")).toEqual([]);
+    expect(incoming(db, "ada")).toEqual([]);
+    expect(outgoing(db, "ada")).toEqual([]);
   });
 
   test("the rule that does not need the table still holds", () => {
     // A self-request is refused before anything is read, so the reason reaches
     // the caller even on a database that could not have stored the row.
-    expect(richiedi(db, "ada", "ada", 10).refused?.status).toBe(400);
+    expect(request(db, "ada", "ada", 10).refused?.status).toBe(400);
   });
 });

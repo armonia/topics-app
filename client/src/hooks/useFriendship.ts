@@ -32,9 +32,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { friendsApi, type FriendPerson, type FriendshipState } from '@/lib/api';
 
 /** Every minute, like the identity row: see the header for why not faster. */
-const INTERVALLO_MS = 60_000;
+const INTERVAL_MS = 60_000;
 
-interface Liste {
+interface Lists {
   friends: FriendPerson[];
   incoming: FriendPerson[];
   outgoing: FriendPerson[];
@@ -43,22 +43,22 @@ interface Liste {
   pronto: boolean;
 }
 
-export interface Friendship extends Liste {
+export interface Friendship extends Lists {
   /** Read the three lists now. */
-  ricarica: () => Promise<void>;
+  reload: () => Promise<void>;
   /** Ask. If they had already asked me this accepts instead, so the caller
    *  must draw whatever state comes back and not the one it expected. */
-  richiedi: (id: string) => Promise<FriendshipState>;
-  accetta: (id: string) => Promise<FriendshipState>;
-  rifiuta: (id: string) => Promise<FriendshipState>;
+  request: (id: string) => Promise<FriendshipState>;
+  accept: (id: string) => Promise<FriendshipState>;
+  decline: (id: string) => Promise<FriendshipState>;
   /** Withdraw my request, or end a friendship. */
-  annulla: (id: string) => Promise<FriendshipState>;
+  cancel: (id: string) => Promise<FriendshipState>;
 }
 
-const VUOTO: Liste = { friends: [], incoming: [], outgoing: [], pronto: false };
+const EMPTY: Lists = { friends: [], incoming: [], outgoing: [], pronto: false };
 
-export function useFriendship(enabled = true, intervalMs = INTERVALLO_MS): Friendship {
-  const [liste, setListe] = useState<Liste>(VUOTO);
+export function useFriendship(enabled = true, intervalMs = INTERVAL_MS): Friendship {
+  const [liste, setListe] = useState<Lists>(EMPTY);
 
   /**
    * `forzato` is what a mutation passes: the window is visible by definition
@@ -66,7 +66,7 @@ export function useFriendship(enabled = true, intervalMs = INTERVALLO_MS): Frien
    * this function and a mutation must never be the one call that silently does
    * nothing because a tab lost focus mid-gesture.
    */
-  const leggi = useCallback(async (forzato = false) => {
+  const read = useCallback(async (forzato = false) => {
     if (!forzato && document.hidden) return;
     try {
       const r = await friendsApi.list();
@@ -80,7 +80,7 @@ export function useFriendship(enabled = true, intervalMs = INTERVALLO_MS): Frien
     }
   }, []);
 
-  const ricarica = useCallback(() => leggi(true), [leggi]);
+  const reload = useCallback(() => read(true), [read]);
 
   /**
    * The lists are refreshed but NOT awaited: the caller already holds the new
@@ -88,41 +88,41 @@ export function useFriendship(enabled = true, intervalMs = INTERVALLO_MS): Frien
    * before resolving would put a round trip behind every button for a value
    * the first response already carried.
    */
-  const gesto = useCallback(
+  const action = useCallback(
     async (azione: (id: string) => Promise<{ state: FriendshipState }>, id: string) => {
       const { state } = await azione(id);
-      void leggi(true);
+      void read(true);
       return state;
     },
-    [leggi],
+    [read],
   );
 
-  const richiedi = useCallback((id: string) => gesto(friendsApi.request, id), [gesto]);
-  const accetta = useCallback((id: string) => gesto(friendsApi.accept, id), [gesto]);
-  const rifiuta = useCallback((id: string) => gesto(friendsApi.decline, id), [gesto]);
-  const annulla = useCallback((id: string) => gesto(friendsApi.cancel, id), [gesto]);
+  const request = useCallback((id: string) => action(friendsApi.request, id), [action]);
+  const accept = useCallback((id: string) => action(friendsApi.accept, id), [action]);
+  const decline = useCallback((id: string) => action(friendsApi.decline, id), [action]);
+  const cancel = useCallback((id: string) => action(friendsApi.cancel, id), [action]);
 
   useEffect(() => {
     if (!enabled) return;
-    let vivo = true;
-    const giro = () => { if (vivo) void leggi(); };
+    let alive = true;
+    const giro = () => { if (alive) void read(); };
     // After the first paint and not during it: none of these rows is needed in
     // the first frame, and a synchronous state write on mount is exactly what
     // `set-state-in-effect` flags.
-    const primo = setTimeout(giro, 0);
-    const ogni = setInterval(giro, intervalMs);
+    const first = setTimeout(giro, 0);
+    const each = setInterval(giro, intervalMs);
     // Coming back to the window is the moment somebody wants to know whether
     // anything arrived while they were away, and it is also the tick the hidden
     // guard above has been skipping.
-    const alRitorno = () => { if (!document.hidden) giro(); };
-    document.addEventListener('visibilitychange', alRitorno);
+    const onSettled = () => { if (!document.hidden) giro(); };
+    document.addEventListener('visibilitychange', onSettled);
     return () => {
-      vivo = false;
-      clearTimeout(primo);
-      clearInterval(ogni);
-      document.removeEventListener('visibilitychange', alRitorno);
+      alive = false;
+      clearTimeout(first);
+      clearInterval(each);
+      document.removeEventListener('visibilitychange', onSettled);
     };
-  }, [enabled, intervalMs, leggi]);
+  }, [enabled, intervalMs, read]);
 
-  return { ...liste, ricarica, richiedi, accetta, rifiuta, annulla };
+  return { ...liste, reload, request, accept, decline, cancel };
 }

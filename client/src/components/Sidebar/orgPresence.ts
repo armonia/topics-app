@@ -23,7 +23,7 @@ export interface MembroPresenza {
 }
 
 /** A face to show: who it is, and what to draw it with. */
-export interface FacciaPresenza {
+export interface PresenceFace {
   id: string;
   nome: string;
   avatarUrl: string | null;
@@ -36,7 +36,7 @@ export interface FacciaPresenza {
  * because everyone in it is online by construction; here absence is itself a
  * fact worth showing.
  */
-export interface RigaPresenza extends FacciaPresenza {
+export interface PresenceRow extends PresenceFace {
   presente: boolean;
   /** Last seen, used both to sort and to say "two hours ago". */
   vistoA: number | null;
@@ -103,7 +103,7 @@ export function facceOnline(
   io: string | null,
   adesso: number,
   sogliaMs: number = PRESENZA_MS,
-): FacciaPresenza[] {
+): PresenceFace[] {
   // The same guard as `presentiOra`, and for the same reason: without knowing
   // who you are, the first face in the list would be your own.
   if (io === null) return [];
@@ -143,7 +143,7 @@ export function gentePresenza(
   io: string | null,
   adesso: number,
   sogliaMs: number = PRESENZA_MS,
-): RigaPresenza[] {
+): PresenceRow[] {
   // Same guard as its siblings: not knowing who you are puts you in your list.
   if (io === null) return [];
   const perId = new Map(rubrica.map((p) => [p.id, p]));
@@ -175,8 +175,8 @@ export function gentePresenza(
  * copy wins. Saying "offline" about somebody who is typing is the worse of the
  * two mistakes, because it is the one that makes people stop writing to them.
  */
-export function unisciGente(gruppi: readonly RigaPresenza[][]): RigaPresenza[] {
-  const perId = new Map<string, RigaPresenza>();
+export function mergePeople(gruppi: readonly PresenceRow[][]): PresenceRow[] {
+  const perId = new Map<string, PresenceRow>();
   for (const gruppo of gruppi) {
     for (const r of gruppo) {
       const gia = perId.get(r.id);
@@ -195,9 +195,9 @@ export function unisciGente(gruppi: readonly RigaPresenza[][]): RigaPresenza[] {
  * row answers "who is here", and the same face showing twice is the most
  * visible mistake that row can possibly make.
  */
-export function unisciFacce(gruppi: readonly FacciaPresenza[][]): FacciaPresenza[] {
+export function mergeFaces(gruppi: readonly PresenceFace[][]): PresenceFace[] {
   const visti = new Set<string>();
-  const out: FacciaPresenza[] = [];
+  const out: PresenceFace[] = [];
   for (const gruppo of gruppi) {
     for (const f of gruppo) {
       if (visti.has(f.id)) continue;
