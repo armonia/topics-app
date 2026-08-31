@@ -160,8 +160,12 @@ test.describe("Il profilo, alla GitHub", () => {
     // no second row of names under the numbers that were just clicked.
     await page.getByTestId("profile-count-followers").click();
     await expect(page.getByTestId("profile-followers-panel")).toBeVisible();
-    await expect(page.getByTestId("list-followers")).toBeVisible();
+    // Nobody follows the owner of a fresh install, and that is drawn as a
+    // SENTENCE, not as an empty box. What must not be there is a second row of
+    // tabs repeating the words the counters already say.
+    await expect(page.getByTestId("list-followers-empty")).toBeVisible();
     await expect(page.getByTestId("followers-tab-people")).toHaveCount(0);
+    await expect(page.getByTestId("followers-tab-friends")).toHaveCount(0);
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("profile-followers-panel")).toHaveCount(0);
   });
