@@ -67,7 +67,7 @@ export type CodiceAccount = (typeof CODICI_ACCOUNT)[number];
  * proprietà che rende vera la frase «perdere il contatto non toglie niente»
  * (ORG-08).
  */
-export interface StatoAccount {
+export interface AccountState {
   /** Esiste un servizio a cui chiedere un'attivazione. Indipendente da
    *  `linked`: si può essere collegati con il servizio ora irraggiungibile. */
   configured: boolean;

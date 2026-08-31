@@ -94,8 +94,8 @@ type Db = Pick<Database, "query">;
  * dovesse validare un codice che gli arriva, la strada è la stessa del client —
  * importarlo da `shared/`, non ricopiare l'elenco.
  */
-export type { CodiceAccount, StatoAccount } from "../../shared/account";
-import type { CodiceAccount, StatoAccount } from "../../shared/account";
+export type { CodiceAccount, AccountState } from "../../shared/account";
+import type { CodiceAccount, AccountState } from "../../shared/account";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // La configurazione
@@ -150,8 +150,8 @@ export function normalizzaEmail(raw: unknown): string | null {
  * agisce. Non fa rete e non solleva: uno schema anteriore alla 084 produce uno
  * stato «non collegato», che è la verità, invece di un errore.
  */
-export function statoAccount(db: Db, personId: string | null, configured: boolean): StatoAccount {
-  const vuoto: StatoAccount = {
+export function statoAccount(db: Db, personId: string | null, configured: boolean): AccountState {
+  const vuoto: AccountState = {
     configured, linked: false, accountId: null, email: null,
     personId, personName: null, linkedAt: null,
   };
