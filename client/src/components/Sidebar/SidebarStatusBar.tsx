@@ -592,16 +592,14 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices, variant 
           sidebar e' UNA fascia sola, e cio' che distingue le sue parti e' il
           glifo con cui ciascuna comincia, non una linea. */}
       {variant === 'column' && (
-        /* THE BOTTOM INSET COMES BACK WITH THE BAND, because it used to belong
-           to the row underneath it. The status row carried the column's bottom
-           breathing room (and, on a phone, the home-indicator band); it moved
-           into the «Topics» menu and took the padding with it, leaving the
-           identity band flush against the edge — measured 2026-08-31: band
-           bottom at 800 on a 800px viewport, 4px of its own padding and nothing
-           else. `ROW_INSET` is the same inset the header, the cards and the tab
-           strip use: one number on every sidebar axis. `--sab` stays the floor
-           so a home indicator is still cleared. */
-        <div style={{ paddingBottom: `max(var(--sab), ${ROW_INSET}px)` }}>
+        /* ONLY THE HOME INDICATOR IS LEFT HERE. The bottom breathing room
+           itself belongs to the band and is written on the band
+           (`IdentityBlock`, `paddingBottom: ROW_INSET`), because a wrapper's
+           padding STACKS on top of the child's own: this div used to add
+           ROW_INSET under a block that already had `pb-1`, and the foot ended
+           up 10px deep against 6px at the sides — measured 2026-08-31. This
+           div now clears a phone's home indicator and nothing else. */
+        <div style={{ paddingBottom: 'var(--sab, 0px)' }}>
           <IdentityBlock onOpenDevices={onOpenDevices} />
         </div>
       )}

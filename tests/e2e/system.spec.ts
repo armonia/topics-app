@@ -30,6 +30,10 @@ test.describe("System & Infrastructure", () => {
     // isolated test server reports openclaw unconfigured, so stub it.
     await mockOpenClawAvailable(page);
     await goToApp(page);
+    // The status bar is no longer at the foot of the column: it lives inside
+    // the «Topics» menu (SIDEBAR-STATUS-01), so the menu has to be opened
+    // before its button exists in the DOM at all.
+    await page.getByTestId("sidebar-topics-menu").click();
 
     // Accept "Online", "Connecting", or "Offline" — gateway may not be available on test server
     const statusBtn = page.getByRole("button", { name: /Online|Connecting|Offline/ });
@@ -41,6 +45,8 @@ test.describe("System & Infrastructure", () => {
   test("status bar shows system info", async ({ page }) => {
     await mockOpenClawAvailable(page);
     await goToApp(page);
+    // See above: the status bar moved into the «Topics» menu.
+    await page.getByTestId("sidebar-topics-menu").click();
 
     const statusBtn = page.getByRole("button", { name: /Online|Connecting|Offline/ });
     await expect(statusBtn).toBeVisible({ timeout: 15000 });

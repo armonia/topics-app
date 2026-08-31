@@ -123,10 +123,14 @@ test.describe("Lo stato vive nel menu «Topics»", () => {
     //    bottom inset; it moved into the menu and took the padding with it,
     //    leaving the identity band flush against the edge — reported as the
     //    spacing being wrong down there. One inset on every sidebar axis.
+    //    Measured on a CHIP, not on the band: the band's box now runs all the
+    //    way to the column edge and holds the gap INSIDE itself, as padding,
+    //    so its rect touches the bottom while the ink is 6px above it. Asking
+    //    the box would report zero breathing on a foot that breathes.
     const column = (await rect('[aria-label="Topics sidebar"]'))!;
-    const band = (await rect('[data-testid="identity-block"]'))!;
+    const band = (await rect('[data-testid="identity-row-me"]'))!;
     const breathing = column.bottom - band.bottom;
-    expect(breathing, `the band ends at ${band.bottom} in a column ending at ${column.bottom}`)
+    expect(breathing, `the chip ends at ${band.bottom} in a column ending at ${column.bottom}`)
       .toBeGreaterThanOrEqual(4);
 
     // 2) THE PANELS OPEN AS DROPDOWNS: below their anchor, and on screen. They
@@ -143,5 +147,37 @@ test.describe("Lo stato vive nel menu «Topics»", () => {
     expect(popover.bottom).toBeLessThanOrEqual(popover.vh);
     expect(popover.left).toBeGreaterThanOrEqual(0);
     expect(popover.right).toBeLessThanOrEqual(popover.vw);
+  });
+
+  test("SIDEBAR-STATUS-01d: il fondo della colonna respira quanto i lati", async ({ page }) => {
+    // THE FOOT IS READ AGAINST ITS OWN SIDES. The identity band is the last
+    // thing in the column, so the gap under it sits next to the gap to its
+    // left and to its right, and any difference between the three is visible
+    // without measuring. It was 10px underneath against 6px at the sides:
+    // the band's own `pb-1` plus the inset of the wrapper that holds it, one
+    // padding stacked on the other. Measured on the chips, not on the block:
+    // the block spans the full width, so only the chips carry the real gap.
+    await goToApp(page);
+    await page.getByTestId("identity-block").waitFor({ state: "visible", timeout: 20_000 });
+
+    const gaps = await page.evaluate(() => {
+      const col = document.querySelector('[aria-label="Topics sidebar"]')!.getBoundingClientRect();
+      const chips = Array.from(document.querySelectorAll('[data-testid^="identity-row-"]'))
+        .map((el) => el.getBoundingClientRect())
+        .filter((r) => r.width > 0);
+      return {
+        n: chips.length,
+        left: Math.min(...chips.map((r) => r.left - col.left)),
+        right: Math.min(...chips.map((r) => col.right - r.right)),
+        bottom: Math.min(...chips.map((r) => col.bottom - r.bottom)),
+      };
+    });
+
+    expect(gaps.n).toBeGreaterThan(0);
+    expect(gaps.bottom).toBeGreaterThan(0);
+    // Sub-pixel tolerance only: this is one CSS number on three axes, not
+    // three numbers that happen to be close.
+    expect(Math.abs(gaps.bottom - gaps.left)).toBeLessThanOrEqual(1);
+    expect(Math.abs(gaps.bottom - gaps.right)).toBeLessThanOrEqual(1);
   });
 });

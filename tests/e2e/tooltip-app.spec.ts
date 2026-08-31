@@ -26,6 +26,10 @@ test.describe('il tooltip e\' quello dell\'app, non quello del sistema', () => {
   test('passando il mouse compare il nostro, e il nativo viene disinnescato', async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "TOOLTIP-01" });
     await page.goto('/');
+    // The number lives inside the «Topics» menu since the status bar moved
+    // there (SIDEBAR-STATUS-01), and the tooltip this test watches is its
+    // own: the menu has to be open before anything can hover it.
+    await page.getByTestId('sidebar-topics-menu').click();
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
 
     const el = page.locator(CON_TITLE).first();
@@ -130,6 +134,10 @@ test.describe('il tooltip e\' quello dell\'app, non quello del sistema', () => {
 
   test('uscendo, il `title` TORNA: i lettori di schermo non perdono il testo', async ({ page }) => {
     await page.goto('/');
+    // The number lives inside the «Topics» menu since the status bar moved
+    // there (SIDEBAR-STATUS-01), and the tooltip this test watches is its
+    // own: the menu has to be open before anything can hover it.
+    await page.getByTestId('sidebar-topics-menu').click();
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
 
     const el = page.locator(CON_TITLE).first();
@@ -156,6 +164,10 @@ test.describe('il tooltip e\' quello dell\'app, non quello del sistema', () => {
     // Chi preme un bottone ha finito di leggere. Un tooltip che sopravvive al
     // click resta sopra la cosa che compare dopo.
     await page.goto('/');
+    // The number lives inside the «Topics» menu since the status bar moved
+    // there (SIDEBAR-STATUS-01), and the tooltip this test watches is its
+    // own: the menu has to be open before anything can hover it.
+    await page.getByTestId('sidebar-topics-menu').click();
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
     const el = page.locator(CON_TITLE).first();
     await expect(el).toBeVisible({ timeout: 20_000 });
@@ -178,6 +190,10 @@ test.describe('il tooltip e\' quello dell\'app, non quello del sistema', () => {
      * La domanda stabile e' un'altra, ed e' quella che conta: quante righe
      * arrivano, e sono prosa o una chiave i18n non risolta? */
     await page.goto('/');
+    // The number lives inside the «Topics» menu since the status bar moved
+    // there (SIDEBAR-STATUS-01), and the tooltip this test watches is its
+    // own: the menu has to be open before anything can hover it.
+    await page.getByTestId('sidebar-topics-menu').click();
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
     const el = page.locator(CON_TITLE).first();
     await expect(el).toBeVisible({ timeout: 20_000 });

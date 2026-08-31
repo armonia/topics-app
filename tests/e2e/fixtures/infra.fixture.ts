@@ -99,8 +99,13 @@ export class InfraPage {
   }
 
   async openSystemStatusPanel() {
-    // System Status is the sidebar status-bar gateway button (bottom-left),
-    // whose title starts with "Performance". Clicking it opens SystemStatusPanel.
+    // TWO STEPS, because the status bar is no longer at the foot of the column:
+    // it lives inside the «Topics» menu (SIDEBAR-STATUS-01). The button whose
+    // title starts with "Performance" is still the one that opens the panel —
+    // it just has a menu in front of it now.
+    const menu = this.page.getByTestId("sidebar-topics-menu");
+    await menu.waitFor({ state: "visible", timeout: 15_000 });
+    if ((await this.page.locator('button[title^="Performance"]').count()) === 0) await menu.click();
     await this.page.locator('button[title^="Performance"]').first().click();
     await this.page
       .locator("text=Gateway")

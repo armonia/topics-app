@@ -129,10 +129,18 @@ export function IdentityBlock({ onOpenDevices }: { onOpenDevices?: () => void })
     // what makes it a promise instead of a hope: if a subject ever refuses to
     // shrink, the column must not grow a horizontal scrollbar to accommodate
     // it. The e2e measures both (same top within 1px, scrollWidth == clientWidth).
+    //
+    // ONE INSET ON ALL THREE SIDES. The band is the last thing in the column,
+    // so its bottom gap is read against its own left and right gaps, side by
+    // side, and any difference shows. It used to be `pb-1` (4px) plus the
+    // inset of the wrapper in `SidebarStatusBar`, and a wrapper's padding
+    // stacks on the child's: measured 2026-08-31, 6px at the sides against
+    // 10px underneath. `ROW_INSET` is that one number, and it lives here so
+    // nothing can add a second one on top of it.
     <div
       data-testid="identity-block"
-      className="@container/identity flex flex-nowrap items-center gap-1 overflow-hidden pb-1 text-[11px]"
-      style={{ paddingInline: ROW_INSET }}
+      className="@container/identity flex flex-nowrap items-center gap-1 overflow-hidden text-[11px]"
+      style={{ paddingInline: ROW_INSET, paddingBottom: ROW_INSET }}
     >
       <RigaIo presenza={presenza} onOpenDevices={onOpenDevices} />
       <RowOrgs orgs={presenza.orgs} />
