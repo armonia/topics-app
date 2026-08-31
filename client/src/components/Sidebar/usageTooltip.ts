@@ -29,14 +29,16 @@ export interface UsageTooltipInput {
   status: SystemStatus | null;
   /** Frames per second measured in this window; 0 when not sampling. */
   fps: number;
-  /** «di cui in RAM adesso: N MB», already translated by the caller. Null when
-   *  the resident share is not worth a line (see `mostraResidenteInBarra`). */
+  /** The resident-share line, already translated by the caller. Its shape is
+   *  «di cui in RAM adesso: N MB» — allow-italian: that IS the string, quoted.
+   *  Null when the resident share is not worth a line at all (see
+   *  `mostraResidenteInBarra`). */
   residentLine: string | null;
   /** The hover-gated inventory (`bloccoTooltip`), null until somebody looks. */
   inventory: string | null;
 }
 
-const fmtMB = (mb: number) => (mb >= 1024 ? `${(mb / 1024).toFixed(1)}GB` : `${mb}MB`);
+const formatMB = (mb: number) => (mb >= 1024 ? `${(mb / 1024).toFixed(1)}GB` : `${mb}MB`);
 const partialSign = (partial: boolean) => (partial ? '~' : '');
 
 /** The footprint the tooltip describes. Exported because the caller needs the
@@ -119,7 +121,7 @@ export function composeUsageTooltip(input: UsageTooltipInput): string {
   return [
     'Topics in tutto',
     usage.totalMB !== null
-      ? `memoria: ${partialSign(usage.memPartial)}${fmtMB(usage.totalMB)} su ${usage.totalProcessCount} processi`
+      ? `memoria: ${partialSign(usage.memPartial)}${formatMB(usage.totalMB)} su ${usage.totalProcessCount} processi`
       : 'memoria: non misurata',
     residentLine,
     usage.totalCpu !== null
