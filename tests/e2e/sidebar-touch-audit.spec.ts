@@ -406,7 +406,10 @@ test.describe("Sidebar col dito — audit misurato", () => {
     // sotto Tauri comporrebbe l'alpha della vibrancy sopra la prima (0,80
     // contro 0,55). La fila dei comandi in fondo dipinge, ma è un FRATELLO
     // della colonna, non un suo figlio — ed è per questo che può.
-    await expect(page.locator(`${SIDEBAR} [data-testid="sidebar-status-bar"]`)).toHaveCount(0);
+    // What must not sit in the column are the NUMBERS, not the container that
+    // held them: `sidebar-status-bar` has not existed since 2026-08-31, and
+    // demanding its absence would be a guard that can no longer fail.
+    await expect(page.locator(`${SIDEBAR} [data-testid="metrics-total"]`)).toHaveCount(0);
     const queueOutside = await page.evaluate(() => {
       const colonna = document.querySelector('[role="navigation"][aria-label="Topics sidebar"]');
       const fila = document.querySelector('[data-testid="mobile-chrome-bar"]');
@@ -783,8 +786,11 @@ test.describe("Sidebar col dito — audit misurato", () => {
     expect(Math.round(titolo.x - colonna.x), "il titolo non parte dal rientro della colonna").toBe(6);
     expect(Math.round(titolo.height), `il titolo è alto ${titolo.height}px: sotto la soglia del dito`).toBeGreaterThanOrEqual(44);
 
-    // Niente barra di stato, niente riga identità: sono nel menu.
-    await expect(page.locator(`${SIDEBAR} [data-testid="sidebar-status-bar"]`)).toHaveCount(0);
+    // No numbers, no version, no identity row: they are in the menu. (The
+    // container `sidebar-status-bar` no longer exists: what gets named is the
+    // content, which does exist and could come back where it must not be.)
+    await expect(page.locator(`${SIDEBAR} [data-testid="metrics-total"]`)).toHaveCount(0);
+    await expect(page.locator(`${SIDEBAR} [data-version-anchor]`)).toHaveCount(0);
     await expect(page.locator(`${SIDEBAR} [data-testid="device-identity"]`)).toHaveCount(0);
 
     // I comandi stanno in fondo allo SCHERMO, sotto l'albero. Erano tre il

@@ -90,6 +90,20 @@ installa. Un sistema operativo INTERO mancante NON SHALL pubblicare. Il manifest
 dell'aggiornamento mancante NON SHALL pubblicare: senza, gli altri non vengono
 mai chiesti.
 
+IL MANIFESTO SHALL ESSERE APERTO, non solo contato. Il 31/08 la 2.2.256 è
+passata dodici su dodici con un `latest.json` che nominava SETTE piattaforme su
+dieci e nessuna Windows: gli installer c'erano tutti, il nome del manifesto
+c'era, e chi era su Windows non ha ricevuto l'aggiornamento senza che niente lo
+dicesse. Quindi il giudizio SHALL leggere DENTRO il manifesto e SHALL rifiutare
+la pubblicazione se una piattaforma attesa non è nominata, dicendo QUALE. Un
+manifesto ILLEGGIBILE SHALL essere un guasto DISTINTO da una piattaforma
+mancante: le due cose si curano in modo diverso. Piattaforme IN PIÙ NON SHALL
+disturbare, per la stessa ragione dei pacchetti in più.
+
+La causa SHALL restare scritta accanto al controllo: le tre costruzioni della
+matrice caricano OGNUNA il proprio manifesto e vince l'ultima, quindi una corsa
+vinta da chi non ha visto Windows pubblica un manifesto presente e monco.
+
 Una bozza VUOTA NON SHALL essere pubblicata. Pacchetti IN PIÙ NON SHALL
 disturbare: la domanda è «c'è tutto», non «c'è solo».
 
@@ -104,6 +118,16 @@ creato.
 #### Scenario: una firma mancante
 - **GIVEN** un pacchetto senza la sua firma
 - **THEN** NON SHALL essere pubblicato
+
+#### Scenario: dodici pacchetti su dodici e un manifesto monco
+- **GIVEN** tutti i pacchetti presenti e un `latest.json` senza le voci Windows
+- **THEN** NON SHALL essere pubblicato
+- **AND** il messaggio SHALL nominare le piattaforme che mancano
+
+#### Scenario: un manifesto che non si legge
+- **GIVEN** un `latest.json` che non è un manifesto dell'aggiornamento
+- **THEN** NON SHALL essere pubblicato
+- **AND** SHALL essere detto come guasto diverso da «manca una costruzione»
 
 ### Requirement: RELEASE-04 — Chi preme «pubblica» LEGGE che raggiunge tutti
 

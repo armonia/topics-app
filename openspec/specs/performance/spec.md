@@ -653,7 +653,7 @@ La PRIMA RIGA del menu SHALL dire quanta memoria, senza espandere il pannello.
 aprire»: era che il numero non stesse sepolto sotto un secondo gesto, perche' un
 costo che si paga per essere letto non viene letto. Quella meta' resta: la riga
 chiusa del menu porta gia' il pallino del carico, la memoria e la CPU
-(`menu-load-summary`). Cio' che si perde e' un'occhiata senza gesti, e in cambio
+(`metrics-total`). Cio' che si perde e' un'occhiata senza gesti, e in cambio
 la colonna torna tutta ai topic; cio' che NON si perde e' l'allarme, che non e'
 una statistica e SHALL restare visibile a menu chiuso — SIDEBAR-STATUS-01.)*
 

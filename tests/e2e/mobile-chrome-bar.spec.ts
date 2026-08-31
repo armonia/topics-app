@@ -338,8 +338,13 @@ test.describe.serial("La chrome del telefono", () => {
   test("MOBILE-CHROME-05 — nel menu restano prestazioni e versione, l'account no", async ({ page }) => {
     await apri(page);
 
-    // La fascia «Questo computer» non c'è più sotto i 768px.
-    await expect(page.locator('[data-testid="sidebar-status-bar"]')).toHaveCount(0);
+    // The «Questo computer» band is gone below 768px. What gets NAMED is what
+    // must be absent and still exists somewhere — the numbers and the version,
+    // which live in the menu — not the container that held them:
+    // `sidebar-status-bar` was deleted from the client on 2026-08-31, and a
+    // guard demanding the absence of a dead testid passes forever.
+    await expect(page.locator('[data-testid="metrics-total"]')).toHaveCount(0);
+    await expect(page.locator('[data-version-anchor]')).toHaveCount(0);
     await expect(page.locator('[data-testid="identity-row-me"]')).toHaveCount(0);
 
     // Quel che resta vive nel menu, che sul telefono è un foglio dal basso.

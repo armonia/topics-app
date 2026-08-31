@@ -76,6 +76,62 @@ export function assetVerdict(names: readonly string[]): AssetVerdict {
 }
 
 /**
+ * THE PLATFORMS INSIDE THE MANIFEST, not the fact that the manifest is there.
+ *
+ * On 2026-08-31 release 2.2.256 passed 12/12 with a `latest.json` holding SEVEN
+ * platforms out of ten and no Windows at all: `assetVerdict` looks at the NAMES
+ * of the uploaded files, and the name `latest.json` was among them. Whoever was
+ * on Windows got no update, and no gate said a word.
+ *
+ * The cause is the shape of the pipeline: the three matrix builds
+ * (macos/windows/ubuntu) each upload their OWN `latest.json`, and the last one
+ * wins. When that race is won by a runner that never saw Windows, the published
+ * manifest is truncated while being present.
+ *
+ * Pure on purpose, like `assetVerdict`: the case that matters is proven without
+ * waiting for a real release to go wrong.
+ */
+export const UPDATER_PLATFORMS = [
+  "darwin-aarch64",
+  "darwin-aarch64-app",
+  "darwin-x86_64",
+  "darwin-x86_64-app",
+  "linux-x86_64",
+  "linux-x86_64-deb",
+  "linux-x86_64-rpm",
+  "windows-x86_64",
+  "windows-x86_64-msi",
+  "windows-x86_64-nsis",
+] as const;
+
+export type ManifestVerdict =
+  | { ok: true; found: number }
+  | { ok: false; found: number; missing: string[]; reason: "platforms" }
+  | { ok: false; found: 0; missing: string[]; reason: "unreadable" };
+
+export function manifestVerdict(raw: string): ManifestVerdict {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    // An unreadable manifest is NOT "zero platforms": it is a file the updater
+    // will not know how to read, and that is a different fault from a missing
+    // build. They are told apart because the cure is different.
+    return { ok: false, found: 0, missing: [...UPDATER_PLATFORMS], reason: "unreadable" };
+  }
+  const platforms = (parsed as { platforms?: Record<string, unknown> })?.platforms;
+  if (!platforms || typeof platforms !== "object") {
+    return { ok: false, found: 0, missing: [...UPDATER_PLATFORMS], reason: "unreadable" };
+  }
+  const listed = Object.keys(platforms);
+  const missing = UPDATER_PLATFORMS.filter((k) => !listed.includes(k));
+  const found = UPDATER_PLATFORMS.length - missing.length;
+  return missing.length === 0
+    ? { ok: true, found }
+    : { ok: false, found, missing, reason: "platforms" };
+}
+
+/**
  * `latest.json` a parte: e' l'unico che l'updater legge PER PRIMO, e una
  * release senza gli altri undici ma con lui manderebbe ogni client a chiedere
  * file che non ci sono. Serve a dare al log una diagnosi piu' precisa di
@@ -107,7 +163,44 @@ if (import.meta.main) {
   const names = new TextDecoder().decode(proc.stdout).split("\n").map((s) => s.trim()).filter(Boolean);
   const v = assetVerdict(names);
   if (v.complete) {
-    console.log(`[assets] ${v.found}/${ASSET_SUFFIXES.length} presenti: la release e' completa.`);
+    // THE NAMES ARE THERE: now the manifest gets opened. A `latest.json` that is
+    // present but truncated is exactly what happened to 2.2.256, and from here on
+    // it costs one extra request and does not get through.
+    const url = Bun.spawnSync([
+      "gh", "api", `repos/${repo}/releases/${id}`,
+      "--jq", '.assets[] | select(.name=="latest.json") | .url',
+    ]);
+    const assetUrl = new TextDecoder().decode(url.stdout).trim();
+    if (url.exitCode !== 0 || !assetUrl) {
+      console.error("[assets] non misurabile: non ho l'URL di latest.json");
+      process.exit(2);
+    }
+    const dl = Bun.spawnSync(["gh", "api", assetUrl, "-H", "Accept: application/octet-stream"]);
+    if (dl.exitCode !== 0) {
+      console.error(`[assets] non misurabile: lo scarico di latest.json e' uscito ${dl.exitCode}`);
+      process.exit(2);
+    }
+    const m = manifestVerdict(new TextDecoder().decode(dl.stdout));
+    if (!m.ok) {
+      if (m.reason === "unreadable") {
+        console.error("[assets] latest.json c'e' ma non si legge come manifesto dell'updater.");
+      } else {
+        console.error(`[assets] latest.json e' MONCO: ${m.found}/${UPDATER_PLATFORMS.length} piattaforme. MANCANO:`);
+        for (const k of m.missing) console.error(`  - ${k}`);
+        console.error(
+          "\nGli utenti di quelle piattaforme non riceverebbero l'aggiornamento, e\n" +
+            "la release sembrerebbe completa: gli installer ci sono, e' il manifesto che\n" +
+            "non li nomina. Le tre build della matrice caricano ognuna il PROPRIO\n" +
+            "latest.json e vince l'ultima: rilanciare il job della piattaforma che manca\n" +
+            "NON basta se poi non ricarica il manifesto completo.",
+        );
+      }
+      process.exit(1);
+    }
+    console.log(
+      `[assets] ${v.found}/${ASSET_SUFFIXES.length} presenti e latest.json copre ` +
+        `${m.found}/${UPDATER_PLATFORMS.length} piattaforme: la release e' completa.`,
+    );
     process.exit(0);
   }
   console.error(`[assets] ${v.found}/${ASSET_SUFFIXES.length} presenti. MANCANO:`);

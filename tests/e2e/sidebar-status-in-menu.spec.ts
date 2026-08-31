@@ -224,5 +224,39 @@ test.describe("Lo stato vive nel menu «Topics»", () => {
       expect(stats[i].top, `${stats[i].id} at ${stats[i].top} vs ${stats[i - 1].id} at ${stats[i - 1].top}`)
         .toBeGreaterThan(stats[i - 1].top);
     }
+
+    // AND BELOW THE COMMANDS, which is the half nobody was asserting: the rect
+    // of «Cronologia» was read and then only its left and width were used, so
+    // moving the whole block above the commands left all six tests green. The
+    // reading order is the requirement — above, the things that DO something;
+    // below, the things that SAY — and a menu that opens with a report makes
+    // you hunt for the commands underneath the report.
+    for (const row of stats) {
+      expect(row.top, `${row.id} at ${row.top} must sit below «Cronologia» at ${history.top}`)
+        .toBeGreaterThan(history.top);
+    }
+  });
+
+  test("SIDEBAR-STATUS-01f: quando il collegamento cade, la spia lo DICHIARA", async ({ page }) => {
+    // THE ALARM IS THE REASON THE TWO DOTS BECAME ONE, and until now no test
+    // could see it lit: `data-alarm` was asserted once and in the NEGATIVE
+    // (all well), and `ws-connection-status` once and in the negative (after
+    // reconnecting). Two guards saying "it is not here now" do not prove it
+    // knows how to appear.
+    //
+    // The WS never connects: every attempt is closed in the client's face,
+    // which is the state the requirement describes.
+    await page.routeWebSocket(/\/ws/, (ws) => { ws.close(); });
+    await goToApp(page);
+
+    const lamp = page.getByTestId("connection-status");
+    await expect(lamp).toBeVisible({ timeout: 20_000 });
+    // 1) THE DOT DECLARES IT, as an attribute: reading a hue back out of a
+    //    pixel means asserting the palette instead of the state.
+    await expect(lamp).toHaveAttribute("data-alarm", "true", { timeout: 20_000 });
+    // 2) AND THE ROW NAMES IT, at the foot of the column, without opening
+    //    anything — the scenario in openspec/specs/topics whose own title is
+    //    «l'allarme si legge senza aprire niente». allow-italian: quoted title.
+    await expect(page.getByTestId("ws-connection-status")).toBeVisible({ timeout: 20_000 });
   });
 });
