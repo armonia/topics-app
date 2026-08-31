@@ -4875,11 +4875,35 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
 
     sweepReviewPreviews(): number {
       try {
+        // THE SHEETS ALREADY DRAWN TOO, not just the blind cards.
+        //
+        // The sheet shows the diffstat, and the diffstat lands AFTER: the sheet
+        // is born on the transition into review, the numbers are filled in by
+        // the backfill pass half an hour later. A card that already had its
+        // sheet did not enter this sweep, so it kept the first drawing for ever
+        // — measured 2026-09-01 on `dec39cd3`: zero files and zero lines both
+        // ways, against the 4 files and +157 lines the column actually held.
+        //
+        // Redrawing is safe by construction and costs one write per card:
+        // `ensureDeliverySheet` writes only over emptiness or over a previous
+        // sheet, and stops in front of somebody's real evidence.
+        // `promoteReviewPreview` stays the first branch for blind cards: the
+        // sheet is the last one, not the first.
         const rows = db.prepare(
-          "SELECT id FROM tasks WHERE status = 'review' AND COALESCE(archived, 0) = 0 AND COALESCE(TRIM(preview_image), '') = ''",
-        ).all() as Array<{ id: string }>;
+          "SELECT id, COALESCE(TRIM(preview_image), '') AS preview FROM tasks " +
+          "WHERE status = 'review' AND COALESCE(archived, 0) = 0",
+        ).all() as Array<{ id: string; preview: string }>;
         let coperte = 0;
         for (const r of rows) {
+          if (r.preview) {
+            // A sheet gets REDRAWN (its numbers may have changed), somebody's
+            // evidence is left alone. Neither is a «rescued» card: the number
+            // this function returns ends up in a log line saying how many BLIND
+            // cards have a preview again, and counting redraws would make it
+            // lie at every boot.
+            if (isDeliverySheetPath(r.preview)) ensureDeliverySheet(r.id);
+            continue;
+          }
           // Prima si prova l'evidenza VERA (un allegato promuovibile nel
           // thread): la scheda e' l'ultimo ramo, non il primo.
           promoteReviewPreview(r.id);
@@ -5084,7 +5108,25 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         "UPDATE tasks SET delivery_files_changed = ?, delivery_insertions = ?, delivery_deletions = ? " +
         "WHERE id = ? AND delivery_files_changed IS NULL",
       ).run(filesChanged, insertions, deletions, taskId);
-      return r.changes > 0;
+      if (r.changes === 0) return false;
+      // THE SHEET SHOWS THESE NUMBERS, so whoever writes them redraws it.
+      //
+      // The sheet is drawn when the card enters review, and these numbers land
+      // AFTER: the backfill pass fills them in every half hour, for the paths
+      // that reach review without going through the end of a turn. Nobody
+      // redrew, so the card kept the old sheet. Measured 2026-09-01 on
+      // `dec39cd3`: the sheet read zero files and zero lines both ways — its
+      // own words: «file toccati 0, +0 righe aggiunte, -0 righe tolte». allow-italian: the sheet's own labels, quoted.
+      // While the column held
+      // 4 files and +157 lines. Not an empty box —
+      // a box declaring the opposite of the truth, and the only thing that card
+      // showed.
+      //
+      // Safe by construction: `ensureDeliverySheet` writes only over emptiness
+      // or over a previous sheet, never over somebody's evidence, and does
+      // nothing when the card has left review.
+      ensureDeliverySheet(taskId);
+      return true;
     },
 
     setDeliveryBranch(taskId: string, branch: string): void {

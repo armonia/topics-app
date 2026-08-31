@@ -743,6 +743,75 @@ describe("scheda di consegna (anteprima disegnata dal server)", () => {
   const preview = (id: string) =>
     (db.prepare("SELECT preview_image FROM tasks WHERE id = ?").get(id) as any)?.preview_image ?? null;
 
+  test("numbers that arrive LATER redraw the sheet that shows them", () => {
+    // THE SHEET SHOWS THE DIFFSTAT, and the diffstat lands late: the sheet is
+    // drawn when the card enters review, while `delivery_files_changed` is
+    // filled by the backfill pass half an hour later, for the paths that reach
+    // review without going through the end of a turn. Nobody redrew it, so the
+    // card kept the first drawing.
+    //
+    // Measured on 2026-09-01 on card `dec39cd3`: the sheet read zero files and
+    // zero lines both ways while the column held 4 files and +157 lines — not
+    // an empty box, a box stating the opposite of the truth, and the only thing
+    // that card showed.
+    const s = mk();
+    const t = s.create({ projectId: PID, text: "delivery with late numbers" });
+    s.addComment({ taskId: t.id, author: "claude", content: "fatto" });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.recordDelivery({ taskId: t.id, branch: "topics/late-numbers", commit: "abc123", stat: null });
+
+    const prima = readFileSync(preview(t.id)!, "utf-8");
+    expect(prima).toContain("SCHEDA DI CONSEGNA");
+    // With no numbers the sheet invents none: that is the honest silence.
+    expect(prima).not.toContain("+157");
+
+    expect(s.setDeliveryStat({ taskId: t.id, filesChanged: 4, insertions: 157, deletions: 12 })).toBe(true);
+
+    const dopo = readFileSync(preview(t.id)!, "utf-8");
+    expect(dopo).toContain("+157");
+    expect(dopo).toContain("-12");
+    expect(dopo).toContain("topics/late-numbers");
+  });
+
+  test("the sweep REDRAWS a sheet whose numbers changed underneath it", () => {
+    // The real case of `dec39cd3`: the sheet is born without numbers, the
+    // backfill pass writes them half an hour later, and the card kept the first
+    // drawing. The boot sweep only looked at BLIND cards, so it never reached
+    // this one. Now it redraws it — and does not count it as rescued, because
+    // it was not.
+    const s = mk();
+    const t = consegna(s, "sheet to refresh");
+    expect(preview(t.id)).toContain("task-sheets");
+    expect(readFileSync(preview(t.id)!, "utf-8")).not.toContain("+157");
+
+    // The numbers arrive later, through a path that does not redraw (a raw
+    // UPDATE, like the backfill pass before the cure).
+    db.prepare(
+      "UPDATE tasks SET delivery_branch = 'topics/late', delivery_files_changed = 4, " +
+      "delivery_insertions = 157, delivery_deletions = 12 WHERE id = ?",
+    ).run(t.id);
+
+    expect(s.sweepReviewPreviews()).toBe(0); // it was not blind: not a rescue
+    const dopo = readFileSync(preview(t.id)!, "utf-8");
+    expect(dopo).toContain("+157");
+    expect(dopo).toContain("topics/late");
+  });
+
+  test("a card that is NO LONGER in review does not get its sheet redrawn", () => {
+    // `ensureDeliverySheet` returns immediately outside review: the numbers of a
+    // card that is already closed must not redraw a box on it.
+    const s = mk();
+    const t = s.create({ projectId: PID, text: "delivery already closed" });
+    s.addComment({ taskId: t.id, author: "claude", content: "fatto" });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.recordDelivery({ taskId: t.id, branch: "topics/closed", commit: "abc123", stat: null });
+    s.update({ taskId: t.id, actor: "human", by: "u", patch: { status: "done" } });
+    const before = scritte.length;
+
+    s.setDeliveryStat({ taskId: t.id, filesChanged: 4, insertions: 157, deletions: 12 });
+    expect(scritte.length).toBe(before);
+  });
+
   const consegna = (s: TaskService, testo: string) => {
     const t = s.create({ projectId: PID, text: testo });
     s.addComment({ taskId: t.id, author: "claude", content: "fatto, cinque cancelli verdi" });
