@@ -1,5 +1,32 @@
 [
   {
+    "version": "2.2.256",
+    "date": "2026-08-31",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-08-31 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Un'immagine si disegna dove e' dichiarata, e il marcatore non si legge piu'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togli la home in chiaro dal test dei media, e i due file nuovi passano all'inglese",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.255",
     "date": "2026-08-31",
     "sections": {

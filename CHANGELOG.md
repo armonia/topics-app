@@ -2,6 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.256 — 2026-08-31
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-08-31 [skip ci]
+- Un'immagine si disegna dove e' dichiarata, e il marcatore non si legge piu'
+- Togli la home in chiaro dal test dei media, e i due file nuovi passano all'inglese
+
 ## 2.2.255 — 2026-08-31
 
 ### Sotto il cofano
