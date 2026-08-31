@@ -26,6 +26,7 @@ import { hasDiffBlocks, parseMessageWithDiffs, type MessageSegment } from '../li
 import { DiffBlock, type DiffBlockHandle } from './Chat/DiffBlock';
 import { parseSlashInvocation } from '../../../shared/slash-invocation';
 import { isAwaitingHuman } from '../../../shared/types';
+import { extractMediaPaths, splitBlockMedia } from './messageMedia';
 
 /**
  * Directory of the markdown file currently being previewed. Used by
@@ -115,28 +116,6 @@ function FileIcon({ path, size = 24 }: { path: string; size?: number }) {
   const def = getFileIconDef(getFileName(path));
   const I = def.icon;
   return <I size={size} style={{ color: def.color }} />;
-}
-
-function extractMediaPaths(text: string): { cleanText: string; mediaPaths: string[]; voicePaths: Set<string> } {
-  const mediaPaths: string[] = [];
-  const voicePaths = new Set<string>();
-  const mediaPattern = /MEDIA:([^\s\n]+)/g;
-  let match;
-  while ((match = mediaPattern.exec(text)) !== null) mediaPaths.push(match[1]);
-
-  const attachedPattern = /\[Attached file:\s*([^\]]+)\]/g;
-  while ((match = attachedPattern.exec(text)) !== null) mediaPaths.push(match[1].trim());
-
-  const voicePattern = /\[Voice message:\s*([^\]]+)\]/g;
-  while ((match = voicePattern.exec(text)) !== null) { const p = match[1].trim(); mediaPaths.push(p); voicePaths.add(p); }
-
-  const cleanText = text
-    .replace(/MEDIA:([^\s\n]+)/g, '')
-    .replace(/\[Attached file:\s*[^\]]+\]/g, '')
-    .replace(/\[Voice message:\s*[^\]]+\]/g, '')
-    .trim();
-
-  return { cleanText, mediaPaths, voicePaths };
 }
 
 function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
@@ -1041,6 +1020,7 @@ interface MessageContentProps {
 type BlockGroup =
   | { kind: 'thinking'; idx: number; text: string }
   | { kind: 'text'; idx: number; text: string }
+  | { kind: 'media'; idx: number; path: string; seq: number }
   | { kind: 'tools'; startIdx: number; tools: ToolCall[] };
 
 /**
@@ -1158,15 +1138,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
   }, [isLegacyErrorOnlyText, streamSafeText]);
   
   // Combine extracted media paths with explicit media array
-  const allMediaPaths = useMemo(() => {
-    const paths = [...extractedMediaPaths];
-    if (media) {
-      for (const p of media) {
-        if (!paths.includes(p)) paths.push(p);
-      }
-    }
-    return paths;
-  }, [extractedMediaPaths, media]);
+
 
   // Il messaggio è un comando? Vale solo per il ramo `user`; memoizzato qui
   // perché gli hook non possono stare dopo un `return` condizionale.
@@ -1197,9 +1169,10 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
   // Qui in cima perché un hook non può stare dopo un `return` condizionale.
   // Ritorna un array vuoto quando non c'è la timeline: il ramo legacy sotto non
   // lo guarda.
-  const blockGroups = useMemo(() => {
+  const { groups: blockGroups, mediaFromBlocks } = useMemo(() => {
     const out: BlockGroup[] = [];
-    if (!blocks) return out;
+    const found: string[] = [];
+    if (!blocks) return { groups: out, mediaFromBlocks: found };
     for (let i = 0; i < blocks.length; i++) {
       const b = blocks[i];
       // Il blocco `error` non è una tratta della cronologia: è il verdetto, e
@@ -1218,11 +1191,36 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
       } else if (b.kind === 'thinking') {
         out.push({ kind: 'thinking', idx: i, text: b.text });
       } else {
-        out.push({ kind: 'text', idx: i, text: b.text });
+        // Split HERE and not at the source: this is the last point before the
+        // text reaches the screen, and it is the one the markers were slipping
+        // through. Each part becomes its own group, so an image drawn in the
+        // middle of the prose stays in the middle (see `splitBlockMedia`).
+        let seq = 0;
+        for (const part of splitBlockMedia(b.text)) {
+          if (part.kind === 'text') out.push({ kind: 'text', idx: i, text: part.text });
+          else { out.push({ kind: 'media', idx: i, path: part.path, seq: seq++ }); found.push(part.path); }
+        }
       }
     }
-    return out;
+    return { groups: out, mediaFromBlocks: found };
   }, [blocks]);
+
+  // AFTER the groups, because it subtracts from them: `mediaFromBlocks` is
+  // declared by that memo and a `const` cannot be read above its own line.
+  const allMediaPaths = useMemo(() => {
+    // MINUS what the blocks already drew IN PLACE. `content` and `blocks` are
+    // two stores of the same turn and they carry the same markers, so without
+    // this every inline image would be painted a second time down here. What
+    // stays is the legacy path: a message with no timeline, where `content` is
+    // all there is.
+    const paths = extractedMediaPaths.filter((p) => !mediaFromBlocks.includes(p));
+    if (media) {
+      for (const p of media) {
+        if (!paths.includes(p)) paths.push(p);
+      }
+    }
+    return paths;
+  }, [extractedMediaPaths, mediaFromBlocks, media]);
 
   if (role === 'user') {
     const renderUserText = (text: string) => {
@@ -1303,6 +1301,16 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
                 content={g.text}
                 partial={partial && g.idx === blocks.length - 1}
               />
+            );
+          }
+          if (g.kind === 'media') {
+            // Drawn IN PLACE, in the middle of the timeline. What the server
+            // appended sits at the end of the last block, so it still comes out
+            // at the end: same rule, no special case.
+            return (
+              <div key={`g-md-${g.idx}-${g.seq}`} className="mb-2">
+                <MediaRenderer path={g.path} isVoice={voicePaths.has(g.path)} isUserMessage={false} />
+              </div>
             );
           }
           if (g.kind === 'tools') {

@@ -2657,3 +2657,50 @@ leggendo.
 #### Scenario: la posizione di scorrimento
 - **GIVEN** un ricaricamento
 - **THEN** NON SHALL essere ripristinata
+
+### Requirement: CHAT-MEDIA-01 — Un'immagine si disegna DOVE è dichiarata, e il marcatore non si legge mai
+
+Un allegato viaggia dentro il testo di un messaggio come marcatore
+(`MEDIA:<percorso>`, e le due forme `[Attached file: …]` / `[Voice message: …]`).
+Il sistema SHALL trasformare ogni marcatore in un media NEL PUNTO in cui compare
+nel testo, e SHALL NOT mostrare all'utente il marcatore come prosa.
+
+Il vincolo di posizione è una regola sola e senza casi particolari, ed è ciò che
+rende possibili due cose diverse con lo stesso meccanismo: quello che il server
+appende a fine turno (`updateLastMessageWithMedia`: una scansione di
+`~/.topics/media` per `mtime`, che nessun agente ha dichiarato) sta in coda
+all'ultimo blocco, quindi esce in coda; quello che un agente scrive in mezzo
+alla propria risposta esce in mezzo, che è l'unico modo di mostrare
+un'immagine nel momento in cui serve.
+
+Il messaggio SHALL essere ripulito sulla superficie che viene DIPINTA. Un
+messaggio con timeline si disegna dai `blocks`, non da `content`: pulire solo
+`content` lascia il marcatore a schermo pur avendo la galleria giusta.
+
+Una superficie SHALL NOT disegnare due volte lo stesso media: ciò che i blocchi
+hanno già reso in linea non torna nella galleria di coda.
+
+#### Scenario: il marcatore appeso dal server a fine turno
+- **GIVEN** un turno che ha prodotto due immagini in `~/.topics/media`
+- **AND** il server le ha appese in coda all'ultimo blocco di testo del messaggio
+- **WHEN** il messaggio viene disegnato
+- **THEN** le due immagini compaiono in fondo al messaggio
+- **AND** nessun percorso `MEDIA:` è leggibile come testo
+
+#### Scenario: l'agente mostra un'immagine a metà del discorso
+- **GIVEN** un blocco di testo che dice «prima era così», poi un marcatore, poi «e dopo così», poi un secondo marcatore, poi una conclusione
+- **WHEN** il messaggio viene disegnato
+- **THEN** le parti si susseguono nell'ordine scritto: prosa, immagine, prosa, immagine, prosa
+- **AND** nessuna delle due immagini viene rimandata in fondo
+
+#### Scenario: un blocco che contiene SOLO marcatori
+- **GIVEN** un blocco di testo formato dal solo marcatore di un'immagine
+- **WHEN** il messaggio viene disegnato
+- **THEN** l'immagine compare
+- **AND** non resta una bolla di testo vuota al suo posto
+
+#### Scenario: una parola che comincia per MEDIA non è un marcatore
+- **GIVEN** un messaggio che nomina un identificatore come `MEDIALIBRARY`
+- **WHEN** il messaggio viene disegnato
+- **THEN** la parola resta nel testo intatta
+- **AND** non viene creato nessun media
