@@ -1,5 +1,31 @@
 [
   {
+    "version": "2.2.257",
+    "date": "2026-08-31",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Lo stato va nel menu «Topics», l'identita' resta in colonna, e fuori resta una spia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una spia sola nel trigger, che non lo fa piu' rimpicciolire al click; le stats in fondo al menu",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Riporta indietro lo spostamento della barra di stato: il popover della versione non sopravvive dentro un menu",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.256",
     "date": "2026-08-31",
     "sections": {

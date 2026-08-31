@@ -2,6 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.257 — 2026-08-31
+
+### Sotto il cofano
+- Lo stato va nel menu «Topics», l'identita' resta in colonna, e fuori resta una spia
+- Una spia sola nel trigger, che non lo fa piu' rimpicciolire al click; le stats in fondo al menu
+- Riporta indietro lo spostamento della barra di stato: il popover della versione non sopravvive dentro un menu
+
 ## 2.2.256 — 2026-08-31
 
 ### Sotto il cofano
