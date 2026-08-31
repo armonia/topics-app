@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
 import { isEvidenceRun } from "./helpers/evidence";
+import { reachVersionChip } from "./helpers/open-version-chip";
 
 hermetic(test);
 
@@ -29,7 +30,7 @@ test.describe("Version chip vs the bundle on screen", () => {
     );
     await page.goto("/");
 
-    const chip = page.locator("[data-version-anchor]");
+    const chip = await reachVersionChip(page);
     await expect(chip).toBeVisible({ timeout: 15000 });
     await expect(chip).toContainText("9.9.9");
     // The mark on the chip: the number alone cannot say that it disagrees with
@@ -73,7 +74,7 @@ test.describe("Version chip vs the bundle on screen", () => {
     await page.route("**/api/version", (r) => r.abort());
     await page.goto("/");
 
-    const chip = page.locator("[data-version-anchor]");
+    const chip = await reachVersionChip(page);
     await expect(chip).toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId("version-drift-dot")).toHaveCount(0);
 

@@ -5,6 +5,7 @@ import { test, expect } from '@playwright/test';
 import { tooltipText } from './helpers/tooltip';
 import { hermetic } from './fixtures/hermetic';
 import { createTopic } from './helpers/api-fixtures';
+import { openPerfPanel } from "./helpers/open-perf-panel";
 
 /**
  * L'INVENTARIO DEL PESO, SUL PERCORSO CHE L'UTENTE PERCORRE DAVVERO.
@@ -76,7 +77,7 @@ test.describe('inventario del peso per funzionalita', () => {
     await withFleet(page);
     await page.goto('/');
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
-    await page.locator('[data-testid="connection-status"]').click();
+    await openPerfPanel(page);
 
     const inventario = page.locator('[data-testid="perf-inventory"]');
     await expect(inventario).toBeVisible({ timeout: 10_000 });
@@ -105,7 +106,7 @@ test.describe('inventario del peso per funzionalita', () => {
     await withFleet(page);
     await page.goto('/');
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
-    await page.locator('[data-testid="connection-status"]').click();
+    await openPerfPanel(page);
 
     const inventario = page.locator('[data-testid="perf-inventory"]');
     await expect(inventario).toBeVisible({ timeout: 10_000 });
@@ -176,7 +177,7 @@ test.describe('inventario del peso per funzionalita', () => {
     await withFleet(page);
     await page.goto('/');
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
-    await page.locator('[data-testid="connection-status"]').click();
+    await openPerfPanel(page);
 
     const inventario = page.locator('[data-testid="perf-inventory"]');
     await expect(inventario).toBeVisible({ timeout: 10_000 });
@@ -191,11 +192,17 @@ test.describe('inventario del peso per funzionalita', () => {
     expect(iTrattenuto).toBeGreaterThan(iSessioni);
   });
 
-  test('il recap si legge anche dalla BARRA, senza aprire niente', async ({ page }) => {
+  test('il recap si legge dalla PRIMA RIGA del menu, senza espandere il pannello', async ({ page }) => {
     test.info().annotations.push({ type: 'spec', description: 'RES-ATTR-11' });
+    // It said «from the BAR, without opening anything». That bar is gone from
+    // the desktop column — it lives inside the «Topics» menu
+    // (SIDEBAR-STATUS-01) — but the property this test defends was never the
+    // bar: it was that the recap reads WITHOUT expanding the panel, i.e. that
+    // the detail does not cost the big gesture. It holds one gesture further on.
     await withFleet(page);
     await page.goto('/');
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId('sidebar-topics-menu').click();
 
     const totale = page.locator('[data-testid="metrics-total"]');
     await expect(totale).toBeVisible({ timeout: 15_000 });
@@ -231,7 +238,7 @@ test.describe('inventario del peso per funzionalita', () => {
 
     await page.goto('/');
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
-    await page.locator('[data-testid="connection-status"]').click();
+    await openPerfPanel(page);
     await expect(page.locator('[data-testid="perf-cost"]')).toBeVisible({ timeout: 10_000 });
 
     const inventario = page.locator('[data-testid="perf-inventory"]');

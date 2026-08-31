@@ -126,9 +126,35 @@ function formatBuildTime(iso: string): string {
 
 const SystemStatusPanel = lazy(importSystemStatusPanel);
 
-export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
+export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices, variant = 'column', onOpenChangelog }: {
   wsStatus?: ConnectionStatus;
   dataNotice?: string | null;
+  /**
+   * WHERE THIS IS BEING DRAWN, because the two halves went to two places on
+   * 2026-08-31 (SIDEBAR-STATUS-01).
+   *
+   * `menu` — the machine's state (connection, memory, CPU, version, restart,
+   * the degraded-boot notice) moved inside the «Topics» dropdown, which is
+   * where it was asked for and where the phone has had it since 07/08.
+   *
+   * `column` — the identity band did NOT follow it, and that is deliberate. Its
+   * contract is RESPONSIVE: `identity-chips.spec.ts` measures the three
+   * subjects holding one line at sidebar widths 180, 256 and 400, and the
+   * desktop dropdown is `min-w-[200px]` and does not track the column. Moving
+   * it in would not have relocated the band, it would have deleted the contract
+   * that band was built to satisfy. It also keeps the accounts where a person
+   * already looks for them, which is the half that sent this bar back to the
+   * foot on 07/08 in the first place.
+   */
+  variant?: 'column' | 'menu';
+  /**
+   * Who owns the changelog modal. Without it the bar owns it itself — right at
+   * the foot of a column, wrong inside a menu: a modal parented to a component
+   * that lives in a scrolling dropdown is clipped by it, and it unmounts with
+   * the dropdown the moment anything closes it. Passing this hands the modal to
+   * App, which is what the phone's menu has always done.
+   */
+  onOpenChangelog?: (version: string) => void;
   /** Apre Impostazioni → Account. La riga dell'identità è il punto da cui si
    *  arriva ai dispositivi: chi si chiede «chi sono qui?» si chiede subito dopo
    *  «e chi altro?», e farglielo cercare in un pannello è farlo cercare. */
@@ -494,6 +520,11 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
     open: showStatusDropdown,
     onClose: () => setShowStatusDropdown(false),
     refs: [statusBtnRef, statusDropdownRef],
+    // Same reason as the version popover: in the `menu` variant this panel opens
+    // from inside the «Topics» dropdown and lives in a portal, i.e. outside the
+    // refs of whoever hosts it. Declaring itself a sub-surface is what stops its
+    // own parent from closing under the click.
+    exclusive: false,
   });
 
   /**
@@ -554,7 +585,9 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           si leggevano come tre barre di applicazioni diverse: il fondo della
           sidebar e' UNA fascia sola, e cio' che distingue le sue parti e' il
           glifo con cui ciascuna comincia, non una linea. */}
-      <IdentityBlock onOpenDevices={onOpenDevices} />
+      {variant === 'column' && <IdentityBlock onOpenDevices={onOpenDevices} />}
+      {variant === 'menu' && (
+        <>
       {/* Horizontal inset = ROW_INSET (was px-3): the bottom bar lines up with
           the sidebar cards, the header, and the tab strip — one inset on every
           sidebar axis. */}
@@ -699,7 +732,13 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
         {/* Gateway status */}
         <button
           ref={statusBtnRef}
-          data-testid="connection-status"
+          // `status-bar-connection`, no longer `connection-status`: that name
+          // moved to the LAMP in the title row, which is the only thing left
+          // outside the menu and therefore the only handle that says "the app
+          // is up" without opening anything — which is how half the suite used
+          // it (layout.fixture, multi-client, tab-sync). What stays here is the
+          // GESTURE: opening the performance panel.
+          data-testid="status-bar-connection"
           onClick={() => setShowStatusDropdown(!showStatusDropdown)}
           onMouseEnter={prefetchStatusPanel}
           onFocus={prefetchStatusPanel}
@@ -922,12 +961,18 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           buildDate={BUILD_TIME ? formatBuildDate(BUILD_TIME) : ''}
           buildSha={BUILD_SHA}
           onClose={() => setShowVersionPopover(false)}
-          onOpenChangelog={() => { setShowVersionPopover(false); setShowChangelog(true); }}
+          onOpenChangelog={() => {
+            setShowVersionPopover(false);
+            if (onOpenChangelog) onOpenChangelog(appVersion);
+            else setShowChangelog(true);
+          }}
         />
       )}
 
       {showChangelog && (
         <ChangelogModal currentVersion={appVersion} onClose={() => setShowChangelog(false)} />
+      )}
+        </>
       )}
     </>
   );

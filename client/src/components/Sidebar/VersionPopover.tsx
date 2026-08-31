@@ -110,6 +110,20 @@ export function VersionPopover({
     open: true,
     onClose,
     refs: [anchorRef, ref],
+    // A SUB-SURFACE, because this popover can live INSIDE another one.
+    //
+    // Since the status bar moved into the «Topics» menu the version chip opens
+    // from in there, and this panel is a portal onto `<body>` — geometrically
+    // OUTSIDE the dropdown hosting it. Without this line the pointerdown on the
+    // changelog entry closed the dropdown, the bar inside it unmounted, the click
+    // never reached a still-mounted element: the modal did not open. Measured
+    // 2026-08-31: CHANGELOG-01..04 red on `changelog-modal`, with the popover
+    // opening perfectly one step earlier.
+    //
+    // Not a new case: `lib/popoverRegistry.subSurfaceNodes` exists for exactly
+    // this and its comment already tells the story («clicking an item closed
+    // the parent panel»). The declaration was what was missing.
+    exclusive: false,
   });
 
   if (!anchorEl) return null;

@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
+import { reachVersionChip } from "./helpers/open-version-chip";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -59,7 +60,7 @@ test.describe("Changelog (in-app Novità)", () => {
     await page.goto("/");
 
     // The version chip shows the stubbed version and anchors the popover.
-    const chip = page.locator("[data-version-anchor]");
+    const chip = await reachVersionChip(page);
     await expect(chip).toBeVisible();
     await expect(chip).toHaveText(/v9\.9\.9/);
     await chip.click();
@@ -80,7 +81,7 @@ test.describe("Changelog (in-app Novità)", () => {
   test("CHANGELOG-02: navigate to an older version swaps the content", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "CHANGELOG-02" });
     await page.goto("/");
-    await page.locator("[data-version-anchor]").click();
+    await (await reachVersionChip(page)).click();
     await page.getByTestId("changelog-open").click();
     const modal = page.getByTestId("changelog-modal");
     await expect(modal).toBeVisible();
@@ -96,7 +97,7 @@ test.describe("Changelog (in-app Novità)", () => {
   test("CHANGELOG-03: 'Sotto il cofano' is collapsed then expandable", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "CHANGELOG-03" });
     await page.goto("/");
-    await page.locator("[data-version-anchor]").click();
+    await (await reachVersionChip(page)).click();
     await page.getByTestId("changelog-open").click();
     const modal = page.getByTestId("changelog-modal");
     await expect(modal).toBeVisible();
@@ -148,7 +149,7 @@ test.describe("Changelog (real data end-to-end)", () => {
     ][0].it;
 
     await page.goto("/");
-    await page.locator("[data-version-anchor]").click();
+    await (await reachVersionChip(page)).click();
     await page.getByTestId("changelog-open").click();
     const modal = page.getByTestId("changelog-modal");
     await expect(modal).toBeVisible();
