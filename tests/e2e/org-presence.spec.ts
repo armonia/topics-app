@@ -115,6 +115,31 @@ async function stubIdentity(
       }) }));
 }
 
+/**
+ * A SHOT OF THE PANEL AND OF THE BAND THAT OPENED IT, and nothing else.
+ *
+ * A full-page screenshot of a panel 288px wide is 95% of a window nobody is
+ * looking at, and at card size it becomes an unreadable grey rectangle. The
+ * clip takes the panel plus a margin, and stays wider than it is tall so the
+ * board crops nothing off the bottom.
+ */
+async function clipShot(page: Page, panel: ReturnType<Page["getByTestId"]>, path: string) {
+  const box = await panel.boundingBox();
+  expect(box).not.toBeNull();
+  const width = Math.min(760, Math.max(660, Math.round(box!.x + box!.width + 40)));
+  // Landscape on purpose: a card crops the excess off the BOTTOM, so a shot
+  // taller than 0.70 of its width loses the part that was the point.
+  const height = Math.round(width * 0.66);
+  // The panel sits against the bottom of the window, so the clip is anchored to
+  // its lower edge and grows upwards. Anchoring it to the top would cut the
+  // actions off exactly when the panel is at its tallest.
+  const y = Math.max(0, Math.round(box!.y + box!.height + 20 - height));
+  // The whole point of the shot is the panel: if it does not fit, the numbers
+  // are wrong and the test says so instead of writing a cropped picture.
+  expect(box!.height + 40).toBeLessThanOrEqual(height);
+  await page.screenshot({ path, clip: { x: 0, y, width, height } });
+}
+
 test.describe("presence dell'organizzazione, a schermo", () => {
   test("PRESENCE-01: due colleghi visti ora diventano due facce sul chip dell'org", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
@@ -165,7 +190,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await expect(page.getByTestId("org-chip-online")).toHaveCount(0);
   });
 
-  test("PRESENCE-04: il chip dell'org apre il pannello, e il pannello la gestione", async ({ page }) => {
+  test("PRESENCE-04: il chip dell'org apre il panel, e il panel la gestione", async ({ page }) => {
     // The chip no longer jumps to a page: it opens its panel, which answers
     // "who is in this group" on the spot. The door to management survives, at
     // the bottom of the panel, for when the question really is a big one.
@@ -182,7 +207,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await expect(page.getByTestId("settings-page-organization")).toBeVisible({ timeout: 20000 });
   });
 
-  test("PRESENCE-06: il pannello dell'org elenca ANCHE chi non è online", async ({ page }) => {
+  test("PRESENCE-06: il panel dell'org elenca ANCHE chi non è online", async ({ page }) => {
     // It is half the reason the panel gets opened: looking for somebody who is
     // not here right now. The closed chip shows the present, the list does not
     // stop there.
@@ -480,7 +505,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
    * exists to remove. Closed, the chip says it with the ink of its glyph,
    * which is the only signal that costs no width on a line that has none.
    */
-  test("BAND-02: una richiesta di amicizia si vede sul chip e si accetta dal pannello", async ({ page }) => {
+  test("BAND-02: una richiesta di amicizia si vede sul chip e si accetta dal panel", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
     const ora = Date.now();
     await stubIdentity(page, [membro("io", "Io", ora)], "io", [
@@ -498,20 +523,21 @@ test.describe("presence dell'organizzazione, a schermo", () => {
           }],
           outgoing: [],
         }) }));
-    let accettata = false;
+    let accepted = false;
     await page.route("**/api/people/b/friend/accept", (r) => {
-      accettata = true;
+      accepted = true;
       return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ state: "friends" }) });
     });
     await page.goto("/");
 
-    const glifo = page.getByTestId("identity-row-friends").getByTestId("identity-glyph");
-    await expect(glifo).toHaveAttribute("data-pending", "true", { timeout: 20000 });
+    const glyph = page.getByTestId("identity-row-friends").getByTestId("identity-glyph");
+    await expect(glyph).toHaveAttribute("data-pending", "true", { timeout: 20000 });
 
     await page.getByTestId("identity-friends-chip").click();
     await expect(page.getByTestId("friends-requests")).toContainText("Bruno Verdi");
+    await clipShot(page, page.getByTestId("friends-panel"), join(SHOTS, "pannello-amici.png"));
     await page.getByTestId("friend-accept-b").click();
-    await expect.poll(() => accettata).toBe(true);
+    await expect.poll(() => accepted).toBe(true);
   });
 
   /**
@@ -521,7 +547,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
    * change, and until it landed the only way in was three clicks deep in
    * Settings, on a page you had to already know about.
    */
-  test("BAND-03: il pannello del primo chip è l'account, e da lì si accede", async ({ page }) => {
+  test("BAND-03: il panel del primo chip è l'account, e da lì si accede", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
     await stubIdentity(page, [membro("io", "Io", Date.now())], "io", [
       { id: "io", displayName: "Io", isMe: true },
@@ -532,26 +558,31 @@ test.describe("presence dell'organizzazione, a schermo", () => {
           configured: true, linked: false, accountId: null, email: null,
           personId: "io", personName: "Io", linkedAt: null,
         }) }));
-    let chiesto: string | null = null;
+    let asked: string | null = null;
     await page.route("**/api/auth/account/code", (r) => {
-      chiesto = (r.request().postDataJSON() as { email: string }).email;
+      asked = (r.request().postDataJSON() as { email: string }).email;
       return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });
     });
     await page.goto("/");
 
     await page.getByTestId("identity-me-profile").click();
-    const pannello = page.getByTestId("identity-me-panel");
-    await expect(pannello).toBeVisible({ timeout: 20000 });
+    const panel = page.getByTestId("identity-me-panel");
+    await expect(panel).toBeVisible({ timeout: 20000 });
     // The panel says its subject, and says that nobody is signed in.
-    await expect(pannello).toContainText("Account");
-    await expect(pannello.getByTestId("account-line")).toContainText("Nessun account");
+    await expect(panel).toContainText("Account");
+    await expect(panel.getByTestId("account-line")).toContainText("Nessun account");
 
-    await pannello.getByTestId("account-email").fill("qualcuno@example.test");
-    await pannello.getByTestId("account-send-code").click();
-    await expect.poll(() => chiesto).toBe("qualcuno@example.test");
+    await panel.getByTestId("account-email").fill("qualcuno@example.test");
+    await panel.getByTestId("account-send-code").click();
+    await expect.poll(() => asked).toBe("qualcuno@example.test");
     // Second step, in the same panel: the code field replaces the address one
     // and the panel never closed.
-    await expect(pannello.getByTestId("account-code")).toBeVisible();
+    await expect(panel.getByTestId("account-code")).toBeVisible();
+    // Back to step one for the shot: the address field is the state that shows
+    // what the panel now offers, and the code step only makes sense after it.
+    await panel.getByText("Annulla").click();
+    await expect(panel.getByTestId("account-email")).toBeVisible();
+    await clipShot(page, panel, join(SHOTS, "pannello-account.png"));
   });
 
   /**
@@ -560,7 +591,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
    * The free plan is the product, not a mutilated version to apologise for in
    * a dropdown: no form, and no "not available here" either.
    */
-  test("BAND-04: senza servizio degli account il pannello non ne parla", async ({ page }) => {
+  test("BAND-04: senza servizio degli account il panel non ne parla", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
     await stubIdentity(page, [membro("io", "Io", Date.now())], "io", [
       { id: "io", displayName: "Io", isMe: true },
@@ -574,10 +605,10 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await page.goto("/");
 
     await page.getByTestId("identity-me-profile").click();
-    const pannello = page.getByTestId("identity-me-panel");
-    await expect(pannello).toBeVisible({ timeout: 20000 });
-    await expect(pannello.getByTestId("account-signin")).toHaveCount(0);
+    const panel = page.getByTestId("identity-me-panel");
+    await expect(panel).toBeVisible({ timeout: 20000 });
+    await expect(panel.getByTestId("account-signin")).toHaveCount(0);
     // The way to your own profile stays, which is what the panel had before.
-    await expect(pannello.getByTestId("identity-me-open-profile")).toBeVisible();
+    await expect(panel.getByTestId("identity-me-open-profile")).toBeVisible();
   });
 });

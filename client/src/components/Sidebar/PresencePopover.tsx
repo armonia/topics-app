@@ -64,15 +64,32 @@ export function PresencePopover({
 
   // Measure BEFORE the paint: with `useEffect` the panel would show up in the
   // top left corner for one frame and then jump into place.
+  //
+  // AND MEASURE AGAIN WHEN IT GROWS. Measuring once was right while every panel
+  // was a list that arrived complete; the account panel is not: it opens short,
+  // asks the server whether an account is linked, and gains a whole sign-in
+  // form when the answer comes back. The first measurement then belonged to a
+  // panel that no longer exists, and since these chips sit against the bottom
+  // edge the extra height went straight out of the window: measured 1280x800,
+  // the panel ended 116px below the fold, with the actions unreachable. The
+  // observer costs one call per resize and puts the flip back on the real
+  // height.
   useLayoutEffect(() => {
-    if (!anchorEl || !pannello.current) return;
-    const a = anchorEl.getBoundingClientRect();
-    const p = pannello.current.getBoundingClientRect();
-    setPos(computeMenuPosition(
-      { top: a.top, right: a.right, bottom: a.bottom, left: a.left },
-      { width, height: p.height },
-      { align: 'left', gap: 6 },
-    ));
+    const panel = pannello.current;
+    if (!anchorEl || !panel) return;
+    const measure = () => {
+      const a = anchorEl.getBoundingClientRect();
+      const p = panel.getBoundingClientRect();
+      setPos(computeMenuPosition(
+        { top: a.top, right: a.right, bottom: a.bottom, left: a.left },
+        { width, height: p.height },
+        { align: 'left', gap: 6 },
+      ));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(panel);
+    return () => observer.disconnect();
   }, [anchorEl, width]);
 
   if (!anchorEl) return null;
