@@ -190,7 +190,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await expect(page.getByTestId("org-chip-online")).toHaveCount(0);
   });
 
-  test("PRESENCE-04: il chip dell'org apre il panel, e il panel la gestione", async ({ page }) => {
+  test("PRESENCE-04: il chip dell'org apre il pannello, e il pannello la gestione", async ({ page }) => {
     // The chip no longer jumps to a page: it opens its panel, which answers
     // "who is in this group" on the spot. The door to management survives, at
     // the bottom of the panel, for when the question really is a big one.
@@ -207,7 +207,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await expect(page.getByTestId("settings-page-organization")).toBeVisible({ timeout: 20000 });
   });
 
-  test("PRESENCE-06: il panel dell'org elenca ANCHE chi non è online", async ({ page }) => {
+  test("PRESENCE-06: il pannello dell'org elenca ANCHE chi non è online", async ({ page }) => {
     // It is half the reason the panel gets opened: looking for somebody who is
     // not here right now. The closed chip shows the present, the list does not
     // stop there.
@@ -505,7 +505,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
    * exists to remove. Closed, the chip says it with the ink of its glyph,
    * which is the only signal that costs no width on a line that has none.
    */
-  test("BAND-02: una richiesta di amicizia si vede sul chip e si accetta dal panel", async ({ page }) => {
+  test("BAND-02: una richiesta di amicizia si vede sul chip e si accetta dal pannello", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
     const ora = Date.now();
     await stubIdentity(page, [membro("io", "Io", ora)], "io", [
@@ -547,7 +547,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
    * change, and until it landed the only way in was three clicks deep in
    * Settings, on a page you had to already know about.
    */
-  test("BAND-03: il panel del primo chip è l'account, e da lì si accede", async ({ page }) => {
+  test("BAND-03: il pannello del primo chip è l'account, e da lì si accede", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
     await stubIdentity(page, [membro("io", "Io", Date.now())], "io", [
       { id: "io", displayName: "Io", isMe: true },
@@ -591,7 +591,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
    * The free plan is the product, not a mutilated version to apologise for in
    * a dropdown: no form, and no "not available here" either.
    */
-  test("BAND-04: senza servizio degli account il panel non ne parla", async ({ page }) => {
+  test("BAND-04: senza servizio degli account il pannello non ne parla", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
     await stubIdentity(page, [membro("io", "Io", Date.now())], "io", [
       { id: "io", displayName: "Io", isMe: true },
