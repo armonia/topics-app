@@ -126,27 +126,9 @@ function formatBuildTime(iso: string): string {
 
 const SystemStatusPanel = lazy(importSystemStatusPanel);
 
-export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices, variant = 'column' }: {
+export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
   wsStatus?: ConnectionStatus;
   dataNotice?: string | null;
-  /**
-   * WHERE THIS IS BEING DRAWN, because the two halves went to two places on
-   * 2026-08-31 (SIDEBAR-STATUS-01).
-   *
-   * `menu` — the machine's state (connection, memory, CPU, version, restart,
-   * the degraded-boot notice) moved inside the «Topics» dropdown, which is
-   * where it was asked for and where the phone has had it since 07/08.
-   *
-   * `column` — the identity band did NOT follow it, and that is deliberate. Its
-   * contract is RESPONSIVE: `identity-chips.spec.ts` measures the three
-   * subjects holding one line at sidebar widths 180, 256 and 400, and the
-   * desktop dropdown is `min-w-[200px]` and does not track the column. Moving
-   * it in would not have relocated the band, it would have deleted the contract
-   * that band was built to satisfy. It also keeps the accounts where a person
-   * already looks for them, which is the half that sent this bar back to the
-   * foot on 07/08 in the first place.
-   */
-  variant?: 'column' | 'menu';
   /** Apre Impostazioni → Account. La riga dell'identità è il punto da cui si
    *  arriva ai dispositivi: chi si chiede «chi sono qui?» si chiede subito dopo
    *  «e chi altro?», e farglielo cercare in un pannello è farlo cercare. */
@@ -572,9 +554,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices, variant 
           si leggevano come tre barre di applicazioni diverse: il fondo della
           sidebar e' UNA fascia sola, e cio' che distingue le sue parti e' il
           glifo con cui ciascuna comincia, non una linea. */}
-      {variant === 'column' && <IdentityBlock onOpenDevices={onOpenDevices} />}
-      {variant === 'menu' && (
-        <>
+      <IdentityBlock onOpenDevices={onOpenDevices} />
       {/* Horizontal inset = ROW_INSET (was px-3): the bottom bar lines up with
           the sidebar cards, the header, and the tab strip — one inset on every
           sidebar axis. */}
@@ -719,13 +699,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices, variant 
         {/* Gateway status */}
         <button
           ref={statusBtnRef}
-          // `status-bar-connection`, no longer `connection-status`: that name
-          // moved to the LAMP in the title row, which is the only thing left
-          // outside the menu and therefore the only handle that says "the app
-          // is up" without opening anything — which is how half the suite used
-          // it (layout.fixture, multi-client, tab-sync). What stays here is the
-          // GESTURE: opening the performance panel.
-          data-testid="status-bar-connection"
+          data-testid="connection-status"
           onClick={() => setShowStatusDropdown(!showStatusDropdown)}
           onMouseEnter={prefetchStatusPanel}
           onFocus={prefetchStatusPanel}
@@ -954,8 +928,6 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices, variant 
 
       {showChangelog && (
         <ChangelogModal currentVersion={appVersion} onClose={() => setShowChangelog(false)} />
-      )}
-        </>
       )}
     </>
   );

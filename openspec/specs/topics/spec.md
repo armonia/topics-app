@@ -489,14 +489,8 @@ sviluppo: la consegna a caldo aggiorna il client, non il guscio, e tacerlo
 toglierebbe l'unico segnale che dice a che versione è l'app installata.
 
 Lo stato «installazione di sviluppo» (`devReload`, cioè `topics-dev.json`)
-SHALL essere leggibile ACCANTO AL NUMERO e non solo dentro il pannello della
+SHALL essere leggibile dalla riga di stato e non solo dentro il pannello della
 versione, perché è la ragione per cui il secondo numero resta indietro.
-
-*(Diceva «dalla riga di stato». Quella riga sul desktop non esiste più — il suo
-contenuto è nel menu «Topics», SIDEBAR-STATUS-01 — e il vincolo era sul posto
-sbagliato: non contava che fosse una BARRA, contava che il fatto stesse dove si
-legge il numero invece che dietro un altro gesto. Il badge accanto al chip
-soddisfa questo, in tutti e due i posti in cui il chip vive.)*
 
 #### Scenario: guscio alla 2.2.179, client alla 2.2.214
 - **GIVEN** il ponte del guscio che risponde 2.2.179 e un client alla 2.2.214
@@ -547,50 +541,3 @@ controllo SHALL essere tolti, e gli a-capo e le tabulazioni CONSERVATI.
 #### Scenario: un messaggio iniziale con caratteri di controllo
 - **GIVEN** un testo con caratteri non stampabili
 - **THEN** SHALL essere ripulito, conservando a-capo e tabulazioni
-
-### Requirement: SIDEBAR-STATUS-01 — Lo stato sta nel menu «Topics»; fuori resta solo ciò che non può aspettare un gesto
-
-La colonna dei topic SHALL NOT tenere una barra di stato in fondo. Ciò che quella
-barra diceva — chi sei, come va la macchina, che versione è — SHALL vivere nel
-menu che si apre dal titolo «Topics», che è dove lo si va a cercare e dove sul
-telefono sta già dal 7 agosto.
-
-Il taglio non è «tutto dentro». Un ALLARME non è una statistica: dire «sei
-offline» o «mi sto riconnettendo» dietro un gesto significa che l'app è scollegata
-e chi la guarda non lo sa finché non apre un menu. Quindi la riga del titolo SHALL
-mostrare una spia — piccola, senza testo, senza costare altezza — accesa SOLO
-quando c'è qualcosa che non può aspettare: WebSocket non connesso, avvio degradato,
-avviso sui dati. A tutto a posto la spia SHALL essere invisibile, perché una spia
-sempre accesa non è una spia.
-
-L'identità (persona, organizzazioni, amici) NON SHALL seguire lo stato nel menu:
-resta in fondo alla colonna, dove sta. Non è inerzia, è il suo contratto — la
-fascia SHALL tenere i tre soggetti su UNA riga alle larghezze di colonna 180,
-256 e 400 (CHIPS-01), e il menu del desktop ha una larghezza sua che non segue
-la colonna. Portarla dentro non l'avrebbe spostata: avrebbe cancellato il
-contratto per cui è stata costruita. Ed è anche la metà che il 7 agosto riportò
-la barra in fondo — «gli account che fine hanno fatto?» — quindi lasciarla lì
-risolve due cose con lo stesso gesto.
-
-#### Scenario: la colonna a tutto a posto
-- **GIVEN** un desktop con WebSocket connesso e nessun avviso
-- **WHEN** si guarda la colonna dei topic
-- **THEN** in fondo NON c'è nessuna barra di stato
-- **AND** nella riga del titolo la spia non è visibile
-
-#### Scenario: la connessione cade
-- **GIVEN** la stessa colonna, col menu CHIUSO
-- **WHEN** il WebSocket passa a non connesso
-- **THEN** la spia nella riga del titolo diventa visibile
-- **AND** lo diventa senza che nessuno abbia aperto niente
-
-#### Scenario: i numeri si leggono dal menu
-- **GIVEN** un desktop
-- **WHEN** si apre il menu «Topics»
-- **THEN** la prima riga dice memoria e CPU senza espandere altro
-- **AND** espandendola compare il pannello delle prestazioni
-
-#### Scenario: l'identità non si muove
-- **GIVEN** un desktop
-- **THEN** la riga dell'identità è in fondo alla colonna, non nel menu
-- **AND** i tre soggetti tengono una riga sola alle tre larghezze di CHIPS-01

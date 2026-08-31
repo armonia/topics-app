@@ -15,7 +15,7 @@
     "`allow-italian: <why>` instead."
   ],
   "files": {
-    "client/src/App.tsx": 575,
+    "client/src/App.tsx": 596,
     "client/src/components/Auth/PairingApproval.tsx": 30,
     "client/src/components/Auth/PairingGate.tsx": 32,
     "client/src/components/Board/BoardSettingsPanel.tsx": 60,
@@ -1737,7 +1737,7 @@
     "tests/e2e/pane-undo.spec.ts": 54,
     "tests/e2e/pane-usage-tooltip.spec.ts": 39,
     "tests/e2e/panels.spec.ts": 54,
-    "tests/e2e/perf-panel.spec.ts": 50,
+    "tests/e2e/perf-panel.spec.ts": 53,
     "tests/e2e/performance.spec.ts": 75,
     "tests/e2e/permission-panel.spec.ts": 81,
     "tests/e2e/picker-keyboard-nav.spec.ts": 37,

@@ -3,7 +3,6 @@
  */
 import { test, expect } from '@playwright/test';
 import { hermetic } from './fixtures/hermetic';
-import { openPerfPanel } from "./helpers/open-perf-panel";
 
 /**
  * IL PANNELLO PRESTAZIONI, SUL PERCORSO CHE L'UTENTE PERCORRE DAVVERO.
@@ -39,8 +38,10 @@ test.describe('pannello prestazioni', () => {
     await page.goto('/');
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
 
-    // The real gesture, now in two steps: the bar lives in the «Topics» menu.
-    await openPerfPanel(page);
+    // Il gesto vero: la barra di stato in fondo alla sidebar.
+    const bottone = page.locator('[data-testid="connection-status"]');
+    await expect(bottone).toBeVisible({ timeout: 15_000 });
+    await bottone.click();
 
     // «Quanto costa» è la riga che porta il numero della memoria — quella che
     // ha prodotto la segnalazione «1,8 GB».
@@ -90,7 +91,7 @@ test.describe('pannello prestazioni', () => {
 
     await page.goto('/');
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
-    await openPerfPanel(page);
+    await page.locator('[data-testid="connection-status"]').click();
 
     const verdetto = page.locator('[data-testid="perf-verdict"]');
     await expect(verdetto).toBeVisible({ timeout: 10_000 });
@@ -133,7 +134,7 @@ test.describe('pannello prestazioni', () => {
 
     await page.goto('/');
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
-    await openPerfPanel(page);
+    await page.locator('[data-testid="connection-status"]').click();
 
     const verdetto = page.locator('[data-testid="perf-verdict"]');
     await expect(verdetto).toBeVisible({ timeout: 10_000 });
@@ -142,18 +143,11 @@ test.describe('pannello prestazioni', () => {
     expect(testo).not.toMatch(/\bperf\.[a-zA-Z.]+/);
   });
 
-  test('la PRIMA RIGA del menu dice quanta memoria, senza espandere il pannello', async ({ page }) => {
+  test('la BARRA dice quanta memoria e\' davvero occupata, senza aprire il pannello', async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "PERFPANEL-01" });
-    // Il numero che l'utente vede per primo è quello della riga CHIUSA, non
-    // quello del pannello: fino al 2026-08-20 la spiegazione stava due clic più
-    // in là, e chi leggeva «1,8 GB» restava con un numero che significa altro.
-    //
-    // It said «the BAR, without opening anything», and that bar is gone from
-    // the desktop: its contents are inside the «Topics» menu
-    // (SIDEBAR-STATUS-01). The half that mattered was not «without opening» —
-    // it was that the number not sit under a SECOND gesture, because a cost
-    // paid to read a datum is a datum nobody reads. That half is still here:
-    // the menu opens and the number is already there, panel still closed.
+    // Il numero che l'utente vede per primo è quello della barra, non quello
+    // del pannello: fino al 2026-08-20 la spiegazione stava due clic più in là,
+    // e chi leggeva «1,8 GB» restava con un numero che significa altro.
     await page.addInitScript(() => {
       (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
         metadata: { currentWindow: { label: 'main' } },
@@ -171,10 +165,8 @@ test.describe('pannello prestazioni', () => {
 
     await page.goto('/');
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
-    // ONE gesture: open the menu. The panel stays closed — that is the point.
-    await page.getByTestId('sidebar-topics-menu').click();
-    // The TOTAL's tooltip, the big number on the row: read by hovering it,
-    // without expanding the panel.
+    // Il tooltip del TOTALE, che è il numero grande in barra: si legge
+    // passandoci sopra, senza aprire il pannello.
     const totale = page.locator('[data-testid="metrics-total"]');
     await expect(totale).toBeVisible({ timeout: 15_000 });
     await expect.poll(async () => (await totale.getAttribute('title')) ?? '', { timeout: 10_000 })
@@ -208,7 +200,7 @@ test.describe('pannello prestazioni', () => {
 
     await page.goto('/');
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
-    await openPerfPanel(page);
+    await page.locator('[data-testid="connection-status"]').click();
     // Il pannello si apre lo stesso e mostra il costo…
     await expect(page.locator('[data-testid="perf-cost"]')).toBeVisible({ timeout: 10_000 });
     // …ma sugli stessi numeri del primo caso NON dice il 71%: la misura non

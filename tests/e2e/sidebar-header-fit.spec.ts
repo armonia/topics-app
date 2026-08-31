@@ -52,7 +52,7 @@ for (const [nome, platform] of [["Mac", "MacIntel"], ["non-Mac", "Linux x86_64"]
         sporge: Math.round(r.right - group.right),
         riceveIlClick: b.contains(elementOnTop),
         bell: [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)],
-        whatCovers: elementOnTop
+        chiCopre: elementOnTop
           ? `${elementOnTop.tagName.toLowerCase()}${elementOnTop.getAttribute('data-testid') ? `[${elementOnTop.getAttribute('data-testid')}]` : ''}.${(elementOnTop.getAttribute('class') || '').slice(0, 80)} @${on ? [Math.round(on.left), Math.round(on.top), Math.round(on.right), Math.round(on.bottom)].join(',') : '?'}`
           : 'nessuno (elementFromPoint ha risposto null)',
       };
@@ -63,7 +63,7 @@ for (const [nome, platform] of [["Mac", "MacIntel"], ["non-Mac", "Linux x86_64"]
     // property that matters, and the only one a user would notice.
     expect(
       misura!.riceveIlClick,
-      `something covers the bell — on top: ${misura!.whatCovers}; bell @${misura!.bell.join(",")}`,
+      `something covers the bell — on top: ${misura!.chiCopre}; bell @${misura!.bell.join(",")}`,
     ).toBe(true);
     // And it does not stick out of the group holding it: that is the CAUSE, and
     // measuring it fails the test where the defect starts, not where it shows.
@@ -93,38 +93,15 @@ test("SIDEBAR-FIT: the resize handle does not cover the commands at the bottom",
   // "whatever the sidebar shows at the bottom, the handle must not sit on it",
   // and the identity block is always there.
   //
-  // THE PROPERTY, not an occupant. This used to name the bottom-most control —
-  // the org chip, else the identity profile row — and both moved into the
-  // «Topics» menu on 2026-08-31 with the rest of the status bar
-  // (SIDEBAR-STATUS-01). The test then failed for a reason that had nothing to
-  // do with the handle, and naming a replacement only moves the same trap: the
-  // next occupant is a hover-revealed row action, covered at rest by its own
-  // unread badge, so "the last visible button" is not down there either.
-  //
-  // What the handle must never do is INTERCEPT the column outside its own
-  // strip. That is asked directly, at the bottom-left of the sidebar — the
-  // corner furthest from the handle, where nothing of it has any business
-  // being — and it holds whoever is living there.
-  const whatCovers = await page.evaluate(() => {
-    const side = document.querySelector('[aria-label="Topics sidebar"]') as HTMLElement | null;
-    if (!side) return { missing: 'no sidebar' };
-    const r = side.getBoundingClientRect();
-    const x = Math.round(r.left + 24);
-    const y = Math.round(r.bottom - 12);
-    const el = document.elementFromPoint(x, y);
-    const handle = el?.closest('.cursor-col-resize') ?? null;
-    return {
-      point: [x, y],
-      tag: el ? el.tagName.toLowerCase() : 'null',
-      classes: el ? String((el as HTMLElement).className).slice(0, 70) : '',
-      isTheHandle: !!handle,
-    };
-  });
-  expect(whatCovers.missing, 'the sidebar must be there').toBeUndefined();
-  expect(
-    whatCovers.isTheHandle,
-    `the handle covers the foot of the column: at ${JSON.stringify(whatCovers.point)} the answer is ${whatCovers.tag}.${whatCovers.classes}`,
-  ).toBe(false);
+  // The bottom-most control is taken as it comes: the org chip when there is an
+  // organisation, otherwise the profile row, which never goes away.
+  const chip = page.getByTestId("org-chip");
+  const target = (await chip.count()) > 0 ? chip.first() : page.getByTestId("identity-me-profile").first();
+  await expect(target).toBeVisible({ timeout: 10_000 });
+
+  // `trial` attempts the click WITHOUT performing it: what matters is whether
+  // the pointer LANDS, not what the panel opens.
+  await target.click({ trial: true, timeout: 8_000 });
 
   // And the handle must stay grabbable where it is needed, i.e. above: a cure
   // that switched it off entirely would pass this test and break the resize.

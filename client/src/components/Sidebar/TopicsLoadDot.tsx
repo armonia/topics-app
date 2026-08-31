@@ -47,13 +47,7 @@ const DEVICE_THRESHOLD_MB = 3072;
 const DEVICE_PARTIAL_THRESHOLD_MB = 1024;
 const SERVER_THRESHOLD_MB = 6144;
 
-export function TopicsLoadDot({ hidden = false, alarm = false }: {
-  /** Covered by the window commands (Tauri, menu open): kept in the DOM, made
-   *  invisible. Unmounting it resized the trigger row at the click. */
-  hidden?: boolean;
-  /** Something that cannot wait behind a gesture: WS down, or a data notice. */
-  alarm?: boolean;
-} = {}) {
+export function TopicsLoadDot() {
   const tr = useT();
   // The same cadences the status bar used, and for the same reasons: system
   // status is a minute (it is a server round trip), the shell metrics are five
@@ -108,29 +102,20 @@ export function TopicsLoadDot({ hidden = false, alarm = false }: {
 
   return (
     <span
-      // `connection-status`, because that is what this dot now answers for.
-      // The name comes from the status-bar button that used to live at the foot
-      // of the column; the bar moved into the «Topics» menu on 2026-08-31 and
-      // the handle could not follow it behind a gesture — half the E2E suite
-      // reads it to know the app is up.
-      data-testid="connection-status"
-      data-load-dot="true"
+      data-testid="topics-load-dot"
       // The level travels as an attribute so a test can read the state without
       // sampling a pixel and reverse engineering a hue.
       data-load={livello.toFixed(2)}
       data-measured={misurato ? 'true' : 'false'}
-      data-alarm={alarm || undefined}
       title={title}
       // `flex-shrink-0`: the title next to it truncates, this does not. A dot
       // that shrinks is a dot that becomes an artefact.
-      className={`ml-0.5 h-2 w-2 flex-shrink-0 rounded-full ${alarm ? 'animate-pulse' : ''} ${hidden ? 'invisible' : ''}`}
+      className="ml-0.5 h-2 w-2 flex-shrink-0 rounded-full"
       style={{
         // Unmeasured is not painted as calm: an outline says "no reading" where
         // a green fill would say "all good", and those are different facts.
-        // The alarm OVERRIDES the load tint: "you are offline" outranks "the
-        // machine is busy", and painting both on one dot would mean neither.
-        backgroundColor: alarm ? 'var(--warning, #f59e0b)' : (misurato ? loadTint(livello) : 'transparent'),
-        boxShadow: alarm || misurato ? undefined : 'inset 0 0 0 1px var(--text-muted)',
+        backgroundColor: misurato ? loadTint(livello) : 'transparent',
+        boxShadow: misurato ? undefined : 'inset 0 0 0 1px var(--text-muted)',
       }}
     />
   );

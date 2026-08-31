@@ -7195,6 +7195,7 @@
       "resetTimelineView"
     ],
     "tests/e2e/perf-panel.spec.ts": [
+      "bottone",
       "costo",
       "pannello",
       "testo",
