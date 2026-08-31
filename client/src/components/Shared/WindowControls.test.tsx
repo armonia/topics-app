@@ -105,7 +105,18 @@ describe('where they are mounted', () => {
     // The wrapper closes right after the mount: no other block between them, so
     // the commands cannot drift back to the end of the row unnoticed.
     expect(s.slice(mount).indexOf('</div>')).toBeLessThan(200);
-    expect(s).toContain('className="app-no-drag relative"');
+    // THE THREE CLASSES, one at a time and not as one literal string: pinning
+    // the whole `className` made this test fail on a class ADDED next to them,
+    // which is not what it is here to catch. Each one is load-bearing and each
+    // is the kind a tidy-up drops — `app-no-drag` (the row is a drag region,
+    // this island is not), `relative` (the commands are absolute inside it) and
+    // `min-w-0`, without which this flex child never goes below its content:
+    // the label stops truncating, the left group grows past its share and, the
+    // row being `justify-between`, it runs INTO the notification bell. Measured
+    // on CI 2026-08-31: bell at 113-141 with the Search button painted over it
+    // at 127-184, so a click on the bell opened Search.
+    const tag = s.slice(s.lastIndexOf('<div', wrapper), wrapper);
+    for (const c of ['app-no-drag', 'relative', 'min-w-0']) expect(tag).toContain(c);
   });
 
   test('the "Topics" label makes room for them, as it does for the traffic lights', () => {

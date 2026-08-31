@@ -1455,7 +1455,20 @@ function App() {
                 { x: 12, y: 12 }, i.e. ROW_INSET into this wrapper) — see
                 WindowControls. They are absolute, so they add nothing to this
                 row: `h-10` stays `h-10` whether they are lit or not. */}
-            <div className="app-no-drag relative" {...NO_DRAG_REGION} ref={topicsMenuRef}>
+            {/* `min-w-0`, AND IT IS LOAD-BEARING. This wrapper sits between the
+                shrinkable left group and the title button, and a flex child
+                defaults to `min-width: auto`: without it the wrapper refuses to
+                go below its content, so the label never truncates however
+                narrow the room, the left group grows past its share, and the
+                row — `justify-between` — lets it run INTO the group on the
+                right. Measured on CI 2026-08-31: the bell at 113-141 with the
+                Search button at 127-184 painted over it, so a click on the
+                bell opened Search instead. Reproduced here by widening the
+                label with letter-spacing: at 2px the bell already stops
+                receiving its own clicks, and the wrapper measured 119px inside
+                a row of 117 (overflow 38). Truncate on the label alone does
+                NOTHING while a link in this chain says `auto`. */}
+            <div className="app-no-drag relative min-w-0" {...NO_DRAG_REGION} ref={topicsMenuRef}>
               <button
                 onClick={(e) => {
                   e.stopPropagation();
