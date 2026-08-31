@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.259",
+    "date": "2026-08-31",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Le stats diventano righe, e la striscia densa sparisce da tutte e due gli schermi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello di lingua non vedeva il file nuovo: era ancora non tracciato",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.258",
     "date": "2026-08-31",
     "sections": {

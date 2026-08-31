@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.259 — 2026-08-31
+
+### Sotto il cofano
+- Le stats diventano righe, e la striscia densa sparisce da tutte e due gli schermi
+- Il cancello di lingua non vedeva il file nuovo: era ancora non tracciato
+
 ## 2.2.258 — 2026-08-31
 
 ### Sotto il cofano
