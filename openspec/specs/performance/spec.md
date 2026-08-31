@@ -635,14 +635,27 @@ opposto.
 
 ### Requirement: PERFPANEL-01 — Il pannello dice NUMERI, e dice anche quando il numero non c'è
 
-Il pannello SHALL aprirsi dalla barra di stato e mostrare NUMERI, non chiavi.
+Il pannello SHALL aprirsi dal menu «Topics» e mostrare NUMERI, non chiavi.
+
+*(Diceva «dalla barra di stato», e quella barra sul desktop non esiste piu': il
+suo contenuto e' entrato nel menu — vedi SIDEBAR-STATUS-01. Il gesto cambia, la
+regola no: si arriva ai numeri da UN posto solo, e quel posto e' dove sta scritto
+il nome dell'app.)*
 
 Quando il grosso dell'impronta è già stato compresso o mandato su disco SHALL
 DIRLO, invece di lasciar credere che l'app tenga tutto in memoria. Sotto
 PRESSIONE vera SHALL dire la cosa OPPOSTA — che conviene chiudere qualcosa —
 perché sono due situazioni che si somigliano nei numeri e chiedono gesti opposti.
 
-La BARRA SHALL dire quanta memoria, senza aprire niente.
+La PRIMA RIGA del menu SHALL dire quanta memoria, senza espandere il pannello.
+
+*(Diceva «la BARRA, senza aprire niente». La meta' che contava non era «senza
+aprire»: era che il numero non stesse sepolto sotto un secondo gesto, perche' un
+costo che si paga per essere letto non viene letto. Quella meta' resta: la riga
+chiusa del menu porta gia' il pallino del carico, la memoria e la CPU
+(`menu-load-summary`). Cio' che si perde e' un'occhiata senza gesti, e in cambio
+la colonna torna tutta ai topic; cio' che NON si perde e' l'allarme, che non e'
+una statistica e SHALL restare visibile a menu chiuso — SIDEBAR-STATUS-01.)*
 
 **Una misura PARZIALE NON SHALL produrre nessuna riga**, invece di inventarne
 una: una riga con dentro mezzo dato si legge come un dato.

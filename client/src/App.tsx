@@ -1519,6 +1519,41 @@ function App() {
                 {/* Room for the window commands on Windows. Why it is declared
                     and not inherited from a glyph: `windowControlsGeometry.ts`. */}
                 <span className={`font-semibold text-app-text tracking-[-0.01em] truncate ${isMobile ? 'text-[17px]' : 'text-[15px]'} ${isTauriWindows ? TOPICS_LABEL_MIN_W_WINDOWS : ''} ${(isTauriMac || isTauriWindows) && showTopicsMenu ? 'invisible' : ''}`}>Topics</span>
+                {/* THE LAMP — the one thing the status bar left OUTSIDE the
+                    menu, and the only one that earned it.
+
+                    An alarm is not a statistic: how much memory you are using
+                    is something you look at when you go looking for it, but
+                    "you are offline" behind a gesture means the app is
+                    disconnected and you do not know until you open a menu. See
+                    SIDEBAR-STATUS-01.
+
+                    IT IS ALWAYS IN THE DOM, and does not appear only on alarm:
+                    it is the handle half the E2E suite uses to know the app is
+                    ready (layout.fixture, multi-client, tab-sync), and a handle
+                    that exists only when things go wrong is a handle that never
+                    exists. At rest it is a quiet dot; on alarm it changes
+                    colour and pulses.
+
+                    A degraded boot needs no condition of its own: its verdict
+                    is null while the WS is connected (`degradedNotice`,
+                    SidebarStatusBar), so whenever there is one the lamp is
+                    already lit by `wsStatus`. */}
+                {(() => {
+                  const alarm = wsStatus !== 'connected' || !!topicsError;
+                  return (
+                    <span
+                      data-testid="connection-status"
+                      data-alarm={alarm || undefined}
+                      className={`flex-shrink-0 h-1.5 w-1.5 rounded-full transition-colors ${
+                        alarm ? 'bg-amber-500 animate-pulse' : 'bg-app-text-tertiary/40'
+                      }`}
+                      title={alarm
+                        ? (wsStatus !== 'connected' ? `Connection: ${wsStatus}` : (topicsError || ''))
+                        : 'Connected'}
+                    />
+                  );
+                })()}
                 {/* HOW HEAVY THE MACHINE IS, right next to its name. This is
                     what stayed on screen when the numbers at the foot of the
                     column moved into this menu: the exact figures are one click
@@ -1702,40 +1737,25 @@ function App() {
             questo slot e ci si portalano dentro. */}
         <div data-update-slot className="flex-shrink-0 empty:hidden" style={{ paddingInline: ROW_INSET, paddingBottom: ROW_INSET }} />
 
-        {/* LA BARRA DI STATO STA IN FONDO, su ogni schermo.
-            Ha fatto due giri altrove in un giorno — una fascia dedicata sotto
-            l'header, poi in linea nella riga del titolo — e Attilio l'ha
-            rimandata qui: «per quanto riguarda lo status lascialo in fondo,
-            meglio». Ed è anche il posto della riga dell'IDENTITÀ, che le sta
-            attaccata sopra: fuori di qui non c'era spazio per una seconda riga
-            e l'avevo tolta sul telefono — è il «gli account che fine hanno
-            fatto?». Torna con lei, e con la fascia dell'home indicator che
-            questa barra dipinge di suo. */}
-        {/* SUL TELEFONO LA BARRA DI STATO NON È PIÙ UNA BARRA.
-            Identità + stato costavano 80px in fondo alla colonna (36 + 44) per
-            dire «Questo computer» a chi il computer ce l'ha in mano. Le stesse
-            cose — chi sei, come va, che versione è — stanno nel menu «Topics»
-            (`SidebarSystemMenu`), che è dove si va a cercarle: «è qualcosa che
-            l'utente raramente utilizzerà».
-            AGGIORNAMENTO (card b8ca85e8): quel «Questo computer» non c'è più
-            nemmeno sul desktop. La riga dice la PERSONA — nome e faccia, da
-            `etichettaIdentita` — e il ferro le sta accanto come dettaglio. Il
-            taglio sul telefono RESTA valido lo stesso, e per la seconda metà
-            dell'argomento: là le stesse informazioni sono nel menu, quindi non
-            si toglie niente, si sposta. Sul desktop la barra resta dov'era. */}
+        {/* THE FOOT OF THE COLUMN KEEPS THE IDENTITY, and nothing else.
+
+            The machine's state — connection, memory, version, restart — moved
+            into the «Topics» menu on 31/08, where it was asked for and where the
+            phone has had it since 07/08. The identity band did NOT follow, and
+            that is the deliberate half: its contract is RESPONSIVE (the three
+            subjects hold one line at sidebar widths 180, 256 and 400, measured
+            in identity-chips.spec.ts) and the desktop dropdown is
+            `min-w-[200px]` and does not track the column — moving it in would
+            not have relocated the band, it would have deleted the contract the
+            band exists to satisfy. It also leaves the accounts where a person
+            already looks, which is the half that sent this bar back down here
+            on 07/08. See SIDEBAR-STATUS-01. */}
         {!isMobile && (
-        <ErrorBoundary fallbackMessage="Status bar error">
-        <SidebarStatusBar
-          wsStatus={wsStatus}
-          dataNotice={topicsError}
-          // The identity band stayed HERE, at the foot of the column, so "open
-          // the devices" goes back to travelling as a prop: it is a child, not
-          // a pane. The event deep link above stays and is still needed — it is
-          // used by the parts that ARE panes (the org chip opening the group
-          // management, the profile opening its pages), and those cannot reach
-          // this state through props.
-          onOpenDevices={() => { setSettingsSection('devices'); setShowSettings(true); }}
-        />
+        <ErrorBoundary fallbackMessage="Identity band error">
+          <SidebarStatusBar
+            variant="column"
+            onOpenDevices={() => { setSettingsSection('devices'); setShowSettings(true); }}
+          />
         </ErrorBoundary>
         )}
       </div>
@@ -1987,11 +2007,34 @@ function App() {
               l'account è la porta che prima non esisteva da nessuna parte, e
               una porta in fondo a dieci voci è una porta che si trova per
               caso. */}
-          {isMobile && (
+          {isMobile ? (
             <>
               <SidebarSystemMenu
                 onOpenChangelog={(version) => { setShowTopicsMenu(false); setShowChangelogFromMenu(version); }}
               />
+              <div className="my-1 border-t border-app-border" />
+            </>
+          ) : (
+/* ON THE DESKTOP THE WHOLE BAR COMES IN, not a second copy written
+               by hand. It brings along what the phone does not have here and
+               what removing it would have made vanish: the identity band (who
+               you are, the organisations, the friends) and the degraded-boot
+               notice with its button. That identity row is precisely the half
+               that sent the bar back to the foot on 07/08 — «where did the
+               accounts go?» — and repeating that defect in order to move the
+               other half would have been a swap, not a cure.
+
+               On the phone it does NOT come in: there the identity already has
+               its own door at the foot of the screen, and two ways into one
+               room say different things one day (MOBILE-CHROME-05 asserts it). */
+            <>
+              <ErrorBoundary fallbackMessage="Status bar error">
+                <SidebarStatusBar
+                  variant="menu"
+                  wsStatus={wsStatus}
+                  dataNotice={topicsError}
+                />
+              </ErrorBoundary>
               <div className="my-1 border-t border-app-border" />
             </>
           )}
