@@ -67,6 +67,29 @@ import { ROW_H } from '../../lib/selectionStyles';
  */
 export const CHIP_TARGET_PX = 34;
 
+/**
+ * THE FLOOR OF THE SUBJECT AROUND A CHIP, and why it is the chip's own.
+ *
+ * A subject on the band is a flex item; the chip is what it paints. The item
+ * shrinks, the chip does NOT: it carries {@link CHIP_TARGET_PX} as a hard
+ * `min-width` because that number is the pointer target. So the moment a
+ * subject is allowed to become NARROWER than the chip it contains, the chip
+ * keeps painting its full width inside a box that no longer has it, and what
+ * it paints over is the next subject on the line.
+ *
+ * That is not a hypothesis. The elastic subject ("me") carried a floor of its
+ * own, `min-w-6`, ten pixels under the chip's: at a 180px column with four
+ * groups it was handed 28px, painted 34, and put the end of the name straight
+ * through the groups card. The band still measured as ONE LINE with no
+ * overflow, because the spill is internal, which is why this had to be caught
+ * by an assertion on the boxes rather than by the eye.
+ *
+ * So a subject's floor IS its chip's floor. Written out for Tailwind's scanner
+ * for the same reason the chip's is, and pinned to the constant by the unit
+ * test next door.
+ */
+export const SUBJECT_FLOOR = 'min-w-[34px]';
+
 /** The box every chip is, full or empty: same height, same radius, same
  *  padding, so the difference between them is the FILL and nothing else.
  *  The radius follows the height: `rounded-md` on a 24px pill is the same

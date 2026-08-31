@@ -351,7 +351,7 @@ export function accetta(db: Db, me: string, other: string, now = Date.now()): Fr
  * would leave the pair looking like strangers, and the request would be back
  * within the minute. What is stored is not spite, it is the answer.
  *
- * The refusal is not announced. `stato` reports `declined_out` to the person
+ * The refusal is not announced. `stato` reports `declined_out` to the person allow-italian: names the exported function
  * who asked and `none` to the person who refused, and the client is expected
  * to draw `declined_out` exactly like a request still pending. The asymmetry
  * is the point: only one of the two states lets you ask again.

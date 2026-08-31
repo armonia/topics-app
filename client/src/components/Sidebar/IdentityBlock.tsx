@@ -80,7 +80,7 @@ import { usePresenceSummary } from '@/hooks/usePresenceSummary';
 import { apriProfilo, openPersonProfile } from '@/state/profileTarget';
 import { unisciFacce, unisciGente, type FacciaPresenza, type RigaPresenza } from './orgPresence';
 import { IDENTITY_GLYPH_BOX, IDENTITY_GLYPH_INK, ROW_INSET, TIER_DONE_TEXT } from '@/lib/selectionStyles';
-import { CHIP_INK_DIM, ORG_MARKS_IN_CHIP, chipClass } from './identityChip';
+import { CHIP_INK_DIM, ORG_MARKS_IN_CHIP, SUBJECT_FLOOR, chipClass } from './identityChip';
 import { PALLINO_OK, SEGNALE_ATTESA, SEGNALE_OK } from './chromeSignals';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
 import { PresencePopover } from './PresencePopover';
@@ -102,6 +102,13 @@ import { useT } from '@/hooks/useT';
  *   2. "people" yields next, and what it drops is its own word, not its count;
  *   3. the groups (`flex-none`) never yield: a squashed logo is not a smaller
  *      logo, it is an unrecognisable one.
+ *
+ * YIELDING STOPS AT THE CHIP'S OWN FLOOR. `min-w-0` says "shrink to nothing",
+ * and a subject that takes that literally hands its chip a box smaller than
+ * the chip's `min-width`: the chip then paints the difference over its
+ * neighbour. So every subject that yields carries {@link SUBJECT_FLOOR}, which
+ * is the chip's floor and not a second number. See the constant for the case
+ * that proved it.
  */
 const SUBJECT = 'flex min-w-0 items-center';
 
@@ -233,7 +240,7 @@ function RigaIo({ presenza, onOpenDevices }: {
     // the row was ~4px wide, the button drew 6..30, the groups opened at 10.
     // An overlap reads as a pile, which is the exact failure the redesign was
     // called in to fix, so the constraint belongs to the flex item that yields.
-    <span data-testid="identity-row-me" className={`${SUBJECT} min-w-6 flex-1 basis-0`}>
+    <span data-testid="identity-row-me" className={`${SUBJECT} ${SUBJECT_FLOOR} flex-1 basis-0`}>
       <button
         ref={setChip}
         data-testid="identity-me-profile"
@@ -630,7 +637,7 @@ function RigaAmici({ online, tutti, totali }: {
   const [chip, setChip] = useState<HTMLButtonElement | null>(null);
   const ci_sono = online.length > 0;
   return (
-    <span data-testid="identity-row-friends" className={SUBJECT}>
+    <span data-testid="identity-row-friends" className={`${SUBJECT} ${SUBJECT_FLOOR}`}>
       <button
         ref={setChip}
         data-testid="identity-friends-chip"

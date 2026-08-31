@@ -10,7 +10,7 @@
  * @covers STATUSLINE-01
  */
 import { describe, expect, test } from 'bun:test';
-import { CHIP_TARGET_PX, ORG_MARKS_IN_CHIP, chipClass } from './identityChip';
+import { CHIP_TARGET_PX, ORG_MARKS_IN_CHIP, SUBJECT_FLOOR, chipClass } from './identityChip';
 import { ROW_H } from '../../lib/selectionStyles';
 
 describe('the chip box', () => {
@@ -33,6 +33,16 @@ describe('the chip box', () => {
     for (const filled of [true, false]) {
       expect(chipClass(filled)).toContain(`min-w-[${CHIP_TARGET_PX}px]`);
     }
+  });
+
+  // THE SUBJECT AROUND THE CHIP HAS THE SAME FLOOR. When these two numbers
+  // disagree the flex item is allowed to become narrower than the chip it
+  // holds, and the chip paints the difference over the next subject: the band
+  // still measures as one line with no overflow, so nothing catches it except
+  // this and the box assertions in the e2e.
+  test('a subject may not shrink below the chip it contains', () => {
+    expect(SUBJECT_FLOOR).toBe(`min-w-[${CHIP_TARGET_PX}px]`);
+    expect(chipClass(true)).toContain(SUBJECT_FLOOR);
   });
 
   test('full and empty are the same box: only the fill changes', () => {
