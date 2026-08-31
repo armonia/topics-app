@@ -1,11 +1,12 @@
 /**
- * I MARCATORI DEI MEDIA, e dove finiscono a schermo.
+ * THE MEDIA MARKERS, and where they end up on screen.
  *
- * Vive in un file suo per due motivi che coincidono: `react-refresh` vuole che
- * un modulo di componenti esporti SOLO componenti, e questa e' logica pura —
- * quindi si prova con `bun:test` senza montare niente (messageMedia.test.ts).
+ * It lives in a file of its own for two reasons that coincide: `react-refresh`
+ * wants a component module to export ONLY components, and this is pure logic —
+ * so it is tested with `bun:test` without mounting anything
+ * (messageMedia.test.ts).
  *
- * Il requisito e' CHAT-MEDIA-01.
+ * The requirement is CHAT-MEDIA-01.
  */
 export function extractMediaPaths(text: string): { cleanText: string; mediaPaths: string[]; voicePaths: Set<string> } {
   const mediaPaths: string[] = [];
