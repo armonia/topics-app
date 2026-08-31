@@ -1,57 +1,76 @@
 import { useEffect, useState } from 'react';
-import { useT } from '../../hooks/useT';
-import { ProfilePage, FollowersPage, PrivacyPage } from '../Settings/IdentityPages';
-import { IDENTITY_SECTIONS, SETTINGS_SECTIONS, type SectionId } from '../Settings/sections';
-import { dimenticaPaginaProfilo, EVENTO_PAGINA_PROFILO, requestedProfile, type ProfileRequest } from '@/state/profileTarget';
+import { dimenticaPaginaProfilo, EVENTO_PAGINA_PROFILO, requestedProfile, type PageProfile, type ProfileRequest } from '@/state/profileTarget';
 import { PersonProfile } from './PersonProfile';
+import { SelfProfile, type ProfilePanel } from './SelfProfile';
 
 /**
- * The "Profile" pane: the tab about who you are, who you are with, and who you
- * have around you.
+ * The "Profile" pane: ONE page about a person, and nothing else.
  *
  * -- WHY A PANE AND NOT JUST A SETTINGS TAB -----------------------------------
- * The personal statistics only lived inside a modal: seeing them meant opening
- * preferences, finding the tab and scrolling. Something you look at often
- * deserves a tab of its own like Dashboard, not three gestures inside a window
- * that covers the app.
+ * A profile is something you look at often, and reaching it meant opening
+ * preferences, finding a tab and scrolling. Something read that often deserves
+ * a tab of its own like Dashboard, not three gestures inside a window that
+ * covers the app.
  *
- * -- WHY THREE SUB-PAGES AND NOT ONE SINGLE COLUMN ----------------------------
- * This pane used to stack four boxes in a row (statistics, Discord,
- * organisations, friends) and anybody after the organisation had to know it was
- * the third one down. It is the same flaw the Settings panel had, and the cure
- * is the same: three pages with one name each. The pages are LITERALLY the
- * settings ones (`Settings/IdentityPages`), so the two surfaces cannot diverge:
- * when the account showed up over there, it was missing here, and nobody had
- * noticed.
+ * -- THE TAB STRIP IS GONE, AND THAT IS THE POINT -----------------------------
+ * The pane used to hold three sub-pages (profile, followers, privacy) drawn as
+ * a strip of tabs, and the first of them opened on the shareable banner, the
+ * public link, Discord and the account. Two different mistakes in one surface:
+ * a public profile does not have TABS (nobody reads a person by picking a
+ * chapter), and it does not carry the configuration of the installation it
+ * happens to run on. What is left is the page a stranger would get; followers
+ * and privacy open as dropdowns from the exact spot that raises them, and the
+ * configuration lives in Settings, which is where configuration belongs.
  *
  * -- THE PANE ALSO SHOWS OTHER PEOPLE -----------------------------------------
- * Ask for a person and the three pages step aside for THEIR profile, with a way
- * back to your own. It is the same tab because it is the same subject: opening
- * a face in a second window would mean two places that answer "who is this",
- * and the sidebar already learned how that ends.
+ * Ask for a person and the page becomes THEIRS, with a way back to your own. It
+ * is the same tab because it is the same subject: opening a face in a second
+ * window would mean two places that answer "who is this", and the sidebar
+ * already learned how that ends.
  */
+
+/**
+ * A requested page becomes an open dropdown. The deep links did not change
+ * (`apriProfilo('followers' | 'privacy')` from the sidebar): what changed is
+ * what they open on. "Followers" lands on the people window at its own default
+ * tab, which is friends, because the link that sends people here is the one
+ * reading "manage friends".
+ */
+function panelFor(pagina: PageProfile | undefined): ProfilePanel {
+  if (pagina === 'privacy') return 'privacy';
+  if (pagina === 'followers') return 'friends';
+  return null;
+}
+
 export function ProfilePane() {
-  const t = useT();
-  // The page asked for by whoever opened the pane, if anybody asked at all. It
-  // is read on mount (the pane is `lazy()`: when the request is made this
+  // The request made by whoever opened the pane, if anybody made one. It is
+  // read on mount (the pane is `lazy()`: when the request is made this
   // component may not exist yet) and the event covers the opposite case, a pane
-  // already open that has to change tab under the click.
+  // already open that has to change under the click.
   const requested = requestedProfile();
-  const [pagina, setPagina] = useState<SectionId>(() => requested?.pagina ?? 'profile');
   // The person being looked at, `null` for your own profile. It is state and
   // not a prop because the pane outlives every gesture that changes it.
   const [personId, setPersonId] = useState<string | null>(() => requested?.personId ?? null);
+  const [panel, setPanel] = useState<ProfilePanel>(() => panelFor(requested?.pagina));
 
   useEffect(() => {
     const go = (e: Event) => {
       const chiesta = (e as CustomEvent<ProfileRequest>).detail;
       if (!chiesta?.pagina) return;
-      setPagina(chiesta.pagina);
       setPersonId(chiesta.personId ?? null);
+      setPanel(panelFor(chiesta.pagina));
       dimenticaPaginaProfilo();
     };
     window.addEventListener(EVENTO_PAGINA_PROFILO, go as EventListener);
     return () => window.removeEventListener(EVENTO_PAGINA_PROFILO, go as EventListener);
+  }, []);
+
+  // Escape closes the open dropdown, like every other menu here. Without it the
+  // only way out of a panel opened by a deep link is finding its cross.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPanel(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   return (
@@ -59,53 +78,14 @@ export function ProfilePane() {
       {/* THE IDENTITY BAND IS NOT HERE, and that is not an oversight.
           It lives at the bottom of the sidebar (`Sidebar/SidebarStatusBar`),
           which is where you look at it while you work: nobody opens a tab to
-          find out who is around right now. The profile is still a tab like any
-          other — it opens from the menu, it gets its row in the column, it
-          closes — but its pages say the same subjects AT LENGTH, and repeating
-          the live strip here would render it twice in the same app: two
-          `identity-block` in the DOM, and every measurement that looks for one
-          becomes ambiguous. */}
-      {/* The three entries ARE the heading: there is no pane title above them
-          repeating the word "Profile" while you are looking at "Friends". */}
-      <div
-        className="flex flex-shrink-0 items-center gap-1 overflow-x-auto overscroll-x-contain border-b border-app-border px-3 py-2"
-        role="tablist"
-        aria-label="Profilo"
-      >
-        {IDENTITY_SECTIONS.map((id) => {
-          const voce = SETTINGS_SECTIONS.find((s) => s.id === id);
-          if (!voce) return null;
-          const Icon = voce.icon;
-          const attiva = personId === null && pagina === id;
-          return (
-            <button
-              key={id}
-              role="tab"
-              aria-selected={attiva}
-              onClick={() => { setPersonId(null); setPagina(id); }}
-              data-testid={`profile-tab-${id}`}
-              className={`flex flex-shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-[12.5px] transition-colors coarse:min-h-11 ${
-                attiva
-                  ? 'bg-primary/10 text-primary font-medium'
-                  : 'text-app-text-secondary hover:bg-app-hover hover:text-app-text'
-              }`}
-            >
-              <Icon size={14} className="flex-shrink-0" />
-              {t(voce.labelKey)}
-            </button>
-          );
-        })}
-      </div>
-
+          find out who is around right now. Repeating the live strip here would
+          render it twice in the same app: two `identity-block` in the DOM, and
+          every measurement that looks for one becomes ambiguous. */}
       <div className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 md:px-5">
         {personId !== null ? (
           <PersonProfile personId={personId} onBack={() => setPersonId(null)} />
         ) : (
-          <>
-            {pagina === 'profile' && <ProfilePage />}
-            {pagina === 'followers' && <FollowersPage />}
-            {pagina === 'privacy' && <PrivacyPage />}
-          </>
+          <SelfProfile open={panel} onOpen={setPanel} />
         )}
       </div>
     </div>

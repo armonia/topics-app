@@ -12,11 +12,12 @@
  * because creating a group, adding members and handing out roles is
  * administration and it has to live somewhere.
  *
- * `IDENTITY_SECTIONS` is the PROFILE TAB, and it deliberately no longer
- * contains the organisation. A profile answers "who is this person", and on
- * every surface people actually read one, the answer is a face, a bio and how
- * many people follow them. The org still decides what a person can SEE (grants,
- * project visibility): it just stopped being what a person IS.
+ * `IDENTITY_SECTIONS` is the identity group INSIDE the panel, and it
+ * deliberately does not contain the organisation. A profile answers "who is
+ * this person", and on every surface people actually read one, the answer is a
+ * face, a bio and how many people follow them. The org still decides what a
+ * person can SEE (grants, project visibility): it just stopped being what a
+ * person IS.
  *
  * The list is exported as DATA so a test can read it: that the entries exist,
  * that the labels are in the dictionary in both languages, without mounting a
@@ -60,10 +61,11 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
 ];
 
 /**
- * The pages of the PROFILE TAB, in the order they are presented everywhere.
+ * The identity entries of the panel, in the order they are presented.
  *
- * No organisation here, on purpose: see the header. Privacy is the third one
- * and not a link buried in the first, because "what does this publish about
- * me" is a question you ask WHILE you look at what it publishes.
+ * No organisation here, on purpose: see the header. THE PROFILE PANE NO LONGER
+ * READS THIS LIST: it stopped being a strip of tabs and became one page, with
+ * followers and privacy as dropdowns opened from the header. What is left here
+ * is the settings panel, where the configuration of this installation lives.
  */
 export const IDENTITY_SECTIONS: readonly SectionId[] = ['profile', 'followers', 'privacy'];

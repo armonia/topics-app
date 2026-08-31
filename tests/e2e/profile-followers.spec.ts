@@ -8,11 +8,12 @@ import { openProfilePane } from "./helpers/profile-pane";
 /**
  * THE GITHUB SHAPED PROFILE, live, and this is the delivery clip of the card.
  *
- * A screenshot does not prove a BEHAVIOUR, and there are two of them here: a
+ * A screenshot does not prove a BEHAVIOUR, and there are three of them here: a
  * GitHub login that gets TYPED and makes the face, the bio and the link appear
- * in the header, and the privacy switch that makes the figures LEAVE the page
- * because the server stopped sending them. Hence a video (`E2E_EVIDENCE=1`),
- * not an image.
+ * in the header; the privacy switch that makes the figures LEAVE the page
+ * because the server stopped sending them; and the two dropdowns that replaced
+ * the tab strip, opening from the header and closing on Escape. Hence a video
+ * (`E2E_EVIDENCE=1`), not an image.
  *
  * NO NETWORK TO GITHUB, and the way to get there is NOT `page.route`: the call
  * is made by the SERVER, not the browser, so intercepting it in the page
@@ -127,10 +128,15 @@ test.describe("Il profilo, alla GitHub", () => {
 
     // ── BEHAVIOUR 2: a privacy switch, and the server stops sending.
     //
-    // The proof that it is not CSS is on the wire: the same route is asked
-    // again, and `stats` comes back null. A test that only looked at the
-    // rendered page could not tell a filter from a `display: none`.
-    await page.getByTestId("profile-tab-privacy").click();
+    // The profile has NO TABS any more: privacy is a dropdown that opens from
+    // the header, next to the follow button, because a page that publishes
+    // things carries its own switch. The proof that it is not CSS is on the
+    // wire: the same route is asked again, and `stats` comes back null. A test
+    // that only looked at the rendered page could not tell a filter from a
+    // `display: none`.
+    await expect(page.getByTestId("profile-tab-privacy")).toHaveCount(0);
+    await page.getByTestId("profile-privacy-open").click();
+    await expect(page.getByTestId("profile-privacy-panel")).toBeVisible();
     const toggle = page.getByTestId("privacy-showStats");
     await expect(toggle).toBeVisible();
     await expect(toggle).toHaveAttribute("aria-checked", "true");
@@ -144,5 +150,17 @@ test.describe("Il profilo, alla GitHub", () => {
     // leaves a switch closed poisons whichever spec runs after it.
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-checked", "true");
+
+    // ── BEHAVIOUR 3: the dropdown closes, and the page underneath is the
+    // profile alone. Escape, like every other menu in the app.
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("profile-privacy-panel")).toHaveCount(0);
+
+    // The counters open the people, which is the other dropdown: the two
+    // controls the tab strip used to carry are both still one gesture away.
+    await page.getByTestId("profile-count-followers").click();
+    await expect(page.getByTestId("profile-people-panel")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("profile-people-panel")).toHaveCount(0);
   });
 });

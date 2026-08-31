@@ -4,6 +4,7 @@ import { peopleApi, type PersonWithProfile, type PersonSummary } from '@/lib/api
 import { useT } from '@/hooks/useT';
 import { ProfileHeader, ProfileTopicsStats } from './ProfileHeader';
 import { PeopleList } from './PeopleList';
+import { ProfileDropdown } from './ProfileDropdown';
 import { FriendshipBar } from './FriendshipBar';
 
 /**
@@ -87,6 +88,19 @@ export function PersonProfile({ personId, onBack }: { personId: string; onBack: 
             onChanged={(p) => setLoaded({ id: personId, persona: p })}
             onOpenFollowers={persona.counts ? openList('followers') : undefined}
             onOpenFollowing={persona.counts ? openList('following') : undefined}
+            panel={tab && list ? (
+              <ProfileDropdown
+                title={tab === 'followers' ? t('profile.followers') : t('profile.following')}
+                onClose={() => setTab(null)}
+                testId={`person-panel-${tab}`}
+              >
+                <PeopleList
+                  people={list}
+                  emptyText={t('profile.followers.private')}
+                  testId={`person-list-${tab}`}
+                />
+              </ProfileDropdown>
+            ) : null}
           />
           {/* Only on somebody else, and only when the server said where we
               stand. `isMe` has no friendship with itself, and an old server
@@ -96,13 +110,6 @@ export function PersonProfile({ personId, onBack }: { personId: string; onBack: 
             <FriendshipBar personId={personId} initial={persona.friendship} />
           )}
           <ProfileTopicsStats persona={persona} />
-          {tab && list && (
-            <PeopleList
-              people={list}
-              emptyText={t('profile.followers.private')}
-              testId={`person-list-${tab}`}
-            />
-          )}
         </>
       )}
     </div>
