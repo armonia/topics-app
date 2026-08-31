@@ -10,6 +10,27 @@
  *   GET    /api/people/:id/following      who this person follows
  *   GET    /api/people/:id/privacy        my five switches (self only)
  *   PATCH  /api/people/:id/privacy        change some of them (self only)
+ *   POST   /api/people/:id/friend         ask, or accept a request already sent to me
+ *   POST   /api/people/:id/friend/accept  say yes
+ *   POST   /api/people/:id/friend/decline say no, once
+ *   DELETE /api/people/:id/friend         withdraw my request, or end a friendship
+ *   GET    /api/friendships               my friends, and the requests both ways
+ *
+ * The last one is the odd path out and deliberately so: it is not about a
+ * person, it is about MY three lists, and hanging it off `/api/people/:id`
+ * would have meant inventing an id for the caller in a surface where the
+ * caller is already implicit. It is served here rather than in a router of its
+ * own because it reads the same rows, the same privacy switches and the same
+ * serializer as everything above, and a second router would be a second copy
+ * of all three.
+ *
+ * ── TWO RELATIONS, AND THEY ANSWER DIFFERENT QUESTIONS ──────────────────────
+ * A FOLLOW is "I read you". One row, no answer needed, and the person followed
+ * finds out from a counter. A FRIENDSHIP is "we know each other": mutual by
+ * definition, so it is asked for, and it is the only one of the two that can
+ * be refused. They coexist and neither replaces the other. The follow still
+ * feeds the profile page exactly as it did; the friendship adds a request, an
+ * acceptance and a refusal, and `server/lib/friendships.ts` holds all three.
  *
  * ── THE BOUNDARY IS NO LONGER THE ORGANISATION ──────────────────────────────
  * It used to be, and the reason was sound: `people` grows a row for every
@@ -19,14 +40,22 @@
  * you can see are the people you are billed with, and an organisation is a
  * licence, not a friendship.
  *
- * So the reachable set is now a UNION of four things: me, the people I follow,
- * the people who follow me, and my organisation co-members. The last one is a
- * DISCOVERY POOL and nothing more: it is never named in a response, no field
- * says which organisation anybody belongs to, and a person cannot tell from
- * this API whether they are reachable because of a follow or because of a
- * shared licence. The organisation data model is untouched, because it still
- * carries the grants and the project visibility; it just stopped being the
- * word this surface uses.
+ * So the reachable set is now a UNION of five things: me, the people I follow,
+ * the people who follow me, MY FRIENDS, and my organisation co-members. The
+ * last one is a DISCOVERY POOL and nothing more: it is never named in a
+ * response, no field says which organisation anybody belongs to, and a person
+ * cannot tell from this API whether they are reachable because of a follow,
+ * because of a friendship or because of a shared licence.
+ *
+ * A PENDING REQUEST IS NOT IN THAT UNION, and that is the one line of this
+ * paragraph worth reading twice. Only ACCEPTED friendships widen the set. If a
+ * request opened the door on its own, "add friend" would be a read primitive:
+ * anybody could open any profile by asking, and never coming back for the
+ * answer would be the cheapest way to do it.
+ *
+ * The ORGANISATION DATA MODEL IS UNTOUCHED, because it still carries the
+ * grants and the project visibility; it just stopped being the word this
+ * surface uses.
  *
  * ── PRIVACY IS SUBTRACTION, NEVER A FLAG ────────────────────────────────────
  * Every switch is enforced by REMOVING the value from the response. Nothing
@@ -52,6 +81,10 @@ import {
   follow, unfollow, countFollows, segue, idFollower, idFollowing,
   privacyPersona, setPrivacy, type ProfilePrivacy,
 } from "../lib/follows";
+import {
+  richiedi, accetta, rifiuta, annulla, stato, amici, relazioni,
+  type FriendshipState, type FriendshipEdge, type FriendshipOutcome,
+} from "../lib/friendships";
 
 export interface DepsPeople {
   /** Iniettabile: nessun test deve poter uscire davvero su api.github.com. */
@@ -137,13 +170,20 @@ export function createPeopleRouter(ctx: AppContext, deps: DepsPeople = {}): Rout
   }
 
   /**
-   * THE REACHABLE SET: me, who I follow, who follows me, my co-members.
+   * THE REACHABLE SET: me, who I follow, who follows me, MY FRIENDS, my
+   * co-members.
    *
    * The two follow directions are both in, and that is the point of an
    * asymmetric edge: somebody who follows me can see my profile without asking
    * me anything, and I can see theirs without following back. A set and not a
-   * list because the four sources overlap constantly, and a co-member you also
+   * list because the five sources overlap constantly, and a co-member you also
    * follow must not appear twice in the address book.
+   *
+   * `amici` AND NOT THE WHOLE FRIENDSHIP TABLE. Only accepted friendships go
+   * in. A pending request must not make a profile reachable, or "add friend"
+   * becomes the cheapest read primitive in the API: anybody could open any
+   * profile by asking, and never waiting for the answer. A refused one is out
+   * for the same reason, and more obviously so.
    */
   function reachableIds(io: string | null, req: Request): Set<string> {
     const out = new Set<string>(memberIds(mieOrg(req)));
@@ -151,6 +191,7 @@ export function createPeopleRouter(ctx: AppContext, deps: DepsPeople = {}): Rout
       out.add(io);
       for (const id of idFollowing(db as never, io)) out.add(id);
       for (const id of idFollower(db as never, io)) out.add(id);
+      for (const id of amici(db as never, io)) out.add(id);
     }
     return out;
   }
@@ -268,26 +309,81 @@ export function createPeopleRouter(ctx: AppContext, deps: DepsPeople = {}): Rout
     };
   }
 
+  /**
+   * A set of ids, drawn the way the address book draws them.
+   *
+   * ONE serializer for every list that ships a whole person. `/api/people` and
+   * `/api/friendships` return the same shape because they render the same
+   * thing, and a leaner second shape would be a second contract to keep in
+   * step with the first. The first is the one that gets updated.
+   *
+   * A person who closed their profile is absent, not greyed out, and the
+   * viewer is exempt from that filter as everywhere else here.
+   */
+  function visibleCards(ids: string[], io: string | null): PersonCard[] {
+    return peopleRows(ids)
+      .map((r) => ({ r, privacy: privacyPersona(db as never, r.id) }))
+      .filter(({ r, privacy }) => (io !== null && r.id === io) || privacy.showProfile)
+      // Cache only: see the header. A face missing on the first open appears
+      // once somebody opens that person, and from then on it is there for
+      // everybody.
+      .map(({ r, privacy }) =>
+        personCard(r, io, r.github_login ? profiloInCache(db as never, r.github_login) : null, privacy));
+  }
+
+  /** Those people, each carrying the moment the relation reached its state. */
+  function withSince(edges: FriendshipEdge[], io: string | null) {
+    const sinceById = new Map(edges.map((e) => [e.personId, e.since]));
+    return visibleCards([...sinceById.keys()], io)
+      .map((c) => ({ ...c, since: sinceById.get(c.id) ?? 0 }));
+  }
+
+  /**
+   * One shape for all four friendship gestures: the refusal the rule earned, or
+   * the state that now holds.
+   *
+   * The state is re-read inside the library rather than assumed by the caller,
+   * the same reason the follow route re-reads `segue`: a write that hit a
+   * database without the table reports nothing, and answering with the state we
+   * meant to write would leave the client drawing a relation that is not there.
+   */
+  const friendshipReply = (e: FriendshipOutcome): Response =>
+    e.refused ? errorResponse(e.refused.status, e.refused.message) : json({ state: e.state });
+
   return async function peopleRouter(req, _url, pathname, method) {
-    if (!pathname.startsWith("/api/people")) return null;
+    // `/api/friendships` is not under `/api/people` and is served here anyway:
+    // it reads the same rows, the same switches and the same serializer, and a
+    // router of its own would be a second copy of all three.
+    if (!pathname.startsWith("/api/people") && pathname !== "/api/friendships") return null;
     const io = ioPersona(req);
 
-    /** Computed at most once per request: it costs three queries. */
+    /** Computed at most once per request: it costs four queries. */
     let reachableMemo: Set<string> | null = null;
     const reachable = (): Set<string> =>
       (reachableMemo ??= reachableIds(io, req));
 
     // GET /api/people: the address book.
     if (method === "GET" && pathname === "/api/people") {
-      const people = peopleRows([...reachable()])
-        .map((r) => ({ r, privacy: privacyPersona(db as never, r.id) }))
-        .filter(({ r, privacy }) => (io !== null && r.id === io) || privacy.showProfile)
-        .map(({ r, privacy }) =>
-          // Cache only: see the header. A face missing on the first open
-          // appears once somebody opens that person, and from then on it is
-          // there for everybody.
-          personCard(r, io, r.github_login ? profiloInCache(db as never, r.github_login) : null, privacy));
-      return json({ people });
+      return json({ people: visibleCards([...reachable()], io) });
+    }
+
+    // GET /api/friendships: my friends and the requests in both directions.
+    if (pathname === "/api/friendships") {
+      if (method !== "GET") return errorResponse(405, "method not allowed");
+      if (io === null) return errorResponse(401, "unknown caller");
+      // ONE read and three lists. Three calls would be three instants, and the
+      // friends count would disagree with the requests under it for exactly as
+      // long as somebody was looking at both.
+      const every = relazioni(db as never, io);
+      const bucket = (state: FriendshipState) => withSince(every.filter((e) => e.state === state), io);
+      return json({
+        friends: bucket("friends"),
+        incoming: bucket("pending_in"),
+        // `declined_out` is deliberately in NEITHER list. It is not waiting for
+        // anybody, and putting it under "outgoing" would let the sender read
+        // the refusal off a list the state was careful not to announce.
+        outgoing: bucket("pending_out"),
+      });
     }
 
     // THE SPECIFIC PATTERNS COME FIRST. `matchRoute` compares segment counts,
@@ -295,6 +391,49 @@ export function createPeopleRouter(ctx: AppContext, deps: DepsPeople = {}): Rout
     // today. The order is still this one because it does not depend on that:
     // the day the matcher learns prefixes, a catch-all placed first would eat
     // every route under it, silently and in production.
+
+    // POST /api/people/:id/friend/accept | /friend/decline
+    const pAccept = matchRoute(pathname, "/api/people/:id/friend/accept");
+    const pDecline = matchRoute(pathname, "/api/people/:id/friend/decline");
+    if (pAccept || pDecline) {
+      if (method !== "POST") return errorResponse(405, "method not allowed");
+      if (io === null) return errorResponse(401, "unknown caller");
+      const id = (pAccept ?? pDecline)!.id;
+      // ANSWERING IS NOT GATED ON `target`, the same trap the DELETE of a
+      // follow documents further down. A person who asks and then closes their
+      // profile would otherwise leave a request in somebody's inbox that
+      // nobody could ever get rid of. It opens no probe either: a request that
+      // does not exist answers 409 whoever the id belongs to, including an id
+      // that never existed.
+      return friendshipReply(pAccept
+        ? accetta(db as never, io, id)
+        : rifiuta(db as never, io, id));
+    }
+
+    // POST | DELETE /api/people/:id/friend
+    const pFriend = matchRoute(pathname, "/api/people/:id/friend");
+    if (pFriend) {
+      if (method !== "POST" && method !== "DELETE") return errorResponse(405, "method not allowed");
+      if (io === null) return errorResponse(401, "unknown caller");
+
+      // Withdrawing my request or ending a friendship: ungated for the same
+      // reason as the answer above. Leaving a relation must never depend on
+      // still being able to see the other end of it.
+      if (method === "DELETE") return friendshipReply(annulla(db as never, io, pFriend.id));
+
+      // The POST is NOT gated on the reachable set, exactly like the follow
+      // POST and for the same reason: asking is how somebody ENTERS it, and
+      // requiring membership first would mean the graph could only grow among
+      // people who already share a licence. `target` still applies, so a person
+      // who closed their profile can neither be asked nor probed for existence.
+      const b = target(pFriend.id, io);
+      if (!b) return errorResponse(404, "Person not found");
+      // Self-friendship is refused by the library and not by a check here, so
+      // the rule and its message live in one place. The follow route checks it
+      // inline; that is the older shape, and duplicating it was the point of
+      // moving the reason next to the rule.
+      return friendshipReply(richiedi(db as never, io, b.row.id));
+    }
 
     // POST | DELETE /api/people/:id/follow
     const pFollow = matchRoute(pathname, "/api/people/:id/follow");
@@ -412,6 +551,12 @@ export function createPeopleRouter(ctx: AppContext, deps: DepsPeople = {}): Rout
         : null;
       return json({
         ...personCard(chi, io, github, b.privacy),
+        // Here and not on the address-book card: a profile screen has to draw
+        // the right button, and asking for it separately would mean a second
+        // round trip for a field the first one already knows. Always present
+        // and never `null`, because a missing field would be a sixth value on
+        // top of the five and every client would have to decide what it meant.
+        friendship: stato(db as never, io ?? "", chi.id),
         // Only to the person themself, and only here: the settings screen has
         // to know the current state of what it is about to change, and nobody
         // else has any use for it.

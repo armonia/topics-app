@@ -53,6 +53,7 @@ import { useSheetDrag } from './hooks/useSheetDrag';
 import { SheetGrabber } from './components/Shared/SheetGrabber';
 import { POPOVER_SURFACE, POPOVER_MARGIN, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from './lib/popoverStyles';
 import { SidebarSystemMenu } from './components/Sidebar/SidebarSystemMenu';
+import { TopicsLoadDot } from './components/Sidebar/TopicsLoadDot';
 import { ChangelogModal } from './components/ChangelogModal';
 
 // Tauri-on-macOS chrome parity: like Electron, the traffic lights are HIDDEN by
@@ -1505,6 +1506,15 @@ function App() {
                 {/* Room for the window commands on Windows. Why it is declared
                     and not inherited from a glyph: `windowControlsGeometry.ts`. */}
                 <span className={`font-semibold text-app-text tracking-[-0.01em] truncate ${isMobile ? 'text-[17px]' : 'text-[15px]'} ${isTauriWindows ? TOPICS_LABEL_MIN_W_WINDOWS : ''} ${(isTauriMac || isTauriWindows) && showTopicsMenu ? 'invisible' : ''}`}>Topics</span>
+                {/* HOW HEAVY THE MACHINE IS, right next to its name. This is
+                    what stayed on screen when the numbers at the foot of the
+                    column moved into this menu: the exact figures are one click
+                    away, the "is it fine" is not. It hides with the title under
+                    the window commands, because on Windows and on macOS those
+                    are painted over this exact spot when the menu is open, and
+                    a dot surviving underneath them would read as a glitch.
+                    See `TopicsLoadDot`. */}
+                {!((isTauriMac || isTauriWindows) && showTopicsMenu) && <TopicsLoadDot />}
                 {/* 14, come il glifo di «Cerca» e del «+» che gli stanno accanto sulla
                     STESSA riga — misurato: era 12 contro i loro 14, e il raggio
                     6 contro 8. Tre elementi affiancati con tre forme diverse

@@ -1559,6 +1559,13 @@ export interface StatsPersonClient {
  * enforce, so the two sides read the same file instead. */
 export type { ProfilePrivacy, FollowCounts } from "../../../shared/profile";
 import type { ProfilePrivacy, FollowCounts } from "../../../shared/profile";
+/* The friendship states travel too, and for the same reason they are declared
+ * once: five spellings copied by hand become four on one side the first time
+ * somebody adds a sixth. `FriendshipEdge` is NOT re-exported here. It is the
+ * server's own reading shape, nothing on this side holds one, and an export
+ * with no consumer is a promise the next reader has to check. */
+export type { FriendshipState } from "../../../shared/friendship";
+import type { FriendshipState } from "../../../shared/friendship";
 
 export interface PersonWithProfile {
   id: string;
@@ -1579,7 +1586,14 @@ export interface PersonWithProfile {
   lastSeenAt: number | null;
   /** Only ever present on your own profile. */
   privacy?: ProfilePrivacy;
+  /** Where I stand with them, from `GET /api/people/:id` only. The address
+   *  book does not carry it: a list has no button to draw. */
+  friendship?: FriendshipState;
 }
+
+/** A person in one of the three friendship lists, with the moment the relation
+ *  reached the state that put it in that list. */
+export type FriendPerson = PersonWithProfile & { since: number };
 
 /** A row in a followers/following list: enough to draw a face and follow back. */
 export interface PersonSummary {
@@ -1626,6 +1640,41 @@ export const peopleApi = {
       method: 'PATCH',
       body: JSON.stringify(patch),
     });
+  },
+};
+
+/**
+ * THE OTHER RELATION. A follow is "I read you" and lives in `peopleApi`; a
+ * friendship is "we know each other", it is asked for and answered, and it is
+ * the only one of the two that can be refused. Its own object rather than five
+ * more methods on `peopleApi`, because one of the five is not about a person
+ * at all: `list()` is about me.
+ *
+ * EVERY MUTATION ANSWERS WITH THE RESULTING STATE, so a caller can draw the new
+ * button without waiting for a list to come back. A refused gesture throws
+ * `ApiError` instead: 400 for befriending yourself, 409 for asking again after
+ * a refusal or answering a request that is not there.
+ */
+export const friendsApi = {
+  /** My friends, and the requests in both directions. */
+  async list(): Promise<{ friends: FriendPerson[]; incoming: FriendPerson[]; outgoing: FriendPerson[] }> {
+    return request<{ friends: FriendPerson[]; incoming: FriendPerson[]; outgoing: FriendPerson[] }>('/friendships');
+  },
+  /** Ask. If they have already asked me, this accepts instead: two people
+   *  pressing the same button mean the same thing. */
+  async request(id: string): Promise<{ state: FriendshipState }> {
+    return request<{ state: FriendshipState }>(`/people/${id}/friend`, { method: 'POST' });
+  },
+  async accept(id: string): Promise<{ state: FriendshipState }> {
+    return request<{ state: FriendshipState }>(`/people/${id}/friend/accept`, { method: 'POST' });
+  },
+  async decline(id: string): Promise<{ state: FriendshipState }> {
+    return request<{ state: FriendshipState }>(`/people/${id}/friend/decline`, { method: 'POST' });
+  },
+  /** Withdraw my own request, or end a friendship. One call, because from the
+   *  person pressing it there is one meaning: undo this. */
+  async cancel(id: string): Promise<{ state: FriendshipState }> {
+    return request<{ state: FriendshipState }>(`/people/${id}/friend`, { method: 'DELETE' });
   },
 };
 

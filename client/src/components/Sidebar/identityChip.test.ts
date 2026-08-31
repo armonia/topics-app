@@ -1,7 +1,7 @@
 /**
  * The two things about the identity chips that are worth pinning without a
- * browser: the target floor really is IN the class, and the overflow of the
- * groups never makes the subject wider than the cap.
+ * browser: the size really is IN the class and it is the row's, not one this
+ * band invented, and the groups card stacks a bounded number of marks.
  *
  * The rest (does it fit on one line, is the ink readable over the veil) is a
  * question about pixels and lives in `tests/e2e/identity-chips.spec.ts`: a unit
@@ -10,17 +10,28 @@
  * @covers STATUSLINE-01
  */
 import { describe, expect, test } from 'bun:test';
-import { CHIP_TARGET_PX, ORGS_INLINE, chipClass, splitOrgs } from './identityChip';
+import { CHIP_TARGET_PX, ORG_MARKS_IN_CHIP, chipClass } from './identityChip';
+import { ROW_H } from '../../lib/selectionStyles';
 
 describe('the chip box', () => {
-  // Tailwind reads the SOURCE, so the 24 is a literal in the class string and
-  // the constant is a second copy of it. This is the test that fails when
-  // somebody moves one without the other, which is the only way they can drift.
-  test('the target floor is in the class, on both sides', () => {
+  // THE HEIGHT COMES FROM THE ROW FAMILY, the one the pinned tiles above the
+  // band use. This is the test that fails when somebody gives the band a
+  // measure of its own again, which is how it drifted ten pixels under the
+  // tiles the first time.
+  test('a chip is as tall as a row, on both pointer families', () => {
     for (const filled of [true, false]) {
-      const cls = chipClass(filled);
-      expect(cls).toContain(`min-h-[${CHIP_TARGET_PX}px]`);
-      expect(cls).toContain(`min-w-[${CHIP_TARGET_PX}px]`);
+      expect(chipClass(filled)).toContain(ROW_H);
+    }
+    // The mouse half of that constant is the number the e2e measures, so the
+    // two have to be the same 34 and not two numbers that happen to agree.
+    expect(ROW_H).toContain(`${CHIP_TARGET_PX}px`);
+  });
+
+  // Tailwind reads the SOURCE, so the width floor is a literal in the class
+  // string and the constant is a second copy of it. Same drift, same net.
+  test('the width floor is in the class', () => {
+    for (const filled of [true, false]) {
+      expect(chipClass(filled)).toContain(`min-w-[${CHIP_TARGET_PX}px]`);
     }
   });
 
@@ -50,28 +61,12 @@ describe('the chip box', () => {
   });
 });
 
-describe('the groups that do not fit', () => {
-  const orgs = (n: number) => Array.from({ length: n }, (_, i) => `org${i}`);
-
-  test('under the cap they all stay, with no counter', () => {
-    expect(splitOrgs(orgs(1))).toEqual({ inline: ['org0'], extra: 0 });
-    expect(splitOrgs(orgs(ORGS_INLINE))).toEqual({ inline: orgs(ORGS_INLINE), extra: 0 });
-  });
-
-  test('over the cap, the counter takes a slot instead of being added to them', () => {
-    // Three groups with a cap of two is the case that used to widen the row:
-    // two marks PLUS a `+1` is three things in two slots.
-    const { inline, extra } = splitOrgs(orgs(3));
-    expect(inline.length + 1).toBeLessThanOrEqual(ORGS_INLINE);
-    expect(extra).toBe(2);
-  });
-
-  test('the overflow counts what is not on the line, so nothing is lost', () => {
-    const { inline, extra } = splitOrgs(orgs(9));
-    expect(inline.length + extra).toBe(9);
-  });
-
-  test('no groups at all is not an error: an empty split, and the caller draws the empty chip', () => {
-    expect(splitOrgs(orgs(0))).toEqual({ inline: [], extra: 0 });
+describe('the marks inside the one group card', () => {
+  test('two, which is where overlapped discs stop being told apart', () => {
+    // Not a taste and not a layout accident: past two, the marks are
+    // twelve-pixel circles each as wide as the digit that would count them.
+    // The card carries the count from there on, and the panel carries the
+    // names.
+    expect(ORG_MARKS_IN_CHIP).toBe(2);
   });
 });

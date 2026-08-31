@@ -40,7 +40,7 @@ import { AA_TESTO, contrastOf } from "./helpers/contrast";
 import { clipDiConsegna } from "./helpers/clip";
 import { beat } from "./helpers/evidence";
 import { E2E_BASE } from "./helpers/test-server";
-import { CHIP_TARGET_PX, ORGS_INLINE } from "../../client/src/components/Sidebar/identityChip";
+import { CHIP_TARGET_PX, ORG_MARKS_IN_CHIP } from "../../client/src/components/Sidebar/identityChip";
 
 hermetic(test);
 
@@ -62,7 +62,7 @@ const SUBJECTS: string[] = ["identity-row-me", "identity-row-orgs", "identity-ro
 
 /** Every chip the band can draw, so a run that finds fewer says so instead of
  *  reporting a green measurement of an empty band. */
-const FILLED_CHIPS = ["identity-me-profile", "org-chip", "org-chip-more", "identity-friends-chip"];
+const FILLED_CHIPS = ["identity-me-profile", "org-chip", "identity-friends-chip"];
 const EMPTY_CHIPS = ["identity-me-profile", "org-chip-empty", "identity-friends-chip"];
 
 /** A member as the route sends it: raw milliseconds, not a boolean. */
@@ -385,11 +385,11 @@ test.describe("identity chips", () => {
   test("CHIPS-01: the three subjects hold one line at 180, 256 and 400", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
     // TWO POPULATIONS, because the failure modes are opposite: one group is the
-    // ordinary case, four is the one that has to spend a slot on the `+n` chip
-    // and is therefore the widest the subject can get.
+    // ordinary case, four is the one that stacks marks and adds a count inside
+    // the single card, and is therefore the widest that subject can get.
     const cases = [
       { name: "one-group", population: populated(1), mark: "org-chip" },
-      { name: "four-groups", population: populated(4), mark: "org-chip-more" },
+      { name: "four-groups", population: populated(4), mark: "org-chip-count" },
     ];
     const measures: Array<{ case: string; asked: number; column: number } & BandGeometry> = [];
 
@@ -434,9 +434,10 @@ test.describe("identity chips", () => {
       // "One line" and "no overflow" can both hold while the band is broken,
       // and this is the case that proves it: the "me" subject is the elastic
       // one, so when the other two want more than the column has, it is handed
-      // a width of ZERO. Its chip does not shrink with it (`min-w-[24px]` is
-      // the pointer floor), so it keeps painting 24 pixels inside a parent that
-      // occupies none, on top of whatever comes next. The band still reports
+      // a width of ZERO. Its chip does not shrink with it (the width floor in
+      // `identityChip.ts` is the pointer target), so it keeps painting those
+      // pixels inside a parent that occupies none, on top of whatever comes
+      // next. The band still reports
       // one line and a scrollWidth that fits, because the spill is INTERNAL.
       const spread = [...m.chips].sort((a, b) => a.left - b.left);
       for (let i = 1; i < spread.length; i++) {
@@ -448,7 +449,7 @@ test.describe("identity chips", () => {
         ).toBeGreaterThanOrEqual(before.right);
       }
       // AND NO CHIP PAINTS OUTSIDE ITSELF. Nothing clips a chip's contents, so
-      // a chip pressed down to its 24px floor keeps drawing its full width of
+      // a chip pressed down to its width floor keeps drawing its full width of
       // glyph, name and signals straight over the next card. This is the one
       // that matches the screenshot: the box measurements above can all be
       // clean while the band reads as a pile.
@@ -559,32 +560,36 @@ test.describe("identity chips", () => {
     await expect(page.getByTestId("org-empty-panel")).toBeVisible();
   });
 
-  test("CHIPS-05: four groups collapse into +3 without leaving the line", async ({ page }) => {
+  test("CHIPS-05: four groups are ONE card, and the panel has all four", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
     await stubIdentity(page, populated(4));
     await page.goto("/");
     await setSidebarWidth(page, 256);
-    const marks = page.getByTestId("org-chip");
-    const more = page.getByTestId("org-chip-more");
-    await expect(more).toBeVisible({ timeout: 20000 });
-    // ORGS_INLINE is the budget for the whole subject, and the `+n` chip spends
-    // one of its slots: with four groups that is one logo plus one counter, not
-    // two logos plus a counter, which would make the subject wider than the cap
-    // it exists to enforce.
-    expect(await marks.count()).toBe(ORGS_INLINE - 1);
-    expect((await marks.count()) + (await more.count())).toBe(ORGS_INLINE);
-    // Nothing is hidden without a mark saying how much: this number is what
-    // makes a collapse different from a loss.
-    await expect(more).toHaveText("+3");
+    const card = page.getByTestId("org-chip");
+    await expect(card).toBeVisible({ timeout: 20000 });
+    // ONE SLOT, WHATEVER THE COUNT. This is the assertion the previous shape
+    // could not make: the subject used to be one chip, or two, or two and a
+    // counter, so its width moved with the data and the band changed shape
+    // between two installations that differ only in how many groups they joined.
+    expect(await card.count()).toBe(1);
+    // The marks stack inside it, bounded, and the number carries the rest:
+    // nothing is hidden without something saying how much.
+    expect(await page.getByTestId("identity-row-orgs").getByTestId("identity-glyph").count())
+      .toBeLessThanOrEqual(ORG_MARKS_IN_CHIP);
+    await expect(page.getByTestId("org-chip-count")).toHaveText("4");
 
     const geometry = await bandGeometry(page);
     const tops = geometry.subjects.map((s) => s.top);
     expect(Math.max(...tops) - Math.min(...tops), `tops ${tops.join(", ")}`).toBeLessThanOrEqual(1);
     expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth + 1);
 
-    await more.click();
-    await expect(page.getByTestId("org-more-panel")).toBeVisible();
-    await expect(page.getByTestId("org-more-row")).toHaveCount(3);
+    // AND ALL FOUR ARE BEHIND IT, one section each. The old `+n` panel listed
+    // only the groups that had not fitted: the two on the line had a panel
+    // apiece, so comparing four groups took three clicks and two of the panels
+    // did not exist.
+    await card.click();
+    await expect(page.getByTestId("org-panel")).toBeVisible();
+    await expect(page.getByTestId("org-section")).toHaveCount(4);
   });
 
   test("CHIPS-06: the delivery clip, the band at the three widths", async () => {
@@ -605,7 +610,7 @@ test.describe("identity chips", () => {
       prologo: async (p) => {
         await stubIdentity(p, populated(4));
         await p.goto("/");
-        await expect(p.getByTestId("org-chip-more")).toBeVisible({ timeout: 20000 });
+        await expect(p.getByTestId("org-chip")).toBeVisible({ timeout: 20000 });
       },
       scena: async (p) => {
         await stubIdentity(p, populated(4));
@@ -615,8 +620,8 @@ test.describe("identity chips", () => {
           await setSidebarWidth(p, width);
           await beat(p, 1300);
         }
-        await p.getByTestId("org-chip-more").click();
-        await expect(p.getByTestId("org-more-panel")).toBeVisible();
+        await p.getByTestId("org-chip").click();
+        await expect(p.getByTestId("org-panel")).toBeVisible();
         await beat(p, 2200);
       },
     });

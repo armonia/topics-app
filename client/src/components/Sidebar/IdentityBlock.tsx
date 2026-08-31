@@ -30,15 +30,24 @@
  *
  * The line holds because each subject knows what to give up: the name of
  * whoever is logged in truncates (it is the only elastic thing here), and the
- * groups past the second collapse into a `+n` chip. Nothing is hidden without
- * a mark saying so.
+ * groups are ONE card however many they are. Nothing is hidden without a mark
+ * saying so.
  *
  * IT DOES NOT WRAP AND IT DOES NOT SCROLL.
- * The organisation chips used to sit on a row that scrolled sideways, and then
- * on one that wrapped. A horizontal scroll inside a 240px column is content
- * hidden with nothing to say so: the fourth group exists only if it occurs to
- * you to drag. The `+n` chip is the third answer: it is VISIBLE, it says how
- * many are behind it, and it opens them in a panel.
+ * The organisation chips used to sit on a row that scrolled sideways, then on
+ * one that wrapped, then on one that showed two of them and a `+n`. A
+ * horizontal scroll inside a 240px column is content hidden with nothing to say
+ * so: the fourth group exists only if it occurs to you to drag. The `+n` said
+ * so out loud and still left the subject changing width with the data. The
+ * answer is the single card: it says how many groups are behind it, and it
+ * opens all of them in one panel.
+ *
+ * AND THE THREE CARDS ARE AS BIG AS THE TABS ABOVE THEM.
+ * The band used to be built on a 24px floor of its own while a pinned tile one
+ * row up is 34. Ten pixels of difference between the last row of the column and
+ * the rows above it is what made the band read as a strip glued underneath
+ * rather than as the foot of the same column. The measure now comes from the
+ * same constant the tiles use (`ROW_H`, via `identityChip.ts`).
  *
  * FULL AND EMPTY ARE TOLD APART BY THE CHIP, NOT BY ABSENCE.
  * A subject with nothing in it is drawn as an outlined chip instead of
@@ -69,9 +78,9 @@ import { etichettaIdentita } from './identityLabel';
 import { useIdentityPresence, type OrgConPresenza } from '@/hooks/useIdentityPresence';
 import { usePresenceSummary } from '@/hooks/usePresenceSummary';
 import { apriProfilo, openPersonProfile } from '@/state/profileTarget';
-import type { FacciaPresenza, RigaPresenza } from './orgPresence';
+import { unisciFacce, unisciGente, type FacciaPresenza, type RigaPresenza } from './orgPresence';
 import { IDENTITY_GLYPH_BOX, IDENTITY_GLYPH_INK, ROW_INSET, TIER_DONE_TEXT } from '@/lib/selectionStyles';
-import { CHIP_INK_DIM, chipClass, splitOrgs } from './identityChip';
+import { CHIP_INK_DIM, ORG_MARKS_IN_CHIP, chipClass } from './identityChip';
 import { PALLINO_OK, SEGNALE_ATTESA, SEGNALE_OK } from './chromeSignals';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
 import { PresencePopover } from './PresencePopover';
@@ -357,18 +366,23 @@ function RigaIo({ presenza, onOpenDevices }: {
  * ────────────────────────────────────────────────────────────────────────── */
 
 /**
- * ONE CHIP PER GROUP, and inside each chip the people who are there.
+ * THE GROUPS ARE ONE CARD, whatever their number.
  *
- * Presence lives INSIDE the chip and not in a single count at the end of the
- * row: with two organizations "3 online" does not say which group they belong
- * to, and that is the first thing anyone wants to know.
+ * There used to be ONE CHIP PER GROUP, up to two, and a `+n` chip for the rest.
+ * The argument for it was presence: with two organisations "3 online" does not
+ * say which group those three are in, and that is the first thing anyone wants
+ * to know. The argument still holds, and it was answered in the wrong place.
+ * Putting it on the LINE made this subject the only one whose width depends on
+ * the data: one card, two cards, two cards and a counter, three different feet
+ * of the column for the same installation on three different weeks. The band
+ * exists to be glanced at, and you cannot glance at a shape that moves.
  *
- * NO NAME IN THE CHIP. The name was the widest part of a chip that says
- * something else: two names filled a 240px column and left the faces, which are
- * the news, fighting for the leftovers. The logo already identifies the group
- * without spelling it, the tooltip and the panel header carry the full name,
- * and what is left on the row is exactly the answer to "who is around": the
- * faces.
+ * So: one slot for the subject "the groups I am in", exactly like the one slot
+ * for "me" and the one slot for "my people". The marks stack inside it, the
+ * number rides along, and WHICH group each person belongs to is answered by the
+ * panel, one section per group. That answer got better in the move: it used to
+ * take one click per chip to compare two groups, and the chips past the second
+ * did not have a panel of their own at all.
  *
  * AND IT IS THERE AT ZERO. It used to return null with no groups, which made
  * the band two chips wide and left the third question unasked. Now the subject
@@ -377,47 +391,17 @@ function RigaIo({ presenza, onOpenDevices }: {
  * at zero, and the same person is the one who needs it.
  */
 function RowOrgs({ orgs }: { orgs: OrgConPresenza[] }) {
-  const [apertaId, setApertaId] = useState<string | null>(null);
   // No leading glyph any more: it was there to tell one ROW from the next, and
   // there are no rows left. Alignment survives without it: every subject now
   // opens with a mark of the same IDENTITY_GLYPH_BOX size (the face, a group
   // logo, the people sign) sitting inside a chip with the same padding, so
   // the left edges agree by construction instead of by hand-tuned margins.
-  if (orgs.length === 0) {
-    return (
-      <span data-testid="identity-row-orgs" className={`${SUBJECT} flex-none`}>
-        <EmptyOrgChip />
-      </span>
-    );
-  }
-  const { inline, extra } = splitOrgs(orgs);
   return (
-    <span data-testid="identity-row-orgs" className={`${SUBJECT} flex-none gap-1`}>
-      {inline.map((o) => (
-        <ChipOrg
-          key={o.id}
-          org={o}
-          aperta={apertaId === o.id}
-          onToggle={() => setApertaId((v) => (v === o.id ? null : o.id))}
-          onClose={() => setApertaId(null)}
-        />
-      ))}
-      {extra > 0 && (
-        <MoreOrgsChip
-          orgs={orgs.slice(inline.length)}
-          aperta={apertaId === MORE_ORGS_KEY}
-          onToggle={() => setApertaId((v) => (v === MORE_ORGS_KEY ? null : MORE_ORGS_KEY))}
-          onClose={() => setApertaId(null)}
-        />
-      )}
+    <span data-testid="identity-row-orgs" className={`${SUBJECT} flex-none`}>
+      {orgs.length === 0 ? <EmptyOrgChip /> : <OrgsChip orgs={orgs} />}
     </span>
   );
 }
-
-/** The open-panel key of the `+n` chip. It shares `apertaId` with the group
- *  chips because only one panel may be open at a time, and an id no group can
- *  have is cheaper than a second piece of state that can disagree with this one. */
-const MORE_ORGS_KEY = '\u0000more';
 
 /**
  * NO GROUPS: the slot stays, drawn as an outline, and it is the only place in
@@ -472,140 +456,117 @@ function EmptyOrgChip() {
 }
 
 /**
- * THE GROUPS THAT DID NOT FIT, as a chip that says how many they are.
+ * EVERY GROUP YOU ARE IN, in one card.
  *
- * This is the price of one line, and it is paid out loud: `+3` is a thing you
- * can see and press, unlike the sideways scroll it replaces, where the fourth
- * group existed only if it occurred to you to drag. The panel lists them with
- * their presence, so the count on the chip is never the end of the answer.
+ * What the card carries, in order of how much it changes: the marks (two, then
+ * the count), and the faces of whoever is around ACROSS the groups. The faces
+ * are deduplicated by `unisciFacce`, because the same colleague in two of your
+ * organisations is one person online, not two, and a band that counts them
+ * twice is a band whose numbers you stop trusting.
+ *
+ * The count of the groups is drawn only past one: `1` next to a single logo is
+ * a digit that answers a question nobody asked, and the logo is already the
+ * whole answer at that size.
  */
-function MoreOrgsChip({ orgs, aperta, onToggle, onClose }: {
-  orgs: OrgConPresenza[];
-  aperta: boolean;
-  onToggle: () => void;
-  onClose: () => void;
-}) {
+function OrgsChip({ orgs }: { orgs: OrgConPresenza[] }) {
   const tr = useT();
+  const [aperto, setAperto] = useState(false);
   const [chip, setChip] = useState<HTMLButtonElement | null>(null);
-  const presentNow = orgs.reduce((n, o) => n + o.online, 0);
-  return (
-    <>
-      <button
-        ref={setChip}
-        data-testid="org-chip-more"
-        onClick={onToggle}
-        aria-haspopup="dialog"
-        aria-expanded={aperta}
-        className={`${chipClass(true)} justify-center text-app-text-secondary`}
-        title={tr('statusBar.orgs.more', { n: orgs.length })}
-      >
-        <span className="flex-shrink-0 tabular-nums">+{orgs.length}</span>
-        {presentNow > 0 && <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${PALLINO_OK}`} />}
-      </button>
-
-      {aperta && (
-        <PresencePopover
-          anchorEl={chip}
-          onClose={onClose}
-          testId="org-more-panel"
-          titolo={
-            <>
-              <Building2 size={12} className="flex-shrink-0 text-app-text-muted" />
-              <span className="truncate">{tr('statusBar.orgs.more', { n: orgs.length })}</span>
-            </>
-          }
-        >
-          <div className="py-1">
-            {orgs.map((o) => (
-              <div key={o.id} data-testid="org-more-row" className={`${POPOVER_ITEM} gap-2`}>
-                <Logo org={o} size={5} />
-                <span className="min-w-0 flex-1 truncate">{o.nome}</span>
-                <span className={`flex-shrink-0 tabular-nums ${o.online > 0 ? SEGNALE_OK : CHIP_INK_DIM}`}>
-                  {tr('statusBar.friends.count', { n: o.online, tot: o.membri })}
-                </span>
-              </div>
-            ))}
-          </div>
-          <div className="border-t border-app-border py-1">
-            <Azione onClick={() => { onClose(); openSettings('organization'); }} testId="org-more-manage">
-              {tr('statusBar.orgs.manageAll')}
-            </Azione>
-          </div>
-        </PresencePopover>
-      )}
-    </>
-  );
-}
-
-function ChipOrg({ org, aperta, onToggle, onClose }: {
-  org: OrgConPresenza;
-  aperta: boolean;
-  onToggle: () => void;
-  onClose: () => void;
-}) {
-  const tr = useT();
-  const [chip, setChip] = useState<HTMLButtonElement | null>(null);
+  const facce = unisciFacce(orgs.map((o) => o.facce));
+  const gente = unisciGente(orgs.map((o) => o.gente));
+  const online = gente.filter((p) => p.presente).length;
+  const sola = orgs.length === 1 ? orgs[0] : null;
   return (
     <>
       <button
         ref={setChip}
         data-testid="org-chip"
-        onClick={onToggle}
+        onClick={() => setAperto((v) => !v)}
         aria-haspopup="dialog"
-        aria-expanded={aperta}
+        aria-expanded={aperto}
         // A group you are in is a FULL chip even with nobody online: what the
         // fill answers is "am I in a group", and the faces answer the other
         // question inside it.
         className={`${chipClass(true)} justify-center text-app-text-secondary`}
-        title={org.online > 0
-          ? `${org.nome}\n${tr('statusBar.orgs.presence', { n: org.online, tot: org.membri })}`
-          : org.nome}
+        title={[
+          orgs.map((o) => o.nome).join('\n'),
+          online > 0 ? tr('statusBar.orgs.presence', { n: online, tot: gente.length }) : '',
+        ].filter(Boolean).join('\n')}
       >
-        <Logo org={org} size={3.5} />
+        {/* The marks, stacked the way the faces are: past the second they
+            would be discs nobody can tell apart, and the count says the same
+            thing in less room. */}
+        <span className="flex flex-shrink-0 items-center">
+          {orgs.slice(0, ORG_MARKS_IN_CHIP).map((o, i) => (
+            <span key={o.id} className={i > 0 ? '-ml-1.5 rounded-full ring-1 ring-app-chrome' : ''}>
+              <Logo org={o} size={3.5} />
+            </span>
+          ))}
+        </span>
+        {orgs.length > 1 && (
+          <span data-testid="org-chip-count" className="flex-shrink-0 tabular-nums">{orgs.length}</span>
+        )}
         {/* Only the faces, and only when there are any. Nobody online is said
-            by the chip being just a logo: an empty chip is already the answer,
-            and it costs no word to read. It does not wrap any more either: on
-            a single-line band a chip that grows downwards takes the whole band
-            with it, so past two faces the count carries the rest.
+            by the chip being just its marks: an empty chip is already the
+            answer, and it costs no word to read.
             Below `@[300px]` the faces go, at the SAME width where the "me" chip
             drops its work signals. One threshold, not two: both are presence
             DETAIL on top of an identity that has to stay readable, so they
             leave together, and the band narrows by losing one class of thing
             instead of fraying a bit everywhere. What goes is never lost: the
             popover this chip opens lists the people by name. */}
-        {org.online > 0 && (
+        {online > 0 && (
           <span data-testid="org-chip-online" className={`hidden flex-none items-center @[300px]/identity:flex ${SEGNALE_OK}`}>
-            <Facce facce={org.facce} max={MAX_FACCE_ORG} totale={org.online} />
+            <Facce facce={facce} max={MAX_FACCE_ORG} totale={online} />
           </span>
         )}
       </button>
 
-      {aperta && (
+      {aperto && (
         <PresencePopover
           anchorEl={chip}
-          onClose={onClose}
+          onClose={() => setAperto(false)}
           testId="org-panel"
           titolo={
             <>
-              <Logo org={org} size={5} />
-              <span className="truncate">{org.nome}</span>
+              {sola
+                ? <Logo org={sola} size={5} />
+                : <Building2 size={12} className="flex-shrink-0 text-app-text-muted" />}
+              <span className="truncate">{sola ? sola.nome : tr('statusBar.orgs.title')}</span>
               <span className="ml-auto flex-shrink-0 font-normal text-app-text-muted tabular-nums">
-                {tr('statusBar.friends.count', { n: org.online, tot: org.membri })}
+                {tr('statusBar.orgs.presence', { n: online, tot: gente.length })}
               </span>
             </>
           }
         >
-          <Elenco
-            gente={org.gente}
-            vuoto={tr('statusBar.orgs.alone')}
-          />
-          {/* The door to management hangs on THE organization, not on the row:
-              the row holds several groups, and "manage organizations" reached
-              from nowhere in particular is a link you have to guess the target
-              of. Here it is opened from the group whose people you are reading. */}
+          {/* ONE GROUP READS AS IT ALWAYS DID: its people, straight away. A
+              section header repeating the name that is already in the title
+              would be the panel saying the same word twice to make room for a
+              structure that has nothing to hold. */}
+          {sola
+            ? <Elenco gente={sola.gente} vuoto={tr('statusBar.orgs.alone')} />
+            : (
+              <div className="max-h-[240px] overflow-y-auto">
+                {orgs.map((o) => (
+                  <div key={o.id} data-testid="org-section">
+                    <div className="flex items-center gap-2 px-3 pb-0.5 pt-1.5 text-[10px] uppercase tracking-wide text-app-text-muted">
+                      <Logo org={o} size={3.5} />
+                      <span className="min-w-0 flex-1 truncate normal-case">{o.nome}</span>
+                      <span className={`flex-shrink-0 tabular-nums ${o.online > 0 ? SEGNALE_OK : CHIP_INK_DIM}`}>
+                        {tr('statusBar.friends.count', { n: o.online, tot: o.membri })}
+                      </span>
+                    </div>
+                    <Elenco gente={o.gente} vuoto={tr('statusBar.orgs.alone')} />
+                  </div>
+                ))}
+              </div>
+            )}
+          {/* The door to management hangs on the card the people came from, so
+              it is never a link you have to guess the target of: with one group
+              it manages THAT group, with several it opens the list. */}
           <div className="border-t border-app-border py-1">
-            <Azione onClick={() => { onClose(); openSettings('organization'); }} testId="org-open-manage">
-              {tr('statusBar.orgs.manageOne')}
+            <Azione onClick={() => { setAperto(false); openSettings('organization'); }} testId="org-open-manage">
+              {sola ? tr('statusBar.orgs.manageOne') : tr('statusBar.orgs.manageAll')}
             </Azione>
           </div>
         </PresencePopover>

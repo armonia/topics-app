@@ -2,19 +2,24 @@ import { useCallback, useEffect, useState } from 'react';
 import { peopleApi, type PersonSummary } from '@/lib/api';
 import { useT } from '@/hooks/useT';
 import { PeopleList } from './PeopleList';
+import { FriendsTab } from './FriendsTab';
 import { useSelf } from './useSelf';
 
 /**
  * FOLLOWERS, FOLLOWING, AND WHERE NEW ONES COME FROM.
  *
- * -- WHY THE RELATION IS ONE WAY ---------------------------------------------
- * "Friends" here never meant friendship: it meant "the people in my
- * organisation", a list nobody chose and nobody could change, that appeared
- * whole the day you joined a group and emptied the day you left it. A follow is
- * a decision, it belongs to the person who makes it, and it does not need the
- * other side to agree. That is why there are two lists and not one: they are
- * genuinely different sets, and a symmetric model would have had to pick which
- * of the two to lie about.
+ * -- FRIENDSHIP AND FOLLOW ARE TWO RELATIONS, AND BOTH ARE HERE --------------
+ * "Friends" used to be a WORD FOR SOMETHING ELSE on this surface: it meant "the
+ * people in my organisation", a list nobody chose and nobody could change, that
+ * appeared whole the day you joined a group and emptied the day you left it.
+ * That list is now the "People" tab, under its real name.
+ *
+ * Friendship exists for real since card 7b3b303f, and it is a DIFFERENT relation
+ * from the follow, not a stronger one: a follow is "I read you", it belongs to
+ * whoever makes it and needs nobody's agreement; a friendship is "we know each
+ * other" and is the only one of the two that has to be ASKED. So they are
+ * separate tabs and separate counts, and a symmetric model would have had to
+ * pick which of the two to lie about.
  *
  * -- WHY THERE IS A THIRD TAB ------------------------------------------------
  * A follow graph with no way to find anybody stays empty forever. "People" is
@@ -24,9 +29,13 @@ import { useSelf } from './useSelf';
  * is only how the name reached the list.
  */
 
-type Tab = 'followers' | 'following' | 'people';
+type Tab = 'friends' | 'followers' | 'following' | 'people';
 
-export function FollowersSection({ initialTab = 'followers' }: { initialTab?: Tab }) {
+// The page opens on FRIENDS and no longer on followers. It is the only tab on
+// this surface that can be waiting for an answer from you, and the sidebar chip
+// that says "manage friends" lands here: opening one tab to the left of what
+// the link promised charged a gesture on every single visit.
+export function FollowersSection({ initialTab = 'friends' }: { initialTab?: Tab }) {
   const t = useT();
   const { me, directory, ready } = useSelf();
   const [tab, setTab] = useState<Tab>(initialTab);
@@ -64,6 +73,10 @@ export function FollowersSection({ initialTab = 'followers' }: { initialTab?: Ta
     }));
 
   const tabs: Array<[Tab, string, number | null]> = [
+    // Friends first: it is the only tab that can be WAITING for something from
+    // you. The count stays null because it is loaded by the tab itself, and a
+    // number that appears a beat late reads as a number that changed.
+    ['friends', t('profile.friend.mine'), null],
     ['followers', t('profile.followers'), followers?.length ?? null],
     ['following', t('profile.following'), following?.length ?? null],
     ['people', t('profile.people'), others.length],
@@ -91,6 +104,7 @@ export function FollowersSection({ initialTab = 'followers' }: { initialTab?: Ta
         ))}
       </div>
 
+      {tab === 'friends' && <FriendsTab />}
       {tab === 'followers' && (
         <PeopleList
           people={followers ?? []}

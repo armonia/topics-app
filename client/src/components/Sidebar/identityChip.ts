@@ -43,24 +43,42 @@
  * exact value, i.e. a chip that stops answering the pointer. The hover steps
  * are the resting ones plus roughly the same delta again.
  */
+import { ROW_H } from '../../lib/selectionStyles';
 
 /**
- * The floor for anything you point at, in CSS px, on BOTH sides. Not a
- * rounded-up 44: this band lives in the chrome next to 24px controls, and a
- * target sized for a thumb would push the foot of the column into the tree.
- * It is the number the e2e measures on every chip.
+ * THE CHIPS ARE AS BIG AS THE TABS ABOVE THEM.
+ *
+ * They used to have a floor of their own, 24px, argued from the pointer target
+ * and from "the band lives in the chrome, next to 24px controls". Both halves
+ * were true and the conclusion was still wrong, because it made the foot of
+ * the column the only place in the sidebar with a size nothing else shares:
+ * a pinned tile right above is {@link ROW_H}, 34 with the mouse and 44 with the
+ * finger, and the three chips underneath were ten pixels shorter than the row
+ * they hang from. Ten pixels is not a taste, it is the difference between a
+ * band that reads as the last row of the column and a band that reads as a
+ * strip somebody glued under it.
+ *
+ * So the chips take the ROW family, the same constant the tiles take. The
+ * pointer floor is not lost in the move, it is exceeded: 34 is ten past the 24
+ * this file used to defend, and 44 with the finger is the iOS minimum exactly.
+ *
+ * The 34 is therefore no longer written here at all. It arrives as a class
+ * string from `selectionStyles`, which is where Tailwind already scans it.
  */
-export const CHIP_TARGET_PX = 24;
+export const CHIP_TARGET_PX = 34;
 
 /** The box every chip is, full or empty: same height, same radius, same
- *  padding, so the difference between them is the FILL and nothing else. */
-// The 24 is WRITTEN OUT here and not interpolated from `CHIP_TARGET_PX`:
-// Tailwind finds classes by scanning the source text, so `min-h-[${n}px]`
+ *  padding, so the difference between them is the FILL and nothing else.
+ *  The radius follows the height: `rounded-md` on a 24px pill is the same
+ *  curvature `rounded-lg` gives a 34px tile, and the tiles are what this band
+ *  now has to agree with. */
+// `min-w-[34px]` is WRITTEN OUT and not interpolated from `CHIP_TARGET_PX`:
+// Tailwind finds classes by scanning the source text, so `min-w-[${n}px]`
 // generates no rule at all and the floor would silently be whatever the text
 // happened to measure. The unit test is what keeps the two in step.
 const CHIP_BOX =
-  'flex min-h-[24px] min-w-[24px] items-center gap-1 ' +
-  'rounded-md border px-1.5 py-0.5 transition-colors';
+  `flex ${ROW_H} min-w-[34px] items-center gap-1 ` +
+  'rounded-lg border px-2 py-0.5 transition-colors';
 
 /** FULL: a filled mini-card with a border that exists at rest. */
 const CHIP_FULL =
@@ -84,28 +102,27 @@ export function chipClass(filled: boolean): string {
 }
 
 /**
- * How many group chips stay on the line before the rest collapse into one
- * counter.
+ * THE GROUPS ARE ONE SLOT, and this is where the counting used to happen.
  *
- * The groups used to WRAP: the subject took as many lines as it needed, which
- * was fine while the band was a wrapping flow and is impossible now that the
- * three subjects share one row. Two is not a taste: at the narrowest sidebar
- * the row has to fit the name of whoever is logged in (which truncates, but
- * not to nothing), two group marks and the people chip, and the third group
- * mark is the one that starts pushing the name below its own ellipsis.
+ * There was a cap (two marks on the line) and a `splitOrgs` that decided which
+ * groups stayed and which collapsed into a `+n` chip beside them. It was an
+ * honest answer to "the line is finite" and it produced a subject whose WIDTH
+ * depended on how many groups you had joined that week: one chip, two chips,
+ * two chips and a counter. A place whose shape changes with the data is a
+ * place you re-read instead of glancing at, which is the very defect the band
+ * was rebuilt to remove, and it survived inside one of its three subjects.
+ *
+ * Now the groups are ONE card, always, whatever the count: the marks stack
+ * inside it and the number rides along. Nothing is hidden that was visible
+ * before, because the `+n` chip was never showing the groups either, it was
+ * showing their number and a door. The door is now the card itself.
+ *
+ * How many marks stack inside that one card before the count carries the rest.
+ * Two, and for the same reason two of anything fits here: past that they are
+ * twelve-pixel discs nobody can tell apart, each as wide as the digit that
+ * would count them.
  */
-export const ORGS_INLINE = 2;
-
-/** The groups that stay on the line, and how many are left over. The overflow
- *  is not hidden: it becomes a `+n` chip that opens the full list, which is
- *  the difference between "collapsed" and "lost". */
-export function splitOrgs<T>(orgs: readonly T[], max = ORGS_INLINE): { inline: T[]; extra: number } {
-  if (orgs.length <= max) return { inline: [...orgs], extra: 0 };
-  // One slot goes to the `+n` chip itself, otherwise showing `max` marks plus a
-  // counter makes the subject WIDER than the cap it is supposed to enforce.
-  const keep = Math.max(0, max - 1);
-  return { inline: orgs.slice(0, keep), extra: orgs.length - keep };
-}
+export const ORG_MARKS_IN_CHIP = 2;
 
 /**
  * THE DIM INK OF A CHIP, and why it is not `--text-muted`.

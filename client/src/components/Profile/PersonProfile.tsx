@@ -4,6 +4,7 @@ import { peopleApi, type PersonWithProfile, type PersonSummary } from '@/lib/api
 import { useT } from '@/hooks/useT';
 import { ProfileHeader, ProfileTopicsStats } from './ProfileHeader';
 import { PeopleList } from './PeopleList';
+import { FriendshipBar } from './FriendshipBar';
 
 /**
  * SOMEBODY ELSE'S PROFILE: the same page as yours, minus what is yours alone.
@@ -87,6 +88,13 @@ export function PersonProfile({ personId, onBack }: { personId: string; onBack: 
             onOpenFollowers={persona.counts ? openList('followers') : undefined}
             onOpenFollowing={persona.counts ? openList('following') : undefined}
           />
+          {/* Only on somebody else, and only when the server said where we
+              stand. `isMe` has no friendship with itself, and an old server
+              that does not send the field draws no strip at all rather than
+              guessing `none` and offering to befriend a stranger by mistake. */}
+          {!persona.isMe && persona.friendship && (
+            <FriendshipBar personId={personId} initial={persona.friendship} />
+          )}
           <ProfileTopicsStats persona={persona} />
           {tab && list && (
             <PeopleList

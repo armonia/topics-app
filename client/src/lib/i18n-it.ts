@@ -818,6 +818,18 @@ const IT: Dict = {
   'profile.follow': 'Segui',
   'profile.unfollow': 'Non seguire piu\u2019',
   'profile.followsYou': 'Ti segue',
+  'profile.friend.add': 'Aggiungi agli amici',
+  'profile.friend.sent': 'Richiesta inviata',
+  'profile.friend.accept': 'Accetta',
+  'profile.friend.decline': 'Rifiuta',
+  'profile.friend.remove': 'Togli dagli amici',
+  'profile.friend.wantsToBeFriends': 'Ti ha chiesto di essere amici.',
+  'profile.friend.areFriends': 'Siete amici.',
+  'profile.friend.mine': 'Amici',
+  'profile.friend.incoming': 'Ti hanno chiesto',
+  'profile.friend.outgoing': 'Hai chiesto',
+  'profile.friend.withdraw': 'Ritira',
+  'profile.friend.empty': 'Ancora nessun amico. Apri il profilo di una persona e chiedi.',
   'profile.noGithub': 'Nessun profilo GitHub',
   'profile.topics.title': 'Su Topics',
   'profile.topics.prompts': 'prompt',
@@ -1788,6 +1800,13 @@ const IT: Dict = {
   'statusBar.degraded.wayOut': 'Per avere un server locale qui, Topics deve dimenticare quel server: elimina questo file e riparti.',
   'statusBar.degraded.fix': 'Avvia un server locale',
   'statusBar.degraded.fixFailed': "Non ci sono riuscito: elimina il file a mano e riapri Topics.",
+  // THE DOT NEXT TO «Topics». Three sentences and not one with a number in it:
+  // the word says where we are, the numbers say by how much. Somebody hovering
+  // a tint expects the word first.
+  'statusBar.load.calmo': 'Sistema calmo · {mem}, {cpu}% CPU, {fps} fps',
+  'statusBar.load.caldo': 'Sistema caldo · {mem}, {cpu}% CPU, {fps} fps',
+  'statusBar.load.carico': 'Sistema carico · {mem}, {cpu}% CPU, {fps} fps',
+  'statusBar.load.unknown': 'Carico non misurabile da qui: i processi li vede solo l\u2019app desktop.',
   'statusBar.versionTitle': 'Info versione e aggiornamenti',
   'statusBar.devBuildTitle': 'Build di sviluppo (Vite dev server / hot reload). In produzione questo badge sparisce.',
   // The two sentences the badge next to the number cannot hold: what a
@@ -1832,9 +1851,10 @@ const IT: Dict = {
   // the only place that explains what an organisation is to somebody in none.
   'statusBar.orgs.noneTitle': 'Nessuna organizzazione',
   'statusBar.orgs.noneHint': 'Le organizzazioni raccolgono le persone con cui lavori. Entri in una quando qualcuno ti invita.',
-  // The chip for the groups that do not fit the line: it says how many they
-  // are, it does not hide them.
-  'statusBar.orgs.more': 'Altre {n} organizzazioni',
+  // THE ONE CARD holding every group. It is the panel title when the groups
+  // are more than one: with a single group the title is that group's name,
+  // because repeating the word over a card that holds one thing says nothing.
+  'statusBar.orgs.title': 'Organizzazioni',
   'statusBar.orgs.alone': 'Sei l’unico membro',
   'statusBar.friends.title': 'Persone',
   'statusBar.friends.none': 'Non conosci ancora nessuno',

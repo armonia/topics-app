@@ -48,7 +48,9 @@ export const DEBITO_NOME_PROPRIETARIO: readonly string[] = [
   "client/src/components/Sidebar/PinnedTile.tsx",
   "client/src/components/Sidebar/PinnedTiles.tsx",
   "client/src/components/Sidebar/SidebarStatusBar.tsx",
-  "client/src/components/Sidebar/SidebarSystemMenu.tsx",
+  // SidebarSystemMenu.tsx has LEFT the debt: rewriting the menu (card 7b3b303f)
+  // also rewrote the comments that carried the name, and the gate asked for
+  // this line to be pruned. The count goes down by one.
   "client/src/components/Sidebar/TopicTree.tsx",
   "client/src/components/Sidebar/boardProjectChips.test.ts",
   "client/src/components/Sidebar/boardProjectChips.ts",

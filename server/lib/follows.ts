@@ -1,13 +1,26 @@
 /**
  * THE FOLLOW GRAPH, and the five switches that decide what a profile shows.
  *
- * ── WHY A FOLLOW AND NOT A FRIENDSHIP ───────────────────────────────────────
- * The edge is ASYMMETRIC on purpose. A mutual relation needs an invitation, an
- * acceptance, a pending state and a refusal, which is four states and two
- * round trips to express "I want to see what this person is doing". A follow
- * needs one row, and the person followed learns about it from a counter
- * instead of from a request they have to answer. It is also the honest shape:
- * reading somebody's work is not a claim on their attention.
+ * ── A FOLLOW AND A FRIENDSHIP, AND WHY BOTH ─────────────────────────────────
+ * This header used to argue for a follow INSTEAD of a friendship. Half of that
+ * argument still stands and the other half was answering the wrong question.
+ *
+ * What stands: the edge is ASYMMETRIC on purpose. A follow says "I read you",
+ * it needs one row, and the person followed learns about it from a counter
+ * instead of from a request they have to answer. Making somebody approve that
+ * would be a toll on a gesture that takes nothing from them, and reading
+ * somebody's work is not a claim on their attention.
+ *
+ * What did not: none of it lets anyone say "we know each other". That sentence
+ * is mutual by definition, so it cannot be two follows pointing at each other,
+ * because neither side ever agreed and either side can write half of it alone.
+ * It is the only one of the two that is ASKED FOR and ANSWERED, and therefore
+ * the only one that can be refused.
+ *
+ * So the two now COEXIST and this file is untouched by the second one.
+ * `server/lib/friendships.ts` holds the request, the acceptance and the
+ * refusal; the follow keeps feeding the profile page and its own half of the
+ * reachable set, exactly as before.
  *
  * The edge does NOT grant anything. It widens the set of profiles a person can
  * open, and nothing else: no project, no task, no file. Access is still
