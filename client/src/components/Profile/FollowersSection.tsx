@@ -29,8 +29,7 @@ import { useSelf } from './useSelf';
  * is only how the name reached the list.
  */
 
-export type PeopleTab = 'friends' | 'followers' | 'following' | 'people';
-type Tab = PeopleTab;
+type Tab = 'friends' | 'followers' | 'following' | 'people';
 
 // The page opens on FRIENDS and no longer on followers. It is the only tab on
 // this surface that can be waiting for an answer from you, and the sidebar chip

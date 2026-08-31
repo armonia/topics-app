@@ -156,11 +156,13 @@ test.describe("Il profilo, alla GitHub", () => {
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("profile-privacy-panel")).toHaveCount(0);
 
-    // The counters open the people, which is the other dropdown: the two
-    // controls the tab strip used to carry are both still one gesture away.
+    // The counter opens ITS OWN list and nothing else: one counter, one list,
+    // no second row of names under the numbers that were just clicked.
     await page.getByTestId("profile-count-followers").click();
-    await expect(page.getByTestId("profile-people-panel")).toBeVisible();
+    await expect(page.getByTestId("profile-followers-panel")).toBeVisible();
+    await expect(page.getByTestId("list-followers")).toBeVisible();
+    await expect(page.getByTestId("followers-tab-people")).toHaveCount(0);
     await page.keyboard.press("Escape");
-    await expect(page.getByTestId("profile-people-panel")).toHaveCount(0);
+    await expect(page.getByTestId("profile-followers-panel")).toHaveCount(0);
   });
 });
