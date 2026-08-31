@@ -33,15 +33,15 @@ test.describe("Lo stato vive nel menu «Topics»", () => {
   test("la colonna non ha più una barra in fondo, e la spia è fuori", async ({ page }) => {
     await goToApp(page);
 
-    // 1) NIENTE BARRA nella colonna. Non "invisibile": proprio assente.
+    // 1) NO BAR in the column. Not "invisible": actually absent.
     await expect(page.locator('[data-testid="sidebar-status-bar"]')).toHaveCount(0);
 
-    // 2) LA SPIA C'È, a menu chiuso, ed è l'appiglio di prontezza che
-    //    layout.fixture / multi-client / tab-sync usano da sempre.
-    const spia = page.locator('[data-testid="connection-status"]');
-    await expect(spia).toBeVisible({ timeout: 15_000 });
-    // Ed è dentro la riga del titolo, non un residuo in fondo: si misura, non
-    // si deduce — deve stare nella metà ALTA della colonna.
+    // 2) THE LAMP IS THERE with the menu closed, and it is the readiness
+    //    handle layout.fixture / multi-client / tab-sync have always used.
+    const lamp = page.locator('[data-testid="connection-status"]');
+    await expect(lamp).toBeVisible({ timeout: 15_000 });
+    // And it is in the title row, not a leftover at the foot: measured, not
+    // inferred — it must sit in the UPPER half of the column.
     const dove = await page.evaluate(() => {
       const s = document.querySelector('[data-testid="connection-status"]')!.getBoundingClientRect();
       const col = document.querySelector('[aria-label="Topics sidebar"]')!.getBoundingClientRect();
@@ -49,24 +49,62 @@ test.describe("Lo stato vive nel menu «Topics»", () => {
     });
     expect(dove.spiaY, `la spia è a ${dove.spiaY}, la metà colonna a ${dove.metaColonna}`).toBeLessThan(dove.metaColonna);
 
-    // 3) A TUTTO A POSTO NON GRIDA: nessun allarme dichiarato.
-    await expect(spia).not.toHaveAttribute("data-alarm", "true");
+    // 3) IT DOES NOT SHOUT WHEN ALL IS WELL: no alarm declared.
+    await expect(lamp).not.toHaveAttribute("data-alarm", "true");
   });
 
   test("aprendo il menu ci sono i numeri e la versione; l'identità resta in colonna", async ({ page }) => {
     await goToApp(page);
     await page.getByTestId("sidebar-topics-menu").click();
 
-    // Lo stato è QUI dentro.
+    // The state is IN HERE.
     await expect(page.locator('[data-testid="sidebar-status-bar"]')).toBeVisible({ timeout: 10_000 });
-    // I numeri si leggono senza espandere il pannello (PERFPANEL-01).
+    // The numbers read without expanding the panel (PERFPANEL-01).
     await expect(page.locator('[data-testid="metrics-total"]')).toBeVisible();
-    // L'identità NO: è rimasta in fondo alla colonna, fuori dal menu, perché il
-    // suo contratto è la larghezza della colonna (CHIPS-01) e il menu non la
-    // segue. Si asserisce dove NON è e dove È: senza il secondo controllo
-    // questa riga passerebbe anche se la fascia fosse sparita del tutto.
-    const dentroIlMenu = page.locator('[data-testid="sidebar-system-menu"], [role="menu"]').locator('[data-testid="identity-row-me"]');
-    await expect(dentroIlMenu).toHaveCount(0);
+    // The identity did NOT: it stayed at the foot of the column, outside the
+    // menu, because its contract is the column's width (CHIPS-01) and the menu
+    // does not follow it. Both where it is NOT and where it IS are asserted:
+    // without the second check this would pass with the band gone entirely.
+    const insideTheMenu = page.locator('[data-testid="sidebar-system-menu"], [role="menu"]').locator('[data-testid="identity-row-me"]');
+    await expect(insideTheMenu).toHaveCount(0);
     await expect(page.locator('[data-testid="identity-row-me"]')).toBeVisible();
+  });
+
+  test("il trigger ha UNA spia sola, e non cambia misura al click", async ({ page }) => {
+    await goToApp(page);
+    const trigger = page.getByTestId("sidebar-topics-menu");
+    await expect(trigger).toBeVisible({ timeout: 15_000 });
+
+    // 1) ONE. Reported from the real UI: «I now see two dots in the trigger».
+    //    There were two because the alarm lamp had been added NEXT TO
+    //    `TopicsLoadDot`, which already did that job. Two dots 4px apart are not
+    //    two signals: they are one signal that looks broken. Small ROUND things
+    //    are counted, not testids, because the defect was precisely having two
+    //    different elements that look alike.
+    const round = await trigger.evaluate((el) =>
+      Array.from(el.querySelectorAll("*")).filter((n) => {
+        const r = n.getBoundingClientRect();
+        if (r.width === 0 || r.width > 12 || Math.abs(r.width - r.height) > 1) return false;
+        // "Round" is decided on the RADIUS against half the side, not on a
+        // string: `rounded-full` writes 9999px, another could write 50% or 4px,
+        // and matching the string reported "zero dots" for a trigger that had
+        // two.
+        const radius = parseFloat(getComputedStyle(n).borderTopLeftRadius) || 0;
+        const pct = getComputedStyle(n).borderTopLeftRadius.includes("%");
+        return pct || radius >= r.width / 2 - 0.5;
+      }).map((n) => `${n.tagName.toLowerCase()}[${n.getAttribute("data-testid") ?? "-"}] ${Math.round(n.getBoundingClientRect().width)}px`),
+    );
+    expect(round, `round things in the trigger: ${JSON.stringify(round)}`).toHaveLength(1);
+
+    // 2) IT DOES NOT RESIZE. «it should not resize on click»: the lamp was
+    //    UNMOUNTED when the menu opened, so the row narrowed under the finger
+    //    that had just clicked it — measured 93.8px -> 79.8px. It now goes
+    //    `invisible`, like the title beside it: same space, not shown.
+    const before = (await trigger.boundingBox())!;
+    await trigger.click();
+    await expect(page.locator('[data-testid="sidebar-status-bar"]')).toBeVisible({ timeout: 10_000 });
+    const after = (await trigger.boundingBox())!;
+    expect(Math.round(after.width), `width ${before.width} -> ${after.width}`).toBe(Math.round(before.width));
+    expect(Math.round(after.height), `height ${before.height} -> ${after.height}`).toBe(Math.round(before.height));
   });
 });

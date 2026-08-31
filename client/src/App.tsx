@@ -1519,41 +1519,6 @@ function App() {
                 {/* Room for the window commands on Windows. Why it is declared
                     and not inherited from a glyph: `windowControlsGeometry.ts`. */}
                 <span className={`font-semibold text-app-text tracking-[-0.01em] truncate ${isMobile ? 'text-[17px]' : 'text-[15px]'} ${isTauriWindows ? TOPICS_LABEL_MIN_W_WINDOWS : ''} ${(isTauriMac || isTauriWindows) && showTopicsMenu ? 'invisible' : ''}`}>Topics</span>
-                {/* THE LAMP — the one thing the status bar left OUTSIDE the
-                    menu, and the only one that earned it.
-
-                    An alarm is not a statistic: how much memory you are using
-                    is something you look at when you go looking for it, but
-                    "you are offline" behind a gesture means the app is
-                    disconnected and you do not know until you open a menu. See
-                    SIDEBAR-STATUS-01.
-
-                    IT IS ALWAYS IN THE DOM, and does not appear only on alarm:
-                    it is the handle half the E2E suite uses to know the app is
-                    ready (layout.fixture, multi-client, tab-sync), and a handle
-                    that exists only when things go wrong is a handle that never
-                    exists. At rest it is a quiet dot; on alarm it changes
-                    colour and pulses.
-
-                    A degraded boot needs no condition of its own: its verdict
-                    is null while the WS is connected (`degradedNotice`,
-                    SidebarStatusBar), so whenever there is one the lamp is
-                    already lit by `wsStatus`. */}
-                {(() => {
-                  const alarm = wsStatus !== 'connected' || !!topicsError;
-                  return (
-                    <span
-                      data-testid="connection-status"
-                      data-alarm={alarm || undefined}
-                      className={`flex-shrink-0 h-1.5 w-1.5 rounded-full transition-colors ${
-                        alarm ? 'bg-amber-500 animate-pulse' : 'bg-app-text-tertiary/40'
-                      }`}
-                      title={alarm
-                        ? (wsStatus !== 'connected' ? `Connection: ${wsStatus}` : (topicsError || ''))
-                        : 'Connected'}
-                    />
-                  );
-                })()}
                 {/* HOW HEAVY THE MACHINE IS, right next to its name. This is
                     what stayed on screen when the numbers at the foot of the
                     column moved into this menu: the exact figures are one click
@@ -1562,7 +1527,23 @@ function App() {
                     are painted over this exact spot when the menu is open, and
                     a dot surviving underneath them would read as a glitch.
                     See `TopicsLoadDot`. */}
-                {!((isTauriMac || isTauriWindows) && showTopicsMenu) && <TopicsLoadDot />}
+                {/* IT DOES NOT UNMOUNT ANY MORE, it goes `invisible` — the same
+                    trick the title next to it uses. Unmounting it made the row
+                    NARROWER the moment the menu opened, i.e. the trigger
+                    resized under the finger that had just clicked it. And
+                    keeping it in the DOM is what lets it carry
+                    `connection-status`, the handle half the E2E suite uses to
+                    know the app is up (layout.fixture, multi-client,
+                    tab-sync): a handle that disappears when a menu opens is a
+                    handle that answers the wrong question.
+
+                    ONE dot, not two. The alarm rides on THIS one instead of a
+                    second lamp beside it: two dots 4px apart are not two
+                    signals, they are one signal that looks broken. */}
+                <TopicsLoadDot
+                  hidden={(isTauriMac || isTauriWindows) && showTopicsMenu}
+                  alarm={wsStatus !== 'connected' || !!topicsError}
+                />
                 {/* 14, come il glifo di «Cerca» e del «+» che gli stanno accanto sulla
                     STESSA riga — misurato: era 12 contro i loro 14, e il raggio
                     6 contro 8. Tre elementi affiancati con tre forme diverse
@@ -2002,42 +1983,6 @@ function App() {
           }
         >
           {isMobile && <SheetGrabber />}
-          {/* CHI SEI, COME VA, CHE VERSIONE È — solo sul telefono, dove la
-              barra in fondo alla colonna non c'è più. Sta in TESTA al menu:
-              l'account è la porta che prima non esisteva da nessuna parte, e
-              una porta in fondo a dieci voci è una porta che si trova per
-              caso. */}
-          {isMobile ? (
-            <>
-              <SidebarSystemMenu
-                onOpenChangelog={(version) => { setShowTopicsMenu(false); setShowChangelogFromMenu(version); }}
-              />
-              <div className="my-1 border-t border-app-border" />
-            </>
-          ) : (
-/* ON THE DESKTOP THE WHOLE BAR COMES IN, not a second copy written
-               by hand. It brings along what the phone does not have here and
-               what removing it would have made vanish: the identity band (who
-               you are, the organisations, the friends) and the degraded-boot
-               notice with its button. That identity row is precisely the half
-               that sent the bar back to the foot on 07/08 — «where did the
-               accounts go?» — and repeating that defect in order to move the
-               other half would have been a swap, not a cure.
-
-               On the phone it does NOT come in: there the identity already has
-               its own door at the foot of the screen, and two ways into one
-               room say different things one day (MOBILE-CHROME-05 asserts it). */
-            <>
-              <ErrorBoundary fallbackMessage="Status bar error">
-                <SidebarStatusBar
-                  variant="menu"
-                  wsStatus={wsStatus}
-                  dataNotice={topicsError}
-                />
-              </ErrorBoundary>
-              <div className="my-1 border-t border-app-border" />
-            </>
-          )}
           {/* Sidebar controls relocated from the old <SidebarControls> row. */}
           <button
             onClick={() => { sidebar.toggleShowArchived(); }}
@@ -2127,6 +2072,48 @@ function App() {
             <SettingsIcon size={isMobile ? 18 : 14} />
             <span className="flex-1 text-left">Settings</span>
           </button>
+          {/* THE STATE SITS AT THE BOTTOM, under the commands. Asked for on
+              31/08: «we can put the stats at the bottom of the dropdown». It is
+              also the right reading order: above are the things that DO
+              something (show archived, change view, arrange, history,
+              settings), below the things that SAY — who you are, how it is
+              going, which version. A menu that opens with a report makes you
+              hunt for the commands underneath the report. */}
+          <div className="my-1 border-t border-app-border" />
+          {/* CHI SEI, COME VA, CHE VERSIONE È — solo sul telefono, dove la
+              barra in fondo alla colonna non c'è più. Sta in TESTA al menu:
+              l'account è la porta che prima non esisteva da nessuna parte, e
+              una porta in fondo a dieci voci è una porta che si trova per
+              caso. */}
+          {isMobile ? (
+            <>
+              <SidebarSystemMenu
+                onOpenChangelog={(version) => { setShowTopicsMenu(false); setShowChangelogFromMenu(version); }}
+              />
+            </>
+          ) : (
+/* ON THE DESKTOP THE WHOLE BAR COMES IN, not a second copy written
+               by hand. It brings along what the phone does not have here and
+               what removing it would have made vanish: the identity band (who
+               you are, the organisations, the friends) and the degraded-boot
+               notice with its button. That identity row is precisely the half
+               that sent the bar back to the foot on 07/08 — «where did the
+               accounts go?» — and repeating that defect in order to move the
+               other half would have been a swap, not a cure.
+
+               On the phone it does NOT come in: there the identity already has
+               its own door at the foot of the screen, and two ways into one
+               room say different things one day (MOBILE-CHROME-05 asserts it). */
+            <>
+              <ErrorBoundary fallbackMessage="Status bar error">
+                <SidebarStatusBar
+                  variant="menu"
+                  wsStatus={wsStatus}
+                  dataNotice={topicsError}
+                />
+              </ErrorBoundary>
+            </>
+          )}
         </div>
         </>,
         document.body
