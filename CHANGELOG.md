@@ -2,6 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.258 — 2026-08-31
+
+### Sotto il cofano
+- Lo stato torna in fondo al dropdown di «Topics», e stavolta il popover ci sopravvive
+- I pannelli dello stato si aprono COME dropdown, e la colonna respira di nuovo in fondo
+- Il fondo della colonna respira quanto i lati: erano due padding impilati
+
 ## 2.2.257 — 2026-08-31
 
 ### Sotto il cofano

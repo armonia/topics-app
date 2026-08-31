@@ -1,5 +1,31 @@
 [
   {
+    "version": "2.2.258",
+    "date": "2026-08-31",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Lo stato torna in fondo al dropdown di «Topics», e stavolta il popover ci sopravvive",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I pannelli dello stato si aprono COME dropdown, e la colonna respira di nuovo in fondo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il fondo della colonna respira quanto i lati: erano due padding impilati",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.257",
     "date": "2026-08-31",
     "sections": {
