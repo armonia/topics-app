@@ -47,7 +47,10 @@ export const DEBITO_NOME_PROPRIETARIO: readonly string[] = [
   "client/src/components/Sidebar/BoardStatusCounts.tsx",
   "client/src/components/Sidebar/PinnedTile.tsx",
   "client/src/components/Sidebar/PinnedTiles.tsx",
-  "client/src/components/Sidebar/SidebarStatusBar.tsx",
+  // SidebarStatusBar.tsx has LEFT the debt too, and for the same reason: the
+  // dense strip of numbers moved into the «Topics» menu as rows, the file was
+  // rewritten down to the identity band and its alarms, and the comments that
+  // carried the name went with the code they described. Two lines fewer.
   // SidebarSystemMenu.tsx has LEFT the debt: rewriting the menu (card 7b3b303f)
   // also rewrote the comments that carried the name, and the gate asked for
   // this line to be pruned. The count goes down by one.

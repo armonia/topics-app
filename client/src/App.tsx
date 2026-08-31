@@ -1734,7 +1734,8 @@ function App() {
         {!isMobile && (
         <ErrorBoundary fallbackMessage="Identity band error">
           <SidebarStatusBar
-            variant="column"
+            wsStatus={wsStatus}
+            dataNotice={topicsError}
             onOpenDevices={() => { setSettingsSection('devices'); setShowSettings(true); }}
           />
         </ErrorBoundary>
@@ -2080,41 +2081,27 @@ function App() {
               going, which version. A menu that opens with a report makes you
               hunt for the commands underneath the report. */}
           <div className="my-1 border-t border-app-border" />
-          {/* CHI SEI, COME VA, CHE VERSIONE È — solo sul telefono, dove la
-              barra in fondo alla colonna non c'è più. Sta in TESTA al menu:
-              l'account è la porta che prima non esisteva da nessuna parte, e
-              una porta in fondo a dieci voci è una porta che si trova per
-              caso. */}
-          {isMobile ? (
-            <>
-              <SidebarSystemMenu
-                onOpenChangelog={(version) => { setShowTopicsMenu(false); setShowChangelogFromMenu(version); }}
-              />
-            </>
-          ) : (
-/* ON THE DESKTOP THE WHOLE BAR COMES IN, not a second copy written
-               by hand. It brings along what the phone does not have here and
-               what removing it would have made vanish: the identity band (who
-               you are, the organisations, the friends) and the degraded-boot
-               notice with its button. That identity row is precisely the half
-               that sent the bar back to the foot on 07/08 — «where did the
-               accounts go?» — and repeating that defect in order to move the
-               other half would have been a swap, not a cure.
+          {/* ONE ROW PER FACT, and the same rows on every screen. Asked for on
+              31/08: put the stats at the foot of the dropdown and let them look
+              like dropdowns, one per row. On the desktop they were still a
+              single horizontal strip of eleven-pixel digits — «2.28B −7%
+              v2.2.257 dev» run together — while the phone already had three
+              rows with a chevron, like history and settings just above. Now it
+              is those, on both.
 
-               On the phone it does NOT come in: there the identity already has
-               its own door at the foot of the screen, and two ways into one
-               room say different things one day (MOBILE-CHROME-05 asserts it). */
-            <>
-              <ErrorBoundary fallbackMessage="Status bar error">
-                <SidebarStatusBar
-                  variant="menu"
-                  wsStatus={wsStatus}
-                  dataNotice={topicsError}
-                  onOpenChangelog={(version) => { setShowTopicsMenu(false); setShowChangelogFromMenu(version); }}
-                />
-              </ErrorBoundary>
-            </>
-          )}
+              AND NOT A SECOND COPY WRITTEN BY HAND: the desktop mounted
+              `SidebarStatusBar variant="menu"`, a second place counting the
+              same memory, the same CPU and the same version as the phone's
+              menu. Two places saying the same thing are two places that one day
+              say it differently, and the wrong one is always the one under your
+              eyes. The alarms are NOT in here: they stay at the foot of the
+              column where they are visible without opening anything
+              (`SidebarStatusBar`), and the dot next to «Topics» pulses when
+              there is one. */}
+          <SidebarSystemMenu
+            isMobile={isMobile}
+            onOpenChangelog={(version) => { setShowTopicsMenu(false); setShowChangelogFromMenu(version); }}
+          />
         </div>
         </>,
         document.body

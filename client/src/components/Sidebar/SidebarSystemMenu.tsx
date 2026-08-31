@@ -1,10 +1,16 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { ChevronRight, Gauge, RefreshCw, RotateCcw, Tag } from 'lucide-react';
 import { getVersion, relaunch, reloadAllWindows } from '@/lib/shell/app';
 import { isDesktop } from '@/lib/shell';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
+import { usePerfMetrics } from '@/hooks/usePerfMetrics';
+import { useFps, useFpsActive } from '@/lib/fpsMonitor';
+import { useFeatureWeights } from '@/hooks/useFeatureWeights';
+import { bloccoTooltip } from '@/lib/featureWeightText';
+import { ensurePaneUsageFresh, webviewSnapshot } from '@/lib/paneUsage';
+import { composeUsageTooltip, wantsResidentLine } from './usageTooltip';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
-import { useFpsActive } from '@/lib/fpsMonitor';
+
 import { useLoad } from '@/state/systemLoad';
 import { useT } from '@/hooks/useT';
 import { PerfSection } from './PerfSection';
@@ -51,6 +57,54 @@ declare const __BUILD_SHA__: string;
  * sono due posti che un giorno dicono cose diverse.
  */
 
+// WHEN THE CODE LAST CHANGED, so the chip can say whether YOUR change landed.
+// It followed the version chip here from the strip at the foot of the column.
+// In dev it tracks Vite's HMR socket (any module, not just this one); in the
+// desktop app `import.meta.env.DEV` is false even while you are working on it,
+// so there the build timestamp is the only signal a local `vite build` landed,
+// and that is exactly the question the chip answers.
+let lastUpdateTime = typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
+if (import.meta.env.DEV) {
+  lastUpdateTime = new Date().toISOString();
+  try {
+    const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+    const socket = new WebSocket(`${protocol}://${location.host}`, 'vite-hmr');
+    socket.addEventListener('message', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.type === 'update') {
+          lastUpdateTime = new Date().toISOString();
+          window.dispatchEvent(new CustomEvent('hmr-update'));
+        }
+      } catch { /* a frame we do not understand is not a code change */ }
+    });
+  } catch { /* no dev server to listen to */ }
+}
+
+function useLastChangeTime(): string {
+  const [time, setTime] = useState(lastUpdateTime);
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const handler = () => setTime(new Date().toISOString());
+    window.addEventListener('hmr-update', handler);
+    return () => window.removeEventListener('hmr-update', handler);
+  }, []);
+  return time;
+}
+
+/** How long ago, in one or two characters: the chip has room for that much. */
+function formatChangeAge(iso: string): string {
+  try {
+    const d = new Date(iso);
+    const diffMin = Math.floor((Date.now() - d.getTime()) / 60000);
+    if (diffMin < 1) return 'now';
+    if (diffMin < 60) return `${diffMin}m`;
+    const diffH = Math.floor(diffMin / 60);
+    if (diffH < 24) return `${diffH}h`;
+    return `${Math.floor(diffH / 24)}d`;
+  } catch { return iso; }
+}
+
 const importSystemStatusPanel = async () => {
   const { SystemStatusPanel: Component } = await import('./SystemStatusPanel');
   return { default: Component };
@@ -87,11 +141,66 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false }: Sidebar
   const [mostraVersione, setMostraVersione] = useState(false);
   const [riavviando, setRiavviando] = useState(false);
   const load = useLoad();
+  const lastChange = useLastChangeTime();
   const { updateAvailable } = useServiceWorkerUpdate();
   // Only while the menu is open, which is the only time this component exists:
   // the panel is mounted by the portal on demand, so this poll starts and stops
   // with the gesture instead of running all day for a row nobody is reading.
-  const { status } = useSystemStatus(true, 60000);
+  const { status, refresh: refreshStatus } = useSystemStatus(true, 60000);
+
+  // THE HEADLINE'S OWN EXPLANATION, on the headline. The dense strip at the
+  // foot of the column carried both and is gone; the number is this row now,
+  // so the paragraph that says what holds it belongs to this row too. Both
+  // polls start and stop with the menu, which is the only time anybody is
+  // reading them.
+  const perf = usePerfMetrics(true, 5000);
+  const fps = useFps();
+  // THE INVENTORY IS COLLECTED ONLY WITH THE POINTER ON IT (RES-ATTR-04):
+  // listing it means serialising half the app's state, and doing that every
+  // five seconds for a text nobody is reading is work at rest. The same
+  // gesture asks for a fresh sample, because a minute-old one without the
+  // fleet would list the held entries alone — the inventory without the half
+  // that weighs.
+  const [inventoryAsked, setInventarioChiesto] = useState(false);
+  const showInventory = useCallback(() => {
+    setInventarioChiesto(true);
+    ensurePaneUsageFresh();
+    void refreshStatus();
+  }, [refreshStatus]);
+  const weightEntries = useFeatureWeights(inventoryAsked, {
+    sessioni: status?.server.fleet?.sessions ?? [],
+    browser: webviewSnapshot(),
+    radici: status?.server.fleet?.roots ?? [],
+    scriptsMB: status?.server.fleet?.scriptsMB ?? 0,
+    scriptsProcessCount: status?.server.fleet?.scriptsProcessCount ?? 0,
+  }, status?.timestamp);
+  const usageTitle = composeUsageTooltip({
+    isMobile,
+    perf,
+    status,
+    fps,
+    residentLine: wantsResidentLine(perf, status)
+      ? tr('statusBar.residenteInline', { mb: perf?.memory?.residentMB ?? 0 })
+      : null,
+    inventory: bloccoTooltip(weightEntries),
+  });
+
+  // THE POPOVER HAS TO SAY IT IS OPEN. `UpdaterToast` listens for this and
+  // suppresses itself while it is: the popover anchors to the same version chip
+  // and carries the whole check/download/install flow, so both showing stacked
+  // two update cards on top of each other, live on 2026-07-11:
+  // «due modali una nell'altra». allow-italian: the report is quoted verbatim.
+  // The event used to be dispatched by the strip at
+  // the foot of the column; the strip is gone and this menu is now the only
+  // host of that popover, on every screen, so it is the one that has to say it.
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('topics:version-popover', { detail: { open: mostraVersione } }));
+    return () => {
+      if (mostraVersione) {
+        window.dispatchEvent(new CustomEvent('topics:version-popover', { detail: { open: false } }));
+      }
+    };
+  }, [mostraVersione]);
 
   // The frame counter goes to its live cadence only while the panel below is
   // open, exactly as it did in the bar's dropdown: a sparkline nobody is
@@ -162,15 +271,25 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false }: Sidebar
             it. One number for memory and one for CPU: the halves, the metric
             and the inventory are in the panel below, which is what "open" now
             means. */}
-        {load && (
-          <span data-testid="menu-load-summary" className="flex flex-shrink-0 items-center gap-1.5 text-app-text-secondary tabular-nums">
-            {load.misurato && (
-              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: loadTint(load.livello) }} />
-            )}
-            {load.totalMB !== null && <span>{load.partial ? '~' : ''}{formatMB(load.totalMB)}</span>}
-            {load.totalCpu !== null && <span>{Math.round(load.totalCpu)}%</span>}
-          </span>
-        )}
+        {/* ALWAYS RENDERED, numbers or not: this span is what carries the
+            tooltip, and a host that appears only once a sample has landed is a
+            tooltip that is missing exactly when somebody opens the menu to find
+            out why nothing is being measured. `mouseenter`/`focus` rather than
+            hover styling because it lives inside a <button>: the button is the
+            thing that gets hovered, this is the thing that has to notice. */}
+        <span
+          data-testid="metrics-total"
+          title={usageTitle}
+          onMouseEnter={showInventory}
+          onFocus={showInventory}
+          className="flex flex-shrink-0 items-center gap-1.5 text-app-text-secondary tabular-nums"
+        >
+          {load?.misurato && (
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: loadTint(load.livello) }} />
+          )}
+          {load?.totalMB != null && <span>{load.partial ? '~' : ''}{formatMB(load.totalMB)}</span>}
+          {load?.totalCpu != null && <span>{Math.round(load.totalCpu)}%</span>}
+        </span>
         <ChevronRight size={isMobile ? 16 : 14} className={`flex-shrink-0 text-app-text-tertiary transition-transform ${mostraStato ? 'rotate-90' : ''}`} />
       </button>
       {mostraStato && (
@@ -195,6 +314,7 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false }: Sidebar
             shellVersion={versioneGuscio}
             drift={drift}
             devInstall={devInstall}
+            hmrAge={isDev && lastChange ? formatChangeAge(lastChange) : undefined}
             desktop={isDesktop}
             popoverOpen={mostraVersione}
             onOpen={(anchor) => { setAncora(anchor); setMostraVersione((v) => !v); }}

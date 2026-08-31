@@ -143,7 +143,7 @@ test.describe("System Status Panel", () => {
     // Scope every assertion to the dropdown: "Server" also labels the PerfSection
     // RSS block in this same portal, "Online"/"2m" also appear in the sidebar
     // status-bar + version block — a bare getByText hits 2 elements (strict-mode).
-    const statusPanel = page.locator(".glass-surface").filter({ hasText: "Gateway" });
+    const statusPanel = page.getByTestId("system-status-panel");
 
     // Gateway row (OpenClaw-gated — mockSystemStatus enables it) → Online, 42ms.
     await expect(statusPanel.getByText("Gateway")).toBeVisible();
@@ -178,8 +178,9 @@ test.describe("System Status Panel", () => {
     await page.goto("/");
     await infraPage.openSystemStatusPanel();
 
-    // The dropdown is a portalled ".glass-surface" container (SidebarStatusBar).
-    const statusPanel = page.locator(".glass-surface").filter({ hasText: "Gateway" });
+    // The panel opens INSIDE the «Topics» menu now, so it has its own testid:
+    // the menu is a ".glass-surface" with «Gateway» in it too.
+    const statusPanel = page.getByTestId("system-status-panel");
 
     // Open-tabs row (paneStore-driven count).
     await expect(statusPanel.getByText("Tab aperti")).toBeVisible();

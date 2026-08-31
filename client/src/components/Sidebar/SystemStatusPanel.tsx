@@ -70,7 +70,13 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
   return (
     // pt-2: breathing room so the first row isn't squashed against the
     // PerfSection separator (border-b) directly above this panel.
-    <div className="pt-2 pb-2 px-2">
+    //
+    // THE TESTID IS THE HANDLE, and it had to exist: the panel opens INSIDE the
+    // «Topics» menu now, and the menu is itself a `.glass-surface` with the word
+    // «Gateway» somewhere in it — the locator the suite used matched both, and a
+    // strict locator that resolves to two elements fails on the day the panel
+    // moves rather than on the day it breaks.
+    <div data-testid="system-status-panel" className="pt-2 pb-2 px-2">
       {error && !status && (
         <div className="px-2 py-1 text-[11px] text-red-500">{error}</div>
       )}

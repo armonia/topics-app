@@ -33,8 +33,12 @@ test.describe("Lo stato vive nel menu «Topics»", () => {
   test("la colonna non ha più una barra in fondo, e la spia è fuori", async ({ page }) => {
     await goToApp(page);
 
-    // 1) NO BAR in the column. Not "invisible": actually absent.
-    await expect(page.locator('[data-testid="sidebar-status-bar"]')).toHaveCount(0);
+    // 1) NO STRIP OF NUMBERS in the column. Not "invisible": actually absent.
+    //    Named by what it showed rather than by the container's testid, which
+    //    no longer exists anywhere — a locator for a deleted testid passes for
+    //    the wrong reason forever.
+    await expect(page.locator('[data-testid="metrics-total"]')).toHaveCount(0);
+    await expect(page.locator('[data-version-anchor]')).toHaveCount(0);
 
     // 2) THE LAMP IS THERE with the menu closed, and it is the readiness
     //    handle layout.fixture / multi-client / tab-sync have always used.
@@ -57,8 +61,11 @@ test.describe("Lo stato vive nel menu «Topics»", () => {
     await goToApp(page);
     await page.getByTestId("sidebar-topics-menu").click();
 
-    // The state is IN HERE.
-    await expect(page.locator('[data-testid="sidebar-status-bar"]')).toBeVisible({ timeout: 10_000 });
+    // The state is IN HERE, and it is ROWS. Asked for on 31/08: the stats had
+    // to look like the dropdowns above them, one fact per row. On the desktop
+    // they were still one horizontal strip of digits while the phone already
+    // had the rows — the same three facts written twice, once per screen.
+    await expect(page.getByTestId("sidebar-system-menu")).toBeVisible({ timeout: 10_000 });
     // The numbers read without expanding the panel (PERFPANEL-01).
     await expect(page.locator('[data-testid="metrics-total"]')).toBeVisible();
     // The identity did NOT: it stayed at the foot of the column, outside the
@@ -102,7 +109,7 @@ test.describe("Lo stato vive nel menu «Topics»", () => {
     //    `invisible`, like the title beside it: same space, not shown.
     const before = (await trigger.boundingBox())!;
     await trigger.click();
-    await expect(page.locator('[data-testid="sidebar-status-bar"]')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("sidebar-system-menu")).toBeVisible({ timeout: 10_000 });
     const after = (await trigger.boundingBox())!;
     expect(Math.round(after.width), `width ${before.width} -> ${after.width}`).toBe(Math.round(before.width));
     expect(Math.round(after.height), `height ${before.height} -> ${after.height}`).toBe(Math.round(before.height));
@@ -179,5 +186,43 @@ test.describe("Lo stato vive nel menu «Topics»", () => {
     // three numbers that happen to be close.
     expect(Math.abs(gaps.bottom - gaps.left)).toBeLessThanOrEqual(1);
     expect(Math.abs(gaps.bottom - gaps.right)).toBeLessThanOrEqual(1);
+  });
+
+  test("SIDEBAR-STATUS-01e: le stats sono righe, una per fatto, e si vede che si aprono", async ({ page }) => {
+    // ONE FACT PER ROW, and it has to LOOK like the rows above it. The desktop
+    // used to pack memory, CPU, version and a restart button into one 28px
+    // strip; history and settings, two items higher up in the same menu, were
+    // already full-width rows. Asserted on the geometry, not on class names:
+    // each row spans the menu's width and starts where the others start, which
+    // is what "one per row" means when you look at it.
+    await goToApp(page);
+    await page.getByTestId("sidebar-topics-menu").click();
+    await expect(page.getByTestId("sidebar-system-menu")).toBeVisible({ timeout: 10_000 });
+
+    const rows = await page.evaluate(() => {
+      const ids = ["menu-system-status", "menu-version", "menu-restart"];
+      const history = document.querySelector('[data-testid="topics-menu-history"]')!.getBoundingClientRect();
+      return ids.map((id) => {
+        const el = document.querySelector(`[data-testid="${id}"]`);
+        if (!el) return { id, missing: true as const };
+        const r = el.getBoundingClientRect();
+        return { id, missing: false as const, left: Math.round(r.left), width: Math.round(r.width), top: Math.round(r.top) };
+      }).concat([{ id: "topics-menu-history", missing: false as const, left: Math.round(history.left), width: Math.round(history.width), top: Math.round(history.top) }]);
+    });
+
+    const missing = rows.filter((r) => r.missing).map((r) => r.id);
+    expect(missing, `rows missing from the menu: ${missing.join(", ")}`).toHaveLength(0);
+    const present = rows as Array<{ id: string; left: number; width: number; top: number }>;
+    const history = present.find((r) => r.id === "topics-menu-history")!;
+    for (const row of present) {
+      expect(row.left, `${row.id} starts at ${row.left}, history at ${history.left}`).toBe(history.left);
+      expect(row.width, `${row.id} is ${row.width}px wide, history is ${history.width}px`).toBe(history.width);
+    }
+    // STACKED, not side by side: every row on its own line, in this order.
+    const stats = present.filter((r) => r.id !== "topics-menu-history");
+    for (let i = 1; i < stats.length; i++) {
+      expect(stats[i].top, `${stats[i].id} at ${stats[i].top} vs ${stats[i - 1].id} at ${stats[i - 1].top}`)
+        .toBeGreaterThan(stats[i - 1].top);
+    }
   });
 });

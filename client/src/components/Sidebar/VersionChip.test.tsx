@@ -76,22 +76,27 @@ describe('the chip stays one number wide when there is nothing to say', () => {
   });
 });
 
-describe('the status bar really feeds it both facts', () => {
-  // Source level, and on purpose: the bar does not mount here, and a chip that
+describe('whoever hosts the chip really feeds it both facts', () => {
+  // Source level, and on purpose: the host does not mount here, and a chip that
   // can say it while nobody hands it the shell version is a chip that says
   // nothing. This is the wire, checked where the wire is.
-  const BAR = readFileSync(join(import.meta.dir, 'SidebarStatusBar.tsx'), 'utf8');
+  //
+  // THE HOST IS THE MENU NOW. It used to be the strip at the foot of the
+  // column; the strip is gone and the version is a row of the «Topics» menu, on
+  // every screen. Reading the old file would have left two assertions that
+  // cannot fail, on a file with no chip in it.
+  const HOST = readFileSync(join(import.meta.dir, 'SidebarSystemMenu.tsx'), 'utf8');
 
   test('the shell version read through the bridge reaches the chip', () => {
-    expect(BAR).toContain('shellVersion={shellVersion}');
-    expect(BAR).toContain('getVersion()');
+    expect(HOST).toContain('shellVersion={versioneGuscio}');
+    expect(HOST).toContain('getVersion()');
   });
 
   test('the development state comes from the server, not from import.meta.env alone', () => {
     // `import.meta.env.DEV` is false in the desktop app, which runs the built
     // bundle: on the machine that builds Topics only `devReload` is true.
-    expect(BAR).toContain('devInstall={devInstall}');
-    expect(BAR).toContain('devReload');
+    expect(HOST).toContain('devInstall={devInstall}');
+    expect(HOST).toContain('devReload');
   });
 });
 

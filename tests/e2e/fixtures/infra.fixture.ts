@@ -100,13 +100,14 @@ export class InfraPage {
 
   async openSystemStatusPanel() {
     // TWO STEPS, because the status bar is no longer at the foot of the column:
-    // it lives inside the «Topics» menu (SIDEBAR-STATUS-01). The button whose
-    // title starts with "Performance" is still the one that opens the panel —
-    // it just has a menu in front of it now.
+    // it lives inside the «Topics» menu (SIDEBAR-STATUS-01), and it is three
+    // rows there rather than one dense strip. The row that opens this panel is
+    // «Prestazioni e sistema».
     const menu = this.page.getByTestId("sidebar-topics-menu");
     await menu.waitFor({ state: "visible", timeout: 15_000 });
-    if ((await this.page.locator('button[title^="Performance"]').count()) === 0) await menu.click();
-    await this.page.locator('button[title^="Performance"]').first().click();
+    const row = this.page.getByTestId("menu-system-status");
+    if ((await row.count()) === 0) await menu.click();
+    await row.first().click();
     await this.page
       .locator("text=Gateway")
       .first()

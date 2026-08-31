@@ -12,15 +12,16 @@ import { expect, type Page } from "@playwright/test";
  * `connection-status` did NOT come along: that testid stayed OUTSIDE, on the
  * lamp in the title row, because half the suite uses it to know the app is up
  * (layout.fixture, multi-client, tab-sync) and a handle behind a menu cannot
- * answer that question. The button that opens the panel is
- * `status-bar-connection`.
+ * answer that question. The row that opens the panel is `menu-system-status`
+ * — the dense strip that used to carry `status-bar-connection` is gone, and
+ * the same three facts are rows now, on every screen.
  */
 export async function openPerfPanel(page: Page): Promise<void> {
   await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
   const menu = page.getByTestId("sidebar-topics-menu");
   await expect(menu).toBeVisible({ timeout: 15_000 });
   await menu.click();
-  const button = page.locator('[data-testid="status-bar-connection"]');
+  const button = page.locator('[data-testid="menu-system-status"]');
   await expect(button).toBeVisible({ timeout: 15_000 });
   await button.click();
 }

@@ -555,6 +555,14 @@ barra diceva — chi sei, come va la macchina, che versione è — SHALL vivere 
 menu che si apre dal titolo «Topics», che è dove lo si va a cercare e dove sul
 telefono sta già dal 7 agosto.
 
+Dentro il menu le statistiche SHALL essere RIGHE, una per fatto — prestazioni,
+versione, riavvio — larghe quanto le voci che stanno sopra (cronologia,
+impostazioni) e con lo stesso attacco a sinistra. NON SHALL essere una striscia
+orizzontale di cifre: una striscia dice le stesse cose in un carattere che si
+legge solo avvicinandosi, e in un menu fatto di righe si legge come un residuo.
+E SHALL essere la STESSA implementazione su desktop e su telefono: due copie
+della stessa risposta sono due copie che un giorno rispondono diverso.
+
 Il taglio non è «tutto dentro». Un ALLARME non è una statistica: dire «sei
 offline» o «mi sto riconnettendo» dietro un gesto significa che l'app è scollegata
 e chi la guarda non lo sa finché non apre un menu. Quindi la riga del titolo SHALL
@@ -575,8 +583,13 @@ risolve due cose con lo stesso gesto.
 #### Scenario: la colonna a tutto a posto
 - **GIVEN** un desktop con WebSocket connesso e nessun avviso
 - **WHEN** si guarda la colonna dei topic
-- **THEN** in fondo NON c'è nessuna barra di stato
+- **THEN** in fondo NON c'è nessuna barra di stato: solo la fascia dell'identità
 - **AND** nella riga del titolo la spia non è visibile
+
+#### Scenario: l'allarme si legge senza aprire niente
+- **GIVEN** un desktop col WebSocket non connesso, o un avvio degradato
+- **THEN** in fondo alla colonna compare la riga che NOMINA il guasto
+- **AND** compare SOLO in quel caso: a tutto a posto quella riga non esiste
 
 #### Scenario: la connessione cade
 - **GIVEN** la stessa colonna, col menu CHIUSO
@@ -589,6 +602,12 @@ risolve due cose con lo stesso gesto.
 - **WHEN** si apre il menu «Topics»
 - **THEN** la prima riga dice memoria e CPU senza espandere altro
 - **AND** espandendola compare il pannello delle prestazioni
+
+#### Scenario: una riga per fatto, come le voci sopra
+- **GIVEN** un desktop col menu «Topics» aperto
+- **THEN** prestazioni, versione e riavvio sono tre righe distinte, una sotto
+  l'altra
+- **AND** ciascuna attacca dove attacca «Cronologia» ed è larga quanto lei
 
 #### Scenario: l'identità non si muove
 - **GIVEN** un desktop

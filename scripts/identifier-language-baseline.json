@@ -968,11 +968,6 @@
       "LARGHEZZA",
       "pannello"
     ],
-    "client/src/components/Sidebar/SidebarStatusBar.tsx": [
-      "fmtMB",
-      "hmrWs",
-      "vociPeso"
-    ],
     "client/src/components/Sidebar/SidebarSystemMenu.tsx": [
       "VOCE"
     ],

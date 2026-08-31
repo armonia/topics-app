@@ -15,7 +15,7 @@
     "`allow-italian: <why>` instead."
   ],
   "files": {
-    "client/src/App.tsx": 575,
+    "client/src/App.tsx": 571,
     "client/src/components/Auth/PairingApproval.tsx": 30,
     "client/src/components/Auth/PairingGate.tsx": 32,
     "client/src/components/Board/BoardSettingsPanel.tsx": 60,
@@ -289,7 +289,7 @@
     "client/src/components/Sidebar/PerfSection.tsx": 54,
     "client/src/components/Sidebar/PinnedTile.tsx": 241,
     "client/src/components/Sidebar/PinnedTiles.tsx": 426,
-    "client/src/components/Sidebar/SidebarStatusBar.tsx": 216,
+    "client/src/components/Sidebar/SidebarStatusBar.tsx": 26,
     "client/src/components/Sidebar/SidebarSystemMenu.tsx": 14,
     "client/src/components/Sidebar/SpaceGroups.tsx": 144,
     "client/src/components/Sidebar/TopicItem.tsx": 126,

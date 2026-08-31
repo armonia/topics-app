@@ -25,41 +25,45 @@ test.describe("System & Infrastructure", () => {
   });
 
   test("WebSocket connects and shows status", async ({ page }) => {
-    // The Online/Offline label on the status button renders only when openclaw
-    // is available (SidebarStatusBar: `openclawAvailable ? … : dot-only`); the
-    // isolated test server reports openclaw unconfigured, so stub it.
+    // WHERE THE CONNECTION STATE LIVES NOW. It used to be a word — «Online» —
+    // on a strip at the foot of the column, printed all day to say that
+    // nothing was wrong. The strip is gone (SIDEBAR-STATUS-01) and the state
+    // reads in two places instead: a lamp next to «Topics» that is always in
+    // the DOM and declares an alarm only when there is one, and the system
+    // panel, one gesture in, which names the gateway in words.
     await mockOpenClawAvailable(page);
     await goToApp(page);
-    // The status bar is no longer at the foot of the column: it lives inside
-    // the «Topics» menu (SIDEBAR-STATUS-01), so the menu has to be opened
-    // before its button exists in the DOM at all.
-    await page.getByTestId("sidebar-topics-menu").click();
 
-    // Accept "Online", "Connecting", or "Offline" — gateway may not be available on test server
-    const statusBtn = page.getByRole("button", { name: /Online|Connecting|Offline/ });
-    await expect(statusBtn).toBeVisible({ timeout: 15000 });
-    const text = await statusBtn.textContent();
-    expect(text).toMatch(/Online|Connecting|Offline/);
+    const lamp = page.getByTestId("connection-status");
+    await expect(lamp).toBeVisible({ timeout: 15000 });
+
+    await page.getByTestId("sidebar-topics-menu").click();
+    await page.getByTestId("menu-system-status").click();
+    const panel = page.getByTestId("system-status-panel");
+    await expect(panel).toBeVisible({ timeout: 15000 });
+    // Accept "Online", "Connecting", or "Offline" — the gateway may not be
+    // available on the test server, and which one it is is not the point.
+    await expect(panel.getByText(/Online|Connecting|Offline/).first())
+      .toBeVisible({ timeout: 15000 });
   });
 
   test("status bar shows system info", async ({ page }) => {
     await mockOpenClawAvailable(page);
     await goToApp(page);
-    // See above: the status bar moved into the «Topics» menu.
     await page.getByTestId("sidebar-topics-menu").click();
 
-    const statusBtn = page.getByRole("button", { name: /Online|Connecting|Offline/ });
-    await expect(statusBtn).toBeVisible({ timeout: 15000 });
-    // Status button should show at minimum a connection state
-    const text = await statusBtn.textContent();
-    expect(text!.length).toBeGreaterThan(0);
+    // The headline reads WITHOUT opening the panel: memory and CPU on the row
+    // itself, with the whole breakdown in its tooltip (PERFPANEL-01).
+    const total = page.getByTestId("metrics-total");
+    await expect(total).toBeVisible({ timeout: 15000 });
 
-    await statusBtn.click();
+    await page.getByTestId("menu-system-status").click();
     // Niente networkidle (SSE/WS non lo raggiungono mai) e nemmeno una pausa
     // fissa: si polla la condizione finale, che ritorna appena e' vera.
     await expect
       .poll(async () => ((await page.locator("body").textContent()) ?? "").length, { timeout: 10000 })
       .toBeGreaterThan(50);
+    await expect(page.getByTestId("system-status-panel")).toBeVisible({ timeout: 15000 });
   });
 
   test("Cmd+K opens palette, Escape closes", async ({ page }) => {
