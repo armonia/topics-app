@@ -1,7 +1,33 @@
 [
   {
-    "version": "2.2.253",
+    "version": "2.2.254",
     "date": "2026-08-31",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il riavvio trattenuto restava muto: oltre il tetto ora chiama una persona invece di tacere",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Incolla e drag&drop di immagini nel composer del task Kanban",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un identificatore italiano faceva rossa la CI: il cancello dei nomi non l'avevo rilanciato",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.253",
+    "date": "2026-08-30",
     "sections": {
       "new": [],
       "fixes": [],

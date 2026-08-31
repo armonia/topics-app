@@ -2,7 +2,14 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.2.253 — 2026-08-31
+## 2.2.254 — 2026-08-31
+
+### Sotto il cofano
+- Il riavvio trattenuto restava muto: oltre il tetto ora chiama una persona invece di tacere
+- Incolla e drag&drop di immagini nel composer del task Kanban
+- Un identificatore italiano faceva rossa la CI: il cancello dei nomi non l'avevo rilanciato
+
+## 2.2.253 — 2026-08-30
 
 ### Sotto il cofano
 - Il permalink coniato sull'altra porta dell'app apriva una seconda copia di Topics

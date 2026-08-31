@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "2.2.253"
+version = "2.2.254"
 description = "Topics — low-footprint desktop shell (Tauri)"
 authors = ["Armonia <hi@armonia.io>"]
 license = "MIT"
