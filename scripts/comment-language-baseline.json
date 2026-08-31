@@ -294,7 +294,7 @@
     "client/src/components/Sidebar/SpaceGroups.tsx": 144,
     "client/src/components/Sidebar/TopicItem.tsx": 126,
     "client/src/components/Sidebar/TopicTree.tsx": 703,
-    "client/src/components/Sidebar/VersionPopover.tsx": 25,
+    "client/src/components/Sidebar/VersionPopover.tsx": 24,
     "client/src/components/Sidebar/boardProjectChips.test.ts": 65,
     "client/src/components/Sidebar/boardProjectChips.ts": 214,
     "client/src/components/Sidebar/identityLabel.test.ts": 6,

@@ -16,6 +16,7 @@ import { POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
 import { isDesktop } from '@/lib/shell';
 import { useT } from '@/hooks/useT';
 import type { BundleDrift } from './bundleDrift';
+import { computeMenuPosition } from '../../lib/popoverPosition';
 
 function platformLabel(): string {
   // The desktop shell (Tauri) exposes no native platform field — derive it from
@@ -28,6 +29,11 @@ function platformLabel(): string {
   }
   return 'Web';
 }
+
+/** Typical height of the panel: it only picks the SIDE before the panel is
+ *  measured. Getting it slightly wrong costs a generous `maxHeight` at worst,
+ *  never a panel off screen — the clamp keeps it inside either way. */
+const PANEL_H_ESTIMATE = 230;
 
 export function VersionPopover({
   anchorEl,
@@ -128,15 +134,24 @@ export function VersionPopover({
 
   if (!anchorEl) return null;
   const rect = anchorEl.getBoundingClientRect();
-  // Left-align to the chip, but CLAMP so the fixed-width panel never spills off
-  // either edge. The chip sits at the bottom-LEFT of the sidebar; the previous
-  // right-anchoring (`right = innerWidth - rect.right`) pushed the 260px panel's
-  // left edge off-screen whenever the sidebar was narrow — the "dropdown esce
-  // fuori dallo schermo" bug. Clamped left keeps it fully visible at any width.
   const POPOVER_W = 260;
-  const left = Math.min(
-    Math.max(8, rect.left),
-    Math.max(8, window.innerWidth - POPOVER_W - 8),
+  // THE SHARED POSITIONER, and not a hand-rolled `bottom:` any more.
+  //
+  // This used to pin itself ABOVE the anchor — `bottom: innerHeight - rect.top`
+  // — which was right while the chip lived at the FOOT of the column: there is
+  // nothing but screen above it. The status bar moved into the «Topics» menu
+  // (SIDEBAR-STATUS-01) and the anchor went with it, near the TOP: measured
+  // 2026-08-31 with the chip at y=234, the 226px panel landed at y=2, two
+  // pixels from the edge. It fitted by accident, and on a shorter window or a
+  // longer menu it would have opened straight off the top.
+  //
+  // `computeMenuPosition` is the one that already knows the rule: open below,
+  // flip above only when there is no room, clamp both sides, and cap the height
+  // to the side it chose. Same helper the other popovers of this column use.
+  const pos = computeMenuPosition(
+    { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom },
+    { width: POPOVER_W, height: PANEL_H_ESTIMATE },
+    { align: 'left', gap: 6, margin: 8 },
   );
 
   return createPortal(
@@ -146,8 +161,10 @@ export function VersionPopover({
       className={`${POPOVER_PANEL} w-[260px] p-3 space-y-3`}
       style={{
         position: 'fixed',
-        bottom: window.innerHeight - rect.top + 6,
-        left,
+        top: pos.top,
+        left: pos.left,
+        maxHeight: pos.maxHeight,
+        overflowY: 'auto',
         zIndex: Z_POPOVER,
       }}
     >

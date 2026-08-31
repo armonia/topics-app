@@ -107,4 +107,41 @@ test.describe("Lo stato vive nel menu «Topics»", () => {
     expect(Math.round(after.width), `width ${before.width} -> ${after.width}`).toBe(Math.round(before.width));
     expect(Math.round(after.height), `height ${before.height} -> ${after.height}`).toBe(Math.round(before.height));
   });
+
+  test("i pannelli dello stato si aprono COME dropdown, e la colonna non tocca il bordo", async ({ page }) => {
+    await goToApp(page);
+
+    const rect = (sel: string) => page.evaluate((q) => {
+      const el = document.querySelector(q as string) as HTMLElement | null;
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { top: Math.round(r.top), bottom: Math.round(r.bottom), left: Math.round(r.left),
+               right: Math.round(r.right), vh: window.innerHeight, vw: window.innerWidth };
+    }, sel);
+
+    // 1) THE COLUMN BREATHES AT THE FOOT. The status row used to carry the
+    //    bottom inset; it moved into the menu and took the padding with it,
+    //    leaving the identity band flush against the edge — reported as the
+    //    spacing being wrong down there. One inset on every sidebar axis.
+    const column = (await rect('[aria-label="Topics sidebar"]'))!;
+    const band = (await rect('[data-testid="identity-block"]'))!;
+    const breathing = column.bottom - band.bottom;
+    expect(breathing, `the band ends at ${band.bottom} in a column ending at ${column.bottom}`)
+      .toBeGreaterThanOrEqual(4);
+
+    // 2) THE PANELS OPEN AS DROPDOWNS: below their anchor, and on screen. They
+    //    were hard-wired to grow UPWARD, which was right at the foot of a column
+    //    and wrong under a menu near the top — measured with the chip at y=234,
+    //    the 226px panel landed at y=2, two pixels from the ceiling.
+    await page.getByTestId("sidebar-topics-menu").click();
+    const chip = (await rect("[data-version-anchor]"))!;
+    await page.locator("[data-version-anchor]").click();
+    const popover = (await rect('[role="dialog"]'))!;
+    expect(popover.top, `version popover at ${popover.top}, chip ends at ${chip.bottom}`)
+      .toBeGreaterThanOrEqual(chip.bottom);
+    expect(popover.top).toBeGreaterThan(0);
+    expect(popover.bottom).toBeLessThanOrEqual(popover.vh);
+    expect(popover.left).toBeGreaterThanOrEqual(0);
+    expect(popover.right).toBeLessThanOrEqual(popover.vw);
+  });
 });

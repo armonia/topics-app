@@ -28,6 +28,7 @@ import { clearBootDegraded, degradedNotice, fetchBootDegraded, type BootDegraded
 import { getVersion, relaunch } from '@/lib/shell/app';
 import { useMobile } from '@/hooks/useMobile';
 import { useT } from '@/hooks/useT';
+import { computeMenuPosition } from '../../lib/popoverPosition';
 
 declare const __BUILD_TIME__: string;
 declare const __BUILD_SHA__: string;
@@ -125,6 +126,11 @@ function formatBuildTime(iso: string): string {
 }
 
 const SystemStatusPanel = lazy(importSystemStatusPanel);
+
+/** Typical height of the status panel: it only picks the SIDE before the panel
+ *  is measured. Getting it slightly wrong costs a generous `maxHeight`, never a
+ *  panel off screen — the clamp keeps it inside either way. */
+const STATUS_PANEL_H_ESTIMATE = 420;
 
 export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices, variant = 'column', onOpenChangelog }: {
   wsStatus?: ConnectionStatus;
@@ -585,7 +591,20 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices, variant 
           si leggevano come tre barre di applicazioni diverse: il fondo della
           sidebar e' UNA fascia sola, e cio' che distingue le sue parti e' il
           glifo con cui ciascuna comincia, non una linea. */}
-      {variant === 'column' && <IdentityBlock onOpenDevices={onOpenDevices} />}
+      {variant === 'column' && (
+        /* THE BOTTOM INSET COMES BACK WITH THE BAND, because it used to belong
+           to the row underneath it. The status row carried the column's bottom
+           breathing room (and, on a phone, the home-indicator band); it moved
+           into the «Topics» menu and took the padding with it, leaving the
+           identity band flush against the edge — measured 2026-08-31: band
+           bottom at 800 on a 800px viewport, 4px of its own padding and nothing
+           else. `ROW_INSET` is the same inset the header, the cards and the tab
+           strip use: one number on every sidebar axis. `--sab` stays the floor
+           so a home indicator is still cleared. */
+        <div style={{ paddingBottom: `max(var(--sab), ${ROW_INSET}px)` }}>
+          <IdentityBlock onOpenDevices={onOpenDevices} />
+        </div>
+      )}
       {variant === 'menu' && (
         <>
       {/* Horizontal inset = ROW_INSET (was px-3): the bottom bar lines up with
@@ -923,23 +942,33 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices, variant 
       {showStatusDropdown && statusBtnRef.current && createPortal(
         <div
           ref={statusDropdownRef}
-          // POPOVER_PANEL instead of a verbatim copy of its class string, and a
-          // height cap: this panel is anchored to the BOTTOM bar and grows
-          // upward (PerfSection + the lazy SystemStatusPanel), with no max-h it
-          // ran straight off the TOP of the viewport on a short window and the
-          // overflowing rows were simply unreachable. Cap to the space actually
-          // available above the button and scroll inside.
+          // THE SHARED POSITIONER decides the side, not a hand-rolled `bottom:`.
+          //
+          // This panel grew UPWARD by construction, and that was right while the
+          // bar lived at the foot of the column: above it there is only screen.
+          // Since the bar moved into the «Topics» menu (SIDEBAR-STATUS-01) its
+          // anchor sits near the TOP, and an always-upward panel opens into the
+          // ceiling — the same defect measured on the version popover, which
+          // landed two pixels from the edge. `computeMenuPosition` opens below,
+          // flips above only when there is no room, clamps both sides and caps
+          // the height to the side it actually chose.
           className={`${POPOVER_PANEL} min-w-[320px] overflow-y-auto overscroll-contain`}
-          style={{
-            position: 'fixed',
-            // eslint-disable-next-line react-hooks/refs -- same anchor-geometry read: getBoundingClientRect against the live button node positions the fixed dropdown above it
-            bottom: window.innerHeight - statusBtnRef.current.getBoundingClientRect().top + 4,
-            // eslint-disable-next-line react-hooks/refs -- same anchor-geometry read for horizontal placement
-            left: Math.max(POPOVER_MARGIN, statusBtnRef.current.getBoundingClientRect().left),
-            // eslint-disable-next-line react-hooks/refs -- same anchor-geometry read: the cap is "everything above the button, minus a margin"
-            maxHeight: statusBtnRef.current.getBoundingClientRect().top - 4 - POPOVER_MARGIN,
-            zIndex: Z_POPOVER,
-          }}
+          // eslint-disable-next-line react-hooks/refs -- anchor geometry: one read of the live button node, which is what positions a fixed panel against it
+          style={(() => {
+            const r = statusBtnRef.current.getBoundingClientRect();
+            const pos = computeMenuPosition(
+              { left: r.left, right: r.right, top: r.top, bottom: r.bottom },
+              { width: 320, height: STATUS_PANEL_H_ESTIMATE },
+              { align: 'left', gap: 4, margin: POPOVER_MARGIN },
+            );
+            return {
+              position: 'fixed' as const,
+              top: pos.top,
+              left: pos.left,
+              maxHeight: pos.maxHeight,
+              zIndex: Z_POPOVER,
+            };
+          })()}
         >
           {/* Performance block — non-lazy so the dropdown opens instantly with
               the live FPS history; the heavier system panel streams in below. */}
