@@ -1,7 +1,23 @@
 [
   {
-    "version": "2.2.260",
+    "version": "2.2.261",
     "date": "2026-09-01",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La scheda di una card in review diceva «0 file toccati» su una consegna da 4 file",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.260",
+    "date": "2026-08-31",
     "sections": {
       "new": [],
       "fixes": [],
