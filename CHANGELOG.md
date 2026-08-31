@@ -2,6 +2,16 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.255 — 2026-08-31
+
+### Sotto il cofano
+- Le persone diventano amici, e l'amicizia si puo' finalmente rispondere
+- Il chip «io» dipingeva sopra le organizzazioni quando la colonna si stringeva
+- I nomi della consegna «Amicizie» erano italiani: 42 rinominati, il requisito scritto
+- Il test dice CHI copre la campanella, invece di un booleano
+- La campanella non riceveva i suoi click: il pulsante Cerca le finiva sopra
+- Due rossi della E2E: il bersaglio del dito si misurava sulla scatola, e una card si smontava sotto il dito
+
 ## 2.2.254 — 2026-08-31
 
 ### Sotto il cofano
