@@ -843,3 +843,18 @@ export async function cleanupAll(
     console.warn(`[cleanupAll] ${errors.length} cleanup errors:`, errors);
   }
 }
+
+/**
+ * Holds the dispatcher's periodic reconcile for `ms`.
+ *
+ * For specs that stage a FAKE agent with `bindTopic`: that shape —
+ * `in_progress` with a `working` chip and no live turn — is exactly what
+ * reconcile recovers, after two 10s sweeps. Without this brake the spec races a
+ * server timer, and losing the race does not look like a race: the card changes
+ * column, its DOM node is REPLACED, and whatever gesture was in flight dies
+ * with it. It expires on its own, and `POST /api/test/reset` drops it anyway
+ * between one spec file and the next.
+ */
+export async function holdDispatchReconcile(request: APIRequestContext, ms: number): Promise<void> {
+  await request.post(`${BASE}/api/test/dispatch-hold`, { data: { ms }, ignoreHTTPSErrors: true });
+}

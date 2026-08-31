@@ -31,7 +31,7 @@
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";
 import { expect, type Page } from "@playwright/test";
-import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, deleteTask, holdDispatchReconcile, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
 import { longPress } from "./helpers/long-press";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
@@ -121,6 +121,19 @@ test.describe("Fermare un task senza archiviarlo", () => {
   });
 
   test.beforeEach(async ({ page }) => {
+    // THE BRAKE BEFORE THE SCENE. `bindTopic` below stages an agent that does
+    // not exist, and the dispatcher's reconcile recovers exactly that shape
+    // after two 10s sweeps: from there on this spec was racing a server timer.
+    // Losing that race did not LOOK like a race — measured 31/08: the card was
+    // put back into `todo`, its DOM node REPLACED, and the long-press died with
+    // the unmount (`useLongPress` disarms its timer in the cleanup, rightly).
+    // The menu never opened: 1 red in 6 locally and one in CI, always on
+    // `getByRole('menuitem', 'Ferma')` (allow-italian: it is the label the
+    // locator matches). Proven by holding the same 22s inside the scene: with
+    // the brake on it passes, with the brake off it fails with that exact
+    // signature. 90s = the describe timeout, so the brake cannot outlive the
+    // scene.
+    await holdDispatchReconcile(page.request, 90_000);
     await resetPaneStore(page.request, []);
     await resetProjectPanes(page.request, PROJECT_PATH);
     await seedProjectPane(page.request, PROJECT_PATH);

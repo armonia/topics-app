@@ -94,6 +94,7 @@ import { shellProcessKey } from "../../shared/background-shell-registry";
 import { setSessionCliPid } from "../providers/session-pids";
 import { setRouteFault } from "../lib/route-fault";
 import { envDataDir } from "../lib/data-dir";
+import { holdDispatchReconcile, releaseDispatchHold } from "../lib/e2e-dispatch-hold";
 
 /** Attivo solo dove `start-test-server.sh` lo dichiara. */
 export function e2eRoutesEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -163,6 +164,10 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
 
     // POST /api/test/reset — riporta il DB alla baseline.
     if (method === "POST" && pathname === "/api/test/reset") {
+      // THE HERMETIC BOUNDARY ALSO RELEASES THE BRAKE. A hold expires on its
+      // own, but a spec that dies mid-hold would leave it armed on the next
+      // file: here, where the files separate, it is dropped regardless.
+      releaseDispatchHold();
       const snap = loadBaseline();
       if (!snap) {
         // Meglio un errore esplicito che un reset silenziosamente saltato: chi
@@ -287,6 +292,20 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
         });
       }
       return json({ ok: true, processId: shellProcessKey(body.sessionKey, body.shellId) });
+    }
+
+    // POST /api/test/dispatch-hold {ms} — holds the periodic reconcile.
+    //
+    // The necessary twin of `bind-topic`: that verb stages a task with an agent
+    // inside a turn WITHOUT a live turn behind it, and reconcile recovers
+    // exactly that shape after two 10s sweeps. A spec working on that card is
+    // therefore racing a server timer, and losing the race does not LOOK like a
+    // race: the card changes column, its DOM node is REPLACED, and the gesture
+    // in flight dies with it. See `lib/e2e-dispatch-hold.ts`.
+    if (method === "POST" && pathname === "/api/test/dispatch-hold") {
+      const body = (await req.json().catch(() => null)) as { ms?: number } | null;
+      const until = holdDispatchReconcile(typeof body?.ms === "number" ? body.ms : 0);
+      return json({ ok: true, until });
     }
 
     // POST /api/test/tasks/:taskId/bind-topic {topicId} — lega un task alla

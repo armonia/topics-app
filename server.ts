@@ -35,6 +35,7 @@ import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowli
 import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { describeInFlight, unadoptableStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
+import { dispatchReconcileHeld } from "./server/lib/e2e-dispatch-hold";
 import { chatsParkedOnQuestion } from "./server/lib/parked-asks";
 import { touchReloadDeferred, clearReloadDeferred } from "./server/lib/reload-deferred";
 import { sondaPorta, messaggioEsito, sondaRealeDeps } from "./server/lib/port-squatter";
@@ -4233,7 +4234,12 @@ const staleStreamTimer = setInterval(() => {
 const DISPATCH_POLL_MS = 10_000;
 taskDispatcher.reconcile().catch((err) => console.error("[dispatcher] boot reconcile failed", err));
 const dispatchTimer = setInterval(() => {
-  taskDispatcher.reconcile().catch((err) => console.error("[dispatcher] poll reconcile failed", err));
+  // THE E2E BENCH CAN HOLD THIS ONE STEP, and nothing else can: the only writer
+  // is a route mounted on a test server. See `lib/e2e-dispatch-hold.ts` for the
+  // race it closes — a staged fake agent recovered mid-gesture.
+  if (!dispatchReconcileHeld()) {
+    taskDispatcher.reconcile().catch((err) => console.error("[dispatcher] poll reconcile failed", err));
+  }
   // LA QUOTA DI CORE SI RILEGGE QUI, sullo stesso giro che fa nascere e morire
   // gli agenti — cioè l'unico momento in cui il denominatore («quanti stanno
   // compilando accanto a me») può essere cambiato. L'ambiente di un processo si

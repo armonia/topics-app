@@ -379,17 +379,51 @@ test.describe.serial("La chrome del telefono", () => {
     // doveva ingrassarle non si accende su ogni telefono, e una misura che
     // dipende da un `pointer:` che il browser può non dichiarare non è una
     // misura. Adesso decide `isMobile`, lo stesso predicato dell'header.
+    //
+    // MEASURE WHERE THE THUMB LANDS, NOT HOW TALL THE BOX IS. This used to read
+    // `getBoundingClientRect().height` and it failed the version chip at 26px —
+    // which does have its target: `tap-expand-y` (index.css) projects a 44px
+    // `::after` WITHOUT touching the box, and it is how this column recovers the
+    // 44 where fattening the box would steal width from its neighbours
+    // (selectionStyles.ts). A box measure never sees it: it fails what works
+    // and, worse, it lets through a 44px target COVERED by something else,
+    // which is how a control really stops answering. Measured here: chip 59x26,
+    // `::after` 44px, and at +/-21px from the centre `elementFromPoint` still
+    // answers the chip.
+    //
+    // So the band is PROBED: from the centre, walk up and down one pixel at a
+    // time until the hit stops reaching that button, and what is left is the
+    // height a finger can actually land on.
     const righe = await page.evaluate(() => {
       const foglio = document.querySelector('[data-testid="sidebar-system-menu"]')!.parentElement!;
-      return Array.from(foglio.querySelectorAll("button")).map((b) => ({
-        testo: (b.textContent || "").trim().slice(0, 24),
-        h: b.getBoundingClientRect().height,
-      }));
+      const reaches = (b: Element, x: number, y: number) => {
+        const el = document.elementFromPoint(x, y);
+        return !!el && (el === b || b.contains(el));
+      };
+      return Array.from(foglio.querySelectorAll("button")).map((b) => {
+        const r = b.getBoundingClientRect();
+        const x = Math.round(r.x + r.width / 2);
+        const cy = Math.round(r.y + r.height / 2);
+        let up = 0;
+        let down = 0;
+        // 40 per side: twice the half that is needed, so a generous target is
+        // counted for what it is instead of stopping at the limit.
+        while (up < 40 && reaches(b, x, cy - up - 1)) up++;
+        while (down < 40 && reaches(b, x, cy + down + 1)) down++;
+        return {
+          testo: (b.textContent || "").trim().slice(0, 24),
+          box: Math.round(r.height),
+          band: reaches(b, x, cy) ? up + down + 1 : 0,
+        };
+      });
     });
     // Cinque e non sei: la voce dell'account se n'è andata, e questa soglia è
     // scesa con lei invece di restare indietro a coprire il buco.
     expect(righe.length).toBeGreaterThanOrEqual(5);
-    for (const r of righe) expect(r.h).toBeGreaterThanOrEqual(44);
+    // The failure NAMES the row: «26 instead of 44» inside a loop does not say
+    // WHICH button, and the next reader starts over from a screenshot.
+    const narrow = righe.filter((r) => r.band < 44);
+    expect(narrow, `rows the thumb cannot reach over 44px: ${JSON.stringify(narrow)}`).toEqual([]);
   });
 
   test("MOBILE-CHROME-06 — hanno la faccia di un tasto, non di un link", async ({ page }) => {
