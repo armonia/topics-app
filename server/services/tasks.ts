@@ -1117,26 +1117,45 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * un blocco farebbe strage di consegne buone. Quindi si scrive una nota e si
    * lascia decidere a chi legge.
    */
-  function noteDuplicatePreview(taskId: string, path: string): boolean {
+  /**
+   * The other card carrying THE SAME IMAGE, byte for byte, or null.
+   *
+   * Pure on purpose: the adoption path wants to write a note about it, the
+   * review sweep only wants to ask. Asking used to mean writing, so the sweep
+   * could not use it without dripping the same note into the thread every pass.
+   */
+  function duplicatePreviewOf(taskId: string, path: string): { id: string; text: string; path: string } | null {
     try {
       const mine = fileDigest(path);
-      if (!mine) return false;
+      if (!mine) return null;
       const others = db.prepare(
         "SELECT id, text, preview_image FROM tasks WHERE preview_image IS NOT NULL AND preview_image != '' AND id != ? ORDER BY updated_at DESC LIMIT 200",
       ).all(taskId) as Array<{ id: string; text: string; preview_image: string }>;
       for (const o of others) {
         if (o.preview_image === path) continue; // stesso file, non un duplicato di contenuto
         if (fileDigest(o.preview_image) !== mine) continue;
+        return { id: o.id, text: o.text ?? "", path: o.preview_image };
+      }
+    } catch { /* best-effort: the signal is an extra, not an invariant */ }
+    return null;
+  }
+
+  function noteDuplicatePreview(taskId: string, path: string): boolean {
+    const other = duplicatePreviewOf(taskId, path);
+    if (!other) return false;
+    try {
+      const mine = fileDigest(path) ?? "";
+      {
+        const o = other;
         reviewNote(
           taskId,
-          `Anteprima IDENTICA (md5 \`${mine.slice(0, 8)}\`) a quella del task \`${o.id}\`, «${(o.text ?? "").slice(0, 60)}». ` +
+          `Anteprima IDENTICA (md5 \`${mine.slice(0, 8)}\`) a quella del task \`${o.id}\`, «${o.text.slice(0, 60)}». ` +
             "Non è un blocco: due task sullo stesso pannello possono avere davvero la stessa immagine. " +
             "Ma se è una svista, questa consegna non ha ancora un'evidenza sua.",
         );
-        return true;
       }
     } catch { /* best-effort: il segnale è un extra, non un invariante */ }
-    return false;
+    return true;
   }
 
   /** md5 del file, con cache su (path, size, mtime): la scansione dei duplicati
@@ -4972,7 +4991,31 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             // this function returns ends up in a log line saying how many BLIND
             // cards have a preview again, and counting redraws would make it
             // lie at every boot.
-            if (isDeliverySheetPath(r.preview)) ensureDeliverySheet(r.id);
+            if (isDeliverySheetPath(r.preview)) { ensureDeliverySheet(r.id); continue; }
+            // AND THE SHOTS ALREADY ADOPTED, which the gate at adoption time
+            // cannot reach. Refusing a duplicate from now on leaves every card
+            // that already carries one showing it for ever: measured
+            // 2026-09-02, two cards side by side in review with the same empty
+            // frame, byte for byte. Retiring hands the card back to its sheet,
+            // which at least says what happened; `retirePreview` remembers the
+            // path, so the promotion pass does not fish it out again.
+            // WHO KEEPS IT: the OLDER shot. Retroactively the two cards are
+            // duplicates of EACH OTHER - neither row says who had it first -
+            // so a naive check retires whichever the loop reaches first, or
+            // both, and blanks two cards to cure one. The file's own mtime is
+            // the only witness: the later capture is the copy. Same rule the
+            // adoption gate already applies, where the incumbent keeps it.
+            const twinCard = isAutoCapturedPreview(r.preview) ? duplicatePreviewOf(r.id, r.preview) : null;
+            const mtime = (f: string): number => { try { return statSync(f).mtimeMs; } catch { return 0; } };
+            if (twinCard && mtime(r.preview) > mtime(twinCard.path)) {
+              try {
+                this.retirePreview({
+                  taskId: r.id,
+                  reason: "Anteprima automatica identica a quella di un'altra card: e' l'app nello stesso stato, non una prova di questa consegna.",
+                });
+                ensureDeliverySheet(r.id);
+              } catch { /* best-effort: the card stays as it was */ }
+            }
             continue;
           }
           // Prima si prova l'evidenza VERA (un allegato promuovibile nel

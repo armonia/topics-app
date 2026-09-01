@@ -17,7 +17,7 @@
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTaskService, TaskServiceError, type TaskService } from "./tasks";
@@ -762,12 +762,10 @@ describe("scheda di consegna (anteprima disegnata dal server)", () => {
 
     expect(readFileSync(preview(t.id)!, "utf-8")).toContain("SCHEDA DI CONSEGNA");
 
-    // MEASURED ON THE WRITE, not on the pixels. The sheet stopped printing a
-    // diffstat, so late numbers no longer change a glyph on it - what still
-    // matters, and what this test has always been about, is that the arrival
-    // REDRAWS instead of leaving the first drawing frozen. The spy is the only
-    // observable that survives the content change; asserting on digits that are
-    // deliberately gone would be inventing a failure.
+    // MEASURED ON THE WRITE, not on the pixels: the sheet no longer prints a
+    // diffstat, so late numbers change no glyph. What this test is about is
+    // that their arrival REDRAWS, and the spy is the only observable that
+    // survives the content change.
     const prima = scritte.length;
     expect(s.setDeliveryStat({ taskId: t.id, filesChanged: 4, insertions: 157, deletions: 12 })).toBe(true);
     expect(scritte.length).toBeGreaterThan(prima);
@@ -844,18 +842,10 @@ describe("scheda di consegna (anteprima disegnata dal server)", () => {
     expect(disegno).not.toContain("+340");
   });
 
-  /**
-   * A DUPLICATE AUTO SHOT IS NOT EVIDENCE, AND A NOTE IS NOT A GATE.
-   *
-   * The machine already spotted it and said so in the thread - a review note
-   * naming the md5 and the other task it matches - and then used the image
-   * anyway as the card's evidence. Measured 2026-09-01: task 1f225c0f showed,
-   * byte for byte, the screenshot of 1c8fd103, a generic empty-app frame.
-   *
-   * The note stays a note for an image a PERSON attached: two cards on the same
-   * panel really can share one. An automatic capture cannot - identical means
-   * the app was in the same state, which says nothing about THIS delivery.
-   */
+  /** A DUPLICATE AUTO SHOT IS NOT EVIDENCE, AND A NOTE IS NOT A GATE: measured
+   *  2026-09-01, task 1f225c0f carried byte for byte the empty-app frame of
+   *  1c8fd103, noted and used anyway. A note still fits an image a PERSON
+   *  attached; an identical automatic capture only means the app was idle. */
   test("uno scatto automatico identico a quello di un'altra card non viene adottato", () => {
     const s = mk();
     mkdirSync(join(dir, "task-previews"), { recursive: true });
@@ -865,15 +855,40 @@ describe("scheda di consegna (anteprima disegnata dal server)", () => {
     s.addComment({ taskId: first.id, author: "claude", content: "ecco", media: [shot] });
     expect(preview(first.id)).toBe(shot);
 
-    // Same CONTENT, different file, different card: an automatic capture.
     const second = consegna(s, "seconda card");
     const twin = join(dir, "task-previews", "dup-b.png");
     writeFileSync(twin, "PNGPNGPNG");
     s.addComment({ taskId: second.id, author: "claude", content: "ecco", media: [twin] });
 
-    // Refused: the card keeps its sheet, which at least says something.
     expect(preview(second.id)).not.toBe(twin);
     expect(preview(second.id)).toContain("task-sheets");
+  });
+
+  /** AND THE ONES ALREADY ADOPTED: refusing new duplicates leaves the old ones
+   *  on screen for ever (2026-09-02, two cards, one frame). The sweep retires
+   *  the copy - the LATER file - and hands that card back to its sheet. */
+  test("la passata ritira uno scatto duplicato gia' adottato", () => {
+    const s = mk();
+    mkdirSync(join(dir, "task-previews"), { recursive: true });
+    const first = consegna(s, "prima card");
+    const shot = join(dir, "task-previews", "old-a.png");
+    writeFileSync(shot, "IDENTICI");
+    s.addComment({ taskId: first.id, author: "claude", content: "ecco", media: [shot] });
+
+    // The second one gets there BEFORE the gate exists: written straight in.
+    const second = consegna(s, "seconda card");
+    const twin = join(dir, "task-previews", "old-b.png");
+    writeFileSync(twin, "IDENTICI");
+    // The copy is written LATER: its mtime is what tells the two apart.
+    utimesSync(shot, new Date(1_000_000), new Date(1_000_000));
+    db.prepare("UPDATE tasks SET preview_image = ? WHERE id = ?").run(twin, second.id);
+    expect(preview(second.id)).toBe(twin);
+
+    s.sweepReviewPreviews();
+
+    expect(preview(second.id)).not.toBe(twin);
+    expect(preview(second.id)).toContain("task-sheets");
+    expect(preview(first.id)).toBe(shot);
   });
 
   test("un'evidenza VERA nel thread vince sulla scheda e la sostituisce", () => {
