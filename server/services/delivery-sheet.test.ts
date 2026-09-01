@@ -49,20 +49,50 @@ describe("path della scheda", () => {
 describe("renderDeliverySheet", () => {
   const base = { taskId: "6db64c12-2e07-4fce", title: "Anteprima sempre presente" };
 
-  test("con i numeri di consegna li mette in figura, col ramo", () => {
+  /**
+   * A DIFFSTAT IS NOT THE DELIVERY. The sheet showed three big figures - files,
+   * insertions, deletions - plus the branch, and kept the summary for the
+   * no-code case only. A reviewer does not ask which files changed: they ask
+   * what the task is, where it stands and what they must decide. Reported twice
+   * on the same day, the second time as: "not true things but USEFUL things, I
+   * do not need git".
+   */
+  test("mostra cosa e' stato fatto, e NON il diffstat ne' il ramo", () => {
     const svg = renderDeliverySheet({
       ...base,
       branch: "topics/fading-falcon",
       filesChanged: 14,
       insertions: 1109,
       deletions: 5,
+      summary: "Le tab di un progetto rientrano di un passo invece che di due.",
     });
     expect(svg.startsWith("<svg")).toBe(true);
     expect(svg).toContain("SCHEDA DI CONSEGNA");
-    expect(svg).toContain(">14<");
-    expect(svg).toContain("+1109");
-    expect(svg).toContain("topics/fading-falcon");
     expect(svg).toContain("#6db64c12");
+    expect(svg).toContain("rientrano di un passo");
+    // The three figures and the branch are gone: they answered another question.
+    expect(svg).not.toContain(">14<");
+    expect(svg).not.toContain("+1109");
+    expect(svg).not.toContain("file toccati");
+    expect(svg).not.toContain("topics/fading-falcon");
+  });
+
+  /**
+   * A BRANCH WITH NO COMMIT IS A STATE, NOT A ZERO. Measured on 2026-09-01 on
+   * card 1c8fd103: two files changed in the worktree, no commit, and the sheet
+   * wrote "0 file toccati" - which a reader takes as "nothing was done". The
+   * same condition, said in words, is a decision waiting to be taken.
+   */
+  test("un ramo senza commit lo dice a parole, non con uno zero", () => {
+    const svg = renderDeliverySheet({
+      ...base,
+      branch: "topics/stormy-teardrop",
+      filesChanged: 0,
+      summary: "Ho spostato le tab da depth 2 a depth 1.",
+    });
+    expect(svg).toContain("non e' consegnato");
+    expect(svg).toContain("depth 2 a depth 1");
+    expect(svg).not.toContain("file toccati");
   });
 
   /**
@@ -148,15 +178,19 @@ describe("la scheda senza numeri di consegna", () => {
     for (const r of righe) expect(r.length).toBeLessThanOrEqual(70);
   });
 
-  /** Il ramo CON codice non cambia: i numeri restano quelli che erano. */
-  test("con i numeri di consegna la scheda resta com'era", () => {
+  /**
+   * THE BRANCH WITH CODE NOW SPEAKS TOO. The numbers used to win and the summary
+   * was suppressed exactly where the work was: the sheet richest in substance
+   * was the one that said the least about it.
+   */
+  test("con i numeri di consegna vince comunque il riassunto", () => {
     const svg = renderDeliverySheet({
       ...base, branch: "topics/x", filesChanged: 10, insertions: 525, deletions: 58,
-      summary: "questo non deve comparire",
+      summary: "questo deve comparire",
     });
-    expect(svg).toContain("525");
-    expect(svg).toContain("topics/x");
-    expect(svg).not.toContain("questo non deve comparire");
+    expect(svg).toContain("questo deve comparire");
+    expect(svg).not.toContain("525");
+    expect(svg).not.toContain("topics/x");
   });
 });
 

@@ -30,6 +30,7 @@
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
+import { questionToProse } from "../../shared/question-prose";
 import { dirname, join } from "node:path";
 import { DELIVERY_SHEET_DIR } from "../../shared/media-kind";
 
@@ -52,15 +53,16 @@ export interface DeliverySheetData {
   /** Etichette della card (kind + chi chiude), massimo tre in figura. */
   labels?: string[];
   /**
-   * L'ultima parola del thread: cosa e' stato fatto, detto da chi l'ha fatto.
+   * The last real word in the thread: what was done, said by whoever did it.
    *
-   * SERVE AL RAMO SENZA CODICE, ed e' il difetto che ripara. Quando la card non
-   * ha numeri di consegna la scheda scriveva «Nessun codice consegnato. La
-   * consegna sta nel thread della card»: il 60% della larghezza per dichiarare
-   * un'ASSENZA e mandare a leggere altrove. Segnalato: «dovrebbe mettere sempre
-   * qualcosa di utile per comprendere».
-   *
-   * Se il thread una parola ce l'ha, quella parola sta qui invece del rimando.
+   * THIS IS THE BODY OF THE SHEET, no longer the fallback for when the numbers
+   * are missing. Until 2026-09-01 the diffstat won: three big figures (files,
+   * insertions, deletions) plus the branch name, and the summary showed up only
+   * when there was no code. A reviewer does not ask "which files changed", they
+   * ask "what is this task, where does it stand, what do I decide" - and a
+   * diffstat answers none of that. Reported twice on the same day: "it only
+   * talks about the git state and not about what happened", then "not true
+   * things but USEFUL things, I do not need git".
    */
   summary?: string | null;
 }
@@ -137,16 +139,17 @@ export function renderDeliverySheet(data: DeliverySheetData): string {
     .map((l, i) => `<text x="72" y="${TITLE_Y + i * TITLE_STEP}" class="t">${escapeXml(l)}</text>`)
     .join("\n    ");
 
-  const stats = hasCode
-    ? `
-    <text x="72" y="${NUM_Y}" class="n">${files}</text>
-    <text x="72" y="${KEY_Y}" class="k">file toccati</text>
-    <text x="420" y="${NUM_Y}" class="n add">+${ins ?? 0}</text>
-    <text x="420" y="${KEY_Y}" class="k">righe aggiunte</text>
-    <text x="800" y="${NUM_Y}" class="n del">-${del ?? 0}</text>
-    <text x="800" y="${KEY_Y}" class="k">righe tolte</text>
-    <text x="72" y="${BRANCH_Y}" class="b">${escapeXml(data.branch ?? "")}</text>`
-    : summarySvg(data.summary, NUM_Y, KEY_Y);
+  // WHAT WAS DONE, always - and never the diffstat. See `summary` above.
+  const stats = summarySvg(data.summary, NUM_Y, KEY_Y);
+
+  // THE STATE, IN WORDS, where the branch name used to sit. A branch with no
+  // commit on it is not "zero files": it is work that has not been handed over
+  // yet, and that is a thing to decide about. Said as a sentence, because the
+  // number said it in a form that read as "nothing happened".
+  const handedOver = hasCode && (files ?? 0) > 0;
+  const stateLine = data.branch && !handedOver
+    ? `<text x="72" y="${BRANCH_Y}" class="k">Il ramo non porta ancora nessun commit: il lavoro non e' consegnato.</text>`
+    : "";
 
   const total = data.subtasksTotal ?? 0;
   const passi = total > 0
@@ -186,6 +189,7 @@ export function renderDeliverySheet(data: DeliverySheetData): string {
   <rect x="72" y="140" width="${W - 144}" height="2" fill="#272c37"/>
   ${titleSvg}
   <rect x="72" y="${RULE_Y}" width="${W - 144}" height="2" fill="#272c37"/>${stats}
+  ${stateLine}
   ${chips}
   ${passi}
   <text x="72" y="${H - 52}" class="foot">Disegnata dal server: questa consegna non ha una superficie da fotografare.</text>
@@ -232,7 +236,12 @@ export function makeSheetWriter(openclawDir: string): (taskId: string, svg: stri
  * si scompagina al primo ritocco del layout.
  */
 function summarySvg(summary: string | null | undefined, NUM_Y: number, KEY_Y: number): string {
-  const testo = (summary ?? "").replace(/\s+/g, " ").trim();
+  // A QUESTION IS NOT CODE, and the sheet was printing the transport fence.
+  // ```question is a wire format read by `parseQuestionBlock`; leaked into the
+  // figure it opened the summary with three backticks and a keyword. Same cure
+  // the card already uses, from the same shared module - the defect this repo
+  // has already paid for once on another surface.
+  const testo = questionToProse(summary ?? "").replace(/\s+/g, " ").trim();
   if (!testo) {
     return `
     <text x="72" y="${NUM_Y - 22}" class="b">Nessun riassunto della consegna.</text>

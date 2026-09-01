@@ -760,17 +760,19 @@ describe("scheda di consegna (anteprima disegnata dal server)", () => {
     s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
     s.recordDelivery({ taskId: t.id, branch: "topics/late-numbers", commit: "abc123", stat: null });
 
-    const prima = readFileSync(preview(t.id)!, "utf-8");
-    expect(prima).toContain("SCHEDA DI CONSEGNA");
-    // With no numbers the sheet invents none: that is the honest silence.
-    expect(prima).not.toContain("+157");
+    expect(readFileSync(preview(t.id)!, "utf-8")).toContain("SCHEDA DI CONSEGNA");
 
+    // MEASURED ON THE WRITE, not on the pixels. The sheet stopped printing a
+    // diffstat, so late numbers no longer change a glyph on it - what still
+    // matters, and what this test has always been about, is that the arrival
+    // REDRAWS instead of leaving the first drawing frozen. The spy is the only
+    // observable that survives the content change; asserting on digits that are
+    // deliberately gone would be inventing a failure.
+    const prima = scritte.length;
     expect(s.setDeliveryStat({ taskId: t.id, filesChanged: 4, insertions: 157, deletions: 12 })).toBe(true);
-
-    const dopo = readFileSync(preview(t.id)!, "utf-8");
-    expect(dopo).toContain("+157");
-    expect(dopo).toContain("-12");
-    expect(dopo).toContain("topics/late-numbers");
+    expect(scritte.length).toBeGreaterThan(prima);
+    // And the digits stay out of the figure.
+    expect(readFileSync(preview(t.id)!, "utf-8")).not.toContain("+157");
   });
 
   test("the sweep REDRAWS a sheet whose numbers changed underneath it", () => {
@@ -782,7 +784,7 @@ describe("scheda di consegna (anteprima disegnata dal server)", () => {
     const s = mk();
     const t = consegna(s, "sheet to refresh");
     expect(preview(t.id)).toContain("task-sheets");
-    expect(readFileSync(preview(t.id)!, "utf-8")).not.toContain("+157");
+    const prima = scritte.length;
 
     // The numbers arrive later, through a path that does not redraw (a raw
     // UPDATE, like the backfill pass before the cure).
@@ -792,9 +794,9 @@ describe("scheda di consegna (anteprima disegnata dal server)", () => {
     ).run(t.id);
 
     expect(s.sweepReviewPreviews()).toBe(0); // it was not blind: not a rescue
-    const dopo = readFileSync(preview(t.id)!, "utf-8");
-    expect(dopo).toContain("+157");
-    expect(dopo).toContain("topics/late");
+    // Redrawn all the same: the sweep rewrites it, and the write is the proof.
+    expect(scritte.length).toBeGreaterThan(prima);
+    expect(readFileSync(preview(t.id)!, "utf-8")).not.toContain("+157");
   });
 
   test("a card that is NO LONGER in review does not get its sheet redrawn", () => {
@@ -828,7 +830,7 @@ describe("scheda di consegna (anteprima disegnata dal server)", () => {
     expect(disegno).toContain("consegna a parole");
   });
 
-  test("la scheda porta i numeri della consegna quando la card li ha", () => {
+  test("la scheda porta CIO' CHE E' STATO FATTO, non il diffstat", () => {
     const s = mk();
     const t = consegna(s, "lavoro con ramo");
     db.prepare(
@@ -836,8 +838,42 @@ describe("scheda di consegna (anteprima disegnata dal server)", () => {
     ).run(t.id);
     expect(s.sweepReviewPreviews()).toBe(1);
     const disegno = readFileSync(preview(t.id)!, "utf-8");
-    expect(disegno).toContain("topics/fading-falcon");
-    expect(disegno).toContain("+340");
+    // The fixture leaves the agent's own word in the thread: that is the body.
+    expect(disegno).toContain("fatto");
+    expect(disegno).not.toContain("topics/fading-falcon");
+    expect(disegno).not.toContain("+340");
+  });
+
+  /**
+   * A DUPLICATE AUTO SHOT IS NOT EVIDENCE, AND A NOTE IS NOT A GATE.
+   *
+   * The machine already spotted it and said so in the thread - a review note
+   * naming the md5 and the other task it matches - and then used the image
+   * anyway as the card's evidence. Measured 2026-09-01: task 1f225c0f showed,
+   * byte for byte, the screenshot of 1c8fd103, a generic empty-app frame.
+   *
+   * The note stays a note for an image a PERSON attached: two cards on the same
+   * panel really can share one. An automatic capture cannot - identical means
+   * the app was in the same state, which says nothing about THIS delivery.
+   */
+  test("uno scatto automatico identico a quello di un'altra card non viene adottato", () => {
+    const s = mk();
+    mkdirSync(join(dir, "task-previews"), { recursive: true });
+    const first = consegna(s, "prima card");
+    const shot = join(dir, "task-previews", "dup-a.png");
+    writeFileSync(shot, "PNGPNGPNG");
+    s.addComment({ taskId: first.id, author: "claude", content: "ecco", media: [shot] });
+    expect(preview(first.id)).toBe(shot);
+
+    // Same CONTENT, different file, different card: an automatic capture.
+    const second = consegna(s, "seconda card");
+    const twin = join(dir, "task-previews", "dup-b.png");
+    writeFileSync(twin, "PNGPNGPNG");
+    s.addComment({ taskId: second.id, author: "claude", content: "ecco", media: [twin] });
+
+    // Refused: the card keeps its sheet, which at least says something.
+    expect(preview(second.id)).not.toBe(twin);
+    expect(preview(second.id)).toContain("task-sheets");
   });
 
   test("un'evidenza VERA nel thread vince sulla scheda e la sostituisce", () => {

@@ -29,7 +29,7 @@ import { createHash } from "node:crypto";
 import { parseReviewChecks, serializeReviewChecks, type CheckRun } from "./review-checks";
 import { imageShape } from "./image-shape";
 import { renderDeliverySheet } from "./delivery-sheet";
-import { isDeliverySheetPath } from "../../shared/media-kind";
+import { isAutoCapturedPreview, isDeliverySheetPath } from "../../shared/media-kind";
 import { NUDGE_CLAIM_MS, gateNudge } from "./nudge-gate";
 import { readGlobalCap, readSpendCaps } from "./dispatch-capacity";
 import { liveAgentCount } from "./agent-census";
@@ -1063,10 +1063,21 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           if (tall) { rejected.push({ path: f, shape: tall }); continue; }
           // Anche l'adozione automatica supera il ritiro: la card ha di nuovo
           // un'evidenza, quindi il fatto «ritirata» ha smesso di valere.
+          // A DUPLICATE AUTO SHOT IS EVIDENCE OF NOTHING, so it is refused
+          // instead of merely noted. The note stays a note for an image a
+          // PERSON attached: two cards on the same panel really can share one,
+          // which is why this was never a block. An automatic capture is a
+          // different animal - byte-identical to another card's means the app
+          // was in the same state, and that says nothing about THIS delivery.
+          // Measured 2026-09-01: task 1f225c0f carried the very screenshot of
+          // 1c8fd103 (md5 f8a398c6), the machine wrote the note, and then used
+          // the image anyway. Reported: «si vede solo uno screen a cazzo».
+          // allow-italian: the words that reported it, quoted.
+          const isDuplicate = noteDuplicatePreview(taskId, f);
+          if (isDuplicate && isAutoCapturedPreview(f)) continue;
           db.prepare(
             "UPDATE tasks SET preview_image = ?, preview_retired_at = NULL, preview_retired_reason = NULL, updated_at = ? WHERE id = ?",
           ).run(f, now(), taskId);
-          noteDuplicatePreview(taskId, f);
           return;
         }
       }
@@ -1106,10 +1117,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * un blocco farebbe strage di consegne buone. Quindi si scrive una nota e si
    * lascia decidere a chi legge.
    */
-  function noteDuplicatePreview(taskId: string, path: string): void {
+  function noteDuplicatePreview(taskId: string, path: string): boolean {
     try {
       const mine = fileDigest(path);
-      if (!mine) return;
+      if (!mine) return false;
       const others = db.prepare(
         "SELECT id, text, preview_image FROM tasks WHERE preview_image IS NOT NULL AND preview_image != '' AND id != ? ORDER BY updated_at DESC LIMIT 200",
       ).all(taskId) as Array<{ id: string; text: string; preview_image: string }>;
@@ -1122,9 +1133,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             "Non è un blocco: due task sullo stesso pannello possono avere davvero la stessa immagine. " +
             "Ma se è una svista, questa consegna non ha ancora un'evidenza sua.",
         );
-        return;
+        return true;
       }
     } catch { /* best-effort: il segnale è un extra, non un invariante */ }
+    return false;
   }
 
   /** md5 del file, con cache su (path, size, mtime): la scansione dei duplicati
