@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.263",
+    "date": "2026-09-01",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "In review «non è su main» non è una notizia: è la definizione della colonna",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.262",
     "date": "2026-09-01",
     "sections": {

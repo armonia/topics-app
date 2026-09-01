@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.263 — 2026-09-01
+
+### Sotto il cofano
+- In review «non è su main» non è una notizia: è la definizione della colonna
+
 ## 2.2.262 — 2026-09-01
 
 ### Sotto il cofano
