@@ -1,7 +1,10 @@
-import { formatCpuPercent } from '@/hooks/usePerfMetrics';
-import type { PerfMetrics } from '@/hooks/usePerfMetrics';
-import type { SystemStatus } from '@/hooks/useSystemStatus';
-import { computeTopicsFootprint } from '@/lib/topicsFootprint';
+// RELATIVE, NOT `@/`: this module is covered by `usageTooltip.test.ts` and
+// `bun test` does not resolve the alias — the same reason `VersionChip` and
+// `TopicsLoadDot` next door are written this way. Vite resolves both.
+import { formatCpuPercent } from '../../hooks/usePerfMetrics';
+import type { PerfMetrics } from '../../hooks/usePerfMetrics';
+import type { SystemStatus } from '../../hooks/useSystemStatus';
+import { computeTopicsFootprint } from '../../lib/topicsFootprint';
 import { mostraResidenteInBarra } from './verdict';
 
 /**

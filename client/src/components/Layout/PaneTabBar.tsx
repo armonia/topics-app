@@ -51,7 +51,7 @@ import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { SharedOrgBadge } from '../Shared/SharedOrgBadge';
 import { BrowserTabIcon, BrowserTabMenuButton, BrowserTabConsoleCue } from '../Browser/BrowserTabChrome';
 import { getBrowserPaneChrome } from '../../state/browserPaneChrome';
-import { browserTabLabel, browserTabSubtitle } from '../../lib/browserTabLabel';
+import { browserTabLabel, browserTabSubtitle, type BrowserLabelPreference } from '../../lib/browserTabLabel';
 import { releaseNativeFocus } from '../../lib/shell/tauri';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { prefersReducedMotion } from '../../lib/reducedMotion';
@@ -61,9 +61,12 @@ import { restartTerminalSession } from '../../lib/terminalReload';
 /** The width of a tab, in px. Fixed on purpose: tabs that resize with their
  *  own content make the tab under the pointer move while you are aiming at it. */
 const TAB_W = 150;
-/** ...and the width of a BROWSER tab, which carries an address instead of a
- *  name. See the note at the call site for why the extra 50px is free. */
+/** ...and the width of a BROWSER tab at rest, which carries a page title plus
+ *  a favicon and a menu. See the note at the call site for why it is wider. */
 const TAB_W_BROWSER = 200;
+/** ...and the width of the ACTIVE browser tab, the one that is showing the
+ *  address. The extra 100px are the address bar this pane no longer draws. */
+const TAB_W_BROWSER_ACTIVE = 300;
 
 // Every pane type closes through the same soft-confirm path: hovering the X
 // reveals an empty "mark as done" circle, clicking it starts the 3 s L→R
@@ -583,19 +586,21 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // `PANE_CONFIG`), e una chat senza nome è «New Chat», non il suo id. La regola
   // la applica anche il render, più sotto: qui serve perché l'anteprima del
   // trascinamento deve dire la STESSA parola che sta scritta sulla tab.
-  const etichettaTab = useCallback((pane: Pane | undefined, paneId: string): string => {
+  const etichettaTab = useCallback((pane: Pane | undefined, paneId: string, prefer?: BrowserLabelPreference): string => {
     if (!pane) return paneId;
     const config = getPaneConfig(pane.type);
-    // A BROWSER TAB WRITES THE ADDRESS, not the page title. Now that the
-    // address bar hides itself, the tab is the only surface left that answers
-    // "which page is this". The rule (and the why) lives in
-    // `lib/browserTabLabel`; here we only hand it the pane's state.
+    // A BROWSER TAB WRITES THE PAGE TITLE AT REST AND THE ADDRESS WHEN ACTIVE.
+    // The active one is expanded and click-to-edit, so it is the tab that has
+    // to answer "which page is this, exactly"; the resting ones read like any
+    // other browser's. The rule (and the why) lives in `lib/browserTabLabel`;
+    // here we only hand it the pane's state.
     if (pane.type === 'browser') {
       return browserTabLabel({
         title: pane.title,
         titleSource: pane.titleSource,
         url: pane.url || getBrowserPaneUrl(pane.id),
         fallback: config.label,
+        prefer,
       });
     }
     return (isUtilityPanelId(pane.id) ? config.label : pane.title)
@@ -1063,7 +1068,39 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         // l'ha già aperta, per sempre. Per loro comanda la config.
         // La regola sta in `etichettaTab`, in cima: la parola scritta sulla tab
         // e quella dell'anteprima di trascinamento devono essere la stessa.
-        const label = etichettaTab(pane, pane.id);
+        // ...and for a browser pane it also depends on the STATE: the active
+        // tab is the expanded one, where the address is read and edited, so it
+        // writes the address; the resting ones write the page title.
+        // `isSelected` and NOT `isFullyActive`: the second one also asks that
+        // the WINDOW have focus, and a tab that rewrote its own label every
+        // time you alt-tabbed away would be a tab you cannot read out of the
+        // corner of your eye. Each tab bar has exactly one selected tab, so at
+        // most one expanded tab per bar even in a split.
+        const browserPrefer: BrowserLabelPreference | undefined = pane.type === 'browser'
+          ? (isSelected ? 'address' : 'title')
+          : undefined;
+        const label = etichettaTab(pane, pane.id, browserPrefer);
+        // THE HOVER CARD SAYS BOTH THINGS, ALWAYS, in the shape every browser
+        // uses: the page name on the first line, the WHOLE address on the
+        // second. It is the same card in either state of the tab (the active
+        // one writes the address, the resting ones the title), so hovering
+        // always answers the half that is not written. And it is not the system
+        // tooltip: `TooltipDelegate` intercepts `title` and redraws it after
+        // 350 ms instead of the well over a second macOS takes.
+        const browserHover = pane.type === 'browser'
+          ? (() => {
+            const input = {
+              title: pane.title,
+              titleSource: pane.titleSource,
+              url: pane.url || getBrowserPaneUrl(pane.id),
+              fallback: getPaneConfig(pane.type).label,
+              prefer: 'title' as const,
+            };
+            const name = browserTabLabel(input);
+            const address = browserTabSubtitle(input);
+            return address ? `${name}\n${address}` : name;
+          })()
+          : null;
         // Lo stato A PAROLE, per chi non vede il colore.
         //
         // Una tab non diceva il proprio stato da nessuna parte: né `title` né
@@ -1123,7 +1160,24 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         // HEIGHT for 50px of WIDTH on one tab is a win the moment more than one
         // browser pane is open, and it costs the other tabs nothing: they keep
         // their 150.
-        const tabWidth = pane.type === 'browser' ? TAB_W_BROWSER : TAB_W;
+        //
+        // AND THE ACTIVE ONE EXPANDS, to 300. The chrome of a browser pane has
+        // to live somewhere, and the two candidates were "everything inside the
+        // tab's dropdown" and "the tab itself grows when you are in it". The
+        // second one wins for the thing you touch most: the ADDRESS, which at
+        // 200px was truncated exactly where a path stops being recognisable,
+        // and which is edited in place right there (click the label). The extra
+        // width also leaves room for what will be added next, without stealing
+        // a pixel from the tabs you are not in.
+        //
+        // The fixed-width rule above ("tabs that resize with their content make
+        // the tab under the pointer move while you are aiming at it") is not
+        // broken by this: nothing here resizes with the CONTENT: the width
+        // changes only when you ACTIVATE the tab, which is a click you meant,
+        // and it is animated, so what moves is visibly a consequence of it.
+        const tabWidth = pane.type === 'browser'
+          ? (isSelected ? TAB_W_BROWSER_ACTIVE : TAB_W_BROWSER)
+          : TAB_W;
 
         return (
           <div
@@ -1323,21 +1377,9 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 }
                 : undefined}
               onMouseEnter={ensurePaneUsageFresh}
-              title={`${label}${
-                // A browser tab shows the address, so its tooltip carries the
-                // page title: the two together are what the old chrome row said.
-                pane.type === 'browser'
-                  ? (() => {
-                    const sub = browserTabSubtitle({
-                      title: pane.title,
-                      titleSource: pane.titleSource,
-                      url: pane.url || getBrowserPaneUrl(pane.id),
-                      fallback: '',
-                    });
-                    return sub ? `\n${sub}` : '';
-                  })()
-                  : ''
-              }${formatPaneUsageLine(
+              // A browser tab carries its hover card (name + address, see
+              // `browserHover`); every other tab carries its name alone.
+              title={`${browserHover ?? label}${formatPaneUsageLine(
                 pane.type === 'terminal' ? termSid : null,
                 pane.type === 'terminal' || pane.type === 'browser',
                 // Le due sorgenti sono diverse: un terminale si cerca per

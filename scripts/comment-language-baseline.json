@@ -1783,7 +1783,7 @@
     "tests/e2e/sidebar-pin-drag-touch.spec.ts": 40,
     "tests/e2e/sidebar-pinned-tiles.spec.ts": 536,
     "tests/e2e/sidebar-rotte-allineate.spec.ts": 27,
-    "tests/e2e/sidebar-touch-audit.spec.ts": 333,
+    "tests/e2e/sidebar-touch-audit.spec.ts": 332,
     "tests/e2e/sidebar.spec.ts": 186,
     "tests/e2e/spaces-switcher.spec.ts": 88,
     "tests/e2e/split-badge-focus.spec.ts": 25,

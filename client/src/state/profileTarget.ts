@@ -1,12 +1,13 @@
 /**
  * OPENING THE PROFILE: on one particular page, and now on one particular PERSON.
  *
- * The "Profile" pane has three pages (who you are, who follows you, what you
- * publish) and until yesterday it always opened on the first one, always about
- * yourself. Two defects, one mechanism:
+ * The "Profile" pane answers three questions (who you are, who follows you,
+ * what you publish) and until yesterday it always opened on the first one,
+ * always about yourself. Two defects, one mechanism:
  *
  *  - A link that gets you NEAR where you asked to go charges one extra gesture
- *    every single time. Clicking "followers" has to land on the followers.
+ *    every single time. Clicking "followers" has to land on the followers,
+ *    which today means the pane opens with that dropdown already open.
  *  - A person's face appeared in half a dozen places and was clickable in
  *    none of them. A name you cannot open is a dead end, and the profile it
  *    would have opened may as well not exist.
@@ -26,7 +27,7 @@
  */
 import type { SectionId } from '@/components/Settings/sections';
 
-/** The only pages the Profile pane knows about (`IDENTITY_SECTIONS`). */
+/** What can be asked of the Profile pane: the page, or one of its dropdowns. */
 export type PageProfile = Extract<SectionId, 'profile' | 'followers' | 'privacy'>;
 
 export const EVENTO_PAGINA_PROFILO = 'topics:profile-page';

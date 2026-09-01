@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-08-31",
+  "generated": "2026-09-01",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -601,9 +601,7 @@
       "dialogRef"
     ],
     "client/src/components/Profile/ProfilePane.tsx": [
-      "attiva",
-      "chiesta",
-      "voce"
+      "chiesta"
     ],
     "client/src/components/Project/FileExplorer.tsx": [
       "DeleteConfirmDialog",

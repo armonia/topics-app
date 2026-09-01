@@ -28,7 +28,7 @@
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";
 import { expect, type Page } from "@playwright/test";
-import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane, deleteTask } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, holdDispatchReconcile, resetPaneStore, resetProjectPanes, seedProjectPane, deleteTask } from "./helpers/api-fixtures";
 import { execFileSync } from "child_process";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { homedir } from "os";
@@ -255,6 +255,14 @@ test.describe("Preview della card della board", () => {
     // IN PROGRESS. The agent is writing: the foot carries the dispatch chip,
     // the model, and the git chip that has no numbers yet because the delivery
     // has not been measured.
+    // THE BRAKE, before the fake `working` agent exists. The card below carries
+    // a `working` dispatch chip with no live turn behind it, and its git chip
+    // hangs off exactly that state — which reconcile RECOVERS after two 10s
+    // sweeps, correctly. Measured in a full-suite run on 2026-09-01: under load
+    // the recovery landed first and `card-delivery-files-toggle` was never
+    // rendered, 10s of "element(s) not found", then green on retry. Same race,
+    // same brake as `board-subtask-work-chip`.
+    await holdDispatchReconcile(request, 60_000);
     const running = await createWithSteps(
       request,
       {

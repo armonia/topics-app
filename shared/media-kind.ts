@@ -69,3 +69,34 @@ const DELIVERY_SHEET_RE = new RegExp(`/${DELIVERY_SHEET_DIR}/[^/]+\\.svg(\\?|#|$
 export function isDeliverySheetPath(path: string | null | undefined): boolean {
   return !!path && DELIVERY_SHEET_RE.test(path.trim());
 }
+
+/**
+ * The directory of the photos the server takes BY ITSELF: it boots the app from
+ * the card's branch, waits for it to answer and photographs the page it finds
+ * (`server/services/preview-manager.ts`).
+ */
+export const AUTO_PREVIEW_DIR = "task-previews";
+
+const AUTO_PREVIEW_RE = new RegExp(`/${AUTO_PREVIEW_DIR}/[^/]+\\.(png|jpe?g|webp)(\\?|#|$)`, "i");
+
+/**
+ * A photo WE took, not the evidence somebody chose to show.
+ *
+ * The difference is not a detail of provenance: it is what the photo PROVES.
+ * The agent's evidence is a screen picked to show the change; this is the app
+ * booted from the right branch and photographed wherever it was, which is
+ * usually its own landing page. Measured 2026-09-01 on two cards in review: the
+ * «account panel» one portrayed the «Welcome to Topics» screen, the «remove
+ * profile tab» one portrayed the kanban.
+ *
+ * The two gates the preview manager grew over time check WHO answers on the
+ * port (so it is not another project's dev server) and that the page is not an
+ * error or a placeholder. Neither of them can say "this photo shows the work",
+ * and inventing that judgement would be worse than the defect: the honest cure
+ * is to DECLARE what the photo is, so nobody reads it as a proof it is not.
+ * Same discipline as the delivery sheet, which says out loud that the server
+ * drew it.
+ */
+export function isAutoCapturedPreview(path: string | null | undefined): boolean {
+  return !!path && AUTO_PREVIEW_RE.test(path.trim());
+}

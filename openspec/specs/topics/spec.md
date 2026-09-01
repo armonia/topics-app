@@ -591,10 +591,24 @@ della stessa risposta sono due copie che un giorno rispondono diverso.
 Il taglio non è «tutto dentro». Un ALLARME non è una statistica: dire «sei
 offline» o «mi sto riconnettendo» dietro un gesto significa che l'app è scollegata
 e chi la guarda non lo sa finché non apre un menu. Quindi la riga del titolo SHALL
-mostrare una spia — piccola, senza testo, senza costare altezza — accesa SOLO
-quando c'è qualcosa che non può aspettare: WebSocket non connesso, avvio degradato,
-avviso sui dati. A tutto a posto la spia SHALL essere invisibile, perché una spia
-sempre accesa non è una spia.
+portare un pallino — piccolo, senza testo, senza costare altezza — che SHALL
+DICHIARARE l'allarme quando c'è qualcosa che non può aspettare: WebSocket non
+connesso, avvio degradato, avviso sui dati.
+
+E' UN PALLINO SOLO, e risponde a due domande diverse. Il testo di questo
+requisito ne pretendeva uno che a tutto a posto fosse INVISIBILE, e per due
+giorni ce ne sono stati davvero due: quello del carico, che c'era sempre, e una
+seconda spia accanto, accesa solo in allarme. Segnalato dal vivo il 31/08 —
+«ora vedo due pallini nel trigger» — e la lettura era giusta: due tondi a
+quattro pixel di distanza non sono due segnali, sono un segnale che sembra
+rotto. Sono stati fusi. Quindi il pallino SHALL essere sempre dipinto (la sua
+tinta è il carico: risponde a «quanto»), e l'allarme SHALL essere una
+DICHIARAZIONE su di lui — un attributo che un test può leggere, più la
+pulsazione — che SHALL scavalcare la tinta del carico: «sei offline» conta più
+di «la macchina è impegnata», e dipingere le due cose sullo stesso tondo
+vorrebbe dire non dirne nessuna. A tutto a posto il pallino NON SHALL dichiarare
+nessun allarme e NON SHALL pulsare, perché una spia sempre accesa non è una
+spia.
 
 L'identità (persona, organizzazioni, amici) NON SHALL seguire lo stato nel menu:
 resta in fondo alla colonna, dove sta. Non è inerzia, è il suo contratto — la
@@ -609,7 +623,7 @@ risolve due cose con lo stesso gesto.
 - **GIVEN** un desktop con WebSocket connesso e nessun avviso
 - **WHEN** si guarda la colonna dei topic
 - **THEN** in fondo NON c'è nessuna barra di stato: solo la fascia dell'identità
-- **AND** nella riga del titolo la spia non è visibile
+- **AND** il pallino nella riga del titolo NON dichiara nessun allarme e non pulsa
 
 #### Scenario: l'allarme si legge senza aprire niente
 - **GIVEN** un desktop col WebSocket non connesso, o un avvio degradato
@@ -619,8 +633,9 @@ risolve due cose con lo stesso gesto.
 #### Scenario: la connessione cade
 - **GIVEN** la stessa colonna, col menu CHIUSO
 - **WHEN** il WebSocket passa a non connesso
-- **THEN** la spia nella riga del titolo diventa visibile
-- **AND** lo diventa senza che nessuno abbia aperto niente
+- **THEN** il pallino nella riga del titolo DICHIARA l'allarme e pulsa
+- **AND** in fondo alla colonna compare la riga che nomina il guasto
+- **AND** succede senza che nessuno abbia aperto niente
 
 #### Scenario: i numeri si leggono dal menu
 - **GIVEN** un desktop

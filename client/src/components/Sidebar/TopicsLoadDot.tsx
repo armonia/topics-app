@@ -25,13 +25,17 @@
  * is not merely wasteful but wrong). The menu subscribes to what this publishes.
  */
 import { useEffect } from 'react';
-import { useSystemStatus } from '@/hooks/useSystemStatus';
-import { usePerfMetrics } from '@/hooks/usePerfMetrics';
-import { useFps } from '@/lib/fpsMonitor';
-import { computeTopicsFootprint } from '@/lib/topicsFootprint';
+// RELATIVE, NOT `@/`: this component is MOUNTED by a unit test
+// (`TopicsLoadDot.test.tsx`) and `bun test` does not resolve the alias — the
+// same reason `VersionChip` next door is written this way. Vite resolves both,
+// so nothing else changes.
+import { useSystemStatus } from '../../hooks/useSystemStatus';
+import { usePerfMetrics } from '../../hooks/usePerfMetrics';
+import { useFps } from '../../lib/fpsMonitor';
+import { computeTopicsFootprint } from '../../lib/topicsFootprint';
 import { loadLevel, loadWord, loadTint } from './loadTint';
-import { publishLoad } from '@/state/systemLoad';
-import { useT } from '@/hooks/useT';
+import { publishLoad } from '../../state/systemLoad';
+import { useT } from '../../hooks/useT';
 
 /**
  * The megabytes at which each half counts as fully loaded. These are the SAME

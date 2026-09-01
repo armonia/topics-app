@@ -83,9 +83,22 @@ export interface ProfileHeaderProps {
   onChanged: (p: PersonWithProfile) => void;
   onOpenFollowers?: () => void;
   onOpenFollowing?: () => void;
+  /**
+   * Buttons that belong to the person and not to the page, next to Follow.
+   * This is where the privacy control sits on your own profile: a switch that
+   * decides what this very header publishes has to be reachable from the
+   * header, not from a tab that made the profile look like a settings panel.
+   */
+  actions?: React.ReactNode;
+  /**
+   * The open dropdown, drawn UNDER the counters that opened it. It is a slot
+   * and not a component so the header keeps knowing nothing about lists,
+   * privacy or windows: it only knows where a panel opened from here belongs.
+   */
+  panel?: React.ReactNode;
 }
 
-export function ProfileHeader({ persona, onChanged, onOpenFollowers, onOpenFollowing }: ProfileHeaderProps) {
+export function ProfileHeader({ persona, onChanged, onOpenFollowers, onOpenFollowing, actions, panel }: ProfileHeaderProps) {
   const t = useT();
   const [saving, setSaving] = useState(false);
   const [editingLogin, setEditingLogin] = useState(false);
@@ -153,21 +166,24 @@ export function ProfileHeader({ persona, onChanged, onOpenFollowers, onOpenFollo
             )}
           </div>
 
-          {!persona.isMe && (
-            <button
-              type="button"
-              onClick={() => void toggleFollow()}
-              data-testid="profile-follow"
-              aria-pressed={persona.viewerFollows}
-              className={`flex-shrink-0 rounded-md border px-3 py-1.5 text-[12.5px] font-medium coarse:min-h-11 ${
-                persona.viewerFollows
-                  ? 'border-app-border text-app-text hover:bg-app-hover'
-                  : 'border-primary bg-primary/10 text-primary hover:bg-primary/20'
-              }`}
-            >
-              {persona.viewerFollows ? t('profile.unfollow') : t('profile.follow')}
-            </button>
-          )}
+          <div className="flex flex-shrink-0 items-center gap-2">
+            {!persona.isMe && (
+              <button
+                type="button"
+                onClick={() => void toggleFollow()}
+                data-testid="profile-follow"
+                aria-pressed={persona.viewerFollows}
+                className={`flex-shrink-0 rounded-md border px-3 py-1.5 text-[12.5px] font-medium coarse:min-h-11 ${
+                  persona.viewerFollows
+                    ? 'border-app-border text-app-text hover:bg-app-hover'
+                    : 'border-primary bg-primary/10 text-primary hover:bg-primary/20'
+                }`}
+              >
+                {persona.viewerFollows ? t('profile.unfollow') : t('profile.follow')}
+              </button>
+            )}
+            {actions}
+          </div>
         </div>
 
         {g?.bio && <p className="text-[13px] leading-snug text-app-text-secondary">{g.bio}</p>}
@@ -208,6 +224,8 @@ export function ProfileHeader({ persona, onChanged, onOpenFollowers, onOpenFollo
             />
           </div>
         )}
+
+        {panel}
 
         {/* CONNECTING GITHUB IS PART OF THE HEADER, not a settings box three
             pages away: the empty space where the face should be is exactly

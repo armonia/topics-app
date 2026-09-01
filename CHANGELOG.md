@@ -2,6 +2,37 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.264 — 2026-09-01
+
+### Sotto il cofano
+- Una foto che il server si e' scattato da solo adesso DICE di esserlo
+
+## 2.2.263 — 2026-09-01
+
+### Sotto il cofano
+- In review «non è su main» non è una notizia: è la definizione della colonna
+
+## 2.2.262 — 2026-09-01
+
+### Sotto il cofano
+- I due flaky della suite erano la stessa corsa, e il freno esisteva gia'
+
+## 2.2.261 — 2026-08-31
+
+### Sotto il cofano
+- La scheda di una card in review diceva «0 file toccati» su una consegna da 4 file
+
+## 2.2.260 — 2026-08-31
+
+### Sotto il cofano
+- Le guardie che non potevano fallire adesso falliscono, e il manifesto si apre
+
+## 2.2.259 — 2026-08-31
+
+### Sotto il cofano
+- Le stats diventano righe, e la striscia densa sparisce da tutte e due gli schermi
+- Il cancello di lingua non vedeva il file nuovo: era ancora non tracciato
+
 ## 2.2.258 — 2026-08-31
 
 ### Sotto il cofano

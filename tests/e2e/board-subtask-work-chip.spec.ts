@@ -19,7 +19,7 @@
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";
 import { expect, type Page } from "@playwright/test";
-import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane, deleteTask } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, holdDispatchReconcile, resetPaneStore, resetProjectPanes, seedProjectPane, deleteTask } from "./helpers/api-fixtures";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { initGitRepo } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
@@ -126,6 +126,15 @@ test.describe("Sottotask senza agente suo · chi lo lavora", () => {
     // The parent at work with its own agent, and one step off its checklist:
     // child, in progress, NEVER dispatched — no topic, no chip. That is the
     // ambiguous shape, the one that so far said nothing.
+    // THE BRAKE FIRST, before the fake agent exists. The parent here is a bound
+    // topic with a `working` chip and no live turn, which is precisely the shape
+    // reconcile recovers after two 10s sweeps — and recovering it is CORRECT
+    // server behaviour, so the race cannot be fixed by waiting differently.
+    // Measured in a full-suite run on 2026-09-01: under load the window widened
+    // past the assertion and the row read `unattended` for 10s (14 reads) before
+    // passing on retry. The spec's own comment already named the cause; this is
+    // the brake that was built for it.
+    await holdDispatchReconcile(request, 60_000);
     const epica = await createTask(request, { text: EPICA });
     // The description makes the row OPENABLE in the tree (`openable`): it serves
     // the third step of the clip, not the signal.

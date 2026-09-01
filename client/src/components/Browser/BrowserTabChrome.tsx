@@ -66,15 +66,22 @@ export function BrowserTabIcon({ paneId, url }: { paneId: string; url: string })
     chrome?.commands.reload?.();
   }, [chrome]);
 
+  // BIGGER THAN THE OTHER TAB GLYPHS, on purpose: 16 against 14.
+  //
+  // The other tabs' 14x14 box exists to line their labels up; this slot is not
+  // a decoration but the pane's identity AND its reload button, i.e. the most
+  // pressed command of a browser, and at 14 the target was 14. The tab is 200px
+  // wide (300 when active) for a label that rarely fills it, so the two extra
+  // pixels come out of slack, not out of the address.
   return (
     <span
-      className="relative flex items-center justify-center w-3.5 h-3.5 flex-shrink-0"
+      className="relative flex items-center justify-center w-4 h-4 flex-shrink-0"
       data-testid="browser-tab-icon"
     >
       <BrowserFavicon
         url={shown}
         faviconUrl={chrome?.faviconUrl}
-        size={14}
+        size={16}
         className={canReload ? 'transition-opacity group-hover:opacity-0' : ''}
       />
       {canReload && (
@@ -88,7 +95,7 @@ export function BrowserTabIcon({ paneId, url }: { paneId: string; url: string })
           aria-label={t('browser.tab.reload')}
           data-testid="browser-tab-reload"
         >
-          <RotateCw size={12} className={chrome?.loading ? 'animate-spin' : ''} />
+          <RotateCw size={14} className={chrome?.loading ? 'animate-spin' : ''} />
         </button>
       )}
     </span>

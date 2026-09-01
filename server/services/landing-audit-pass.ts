@@ -33,7 +33,7 @@ export interface AuditWiring {
   extraPaths: () => string[];
   svc: {
     addComment(a: { taskId: string; author: string; kind?: "service"; content: string }): unknown;
-    get(id: string): { task: AuditTask & { landingState: LandingState | null } } | null | undefined;
+    get(id: string): { task: AuditTask & { landingState: LandingState | null; status?: string } } | null | undefined;
     recordLandingState(a: { taskId: string; state: LandingState; checkedAt: string }): unknown;
     listLandingAuditCandidates(): AuditTask[];
   };
@@ -134,6 +134,24 @@ function landingAuditDeps(deps: AuditWiring, listCandidates: () => AuditTask[], 
     onNewlyUnlanded: announce
       ? (task: AuditTask) => {
           try {
+            // NOT IN REVIEW, where it is the definition of the column rather
+            // than news. A card in review has, by definition, work outside main
+            // — that is what the column IS — so this note fires on every card
+            // in it, always after the delivery, and being the newest row it
+            // becomes the last thing in the thread while nobody is watching.
+            // Reported on 2026-09-01. allow-italian: «parla solo dello stato del git ma non di quello che e' successo» is the report, quoted.
+            // Measured on this board the same day: it stood as the last row of
+            // all three cards delivered that day.
+            //
+            // Demoting it to `kind: "service"` on 2026-08-18 was half the cure:
+            // a LONE service note is deliberately not folded, and on a review
+            // card it is always lone and always last. The state it announces
+            // already has a badge on the card and a band at the top of the
+            // drawer (`landingState`), which is where it belongs; the note earns
+            // its place on a card that is supposed to have LANDED, where "not on
+            // main" is a surprise.
+            const column = deps.svc.get(task.id)?.task.status;
+            if (column === "review") return;
             deps.svc.addComment({
               taskId: task.id, author: "system",
               // SERVICE, e la ragione la dichiara la riga qui sotto: lo STATO ha
