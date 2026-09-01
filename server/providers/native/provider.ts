@@ -45,6 +45,7 @@ import type {
 } from "../types";
 import { recordTurnEnd } from "../turn-end-registry";
 import { resolveClaudeEffort } from "../../lib/topics-agent-prompt";
+import { resolveClaudeModel } from "../../services/app-settings";
 import { cancelled, stopCauseFromSignal, type StopCause, type TurnEndInfo } from "../stop-reason";
 
 /**
@@ -465,7 +466,11 @@ export class NativeProvider implements AIProvider {
         ...(topics ? topicsToolSpecs(topics.profile) : []),
         ...(fleetAllowed ? mcpToolSpecs() : []),
       ];
-      const turnModel = session.model ?? this.config.model ?? DEFAULT_MODEL;
+      // `resolveClaudeModel()` si rilegge A OGNI TURNO, non solo alla costruzione:
+      // altrimenti cambiare il modello in Impostazioni non ha effetto finche' il
+      // server non riparte — che e' esattamente il difetto che `resolveClaudeCodeModel`
+      // ha gia' pagato una volta per claude-code (vedi il suo commento).
+      const turnModel = session.model ?? resolveClaudeModel() ?? this.config.model ?? DEFAULT_MODEL;
       // L'effort si rilegge a ogni turno, come l'autonomia: chi muove lo slider
       // se lo aspetta dal messaggio dopo, non dalla prossima chat.
       const turnEffort = resolveClaudeEffort(this.topicEffort(sessionKey));
