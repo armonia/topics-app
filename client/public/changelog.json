@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.264",
+    "date": "2026-09-01",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Una foto che il server si e' scattato da solo adesso DICE di esserlo",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.263",
     "date": "2026-09-01",
     "sections": {
