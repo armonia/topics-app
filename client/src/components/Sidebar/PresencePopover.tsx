@@ -23,9 +23,15 @@ import { useDismissable } from '@/hooks/useDismissable';
 import { computeMenuPosition } from '@/lib/popoverPosition';
 import { POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
 
-/** The width of the panel. The same for all three, and wider than the column:
- *  the list of people carries whole names, which the sidebar would truncate.
- *  A panel that truncates exactly like the row that opened it is no help. */
+/** The width of the panel. The default for all of them, and wider than the
+ *  column: the list of people carries whole names, which the sidebar would
+ *  truncate. A panel that truncates exactly like the row that opened it is no
+ *  help.
+ *
+ *  A PANEL MAY ASK FOR MORE, and only one does: the account panel holds two
+ *  text fields, and at this width an email address is typed into a two-word
+ *  window. The exception is a prop rather than a second constant here, so the
+ *  number stays the argument of the panel that needs it. */
 const LARGHEZZA = 244;
 
 export function PresencePopover({
@@ -34,6 +40,7 @@ export function PresencePopover({
   titolo,
   children,
   testId,
+  width = LARGHEZZA,
 }: {
   anchorEl: HTMLElement | null;
   onClose: () => void;
@@ -41,6 +48,8 @@ export function PresencePopover({
   titolo: React.ReactNode;
   children: React.ReactNode;
   testId?: string;
+  /** Wider than the default, for a panel that holds fields and not names. */
+  width?: number;
 }) {
   const pannello = useRef<HTMLDivElement>(null);
   const ancora = useRef<HTMLElement | null>(null);
@@ -55,16 +64,33 @@ export function PresencePopover({
 
   // Measure BEFORE the paint: with `useEffect` the panel would show up in the
   // top left corner for one frame and then jump into place.
+  //
+  // AND MEASURE AGAIN WHEN IT GROWS. Measuring once was right while every panel
+  // was a list that arrived complete; the account panel is not: it opens short,
+  // asks the server whether an account is linked, and gains a whole sign-in
+  // form when the answer comes back. The first measurement then belonged to a
+  // panel that no longer exists, and since these chips sit against the bottom
+  // edge the extra height went straight out of the window: measured 1280x800,
+  // the panel ended 116px below the fold, with the actions unreachable. The
+  // observer costs one call per resize and puts the flip back on the real
+  // height.
   useLayoutEffect(() => {
-    if (!anchorEl || !pannello.current) return;
-    const a = anchorEl.getBoundingClientRect();
-    const p = pannello.current.getBoundingClientRect();
-    setPos(computeMenuPosition(
-      { top: a.top, right: a.right, bottom: a.bottom, left: a.left },
-      { width: LARGHEZZA, height: p.height },
-      { align: 'left', gap: 6 },
-    ));
-  }, [anchorEl]);
+    const panel = pannello.current;
+    if (!anchorEl || !panel) return;
+    const measure = () => {
+      const a = anchorEl.getBoundingClientRect();
+      const p = panel.getBoundingClientRect();
+      setPos(computeMenuPosition(
+        { top: a.top, right: a.right, bottom: a.bottom, left: a.left },
+        { width, height: p.height },
+        { align: 'left', gap: 6 },
+      ));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [anchorEl, width]);
 
   if (!anchorEl) return null;
 
@@ -75,7 +101,7 @@ export function PresencePopover({
       role="dialog"
       className={`fixed ${POPOVER_PANEL} overflow-hidden`}
       style={{
-        width: LARGHEZZA,
+        width,
         zIndex: Z_POPOVER,
         top: pos?.top ?? 0,
         left: pos?.left ?? 0,

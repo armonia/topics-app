@@ -2,10 +2,10 @@
  * @covers APPSET-06
  */
 import { describe, test, expect } from 'bun:test';
-import { mostraSezione, chiaveErrore, CODICI_ACCOUNT, type StatoAccount } from './accountState';
+import { mostraSezione, chiaveErrore, CODICI_ACCOUNT, type AccountState } from './accountState';
 import { t, missingKeys } from '../../lib/i18n';
 
-function stato(p: Partial<StatoAccount> = {}): StatoAccount {
+function stato(p: Partial<AccountState> = {}): AccountState {
   return {
     configured: false, linked: false, accountId: null, email: null,
     personId: 'p1', personName: 'Attilio', linkedAt: null, ...p,

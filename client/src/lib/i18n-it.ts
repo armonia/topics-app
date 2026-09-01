@@ -1857,11 +1857,16 @@ const IT: Dict = {
   // because repeating the word over a card that holds one thing says nothing.
   'statusBar.orgs.title': 'Organizzazioni',
   'statusBar.orgs.alone': 'Sei l’unico membro',
-  'statusBar.friends.title': 'Persone',
-  'statusBar.friends.none': 'Non conosci ancora nessuno',
-  'statusBar.friends.noneHint': 'Chi segui e chi ti segue compare qui.',
-  'statusBar.friends.manage': 'Follower e seguiti',
+  'statusBar.friends.title': 'Amici',
+  'statusBar.friends.none': 'Non hai ancora amici',
+  'statusBar.friends.noneHint': 'Apri il profilo di una persona e chiedile l’amicizia: quando accetta, compare qui.',
+  'statusBar.friends.manage': 'Gestisci gli amici',
   'statusBar.friends.count': '{n} di {tot} online',
+  'statusBar.friends.pending': '{n} in attesa di una tua risposta',
+  // ── The panel behind the left chip: the account, not "your profile".
+  'statusBar.account.title': 'Account',
+  'statusBar.account.why': 'Serve a essere raggiunti da fuori dalla tua rete e a ritrovare le stesse persone su un’altra installazione.',
+  'statusBar.account.signIn': 'Accedi o registrati',
   // The group of absent people in the open list: their being there is not a
   // mistake, it is the reason the list gets opened at all.
   'statusBar.presence.offlineGroup': 'Non online',

@@ -72,7 +72,7 @@
  * says zero, and its panel explains where the people come from.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Bot, Building2, ChevronRight, Hourglass, ListChecks, MessagesSquare, Monitor, Smartphone, Users } from 'lucide-react';
+import { Bot, Building2, ChevronRight, Hourglass, ListChecks, MessagesSquare, Monitor, Smartphone, UserRound, Users } from 'lucide-react';
 import { subscribeSession, type SessionState } from '@/lib/auth/session';
 import { etichettaIdentita } from './identityLabel';
 import { useIdentityPresence, type OrgWithPresence } from '@/hooks/useIdentityPresence';
@@ -84,6 +84,8 @@ import { CHIP_INK_DIM, ORG_MARKS_IN_CHIP, SUBJECT_FLOOR, chipClass } from './ide
 import { PALLINO_OK, SEGNALE_ATTESA, SEGNALE_OK } from './chromeSignals';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
 import { PresencePopover } from './PresencePopover';
+import { AccountPanel } from './AccountPanel';
+import { useFriendPresence } from '@/hooks/useFriendPresence';
 import { workSignals, type SignalKind } from './workSignals';
 import { useAgentActivityCounts } from '@/state/signals';
 import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
@@ -144,7 +146,7 @@ export function IdentityBlock({ onOpenDevices }: { onOpenDevices?: () => void })
     >
       <RigaIo presenza={presenza} onOpenDevices={onOpenDevices} />
       <RowOrgs orgs={presenza.orgs} />
-      <RigaAmici online={presenza.amiciOnline} tutti={presenza.amiciTutti} totali={presenza.amiciTotali} />
+      <RigaAmici />
     </div>
   );
 }
@@ -310,66 +312,49 @@ function RigaIo({ presenza, onOpenDevices }: {
           anchorEl={chip}
           onClose={() => setAperto(false)}
           testId="identity-me-panel"
+          // WIDER THAN ITS SIBLINGS, and only this one. The other two panels
+          // hold a list of names; this one holds an email field and a code
+          // field, and at 244px an address types itself into a two-word
+          // window. The width is the panel's own argument, not a new number
+          // for the band.
+          width={288}
           titolo={
             <>
-              {chi.personale && chi.avatarUrl
-                ? <img src={chi.avatarUrl} alt="" className="h-5 w-5 flex-shrink-0 rounded-full object-cover" />
-                : <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-primary text-[9px] font-semibold leading-none text-white">{chi.iniziali || '?'}</span>}
-              <span className="truncate">{chi.nome}</span>
+              <UserRound size={12} className="flex-shrink-0 text-app-text-muted" />
+              {/* THE PANEL SAYS ITS SUBJECT, not the name that is already on
+                  the chip that opened it and on the card right below. A title
+                  bar repeating the row underneath is the "text for the sake of
+                  text" this redesign was called in to remove. */}
+              <span className="truncate">{tr('statusBar.account.title')}</span>
             </>
           }
         >
-          <div className="px-3 py-2 text-[11px]">
-            {chi.dettaglio && (
-              <Voce label={tr('statusBar.me.machine')}>
-                <Ferro size={11} className="flex-shrink-0 text-app-text-muted" />
-                <span className="truncate">{chi.dettaglio}</span>
-              </Voce>
-            )}
-            {summary && (
-              <Voce label={tr('statusBar.me.workRow')}>
-                <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${PALLINO_OK}`} />
-                <span className="truncate">{summary}</span>
-              </Voce>
-            )}
-            {/* The fleet, spelled out. On the chip it is glyphs and digits; the
-                panel is where "what is this hourglass" gets its sentence, and
-                it is the sentence the status bar used to hide in a tooltip. */}
-            {agentCounts && (agentCounts.awaitingInput > 0 || awaitingDone > 0) && (
-              <Voce label={tr('statusBar.agents.heading')}>
-                {agentCounts.awaitingInput > 0 && (
-                  <span className={`flex items-center gap-1 ${SEGNALE_ATTESA}`} title={tr('statusBar.agents.awaitingInput', { n: agentCounts.awaitingInput })}>
-                    <Hourglass size={11} />
-                    <span className="tabular-nums">{agentCounts.awaitingInput}</span>
-                  </span>
+          <AccountPanel
+            who={chi}
+            DeviceIcon={Ferro}
+            facts={{
+              device: chi.dettaglio,
+              now: summary ?? null,
+              devices: ferri ? { connected: ferri.connessi, total: ferri.totali } : null,
+              waiting: [
+                agentCounts && agentCounts.awaitingInput > 0
+                  ? tr('statusBar.agents.awaitingInput', { n: agentCounts.awaitingInput }) : '',
+                awaitingDone > 0 ? tr('statusBar.agents.toLookAt', { n: awaitingDone }) : '',
+              ].filter(Boolean),
+            }}
+            doors={
+              <>
+                <Azione onClick={() => { setAperto(false); apriProfilo('profile'); }} testId="identity-me-open-profile">
+                  {tr('statusBar.me.openProfile')}
+                </Azione>
+                {onOpenDevices && (
+                  <Azione onClick={() => { setAperto(false); onOpenDevices(); }} testId="identity-me-devices">
+                    {tr('statusBar.devicesTitle')}
+                  </Azione>
                 )}
-                {awaitingDone > 0 && (
-                  <span className={`flex items-center gap-1 ${TIER_DONE_TEXT}`} title={tr('statusBar.agents.toLookAt', { n: awaitingDone })}>
-                    <Hourglass size={11} />
-                    <span className="tabular-nums">{awaitingDone}</span>
-                  </span>
-                )}
-              </Voce>
-            )}
-            {ferri && ferri.totali > 0 && (
-              <Voce label={tr('statusBar.me.devicesRow')}>
-                <Ferro size={11} className="flex-shrink-0 text-app-text-muted" />
-                <span className="tabular-nums">
-                  {tr('statusBar.me.devicesCount', { n: ferri.connessi, tot: ferri.totali })}
-                </span>
-              </Voce>
-            )}
-          </div>
-          <div className="border-t border-app-border py-1">
-            <Azione onClick={() => { setAperto(false); apriProfilo('profile'); }} testId="identity-me-open-profile">
-              {tr('statusBar.me.openProfile')}
-            </Azione>
-            {onOpenDevices && (
-              <Azione onClick={() => { setAperto(false); onOpenDevices(); }} testId="identity-me-devices">
-                {tr('statusBar.devicesTitle')}
-              </Azione>
-            )}
-          </div>
+              </>
+            }
+          />
         </PresencePopover>
       )}
     </span>
@@ -624,26 +609,62 @@ function Logo({ org, size }: { org: OrgWithPresence; size: 3.5 | 5 }) {
  * ────────────────────────────────────────────────────────────────────────── */
 
 /**
- * WHO IS AROUND RIGHT NOW, with their face. The row stays even when nobody is,
- * because a row that shows up only with good news is a row nobody learns the
- * place of.
+ * YOUR FRIENDS, AND WHO OF THEM IS AROUND RIGHT NOW.
  *
- * WHAT IT DOES NOT SAY IS "NOBODY ONLINE". An empty row spending a whole line
- * to report an absence is a line you read once and then learn to skip, and it
- * pushed the only thing worth clicking (the way in to your friends) behind a
- * piece of bad news. With nobody around the row says its own name instead, so
- * the glyph, the label and the count stay a door: one click opens the panel,
- * which is where friends are actually managed.
+ * ── IT USED TO SAY "PEOPLE", AND THAT WAS THE DEFECT ────────────────────────
+ * This subject was fed by the ORGANISATION ADDRESS BOOK: everybody who happens
+ * to share a group with you. A list nobody chose, that fills up the day you
+ * join a group and empties the day you leave it, and that the panel then
+ * offered to "manage" on a page about followers. The app has had a real
+ * friendship graph since the friendships routes landed, and the corner of the
+ * screen that asks "who do I know" was the one place still answering with
+ * something else. Now it reads the graph (`useFriendship`), and the word on
+ * the chip is the word for the relation it draws.
+ *
+ * THE ROW STAYS AT ZERO, unchanged: a row that shows up only with good news is
+ * a row nobody learns the place of, and the person with no friends yet is the
+ * only one who needs the way in. With nobody around the chip carries its own
+ * name instead of announcing an absence.
+ *
+ * ── A REQUEST WAITING FOR YOU CHANGES THE INK, NOT THE WIDTH ────────────────
+ * Somebody asking to be your friend is the only thing in this subject that
+ * needs an answer, so it has to be visible with the panel closed. It is said
+ * by TINTING THE GLYPH with the same amber the waiting agents use, and by the
+ * tooltip: not by a fifth child in the chip. The chip already has four
+ * incompressible children against the group chip's two, and it is the one that
+ * runs out of room first at a 180px column, measured. A badge would have
+ * bought one signal by breaking the line the whole band exists for.
+ *
+ * ── AND THE REQUESTS ARE ANSWERED IN THE PANEL ──────────────────────────────
+ * Accept and decline live at the top of the dropdown, above the list. Sending
+ * a person to a page to press "accept" is the round trip the panel was built
+ * to remove, and the hook already refreshes the three lists after the gesture.
  */
-function RigaAmici({ online, tutti, totali }: {
-  online: PresenceFace[];
-  tutti: PresenceRow[];
-  totali: number;
-}) {
+function RigaAmici() {
   const tr = useT();
   const [aperto, setAperto] = useState(false);
   const [chip, setChip] = useState<HTMLButtonElement | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const { friends, incoming, accept, decline, rows: tutti, faces: online } = useFriendPresence();
+  const total = friends.length;
   const ci_sono = online.length > 0;
+  const pending = incoming.length;
+
+  const answer = useCallback(async (id: string, si: boolean) => {
+    setBusy(id);
+    try {
+      await (si ? accept(id) : decline(id));
+    } catch {
+      // The rule refused it (the request was withdrawn while the panel held
+      // it). The hook reloads on its own tick and the row corrects itself.
+    }
+    setBusy(null);
+  }, [accept, decline]);
+
+  const chipTitle = pending > 0
+    ? tr('statusBar.friends.pending', { n: pending })
+    : ci_sono ? online.map((f) => f.nome).join(', ') : tr('statusBar.friends.title');
+
   return (
     <span data-testid="identity-row-friends" className={`${SUBJECT} ${SUBJECT_FLOOR}`}>
       <button
@@ -662,11 +683,20 @@ function RigaAmici({ online, tutti, totali }: {
         // with four groups: 2px past its own right edge. This chip has FOUR
         // incompressible children (glyph, faces, count, total) against the org
         // chip's two, so it is the one of the three that actually runs out of
-        // room. The box can be innocent while the ink is not — so clip the ink.
+        // room. The box can be innocent while the ink is not, so clip the ink.
         className={`${chipClass(ci_sono)} min-w-0 justify-center overflow-hidden text-left`}
-        title={ci_sono ? online.map((f) => f.nome).join(', ') : tr('statusBar.friends.title')}
+        title={chipTitle}
       >
-        <span data-testid="identity-glyph" className={`flex ${IDENTITY_GLYPH_BOX} flex-shrink-0 items-center justify-center ${ci_sono ? SEGNALE_OK : CHIP_INK_DIM}`}>
+        {/* The glyph carries THREE states in one box and no extra width: amber
+            when somebody is waiting for your answer, lit when friends are
+            around, dim otherwise. */}
+        <span
+          data-testid="identity-glyph"
+          data-pending={pending > 0 ? 'true' : 'false'}
+          className={`flex ${IDENTITY_GLYPH_BOX} flex-shrink-0 items-center justify-center ${
+            pending > 0 ? SEGNALE_ATTESA : ci_sono ? SEGNALE_OK : CHIP_INK_DIM
+          }`}
+        >
           <Users size={IDENTITY_GLYPH_INK} />
         </span>
         {/* Faces give way FIRST: they are the only repeated child, hence the
@@ -685,7 +715,7 @@ function RigaAmici({ online, tutti, totali }: {
           <span className="flex-shrink-0 text-app-text-secondary tabular-nums">{online.length}</span>
         )}
         <span data-testid="identity-friends-total" className={`flex-shrink-0 ${CHIP_INK_DIM} tabular-nums`}>
-          {ci_sono ? `/${totali}` : totali}
+          {ci_sono ? `/${total}` : total}
         </span>
       </button>
 
@@ -699,11 +729,50 @@ function RigaAmici({ online, tutti, totali }: {
               <Users size={12} className="flex-shrink-0 text-app-text-muted" />
               <span className="truncate">{tr('statusBar.friends.title')}</span>
               <span className="ml-auto flex-shrink-0 font-normal text-app-text-muted tabular-nums">
-                {tr('statusBar.friends.count', { n: online.length, tot: totali })}
+                {tr('statusBar.friends.count', { n: online.length, tot: total })}
               </span>
             </>
           }
         >
+          {pending > 0 && (
+            <div data-testid="friends-requests" className="border-b border-app-border py-1">
+              <div className="px-3 pb-0.5 pt-1 text-[10px] uppercase tracking-wide text-app-text-muted">
+                {tr('profile.friend.incoming')}
+              </div>
+              {incoming.map((p) => (
+                <div key={p.id} className="flex items-center gap-2 px-3 py-1">
+                  <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded-full">
+                    {p.github?.avatarUrl
+                      ? <img src={p.github.avatarUrl} alt="" className="h-full w-full object-cover" />
+                      : <span className="flex h-full w-full items-center justify-center bg-primary/20 text-[8px] font-semibold leading-none text-app-text">
+                          {p.displayName.slice(0, 1).toUpperCase()}
+                        </span>}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-[11px] text-app-text">{p.displayName}</span>
+                  <button
+                    type="button"
+                    disabled={busy === p.id}
+                    onClick={() => void answer(p.id, true)}
+                    data-testid={`friend-accept-${p.id}`}
+                    title={tr('profile.friend.accept')}
+                    className="flex-shrink-0 rounded border border-primary px-1.5 py-0.5 text-[10.5px] text-primary hover:bg-primary/10 disabled:opacity-50"
+                  >
+                    {tr('profile.friend.accept')}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy === p.id}
+                    onClick={() => void answer(p.id, false)}
+                    data-testid={`friend-decline-${p.id}`}
+                    title={tr('profile.friend.decline')}
+                    className="flex-shrink-0 rounded px-1.5 py-0.5 text-[10.5px] text-app-text-tertiary hover:bg-app-hover disabled:opacity-50"
+                  >
+                    {tr('profile.friend.decline')}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <Elenco people={tutti} vuoto={tr('statusBar.friends.none')} suggerimento={tr('statusBar.friends.noneHint')} />
           <div className="border-t border-app-border py-1">
             <Azione onClick={() => { setAperto(false); apriProfilo('followers'); }} testId="friends-open-all">
@@ -830,17 +899,6 @@ function Persona({ p }: { p: PresenceRow }) {
         className={`ml-auto h-1.5 w-1.5 flex-shrink-0 rounded-full ${p.presente ? PALLINO_OK : 'bg-app-text-muted/40'}`}
       />
     </button>
-  );
-}
-
-/** A label/value pair in the identity panel. The label is what the closed row
- *  had no room to spell out. */
-function Voce({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-2 py-0.5">
-      <span className="flex-shrink-0 text-app-text-muted">{label}</span>
-      <span className="ml-auto flex min-w-0 items-center gap-1 text-app-text-secondary">{children}</span>
-    </div>
   );
 }
 

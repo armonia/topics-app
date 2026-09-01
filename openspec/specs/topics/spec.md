@@ -260,10 +260,23 @@ Il sistema DEVE:
    tre posti e cinque candidati: uno zero non occupa mai un posto, perché è il
    modo più largo di non dire niente;
 5. **dichiarare le soglie del verdetto come decisioni di prodotto**, fuori dalla
-   JSX, dove possano essere contraddette da un test.
+   JSX, dove possano essere contraddette da un test;
+6. **chiamare le cose col nome della relazione che disegnano.** Il terzo
+   soggetto sono gli AMICI, cioè il grafo delle amicizie (FRIEND-01), non la
+   rubrica di chi divide con te un'organizzazione: quella è una lista che
+   nessuno ha scelto, e chiamarla «Persone» era onesto sul dato e muto sulla
+   domanda. Una richiesta di amicizia che aspetta una risposta si vede a
+   pannello chiuso e si risponde nel pannello;
+7. **rispondere a «con quale account sono entrato».** Il primo soggetto apre un
+   pannello ACCOUNT: dice l'indirizzo con cui si è collegati e, quando non c'è
+   nessun collegamento e l'installazione ha un servizio a cui chiedere
+   (ACCOUNT-01), permette di accedere o registrarsi lì dentro, senza passare
+   dalle impostazioni. Dove un servizio degli account non c'è, il pannello non
+   ne parla affatto: il piano gratuito non è una versione mutilata di cui
+   scusarsi in un menu a tendina.
 
-> Nota: questo requisito NON introduce comportamento nuovo. Descrive ciò che
-> otto file di test già verificano, e li lega a un id perché la copertura sia
+> Nota: i punti da 1 a 5 NON introducono comportamento nuovo. Descrivono ciò che
+> otto file di test già verificano, e li legano a un id perché la copertura sia
 > auditabile invece che solo presente.
 
 #### Scenario: la fascia si spezza in due
@@ -288,6 +301,18 @@ Il sistema DEVE:
 
 - **GIVEN** il chip dei segnali con più candidati che posti
 - **WHEN** un conteggio a zero prende un posto
+- **THEN** il vincolo è violato
+
+#### Scenario: il terzo soggetto mostra i colleghi al posto degli amici
+
+- **GIVEN** una persona che divide un'organizzazione con te e non è tua amica
+- **WHEN** la sua faccia compare sul chip degli amici
+- **THEN** il vincolo è violato: quel chip disegna il grafo delle amicizie
+
+#### Scenario: nessun account collegato e nessun modo di entrare
+
+- **GIVEN** un'installazione con un servizio degli account e nessun collegamento
+- **WHEN** il pannello del primo soggetto non offre nessun modo di accedere
 - **THEN** il vincolo è violato
 
 ### Requirement: TOPIC-PREVIEW-01 — Le due gemelle della potatura hanno UNA testata sola

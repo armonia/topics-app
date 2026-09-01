@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback } from 'react';
 import { KeyRound, Mail, Unlink } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { useConfirm } from '../../hooks/useConfirm';
-import { mostraSezione, chiaveErrore, type StatoAccount } from './accountState';
+import { useAccountLink } from '../../hooks/useAccountLink';
+import { mostraSezione } from './accountState';
 
 /**
  * L'ACCOUNT: agganciare un'identità remota alla persona che è già qui.
@@ -32,81 +33,28 @@ import { mostraSezione, chiaveErrore, type StatoAccount } from './accountState';
  * frase (`chiaveErrore`). Un codice più nuovo dell'interfaccia cade su quella
  * generica: un clic che non produce niente è indistinguibile, per chi guarda,
  * da un bottone rotto.
+ *
+ * ── LO STATO NON VIVE PIÙ QUI ───────────────────────────────────────────────
+ * The link, the two steps and the refusal codes are `useAccountLink`, because
+ * the identity dropdown in the sidebar now offers the same sign-in: two copies
+ * of this flow would diverge at the first refusal code handled on one side
+ * only. This file is the drawing, and the confirmation before unlinking, which
+ * is the one thing only a surface with room for a modal can do.
  */
-type Passo = { fase: 'indirizzo' } | { fase: 'codice'; email: string };
-
 export function AccountSection() {
   const t = useT();
-  const conferma = useConfirm();
-  const [stato, setStato] = useState<StatoAccount | null>(null);
-  const [passo, setPasso] = useState<Passo>({ fase: 'indirizzo' });
-  const [email, setEmail] = useState('');
-  const [codice, setCodice] = useState('');
-  const [errore, setErrore] = useState<string | null>(null);
-  const [inCorso, setInCorso] = useState(false);
+  const askConfirm = useConfirm();
+  const {
+    state, step, email, code, error, busy,
+    setEmail, setCode, askCode, verify, back, unlink,
+  } = useAccountLink();
 
-  const carica = useCallback(async () => {
-    try {
-      const r = await fetch('/api/auth/account', { credentials: 'same-origin' });
-      setStato(r.ok ? (await r.json()) as StatoAccount : null);
-    } catch {
-      // La rotta è locale: se non risponde è il server a essere giù, e la
-      // sezione sparisce invece di mostrare uno stato inventato.
-      setStato(null);
-    }
-  }, []);
+  const signOut = useCallback(async () => {
+    if (!await askConfirm({ title: t('account.unlink'), body: t('account.unlinkConfirm') })) return;
+    await unlink();
+  }, [askConfirm, t, unlink]);
 
-  useEffect(() => { void carica(); }, [carica]);
-
-  /** Un solo posto in cui una risposta diventa «è andata» o «ecco perché no». */
-  const invia = useCallback(async (percorso: string, method: string, corpo?: unknown) => {
-    setInCorso(true);
-    setErrore(null);
-    try {
-      const r = await fetch(percorso, {
-        method,
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: corpo === undefined ? undefined : JSON.stringify(corpo),
-      });
-      const b = await r.json().catch(() => null) as { ok?: boolean; code?: string } | null;
-      if (!r.ok || b?.ok === false) {
-        setErrore(chiaveErrore(b?.code));
-        return false;
-      }
-      return true;
-    } catch {
-      setErrore(chiaveErrore('service_unreachable'));
-      return false;
-    } finally {
-      setInCorso(false);
-    }
-  }, []);
-
-  const chiediCodice = useCallback(async () => {
-    const indirizzo = email.trim();
-    if (!indirizzo) return;
-    if (await invia('/api/auth/account/code', 'POST', { email: indirizzo })) {
-      setPasso({ fase: 'codice', email: indirizzo });
-      setCodice('');
-    }
-  }, [email, invia]);
-
-  const confirmation_ = useCallback(async () => {
-    if (passo.fase !== 'codice' || !codice.trim()) return;
-    if (await invia('/api/auth/account/verify', 'POST', { email: passo.email, code: codice.trim() })) {
-      setPasso({ fase: 'indirizzo' });
-      setCodice('');
-      await carica();
-    }
-  }, [passo, codice, invia, carica]);
-
-  const scollega = useCallback(async () => {
-    if (!await conferma({ title: t('account.unlink'), body: t('account.unlinkConfirm') })) return;
-    if (await invia('/api/auth/account', 'DELETE')) await carica();
-  }, [conferma, t, invia, carica]);
-
-  if (!mostraSezione(stato) || !stato) return null;
+  if (!mostraSezione(state) || !state) return null;
 
   const campo = 'flex-1 min-w-0 rounded border border-app-border bg-app-bg px-2 py-1 text-[12px] text-app-text outline-none focus:border-app-accent';
   const bottone = 'flex-shrink-0 rounded border border-app-border px-2 py-1 text-[11px] text-app-text hover:bg-app-hover disabled:opacity-50';
@@ -119,16 +67,16 @@ export function AccountSection() {
       <p className="text-[11px] leading-relaxed text-app-text-tertiary">{t('account.blurb')}</p>
 
       <div className="space-y-2 rounded-lg border border-app-border px-3 py-2.5">
-        {stato.linked ? (
+        {state.linked ? (
           <>
             <div className="flex items-center gap-2">
               <Mail size={12} className="flex-shrink-0 text-app-text-tertiary" />
               <span className="min-w-0 flex-1 truncate text-[12px] text-app-text">
-                {t('account.linkedAs', { email: stato.email ?? '' })}
+                {t('account.linkedAs', { email: state.email ?? '' })}
               </span>
               <button
-                disabled={inCorso}
-                onClick={() => void scollega()}
+                disabled={busy}
+                onClick={() => void signOut()}
                 title={t('account.unlink')}
                 aria-label={t('account.unlink')}
                 className={bottone}
@@ -139,18 +87,18 @@ export function AccountSection() {
                 </span>
               </button>
             </div>
-            {stato.personName && (
+            {state.personName && (
               <p className="text-[11px] text-app-text-tertiary">
-                {t('account.linkedTo', { nome: stato.personName })}
+                {t('account.linkedTo', { nome: state.personName })}
               </p>
             )}
             {/* Il collegamento vale anche col servizio spento: lo si DICE, invece
                 di lasciar credere che qualcosa qui si sia rotto. */}
-            {!stato.configured && (
+            {!state.configured && (
               <p className="text-[11px] text-app-text-tertiary">{t('account.offline')}</p>
             )}
           </>
-        ) : passo.fase === 'indirizzo' ? (
+        ) : step.phase === 'address' ? (
           <div className="space-y-1.5">
             <div className="text-[11px] text-app-text-tertiary">{t('account.notLinked')}</div>
             <div className="flex gap-1.5">
@@ -158,12 +106,12 @@ export function AccountSection() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') void chiediCodice(); }}
+                onKeyDown={(e) => { if (e.key === 'Enter') void askCode(); }}
                 aria-label={t('account.emailLabel')}
                 placeholder={t('account.emailPlaceholder')}
                 className={campo}
               />
-              <button disabled={inCorso || !email.trim()} onClick={() => void chiediCodice()} className={bottone}>
+              <button disabled={busy || !email.trim()} onClick={() => void askCode()} className={bottone}>
                 {t('account.sendCode')}
               </button>
             </div>
@@ -171,27 +119,27 @@ export function AccountSection() {
         ) : (
           <div className="space-y-1.5">
             <p className="text-[11px] text-app-text-tertiary">
-              {t('account.codeSent', { email: passo.email })}
+              {t('account.codeSent', { email: step.email })}
             </p>
             <div className="flex gap-1.5">
               <input
                 autoFocus
                 inputMode="numeric"
-                value={codice}
-                onChange={(e) => setCodice(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') void confirmation_(); }}
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void verify(); }}
                 aria-label={t('account.codeLabel')}
                 placeholder={t('account.codePlaceholder')}
                 className={campo}
               />
-              <button disabled={inCorso || !codice.trim()} onClick={() => void confirmation_()} className={bottone}>
+              <button disabled={busy || !code.trim()} onClick={() => void verify()} className={bottone}>
                 <span className="flex items-center gap-1">
                   <KeyRound size={11} />
                   {t('account.confirm')}
                 </span>
               </button>
               <button
-                onClick={() => { setPasso({ fase: 'indirizzo' }); setErrore(null); }}
+                onClick={back}
                 className="flex-shrink-0 rounded px-2 py-1 text-[11px] text-app-text-tertiary hover:bg-app-hover"
               >
                 {t('account.cancel')}
@@ -200,7 +148,7 @@ export function AccountSection() {
           </div>
         )}
 
-        {errore && <p className="text-[11px] text-red-500">{t(errore)}</p>}
+        {error && <p className="text-[11px] text-red-500">{t(error)}</p>}
       </div>
 
       <p className="text-[11px] leading-relaxed text-app-text-tertiary">{t('account.footnote')}</p>

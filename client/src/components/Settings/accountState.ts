@@ -16,16 +16,16 @@
  * fallire chi ci riprova.
  */
 export { CODICI_ACCOUNT } from '../../../../shared/account';
-// Si ri-esporta `StatoAccount` e non `CodiceAccount`, che qui non ha lettori e
+// Si ri-esporta `AccountState` e non `CodiceAccount`, che qui non ha lettori e
 // non ne può avere: un codice che arriva dal filo NON è un `CodiceAccount`
 // finché non lo si è guardato — è una stringa che un server più nuovo di questa
 // interfaccia può aver inventato, ed è esattamente il caso che `chiaveErrore`
 // esiste per non lasciare muto. Tiparlo all'ingresso sarebbe dichiarare
 // impossibile la cosa da cui il modulo si difende. Chi domani volesse il tipo
 // stretto DOPO il controllo lo prende da `shared/account`, dove vive.
-export type { StatoAccount } from '../../../../shared/account';
+export type { AccountState } from '../../../../shared/account';
 import { CODICI_ACCOUNT } from '../../../../shared/account';
-import type { StatoAccount } from '../../../../shared/account';
+import type { AccountState } from '../../../../shared/account';
 
 /**
  * Si mostra la sezione?
@@ -40,7 +40,7 @@ import type { StatoAccount } from '../../../../shared/account';
  *
  * `null` (non ancora caricato) è un NO: si disegna qualcosa quando si sa cosa.
  */
-export function mostraSezione(s: StatoAccount | null): boolean {
+export function mostraSezione(s: AccountState | null): boolean {
   if (!s) return false;
   return s.configured || s.linked;
 }

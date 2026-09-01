@@ -77,6 +77,10 @@ interface Population {
   members: ReturnType<typeof member>[];
   /** The address book: this is where the client learns who YOU are. */
   people: Array<{ id: string; displayName: string; isMe: boolean }>;
+  /** Your FRIENDS, which is what the third subject draws since the friendship
+   *  graph replaced the organisation address book behind it. `lastSeenAt` is
+   *  what makes a face appear on the closed chip. */
+  friends: Array<{ id: string; displayName: string; lastSeenAt: number | null }>;
 }
 
 /**
@@ -125,6 +129,28 @@ async function stubIdentity(page: Page, population: Population): Promise<void> {
       }) }));
   await page.route("**/api/people/*/follow*", (r) =>
     r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ people: [] }) }));
+  // The friendship graph: three lists from one read, the shape `friendsApi`
+  // expects. Unrouted it would reach the real server, which knows none of
+  // these ids, and the third subject would measure an empty chip while the
+  // test believed it was measuring a full one.
+  await page.route("**/api/friendships", (r) =>
+    r.fulfill({ status: 200, contentType: "application/json",
+      body: JSON.stringify({
+        friends: population.friends.map((p) => ({
+          email: null,
+          githubLogin: null,
+          github: null,
+          stats: null,
+          isMe: false,
+          counts: null,
+          viewerFollows: false,
+          followsViewer: false,
+          since: 0,
+          ...p,
+        })),
+        incoming: [],
+        outgoing: [],
+      }) }));
   // THE WORST CASE FOR THE LINE, not a quiet machine. Three signals is the cap
   // `workSignals` enforces, so this is the widest the "me" chip can ever get,
   // which is exactly the pressure the 180px column has to survive.
@@ -153,6 +179,13 @@ function populated(orgCount: number): Population {
       { id: "b", displayName: "Bruno", isMe: false },
       { id: "c", displayName: "Carla", isMe: false },
     ],
+    // Two friends here now and one who is not: the same pressure the chip used
+    // to get from the organisation members, on the relation it actually names.
+    friends: [
+      { id: "a", displayName: "Anna", lastSeenAt: now - 30_000 },
+      { id: "b", displayName: "Bruno", lastSeenAt: now - 60_000 },
+      { id: "c", displayName: "Carla", lastSeenAt: now - 3_600_000 },
+    ],
   };
 }
 
@@ -162,6 +195,7 @@ function alone(): Population {
     orgs: [],
     members: [],
     people: [{ id: "io", displayName: "Utente Locale", isMe: true }],
+    friends: [],
   };
 }
 

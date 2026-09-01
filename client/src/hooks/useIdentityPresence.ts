@@ -1,12 +1,17 @@
 /**
- * WHO YOU ARE, WHO YOU ARE WITH, WHO IS HERE NOW: one source for three rows.
+ * WHO YOU ARE AND WHO YOU ARE WITH: one source for the two subjects that read
+ * the same data.
  *
- * The three rows at the bottom of the sidebar ask different questions but read
- * the SAME data: the organisations, their members with the last access, the
- * address book with the faces. Three components fetching all of that on their
- * own would be three network round trips for one network round trip, and three
- * different instants: the org row would say "2 online" while the friends row
- * shows three, and neither of the two would be wrong.
+ * The identity chip and the organisations chip ask different questions off the
+ * SAME reads: the organisations, their members with the last access, the
+ * address book with the faces. Two components fetching all of that on their own
+ * would be two round trips for one, and two different instants.
+ *
+ * THE FRIENDS SUBJECT IS NOT HERE ANY MORE. It used to be computed from these
+ * very lists, which is what made it "everyone who shares a group with you"
+ * rather than your friends. It reads the friendship graph now
+ * (`useFriendship`), on its own timer, and this hook stopped publishing the
+ * three `amici*` fields nobody could have made honest.
  *
  * HOW OFTEN. One minute, exactly as the identity row did before this hook: the
  * online threshold is five minutes (`PRESENZA_MS`), so recounting more often
@@ -22,7 +27,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { peopleApi, type PersonWithProfile } from '@/lib/api';
 import {
-  facceOnline, mergeFaces, presentiOra, gentePresenza, mergePeople,
+  facceOnline, presentiOra, gentePresenza,
   type PresenceFace, type MembroPresenza, type PresenceRow,
 } from '@/components/Sidebar/orgPresence';
 
@@ -46,21 +51,13 @@ export interface OrgWithPresence {
 export interface PresenceIdentity {
   /** The organisations, the installation's own one first. */
   orgs: OrgWithPresence[];
-  /** Who is online now, across all your organisations, with no repeats. */
-  amiciOnline: PresenceFace[];
-  /** How many people you know in total, you excluded: the friends denominator. */
-  amiciTotali: number;
-  /** Everyone you know, present first: the list behind the friends dropdown. */
-  amiciTutti: PresenceRow[];
   /** Me, from the address book: the face and the name on the first row. */
   io: PersonWithProfile | null;
   /** `false` until the first round trip is back, so the rows do not flicker. */
   pronto: boolean;
 }
 
-const EMPTY: PresenceIdentity = {
-  orgs: [], amiciOnline: [], amiciTotali: 0, amiciTutti: [], io: null, pronto: false,
-};
+const EMPTY: PresenceIdentity = { orgs: [], io: null, pronto: false };
 
 /** Every minute: the online threshold is five, so recounting more often
  *  changes nothing and costs one fetch per organisation. */
@@ -123,17 +120,7 @@ export function useIdentityPresence(enabled = true, intervalMs = INTERVAL_MS): P
       };
     }));
 
-    setStato({
-      orgs: withMembers,
-      amiciOnline: mergeFaces(withMembers.map((o) => o.faces)),
-      // The address book IS the friends list (the people in your
-      // organisations): it is the very same list the "Friends" page opens, so
-      // the number here and the rows over there cannot diverge.
-      amiciTotali: rubrica.filter((p) => !p.isMe).length,
-      amiciTutti: mergePeople(withMembers.map((o) => o.people)),
-      io,
-      pronto: true,
-    });
+    setStato({ orgs: withMembers, io, pronto: true });
   }, []);
 
   useEffect(() => {

@@ -670,13 +670,7 @@
       "capSezione"
     ],
     "client/src/components/Settings/AccountSection.tsx": [
-      "StatoAccount",
-      "bottone",
-      "chiediCodice",
-      "conferma",
-      "indirizzo",
-      "invia",
-      "scollega"
+      "bottone"
     ],
     "client/src/components/Settings/DevicesSection.tsx": [
       "attivi",
@@ -750,7 +744,6 @@
       "vivo"
     ],
     "client/src/components/Settings/accountState.test.ts": [
-      "StatoAccount",
       "buchiEn",
       "buchiIt",
       "chiave",
@@ -912,7 +905,6 @@
       "MAX_FACCE_ORG",
       "RigaAmici",
       "RigaIo",
-      "Voce",
       "assenti",
       "chiedi",
       "ci_sono",
@@ -5775,8 +5767,7 @@
     ],
     "shared/account.ts": [
       "CODICI_ACCOUNT",
-      "CodiceAccount",
-      "StatoAccount"
+      "CodiceAccount"
     ],
     "shared/auth-codes.ts": [
       "CODICI_AUTH",

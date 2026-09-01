@@ -41,6 +41,7 @@ async function stubIdentity(
   membri: ReturnType<typeof membro>[],
   ioId = "io",
   rubrica: Array<{ id: string; displayName: string; isMe: boolean }> = [{ id: "io", displayName: "Io", isMe: true }],
+  amici: Array<{ id: string; displayName: string; lastSeenAt: number | null }> = [],
 ) {
   // The shape is the REAL one of the route (`refreshSession` in
   // lib/auth/session.ts): `paired` plus `as` plus `name`, not an already chewed
@@ -89,6 +90,54 @@ async function stubIdentity(
   await page.route("**/api/auth/orgs/*/members", (r) =>
     r.fulfill({ status: 200, contentType: "application/json",
       body: JSON.stringify({ members: membri }) }));
+  // THE FRIENDS SUBJECT READS THE GRAPH, not these members any more. It used
+  // to be computed from the organisation address book, which is why it was
+  // labelled "People": the two are stubbed apart here because they are two
+  // different questions, and a test that fed one from the other could no
+  // longer tell them apart.
+  await page.route("**/api/friendships", (r) =>
+    r.fulfill({ status: 200, contentType: "application/json",
+      body: JSON.stringify({
+        friends: amici.map((p) => ({
+          email: null,
+          githubLogin: null,
+          github: null,
+          stats: null,
+          isMe: false,
+          counts: null,
+          viewerFollows: false,
+          followsViewer: false,
+          since: 0,
+          ...p,
+        })),
+        incoming: [],
+        outgoing: [],
+      }) }));
+}
+
+/**
+ * A SHOT OF THE PANEL AND OF THE BAND THAT OPENED IT, and nothing else.
+ *
+ * A full-page screenshot of a panel 288px wide is 95% of a window nobody is
+ * looking at, and at card size it becomes an unreadable grey rectangle. The
+ * clip takes the panel plus a margin, and stays wider than it is tall so the
+ * board crops nothing off the bottom.
+ */
+async function clipShot(page: Page, panel: ReturnType<Page["getByTestId"]>, path: string) {
+  const box = await panel.boundingBox();
+  expect(box).not.toBeNull();
+  const width = Math.min(760, Math.max(660, Math.round(box!.x + box!.width + 40)));
+  // Landscape on purpose: a card crops the excess off the BOTTOM, so a shot
+  // taller than 0.70 of its width loses the part that was the point.
+  const height = Math.round(width * 0.66);
+  // The panel sits against the bottom of the window, so the clip is anchored to
+  // its lower edge and grows upwards. Anchoring it to the top would cut the
+  // actions off exactly when the panel is at its tallest.
+  const y = Math.max(0, Math.round(box!.y + box!.height + 20 - height));
+  // The whole point of the shot is the panel: if it does not fit, the numbers
+  // are wrong and the test says so instead of writing a cropped picture.
+  expect(box!.height + 40).toBeLessThanOrEqual(height);
+  await page.screenshot({ path, clip: { x: 0, y, width, height } });
 }
 
 test.describe("presence dell'organizzazione, a schermo", () => {
@@ -190,6 +239,11 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     ], "io", [
       { id: "io", displayName: "Io", isMe: true },
       { id: "a", displayName: "Anna Rossi", isMe: false },
+    ], [
+      // A FRIEND, and not merely a colleague: since the subject reads the
+      // friendship graph, sharing a group with somebody no longer puts their
+      // face on this chip. That is the whole point of the change.
+      { id: "a", displayName: "Anna Rossi", lastSeenAt: ora - 30_000 },
     ]);
     await page.goto("/");
 
@@ -392,7 +446,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     }
   });
 
-  test("PRESENCE-07: senza nessuno la riga amici resta, dice «Persone» e zero", async ({ page }) => {
+  test("PRESENCE-07: senza nessuno la riga amici resta, dice «Amici» e zero", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
     // It used to disappear. A row that exists only when it has good news
     // leaves "but where are the friends?" unanswered for the very person who
@@ -406,13 +460,155 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await expect(page.getByTestId("identity-friends-total")).toHaveText("0");
     // But it does not say so with bad news: at zero the row carries its own
     // name, not "nobody online".
-    await expect(amici).toContainText("Persone");
+    await expect(amici).toContainText("Amici");
     await expect(amici).not.toContainText("Nessuno online");
-    // And the panel explains where the people come from, instead of being empty.
+    // And the panel explains where friends come from, instead of being empty.
     await page.getByTestId("identity-friends-chip").click();
     // The panel still answers "where do these people come from", which is the
-    // point of the assertion; it just answers it in the follower model now,
-    // where the old copy said "organisations".
-    await expect(page.getByTestId("friends-panel")).toContainText("Chi segui e chi ti segue");
+    // point of the assertion; it answers it in the friendship model now, where
+    // the copy used to talk about followers.
+    await expect(page.getByTestId("friends-panel")).toContainText("chiedile l’amicizia");
+  });
+  /**
+   * A COLLEAGUE IS NOT A FRIEND, and the chip has to know the difference.
+   *
+   * This is the regression the whole change is about: before it, the third
+   * subject was fed by the organisation address book, so anybody sharing a
+   * group with you appeared as one of "your people". The stub here gives an
+   * organisation with a member who is online and NO friendship at all: the
+   * chip must say zero and show no face.
+   */
+  test("BAND-01: un collega online non è un amico, e il chip non lo conta", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
+    const ora = Date.now();
+    await stubIdentity(page, [
+      membro("io", "Io", ora),
+      membro("a", "Anna", ora - 30_000),
+    ], "io", [
+      { id: "io", displayName: "Io", isMe: true },
+      { id: "a", displayName: "Anna Rossi", isMe: false },
+    ], []);
+    await page.goto("/");
+
+    const amici = page.getByTestId("identity-row-friends");
+    await expect(amici).toBeVisible({ timeout: 20000 });
+    await expect(page.getByTestId("identity-friends-total")).toHaveText("0");
+    await expect(amici.getByTestId("presence-face")).toHaveCount(0);
+    // The colleague is still there, in the subject that is about groups.
+    await expect(page.getByTestId("org-chip").getByTestId("presence-face")).toHaveCount(1);
+  });
+
+  /**
+   * A REQUEST WAITING FOR YOU IS ANSWERED WHERE YOU SEE IT.
+   *
+   * Sending somebody to a page to press "accept" is the round trip the panel
+   * exists to remove. Closed, the chip says it with the ink of its glyph,
+   * which is the only signal that costs no width on a line that has none.
+   */
+  test("BAND-02: una richiesta di amicizia si vede sul chip e si accetta dal pannello", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
+    const ora = Date.now();
+    await stubIdentity(page, [membro("io", "Io", ora)], "io", [
+      { id: "io", displayName: "Io", isMe: true },
+    ], []);
+    // The incoming list, on top of the empty graph the helper installed.
+    await page.route("**/api/friendships", (r) =>
+      r.fulfill({ status: 200, contentType: "application/json",
+        body: JSON.stringify({
+          friends: [],
+          incoming: [{
+            id: "b", displayName: "Bruno Verdi", email: null, githubLogin: null, github: null,
+            stats: null, isMe: false, counts: null, viewerFollows: false, followsViewer: false,
+            lastSeenAt: null, since: ora,
+          }],
+          outgoing: [],
+        }) }));
+    let accepted = false;
+    await page.route("**/api/people/b/friend/accept", (r) => {
+      accepted = true;
+      return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ state: "friends" }) });
+    });
+    await page.goto("/");
+
+    const glyph = page.getByTestId("identity-row-friends").getByTestId("identity-glyph");
+    await expect(glyph).toHaveAttribute("data-pending", "true", { timeout: 20000 });
+
+    await page.getByTestId("identity-friends-chip").click();
+    await expect(page.getByTestId("friends-requests")).toContainText("Bruno Verdi");
+    await clipShot(page, page.getByTestId("friends-panel"), join(SHOTS, "pannello-amici.png"));
+    await page.getByTestId("friend-accept-b").click();
+    await expect.poll(() => accepted).toBe(true);
+  });
+
+  /**
+   * THE ACCOUNT PANEL, on an installation that has a service and no link.
+   *
+   * The two steps happen inside the dropdown: this is the whole point of the
+   * change, and until it landed the only way in was three clicks deep in
+   * Settings, on a page you had to already know about.
+   */
+  test("BAND-03: il pannello del primo chip è l'account, e da lì si accede", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
+    await stubIdentity(page, [membro("io", "Io", Date.now())], "io", [
+      { id: "io", displayName: "Io", isMe: true },
+    ], []);
+    await page.route("**/api/auth/account", (r) =>
+      r.fulfill({ status: 200, contentType: "application/json",
+        body: JSON.stringify({
+          configured: true, linked: false, accountId: null, email: null,
+          personId: "io", personName: "Io", linkedAt: null,
+        }) }));
+    let asked: string | null = null;
+    await page.route("**/api/auth/account/code", (r) => {
+      asked = (r.request().postDataJSON() as { email: string }).email;
+      return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });
+    });
+    await page.goto("/");
+
+    await page.getByTestId("identity-me-profile").click();
+    const panel = page.getByTestId("identity-me-panel");
+    await expect(panel).toBeVisible({ timeout: 20000 });
+    // The panel says its subject, and says that nobody is signed in.
+    await expect(panel).toContainText("Account");
+    await expect(panel.getByTestId("account-line")).toContainText("Nessun account");
+
+    await panel.getByTestId("account-email").fill("qualcuno@example.test");
+    await panel.getByTestId("account-send-code").click();
+    await expect.poll(() => asked).toBe("qualcuno@example.test");
+    // Second step, in the same panel: the code field replaces the address one
+    // and the panel never closed.
+    await expect(panel.getByTestId("account-code")).toBeVisible();
+    // Back to step one for the shot: the address field is the state that shows
+    // what the panel now offers, and the code step only makes sense after it.
+    await panel.getByText("Annulla").click();
+    await expect(panel.getByTestId("account-email")).toBeVisible();
+    await clipShot(page, panel, join(SHOTS, "pannello-account.png"));
+  });
+
+  /**
+   * AND WITH NO ACCOUNT SERVICE THE PANEL DOES NOT MENTION ACCOUNTS.
+   *
+   * The free plan is the product, not a mutilated version to apologise for in
+   * a dropdown: no form, and no "not available here" either.
+   */
+  test("BAND-04: senza servizio degli account il pannello non ne parla", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
+    await stubIdentity(page, [membro("io", "Io", Date.now())], "io", [
+      { id: "io", displayName: "Io", isMe: true },
+    ], []);
+    await page.route("**/api/auth/account", (r) =>
+      r.fulfill({ status: 200, contentType: "application/json",
+        body: JSON.stringify({
+          configured: false, linked: false, accountId: null, email: null,
+          personId: "io", personName: "Io", linkedAt: null,
+        }) }));
+    await page.goto("/");
+
+    await page.getByTestId("identity-me-profile").click();
+    const panel = page.getByTestId("identity-me-panel");
+    await expect(panel).toBeVisible({ timeout: 20000 });
+    await expect(panel.getByTestId("account-signin")).toHaveCount(0);
+    // The way to your own profile stays, which is what the panel had before.
+    await expect(panel.getByTestId("identity-me-open-profile")).toBeVisible();
   });
 });
