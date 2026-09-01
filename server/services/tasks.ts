@@ -1712,15 +1712,27 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     try {
       const rows = db.query(
         `SELECT task_id, content FROM (
-           SELECT c.task_id AS task_id, c.content AS content,
+           SELECT c.task_id AS task_id, c.content AS content, c.created_at AS asked_at,
+                  t.in_progress_at AS turn_started,
                   row_number() OVER (
                     PARTITION BY c.task_id ORDER BY c.created_at DESC, c.rowid DESC) AS rn
              FROM task_comments c
+             JOIN tasks t ON t.id = c.task_id
             WHERE c.task_id IN (SELECT value FROM json_each(?))
               AND COALESCE(c.kind, 'comment') NOT IN ('status', 'service')
               AND ${SQL_PAROLA} = 1
-         ) WHERE rn = 1`,
+         ) WHERE rn = 1
+             AND (turn_started IS NULL OR asked_at > turn_started)`,
       ).all(idParam(ids)) as Array<{ task_id: string; content: string | null }>;
+      // A QUESTION BELONGS TO ITS TURN, and dies with it.
+      //
+      // Without the `asked_at > turn_started` guard the card kept claiming your
+      // attention over a question whose turn had been dead for 36 hours: a fresh
+      // agent was dispatched on top of it and working, and the board still read
+      // "waiting on you". Reported the moment it shipped, and it is the same
+      // staleness `parked-question.ts` already guards for the parked-children
+      // variant.
+      //
       // The SAME predicate the dispatcher uses to pick the end-of-turn chip: a
       // fence it cannot read counts as a question, never as a delivery.
       for (const r of rows) if (commentAsksHuman(r.content)) out.add(r.task_id);

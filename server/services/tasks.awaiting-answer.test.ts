@@ -48,6 +48,18 @@ describe("awaitingAnswer: la domanda senza risposta arriva sulla card", () => {
     }
   });
 
+  test("una domanda di un turno MORTO non trattiene: e' ripartito un agente sopra", () => {
+    const t = s.create({ projectId: PID, text: "lavoro" });
+    s.update({ taskId: t.id, actor: "human", by: "u", patch: { status: "in_progress" } });
+    ask(s, t.id);
+    expect(readBack(s, t.id).awaitingAnswer).toBe(true);
+    // A NEW turn starts after the question: that one belonged to the dead turn,
+    // so the card is not waiting on anybody - it is being worked.
+    db.prepare("UPDATE tasks SET in_progress_at = ? WHERE id = ?")
+      .run(new Date(Date.now() + 60_000).toISOString(), t.id);
+    expect(readBack(s, t.id).awaitingAnswer).toBe(false);
+  });
+
   test("la risposta spegne l'attesa: l'ultima parola non e' piu' la domanda", () => {
     const t = s.create({ projectId: PID, text: "lavoro" });
     s.update({ taskId: t.id, actor: "human", by: "u", patch: { status: "in_progress" } });

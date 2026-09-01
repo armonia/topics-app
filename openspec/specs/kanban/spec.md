@@ -2006,6 +2006,16 @@ Le righe di SERVIZIO e di TRANSIZIONE NON SHALL coprire la domanda: ne arriva
 una a ogni giro e sono proprio cio' che seppelliva l'ultima parola vera. Una
 consegna che offre soltanto azioni di board NON SHALL contare come domanda.
 
+Una domanda APPARTIENE al suo turno. Se un turno NUOVO e' cominciato dopo che la
+domanda e' stata posta, quella domanda NON SHALL piu' trattenere: il turno che
+l'aveva posta e' morto, e un agente sta gia' lavorando sopra. Senza questa
+guardia la card reclamava la tua attenzione sopra una domanda vecchia di 36 ore
+mentre un agente nuovo lavorava — segnalato appena messo in produzione.
+
+#### Scenario: una domanda di un turno morto
+- **GIVEN** una domanda posta PRIMA dell'inizio del turno in corso
+- **THEN** il task NON SHALL dichiararsi in attesa di una persona
+
 #### Scenario: un turno fermo su una domanda, in Todo o in corso
 - **GIVEN** un task in `todo` o `in_progress` la cui ultima parola e' una domanda
 - **THEN** il task SHALL dichiararsi in attesa di una persona
