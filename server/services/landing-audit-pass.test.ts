@@ -79,6 +79,8 @@ afterAll(() => rmSync(repo, { recursive: true, force: true }));
 /** La card come la vede il servizio task, con lo stato che l'audit riscrive. */
 interface FakeCard extends AuditTask {
   landingState: LandingState | null;
+  /** The column: decides whether off-main is news or the definition. */
+  status?: string;
 }
 
 interface Banco {
@@ -164,6 +166,31 @@ describe("l'audit annuncia i verdetti che cambiano", () => {
     // annunciava il suo commento), il primo e' quello che mancava.
     expect(b.annunci).toHaveLength(2);
     expect(b.annunci.every((a) => a.type === "task:updated" && a.projectId === boardId)).toBe(true);
+    expect(b.annunci[0]!.task?.landingState).toBe("unlanded");
+  });
+
+  test("in REVIEW the note is not written: there, off-main IS the column", async () => {
+    // Reported on 2026-09-01. allow-italian: «parla solo dello stato del git ma non di quello che e' successo» is the report, quoted.
+    // A card in review has, by definition, work outside main, so this note
+    // fired on every card in that column, always after the delivery — and being
+    // the newest row it was the last thing in the thread. Measured the same day
+    // on this board: it stood last on all three cards delivered that day.
+    //
+    // The STATE is still written: it is the badge on the card and the band at
+    // the top of the drawer. What goes away is only the row in the thread.
+    const b = banco({
+      id: "in-review", status: "review",
+      deliveryBranch: "topics/fuori", deliveryCommit: commitOutside, landingState: null,
+    });
+
+    const esito = await runLandingAudit(b.wiring);
+
+    expect(esito!.unlanded).toBe(1);
+    expect(b.card.landingState).toBe("unlanded");
+    expect(b.commenti).toHaveLength(0);
+    // One frame only: the state's. With no comment there is no second
+    // broadcast.
+    expect(b.annunci).toHaveLength(1);
     expect(b.annunci[0]!.task?.landingState).toBe("unlanded");
   });
 
