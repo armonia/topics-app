@@ -1262,10 +1262,18 @@ export function TopicTree({
           // La classe dichiara mezzo passo per lato e il rendering ne dava uno
           // solo: una spaziatura giusta nel codice e sbagliata sullo schermo.
           <div className="flex flex-col">
+            {/* ONE LEVEL = ONE STEP. These rows are one nesting level under the
+                project header, so they pay ONE {@link SIDEBAR_INDENT_STEP} and
+                not two. Measured before this change: the project row started at
+                6px and its tabs at 6 + 2×16 = 38, i.e. 32px of indent for a
+                single level, while the same tabs under a pinned tile and the
+                sub-agents of a terminal pay 16. Two of the three surfaces that
+                draw the SAME nesting disagreed, and the extra step read as air
+                nobody had asked for on the left of the names. */}
             {children.map(child => {
-              if (child.type === 'chat') return renderChatItem(child, 2);
-              if (child.type === 'terminal') return renderTerminalItem(child, 2);
-              if (child.type === 'browser') return renderBrowserItem(child, 2);
+              if (child.type === 'chat') return renderChatItem(child, 1);
+              if (child.type === 'terminal') return renderTerminalItem(child, 1);
+              if (child.type === 'browser') return renderBrowserItem(child, 1);
               return null;
             })}
           </div>
@@ -1277,7 +1285,10 @@ export function TopicTree({
           if (!activeTopicId || (!isProjectOpen && !isProjectFocused)) return null;
           const activeChild = children.find(c => c.id === activeTopicId);
           if (!activeChild || activeChild.type !== 'chat') return null;
-          return renderChatItem(activeChild, 2);
+          // Same one-step indent as the expanded accordion above: this row is
+          // the same child, shown while the accordion is closed, and it must
+          // not jump sideways when the project opens.
+          return renderChatItem(activeChild, 1);
         })()}
       </div>
     );

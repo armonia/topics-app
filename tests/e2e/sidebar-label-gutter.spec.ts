@@ -216,8 +216,20 @@ test.describe("sidebar: the air left of a label", () => {
     expect(
       step,
       `the nested chat is indented ${step}px, less than the one declared step of ` +
-        `${SIDEBAR_INDENT_STEP}px (it renders two steps in, so ${2 * SIDEBAR_INDENT_STEP} is the ` +
-        `expected value). The hierarchy stopped being readable. ` + situation,
+        `${SIDEBAR_INDENT_STEP}px (it sits ONE level under its project row, so ` +
+        `${SIDEBAR_INDENT_STEP} is the expected value). The hierarchy stopped being ` +
+        `readable. ` + situation,
     ).toBeGreaterThanOrEqual(SIDEBAR_INDENT_STEP - 1);
+
+    // ONE LEVEL = ONE STEP, and this is the side that was red before card
+    // 1c8fd103: the project's tabs were drawn at depth 2, so a single nesting
+    // level cost 32px and the names carried air nobody had asked for. The
+    // upper bound is what keeps a "let's indent it a bit more" from coming
+    // back as a second step.
+    expect(
+      step,
+      `the nested chat is indented ${step}px: more than ONE step of ${SIDEBAR_INDENT_STEP}px ` +
+        `for ONE nesting level. ` + situation,
+    ).toBeLessThan(2 * SIDEBAR_INDENT_STEP);
   });
 });
