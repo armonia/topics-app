@@ -70,6 +70,41 @@ interface RpcError {
 }
 
 /**
+ * How an http connection gets an `Authorization` header, when the server wants one.
+ *
+ * An INTERFACE and not a direct import of `mcp-oauth.ts`, so this file keeps
+ * knowing only how to speak the protocol: the fleet is what decides that a
+ * given server signs in, and a transport that reached into a token store would
+ * be impossible to exercise without one.
+ */
+export interface McpAuthProvider {
+  /** The header value to send, or null when nothing is stored for this server. */
+  header(): Promise<string | null>;
+  /** Spend the refresh token and answer with the new header value, or null. */
+  refreshed(): Promise<string | null>;
+}
+
+/**
+ * The server will not talk to us until somebody signs in.
+ *
+ * TYPED, because the fleet has to tell this apart from every other reason a
+ * mount fails. "Not answering" and "waiting for you to sign in" are two
+ * different sentences on screen with two different next moves, and a `401`
+ * buried in a string is a distinction the panel cannot make.
+ *
+ * `challenge` is the raw `www-authenticate` value. It names the resource
+ * metadata document and the scopes, and it carries no credential of any kind.
+ */
+export class McpAuthorizationRequiredError extends Error {
+  readonly challenge: string | null;
+  constructor(method: string, challenge: string | null) {
+    super(`${method}: authorization required`);
+    this.name = "McpAuthorizationRequiredError";
+    this.challenge = challenge;
+  }
+}
+
+/**
  * Did the server say its tool list can change while it runs?
  *
  * Shared by both transports because it reads the same handshake answer: the
@@ -163,23 +198,51 @@ class HttpMcpConnection implements McpConnection {
   constructor(
     private readonly url: string,
     private readonly headers: Record<string, string>,
+    private readonly auth: McpAuthProvider | null = null,
   ) {}
 
-  private async send(method: string, params?: unknown, timeoutMs = CALL_TIMEOUT_MS): Promise<unknown> {
-    const id = this.nextId++;
-    const res = await fetch(this.url, {
+  /**
+   * One POST, with the headers in the order that keeps today's behaviour.
+   *
+   * The configured `headers` are spread LAST on purpose. Somebody who pasted
+   * their own `Authorization` into `~/.claude.json` is describing a server that
+   * works that way, and an OAuth token we happen to hold must not quietly
+   * replace it.
+   */
+  private post(id: number, method: string, params: unknown, timeoutMs: number, auth: string | null): Promise<Response> {
+    return fetch(this.url, {
       method: "POST",
       headers: {
         "content-type": "application/json",
         accept: "application/json, text/event-stream",
         ...(this.sessionId ? { "mcp-session-id": this.sessionId } : {}),
+        ...(auth ? { authorization: auth } : {}),
         ...this.headers,
       },
       body: JSON.stringify(rpcMessage(id, method, params)),
       signal: AbortSignal.timeout(timeoutMs),
     });
+  }
+
+  private async send(method: string, params?: unknown, timeoutMs = CALL_TIMEOUT_MS): Promise<unknown> {
+    const id = this.nextId++;
+    let res = await this.post(id, method, params, timeoutMs, this.auth ? await this.auth.header() : null);
+    // ONE refresh and ONE retry. An access token that died mid-session is the
+    // ordinary case and must not cost a mount; a second failure means the
+    // refresh token is spent too, and retrying that in a loop would only spend
+    // the rate limit of an endpoint that has already said no.
+    if (res.status === 401 && this.auth) {
+      // The unread body of the refused answer holds the socket open otherwise.
+      try { await res.body?.cancel(); } catch { /* already drained */ }
+      const refreshed = await this.auth.refreshed();
+      if (refreshed) res = await this.post(id, method, params, timeoutMs, refreshed);
+    }
     const sid = res.headers.get("mcp-session-id");
     if (sid) this.sessionId = sid;
+    if (res.status === 401) {
+      try { await res.body?.cancel(); } catch { /* already drained */ }
+      throw new McpAuthorizationRequiredError(method, res.headers.get("www-authenticate"));
+    }
     if (!res.ok) throw new Error(`${method}: HTTP ${res.status}`);
     const contentType = res.headers.get("content-type") || "";
     const answer = contentType.includes("text/event-stream")
@@ -192,12 +255,16 @@ class HttpMcpConnection implements McpConnection {
   /** A notification: no id, no answer, and a body we must not try to parse. */
   private async notify(method: string): Promise<void> {
     try {
+      // Authenticated like every other message: a server that rejects an
+      // anonymous notification would otherwise never see us finish the handshake.
+      const auth = this.auth ? await this.auth.header() : null;
       await fetch(this.url, {
         method: "POST",
         headers: {
           "content-type": "application/json",
           accept: "application/json, text/event-stream",
           ...(this.sessionId ? { "mcp-session-id": this.sessionId } : {}),
+          ...(auth ? { authorization: auth } : {}),
           ...this.headers,
         },
         body: JSON.stringify({ jsonrpc: "2.0", method }),
@@ -377,7 +444,11 @@ class StdioMcpConnection implements McpConnection {
  * shows next to a server that is not there, and "connection refused" tells the
  * person what to do while "false" does not.
  */
-export async function connectMcpServer(name: string, def: McpServerDef): Promise<McpConnection> {
+export async function connectMcpServer(
+  name: string,
+  def: McpServerDef,
+  auth: McpAuthProvider | null = null,
+): Promise<McpConnection> {
   const d = def as {
     type?: string;
     url?: string;
@@ -389,7 +460,7 @@ export async function connectMcpServer(name: string, def: McpServerDef): Promise
   const kind = d.type || (d.url ? "http" : "stdio");
   if (kind === "http" || kind === "sse") {
     if (!d.url) throw new Error(`server '${name}': type '${kind}' without a url`);
-    const conn = new HttpMcpConnection(d.url, d.headers ?? {});
+    const conn = new HttpMcpConnection(d.url, d.headers ?? {}, auth);
     await conn.connect();
     return conn;
   }

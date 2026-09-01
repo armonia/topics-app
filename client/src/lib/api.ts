@@ -1411,6 +1411,22 @@ export const mcpApi = {
   async refresh(): Promise<McpFleetStatus> {
     return request<McpFleetStatus>('/mcp/fleet/refresh', { method: 'POST' });
   },
+
+  /**
+   * Begin the OAuth sign-in for one server, and answer with where to send the
+   * person.
+   *
+   * It does NOT wait for the sign-in: the server keeps a loopback listener open
+   * for that, re-mounts the fleet when the person comes back, and the panel
+   * learns about it from `fleet()` like it learns about everything else. There
+   * is deliberately no second endpoint to ask "am I signed in yet".
+   */
+  async startOauth(server: string): Promise<{ authorizeUrl: string }> {
+    return request<{ authorizeUrl: string }>('/mcp/oauth/start', {
+      method: 'POST',
+      body: JSON.stringify({ server }),
+    });
+  },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

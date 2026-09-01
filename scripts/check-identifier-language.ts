@@ -177,6 +177,16 @@ export const PROJECT_WORDS = new Set([
   "tooltip", "dropdown", "popover", "checkbox", "placeholder", "viewport",
   "scrollbar", "sidebar", "keyframe", "keyframes", "flex", "grid", "svg", "png",
   "jpg", "webm", "gif", "pdf", "blob", "cors", "csrf", "xhr", "oauth", "jwt",
+  // The rest of the OAuth vocabulary, arrived with the sign-in for remote MCP
+  // servers (`server/providers/native/mcp-oauth.ts`). `metadata` is plain
+  // English in 2026 that the 1934 list does not carry, and it is also the
+  // specifications' own noun: RFC 8414 is titled "Authorization Server
+  // Metadata" and the challenge parameter is literally `resource_metadata`.
+  // `pkce` is the acronym RFC 7636 gave itself, and `www` is not an
+  // abbreviation anybody chose here: it is the first half of the
+  // `www-authenticate` header name in RFC 9110. Renaming around any of the
+  // three would make the code stop naming the thing it implements.
+  "metadata", "pkce", "www",
   "utc", "iso", "ms", "sec", "px", "rem",
   // Plain English that web2 (`/usr/share/dict/words`, the list this gate reads)
   // simply does not carry. It has "boxberry" and "boxcar" but not "box", so

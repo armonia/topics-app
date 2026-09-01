@@ -20,7 +20,13 @@
  */
 
 import { resolveInheritedMcp, type McpServerDef } from "../mcp-inheritance";
-import { connectMcpServer, type McpConnection, type McpToolDescriptor } from "./mcp-client";
+import {
+  connectMcpServer,
+  McpAuthorizationRequiredError,
+  type McpConnection,
+  type McpToolDescriptor,
+} from "./mcp-client";
+import { authorizationHeader } from "./mcp-oauth";
 import type { ToolSpec, ToolResult } from "./tools";
 
 export const MCP_TOOL_PREFIX = "mcp__";
@@ -81,9 +87,23 @@ function enabled(): boolean {
   return true;
 }
 
+/**
+ * A server whose token comes out of the OAuth store, looked up by NAME.
+ *
+ * Built per mount and not held anywhere: both calls read the store from disk,
+ * so a sign-in that completes while the fleet is up is visible to the very next
+ * request without anything having to be invalidated.
+ */
+function authFor(name: string) {
+  return {
+    header: () => authorizationHeader(name),
+    refreshed: () => authorizationHeader(name, { forceRefresh: true }),
+  };
+}
+
 async function mountOne(name: string, def: McpServerDef): Promise<void> {
   try {
-    const conn = await connectMcpServer(name, def);
+    const conn = await connectMcpServer(name, def, authFor(name));
     const [tools, prompts] = await Promise.all([conn.listTools(), conn.listPrompts()]);
     connections.set(name, conn);
     const mountedNames: string[] = [];
@@ -109,13 +129,21 @@ async function mountOne(name: string, def: McpServerDef): Promise<void> {
       skills: prompts.map((p) => p.name).filter(Boolean),
     });
   } catch (err) {
+    // WAITING FOR A SIGN-IN IS NOT A FAULT, and the difference is the whole
+    // point of the state: `failed` sends a person looking for a broken server,
+    // while this one has a button that fixes it. The reason is fixed wording
+    // and never the error, because the error came off the wire and this string
+    // is rendered.
+    const needsAuth = err instanceof McpAuthorizationRequiredError;
     statuses.push({
       name,
       transport: (def as { type?: string }).type === "stdio" || !(def as { url?: string }).url ? "stdio" : "http",
-      state: "failed",
+      state: needsAuth ? "needs-auth" : "failed",
       tools: [],
       skills: [],
-      reason: err instanceof Error ? err.message : String(err),
+      reason: needsAuth
+        ? "This server requires sign-in before it can be used."
+        : err instanceof Error ? err.message : String(err),
     });
   }
 }
