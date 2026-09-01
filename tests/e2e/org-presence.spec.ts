@@ -254,7 +254,10 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await expect(page.getByTestId("friends-panel")).toBeVisible();
     await page.getByTestId("friends-open-all").click();
     await expect(page.getByTestId("profile-pane")).toBeVisible({ timeout: 20000 });
-    await expect(page.getByTestId("settings-page-followers")).toBeVisible();
+    // The profile pane stopped being a tab strip: "manage friends" opens the
+    // friends DROPDOWN on the single profile page, so the surviving property is
+    // that panel. `settings-page-followers` was the removed tab route.
+    await expect(page.getByTestId("profile-friends-panel")).toBeVisible();
     await page.screenshot({ path: join(SHOTS, "amici-online.png") });
   });
 

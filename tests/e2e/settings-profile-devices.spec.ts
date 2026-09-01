@@ -159,8 +159,16 @@ test.describe("Impostazioni: profilo e dispositivi sono due domande", () => {
     await porta.click();
 
     await expect(page.getByTestId("profile-pane")).toBeVisible({ timeout: 20000 });
-    // AND on the right page: the pane has three, and a door that opens it on
-    // somebody else's tab is a door that lands next to where you asked.
-    await expect(page.getByTestId("settings-page-profile")).toBeVisible();
+    // AND SHOWING WHO YOU ARE, which is what the door promised.
+    //
+    // This used to read «and on the right page: the pane has three», and it
+    // checked the profile TAB of the strip. The strip is gone: the pane became
+    // ONE page with followers and privacy as dropdowns off the header (card
+    // b7a2c14c, landed 2026-09-01), so «the right one of three» is a question
+    // with no subject left. What survives is the property the sentence was
+    // really defending — the door lands on YOUR profile, not on an empty pane
+    // and not on somebody else's — and `self-profile` is the element that
+    // answers it now.
+    await expect(page.getByTestId("self-profile")).toBeVisible({ timeout: 20000 });
   });
 });
