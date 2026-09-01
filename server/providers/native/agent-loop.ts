@@ -35,6 +35,7 @@ import type { StreamHandler } from "../types";
 import type { TurnEndInfo } from "../stop-reason";
 import { stopCauseFromSignal } from "../stop-reason";
 import { splitLongWindow, betaHeader, spiegaErrore } from "./long-window";
+import { thinkingBudgetFor } from "../../lib/native-parity";
 
 const API_URL = "https://api.anthropic.com/v1/messages";
 const API_VERSION = "2023-06-01";
@@ -103,6 +104,8 @@ export interface AgentTurnOptions {
   model: string;
   maxTokens?: number;
   system?: string;
+  /** Il tier scelto dall'utente (`low`…`max`): diventa budget di thinking. */
+  effort?: string | null;
   /**
    * The tool registry, read once PER ROUND rather than once per turn.
    *
@@ -184,9 +187,18 @@ async function streamOnce(
   // sceglieva si portava dietro la CLI intera senza saperlo. Vedi long-window.ts.
   const { model: modelloApi, longWindow } = splitLongWindow(opts.model);
 
+  // Il thinking va dichiarato PRIMA di max_tokens: il budget deve starci dentro
+  // (l'API rifiuta `budget_tokens >= max_tokens`), quindi o il tetto sale o il
+  // budget scende. Sale: tagliare il ragionamento per non toccare il tetto
+  // sarebbe scegliere in silenzio al posto di chi ha mosso lo slider.
+  const budget = thinkingBudgetFor(opts.effort);
+  const maxTokens = budget > 0
+    ? Math.max(opts.maxTokens ?? 16384, budget + 4096)
+    : (opts.maxTokens ?? 16384);
+
   const body: Record<string, unknown> = {
     model: modelloApi,
-    max_tokens: opts.maxTokens ?? 16384,
+    max_tokens: maxTokens,
     stream: true,
     messages: opts.history,
     // Il primo blocco di system È l'identità di Claude Code, e deve restare il
@@ -196,6 +208,7 @@ async function streamOnce(
       ...(opts.system ? [{ type: "text", text: opts.system }] : []),
     ],
   };
+  if (budget > 0) body.thinking = { type: "enabled", budget_tokens: budget };
   const tools = opts.tools?.() ?? CODING_TOOLS;
   if (tools.length > 0) body.tools = tools;
 

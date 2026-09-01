@@ -26,6 +26,7 @@ import type { ChatMessage } from "../providers/types";
 import type { AppContext, StoredMessage, Topic } from "../types";
 import { getActiveGoal, goalContextContent } from "../services/goals";
 import { languageDirective } from "../lib/topics-agent-prompt";
+import { readUserRules, skillsBlock } from "../lib/native-parity";
 
 import { contextWindowFor } from "../usage/context-window";
 import type {
@@ -221,6 +222,14 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
     // L'obiettivo prima di tutto il resto, e anche nel turno lean: vedi
     // `pushGoalBlock`.
     pushGoalBlock(systemBlocks, topic, ctx);
+    // Chi non li deve ricevere li scarta in `adaptEnvelope`, dove il provider e'
+    // finalmente noto (vedi SOLO_NATIVO). Nel turno LEAN no: la sessione li ha gia'
+    // visti al kickoff, e rimandarli a ogni ripresa e' esattamente il costo composto
+    // che `leanContext` esiste per non pagare.
+    if (!leanContext) {
+      pushUserRulesBlock(systemBlocks, isEnabled);
+      pushSkillsBlock(systemBlocks, isEnabled);
+    }
     // Lean (dispatcher resume/continuation): system prompt + cwd awareness ONLY.
     // The persistent CLI session already carries CLAUDE.md/README, the browser
     // instructions, memory & co. from the kickoff turn — re-sending them just
@@ -825,6 +834,40 @@ function pushGoalBlock(blocks: SystemBlock[], topic: Topic, ctx: AppContext): vo
     content,
     tokens: estimateTokens(content),
     enabled: true,
+    countInBudget: true,
+    editable: false,
+    injectedByTopicsApp: true,
+  });
+}
+
+/** `~/.claude/CLAUDE.md`: le regole che l'utente da' a OGNI agente. */
+function pushUserRulesBlock(blocks: SystemBlock[], isEnabled: (id: string) => boolean): void {
+  const content = readUserRules();
+  if (!content?.trim()) return;
+  blocks.push({
+    id: "user:CLAUDE.md",
+    label: "~/.claude/CLAUDE.md",
+    category: "template",
+    content,
+    tokens: estimateTokens(content),
+    enabled: isEnabled("user:CLAUDE.md"),
+    countInBudget: true,
+    editable: false,
+    injectedByTopicsApp: true,
+  });
+}
+
+/** L'ELENCO delle skill, non il loro corpo: quello lo carica il tool `skill`. */
+function pushSkillsBlock(blocks: SystemBlock[], isEnabled: (id: string) => boolean): void {
+  const content = skillsBlock();
+  if (!content) return;
+  blocks.push({
+    id: "synthetic:skills",
+    label: "Skill disponibili",
+    category: "synthetic",
+    content,
+    tokens: estimateTokens(content),
+    enabled: isEnabled("synthetic:skills"),
     countInBudget: true,
     editable: false,
     injectedByTopicsApp: true,
