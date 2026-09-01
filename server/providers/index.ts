@@ -424,6 +424,12 @@ export async function initProviders(): Promise<AIProvider[]> {
         const p = createProvider({
           type: "native",
           defaultWorkspace: process.env.TOPICS_WORKSPACE || undefined,
+          // IL MODELLO SCELTO IN IMPOSTAZIONI VALEVA PER TUTTI TRANNE CHE QUI.
+          // Senza questa riga `config.model` resta undefined e ogni turno cade
+          // su DEFAULT_MODEL (sonnet), qualunque cosa dica `claudeModel`: il
+          // 02/09 un topic rispondeva con Sonnet mentre il terminale, stessa
+          // macchina e stesso prompt, rispondeva con Opus 5.
+          model: resolveClaudeModel(),
         });
         p.start();
         _providers.set(p.name, p);

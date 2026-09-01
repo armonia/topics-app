@@ -24,6 +24,7 @@ import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync } from "fs
 import { resolve, relative, isAbsolute, dirname } from "path";
 import { spawn } from "child_process";
 import { killProcessTree } from "../../lib/process-tree";
+import { readSlashCommandSource } from "../../lib/slash-command-source";
 
 export interface ToolSpec {
   name: string;
@@ -172,6 +173,18 @@ export const CODING_TOOLS: ToolSpec[] = [
       required: ["pattern"],
     },
   },
+  {
+    name: "skill",
+    description:
+      "Load a skill: a procedure already written for a recurring task (deploys, reviews, repo-specific workflows). The available skills are listed in your system prompt with one-line descriptions. Call this BEFORE improvising when the task matches one of them — what comes back are instructions to follow in place of your default approach. If the user types /<name>, that is an explicit request to invoke it.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Exact skill name from the list in your system prompt, no leading slash." },
+      },
+      required: ["name"],
+    },
+  },
 ];
 
 async function runCommand(
@@ -316,6 +329,17 @@ export async function executeTool(
           resolve(ctx.workspace), 30_000,
         );
         return { content: truncate(out.trim() || "nessun file") };
+      }
+
+      // Il corpo di una skill NON passa da `read_file`: quella è murata dentro
+      // la workspace, e le skill stanno in casa dell'utente (`~/.agents/skills`).
+      // Il cancello sui nomi è in `slash-command-source.ts` e non si riscrive qui.
+      case "skill": {
+        const src = readSlashCommandSource(String(input.name ?? ""));
+        if (!src || src.kind !== "skill") {
+          return { content: `skill sconosciuta: ${input.name}. Usa solo i nomi elencati nel prompt di sistema.`, isError: true };
+        }
+        return { content: truncate(src.body, 60_000) };
       }
 
       default:

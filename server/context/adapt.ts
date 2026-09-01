@@ -34,6 +34,8 @@ import { hashSlot } from "./inline-sent-state";
  */
 export type SystemSlotId =
   | "prompt"
+  | "user-rules"
+  | "skills"
   | "files"
   | "template"
   | "browser"
@@ -52,6 +54,8 @@ export interface SystemSlot {
 /** Nomi per la riga di ritiro, che la legge un modello e non un parser. */
 const SLOT_LABELS: Record<SystemSlotId, string> = {
   prompt: "system prompt",
+  "user-rules": "user rules",
+  skills: "skills",
   files: "context files",
   template: "project files",
   browser: "browser instructions",
@@ -119,8 +123,26 @@ export interface AdaptOptions {
   alreadySent?: ReadonlyMap<string, string>;
 }
 
+/**
+ * I DUE BLOCCHI CHE SOLO IL NATIVO DEVE RICEVERE.
+ *
+ * `claude` legge da se' `~/.claude/CLAUDE.md` e conosce le sue skill: mandargliele
+ * significa pagare due volte lo stesso testo a ogni turno. Il runtime nativo parla
+ * con l'API e non le ha da nessuna parte.
+ *
+ * IL FILTRO STA QUI, NON IN `assembleTopicContext`, e la ragione e' un errore gia'
+ * fatto: la rotta assembla l'envelope con `providerName: "(pending)"` e risolve il
+ * provider DOPO, quindi un cancello a monte spegneva i blocchi sempre — erano
+ * nell'anteprima dell'ispettore e non nel messaggio, cioe' il modo peggiore di
+ * sbagliare, perche' l'ispettore diceva che c'erano.
+ */
+const SOLO_NATIVO = new Set(["user:CLAUDE.md", "synthetic:skills"]);
+
 export function adaptEnvelope(envelope: ContextEnvelope, opts?: AdaptOptions): ProviderPayload {
-  const slots = composeSystemSlots(envelope.systemBlocks);
+  const blocchi = envelope.providerName === "topics"
+    ? envelope.systemBlocks
+    : envelope.systemBlocks.filter((b) => !SOLO_NATIVO.has(b.id));
+  const slots = composeSystemSlots(blocchi);
   const composedSystem = slots.map((s) => sys(s.content));
 
   switch (envelope.providerStrategy) {
@@ -291,6 +313,17 @@ export function composeSystemSlots(blocks: SystemBlock[]): SystemSlot[] {
   const prompt = enabled.find((b) => b.id === "prompt:system");
   if (prompt) push("prompt", prompt.content);
 
+  // ── 1b. Regole globali dell'utente + elenco skill (solo runtime nativo) ──
+  // Slot loro, non dentro `template`: quello si chiama «Project file» e queste
+  // due cose non vengono dal progetto. Dedup normale: sono documenti, non stato.
+  const userRules = enabled.find((b) => b.id === "user:CLAUDE.md");
+  if (userRules) {
+    push("user-rules",
+      `The user's global instructions, from ~/.claude/CLAUDE.md. They apply to every task and override defaults:\n\n${userRules.content}`);
+  }
+  const skills = enabled.find((b) => b.id === "synthetic:skills");
+  if (skills) push("skills", skills.content);
+
   // ── 2. Context files (aggregated) ──
   const files = enabled.filter((b) => b.category === "file");
   if (files.length > 0) {
@@ -301,7 +334,9 @@ export function composeSystemSlots(blocks: SystemBlock[]): SystemSlot[] {
   // ── 3. Project template (aggregated) ──
   const aware = enabled.find((b) => b.id === "template:project-awareness");
   const tmplFiles = enabled.filter(
-    (b) => b.category === "template" && b.id !== "template:project-awareness",
+    (b) => b.category === "template"
+      && b.id !== "template:project-awareness"
+      && b.id !== "user:CLAUDE.md",
   );
   if (aware) {
     let content = aware.content;

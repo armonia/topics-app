@@ -44,6 +44,7 @@ import type {
   StreamHandler,
 } from "../types";
 import { recordTurnEnd } from "../turn-end-registry";
+import { resolveClaudeEffort } from "../../lib/topics-agent-prompt";
 import { cancelled, stopCauseFromSignal, type StopCause, type TurnEndInfo } from "../stop-reason";
 
 /**
@@ -273,6 +274,23 @@ export class NativeProvider implements AIProvider {
    * Regola duplicata? No: la stessa domanda, la stessa risposta, presa dalla
    * stessa colonna. Riscriverla diversamente sarebbe il modo di farle divergere.
    */
+  /**
+   * L'effort scelto su QUESTA topic, o null. Stessa colonna che legge il
+   * terminale (`routes/terminal.ts`), presa dalla session_key invece che
+   * dall'id: qui l'id della topic non passa mai.
+   */
+  private topicEffort(sessionKey: string): string | null {
+    try {
+      const { getDatabase } = require("../../db");
+      const row = getDatabase()
+        .prepare("SELECT effort FROM topics WHERE session_key = ? LIMIT 1")
+        .get(sessionKey) as { effort?: string | null } | undefined;
+      return row?.effort ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   private topicsContext(sessionKey: string): TopicsToolContext | null {
     try {
       const { getDatabase } = require("../../db");
@@ -448,9 +466,13 @@ export class NativeProvider implements AIProvider {
         ...(fleetAllowed ? mcpToolSpecs() : []),
       ];
       const turnModel = session.model ?? this.config.model ?? DEFAULT_MODEL;
+      // L'effort si rilegge a ogni turno, come l'autonomia: chi muove lo slider
+      // se lo aspetta dal messaggio dopo, non dalla prossima chat.
+      const turnEffort = resolveClaudeEffort(this.topicEffort(sessionKey));
       const out = await runAgentTurn(
         {
           model: turnModel,
+          effort: turnEffort,
           system: workspace
             ? options?.systemPrompt
             : [options?.systemPrompt, NO_WORKSPACE_NOTE].filter(Boolean).join("\n\n"),

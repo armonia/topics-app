@@ -125,10 +125,14 @@ export function listSlashCommandFiles(
   }
   for (const dir of skillDirs(home)) {
     try {
-      for (const d of readdirSync(dir, { withFileTypes: true })) {
-        if (!d.isDirectory()) continue;
-        const md = join(dir, d.name, "SKILL.md");
-        if (existsSync(md)) add(d.name, md, "skill");
+      // NIENTE `isDirectory()`: una skill puo' essere un LINK a una cartella, e
+      // un link non e' una directory per `withFileTypes`. Sul Mac di Attilio 31
+      // skill su 43 sparivano cosi' — l'hub condiviso `~/.agents/skills` e'
+      // raggiunto da un symlink e diverse skill dentro lo sono a loro volta.
+      // La domanda vera e' una sola: dentro c'e' un SKILL.md?
+      for (const d of readdirSync(dir)) {
+        const md = join(dir, d, "SKILL.md");
+        if (existsSync(md)) add(d, md, "skill");
       }
     } catch { /* cartella assente */ }
   }
