@@ -180,7 +180,9 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
               parentTitle={t.parentTaskId ? tasksById.get(t.parentTaskId)?.text : undefined}
               projectPath={projectPathById.get(t.projectId)}
               live={liveById.get(t.id)}
-              awaiting={awaitingHuman.has(t.id)}
+              // The live event OR the thread: the first dies with the process, the
+              // second does not, and an unanswered question survives a restart.
+              awaiting={awaitingHuman.has(t.id) || !!t.awaitingAnswer}
               justMovedTo={justMoved.get(t.id)}
               justCreated={justCreated.has(t.id)}
               archived={archived}

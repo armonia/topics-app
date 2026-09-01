@@ -548,6 +548,14 @@ export interface BoardTask {
    *  o stanno in un altro progetto. */
   waitingOnCount: number;
   /**
+   * The last word in the thread is an unanswered question.
+   *
+   * The durable twin of the `task:awaiting-human` event, which is edge-triggered
+   * and dies with the process: after a server restart, or for a window opened
+   * later, this is the only way the card knows it is parked on you. KANBAN-71.
+   */
+  awaitingAnswer?: boolean;
+  /**
    * PERCHÉ questa card è ferma in `todo`, in una frase GIÀ SCRITTA dal server.
    * `null` fuori da `todo`, o con un agente già in volo.
    *

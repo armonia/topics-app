@@ -1615,6 +1615,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     retryCap: Map<string, number>;
     openChildren: Map<string, number>;
     comments: Map<string, CardComment[]>;
+    /** Cards whose last word in the thread is an unanswered question. */
+    awaiting: Set<string>;
     /** Le altre evidenze del thread, per il carosello della card. */
     previewImages: Map<string, string[]>;
     queue: QueueRank | null;
@@ -1688,6 +1690,44 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * dalla finestra, che il `rowid` lo usa già come spareggio: qui si legge al
    * contrario e la coda del thread esce sempre nello stesso ordine.
    */
+  /**
+   * WHO IS WAITING ON AN ANSWER, read from the thread instead of from memory.
+   *
+   * The live hold travels as the transient `task:awaiting-human` event, which is
+   * edge-triggered and carried by nothing else: a server restart, a page reload
+   * or a client that connects after the edge never learns about it, and the card
+   * falls back to whatever chip it had over a turn parked on a question nobody
+   * can see. Measured on 2026-09-01: one card sat 36 hours on an unanswered
+   * mid-turn question showing only `queued`, and the queue read as broken.
+   *
+   * The durable fact is the thread, so it is recomputed on every read and cannot
+   * survive the answer. It is deliberately NOT persisted into `dispatch_state`:
+   * that chip takes the task out of `ACTIVE_DISPATCH_STATES`, the orphan-recovery
+   * door, and a restart would strand it `in_progress` for ever - the defect this
+   * repo already paid for once.
+   */
+  function awaitingAnswerFor(ids: readonly string[]): Set<string> {
+    const out = new Set<string>();
+    if (ids.length === 0) return out;
+    try {
+      const rows = db.query(
+        `SELECT task_id, content FROM (
+           SELECT c.task_id AS task_id, c.content AS content,
+                  row_number() OVER (
+                    PARTITION BY c.task_id ORDER BY c.created_at DESC, c.rowid DESC) AS rn
+             FROM task_comments c
+            WHERE c.task_id IN (SELECT value FROM json_each(?))
+              AND COALESCE(c.kind, 'comment') NOT IN ('status', 'service')
+              AND ${SQL_PAROLA} = 1
+         ) WHERE rn = 1`,
+      ).all(idParam(ids)) as Array<{ task_id: string; content: string | null }>;
+      // The SAME predicate the dispatcher uses to pick the end-of-turn chip: a
+      // fence it cannot read counts as a question, never as a delivery.
+      for (const r of rows) if (commentAsksHuman(r.content)) out.add(r.task_id);
+    } catch { return out; }
+    return out;
+  }
+
   function cardCommentsFor(ids: readonly string[]): Map<string, CardComment[]> {
     const out = new Map<string, CardComment[]>();
     if (ids.length === 0) return out;
@@ -1878,6 +1918,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       retryCap: new Map(),
       openChildren: new Map(),
       comments: cardCommentsFor(rows.filter(drawsCardComments).map((r) => r.id as string)),
+      // Only the two columns where a hold can be open, so a board of closed
+      // cards pays nothing: a review card already carries its comments and the
+      // client reads the question straight out of those.
+      awaiting: awaitingAnswerFor(
+        rows.filter((r) => r.status === "todo" || r.status === "in_progress").map((r) => r.id as string),
+      ),
       previewImages: previewImagesFor(ids),
       queue: null,
       autoDispatch: false,
@@ -2136,6 +2182,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       blockedBy: r.blocked_by_task_id ? (b.blockers.get(r.blocked_by_task_id) ?? null) : null,
       subtaskWork: resolveSubtaskWork(r),
       waitingOnCount: b.waitingOn.get(r.id) ?? 0,
+      awaitingAnswer: b.awaiting.has(r.id),
       queueReason: queueReasonOf(r, b),
       deliveryBranch: r.delivery_branch ?? null,
       deliveryCommit: r.delivery_commit ?? null,

@@ -195,6 +195,15 @@ export interface Task {
    */
   waitingOnCount: number;
   /**
+   * The last word in the thread is an unanswered question.
+   *
+   * Derived on every read, never a column: the wait ends when somebody answers,
+   * and a value written to the DB would stay lit over a turn that had already
+   * resumed. It feeds the "waiting on you" chip when the live event is gone -
+   * after a server restart, or for a client that connected later. KANBAN-71.
+   */
+  awaitingAnswer: boolean;
+  /**
    * WHY this card is stuck in `todo`, in a sentence already written. `null`
    * outside `todo`, or with an agent already in flight (there the dispatch chip
    * speaks).

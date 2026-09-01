@@ -1982,6 +1982,42 @@ FALLISCE NON SHALL mangiarsi il banner.
 - **GIVEN** una consegna normale
 - **THEN** il campo della domanda SHALL essere presente ed esplicitamente vuoto
 
+### Requirement: KANBAN-71 — Una card ferma su una domanda lo DICE, e continua a dirlo dopo un riavvio
+
+Una card la cui ULTIMA parola nel filo e' una domanda senza risposta SHALL
+dichiararsi in attesa di una persona, e la dichiarazione SHALL essere DERIVATA
+dal filo a ogni lettura.
+
+Non SHALL bastare l'annuncio vivo. L'attesa viaggia come evento a fronte, che si
+emette una volta e non e' conservato da nessuno: dopo un riavvio del server, una
+ricarica della pagina, o per un client collegatosi DOPO il fronte, la card
+tornerebbe a mostrare il chip che aveva — «in coda» sopra un turno fermo su una
+domanda che nessuno puo' vedere. Misurato il 2026-09-01 sulla board vera: una
+card e' rimasta 36 ore cosi', e la coda si leggeva come un dispatcher rotto.
+
+La dichiarazione NON SHALL essere scritta in `dispatch_state`. Quel chip fa
+USCIRE il task da `ACTIVE_DISPATCH_STATES`, che e' la porta del recupero orfani:
+un task fermo su un pannello resterebbe `in_progress` per sempre dopo un
+riavvio. NON SHALL essere nemmeno una colonna propria: l'attesa finisce quando
+qualcuno risponde, e un valore persistito resterebbe acceso su un turno gia'
+ripartito.
+
+Le righe di SERVIZIO e di TRANSIZIONE NON SHALL coprire la domanda: ne arriva
+una a ogni giro e sono proprio cio' che seppelliva l'ultima parola vera. Una
+consegna che offre soltanto azioni di board NON SHALL contare come domanda.
+
+#### Scenario: un turno fermo su una domanda, in Todo o in corso
+- **GIVEN** un task in `todo` o `in_progress` la cui ultima parola e' una domanda
+- **THEN** il task SHALL dichiararsi in attesa di una persona
+
+#### Scenario: la risposta spegne l'attesa
+- **GIVEN** un task in attesa a cui una persona ha risposto
+- **THEN** il task NON SHALL piu' dichiararsi in attesa
+
+#### Scenario: una nota di servizio dopo la domanda
+- **GIVEN** una domanda seguita da una nota di servizio della macchina
+- **THEN** il task SHALL restare in attesa
+
 ### Requirement: KANBAN-51 — Un vincolo del database diventa un messaggio, e il messaggio non porta SQL
 
 Una violazione di un vincolo del database SHALL essere tradotta in un rifiuto
