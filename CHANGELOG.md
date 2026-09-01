@@ -2,7 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.2.261 — 2026-09-01
+## 2.2.262 — 2026-09-01
+
+### Sotto il cofano
+- I due flaky della suite erano la stessa corsa, e il freno esisteva gia'
+
+## 2.2.261 — 2026-08-31
 
 ### Sotto il cofano
 - La scheda di una card in review diceva «0 file toccati» su una consegna da 4 file

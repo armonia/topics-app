@@ -1,7 +1,23 @@
 [
   {
-    "version": "2.2.261",
+    "version": "2.2.262",
     "date": "2026-09-01",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "I due flaky della suite erano la stessa corsa, e il freno esisteva gia'",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.261",
+    "date": "2026-08-31",
     "sections": {
       "new": [],
       "fixes": [],
