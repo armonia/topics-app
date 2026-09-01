@@ -629,6 +629,7 @@ const EN = {
   'board.task.sessionEmpty': 'No step in this session yet.',
   'board.task.openSessionPane': 'Open the session in the workspace',
   'board.task.deliveryLabel': 'Delivery',
+  'board.task.deliveryAutoShot': 'boot from the branch, not the change',
   'board.task.noWorkspaceTabs': 'No tab open on this task.',
   'board.task.openTab': 'Open a tab',
   'board.task.reviewPreview': 'Preview',

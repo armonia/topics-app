@@ -1,4 +1,5 @@
 import { pickPlanComment } from './planPanel';
+import { isAutoCapturedPreview } from '../../../../shared/media-kind';
 import { useState, useEffect, useMemo, useRef, useCallback, type TouchEvent as ReactTouchEvent } from 'react';
 import { useT, useLocale } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
@@ -2642,7 +2643,24 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   <SectionHeader
                     open={previewOpen}
                     onToggle={togglePreviewOpen}
-                    label={tr('board.task.deliveryLabel')}
+                    // WHAT THE PHOTO IS, when we took it ourselves. An
+                    // auto-capture is the app booted from the card's branch and
+                    // photographed wherever it was — usually its own landing
+                    // page. Measured 2026-09-01 on two cards in review: the
+                    // «account panel» one portrayed «Welcome to Topics», the
+                    // «remove profile tab» one portrayed the kanban. Reported
+                    // the same day: the previews «don't even look right».
+                    //
+                    // The cure is NOT a machine deciding whether a photo shows
+                    // the work — the two gates the preview manager grew can say
+                    // WHO answered on the port and whether the page is an
+                    // error, and neither can say that. It is to DECLARE what
+                    // the photo is, so nobody reads it as a proof it is not.
+                    // Same discipline as the delivery sheet, which says out
+                    // loud that the server drew it.
+                    label={isAutoCapturedPreview(task.previewImage)
+                      ? `${tr('board.task.deliveryLabel')} · ${tr('board.task.deliveryAutoShot')}`
+                      : tr('board.task.deliveryLabel')}
                     testId="task-section-preview"
                     grow
                   />

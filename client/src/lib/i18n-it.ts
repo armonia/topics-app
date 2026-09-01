@@ -719,6 +719,7 @@ const IT: Dict = {
   // «Consegna» e non «Anteprima»: è la cosa CONSEGNATA, la sezione in cima al
   // brief per cui il drawer si apre (e che ora si chiude da sé).
   'board.task.deliveryLabel': 'Consegna',
+  'board.task.deliveryAutoShot': 'avvio dal ramo, non il cambiamento',
   'board.task.noWorkspaceTabs': 'Nessuna tab aperta su questo task.',
   'board.task.openTab': 'Apri una tab',
   'board.task.reviewPreview': 'Anteprima',
