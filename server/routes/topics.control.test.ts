@@ -631,3 +631,23 @@ describe("POST /api/topics — il percorso si scioglie dal link", () => {
     } finally { h.cleanup(); }
   });
 });
+
+/**
+ * Un'archiviazione che non archivia e non protesta.
+ *
+ * `PATCH {archived:true}` rispondeva 200 e non faceva niente: il topic restava
+ * in sidebar e nessuno poteva accorgersene dal codice di stato. La strada vera è
+ * `DELETE {archived:true}`, che azzera anche gli unread e pulisce ui_state.
+ */
+describe("PATCH /api/topics/:id — archived", () => {
+  test("400 con la strada giusta scritta dentro, invece di un 200 che non fa niente", async () => {
+    const h = makeHarness();
+    try {
+      h.topics.set("t1", makeTopic({ id: "t1" }));
+      const resp = (await h.call("PATCH", "/api/topics/t1", { archived: true }))!;
+      expect(resp.status).toBe(400);
+      expect((await resp.json()).error).toContain("DELETE");
+      expect(h.topics.get("t1")!.archived).toBe(false);
+    } finally { h.cleanup(); }
+  });
+});

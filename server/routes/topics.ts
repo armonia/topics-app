@@ -1415,6 +1415,13 @@ export function createTopicsRouter(
         if (body.systemPrompt !== undefined) topic.systemPrompt = body.systemPrompt;
         if (body.contextFiles !== undefined) topic.contextFiles = body.contextFiles;
         if (body.pinnedMessages !== undefined) topic.pinnedMessages = body.pinnedMessages;
+        // `archived` NON si cambia da qui, e dirlo e' meglio che ignorarlo: la
+        // PATCH lo accettava in silenzio e non archiviava niente — un'archiviazione
+        // che non archivia e non protesta e' peggio di un errore. La strada vera e'
+        // DELETE {archived:true}, che azzera anche gli unread e pulisce ui_state.
+        if (body.archived !== undefined) {
+          return json({ error: "usa DELETE /api/topics/:id con {archived:true|false}", code: "wrong_route" }, 400);
+        }
         if (body.projectPath !== undefined) {
           topic.projectPath = body.projectPath ? canonicalProjectPath(body.projectPath) : undefined;
         }
