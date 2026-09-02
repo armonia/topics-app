@@ -122,6 +122,33 @@ function hasRunningTool(raw: unknown): boolean {
 }
 
 /**
+ * When did the oldest tool still marked `running` start?
+ *
+ * `null` = nobody knows (no stamp, or a shape that would not parse), and the
+ * caller must read that as "not stuck": the same doubt-never-kills rule as
+ * `hasRunningTool` right above.
+ */
+function runningToolStartedAt(raw: unknown): number | null {
+  if (raw === null || raw === undefined || raw === "") return null;
+  try {
+    const list = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (!Array.isArray(list)) return null;
+    let oldest: number | null = null;
+    for (const t of list) {
+      const entry = t as { status?: unknown; startedAt?: unknown; toolCall?: { status?: unknown; startedAt?: unknown } } | null;
+      const st = entry?.status ?? entry?.toolCall?.status;
+      if (st !== "running" && st !== "pending") continue;
+      const at = entry?.startedAt ?? entry?.toolCall?.startedAt;
+      if (typeof at !== "number" || !Number.isFinite(at)) continue;
+      if (oldest === null || at < oldest) oldest = at;
+    }
+    return oldest;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Push the stream's clock forward and record WHERE it actually landed.
  *
  * Reading the stamp back is the only way to tell "the turn started talking
@@ -235,6 +262,7 @@ export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, Sweep
     // The resync stays the one-shot recovery ATTEMPT; the finalize DECISION
     // depends only on `childAlive === false`, exactly as handleGraceExpiry
     // and handleHardTimeout already do in routes/chat.ts.
+    const toolStartedAt = runningToolStartedAt(partial.toolCalls) ?? runningToolStartedAt(partial.blocks);
     const verdict = staleStreamVerdict({
       silentMs: now - lastActivity,
       // The TRUE silence: `now - lastActivity` drops back under the threshold on
@@ -248,6 +276,9 @@ export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, Sweep
       // reading only one leaves half the product uncovered. Same reason
       // `finalizeOrphanedRunningTools` finalizes the two together.
       toolRunning: hasRunningTool(partial.toolCalls) || hasRunningTool(partial.blocks),
+      // The age of the oldest tool still 'running', read off its own
+      // `startedAt`: the one clock the extensions do not reset.
+      toolRunningMs: toolStartedAt === null ? undefined : now - toolStartedAt,
       alreadyResynced: deps.rescued.has(sessionKey),
     });
     if (verdict === "ok") continue;
@@ -270,6 +301,19 @@ export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, Sweep
       bumpAndMark(deps, sessionKey, stream, silenceSince, now);
       outcomes.set(sessionKey, "extended");
       continue;
+    }
+    if (verdict === "hung") {
+      // A TOOL THAT WILL NEVER COME BACK. On 2026-09-02 `topic:6b9605e5` and
+      // `topic:ada7e7db` sat on `bash:running` for hours: the command had
+      // exited, but a backgrounded subshell held its pipes open and
+      // `runCommand` was waiting for `close`. From in here that turn was
+      // indistinguishable from a long build, and every tick bought it another
+      // extension. The root is closed in the tool; this is the second wall, and
+      // it closes SAYING what happened.
+      deps.warn(
+        `[StaleStream] ${sessionKey} ha un tool 'running' da ${Math.round((now - (toolStartedAt ?? now)) / 60_000)} min: `
+        + `non è lavoro, è una promessa che non torna — lo chiudo`, // allow-italian: user-facing log line, like the others here
+      );
     }
     if (verdict === "frozen") {
       // ALIVE BUT STOPPED. The process is there, no tool is running, and not a

@@ -30,6 +30,8 @@
  *                  No new resync, no finalize.
  *   - `"finalize"` the child is gone (or the provider says so): the turn is
  *                  really dead, close it.
+ *   - `"hung"`     a tool has been `running` far past any plausible duration:
+ *                  the turn is waiting on a promise that will never resolve.
  *
  * `childAlive: undefined` means the provider cannot answer — treated as DEAD,
  * unlike `pendingAskVerdict`, because here the pre-existing behaviour of a
@@ -82,11 +84,38 @@ export function staleStreamVerdict(opts: {
   trueSilenceMs?: number;
   /** How much silence makes a live-but-idle turn count as stuck. */
   frozenMs?: number;
-}): "ok" | "rescue" | "extend" | "finalize" | "frozen" {
+  /**
+   * How long the OLDEST running tool has been running, measured from its own
+   * `startedAt`. `undefined` (a tool call without a stamp, or a shape that would
+   * not parse) means "unknown" and buys the turn its extension, like everywhere
+   * else here: doubt never kills.
+   */
+  toolRunningMs?: number;
+  /** Past this, a tool that is still "running" no longer counts as working. */
+  toolStuckMs?: number;
+}): "ok" | "rescue" | "extend" | "finalize" | "frozen" | "hung" {
   if (opts.silentMs <= opts.timeoutMs) return "ok";
   if (opts.childAlive !== true) return "finalize";
-  // Really working: no clock touches it, exactly as before.
-  if (opts.toolRunning) return opts.alreadyResynced ? "extend" : "rescue";
+  // Really working: no clock touches it, exactly as before — but "running" is a
+  // claim written by whoever started the tool, and on 2026-09-02 it outlived the
+  // truth by three and a half hours. `runCommand` waited for `close`, which a
+  // backgrounded subshell holding our pipes never sends: the promise never
+  // resolved, so the tool stayed `running`, so this branch extended forever, so
+  // the two chats sat spinning and the automatic restart (which would have swept
+  // them at boot) was postponed by their own phantom streams.
+  //
+  // The root fix is in the tool (it now resolves on `exit`). This is the second
+  // wall: a tool has a duration, and past a generous one the word "running" stops
+  // being evidence of work. The cap is measured on the TOOL's own clock, not on
+  // `trueSilenceMs`, because the 30-minute hard cap elsewhere bumps the activity
+  // stamp and drops the silence mark — the same trap the comment on `trueSilenceMs`
+  // above already describes.
+  if (opts.toolRunning) {
+    if ((opts.toolRunningMs ?? 0) < (opts.toolStuckMs ?? 30 * 60 * 1000)) {
+      return opts.alreadyResynced ? "extend" : "rescue";
+    }
+    return "hung";
+  }
   const frozenMs = opts.frozenMs ?? 10 * 60 * 1000;
   if ((opts.trueSilenceMs ?? opts.silentMs) >= frozenMs) return "frozen";
   return opts.alreadyResynced ? "extend" : "rescue";

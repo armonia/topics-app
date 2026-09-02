@@ -75,6 +75,37 @@ describe("staleStreamVerdict", () => {
     })).toBe("extend");
   });
 
+  /**
+   * THE FOURTH STATE, and the three and a half hours that paid for it.
+   *
+   * On 2026-09-02 `topic:6b9605e5` and `topic:ada7e7db` sat spinning with a
+   * `bash` marked `running`. The command had exited: `runCommand` waited for
+   * `close`, and a backgrounded subshell (`nohup <daemon> &`) kept the server's
+   * stdout and stderr open, so `close` never came and the promise never
+   * resolved. From here that turn looked exactly like a long build — 128 and 75
+   * "extending" lines in the log — and the phantom streams also postponed the
+   * automatic restart that would have swept them at boot.
+   *
+   * "A tool is running" is a claim written when it started. Past a generous
+   * duration it stops being evidence of work.
+   */
+  test("a tool 'running' past the cap is a hung promise, not work", () => {
+    const working = { silentMs: 60 * 60_000, timeoutMs: TIMEOUT, childAlive: true, alreadyResynced: true, toolRunning: true };
+    // A long build keeps its protection: half an hour of tool is still work.
+    expect(staleStreamVerdict({ ...working, toolRunningMs: 29 * 60_000 })).toBe("extend");
+    expect(staleStreamVerdict({ ...working, toolRunningMs: 31 * 60_000 })).toBe("hung");
+    expect(staleStreamVerdict({ ...working, toolRunningMs: 3.5 * 60 * 60_000 })).toBe("hung");
+  });
+
+  test("a tool with no start stamp is never hung: doubt does not kill", () => {
+    // No `startedAt` on the row (or a shape that would not parse): the sweeper
+    // reports `undefined` and the turn keeps its extension, like everywhere else
+    // in this file.
+    expect(staleStreamVerdict({
+      silentMs: 3 * 60 * 60_000, timeoutMs: TIMEOUT, childAlive: true, alreadyResynced: true, toolRunning: true,
+    })).toBe("extend");
+  });
+
   test("a dead child finalizes on the first stale tick, rescue spent or not", () => {
     expect(staleStreamVerdict({ silentMs: TIMEOUT + 1, timeoutMs: TIMEOUT, childAlive: false, alreadyResynced: false })).toBe("finalize");
     expect(staleStreamVerdict({ silentMs: TIMEOUT + 1, timeoutMs: TIMEOUT, childAlive: false, alreadyResynced: true })).toBe("finalize");

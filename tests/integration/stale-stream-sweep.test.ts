@@ -47,6 +47,12 @@ function harness(opts?: {
    * the second declares itself stuck after ten minutes.
    */
   toolRunning?: boolean;
+  /**
+   * How long that tool has been 'running', stamped on the row the way production
+   * does it (`startedAt` at announce). Absent = no stamp at all, which is the
+   * case where doubt must not kill.
+   */
+  toolRunningForMs?: number;
 }): Harness {
   const clock = { t: Date.UTC(2026, 7, 15, 12, 0, 0) };
   const silent = opts?.silentMs ?? 7 * MIN;
@@ -59,12 +65,17 @@ function harness(opts?: {
       content: opts?.content ?? "",
       partial: true,
       ...(opts?.toolRunning
-        ? {
-            toolCalls: [{ id: "t1", name: "bash", status: "running" }],
-            // The client renders tool state from the BLOCKS when they exist,
-            // and the shape there is nested: `{kind:'tool', toolCall:{status}}`.
-            blocks: [{ kind: "tool", toolCall: { id: "t1", name: "bash", status: "running" } }],
-          }
+        ? (() => {
+            const startedAt = opts.toolRunningForMs === undefined
+              ? {}
+              : { startedAt: clock.t - opts.toolRunningForMs };
+            return {
+              toolCalls: [{ id: "t1", name: "bash", status: "running", ...startedAt }],
+              // The client renders tool state from the BLOCKS when they exist,
+              // and the shape there is nested: `{kind:'tool', toolCall:{status}}`.
+              blocks: [{ kind: "tool", toolCall: { id: "t1", name: "bash", status: "running", ...startedAt } }],
+            };
+          })()
         : {}),
     }],
   ]);
@@ -169,6 +180,35 @@ describe("un figlio VIVO non viene chiuso dall'orologio", () => {
     const h = harness({ alive: false, silentMs: 7 * MIN, content: "mezza risposta" });
     sweepStaleStreams(h.deps);
     expect(h.rows.get(MSG)).toEqual({ content: "mezza risposta", partial: false });
+  });
+
+  /**
+   * ...BUT A TOOL 'RUNNING' FOR HOURS IS NOT A CHILD AT WORK.
+   *
+   * On 2026-09-02 `topic:6b9605e5` and `topic:ada7e7db` sat spinning with a
+   * `bash` stuck on `running`: the command had exited, but a backgrounded
+   * subshell held the server's pipes open and `runCommand` was waiting for
+   * `close`. From in here it was indistinguishable from a long build — 128 and
+   * 75 "extending" lines — and the phantom streams also postponed the automatic
+   * restart that would have swept them at boot.
+   */
+  test("un tool 'running' da tre ore e mezza viene chiuso, non prorogato", () => {
+    const h = harness({ alive: true, silentMs: 7 * MIN, toolRunning: true, toolRunningForMs: 210 * MIN });
+    expect(sweepStaleStreams(h.deps).get(SK)).toBe("finalized");
+    expect(h.rows.get(MSG)?.partial).toBe(false);
+    expect(h.turnsEnded).toEqual([SK]);
+    expect(h.aborted).toEqual([SK]);
+    expect(h.deps.activeStreams.has(SK)).toBe(false);
+    // The log says WHY: whoever reads it must tell this apart from the "alive
+    // but stopped with no tool" case, which has a different cure.
+    expect(h.warnings.some((w) => /tool 'running' da 210 min/.test(w))).toBe(true);
+  });
+
+  test("mezz'ora scarsa di tool resta lavoro: la build lunga non si tocca", () => {
+    const h = harness({ alive: true, silentMs: 7 * MIN, toolRunning: true, toolRunningForMs: 29 * MIN });
+    expect(sweepStaleStreams(h.deps).get(SK)).toBe("rescued");
+    expect(h.rows.get(MSG)?.partial).toBe(true);
+    expect(h.turnsEnded).toEqual([]);
   });
 
   test("dentro la finestra di silenzio non succede niente", () => {

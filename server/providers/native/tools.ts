@@ -66,6 +66,10 @@ const MAX_READ_BYTES = 400_000;
 /** Quanto output di un comando si rimanda al modello. */
 const MAX_OUTPUT_CHARS = 30_000;
 const DEFAULT_BASH_TIMEOUT_MS = 120_000;
+/** How long the last output still in the pipe gets, after the leader has exited. */
+const SCOLO_DOPO_EXIT_MS = 250;
+/** How long a kill gets before the answer goes out anyway, event or no event. */
+const GRAZIA_DOPO_KILL_MS = 2_000;
 /** How long a URL gets to answer. A page that needs longer is not documentation. */
 const WEB_FETCH_TIMEOUT_MS = 30_000;
 /** Cosa legge l'agente — e l'utente — quando il turno muore sotto un comando. */
@@ -270,25 +274,57 @@ async function runCommand(
       // timeout doveva fermare, con la sua porta e la sua CPU.
       killProcessTree(child.pid ?? 0).catch(() => { /* nessuno da uccidere */ });
     };
+    let chiuso = false;
+    let scolo: ReturnType<typeof setTimeout> | undefined;
+    const chiudi = (r: { out: string; code: number | null }) => {
+      if (chiuso) return;
+      chiuso = true;
+      clearTimeout(timer);
+      if (scolo) clearTimeout(scolo);
+      signal?.removeEventListener("abort", suAbort);
+      res({ ...r, ...(annullato ? { annullato: true } : {}) });
+    };
+    // The answer goes out after the grace EVEN IF no event arrives: killing is a
+    // request, not a guarantee. The leader may already be gone (its children
+    // reparented to init, out of reach of a tree computed from its pid) or may
+    // ignore the signal. A timeout that does not answer is worse than the
+    // command it was there to bound.
+    const arrenditi = () => {
+      if (scolo) clearTimeout(scolo);
+      scolo = setTimeout(() => chiudi({ out, code: null }), GRAZIA_DOPO_KILL_MS);
+      scolo.unref?.();
+    };
     const timer = setTimeout(() => {
       abbatti();
       out += `\n[comando ucciso dopo ${timeoutMs}ms]`;
+      arrenditi();
     }, timeoutMs);
     timer.unref?.();
     // IL TURNO È FINITO MENTRE IL COMANDO GIRAVA. Non è il timeout del comando:
     // è lo spegnimento del server o uno stop dell'utente, e la differenza va
     // detta — `[exit null]` nudo manda a cercare un guasto che non c'è stato.
-    const suAbort = () => {
+    function suAbort() {
       annullato = true;
       abbatti();
       out += `\n${MOTIVO_ANNULLATO}`;
-    };
+      arrenditi();
+    }
     signal?.addEventListener("abort", suAbort, { once: true });
-    const chiudi = (r: { out: string; code: number | null }) => {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", suAbort);
-      res({ ...r, ...(annullato ? { annullato: true } : {}) });
-    };
+    // IT WAITS FOR `exit`, NOT `close`. `close` arrives when the process has
+    // exited AND every pipe we gave it is closed — and those pipes are inherited
+    // by anything descending from it. `cd x && nohup <daemon> > log 2>&1 &`
+    // redirects the daemon, but the subshell waiting on it keeps OUR stdout and
+    // stderr open: `close` never comes. On 2026-09-02 two turns sat on
+    // `bash:running` for hours that way, with the tool promise never resolved,
+    // the agent loop stuck inside its await, and every watchdog above convinced
+    // it was working.
+    // `exit` looks at the leader alone. What is still in the pipe is collected in
+    // a short drain window, then the answer goes out.
+    child.on("exit", (code) => {
+      if (scolo) clearTimeout(scolo);
+      scolo = setTimeout(() => chiudi({ out, code }), SCOLO_DOPO_EXIT_MS);
+      scolo.unref?.();
+    });
     child.on("close", (code) => chiudi({ out, code }));
     child.on("error", (err) => chiudi({ out: String(err), code: null }));
   });
