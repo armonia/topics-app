@@ -23,11 +23,29 @@ beforeEach(() => {
 afterEach(() => rmSync(vero, { recursive: true, force: true }));
 
 describe("dropVanishedProjectPanes", () => {
-  it("toglie il pannello della cartella sparita se quello vero è nello stesso payload", () => {
+  it("il pannello della cartella sparita confluisce in quello vero", () => {
     const sparito = join(homedir(), ".openclaw", "workspace", vero.split("/").pop()!);
     const dentro = { panes: { [chiave(sparito)]: { a: 1 }, [chiave(vero)]: { a: 2 } } };
     const fuori = dropVanishedProjectPanes(dentro, "pane-store-v2") as any;
     expect(Object.keys(fuori.panes)).toEqual([chiave(vero)]);
+    expect(fuori.panes[chiave(vero)]).toEqual({ a: 2 });
+  });
+
+  it("LA FILA DELLE TAB e' cio' che si vedeva doppio: l'id vecchio va rimappato, non lasciato", () => {
+    const sparito = join(homedir(), ".openclaw", "workspace", vero.split("/").pop()!);
+    const dentro = {
+      panes: { [chiave(vero)]: { a: 1 } },
+      groups: { "group:default": { paneIds: [chiave(sparito), "terminal:x", chiave(vero)] } },
+    };
+    const fuori = dropVanishedProjectPanes(dentro, "pane-store-v2") as any;
+    expect(fuori.groups["group:default"].paneIds).toEqual([chiave(vero), "terminal:x"]);
+  });
+
+  it("rimappa anche un projectPath scritto per esteso, non solo l'id", () => {
+    const sparito = join(homedir(), ".openclaw", "workspace", vero.split("/").pop()!);
+    const dentro = { panes: { [chiave(vero)]: { a: 1 } }, closedStack: [{ projectPath: sparito }] };
+    const fuori = dropVanishedProjectPanes(dentro, "pane-store-v2") as any;
+    expect(fuori.closedStack[0].projectPath).toBe(vero);
   });
 
   it("NON tocca una cartella sparita senza gemello: un disco smontato non perde i pannelli", () => {

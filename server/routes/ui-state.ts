@@ -83,46 +83,86 @@ export const DEVICE_LOCAL_SETTINGS_FIELDS = ["sidebarWidth", "sidebarCollapsed"]
  * consumer state that happens to use the same field name.
  */
 /**
- * IL PANNELLO DI UNA CARTELLA CHE NON C'E' PIU', QUANDO IL SUO GEMELLO C'E'.
+ * LA CARTELLA E' UNA SOLA, ANCHE SE IL PANNELLO LA CHIAMA IN DUE MODI.
  *
  * Un progetto raggiunto da due strade (un symlink, una maiuscola diversa, una
- * cartella spostata) genera due pannelli. La fusione lato server li univa, ma il
- * client rimandava indietro il suo `pane-store-v2` da localStorage e il doppione
- * tornava: ripulito alle 08:06, di nuovo lì alle 09:19. Pulire il server mentre
- * il client riscrive non e' un rimedio, e' un giro a vuoto.
+ * cartella spostata) genera due voci. La fusione lato server le univa nel DB, ma
+ * il client rimandava il suo `pane-store-v2` da localStorage e il doppione
+ * tornava: ripulito alle 08:06, di nuovo li' alle 09:19. Pulire il server mentre
+ * il client riscrive e' un giro a vuoto, quindi la normalizzazione sta DOVE SI
+ * SCRIVE.
  *
- * Quindi la normalizzazione sta DOVE SI SCRIVE: un pannello la cui cartella non
- * esiste piu' viene lasciato cadere, ma SOLO se il pannello della cartella vera
- * (`~/Projects/<nome>`) e' gia' nello stesso payload. Senza quella condizione un
- * disco esterno smontato perderebbe i suoi pannelli, che e' un danno vero per
- * risolvere un fastidio.
+ * E si RIMAPPA, non si cancella. La prima versione toglieva il pannello e basta,
+ * e infatti non bastava: il pannello vecchio non era piu' in `panes` ma il suo id
+ * era ancora dentro `groups.*.paneIds`, cioe' la fila delle tab — la seconda voce
+ * che si vedeva a schermo era quella. Rimappare tiene la tab e la fa puntare al
+ * progetto vero; cancellare avrebbe lasciato una tab che punta al nulla.
+ *
+ * La condizione: si tocca SOLO un percorso che non esiste piu' e che ha un
+ * gemello in `~/Projects`. Senza, un disco esterno smontato perderebbe i suoi
+ * pannelli — un danno vero per risolvere un fastidio.
  */
 export function dropVanishedProjectPanes(payload: unknown, key?: string): unknown {
   if (key !== "pane-store-v2" || !payload || typeof payload !== "object") return payload;
-  const out = { ...(payload as Record<string, unknown>) };
-  const panes = out.panes;
-  if (!panes || typeof panes !== "object" || Array.isArray(panes)) return payload;
 
-  const percorso = (k: string): string | null => {
-    if (!k.startsWith("project:")) return null;
-    try { return decodeURIComponent(k.slice("project:".length)); } catch { return null; }
+  const PREFISSO = "project:";
+  const gemello = (p: string): string | null => {
+    if (existsSync(p)) return null;
+    const c = join(homedir(), "Projects", p.split("/").filter(Boolean).pop() || "");
+    return c !== p && existsSync(c) ? c : null;
   };
-  const presenti = new Set<string>();
-  for (const k of Object.keys(panes as Record<string, unknown>)) {
-    const p = percorso(k);
-    if (p) presenti.add(p);
-  }
-  const puliti: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(panes as Record<string, unknown>)) {
-    const p = percorso(k);
-    if (p && !existsSync(p)) {
-      const gemello = join(homedir(), "Projects", p.split("/").filter(Boolean).pop() || "");
-      if (presenti.has(gemello)) continue;   // il doppione: il vero c'e' gia'
+  // id → id: si calcola una volta, poi si riscrive ovunque compaia.
+  const mappa = new Map<string, string>();
+  const raccogli = (s: string) => {
+    if (mappa.has(s)) return;
+    if (s.startsWith(PREFISSO)) {
+      let p: string;
+      try { p = decodeURIComponent(s.slice(PREFISSO.length)); } catch { return; }
+      const g = gemello(p);
+      if (g) mappa.set(s, PREFISSO + encodeURIComponent(g));
+      return;
     }
-    puliti[k] = v;
-  }
-  out.panes = puliti;
-  return out;
+    if (s.startsWith("/")) {
+      const g = gemello(s);
+      if (g) mappa.set(s, g);
+    }
+  };
+  const visita = (o: unknown): void => {
+    if (typeof o === "string") return raccogli(o);
+    if (Array.isArray(o)) return o.forEach(visita);
+    if (o && typeof o === "object") {
+      for (const [k, v] of Object.entries(o)) { raccogli(k); visita(v); }
+    }
+  };
+  visita(payload);
+  if (mappa.size === 0) return payload;
+
+  const riscrivi = (o: unknown): unknown => {
+    if (typeof o === "string") return mappa.get(o) ?? o;
+    if (Array.isArray(o)) {
+      const fuori = o.map(riscrivi);
+      // Dedup solo di stringhe: dopo la rimappatura la stessa tab compare due volte.
+      return fuori.every((x) => typeof x === "string") ? [...new Set(fuori as string[])] : fuori;
+    }
+    if (o && typeof o === "object") {
+      const fuori: Record<string, unknown> = {};
+      const voci = Object.entries(o);
+      // DUE PASSATE, e l'ordine e' il punto: prima le chiavi gia' canoniche, poi
+      // quelle rimappate solo se manca il posto. Con una passata sola vinceva chi
+      // capitava prima nell'oggetto, cioe' quasi sempre il pannello VECCHIO — e il
+      // contenuto che l'utente sta guardando veniva sostituito da quello morto.
+      for (const [k, v] of voci) if (!mappa.has(k)) fuori[k] = riscrivi(v);
+      for (const [k, v] of voci) {
+        if (!mappa.has(k)) continue;
+        const nk = mappa.get(k)!;
+        if (nk in fuori) continue;
+        fuori[nk] = riscrivi(v);
+      }
+      return fuori;
+    }
+    return o;
+  };
+  return riscrivi(payload);
 }
 
 export function stripDeviceLocalFields(payload: unknown, key?: string): unknown {
