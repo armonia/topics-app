@@ -2,49 +2,76 @@
  * @covers GATE-07
  */
 import { describe, test, expect } from "bun:test";
-import { execFileSync } from "child_process";
-import { readFileSync, existsSync } from "fs";
+import { readFileSync } from "fs";
 import { userInfo } from "os";
 import { resolve, join } from "path";
-import { DEBITO_NOME_PROPRIETARIO } from "./no-personal-data-debito";
+import { personalTerms as elencoTerzi, personalTermsPath } from "../../scripts/personal-terms.ts";
+import { execFileSync } from "child_process";
 
 /**
- * Nessun file tracciato porta il nome di chi lavora al repo.
+ * No tracked file carries a THIRD PARTY's personal data.
  *
- * ── PERCHÉ ESISTE ───────────────────────────────────────────────────────────
- * `armonia/topics-app` è PUBBLICO. Il 2026-06-02 è stato pubblicato dopo un
- * audit che ha tolto `.planning/` (299 documenti interni). Il 2026-08-13, alla
- * vigilia del primo push dei 723 commit successivi, un audit ha trovato che il
- * nome proprio del proprietario era rientrato in **136 file tracciati e 370
- * righe**, quasi sempre come attribuzione di una decisione di design («(Nome,
- * 09/08)») o come valore di prova nei test (`by: "nome"`).
+ * -- WHY IT EXISTS -----------------------------------------------------------
+ * `armonia/topics-app` is PUBLIC. It was published on 2026-06-02 after an audit
+ * that removed `.planning/` (299 internal documents). On 2026-08-13, on the eve
+ * of the first push of the 723 commits that followed, an audit found personal
+ * data back in **136 tracked files and 370 lines**, nearly always as the
+ * attribution of a design decision or as a fixture value in a test. Cleaning
+ * those does not stop the hundred-and-thirty-seventh from coming back tomorrow,
+ * and it already came back once. This is the gate.
  *
- * Non è una credenziale. È un dato personale che finisce indicizzato, e in un
- * repo dove i commit sono firmati da un autore ANONIMO di proposito (`j <j@l>`)
- * è anche una contraddizione: l'anonimato della firma non serve a niente se il
- * nome sta nei commenti.
+ * -- THE PREMISE THAT WAS FALSE, AND THE NEW RULE (2026-09-02) ---------------
+ * Until today this gate also looked for the name of the repo's AUTHOR, and the
+ * reason written here was: "the commits are signed by a deliberately ANONYMOUS
+ * author (`j <j@l>`), so the name in the comments is a contradiction - an
+ * anonymous signature is worth nothing if the name sits in the sources".
  *
- * Ripulire i 136 file non impedisce al centotrentasettesimo di rientrare
- * domani, ed è rientrato già una volta. Questo è il cancello.
+ * That premise no longer describes this repo, and it was MEASURED on
+ * 2026-09-02: over `git log -400 --format=%an` the author is the real person in
+ * **310 commits out of 400**, full name and email address, and those commits
+ * are on `origin/main`, i.e. already published. The signature is not anonymous:
+ * it IS that identity, on every line of `git log` anyone can read.
  *
- * ── PERCHÉ IL NOME NON È SCRITTO QUI ────────────────────────────────────────
- * Stessa ragione di `no-home-paths-tracked.test.ts`, ed è la parte che rende
- * il cancello onesto: scrivere il nome dentro un test del repo pubblico sarebbe
- * la fuga che il test vuole impedire, in un file in più. I termini si
- * DERIVANO a runtime da chi esegue:
- *   • `id -F` — il nome completo dell'account macOS;
- *   • `userInfo().username` — il nome utente;
- *   • `git config user.name` / `user.email`;
- *   • `.personal-terms` — file NON tracciato, una riga per termine, per ciò che
- *     il sistema non sa dedurre (ragione sociale, nomi di clienti).
- * Come effetto secondario il cancello vale per CHIUNQUE committi: protegge il
- * nome di chi ci lavora, quale che sia.
+ * Hence the new rule, and why:
  *
- * ── LA SOGLIA DI QUATTRO CARATTERI ──────────────────────────────────────────
- * Un termine corto produce solo falsi positivi: l'autore git di questo repo è
- * `j <j@l>`, e cercare «j» in ogni file tracciato renderebbe il cancello
- * inutile e rumoroso allo stesso tempo. Sotto i quattro caratteri il termine si
- * scarta, e il test lo DICHIARA invece di ignorarlo in silenzio.
+ *   - **the repo author's name is NOT data to redact.** A gate that protects
+ *     something already public protects nothing: taking it out of the comments
+ *     does not take it out of the SHAs, out of GitHub, or off the contributors
+ *     page. It only produces red in CI - and a red that matches no risk is the
+ *     fastest way for a proactive gate to be switched off by the people who
+ *     live under it.
+ *   - **third-party personal data stays in:** clients, company names, people
+ *     who never chose to appear here. None of that is in any commit signature,
+ *     so a tracked file carrying it is a NEW exposure - the only one this gate
+ *     can actually prevent.
+ *
+ * What the gate does NOT stop watching: the machine's home directory and user
+ * name stay forbidden, and the twin `no-home-paths-tracked.test.ts` measures
+ * them. A `/Users/<user>/...` path is not an identity published by a signature,
+ * it is the shape of the machine somebody works on, and it still must not be
+ * here.
+ *
+ * -- WHERE THE LIST LIVES, AND WHY NOT HERE ----------------------------------
+ * In `.personal-terms`, deliberately NOT tracked: a list of what must stay
+ * hidden, inside the repo it must stay hidden from, is the very leak it claims
+ * to close. `scripts/personal-terms.ts` reads it - one module for all three
+ * gates that need it (this one, `check-push-clean.ts`, `scrub-history.ts`):
+ * three hand-rolled parsers of the same file become three gates that diverge at
+ * the first syntax change, and one that diverges silently is blind.
+ *
+ * A direct consequence of the new rule: terms are no longer DERIVED from
+ * `id -F` / `git config user.name` / `user.email`. That derivation existed to
+ * search for the author without writing the name down, and the author is no
+ * longer what we search for. What remains is a declared list of third parties,
+ * and an empty list means "nothing to look for here", NEVER "clean".
+ *
+ * -- THE FOUR-CHARACTER THRESHOLD --------------------------------------------
+ * A short term produces nothing but false positives: searching "j" or "io" in
+ * every tracked file would make the gate useless and noisy at the same time.
+ * Below four characters a term is dropped, and the test DECLARES it instead of
+ * ignoring it in silence. `filtraTermini` is exported so that the twin gates
+ * (`no-home-paths-tracked`, `check-security.test`) apply THE SAME rule instead
+ * of a copy.
  */
 
 const ROOT = resolve(import.meta.dir, "..", "..");
@@ -55,57 +82,29 @@ const TESTABILE = /\.(ts|tsx|js|jsx|mjs|cjs|json|jsonc|md|sql|sh|yml|yaml|toml|c
 /**
  * Esenzioni, ognuna con la sua ragione. Un'esenzione senza ragione scritta è
  * un buco che nessuno saprà più valutare.
+ *
+ * `tests/unit/no-personal-data-debito.ts` STAVA QUI e non c'è più: era
+ * l'elenco dei 119 file che portavano il nome dell'AUTORE, cioè il conto
+ * aperto di una pulizia che la regola del 02/09 dichiara non dovuta. Un debito
+ * che non è più un debito non si tiene «per sicurezza»: si chiude, altrimenti
+ * resta un'allowlist permanente che nessuno rilegge.
  */
 const ESENTI = new Map<string, string>([
-  // `desktop-tauri/SIGNING.md` e `scripts/apple-signing-setup.sh` STAVANO QUI,
-  // e non ci sono piu'. L'esenzione diceva: «l'identità legale serve alla FIRMA
-  // del binario, e chi ricostruisce l'app deve sapere chi è — decisa dal
-  // proprietario il 2026-08-13, esplicitamente e solo per questo».
-  //
-  // Poi quei due file sono stati REDATTI: la ragione sociale è diventata «the
-  // company», il D-U-N-S è sparito. L'esenzione è sopravvissuta alla ragione che
-  // la reggeva, e da quel momento era un BUCO — non copriva più un fatto voluto,
-  // copriva soltanto quei due percorsi, qualunque cosa ci finisse dentro.
-  //
-  // Il 18/08 un agente della board ci ha rimesso la ragione sociale per esteso,
-  // il codice D-U-N-S e il nome del proprietario, in un repo PUBBLICO, e questo
-  // cancello non avrebbe detto niente: l'ho visto rivedendo il diff a mano.
-  // Adesso lo direbbe. (E il dato NON si cita qui: un cancello che nomina cio'
-  // che vieta e' la fuga che stava impedendo.)
-  //
-  // Se un giorno l'identità legale dovrà tornare in quei file, l'esenzione si
-  // riscrive — con la data e la ragione nuove. Un'esenzione che sopravvive al
-  // suo motivo non protegge: nasconde.
   [
     "tests/unit/no-personal-data-tracked.test.ts",
-    "Questo file: nomina i termini come CODICE che li deriva, mai come dato.",
-  ],
-  [
-    "tests/unit/no-personal-data-debito.ts",
-    "L'elenco del debito: contiene percorsi, non nomi.",
+    "Il cancello stesso: qui si discute la FORMA di un termine (soglia, grafie, " +
+      "derivazione), e discutere la regola non deve poter far scattare la regola.",
   ],
 ]);
-
-/** Un comando che può non esserci: il cancello non deve morire per questo. */
-function prova(cmd: string, args: string[]): string {
-  try {
-    return execFileSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-  } catch {
-    return "";
-  }
-}
 
 /**
  * Gli account che NON sono il nome di nessuno.
  *
  * Su un runner di CI l'utente della macchina di build si chiama `runner`
- * (ubuntu-latest), e nessuna delle altre fonti risponde: `id -F` è un'opzione
- * BSD e su Linux fallisce, e `git config user.name` non lo imposta
- * `actions/checkout`. Resta quindi «runner» come unico termine — sei caratteri,
- * sopra la soglia — e la parola compare in 74 file tracciati (ci.yml,
- * CONTRIBUTING.md, CHANGELOG.md…). Il cancello sarebbe diventato rosso per come
- * si chiama l'utente della macchina di build, non per una fuga: il modo più
- * rapido in cui un cancello proattivo viene disattivato da chi lo subisce.
+ * (ubuntu-latest), e la parola compare in 74 file tracciati (ci.yml,
+ * CONTRIBUTING.md, CHANGELOG.md…). Senza questo filtro il cancello gemello
+ * diventerebbe rosso per come si chiama l'utente della macchina di build, non
+ * per una fuga.
  *
  * Non sono esenzioni sul CONTENUTO — nessun file viene perdonato. È il
  * riconoscimento che questi nomi non appartengono a una persona, quindi non
@@ -124,43 +123,14 @@ export function filtraTermini(grezzi: string[]): string[] {
 }
 
 /**
- * I termini da cercare, derivati a runtime. Mai scritti nel repo.
+ * I termini da cercare: SOLO i dati di terzi dichiarati in `.personal-terms`.
  *
- * Il nome completo si spezza anche nelle sue parti: «Nome Cognome» compare
- * quasi sempre come solo nome, ed è quella la forma che rientra.
+ * Nessuna derivazione dall'identità di chi committa — vedi la regola del
+ * 02/09 in testa al file: quella identità è pubblica in 310 degli ultimi 400
+ * commit, e cercarla nei sorgenti non toglie niente a nessuno.
  */
 export function personalTerms(): string[] {
-  const grezzi: string[] = [];
-
-  const completeName = prova("id", ["-F"]);
-  if (completeName) {
-    grezzi.push(completeName, ...completeName.split(/\s+/));
-  }
-  grezzi.push(userInfo().username);
-  grezzi.push(prova("git", ["config", "user.name"]));
-  const email = prova("git", ["config", "user.email"]);
-  if (email) {
-    grezzi.push(email);
-    // Anche la parte locale: `nome@dominio` rientra spesso come solo `nome`.
-    const locale = email.split("@")[0];
-    if (locale) grezzi.push(locale);
-  }
-
-  // Ciò che la macchina non sa dedurre: ragione sociale, clienti, alias. Il
-  // file NON è tracciato di proposito (è in `.gitignore`), così l'elenco dei
-  // termini vietati non diventa esso stesso la fuga.
-  const extra = join(ROOT, ".personal-terms");
-  if (existsSync(extra)) {
-    for (const riga of readFileSync(extra, "utf8").split("\n")) {
-      const t = riga.split("#")[0].trim();
-      if (t) grezzi.push(t);
-    }
-  }
-
-  // Dedup, soglia, minuscolo: il confronto è insensibile alle maiuscole perché
-  // il nome rientra tanto in prosa («Nome ha chiesto») quanto come valore di
-  // test (`by: "nome"`).
-  return filtraTermini(grezzi);
+  return filtraTermini(elencoTerzi(ROOT));
 }
 
 function tracciati(): string[] {
@@ -191,21 +161,29 @@ describe("nessun dato personale in un file tracciato", () => {
   const termini = personalTerms();
   const files = tracciati();
 
-  test("i termini si derivano davvero: almeno uno, e nessuno è scritto nel repo", () => {
-    // Un cancello che non sa cosa cercare passa sempre. Questa è la guardia che
-    // lo impedisce: su una macchina senza `id -F` e senza `.personal-terms` il
-    // test diventa rosso qui, non verde a vuoto altrove.
+  test("l'elenco dei file tracciati non è vuoto (guardia contro un verde a vuoto)", () => {
+    // Se `git ls-files` fallisse o il filtro non prendesse più niente, il test
+    // sotto passerebbe misurando zero file: il modo più comune in cui un
+    // cancello smette di guardare senza che nessuno se ne accorga.
+    expect(files.length).toBeGreaterThan(100);
+  });
+
+  test("il cancello sa ancora diventare rosso", () => {
+    // QUESTA È LA GUARDIA CHE HA SOSTITUITO «i termini si derivano davvero».
     //
-    // L'ECCEZIONE è una macchina di build, e non è un'attenuante: su un runner
-    // non c'è NESSUNA persona la cui identità vada protetta, quindi «zero
-    // termini» è la risposta giusta e non un guasto della derivazione. Il
-    // cancello sull'identità è locale per natura — vive dove il commit nasce —
-    // e lì la guardia resta durissima.
-    if (process.env.CI && termini.length === 0) {
-      expect(ACCOUNT_OF_SERVICE.has(userInfo().username.toLowerCase())).toBe(true);
-      return;
-    }
-    expect(termini.length).toBeGreaterThan(0);
+    // Finché i termini si derivavano dalla macchina, «almeno un termine» era la
+    // prova che la derivazione funzionasse. Adesso l'elenco è un file locale e
+    // non esistere è una risposta LEGITTIMA (fresh clone, CI): «zero termini»
+    // non è più un guasto, quindi non può più essere l'asserzione.
+    //
+    // Ciò che resta da dimostrare è che il confronto morda: si dà a `colpevoli`
+    // un termine inventato che sta di sicuro dentro un file tracciato noto. Se
+    // un giorno il matcher smettesse di leggere i file, di abbassare a
+    // minuscolo o di confrontare, questo diventerebbe rosso qui — invece di
+    // stampare verde su un albero che nessuno sta più guardando.
+    expect(colpevoli(["CHANGELOG.md"], ["changelog"])).toEqual(["CHANGELOG.md"]);
+    expect(colpevoli(["CHANGELOG.md"], ["CHANGELOG"])).toEqual([]); // i termini arrivano già minuscoli
+    expect(colpevoli(["CHANGELOG.md"], ["termine-che-non-esiste-da-nessuna-parte"])).toEqual([]);
   });
 
   test("l'utente di una macchina di build non è il nome di nessuno", () => {
@@ -219,38 +197,49 @@ describe("nessun dato personale in un file tracciato", () => {
     expect(filtraTermini(["runnerson"])).toEqual(["runnerson"]);
   });
 
-  test("l'elenco dei file tracciati non è vuoto (guardia contro un verde a vuoto)", () => {
-    // Se `git ls-files` fallisse o il filtro non prendesse più niente, il test
-    // sotto passerebbe misurando zero file: il modo più comune in cui un
-    // cancello smette di guardare senza che nessuno se ne accorga.
-    expect(files.length).toBeGreaterThan(100);
-  });
-
-  test("nessun file NUOVO porta un termine personale", () => {
-    // Il debito esistente è dichiarato in `no-personal-data-debito.ts` e si
-    // chiude con la riscrittura della storia (filter-repo), non a mano: quei
-    // file sono anche negli SHA dei 723 commit, quindi ripulirli qui non li
-    // toglierebbe dal pubblico. Ciò che questo test impedisce è che l'elenco
-    // CRESCA.
-    const nuovi = colpevoli(files, termini).filter((f) => !DEBITO_NOME_PROPRIETARIO.includes(f));
-    expect(nuovi).toEqual([]);
-  });
-
-  test("il debito si può solo RIDURRE: nessuna voce stantia", () => {
-    // Un elenco di debito che tiene dentro file già puliti smette di misurare
-    // il debito e diventa un'allowlist permanente. Ogni voce deve essere ancora
-    // colpevole; quando smette di esserlo, si toglie da lì.
+  test("l'identità dell'autore del repo NON è un termine da cercare", () => {
+    // La regola del 02/09, scritta come test invece che come solo commento: se
+    // qualcuno rimettesse la derivazione da `git config`, il nome dell'autore
+    // tornerebbe fra i termini e questo diventerebbe rosso.
     //
-    // SENZA TERMINI non si misura niente, e «niente» qui vorrebbe dire «tutte
-    // le voci sono stantie»: su un runner, dove `filtraTermini` giustamente
-    // svuota la lista perché nessuna identità va protetta, questo test dichiarava
-    // stantie tutte e 127. È lo stesso motivo della guardia più su, applicato
-    // all'altro verso: senza un termine da cercare, «ancora colpevole» non è una
-    // domanda a cui si possa rispondere.
-    if (termini.length === 0) return;
-    const stillOffenders = new Set(colpevoli(files, termini));
-    const stantie = DEBITO_NOME_PROPRIETARIO.filter((f) => !stillOffenders.has(f));
-    expect(stantie).toEqual([]);
+    // Si confronta con ciò che la macchina sa dell'autore SENZA scriverlo qui:
+    // il termine si legge da git al volo e non finisce mai in un file.
+    const repoAuthor = (() => {
+      try {
+        return execFileSync("git", ["config", "user.name"], { cwd: ROOT, encoding: "utf8" }).trim().toLowerCase();
+      } catch {
+        return "";
+      }
+    })();
+    if (!repoAuthor) return; // niente identità git configurata: niente da dimostrare
+    expect(termini).not.toContain(repoAuthor);
+    for (const word of repoAuthor.split(/\s+/)) {
+      if (word.length >= 4) expect(termini).not.toContain(word);
+    }
+  });
+
+  test("nessun file tracciato porta un dato personale di terzi", () => {
+    // Nessun debito, nessuna allowlist: sotto la regola nuova l'elenco dei
+    // colpevoli è VUOTO, e deve restare tale. I 119 file che stavano nel debito
+    // ci stavano per il nome dell'autore, che non è più ciò che si cerca.
+    //
+    // Se questo diventa rosso, il file va corretto — non aggiunto a un elenco.
+    // Un dato di terzi non ha un «debito»: o non c'è, o è una fuga.
+    expect(colpevoli(files, termini)).toEqual([]);
+  });
+
+  test("un elenco vuoto è dichiarato inerte, non spacciato per verde", () => {
+    // `.personal-terms` non è tracciato: su un clone fresco e in CI non esiste,
+    // e lì questo cancello non misura niente. Non è un guasto — è il motivo per
+    // cui in `ci.yml` gira `--only=secrets,dependencies` e questo pezzo morde
+    // sulla postazione, dove il commit nasce. Ciò che NON deve succedere è che
+    // il vuoto passi per una misura: qui lo si dice ad alta voce.
+    if (termini.length === 0) {
+      expect(personalTermsPath(ROOT)).toContain(".personal-terms");
+      return;
+    }
+    // E dove l'elenco c'è, deve essere fatto di termini utilizzabili.
+    expect(termini.every((t) => t.length >= 4)).toBe(true);
   });
 
   test("ogni esenzione porta scritta la sua ragione", () => {
@@ -259,5 +248,18 @@ describe("nessun dato personale in un file tracciato", () => {
     // non misura la qualità della spiegazione, impedisce che non ce ne sia una.
     const mute = [...ESENTI].filter(([, ragione]) => ragione.trim().length < 40).map(([f]) => f);
     expect(mute).toEqual([]);
+  });
+
+  test("il nome utente della macchina resta vietato: lo misura il gemello", () => {
+    // Il confine della regola nuova, in una riga eseguibile: qui l'identità
+    // dell'autore è uscita dai termini, ma `no-home-paths-tracked.test.ts`
+    // continua a vietare `/Users/<utente>/…` e l'utente stesso. Se quel file
+    // sparisse — o smettesse di derivare l'utente dalla macchina — questa riga
+    // direbbe che metà del cancello se n'è andata con lui.
+    const twin = readFileSync(join(ROOT, "tests/unit/no-home-paths-tracked.test.ts"), "utf8");
+    expect(twin).toContain("homedir()");
+    // …e che l'utente lo ricavi ancora da lì, che è la metà «identità» del
+    // controllo: la home dice come si chiama chi lavora, e quella resta vietata.
+    expect(twin).toContain('HOME.split("/")');
   });
 });

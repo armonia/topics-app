@@ -1916,7 +1916,6 @@
     "tests/unit/no-import-cycles.test.ts": 33,
     "tests/unit/no-nul-bytes.test.ts": 7,
     "tests/unit/no-org-nesting.test.ts": 18,
-    "tests/unit/no-personal-data-debito.ts": 19,
     "tests/unit/no-personal-data-tracked.test.ts": 101,
     "tests/unit/no-raw-turn-usage.test.ts": 34,
     "tests/unit/no-seats-message.test.ts": 28,

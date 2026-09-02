@@ -8403,9 +8403,6 @@
       "corpo",
       "finto"
     ],
-    "tests/unit/no-personal-data-debito.ts": [
-      "DEBITO_NOME_PROPRIETARIO"
-    ],
     "tests/unit/no-personal-data-tracked.test.ts": [
       "ESENTI",
       "TESTABILE",

@@ -233,51 +233,49 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
     expect(code).toBe(0);
   }, 120_000);
 
-  test("PEZZO data: un nome personale in un file tracciato fa ROSSO", () => {
-    // Il termine si DERIVA come fa il cancello, mai scritto: scriverlo qui
-    // sarebbe esattamente la fuga che il cancello impedisce. Le fonti sono le
-    // sue, nello stesso ordine, e la prima che da' un termine di almeno quattro
-    // caratteri vince. `git config user.name` da solo non basta: in questo repo
-    // l'autore e' anonimo di proposito (una lettera), ed e' sotto la soglia.
-    const fonti = [
-      () => spawnSync("id", ["-F"], { encoding: "utf8" }).stdout ?? "",
-      () => spawnSync("git", ["config", "user.name"], { encoding: "utf8" }).stdout ?? "",
-      () => userInfo().username,
-    ];
-    let termine = "";
-    for (const f of fonti) {
-      termine = (f() ?? "").trim().split(/\s+/).find((t) => t.length >= 4) ?? "";
-      if (termine) break;
-    }
-    if (termine.length < 4) {
-      // Su una macchina senza identita' il caso non e' costruibile: lo dice
-      // invece di passare in silenzio, che sarebbe un verde non guadagnato.
-      throw new Error("nessuna fonte da' un termine personale di almeno 4 caratteri: il caso non e' costruibile");
-    }
-    // Il termine c'e', ma il cancello lo IGNORA: e' un account di servizio.
+  test("PEZZO data: a THIRD PARTY's data in a tracked file goes RED", () => {
+    // THE NAME HERE IS INVENTED, and that is new. Until 2026-09-02 this case
+    // had to DERIVE the committer's name from the machine (`id -F`, `git config
+    // user.name`, `userInfo`) and plant that: the gate looked for the repo's
+    // author, so nothing else could have turned it red, and writing a real name
+    // in this file would have been the very leak the gate prevents.
     //
-    // Le tre fonti qui sopra sono quelle del cancello, ma non passavano dal suo
-    // filtro, e su un runner GitHub le due cose divergono: `userInfo().username`
-    // da' «runner», che ha sei caratteri e supera la soglia, mentre
-    // `filtraTermini` lo toglie perche' non e' il nome di nessuno. Il test
-    // piantava quindi nel README un termine che il cancello ha l'ordine di non
-    // cercare, e pretendeva che diventasse rosso: rosso in CI, per costruzione.
-    //
-    // Qui non si esce in silenzio e non si throwa: si distinguono i due casi.
-    // Nessun termine affatto = la derivazione e' rotta, ed e' un guasto (sopra).
-    // Termine presente ma di servizio = su questa macchina non c'e' nessuna
-    // identita' da proteggere, quindi il caso da falsificare non ESISTE. Il
-    // pezzo `data` e' locale per natura — in ci.yml gira `--only=secrets,
-    // dependencies` per questa identica ragione — e la sua falsificazione vive
-    // dove vive lui.
-    if (filtraTermini([termine]).length === 0) {
-      console.log(`[check-security.test] PEZZO data: saltato, «${termine}» e' un account di servizio e il cancello lo ignora per progetto.`);
-      return;
+    // The rule changed - the author's identity is public in 310 of the last 400
+    // commits and is no longer redacted - so what the gate looks for is now a
+    // DECLARED list of third parties, and the falsification gets simpler and
+    // stronger at the same time: an invented name, handed over through
+    // TOPICS_PERSONAL_TERMS, which exists precisely so that a gate whose only
+    // input is an untracked file can still be SHOWN to turn red.
+    const terzo = "Quintaine Marlowe";
+    const elenco = join(temporanea, "terzi-di-prova.txt");
+    writeFileSync(elenco, `${terzo}\n`);
+    appendFileSync(join(copia, "README.md"), `\n<!-- chiesto da ${terzo} -->\n`);
+    process.env.TOPICS_PERSONAL_TERMS = elenco;
+    try {
+      const { code, out } = esegui(copia, "--only=data");
+      expect(out).toContain("ROSSO");
+      expect(code).toBe(1);
+    } finally {
+      delete process.env.TOPICS_PERSONAL_TERMS;
+      rmSync(elenco, { force: true });
+      ripristina();
     }
-    appendFileSync(join(copia, "README.md"), `\n<!-- deciso da ${termine} -->\n`);
+  }, 120_000);
+
+  test("PEZZO data: the repo AUTHOR's name does NOT go red", () => {
+    // The other half of the rule, and the half that used to be the opposite:
+    // this exact case was RED until 2026-09-02, and it is the reason
+    // `bun test:unit` was red on three files whose only sin was naming the
+    // person who wrote them. A gate that protects something already published
+    // in every commit signature protects nothing; it only teaches people to
+    // switch gates off.
+    const repoAuthor = (spawnSync("git", ["config", "user.name"], { encoding: "utf8" }).stdout ?? "").trim();
+    const termine = repoAuthor.split(/\s+/).find((t) => filtraTermini([t]).length > 0) ?? "";
+    if (!termine) return; // no git identity on this machine: nothing to prove
+    appendFileSync(join(copia, "README.md"), `\n<!-- deciso da ${repoAuthor} -->\n`);
     const { code, out } = esegui(copia, "--only=data");
-    expect(out).toContain("ROSSO");
-    expect(code).toBe(1);
+    expect(out).toContain("verde");
+    expect(code).toBe(0);
     ripristina();
   }, 120_000);
 

@@ -255,13 +255,29 @@ con l'esito dell'impedimento.
 - **GIVEN** una riga esentata senza motivo scritto
 - **THEN** l'esenzione NON SHALL avere effetto
 
-### Requirement: GATE-07 — Niente di PERSONALE in un file tracciato, e il debito può solo scendere
+### Requirement: GATE-07 — Niente di PERSONALE in un file tracciato, e ciò che è già pubblico non si redige
 
-Nessun file tracciato SHALL contenere il percorso della cartella personale, il
-nome di chi lavora al repository, o un indirizzo di posta su un dominio
-personale. Sono già rientrati tutti e tre: decine di percorsi in file di misura,
-oltre cento file col nome proprio alla vigilia del primo push pubblico, e un
-indirizzo reale dentro una migration — trovato da una spec, non da un cancello.
+Nessun file tracciato SHALL contenere il percorso della cartella personale di chi
+lavora al repository, il nome utente che quel percorso rivela, o il dato
+personale di un TERZO — un cliente, una ragione sociale, una persona che non ha
+scelto di comparire qui. Sono già rientrati: decine di percorsi in file di
+misura, e un indirizzo reale dentro una migration — trovato da una spec, non da
+un cancello.
+
+L'identità dell'AUTORE del repository NON SHALL essere trattata come un dato da
+redigere. La premessa che lo chiedeva — «i commit sono firmati da un autore
+anonimo, quindi il nome nei sorgenti è una contraddizione» — è stata MISURATA
+falsa il 2026-09-02: l'autore è la persona reale in 310 degli ultimi 400 commit,
+già su `origin/main`. Togliere quel nome dai commenti non lo toglie dagli SHA né
+dalla pagina dei contributor: il cancello produrrebbe solo rosso senza rischio
+corrispondente, che è il modo più rapido in cui un cancello viene spento da chi
+lo subisce.
+
+I termini di terzi SHALL essere DICHIARATI in un elenco NON tracciato, mai
+scritti dentro il repository che devono proteggere, e letti da UN SOLO modulo:
+tre parser dello stesso file divergono al primo cambio di sintassi, e uno che
+diverge in silenzio è cieco. Un elenco assente SHALL significare «niente da
+cercare qui», MAI «pulito».
 
 Il nome SHALL essere cercato in OGNI grafia in cui compare, compresa quella
 codificata per un indirizzo e quella usata negli identificativi di cartella.
@@ -269,11 +285,10 @@ codificata per un indirizzo e quella usata negli identificativi di cartella.
 L'utente di una macchina di costruzione NON SHALL essere trattato come il nome di
 una persona, o decine di file legittimi diventerebbero rossi.
 
-Il PREDICATO SHALL essere visto MORDERE: un indirizzo personale preso, uno di
-ruolo lasciato stare.
+Il PREDICATO SHALL essere visto MORDERE: un dato di terzi preso, il nome
+dell'autore lasciato stare, un indirizzo di ruolo lasciato stare.
 
-Il debito noto SHALL poter solo SCENDERE: nessun file NUOVO, e nessuna voce
-STANTIA nell'elenco. Ogni esenzione SHALL portare scritta la propria RAGIONE.
+Ogni esenzione SHALL portare scritta la propria RAGIONE.
 
 Il cancello che protegge la pubblicazione SHALL guardare ciò che il push
 AGGIUNGE — contenuto E messaggi di commit — e SOLO verso i remoti configurati: un

@@ -15,9 +15,16 @@
  *
  * I QUATTRO PEZZI, e falliscono per ragioni diverse:
  *
- *   data          nome, cognome, email, username di una persona vera in un file
- *                 tracciato. Delegato a `tests/unit/no-personal-data-tracked.test.ts`.
- *   home          il percorso della home di chi committa. Delegato a
+ *   data          a THIRD PARTY's personal data (a client, a company name, a
+ *                 person who never chose to appear here) in a tracked file.
+ *                 Delegated to `tests/unit/no-personal-data-tracked.test.ts`.
+ *                 It no longer looks for the repo AUTHOR's name: since
+ *                 2026-09-02 the rule says an identity already public in 310 of
+ *                 the last 400 commits is not data to redact - that file's
+ *                 header carries the old premise, which was false, and the new
+ *                 rule.
+ *   home          the home directory of whoever commits, and the user name that
+ *                 home reveals. Delegated to
  *                 `tests/unit/no-home-paths-tracked.test.ts`.
  *   secrets       NUOVO. Chiavi, token, password e chiavi private in chiaro, piu'
  *                 i file `.env` che non devono nemmeno essere tracciati.
@@ -43,11 +50,14 @@
  * Sull'albero intero sono ~3 secondi.
  *
  * IN CI NE GIRANO DUE SU QUATTRO, ed e' una scelta, non una dimenticanza.
- * `data` e `home` cercano il nome e la home di CHI COMMITTA e li DERIVANO dalla
- * macchina, apposta per non doverli scrivere in un repo pubblico. Un runner di
- * GitHub non ha un'identita' da proteggere: il suo account si chiama `runner`,
- * che non e' il nome di nessuno e compare in decine di file tracciati. La'
- * quei due pezzi misurerebbero come si chiama l'utente della macchina di build.
+ * Neither of the first two pieces can measure anything on a runner: `home`
+ * derives the committer's home directory FROM THE MACHINE (precisely so it need
+ * not be written down in a public repo), and `data` reads `.personal-terms`,
+ * which is untracked and therefore absent from a fresh clone. A GitHub runner
+ * has no identity to protect - its account is called `runner`, which is nobody's
+ * name and appears in dozens of tracked files - and no list of third parties.
+ * There those two would measure what the build machine's user is called, or
+ * nothing at all.
  * Mordono dove il commit nasce davvero: sulla postazione (`bun run
  * check:security`, tutti e quattro) e nei check pre-review, che eseguono
  * `test:unit` nel worktree dell'agente. In `.github/workflows/ci.yml` va la

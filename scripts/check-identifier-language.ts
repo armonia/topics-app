@@ -401,7 +401,18 @@ if (import.meta.main) {
   const hits: { file: string; line: number; name: string; bad: string[] }[] = [];
   for (const file of trackedFiles()) {
     const names: string[] = [];
-    for (const d of declaredNames(readFileSync(join(ROOT, file), "utf8"))) {
+    // A file git still TRACKS but that is no longer on disk (a deletion not yet
+    // staged, mid-refactor) used to kill the gate with an uncaught ENOENT:
+    // measured on 2026-09-02 while removing `no-personal-data-debito.ts`. A gate
+    // that dies is a gate that stops measuring the other 3800 files, and the
+    // stack trace it printed said nothing about the deletion that caused it.
+    let source: string;
+    try {
+      source = readFileSync(join(ROOT, file), "utf8");
+    } catch {
+      continue;
+    }
+    for (const d of declaredNames(source)) {
       const bad = words(d.name).filter((w) => !isKnown(w, dict));
       if (bad.length === 0) continue;
       names.push(d.name);
