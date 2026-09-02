@@ -2335,3 +2335,47 @@ Una preferenza di disposizione non sposta il terreno.
 - **THEN** li' non c'e' velo, e si vede il materiale nativo
 - **AND** su macOS la vibrancy per-regione copre le schede, quindi il materiale nudo e' esattamente il vuoto
 - **AND** su Windows, dove la vibrancy per-regione non esiste, i vuoti si leggono smerigliati
+
+### Requirement: LAYOUT-33 — Il riepilogo di una cartella si vede solo mentre la cartella è CHIUSA
+
+Una riga di progetto in colonna, e una tab di progetto nella barra, SHALL
+mostrare il glifo di caricamento aggregato e il tempo vivo del turno più vecchio
+SOLO mentre i figli non sono a schermo: accordion chiuso per la riga, tab non
+selezionata per la barra.
+
+Non è una preferenza estetica: aperta la cartella, ogni figlio che lavora disegna
+il PROPRIO anello e il proprio orologio una riga più sotto, e il riepilogo del
+padre ripete la stessa cosa un rientro più su. I due segni sono
+indistinguibili a colpo d'occhio, e chi guarda non sa più se sono due lavori o
+uno solo. Chiusa, invece, il riepilogo è l'unica cosa che possa parlare per loro.
+
+Il glifo SHALL essere l'ANELLO con la sua onda (`OrbitLoader`): una barra che si
+riempie prometterebbe una fine che un turno non sa dare. Il contratto nel DOM non
+cambia: resta `[data-loader-state="working"|"waiting"]`, così il cancello che lo
+cerca non dipende da come è disegnato.
+
+Il numero che CORRE SHALL avere una voce sua (`data-time-voice="live"`, classe
+`.time-live`), distinta dal grigio del tempo-ricevuta che gli sta accanto: sono
+due durate vicine che rispondono a domande opposte — «va avanti da 12m» e «ha
+risposto 12m fa» — e nella stessa riga non c'è una frase che le distingua.
+
+#### Scenario: cartella chiusa, un figlio che lavora
+- **GIVEN** un progetto con una chat in streaming e l'accordion CHIUSO
+- **THEN** la riga del progetto SHALL portare `[data-loader-state="working"]`
+- **AND** SHALL portare il tempo vivo del turno più vecchio
+- **AND** nessuna riga figlia SHALL essere a schermo a ripeterli
+
+#### Scenario: si apre l'accordion
+- **GIVEN** lo stesso progetto con l'accordion APERTO
+- **THEN** la riga del progetto NON SHALL portare né glifo né tempo
+- **AND** la riga del figlio SHALL portare il suo
+
+#### Scenario: si richiude
+- **GIVEN** l'accordion richiuso mentre il turno è ancora vivo
+- **THEN** glifo e tempo SHALL tornare sulla riga del progetto
+
+#### Scenario: la tab del progetto
+- **GIVEN** una tab di progetto SELEZIONATA con un figlio che lavora
+- **THEN** la tab NON SHALL portare il glifo aggregato
+- **WHEN** si seleziona un'altra tab
+- **THEN** la tab del progetto SHALL portarlo
