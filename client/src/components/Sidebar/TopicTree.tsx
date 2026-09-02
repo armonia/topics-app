@@ -1156,18 +1156,24 @@ export function TopicTree({
           >
             {/* L'icona vera quando la cartella ne porta una (favicon,
                 web-manifest, <link rel=icon>, risolti da /api/projects/icon).
-                Chi non ce l'ha prende un SEGNAPOSTO NEUTRO, non un'icona
-                inventata: la decisione «niente monogrammi» (Attilio, 16/07)
-                vieta di dare a un progetto un'identità che non ha - una
-                lettera, una tessera colorata - e resta intatta. Qui il punto è
-                un altro: la COLONNA del testo.
-                Misurato: il nome di un progetto senza favicon partiva da x=0,
-                quello di un progetto con favicon da x=22. Ventidue pixel fra
-                due righe adiacenti della stessa lista. Segnalato: «le rotte
-                dovevano essere allineate, e metti un'icona ai progetti che non
-                hanno l'icona, come è allineata a quelli della chat».
-                Il segnaposto è un punto piccolo e tenue: occupa lo spazio e non
-                pretende di dire chi sia quel progetto. */}
+                Chi non ce l'ha NON prende niente: la decisione «niente
+                monogrammi» (Attilio, 16/07, riconfermata dopo l'esperimento
+                delle tessere) dice che solo un'icona VERA si guadagna lo
+                spazio - niente lettere, niente tessere, niente glifi generici.
+                È scritta anche in testa a {@link ProjectFavicon}.
+
+                QUI C'ERA UN PALLINO, ed era un residuo. Il segnaposto (un
+                punto vuoto di 6px) era nato il 17/08, quando la favicon aveva
+                una scatola TUTTA SUA: allora era l'unica cosa che riservasse
+                la larghezza, e senza il nome di un progetto senza icona
+                partiva 22px più a sinistra di quello di un progetto con icona.
+                Il 27/08 (d919c1823) la favicon è entrata nello slot condiviso
+                qui sotto - `w-[18px]`, disegnato SEMPRE, pieno o vuoto - e da
+                quel momento è LA SCATOLA a tenere la colonna. Il pallino è
+                stato portato dietro invariato e non compra più niente: toglierlo
+                non muove un pixel dei nomi, lascia solo lo slot vuoto.
+                Riportato il 02/09: «vedo un pallino a caso per i progetti senza
+                favicon». Non era a caso, era in ritardo di dieci giorni. */}
             {/* IN THE SHARED SLOT, like every other leading glyph of the
                 sidebar. The favicon used to sit in its own 14px box, and it was
                 the last glyph outside {@link ROW_GLYPH_SLOT} (18): measured,
@@ -1178,17 +1184,7 @@ export function TopicTree({
                 The DRAWING stays 14px ({@link ROW_GLYPH}): it is the box that
                 aligns, not the ink. */}
             <span className={ROW_GLYPH_SLOT} data-row-glyph-slot="favicon">
-              <ProjectFavicon
-                path={pp}
-                size={ROW_GLYPH}
-                // The neutral placeholder for a folder carrying no icon: the
-                // dot sits inside the SAME box, centred. A 6px-wide
-                // placeholder box would start this name left of the name of a
-                // project that has an icon, i.e. the same defect, smaller.
-                fallback={
-                  <span className="h-1.5 w-1.5 rounded-full border border-app-text-faint" aria-hidden="true" />
-                }
-              />
+              <ProjectFavicon path={pp} size={ROW_GLYPH} />
             </span>
             <span className="truncate flex-1" data-row-name="project">{item.name}</span>
           </button>
