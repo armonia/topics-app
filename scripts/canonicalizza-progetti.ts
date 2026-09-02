@@ -73,17 +73,14 @@ for (const p of percorsi) {
   void idN;
 }
 
-if (casi.length === 0) { console.log("niente da fondere: nessun percorso salvato passa da un link."); process.exit(0); }
-
-console.log(esegui ? "ESEGUO" : "PROVA (niente viene scritto) — aggiungi --esegui per farlo davvero");
+if (casi.length === 0) console.log("board e topic: niente da fondere, nessun percorso salvato passa da un link.");
+else console.log(esegui ? "ESEGUO" : "PROVA (niente viene scritto) — aggiungi --esegui per farlo davvero");
 for (const c of casi) {
   console.log(`\n${c.vecchio}\n  -> ${c.nuovo}`);
   console.log(`  topic da rilegare: ${c.topics} · righe tasks da spostare: ${c.tasks}` +
               `${c.chiavi.length ? ` · chiavi ui_state: ${c.chiavi.join(", ")}` : ""}`);
   console.log(`  projectId: ${projectIdForPath(c.vecchio)} -> ${projectIdForPath(c.nuovo)}`);
 }
-
-if (!esegui) process.exit(0);
 
 const migra = db.transaction(() => {
   for (const c of casi) {
@@ -102,5 +99,68 @@ const migra = db.transaction(() => {
     }
   }
 });
-migra();
-console.log("\nfatto. Riavvia il server Topics perché rilegga lo stato.");
+if (esegui && casi.length > 0) {
+  migra();
+  console.log("\nboard e topic rilegati.");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FASE 2 — i riferimenti rimasti nello STATO DELLA UI.
+//
+// La fase 1 rilega board e topic, ma i pannelli aperti e i fissati in sidebar
+// vivono dentro due blob JSON (`pane-store-v2`, `sidebar-state`) con il percorso
+// scritto dentro, a volte codificato. Dopo la fusione restavano lì: il progetto
+// compariva DUE volte, e una delle due copie era quella con un turno in corso.
+//
+// Qui il link non c'è più (la cartella e' stata spostata davvero), quindi non si
+// puo' risolvere: un percorso che NON ESISTE PIU' e che ha un omonimo in
+// ~/Projects viene rimappato lì. È un'euristica, e per questo la si legge nella
+// prova prima di eseguirla.
+// ─────────────────────────────────────────────────────────────────────────────
+{
+  const BLOB = ["pane-store-v2", "sidebar-state", "panels"];
+  const home = homedir();
+  const orfani = new Map<string, string>();
+  for (const key of BLOB) {
+    const row = db.query<{ value: string }, [string]>("SELECT value FROM ui_state WHERE key = ?").get(key);
+    if (!row) continue;
+    for (const m of row.value.matchAll(/project:((?:%2F|\/)[^"',\]]+)/g)) {
+      const p = decodeURIComponent(m[1]);
+      if (existsSync(p)) continue;
+      const candidato = join(home, "Projects", p.split("/").filter(Boolean).pop() || "");
+      if (existsSync(candidato)) orfani.set(p, candidato);
+    }
+  }
+  if (orfani.size === 0) console.log("\nstato UI: nessun riferimento orfano.");
+  else {
+    console.log(`\nstato UI — ${orfani.size} riferimenti a cartelle che non esistono piu':`);
+    for (const [v, n] of orfani) console.log(`  ${v}\n    -> ${n}`);
+    if (esegui) {
+      const rimappa = db.transaction(() => {
+        for (const key of BLOB) {
+          const row = db.query<{ value: string }, [string]>("SELECT value FROM ui_state WHERE key = ?").get(key);
+          if (!row) continue;
+          let v = row.value;
+          for (const [vecchio, nuovo] of orfani) {
+            v = v.split(vecchio).join(nuovo)
+                 .split(encodeURIComponent(vecchio)).join(encodeURIComponent(nuovo));
+          }
+          // Dedup dei fissati: dopo la rimappatura la stessa voce puo' comparire due volte.
+          try {
+            const o = JSON.parse(v);
+            const dedup = (a: unknown) => Array.isArray(a) ? [...new Set(a as string[])] : a;
+            if (o?.pinnedItems) o.pinnedItems = dedup(o.pinnedItems);
+            if (Array.isArray(o?.pinnedLayout)) {
+              for (const riga of o.pinnedLayout) if (riga?.keys) riga.keys = dedup(riga.keys);
+            }
+            v = JSON.stringify(o);
+          } catch { /* blob non-JSON: la sostituzione testuale vale comunque */ }
+          db.run("UPDATE ui_state SET value = ? WHERE key = ?", [v, key]);
+        }
+      });
+      rimappa();
+      console.log("stato UI riscritto.");
+    }
+  }
+}
+console.log("\nfatto. Riavvia il server Topics perche' rilegga lo stato.");

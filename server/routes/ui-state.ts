@@ -21,6 +21,9 @@
  *     that means migration 012 was never applied and we MUST NOT silently coalesce.
  */
 import type { AppContext, RouteHandler } from "../types";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 type UiStateMeta = { payload_version: number; server_seq: number };
 type UiStateEnvelope = { data: Record<string, unknown>; meta: Record<string, UiStateMeta> };
@@ -79,6 +82,49 @@ export const DEVICE_LOCAL_SETTINGS_FIELDS = ["sidebarWidth", "sidebarCollapsed"]
  * every key named `scrollOffset` everywhere — that would break unrelated
  * consumer state that happens to use the same field name.
  */
+/**
+ * IL PANNELLO DI UNA CARTELLA CHE NON C'E' PIU', QUANDO IL SUO GEMELLO C'E'.
+ *
+ * Un progetto raggiunto da due strade (un symlink, una maiuscola diversa, una
+ * cartella spostata) genera due pannelli. La fusione lato server li univa, ma il
+ * client rimandava indietro il suo `pane-store-v2` da localStorage e il doppione
+ * tornava: ripulito alle 08:06, di nuovo lì alle 09:19. Pulire il server mentre
+ * il client riscrive non e' un rimedio, e' un giro a vuoto.
+ *
+ * Quindi la normalizzazione sta DOVE SI SCRIVE: un pannello la cui cartella non
+ * esiste piu' viene lasciato cadere, ma SOLO se il pannello della cartella vera
+ * (`~/Projects/<nome>`) e' gia' nello stesso payload. Senza quella condizione un
+ * disco esterno smontato perderebbe i suoi pannelli, che e' un danno vero per
+ * risolvere un fastidio.
+ */
+export function dropVanishedProjectPanes(payload: unknown, key?: string): unknown {
+  if (key !== "pane-store-v2" || !payload || typeof payload !== "object") return payload;
+  const out = { ...(payload as Record<string, unknown>) };
+  const panes = out.panes;
+  if (!panes || typeof panes !== "object" || Array.isArray(panes)) return payload;
+
+  const percorso = (k: string): string | null => {
+    if (!k.startsWith("project:")) return null;
+    try { return decodeURIComponent(k.slice("project:".length)); } catch { return null; }
+  };
+  const presenti = new Set<string>();
+  for (const k of Object.keys(panes as Record<string, unknown>)) {
+    const p = percorso(k);
+    if (p) presenti.add(p);
+  }
+  const puliti: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(panes as Record<string, unknown>)) {
+    const p = percorso(k);
+    if (p && !existsSync(p)) {
+      const gemello = join(homedir(), "Projects", p.split("/").filter(Boolean).pop() || "");
+      if (presenti.has(gemello)) continue;   // il doppione: il vero c'e' gia'
+    }
+    puliti[k] = v;
+  }
+  out.panes = puliti;
+  return out;
+}
+
 export function stripDeviceLocalFields(payload: unknown, key?: string): unknown {
   if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
     return payload;
@@ -293,7 +339,7 @@ export function createUiStateRouter(ctx: AppContext, opts?: UiStateRouterOptions
       }
 
       // Defense-in-depth: strip device-local scrollOffset before persistence.
-      const sanitized = stripDeviceLocalFields(body, key);
+      const sanitized = dropVanishedProjectPanes(stripDeviceLocalFields(body, key), key);
       const value = JSON.stringify(sanitized);
 
       // Size cap: measured on the serialized-to-be-stored payload.
