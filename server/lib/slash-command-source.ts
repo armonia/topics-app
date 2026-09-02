@@ -1,21 +1,21 @@
 /**
- * Dov'è scritto un comando slash, e cosa c'è dentro.
+ * Where a slash command is written, and what is inside it.
  *
- * Serve a mostrare il CORPO di un comando che l'utente ha lanciato. Sul filo
- * quel corpo non passa — la CLI espande lo slash prima del turno, verificato —
- * ma il file esiste, ed è lo stesso da cui `/api/slash-commands` ricava già
- * nome e descrizione. La risoluzione stava inline dentro quella rotta: qui
- * diventa una funzione sola, perché adesso ha DUE chiamanti e due liste di
- * cartelle che divergono sarebbero un comando che si vede nell'elenco e non si
- * apre.
+ * It exists to show the BODY of a command that was run. That body never travels
+ * over the wire — the CLI expands the slash before the turn, verified — but the
+ * file is there, and it is the same one `/api/slash-commands` already derives
+ * name and description from. Resolution used to sit inline inside that route:
+ * here it becomes a single function, because it now has TWO callers, and two
+ * folder lists that drift apart would be a command visible in the list that
+ * refuses to open.
  *
- * ── Il cancello ─────────────────────────────────────────────────────────────
- * Il nome arriva dal client. Senza controllo, `../../../etc/passwd` (o un nome
- * con una barra) leggerebbe qualunque file della macchina: è esattamente la
- * classe di difetto già trovata sulle rotte dei file. Qui il nome è
- * ammesso solo se fatto di lettere, cifre, `-`, `_` e `:` — e il percorso
- * risolto deve comunque CADERE DENTRO una delle cartelle note, controllato dopo
- * la risoluzione (un link simbolico non deve poter uscire).
+ * ── The gate ────────────────────────────────────────────────────────────────
+ * The name comes from the client. Unchecked, `../../../etc/passwd` (or a name
+ * with a slash in it) would read any file on the machine: exactly the defect
+ * class already found on the file routes. Here the name is admitted only if
+ * made of letters, digits, `-`, `_` and `:` — and the resolved path must still
+ * LAND INSIDE one of the known folders, checked after resolution (a symlink
+ * must not be able to escape).
  */
 
 import { readFileSync, readdirSync, existsSync, realpathSync } from "fs";

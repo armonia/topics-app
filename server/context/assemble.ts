@@ -46,10 +46,10 @@ import type {
 const DEFAULT_HISTORY_LIMIT = 100;
 
 /**
- * Il budget della barra dell'inspector NON e' una costante: e' la finestra del
- * modello del topic (`contextWindowFor`, unica tabella). Cablarne una copia a
- * 200k dava la stessa barra al 90% su un topic a 1M che era in realta' al 18% —
- * il numero giusto esisteva, lo perdeva chi lo riportava.
+ * The inspector bar budget is NOT a constant: it is the window of the topic's
+ * model (`contextWindowFor`, the single table). Hardwiring a copy at 200k drew
+ * the same bar at 90% on a 1M topic that was really at 18% — the right number
+ * existed, it was lost by whoever carried it over.
  */
 
 /** Threshold above which the inspector flags a "context > N%" warning. */
@@ -124,14 +124,14 @@ export interface AssembleArgs {
   historyLimit?: number;
 
   /**
-   * Messaggi su cui costruire la history, invece del thread attivo letto dalla
-   * tabella.
+   * The messages to build the history from, instead of the active thread read
+   * from the table.
    *
-   * Serve a edit/regenerate (`server/routes/edit.ts`), che lavora su un ramo
-   * TRONCATO: rigenerando una risposta il modello non deve vedere quella che sta
-   * rimpiazzando, e il taglio all'ancora non è esprimibile con una query. Senza
-   * questo, quel percorso non poteva usare l'envelope e si è ritrovato a
-   * ricostruire i blocchi di sistema a mano — perdendone sette per strada.
+   * It exists for edit/regenerate (`server/routes/edit.ts`), which works on a
+   * TRUNCATED branch: when regenerating a reply the model must not see the one
+   * it is replacing, and the cut at the anchor is not expressible as a query.
+   * Without this, that path could not use the envelope and ended up rebuilding
+   * the system blocks by hand — dropping seven of them along the way.
    */
   historyOverride?: StoredMessage[];
 
@@ -219,13 +219,13 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
   // (b) Topics-app-emitted blocks, in delivery order.
   if (topic) {
     pushSystemPromptBlock(systemBlocks, topic, isEnabled);
-    // L'obiettivo prima di tutto il resto, e anche nel turno lean: vedi
+    // The goal before everything else, and on the lean turn too: see
     // `pushGoalBlock`.
     pushGoalBlock(systemBlocks, topic, ctx);
-    // Chi non li deve ricevere li scarta in `adaptEnvelope`, dove il provider e'
-    // finalmente noto (vedi SOLO_NATIVO). Nel turno LEAN no: la sessione li ha gia'
-    // visti al kickoff, e rimandarli a ogni ripresa e' esattamente il costo composto
-    // che `leanContext` esiste per non pagare.
+    // Whoever must not receive them drops them in `adaptEnvelope`, where the
+    // provider is finally known (see SOLO_NATIVO). Not on a LEAN turn: the
+    // session already saw them at kickoff, and resending them on every resume is
+    // exactly the compound cost `leanContext` exists not to pay.
     if (!leanContext) {
       pushUserRulesBlock(systemBlocks, isEnabled);
       pushSkillsBlock(systemBlocks, isEnabled);

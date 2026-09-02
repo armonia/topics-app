@@ -1,23 +1,23 @@
 /**
- * I mestieri che un agente deve saper fare su una macchina.
+ * The trades an agent must know how to practise on a machine.
  *
- * PERCHÉ NON C'ERANO. Topics ha 39 tool MCP suoi (task, browser, agenti), ma
- * nessuno per LAVORARE: leggere un file, scriverlo, cercare, eseguire un
- * comando. Non serviva, perché quelle cose le faceva la CLI — `claude` arriva
- * con i suoi tool già dentro, e noi guardavamo passare i risultati. Togliendo
- * la CLI, questo è il buco che resta, ed è il vero costo del runtime nativo.
+ * WHY THEY WERE MISSING. Topics has 39 MCP tools of its own (tasks, browser,
+ * agents), but none for WORKING: read a file, write it, search, run a command.
+ * They were not needed, because the CLI did those things — `claude` arrives with
+ * its own tools built in, and we watched the results go by. Take the CLI away
+ * and this is the hole left behind, and the real cost of the native runtime.
  *
- * LA FORMA È QUELLA DI ANTHROPIC. Ogni tool ha un nome, una descrizione e uno
- * schema JSON: è ciò che finisce in `tools` nella richiesta, e il modello
- * sceglie in base alla DESCRIZIONE. Sono scritte per il modello, non per noi:
- * una descrizione vaga è un tool usato male.
+ * THE SHAPE IS ANTHROPIC'S. Every tool has a name, a description and a JSON
+ * schema: that is what ends up in `tools` on the request, and the model chooses
+ * on the DESCRIPTION. They are written for the model, not for us: a vague
+ * description is a tool used badly.
  *
- * IL PERIMETRO È LA WORKSPACE, ed è il vincolo che rende questo file diverso da
- * un wrapper su `fs`. Un agente che sbaglia percorso non deve poter leggere
- * `~/.ssh` o scrivere fuori dal progetto: ogni percorso viene risolto e
- * verificato contro la radice della sessione PRIMA di toccare il disco. Non è
- * una sandbox — un comando shell può sempre uscirne — ma è la differenza fra un
- * errore e un incidente.
+ * THE PERIMETER IS THE WORKSPACE, and it is the constraint that makes this file
+ * something other than a wrapper over `fs`. An agent that gets a path wrong must
+ * not be able to read `~/.ssh` or write outside the project: every path is
+ * resolved and checked against the session root BEFORE touching the disk. It is
+ * not a sandbox — a shell command can always step out — but it is the difference
+ * between a mistake and an incident.
  */
 
 import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync } from "fs";
