@@ -215,7 +215,7 @@ describe("review gate (KANBAN-05)", () => {
   test("agent → review opens a pending review approval", () => {
     const t = s.create({ projectId: PID, text: "work" });
     s.addComment({ taskId: t.id, author: "claude", content: "fatto: sintesi di consegna" });
-    const r = s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    const r = s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     expect(r.status).toBe("review");
     const ap = db.prepare("SELECT * FROM approvals WHERE task_id = ?").get(t.id) as any;
     expect(ap.approval_type).toBe("review");
@@ -223,19 +223,28 @@ describe("review gate (KANBAN-05)", () => {
     expect(ap.requested_by).toBe("claude");
   });
 
-  test("mute delivery is rejected: agent → review requires an own comment", () => {
+  test("mute delivery is rejected: a delivery is DECLARED, in the call that moves the card", () => {
     const t = s.create({ projectId: PID, text: "work" });
-    // No comments at all → coached rejection, task stays put.
+    // No summary → coached rejection, task stays put.
     expect(() => s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } }))
       .toThrow(/summary/);
-    // A human/system note does NOT count — the card must carry the AGENT's word.
+    // Comments in the thread do NOT stand in for it — not a human's, not the
+    // agent's own. That substitution is the reported defect: the agent's last
+    // comment before delivering is the chronicle of its commits, and that is
+    // what the review card opened with.
     s.addComment({ taskId: t.id, author: "user", content: "occhio ai test" });
-    s.addComment({ taskId: t.id, author: "system", content: "requeued" });
+    s.addComment({ taskId: t.id, author: "claude", content: "terzo commit: check:security chiuso alla fonte" });
     expect(() => s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } }))
       .toThrow(/summary/);
-    // The agent's own summary unlocks the handoff. Humans stay unaffected.
-    s.addComment({ taskId: t.id, author: "claude", content: "fatto, guarda demo/" });
-    expect(s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } }).status).toBe("review");
+    // Declaring it unlocks the handoff — and the declared line lands in the
+    // thread as `delivery`, ahead of the plumbing, because that is the row the
+    // card shows.
+    expect(s.update({
+      taskId: t.id, actor: "agent", by: "claude",
+      patch: { status: "review", summary: "fatto, guarda demo/" },
+    }).status).toBe("review");
+    const ultimo = s.get(t.id)!.comments.filter((c) => c.kind === "delivery");
+    expect(ultimo.map((c) => c.content)).toEqual(["fatto, guarda demo/"]);
   });
 
   test("human re-drag to todo resets the retry budget (parked tasks stay re-dispatchable)", () => {
@@ -301,24 +310,28 @@ describe("review gate (KANBAN-05)", () => {
       .toThrow(/summary/);
   });
 
-  test("mute-delivery gate is PER-TURN: a stale summary from an earlier turn does not unlock a new delivery", () => {
-    // The reported bug: a steered task ("altro da fare?" → review) handed back a
-    // mute delivery because an OLD agent comment satisfied the gate. The gate must
-    // require a comment made during THIS turn (after the newest …→in_progress).
+  test("una consegna vecchia non ne sblocca una nuova: il riassunto è di QUESTO turno per costruzione", () => {
+    // The reported bug: a task steered by hand back into review handed itself
+    // over mute, because an OLD comment satisfied the gate. Now the summary
+    // rides in the very call that moves the card, and a delivery already in the
+    // thread does not count as the delivery of this turn.
     const t = s.create({ projectId: PID, text: "work" });
     s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "in_progress" } });
-    s.addComment({ taskId: t.id, author: "claude", content: "riepilogo turno 1" });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } }); // ok: fresh
-    // Age the turn-1 summary so it clearly predates the next turn (deterministic).
-    db.prepare("UPDATE task_comments SET created_at = ? WHERE task_id = ? AND kind = 'comment'").run("2020-01-01T00:00:00.000Z", t.id);
-    // Turn 2 starts: a NEW …→in_progress event, newer than the stale summary.
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "turno 1: importato il CSV" } });
+    // Turn 2: the card goes back to work, turn 1's delivery stays in the thread.
     s.update({ taskId: t.id, actor: "human", by: "user", patch: { status: "in_progress" } });
-    // Mute re-delivery is rejected — the old summary no longer counts.
+    expect(s.get(t.id)!.comments.some((c) => c.kind === "delivery")).toBe(true);
+    // Mute re-delivery: refused all the same.
     expect(() => s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } }))
       .toThrow(/summary/);
-    // A fresh summary for THIS turn unlocks it.
-    s.addComment({ taskId: t.id, author: "claude", content: "riepilogo turno 2" });
-    expect(s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } }).status).toBe("review");
+    // Turn 2's delivery goes through, and is appended without erasing the first:
+    // the thread stays the history, it is the card that prefers the latest.
+    expect(s.update({
+      taskId: t.id, actor: "agent", by: "claude",
+      patch: { status: "review", summary: "turno 2: risolti i conflitti" },
+    }).status).toBe("review");
+    expect(s.get(t.id)!.comments.filter((c) => c.kind === "delivery").map((c) => c.content))
+      .toEqual(["turno 1: importato il CSV", "turno 2: risolti i conflitti"]);
   });
 
   test("una transizione può portare la sua RAGIONE, e resta una transizione", () => {
@@ -333,33 +346,36 @@ describe("review gate (KANBAN-05)", () => {
     expect(ev[0]!.content).toBe("todo→in_progress · il land ha fatto conflitto con main");
   });
 
-  test("il gate per-turno regge quando l'inizio del turno porta una ragione", () => {
+  test("il confine del turno regge quando la transizione porta la sua RAGIONE", () => {
     // Il buco che una ragione appesa avrebbe aperto in silenzio: l'inizio del
     // turno si leggeva col suffisso (`…in_progress`), e `done→in_progress · …`
-    // non finisce più con lo stato. Il gate avrebbe ancorato il turno a quello
-    // PRECEDENTE, e un riepilogo vecchio avrebbe sbloccato una consegna muta.
+    // no longer ends with the status. Whoever reads that boundary — today the
+    // claim check, which only looks at THIS turn's words — would have anchored
+    // to the PREVIOUS turn, and thrown a claim from an already-closed turn back
+    // at a clean delivery.
     const t = s.create({ projectId: PID, text: "work" });
     s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "in_progress" } });
-    s.addComment({ taskId: t.id, author: "claude", content: "riepilogo turno 1" });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    // Turn 1 carries a sha that does not exist: the line that must NOT come back.
+    s.update({
+      taskId: t.id, actor: "agent", by: "claude",
+      patch: { status: "review", summary: "fatto (commit 0000000deadbee1)" },
+    });
     s.update({ taskId: t.id, actor: "human", by: "user", patch: { status: "done" } });
-    // Tutto il turno 1 è VECCHIO, e il suo riepilogo sta DOPO il suo inizio: è
-    // la forma che distingue le due letture del confine (l'inizio del turno 1
-    // resta l'evento più recente che *finisce* con `in_progress`).
-    db.prepare("UPDATE task_comments SET created_at = ? WHERE task_id = ? AND kind = 'status'")
+    // All of turn 1 is OLD: what is left to tell the two readings of the
+    // boundary apart is the shape of the status row that opens turn 2.
+    db.prepare("UPDATE task_comments SET created_at = ? WHERE task_id = ?")
       .run("2020-01-01T00:00:00.000Z", t.id);
-    db.prepare("UPDATE task_comments SET created_at = ? WHERE task_id = ? AND kind = 'comment'")
-      .run("2020-01-01T00:00:01.000Z", t.id);
     // Il land va in conflitto: la card esce da `done` con la sua causa scritta.
     s.update({
       taskId: t.id, actor: "human", by: "system", patch: { status: "in_progress" },
       statusReason: "il land ha fatto conflitto con main",
     });
-    // Turno nuovo → il riepilogo vecchio NON vale.
-    expect(() => s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } }))
-      .toThrow(/summary/);
-    s.addComment({ taskId: t.id, author: "claude", content: "riepilogo turno 2: conflitti risolti" });
-    expect(s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } }).status).toBe("review");
+    s.update({
+      taskId: t.id, actor: "agent", by: "claude",
+      patch: { status: "review", summary: "conflitti risolti, guarda il ramo" },
+    });
+    const note = s.get(t.id)!.comments.filter((c) => c.kind === "review-note").map((c) => c.content).join("\n");
+    expect(note).not.toContain("0000000deadbee1");
   });
 
   test("status history: update, claim and reviewDecision log who moved it and when", () => {
@@ -368,7 +384,7 @@ describe("review gate (KANBAN-05)", () => {
     const claimed = s.claim({ taskId: t.id, cap: 2, maxAttempts: 3 });
     expect(claimed).not.toBeNull();
     s.addComment({ taskId: t.id, author: "agent-x", content: "consegna" });
-    s.update({ taskId: t.id, actor: "agent", by: "agent-x", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "agent-x", patch: { status: "review", summary: "riassunto della consegna" } });
     s.reviewDecision({ taskId: t.id, by: "user", decision: "approve" });
 
     const events = (s.get(t.id)!.comments).filter((c) => c.kind === "status");
@@ -386,7 +402,7 @@ describe("review gate (KANBAN-05)", () => {
   test("human approve → done, approval approved, completed_at set", () => {
     const t = s.create({ projectId: PID, text: "work" });
     s.addComment({ taskId: t.id, author: "claude", content: "fatto" });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     const done = s.reviewDecision({ taskId: t.id, by: "attilio", decision: "approve" });
     expect(done.status).toBe("done");
     expect(done.completedAt).not.toBeNull();
@@ -404,7 +420,7 @@ describe("review gate (KANBAN-05)", () => {
   test("review → done trascinato: l'approvazione si chiude come approved", () => {
     const t = s.create({ projectId: PID, text: "work" });
     s.addComment({ taskId: t.id, author: "claude", content: "fatto" });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     s.update({ taskId: t.id, actor: "human", by: "attilio", patch: { status: "done" } });
     const ap = db.prepare("SELECT * FROM approvals WHERE task_id = ?").get(t.id) as any;
     expect(ap.status).toBe("approved");
@@ -416,7 +432,7 @@ describe("review gate (KANBAN-05)", () => {
     // perso l'oggetto. Confonderle mentirebbe sulla storia del task.
     const t = s.create({ projectId: PID, text: "work" });
     s.addComment({ taskId: t.id, author: "claude", content: "fatto" });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     s.update({ taskId: t.id, actor: "human", by: "attilio", patch: { status: "backlog" } });
     const ap = db.prepare("SELECT * FROM approvals WHERE task_id = ?").get(t.id) as any;
     expect(ap.status).toBe("expired");
@@ -427,7 +443,7 @@ describe("review gate (KANBAN-05)", () => {
     // in attesa di un umano.
     const t = s.create({ projectId: PID, text: "work" });
     s.addComment({ taskId: t.id, author: "claude", content: "fatto" });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     s.update({ taskId: t.id, actor: "human", by: "attilio", patch: { text: "work rinominato" } });
     const ap = db.prepare("SELECT * FROM approvals WHERE task_id = ?").get(t.id) as any;
     expect(ap.status).toBe("pending");
@@ -445,7 +461,7 @@ describe("review gate (KANBAN-05)", () => {
   test("il LAND chiude l'approvazione pendente: approved, che è ciò che chiedeva", () => {
     const t = s.create({ projectId: PID, text: "work" });
     s.addComment({ taskId: t.id, author: "claude", content: "fatto" });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
 
     s.settleLanded({ taskId: t.id, by: "system", reason: "il land è riuscito" });
 
@@ -457,7 +473,7 @@ describe("review gate (KANBAN-05)", () => {
   test("l'ARCHIVIAZIONE la fa scadere: expired, perché nessuno ha detto di no", () => {
     const t = s.create({ projectId: PID, text: "work" });
     s.addComment({ taskId: t.id, author: "claude", content: "fatto" });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
 
     s.archive({ taskId: t.id });
 
@@ -468,7 +484,7 @@ describe("review gate (KANBAN-05)", () => {
   test("human reject → in_progress + comment + approval rejected", () => {
     const t = s.create({ projectId: PID, text: "work" });
     s.addComment({ taskId: t.id, author: "claude", content: "fatto" });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     const back = s.reviewDecision({ taskId: t.id, by: "attilio", decision: "reject", comment: "manca il test" });
     expect(back.status).toBe("in_progress");
     const got = s.get(t.id)!;
@@ -480,14 +496,14 @@ describe("review gate (KANBAN-05)", () => {
   test("reject resets the attempt budget (new work cycle); approve keeps it", () => {
     const t = s.create({ projectId: PID, text: "work" });
     s.addComment({ taskId: t.id, author: "claude", content: "fatto" });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     db.prepare("UPDATE tasks SET dispatch_attempts = 2 WHERE id = ?").run(t.id);
     const back = s.reviewDecision({ taskId: t.id, by: "attilio", decision: "reject" });
     expect(back.dispatchAttempts).toBe(0);
 
     const t2 = s.create({ projectId: PID, text: "work2" });
     s.addComment({ taskId: t2.id, author: "claude", content: "fatto" });
-    s.update({ taskId: t2.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t2.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     db.prepare("UPDATE tasks SET dispatch_attempts = 2 WHERE id = ?").run(t2.id);
     const done = s.reviewDecision({ taskId: t2.id, by: "attilio", decision: "approve" });
     expect(done.dispatchAttempts).toBe(2);
@@ -496,7 +512,7 @@ describe("review gate (KANBAN-05)", () => {
   test("projectId guard blocks cross-project get/update/comment", () => {
     const t = s.create({ projectId: "p1", text: "x" });
     expect(s.get(t.id, { projectId: "p2" })).toBeNull();
-    expect(() => s.update({ taskId: t.id, actor: "agent", by: "c", projectId: "p2", patch: { status: "review" } }))
+    expect(() => s.update({ taskId: t.id, actor: "agent", by: "c", projectId: "p2", patch: { status: "review", summary: "riassunto della consegna" } }))
       .toThrow(/not found/);
     expect(() => s.addComment({ taskId: t.id, author: "c", content: "hi", projectId: "p2" }))
       .toThrow(/not found/);
@@ -852,7 +868,7 @@ describe("nested tasks (subtask cascade)", () => {
     expect(() => s.update({ taskId: parent.id, actor: "human", by: "user", patch: { status: "done" } }))
       .toThrow(/open subtasks/);
     s.addComment({ taskId: parent.id, author: "claude", content: "fatto" });
-    s.update({ taskId: parent.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: parent.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     expect(() => s.reviewDecision({ taskId: parent.id, by: "user", decision: "approve" }))
       .toThrow(/open subtasks/);
     // Close the child → the parent can now complete.
@@ -1394,10 +1410,9 @@ describe("il park è autoritativo: l'agente scartato non si riprende il task", (
 
   test("l'agente legittimo continua a lavorare normalmente", () => {
     const id = dispatched();
-    s.addComment({ taskId: id, author: "claude", content: "fatto: sintesi" });
     const out = s.update({
       taskId: id, actor: "agent", by: "claude", agentTopicId: "top-1",
-      patch: { status: "review" },
+      patch: { status: "review", summary: "fatto: sintesi" },
     });
     expect(out.status).toBe("review");
   });
@@ -1903,6 +1918,34 @@ describe("la lista: filtro per id, stato validato, commenti sulla card", () => {
     ).toBe(true);
     // …ed e' la PRIMA: le righe viaggiano dal piu' vecchio al piu' recente.
     expect(testi[0]!.startsWith("Consegna: ramo topics/x")).toBe(true);
+  });
+
+  /**
+   * A DECLARED DELIVERY ALWAYS TRAVELS, and it needs a guarantee of its own.
+   *
+   * `rn_parola = 1` carries the last real word: not enough. After delivering,
+   * the agent keeps talking, and the chronicle of commits is made of words — so
+   * it takes that slot and pushes the delivery out of the window. That is
+   * exactly the reported defect (only useless git things visible in review),
+   * coming back through the transport door even with a card that chooses right.
+   * Hence `rn_consegna`.
+   */
+  test("recentComments: la consegna dichiarata arriva anche sepolta sotto quattro commenti dell'agente", () => {
+    const t = s.create({ projectId: PID, text: "work", status: "todo" });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "in_progress" } });
+    s.update({
+      taskId: t.id,
+      actor: "agent",
+      by: "claude",
+      patch: { status: "review", summary: "Importate le 25 righe: la board le mostra col nome del progetto." },
+    });
+    for (const n of [1, 2, 3, 4]) s.addComment({ taskId: t.id, author: "claude", content: `commit ${n}: refactor` });
+
+    const [card] = s.list({ scope: "all", rootsOnly: true, ids: [t.id] });
+    expect(
+      card!.recentComments.filter((c) => c.kind === "delivery").map((c) => c.content),
+      `la consegna non e' arrivata alla card: ${JSON.stringify(card!.recentComments.map((c) => c.content))}`,
+    ).toEqual(["Importate le 25 righe: la board le mostra col nome del progetto."]);
   });
 
   /**
@@ -2430,10 +2473,9 @@ describe("bindTopic: al cambio di topic i `done` si archiviano e gli aperti si e
     daTopic(db, step.id, "topic-a");
     // Il cancello sulla consegna muta vuole il riassunto del turno: e' la
     // strada vera, e senza non si arriva nemmeno a `review`.
-    s.addComment({ taskId: step.id, author: "topic-a", content: "Fatto, guarda qui." });
     s.update({
       taskId: step.id, actor: "agent", by: "topic-a",
-      patch: { status: "review" }, agentTopicId: "topic-a",
+      patch: { status: "review", summary: "Fatto, guarda qui." }, agentTopicId: "topic-a",
     });
     const pendenti = () =>
       (db.prepare(

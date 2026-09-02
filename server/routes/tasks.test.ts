@@ -219,9 +219,8 @@ describe("tasks router (session-scoped)", () => {
     const mute = (await call(router, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" }))!;
     expect(mute.status).toBe(409);
     expect((await mute.json()).code).toBe("review_needs_summary");
-    // …a delivery summary unlocks the handoff.
-    await call(router, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, { content: "fatto, guarda demo/" });
-    const rev = (await call(router, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" }))!;
+    // …a declared delivery unlocks the handoff: it rides in the same PATCH.
+    const rev = (await call(router, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "fatto, guarda demo/" }))!;
     expect(rev.status).toBe(200);
     expect((await rev.json()).status).toBe("review");
     const done = (await call(router, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "done" }))!;
@@ -1047,7 +1046,7 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     let asked = 0;
     const r = mk({ taskCheckoutRef: async () => { asked += 1; return { cwd, commit: "abc1234" }; } });
     const t = await delivered(r);
-    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" }))!;
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "riassunto della consegna" }))!;
     expect(resp.status).toBe(200);
     // null, NON 'pass': nessuno ha verificato niente.
     expect((await resp.json()).checksState).toBeNull();
@@ -1058,7 +1057,7 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     const r = mk();
     const t = await delivered(r);
     await declare(r, t.projectId, ["true", "exit 0"]);
-    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" }))!;
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "riassunto della consegna" }))!;
     expect(resp.status).toBe(200);
     const got = await (await call(r, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
     expect(got.task.status).toBe("review");
@@ -1073,7 +1072,7 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     const r = mk();
     const t = await delivered(r);
     await declare(r, t.projectId, ["echo bella-riga-rossa >&2; exit 3"]);
-    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" }))!;
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "riassunto della consegna" }))!;
     expect(resp.status).toBe(409);
     const err = await resp.json();
     expect(err.code).toBe("review_needs_green_checks");
@@ -1088,7 +1087,7 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     const r = mk();
     const t = await delivered(r);
     await declare(r, t.projectId, ["true"]);
-    await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" });
+    await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "riassunto della consegna" });
     const states = broadcasts.filter((b) => b.type === "task:updated" && b.task?.id === t.id).map((b) => b.task.checksState);
     expect(states).toContain("running");
     expect(states.indexOf("running")).toBeLessThan(states.lastIndexOf("pass"));
@@ -1104,7 +1103,7 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     const r = mk();
     const t = await delivered(r);
     await declare(r, t.projectId, ["sleep 1"]);
-    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", legMs: 100 }))!;
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "riassunto della consegna", legMs: 100 }))!;
     expect(resp.status).toBe(202);
     const body = await resp.json();
     expect(body.pending).toBe(true);
@@ -1114,7 +1113,7 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     expect(got.task.checksState).toBe("running");
 
     // La gamba dopo raccoglie l'esito della STESSA corsa e la consegna passa.
-    const dopo = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", legMs: 5_000 }))!;
+    const dopo = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "riassunto della consegna", legMs: 5_000 }))!;
     expect(dopo.status).toBe(200);
     expect((await dopo.json()).status).toBe("review");
   });
@@ -1125,10 +1124,10 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     const traccia = join(cwd, "giri.txt");
     await declare(r, t.projectId, [`sleep 1; echo giro >> ${traccia}`]);
     const gambe = await Promise.all(
-      Array.from({ length: 10 }, () => call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", legMs: 100 })),
+      Array.from({ length: 10 }, () => call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "riassunto della consegna", legMs: 100 })),
     );
     expect(gambe.every((g) => g!.status === 202)).toBe(true);
-    const esito = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", legMs: 5_000 }))!;
+    const esito = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "riassunto della consegna", legMs: 5_000 }))!;
     expect(esito.status).toBe(200);
     expect(readFileSync(traccia, "utf8").trim().split("\n")).toHaveLength(1);
   });
@@ -1145,7 +1144,7 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     const r = mk({ taskCheckoutRef: async () => null });
     const t = await delivered(r);
     await declare(r, t.projectId, ["exit 1"]);
-    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" }))!;
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "riassunto della consegna" }))!;
     expect(resp.status).toBe(200);
     expect((await resp.json()).checksState).toBeNull();
   });
@@ -1155,7 +1154,7 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
     await declare(r, t.projectId, ["exit 1"]);
     await call(r, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, { content: "Come procedo?", options: ["A", "B"] });
-    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" }))!;
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "riassunto della consegna" }))!;
     expect(resp.status).toBe(200);
     expect((await resp.json()).checksState).toBeNull();
   });
@@ -1173,7 +1172,7 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     await call(r, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, {
       content: "Fatto: rifatto il gate, commit sul branch.", options: [LAND_ACTION_LABEL],
     });
-    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" }))!;
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "riassunto della consegna" }))!;
     expect(resp.status).toBe(409);
     const err = await resp.json();
     expect(err.code).toBe("review_needs_green_checks");
@@ -1190,7 +1189,7 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
       content: "Ho finito, ma il nome del flag non mi convince.",
       options: [LAND_ACTION_LABEL, "Aspetta, ho un dubbio"],
     });
-    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" }))!;
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "riassunto della consegna" }))!;
     expect(resp.status).toBe(200);
     expect((await resp.json()).checksState).toBeNull();
   });
@@ -1205,7 +1204,7 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     await call(r, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, {
       content: "Fatto: rifatto il gate.", options: [LAND_ACTION_LABEL],
     });
-    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" }))!;
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "riassunto della consegna" }))!;
     expect(resp.status).toBe(409);
     const err = await resp.json();
     expect(err.code).toBe("review_needs_commit");
@@ -1219,7 +1218,7 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
       content: "Ho finito, ma il nome del flag non mi convince.",
       options: [LAND_ACTION_LABEL, "Aspetta, ho un dubbio"],
     });
-    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" }))!;
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "riassunto della consegna" }))!;
     expect(resp.status).toBe(200);
   });
 
@@ -1227,7 +1226,7 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     const r = mk({ taskCheckoutRef: async () => { throw new Error("git esploso"); } });
     const t = await delivered(r);
     await declare(r, t.projectId, ["exit 1"]);
-    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" }))!;
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "riassunto della consegna" }))!;
     expect(resp.status).toBe(200);
   });
 
@@ -1512,7 +1511,7 @@ describe("uscita da Done: il segno sulla card e chi può riaprirla", () => {
   async function approvedByHuman(): Promise<{ id: string; pid: string }> {
     const t = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "lavoro" }))!.json();
     await call(router, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, { content: "consegnato" });
-    await call(router, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" });
+    await call(router, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "riassunto della consegna" });
     const ok = (await call(router, "POST", `/api/boards/${t.projectId}/tasks/${t.id}/review`, { decision: "approve" }))!;
     expect((await ok.json()).status).toBe("done");
     return { id: t.id, pid: t.projectId };
@@ -2345,7 +2344,7 @@ describe("cancello review_needs_commit: null = non so, non = pulito", () => {
       // taskHasBranchAttempt deve riconoscere che il task aveva un ramo.
       taskHasBranchAttempt: (_id) => true,
     });
-    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${taskId}`, { status: "review" }))!;
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${taskId}`, { status: "review", summary: "riassunto della consegna" }))!;
     expect(resp.status).toBe(409);
     expect((await resp.json()).code).toBe("review_needs_commit");
   });
@@ -2357,7 +2356,7 @@ describe("cancello review_needs_commit: null = non so, non = pulito", () => {
       taskWorktreeDirtProbe: async () => null,
       taskHasBranchAttempt: (_id) => false,
     });
-    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${taskId}`, { status: "review" }))!;
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${taskId}`, { status: "review", summary: "riassunto della consegna" }))!;
     expect(resp.status).toBe(200);
     expect((await resp.json()).status).toBe("review");
   });
@@ -2367,7 +2366,7 @@ describe("cancello review_needs_commit: null = non so, non = pulito", () => {
     const r = createTasksRouter(makeCtx(db, broadcasts), undefined, {
       taskWorktreeDirtProbe: async () => ({ ok: false, paths: [] }),
     });
-    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${taskId}`, { status: "review" }))!;
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${taskId}`, { status: "review", summary: "riassunto della consegna" }))!;
     expect(resp.status).toBe(409);
     expect((await resp.json()).code).toBe("review_needs_commit");
   });
@@ -2377,7 +2376,7 @@ describe("cancello review_needs_commit: null = non so, non = pulito", () => {
     const r = createTasksRouter(makeCtx(db, broadcasts), undefined, {
       taskWorktreeDirtProbe: async () => ({ ok: true, paths: ["server/foo.ts", "client/bar.ts"] }),
     });
-    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${taskId}`, { status: "review" }))!;
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${taskId}`, { status: "review", summary: "riassunto della consegna" }))!;
     expect(resp.status).toBe(409);
     const body = await resp.json();
     expect(body.code).toBe("review_needs_commit");
@@ -2389,7 +2388,7 @@ describe("cancello review_needs_commit: null = non so, non = pulito", () => {
     const r = createTasksRouter(makeCtx(db, broadcasts), undefined, {
       taskWorktreeDirtProbe: async () => ({ ok: true, paths: [] }),
     });
-    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${taskId}`, { status: "review" }))!;
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${taskId}`, { status: "review", summary: "riassunto della consegna" }))!;
     expect(resp.status).toBe(200);
     expect((await resp.json()).status).toBe("review");
   });

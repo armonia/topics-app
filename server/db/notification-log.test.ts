@@ -336,7 +336,7 @@ describe("una card che esce da review spegne la propria campanella", () => {
   function inReview(s: ReturnType<typeof createTaskService>) {
     const t = s.create({ projectId: project, text: "work" });
     s.addComment({ taskId: t.id, author: "claude", content: "consegna" });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     recordNotification({
       kind: "task-review", title: "da rivedere", body: "",
       targetKind: "task", targetId: t.id, dedupeKey: `task-review:${t.id}`,

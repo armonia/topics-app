@@ -330,7 +330,7 @@ describe("uscita da done: la traccia sulla card e chi può riaprirla", () => {
   function doneByHuman(): string {
     const t = s.create({ projectId: PID, text: "consegna", status: "in_progress" });
     s.addComment({ taskId: t.id, author: "claude", content: "fatto, guarda demo/" });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     s.reviewDecision({ taskId: t.id, by: "umano", decision: "approve" });
     return t.id;
   }
@@ -489,7 +489,7 @@ describe("uscita da done: la traccia sulla card e chi può riaprirla", () => {
   function inReviewWithDelivery(text: string): string {
     const t = s.create({ projectId: PID, text, status: "in_progress" });
     s.addComment({ taskId: t.id, author: "claude", content: "consegnato" });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     s.recordDelivery({ taskId: t.id, branch: "topics/x", commit: "f".repeat(40) });
     return t.id;
   }
@@ -546,7 +546,7 @@ describe("uscita da done: la traccia sulla card e chi può riaprirla", () => {
     expect(s.get(id)!.task.reopenedActor).toBe("human");
 
     s.addComment({ taskId: id, author: "claude", content: "rifatto" });
-    s.update({ taskId: id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     // Il rientro non riaccende il segno su sé stesso…
     expect(s.get(id)!.task.reopenedActor).toBe("human");
     s.reviewDecision({ taskId: id, by: "umano", decision: "approve" });

@@ -298,12 +298,17 @@ const TOOLS = [
   {
     name: "update_task",
     description:
-      "Update a task on THIS session's project board: status, priority, assignee, title/description, preview_image. The project is derived from the session (no project id). NOTE: you CANNOT set status='done' on your MAIN task — that is a human review gate: set status='review' and a human approves it. Exception: subtask STEPS of the task assigned to you (created with parent_task_id) are your checklist — mark each done as you complete it. You also cannot REOPEN a card a human closed (approved in review, or moved to done on the board): that is their decision — comment the reason and ask. Your own steps, which you closed yourself, you may reopen. To give the reviewer something concrete to look at, do NOT reach for output_url: a live page goes in a TAB of the task (open_browser_pane) and files go in the task's download list (comment_task media[]).",
+      "Update a task on THIS session's project board: status, priority, assignee, title/description, preview_image. The project is derived from the session (no project id). DELIVERING (status='review') REQUIRES `summary`: without it the call is refused. NOTE: you CANNOT set status='done' on your MAIN task — that is a human review gate: set status='review' and a human approves it. Exception: subtask STEPS of the task assigned to you (created with parent_task_id) are your checklist — mark each done as you complete it. You also cannot REOPEN a card a human closed (approved in review, or moved to done on the board): that is their decision — comment the reason and ask. Your own steps, which you closed yourself, you may reopen. To give the reviewer something concrete to look at, do NOT reach for output_url: a live page goes in a TAB of the task (open_browser_pane) and files go in the task's download list (comment_task media[]).",
     inputSchema: {
       type: "object",
       properties: {
         task_id: { type: "string", description: "Task id from list_tasks." },
         status: { type: "string", enum: [...TASK_STATUSES], description: "backlog | todo | in_progress | review — plus done, but ONLY on subtask steps of your assigned task." },
+        summary: {
+          type: "string",
+          description:
+            "THE DELIVERY, in words — REQUIRED with status='review'. 1-2 sentences for the person who opens the card: what you did IN THIS TURN and where to look (a page, a file, a test). Even \"nothing new\" is a valid delivery when you say why. This is the line the card shows: it is not the chronicle of your commits, and the chronicle does not replace it — put that in comment_task if it is worth keeping.",
+        },
         priority: { type: "number", description: "0–4." },
         assignee: { type: "string", description: "Agent/person to assign." },
         output_url: { type: "string", description: "LEGACY — seeds the task's first browser tab; prefer open_browser_pane, which opens the tab directly. Empty string clears it." },
@@ -1490,7 +1495,7 @@ export async function callListTasks(
 
 export async function callUpdateTask(
   args: ParsedArgs,
-  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; output_url?: unknown; text?: unknown; description?: unknown; preview_image?: unknown; previewImage?: unknown },
+  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; output_url?: unknown; text?: unknown; description?: unknown; preview_image?: unknown; previewImage?: unknown; summary?: unknown },
   fetchImpl: typeof fetch = fetch,
   /**
    * Le manopole del ciclo a gambe: servono quando la consegna fa girare i check
@@ -1541,6 +1546,12 @@ export async function callUpdateTask(
     : typeof (toolArgs as { previewImage?: unknown }).previewImage === "string" ? (toolArgs as { previewImage?: string }).previewImage
     : undefined;
   if (anteprima !== undefined) patch.previewImage = anteprima;
+  // THE DELIVERY IN WORDS. It travels only alongside a status: on its own it
+  // describes nothing, and the server would refuse it as the only field of a
+  // patch that does not move the card. An EMPTY summary is not dropped here —
+  // the service gate refuses it and can say why it is needed; dropping it here
+  // would answer "no field to change", which is the answer to another question.
+  if (typeof toolArgs.summary === "string" && patch.status !== undefined) patch.summary = toolArgs.summary;
   if (Object.keys(patch).length === 0) {
     throw new Error("update_task: provide at least one of 'status', 'priority', 'assignee', 'output_url', 'text', 'description', 'preview_image'");
   }

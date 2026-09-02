@@ -116,6 +116,7 @@ const HUMAN_FIELDS: Record<string, FieldSpec> = {
   dueDate: { to: "dueDate", read: asStringOrNull },
   outputUrl: { to: "outputUrl", read: asStringOrNull },
   output_url: { to: "outputUrl", read: asStringOrNull },
+  summary: { to: "summary", read: asString },
   model: { to: "model", read: asStringOrNull },
   blockedByTaskId: { to: "blockedByTaskId", read: asRefOrNull },
   reuseBlockerContext: { to: "reuseBlockerContext", read: asBoolean },
@@ -138,6 +139,10 @@ const AGENT_FIELDS: Record<string, FieldSpec> = {
   description: { to: "description", read: asStringOrNull },
   outputUrl: { to: "outputUrl", read: asStringOrNull },
   output_url: { to: "outputUrl", read: asStringOrNull },
+  // THE DELIVERY IN WORDS, which the agent sends together with
+  // `status: 'review'`. Not a task field: the service writes it into the thread
+  // as a `kind: 'delivery'` comment, and without it review is refused.
+  summary: { to: "summary", read: asString },
 };
 
 const PREVIEW_KEYS = ["previewImage", "preview_image"];

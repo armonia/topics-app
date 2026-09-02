@@ -253,7 +253,7 @@ describe("cancello review_needs_summary: comportamento invariato dopo l'estrazio
     db.run("INSERT INTO topics (id) VALUES ('top-s1')");
   });
 
-  test("agente senza commento: gate review_needs_summary (invariato)", () => {
+  test("agente senza riassunto: gate review_needs_summary", () => {
     const svc = createTaskService(db);
     const t = svc.create({ text: "feat", projectId: "pX" });
     // Assegna il topic via SQL (CreateTaskInput non ha agentTopicId).
@@ -273,7 +273,7 @@ describe("cancello review_needs_summary: comportamento invariato dopo l'estrazio
     expect((thrown as TaskServiceError).code).toBe("review_needs_summary");
   });
 
-  test("agente con commento: review concessa (invariato)", () => {
+  test("agente con riassunto: review concessa", () => {
     const svc = createTaskService(db);
     const t = svc.create({ text: "feat", projectId: "pX" });
     db.prepare(
@@ -288,7 +288,7 @@ describe("cancello review_needs_summary: comportamento invariato dopo l'estrazio
     ).run("c-ag", t.id, "top-s1", "fatto, guarda demo/", "comment", new Date().toISOString());
 
     const updated = svc.update({
-      taskId: t.id, actor: "agent", by: "top-s1", patch: { status: "review" },
+      taskId: t.id, actor: "agent", by: "top-s1", patch: { status: "review", summary: "riassunto della consegna" },
     });
     expect(updated.status).toBe("review");
   });

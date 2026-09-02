@@ -1289,8 +1289,19 @@ export interface TaskComment {
    * without matching on wording. Like 'status' it is never the agent's last
    * word. See `shared/task-comment-service.ts` for how the fold reads it, and
    * why rows written before the mark are classified separately.
+   *
+   * 'delivery' = THE DELIVERY STATEMENT, the one the reviewer opened the card
+   * for. It is a plain word like 'comment' (it travels, it is thread speech, it
+   * is never folded), with one difference: it is DECLARED, so the card can
+   * prefer it over recency instead of guessing which of the turn's comments was
+   * the summary. The guessing is what failed — the last thing an agent writes
+   * before delivering is usually git plumbing, and that is what a review card
+   * showed as the delivery:
+   * "terzo commit: il rosso di check:security chiuso alla fonte". allow-italian: verbatim from a real card
+   * Written by ONE writer: `update({status:'review'})` from the
+   * summary the agent hands over. Nothing else may set it.
    */
-  kind: 'comment' | 'status' | 'review-note' | 'service';
+  kind: 'comment' | 'status' | 'review-note' | 'service' | 'delivery';
 }
 
 /**

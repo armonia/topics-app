@@ -29,11 +29,15 @@ beforeEach(() => {
   svc = createTaskService(db);
 });
 
-/** A card carried to `review` by an agent, with its report. */
+/**
+ * A card carried into `review` by an agent: the report IS the delivery.
+ * Since `update({status:'review'})` demands `summary`, the report travels
+ * there — not in some comment left earlier. The claim check reads the declared
+ * delivery, so the test delivers it where the check looks.
+ */
 function deliver(report: string): string {
   const t = svc.create({ projectId: PID, text: "una card" });
-  svc.addComment({ taskId: t.id, author: "agent-1", content: report });
-  svc.update({ taskId: t.id, actor: "agent", by: "agent-1", patch: { status: "review" } });
+  svc.update({ taskId: t.id, actor: "agent", by: "agent-1", patch: { status: "review", summary: report } });
   return t.id;
 }
 
@@ -88,7 +92,7 @@ describe("una deliver arriva in review comunque", () => {
     const id = deliver("Fatto (commit 0000000deadbee1).");
     svc.update({ taskId: id, actor: "human", by: "u", patch: { status: "in_progress" } });
     svc.addComment({ taskId: id, author: "agent-1", content: "Rifatto (commit 0000000deadbee1)." });
-    svc.update({ taskId: id, actor: "agent", by: "agent-1", patch: { status: "review" } });
+    svc.update({ taskId: id, actor: "agent", by: "agent-1", patch: { status: "review", summary: "riassunto della consegna" } });
     expect(note(id).length, "due giri, due note: lo slot non ha tenuto").toBe(1);
   });
 });

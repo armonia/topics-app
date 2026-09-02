@@ -610,3 +610,52 @@ describe("l'ultimo scambio, visto dalla review", () => {
     expect(out?.latestIsPlumbing).toBe(false);
   });
 });
+
+/**
+ * THE DELIVERY IS DECLARED, AND THE CARD PREFERS IT.
+ *
+ * Reported: cards in review should carry a useful explanation of the finished
+ * work as their last message, and only useless git things showed up. Taking the
+ * last live word is what produced that defect: the last thing an agent writes
+ * before delivering is the chronicle of its own commits. From now on
+ * `update({status:'review'})` demands a summary and writes it as
+ * `kind: 'delivery'` — the card picks it instead of guessing.
+ */
+describe('la card preferisce la consegna dichiarata', () => {
+  const c = (author: string, kind: string, content: string, i: number) =>
+    ({ id: String(i), taskId: 't', author, kind, content, createdAt: `2026-09-02T10:${10 + i}:00Z` }) as CardComment;
+
+  test('la cronaca dei commit non scavalca la consegna, anche se arriva dopo', () => {
+    const out = selectCardComments([
+      c('agent:x', 'delivery', 'Importate le 25 righe: la board le mostra col nome del progetto.', 1),
+      c('agent:x', 'comment', 'terzo commit: il rosso di check:security chiuso alla fonte', 2),
+    ], { status: 'review' } as never);
+    expect(out?.latest.kind).toBe('delivery');
+    expect(out?.latest.content).toContain('25 righe');
+    expect(out?.latestIsPlumbing).toBe(false);
+  });
+
+  test('senza consegna dichiarata resta il comportamento di prima: l\'ultima parola viva', () => {
+    const out = selectCardComments([
+      c('agent:x', 'comment', 'Fatto: tre file, typecheck verde.', 1),
+      c('agent:x', 'comment', 'secondo commit: rinominato il modulo', 2),
+    ], { status: 'review' } as never);
+    expect(out?.latest.content).toContain('secondo commit');
+  });
+
+  test('un umano che parla DOPO la consegna resta lui la notizia: è un rilavoro', () => {
+    const out = selectCardComments([
+      c('agent:x', 'delivery', 'Fatto, guarda la board.', 1),
+      c('user', 'comment', 'no, il nome del progetto è ancora sbagliato', 2),
+    ], { status: 'review' } as never);
+    expect(out?.latest.author).toBe('user');
+  });
+
+  test('fra due consegne vince la più recente: il turno di adesso', () => {
+    const out = selectCardComments([
+      c('agent:x', 'delivery', 'turno 1: importato il CSV', 1),
+      c('agent:x', 'delivery', 'turno 2: risolti i conflitti', 2),
+    ], { status: 'review' } as never);
+    expect(out?.latest.content).toContain('turno 2');
+  });
+});

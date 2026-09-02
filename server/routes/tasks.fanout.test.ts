@@ -250,7 +250,7 @@ describe("route del fan-out", () => {
     expect(body.error).toContain("2 parallel attempts");
     expect(body.error).toContain("commit everything on your branch");
 
-    const p = (await call(router, "PATCH", "/api/sessions/sk1/tasks/T", { status: "review" }))!;
+    const p = (await call(router, "PATCH", "/api/sessions/sk1/tasks/T", { status: "review", summary: "riassunto della consegna" }))!;
     expect(p.status).toBe(409);
     expect((await p.json()).code).toBe("fanout_running");
 

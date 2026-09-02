@@ -348,7 +348,7 @@ export interface TaskService {
    * problem (the identical text repeated); here the text changes on every run,
    * which is exactly why they piled up.
    */
-  addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; media?: string[]; projectId?: string; questionOptions?: string[]; kind?: "comment" | "review-note" | "service"; once?: boolean; replaces?: string | string[] }): TaskComment;
+  addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; media?: string[]; projectId?: string; questionOptions?: string[]; kind?: "comment" | "review-note" | "service" | "delivery"; once?: boolean; replaces?: string | string[] }): TaskComment;
   /**
    * Una interruzione, una riga.
    *
@@ -1352,6 +1352,20 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     "CASE WHEN c.author = 'user' AND COALESCE(c.kind, 'comment') = 'comment' THEN 1 ELSE 0 END";
 
   /**
+   * "This row IS THE DELIVERY", in SQL.
+   *
+   * Same reason as `SQL_MIA`, from the other side of the thread: the summary is
+   * written on the move into review and the machine speaks right after it — the
+   * `review-note` with the preview, system notifications, the checks outcome.
+   * `rn_parola = 1` is not enough to carry it: if the agent writes again after
+   * delivering (a follow-up, a rework note), THAT is the last real word and the
+   * summary drops out of the window. The card prefers it over recency, so it
+   * has to be able to SEE it.
+   */
+  const SQL_CONSEGNA =
+    "CASE WHEN COALESCE(c.kind, 'comment') = 'delivery' THEN 1 ELSE 0 END";
+
+  /**
    * Quanto testo di un commento viaggia sulla card, e sono DUE misure perché la
    * card ne disegna due in modo diverso.
    *
@@ -1812,6 +1826,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
                   row_number() OVER (
                     PARTITION BY c.task_id, ${SQL_MIA}
                     ORDER BY c.created_at DESC, c.rowid DESC) AS rn_mia,
+                  -- AND THE DECLARED DELIVERY, the row the card exists for:
+                  -- the machine's notes pile up right underneath it.
+                  row_number() OVER (
+                    PARTITION BY c.task_id, ${SQL_CONSEGNA}
+                    ORDER BY c.created_at DESC, c.rowid DESC) AS rn_consegna,
+                  ${SQL_CONSEGNA} AS consegna,
                   ${SQL_MIA} AS mia,
                   ${SQL_PAROLA} AS parola
              FROM task_comments c
@@ -1820,6 +1840,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
          ) WHERE rn <= ${CARD_COMMENTS_DEPTH}
               OR (parola = 1 AND rn_parola = 1)
               OR (mia = 1 AND rn_mia = 1)
+              OR (consegna = 1 AND rn_consegna = 1)
          ORDER BY task_id ASC, rn DESC`,
       ).all(idParam(ids)) as any[];
     } catch { return out; }
@@ -1869,7 +1890,23 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         if (c.author !== "system") return false;
         return !c.content.includes("```question");
       };
-      const scelta = dalPiuRecente.find((r) => !contorno(r)) ?? dalPiuRecente[0];
+      // A DECLARED DELIVERY BEATS RECENCY, and the full quota follows it.
+      //
+      // Third copy of the rule that lives in `selectCardComments`: here we
+      // decide WHO gets the 1,200 characters, there WHO gets printed. Let the
+      // two drift apart and the card draws a row that arrived cut at 200 —
+      // exactly the defect already paid for with the `review-note`.
+      //
+      // A person speaking AFTER the delivery takes it back: that is a rework,
+      // and the last word is theirs again.
+      const parole = dalPiuRecente.filter((r) => !contorno(r));
+      const primo = parole.find((r) => {
+        const c = rowToComment(r);
+        return c.kind === "delivery" || (c.author === "user" && c.kind === "comment");
+      });
+      const scelta = (primo && rowToComment(primo).kind === "delivery")
+        ? primo
+        : (parole[0] ?? dalPiuRecente[0]);
       for (const r of lines) {
         const full = rowToComment(r);
         // `rowToComment` normalizza `kind` (una riga scritta prima che la
@@ -2637,7 +2674,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       r.kind === "status" ? "status"
         : r.kind === "review-note" ? "review-note"
           : r.kind === "service" ? "service"
-            : "comment";
+            : r.kind === "delivery" ? "delivery"
+              : "comment";
     return { id: r.id, taskId: r.task_id, author: r.author, content: r.content, mentions, media, createdAt: r.created_at, kind };
   }
 
@@ -2662,13 +2700,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
 
   /**
    * Quando è iniziato il turno corrente = l'evento `…→in_progress` più recente.
-   * Lo legge il gate della consegna muta (`review_needs_summary`).
+   * Lo leggono `annotateDeliveryClaims` (le rivendicazioni di QUESTO turno) e
+   * `hasFreshAgentComment` (la porta di sistema).
    *
    * NON è una `LIKE '%in_progress'`: da quando una transizione può portare la
    * sua ragione (`done→in_progress · il land…`), il contenuto non finisce più
-   * con lo stato — e la LIKE avrebbe pescato un turno PRECEDENTE, cioè avrebbe
-   * riaperto in silenzio proprio il buco che quel gate chiude (una consegna muta
-   * sbloccata da un commento vecchio). Le lines di stato di un task sono poche:
+   * con lo stato — e la LIKE avrebbe pescato un turno PRECEDENTE, spostando
+   * indietro il confine: rivendicazioni vecchie riaccusate sotto una consegna
+   * nuova, e la porta di sistema aperta da una parola di ieri. Le lines di
+   * stato di un task sono poche:
    * si leggono e si spacchettano con l'unico parser.
    */
   function lastTurnStart(taskId: string): string | null {
@@ -2722,10 +2762,26 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     emit: (a: { taskId: string; author: string; content: string; kind: "review-note"; projectId?: string; replaces?: string }) => unknown,
   ): void {
     try {
+      // THE SLOT IS EMPTIED HERE, not by the note that fills it.
+      //
+      // `replaces` only deletes when something new gets written, so a card
+      // annotated in turn 1 and delivered clean in turn 2 kept the turn-1
+      // accusation on it: the reviewer read a "commit 0000000deadbee1 does not
+      // exist" note under a delivery that mentioned no commit at all. Each
+      // delivery answers for itself — the previous one's note goes away with
+      // the previous one.
+      db.prepare(
+        "DELETE FROM task_comments WHERE task_id = ? AND kind = 'review-note' AND content LIKE ?",
+      ).run(taskId, `${DELIVERY_CLAIM_SLOT}%`);
+
       const turnStart = lastTurnStart(taskId);
+      // 'delivery' belongs here, and is in fact the FIRST thing to check: it is
+      // the declared report, the one the reviewer reads. Leaving it out would
+      // have made this check blind to exactly the sentence it exists for.
       const rows = db.prepare(
         `SELECT content FROM task_comments
-          WHERE task_id = ? AND author NOT IN ('user', 'system') AND kind = 'comment'
+          WHERE task_id = ? AND author NOT IN ('user', 'system')
+            AND COALESCE(kind, 'comment') IN ('comment', 'delivery')
             AND (? IS NULL OR created_at >= ?)
           ORDER BY created_at DESC LIMIT 3`,
       ).all(taskId, turnStart, turnStart) as Array<{ content: string }>;
@@ -3183,20 +3239,34 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         }
         // Agent entering review → open a pending review approval for the human.
         if (patch.status === "review" && actor === "agent" && current !== "review") {
-          // A delivery must never be mute — AND the summary must be about THIS
-          // turn, not a stale one from an earlier exchange. Checking "any agent
-          // comment ever" let a steered task ("altro da fare?" → review) hand back
-          // a mute delivery: an old comment satisfied the gate while the current
-          // turn said nothing. So require a comment made AFTER this turn started
-          // (the newest `…→in_progress` status event). Coach a retry — same
-          // pattern as comment_too_long. kind='comment' only: an agent-authored
-          // status flip must not satisfy the gate.
-          if (!hasFreshAgentComment(taskId)) {
+          // A DELIVERY IS DECLARED, NOT GUESSED.
+          //
+          // The gate used to accept any fresh agent comment — one written after
+          // this turn started, so a stale one could not unlock it. That is not
+          // enough, and the gap is the whole defect: the last thing an agent
+          // writes before delivering is the chronicle of its own work,
+          // «terzo commit: il rosso di check:security chiuso alla fonte», allow-italian: verbatim from a real card
+          // and that is what the review card opened with. Reported as: the
+          // cards in review should carry a useful explanation as their last
+          // message, and only useless git things showed up.
+          //
+          // Telling plumbing from explanation by reading the text would be a
+          // rubric: a machine judging prose, wrong in silence on both sides.
+          // So the agent SAYS which one is the delivery, in the same call that
+          // moves the card. No summary, no review — and there is no deadlock in
+          // that refusal: at the end of the turn `deliverToReviewBySystem` still
+          // carries the card over, marked `delivered_by = 'system'`, which is
+          // the state the board already knows how to show.
+          const summary = (patch.summary ?? "").trim();
+          if (!summary) {
             throw new TaskServiceError(
               "review_needs_summary",
-              "post a delivery summary for THIS turn first. Use comment_task with 1-2 sentences (what you did now, where to look; even \"nothing new\" with the reason), THEN set status='review'",
+              "una consegna si dichiara: richiama update_task con `summary` = 1-2 frasi su COSA hai fatto in questo turno e DOVE si guarda (anche \"niente di nuovo\" col perché). È quella la riga che la card mostra al reviewer: la cronaca dei commit non la sostituisce.",
             );
           }
+          // The summary enters the thread BEFORE the status moves: a card must
+          // never be able to sit in review without the line that explains it.
+          this.addComment({ taskId, author: by, content: summary, projectId: projectId ?? row.project_id, kind: "delivery" });
           // The report is there. Now we look at whether what it says holds up.
           annotateDeliveryClaims(taskId, projectId ?? row.project_id, (a) => this.addComment(a));
           db.prepare(
@@ -3514,8 +3584,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // as a plain comment, so a typo at a call site costs a visible row rather
       // than a hidden one. 'service' = the dispatcher's own bookkeeping, marked
       // at the source so the thread can fold it without matching on wording.
-      const commentKind: "comment" | "review-note" | "service" =
-        kind === "review-note" ? "review-note" : kind === "service" ? "service" : "comment";
+      const commentKind: "comment" | "review-note" | "service" | "delivery" =
+        kind === "review-note" ? "review-note"
+          : kind === "service" ? "service"
+            : kind === "delivery" ? "delivery"
+              : "comment";
       let body = (content ?? "").trim();
       // Attachments-only comments are legal (a screenshot IS the message).
       if (!body && (!media || media.length === 0)) throw new TaskServiceError("invalid_input", "comment content is required");

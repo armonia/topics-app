@@ -48,7 +48,7 @@ describe("deliveredBy (chi ha portato il task in review)", () => {
 
   test("l'agente che consegna si firma", () => {
     const t = readyForDelivery();
-    const rev = s.update({ taskId: t.id, actor: "agent", by: "agent-1", patch: { status: "review" } });
+    const rev = s.update({ taskId: t.id, actor: "agent", by: "agent-1", patch: { status: "review", summary: "riassunto della consegna" } });
     expect(rev.deliveredBy).toBe("agent");
     expect(rev.deliveredReason).toBeNull();
   });
@@ -163,7 +163,7 @@ describe("deliveredBy (chi ha portato il task in review)", () => {
     // Rifiutato → l'agent riparte → questa volta consegna lui.
     s.reviewDecision({ taskId: t.id, by: "u", decision: "reject" });
     s.addComment({ taskId: t.id, author: "agent-1", content: "ora sì" });
-    const again = s.update({ taskId: t.id, actor: "agent", by: "agent-1", patch: { status: "review" } });
+    const again = s.update({ taskId: t.id, actor: "agent", by: "agent-1", patch: { status: "review", summary: "riassunto della consegna" } });
     expect(again.deliveredBy).toBe("agent");
     // Una causa di sistema rimasta appiccicata direbbe "non l'ha consegnato
     // l'agent" su una consegna dell'agent.
@@ -315,7 +315,7 @@ describe("review-evidence promotion — preview_image garantita dal commento di 
     const t = s.create({ projectId: PID, text: "fix ui" });
     s.addComment({ taskId: t.id, author: "claude", content: "fatto", media: ["/Users/x/.topics/media/evidenza.png"] });
     expect(preview(t.id)).toBeNull(); // non ancora in review: nessuna promozione
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     expect(preview(t.id)).toBe("/Users/x/.topics/media/evidenza.png");
   });
 
@@ -323,7 +323,7 @@ describe("review-evidence promotion — preview_image garantita dal commento di 
     const s = mk(() => true);
     const t = s.create({ projectId: PID, text: "fix ui" });
     s.addComment({ taskId: t.id, author: "claude", content: "fatto, evidenza a seguire" });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     expect(preview(t.id)).toBeNull();
     s.addComment({ taskId: t.id, author: "claude", content: "evidenza", media: ["/Users/x/.topics/media/clip.webm"] });
     expect(preview(t.id)).toBe("/Users/x/.topics/media/clip.webm");
@@ -334,7 +334,7 @@ describe("review-evidence promotion — preview_image garantita dal commento di 
     const t = s.create({ projectId: PID, text: "fix ui" });
     s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { previewImage: "/Users/x/.topics/media/scelta.png" } });
     s.addComment({ taskId: t.id, author: "claude", content: "fatto", media: ["/Users/x/.topics/media/altra.png"] });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     expect(preview(t.id)).toBe("/Users/x/.topics/media/scelta.png");
   });
 
@@ -342,7 +342,7 @@ describe("review-evidence promotion — preview_image garantita dal commento di 
     const s = mk((p) => p.endsWith(".png") === false ? true : false); // il png "non esiste", il resto sì
     const t = s.create({ projectId: PID, text: "fix ui" });
     s.addComment({ taskId: t.id, author: "claude", content: "fatto", media: ["/Users/x/.topics/media/morto.png", "/Users/x/.topics/media/report.pdf"] });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     expect(preview(t.id)).toBeNull(); // png inesistente, pdf non previewable
   });
 
@@ -359,7 +359,7 @@ describe("review-evidence promotion — preview_image garantita dal commento di 
     clock.t += 60_000;
     s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: ["/m/finale.png"] });
     clock.t += 60_000;
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     expect(preview(t.id)).toBe("/m/finale.png");
   });
 });
@@ -446,7 +446,7 @@ describe("anteprima: ramo diagramma, gate di forma, duplicati", () => {
     s.retirePreview({ taskId: t.id, reason: "503, non evidenza" });
     const buona = png("consegnata.png", 1440, 760);
     s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: [buona] });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     expect(preview(t.id)).toBe(buona);
     expect(retired(t.id).at).toBeNull();
   });
@@ -464,7 +464,7 @@ describe("anteprima: ramo diagramma, gate di forma, duplicati", () => {
     const fake = png("falsa.png", 1440, 760);
     // The shot is attached to the thread, as always: it is the verifier note.
     s.addComment({ taskId: t.id, author: "verifier", content: "Anteprima viva pronta", media: [fake] });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     expect(preview(t.id)).toBe(fake);
 
     s.retirePreview({ taskId: t.id, reason: "mostrava lo stato vuoto dell'app" });
@@ -491,7 +491,7 @@ describe("anteprima: ramo diagramma, gate di forma, duplicati", () => {
     const t = s.create({ projectId: PID, text: "riconsegna dopo il ritiro" });
     const fake = png("vuota.png", 1440, 760);
     s.addComment({ taskId: t.id, author: "verifier", content: "anteprima", media: [fake] });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     s.retirePreview({ taskId: t.id, reason: "pagina bianca" });
 
     const buona = png("davvero.png", 1440, 760);
@@ -515,7 +515,7 @@ describe("anteprima: ramo diagramma, gate di forma, duplicati", () => {
     const t = s.create({ projectId: PID, text: "piano di migrazione" });
     const diagram = svg("piano.svg", 900, 420);
     s.addComment({ taskId: t.id, author: "claude", content: "consegna: lo schema del piano", media: [diagram] });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     expect(preview(t.id)).toBe(diagram);
     expect(s.get(t.id)!.task.previewImage).toBe(diagram); // e arriva fino al client
   });
@@ -529,7 +529,7 @@ describe("anteprima: ramo diagramma, gate di forma, duplicati", () => {
     const s = mk();
     const t = s.create({ projectId: PID, text: "consegna a parole" });
     s.addComment({ taskId: t.id, author: "claude", content: "fatto, cinque cancelli verdi" });
-    const after = s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    const after = s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
 
     expect(after.status).toBe("review");          // non e' un blocco
     expect(preview(t.id)).toBeNull();
@@ -542,7 +542,7 @@ describe("anteprima: ramo diagramma, gate di forma, duplicati", () => {
     const s = mk();
     const t = s.create({ projectId: PID, text: "consegna con schema" });
     s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: [svg("schema.svg", 900, 420)] });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     expect(notes(t.id).some((n) => n.includes("SENZA anteprima"))).toBe(false);
   });
 
@@ -550,7 +550,7 @@ describe("anteprima: ramo diagramma, gate di forma, duplicati", () => {
     const s = mk();
     const t = s.create({ projectId: PID, text: "piano fotografato" });
     s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: [png("intero-piano.png", 1200, 4000)] });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
 
     expect(preview(t.id)).toBeNull();
     expect(notes(t.id)[0]).toContain("1200×4000");
@@ -562,7 +562,7 @@ describe("anteprima: ramo diagramma, gate di forma, duplicati", () => {
     const t = s.create({ projectId: PID, text: "piano fotografato" });
     const tall = png("alta.png", 1000, 3000);
     s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: [tall] });
-    const after = s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    const after = s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
 
     expect(after.status).toBe("review");
     const thread = s.get(t.id)!.comments;
@@ -580,7 +580,7 @@ describe("anteprima: ramo diagramma, gate di forma, duplicati", () => {
     const tall = png("alta.png", 800, 2400);
     s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: [tall] });
     clock.t += 60_000;
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     clock.t += 60_000;
     s.addComment({ taskId: t.id, author: "claude", content: "e ancora", media: [tall] });
     expect(notes(t.id).length).toBe(1);
@@ -595,7 +595,7 @@ describe("anteprima: ramo diagramma, gate di forma, duplicati", () => {
     const t = s.create({ projectId: PID, text: "un pannello" });
     const ok = png("pannello.png", 1000, 690); // 0.69
     s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: [ok] });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     expect(preview(t.id)).toBe(ok);
     expect(notes(t.id)).toEqual([]);
   });
@@ -605,7 +605,7 @@ describe("anteprima: ramo diagramma, gate di forma, duplicati", () => {
     const t = s.create({ projectId: PID, text: "comportamento" });
     const clip = write("clip.webm", Buffer.alloc(2048)); // nessun header leggibile
     s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: [clip] });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     expect(preview(t.id)).toBe(clip);
   });
 
@@ -757,7 +757,7 @@ describe("scheda di consegna (anteprima disegnata dal server)", () => {
     const s = mk();
     const t = s.create({ projectId: PID, text: "delivery with late numbers" });
     s.addComment({ taskId: t.id, author: "claude", content: "fatto" });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     s.recordDelivery({ taskId: t.id, branch: "topics/late-numbers", commit: "abc123", stat: null });
 
     expect(readFileSync(preview(t.id)!, "utf-8")).toContain("SCHEDA DI CONSEGNA");
@@ -803,7 +803,7 @@ describe("scheda di consegna (anteprima disegnata dal server)", () => {
     const s = mk();
     const t = s.create({ projectId: PID, text: "delivery already closed" });
     s.addComment({ taskId: t.id, author: "claude", content: "fatto" });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     s.recordDelivery({ taskId: t.id, branch: "topics/closed", commit: "abc123", stat: null });
     s.update({ taskId: t.id, actor: "human", by: "u", patch: { status: "done" } });
     const before = scritte.length;
@@ -814,8 +814,8 @@ describe("scheda di consegna (anteprima disegnata dal server)", () => {
 
   const consegna = (s: TaskService, testo: string) => {
     const t = s.create({ projectId: PID, text: testo });
-    s.addComment({ taskId: t.id, author: "claude", content: "fatto, cinque cancelli verdi" });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    // The sentence the sheet must carry travels where the delivery is declared.
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "fatto, cinque cancelli verdi" } });
     return t;
   };
 
@@ -912,7 +912,7 @@ describe("scheda di consegna (anteprima disegnata dal server)", () => {
     writeFileSync(mia, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 420"></svg>`);
     s.addComment({ taskId: t.id, author: "claude", content: "consegna" });
     s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { previewImage: mia } });
-    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     expect(preview(t.id)).toBe(mia);
   });
 

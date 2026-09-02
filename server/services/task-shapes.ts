@@ -376,6 +376,17 @@ export interface UpdateTaskPatch {
   /** Screenshot for the card (absolute path); empty string / null clears it.
    *  The gate on the media allowlist lives in the route layer (like comment media). */
   previewImage?: string | null;
+  /**
+   * THE DELIVERY, in words. Required when an AGENT moves the card to `review`,
+   * ignored on every other transition.
+   *
+   * Not a task field and not a column: the service writes it into the thread as
+   * a `kind: 'delivery'` comment, the row the card prefers over recency. It
+   * rides in the patch because it is what the caller sends WITH the status —
+   * splitting it in two calls would open a window in which the card sits in
+   * review with no delivery on it.
+   */
+  summary?: string;
   /** Model override for the agent topic; null clears (= auto). */
   model?: string | null;
   /** Dependency; null clears. Validated: exists, not self, no cycle. */

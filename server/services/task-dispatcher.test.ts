@@ -805,7 +805,7 @@ describe("task-dispatcher", () => {
     await flush();
     // Agent moved it to review mid-turn (allowed: agent→review, after its summary).
     h.svc.addComment({ taskId: "t1", author: "claude", content: "fatto" });
-    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review" } });
+    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     h.finishTurn();
     await flush();
     const t = h.task("t1")!;
@@ -829,7 +829,7 @@ describe("task-dispatcher", () => {
     await h.dispatcher.tick(PID);
     await flush();
     h.svc.addComment({ taskId: "t1", author: "claude", content: "fatto" });
-    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review" } });
+    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     h.finishTurn();
     await flush();
   }
@@ -889,7 +889,7 @@ describe("task-dispatcher", () => {
     await flush();
     // The agent asks (server-composed question block) and hands off to review.
     h.svc.addComment({ taskId: "t1", author: "claude", content: "Quale opzione?", questionOptions: ["A", "B"] });
-    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review" } });
+    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     h.finishTurn();
     await flush();
     expect(h.task("t1")!.dispatchState).toBe("needs_input");
@@ -1508,7 +1508,7 @@ describe("task-dispatcher", () => {
     expect(h.task("t1")!.dispatchState).toBe("working");
     // Agent finishes back into review (its earlier comments already count).
     h.svc.addComment({ taskId: "t1", author: "claude", content: "sistemato con opzione B" });
-    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review" } });
+    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     h.finishTurn();
     await p;
     await flush();
@@ -1535,7 +1535,7 @@ describe("task-dispatcher", () => {
     expect(h.turns.length).toBe(1);            // turno vivo: imbucato, non un secondo agente
 
     h.svc.addComment({ taskId: "t1", author: "claude", content: "consegnato" });
-    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review" } });
+    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     h.finishTurn();
     await p;
     await flush();
@@ -2203,7 +2203,7 @@ describe("task-dispatcher", () => {
     await flush();
     // Agent delivers to review mid-turn (the turn has NOT ended yet)…
     h.svc.addComment({ taskId: "t1", author: "claude", content: "fatto" });
-    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review" } });
+    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     // …and the human answers in that window: reject + resume (the route path).
     h.svc.reviewDecision({ taskId: "t1", by: "user", decision: "reject", comment: "aggiusta X" });
     void h.dispatcher.resume("t1", "aggiusta X");
@@ -2822,7 +2822,7 @@ describe("PREVIEW_RULE — una stringa sola, in tutti gli envelope", () => {
     const svc = createTaskService(db, { now: () => new Date().toISOString(), uuid: () => `upr-${Math.random()}` });
     const t = svc.create({ projectId: PID_LOCAL, text: "consegna senza allegati" });
     svc.addComment({ taskId: t.id, author: "claude", content: "cinque cancelli verdi" });
-    svc.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    svc.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
 
     const notes = (db.prepare("SELECT content FROM task_comments WHERE task_id = ? AND kind = 'review-note'").all(t.id) as Array<{ content: string }>)
       .map((r) => r.content);
@@ -3312,7 +3312,7 @@ describe("chip at delivery: delivery versus question", () => {
     await h.dispatcher.tick(PID);
     await flush();
     h.svc.addComment({ taskId: "t1", author: "claude", content, questionOptions: options });
-    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review" } });
+    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
     h.finishTurn();
     await flush();
   }

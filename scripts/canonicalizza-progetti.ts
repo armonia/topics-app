@@ -1,25 +1,25 @@
 #!/usr/bin/env bun
 /**
- * Fonde i progetti sdoppiati da un symlink — in prova, e solo poi davvero.
+ * Merges projects split in two by a symlink — dry run first, for real only after.
  *
- * PERCHÉ SERVE UNA MIGRAZIONE E NON BASTA IL CODICE. `canonical-project-path.ts`
- * impedisce che nasca una SECONDA identità, ma non tocca ciò che è già scritto:
- * l'id di un progetto è `basename + hash della stringa del percorso`
- * (`shared/board.ts`), e le chiavi `ui_state` usano un hash gemello
- * (`shared/project-keys.ts`). Riscrivere un percorso a mano cambierebbe quegli
- * id e lascerebbe le righe `tasks` sotto un id che nessuna board legge: la
- * «board vuota» già pagata una volta.
+ * WHY A MIGRATION IS NEEDED AND THE CODE IS NOT ENOUGH. `canonical-project-path.ts`
+ * stops a SECOND identity from being born, but it does not touch what is already
+ * written: a project's id is `basename + hash of the path string`
+ * (`shared/board.ts`), and the `ui_state` keys use a twin hash
+ * (`shared/project-keys.ts`). Rewriting a path by hand would change those ids and
+ * leave the `tasks` rows under an id no board reads: the "empty board" already
+ * paid for once.
  *
- * COSA FA. Trova i percorsi salvati che sono link, calcola vecchio e nuovo id, e
- * riscrive in UNA transazione: `tasks.project_id`, il `projectPath` dei topic, le
- * chiavi `ui_state` per-progetto. Dove esistono entrambe le identità, la vecchia
- * confluisce nella nuova.
+ * WHAT IT DOES. Finds saved paths that are links, computes old and new id, and
+ * rewrites in ONE transaction: `tasks.project_id`, the topics' `projectPath`, the
+ * per-project `ui_state` keys. Where both identities exist, the old one is folded
+ * into the new.
  *
- *   bun scripts/canonicalizza-progetti.ts            elenca cosa cambierebbe
- *   bun scripts/canonicalizza-progetti.ts --esegui   lo fa
+ *   bun scripts/canonicalizza-progetti.ts            list what would change  allow-italian: the file name
+ *   bun scripts/canonicalizza-progetti.ts --esegui   do it  allow-italian: the file name and the flag it really takes
  *
- * Il default è la prova: una migrazione che parte da sola alla prima esecuzione
- * è una migrazione che nessuno ha letto.
+ * The default is the dry run: a migration that starts by itself on first run is a
+ * migration nobody read.
  */
 import { Database } from "bun:sqlite";
 import { realpathSync, existsSync } from "node:fs";
@@ -29,10 +29,10 @@ import { projectIdForPath } from "../shared/board";
 import { projectHash, PROJECT_PANES_PREFIX, PROJECT_LAYOUT_PREFIX } from "../shared/project-keys";
 
 const esegui = process.argv.includes("--esegui");
-// Il DB sta sotto il dataRoot dell'app (`data/topics.db` in sviluppo), NON in
-// ~/.topics: li' c'e' un topics.db da 0 byte, residuo di un vecchio percorso, e
-// puntarci sopra farebbe dire «niente da fondere» a una migrazione che non ha
-// guardato niente. `TOPICS_DB` lo forza.
+// The DB lives under the app's dataRoot (`data/topics.db` in development), NOT
+// in ~/.topics: there sits a 0-byte topics.db left over from an old path, and
+// pointing at it would make a migration that looked at nothing report "nothing
+// to merge". `TOPICS_DB` forces it.
 const dbPath = process.env.TOPICS_DB
   || [join(process.cwd(), "data", "topics.db"),
       join(homedir(), "Projects", "topics-app", "data", "topics.db")].find((p) => {
@@ -46,8 +46,8 @@ function canonico(p: string): string {
   try { return realpathSync(p); } catch { return p; }
 }
 
-// I percorsi che l'app conosce: quelli legati ai topic. Sono la stessa fonte da
-// cui nascono board e pannelli, quindi bastano a trovare ogni identità doppia.
+// The paths the app knows: the ones bound to topics. They are the same source
+// boards and panes are born from, so they suffice to find every double identity.
 const percorsi = new Set<string>();
 for (const r of db.query<{ project_path: string }, []>(
   "SELECT DISTINCT project_path FROM topics WHERE project_path IS NOT NULL AND project_path != ''").all()) {
@@ -62,7 +62,7 @@ for (const p of percorsi) {
   const idV = projectIdForPath(p), idN = projectIdForPath(nuovo);
   const nTopics = db.query<{ n: number }, [string]>("SELECT COUNT(*) n FROM topics WHERE project_path = ?").get(p)!.n;
   let nTasks = 0;
-  try { nTasks = db.query<{ n: number }, [string]>("SELECT COUNT(*) n FROM tasks WHERE project_id = ?").get(idV)!.n; } catch { /* niente tabella tasks */ }
+  try { nTasks = db.query<{ n: number }, [string]>("SELECT COUNT(*) n FROM tasks WHERE project_id = ?").get(idV)!.n; } catch { /* no tasks table */ }
   const chiavi: string[] = [];
   for (const pref of [PROJECT_PANES_PREFIX, PROJECT_LAYOUT_PREFIX]) {
     const k = pref + projectHash(p);
@@ -85,15 +85,15 @@ for (const c of casi) {
 const migra = db.transaction(() => {
   for (const c of casi) {
     const idV = projectIdForPath(c.vecchio), idN = projectIdForPath(c.nuovo);
-    try { db.run("UPDATE tasks SET project_id = ? WHERE project_id = ?", [idN, idV]); } catch { /* niente tasks */ }
+    try { db.run("UPDATE tasks SET project_id = ? WHERE project_id = ?", [idN, idV]); } catch { /* no tasks table */ }
     db.run("UPDATE topics SET project_path = ? WHERE project_path = ?", [c.nuovo, c.vecchio]);
     for (const pref of [PROJECT_PANES_PREFIX, PROJECT_LAYOUT_PREFIX]) {
       const kV = pref + projectHash(c.vecchio), kN = pref + projectHash(c.nuovo);
       const vecchia = db.query<{ value: string }, [string]>("SELECT value FROM ui_state WHERE key = ?").get(kV);
       if (!vecchia) continue;
       const nuova = db.query<{ value: string }, [string]>("SELECT value FROM ui_state WHERE key = ?").get(kN);
-      // Dove esistono entrambe vince quella nuova: è quella che l'utente sta
-      // guardando adesso. La vecchia sparisce, non si fondono due layout a caso.
+      // Where both exist the new one wins: it is the one the user is looking at
+      // right now. The old one goes away — two layouts are not blended at random.
       if (!nuova) db.run("UPDATE ui_state SET key = ? WHERE key = ?", [kN, kV]);
       else db.run("DELETE FROM ui_state WHERE key = ?", [kV]);
     }
@@ -105,17 +105,17 @@ if (esegui && casi.length > 0) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FASE 2 — i riferimenti rimasti nello STATO DELLA UI.
+// PHASE 2 — the references left behind in the UI STATE.
 //
-// La fase 1 rilega board e topic, ma i pannelli aperti e i fissati in sidebar
-// vivono dentro due blob JSON (`pane-store-v2`, `sidebar-state`) con il percorso
-// scritto dentro, a volte codificato. Dopo la fusione restavano lì: il progetto
-// compariva DUE volte, e una delle due copie era quella con un turno in corso.
+// Phase 1 rebinds boards and topics, but the open panes and the sidebar pins
+// live inside two JSON blobs (`pane-store-v2`, `sidebar-state`) with the path
+// written in, sometimes encoded. After the merge they stayed there: the project
+// showed up TWICE, and one of the two copies was the one with a live turn.
 //
-// Qui il link non c'è più (la cartella e' stata spostata davvero), quindi non si
-// puo' risolvere: un percorso che NON ESISTE PIU' e che ha un omonimo in
-// ~/Projects viene rimappato lì. È un'euristica, e per questo la si legge nella
-// prova prima di eseguirla.
+// Here the link is gone (the directory was really moved), so it cannot be
+// resolved: a path that NO LONGER EXISTS and has a namesake in ~/Projects is
+// remapped there. That is a heuristic, which is why it is read in the dry run
+// before being executed.
 // ─────────────────────────────────────────────────────────────────────────────
 {
   const BLOB = ["pane-store-v2", "sidebar-state", "panels"];
@@ -145,7 +145,7 @@ if (esegui && casi.length > 0) {
             v = v.split(vecchio).join(nuovo)
                  .split(encodeURIComponent(vecchio)).join(encodeURIComponent(nuovo));
           }
-          // Dedup dei fissati: dopo la rimappatura la stessa voce puo' comparire due volte.
+          // Dedup the pins: after the remap the same entry can show up twice.
           try {
             const o = JSON.parse(v);
             const dedup = (a: unknown) => Array.isArray(a) ? [...new Set(a as string[])] : a;
@@ -154,7 +154,7 @@ if (esegui && casi.length > 0) {
               for (const riga of o.pinnedLayout) if (riga?.keys) riga.keys = dedup(riga.keys);
             }
             v = JSON.stringify(o);
-          } catch { /* blob non-JSON: la sostituzione testuale vale comunque */ }
+          } catch { /* non-JSON blob: the textual replacement still holds */ }
           db.run("UPDATE ui_state SET value = ? WHERE key = ?", [v, key]);
         }
       });

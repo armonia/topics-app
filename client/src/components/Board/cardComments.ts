@@ -230,7 +230,25 @@ export function selectCardComments<T extends CardComment>(
   // card e' cieca). Si tolgono solo di mezzo quando c'e' una parola vera.
   const parole = speech.filter((c) => !contorno(c) && !offQuestion(c, ctx ?? null));
   const vive = parole.length ? parole : speech;
-  const latest = vive[vive.length - 1];
+  // ── A DECLARED DELIVERY BEATS RECENCY ──────────────────────────────────────
+  //
+  // Until now the card opened with the LAST real word, and on a working thread
+  // that is almost always the chronicle:
+  // «Terzo commit: il rosso di check:security chiuso alla fonte». allow-italian: verbatim from a real card
+  // Reported as: the cards in review should carry a useful explanation as their
+  // last message, and only useless git things showed up.
+  //
+  // Guessing which of the turn's comments was the summary would mean judging
+  // the text. We do not judge: the delivery is now DECLARED (`kind: 'delivery'`,
+  // written by `update_task(summary=…)` and by nobody else), and the card
+  // prefers it.
+  //
+  // BUT IT NEVER OVERTAKES A PERSON. A human comment after the delivery is a
+  // rework — that is the news, and pulling the earlier summary back above a
+  // request that just arrived would say someone had already answered it.
+  const daFondo = [...vive].reverse();
+  const consegna = daFondo.find((c) => c.kind === 'delivery' || isHumanComment(c));
+  const latest = (consegna && consegna.kind === 'delivery') ? consegna : vive[vive.length - 1];
   if (!latest) return null;
   // NESSUNA PAROLA VERA: quello che stiamo per mostrare e' un RIPIEGO.
   //
