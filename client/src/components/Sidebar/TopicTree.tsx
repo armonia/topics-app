@@ -1154,26 +1154,26 @@ export function TopicTree({
             aria-label={`${item.name} project`}
             data-testid={`project-toggle-${item.name}`}
           >
-            {/* L'icona vera quando la cartella ne porta una (favicon,
-                web-manifest, <link rel=icon>, risolti da /api/projects/icon).
-                Chi non ce l'ha NON prende niente: la decisione «niente
-                monogrammi» (Attilio, 16/07, riconfermata dopo l'esperimento
-                delle tessere) dice che solo un'icona VERA si guadagna lo
-                spazio - niente lettere, niente tessere, niente glifi generici.
-                È scritta anche in testa a {@link ProjectFavicon}.
+            {/* The real icon when the folder ships one (favicon, web manifest,
+                <link rel=icon>, resolved by /api/projects/icon). A project
+                without one gets NOTHING: the "no monograms" decision (the
+                owner, 16/07, reconfirmed after the generated-tile experiment)
+                says only a REAL icon earns the space - no letters, no tiles, no
+                generic glyphs. It is also written at the top of
+                {@link ProjectFavicon}.
 
-                QUI C'ERA UN PALLINO, ed era un residuo. Il segnaposto (un
-                punto vuoto di 6px) era nato il 17/08, quando la favicon aveva
-                una scatola TUTTA SUA: allora era l'unica cosa che riservasse
-                la larghezza, e senza il nome di un progetto senza icona
-                partiva 22px più a sinistra di quello di un progetto con icona.
-                Il 27/08 (d919c1823) la favicon è entrata nello slot condiviso
-                qui sotto - `w-[18px]`, disegnato SEMPRE, pieno o vuoto - e da
-                quel momento è LA SCATOLA a tenere la colonna. Il pallino è
-                stato portato dietro invariato e non compra più niente: toglierlo
-                non muove un pixel dei nomi, lascia solo lo slot vuoto.
-                Riportato il 02/09: «vedo un pallino a caso per i progetti senza
-                favicon». Non era a caso, era in ritardo di dieci giorni. */}
+                THERE WAS A DOT HERE, and it was a leftover. The placeholder (a
+                hollow 6px dot) was born on 17/08, when the favicon had a box OF
+                ITS OWN: back then it was the only thing reserving the width,
+                and without it the name of an icon-less project started 22px
+                left of the name of a project with an icon. On 27/08
+                (d919c1823) the favicon moved into the shared slot below -
+                `w-[18px]`, ALWAYS drawn, full or empty - and from that moment
+                it is THE BOX that holds the column. The dot was carried over
+                unchanged and buys nothing any more: removing it moves no name
+                by a pixel, it just leaves the slot empty. Reported on 02/09:
+                "I see a random dot for the projects without a favicon". It was
+                not random, it was ten days late. */}
             {/* IN THE SHARED SLOT, like every other leading glyph of the
                 sidebar. The favicon used to sit in its own 14px box, and it was
                 the last glyph outside {@link ROW_GLYPH_SLOT} (18): measured,
