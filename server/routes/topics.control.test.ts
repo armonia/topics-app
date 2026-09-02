@@ -17,7 +17,7 @@
   * @covers TOPIC-CTRL-01
  */
 import { describe, test, expect, mock, beforeEach } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { createTopicsRouter } from "./topics";
@@ -593,6 +593,41 @@ describe("il ponte MCP del browser è montato dentro topicsRouter", () => {
       h.topics.set("t1", makeTopic({ id: "t1" }));
       const resp = await h.call("POST", "/api/topics/t1/browser/inventata", {});
       expect(resp).toBeNull();
+    } finally { h.cleanup(); }
+  });
+});
+
+/**
+ * L'IDENTITÀ DI UN PROGETTO È LA CARTELLA, NON LA STRADA PER ARRIVARCI.
+ *
+ * `projectIdForPath` è un hash della STRINGA del percorso: un topic legato a un
+ * symlink e uno legato alla cartella vera diventano due progetti — due board, due
+ * voci in sidebar, due pannelli. Successo il 02/09/2026 con
+ * `~/.openclaw/workspace/neuture-proposal` → `~/Projects/neuture-proposal`.
+ */
+describe("POST /api/topics — il percorso si scioglie dal link", () => {
+  test("un topic creato su un link risulta legato alla cartella vera", async () => {
+    const h = makeHarness();
+    try {
+      const vero = join(h.workspaceDir, "progetto-vero");
+      mkdirSync(vero, { recursive: true });
+      const link = join(h.workspaceDir, "scorciatoia");
+      symlinkSync(vero, link);
+
+      const resp = (await h.call("POST", "/api/topics", { name: "dal link", projectPath: link }))!;
+      expect(resp.status).toBe(201);
+      const creato = (await resp.json()) as { projectPath: string };
+      expect(creato.projectPath).toBe(realpathSync(vero));
+      expect(creato.projectPath).not.toBe(link);
+    } finally { h.cleanup(); }
+  });
+
+  test("una cartella che non esiste resta com'è: non è un errore", async () => {
+    const h = makeHarness();
+    try {
+      const mai = join(h.workspaceDir, "non-creata-ancora");
+      const resp = (await h.call("POST", "/api/topics", { name: "futura", projectPath: mai }))!;
+      expect(((await resp.json()) as { projectPath: string }).projectPath).toBe(mai);
     } finally { h.cleanup(); }
   });
 });
