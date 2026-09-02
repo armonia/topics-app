@@ -587,6 +587,27 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   };
 
   /**
+   * `tasks.project_id` is a BOARD id (`projectIdForPath(path)`), NOT the
+   * `projects.id` record key, which is a UUID. A caller that passes the UUID
+   * read from `GET /api/projects` — a reasonable and wrong choice — gives
+   * birth to the task on a board nobody reads: the kanban grows a second
+   * column showing the raw UUID beside the real one, and nothing errors
+   * anywhere. Translate the UUID to the board it actually belongs to.
+   *
+   * Only a UUID that really exists in `projects` is translated; any other id
+   * passes through untouched, so legacy boards whose id happened to equal
+   * `projects.id` keep working (see `server/lib/tab-resolver.ts`).
+   */
+  function boardIdFromAnagraphicId(projectId: string): string {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(projectId)) return projectId;
+    try {
+      const row = db.query("SELECT path FROM projects WHERE id = ?").get(projectId) as { path?: string } | null;
+      if (row?.path) return projectIdForPath(row.path);
+    } catch { /* best-effort: an untranslatable id stays as it is */ }
+    return projectId;
+  }
+
+  /**
    * Project "Auto" → the REAL board. Resolve a known project name mentioned in
    * the task text. Exactly one distinct hit → that board (auto-assigned).
    * None/ambiguous → the catch-all workspace so the task STILL RUNS standalone
@@ -600,7 +621,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * landing-feedback card to whatever sits on the wrong board.
    */
   function resolveBoardId(projectId: string, text: unknown, description: unknown): string {
-    if (projectId !== AUTO_PROJECT_ID) return projectId;
+    if (projectId !== AUTO_PROJECT_ID) return boardIdFromAnagraphicId(projectId);
     const haystack = `${typeof text === "string" ? text : ""}\n${typeof description === "string" ? description : ""}`.toLowerCase();
     const hits = new Set<string>();
     let dirs: string[] = [];
