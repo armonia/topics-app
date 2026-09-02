@@ -5,8 +5,8 @@ import { useEffect } from 'react';
  * minimized, occluded, or simply not the focused app.
  *
  * On the large transparent-vibrancy desktop window the always-running cues keep
- * the compositor busy on EVERY frame even when nobody is looking: the `wave-bar`
- * "working now" loaders (6 cells each) and the `awaiting-pulse` breathers on
+ * the compositor busy on EVERY frame even when nobody is looking: the `orbit-spin`
+ * "working now" loaders and the `awaiting-pulse` breathers on
  * every parked-session tab/row. With many panes + an ultrawide surface that's a
  * steady GPU/CPU draw for zero benefit while the app sits in the background.
  *

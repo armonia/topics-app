@@ -26,7 +26,7 @@ import { useSplitLayoutAvailable } from '../../hooks/useSplitLayoutAvailable';
 import { useLongPress } from '../../hooks/useLongPress';
 import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from './StreamingIndicator';
 import { NotificationBadge } from '../Shared/NotificationBadge';
-import { SessionElapsed } from '../Shared/SessionActivity';
+import { SessionElapsed, ProjectElapsed } from '../Shared/SessionActivity';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useT } from '../../hooks/useT';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
@@ -1420,7 +1420,15 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 onStop={onStopStreaming ? () => onStopStreaming(pane.id) : undefined}
               />
             )}
-            {pane.type === 'project' && pane.projectPath && (
+            {/* A PROJECT TAB IS A FOLDER, and its roll-up only shows while the
+                folder is SHUT. Selected, the project window is the one on
+                screen: its own tab bar is right there with a loader and a clock
+                on every child that is working, so the parent's aggregate
+                repeats them one bar above and you cannot tell which is which.
+                Not selected, the children are behind it and the aggregate is
+                the only thing that can speak for them. Same rule as the sidebar
+                project row, where "shut" is the collapsed accordion. */}
+            {pane.type === 'project' && pane.projectPath && !isSelected && (
               <ProjectStreamingSpinner projectPath={pane.projectPath} />
             )}
             {pane.type === 'terminal' && (() => {
@@ -1538,6 +1546,13 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                   : undefined;
               return subjectId ? <SessionElapsed subjectId={subjectId} onFill={onFill} /> : null;
             })()}
+            {/* The PROJECT's time, under the same rule as its loader: only
+                while the folder is shut, because open it is the children that
+                say it. It is a time that RUNS (the loader's colour and motion),
+                never a receipt. */}
+            {pane.type === 'project' && pane.projectPath && !isSelected && (
+              <ProjectElapsed projectPath={pane.projectPath} onFill={onFill} />
+            )}
             {/* The split position mini-map lives on the SIDEBAR topic cards
                 only (user preference), NOT on the top tab bar — see
                 Sidebar/TopicItem + SplitMiniMap (fed by SplitPositionContext).

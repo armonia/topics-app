@@ -16,10 +16,11 @@
 // test unitario che lo monta — `SessionActivity.test.ts`.
 import { useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
-import { useSessionActivity, useSubjectLastActivity } from '../../state/signals';
+import { useSessionActivity, useSubjectLastActivity, useProjectWorkStart } from '../../state/signals';
 import { useSharedNow } from '../../state/useSharedNow';
 import { deriveSubjectTime, formatElapsedShort, formatElapsedCompact, WORK_ELAPSED_AFTER_MS } from '../../state/workLongevity';
 import { useTopicPreview } from '../../state/topicPreviews';
+import { timeToneClass, timeVoice } from './timeTone';
 import { ON_FILL_TEXT, ON_FILL_TEXT_SOFT, TIER_DONE_BG, TIER_INPUT_BG } from '../../lib/selectionStyles';
 
 /** Map a Claude Code tool name to a short human verb. Unknown tools fall back to
@@ -113,17 +114,25 @@ function SessionActivityText({ subjectId, onFill, className = '' }: SessionActiv
   // alla riga (lo spinner "labeled" con «agg. Xm fa») e i due numeri dicevano
   // cose diverse — vedi deriveSubjectTime.
   const elapsed = time ? formatElapsedShort(time.ms) : '';
-  let text: string;
+  // The sentence is split around the NUMBER, because the number is the only
+  // part with a tone of its own (see timeTone): a duration that is still
+  // growing wears the loader's colour and the loader's motion, a duration that
+  // has stopped does not. `text` stays whole for the tooltip.
+  let lead: string;
+  let trail = '';
   if (activity.working) {
     const verb = activity.tool ? toolVerb(activity.tool) : 'Sta lavorando';
-    text = elapsed ? `${verb} · ${elapsed}` : verb;
+    lead = elapsed ? `${verb} · ` : verb;
   } else if (activity.tier === 'input') {
     const base = activity.approvalKind ? `Attende: ${activity.approvalKind}` : 'Attende una tua risposta';
-    text = elapsed ? `${base} · da ${elapsed}` : base;
+    lead = elapsed ? `${base} · da ` : base;
   } else {
     // done-unseen — the turn finished and you haven't looked yet.
-    text = elapsed ? `Tocca a te · finito ${elapsed} fa` : 'Tocca a te';
+    lead = elapsed ? 'Tocca a te · finito ' : 'Tocca a te';
+    trail = elapsed ? ' fa' : '';
   }
+  const text = `${lead}${elapsed}${trail}`;
+  const timeClass = timeToneClass(timeVoice(activity.working, activity.tier === 'input'), onFill);
   const title = activity.working && time?.approx
     ? `${text}\n(il turno era già in corso all'ultimo riavvio del server: la durata è un minimo)`
     : text;
@@ -138,7 +147,9 @@ function SessionActivityText({ subjectId, onFill, className = '' }: SessionActiv
       className={`truncate-tight text-[11px] tabular-nums ${tone} ${className}`}
       title={title}
     >
-      {text}
+      {lead}
+      {elapsed ? <span className={timeClass ?? ''} data-testid="activity-elapsed">{elapsed}</span> : null}
+      {trail}
     </span>
   );
 }
@@ -246,17 +257,76 @@ function SessionElapsedTicking({ subjectId, onFill, className = '' }: SessionAct
   if (time.kind === 'working' && time.ms < WORK_ELAPSED_AFTER_MS) return null;
   const label = formatElapsedCompact(time.ms);
   if (!label) return null;
+  // A tab has no sentence around the number, so the tone IS the sentence: the
+  // primary sweep of the loader while the turn runs, amber while it waits for
+  // you, the quiet grey once it is only a receipt. See timeTone.
+  const voice = timeVoice(time.kind === 'working', activity?.tier === 'input');
+  const tone = timeToneClass(voice, onFill);
   return (
     <span
       className={`ml-0.5 flex-shrink-0 text-[10px] leading-none tabular-nums ${
-        onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-faint/70'
+        tone ?? (onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-faint/70')
       } ${className}`}
+      data-time-voice={voice}
       data-testid="tab-elapsed"
       title={
         time.kind === 'working'
           ? tr('activity.runningFor', { label, approx: time.approx ? tr('activity.atLeast') : '' })
           : `Ha finito ${label} fa`
       }
+    >
+      {label}
+    </span>
+  );
+}
+
+/**
+ * ProjectElapsed — the same time voice, for a FOLDER.
+ *
+ * A project has no session of its own: its number is the roll-up, "the oldest
+ * turn still running in here" (useProjectWorkStart). It exists for exactly the
+ * case the child numbers cannot cover — the folder is CLOSED, so none of the
+ * children that own a clock is on screen — which is why both call sites gate it
+ * on the folder being collapsed, exactly like the project loader next to it.
+ *
+ * Only the LIVE branch: when nothing is running there is no aggregate worth a
+ * digit (the sidebar row already carries its "agg. X fa" receipt), and a folder
+ * that has been quiet for three days would just add noise to every tab.
+ */
+export function ProjectElapsed({ projectPath, onFill, className = '' }: {
+  projectPath: string | undefined;
+  onFill?: boolean;
+  className?: string;
+}) {
+  // Gate BEFORE the clock, like SessionElapsed: a quiet project must not
+  // subscribe to the shared tick just to render nothing every 10s.
+  const startedAt = useProjectWorkStart(projectPath);
+  if (!startedAt) return null;
+  return <ProjectElapsedTicking startedAt={startedAt} onFill={onFill} className={className} />;
+}
+
+function ProjectElapsedTicking({ startedAt, onFill, className = '' }: {
+  startedAt: number;
+  onFill?: boolean;
+  className?: string;
+}) {
+  const tr = useT();
+  const now = useSharedNow();
+  const ms = Math.max(0, now - startedAt);
+  // Same threshold as a tab: a turn that just started does not deserve a digit
+  // dancing on a narrow surface.
+  if (ms < WORK_ELAPSED_AFTER_MS) return null;
+  const label = formatElapsedCompact(ms);
+  if (!label) return null;
+  const tone = timeToneClass('live', onFill);
+  return (
+    <span
+      className={`ml-0.5 flex-shrink-0 text-[10px] leading-none tabular-nums ${
+        tone ?? (onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-faint/70')
+      } ${className}`}
+      data-time-voice="live"
+      data-testid="project-elapsed"
+      title={tr('activity.runningFor', { label, approx: '' })}
     >
       {label}
     </span>

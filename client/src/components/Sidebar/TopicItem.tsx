@@ -417,7 +417,7 @@ export const TopicItem = memo(function TopicItem({
           sbiadire la prima per far posto alla seconda toglierebbe l'unico modo
           di fermare un turno vivo dalla colonna.
 
-          The SAME shared loader the tab bar renders (WaveLoader + hover-stop via
+          The SAME shared loader the tab bar renders (OrbitLoader + hover-stop via
           LoaderSlot), just a bigger 28px box for the sidebar hit target — so the
           sidebar chat row and its tab can't drift in glyph, animation, or stop
           affordance. */}

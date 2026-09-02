@@ -40,7 +40,7 @@ import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { sidebarRowCard, ROW_PX, ROW_GAP, ROW_H, SECTION_H, ROW_INSET, COLUMN_GAP, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, ROW_CHEVRON, ROW_CHEVRON_SLOT, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, ARCHIVED_ROW, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER, TAB_LABEL, TAB_LABEL_TYPE } from '@/lib/selectionStyles';
 import { startDragPreview } from '@/lib/dragPreview';
 import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
-import { SessionActivity } from '@/components/Shared/SessionActivity';
+import { SessionActivity, ProjectElapsed } from '@/components/Shared/SessionActivity';
 import { RelativeTime } from '@/components/Shared/RelativeTime';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { useMobile } from '@/hooks/useMobile';
@@ -1196,8 +1196,23 @@ export function TopicTree({
               Fuori dal binario quieto: è un segnale di POSIZIONE, non di stato,
               e sta a sinistra di quanto il comando può coprire. */}
           <RowSplitMap paneId={pp} onFill={projOnFill} />
-          {/* Lo spinner sta fuori dal binario quieto, come su ogni riga. */}
-          <ProjectStreamingSpinner projectPath={pp} />
+          {/* THE AGGREGATE CUE ONLY WHILE THE FOLDER IS SHUT.
+              A project glyph says "something in here is working", and it is the
+              only way to know while the accordion is closed. Open it and every
+              child that is working draws its OWN loader and its own clock one
+              row below: the parent's roll-up then says the same thing a second
+              time, one indent up, and the two are impossible to tell apart at a
+              glance — which is the confusion this card is about. The same gate
+              is on the project TAB (PaneTabBar), where "shut" means the project
+              window is not the selected pane, so its inner tabs are not on
+              screen either. The loader sits OUTSIDE the quiet rail, as on every
+              row. */}
+          {!isExpanded && <ProjectStreamingSpinner projectPath={pp} />}
+          {/* How long the oldest turn in there has been going, in the colour
+              and the motion of the loader: this is the time that RUNS, and it
+              must not be read as the grey "agg. X fa" in the trailing rail,
+              which is a receipt. */}
+          {!isExpanded && <ProjectElapsed projectPath={pp} onFill={projOnFill} />}
           <div className={`${ROW_TRAIL} flex items-center ${ROW_GAP} flex-shrink-0`}>
             {/* Pin glyph — trailing rail, before the badge (same fixed
                 Pin → … → NotificationBadge order as the chat rows). Inherits
