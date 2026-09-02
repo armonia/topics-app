@@ -42,6 +42,18 @@ describe("`ask`: propone e non tocca", () => {
     expect(decide("glob", { pattern: "*" }, "ask").allow).toBe(true);
   });
 
+  test("il piano si scrive anche qui: è la modalità che lo CHIEDE", () => {
+    // `ask` IS the plan mode. An agent asked to plan, and denied the planning
+    // tool, answers with a list in prose that no part of the UI renders.
+    expect(decide("todo_write", { todos: [{ content: "x", status: "pending" }] }, "ask").allow).toBe(true);
+  });
+
+  test("leggere una pagina è leggere: `web_fetch` passa", () => {
+    // It sends no body and writes nothing, and the schemes that would leave the
+    // perimeter are refused in `tools.ts` before the network.
+    expect(decide("web_fetch", { url: "https://esempio.dev" }, "ask").allow).toBe(true);
+  });
+
   test("scrivere ed eseguire no, con un motivo che l'agente può usare", () => {
     const w = decide("write_file", { path: "a.txt" }, "ask");
     expect(w.allow).toBe(false);

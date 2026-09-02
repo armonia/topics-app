@@ -101,6 +101,11 @@ export const PROJECT_WORDS = new Set([
   // `database`, and `svc` is this repository's own abbreviation for a service
   // instance - it appears in a dozen test files that predate this gate.
   "entries", "database", "svc",
+  // The same 1934 hole, from the web platform this time. `href` is the name of
+  // an HTML attribute (renaming it would make the code stop matching the thing
+  // it parses), and `entities` is the plural of `entity` exactly as `entries` is
+  // of `entry`: both reach identifiers through the markup they read.
+  "href", "entities",
   // `affordance` is design vocabulary this repository already speaks - the
   // file `tests/e2e/chat-affordances-audit.spec.ts` predates the gate - and no
   // 1934 word list carries it. There is no English word to rename it to that
