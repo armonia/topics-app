@@ -1,4 +1,5 @@
 import { rowsCarryAsk, type AskHaystackRow } from "../lib/ask-answer-routing";
+import { canonicalProjectPath } from "../lib/canonical-project-path";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
 import { join, resolve, dirname } from "path";
 import { detectProjectPath } from "../lib/detect-project-path";
@@ -610,7 +611,9 @@ export function createTopicsRouter(
     // could emit {{PROJECT_OPEN:~/.ssh}} / {{PROJECT_OPEN:/etc}} and make every
     // connected client open a pane rooted at an arbitrary directory.
     if (raw.startsWith("/") || raw.startsWith("~/")) {
-      const abs = raw.startsWith("~/") ? join(homedir(), raw.slice(2)) : raw;
+      // Il link si scioglie qui, prima del cancello: `isKnownProject` confronta
+      // stringhe, e un progetto gia' noto raggiunto dal suo link non risultava noto.
+      const abs = canonicalProjectPath(raw);
       if (!isExistingDir(abs)) return null;
       return (opts?.trustRawPaths || isKnownProject(abs)) ? abs : null;
     }
@@ -1153,9 +1156,11 @@ export function createTopicsRouter(
         sortOrder: Object.keys(data.topics).length,
         provider: body.provider || null,
       };
-      // Set projectPath if explicitly provided (e.g. creating from within a project)
+      // Set projectPath if explicitly provided (e.g. creating from within a project).
+      // CANONICO: la stessa cartella raggiunta da un link non deve diventare un
+      // secondo progetto (due board, due voci in sidebar). Vedi canonical-project-path.
       if (body.projectPath) {
-        (topic as any).projectPath = body.projectPath;
+        (topic as any).projectPath = canonicalProjectPath(body.projectPath);
       }
       // Optional binding to a Worktree (Phase A · TOPIC-WT-01).
       // Validate the FK before persistence — the DB-level FK would also
@@ -1410,7 +1415,9 @@ export function createTopicsRouter(
         if (body.systemPrompt !== undefined) topic.systemPrompt = body.systemPrompt;
         if (body.contextFiles !== undefined) topic.contextFiles = body.contextFiles;
         if (body.pinnedMessages !== undefined) topic.pinnedMessages = body.pinnedMessages;
-        if (body.projectPath !== undefined) topic.projectPath = body.projectPath || undefined;
+        if (body.projectPath !== undefined) {
+          topic.projectPath = body.projectPath ? canonicalProjectPath(body.projectPath) : undefined;
+        }
         // Provider/model are spawn-time flags for the claude-code CLI (same
         // as effort below): track changes so we can force an idle respawn.
         let spawnConfigChanged = false;
