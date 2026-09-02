@@ -25,6 +25,7 @@ import { resolve, relative, isAbsolute, dirname } from "path";
 import { spawn } from "child_process";
 import { killProcessTree } from "../../lib/process-tree";
 import { readSlashCommandSource } from "../../lib/slash-command-source";
+import { htmlToMarkdown } from "../../lib/html-to-markdown";
 
 export interface ToolSpec {
   name: string;
@@ -65,6 +66,8 @@ const MAX_READ_BYTES = 400_000;
 /** Quanto output di un comando si rimanda al modello. */
 const MAX_OUTPUT_CHARS = 30_000;
 const DEFAULT_BASH_TIMEOUT_MS = 120_000;
+/** How long a URL gets to answer. A page that needs longer is not documentation. */
+const WEB_FETCH_TIMEOUT_MS = 30_000;
 /** Cosa legge l'agente — e l'utente — quando il turno muore sotto un comando. */
 const MOTIVO_ANNULLATO = "[comando interrotto: il turno è stato annullato mentre girava]";
 
@@ -174,9 +177,46 @@ export const CODING_TOOLS: ToolSpec[] = [
     },
   },
   {
+    name: "todo_write",
+    description:
+      "Write or update the task list for the work you are doing right now. Use it for any job with three or more steps, or when the user gives you several things at once: send the whole list every time (it REPLACES the previous one), marking each item pending, in_progress or completed. Keep exactly one item in_progress, and mark it completed as soon as it is done rather than in a batch at the end. The list is shown to the user while you work, so it is also how they see what you understood and where you are.",
+    input_schema: {
+      type: "object",
+      properties: {
+        todos: {
+          type: "array",
+          description: "The complete list, in order. It replaces the previous one.",
+          items: {
+            type: "object",
+            properties: {
+              content: { type: "string", description: "The step, imperative and short: 'Add the endpoint'." },
+              status: { type: "string", enum: ["pending", "in_progress", "completed"], description: "Where this step stands." },
+              activeForm: { type: "string", description: "The same step in the present continuous, shown while it runs: 'Adding the endpoint'." },
+            },
+            required: ["content", "status"],
+          },
+        },
+      },
+      required: ["todos"],
+    },
+  },
+  {
+    name: "web_fetch",
+    description:
+      "Fetch a URL and read it as text: HTML comes back as markdown (headings, lists, links and code kept), JSON pretty-printed, plain text as it is. Use it for documentation, release notes, an API response, a raw file on the web. It does NOT run JavaScript, so a page that builds its content in the browser comes back nearly empty. Only http and https, and it never sends a body: this is reading, not calling.",
+    input_schema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "Absolute http(s) URL." },
+        max_chars: { type: "number", description: "Cap on the text returned. Default 30000." },
+      },
+      required: ["url"],
+    },
+  },
+  {
     name: "skill",
     description:
-      "Load a skill: a procedure already written for a recurring task (deploys, reviews, repo-specific workflows). The available skills are listed in your system prompt with one-line descriptions. Call this BEFORE improvising when the task matches one of them — what comes back are instructions to follow in place of your default approach. If the user types /<name>, that is an explicit request to invoke it.",
+      "Load a skill: a procedure already written for a recurring task (deploys, reviews, repo-specific workflows). The available skills are listed in your system prompt with one-line descriptions. Call this BEFORE improvising when the task matches one of them. What comes back are instructions to follow in place of your default approach. If the user types /<name>, that is an explicit request to invoke it.",
     input_schema: {
       type: "object",
       properties: {
@@ -186,6 +226,20 @@ export const CODING_TOOLS: ToolSpec[] = [
     },
   },
 ];
+
+/**
+ * The tools that do not need a project on disk.
+ *
+ * A conversation with no workspace is offered NO tool, and the reason is sound
+ * for every tool that resolves a path: an agent handed `read_file` with no root
+ * guesses where the project is, and guessing means touching files at random.
+ * These two resolve nothing. The plan lives in the transcript and the fetch goes
+ * to the network, so withholding them buys no safety and costs the obvious
+ * thing: a plain chat asked to read a URL could not, and had to explain why to
+ * someone who can see the browser pane two panes away.
+ */
+const WORKSPACE_FREE = new Set(["todo_write", "web_fetch"]);
+export const WORKSPACE_FREE_TOOLS: ToolSpec[] = CODING_TOOLS.filter((t) => WORKSPACE_FREE.has(t.name));
 
 async function runCommand(
   cmd: string,
@@ -238,6 +292,129 @@ async function runCommand(
     child.on("close", (code) => chiudi({ out, code }));
     child.on("error", (err) => chiudi({ out: String(err), code: null }));
   });
+}
+
+/**
+ * A URL, downloaded and turned into something worth spending tokens on.
+ *
+ * THE BODY IS READ WITH A CAP WHILE IT ARRIVES, exactly like a shell command's
+ * output and for the same reason: a URL is whatever the model typed, and a
+ * mistyped one can be a release tarball or a database dump. Waiting for
+ * `res.text()` on that means the server holds the whole thing in memory before
+ * discovering it had to throw it away.
+ *
+ * THE CONTENT TYPE DECIDES, not the extension: a `.php` that answers JSON is
+ * JSON, and a URL ending in `.md` that answers a login page is HTML. What is
+ * not text at all comes back as a NAMED refusal ("image/png, 240 kB") rather
+ * than as mojibake the model would try to read.
+ */
+async function fetchAsText(u: URL, cap: number, signal?: AbortSignal): Promise<ToolResult> {
+  // Already cancelled: opening the connection would spend seconds of a shutdown
+  // that has none for an answer nobody will read. Same rule as `runCommand`, and
+  // it has to be a CHECK, not a listener: `abort` has already fired.
+  if (signal?.aborted) return { content: MOTIVO_ANNULLATO, isError: true };
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), WEB_FETCH_TIMEOUT_MS);
+  timer.unref?.();
+  // The turn's end reaches in here too: a fetch on a host that never answers
+  // would otherwise hold a shutdown for its full timeout.
+  const forwardAbort = () => ac.abort();
+  signal?.addEventListener("abort", forwardAbort, { once: true });
+  try {
+    const res = await fetch(u.toString(), {
+      redirect: "follow",
+      signal: ac.signal,
+      headers: {
+        // A default-less fetch is refused by a fair number of sites, and the
+        // honest answer to "who is asking" is a name, not a browser costume.
+        "user-agent": "topics-agent/1.0 (+https://armonia.io)",
+        accept: "text/html,application/xhtml+xml,application/json,text/plain;q=0.9,*/*;q=0.8",
+        "accept-language": "en,it;q=0.9",
+      },
+    });
+
+    const type = (res.headers.get("content-type") ?? "").toLowerCase();
+    const body = res.body ? await readCapped(res.body, cap * 4) : "";
+
+    if (!res.ok) {
+      // The status alone sends the model guessing. The first lines of the body
+      // are usually the API's own explanation of what it disliked.
+      const head = plainish(type, body, u).slice(0, 2_000);
+      return { content: `[HTTP ${res.status} ${res.statusText}] ${u.toString()}\n${head}`, isError: true };
+    }
+    if (!isTextual(type)) {
+      const size = res.headers.get("content-length");
+      return {
+        content: `not a text resource: ${type || "unknown content type"}${size ? `, ${size} bytes` : ""}. `
+          + `Download it with bash if you need the file itself.`,
+        isError: true,
+      };
+    }
+
+    const finale = res.url && res.url !== u.toString() ? `\n(redirected to ${res.url})` : "";
+    if (type.includes("json")) {
+      let pretty = body;
+      try { pretty = JSON.stringify(JSON.parse(body), null, 2); } catch { /* not valid JSON: it stays as it came */ }
+      return { content: truncate(`# ${u.toString()}${finale}\n\n${pretty.trim()}`, cap) };
+    }
+    if (type.includes("html") || type.includes("xhtml")) {
+      const page = htmlToMarkdown(body, res.url || u.toString());
+      const head = `# ${page.title ?? u.hostname}\n${u.toString()}${finale}`;
+      const text = page.markdown.trim();
+      return {
+        content: truncate(
+          text
+            ? `${head}\n\n${text}`
+            // An empty extraction is a RESULT, and saying which one saves the
+            // model a second identical fetch: the page paints itself in the
+            // browser, and no regex will ever find text that is not in the HTML.
+            : `${head}\n\n(no readable text in the HTML: the page probably builds its content with JavaScript, `
+              + `which this tool does not run)`,
+          cap,
+        ),
+      };
+    }
+    return { content: truncate(`# ${u.toString()}${finale}\n\n${body.trim()}`, cap) };
+  } catch (err) {
+    if (signal?.aborted) return { content: MOTIVO_ANNULLATO, isError: true };
+    if (ac.signal.aborted) return { content: `${u.toString()} did not answer within ${WEB_FETCH_TIMEOUT_MS}ms`, isError: true };
+    // DNS, TLS, connection refused: the message is the useful part.
+    return { content: `could not fetch ${u.toString()}: ${err instanceof Error ? err.message : String(err)}`, isError: true };
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", forwardAbort);
+  }
+}
+
+/** Is this something a model can read, or a blob to be downloaded? */
+function isTextual(contentType: string): boolean {
+  if (!contentType) return true; // no header at all: try, the worst case is noise
+  return /^text\//.test(contentType)
+    || /(json|xml|javascript|ecmascript|x-yaml|yaml|csv|markdown|x-sh|urlencoded)/.test(contentType);
+}
+
+/** The body when it is only going into an error line: readable, not pretty. */
+function plainish(type: string, body: string, u: URL): string {
+  return type.includes("html") ? htmlToMarkdown(body, u.toString()).markdown : body.trim();
+}
+
+/** Read a stream up to `maxBytes` and stop pulling: the rest is never downloaded. */
+async function readCapped(stream: ReadableStream<Uint8Array>, maxBytes: number): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let out = "";
+  let bytes = 0;
+  try {
+    while (bytes < maxBytes) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      out += decoder.decode(value, { stream: true });
+    }
+  } finally {
+    reader.cancel().catch(() => { /* the other end is already gone */ });
+  }
+  return out + decoder.decode();
 }
 
 /**
@@ -329,6 +506,54 @@ export async function executeTool(
           resolve(ctx.workspace), 30_000,
         );
         return { content: truncate(out.trim() || "nessun file") };
+      }
+
+      // THE PLAN IS THE RESULT: this tool writes nothing and runs nothing.
+      //
+      // Its whole job is to put the list in the transcript, where the client
+      // already renders it (a call named `todo_write` carrying `todos` becomes
+      // the todo card and the sticky strip above the composer, via
+      // `deriveToolDetail`). So the only work here is refusing a shape that
+      // would render as an empty card, and answering with a tally the model can
+      // check itself against.
+      case "todo_write": {
+        const raw = input.todos;
+        if (!Array.isArray(raw) || raw.length === 0) {
+          return { content: "`todos` must be a non-empty array of {content, status}", isError: true };
+        }
+        const items: Array<{ content: string; status: string }> = [];
+        for (const t of raw) {
+          const content = String((t as Record<string, unknown>)?.content ?? "").trim();
+          const status = String((t as Record<string, unknown>)?.status ?? "");
+          if (!content) return { content: "every todo needs a non-empty `content`", isError: true };
+          if (status !== "pending" && status !== "in_progress" && status !== "completed") {
+            return { content: `unknown status "${status}" for "${content}": use pending, in_progress or completed`, isError: true };
+          }
+          items.push({ content, status });
+        }
+        const n = (s: string) => items.filter((t) => t.status === s).length;
+        const running = n("in_progress");
+        // MORE THAN ONE STEP IN PROGRESS IS SAID, NOT REFUSED. It costs the
+        // model a round to fix a list that is already on screen and already
+        // readable, and the point of the rule is focus, not validity.
+        const note = running > 1 ? ` (${running} at once: keep one)` : "";
+        return { content: `plan updated: ${n("completed")} done, ${running} in progress${note}, ${n("pending")} pending, ${items.length} total` };
+      }
+
+      // READING THE WEB IS NOT RUNNING IT, and the scheme check is where that
+      // sentence is enforced. `file://` here would be a way to read anything on
+      // the disk through a tool that stays open in «ask» mode, walking straight
+      // around the workspace perimeter every other file tool respects; the same
+      // goes for `data:` and the rest. Two lines, one real hole closed.
+      case "web_fetch": {
+        let u: URL;
+        try { u = new URL(String(input.url ?? "")); }
+        catch { return { content: `not a valid URL: ${input.url}`, isError: true }; }
+        if (u.protocol !== "http:" && u.protocol !== "https:") {
+          return { content: `only http and https: ${u.protocol} is not fetched (to read a local file use read_file)`, isError: true };
+        }
+        const cap = Math.min(Math.max(Number(input.max_chars) || MAX_OUTPUT_CHARS, 1_000), 200_000);
+        return await fetchAsText(u, cap, ctx.signal);
       }
 
       // Il corpo di una skill NON passa da `read_file`: quella è murata dentro

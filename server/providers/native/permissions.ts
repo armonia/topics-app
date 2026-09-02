@@ -39,8 +39,22 @@ export type ToolDecision =
 /** Il livello di chi non ha scelto. Vedi l'intestazione: non è `yolo`. */
 export const DEFAULT_AUTONOMY: AutonomyLevel = "auto-apply";
 
-/** I tool che non modificano niente: leggere è sempre concesso. */
-const READ_ONLY = new Set(["read_file", "grep", "glob"]);
+/**
+ * I tool che non modificano niente: leggere è sempre concesso.
+ *
+ * `todo_write` AND `web_fetch` BELONG HERE, and it is not a convenient
+ * exception. `ask` is the plan mode: propose without touching. Writing the plan
+ * IS what that mode asks for, and the list touches nothing: it exists in the
+ * transcript, not on disk. Refusing it would mean the agent asked to plan
+ * cannot use the planning tool.
+ *
+ * `web_fetch` performs a GET over http(s) and returns its text. It sends no
+ * body, writes nothing, and the schemes that would leave the perimeter
+ * (`file:`, `data:`) are refused in `tools.ts` BEFORE the network. Reading a
+ * documentation page is exactly what proposing a plan takes, instead of
+ * guessing one.
+ */
+const READ_ONLY = new Set(["read_file", "grep", "glob", "todo_write", "web_fetch"]);
 
 // A TOOL MOUNTED FROM AN MCP SERVER IS NEVER READ-ONLY, and that is why
 // READ_ONLY is an allowlist of names WE wrote rather than a heuristic. An

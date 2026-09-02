@@ -25,7 +25,7 @@
 
 import { runAgentTurn, toProviderUsage, type AgentMessage } from "./agent-loop";
 import { recordTurnUsage } from "../native-usage-registry";
-import { CODING_TOOLS } from "./tools";
+import { CODING_TOOLS, WORKSPACE_FREE_TOOLS } from "./tools";
 import { pruneDanglingToolUses } from "./history-repair";
 import { rehydrateHistory } from "./history-rehydrate";
 import { levelFor } from "./permissions";
@@ -122,7 +122,8 @@ export function sessionIsEvictable(
  */
 const NO_WORKSPACE_NOTE =
   "Questa conversazione non ha un progetto collegato, quindi non hai strumenti per leggere o " +
-  "modificare file. Rispondi a voce; se serve lavorare su un progetto, di' all'utente di " +
+  "modificare file. Puoi comunque leggere una pagina web e tenere la lista di cose da fare. " +
+  "Per il resto rispondi a voce; se serve lavorare su un progetto, di' all'utente di " +
   "collegarne uno alla conversazione.";
 
 /**
@@ -462,7 +463,9 @@ export class NativeProvider implements AIProvider {
       // round. `fleetAllowed` and `workspace` stay captured, read once per turn
       // as before: the per-session policy is not the thing that changes.
       const tools = () => [
-        ...(workspace ? CODING_TOOLS : []),
+        // No workspace does not mean no tools: the two that resolve no path
+        // (the turn's plan, and reading a URL) stay. See `WORKSPACE_FREE_TOOLS`.
+        ...(workspace ? CODING_TOOLS : WORKSPACE_FREE_TOOLS),
         ...(topics ? topicsToolSpecs(topics.profile) : []),
         ...(fleetAllowed ? mcpToolSpecs() : []),
       ];
