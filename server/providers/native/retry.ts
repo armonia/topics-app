@@ -21,7 +21,18 @@
  */
 
 export interface RetryPolicy {
-  /** Attempts in total, the first one included. Ten is what the CLI does. */
+  /**
+   * Attempts in total, the first one included.
+   *
+   * Ten is what the CLI does, and ten was not enough: on 2026-09-03 at 16:30
+   * Anthropic had an open incident ("Elevated errors", Opus 5 and Fable 5.1)
+   * and two resumed turns spent 10 attempts over 122s and 128s, every one of
+   * them `overloaded_error`, then died the way they had died before the retry
+   * existed. A wait costs nothing (no tokens, one idle socket), the person can
+   * press Stop at any moment, and the indicator counts the attempts out loud.
+   * So the window is ~10 minutes: long enough to outlive the short incidents,
+   * short enough that a real outage is still reported within the turn.
+   */
   maxAttempts: number;
   /** Wait after the first failure; doubles on each following one. */
   baseMs: number;
@@ -35,7 +46,8 @@ export interface RetryPolicy {
 }
 
 export const DEFAULT_RETRY_POLICY: RetryPolicy = {
-  maxAttempts: 10,
+  // 0.5+1+2+4+8+16 s, then 30 s × 22 ≈ 11.5 min at most; ~10 min with jitter.
+  maxAttempts: 28,
   baseMs: 500,
   capMs: 30_000,
   jitter: () => 0.75 + Math.random() * 0.25,

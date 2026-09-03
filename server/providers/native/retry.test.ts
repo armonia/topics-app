@@ -78,6 +78,17 @@ describe("which failures get another attempt", () => {
   });
 });
 
+describe("the default window", () => {
+  test("outlives a ten-minute incident, and is over well within fifteen", () => {
+    const { DEFAULT_RETRY_POLICY } = require("./retry") as typeof import("./retry");
+    const worst = { ...DEFAULT_RETRY_POLICY, jitter: () => 1 };
+    let total = 0;
+    for (let a = 1; a < worst.maxAttempts; a++) total += backoffMs(a, worst);
+    expect(total).toBeGreaterThan(9 * 60_000);
+    expect(total).toBeLessThan(15 * 60_000);
+  });
+});
+
 describe("how long to wait", () => {
   test("doubles from the base and stops at the cap", () => {
     expect(backoffMs(1, flat)).toBe(100);

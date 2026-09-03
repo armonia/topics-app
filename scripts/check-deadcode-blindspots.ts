@@ -45,7 +45,7 @@
  * loop di sviluppo.
  */
 import { execFileSync } from "child_process";
-import { readFileSync, writeFileSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, unlinkSync } from "fs";
 import { join } from "path";
 
 const ROOT = join(import.meta.dir, "..");
@@ -297,6 +297,24 @@ function leftoverProbes(candidates: Candidate[]): Candidate[] {
   return candidates.filter((c) => readFileSync(c.abs, "utf8").includes(PROBE_MARKER));
 }
 
+/**
+ * IL FILE DI HOLD. Questo cancello riscrive centinaia di sorgenti due volte
+ * (sonda, poi ripristino identico). Su una macchina con il hot-reload del
+ * server acceso (`TOPICS_SERVER_WATCH=1`, vedi scripts/server-watch.sh) ogni
+ * scrittura e' un evento, e il 2026-09-03 quegli eventi hanno riavviato il
+ * server di produzione ogni 30 secondi per dieci minuti. Il watcher confronta
+ * il contenuto, ma nella finestra in cui le sonde CI SONO il contenuto e'
+ * davvero diverso: l'unico modo di dirgli «non e' una modifica» e' dirglielo.
+ * Alzato prima della prima scrittura, tolto dopo l'ultima, anche in `--restore`.
+ */
+const RELOAD_HOLD = join(ROOT, ".topics-reload-hold");
+function raiseHold(): void {
+  try { writeFileSync(RELOAD_HOLD, `check-deadcode-blindspots pid ${process.pid} ${new Date().toISOString()}\n`); } catch { /* senza hold si va avanti: il watcher ha comunque il confronto del contenuto */ }
+}
+function dropHold(): void {
+  try { unlinkSync(RELOAD_HOLD); } catch { /* gia' tolto */ }
+}
+
 function restore(files: Map<string, string>): void {
   for (const [abs, original] of files) {
     try {
@@ -320,7 +338,9 @@ async function main(): Promise<number> {
 
   if (restoreOnly) {
     const dirty = leftoverProbes(candidates);
+    raiseHold();
     for (const c of dirty) writeFileSync(c.abs, withoutProbe(readFileSync(c.abs, "utf8")));
+    dropHold();
     console.log(dirty.length ? `Sonde rimosse da ${dirty.length} file.` : "Nessuna sonda da rimuovere.");
     return 0;
   }
@@ -336,11 +356,12 @@ async function main(): Promise<number> {
   }
 
   const originals = new Map<string, string>();
-  const onSignal = () => { restore(originals); process.exit(130); };
+  const onSignal = () => { restore(originals); dropHold(); process.exit(130); };
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
 
   let seen: Set<string>;
+  raiseHold();
   try {
     for (const c of candidates) {
       const original = readFileSync(c.abs, "utf8");
@@ -365,6 +386,7 @@ async function main(): Promise<number> {
     seen = filesWhereProbeWasSeen(stdout);
   } finally {
     restore(originals);
+    dropHold();
     process.off("SIGINT", onSignal);
     process.off("SIGTERM", onSignal);
   }

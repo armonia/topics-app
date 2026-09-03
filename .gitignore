@@ -356,3 +356,6 @@ openspec/coverage-map.json
 # condiviso, e `check:security` l'ha preso: portava il nome utente, e questo
 # repo e' PUBBLICO. Restano sul disco, fuori dal repo, che e' dove servono.
 CONSEGNA-*.md
+
+# Alzato da check:deadcode-blindspots mentre riscrive i sorgenti; letto da scripts/server-watch.sh
+.topics-reload-hold
