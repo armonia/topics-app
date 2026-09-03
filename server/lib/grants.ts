@@ -73,6 +73,13 @@ export function isResourceType(v: unknown): v is ResourceType {
  * la 082 — col filtro messo nel router dei task, un ospite leggeva `/api/topics`
  * per intero. Il router giusto non era uno: era il gate.
  */
+/**
+ * The only `/api/topics/:id/...` route a guest may reach: the conversation
+ * itself. Exact, not a prefix, so a new introspection route under a topic is
+ * closed to guests until somebody decides otherwise here.
+ */
+const GUEST_TOPIC_SUBROUTES = /^\/api\/topics\/[^/]+\/messages$/;
+
 export function isGuestAllowedPath(pathname: string): boolean {
   return (
     pathname === '/api/all-boards/tasks' ||
@@ -84,7 +91,16 @@ export function isGuestAllowedPath(pathname: string): boolean {
     // rispondeva 200 con tutte le chat. Un ospite scopre cosa ha da
     // `/api/auth/shared`, che per costruzione può restituire solo ciò che gli è
     // stato concesso.
-    pathname.startsWith('/api/topics/') ||
+    //
+    // And ONLY the messages, not the whole `/api/topics/:id/*` subtree. A
+    // prefix match let a guest holding one chat GET `/context-preview`
+    // (CLAUDE.md, README, AGENTS.md of the project), `/environment` (tool and
+    // MCP configuration, permission policy), `/checkpoints`,
+    // `/turn-checkpoints`, `/context-snapshots` and `/project-id`: material
+    // that is not the conversation, and that the owner never chose to share.
+    // The id check in the gate cannot help: those routes carry the granted
+    // id. So the allowlist names the one sub-route the shared chat needs.
+    GUEST_TOPIC_SUBROUTES.test(pathname) ||
     pathname.startsWith('/api/messages/') ||
     pathname === '/api/auth/shared' ||
     pathname === '/api/auth/session' ||
@@ -161,6 +177,34 @@ const GUEST_SAFE_FRAMES = new Set<string>([
 
 export function isGuestSafeFrameType(type: string): boolean {
   return GUEST_SAFE_FRAMES.has(type);
+}
+
+/**
+ * The frame types a guest may SEND on `/ws`.
+ *
+ * The outbound filter above made the socket read-only in one direction only.
+ * Inbound, every frame of `chatWsInboundSchema` was dispatched for a guest
+ * exactly as for the owner: `typing` fanned out to every socket focused on the
+ * named topic (any topic, shared or not, since the id comes from the frame),
+ * `drag:*` went to every window and `drag:drop` could close a topic panel in
+ * an owner window whose id it named, `presence:announce` put the guest's
+ * windows and tabs into the owner's roster. None of it needed a grant.
+ *
+ * What stays open is what a socket needs to exist and to receive what the
+ * outbound filter already lets through: `ping` (keepalive), `hello` (the
+ * handshake, re-sent on every open; its presence fields are ignored for a
+ * guest in `server.ts`), `focus` and `subscribe` (routing hints that only
+ * decide which of the ALREADY FILTERED frames reach this socket: the fan-out
+ * helpers check `mayReadTopic` before delivering, so naming an unshared topic
+ * here buys nothing).
+ *
+ * Allowlist, like the others: a frame type added to the schema stays closed
+ * to guests until it is named here.
+ */
+const GUEST_INBOUND_FRAMES = new Set<string>(['ping', 'hello', 'focus', 'subscribe']);
+
+export function isGuestInboundFrameAllowed(type: string): boolean {
+  return GUEST_INBOUND_FRAMES.has(type);
 }
 
 /**

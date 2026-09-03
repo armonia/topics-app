@@ -212,6 +212,37 @@ test.describe("Confinamento dell'ospite", () => {
       await ospiteWs.ctx.close();
     }
   });
+
+  test("GUEST-01: a shared chat does not open the project's introspection routes", async ({ request }) => {
+    test.info().annotations.push({ type: "spec", description: "GUEST-01" });
+    // The allowlist matched `/api/topics/` as a PREFIX, so the grant on one
+    // chat also answered `/context-preview` (the project's CLAUDE.md, README,
+    // AGENTS.md), `/environment` (tool and MCP configuration, permission
+    // policy) and the checkpoint routes. All GETs, all carrying the granted
+    // id: the method axis and the entity axis both said yes. Only the path
+    // can say no, and it says no only if it is exact.
+    const stamp = Date.now();
+    const condivisa = await createTopic(request, `E2E-Guest-Introspezione-${stamp}`);
+    const { cookie, deviceId } = await ospite(request, `guest-01b-${stamp}`);
+    await request.post(`${E2E_BASE}/api/auth/shares`, {
+      data: { subjectType: "device", subjectId: deviceId, resourceType: "topic", resourceId: condivisa.id },
+    });
+
+    // Positive control first: the messages of the granted chat are readable,
+    // so a 403 below is the path rule and not a broken grant.
+    const messaggi = await request.get(`${E2E_TUNNEL_BASE}/api/topics/${condivisa.id}/messages`, {
+      headers: daOspite(cookie),
+    });
+    expect(messaggi.status()).toBe(200);
+
+    for (const sub of ["context-preview", "environment", "checkpoints", "turn-checkpoints", "context-snapshots", "project-id"]) {
+      const r = await request.get(`${E2E_TUNNEL_BASE}/api/topics/${condivisa.id}/${sub}`, {
+        headers: daOspite(cookie),
+      });
+      expect(r.status(), `/${sub} of a granted chat is not part of the chat`).toBe(403);
+      expect(((await r.json()) as { code?: string }).code).toBe("guest_forbidden");
+    }
+  });
 });
 
 test.describe("Confinamento dell'ospite · scalata di privilegio", () => {

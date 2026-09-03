@@ -1,6 +1,7 @@
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { scanWorkspaceProjects } from "./project-path-resolver";
+import { isBroadCwd } from "../lib/broad-cwd";
 
 /**
  * knownProjectDirs — l'UNIONE delle directory di progetto che il server già
@@ -59,9 +60,26 @@ function defaultWorkspaceDir(): string {
 /** Le dir note al server, realpath'd. Set vuoto = nessun accesso concesso. */
 export function knownProjectDirs(ctx: KnownProjectDirsCtx): Set<string> {
   const out = new Set<string>();
+  // HOME, realpath'd like every entry, so the comparison in `add` is
+  // symlink-proof on both sides.
+  const home = (() => {
+    const h = process.env.HOME || "";
+    try { return h ? realpathSync(h) : ""; } catch { return h; }
+  })();
   const add = (pth: unknown) => {
     if (typeof pth !== "string" || !pth) return;
-    try { out.add(realpathSync(pth)); } catch { /* sparita o illeggibile */ }
+    let real: string;
+    try { real = realpathSync(pth); } catch { return; /* gone or unreadable */ }
+    // A root at HOME (or above it) is not a project boundary, it is the
+    // absence of one: with it in the set, `isInsideKnownProject` says yes to
+    // every file under home. Source 4 fed it for free, because a terminal
+    // opened without `cwd` is stored with the HOME default, and the file
+    // routes then served `~/.zshrc` and `~/.ssh/known_hosts` (measured
+    // 2026-09-03). The other sources can carry it too (a project pane opened
+    // on `~`), so the rule sits on the single entry point rather than on one
+    // source.
+    if (isBroadCwd(real, home)) return;
+    out.add(real);
   };
 
   // 1. Progetti registrati (pochi, in questo setup).

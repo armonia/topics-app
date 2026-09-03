@@ -8,9 +8,10 @@
 import { describe, expect, it } from "bun:test";
 import {
   isGuestAllowedPath, isGuestSafeFrameType, frameResource, isResourceType, RESOURCE_TYPES,
-  isGuestSocketData, isGuestAllowedMethod, isGuestHandshakeFrame,
+  isGuestSocketData, isGuestAllowedMethod, isGuestHandshakeFrame, isGuestInboundFrameAllowed,
 } from "./grants";
 import { REGISTERED_OUTBOUND_TYPES } from "../../shared/ws-outbound";
+import { chatWsInboundSchema } from "../schemas/chat-ws-inbound";
 
 describe("grants · tipi di risorsa", () => {
   it("solo cio' che ha una riga vera a cui appendere un permesso", () => {
@@ -44,7 +45,7 @@ describe("grants · la superficie HTTP di un ospite", () => {
       "/api/all-boards/tasks",
       "/api/tasks/abc",
       "/api/tasks/abc/comments",
-      "/api/topics/abc",
+      "/api/topics/abc/messages",
       "/api/auth/shared",
       "/api/messages/abc",
       "/api/auth/session",
@@ -79,6 +80,61 @@ describe("grants · la superficie HTTP di un ospite", () => {
     ]) {
       expect(isGuestAllowedPath(p)).toBe(false);
     }
+  });
+
+  it("a shared chat opens its messages, NOT the project's introspection routes", () => {
+    // A prefix match on `/api/topics/` let a guest holding one chat GET the
+    // project's CLAUDE.md/README/AGENTS.md (`context-preview`), the agent's
+    // tool and MCP configuration (`environment`) and the checkpoint history:
+    // all GETs, all carrying the granted id, so neither the method axis nor
+    // the entity axis could refuse them. Only the path can, and only if it is
+    // exact.
+    for (const p of [
+      "/api/topics/abc",
+      "/api/topics/abc/context-preview",
+      "/api/topics/abc/context-snapshots",
+      "/api/topics/abc/environment",
+      "/api/topics/abc/checkpoints",
+      "/api/topics/abc/turn-checkpoints",
+      "/api/topics/abc/project-id",
+      "/api/topics/abc/goal",
+      "/api/topics/abc/messages/extra",
+      "/api/topics/messages",
+    ]) {
+      expect(`${p}:${isGuestAllowedPath(p)}`).toBe(`${p}:false`);
+    }
+    expect(isGuestAllowedPath("/api/topics/abc/messages")).toBe(true);
+    expect(isGuestAllowedPath("/api/topics/topic%3Aabc/messages")).toBe(true);
+  });
+});
+
+describe("grants · i frame che un ospite può MANDARE", () => {
+  // The inbound mirror of the outbound allowlist. Every type of the inbound
+  // schema is listed on one side or the other, so a new frame type has to be
+  // placed deliberately, and lands on the closed side by default.
+  const inboundTypes = chatWsInboundSchema.options.map((o) => o.shape.type.value as string);
+  const allowed = ["ping", "hello", "focus", "subscribe"];
+
+  it("keepalive, handshake and routing hints pass", () => {
+    for (const t of allowed) {
+      expect(inboundTypes).toContain(t);
+      expect(isGuestInboundFrameAllowed(t)).toBe(true);
+    }
+  });
+
+  it("typing, drag and presence do NOT: they reach the owner's windows without a grant", () => {
+    // `typing` fans out to every socket focused on the topic named in the
+    // frame, shared or not; `drag:drop` can close a panel in an owner window
+    // whose id it names; `presence:announce` fills the owner's roster.
+    const refused = inboundTypes.filter((t) => !allowed.includes(t));
+    expect(refused.sort()).toEqual(["drag:drop", "drag:end", "drag:start", "presence:announce", "typing"]);
+    for (const t of refused) {
+      expect(`${t}:${isGuestInboundFrameAllowed(t)}`).toBe(`${t}:false`);
+    }
+  });
+
+  it("an unknown type does not pass", () => {
+    expect(isGuestInboundFrameAllowed("qualcosa:di:nuovo")).toBe(false);
   });
 });
 
