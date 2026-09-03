@@ -23,6 +23,7 @@ mock.module("./push-service", () => ({
 }));
 
 const { maybeSendPush, configurePushTriggers, isTopicSilenced } = await import("./push-triggers");
+import type { NotificationRecordInput } from "../shared/notification-log";
 
 /**
  * Finto "DB": la tabella dei topic e le AppSettings del server. I resolver
@@ -333,6 +334,100 @@ describe("maybeSendPush — fine risposta della chat", () => {
   test("un topic in un progetto NON mutato manda la push", () => {
     maybeSendPush({ type: "stream:end", sessionKey: "topic:tp1", topicId: "tp1", messageId: "m1", completed: true });
     expect(pushCalls).toHaveLength(1);
+  });
+});
+
+/**
+ * THE DEAD TURN. Gating the end-of-reply push on `completed` was right (a dead
+ * turn must not announce a ready reply), but it replaced a lie with
+ * silence: three chats died on 2026-09-03 (overloaded_error after 27 retries)
+ * and nothing told anyone. The one signal that needs a gesture (Retry) is
+ * the one that was missing. These tests pin the failure push: exactly one per
+ * dead turn, its own tag and registry kind, the same mute rules as the reply
+ * push, and quiet for board agents and for a clean end.
+ */
+describe("maybeSendPush — turno morto (chat-error)", () => {
+  const sent: NotificationRecordInput[] = [];
+  beforeEach(() => {
+    pushCalls.length = 0;
+    sent.length = 0;
+    configurePushTriggers({
+      getTopicName: (id: string) => TOPICS[id]?.name ?? null,
+      isTopicSilenced: (id: string) => isTopicSilenced(TOPICS[id] ?? null, MUTED_PROJECTS),
+      recordNotification: (input) => { sent.push(input); },
+    });
+  });
+
+  const DEAD = {
+    type: "stream:end",
+    sessionKey: "topic:tp1",
+    topicId: "tp1",
+    messageId: "m1",
+    reason: "error",
+    error: "⚠️ overloaded_error: il provider ha risposto errore per 27 tentativi di fila. «Riprova» rimanda il tuo messaggio.",
+  };
+
+  test("un turno morto manda ESATTAMENTE una push di errore, col nome del topic", () => {
+    maybeSendPush(DEAD);
+    expect(pushCalls).toHaveLength(1);
+    expect(pushCalls[0].title).toBe("⚠️ Rifai la migration");
+    expect(pushCalls[0].tag).toBe("chat-error-tp1");
+    expect(pushCalls[0].url).toBe("/topic/tp1");
+  });
+
+  test("il corpo e' il testo dell'errore, senza l'icona doppia e tagliato a 120", () => {
+    maybeSendPush({ ...DEAD, error: "⚠️ " + "x".repeat(300) });
+    expect(pushCalls[0].body).toBe("x".repeat(120));
+  });
+
+  test("finisce nel registro come `chat-error`, con la sua chiave, non quella della risposta", () => {
+    maybeSendPush(DEAD);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].kind).toBe("chat-error");
+    expect(sent[0].dedupeKey).toBe("chat-error:tp1");
+    expect(sent[0].targetKind).toBe("topic");
+    expect(sent[0].targetId).toBe("tp1");
+    expect(sent[0].source).toBe("push");
+  });
+
+  test("anche il watchdog e' una morte: stopCause watchdog + testo → push di errore", () => {
+    maybeSendPush({ ...DEAD, stopReason: "cancelled", stopCause: "watchdog" });
+    expect(pushCalls).toHaveLength(1);
+    expect(pushCalls[0].tag).toBe("chat-error-tp1");
+  });
+
+  test("un turno FINITO manda ancora la push di risposta, e nessun errore", () => {
+    maybeSendPush({ type: "stream:end", sessionKey: "topic:tp1", topicId: "tp1", messageId: "m1", completed: true });
+    expect(pushCalls).toHaveLength(1);
+    expect(pushCalls[0].tag).toBe("chat-end-tp1");
+    expect(sent.map((s) => s.kind)).toEqual(["chat-message"]);
+  });
+
+  test("MUTA sulla morte di un turno d'AGENTE della board (ha il suo canale)", () => {
+    maybeSendPush({ ...DEAD, dispatched: true });
+    expect(pushCalls).toHaveLength(0);
+  });
+
+  test("MUTA quando il server si sta spegnendo: quel turno riparte da solo al boot", () => {
+    maybeSendPush({ ...DEAD, stopReason: "cancelled", stopCause: "server-shutdown" });
+    expect(pushCalls).toHaveLength(0);
+  });
+
+  test("MUTA su topic archiviato, mutato o in progetto mutato: le stesse regole della risposta", () => {
+    maybeSendPush({ ...DEAD, sessionKey: "topic:arch", topicId: "arch" });
+    maybeSendPush({ ...DEAD, sessionKey: "topic:quiet", topicId: "quiet" });
+    expect(pushCalls).toHaveLength(0);
+  });
+
+  test("senza topicId non sa DOVE mandarti: muta", () => {
+    maybeSendPush({ ...DEAD, topicId: undefined });
+    expect(pushCalls).toHaveLength(0);
+  });
+
+  test("uno stream:end sporco SENZA testo d'errore (annullo, stale) resta muto", () => {
+    maybeSendPush({ type: "stream:end", sessionKey: "topic:tp1", topicId: "tp1", reason: "user_abort" });
+    maybeSendPush({ type: "stream:end", sessionKey: "topic:tp1", topicId: "tp1", reason: "stale_timeout", stopReason: "cancelled", stopCause: "watchdog" });
+    expect(pushCalls).toHaveLength(0);
   });
 });
 

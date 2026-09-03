@@ -1343,7 +1343,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             topicProvider.abort?.(sessionKey, undefined, "watchdog")?.catch((err: any) => console.warn(`[StreamWS] Provider abort on grace-expiry failed:`, err));
             if (matchedTopic) {
               broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: timeoutMsg });
-              broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id, stopReason: "cancelled", stopCause: "watchdog" });
+              // `reason: "error"` + the notice: this end bypasses finalizeStream,
+              // so the failure push (push-triggers) must be told here.
+              broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id, stopReason: "cancelled", stopCause: "watchdog", reason: "error", error: timeoutMsg, ...(dispatched ? { dispatched: true } : {}) });
               finalizeTurnActivity(matchedTopic);
             }
             // No separate "grace expired" log line — the soft-timeout entry
@@ -1388,7 +1390,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             topicProvider.abort?.(sessionKey, undefined, "watchdog")?.catch((err: any) => console.warn(`[StreamWS] Provider abort on hard-timeout failed:`, err));
             if (matchedTopic) {
               broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: msg });
-              broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id, stopReason: "cancelled", stopCause: "watchdog" });
+              // Same as the grace path: told here because finalizeStream never runs.
+              broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id, stopReason: "cancelled", stopCause: "watchdog", reason: "error", error: msg, ...(dispatched ? { dispatched: true } : {}) });
               finalizeTurnActivity(matchedTopic);
             }
             logStreamHardTimeout({
@@ -1607,6 +1610,13 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               });
             }
             streamState = "finalized";
+            // THE NOTICE THIS TURN LEAVES IN THE CHAT, if it died. Set wherever
+            // an error block is written below (provider error, empty reply, a
+            // cancel that was not the user's) and put on the `stream:end` wire
+            // as `reason: "error"` + `error`, which is what the failure push
+            // (push-triggers, `chat-error`) reads. Without it the push had no
+            // way to tell a dead turn from a stopped one and stayed quiet.
+            let turnError: string | undefined;
 
             // La ragione della fine, decisa UNA volta. Se il provider non l'ha
             // detta si ricava da com'è finito lo stream: `error` porta con sé il
@@ -1629,6 +1639,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // dopo la rifusione dello snapshot, più in basso. Deciderlo adesso
               // vorrebbe dire scrivere il cartello su un turno che c'è.
               blocks.push({ kind: "error", text: errorMsg });
+              turnError = errorMsg;
               if (matchedTopic) {
                 broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: errorMsg });
               }
@@ -1815,6 +1826,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               const emptyErrorMsg = "⚠️ Nessuna risposta: il turno si è chiuso senza produrre niente. Il tuo messaggio è ancora qui: «Riprova» lo rimanda.";
               fullContent = emptyErrorMsg;
               blocks.push({ kind: "error", text: "Nessuna risposta: il turno si è chiuso senza produrre niente." });
+              turnError = emptyErrorMsg;
               console.warn(`[StreamWS] Empty response for ${sessionKey}`);
               if (matchedTopic) {
                 broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: emptyErrorMsg });
@@ -1866,6 +1878,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               const avviso = avvisoPerTurno(endInfo, { haProdotto, riprendeDaSolo });
               if (avviso) {
                 blocks.push({ kind: "error", text: avviso.replace(/^⚠️\s*/, "") });
+                turnError = avviso;
                 if (!fullContent.trim()) fullContent = avviso;
                 if (matchedTopic) {
                   broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: avviso });
@@ -1989,6 +2002,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // `dispatched` esclude i turni d'agente guidati dalla board.
                 completed: endInfo.end === "end_turn" && !discardedMessageId,
                 ...(dispatched ? { dispatched: true } : {}),
+                // The death and its notice, for the failure push. See `turnError`.
+                ...(turnError ? { reason: "error", error: turnError } : {}),
               });
               finalizeTurnActivity(matchedTopic);
             }
@@ -3147,8 +3162,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               if (notice) db.prepare("UPDATE messages SET content = ?, partial = 0 WHERE id = ?").run(notice, crashedPartialId);
               else db.prepare("UPDATE messages SET partial = 0 WHERE id = ?").run(crashedPartialId);
               if (matchedTopic) {
-                broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: notice ?? `Errore interno di Topics: ${shortErrorDetail(err)}` });
-                broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: crashedPartialId });
+                const crashText = notice ?? `Errore interno di Topics: ${shortErrorDetail(err)}`;
+                broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: crashText });
+                broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: crashedPartialId, reason: "error", error: crashText, ...(dispatched ? { dispatched: true } : {}) });
               }
             }
           } catch (cleanupErr) {
@@ -3193,7 +3209,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             if (matchedTopic) {
               broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: errorMsg });
               broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: errorPartial.id, content: errorMsg, preview: errorMsg.slice(0, 100) });
-              broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: errorPartial.id });
+              broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: errorPartial.id, reason: "error", error: errorMsg, ...(dispatched ? { dispatched: true } : {}) });
               finalizeTurnActivity(matchedTopic);
             }
             return new Response(

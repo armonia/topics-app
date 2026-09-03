@@ -16,6 +16,7 @@ export type NotificationKind =
   | 'task-review'
   | 'task-parked'
   | 'chat-message'
+  | 'chat-error'
   | 'session'
   | 'terminal'
   | 'approval'
@@ -25,6 +26,7 @@ export const NOTIFICATION_KINDS: readonly NotificationKind[] = [
   'task-review',
   'task-parked',
   'chat-message',
+  'chat-error',
   'session',
   'terminal',
   'approval',
@@ -121,6 +123,13 @@ export function notificationTargetUrl(
  *  quindi condividono la chiave e lasciano una riga sola. */
 export function chatNotificationKey(topicId: string): string {
   return `chat:${topicId}`;
+}
+
+/** A DEAD turn (provider error, retries exhausted, watchdog) is NOT the same
+ *  event as a finished reply: it is the one that asks for a gesture (Retry).
+ *  Its own key, so it never collapses into the «Claude ha risposto» row. */
+export function chatErrorNotificationKey(topicId: string): string {
+  return `chat-error:${topicId}`;
 }
 
 export function taskReviewNotificationKey(taskId: string): string {
