@@ -847,6 +847,50 @@ export function useProjectLoading(projectPath: string | undefined): boolean {
 }
 
 /**
+ * SINCE WHEN has this project had something running: the epoch-ms of the
+ * OLDEST turn still going among its children, or undefined when nothing is
+ * working.
+ *
+ * The project surfaces (tab, sidebar row) already roll up "is anything running"
+ * (useProjectLoading); this is the same roll-up with a clock on it, so a closed
+ * folder can say "12m" instead of only "yes". The oldest and not the newest: the
+ * question a folder answers is "how long has this been going on", and a turn
+ * started two seconds ago inside it does not make that answer smaller.
+ *
+ * Same child-walk as useProjectLoading (chat topics of the project, non-shell
+ * terminals whose cwd lives under it), so the number cannot appear on a folder
+ * whose glyph is off, nor go missing on one whose glyph is on.
+ */
+export function useProjectWorkStart(projectPath: string | undefined): number | undefined {
+  const topics = useTopics();
+  const terminalSessions = useTerminalSessions();
+  const activity = useSignalsStore((s) => s.sessionActivity);
+  return useMemo(() => {
+    if (!projectPath) return undefined;
+    let oldest: number | undefined;
+    const consider = (subjectId: string) => {
+      const a = activity.get(subjectId);
+      if (!a?.working) return;
+      // `turnSince` is the start of the turn; `since` (start of the current
+      // tool) is the fallback the server leaves after a mid-turn restart, and
+      // it is the same fallback deriveSubjectTime uses.
+      const at = a.turnSince && a.turnSince > 0 ? a.turnSince : a.since;
+      if (typeof at !== 'number' || !Number.isFinite(at) || at <= 0) return;
+      if (oldest === undefined || at < oldest) oldest = at;
+    };
+    for (const t of Object.values(topics)) {
+      if (t.projectPath === projectPath) consider(t.id);
+    }
+    for (const ts of terminalSessions) {
+      if (ts.type === 'shell') continue;
+      if (!ts.cwd || !terminalBelongsToProject(ts.cwd, projectPath)) continue;
+      consider(ts.id);
+    }
+    return oldest;
+  }, [projectPath, topics, terminalSessions, activity]);
+}
+
+/**
  * Il progetto sta aspettando TE?
  *
  * Serve al glifo del progetto, che finora ondeggiava in blu — «sto lavorando» —

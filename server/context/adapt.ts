@@ -24,13 +24,13 @@ import { hashSlot } from "./inline-sent-state";
 // ────────────────────────────────────────────────────────────────────────────
 
 /**
- * L'unità di deduplicazione è lo SLOT COMPOSTO, non il `SystemBlock`.
+ * The unit of deduplication is the COMPOSED SLOT, not the `SystemBlock`.
  *
- * `composeSystemSlots` aggrega: tutti i `file:*` finiscono in un solo messaggio,
- * project-awareness + tutti i `template:*` in un altro. Deduplicare per blocco
- * vorrebbe dire riemettere `Context files for this topic:` con dentro il solo
- * file cambiato — una frase FALSA rispetto a quello che la sessione ha già.
- * Lo slot invece riparte intero, e resta coerente per costruzione.
+ * `composeSystemSlots` aggregates: every `file:*` ends up in a single message,
+ * project-awareness + every `template:*` in another. Deduplicating per block
+ * would mean re-emitting `Context files for this topic:` carrying only the file
+ * that changed — a sentence that is FALSE against what the session already has.
+ * The slot instead leaves whole, and stays coherent by construction.
  */
 export type SystemSlotId =
   | "prompt"
@@ -51,7 +51,7 @@ export interface SystemSlot {
   content: string;
 }
 
-/** Nomi per la riga di ritiro, che la legge un modello e non un parser. */
+/** Names for the retirement line, read by a model and not by a parser. */
 const SLOT_LABELS: Record<SystemSlotId, string> = {
   prompt: "system prompt",
   "user-rules": "user rules",
@@ -68,25 +68,25 @@ const SLOT_LABELS: Record<SystemSlotId, string> = {
 };
 
 /**
- * Slot che NON si deduplicano mai: sono uno STATO corrente, non un documento.
- * Plan mode costa poche centinaia di token e vale la pena riaffermarlo ad ogni
- * turno in cui è attivo, invece di fidarsi che il modello se lo ricordi.
+ * Slots that are NEVER deduplicated: they are current STATE, not a document.
+ * Plan mode costs a few hundred tokens and is worth restating on every turn it
+ * is active, rather than trusting the model to remember it.
  */
 const VOLATILE_SLOTS: ReadonlySet<SystemSlotId> = new Set<SystemSlotId>(["plan-mode"]);
 
-/** Stesso preventivo del resto dell'envelope (`SystemBlock.tokens`). */
+/** Same estimate as the rest of the envelope (`SystemBlock.tokens`). */
 function estimateTokens(text: string): number {
   return Math.round(text.length / 4);
 }
 
 /**
- * I built-in della CLI che vanno consegnati NUDI, perché la CLI li parsa
- * guardando l'inizio del messaggio e qualunque preambolo davanti glieli nasconde.
+ * The CLI built-ins that must be delivered BARE, because the CLI parses them by
+ * looking at the start of the message and any preamble in front hides them.
  *
- * È un'ALLOWLIST, non «inizia per slash»: quel predicato prendeva anche un path
- * incollato — `/Users/utente/…`, `/tmp da controllare` — e a quel messaggio
- * toglieva tutto il contesto. Su un primo turno o subito dopo una compattazione
- * significava un turno intero senza sapere in che progetto si sta lavorando.
+ * It is an ALLOWLIST, not «starts with a slash»: that predicate also caught a
+ * pasted path — `/Users/someone/…`, `/tmp to check` — and stripped all context
+ * from that message. On a first turn, or right after a compaction, that meant a
+ * whole turn with no idea which project the work is in.
  */
 const CLI_BUILTINS = new Set([
   "compact", "clear", "cost", "context", "status", "model", "config", "doctor",
@@ -100,8 +100,8 @@ const CLI_BUILTINS = new Set([
 function isCliBuiltin(content: string): boolean {
   const t = content.trimStart();
   if (!t.startsWith("/")) return false;
-  // Il comando è il primo token, senza argomenti: `/compact`, `/model opus`.
-  // Un path ha uno slash DENTRO il primo token, quindi non può passare.
+  // The command is the first token, arguments aside: `/compact`, `/model opus`.
+  // A path has a slash INSIDE the first token, so it cannot get through.
   const first = t.slice(1).split(/\s/, 1)[0] ?? "";
   if (!first || first.includes("/")) return false;
   return CLI_BUILTINS.has(first.toLowerCase());
@@ -113,28 +113,29 @@ function isCliBuiltin(content: string): boolean {
 
 export interface AdaptOptions {
   /**
-   * Slot che la sessione CLI possiede già, `slot → hash`. Sola lettura: questa
-   * funzione resta PURA — lo stato entra come argomento ed esce come
-   * `payload.inlineSlots`. Chi lo persiste è il chiamante.
+   * Slots the CLI session already owns, `slot → hash`. Read-only: this function
+   * stays PURE — state comes in as an argument and leaves as
+   * `payload.inlineSlots`. Persisting it is the caller's job.
    *
-   * Assente o vuota ⇒ nessuna deduplicazione, cioè il primo turno di una
-   * sessione (ed è per questo che la regressione byte-per-byte continua a valere).
+   * Absent or empty ⇒ no deduplication, i.e. the first turn of a session (and
+   * that is why the byte-for-byte regression test still holds).
    */
   alreadySent?: ReadonlyMap<string, string>;
 }
 
 /**
- * I DUE BLOCCHI CHE SOLO IL NATIVO DEVE RICEVERE.
+ * THE TWO BLOCKS ONLY THE NATIVE RUNTIME MUST RECEIVE.
  *
- * `claude` legge da se' `~/.claude/CLAUDE.md` e conosce le sue skill: mandargliele
- * significa pagare due volte lo stesso testo a ogni turno. Il runtime nativo parla
- * con l'API e non le ha da nessuna parte.
+ * `claude` reads `~/.claude/CLAUDE.md` on its own and knows its own skills:
+ * sending them means paying for the same text twice on every turn. The native
+ * runtime talks to the API and has them nowhere.
  *
- * IL FILTRO STA QUI, NON IN `assembleTopicContext`, e la ragione e' un errore gia'
- * fatto: la rotta assembla l'envelope con `providerName: "(pending)"` e risolve il
- * provider DOPO, quindi un cancello a monte spegneva i blocchi sempre — erano
- * nell'anteprima dell'ispettore e non nel messaggio, cioe' il modo peggiore di
- * sbagliare, perche' l'ispettore diceva che c'erano.
+ * THE FILTER LIVES HERE, NOT IN `assembleTopicContext`, and the reason is a
+ * mistake already made: the route assembles the envelope with
+ * `providerName: "(pending)"` and resolves the provider AFTER, so a gate further
+ * upstream switched the blocks off every time — they were in the inspector
+ * preview and not in the message, i.e. the worst way to be wrong, because the
+ * inspector claimed they were there.
  */
 const SOLO_NATIVO = new Set(["user:CLAUDE.md", "synthetic:skills"]);
 

@@ -39,12 +39,12 @@ import { parkTopicSession } from "../lib/session-parking";
 import { parseTranscriptToMessages } from "../lib/claude-transcript-import";
 import { parseTranscriptFacts } from "../lib/external-claude-sessions";
 import { EFFORT_TIERS } from "../../shared/effort";
-// Solo il lato «consegna»: le gambe dell'attesa (beginAsk/waitForAnswer) sono
-// nel canale umano, in ./permission.
+// Only the «delivery» side: the waiting legs (beginAsk/waitForAnswer) live in
+// the human channel, in ./permission.
 import { deliverAnswer, hasPendingAsk } from "../lib/ask-user-bridge";
-// «Aspetta te» si legge anche dalla RIGA: le domande del pannello passano dal
-// bridge MCP, non dal canale nativo del provider, e dopo un riavvio nessuna
-// mappa in memoria se le ricorda più. Vedi lib/waiting-ask.ts.
+// "Waiting on you" is also read off the ROW: the panel's questions travel over
+// the MCP bridge, not the provider's native channel, and after a restart no
+// in-memory map remembers them. See lib/waiting-ask.ts.
 import { waitingAskStartedAt } from "../lib/waiting-ask";
 import { isPlanApprovalAnswer } from "../lib/plan-approval";
 import { releaseHumanHold, humanHoldAgeMs } from "../lib/human-hold";
@@ -134,39 +134,38 @@ export function removeTopicFromUiStateValue(parsed: any, topicId: string): boole
       }
     }
   }
-  // IL RECORD DI UNDO RESTA, E IL SUO ID VIENE TIMBRATO COME CHIUSO.
+  // THE UNDO RECORD STAYS, AND ITS ID IS STAMPED AS CLOSED.
   //
-  // Fino al 2026-08-19 questa riga CANCELLAVA il record, ed e' la catena che
-  // svuotava `closedStack` dopo una chiusura vera:
+  // Until 2026-08-19 this line DELETED the record, and that is the chain that
+  // emptied `closedStack` after a real close:
   //
-  //   l'utente chiude la tab di una chat
-  //     → il reducer mette il record di undo in `closedStack` e fa il PUT
-  //     → la cascata del ritiro archivia quel topic (`retirement.ts`, «tab-close»)
-  //     → `archiveTopicFully` chiama questa purge
-  //     → il record appena creato sparisce, e il tombstone qui sotto non lo
-  //       sostituisce, perche' guarda `removedPaneIds` — cioe' le pane tolte da
-  //       `panes`, e una pane gia' chiusa li' non c'e' piu'.
+  //   someone closes a chat tab
+  //     → the reducer puts the undo record in `closedStack` and PUTs
+  //     → the retirement cascade archives that topic (`retirement.ts`, «tab-close»)
+  //     → `archiveTopicFully` calls this purge
+  //     → the record just created vanishes, and the tombstone below does not
+  //       replace it, because it looks at `removedPaneIds` — i.e. the panes
+  //       taken out of `panes`, and a pane already closed is no longer there.
   //
-  // Risultato misurato: dopo una chiusura la chiusura NON lascia traccia — ne'
-  // il record ne' il marcatore. `pane-undo.spec.ts` lo vedeva («closedStack
-  // must have at least one entry after CLOSE_PANE») e restava verde lo stesso,
-  // perche' il ciclo di scritture a riposo rimandava lo stato un attimo dopo e
-  // rimetteva il record. Cioe' un difetto era tenuto in piedi da un altro: il
-  // rimedio al ciclo (ramo `wip/ciclo-scritture-localseq`) faceva comparire
-  // questo, ed e' il motivo per cui e' rimasto fuori da main.
+  // Measured result: after a close, the close leaves NO trace — neither the
+  // record nor the marker. `pane-undo.spec.ts` saw it («closedStack must have at
+  // least one entry after CLOSE_PANE») and stayed green anyway, because the
+  // idle write loop resent the state a moment later and put the record back. So
+  // one defect was propped up by another: the fix for the loop (branch
+  // `wip/ciclo-scritture-localseq`) made this one surface, and that is why it
+  // stayed out of main.
   //
-  // PERCHE' CANCELLARLO NON SERVIVA. Il difetto che questa purge protegge e' la
-  // TAB FANTASMA — una chat archiviata che ricompare aperta su un altro
-  // dispositivo — e quella vive in `panes`, che continua a essere ripulito
-  // sopra. `closedStack` non riapre niente: sul client alimenta `bumpClosed`
-  // (`reducers/panes.ts`), esattamente lo stesso segnale di CHIUSURA dei
-  // tombstone. Toglierlo di li' non impediva una resurrezione, cancellava un
-  // undo.
+  // WHY DELETING IT WAS NOT NEEDED. The defect this purge guards against is the
+  // GHOST TAB — an archived chat reappearing open on another device — and that
+  // one lives in `panes`, which is still cleaned above. `closedStack` reopens
+  // nothing: on the client it feeds `bumpClosed` (`reducers/panes.ts`), exactly
+  // the same CLOSE signal the tombstones carry. Removing it from there did not
+  // prevent a resurrection, it deleted an undo.
   //
-  // E il marcatore si stampa lo stesso: `id` entra in `removedPaneIds`, quindi
-  // il blocco qui sotto lo timbra come se la pane fosse stata rimossa ora. Cosi'
-  // un pari che aveva ancora quella tab aperta la lascia cadere — la protezione
-  // resta intera — e l'undo dell'utente sopravvive.
+  // And the marker is printed all the same: `id` goes into `removedPaneIds`, so
+  // the block below stamps it as if the pane had been removed now. That way a
+  // peer that still had that tab open drops it — the protection is intact — and
+  // the undo survives.
   if (Array.isArray(parsed.closedStack)) {
     for (const rec of parsed.closedStack as any[]) {
       if (!rec || !rec.pane) continue;

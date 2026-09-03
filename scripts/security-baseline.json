@@ -11,7 +11,7 @@
     "Che un avviso sparisca non fa mai rosso, ma il comando lo dice: quello e il momento di",
     "riscrivere la baseline, o marcisce."
   ],
-  "updated": "2026-08-14",
+  "updated": "2026-09-02",
   "advisories": {
     ".": [
       {
@@ -218,20 +218,6 @@
         "severity": "high",
         "title": "minimatch ReDoS: nested *() extglobs generate catastrophically backtracking regular expressions",
         "url": "https://github.com/advisories/GHSA-23c5-xmqv-rm74"
-      },
-      {
-        "package": "nanoid",
-        "id": 1138811,
-        "severity": "high",
-        "title": "nanoid: non-secure generators can loop indefinitely with negative size",
-        "url": "https://github.com/advisories/GHSA-28wg-ghj8-5hjv"
-      },
-      {
-        "package": "nanoid",
-        "id": 1139427,
-        "severity": "high",
-        "title": "nanoid: custom generators can loop indefinitely when size is zero",
-        "url": "https://github.com/advisories/GHSA-2v37-7h3g-55p8"
       },
       {
         "package": "picomatch",

@@ -1,39 +1,39 @@
 /**
- * Quello che il runtime nativo NON aveva e la CLI sì.
+ * What the native runtime did NOT have and the CLI did.
  *
- * Un topic sul runtime nativo e una sessione `claude` nel terminale sembrano la
- * stessa cosa e non lo erano. Misurato il 02/09 sullo stesso prompt e nella
- * stessa cartella: la CLI rispondeva con Opus 5, 54 skill in elenco e le regole
- * globali dell'utente in contesto; il nativo con Sonnet, ZERO skill e nessuna
- * regola. Non è una sfumatura di qualità: è un altro agente.
+ * A topic on the native runtime and a `claude` session in the terminal look like
+ * the same thing and were not. Measured on 02/09 on the same prompt and in the
+ * same folder: the CLI answered with Opus 5, 54 skills in the listing and the
+ * global user rules in context; the native one with Sonnet, ZERO skills and no
+ * rules. It is not a shade of quality: it is a different agent.
  *
- * Qui stanno i due pezzi di contesto che mancavano. Il modello e il thinking
- * sono altrove (`providers/index.ts`, `native/agent-loop.ts`) perché sono
- * parametri della richiesta, non testo.
+ * Here sit the two pieces of context that were missing. The model and the
+ * thinking live elsewhere (`providers/index.ts`, `native/agent-loop.ts`) because
+ * they are request parameters, not text.
  *
- * PERCHÉ SOLO PER IL NATIVO. `claude` carica `~/.claude/CLAUDE.md` e l'elenco
- * delle skill da sé: iniettarglieli di nuovo raddoppierebbe lo stesso testo in
- * un prompt che paghiamo a token. Chi chiama deve passare `native: true`.
+ * WHY ONLY FOR THE NATIVE RUNTIME. `claude` loads `~/.claude/CLAUDE.md` and the
+ * skill listing on its own: injecting them again would double the same text in
+ * a prompt we pay for by the token. Callers must pass `native: true`.
  */
 import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { skillDirs } from "./slash-command-source";
 
-/** Oltre questo, un file di regole è un allegato, non un'istruzione. */
+/** Past this, a rules file is an attachment, not an instruction. */
 const MAX_RULES_BYTES = 64 * 1024;
-/** Come `skillListingMaxDescChars` di Claude Code: l'elenco costa a ogni turno. */
+/** Like Claude Code's `skillListingMaxDescChars`: the listing costs on every turn. */
 const MAX_DESC_CHARS = 180;
 
 /**
- * `~/.claude/CLAUDE.md`, con una passata di `@percorso` espansi.
+ * `~/.claude/CLAUDE.md`, with one pass of `@path` imports expanded.
  *
- * L'espansione non è un lusso: nel file di Attilio le regole sui tool arrivano
- * TUTTE da un `@~/.claude/jarvis/agents/_shared/TOOLS.md`, quindi senza questa
- * riga il blocco che iniettiamo direbbe metà delle cose e nessuno saprebbe
- * quale metà. Un livello solo: un import che ne importa un altro si ferma lì —
- * la profondità arbitraria è un modo per farsi entrare in contesto un albero
- * senza volerlo.
+ * The expansion is not a luxury: in the rules file this was measured against,
+ * the tool rules ALL arrive from one `@~/.claude/jarvis/agents/_shared/TOOLS.md`,
+ * so without this line the block we inject would say half of it and nobody
+ * would know which half. One level only: an import that imports another stops
+ * there — arbitrary depth is a way to pull a whole tree into context without
+ * meaning to.
  */
 export function readUserRules(home = homedir()): string | null {
   const file = join(home, ".claude", "CLAUDE.md");
@@ -54,12 +54,12 @@ export function readUserRules(home = homedir()): string | null {
 export interface SkillEntry { name: string; description: string }
 
 /**
- * La descrizione dal frontmatter, anche quando e' un blocco YAML.
+ * The description from the frontmatter, even when it is a YAML block.
  *
- * `description: |` seguito da righe rientrate e' valido quanto la forma su una
- * riga, e sette skill su quaranta lo usano: con la sola regex a una riga la
- * descrizione diventava letteralmente «|» — un elenco che dice il nome e niente,
- * cioe' un elenco che il modello non puo' usare per scegliere.
+ * `description: |` followed by indented lines is as valid as the single-line
+ * form, and seven skills out of forty use it: with the one-line regex alone the
+ * description became literally «|» — a listing that gives the name and nothing,
+ * that is, a listing the model cannot use to choose from.
  */
 export function descrizioneDaFrontmatter(testa: string): string {
   const m = /^description:[ \t]*(.*)$/m.exec(testa);
@@ -72,23 +72,23 @@ export function descrizioneDaFrontmatter(testa: string): string {
   const righe: string[] = [];
   for (const r of resto) {
     if (!r.trim()) { if (righe.length) break; continue; }
-    if (!/^\s/.test(r)) break;            // finito il blocco rientrato
+    if (!/^\s/.test(r)) break;            // end of the indented block
     righe.push(r.trim());
   }
   return righe.join(" ");
 }
 
 /**
- * Nome e descrizione di ogni skill installata, presi dal frontmatter di
- * `SKILL.md`. Il corpo NON entra: è il patto del meccanismo — l'elenco sta in
- * contesto sempre, le istruzioni si caricano solo quando serve (tool `skill`).
+ * Name and description of every installed skill, taken from the frontmatter of
+ * `SKILL.md`. The body does NOT go in: that is the bargain of the mechanism — the
+ * listing is always in context, the instructions load only on demand (tool `skill`).
  */
 export function listSkills(home = homedir()): SkillEntry[] {
   const out: SkillEntry[] = [];
-  // Le cartelle si guardano DIRETTE, non passando da `listSlashCommandFiles`:
-  // quella deduplica per nome contro i comandi, e cinque skill che si chiamano
-  // come un comando (`commit`, `recap`, `vai`…) sparivano dall'elenco pur
-  // essendo installate.
+  // The folders are read DIRECTLY, not through `listSlashCommandFiles`:
+  // that one dedupes by name against the commands, and five skills whose name
+  // is also a command (`commit`, `recap`, `vai`…) dropped out of the listing   allow-italian: `vai` is the command's own name
+  // even though they were installed.
   const visti = new Set<string>();
   const files: Array<{ name: string; file: string }> = [];
   for (const dir of skillDirs(home)) {
@@ -106,14 +106,14 @@ export function listSkills(home = homedir()): SkillEntry[] {
     let description = "";
     try {
       description = descrizioneDaFrontmatter(readFileSync(f.file, "utf-8").slice(0, 8192));
-    } catch { /* skill senza frontmatter leggibile: resta il nome */ }
+    } catch { /* skill with no readable frontmatter: the name stays */ }
     if (description.length > MAX_DESC_CHARS) description = description.slice(0, MAX_DESC_CHARS) + "…";
     out.push({ name: f.name, description });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Il blocco di sistema che presenta l'elenco. Vuoto = nessuna skill installata. */
+/** The system block that presents the listing. Empty = no skill installed. */
 export function skillsBlock(home = homedir()): string {
   const skills = listSkills(home);
   if (skills.length === 0) return "";
@@ -131,18 +131,18 @@ export function skillsBlock(home = homedir()): string {
 }
 
 /**
- * L'EFFORT DIVENTA UN BUDGET DI THINKING.
+ * EFFORT BECOMES A THINKING BUDGET.
  *
- * Su `claude` l'effort è un flag della CLI; sull'API è `thinking.budget_tokens`,
- * e il runtime nativo non lo mandava affatto — quindi lo slider dell'effort, che
- * la UI mostra su ogni topic, sul nativo non spostava niente.
+ * On `claude` the effort is a CLI flag; on the API it is `thinking.budget_tokens`,
+ * and the native runtime was not sending it at all — so the effort slider, which
+ * the UI shows on every topic, moved nothing on the native runtime.
  *
- * `low` = niente thinking (non «poco»): sotto i 1024 token l'API rifiuta, e un
- * budget simbolico costerebbe latenza per un ragionamento che non ci sta.
+ * `low` = no thinking (not «a little»): under 1024 tokens the API refuses, and a
+ * symbolic budget would buy latency for reasoning that does not fit.
  *
- * Il budget deve stare SOTTO `max_tokens`, altrimenti la richiesta è invalida:
- * chi chiama alza il tetto o taglia il budget, e la scelta sta in `agent-loop`
- * perché è lì che si conosce `max_tokens` di quel turno.
+ * The budget must stay UNDER `max_tokens`, or the request is invalid: the caller
+ * either raises the ceiling or trims the budget, and that choice lives in
+ * `agent-loop` because that is where `max_tokens` for the turn is known.
  */
 export const THINKING_BUDGET: Record<string, number> = {
   low: 0,

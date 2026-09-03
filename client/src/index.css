@@ -2493,7 +2493,7 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
  * Keyframes from the reference desktop client we studied:
  *   · `timeline-blur-in`    — content swap entry (24px blur → 0 in 120ms)
  *   · `timeline-blur-out`   — exit (faster, 80ms)
- * (the "working now" cue is `wave-bar` below, defined with WaveLoader.)
+ * (the "working now" cue is `orbit-spin` below, defined with OrbitLoader.)
  * Plus three Material easing curves.
  */
 @keyframes timeline-blur-in {
@@ -2509,59 +2509,85 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
 .animate-timeline-in { animation: timeline-blur-in 120ms cubic-bezier(0, 0, 0.2, 1) both; }
 .animate-timeline-out { animation: timeline-blur-out 80ms cubic-bezier(0.4, 0, 1, 1) both; }
 
-/* L'ONDA — il cue «sto lavorando», rifatto (WaveLoader in StreamingIndicator).
+/* THE ORBIT — the "I am working" cue (OrbitLoader in StreamingIndicator).
  *
- * Prima erano sei quadratini da 3px accesi uno alla volta. Due difetti, uno
- * estetico e uno misurabile:
+ * Third shape of this glyph, and the reason for the change is on the card that
+ * asked for it: the loader had to become "something more modern and designed".
+ * Before there were three columns rising out of phase, and before those a 2x3
+ * matrix of squares lit one at a time. Both were METERS, and a meter promises a
+ * quantity: an LLM turn has none, so the promise was always broken.
  *
- *  · misurabile — la matrice era larga 7,5px dentro una scatola da 16, quindi
- *    partiva a (16 − 7,5) / 2 = 4,25px. Un quadrato di 3px che nasce su un
- *    quarto di pixel non ha un bordo: ha due colonne di sub-pixel sbiadite. Da
- *    vicino il glifo si legge sfocato, ed è metà del «il loader non è ben
- *    posizionato» (richiesta del 10/08: ). Adesso il glifo è 10×12: (16 − 10) / 2 = 3
- *    e (16 − 12) / 2 = 2, tutti e due interi.
- *  · estetico — un solo pixel acceso alla volta su uno spento è un segno
- *    povero, e da fermo (l'attesa) diventava letteralmente «quel coso fermo».
+ * A ring with no head and no end promises nothing and says the one true thing.
+ * The sweep is the primary colour going from transparent to full over about
+ * three quarters of the circle, with a lighter head, so the eye follows a body
+ * of light instead of a stick going round.
  *
- * Adesso sono tre colonne in una traccia: ogni barra ha un fondo quieto sempre
- * presente (la stessa acqua del 22% dello SplitMiniMap, così la parentela di
- * famiglia resta) e dentro ci sale una barra col gradiente del primario. Le tre
- * salgono sfalsate — è un misuratore che respira, non una spia che lampeggia.
+ * Only `transform` animates (a rotation): the compositor moves it without
+ * touching the main thread and without a reflow, which is the same rule already
+ * written above for `awaiting-pulse` and `turnDotGlow`. The ring is cut out of a
+ * disc by a mask, so the gradient can be conic (a `border` cannot).
  *
- * Si anima SOLO `transform` (scaleY con origine in basso): il compositore la
- * muove senza toccare il main thread e senza un riflusso, che è la stessa regola
- * già scritta qui sopra per `awaiting-pulse` e `turnDotGlow`.
- *
- * 1,05s e non mezzo secondo: sotto il secondo l'onda «corre» e legge come una
- * barra di caricamento che si aspetta finisca a momenti; più lenta legge come
- * qualcosa che pensa — che è quello che sta succedendo davvero. */
-@keyframes wave-bar {
-  0%, 100% { transform: scaleY(0.34); }
-  50%      { transform: scaleY(1); }
+ * 1.15s and not half a second: below the second the ring "runs" and reads like a
+ * progress bar about to finish; slower it reads like something thinking, which
+ * is what is actually happening. */
+@keyframes orbit-spin {
+  to { transform: rotate(360deg); }
 }
-.animate-wave-bar {
-  transform-origin: 50% 100%;
-  animation: wave-bar 1.05s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+.animate-orbit-spin {
+  animation: orbit-spin 1.15s linear infinite;
 }
 
-/* L'ATTESA: stesse barre, ferme a mezz'altezza e in ambra, che respirano piano.
- * «Fermo» è l'informazione — un turno sospeso su una domanda non macina — ma
- * fermo non vuol dire spento: il respiro lento dice che la sessione è ancora
- * viva e la palla è tua. */
-@keyframes wave-breath {
-  0%, 100% { opacity: 0.5; }
+/* THE WAIT: same ring, sweep frozen into an amber arc, breathing slowly.
+ * "Stopped" is the information — a turn parked on a question is not grinding —
+ * but stopped does not mean off: the slow breath says the session is still
+ * alive and the ball is yours. */
+@keyframes orbit-breath {
+  0%, 100% { opacity: 0.55; }
   50%      { opacity: 1; }
 }
-.animate-wave-breath { animation: wave-breath 2.4s ease-in-out infinite; }
+.animate-orbit-breath { animation: orbit-breath 2.4s ease-in-out infinite; }
+
+/* THE TIME THAT IS PASSING RIGHT NOW, painted like the loader that goes with it.
+ *
+ * Two durations sit on these surfaces and they answer opposite questions: "it
+ * has been going for 12m" (running, the number grows while you look at it) and
+ * "it answered 12m ago" (finished, the number is a receipt). Rendered in the
+ * same grey they were indistinguishable, and the card asked for exactly that
+ * distinction. So the live one takes the loader's colour and the loader's
+ * motion — the primary, sweeping — and the finished one stays quiet grey.
+ *
+ * Same `shimmer` keyframe as the turn phrase in the chat, so the app has ONE
+ * moving-text idiom rather than two. Paused with everything else when the
+ * window is in the background (`.anims-paused`). */
+.time-live {
+  background-image: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--primary) 45%, transparent) 0%,
+    color-mix(in srgb, var(--primary) 45%, transparent) 34%,
+    var(--primary) 50%,
+    color-mix(in srgb, var(--primary) 45%, transparent) 66%,
+    color-mix(in srgb, var(--primary) 45%, transparent) 100%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: shimmer 3s linear infinite;
+}
 
 @media (prefers-reduced-motion: reduce) {
-  /* Niente movimento, ma il segnale resta: le tre barre si fermano su altezze
-     diverse (lo sfalsamento diventa una forma invece che un tempo). */
-  .animate-wave-bar { animation: none; }
-  .animate-wave-bar[data-slot='0'] { transform: scaleY(0.5); }
-  .animate-wave-bar[data-slot='1'] { transform: scaleY(1); }
-  .animate-wave-bar[data-slot='2'] { transform: scaleY(0.68); }
-  .animate-wave-breath { animation: none; opacity: 0.9; }
+  /* No movement, but the signal stays: the sweep stops on an angle, so the
+     travel becomes a shape instead of a time. */
+  .animate-orbit-spin { animation: none; transform: rotate(112deg); }
+  .animate-orbit-breath { animation: none; opacity: 0.9; }
+  /* The live time keeps its colour — that is the part that distinguishes it
+     from the finished one — and loses only the sweep. */
+  .time-live {
+    animation: none;
+    -webkit-text-fill-color: var(--primary);
+    color: var(--primary);
+  }
 }
 
 /* Electric-blue "awaiting feedback" tab/row — a gentle breathe so a session
@@ -2618,7 +2644,7 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
 /* Pause EVERY keyframe animation while the window is backgrounded (driven by
  * useAnimationPause, which toggles `.anims-paused` on <html> on blur/hide). On
  * the big transparent-vibrancy desktop window the always-running loaders
- * (wave-bar) and parked-session breathers (awaiting-pulse) otherwise keep the
+ * (orbit-spin) and parked-session breathers (awaiting-pulse) otherwise keep the
  * compositor working every frame with nobody watching. `animation-play-state` is
  * compositor-safe: the toggle costs one style recalc on blur/focus, never a
  * per-frame cost, and CSS *transitions* are unaffected. */
