@@ -194,7 +194,7 @@ function variantsOf(schema: any): any[] {
 }
 
 describe('schema completeness', () => {
-  test('all 20 protocol variants are present', () => {
+  test('all 21 protocol variants are present', () => {
     // Snapshot test: if a new variant is added to the schema, this count
     // must be updated — forcing the test author to also document it.
     // Grew from 6 → 17 with the server↔pane co-browse control channel
@@ -210,7 +210,7 @@ describe('schema completeness', () => {
     // frozen literal list in tests/unit/ws-contract.test.ts for the
     // per-variant rationale.
     const variantCount = variantsOf(browserWsMessageSchema).length;
-    expect(variantCount).toBe(20);
+    expect(variantCount).toBe(21);
   });
 
   test('every variant uses a unique `type` literal', () => {
@@ -228,7 +228,7 @@ describe('schema completeness', () => {
         'resize', 'download', 'set_engine', 'engine', 'set_stream',
         'set_watching', 'set_render', 'render_mode', 'dom_event',
         'webrtc_offer', 'webrtc_answer', 'webrtc_ice', 'focus_field',
-        'focus_query',
+        'focus_query', 'viewers',
       ]),
     );
   });

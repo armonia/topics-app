@@ -1210,81 +1210,11 @@ export interface FileNode {
   children?: FileNode[];
 }
 
-/** Quante righe cambia un file, da un lato solo (indice o albero di lavoro). */
-export interface GitLineStat {
-  added: number;
-  removed: number;
-  /** git non conta le righe di un binario: il pannello scrive «bin». */
-  binary?: boolean;
-}
 
-/**
- * Un file nella lista delle modifiche.
- *
- * `status` è il codice XY GREZZO a due caratteri: `[0]` = indice (staged),
- * `[1]` = albero di lavoro. Non trimmarlo — `"  M"` trimmato diventa `"M"` e
- * un file non staged si presenta come staged.
- *
- * `origPath` c'è solo per rename e copie ed è il path di PROVENIENZA
- * (`path` è quello nuovo). Prima non esisteva e i due path arrivavano
- * incollati in uno solo — `old.md -> new.md` — usato tale e quale come
- * argomento dei comandi git, che quindi fallivano tutti.
- *
- * `staged`/`unstaged` sono i conteggi per LATO, e per lo stesso file possono
- * essere diversi: un file staged a metà ha righe nell'indice e altre righe
- * ancora nell'albero. Sono ASSENTI, non zero, quando non c'è un numero da dare
- * (un file non tracciato non compare in nessun diff): zero direbbe «non è
- * cambiato niente», che è un'altra cosa.
- *
- * È un tipo con un nome, non una forma scritta a mano in ogni firma: era
- * ripetuto in otto punti fra hook e pannello, e aggiungere un campo voleva dire
- * trovarli tutti e otto.
- */
-export interface GitFile {
-  path: string;
-  status: string;
-  origPath?: string;
-  staged?: GitLineStat;
-  unstaged?: GitLineStat;
-}
 
-export interface GitStatus {
-  branch: string;
-  /**
-   * L'ultimo commit — `null` QUANDO NON C'È.
-   *
-   * Il tipo diceva che c'è sempre, e il server dice il contrario da sempre:
-   * `server/routes/files.ts` risponde `lastCommit: null` per una cartella che
-   * non è un repo, e un repo senza commit non ha un `git log -1` da cui
-   * ricavarlo. Il client si fidava della dichiarazione e leggeva
-   * `gitStatus.lastCommit.hash` diretto: misurato il 08/08, un
-   * `TypeError: Cannot read properties of undefined (reading 'hash')` che
-   * l'ErrorBoundary trasformava nella SPARIZIONE dell'intera finestra di
-   * progetto — cinque test rossi che accusavano il pannello dei processi, che
-   * non c'entrava niente: semplicemente non veniva mai montato.
-   *
-   * Dichiararlo annullabile non è una resa: è ciò che il filo porta davvero, e
-   * da qui in poi è il compilatore a trovare i punti che non lo gestiscono.
-   */
-  lastCommit: { hash: string; message: string; author: string; ago: string } | null;
-  files: GitFile[];
-  ahead: number;
-  behind: number;
-  /**
-   * La cartella APERTA non è tracciata dal repo che la contiene. Succede
-   * aprendo come progetto una sottocartella di un repo più grande: git non
-   * elenca i file dentro, la collassa in un record solo. Senza questo campo il
-   * pannello direbbe «nessuna modifica», che è falso.
-   */
-  folderUntracked?: boolean;
-  /**
-   * Il repo che OSPITA la cartella aperta, quando questa è una sua
-   * sottocartella. Vuoto se la cartella è essa stessa la radice del repo. Il
-   * pannello lo nomina perché ramo, remote e cronologia che mostra sono di
-   * quel repo, non della cartella — e senza dirlo si contraddice da solo.
-   */
-  repoName?: string;
-}
+
+// git status of a folder: one declaration for both sides, see shared/git-status.ts
+export type { GitStatus, GitLineStat, GitStatusFile as GitFile } from '../../../shared/git-status';
 
 export interface GitBranch {
   name: string;

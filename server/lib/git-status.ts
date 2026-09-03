@@ -25,19 +25,22 @@
 import { gitRead, parsePorcelainZ, repoPrefixOf, scopeToPrefix, statusOfPrefix } from "./git-porcelain";
 import type { PorcelainEntry } from "./git-porcelain";
 import { attachNumstats, readNumstats } from "./git-numstat";
+import type { GitStatus } from "../../shared/git-status";
+export type { GitStatus } from "../../shared/git-status";
 
 /** A porcelain entry with its per-side line counts attached (`lib/git-numstat.ts`). */
 export type GitStatusFileEntry = ReturnType<typeof attachNumstats<PorcelainEntry>>[number];
 
-export interface GitStatus {
-  branch: string;
-  lastCommit: { hash: string; message: string; author: string; ago: string };
+/**
+ * What `computeGitStatus` builds: the wire `GitStatus` of `shared/git-status.ts`
+ * with the fields this side always fills (a computed status has a commit,
+ * a repo name and the untracked verdict; the wire form leaves them open
+ * for the `notGit` answer of `routes/files.ts`).
+ */
+export interface ComputedGitStatus extends GitStatus {
+  lastCommit: NonNullable<GitStatus["lastCommit"]>;
   files: GitStatusFileEntry[];
-  ahead: number;
-  behind: number;
-  /** The opened folder is itself untracked by the repo that contains it. */
   folderUntracked: boolean;
-  /** The repo that HOSTS the opened folder (empty at the repo root). */
   repoName: string;
 }
 
@@ -98,7 +101,7 @@ async function readText(args: string[], cwd: string): Promise<{ code: number; te
  * Other failures throw: the route turns them into a 500, the watcher into a
  * skipped push.
  */
-export async function computeGitStatus(resolvedDir: string): Promise<GitStatus | null> {
+export async function computeGitStatus(resolvedDir: string): Promise<ComputedGitStatus | null> {
   const probe = await readText(["git", "rev-parse", "--git-dir", "--show-toplevel"], resolvedDir);
   if (probe.code !== 0) return null;
   const gitRoot = probe.text.split("\n")[1]?.trim() ?? "";

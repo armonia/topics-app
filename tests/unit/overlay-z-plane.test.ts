@@ -218,7 +218,7 @@ describe("il piano di una superficie a schermo intero si dichiara, non si indovi
     const RIPARATE = [
       "client/src/components/Shared/ConfirmDialog.tsx",
       "client/src/components/Board/PreviewMedia.tsx",
-      "client/src/components/MessageContent.tsx",
+      "client/src/components/Shared/ImageLightbox.tsx",
       "client/src/components/Auth/PairingGate.tsx",
       "client/src/components/Share/GuestView.tsx",
     ];

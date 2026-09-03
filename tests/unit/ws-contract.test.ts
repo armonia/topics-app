@@ -188,6 +188,10 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
     //                                         deve aprire il telefono sul ramo
     //                                         video (dove non c'è nessun mirror
     //                                         DOM da interrogare)
+    //   viewers                             — the cross-device viewer count,
+    //                                         pushed by the server on every
+    //                                         change; replaced the 2s poll of
+    //                                         /viewers (44% of API traffic)
     //   focus_query                         — la stessa domanda chiesta a voce.
     //                                         Da quando l'input del ramo video
     //                                         va sul DataChannel, il click non
@@ -211,6 +215,7 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
       'set_stream',
       'set_watching',
       'take_control',
+      'viewers',
       'webrtc_answer',
       'webrtc_ice',
       'webrtc_offer',

@@ -17,7 +17,7 @@ import type { AppContext } from "./types";
 // `./routes/files` da qui chiudeva il ciclo
 // file-watcher → git-watcher → routes/files → file-watcher.
 import { invalidateGitCache, writeGitStatusCache } from "./lib/git-status-cache";
-import { computeGitStatus, type GitStatus } from "./lib/git-status";
+import { computeGitStatus, type ComputedGitStatus, type GitStatus } from "./lib/git-status";
 
 const DEBOUNCE_MS = 500;
 // Keyed by absPath so distinct worktrees of the same project don't collide.
@@ -56,7 +56,7 @@ function resolveGitDir(projectPath: string): string | null {
 // drifted once (the symlink prefix). `computeGitStatus` returns `null` for a
 // path that is not a repo and throws on a git failure; here both mean "no
 // push", as before.
-async function computeGitStatusQuietly(resolvedDir: string): Promise<GitStatus | null> {
+async function computeGitStatusQuietly(resolvedDir: string): Promise<ComputedGitStatus | null> {
   try {
     return await computeGitStatus(resolvedDir);
   } catch {
