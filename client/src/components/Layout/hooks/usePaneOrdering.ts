@@ -353,8 +353,13 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
       // topicIds position reconstructs [t1, t2, t3] instead of [t1, t3, t2].
       // Without this the ghost-pane fix in pane/reducers/undo.ts repairs the
       // store but this local order would still leave the tab appended (PANE-03).
-      // The Cmd+Shift+T reopen path is unaffected: it appends to the group, so
-      // topicIds places the id last and the splice degenerates to a push.
+      // The Cmd+Shift+T reopen path lands here too. It used to append to the
+      // group, so topicIds placed the id last and this splice degenerated to a
+      // push: the reopened tab came back at the END of the bar, and the order
+      // was persisted from there (a reload did not repair it). Now that reopen
+      // re-slots the pane at its recorded index in BOTH the store and
+      // openPanels (usePanelLifecycle, lib/previewTabs restoreSlot), topicIds
+      // carries the original position and the splice reproduces it.
       if (isRestore && added.length === 1) {
         const at = topicIds.indexOf(added[0]);
         const result = [...existing];

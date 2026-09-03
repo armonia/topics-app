@@ -89,7 +89,7 @@ import { clearBrowserSpawner } from '../state/browserSpawner';
 import { addBrowserTombstone } from '../state/pane/adapters/closedTabRecord';
 import { tauriInvoke, currentWindowLabel } from '../lib/shell/tauri';
 import { spaceWindowId } from '../lib/windowRole';
-import { markTabRestored } from '../lib/previewTabs';
+import { markTabRestored, restoreSlot, insertAtRestoreSlot } from '../lib/previewTabs';
 import { pushUndo } from '../contexts/UndoContext';
 import { useRefMirror } from './useRefMirror';
 import { shouldFillFromBroadcast } from './liveTurn';
@@ -144,7 +144,7 @@ const loadSavedFocused = (): string | null => usePaneStore.getState().focusedPan
  */
 function ensurePaneRegistered(
   pane: { id: string; type: PaneType; title?: string; topicId?: string; projectPath?: string; terminalSessionId?: string },
-  options?: { groupId?: string },
+  options?: { groupId?: string; insertIndex?: number },
 ): void {
   const s = usePaneStore.getState();
   if (s.panes[pane.id]) return;
@@ -162,7 +162,7 @@ function ensurePaneRegistered(
   const groupId = options?.groupId ?? 'group:default';
   s.dispatch({
     type: 'OPEN_PANE',
-    payload: { ...pane, preview: false, groupId },
+    payload: { ...pane, preview: false, groupId, insertIndex: options?.insertIndex },
   });
 }
 
@@ -2422,6 +2422,15 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       const pane = await reopenClosedTab(record);
       // 2-state model: reopening a closed chat tab restores it -> unarchive.
       if (pane.type === 'chat' && pane.topicId) void archiveTopic(pane.topicId, false);
+      // BACK IN ITS SLOT, not at the end. The record knows the index the tab was
+      // closed from; the store and `openPanels` must agree on it in the SAME
+      // turn, or Effect B (React -> store) immediately reorders the group to
+      // match the appended React list and the tab settles last again — which is
+      // then persisted, so the reload does not repair it either.
+      const slotIndex = restoreSlot(
+        record.groupIndex,
+        usePaneStore.getState().groups['group:default']?.paneIds.length ?? 0,
+      );
       // App-level reopen: CLOSE_PANE deleted the pane entity. We must
       // re-register it before pushing into openPanels — otherwise
       // Effect A reconciles openPanels back to the store and our id
@@ -2432,14 +2441,14 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         title: pane.title,
         topicId: pane.topicId,
         projectPath: pane.projectPath,
-      });
+      }, { insertIndex: slotIndex });
       // Reopen is ADDITIVE: mark the restored id so the standalone tab-ordering
       // (usePaneOrdering) doesn't treat this single add as a preview-navigation
       // and replace+close the current preview tab (the reopen "swap" bug). Set
       // before setOpenPanels so the marker is present when the topicIds effect
       // runs on the next render.
       markTabRestored(pane.id);
-      setOpenPanels(prev => prev.includes(pane.id) ? prev : [...prev, pane.id]);
+      setOpenPanels(prev => insertAtRestoreSlot(prev, pane.id, record.groupIndex));
       setFocusedPanelId(pane.id);
       removeClosedTab(record.id);
     } catch (err) {
