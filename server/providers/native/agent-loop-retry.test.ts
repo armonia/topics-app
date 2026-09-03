@@ -30,7 +30,7 @@ import type { RetryPolicy } from "./retry";
 const HOME_VERA = process.env.HOME;
 let homeDir: string;
 let ws: string;
-let credPath: string;
+let credentialsPath: string;
 const realFetch = globalThis.fetch;
 
 const FAST: RetryPolicy = { maxAttempts: 4, baseMs: 1, capMs: 4, jitter: () => 1 };
@@ -119,9 +119,9 @@ function fresh(): Ledger {
   return { done: 0, errors: [], retries: [], aborted: 0, text: "", authHeaders: [] };
 }
 
-function writeCreds(accessToken: string) {
+function writeCredentialsFile(accessToken: string) {
   writeFileSync(
-    credPath,
+    credentialsPath,
     JSON.stringify({ claudeAiOauth: { accessToken, refreshToken: "r", expiresAt: Date.now() + 3_600_000 } }),
   );
 }
@@ -131,11 +131,11 @@ describe("the native loop tries again when the API's failure is transient", () =
     homeDir = mkdtempSync(join(tmpdir(), "native-retry-home-"));
     ws = mkdtempSync(join(tmpdir(), "native-retry-ws-"));
     mkdirSync(join(homeDir, ".claude"), { recursive: true });
-    credPath = join(homeDir, ".claude", ".credentials.json");
+    credentialsPath = join(homeDir, ".claude", ".credentials.json");
     process.env.HOME = homeDir;
   });
 
-  beforeEach(() => { writeCreds("token-A"); });
+  beforeEach(() => { writeCredentialsFile("token-A"); });
 
   afterAll(() => {
     globalThis.fetch = realFetch;
@@ -224,7 +224,7 @@ describe("the native loop tries again when the API's failure is transient", () =
     // The first call fails with 401 and, "meanwhile", another process writes
     // the new pair to disk: the file carries token-B by the time we look.
     const calls = scriptFetch([
-      () => { writeCreds("token-B"); return new Response('{"type":"error","error":{"type":"authentication_error","message":"OAuth access token has been revoked."}}', { status: 401 }); },
+      () => { writeCredentialsFile("token-B"); return new Response('{"type":"error","error":{"type":"authentication_error","message":"OAuth access token has been revoked."}}', { status: 401 }); },
       ok(healthyRound),
     ], reg);
     const out = await turn(reg);

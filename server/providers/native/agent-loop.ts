@@ -457,7 +457,7 @@ async function streamWithRetry(
 ): Promise<RoundResult> {
   const policy = opts.retryPolicy ?? DEFAULT_RETRY_POLICY;
   const startedAt = Date.now();
-  let reauthed = false;
+  let renewedOnce = false;
   for (let attempt = 1; ; attempt++) {
     try {
       return await streamOnce(auth.token, opts, handler);
@@ -467,8 +467,8 @@ async function streamWithRetry(
       const message = err instanceof Error ? err.message : String(err);
 
       if (verdict.kind === "reauth") {
-        if (reauthed) throw err;
-        reauthed = true;
+        if (renewedOnce) throw err;
+        renewedOnce = true;
         const fresh = await recoverAfter401(auth.token);
         if (!fresh) {
           throw new Error(`${message}. The token could not be renewed either: run \`claude\` → /login once, then retry.`);

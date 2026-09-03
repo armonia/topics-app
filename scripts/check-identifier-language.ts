@@ -86,6 +86,8 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // The macOS credential store, and the plural the dictionary lacks (2026-09-03).
+  "keychain", "retries", "emitted",
   // Another dictionary hole: `clipboard` is plain English in 2026 and the 1934
   // list does not carry it. It reaches identifiers through the DOM itself
   // (`navigator.clipboard`, `ClipboardEvent`), so renaming around it would make

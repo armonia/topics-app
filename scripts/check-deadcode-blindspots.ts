@@ -298,21 +298,21 @@ function leftoverProbes(candidates: Candidate[]): Candidate[] {
 }
 
 /**
- * IL FILE DI HOLD. Questo cancello riscrive centinaia di sorgenti due volte
- * (sonda, poi ripristino identico). Su una macchina con il hot-reload del
- * server acceso (`TOPICS_SERVER_WATCH=1`, vedi scripts/server-watch.sh) ogni
- * scrittura e' un evento, e il 2026-09-03 quegli eventi hanno riavviato il
- * server di produzione ogni 30 secondi per dieci minuti. Il watcher confronta
- * il contenuto, ma nella finestra in cui le sonde CI SONO il contenuto e'
- * davvero diverso: l'unico modo di dirgli «non e' una modifica» e' dirglielo.
- * Alzato prima della prima scrittura, tolto dopo l'ultima, anche in `--restore`.
+ * THE HOLD FILE. This gate rewrites hundreds of sources twice (the probe, then
+ * an identical restore). On a machine with the server hot-reload on
+ * (`TOPICS_SERVER_WATCH=1`, see scripts/server-watch.sh) every write is an
+ * event, and on 2026-09-03 those events restarted the production server every
+ * 30 seconds for ten minutes. The watcher compares content, but in the window
+ * where the probes ARE in place the content really is different: the only way
+ * to tell it "this is not a change" is to say so. Raised before the first
+ * write, dropped after the last one, in `--restore` too.
  */
 const RELOAD_HOLD = join(ROOT, ".topics-reload-hold");
 function raiseHold(): void {
-  try { writeFileSync(RELOAD_HOLD, `check-deadcode-blindspots pid ${process.pid} ${new Date().toISOString()}\n`); } catch { /* senza hold si va avanti: il watcher ha comunque il confronto del contenuto */ }
+  try { writeFileSync(RELOAD_HOLD, `check-deadcode-blindspots pid ${process.pid} ${new Date().toISOString()}\n`); } catch { /* without the hold we carry on: the watcher still compares content */ }
 }
 function dropHold(): void {
-  try { unlinkSync(RELOAD_HOLD); } catch { /* gia' tolto */ }
+  try { unlinkSync(RELOAD_HOLD); } catch { /* already gone */ }
 }
 
 function restore(files: Map<string, string>): void {

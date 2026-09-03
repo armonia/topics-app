@@ -17,10 +17,10 @@ import { recoverAfter401 } from "./auth";
 const HOME_VERA = process.env.HOME;
 const realFetch = globalThis.fetch;
 let homeDir: string;
-let credPath: string;
+let credentialsPath: string;
 
-function writeCreds(accessToken: string, refreshToken = "r") {
-  writeFileSync(credPath, JSON.stringify({
+function writeCredentialsFile(accessToken: string, refreshToken = "r") {
+  writeFileSync(credentialsPath, JSON.stringify({
     claudeAiOauth: { accessToken, refreshToken, expiresAt: Date.now() + 3_600_000 },
   }));
 }
@@ -29,7 +29,7 @@ describe("recoverAfter401", () => {
   beforeEach(() => {
     homeDir = mkdtempSync(join(tmpdir(), "auth-401-"));
     mkdirSync(join(homeDir, ".claude"), { recursive: true });
-    credPath = join(homeDir, ".claude", ".credentials.json");
+    credentialsPath = join(homeDir, ".claude", ".credentials.json");
     process.env.HOME = homeDir;
   });
 
@@ -40,7 +40,7 @@ describe("recoverAfter401", () => {
   });
 
   test("the file already carries a different token: take it, no network call", async () => {
-    writeCreds("rotated-by-the-cli");
+    writeCredentialsFile("rotated-by-the-cli");
     let fetched = 0;
     globalThis.fetch = (async () => { fetched++; return new Response("{}", { status: 500 }); }) as unknown as typeof fetch;
     const got = await recoverAfter401("the-one-that-failed");
@@ -49,7 +49,7 @@ describe("recoverAfter401", () => {
   });
 
   test("the file still carries the failed token: renew through the token endpoint and save the new pair", async () => {
-    writeCreds("stale", "refresh-1");
+    writeCredentialsFile("stale", "refresh-1");
     let body = "";
     globalThis.fetch = (async (_u: unknown, init?: RequestInit) => {
       body = String(init?.body ?? "");
@@ -58,19 +58,19 @@ describe("recoverAfter401", () => {
     const got = await recoverAfter401("stale");
     expect(got).toBe("renewed");
     expect(body).toContain("refresh-1");
-    const saved = JSON.parse(readFileSync(credPath, "utf-8"));
+    const saved = JSON.parse(readFileSync(credentialsPath, "utf-8"));
     expect(saved.claudeAiOauth.accessToken).toBe("renewed");
     expect(saved.claudeAiOauth.refreshToken).toBe("refresh-2");
   });
 
   test("the renewal is refused (the refresh token is gone): null, so the caller says /login instead of looping", async () => {
-    writeCreds("stale");
+    writeCredentialsFile("stale");
     globalThis.fetch = (async () => new Response('{"error":"invalid_grant"}', { status: 400 })) as unknown as typeof fetch;
     expect(await recoverAfter401("stale")).toBeNull();
   });
 
   test("no credentials at all: null", async () => {
-    rmSync(credPath, { force: true });
+    rmSync(credentialsPath, { force: true });
     expect(await recoverAfter401("whatever")).toBeNull();
   });
 });

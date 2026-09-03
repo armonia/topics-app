@@ -1150,7 +1150,7 @@
     "server/providers/native/auth-lock-worker.fixture.ts": 5,
     "server/providers/native/auth-lock.test.ts": 32,
     "server/providers/native/auth-write.test.ts": 20,
-    "server/providers/native/auth.ts": 112,
+    "server/providers/native/auth.ts": 46,
     "server/providers/native/compaction.test.ts": 20,
     "server/providers/native/compaction.ts": 59,
     "server/providers/native/history-rehydrate.test.ts": 15,

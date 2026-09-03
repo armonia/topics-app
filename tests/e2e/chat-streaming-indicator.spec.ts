@@ -178,11 +178,11 @@ test.describe("Chat streaming indicator", () => {
   });
 
   test("stream:retry dice che il provider viene riprovato, stream:resumed lo spegne", async ({ page, chatPage, request }) => {
-    // Il runtime nativo riprova un errore transitorio dell'API (529, 5xx, un
-    // token ruotato) aspettando fino a 30s fra un tentativo e l'altro. Senza
-    // un segnale quella pausa e' indistinguibile da una chat piantata: il frame
-    // `stream:retry` la spiega, e `stream:resumed` la chiude quando i dati
-    // tornano a scorrere. Come per `stream:slow`, il contenuto non si tocca.
+    // The native runtime retries a transient API failure (529, 5xx, a rotated
+    // token) waiting up to 30s between attempts. Without a signal that pause is
+    // indistinguishable from a hung chat: the `stream:retry` frame explains it,
+    // and `stream:resumed` clears it when data flows again. As with
+    // `stream:slow`, the message content is never touched.
     const res = await request.get(`${BASE}/api/topics`, { ignoreHTTPSErrors: true });
     const topics = (await res.json()) as { topics: Record<string, { id: string; sessionKey: string }> };
     const sessionKey = Object.values(topics.topics).find((t) => t.id === topicId)?.sessionKey;
@@ -230,7 +230,7 @@ test.describe("Chat streaming indicator", () => {
     }));
 
     await expect(chatPage.streamingIndicator).toHaveAttribute("data-retry", "true", { timeout: 10_000 });
-    // La frase dice cosa succede E a che tentativo siamo: il prossimo e' il 2 di 10.
+    // The phrase says what is happening AND which attempt is next: 2 of 10.
     await expect(chatPage.streamingIndicator.locator('[data-testid="turn-phrase"]'))
       .toContainText(/riprovo \(2\/10\)/i);
     await expect(chatPage.messageList).not.toContainText("⏱");

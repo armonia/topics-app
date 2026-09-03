@@ -31,8 +31,9 @@
  */
 
 import { readFileSync, writeFileSync, mkdtempSync, renameSync, chmodSync, openSync, closeSync, unlinkSync, constants as fsConstants } from "fs";
-import { homedir, tmpdir } from "os";
+import { homedir, tmpdir, userInfo } from "os";
 import { join, dirname } from "path";
+import { spawnSync } from "child_process";
 
 /**
  * Il client id di Claude Code. Non è un segreto (sta in chiaro in ogni
@@ -112,6 +113,87 @@ function credentialPaths(): string[] {
   ];
 }
 
+// ─── THE KEYCHAIN, where Claude Code actually keeps the token on macOS ──────
+//
+// The two files above are not where the CLI writes on a Mac: it uses the
+// login Keychain, item "Claude Code-credentials", account = the user. The
+// file `~/.claude/.credentials.json` is a leftover of an older login: on this
+// machine, on 2026-09-03, it held a token revoked 63 days earlier, while the
+// Keychain and `~/.jcode/auth.json` held the live one. Reading only the files
+// means depending on jcode mirroring the Keychain, and the 401 of that morning
+// ("OAuth access token has been revoked", 300ms after Enter) was exactly the
+// lag between the CLI rotating the pair and the mirror catching up.
+//
+// So the Keychain is a candidate too, and the FIRST one: it is the CLI's own
+// store, and reading it makes the server see a rotation the moment it happens.
+// A renewal done from a Keychain-sourced credential is written BACK to the
+// Keychain, because the refresh token rotates and the CLI must find the new
+// pair where it looks (writing it anywhere else logs the CLI out).
+//
+// OPT-IN PER MACHINE (`TOPICS_CREDENTIALS_KEYCHAIN=1` in ~/.topics-server-env),
+// for one reason: the tests run with a temporary HOME and fake credential
+// files, and a candidate that ignores HOME would hand them the real token.
+// Reading it costs one `security` spawn (~30ms) per turn, not per round.
+const KEYCHAIN_SERVICE = "Claude Code-credentials";
+/** The pseudo-path that marks a Keychain-sourced credential for lock and write. */
+export const KEYCHAIN_SOURCE = `keychain:${KEYCHAIN_SERVICE}`;
+
+export interface KeychainRunResult { status: number | null; stdout: string; stderr: string }
+export type KeychainRunner = (cmd: string, args: string[]) => KeychainRunResult;
+
+const defaultRunner: KeychainRunner = (cmd, args) => {
+  const r = spawnSync(cmd, args, { encoding: "utf-8", timeout: 5_000 });
+  return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+};
+let _runner: KeychainRunner = defaultRunner;
+/** Tests inject a fake `security`; `null` restores the real one. */
+export function setKeychainRunnerForTests(run: KeychainRunner | null): void {
+  _runner = run ?? defaultRunner;
+}
+
+function keychainEnabled(): boolean {
+  return process.platform === "darwin" && process.env.TOPICS_CREDENTIALS_KEYCHAIN === "1";
+}
+
+export function readKeychainCredentials(): (OAuthCredentials & { sourcePath: string }) | null {
+  const r = _runner("security", ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"]);
+  if (r.status !== 0 || !r.stdout.trim()) return null;
+  try {
+    const parsed = parseAnyFormat(JSON.parse(r.stdout.trim()));
+    return parsed ? { ...parsed, sourcePath: KEYCHAIN_SOURCE } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The item's account name: what the CLI wrote, falling back to the login user. */
+function keychainAccount(): string {
+  const r = _runner("security", ["find-generic-password", "-s", KEYCHAIN_SERVICE]);
+  const m = r.status === 0 ? /"acct"<blob>="([^"]+)"/.exec(r.stdout) : null;
+  if (m?.[1]) return m[1];
+  try { return userInfo().username; } catch { return process.env.USER || "claude"; }
+}
+
+/**
+ * Written the way the CLI writes it: the whole item is one JSON document and
+ * the sibling keys (`mcpOAuth`, `scopes`, `subscriptionType`, `rateLimitTier`)
+ * are the CLI's, so they are preserved and only the rotating pair changes.
+ * `-U` updates the item in place instead of adding a duplicate.
+ */
+export function writeKeychainCredentials(next: OAuthCredentials): void {
+  const cur = _runner("security", ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"]);
+  let doc: Record<string, any> = {};
+  try { doc = cur.status === 0 && cur.stdout.trim() ? JSON.parse(cur.stdout.trim()) : {}; } catch { doc = {}; }
+  doc.claudeAiOauth = {
+    ...(doc.claudeAiOauth ?? {}),
+    accessToken: next.accessToken,
+    refreshToken: next.refreshToken,
+    expiresAt: next.expiresAt,
+  };
+  const r = _runner("security", ["add-generic-password", "-U", "-s", KEYCHAIN_SERVICE, "-a", keychainAccount(), "-w", JSON.stringify(doc)]);
+  if (r.status !== 0) throw new Error(`keychain write failed: ${r.stderr.trim() || `exit ${r.status}`}`);
+}
+
 /**
  * Legge le credenziali dal file che ne ha di UTILIZZABILI.
  *
@@ -134,6 +216,10 @@ function credentialPaths(): string[] {
  */
 export function readCredentials(): OAuthCredentials | null {
   const candidates: Array<OAuthCredentials & { sourcePath: string }> = [];
+  if (keychainEnabled()) {
+    const kc = readKeychainCredentials();
+    if (kc) candidates.push(kc);
+  }
   for (const path of credentialPaths()) {
     try {
       const raw = JSON.parse(readFileSync(path, "utf-8"));
@@ -204,6 +290,7 @@ function parseAnyFormat(raw: unknown): OAuthCredentials | null {
  * modo di sapere che funziona prima che serva.
  */
 export function writeCredentials(path: string, next: OAuthCredentials): void {
+  if (path === KEYCHAIN_SOURCE) { writeKeychainCredentials(next); return; }
   let doc: Record<string, any> = {};
   try { doc = JSON.parse(readFileSync(path, "utf-8")); } catch { /* si riscrive da zero */ }
 
@@ -258,6 +345,9 @@ const LOCK_TIMEOUT_MS = 20_000;
 const LOCK_RETRY_MS = 50;
 
 function lockPath(credPath: string): string {
+  // The Keychain has no file to sit next to: its lock lives beside the CLI's
+  // legacy file, the one path every process on this machine agrees on.
+  if (credPath === KEYCHAIN_SOURCE) return join(process.env.HOME || homedir(), ".claude", ".credentials.keychain.lock");
   return credPath + ".lock";
 }
 

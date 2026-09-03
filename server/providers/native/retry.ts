@@ -147,8 +147,8 @@ export function parseRetryAfter(header: string | null | undefined, now: number =
  * sooner than asked, and never later than our own curve would have us.
  */
 export function backoffMs(attempt: number, policy: RetryPolicy, retryAfterMs: number | null = null): number {
-  const exp = Math.min(policy.capMs, policy.baseMs * 2 ** Math.max(0, attempt - 1));
-  const jittered = Math.round(exp * policy.jitter());
+  const exponential = Math.min(policy.capMs, policy.baseMs * 2 ** Math.max(0, attempt - 1));
+  const jittered = Math.round(exponential * policy.jitter());
   return retryAfterMs != null ? Math.max(jittered, retryAfterMs) : jittered;
 }
 
