@@ -8,7 +8,7 @@
  */
 
 /** Per-side line counts of one changed file, from `git diff --numstat`. */
-export interface GitLineStat {
+export interface GitLineCounts {
   added: number;
   removed: number;
   /** git does not count the lines of a binary: `-`/`-`, not `0`/`0`. */
@@ -23,8 +23,8 @@ export interface GitStatusFile {
   status: string;
   /** Renames and copies only: the path it came from. */
   origPath?: string;
-  staged?: GitLineStat;
-  unstaged?: GitLineStat;
+  staged?: GitLineCounts;
+  unstaged?: GitLineCounts;
 }
 
 export interface GitStatus {

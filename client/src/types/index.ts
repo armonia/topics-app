@@ -1214,7 +1214,7 @@ export interface FileNode {
 
 
 // git status of a folder: one declaration for both sides, see shared/git-status.ts
-export type { GitStatus, GitLineStat, GitStatusFile as GitFile } from '../../../shared/git-status';
+export type { GitStatus, GitStatusFile as GitFile } from '../../../shared/git-status';
 
 export interface GitBranch {
   name: string;

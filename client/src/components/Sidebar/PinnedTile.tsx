@@ -16,7 +16,8 @@ import { startDragPreview } from '../../lib/dragPreview';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { cachedIconPalette, cachedIconTint, fromHex, sampleIconPalette, sampleIconTint } from '../../lib/iconTint';
 import { PINNED_ALIGN, PINNED_GRID_CHEVRON_CLASS, PINNED_GRID_CLEAR_CLASS, PINNED_TILE_ACTION_SLOT, PINNED_TILE_H, type PinnedForm } from './pinnedTileMetrics';
-import { PinnedLabelMeasure, usePinnedLabelFit } from './pinnedLabelFit';
+import { PinnedLabelMeasure } from './pinnedLabelFit';
+import { usePinnedLabelFit } from './usePinnedLabelFit';
 import { RowSplitMap } from './RowSplitMap';
 
 /**

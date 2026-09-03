@@ -183,10 +183,10 @@ describe('the name of a grid tile', () => {
   test('the pixel budget is the classes the tile is drawn with, restated', () => {
     // Restating instead of importing is what lets Tailwind read the source;
     // this is what stops the restatement from drifting.
-    expect(PINNED_GRID_PX.inset).toBe(risolvi(ROW_PX, 'px').wide);
+    expect<number>(PINNED_GRID_PX.inset).toBe(risolvi(ROW_PX, 'px').wide);
     expect(PINNED_GRID_PX.chevron).toBe(ROW_CHEVRON);
-    expect(PINNED_GRID_PX.gap).toBe(bare(ROW_GAP, 'gap'));
-    expect(PINNED_GRID_PX.icon).toBe(bare(ROW_GLYPH_SLOT, 'w'));
+    expect<number>(PINNED_GRID_PX.gap).toBe(bare(ROW_GAP, 'gap'));
+    expect<number>(PINNED_GRID_PX.icon).toBe(bare(ROW_GLYPH_SLOT, 'w'));
     // The width under which the hint leaves: two chevron zones and the icon.
     const { inset, chevron, gap, icon } = PINNED_GRID_PX;
     expect(PINNED_GRID_PX.chevronMin).toBeGreaterThanOrEqual((inset + chevron + gap) * 2 + icon);
