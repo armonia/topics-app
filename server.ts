@@ -98,7 +98,7 @@ import { sendBrowserWsMessage, parseBrowserWsMessage, type BrowserWsMessage } fr
 import { applyEngineSwitch } from "./server/browser-engine-switch";
 import { browserEngineRegistry, chromiumExtensionsCount, chromiumSidecar } from "./server/browser-engine-registry";
 import { nativeDelegateRegistry, handleNativeDelegationFrame } from "./server/browser-native-delegate";
-import { countSharedViewers } from "./server/browser-viewer-count";
+import { countSharedViewers, createViewerCountPublisher } from "./server/browser-viewer-count";
 import { seedNativeFromShared } from "./server/browser-session-handoff";
 import { parseChatWsInbound } from "./server/schemas/chat-ws-inbound";
 import { buildPresenceSnapshot } from "./server/presence";
@@ -345,6 +345,18 @@ function broadcastToBrowserWs(contextId: string, msg: BrowserWsMessage): void {
     }
   }
 }
+
+// The viewer count is PUSHED to the panes of a context when it changes, on the
+// same socket that carries the frames. It used to be polled: every auto-mode
+// pane asked `GET /api/browsers/:id/viewers` every 2s, and on the live log that
+// one route was 44% of all API requests for a value that only moves on the
+// events wired below (open, close, set_watching, register_native_executor,
+// heartbeat reap). The publisher remembers what each context was last told and
+// sends only on a change (server/browser-viewer-count.ts).
+const viewerCountPublisher = createViewerCountPublisher(
+  (c) => countSharedViewers(browserWsClients.get(c)),
+  (c, count) => broadcastToBrowserWs(c, { type: 'viewers', count }),
+);
 
 // Boot-time invariant (Bug #7): ui_state.payload_version/server_seq must exist
 // (migration 012). Without this, every GET/PUT would silently degrade. Fail loud.
@@ -2408,7 +2420,14 @@ const wsHeartbeatTimer = setInterval(() => {
       }
       if (ws.readyState === 1) { try { ws.ping(); } catch {} }
     }
-    if (set.size === 0) browserWsClients.delete(ctxId);
+    if (set.size === 0) {
+      browserWsClients.delete(ctxId);
+      viewerCountPublisher.forget(ctxId);
+    } else {
+      // A reaped viewer changes the count for the panes that stay; a tick
+      // that reaped nobody sends nothing (the publisher compares first).
+      viewerCountPublisher.publish(ctxId);
+    }
   }
 }, WS_HEARTBEAT_INTERVAL_MS);
 
@@ -3275,6 +3294,11 @@ const opzioniServer = {
           browserWsClients.set(ctxId, bset);
         }
         bset.add(ws);
+        // Tell the newcomer where the count stands, then the others that it
+        // moved. The direct send covers the one case the broadcast cannot: a
+        // socket joining a context whose count did not change.
+        sendBrowserWsMessage(ws, { type: 'viewers', count: countSharedViewers(bset) });
+        viewerCountPublisher.publish(ctxId);
         // This WS's own frame consumer. Hoisted to a const so we pass the SAME
         // identity to stopScreencast — with fan-out, that removes only THIS
         // viewer and leaves the shared CDP screencast running for the others
@@ -3553,6 +3577,9 @@ const opzioniServer = {
             // Va marcato PRIMA del controllo qui sotto, o questo stesso socket si
             // conterebbe come spettatore e il contesto non morirebbe mai.
             ws.data._nativeDelegate = true;
+            // The delegate just left the count: the panes of this context (this
+            // one included) hear the new value now, not on the next poll.
+            viewerCountPublisher.publish(ctxId);
             // Il `message` handler non e' async: si sequenzia in una IIFE, che
             // e' comunque l'ordine che serve (prima lo stop, poi la distruzione).
             void (async () => {
@@ -3726,6 +3753,7 @@ const opzioniServer = {
             // set_stream: quello è il transport, e il WebRTC lo mette in pausa
             // mentre guarda eccome.
             ws.data._watching = parsed.active;
+            viewerCountPublisher.publish(ctxId);
           } else if (parsed.type === 'set_render') {
             // T1 DOM co-browse — switch THIS viewer between the pixel stream
             // ('video', default) and a native rrweb DOM reconstruction ('dom').
@@ -3887,7 +3915,12 @@ const opzioniServer = {
         const bset = browserWsClients.get(ws.data.browserContextId);
         if (bset) {
           bset.delete(ws);
-          if (bset.size === 0) browserWsClients.delete(ws.data.browserContextId);
+          if (bset.size === 0) {
+            browserWsClients.delete(ws.data.browserContextId);
+            viewerCountPublisher.forget(ws.data.browserContextId);
+          } else {
+            viewerCountPublisher.publish(ws.data.browserContextId);
+          }
         }
         // T1 DOM co-browse — if this was the last DOM-mode viewer, stop emission
         // (the page keeps recording cheaply; no wasted `dom_event` fan-out).

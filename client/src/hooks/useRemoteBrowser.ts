@@ -3,6 +3,7 @@ import { parseBrowserWsMessage, type BrowserWsMessage } from '../../../shared/br
 import type { ElementDescription } from '../../../shared/element-describe';
 import type { RemoteField } from '../../../shared/browser-keyboard-field';
 import { serverWsBase } from '@/lib/shell/net';
+import { attachViewerChannel, pushViewerCount } from '../lib/viewerCountBus';
 import { mapCoordinates } from './browserCoords';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'fallback-http';
@@ -558,10 +559,15 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     // Every handler is inert unless `ws` is STILL the current socket — a
     // superseded socket (StrictMode double-mount, a reconnect that replaced it)
     // must not touch connection state or it would flap the pane to disconnected.
+    // This socket carries the pushed viewer count while it is up (see
+    // viewerCountBus): announced on open, withdrawn on close, per socket so a
+    // superseded one withdraws only itself.
+    let detachViewerChannel: (() => void) | null = null;
     ws.onopen = () => {
       if (!mountedRef.current || wsRef.current !== ws) return;
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       updateConnectionState('connected');
+      detachViewerChannel = attachViewerChannel(contextId);
       // Fresh connection → reset the WebRTC retry budget + clear any prior error so
       // the transport renegotiates (driven by the first frame proving a live target).
       webrtcAttemptRef.current = 0;
@@ -780,6 +786,11 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
             // c'è nessun mirror da interrogare.
             focusSinkRef.current?.(msg.field ?? null);
             break;
+          case 'viewers':
+            // The count moved (or this socket just opened): the auto-share
+            // decision hears it from the bus instead of polling for it.
+            pushViewerCount(contextId, msg.count);
+            break;
           default:
             break;
         }
@@ -794,6 +805,10 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     };
 
     ws.onclose = () => {
+      // Before the guard: a superseded socket must still stop claiming that a
+      // change would be pushed through it.
+      detachViewerChannel?.();
+      detachViewerChannel = null;
       if (!mountedRef.current || wsRef.current !== ws) return;
       updateConnectionState('disconnected');
       // The WebRTC signaling rode this WS — drop the PC so a reconnect renegotiates.

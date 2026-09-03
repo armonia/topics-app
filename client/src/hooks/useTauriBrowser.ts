@@ -29,6 +29,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { startNativeExecutorSocket } from './nativeExecutorSocket';
+import { attachViewerChannel, pushViewerCount } from '../lib/viewerCountBus';
 import { tauriInvoke, currentWindowLabel } from '../lib/shell/tauri';
 import { markBrowserViewLive, markBrowserViewDead } from '../lib/shell/nativeBrowserRoster';
 import { currentOverlays, decideFreeze, liveSlotRect, onOcclusionChange, type OverlayRect } from '../lib/shell/browserOcclusion';
@@ -1408,8 +1409,16 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   // `nativeExecutorSocket.ts`, where the socket and the clock are injected and
   // the reconnection can fail in a test WITHOUT remounting the pane.
   useEffect(() => {
+    // The pushed viewer count rides this socket while the pane is native (the
+    // streaming socket carries it while shared); see viewerCountBus.
+    let detachViewerChannel: (() => void) | null = null;
     const run = startNativeExecutorSocket({
       url: `${serverWsBase()}/ws/browser/${encodeURIComponent(id)}`,
+      onViewers: (count) => pushViewerCount(id, count),
+      onChannel: (up) => {
+        detachViewerChannel?.();
+        detachViewerChannel = up ? attachViewerChannel(id) : null;
+      },
       // A background pane is hidden (see setNativeVisible), and a hidden NSView
       // can't be snapshotted or laid out — so wake it for the duration of the
       // op. It stays parked off-screen throughout, so nothing appears to the
