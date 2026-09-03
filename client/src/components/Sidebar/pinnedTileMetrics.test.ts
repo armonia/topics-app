@@ -2,13 +2,18 @@
  * @covers LAYOUT-21
  */
 import { describe, expect, test } from 'bun:test';
-import { ROW_ACTION_BOX, ROW_H } from '../../lib/selectionStyles';
+import { ROW_ACTION_BOX, ROW_CHEVRON, ROW_GAP, ROW_GLYPH_SLOT, ROW_H, ROW_PX } from '../../lib/selectionStyles';
 import {
+  PINNED_GRID_CHEVRON_CLASS,
+  PINNED_GRID_CLEAR_CLASS,
+  PINNED_GRID_PX,
   PINNED_TILE_ACTION_INSET_CLASS,
   PINNED_TILE_ACTION_INSET_PX,
   PINNED_TILE_ACTION_SLOT,
   PINNED_TILE_H,
   PINNED_TILE_PX,
+  pinnedLabelRoom,
+  pinnedLabelShown,
 } from './pinnedTileMetrics';
 
 /**
@@ -152,5 +157,82 @@ describe('le misure della tessera fissata', () => {
     // sbagliato: bottone a filo della tessera, tre volte zero.
     expect(PINNED_TILE_ACTION_INSET_PX.wide).toBeGreaterThan(0);
     expect(PINNED_TILE_ACTION_INSET_PX.compact).toBeGreaterThan(0);
+  });
+});
+
+/** The pixels of a `gap-2` / `w-[18px]` / `left-2` class, on the bare (no
+ *  breakpoint) variant only: the grid rule has one branch. */
+function bare(classes: string, prop: 'gap' | 'w' | 'left'): number {
+  for (const cls of classes.split(/\s+/).filter(Boolean)) {
+    const m = new RegExp(`^${prop}-(?:\\[(\\d+)px\\]|(\\d+))$`).exec(cls);
+    if (!m) continue;
+    return m[1] !== undefined ? Number(m[1]) : Number(m[2]) * STEP_PX;
+  }
+  throw new Error(`no '${prop}-' measure readable in "${classes}"`);
+}
+
+/**
+ * THE NAME OF A GRID TILE: drawn whole or not at all (card 058ea722, 03/09).
+ *
+ * The screenshot on the card: three tiles on a ~400px sidebar reading "to...",
+ * "ar...", "ed...". The rule replaces a fixed 104px threshold with a measured
+ * fit; here the fit is exercised on the numbers of that screenshot and on the
+ * edges of the rule, without a browser.
+ */
+describe('the name of a grid tile', () => {
+  test('the pixel budget is the classes the tile is drawn with, restated', () => {
+    // Restating instead of importing is what lets Tailwind read the source;
+    // this is what stops the restatement from drifting.
+    expect(PINNED_GRID_PX.inset).toBe(risolvi(ROW_PX, 'px').wide);
+    expect(PINNED_GRID_PX.chevron).toBe(ROW_CHEVRON);
+    expect(PINNED_GRID_PX.gap).toBe(bare(ROW_GAP, 'gap'));
+    expect(PINNED_GRID_PX.icon).toBe(bare(ROW_GLYPH_SLOT, 'w'));
+    // The width under which the hint leaves: two chevron zones and the icon.
+    const { inset, chevron, gap, icon } = PINNED_GRID_PX;
+    expect(PINNED_GRID_PX.chevronMin).toBeGreaterThanOrEqual((inset + chevron + gap) * 2 + icon);
+  });
+
+  test('the screenshot: a favicon tile at 130px does not show "to..." any more', () => {
+    // 130 wide, opens (a project with tabs), favicon, "topics-app" at 13px is
+    // ~65px. Room: 130 - 16 - 40 - 26 = 48. The name goes, the icon stays.
+    const tile = { tileWidth: 130, hasIcon: true, expandable: true };
+    expect(pinnedLabelRoom(tile)).toBe(48);
+    expect(pinnedLabelShown({ ...tile, labelWidth: 65 })).toBe(false);
+    // A short name in the same tile fits whole and is drawn.
+    expect(pinnedLabelShown({ ...tile, labelWidth: 48 })).toBe(true);
+    expect(pinnedLabelShown({ ...tile, labelWidth: 49 })).toBe(false);
+  });
+
+  test('without an accordion the chevron zone is not charged', () => {
+    expect(pinnedLabelRoom({ tileWidth: 130, hasIcon: true, expandable: false })).toBe(88);
+    // Under `chevronMin` the hint is not drawn, so its zone is free again.
+    expect(pinnedLabelRoom({ tileWidth: 70, hasIcon: true, expandable: true })).toBe(70 - 16 - 26);
+  });
+
+  test('without an icon the name is the only identity: it stays, truncated if it must', () => {
+    // A project without a favicon never shows a monogram in place of its
+    // name; the name stays down to the width where one character exists.
+    expect(pinnedLabelShown({ tileWidth: 60, labelWidth: 200, hasIcon: false, expandable: false })).toBe(true);
+    expect(pinnedLabelShown({ tileWidth: 16 + PINNED_GRID_PX.glyphMin, labelWidth: 200, hasIcon: false, expandable: false })).toBe(true);
+    expect(pinnedLabelShown({ tileWidth: 16 + PINNED_GRID_PX.glyphMin - 1, labelWidth: 200, hasIcon: false, expandable: false })).toBe(false);
+  });
+
+  test('in grid form the accordion is out of the flow, at the row inset', () => {
+    // "When the icon is centred the accordion must stay on the left, where it
+    // would be if nothing were centred": out of the flow, and at the same x
+    // the row inset puts every other accordion of the column.
+    expect(/(^|\s)absolute(\s|$)/.test(PINNED_GRID_CHEVRON_CLASS)).toBe(true);
+    expect(bare(PINNED_GRID_CHEVRON_CLASS, 'left')).toBe(PINNED_GRID_PX.inset);
+  });
+
+  test('while the accordion is drawn the identity keeps its zone clear, on both sides', () => {
+    // The padding the tile grows to is the same zone the fit rule charges:
+    // inset + chevron + gap. Read from the class, at the width the hint
+    // appears at, so the CSS and the arithmetic cannot drift apart.
+    const { inset, chevron, gap, chevronMin } = PINNED_GRID_PX;
+    const m = /^@min-\[(\d+)px\]\/tile:px-(\d+)$/.exec(PINNED_GRID_CLEAR_CLASS);
+    expect(m, `unreadable clear class "${PINNED_GRID_CLEAR_CLASS}"`).not.toBeNull();
+    expect(Number(m![1])).toBe(chevronMin);
+    expect(Number(m![2]) * STEP_PX).toBe(inset + chevron + gap);
   });
 });

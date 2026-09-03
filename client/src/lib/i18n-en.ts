@@ -979,6 +979,8 @@ const EN = {
   'board.composer.dismissTitle': 'No: a new task, with no links',
   'board.composer.attachTitle': 'Attach a file (or paste/drop an image)',
   'board.composer.dropToAttach': 'Drop here to attach to the task',
+  'board.draft.label': 'Preview: Enter creates it',
+  'board.draft.untitled': 'Untitled task',
   'board.composer.projectAutoTitle': 'Automatic project: resolved from the task text (a name it mentions); if that is unclear it goes to the general board',
   'board.composer.projectNamedTitle': 'Project: {label}',
   'board.composer.projectPickTitle': 'Pick the task project',

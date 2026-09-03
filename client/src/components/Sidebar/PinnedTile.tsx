@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Activity, BarChart3, BookOpen, ChevronRight, Clock, Cpu, Globe, Kanban, LayoutGrid, MessageSquare, TerminalSquare, UserRound, Wrench, type LucideIcon } from 'lucide-react';
 import { getProjectLabel, sidebarItemPaneId, type SidebarItem } from '../../lib/buildSidebarItems';
 import type { AttentionTier } from '../../types';
@@ -15,7 +15,7 @@ import { rememberDraggedPane } from '../../lib/dragPayload';
 import { startDragPreview } from '../../lib/dragPreview';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { cachedIconPalette, cachedIconTint, fromHex, sampleIconPalette, sampleIconTint } from '../../lib/iconTint';
-import { PINNED_ALIGN, PINNED_TILE_ACTION_SLOT, PINNED_TILE_H, type PinnedForm } from './pinnedTileMetrics';
+import { PINNED_ALIGN, PINNED_GRID_CHEVRON_CLASS, PINNED_GRID_CLEAR_CLASS, PINNED_TILE_ACTION_SLOT, PINNED_TILE_H, pinnedLabelShown, type PinnedForm } from './pinnedTileMetrics';
 import { RowSplitMap } from './RowSplitMap';
 
 /**
@@ -327,8 +327,46 @@ export function PinnedTile({
    *  place that declares both (see `PINNED_ALIGN`). */
   const align = PINNED_ALIGN[form];
 
+  /** Something is drawn in front of the name: a favicon or a type glyph. */
+  const hasIdentityIcon = hasRealIcon || !!Glyph;
+
+  // DOES THE NAME FIT? Two widths, read from the DOM: the tile's, which changes
+  // with the sidebar and with how many tiles share the row, and the name's
+  // FULL width, from a 0x0 measuring box that overflows with the text
+  // (`scrollWidth` reports the overflow, and a box with no size paints
+  // nothing and can never be found outside the tile). The verdict is
+  // `pinnedLabelShown`, the pure rule in `pinnedTileMetrics`.
+  //
+  // `useLayoutEffect` and not `useEffect`: the first reading lands before the
+  // first paint, so a name that will not fit is never seen for a frame. The
+  // observer covers everything after that (a drag that packs the row, a
+  // sidebar resize). Until the first reading (`null`) the class list falls
+  // back to the container-query thresholds, which is what the tile did before.
+  const tileRef = useRef<HTMLButtonElement>(null);
+  const measureRef = useRef<HTMLSpanElement>(null);
+  const [fit, setFit] = useState<{ tile: number; label: number } | null>(null);
+  useLayoutEffect(() => {
+    if (isRow) return;
+    const tile = tileRef.current;
+    if (!tile) return;
+    const read = () => {
+      const width = tile.getBoundingClientRect().width;
+      const label = measureRef.current?.scrollWidth ?? 0;
+      setFit((prev) => (prev && prev.tile === width && prev.label === label ? prev : { tile: width, label }));
+    };
+    read();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(read);
+    ro.observe(tile);
+    return () => ro.disconnect();
+  }, [isRow, item.name]);
+  const labelShown = fit === null
+    ? null
+    : pinnedLabelShown({ tileWidth: fit.tile, labelWidth: fit.label, hasIcon: hasIdentityIcon, expandable: !!expandable });
+
   return (
     <button
+      ref={tileRef}
       type="button"
       role="treeitem"
       aria-label={item.name}
@@ -399,6 +437,12 @@ export function PinnedTile({
         // a 390×844, nome della tessera e nome della riga partivano da due
         // colonne diverse nella stessa colonna.
         `${PINNED_TILE_H} w-full min-w-0 rounded-lg ${ROW_PX} select-none`,
+        // IN GRID FORM, WHILE THE ACCORDION IS DRAWN, THE CONTENT KEEPS CLEAR
+        // OF IT: the chevron is out of the flow at the left edge, and a name
+        // that is the tile's only identity (no favicon) would otherwise run
+        // under it. Symmetric, so the centre stays the centre (see
+        // PINNED_GRID_CLEAR_CLASS).
+        expandable && !isRow ? PINNED_GRID_CLEAR_CLASS : '',
         'transition-colors duration-100',
         // Il filo neutro resta SEMPRE: la cornice accesa gli si sovrappone da
         // selezionata, e a riposo la tessera torna sobria come una qualsiasi.
@@ -527,19 +571,27 @@ export function PinnedTile({
       {expandable ? (
         <span
           data-testid="pinned-chevron-slot"
-          // THE BARE BOX IN GRID FORM, and it is the mirror that demands it.
-          // The list version closes by 4px on its right (ROW_LEAD_TIGHTEN):
-          // that is right in a COLUMN, where the box leads a shared gutter. In
-          // grid the same 12px are mirrored empty on the other side to keep the
-          // identity centred, and a box that closes on one side only would push
-          // that centre off by 2px. The mirror is a symmetry argument.
-          className={`${isRow ? ROW_CHEVRON_SLOT : ROW_CHEVRON_SLOT_BARE} ${
-            // UNDER 74px THE HINT DOES NOT FIT, and this is the sum, not a
-            // taste: 16 of inset + 12 of chevron + 8 of gap + 18 of icon + 8
-            // + 12 of mirror = 74. Below that the pieces overflow the tile and
-            // the chevron ends up painted a pixel outside it (measured: -0.9px
-            // on a 56px tile). What goes is the HINT, not the behaviour: the
-            // tile still opens on click, and the identity keeps the middle.
+          // IN GRID FORM THE ACCORDION LEAVES THE FLOW AND STAYS AT THE LEFT
+          // EDGE (card 058ea722, 03/09: "when the icon is centred the
+          // accordion must stay on the left, where it would be if nothing
+          // were centred"). It used to sit in the flow next to the icon with
+          // an empty mirror box on the other side: the centre came out right
+          // and the chevron travelled to the middle of the tile with it. Out
+          // of the flow it marks the row's edge like every other accordion of
+          // the column, and it weighs nothing on the centre by construction.
+          // The bare box (no ROW_LEAD_TIGHTEN): out of the flow there is no
+          // gutter to close.
+          // What keeps the identity CLEAR of it is `pinnedLabelShown`: the
+          // name is drawn only if it fits with the chevron zone kept free on
+          // both sides, and the icon alone is centred, which lands it right
+          // of the chevron at every width where the chevron is drawn.
+          className={`${isRow ? ROW_CHEVRON_SLOT : `${ROW_CHEVRON_SLOT_BARE} ${PINNED_GRID_CHEVRON_CLASS}`} ${
+            // UNDER 76px THE HINT DOES NOT FIT, and this is the sum, not a
+            // taste: 8 + 12 + 8 of chevron zone on each side + 18 of icon =
+            // 74. Below that the centred icon would land on the chevron. What
+            // goes is the HINT, not the behaviour: the tile still opens on
+            // click, and the identity keeps the middle. The same number is
+            // `PINNED_GRID_PX.chevronMin`, which the fit rule reads.
             isRow ? '' : 'hidden @min-[76px]/tile:flex'
           }`}
         >
@@ -564,24 +616,21 @@ export function PinnedTile({
           `hidden` e non `w-0`: toglie il figlio dal flusso, e con lui il suo
           gap. Il segnaposto mentre la sonda gira resta, perche' li' un
           ingombro c'e' e serve (tiene il posto che l'icona avra'). */}
-      {/* IN ROW FORM THE ICON'S PLACE IS ALWAYS THERE, even empty.
-          The two forms want opposite things, which is why this class has two
-          branches:
-           · GRID: the identity is CENTRED, and an empty box with its gap would
-             move that centre — it must leave the flow.
-           · ROW: the names line up in a column, and a project without a
-             favicon would start 22px before the others. Measured on the real
-             tiles on 17/08: chat at x=50, project without favicon at x=28, one
-             with favicon at x=54 — THREE columns for the same list. */}
+      {/* IN ROW FORM TOO THE BOX EXISTS ONLY WITH SOMETHING IN IT. It used to
+          be kept empty so that a project without a favicon started its name
+          in the same column as one with a favicon (measured on 17/08: chat at
+          x=50, project without favicon at x=28, with favicon at x=54). On
+          03/09 (card 058ea722) the owner reversed that trade for the whole
+          sidebar: the name sits at the minimum distance and moves right only
+          when there IS an icon (see `rowLeadGlyph.ts`). The probe placeholder
+          stays, for the one round trip in which the answer is in flight. */}
       <span className={`relative ${
         // THE BOX COMES FROM THE FORM, and in row form it is the column's own
         // slot: sized on the glyph the tile's ink started 2px before the ink of
         // the row above it, because the column reserves 18px for every glyph
         // and the tile reserved 14 (measured by tests/e2e/sidebar-pinned-alignment).
-        isRow
-          ? PINNED_ALIGN.row.iconSlot
-          : `${PINNED_ALIGN.grid.iconSlot} ${hasRealIcon || Glyph || iconProbing ? 'flex' : 'hidden'}`
-      }`}>
+        isRow ? PINNED_ALIGN.row.iconSlot : PINNED_ALIGN.grid.iconSlot
+      } ${hasIdentityIcon || iconProbing ? 'flex' : 'hidden'}`}>
         {hasRealIcon
           ? <ProjectFavicon path={projectPath} size={18} />
           : Glyph
@@ -590,16 +639,24 @@ export function PinnedTile({
             // l'icona avrà: senza, quando arriva il nome scivola via di 18px a
             // cose ferme. Solo mentre sonda — un progetto che risulta senza
             // icona torna a zero ingombro, che è la decisione già presa.
-            : iconProbing
-              ? <span aria-hidden="true" className="block w-[18px]" />
-              // IL SEGNAPOSTO DELLA FORMA RIGA: largo quanto un glifo (14px),
-              // cosi' il nome parte dalla stessa x di chi un'icona ce l'ha.
-              // Non disegna niente - la decisione «solo icone vere, nessun
-              // monogramma» (16/07) resta intatta: qui si tiene una colonna,
-              // non si inventa un'identita'. In forma quadrata il genitore e'
-              // `hidden`, quindi questo non esiste e il centro resta il centro.
-              : <span aria-hidden="true" className="block w-[14px]" />}
+            : <span aria-hidden="true" className="block w-[18px]" />}
       </span>
+
+      {/* THE MEASURING BOX: the whole name, in the tile's font, in a box of no
+          size. `scrollWidth` reads the overflow, i.e. the width the name would
+          take untruncated, and the box itself paints nothing and occupies
+          nothing, so no test that walks the tile's descendants can find it
+          outside the tile. Only in grid form, where the question is asked. */}
+      {!isRow && (
+        <span
+          ref={measureRef}
+          aria-hidden="true"
+          data-testid="pinned-tile-measure"
+          className={`pointer-events-none absolute left-0 top-0 h-0 w-0 overflow-hidden whitespace-nowrap ${TAB_LABEL}`}
+        >
+          {item.name}
+        </span>
+      )}
 
       {/* THE NAME LEAVES ONLY WHEN THERE IS ANOTHER IDENTITY TO READ.
           Below the threshold the tile is too narrow for the title to say
@@ -657,7 +714,16 @@ export function PinnedTile({
             // (measured: 5 tiles in a 190px sidebar, air 4.3 left against 12.3
             // right). 52 is the sum: 16 of inset + 14 of glyph + 8 of gap = 38
             // before the first character, plus 14 for that character to exist.
-            : `flex-initial text-center ${hasRealIcon ? 'hidden @min-[104px]/tile:block' : 'hidden @min-[52px]/tile:block'}`
+            // THE NAME IS DRAWN ONLY IF IT FITS WHOLE (card 058ea722, 03/09:
+            // three tiles reading "to...", "ar...", "ed..."). The verdict is
+            // measured (`labelShown`, from `pinnedLabelShown`); until the
+            // first measurement the container-query thresholds of before
+            // stand in, so nothing depends on an asynchronous answer.
+            : `flex-initial text-center ${
+              labelShown === null
+                ? (hasIdentityIcon ? 'hidden @min-[104px]/tile:block' : 'hidden @min-[52px]/tile:block')
+                : labelShown ? 'block' : 'hidden'
+            }`
         }`}
       >
         {item.name}
@@ -711,20 +777,6 @@ export function PinnedTile({
           Sta DOPO il badge di proposito: il conteggio resta al suo posto e lo
           slot si apre oltre, così le due cose non si contendono lo stesso
           angolo. */}
-      {/* THE MIRROR OF THE CHEVRON — twelve empty pixels, and that is the point.
-          It exists only where something has to be centred and something else
-          leads the line: without it the group sits half a chevron plus half a
-          gap to the right of the tile's centre. With it the two ends of the
-          line weigh the same and the identity lands in the middle, which is
-          what one sees. */}
-      {expandable && !isRow && (
-        <span
-          aria-hidden="true"
-          data-testid="pinned-chevron-mirror"
-          className="hidden w-3 shrink-0 @min-[76px]/tile:block"
-        />
-      )}
-
       {/* WHERE THIS PANE SITS IN THE SPLIT — the same schematic every sidebar
           row carries, and in row form the tile IS a row (see `splitMap` in
           PINNED_ALIGN for why a grid tile does not get it). Before the trailing

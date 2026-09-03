@@ -31,6 +31,9 @@ interface NameMetrics {
   left: number;
   /** Left edge of the row card holding it: rows of the same depth share it. */
   rowLeft: number;
+  /** The row draws a leading glyph box (`data-row-glyph-slot`): a favicon, a
+   *  board / terminal / browser glyph. Only these rows pay the glyph column. */
+  hasGlyph: boolean;
 }
 
 async function readNames(page: import("@playwright/test").Page): Promise<NameMetrics[]> {
@@ -45,11 +48,21 @@ async function readNames(page: import("@playwright/test").Page): Promise<NameMet
         // edge, i.e. the depth. Chats nest, projects do not.
         const row = el.closest('[role="treeitem"], [data-project-row], li, div[class*="group"]');
         const rowBox = (row ?? el).getBoundingClientRect();
+        // The glyph box that precedes THIS name: a SIBLING of the name, or of
+        // the block that holds it, never a descendant of the row card (a
+        // project's card contains its child rows, and those have glyphs of
+        // their own). Three levels up is the deepest a name sits: the
+        // terminal's name lives in a block under the row's button.
+        let hasGlyph = false;
+        for (let node: HTMLElement | null = el as HTMLElement, depth = 0; node && depth < 3; node = node.parentElement, depth++) {
+          if (node.parentElement?.querySelector(":scope > [data-row-glyph-slot]")) { hasGlyph = true; break; }
+        }
         return {
           kind: el.getAttribute("data-row-name") ?? "?",
           text: (el.textContent ?? "").trim().slice(0, 30),
           left: Math.round(box.left * 10) / 10,
           rowLeft: Math.round(rowBox.left * 10) / 10,
+          hasGlyph,
         };
       })
       .filter((n): n is NonNullable<typeof n> => n !== null);
@@ -70,7 +83,7 @@ test.describe("sidebar: the name column", () => {
     await cleanupFileProject(request, project);
   });
 
-  test("ROWALIGN-03: rows that draw a glyph share one column; a chat starts left of it", async ({ page }) => {
+  test("ROWALIGN-03: rows that draw a glyph share one column; rows without one start left of it", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-27" });
     await goToApp(page);
     // `.first()`: with a project seeded the sidebar carries a second tree (the
@@ -88,10 +101,13 @@ test.describe("sidebar: the name column", () => {
     // REVERSED ON 29/08. allow-italian: «vedo ancora spazio prima delle label nelle tab della sidebar»
     // The one shared column was bought with an empty box
     // in front of every chat name, and that box is the space complained about.
-    // What is left to guard is the half that still holds: the rows that DO
-    // draw a leading glyph must agree with each other, so the column they form
-    // is a column and not a scatter.
-    const withGlyph = topNames.filter((n) => n.kind !== "chat");
+    // REVERSED AGAIN ON 03/09 (card 058ea722) for the project row: a project
+    // without a favicon draws no box either, so what decides the column is
+    // no longer the KIND of the row but whether it DRAWS a glyph. What is
+    // left to guard is the half that still holds: the rows that do draw one
+    // must agree with each other, so the column they form is a column and not
+    // a scatter; the rows that draw none start strictly left of it.
+    const withGlyph = topNames.filter((n) => n.hasGlyph);
     const glyphStarts = [...new Set(withGlyph.map((n) => n.left))];
     expect(
       glyphStarts.length,
@@ -100,14 +116,26 @@ test.describe("sidebar: the name column", () => {
         withGlyph.map((n) => `${n.kind}:${n.text}=${n.left}`).join(" | "),
     ).toBeLessThanOrEqual(1);
 
-    // And the chat starts STRICTLY left of them - the space is gone, not moved.
-    const chats = topNames.filter((n) => n.kind === "chat");
-    if (chats.length && glyphStarts.length) {
-      const chatStart = Math.min(...chats.map((n) => n.left));
+    // And the rows without a glyph start STRICTLY left of them - the space is
+    // gone, not moved. The seeded project has no favicon, so it is one of them
+    // and this branch cannot go quietly green on an empty set.
+    const bare = topNames.filter((n) => !n.hasGlyph);
+    expect(bare.length, "no glyph-less row was measurable: " + topNames.map((n) => `${n.kind}:${n.text}`).join(" | ")).toBeGreaterThan(0);
+    expect(
+      bare.some((n) => n.kind === "project"),
+      "the seeded project (no favicon) must draw no glyph box: " + topNames.map((n) => `${n.kind}:${n.text} glyph=${n.hasGlyph}`).join(" | "),
+    ).toBe(true);
+    const bareStarts = [...new Set(bare.map((n) => n.left))];
+    expect(
+      bareStarts.length,
+      `rows without a glyph start at ${bareStarts.length} different x: ${bareStarts.join(", ")}. Names: ` +
+        bare.map((n) => `${n.kind}:${n.text}=${n.left}`).join(" | "),
+    ).toBeLessThanOrEqual(1);
+    if (glyphStarts.length) {
       expect(
-        chatStart,
-        `a chat name starts at ${chatStart}, a row with a glyph at ${glyphStarts[0]}: ` +
-          "the chat must no longer reserve the empty leading box.",
+        bareStarts[0]!,
+        `a row without a glyph starts at ${bareStarts[0]}, a row with one at ${glyphStarts[0]}: ` +
+          "the empty leading box must be gone.",
       ).toBeLessThan(glyphStarts[0]!);
     }
   });

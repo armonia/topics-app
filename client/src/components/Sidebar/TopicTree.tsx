@@ -24,7 +24,7 @@ import type { Topic, UnreadData, PaneType, TerminalSessionInfo } from '@/types';
 import { useTabNotifications } from '@/hooks/useTabNotifications';
 import { ClaudeIcon } from '@/components/Shared/ClaudeIcon';
 import { CodexIcon } from '@/components/Shared/CodexIcon';
-import { ProjectFavicon } from '@/components/Shared/ProjectFavicon';
+import { ProjectGlyphSlot } from './ProjectGlyphSlot';
 import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from '@/components/Layout/StreamingIndicator';
 import { RowSplitMap } from './RowSplitMap';
 import { useAttentionSignals, signalsActions, useTerminalAttentionFill, useSeenDwell, attentionFillFor, useSignalsStore, projectAttentionTier, useSessionLastActivity } from '@/state/signals';
@@ -825,7 +825,7 @@ export function TopicTree({
             il colore dice uno STATO — attenzione, selezione — non un'identità.
             Questo `text-emerald-400` era l'ultimo verde rimasto, e su una riga
             accanto alla board ormai grigia leggeva come «questa è speciale». */}
-        <span className={ROW_GLYPH_SLOT}>
+        <span className={ROW_GLYPH_SLOT} data-row-glyph-slot="glyph">
           <Icon size={ROW_GLYPH} className="text-app-text-secondary" />
         </span>
         <span className={`${TAB_LABEL_TYPE} flex-1 text-left truncate`} data-row-name="utility">{item.name}</span>
@@ -1175,17 +1175,13 @@ export function TopicTree({
                 "I see a random dot for the projects without a favicon". It was
                 not random, it was ten days late. */}
             {/* IN THE SHARED SLOT, like every other leading glyph of the
-                sidebar. The favicon used to sit in its own 14px box, and it was
-                the last glyph outside {@link ROW_GLYPH_SLOT} (18): measured,
-                that put a project name at 56px against the 60px of the board,
-                utility, terminal and browser rows. Four pixels between two
-                neighbouring rows is not a difference anybody can name, which is
-                exactly what makes a column look crooked.
-                The DRAWING stays 14px ({@link ROW_GLYPH}): it is the box that
-                aligns, not the ink. */}
-            <span className={ROW_GLYPH_SLOT} data-row-glyph-slot="favicon">
-              <ProjectFavicon path={pp} size={ROW_GLYPH} />
-            </span>
+                sidebar, AND ONLY WHEN THERE IS AN ICON (card 058ea722, 03/09:
+                "the text and the accordion have a lot of useless space in
+                between; it should be the minimum, and move only when there is
+                the icon"). The empty box that kept an icon-less project in the
+                same name column as one with an icon was that space. See
+                `ProjectGlyphSlot` and `rowLeadGlyph.ts`. */}
+            <ProjectGlyphSlot path={pp} />
             <span className="truncate flex-1" data-row-name="project">{item.name}</span>
           </button>
           {/* Window-position mini-map: where THIS project's window sits in the
@@ -1721,7 +1717,7 @@ export function TopicTree({
                 alla board (e che la tab già mostra), e dice «board» invece di
                 «griglia». Nello slot condiviso, così il nome parte dalla stessa
                 x delle righe utility, dei terminali e dei browser. */}
-            <span className={ROW_GLYPH_SLOT}>
+            <span className={ROW_GLYPH_SLOT} data-row-glyph-slot="glyph">
               <BoardGlyph size={ROW_GLYPH} className="text-app-text-secondary" />
             </span>
             {/* TUTTO IN LINEA: nome, progetti, conteggi — una riga sola, alta
@@ -2277,7 +2273,7 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
         {/* Nello slot condiviso: tre glifi diversi per lo stesso posto, e senza
             un contenitore fisso il nome partiva da una x diversa a seconda di
             CHI gira dentro quel terminale. */}
-        <span className={ROW_GLYPH_SLOT}>
+        <span className={ROW_GLYPH_SLOT} data-row-glyph-slot="glyph">
           {s.type === 'claude-code'
             ? <ClaudeIcon size={ROW_GLYPH} className="text-[#D97757]" />
             : s.type === 'codex'
@@ -2708,7 +2704,7 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
           quello di tutti. Il margine a mano c'era perché i comandi in coda
           contavano sull'assenza del gap — e non ci contano più, stanno fuori dal
           flusso. */}
-      <span className={ROW_GLYPH_SLOT}>
+      <span className={ROW_GLYPH_SLOT} data-row-glyph-slot="glyph">
         <Globe size={ROW_GLYPH} className="opacity-60" />
       </span>
       <span data-row-name="browser" className="flex-1 truncate" title={bc.url}>

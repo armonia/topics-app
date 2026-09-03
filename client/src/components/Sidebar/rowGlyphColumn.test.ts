@@ -27,6 +27,7 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ROW_GLYPH, ROW_GLYPH_SLOT } from '../../lib/selectionStyles';
+import { projectGlyphSlotShown } from './rowLeadGlyph';
 
 /** Tailwind's spacing scale: `n` is `n x 0.25rem`, i.e. `n x 4px`. */
 const STEP_PX = 4;
@@ -63,14 +64,48 @@ describe('the leading-glyph column of the sidebar', () => {
     ).toBe(0);
   });
 
+  test('a project without a favicon reserves NOTHING either', () => {
+    // REVERSED ON 03/09 (card 058ea722), with a screenshot: "the text and
+    // the accordion have a lot of useless space in between; it should be the
+    // minimum, and move only when there is the icon". The empty 18px box a
+    // project row kept when its folder ships no icon was that space. The
+    // rule is a pure function, and this is its whole truth table.
+    expect(projectGlyphSlotShown('none')).toBe(false);
+    expect(projectGlyphSlotShown('has')).toBe(true);
+    // In flight: the place is held for one round trip, so the name does not
+    // jump left when the answer lands.
+    expect(projectGlyphSlotShown('probing')).toBe(true);
+
+    // And the project row actually goes through that rule: the slot lives in
+    // its own component, gated on the store's answer, and TopicTree draws
+    // that component instead of an unconditional box.
+    const slot = source('ProjectGlyphSlot.tsx');
+    expect(slot.includes('projectGlyphSlotShown(status)'), 'ProjectGlyphSlot.tsx must gate its box on projectGlyphSlotShown').toBe(true);
+    expect(source('TopicTree.tsx').includes('<ProjectGlyphSlot'), 'TopicTree.tsx must draw the favicon through ProjectGlyphSlot').toBe(true);
+    expect(
+      (source('TopicTree.tsx').match(/data-row-glyph-slot="favicon"/g) ?? []).length,
+      'no unconditional favicon box may be left in TopicTree.tsx',
+    ).toBe(0);
+  });
+
+  test('a pinned tile in row form keeps no placeholder for a missing icon', () => {
+    // The 14px blank that kept an icon-less project tile in the column of the
+    // tiles with an icon is the same empty box, one surface over (card
+    // 058ea722: "stessa cosa anche per le pinned"). allow-italian: quoted report
+    expect(
+      source('PinnedTile.tsx').includes('w-[14px]'),
+      'PinnedTile.tsx still draws the 14px placeholder for a tile without an icon',
+    ).toBe(false);
+  });
+
   test('no leading glyph is drawn outside the shared slot', () => {
     // The project favicon was the last one. It sat in a 14px box of its own,
     // which put a project name 4px left of a board / terminal / browser name:
     // four pixels between neighbouring rows is not a difference anybody can
     // name, which is exactly what makes a column look crooked.
-    const src = source('TopicTree.tsx');
+    const src = source('ProjectGlyphSlot.tsx');
     const favicon = /<ProjectFavicon\b/.exec(src);
-    expect(favicon, 'the project favicon disappeared from TopicTree.tsx').not.toBeNull();
+    expect(favicon, 'the project favicon disappeared from ProjectGlyphSlot.tsx').not.toBeNull();
     const before = src.slice(0, favicon?.index ?? 0);
     const enclosing = before.lastIndexOf('<span');
     expect(
