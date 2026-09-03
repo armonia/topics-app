@@ -9,6 +9,7 @@ import {
   selfTaskLinkTarget,
   reflectTaskOpen,
   reflectTaskClose,
+  reflectTaskFocus,
   subscribePopstateTask,
   openTaskInApp,
   openTaskFromUrl,
@@ -204,6 +205,32 @@ describe('selfTaskLinkTarget', () => {
 });
 
 describe('URL reflection (reflectTaskOpen / reflectTaskClose)', () => {
+  test('losing the board tab REPLACES /task/<id> with / (no history entry, CHROME-11)', () => {
+    const { sync } = stubWindow(`${origin}/task/t1`);
+    let pushes = 0, replaces = 0;
+    g.window.history = {
+      pushState: (_s, _t, url) => { pushes++; sync(url); },
+      replaceState: (_s, _t, url) => { replaces++; sync(url); },
+    };
+    reflectTaskFocus(null);
+    expect(g.window.location.pathname).toBe('/');
+    expect(pushes).toBe(0);
+    expect(replaces).toBe(1);
+  });
+
+  test('regaining the board tab with the drawer open writes the task back, still by replacing', () => {
+    const { sync } = stubWindow(`${origin}/`);
+    let pushes = 0, replaces = 0;
+    g.window.history = {
+      pushState: (_s, _t, url) => { pushes++; sync(url); },
+      replaceState: (_s, _t, url) => { replaces++; sync(url); },
+    };
+    reflectTaskFocus({ taskId: 't1' }, 'Titolo del task');
+    expect(g.window.location.pathname).toBe('/task/titolo-del-task-t1');
+    expect(pushes).toBe(0);
+    expect(replaces).toBe(1);
+  });
+
   test('open pushes /task/<id>, dropping any leftover query', () => {
     stubWindow(`${origin}/?keep=1`);
     reflectTaskOpen({ taskId: 't1' });

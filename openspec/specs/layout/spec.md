@@ -2226,6 +2226,46 @@ suo lavoro.
 - **GIVEN** un avvio in cui il guscio NON ha concluso lo stato degradato
 - **THEN** il comando SHALL non eliminare niente e non rilanciare
 
+
+### Requirement: CHROME-11 — Al ricarico si torna sulla tab su cui si era, e l'indirizzo del drawer segue il fuoco della board
+
+Il fuoco di una tab e' dell'apparecchio (`pane-store-focused-id`), e un ricarico
+SHALL riaprire l'applicazione sulla tab che aveva il fuoco, con o senza la
+fotografia locale delle pane (una pane aperta da un altro apparecchio vale
+quanto una aperta qui).
+
+L'indirizzo `/task/<id>` e' il riflesso del drawer della bacheca, e SHALL
+esistere SOLO mentre la bacheca e' la tab a schermo: quando il fuoco passa a
+un'altra tab l'indirizzo SHALL tornare a `/`, quando torna sulla bacheca col
+drawer ancora aperto SHALL riscriversi. Entrambe le scritture SHALL sostituire
+la voce di storia, non aggiungerne una: cambiare tab non e' una navigazione che
+Indietro debba ripercorrere.
+
+Segnalato il 03/09/2026: drawer aperto sulla bacheca, passaggio alla tab di un
+progetto, ricarico — e l'applicazione tornava sulla kanban, perche' il
+`/task/<id>` rimasto nell'indirizzo veniva letto come deep-link di avvio.
+
+#### Scenario: ricarico con la fotografia locale
+- **GIVEN** la tab di un progetto a fuoco e la tab Board aperta per ultima
+- **WHEN** la pagina si ricarica
+- **THEN** la tab del progetto SHALL avere il fuoco, non la Board
+
+#### Scenario: ricarico senza la fotografia locale
+- **GIVEN** lo stesso, con `pane-store-v2` assente dal localStorage
+- **WHEN** la pagina si ricarica
+- **THEN** la tab del progetto SHALL avere il fuoco
+
+### Requirement: CHROME-11b — L'indirizzo del drawer segue il fuoco della bacheca
+
+E' la meta' di CHROME-11 che riguarda l'indirizzo: `/task/<id>` SHALL esistere
+solo mentre la bacheca e' la tab a schermo, e SHALL sostituire la voce di storia
+quando va e quando torna (vedi CHROME-11 per il perche').
+
+#### Scenario: il drawer resta aperto su un'altra tab
+- **GIVEN** la bacheca col drawer di un task aperto (`/task/<id>`)
+- **WHEN** il fuoco passa alla tab di un progetto
+- **THEN** l'indirizzo SHALL essere `/`, e un ricarico SHALL riaprire sulla tab del progetto
+
 ### Requirement: DNDSPLIT-01 — La tabella dei casi: sorgente x destinazione x albero atteso
 
 Il trascinamento di una scheda vive oggi in piu' posti — la barra delle schede di

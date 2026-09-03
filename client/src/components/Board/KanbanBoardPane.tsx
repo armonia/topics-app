@@ -18,7 +18,9 @@ import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
 import { Spinner } from '../Shared/Spinner';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
-import { currentTaskTarget, reflectTaskOpen, reflectTaskClose, subscribePopstateTask } from '../../lib/openTaskLink';
+import { currentTaskTarget, reflectTaskOpen, reflectTaskClose, reflectTaskFocus, subscribePopstateTask } from '../../lib/openTaskLink';
+import { usePaneStore } from '../../state/pane/store';
+import { parseUtilityPanelType } from '../Layout/UtilityPanel';
 import { useTaskSessionResolver } from '../../hooks/useTaskSession';
 import { useBoardFeed } from '../../hooks/useBoardFeed';
 import {
@@ -1596,15 +1598,36 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // refresh-survivable URL and Back closes it. While a deep-link is still
   // resolving (pendingSelect set, task not yet loaded) leave the URL alone so
   // the incoming path isn't wiped before the drawer opens.
+  //
+  // ONLY WHILE THE BOARD IS THE TAB ON SCREEN. Reported 2026-09-03: drawer open,
+  // switch to a project tab, reload: back on the kanban. The `/task/<id>` had
+  // stayed in the URL after the switch, and the boot read it as a deep-link.
+  // So the focus of the global board pane is part of what the URL mirrors: on
+  // losing it the path goes back to '/', on regaining it the open drawer is
+  // written again — both by REPLACING the entry, because changing tab is not a
+  // navigation Back should walk through. Focus is device-local, so a detached
+  // window mirrors its own board, not another window's.
+  const boardFocused = usePaneStore((s) => parseUtilityPanelType(s.focusedPaneId ?? '') === 'board');
+  const wasBoardFocused = useRef(boardFocused);
   useEffect(() => {
     if (!global) return;
-    if (selected) { reflectTaskOpen({ taskId: selected.id }, selected.text); return; }
+    const focusChanged = wasBoardFocused.current !== boardFocused;
+    wasBoardFocused.current = boardFocused;
+    if (!boardFocused) {
+      if (currentTaskTarget()) reflectTaskFocus(null);
+      return;
+    }
+    if (selected) {
+      if (focusChanged) reflectTaskFocus({ taskId: selected.id }, selected.text);
+      else reflectTaskOpen({ taskId: selected.id }, selected.text);
+      return;
+    }
     if (pendingSelect) return; // deep-link mid-flight — keep the URL
     reflectTaskClose();
     // Depend on selectedId (primitive), NOT the `selected` object: its reference
     // churns on every board refetch while the id is what actually gates the URL.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [global, selectedId, pendingSelect]);
+  }, [global, selectedId, pendingSelect, boardFocused]);
 
   // Back/forward drive the drawer from history: the value-equality guard in
   // reflect* means setting the selection here won't re-push a duplicate entry.

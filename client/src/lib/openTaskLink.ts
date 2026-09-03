@@ -197,7 +197,7 @@ export function selfTopicLinkTarget(url: string): TopicTarget | null {
 // visible changing. The canonical `<slug>-<uuid>` is written when the URL was
 // somewhere else — which is the case that puts a readable link in the address
 // bar, opening a drawer from the board.
-function reflectPath(target: TaskTarget | null, title?: string | null): void {
+function reflectPath(target: TaskTarget | null, title?: string | null, mode: 'push' | 'replace' = 'push'): void {
   try {
     const already = target && parseTaskLocation(window.location.pathname, '')?.taskId === target.taskId;
     const desired = target
@@ -220,7 +220,8 @@ function reflectPath(target: TaskTarget | null, title?: string | null): void {
     u.pathname = desired;
     u.search = '';
     if (pinnedSpace) u.searchParams.set('space', pinnedSpace);
-    window.history.pushState(null, '', u.toString());
+    if (mode === 'replace') window.history.replaceState(null, '', u.toString());
+    else window.history.pushState(null, '', u.toString());
   } catch {
     /* history unavailable — local state still drives the UI, URL just stays put */
   }
@@ -237,6 +238,18 @@ export function reflectTaskOpen(target: TaskTarget, title?: string | null): void
  *  previous task). No-op if the path is already '/'. */
 export function reflectTaskClose(): void {
   reflectPath(null);
+}
+/** The board tab lost or regained the focus while its drawer is open.
+ *
+ *  The URL mirrors the drawer only while the board is the tab on screen. On
+ *  2026-09-03 a `/task/<id>` left behind after switching to a project tab was
+ *  read by the next reload as a boot deep-link, and the reload landed on the
+ *  kanban with the drawer instead of on the tab the user was on. Leaving a tab
+ *  is not a navigation, so this REPLACES the entry: Back keeps its meaning
+ *  (close the drawer), and a leftover path never survives a reload.
+ *  `target` is the open drawer (board back on screen) or null (board hidden). */
+export function reflectTaskFocus(target: TaskTarget | null, title?: string | null): void {
+  reflectPath(target, title, 'replace');
 }
 
 /** Subscribe to browser back/forward: `cb` gets the task now in the URL (or
