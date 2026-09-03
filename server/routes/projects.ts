@@ -50,6 +50,10 @@ function stripCtrl(input: unknown): string | null {
 // L'allowlist è ../services/known-project-dirs.ts — condivisa con le rotte dei
 // file, non una copia: due copie sono due confini che divergono.
 
+/** The icon route keeps the known-project allowlist for this long; a miss rebuilds it before denying. */
+const ICON_ALLOW_TTL_MS = 5_000;
+let iconAllowCache: { at: number; dirs: Set<string>; db: unknown } | null = null;
+
 export function createProjectsRouter(ctx: AppContext): RouteHandler {
   const { json, readJSON, matchRoute, errorResponse, projectStore, broadcastToAll, broadcastProject } = ctx;
 
@@ -152,14 +156,27 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
       // Corrispondenza ESATTA, non «dentro»: qui si chiede l'icona DI un
       // progetto, non di una sua sottocartella — `isInsideKnownProject`
       // aprirebbe ogni discendente all'enumerazione.
-      const allowedRealDirs = knownProjectDirs({
-        db: ctx.db,
-        loadTopics: ctx.loadTopics,
-        worktreeStore: ctx.worktreeStore,
-        projectStore,
-        workspaceDir: join(ctx.OPENCLAW_DIR, "workspace"),
-      });
-      if (!allowedRealDirs.has(realDir)) {
+      // Measured 2026-09-03: 1.7-4.1s per icon with fifteen pinned tiles asking
+      // at once, because every request rebuilt the whole allowlist. The set
+      // is kept for a few seconds, and a MISS rebuilds it before denying:
+      // a folder opened a moment ago is allowed on the rebuild, so the cache
+      // can only ever confirm, never crystallise a denial.
+      const iconAllowlist = (fresh: boolean): Set<string> => {
+        const now = Date.now();
+        if (!fresh && iconAllowCache && iconAllowCache.db === ctx.db && now - iconAllowCache.at < ICON_ALLOW_TTL_MS) return iconAllowCache.dirs;
+        const dirs = knownProjectDirs({
+          db: ctx.db,
+          loadTopics: ctx.loadTopics,
+          worktreeStore: ctx.worktreeStore,
+          projectStore,
+          workspaceDir: join(ctx.OPENCLAW_DIR, "workspace"),
+        });
+        iconAllowCache = { at: now, dirs, db: ctx.db };
+        return dirs;
+      };
+      let allowed = iconAllowlist(false).has(realDir);
+      if (!allowed) allowed = iconAllowlist(true).has(realDir);
+      if (!allowed) {
         console.log(`[icon] 403 (not in allowlist): ${realDir}`);
         return new Response(null, { status: 403 });
       }
