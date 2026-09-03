@@ -8,6 +8,7 @@ import {
   micErrorMessage,
   MIN_VOICE_BLOB_BYTES,
   messaggioNotaVuota,
+  fallbackNotice,
   segnalaNotaVuota,
   SPEECH_AUDIO_CONSTRAINTS,
   SPEECH_BITS_PER_SECOND,
@@ -15,6 +16,7 @@ import {
 } from '../lib/stt';
 import { ascoltaLivello, messaggioTrascrittoVuoto, type SondaLivello } from '../lib/livello-audio';
 import { useSpeechToText } from './useSpeech';
+import { useLocale } from './useT';
 
 export type DictationEngine = 'server' | 'webspeech' | null;
 
@@ -37,10 +39,17 @@ export function useDictation(opts: {
   /** Riceve il testo trascritto. Chiamato una volta a fine dettatura (motore server) o a ogni frase finale (Web Speech). */
   onText: (text: string) => void;
   onError?: (message: string) => void;
-  /** ISO-639-1 per forzare la lingua; assente = auto-detect (il default giusto sui modelli moderni). */
+  /** Something worth knowing that is not a failure: the text arrived, but from
+   *  the fallback engine, and here is why the first one did not answer. */
+  onNotice?: (message: string) => void;
+  /** ISO-639-1 to force the language. Absent = the interface locale, sent as a
+   *  hint: the cloud models take it as a suggestion, and the local whisper
+   *  stops guessing «you» / «Thank you.» on a short Italian clip. */
   language?: string;
 }) {
-  const { onText, onError, language } = opts;
+  const { onText, onError, onNotice, language } = opts;
+  const locale = useLocale();
+  const languageHint = language ?? locale;
   const [capabilities, setCapabilities] = useState<SttCapabilities | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -59,7 +68,10 @@ export function useDictation(opts: {
   // dell'effetto delle scorciatoie da tastiera, che si rimonterebbe a ogni tasto).
   const onTextRef = useRef(onText);
   const onErrorRef = useRef(onError);
-  useEffect(() => { onTextRef.current = onText; onErrorRef.current = onError; }, [onText, onError]);
+  const onNoticeRef = useRef(onNotice);
+  useEffect(() => { onTextRef.current = onText; onErrorRef.current = onError; onNoticeRef.current = onNotice; }, [onText, onError, onNotice]);
+  /** When the current state began: what the strip's clock counts from. */
+  const [since, setSince] = useState(0);
 
   // Motore di ripiego. L'hook si monta sempre (le regole dei hook non ammettono
   // rami), ma viene PILOTATO solo quando il server non sa trascrivere.
@@ -145,12 +157,15 @@ export function useDictation(opts: {
           return;
         }
         setIsTranscribing(true);
+        setSince(performance.now());
         try {
-          const result = await transcribeAudio(blob, { filename: `dictation.${extForMime(type)}`, language });
+          const result = await transcribeAudio(blob, { filename: `dictation.${extForMime(type)}`, language: languageHint });
           // Silenzio (o l'artefatto che Whisper produce sul silenzio, che il
           // server filtra): niente da incollare, e niente errore da mostrare.
           const testo = result.transcript.trim();
           if (testo) onTextRef.current(testo);
+          const notice = fallbackNotice(result);
+          if (notice) onNoticeRef.current?.(notice);
           // SILENZIO NON E' NIENTE DA DIRE: e' una notizia.
           //
           // Questo era l'ultimo ramo muto della dettatura. Il giro andava a
@@ -180,6 +195,7 @@ export function useDictation(opts: {
       // 100 ms: chunk piccoli, così uno stop immediato ha comunque dei dati.
       recorder.start(100);
       setIsListening(true);
+      setSince(performance.now());
       // Rete di sicurezza contro il microfono lasciato acceso: cinque minuti sono
       // molto oltre qualunque dettatura, e sotto il tetto di 25 MB del server.
       maxDurationRef.current = setTimeout(() => {
@@ -190,7 +206,7 @@ export function useDictation(opts: {
       setIsListening(false);
       onErrorRef.current?.(micErrorMessage(err));
     }
-  }, [language, releaseMic]);
+  }, [languageHint, releaseMic]);
 
   const stopServer = useCallback(() => {
     const recorder = recorderRef.current;
@@ -248,11 +264,16 @@ export function useDictation(opts: {
     };
   }, []);
 
+  /** Stable across renders, so a meter can read it every frame. */
+  const level = useCallback(() => sondaRef.current?.livello() ?? 0, []);
+
   return {
     isListening,
     isTranscribing,
     isSupported,
     engine,
+    since,
+    level,
     /** Es. «ElevenLabs scribe_v2» — da mostrare nel tooltip così l'umano sa chi lo sta ascoltando. */
     modelLabel: capabilities?.available ? `${capabilities.provider} ${capabilities.model}` : null,
     capabilities,

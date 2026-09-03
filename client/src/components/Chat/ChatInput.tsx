@@ -12,6 +12,7 @@ import { ImageThumbnail } from '../MessageContent';
 import { ZoomableImage } from '../Shared/ImageLightbox';
 import { useTextToSpeech, useVoiceCall } from '../../hooks/useSpeech';
 import { useDictation } from '../../hooks/useDictation';
+import { DictationStrip } from './DictationStrip';
 import { useToast } from '../Shared/Toast';
 import { FileMentionMenu, FilePill, type MentionedFile } from './FileMentionMenu';
 import { ContextPills } from './ContextPills';
@@ -170,10 +171,10 @@ function AddMenu({
             // solo mentre la trascrizione precedente è ancora in volo.
             disabled={dictationBusy}
             data-testid="composer-dictation"
-            title={dictationModel ? `Dettatura · ${dictationModel}` : 'Dettatura'}
+            title={dictationModel ? `${tr('chat.dictation.listening')} · ${dictationModel}` : tr('chat.dictation.listening')}
           >
             {isListening ? <MicOff size={14} /> : <MessageSquare size={14} />}
-            {isListening ? 'Stop dictation' : 'Dictation mode'}
+            {isListening ? tr('chat.dictation.menuStop') : tr('chat.dictation.menuStart')}
             <span className="ml-auto text-[11px] text-app-text-muted">{shortcut('D', { shift: true })}</span>
           </button>
         )}
@@ -616,14 +617,19 @@ export function ChatInput({
   }, [setMessage, textareaRef]);
 
   const onDictationError = useCallback((m: string) => toast.error(m), [toast]);
+  // Not an error: the text is in the field. But «it took 20 seconds» has a
+  // reason, and the reason is the thing to fix (a dead cloud key, 2026-09-03).
+  const onDictationNotice = useCallback((m: string) => toast.warning(m, 9000), [toast]);
   const {
     isListening,
     isTranscribing: isDictationTranscribing,
     isSupported: sttSupported,
     modelLabel: dictationModel,
+    since: dictationSince,
+    level: dictationLevel,
     toggle: toggleListening,
     cancel: cancelDictation,
-  } = useDictation({ onText: insertDictated, onError: onDictationError });
+  } = useDictation({ onText: insertDictated, onError: onDictationError, onNotice: onDictationNotice });
 
   const { speak, stop: stopSpeaking, isSpeaking } = useTextToSpeech();
   const [autoTTS, setAutoTTS] = useState(false);
@@ -944,30 +950,14 @@ export function ChatInput({
           menu chiuso, e «perché non scrive niente?» non aveva risposta a schermo.
           Dice anche CHI sta ascoltando (provider + modello) e come si annulla. */}
       {(isListening || isDictationTranscribing) && !isCallActive && (
-        <div
-          data-testid="dictation-banner"
-          data-state={isDictationTranscribing ? 'transcribing' : 'listening'}
-          className={`${CHAT_STRIP} bg-app-hover border border-app-border-light px-3 py-2 flex items-center gap-2.5 flex-shrink-0`}
-        >
-          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${isDictationTranscribing ? 'bg-amber-500 animate-pulse' : 'bg-green-500 animate-pulse'}`} />
-          <span className="text-[12px] font-medium text-app-text">
-            {isDictationTranscribing ? 'Trascrivo…' : 'Dettatura'}
-          </span>
-          {!isDictationTranscribing && (
-            <span className="text-[11px] text-app-text-secondary truncate">
-              {tr('chat.dictation.hint')}{dictationModel ? ` · ${dictationModel}` : ''}
-            </span>
-          )}
-          {!isDictationTranscribing && (
-            <button
-              type="button"
-              onClick={toggleListening}
-              className="ml-auto px-3 py-1 text-[11px] rounded-md bg-app-surface border border-app-border-light hover:bg-app-hover transition-colors flex-shrink-0"
-            >
-              Stop
-            </button>
-          )}
-        </div>
+        <DictationStrip
+          state={isDictationTranscribing ? 'transcribing' : 'listening'}
+          since={dictationSince}
+          level={dictationLevel}
+          engine={dictationModel}
+          hint={tr('chat.dictation.hint')}
+          onStop={toggleListening}
+        />
       )}
 
       {/* Nessuna risposta dopo un messaggio tuo. La CAUSA non si legge dalla

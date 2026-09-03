@@ -36,6 +36,8 @@ export interface SondaLivello {
   picco(): number;
   /** Vero se in tutta la registrazione non e' passato niente. */
   muta(): boolean;
+  /** The level of the LAST window, 0-1: what a meter draws while you speak. */
+  livello(): number;
   /**
    * Chiude il contesto audio.
    *
@@ -71,6 +73,7 @@ export function ascoltaLivello(stream: MediaStream): SondaLivello | null {
   }
 
   let massimo = 0;
+  let corrente = 0;
   let timer: ReturnType<typeof setInterval> | null = null;
   let chiuso = false;
 
@@ -90,10 +93,13 @@ export function ascoltaLivello(stream: MediaStream): SondaLivello | null {
 
     timer = setInterval(() => {
       analizzatore.getByteTimeDomainData(finestra);
+      let windowPeak = 0;
       for (let i = 0; i < finestra.length; i++) {
         const scarto = Math.abs(finestra[i] - 128) / 128;
-        if (scarto > massimo) massimo = scarto;
+        if (scarto > windowPeak) windowPeak = scarto;
       }
+      corrente = windowPeak;
+      if (windowPeak > massimo) massimo = windowPeak;
     }, PASSO_MS);
   } catch {
     void ctx.close().catch(() => {});
@@ -103,6 +109,7 @@ export function ascoltaLivello(stream: MediaStream): SondaLivello | null {
   return {
     picco: () => massimo,
     muta: () => massimo < SOGLIA_TRACCIA_MUTA,
+    livello: () => (chiuso ? 0 : corrente),
     chiudi: () => {
       if (chiuso) return;
       chiuso = true;

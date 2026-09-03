@@ -67,6 +67,24 @@ export function forgetSttCapabilities(): void {
   capabilitiesPromise = null;
 }
 
+/**
+ * What to say when the engine that answered is not the one that was asked
+ * first. Measured 2026-09-03: every note went ElevenLabs 401 → whisper large-v3
+ * locally, 9-24 s, and the strip kept naming ElevenLabs. The person read
+ * «slow and wrong»; the truth was «the key is dead». Absent `attempts`, or an
+ * empty list, means nothing to say.
+ */
+export function fallbackNotice(result: Pick<SttResult, 'provider' | 'model' | 'durationMs' | 'attempts'>): string | null {
+  const fallen = result.attempts ?? [];
+  if (fallen.length === 0) return null;
+  const seconds = Math.round(result.durationMs / 100) / 10;
+  const because = fallen.map((a) => {
+    const rejected = /HTTP (401|403)/.exec(a.error);
+    return rejected ? `${a.provider} ha rifiutato la chiave (HTTP ${rejected[1]})` : `${a.provider}: ${a.error.slice(0, 80)}`;
+  }).join(' · ');
+  return `Trascritto con ${result.provider} (${result.model}) in ${seconds}s perché ${because}.`;
+}
+
 export class SttRequestError extends Error {
   constructor(message: string, readonly status: number) {
     super(message);
@@ -133,7 +151,7 @@ export const MIN_VOICE_BLOB_BYTES = 512;
 /**
  * Cosa si dice a chi ha appena parlato e non ha ottenuto niente.
  *
- * Una frase sola, in un posto solo, perche' i due microfoni della app (la chat
+ * Una frase sola, in un posto solo, because' i due microfoni della app (la chat
  * e il campo task della board) hanno lo stesso guasto e devono dare la stessa
  * risposta. Erano due rami separati e ne parlava UNO: `fe635287` ha fatto
  * parlare la chat e ha lasciato muta la board, quindi dallo stesso difetto

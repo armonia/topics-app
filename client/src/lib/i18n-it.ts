@@ -373,6 +373,12 @@ const IT: Dict = {
   'tab.reattach': 'Riporta nel pannello principale',
 
   'chat.dictation.hint': '⌘⇧D per chiudere · Esc annulla',
+  'chat.dictation.listening': 'Dettatura',
+  'chat.dictation.transcribing': 'Trascrivo…',
+  'chat.dictation.stop': 'Ferma',
+  'chat.dictation.menuStart': 'Dettatura',
+  'chat.dictation.menuStop': 'Ferma la dettatura',
+  'chat.dictation.engineUnknown': 'motore in verifica',
   'chat.cancelReply': 'Annulla la risposta',
   'chat.answerPlaceholder': 'Rispondi alla domanda…',
   'chat.answerSend': 'Rispondi alla domanda (Enter)',

@@ -370,6 +370,12 @@ const EN = {
   'tab.reattach': 'Back to the main panel',
 
   'chat.dictation.hint': '⌘⇧D to close · Esc cancels',
+  'chat.dictation.listening': 'Dictation',
+  'chat.dictation.transcribing': 'Transcribing…',
+  'chat.dictation.stop': 'Stop',
+  'chat.dictation.menuStart': 'Dictation mode',
+  'chat.dictation.menuStop': 'Stop dictation',
+  'chat.dictation.engineUnknown': 'engine being verified',
   'chat.cancelReply': 'Cancel the reply',
   'chat.answerPlaceholder': 'Answer the question…',
   'chat.answerSend': 'Answer the question (Enter)',

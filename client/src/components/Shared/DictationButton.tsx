@@ -25,18 +25,21 @@ import { useT } from '../../hooks/useT';
 export function DictationButton({
   onText,
   onError,
+  onNotice,
   testId,
   className = '',
 }: {
   /** Il testo trascritto, da inserire dove sta il cursore. */
   onText: (text: string) => void;
   onError: (message: string) => void;
+  /** The text arrived but from the fallback engine: here is why (optional). */
+  onNotice?: (message: string) => void;
   testId: string;
   className?: string;
 }) {
   const tr = useT();
   const err = useCallback((m: string) => onError(m), [onError]);
-  const dictation = useDictation({ onText, onError: err });
+  const dictation = useDictation({ onText, onError: err, onNotice });
   const talk = useTalkGesture({
     start: dictation.start,
     stop: dictation.stop,

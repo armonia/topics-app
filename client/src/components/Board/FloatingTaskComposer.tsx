@@ -235,6 +235,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
     });
   }, []);
   const dictationError = useCallback((m: string) => toast.error(m), [toast]);
+  const dictationNotice = useCallback((m: string) => toast.warning(m, 9000), [toast]);
 
   /* An attached file uploads AT ONCE: by the time Enter is pressed the task
      must be born with its files, not wait for a second network round. Past the
@@ -768,6 +769,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
             testId="task-composer-dictation"
             onText={insertDictated}
             onError={dictationError}
+            onNotice={dictationNotice}
           />
           <button
             onClick={submit} disabled={!text.trim() || submitting}

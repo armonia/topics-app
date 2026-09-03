@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { SOGLIA_TRACCIA_MUTA, messaggioTrascrittoVuoto, type SondaLivello } from "./livello-audio";
 
 function sonda(picco: number): SondaLivello {
-  return { picco: () => picco, muta: () => picco < SOGLIA_TRACCIA_MUTA, chiudi: () => {} };
+  return { picco: () => picco, muta: () => picco < SOGLIA_TRACCIA_MUTA, livello: () => picco, chiudi: () => {} };
 }
 
 describe("quale delle due diagnosi", () => {
