@@ -70,6 +70,12 @@ SHALL NOT be — either refused or reported as absent.
 - **WHEN** it requests `GET /api/topics/:id/messages` for that topic
 - **THEN** the server SHALL refuse it with 403, or report it absent with 404
 
+#### Scenario: A granted chat does not open the project's introspection routes
+- **GIVEN** the same guest and the granted topic
+- **WHEN** it requests `GET /api/topics/:id/context-preview`, `/environment`, `/checkpoints`, `/turn-checkpoints`, `/context-snapshots` or `/project-id` for that topic
+- **THEN** the server SHALL answer 403 with code `guest_forbidden`
+- **AND** the path allowlist SHALL name `/api/topics/:id/messages` exactly, not `/api/topics/` as a prefix
+
 ### Requirement: GUEST-02 — A guest reads, including on what was shared with it
 
 > Written from the test. `SHARE-06` in the `task-sharing-guests` proposal also
@@ -148,6 +154,15 @@ A guest's WebSocket SHALL be allowed to open — closing it would turn a shared
 resource into a photograph — and what travels on it SHALL be filtered. An id
 belonging to a resource the guest holds no grant on SHALL NOT appear in ANY frame
 delivered to that guest.
+
+The filter SHALL hold in both directions. Inbound, a guest socket SHALL be
+allowed only the frames a socket needs to exist and to receive what the outbound
+filter lets through: `ping`, `hello` (whose presence fields SHALL be ignored for
+a guest), `focus` and `subscribe`. `typing`, `drag:start`, `drag:end`,
+`drag:drop` and `presence:announce` from a guest SHALL be dropped before
+dispatch, since each reaches the owner's windows without a grant check
+(`isGuestInboundFrameAllowed` in `server/lib/grants.ts`, unit-tested against the
+whole inbound schema so a new frame type lands on the closed side by default).
 
 The claim SHALL be made against a positive control on the same event: an owner
 socket on loopback SHALL receive the frame carrying that id. Without it, the

@@ -107,7 +107,7 @@ import { createActivityRouter } from "./server/routes/activity";
 import { createDashboardRouter } from "./server/routes/dashboard";
 import { createAuthRouter, noteDeviceConnected, noteDeviceDisconnected } from "./server/routes/auth";
 import { evaluateIdentity, isIdentityExemptPath, readSessionCookie } from "./server/lib/device-auth";
-import { isGuestAllowedPath, isGuestAllowedMethod, isGuestSafeFrameType, isGuestHandshakeFrame, isGuestSocketData, frameResource } from "./server/lib/grants";
+import { isGuestAllowedPath, isGuestAllowedMethod, isGuestSafeFrameType, isGuestHandshakeFrame, isGuestSocketData, isGuestInboundFrameAllowed, frameResource } from "./server/lib/grants";
 import { hasGrant, holdsGrantOnTaskPreview, deviceP } from "./server/lib/grants-query";
 import { resolvePrincipals, principalsRev } from "./server/lib/principals";
 import { resolveIdentity } from "./server/lib/identity";
@@ -3819,6 +3819,18 @@ const opzioniServer = {
           return;
         }
         const data = result.data;
+        // A guest socket is read-only in BOTH directions. The outbound filter
+        // (`isGuestSafeFrameType`, in the fan-out helpers) is what keeps the
+        // owner's content off the wire; this is what keeps the guest's frames
+        // off the owner's windows: typing text into any chat by topicId,
+        // drag frames that close panels in a window whose id they name,
+        // presence announcements that fill the roster. One rule, in
+        // `lib/grants.ts` like the other three, not a check per case.
+        const guestSocket = isGuestSocketData(ws.data);
+        if (guestSocket && !isGuestInboundFrameAllowed(data.type)) {
+          console.warn(`[WS] guest socket ${ws.data.id} sent '${data.type}': dropped`);
+          return;
+        }
         switch (data.type) {
           case 'focus':
             ws.data.focusedTopicId = data.topicId;
@@ -3850,7 +3862,10 @@ const opzioniServer = {
             console.log(`[WS][handshake] hello from ${ws.data.id}: client v${data.clientVersion} (proto ${data.protocolVersion}), caps=[${data.capabilities.join(', ')}]`);
             // Presence: a window may carry its identity + open topics on hello
             // (reconnect-safe — the client re-sends hello on every WS 'open').
-            if (data.windowId) {
+            // Not for a guest: the handshake is protocol and passes, but the
+            // presence fields would put its window into the owner's roster,
+            // which is the same pollution `presence:announce` is refused for.
+            if (data.windowId && !guestSocket) {
               ws.data.windowId = data.windowId;
               ws.data.windowLabel = data.windowLabel;
               ws.data.detached = data.detached;
