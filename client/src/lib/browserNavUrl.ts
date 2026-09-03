@@ -110,7 +110,12 @@ export function displayUrl(raw: string): string {
   if (i === -1) return raw;
   // Solo se `/api/media` è la ROTTA, non un pezzo di query di un altro sito:
   // `https://tizio.it/x?u=/api/media?path=…` non è roba nostra.
-  if (i > 0 && !/^https?:\/\/[^/]+$/.test(raw.slice(0, i))) return raw;
+  // The origin can be the server (`http://127.0.0.1:13333`) or the desktop
+  // shell itself: `tauri://localhost` on macOS, `http://tauri.localhost` on
+  // Windows and Linux. Read on 2026-09-04: the bar showed
+  // `tauri://localhost/api/media?path=%2FUsers%2F…%2Flungomare_anteprima.mp4`
+  // because only `http(s)` was accepted here.
+  if (i > 0 && !/^(https?|tauri):\/\/[^/]+$/.test(raw.slice(0, i))) return raw;
   const path = raw.slice(i + '/api/media?path='.length).split('&')[0];
   try {
     const decoded = decodeURIComponent(path);
