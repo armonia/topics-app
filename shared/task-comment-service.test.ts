@@ -11,6 +11,8 @@ import {
   SERVICE_KIND,
   foldsAway,
   groupServiceRuns,
+  isDoneThreadService,
+  isLandHygieneNote,
   isLegacyDispatcherNote,
   isMarkedService,
   isServiceComment,
@@ -188,5 +190,36 @@ describe('foldsAway', () => {
 
   it('never folds speech', () => {
     expect(foldsAway({ service: false, comments: [0, 1, 2] })).toBe(false);
+  });
+});
+
+/**
+ * THE LAND'S HYGIENE ON A CLOSED CARD. Not service for the thread's own rule
+ * (an open card reads those outcomes where they sit); on a done card they are
+ * the last words above the delivery, and the drawer folds them.
+ */
+describe('isLandHygieneNote / isDoneThreadService', () => {
+  const stop: ThreadComment = { author: 'system', kind: 'comment', content: "Fermato l'agente che stava ancora lavorando su questa card: il suo lavoro è appena atterrato su main." };
+  const reaped: ThreadComment = { author: 'system', kind: 'service', content: 'Worktree e branch del task ripuliti.' };
+  const speech: ThreadComment = { author: 'claude', kind: 'delivery', content: 'Consegna: il chip vivo sa del ritentativo.' };
+  const humanStop: ThreadComment = { author: 'user', kind: 'comment', content: "Fermato l'agente che stava ancora lavorando su questa card" };
+
+  it('recognises the frozen wordings, machine author only', () => {
+    expect(isLandHygieneNote(stop)).toBe(true);
+    expect(isLandHygieneNote(reaped)).toBe(true);
+    expect(isLandHygieneNote(speech)).toBe(false);
+    expect(isLandHygieneNote(humanStop)).toBe(false);
+  });
+
+  it('does not change the thread\'s own rule: the stop note stays visible on an open card', () => {
+    expect(isServiceComment(stop)).toBe(false);
+    expect(isDoneThreadService(stop)).toBe(true);
+  });
+
+  it('groupServiceRuns takes the closed-card rule and folds the hygiene with the bookkeeping', () => {
+    const runs = groupServiceRuns([speech, reaped, stop], undefined, isDoneThreadService);
+    expect(runs.map((r) => [r.service, r.comments.length])).toEqual([[false, 1], [true, 2]]);
+    // Without the override the stop note is speech and breaks the run.
+    expect(groupServiceRuns([speech, reaped, stop]).map((r) => r.service)).toEqual([false, true, false]);
   });
 });

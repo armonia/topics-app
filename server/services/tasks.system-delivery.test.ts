@@ -293,3 +293,63 @@ describe("cancello review_needs_summary: comportamento invariato dopo l'estrazio
     expect(updated.status).toBe("review");
   });
 });
+
+// ── The agent's word becomes the DELIVERY ────────────────────────────────────
+//
+// Through `update()` the delivery is declared (`summary` becomes kind
+// 'delivery'); through this door the turn is over and nobody declares it. On
+// the last 30 done cards: 1 with a delivery row, 12 with any agent comment at
+// all. Card, sheet and drawer anchor on `kind = 'delivery'`: the anchor is set
+// here, on the row the gate would have read anyway.
+describe("deliverToReviewBySystem: promuove l'ultima parola dell'agente a delivery", () => {
+  let db: Database;
+  beforeEach(() => { db = withAttempts(freshDb()); });
+
+  const kindOf = (id: string) => (db.prepare("SELECT kind FROM task_comments WHERE id = ?").get(id) as any).kind;
+
+  test("senza una delivery, l'ultimo commento dell'agente diventa la delivery", () => {
+    const svc = createTaskService(db);
+    const taskId = seedInProgress(db, svc);
+    const at = (n: number) => new Date(Date.now() + n).toISOString();
+    db.prepare("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES (?,?,?,?,?,?)")
+      .run("c-1", taskId, "t1", "Inquadrato: parto dal dispatcher.", "comment", at(1));
+    db.prepare("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES (?,?,?,?,?,?)")
+      .run("c-2", taskId, "t1", "Fatto: il chip vivo sa del ritentativo, test verdi.", "comment", at(2));
+    db.prepare("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES (?,?,?,?,?,?)")
+      .run("c-3", taskId, "system", "Fan-out chiuso: 1 tentativo", "comment", at(3));
+
+    svc.deliverToReviewBySystem({ taskId, reason: "turni esauriti" });
+
+    expect(kindOf("c-2")).toBe("delivery"); // the agent's LAST word
+    expect(kindOf("c-1")).toBe("comment");
+    expect(kindOf("c-3")).toBe("comment");  // never a machine note
+    // ...and the review card carries it as the declared delivery.
+    const [card] = svc.list({ scope: "all", rootsOnly: true, ids: [taskId] });
+    expect(card!.recentComments.find((c) => c.kind === "delivery")?.content).toContain("Fatto: il chip vivo");
+  });
+
+  test("una delivery gia' dichiarata non si tocca", () => {
+    const svc = createTaskService(db);
+    const taskId = seedInProgress(db, svc);
+    const at = (n: number) => new Date(Date.now() + n).toISOString();
+    db.prepare("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES (?,?,?,?,?,?)")
+      .run("d-1", taskId, "t1", "Consegna dichiarata al giro prima.", "delivery", at(1));
+    db.prepare("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES (?,?,?,?,?,?)")
+      .run("c-2", taskId, "t1", "secondo commit", "comment", at(2));
+
+    svc.deliverToReviewBySystem({ taskId, reason: "turni esauriti" });
+
+    expect(kindOf("d-1")).toBe("delivery");
+    expect(kindOf("c-2")).toBe("comment");
+  });
+
+  test("senza nessuna parola dell'agente non promuove niente e la nota «senza riassunto» resta", () => {
+    const svc = createTaskService(db);
+    const taskId = seedInProgress(db, svc);
+    svc.deliverToReviewBySystem({ taskId, reason: "turni esauriti" });
+    const kinds = db.prepare("SELECT kind FROM task_comments WHERE task_id = ?").all(taskId).map((r: any) => r.kind);
+    expect(kinds).not.toContain("delivery");
+    const texts = db.prepare("SELECT content FROM task_comments WHERE task_id = ?").all(taskId).map((r: any) => r.content);
+    expect(texts.some((x: string) => x.startsWith("Consegna senza riassunto"))).toBe(true);
+  });
+});

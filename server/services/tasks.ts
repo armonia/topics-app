@@ -1463,7 +1463,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * (lista, dettaglio, scrittura ribaltata sul WS) risponde la stessa cosa per
    * lo stesso task.
    */
-  const drawsCardComments = (r: { status?: string }): boolean => r.status === "review";
+  //
+  // AND IN PROGRESS, since 2026-09-03: the kickoff asks the agent to comment as
+  // soon as the work is framed, and it does (measured: 6 rows on one working
+  // card, 2 on another), yet from the kanban the progress was a stopwatch. The
+  // card draws ONE, the agent's last word (`progressWord`, client side).
+  const drawsCardComments = (r: { status?: string }): boolean => r.status === "review" || r.status === "in_progress";
 
   /** Quanti caratteri di `description` viaggiano nella lista (vedi `descriptionPreview`). */
   const DESCRIPTION_PREVIEW_CHARS = 240;
@@ -2835,6 +2840,31 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
 
   /** Slot prefix: `replaces` uses it to empty before filling. */
   const DELIVERY_CLAIM_SLOT = "[consegna]";
+
+  /**
+   * Promote the agent's last plain comment to `kind = 'delivery'` when the
+   * thread holds no delivery at all. Returns true when a row was promoted.
+   *
+   * The thread stays intact: same row, same text, same author; only the kind
+   * changes, which is the one field the card, the sheet and the drawer read to
+   * find «what was delivered». Best-effort, like every note on this door.
+   */
+  function promoteLastAgentWordToDelivery(taskId: string): boolean {
+    try {
+      const has = db.prepare(
+        "SELECT 1 FROM task_comments WHERE task_id = ? AND kind = 'delivery' LIMIT 1",
+      ).get(taskId);
+      if (has) return false;
+      const last = db.prepare(
+        `SELECT id FROM task_comments
+          WHERE task_id = ? AND author NOT IN ('user', 'system') AND kind = 'comment' AND TRIM(content) <> ''
+          ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+      ).get(taskId) as { id: string } | null;
+      if (!last) return false;
+      db.prepare("UPDATE task_comments SET kind = 'delivery' WHERE id = ?").run(last.id);
+      return true;
+    } catch { return false; }
+  }
 
   function hasFreshAgentComment(taskId: string): boolean {
     const turnStart = lastTurnStart(taskId);
@@ -4475,6 +4505,16 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // cronaca» sopra la cronaca stessa, senza il perché: più rumore di quanto
       // ne togliesse. Meglio far arrivare la frase VERA, che il perché ce l'ha
       // dentro.
+      // THE AGENT'S LAST WORD BECOMES THE DELIVERY when nobody declared one.
+      //
+      // Through `update()` the delivery is declared (`summary` → `kind:
+      // 'delivery'`); through this door the turn is over and nothing declares
+      // it. Measured on the last 30 done cards: 1 carried a delivery row, 12 had
+      // any agent comment at all. The card, the sheet and the drawer all anchor
+      // on `kind = 'delivery'`, so the anchor is set here, once, on the row the
+      // review gate would have read anyway. Only when there is no delivery yet:
+      // a declared one from a previous round is not overwritten.
+      promoteLastAgentWordToDelivery(taskId);
       if (!hasFreshAgentComment(taskId)) {
         try {
           this.addComment({
