@@ -1,19 +1,9 @@
-import { useSyncExternalStore } from 'react';
-import { hasReceivedServerHydrate, onServerHydrated } from '../state/pane/middleware/serverHydrated';
-
 /**
- * React hook returning `true` once this tab has received an authoritative
- * server hydrate (WS `ui-state:init` / `ui-state:updated` or the boot GET
- * fallback). Used to gate device-local state syncs that would otherwise
- * race the async hydrate and clobber persisted layout — see
- * `usePanelGridPersistence` and the `naturalGridItems` sync in `PanelGrid`.
- *
- * One-shot: once true, stays true for the rest of the session.
+ * One implementation, owned by the middleware that flips the flag
+ * (`state/pane/middleware/serverHydrated.ts`): the subscription contract and
+ * the design notes live next to the listeners. Callers keep importing the
+ * hook from `hooks/`, like every other hook. Two copies existed until
+ * 2026-09-04, and the one in the middleware, unused, is what `check:deadcode`
+ * reported.
  */
-export function useServerHydrated(): boolean {
-  return useSyncExternalStore(
-    (onChange) => onServerHydrated(onChange),
-    hasReceivedServerHydrate,
-    () => false, // SSR fallback (we don't SSR but useSyncExternalStore requires it)
-  );
-}
+export { useServerHydrated } from '../state/pane/middleware/serverHydrated';

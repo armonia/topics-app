@@ -112,6 +112,13 @@ describe('barra indirizzo di un file locale', () => {
     expect(displayUrl(REF)).toBe(`file://${PDF}`);
   });
 
+  it("legge il file anche dietro l'origine del guscio desktop", () => {
+    // macOS: tauri://localhost. Windows/Linux: http://tauri.localhost.
+    // Read in the bar on 2026-09-04: the raw transport instead of the file.
+    expect(displayUrl(`tauri://localhost${REF}`)).toBe(`file://${PDF}`);
+    expect(displayUrl(`http://tauri.localhost${REF}`)).toBe(`file://${PDF}`);
+  });
+
   it('lascia stare gli indirizzi veri', () => {
     for (const u of ['https://example.com/', 'about:blank', 'https://x.com/api/mediaset']) {
       expect(displayUrl(u)).toBe(u);
