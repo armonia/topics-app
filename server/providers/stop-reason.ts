@@ -107,6 +107,16 @@ export type StopCause =
    * «riprova quando ha finito» — quindi non brucia un tentativo.
    */
   | "turn-in-flight"
+  /**
+   * A NEWER TURN ON THE SAME SESSION TOOK ITS PLACE.
+   *
+   * Only the native runtime emits it: a second `sendChat` found the previous
+   * turn still running (a zombie the sweeper had already declared over, or a
+   * resume racing a turn nobody stopped) and aborted it before starting. The
+   * old turn's row was finalized by whoever closed it first; this cause names
+   * why its loop ended, so it is never mistaken for a stop by hand.
+   */
+  | "superseded"
   /** Il provider ha risposto errore (rete, credito, limite). */
   | "provider-error";
 
@@ -320,6 +330,7 @@ export function describeTurnEnd(info: TurnEndInfo): string {
         case "stall": return "Turno riciclato: transcript muto da dispatchIdleMin, il giudice l'ha valutato incastrato";
         case "session-reset": return "Sessione persa e riavviata: stesso turno, processo nuovo";
         case "turn-in-flight": return "La sessione stava già rispondendo: turno non avviato";
+        case "superseded": return "Turno sostituito da uno nuovo sulla stessa sessione";
         default: return "Turno annullato";
       }
     case "error":

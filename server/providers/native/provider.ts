@@ -171,6 +171,13 @@ interface NativeSession {
    * possono divergere — ed è da una divergenza così che nasce tutto questo.
    */
   abort?: AbortController;
+  /**
+   * The promise of the turn that owns `abort`, so a second `sendChat` on this
+   * session can WAIT for it instead of racing it. `abort` and `turn` are set
+   * together and cleared together, by the turn that set them and only by it:
+   * see `driveTurn`'s `finally`.
+   */
+  turn?: Promise<{ runId?: string }>;
   model?: string;
   /** Quando questa sessione è stata toccata l'ultima volta. Serve allo sfratto. */
   lastUsedAt: number;
@@ -390,6 +397,7 @@ export class NativeProvider implements AIProvider {
     options?: { model?: string; history?: ChatMessage[]; systemPrompt?: string },
   ): Promise<{ runId?: string }> {
     const session = this.sessionFor(sessionKey);
+    await this.supersedeLiveTurn(sessionKey, session);
 
     // La storia del CHIAMANTE vince su quella in memoria: è lui che sa cosa è
     // successo davvero (riavvii, rami, modifiche). La nostra è una comodità,
@@ -433,10 +441,66 @@ export class NativeProvider implements AIProvider {
     // per perche' si pota invece di inventare risultati finti.
     session.history = pruneDanglingToolUses(session.history);
 
+    // THE CLAIM IS SYNCHRONOUS WITH THE CHECK. `supersedeLiveTurn` returned
+    // with `session.abort` empty, and nothing has yielded since: a third
+    // caller queued behind the same old turn cannot slip in between and claim
+    // the session too. It resumes after this, finds OUR controller, and
+    // supersedes us in its turn.
     const abort = new AbortController();
     session.abort = abort;
     if (options?.model) session.model = options.model;
+    const turn = this.driveTurn(sessionKey, session, handler, options, abort);
+    session.turn = turn;
+    return turn;
+  }
 
+  /**
+   * ONE TURN PER SESSION, in the runtime and not only at the front door.
+   *
+   * The CLI serializes turns per session by construction: one child process,
+   * one stdin. Here `sendChat` had no guard at all: a second call on a session
+   * whose turn was still running overwrote `session.abort` with its own
+   * controller, both loops pushed into the SAME `history`, and the first
+   * turn's `finally` then cleared the second turn's handle, so
+   * `isTurnProcessAlive` answered "dead" for a turn that was alive and the
+   * sweeper killed it. Measured on 2026-08-27 and 2026-08-29: the turn the
+   * user was told was over kept editing files, its tool blocks landed on the
+   * next turn's row, and the shared history ended with a `tool_use` without a
+   * `tool_result`, which the API rejects on every following call.
+   *
+   * By the time a second call reaches this method the front door has already
+   * declared the previous turn over (it answers 409 `stream_in_flight` for a
+   * live one): whatever is still running here is a zombie. So it is aborted
+   * with a cause of its own and AWAITED, and only then does the new turn touch
+   * the history. Merely refusing would leave a resumed card waiting behind a
+   * zombie until it dies by itself.
+   */
+  private async supersedeLiveTurn(sessionKey: string, session: NativeSession): Promise<void> {
+    for (;;) {
+      const live = session.abort;
+      if (!live) return;
+      console.warn(`[native] ${sessionKey}: a turn is still in flight, superseding it before starting the next one`);
+      try { live.abort("superseded" satisfies StopCause); } catch { /* already finished */ }
+      const turn = session.turn;
+      // A handle with no turn behind it (a session assembled by hand, or a
+      // controller left by a failed claim) has no `finally` that will ever
+      // clear it: clearing it here is the only way out of this loop.
+      if (!turn) { session.abort = undefined; return; }
+      // `driveTurn` never rejects; this await only orders the two turns. After
+      // it resumes the loop re-checks: the turn that just ended clears its own
+      // handle, and the check finds either nothing or a NEWER claimant.
+      await turn;
+    }
+  }
+
+  /** The turn proper. Split from `sendChat` so its promise can be kept on the session. */
+  private async driveTurn(
+    sessionKey: string,
+    session: NativeSession,
+    handler: StreamHandler,
+    options: { model?: string; history?: ChatMessage[]; systemPrompt?: string } | undefined,
+    abort: AbortController,
+  ): Promise<{ runId?: string }> {
     try {
       // Senza una radice i tool di file non si offrono nemmeno: un agente che
       // riceve `read_file` e non ha una workspace prova a indovinare dove sia
@@ -557,7 +621,13 @@ export class NativeProvider implements AIProvider {
       recordTurnEnd(sessionKey, { end: "error", cause: "provider-error", detail });
       return {};
     } finally {
-      session.abort = undefined;
+      // ONLY ITS OWN HANDLE. An unconditional clear is how the first turn's
+      // end made the second turn look dead: the handle is released by the turn
+      // that set it, and a newer claimant's stays where it is.
+      if (session.abort === abort) {
+        session.abort = undefined;
+        session.turn = undefined;
+      }
     }
   }
 
