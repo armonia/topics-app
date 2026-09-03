@@ -4,8 +4,8 @@
  * `canonical-project-path.ts` stops a second identity from being born; what is
  * already written stays, and folding it is an explicit act. The script's
  * default is the dry run, and the promise worth guarding is the negative one:
- * without `--esegui` the database comes back byte-for-byte the same, while the
- * output already names old id, new id and the counts. The `--esegui` case is
+ * without `--esegui` the database comes back byte-for-byte the same, while the allow-italian: --esegui is the flag name
+ * output already names old id, new id and the counts. The `--esegui` case is allow-italian: --esegui is the flag name
  * here so the dry run is proven against a script that CAN write, not against
  * one that never does.
  *

@@ -84,9 +84,7 @@
       "soglia"
     ],
     "client/src/components/Board/PreviewMedia.tsx": [
-      "Lightbox",
-      "expandable",
-      "openLightbox"
+      "expandable"
     ],
     "client/src/components/Board/ProjectPicker.tsx": [
       "multi"
@@ -95,8 +93,6 @@
       "descCard",
       "editCancelled",
       "escGuardRef",
-      "imgs",
-      "isImg",
       "mio",
       "openProjMenu",
       "prioBtnRef",
@@ -219,9 +215,6 @@
       "scivola",
       "vola"
     ],
-    "client/src/components/Browser/BrowserFavicon.tsx": [
-      "showImg"
-    ],
     "client/src/components/Browser/DomCoBrowse.tsx": [
       "RrwebEvent",
       "acc",
@@ -255,8 +248,6 @@
     ],
     "client/src/components/Browser/SelectElementOverlay.tsx": [
       "coords",
-      "img",
-      "imgAspect",
       "mapCoordsToPage",
       "pageBboxToClient",
       "vid"
@@ -287,20 +278,14 @@
     "client/src/components/Chat/ChatPane.tsx": [
       "TYPING_THROTTLE_MS",
       "annullato",
-      "img",
-      "imgFailCount",
-      "imgs",
       "lastTypingSentRef",
       "pre",
       "raf",
       "sendTyping",
       "tentativo",
-      "textareaRef",
       "typingTimeoutRef"
     ],
     "client/src/components/Chat/CheckpointTimeline.tsx": [
-      "CheckpointTimeline",
-      "CheckpointTimelineProps",
       "hrs"
     ],
     "client/src/components/Chat/MessageBubble.tsx": [
@@ -426,17 +411,13 @@
     "client/src/components/ChatMarkdown.tsx": [
       "BASE_REHYPE"
     ],
-    "client/src/components/Context/ContextSourceRow.tsx": [
-      "textareaRef"
-    ],
     "client/src/components/Context/CostProbePanel.tsx": [
       "dollari",
       "milioni"
     ],
     "client/src/components/Dashboard/TimeSeriesChart.tsx": [
       "closest",
-      "closestDist",
-      "dist"
+      "closestDist"
     ],
     "client/src/components/Editor/BreadcrumbNav.tsx": [
       "BreadcrumbNav",
@@ -567,18 +548,14 @@
       "wsum"
     ],
     "client/src/components/MessageContent.tsx": [
-      "ImageLightbox",
       "RipresoBanner",
       "WokenBanner",
       "approxK",
       "backticks",
       "cancelled",
       "fmt",
-      "getTouchDist",
       "hasPreContentRows",
       "hljsReady",
-      "lastTouchDist",
-      "newDist",
       "resto",
       "ripreso",
       "woken"
@@ -882,9 +859,7 @@
     ],
     "client/src/components/Shared/projectIconStore.ts": [
       "NONE_VERIFIED_TTL_MS",
-      "img",
-      "presenti",
-      "reportImgError"
+      "presenti"
     ],
     "client/src/components/Sidebar/BoardStatusCounts.tsx": [
       "conIcona",
@@ -1100,15 +1075,11 @@
     ],
     "client/src/hooks/browserCoords.test.ts": [
       "MEvt",
-      "MImg",
-      "evt",
-      "img"
+      "evt"
     ],
     "client/src/hooks/browserCoords.ts": [
       "CoordMeta",
       "dsf",
-      "img",
-      "imgAspect",
       "mapCoordinates",
       "vid"
     ],
@@ -1329,8 +1300,6 @@
       "dsfRef",
       "failWebrtc",
       "fetchScreenshot",
-      "img",
-      "imgRef",
       "preload",
       "psf",
       "psfChanged",
@@ -1345,9 +1314,6 @@
       "webrtcStartRef",
       "webrtcTeardownRef",
       "webrtcWatchdogRef"
-    ],
-    "client/src/hooks/useSharedViewerCount.ts": [
-      "cancelled"
     ],
     "client/src/hooks/useSheetDrag.test.ts": [
       "ALTEZZA",
@@ -1753,12 +1719,6 @@
     ],
     "client/src/lib/i18n.ts": [
       "chiaviDelCatalogo"
-    ],
-    "client/src/lib/iconTint.ts": [
-      "img"
-    ],
-    "client/src/lib/imageCrop.ts": [
-      "img"
     ],
     "client/src/lib/livello-audio.test.ts": [
       "SondaLivello",
@@ -2216,7 +2176,6 @@
       "unimplemented"
     ],
     "client/src/types/index.ts": [
-      "GitLineStat",
       "WSTypingMessage",
       "WSUIStateInitMessage",
       "WSUIStateUpdatedMessage"
@@ -3081,8 +3040,6 @@
       "unregisterSessionHandler"
     ],
     "server/git-watcher.ts": [
-      "Numstat",
-      "toplevelProc",
       "unwatchGitDir"
     ],
     "server/integrations/chrome-cookies.ts": [
@@ -6286,8 +6243,6 @@
       "crc",
       "crc32",
       "ihdr",
-      "img",
-      "imgBox",
       "scrollableAncestors",
       "scroller"
     ],
@@ -6351,13 +6306,9 @@
       "sotto",
       "stati"
     ],
-    "tests/e2e/board-preview-cap.spec.ts": [
-      "img"
-    ],
     "tests/e2e/board-project-selector.spec.ts": [
       "PROJ_A",
-      "PROJ_B",
-      "img"
+      "PROJ_B"
     ],
     "tests/e2e/board-queue-reason-chip.spec.ts": [
       "BLOCCANTE",
@@ -6378,7 +6329,6 @@
     ],
     "tests/e2e/board-recapture-preview.spec.ts": [
       "bottone",
-      "img",
       "nota",
       "proj"
     ],
@@ -6546,7 +6496,6 @@
       "scarto",
       "scroller",
       "striscia",
-      "textarea",
       "varco"
     ],
     "tests/e2e/chat-background-shell-live.spec.ts": [
@@ -6574,8 +6523,7 @@
     ],
     "tests/e2e/chat-fast-mode.spec.ts": [
       "FAST_SERVIBILE",
-      "dichiaraFastMode",
-      "textarea"
+      "dichiaraFastMode"
     ],
     "tests/e2e/chat-history-window.spec.ts": [
       "scroller"
@@ -6611,7 +6559,6 @@
       "stato"
     ],
     "tests/e2e/chat-streaming-indicator.spec.ts": [
-      "distUp",
       "scroller"
     ],
     "tests/e2e/chat-subagent-exit-bubble.spec.ts": [
@@ -6638,8 +6585,7 @@
     ],
     "tests/e2e/chat.spec.ts": [
       "eccedenza",
-      "scroller",
-      "textarea"
+      "scroller"
     ],
     "tests/e2e/checklist-ui-verify.spec.ts": [
       "bordo"
@@ -6667,8 +6613,7 @@
     "tests/e2e/claude-code-provider.spec.ts": [
       "multiTopic",
       "multiTopicData",
-      "multiTopicName",
-      "textarea"
+      "multiTopicName"
     ],
     "tests/e2e/confirm-non-blocking.spec.ts": [
       "dialog"
@@ -6680,21 +6625,17 @@
     ],
     "tests/e2e/context-settings.spec.ts": [
       "deniedMsg",
-      "deniedVisible",
-      "textarea"
+      "deniedVisible"
     ],
     "tests/e2e/cross-feature.spec.ts": [
       "campione",
       "desktopSidebarWidth",
       "scrollable",
       "scroller",
-      "textarea",
-      "textareaVisible",
       "treeitem"
     ],
     "tests/e2e/cross-window-topic-sync.spec.ts": [
-      "conversazione",
-      "textarea"
+      "conversazione"
     ],
     "tests/e2e/dictation-hermetic.spec.ts": [
       "SPOKEN_WAV",
@@ -6795,9 +6736,6 @@
     "tests/e2e/fixtures/infra.fixture.ts": [
       "MOCK_CRON_JOBS"
     ],
-    "tests/e2e/fixtures/layout.fixture.ts": [
-      "textarea"
-    ],
     "tests/e2e/focus-bounce-board.spec.ts": [
       "apriBoard",
       "apriProgettoDaSidebar",
@@ -6891,9 +6829,6 @@
       "suo",
       "tutte",
       "voce"
-    ],
-    "tests/e2e/helpers.ts": [
-      "textarea"
     ],
     "tests/e2e/helpers/api-fixtures.ts": [
       "unarchiveTopic",
@@ -7024,9 +6959,6 @@
       "chiudiTab",
       "xterm"
     ],
-    "tests/e2e/layout-navigation.spec.ts": [
-      "textarea"
-    ],
     "tests/e2e/long-session-growth.spec.ts": [
       "riga"
     ],
@@ -7115,8 +7047,7 @@
       "gotoAndWait"
     ],
     "tests/e2e/panels.spec.ts": [
-      "dialog",
-      "resetTimelineView"
+      "dialog"
     ],
     "tests/e2e/perf-panel.spec.ts": [
       "costo",
@@ -7142,7 +7073,6 @@
       "LUNGO",
       "chiavi",
       "gotoSidebar",
-      "mkdirWithIcon",
       "piu",
       "riposo",
       "stampa"
@@ -7156,7 +7086,6 @@
       "apriBoard",
       "attiva",
       "chiuso",
-      "img",
       "lista",
       "mio",
       "partenza",
@@ -7179,9 +7108,6 @@
     "tests/e2e/project-badge-attributable.spec.ts": [
       "spiegazione",
       "tabProgetto"
-    ],
-    "tests/e2e/project-commands.spec.ts": [
-      "textarea"
     ],
     "tests/e2e/project-rail-row-gap.spec.ts": [
       "PROJ",
@@ -7234,13 +7160,8 @@
       "suDesktop",
       "voce"
     ],
-    "tests/e2e/provider-picker.spec.ts": [
-      "textarea"
-    ],
     "tests/e2e/real-tool-calls.spec.ts": [
-      "TC_MULTI_IDS",
-      "img",
-      "textarea"
+      "TC_MULTI_IDS"
     ],
     "tests/e2e/reduced-motion-chrome-controls.spec.ts": [
       "apriEMisura",
@@ -7500,7 +7421,6 @@
       "gia",
       "gotoSidebar",
       "grado",
-      "img",
       "larga",
       "lascia",
       "lista",
@@ -7508,7 +7428,6 @@
       "mia",
       "minuscola",
       "misure",
-      "mkdirWithIcon",
       "nodo",
       "nudo",
       "opacita",
@@ -7593,9 +7512,7 @@
       "leggi",
       "misure",
       "raggi",
-      "riga",
-      "textarea",
-      "timelineToggle"
+      "riga"
     ],
     "tests/e2e/spaces-switcher.spec.ts": [
       "dst",
@@ -7628,8 +7545,7 @@
     ],
     "tests/e2e/system.spec.ts": [
       "dialog",
-      "hasDialog",
-      "textarea"
+      "hasDialog"
     ],
     "tests/e2e/tab-bar-command-air.spec.ts": [
       "Comando",
@@ -7727,10 +7643,6 @@
       "tagliati",
       "testo"
     ],
-    "tests/e2e/tool-call-rendering.spec.ts": [
-      "lightbox",
-      "textarea"
-    ],
     "tests/e2e/tool-card-legibility.spec.ts": [
       "corpo",
       "inerte",
@@ -7743,7 +7655,6 @@
     "tests/e2e/topic-management-org.spec.ts": [
       "dialog",
       "gotoAndOpenTopic",
-      "promptTextarea",
       "searchbox"
     ],
     "tests/e2e/topic-management.spec.ts": [

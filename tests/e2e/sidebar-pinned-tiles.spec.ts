@@ -2159,12 +2159,12 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     // WHOLE OR NOT AT ALL (card 058ea722, 03/09): with a favicon holding the
     // identity, the title is drawn only if it fits untruncated. It used to
     // come back above a fixed width and read "e2..." next to the icon.
-    const titolo = await tessellaProj.evaluate((t: HTMLElement) => {
+    const tileTitle = await tessellaProj.evaluate((t: HTMLElement) => {
       const n = t.querySelector<HTMLElement>('[data-testid="pinned-tile-name"]')!;
       const drawn = getComputedStyle(n).display !== "none";
       return { drawn, intero: !drawn || n.scrollWidth <= n.clientWidth + 0.5 };
     });
-    expect(titolo.intero, `il titolo e' intero o non c'e', mai troncato: ${JSON.stringify(titolo)}`).toBe(true);
+    expect(tileTitle.intero, `il titolo e' intero o non c'e', mai troncato: ${JSON.stringify(tileTitle)}`).toBe(true);
 
     // 2. L'ANTEPRIMA, trascinando una riga della lista sui fissati, mostra le
     //    stesse due cose — e nemmeno lei trabocca.
