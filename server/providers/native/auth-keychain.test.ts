@@ -64,8 +64,13 @@ describe("the Keychain candidate", () => {
     try { rmSync(homeDir, { recursive: true, force: true }); } catch { /* scratch */ }
   });
 
-  test("off by default: with the flag unset, `security` is never called and the file wins", () => {
+  test("off under bun test (NODE_ENV=test) and when set to 0: `security` is never called and the file wins", () => {
     delete process.env.TOPICS_CREDENTIALS_KEYCHAIN;
+    expect(process.env.NODE_ENV).toBe("test");
+    fileCreds("file-live", Date.now() + 3_600_000);
+    expect(readCredentials()?.accessToken).toBe("file-live");
+    expect(calls.length).toBe(0);
+    process.env.TOPICS_CREDENTIALS_KEYCHAIN = "0";
     fileCreds("file-live", Date.now() + 3_600_000);
     expect(readCredentials()?.accessToken).toBe("file-live");
     expect(calls.length).toBe(0);

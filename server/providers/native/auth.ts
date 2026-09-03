@@ -130,9 +130,10 @@ function credentialPaths(): string[] {
 // Keychain, because the refresh token rotates and the CLI must find the new
 // pair where it looks (writing it anywhere else logs the CLI out).
 //
-// OPT-IN PER MACHINE (`TOPICS_CREDENTIALS_KEYCHAIN=1` in ~/.topics-server-env),
-// for one reason: the tests run with a temporary HOME and fake credential
-// files, and a candidate that ignores HOME would hand them the real token.
+// ON BY DEFAULT on macOS, OFF under `bun test` (NODE_ENV=test): the tests run
+// with a temporary HOME and fake credential files, and a candidate that
+// ignores HOME would hand them the real token. `TOPICS_CREDENTIALS_KEYCHAIN=0`
+// turns it off on a machine; `=1` forces it on (tests that fake `security`).
 // Reading it costs one `security` spawn (~30ms) per turn, not per round.
 const KEYCHAIN_SERVICE = "Claude Code-credentials";
 /** The pseudo-path that marks a Keychain-sourced credential for lock and write. */
@@ -152,7 +153,11 @@ export function setKeychainRunnerForTests(run: KeychainRunner | null): void {
 }
 
 function keychainEnabled(): boolean {
-  return process.platform === "darwin" && process.env.TOPICS_CREDENTIALS_KEYCHAIN === "1";
+  if (process.platform !== "darwin") return false;
+  const flag = process.env.TOPICS_CREDENTIALS_KEYCHAIN;
+  if (flag === "1") return true;
+  if (flag === "0") return false;
+  return process.env.NODE_ENV !== "test";
 }
 
 export function readKeychainCredentials(): (OAuthCredentials & { sourcePath: string }) | null {
