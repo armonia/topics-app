@@ -1821,13 +1821,43 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // modo in cui il vecchio bug si sarebbe ripresentato con un'altra
             // faccia.
             const soloCompattazione = compactedThisTurn;
-            if (reason === "done" && !fullContent.trim() && !rowHasWorkAfterMerge() && !askingPlanApproval && !soloCompattazione) {
+            // A TURN CUT BY THE OUTPUT CAP ENDS ON THE `done` LEG.
+            //
+            // The native loop exits a `max_tokens` round through `onDone`, not
+            // `onError` (agent-loop.ts: only `end === "error"` goes to the error
+            // handler), and the only place that wrote the cut-turn notice
+            // was the `aborted` branch below. So the notice shipped on
+            // 08-28 for topic:4c935add was unreachable: the tool half of that
+            // fix worked (`toolOutcomeAtTurnEnd`), the prose stopped
+            // mid-sentence with no explanation, three times out of three.
+            //
+            // Decided BEFORE the empty-turn check on purpose: a turn
+            // that spent the whole cap on thinking produces no text, and
+            // a retry would be the wrong advice for it (the same message
+            // blows through the same cap). Only the `done` leg: `error` already
+            // writes its own error block, and its `max_tokens` classification
+            // also covers input-side context overflow, where advice about a
+            // single turn's length is wrong.
+            const cutNotice = reason === "done" && endInfo.end === "max_tokens"
+              ? avvisoPerTurno(endInfo, { haProdotto: fullContent.trim().length > 0 || rowHasWorkAfterMerge() })
+              : null;
+            if (reason === "done" && !cutNotice && !fullContent.trim() && !rowHasWorkAfterMerge() && !askingPlanApproval && !soloCompattazione) {
               const emptyErrorMsg = "⚠️ Nessuna risposta: il turno si è chiuso senza produrre niente. Il tuo messaggio è ancora qui: «Riprova» lo rimanda.";
               fullContent = emptyErrorMsg;
               blocks.push({ kind: "error", text: "Nessuna risposta: il turno si è chiuso senza produrre niente." });
               console.warn(`[StreamWS] Empty response for ${sessionKey}`);
               if (matchedTopic) {
                 broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: emptyErrorMsg });
+              }
+            }
+            if (cutNotice) {
+              // Same shape as the cancelled notice below: the verdict goes in
+              // the BLOCKS, and in the text only when there is no text.
+              blocks.push({ kind: "error", text: cutNotice.replace(/^⚠️\s*/, "") });
+              if (!fullContent.trim()) fullContent = cutNotice;
+              console.warn(`[StreamWS] ${sessionKey}: turn cut by the output cap`);
+              if (matchedTopic) {
+                broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: cutNotice });
               }
             }
             // UN TURNO ANNULLATO NON DALL'UTENTE DEVE DIRLO.
