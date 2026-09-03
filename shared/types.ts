@@ -878,8 +878,14 @@ export type ContentBlock =
    * abbia risposto due volte alla stessa domanda. Sul turno VECCHIO è la
    * traccia che impedisce di riprenderlo una seconda volta: sta nel DB e non in
    * memoria, perché due riavvii di fila lo riprenderebbero due volte.
+   *
+   * `attempt` is the resend number in the CHAIN (1 = the first resume), the
+   * same on the old turn and on the new one. The chain cap (`ripresa-boot.ts`)
+   * needs it: counting the blocks of a single row was not enough, because every
+   * resend cut by the next restart is a new row starting from zero. Rows
+   * written before this field carry no number: they count as 1.
    */
-  | { kind: 'ripreso' };
+  | { kind: 'ripreso'; attempt?: number };
 
 // ─── Entità di dominio (payload REST + broadcast WS) ────────────────────
 //

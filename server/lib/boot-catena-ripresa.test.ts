@@ -45,7 +45,7 @@ describe("dal turno tagliato alla ripresa, senza buchi in mezzo", () => {
     // 2. La ripresa, che gira dopo, riconosce quel verdetto e lo riprende.
     const b = blocchi(db, "a1");
     expect(chatDaRiprendere(
-      { sessionKey: "topic:x", ruolo: "assistant", blocks: b, timestampMs: Date.now() },
+      { sessionKey: "topic:x", ruolo: "assistant", blocks: b, timestampMs: Date.now(), attempts: 0 },
       Date.now(),
     )).toBe(true);
   });
@@ -55,7 +55,7 @@ describe("dal turno tagliato alla ripresa, senza buchi in mezzo", () => {
     // chat resta ferma per sempre — che è ciò che l'utente ha visto.
     const b: ContentBlock[] = [{ kind: "text", text: "sto misurando" }, tool()];
     expect(chatDaRiprendere(
-      { sessionKey: "topic:x", ruolo: "assistant", blocks: b, timestampMs: Date.now() },
+      { sessionKey: "topic:x", ruolo: "assistant", blocks: b, timestampMs: Date.now(), attempts: 0 },
       Date.now(),
     )).toBe(false);
   });
@@ -64,7 +64,7 @@ describe("dal turno tagliato alla ripresa, senza buchi in mezzo", () => {
     const db = dbWithTruncatedTurn([tool(), { kind: "text", text: "fatto, ecco il risultato" }]);
     expect(spiegaTurnoTroncato(db as never, "topic:x")).toBe(false);
     expect(chatDaRiprendere(
-      { sessionKey: "topic:x", ruolo: "assistant", blocks: blocchi(db, "a1"), timestampMs: Date.now() },
+      { sessionKey: "topic:x", ruolo: "assistant", blocks: blocchi(db, "a1"), timestampMs: Date.now(), attempts: 0 },
       Date.now(),
     )).toBe(false);
   });
@@ -72,22 +72,20 @@ describe("dal turno tagliato alla ripresa, senza buchi in mezzo", () => {
   test("i boot di fila non riprendono lo stesso turno all'infinito", () => {
     const db = dbWithTruncatedTurn([{ kind: "text", text: "lavoro" }, tool()]);
     spiegaTurnoTroncato(db as never, "topic:x");
-    // The resume marks the turn, and the trace is COUNTED, not a switch: one cut
-    // resend must not close the door, because a resend cut by a server restart
-    // was burning the row's single chance and leaving the chat stuck forever
-    // under a notice promising it would resume on its own. Measured on
-    // topic:0299ac2d, reported four times.
-    const con = (n: number) => [
-      ...blocchi(db, "a1"),
-      ...Array.from({ length: n }, () => ({ kind: "ripreso" }) as ContentBlock),
-    ];
-    const valuta = (b: ContentBlock[]) => chatDaRiprendere(
-      { sessionKey: "topic:x", ruolo: "assistant", blocks: b, timestampMs: Date.now() },
+    // The resume marks the turn, and the trace is COUNTED along the chain of
+    // resends, not switched on the row: one cut resend must not close the
+    // door (a resend cut by a server restart was burning the row's single
+    // chance and leaving the chat stuck under a notice promising it would
+    // resume on its own, topic:0299ac2d), and the count must survive the
+    // resend being a NEW row (topic:6b9605e5, resent five times in forty
+    // minutes because every link started from zero).
+    const valuta = (attempts: number) => chatDaRiprendere(
+      { sessionKey: "topic:x", ruolo: "assistant", blocks: blocchi(db, "a1"), timestampMs: Date.now(), attempts },
       Date.now(),
     );
-    expect(valuta(con(1))).toBe(true);
+    expect(valuta(1)).toBe(true);
     // What this case has always protected: the loop stays impossible.
-    expect(valuta(con(MAX_RESUME_ATTEMPTS))).toBe(false);
+    expect(valuta(MAX_RESUME_ATTEMPTS)).toBe(false);
     // E nemmeno la spiegazione si ripete.
     expect(spiegaTurnoTroncato(db as never, "topic:x")).toBe(false);
   });

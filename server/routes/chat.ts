@@ -949,7 +949,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           const blocks: ContentBlock[] = cartelloRisveglio(isWoken, body.wokenLabel);
           // Il cartello della RIPRESA (`lib/ripresa-boot.ts`): senza, sembrerebbe
           // che l'agente abbia risposto due volte alla stessa domanda.
-          if (body.ripresa === true) blocks.push({ kind: "ripreso" });
+          // It carries the resend number in the chain: if this turn too dies
+          // under a restart, the next boot knows how many it has already spent.
+          // Counting on the single row let the same message resume at every boot.
+          const attempt = typeof body.ripresa === "number" ? body.ripresa : body.ripresa === true ? 1 : 0;
+          if (attempt > 0) blocks.push({ kind: "ripreso", attempt });
           const appendTextBlock = (delta: string) => {
             if (!delta) return;
             const last = blocks[blocks.length - 1];
