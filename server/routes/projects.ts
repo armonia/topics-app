@@ -161,7 +161,7 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
       // is kept for a few seconds, and a MISS rebuilds it before denying:
       // a folder opened a moment ago is allowed on the rebuild, so the cache
       // can only ever confirm, never crystallise a denial.
-      const iconAllowlist = (fresh: boolean): Set<string> => {
+      const iconAllowedDirs = (fresh: boolean): Set<string> => {
         const now = Date.now();
         if (!fresh && iconAllowCache && iconAllowCache.db === ctx.db && now - iconAllowCache.at < ICON_ALLOW_TTL_MS) return iconAllowCache.dirs;
         const dirs = knownProjectDirs({
@@ -174,8 +174,8 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
         iconAllowCache = { at: now, dirs, db: ctx.db };
         return dirs;
       };
-      let allowed = iconAllowlist(false).has(realDir);
-      if (!allowed) allowed = iconAllowlist(true).has(realDir);
+      let allowed = iconAllowedDirs(false).has(realDir);
+      if (!allowed) allowed = iconAllowedDirs(true).has(realDir);
       if (!allowed) {
         console.log(`[icon] 403 (not in allowlist): ${realDir}`);
         return new Response(null, { status: 403 });
