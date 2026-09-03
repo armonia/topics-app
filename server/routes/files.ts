@@ -6,8 +6,7 @@ import { watchGitDir } from "../git-watcher";
 import { watchProjectFiles } from "../file-watcher";
 import { resolveStateDir } from "../lib/data-dir";
 import { BRANCH_FORMAT, parseBranchLines } from "../lib/git-branch-refs";
-import { STATUS_ARGS, gitRead, parsePorcelainZ, scopeToPrefix, statusOfPrefix, repoPrefixOf } from "../lib/git-porcelain";
-import { attachNumstats, readNumstats } from "../lib/git-numstat";
+import { STATUS_ARGS, gitRead, parsePorcelainZ, repoPrefixOf } from "../lib/git-porcelain";
 import { moveToTrash } from "../lib/trash";
 import { detectScripts, MANIFESTS } from "../lib/project-scripts";
 import { NAME_STATUS_ARGS, SHOW_NUMSTAT_ARGS, COMMIT_META_ARGS, mergeCommitFiles, scopeCommitFiles } from "../lib/git-show";
@@ -20,6 +19,7 @@ import { IgnoreSet } from "../lib/gitignore";
 // il watcher doveva importare una ROUTE — chiudendo il ciclo
 // file-watcher → git-watcher → routes/files → file-watcher.
 import { readGitStatusCache, writeGitStatusCache, invalidateGitCache } from "../lib/git-status-cache";
+import { computeGitStatus } from "../lib/git-status";
 import { gitEnvFor } from "../lib/git-identity";
 
 // Conservative git ref/remote name validation (mirrors worktrees.ts BASE_REF_REGEX)
@@ -447,66 +447,20 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       const resolvedDir = resolveProjectPath(dirPath);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
-        // Server-side cache check (TTL e sfratto stanno nel modulo della cache)
+        // Server-side cache check (TTL and eviction live in the cache module).
+        // The watcher fills it too after every push (`refreshGitStatus`), so
+        // the poll that follows a change is a read and not eight spawns.
         const cached = readGitStatusCache(resolvedDir);
         if (cached) return json(cached);
-        // Check if path is a git repo
-        const checkProc = Bun.spawn(["git", "rev-parse", "--git-dir"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
-        await checkProc.exited;
-        if (checkProc.exitCode !== 0) {
+        // The computation is `lib/git-status.ts`, shared with the watcher: it
+        // used to be two copies of eight spawns each, and they had already
+        // drifted once (the symlink prefix). `null` = not a repo.
+        const result = await computeGitStatus(resolvedDir);
+        if (!result) {
           return json({ notGit: true, branch: "", files: [], ahead: 0, behind: 0, lastCommit: null });
         }
-        // Start watching .git for changes (idempotent — only sets up once per path)
+        // Start watching .git for changes (idempotent: only sets up once per path)
         watchGitDir(resolvedDir, ctx);
-        const statusProc = Bun.spawn(STATUS_ARGS, { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
-        const statusText = await new Response(statusProc.stdout).text();
-        const branchProc = Bun.spawn(["git", "branch", "--show-current"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
-        let branch = (await new Response(branchProc.stdout).text()).trim();
-        if (!branch) {
-          // Detached HEAD — use short commit hash as label
-          try {
-            const headProc = Bun.spawn(["git", "rev-parse", "--short", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
-            branch = (await new Response(headProc.stdout).text()).trim() || "HEAD";
-          } catch { branch = "HEAD"; }
-        }
-        const logProc = Bun.spawn(["git", "log", "-1", "--format=%H|%s|%an|%ar"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
-        const logText = (await new Response(logProc.stdout).text()).trim();
-        const [hash = "", message = "", author = "", ago = ""] = logText.split("|");
-        let ahead = 0, behind = 0;
-        try {
-          const revProc = Bun.spawn(["git", "rev-list", "--left-right", "--count", `${branch}...@{upstream}`], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
-          const revText = (await new Response(revProc.stdout).text()).trim();
-          const parts = revText.split(/\s+/);
-          if (parts.length >= 2) { ahead = parseInt(parts[0]) || 0; behind = parseInt(parts[1]) || 0; }
-        } catch {}
-        let relativePrefix = "";
-        // Il nome del repo che OSPITA la cartella aperta. Serve a dire di chi
-        // sono le cose che il pannello mostra: aprendo come progetto una
-        // sottocartella, ramo, remote e cronologia sono del repo di sopra, non
-        // di quella cartella, e senza dirlo il pannello si contraddice da solo
-        // («non tracciata» accanto a una lista di branch).
-        let repoName = "";
-        try {
-          const toplevelProc = Bun.spawn(["git", "rev-parse", "--show-toplevel"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
-          const gitRoot = (await new Response(toplevelProc.stdout).text()).trim();
-          const scope = repoPrefixOf(resolvedDir, gitRoot);
-          relativePrefix = scope.prefix;
-          repoName = scope.repoName;
-        } catch {}
-        // Emit the RAW 2-char XY porcelain code (do NOT trim): the client parses
-        // it positionally — status[0]=staged (index), status[1]=unstaged (worktree).
-        // Trimming "  M" → "M" misclassified unstaged files as staged.
-        // Il parse sta in `lib/git-porcelain.ts`: `-z`, path grezzi, e il
-        // secondo path dei rename in un campo suo (`origPath`).
-        const parsed = parsePorcelainZ(statusText);
-        // I conteggi per file (`+N −M`) vengono da due `git diff --numstat`, che
-        // sono comandi a parte: `git status` dice quali file, mai quante righe.
-        const files = attachNumstats(scopeToPrefix(parsed, relativePrefix), await readNumstats(resolvedDir), relativePrefix);
-        // La cartella aperta è a sua volta non tracciata dal repo che la
-        // contiene: git la collassa in un record solo e non elenca ciò che c'è
-        // dentro. Va DETTO, non elencato — vedi `statusOfPrefix`.
-        const folderUntracked = statusOfPrefix(parsed, relativePrefix) === "??";
-        const result = { branch, lastCommit: { hash, message, author, ago }, files, ahead, behind, folderUntracked, repoName };
         writeGitStatusCache(resolvedDir, result);
         return json(result);
       } catch (err: any) { return json({ error: "Git error: " + err.message }, 500); }

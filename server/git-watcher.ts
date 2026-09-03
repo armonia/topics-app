@@ -16,9 +16,8 @@ import type { AppContext } from "./types";
 // Dal modulo della cache, non dalla route che la riempie: importare
 // `./routes/files` da qui chiudeva il ciclo
 // file-watcher → git-watcher → routes/files → file-watcher.
-import { invalidateGitCache } from "./lib/git-status-cache";
-import { STATUS_ARGS, parsePorcelainZ, scopeToPrefix, repoPrefixOf } from "./lib/git-porcelain";
-import { attachNumstats, readNumstats, type Numstat } from "./lib/git-numstat";
+import { invalidateGitCache, writeGitStatusCache } from "./lib/git-status-cache";
+import { computeGitStatus, type GitStatus } from "./lib/git-status";
 
 const DEBOUNCE_MS = 500;
 // Keyed by absPath so distinct worktrees of the same project don't collide.
@@ -26,26 +25,10 @@ const watchers = new Map<string, { close: () => void }>();
 /** L'id del worktree per path, così `refreshGitStatus` può ricostruire la busta. */
 const worktreeIds = new Map<string, string>();
 
-// Shape of the computed git status. Named so the broadcast envelope below
-// is typed instead of leaking `any` (matches the typed ws-outbound discipline).
-type GitStatus = {
-  branch: string;
-  lastCommit: { hash: string; message: string; author: string; ago: string };
-  /**
-   * `origPath` solo per rename/copie: il path di provenienza.
-   * `staged`/`unstaged`: quante righe, per lato. Assenti quando non c'è un
-   * numero da dare (un non tracciato non sta in nessun diff), che è diverso da
-   * zero — vedi `lib/git-numstat.ts`.
-   */
-  files: { path: string; status: string; origPath?: string; staged?: Numstat; unstaged?: Numstat }[];
-  ahead: number;
-  behind: number;
-};
-
 /**
  * Resolve the directory we should hand to `watch()` for a given working
  * tree. For plain repos this is `<path>/.git/`. For worktrees the `.git`
- * is a file (`gitdir: …`) pointing to the parent's
+ * is a file (`gitdir: ...`) pointing to the parent's
  * `.git/worktrees/<name>/`. Returns null if neither shape is recognised.
  */
 function resolveGitDir(projectPath: string): string | null {
@@ -67,64 +50,15 @@ function resolveGitDir(projectPath: string): string | null {
   return null;
 }
 
-async function computeGitStatus(resolvedDir: string): Promise<GitStatus | null> {
+// The status itself (shape and the five spawns that produce it) lives in
+// `lib/git-status.ts`, shared with `GET /api/git/status`. This file used to
+// carry its own copy of the eight-spawn procedure, and the two had already
+// drifted once (the symlink prefix). `computeGitStatus` returns `null` for a
+// path that is not a repo and throws on a git failure; here both mean "no
+// push", as before.
+async function computeGitStatusQuietly(resolvedDir: string): Promise<GitStatus | null> {
   try {
-    const statusProc = Bun.spawn(STATUS_ARGS, { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
-    const statusText = await new Response(statusProc.stdout).text();
-    await statusProc.exited;
-
-    const branchProc = Bun.spawn(["git", "branch", "--show-current"], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
-    let branch = (await new Response(branchProc.stdout).text()).trim();
-    await branchProc.exited;
-
-    if (!branch) {
-      try {
-        const headProc = Bun.spawn(["git", "rev-parse", "--short", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
-        branch = (await new Response(headProc.stdout).text()).trim() || "HEAD";
-        await headProc.exited;
-      } catch { branch = "HEAD"; }
-    }
-
-    const logProc = Bun.spawn(["git", "log", "-1", "--format=%H|%s|%an|%ar"], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
-    const logText = (await new Response(logProc.stdout).text()).trim();
-    await logProc.exited;
-    const [hash = "", message = "", author = "", ago = ""] = logText.split("|");
-
-    let ahead = 0, behind = 0;
-    try {
-      const revProc = Bun.spawn(["git", "rev-list", "--left-right", "--count", `${branch}...@{upstream}`], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
-      const revText = (await new Response(revProc.stdout).text()).trim();
-      await revProc.exited;
-      const parts = revText.split(/\s+/);
-      if (parts.length >= 2) { ahead = parseInt(parts[0]) || 0; behind = parseInt(parts[1]) || 0; }
-    } catch {}
-
-    let relativePrefix = "";
-    try {
-      const toplevelProc = Bun.spawn(["git", "rev-parse", "--show-toplevel"], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
-      const gitRoot = (await new Response(toplevelProc.stdout).text()).trim();
-      await toplevelProc.exited;
-      // Stessa funzione della rotta, e deve restarlo. Qui c'era un `startsWith`
-      // fra path grezzi: `--show-toplevel` risponde col path REALE, quindi una
-      // cartella raggiunta via symlink (su macOS `/tmp` → `/private/tmp`) non
-      // combaciava e il prefisso restava vuoto. Risultato: il push del watcher
-      // elencava i file di TUTTO il repo mentre il poll ne elencava un pezzo,
-      // e la lista cambiava a seconda di chi dei due era arrivato per ultimo.
-      relativePrefix = repoPrefixOf(resolvedDir, gitRoot).prefix;
-    } catch {}
-
-    // Stesso parse della rotta `/api/git/status` (`lib/git-porcelain.ts`), e
-    // deve restarlo: questo push e quella risposta descrivono lo stesso stato,
-    // e due parse diversi vorrebbero dire due verità diverse a seconda che
-    // l'aggiornamento sia arrivato dal watcher o dal poll. Il codice XY resta
-    // grezzo a due caratteri — il client lo legge per posizione.
-    const files = attachNumstats(
-      scopeToPrefix(parsePorcelainZ(statusText), relativePrefix),
-      await readNumstats(resolvedDir),
-      relativePrefix,
-    );
-
-    return { branch, lastCommit: { hash, message, author, ago }, files, ahead, behind };
+    return await computeGitStatus(resolvedDir);
   } catch {
     return null;
   }
@@ -146,8 +80,12 @@ async function computeGitStatus(resolvedDir: string): Promise<GitStatus | null> 
  */
 export async function refreshGitStatus(projectPath: string, ctx: AppContext): Promise<void> {
   invalidateGitCache(projectPath);
-  const status = await computeGitStatus(projectPath);
+  const status = await computeGitStatusQuietly(projectPath);
   if (!status) return;
+  // The route's cache is filled here, not only emptied: the client polls
+  // `/api/git/status` right after a push, and that poll used to be a miss
+  // (eight spawns) for the very state this push already computed.
+  writeGitStatusCache(projectPath, status);
   const envelope: { type: "git:status"; projectPath: string; status: GitStatus; worktreeId?: string } = {
     type: "git:status",
     projectPath,

@@ -39,6 +39,7 @@ import { join } from "path";
 import { refreshGitStatus, watchGitDir, unwatchGitDir } from "./git-watcher";
 import type { AppContext } from "./types";
 import { gitEnv } from "../tests/setup/bun-test-preload";
+import { invalidateGitCache, readGitStatusCache } from "./lib/git-status-cache";
 
 /** `git` with the machine's own config (hooks, signing) kept out — see the preload. */
 function git(cwd: string, ...args: string[]): { code: number; out: string } {
@@ -143,6 +144,25 @@ describe("WORKTREE-05 — the watcher speaks for the worktree, not for its paren
     const { ahead, behind } = sent.at(-1)!.status;
     expect(ahead, "one commit made here and not pushed").toBe(1);
     expect(behind).toBe(0);
+  });
+
+  test("after a push the route's cache is warm, with the route's own fields", async () => {
+    // The poll that follows a push used to be a cache MISS: the watcher only
+    // emptied the slot, so the client re-asked git for the state the push had
+    // just computed. Now the push fills it, in the route's shape.
+    invalidateGitCache(tree);
+    expect(readGitStatusCache(tree)).toBeNull();
+    watch(tree, "w-cache");
+    writeFileSync(join(tree, "dirty.txt"), "x\n");
+    await refreshGitStatus(tree, ctx);
+
+    const cached = readGitStatusCache(tree);
+    expect(cached, "the push warms the route's cache").not.toBeNull();
+    expect(cached!.branch).toBe("feature");
+    expect(cached!.files.map((f) => f.path)).toContain("dirty.txt");
+    expect(cached!.repoName, "the route's field, present so the cached answer equals a computed one").toBe("");
+    expect(cached!.folderUntracked).toBe(false);
+    expect(cached).toEqual(sent.at(-1)!.status as unknown as typeof cached);
   });
 
   test("a plain project path has NO `worktreeId` KEY — absent, not undefined", async () => {
