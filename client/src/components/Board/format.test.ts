@@ -14,7 +14,7 @@
   * @covers KANBAN-53
  */
 import { describe, test, expect } from 'bun:test';
-import { attemptStat, descSummary, fmtCount, liveToolLabel, LIVE_TOOL_INPUT_CHARS, taskCopyText } from './format';
+import { attemptStat, descSummary, fmtCount, fmtUsd, liveToolLabel, LIVE_TOOL_INPUT_CHARS, taskCopyText } from './format';
 import { formatAttemptStat } from '../../../../shared/task-attempt';
 import { t, ensureLocaleLoaded } from '../../lib/i18n';
 import type { TaskAttempt } from '../../lib/board';
@@ -147,5 +147,17 @@ describe('fmtCount', () => {
   test('gli ordini di grandezza restano coerenti fra loro', () => {
     expect(fmtCount(12578, 'it')).toBe('12.578');
     expect(fmtCount(120, 'it')).toBe('120');
+  });
+});
+
+// KANBAN-53: the spend on the card, in the currency the ledger is kept in.
+describe('fmtUsd', () => {
+  test('cents become dollars in the viewer locale, and nothing below one cent', () => {
+    expect(fmtUsd(42, 'en-US')).toBe('$0.42');
+    expect(fmtUsd(1234, 'en-US')).toBe('$12.34');
+    expect(fmtUsd(42, 'it-IT')).toMatch(/0,42/);
+    expect(fmtUsd(0, 'en-US')).toBe('');
+    expect(fmtUsd(null, 'en-US')).toBe('');
+    expect(fmtUsd(Number.NaN, 'en-US')).toBe('');
   });
 });

@@ -32,7 +32,7 @@ import { stripMarkdown } from '../../lib/stripMarkdown';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, COMMENTO_PIEGA_CHARS, RICHIESTA_PIEGA_CHARS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
 import { copyText } from '../../lib/clipboard';
 import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState } from '../../lib/taskSession';
-import { fmtMs, fmtTok, fmtModel, fmtUpdatedAt, fmtAttesa, taskCopyText } from './format';
+import { fmtMs, fmtTok, fmtModel, fmtUpdatedAt, fmtAttesa, fmtUsd, taskCopyText } from './format';
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
 import { LiveEffortChip, LiveToolLine, RETRY_NOW_MESSAGE, RetryWaitChip } from './CardLive';
 import { taskHasWork, uncommittedChipCount } from './chipKey';
@@ -1486,6 +1486,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               ? tr('board.card.effortTitle', {
                 work: fmtMs(task.agentMs),
                 cost: costo ? tr('board.card.effortCost', { cost: costo.toLocaleString(locale) }) : '',
+                spent: task.agentCostCents > 0 ? tr('board.card.effortSpent', { usd: fmtUsd(task.agentCostCents, locale) }) : '',
                 cache: task.agentCacheReadTokens > 0
                   ? tr('board.card.effortCache', { context: fmtTok(contesto), cache: fmtTok(task.agentCacheReadTokens) })
                   : '',
@@ -1493,7 +1494,8 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               })
               : tr('board.card.modelTitle', { model: fmtModel(task.model) })}
             className="shrink-0 whitespace-nowrap rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-secondary"
-          >{fmtModel(task.model)}{(task.agentMs > 0 || costo > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}</span>
+          >{fmtModel(task.model)}{(task.agentMs > 0 || costo > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{/* THE DOLLARS, when the card has a priced spend: the token figure is the
+              cost-weighted volume, this is what it came to. */}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span>
         ) : null}
         {/* THE GIT CHANGES, next to the model that is writing them.
             Closed it is a chip like the others; open it is a list that drops

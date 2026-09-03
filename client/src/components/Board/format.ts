@@ -173,6 +173,14 @@ export function liveToolLabel(tool: { name: string; input: string | null }): str
 }
 
 /** Compact token count: 850 · 12.3k · 1.2M. */
+/** Cents of USD as a currency string in the viewer's locale ("$0.42", "0,42 USD").
+ *  Zero and anything not a number read as an empty string: the chip shows
+ *  nothing rather than "$0.00" for a card nobody has spent on. */
+export const fmtUsd = (cents: number | null | undefined, locale: string): string => {
+  if (typeof cents !== 'number' || !Number.isFinite(cents) || cents <= 0) return '';
+  return (cents / 100).toLocaleString(locale, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
+};
+
 export const fmtTok = (n: number): string =>
   n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 
