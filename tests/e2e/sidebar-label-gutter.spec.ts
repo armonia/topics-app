@@ -21,7 +21,7 @@
  * @covers LAYOUT-30
  */
 import { test, expect } from "@playwright/test";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { goToApp } from "./helpers";
@@ -99,7 +99,11 @@ async function readLabels(page: import("@playwright/test").Page): Promise<LabelM
  * pane (which is also what auto-expands the accordion), the chat that belongs
  * to that project, and the chat as an open pane INSIDE the project window.
  */
-const NESTED_PROJECT = join(tmpdir(), `e2e-label-gutter-${Date.now()}`);
+// The REAL path: the server canonicalises a topic's projectPath (`/var` is
+// `/private/var` on macOS), while the pane seeds key on the string they get.
+// With the raw tmpdir the sidebar showed TWO project rows of the same name and
+// the nested chat under neither (retried on every run since 2026-09-03 17:25).
+const NESTED_PROJECT = join(realpathSync(tmpdir()), `e2e-label-gutter-${Date.now()}`);
 const NESTED_PROJECT_NAME = NESTED_PROJECT.split("/").pop() ?? "";
 // Short on purpose: `readLabels` truncates the text it reports at 24 chars, and
 // the assertion below finds this row by an EXACT match on that text.
