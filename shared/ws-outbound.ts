@@ -153,6 +153,11 @@ const streamEndSchema = z.object({
   // (escluso dalla push). Vedi server/push-triggers.ts.
   completed: z.optional(z.boolean()),
   dispatched: z.optional(z.boolean()),
+  // The turn DIED and this is the notice it left in the chat (provider error,
+  // retries exhausted, watchdog, empty reply). Travels with `reason: 'error'`
+  // so the failure push (server/push-triggers, `chat-error`) can say what
+  // happened without re-reading the row. Absent on a clean end.
+  error: z.optional(z.string()),
 });
 
 // ---- Coordination broadcasts (mirrors of inbound) --------------------------

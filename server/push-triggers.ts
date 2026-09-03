@@ -2,6 +2,7 @@ import { sendPushToAll } from "./push-service";
 import { buildNotifyActionBundle, type NotifyAction, type NotifyActionRequest, type NotifyEvent } from "../shared/notify-actions";
 import {
   approvalNotificationKey,
+  chatErrorNotificationKey,
   chatNotificationKey,
   taskParkedNotificationKey,
   taskReviewNotificationKey,
@@ -314,6 +315,36 @@ export function maybeSendPush(message: Record<string, any>): void {
   if (type === "stream:end") {
     const topicId = typeof message.topicId === "string" ? message.topicId : "";
     const dispatched = message.dispatched === true;
+    // THE DEAD TURN, first. Gating the reply push on `completed` (below) was
+    // right, but for a long time it replaced a false reply-ready push with
+    // nothing at all: on 2026-09-03 three chats died (overloaded_error after 27
+    // retries) and nobody was told. A death is the one end that needs a gesture
+    // (the Retry button), so it is the one that cannot stay quiet. The wire says it
+    // with `reason: "error"` + the notice text (routes/chat.ts attaches it on
+    // every path that writes an error block); an unclean end WITHOUT a text
+    // (user stop, stale sweep) is not a death to announce and falls through to
+    // the gates below. Board agents keep their own channel (`task:parked`),
+    // and a server shutdown resumes the turn at boot by itself: neither is a
+    // push. Mute rules are the same three as the reply push.
+    const errorText = typeof message.error === "string" ? message.error.trim() : "";
+    if (message.reason === "error" && errorText && topicId && !dispatched && message.stopCause !== "server-shutdown") {
+      if (resolveTopicSilenced?.(topicId)) return;
+      const name = resolveTopicName?.(topicId);
+      const title = name ? `⚠️ ${name}` : "⚠️ La chat si è fermata";
+      // The notice already opens with the warning sign the title carries.
+      const body = errorText.replace(/^⚠️\s*/, "").slice(0, 120);
+      firePush({ title, body, tag: `chat-error-${topicId}`, url: topicUrl(topicId) });
+      logSent({
+        kind: "chat-error",
+        title,
+        body,
+        targetKind: "topic",
+        targetId: topicId,
+        dedupeKey: chatErrorNotificationKey(topicId),
+        source: "push",
+      });
+      return;
+    }
     const dirty =
       message.reason === "user_abort" ||
       message.stopCause === "watchdog" ||
