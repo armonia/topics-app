@@ -1,9 +1,9 @@
 /**
  * Streaming indicators — the canonical "working now" affordance for a row/tab,
- * rendered as three columns rising and falling out of phase inside their own
- * track (see WaveLoader), NOT a rotating ring or a row of dots. A spinner reads
- * as "blocking / fetching a resource"; the wave reads as "alive, computing" —
- * the right metaphor for an LLM turn or a busy pty.
+ * rendered as a ring with a gradient sweep travelling around it (see
+ * OrbitLoader), NOT a row of dots and no longer the three-column equaliser.
+ * The sweep has no head and no end, so it reads as "alive, computing" rather
+ * than as a determinate progress bar about to finish.
  *
  * Every variant renders through ONE wrapper (LoaderSlot), so the loader is
  * pixel-identical across surfaces — a project (parent) tab and its chat /
@@ -27,7 +27,7 @@
  * Used in: PaneTabBar (chat / project / terminal / browser / agents tabs) and
  * Sidebar/TopicTree (project, terminal, browser rows). Sidebar/TopicItem reads
  * the same useTopicLoading signal but renders its own larger stop-button hit
- * target for the chat row (still the WaveLoader glyph). Don't roll your own off
+ * target for the chat row (still the OrbitLoader glyph). Don't roll your own off
  * a DIFFERENT signal or a different glyph — every surface must report from the
  * same loading facade and the same component so they can't drift.
  */
@@ -38,93 +38,88 @@ import { useSharedNow } from '../../state/useSharedNow';
 import { deriveWorkLongevity, formatElapsedCompact } from '../../state/workLongevity';
 
 /**
- * L'ONDA — tre colonne che salgono e scendono sfalsate dentro la loro traccia.
+ * THE ORBIT — a ring whose gradient sweep travels around it, forever.
  *
- * Sostituisce la matrice 2×3 di quadratini accesi uno alla volta. Il motivo non
- * è solo che era spenta da guardare («l'icona del loader potremmo farla un po'
- * più carina e interessante, piuttosto che solo quel coso fermo», Attilio,
- * 10/08): quella matrice era larga 7,5px in una scatola da 16 e quindi nasceva a
- * 4,25px dal bordo — un quadrato da 3px su un quarto di pixel si rasterizza
- * sfocato. Qui il glifo è 10×12 in una scatola da 16: 3px di margine per lato e
- * 2 sopra/sotto, tutti interi, quindi ogni barra ha bordi netti.
+ * It replaces the three-column equaliser, which replaced a 2x3 matrix of little
+ * squares. What was asked for, on this card, was "something more modern and
+ * designed": the equaliser was a meter, and a meter says "measuring", while a
+ * turn has nothing to measure. A ring that keeps turning says the one true
+ * thing, "still going, no idea for how long".
  *
- * GEOMETRIA — 3 barre da 2px con 2px di passo: 2+2+2+2+2 = 10.
+ * GEOMETRY — the glyph is 12x12 inside the 16px slot, so the margin is
+ * (16 - 12) / 2 = 2 on both axes: whole pixels, which is the rule the tab
+ * geometry test enforces (a glyph born on a quarter pixel rasterises blurred).
+ * The stroke is 2px, cut out of a full disc by a donut mask rather than drawn
+ * as a border: a border cannot carry a conic gradient, and an SVG circle with
+ * a dash offset would animate a paint property instead of a transform.
  *
- * DUE STRATI per barra, ed è ciò che tiene la parentela con SplitMiniMap: la
- * TRACCIA è sempre presente e porta la stessa acqua del "pannello disattivato"
- * del mini-map (`currentColor 22%`, che si inverte col tema); dentro ci sale la
- * barra viva col gradiente del primario (la "sfumatura dentro" che avevano le
- * celle accese). Il silhouette non cambia mai misura, quindi il glifo non
- * "sparisce" nei momenti bassi dell'onda.
+ * TWO LAYERS, same family as before: the TRACK is always there and carries the
+ * same wash as a disabled panel of the SplitMiniMap (`currentColor 22%`, which
+ * inverts with the theme), and over it turns the SWEEP, the primary colour
+ * fading from nothing to full. The silhouette never changes size, so the glyph
+ * never "disappears" at any point of the cycle.
  *
- * Si anima solo `transform: scaleY` con origine in basso — nessun riflusso,
- * nessun lavoro sul main thread. Le altezze e i tempi stanno in `index.css`
- * (`wave-bar`), incluso il ramo `prefers-reduced-motion`.
+ * Only `transform: rotate` animates: no reflow, no main-thread work. Timings and
+ * the `prefers-reduced-motion` branch live in `index.css` (`orbit-spin`).
  */
-const BAR_W = 2;
-const BAR_H = 12;
-const BAR_GAP = 2;
-const BARS = 3;
-const WAVE_W = BARS * BAR_W + (BARS - 1) * BAR_GAP; // 10
-/** Lo sfalsamento fra una colonna e la successiva. Un terzo scarso del ciclo:
- *  abbastanza da leggere come un'onda che viaggia, non tanto da sembrare tre
- *  animazioni scollegate. */
-const STAGGER_MS = 130;
+/** Ring diameter. 12 in a 16px slot leaves an integer 2px margin per side. */
+const GLYPH = 12;
+/** Ring thickness, cut by the donut mask below. */
+const STROKE = 2;
 
-// La barra viva: gradiente verticale sul primario — più chiara in cima, più
-// profonda in fondo — così una colonna legge come un volume illuminato invece
-// che come un rettangolo pieno.
-const BAR_GRADIENT =
-  'linear-gradient(180deg, color-mix(in srgb, var(--primary) 68%, #fff) 0%, var(--primary) 52%, color-mix(in srgb, var(--primary) 84%, #000) 100%)';
-// La traccia: la stessa acqua di un pannello disattivato dello SplitMiniMap, per
-// non far divergere i due glifi.
+/** Keeps only the outer STROKE px of the disc: a ring, from a background that
+ *  can be a conic gradient (a `border` cannot). */
+const DONUT_MASK = `radial-gradient(closest-side, transparent calc(100% - ${STROKE}px), #000 calc(100% - ${STROKE}px))`;
+
+/** The living sweep: from transparent to full primary over most of the turn,
+ *  with a brighter head, so the ring reads as a body of light travelling rather
+ *  than as a rotating stick. */
+const SWEEP = [
+  'conic-gradient(from 0deg,',
+  'transparent 0deg,',
+  'color-mix(in srgb, var(--primary) 18%, transparent) 100deg,',
+  'color-mix(in srgb, var(--primary) 62%, transparent) 220deg,',
+  'var(--primary) 312deg,',
+  'color-mix(in srgb, var(--primary) 60%, #fff) 340deg,',
+  'transparent 352deg)',
+].join(' ');
+
+/** The track: the same water as a disabled panel of the SplitMiniMap, so the
+ *  two glyphs of the family cannot drift apart. */
 const TRACK_WASH = 'color-mix(in srgb, currentColor 22%, transparent)';
 
-// L'ATTESA: stesse barre, ferme a mezz'altezza e in ambra. Un turno sospeso su
-// una domanda è aperto ma non macina, e l'onda che scorre gli darebbe un lavoro
-// che non sta facendo. L'ambra è la stessa tinta del tier 'input' (TIER_INPUT_BG
-// in selectionStyles): dove il fill dice "tocca a te", il glifo dice lo stesso.
-// Non è però un fermo-immagine: respira piano (`animate-wave-breath`), perché
-// «in attesa» non è «spento».
-const STILL_FILL = 'color-mix(in srgb, var(--color-amber-500, #f59e0b) 88%, transparent)';
-/** Altezze di riposo delle tre colonne quando l'onda è ferma: una forma, non una
- *  riga piatta. */
-const STILL_SCALE = [0.5, 1, 0.68];
+/** THE WAIT: same ring, but the sweep freezes into a fixed amber arc. A turn
+ *  parked on a question is open and NOT grinding, and a travelling sweep would
+ *  credit it with work it is not doing. The amber is the tint of the 'input'
+ *  tier (TIER_INPUT_BG in selectionStyles): where the fill says "your move",
+ *  the glyph says the same. Frozen is not off, so it breathes slowly
+ *  (`animate-orbit-breath`). */
+const WAIT_ARC = [
+  'conic-gradient(from 200deg,',
+  'var(--color-amber-500, #f59e0b) 0deg,',
+  'color-mix(in srgb, var(--color-amber-500, #f59e0b) 45%, transparent) 108deg,',
+  'transparent 116deg)',
+].join(' ');
 
-export function WaveLoader({ className = '', still = false }: { className?: string; still?: boolean }) {
+export function OrbitLoader({ className = '', still = false }: { className?: string; still?: boolean }) {
+  const ring = {
+    position: 'absolute',
+    inset: 0,
+    borderRadius: '50%',
+    WebkitMaskImage: DONUT_MASK,
+    maskImage: DONUT_MASK,
+  } as const;
   return (
     <span
-      className={`inline-flex items-end ${className}`}
-      style={{ gap: BAR_GAP, width: WAVE_W, height: BAR_H }}
+      className={`relative inline-block ${className}`}
+      style={{ width: GLYPH, height: GLYPH }}
       aria-hidden="true"
     >
-      {Array.from({ length: BARS }, (_, i) => (
-        <span
-          key={i}
-          style={{
-            position: 'relative',
-            width: BAR_W,
-            height: BAR_H,
-            borderRadius: BAR_W / 2,
-            background: TRACK_WASH,
-          }}
-        >
-          <span
-            className={still ? 'animate-wave-breath' : 'animate-wave-bar'}
-            data-slot={i}
-            style={{
-              position: 'absolute',
-              inset: 0,
-              borderRadius: 'inherit',
-              background: still ? STILL_FILL : BAR_GRADIENT,
-              transformOrigin: '50% 100%',
-              ...(still
-                ? { transform: `scaleY(${STILL_SCALE[i]})`, animationDelay: `${i * 260}ms` }
-                : { animationDelay: `${i * STAGGER_MS}ms` }),
-            }}
-          />
-        </span>
-      ))}
+      <span style={{ ...ring, background: TRACK_WASH }} />
+      <span
+        className={still ? 'animate-orbit-breath' : 'animate-orbit-spin'}
+        style={{ ...ring, background: still ? WAIT_ARC : SWEEP }}
+      />
     </span>
   );
 }
@@ -140,7 +135,7 @@ function StopGlyph({ size = 7, className = '' }: { size?: number; className?: st
 }
 
 interface LoaderSlotProps {
-  /** When provided, the slot becomes a stop button — hover swaps the wave for a
+  /** When provided, the slot becomes a stop button — hover swaps the ring for a
    *  stop glyph and a click interrupts. Omit for read-only loaders. */
   onStop?: () => void;
   title?: string;
@@ -197,7 +192,7 @@ function LoaderSlot({ onStop, title, className = '', size = 16, waiting = false 
         aria-label={tip}
         data-loader-state={state}
       >
-        <WaveLoader className="group-hover/stop:hidden" still={waiting} />
+        <OrbitLoader className="group-hover/stop:hidden" still={waiting} />
         <StopGlyph className="hidden group-hover/stop:block" />
       </button>
     );
@@ -210,7 +205,7 @@ function LoaderSlot({ onStop, title, className = '', size = 16, waiting = false 
       aria-label={tip}
       data-loader-state={state}
     >
-      <WaveLoader still={waiting} />
+      <OrbitLoader still={waiting} />
     </span>
   );
 }

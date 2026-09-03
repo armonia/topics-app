@@ -1,7 +1,7 @@
 import { costTokens, partsFromMessage } from '../../../shared/token-cost';
 import { useT } from '../hooks/useT';
 import { useEffect, useState } from 'react';
-import { WaveLoader } from './Layout/StreamingIndicator';
+import { OrbitLoader } from './Layout/StreamingIndicator';
 import { MessageMetaFooter } from './Chat/MessageMetaFooter';
 import { turnClock, formatTurnElapsed } from '../state/turnClock';
 import { phraseAt } from '../lib/thinkingPhrases';
@@ -243,18 +243,18 @@ export function TurnActivityIndicator({
             : tr('turn.working')
       }
     >
-      {/* LO STESSO glifo della sidebar e delle tab: la matrice che si accende
-          cella per cella mentre lavora, e la stessa matrice ferma in ambra
-          quando la palla è dell'umano. Qui c'era un pallino che pulsava — un
-          terzo linguaggio per dire la cosa che le altre due superfici dicevano
-          già a modo loro, e da fuori la chat sembravano stati diversi. Il glifo
-          vive in un posto solo (`StreamingIndicator`), così non possono più
-          divergere. Lo stato "lento" tiene il pallino ambra: è l'unico che NON
-          è «sta lavorando», ed è giusto che si distingua. */}
+      {/* THE SAME glyph as the sidebar and the tabs: the ring whose sweep
+          travels while it works, and the same ring frozen amber when the ball
+          is in the human's court. There used to be a pulsing dot here, a third
+          language for what the other two surfaces already said their own way,
+          and from outside the chat they looked like different states. The glyph
+          lives in ONE place (`StreamingIndicator`), so they can no longer
+          drift. The "slow" state keeps the amber dot: it is the only one that
+          is NOT "working", and it deserves to look different. */}
       {state === 'slow' ? (
         <span className="turn-activity-dot inline-block w-1.5 h-1.5 rounded-full shrink-0 bg-amber-500" />
       ) : (
-        <WaveLoader className="shrink-0" still={state === 'waiting'} />
+        <OrbitLoader className="shrink-0" still={state === 'waiting'} />
       )}
       <span
         // `turn-activity-phrase` è lo shimmer del lavoro in corso: dipinge il

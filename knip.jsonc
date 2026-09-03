@@ -154,6 +154,10 @@
         // Misura a mano quanti doppioni ha una board, in sola lettura:
         // `bun scripts/board-duplicates.ts [--db <file>] [--json]`.
         "scripts/board-duplicates.ts!",
+        // La fusione dei progetti sdoppiati da un symlink, a mano e in due
+        // tempi: `bun scripts/canonicalizza-progetti.ts` elenca, `--esegui` lo
+        // fa davvero. Nessuno la importa, e non deve partire da sola.
+        "scripts/canonicalizza-progetti.ts!",
         "scripts/token-live.ts!",         // diagnostica a mano: `bun scripts/token-live.ts [filtro] [--watch]`
         "scripts/orphan-park-dryrun.ts!", // `bun run orphan:dryrun` — prova a vuoto sul db vero
         // `bun run browser:dryrun [--tutti]` — la spazzata dei chromium orfani

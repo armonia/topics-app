@@ -77,8 +77,8 @@ export const SplitMiniMap = memo(function SplitMiniMap({
                   // mini-map now renders on sidebar rows only, so that was every
                   // live instance. The active cell carries an internal gradient
                   // ("sfumatura dentro") — the same lit-tile grammar the
-                  // WaveLoader uses — so the two glyphs share one look; unlit
-                  // cells stay the fainter 22% wash WaveLoader reuses for its
+                  // OrbitLoader uses — so the two glyphs share one look; unlit
+                  // cells stay the fainter 22% wash OrbitLoader reuses for its
                   // frame, so the grid reads in both themes.
                   background: isActive
                     ? 'linear-gradient(150deg, color-mix(in srgb, currentColor 95%, transparent) 0%, color-mix(in srgb, currentColor 72%, transparent) 100%)'
