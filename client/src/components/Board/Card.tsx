@@ -661,7 +661,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // (a re-dispatch against one line asking for a commit). The number goes HERE,
   // in the chip that already talks about the git side, and not as one more
   // comment in the thread.
-  const nonCommittati = uncommittedChipCount(task.deliveryUncommittedFiles, senzaCommit);
+  const uncommittedCount = uncommittedChipCount(task.deliveryUncommittedFiles, senzaCommit);
   // DA QUANTO ASPETTA UNA RISPOSTA. La data di aggiornamento in review era
   // nascosta apposta - e faceva bene, perche' `updatedAt` si muove a ogni
   // commento e diceva «ora» su una card ferma da giorni. Questo invece e'
@@ -995,8 +995,8 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               data-testid="card-uncommitted"
               title={tr('board.card.uncommittedTitle')}
               className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-amber-300"
-            ><CircleSlash className="h-3 w-3 shrink-0" /> {nonCommittati > 0
-              ? tr('board.card.uncommittedFiles', { n: nonCommittati })
+            ><CircleSlash className="h-3 w-3 shrink-0" /> {uncommittedCount > 0
+              ? tr('board.card.uncommittedFiles', { n: uncommittedCount })
               : tr('board.card.uncommitted')}</span>
           )}
           {senzaConsegna && (

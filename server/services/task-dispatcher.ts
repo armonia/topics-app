@@ -2689,8 +2689,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           // two opposite decisions (one line asking for a commit against a
           // re-dispatch). On a card that really has a diff nothing is asked:
           // there the condition is false.
-          const senzaCommit = !t.deliveryFilesChanged;
-          const sporchi = senzaCommit && deps.uncommittedInWorktree
+          const noCommits = !t.deliveryFilesChanged;
+          const sporchi = noCommits && deps.uncommittedInWorktree
             ? await deps.uncommittedInWorktree(taskId).catch(() => null)
             : null;
           // THE NUMBER GOES TO THE CARD, THE SENTENCE STAYS AS IT WAS. The chip

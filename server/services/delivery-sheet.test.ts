@@ -105,41 +105,41 @@ describe("renderDeliverySheet", () => {
    * zero commits, sheet at zero.
    */
   test("lavoro non committato: la scheda conta i file, non dice «niente»", () => {
-    const sporca = renderDeliverySheet({
+    const dirty = renderDeliverySheet({
       ...base,
       branch: "topics/stormy-teardrop",
       filesChanged: 0,
       uncommittedFiles: 2,
       summary: "Ho spostato le tab da depth 2 a depth 1.",
     });
-    expect(sporca).toContain("2 file modificati");
-    expect(sporca).toContain("mai committati");
+    expect(dirty).toContain("2 file modificati");
+    expect(dirty).toContain("mai committati");
     // AND NOT the other case's sentence: the two exclude each other, or the
     // distinction would just be one more line to read.
-    expect(sporca).not.toContain("Il ramo non porta ancora nessun commit");
+    expect(dirty).not.toContain("Il ramo non porta ancora nessun commit");
 
     // THE CONTROL, without which the case above would pass with the
     // distinction switched off too: a clean worktree means the sheet says what
     // it has always said, and names no file at all.
-    const pulita = renderDeliverySheet({
+    const clean = renderDeliverySheet({
       ...base,
       branch: "topics/stormy-teardrop",
       filesChanged: 0,
       uncommittedFiles: 0,
       summary: "Ho spostato le tab da depth 2 a depth 1.",
     });
-    expect(pulita).toContain("Il ramo non porta ancora nessun commit");
-    expect(pulita).not.toContain("file modificati");
+    expect(clean).toContain("Il ramo non porta ancora nessun commit");
+    expect(clean).not.toContain("file modificati");
 
     // NOT MEASURED IS NOT CLEAN: with no probe the sheet does not invent a
     // zero, it falls back to the previous sentence.
-    const ignota = renderDeliverySheet({
+    const unknown = renderDeliverySheet({
       ...base,
       branch: "topics/stormy-teardrop",
       filesChanged: 0,
       uncommittedFiles: null,
     });
-    expect(ignota).toContain("Il ramo non porta ancora nessun commit");
+    expect(unknown).toContain("Il ramo non porta ancora nessun commit");
   });
 
   /**
