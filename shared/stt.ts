@@ -26,6 +26,13 @@ export interface SttResult {
   /** ISO-639-1 rilevato dal modello, quando lo dichiara. */
   language: string | null;
   durationMs: number;
+  /**
+   * Who fell over before `provider` answered, and why. Absent when the first
+   * engine did the job. It is what turns «it took 20 seconds» into «ElevenLabs
+   * rejected the key (401), whisper transcribed locally»: without it the client
+   * shows the engine it believed in, and the person blames the wrong thing.
+   */
+  attempts?: { provider: SttProviderId; error: string }[];
 }
 
 export interface SttCapabilities {

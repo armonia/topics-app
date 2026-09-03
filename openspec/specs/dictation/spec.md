@@ -44,6 +44,11 @@ scarno di un processo lanciato dall'interfaccia grafica. Un percorso dichiarato
 che punta al VUOTO NON SHALL essere creduto sulla parola. Fra più modelli
 presenti SHALL vincere il PIÙ ACCURATO, non il primo trovato.
 
+#### Scenario: una chiave rifiutata dal servizio non è una chiave
+- **GIVEN** una chiave cloud presente nell'ambiente
+- **WHEN** il servizio la rifiuta (401/403), alla sonda delle capabilities o durante una trascrizione
+- **THEN** quel provider SHALL risultare non disponibile con il motivo «chiave rifiutata dal servizio (HTTP n)», la catena SHALL saltarlo, e le capabilities SHALL dichiarare il motore che trascriverà davvero
+
 #### Scenario: niente di configurato
 - **GIVEN** nessuna chiave e nessun motore locale
 - **THEN** la catena SHALL essere vuota e ogni assenza SHALL avere il proprio motivo
@@ -73,6 +78,10 @@ stesso vocale passa da uno e viene rifiutato dal successivo a metà catena.
 
 Un motore che non risponde entro un tempo massimo SHALL essere considerato morto
 e SHALL passare la mano.
+
+#### Scenario: chi è caduto resta scritto nel risultato
+- **GIVEN** un provider che cade e uno che risponde
+- **THEN** il risultato SHALL portare `attempts` con provider e motivo di ognuno dei caduti, così chi guarda legge «trascritto in locale perché X ha rifiutato la chiave» e non solo il tempo
 
 #### Scenario: il primo cade
 - **GIVEN** il primo motore che risponde con un errore

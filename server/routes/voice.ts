@@ -35,7 +35,7 @@ export function createVoiceRouter(ctx: AppContext, deps: Partial<SttDeps> = {}):
     // questa risposta l'unico modo di scoprire che non c'è nessun motore era
     // registrare quaranta secondi e ricevere un errore.
     if (method === "GET" && pathname === "/api/stt/capabilities") {
-      return json(sttCapabilities(env));
+      return json(await sttCapabilities(env, { fetchImpl: doFetch }));
     }
 
     // --- La nota vocale VUOTA si registra da sola ---

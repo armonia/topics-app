@@ -9,7 +9,7 @@
  * ciascuno invece di «STT failed».
   * @covers STT-01 @covers STT-02 @covers STT-03
  */
-import { describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,8 +21,12 @@ import {
   localConfig,
   SttError,
   MAX_STT_BYTES,
+  __resetKeyVerdictsForTests,
   type SttAudio,
 } from "./stt";
+
+// The key verdicts are module state: one test's 401 must not outlive it.
+beforeEach(() => __resetKeyVerdictsForTests());
 
 const AUDIO: SttAudio = { bytes: new Uint8Array([1, 2, 3, 4]), filename: "voice.webm", mimeType: "audio/webm" };
 
@@ -323,17 +327,77 @@ describe("il rumore che Whisper produce sul silenzio", () => {
 });
 
 describe("sttCapabilities", () => {
-  it("dice cosa risponderà e cosa manca, così il client non deve indovinarlo", () => {
-    const caps = sttCapabilities(emptyEnv({ OPENAI_API_KEY: "k" }));
+  it("dice cosa risponderà e cosa manca, così il client non deve indovinarlo", async () => {
+    __resetKeyVerdictsForTests();
+    const { impl } = fakeFetch([{ match: "api.openai.com/v1/models", body: { data: [] } }]);
+    const caps = await sttCapabilities(emptyEnv({ OPENAI_API_KEY: "k" }), { fetchImpl: impl });
     expect(caps.available).toBe(true);
     expect(caps.provider).toBe("openai");
     expect(caps.model).toBe("gpt-transcribe");
     expect(caps.providers.find(p => p.id === "deepgram")?.available).toBe(false);
   });
 
-  it("senza niente configurato è `available: false` — il tasto di dettatura ha un motivo per sparire", () => {
-    const caps = sttCapabilities(emptyEnv());
+  it("senza niente configurato è `available: false` — il tasto di dettatura ha un motivo per sparire", async () => {
+    __resetKeyVerdictsForTests();
+    const caps = await sttCapabilities(emptyEnv(), { fetchImpl: fakeFetch([]).impl });
     expect(caps.available).toBe(false);
     expect(caps.provider).toBeNull();
+  });
+});
+
+describe("una chiave presente non e' una chiave: il servizio deve accettarla", () => {
+  // 2026-09-03: ELEVENLABS_API_KEY set, every POST /api/stt answered 401
+  // «Invalid API key», every note fell through to whisper large-v3 (9-24 s),
+  // and capabilities kept saying «elevenlabs scribe_v2».
+  it("la sonda risponde 401: il provider e' fuori con il motivo, e la catena lo salta", async () => {
+    __resetKeyVerdictsForTests();
+    const { impl, chiamate } = fakeFetch([{ match: "api.elevenlabs.io/v1/user", status: 401, body: { detail: { status: "invalid_api_key" } } }]);
+    const env = emptyEnv({ ELEVENLABS_API_KEY: "sk_dead" });
+    const caps = await sttCapabilities(env, { fetchImpl: impl });
+    const el = caps.providers.find(p => p.id === "elevenlabs")!;
+    expect(el.available).toBe(false);
+    expect(el.reason).toContain("HTTP 401");
+    expect(caps.available).toBe(false);
+    expect(resolveSttChain(env).chain.map(p => p.id)).not.toContain("elevenlabs");
+    // Cached: a second look does not pay a second probe.
+    await sttCapabilities(env, { fetchImpl: impl });
+    expect(chiamate.filter(c => c.url.includes("/v1/user")).length).toBe(1);
+  });
+
+  it("una sonda che non risponde (timeout, 5xx) NON toglie il provider: solo un rifiuto lo fa", async () => {
+    __resetKeyVerdictsForTests();
+    const { impl } = fakeFetch([{ match: "api.openai.com/v1/models", status: 503 }]);
+    const caps = await sttCapabilities(emptyEnv({ OPENAI_API_KEY: "k" }), { fetchImpl: impl });
+    expect(caps.providers.find(p => p.id === "openai")?.available).toBe(true);
+  });
+
+  it("un 401 durante la trascrizione marchia la chiave: il risultato dice chi e' caduto, e le capabilities dopo lo sanno", async () => {
+    __resetKeyVerdictsForTests();
+    const { impl } = fakeFetch([
+      { match: "api.elevenlabs.io/v1/speech-to-text", status: 401, body: { detail: { message: "Invalid API key" } } },
+      { match: "api.elevenlabs.io/v1/user", body: {} },
+    ]);
+    const dir = mkdtempSync(join(tmpdir(), "stt-cfg-"));
+    try {
+      for (const n of ["whisper-cli", "ffmpeg", "ggml-large-v3-turbo.bin"]) writeFileSync(join(dir, n), "x");
+      const env = emptyEnv({
+        ELEVENLABS_API_KEY: "sk_dead",
+        WHISPER_CLI_PATH: join(dir, "whisper-cli"),
+        FFMPEG_PATH: join(dir, "ffmpeg"),
+        WHISPER_MODEL_PATH: join(dir, "ggml-large-v3-turbo.bin"),
+      });
+      const out = await transcribe(AUDIO, {
+        env, fetchImpl: impl,
+        runLocal: async () => ({ transcript: "ciao", model: "whisper.cpp ggml-large-v3-turbo.bin" }),
+      });
+      expect(out.provider).toBe("local");
+      expect(out.attempts?.map(a => a.provider)).toEqual(["elevenlabs"]);
+      expect(out.attempts?.[0].error).toContain("HTTP 401");
+      const caps = await sttCapabilities(env, { fetchImpl: impl });
+      expect(caps.providers.find(p => p.id === "elevenlabs")?.available).toBe(false);
+      expect(caps.provider).toBe("local");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

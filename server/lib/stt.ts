@@ -26,7 +26,7 @@
  */
 
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { cpus, tmpdir } from "node:os";
 import { join } from "node:path";
 
 // Le forme che attraversano il filo stanno in shared/: dichiararle qui e
@@ -212,6 +212,77 @@ const KEY_ENV: Record<Exclude<SttProviderId, "local">, string> = {
   groq: "GROQ_API_KEY",
 };
 
+/**
+ * A key is VERIFIED, not just present.
+ *
+ * For weeks every dictation on this machine went: ElevenLabs 401 «Invalid API
+ * key» → fall through → whisper.cpp large-v3 locally, 9-24 s per note, while
+ * `/api/stt/capabilities` kept answering «elevenlabs scribe_v2» because the
+ * only check was `env[key]?.trim()`. The person saw the wrong engine, the slow
+ * result, and no reason. So each cloud key is probed once with the cheapest
+ * authenticated GET the service has, the verdict is cached, and a 401/403 met
+ * during a real transcription marks it as well. Only a REJECTION removes a
+ * provider: a timeout or a 5xx on the probe is «unknown», and unknown keeps
+ * the provider (with a short cache, so it is asked again soon).
+ */
+const KEY_PROBE: Record<Exclude<SttProviderId, "local">, { url: string; headers: (key: string) => Record<string, string> }> = {
+  elevenlabs: { url: "https://api.elevenlabs.io/v1/user", headers: k => ({ "xi-api-key": k }) },
+  openai: { url: "https://api.openai.com/v1/models", headers: k => ({ authorization: `Bearer ${k}` }) },
+  deepgram: { url: "https://api.deepgram.com/v1/projects", headers: k => ({ authorization: `Token ${k}` }) },
+  groq: { url: "https://api.groq.com/openai/v1/models", headers: k => ({ authorization: `Bearer ${k}` }) },
+};
+interface KeyVerdict { ok: boolean; reason?: string; at: number }
+const keyVerdicts = new Map<string, KeyVerdict>();
+const KEY_VERDICT_TTL_MS = 10 * 60 * 1000;
+const KEY_UNKNOWN_TTL_MS = 60 * 1000;
+const KEY_PROBE_TIMEOUT_MS = 5_000;
+/** Never the key itself: enough to tell two keys apart, nothing to leak. */
+function verdictSlot(id: SttProviderId, key: string): string {
+  return `${id}:${key.length}:${key.slice(0, 4)}:${key.slice(-4)}`;
+}
+function freshVerdict(id: SttProviderId, key: string): KeyVerdict | undefined {
+  const v = keyVerdicts.get(verdictSlot(id, key));
+  if (!v) return undefined;
+  const ttl = v.ok && !v.reason ? KEY_VERDICT_TTL_MS : v.ok ? KEY_UNKNOWN_TTL_MS : KEY_VERDICT_TTL_MS;
+  return Date.now() - v.at < ttl ? v : undefined;
+}
+export function keyRejectedReason(status: number): string {
+  return `chiave rifiutata dal servizio (HTTP ${status}): rinnovala, oppure togli la variabile`;
+}
+/** A real call answered 401/403: remember it, the next capabilities says so. */
+export function markKeyRejected(id: SttProviderId, env: SttDeps["env"], status: number): void {
+  if (id === "local") return;
+  const key = env[KEY_ENV[id]]?.trim();
+  if (!key) return;
+  keyVerdicts.set(verdictSlot(id, key), { ok: false, reason: keyRejectedReason(status), at: Date.now() });
+}
+export function __resetKeyVerdictsForTests(): void {
+  keyVerdicts.clear();
+}
+/** Probe every configured cloud key that has no fresh verdict (in parallel). */
+export async function verifyProviderKeys(env: SttDeps["env"], fetchImpl: typeof fetch = fetch): Promise<void> {
+  const jobs: Promise<void>[] = [];
+  for (const id of Object.keys(KEY_PROBE) as Array<Exclude<SttProviderId, "local">>) {
+    const key = env[KEY_ENV[id]]?.trim();
+    if (!key || freshVerdict(id, key)) continue;
+    const probe = KEY_PROBE[id];
+    jobs.push((async () => {
+      let verdict: KeyVerdict;
+      try {
+        const r = await fetchImpl(probe.url, { headers: probe.headers(key), signal: AbortSignal.timeout(KEY_PROBE_TIMEOUT_MS) });
+        verdict = r.status === 401 || r.status === 403
+          ? { ok: false, reason: keyRejectedReason(r.status), at: Date.now() }
+          : r.ok ? { ok: true, at: Date.now() } : { ok: true, reason: `probe HTTP ${r.status}`, at: Date.now() };
+      } catch (e) {
+        verdict = { ok: true, reason: `probe: ${e instanceof Error ? e.message : String(e)}`, at: Date.now() };
+      }
+      keyVerdicts.set(verdictSlot(id, key), verdict);
+      if (!verdict.ok) console.warn(`[stt] ${id}: ${verdict.reason}`);
+    })());
+  }
+  await Promise.all(jobs);
+}
+
 function providerStatus(id: SttProviderId, env: SttDeps["env"]): SttProviderStatus {
   if (id === "local") {
     const cfg = localConfig(env);
@@ -225,9 +296,11 @@ function providerStatus(id: SttProviderId, env: SttDeps["env"]): SttProviderStat
   }
   const keyName = KEY_ENV[id];
   const model = modelFor(id, env);
-  return env[keyName]?.trim()
-    ? { id, available: true, model }
-    : { id, available: false, model, reason: `${keyName} non configurata` };
+  const key = env[keyName]?.trim();
+  if (!key) return { id, available: false, model, reason: `${keyName} non configurata` };
+  const verdict = freshVerdict(id, key);
+  if (verdict && !verdict.ok) return { id, available: false, model, reason: verdict.reason };
+  return { id, available: true, model };
 }
 
 /**
@@ -487,9 +560,14 @@ async function transcribeLocal(audio: SttAudio, cfg: LocalConfig): Promise<{ tra
     // `-l auto` invece di `-l it`: il rilevamento è dentro il modello e costa
     // un secondo di audio, mentre la lingua fissa trascriveva l'inglese in
     // italiano fonetico.
+    // Threads: whisper-cli defaults to 4. Measured 2026-09-03 on 12 cores,
+    // large-v3 on 5.7 s of Italian: 3.0 s with 4 threads, 2.4 s with 8, 2.3 s
+    // with 10 — so 8, leaving the machine two cores to keep painting.
+    const threads = Math.max(2, Math.min(8, cpus().length - 2));
     const args = [
       "-m", cfg.modelPath,
       "-l", cfg.language || "auto",
+      "-t", String(threads),
       "-f", wav,
       "--no-timestamps",
       "--no-prints",
@@ -591,9 +669,12 @@ export async function transcribe(audio: SttAudio, deps: SttDeps): Promise<SttRes
         model: out.model,
         language: out.language ?? null,
         durationMs: now() - started,
+        ...(attempts.length ? { attempts: [...attempts] } : {}),
       };
     } catch (err) {
       const motivo = err instanceof Error ? err.message : String(err);
+      const rejected = /^HTTP (401|403)\b/.exec(motivo);
+      if (rejected) markKeyRejected(provider.id, deps.env, Number(rejected[1]));
       attempts.push({ provider: provider.id, error: motivo });
       // UN PROVIDER CHE CADE SI DICE, anche quando il successivo salva il giro.
       //
@@ -614,7 +695,8 @@ export async function transcribe(audio: SttAudio, deps: SttDeps): Promise<SttRes
 }
 
 /** Fotografia per il client: chi c'è, chi manca e perché. */
-export function sttCapabilities(env: SttDeps["env"]): SttCapabilities {
+export async function sttCapabilities(env: SttDeps["env"], deps: Pick<SttDeps, "fetchImpl"> = {}): Promise<SttCapabilities> {
+  await verifyProviderKeys(env, deps.fetchImpl ?? fetch);
   const { chain, all } = resolveSttChain(env);
   const head = chain[0] ?? null;
   return {
