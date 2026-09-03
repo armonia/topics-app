@@ -25,6 +25,15 @@ import { join, resolve } from "path";
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const START_PROD = join(REPO_ROOT, "scripts", "start-prod.sh");
 const src = readFileSync(START_PROD, "utf8");
+// THE RELOAD LOOP MOVED OUT, and the gate went with it.
+// `start-prod.sh` still declares BIRTH_GRACE_S (the first assertion below reads
+// it there), but the birth wait, the deferral and the SIGTERM now live in
+// `server-watch.sh`, a process that can be stopped without touching the server.
+// The assertions on the TEXT were looking for lines that file no longer has:
+// red on a move that broke nothing, which is how a guard dies when it names a
+// PLACE instead of a behaviour.
+const WATCH = join(REPO_ROOT, "scripts", "server-watch.sh");
+const watchSrc = readFileSync(WATCH, "utf8");
 
 /** Seconds below which a server counts as still being born. Mirrors start-prod.sh. */
 const BIRTH_GRACE_S = 25;
@@ -70,7 +79,7 @@ describe("cancello di nascita del ricaricamento a caldo", () => {
   });
 });
 
-describe("start-prod.sh contiene davvero il cancello", () => {
+describe("il cancello sta davvero negli script (start-prod.sh + server-watch.sh)", () => {
   it("dichiara BIRTH_GRACE_S, e il valore coincide con questo banco", () => {
     const m = src.match(/^BIRTH_GRACE_S=(\d+)/m);
     expect(m, "BIRTH_GRACE_S non dichiarata in start-prod.sh").not.toBeNull();
@@ -78,25 +87,25 @@ describe("start-prod.sh contiene davvero il cancello", () => {
   });
 
   it("misura l'eta dal mtime del pidfile", () => {
-    expect(src).toContain('stat -f %m "$SERVER_PIDFILE"');
+    expect(watchSrc).toContain('stat -f %m "$SERVER_PIDFILE"');
   });
 
   it("il cancello sta PRIMA del SIGTERM dell'attesa di nascita", () => {
-    const gateAt = src.indexOf("BIRTH_GRACE_S}s)");
+    const gateAt = watchSrc.indexOf("BIRTH_GRACE_S}s)");
     // NOT the phrase on its own: the gate's comment quotes it, and indexOf
     // would find that one. Anchor to the echo line that sends the SIGTERM.
-    const killAt = src.indexOf("server source changed \u2192 graceful hot-reload");
+    const killAt = watchSrc.indexOf("server source changed \u2192 graceful hot-reload");
     expect(gateAt, "messaggio del rinvio assente").toBeGreaterThan(-1);
     expect(killAt, "ramo del SIGTERM assente").toBeGreaterThan(-1);
     expect(gateAt).toBeLessThan(killAt);
   });
 
   it("stampa l'eta misurata, non solo che sta rinviando", () => {
-    expect(src).toMatch(/RINVIATO.*\$\{_age\}s/);
+    expect(watchSrc).toMatch(/RINVIATO.*\$\{_age\}s/);
   });
 
   it("interrompe l'attesa se il processo sorvegliato sparisce", () => {
-    const gate = src.slice(src.indexOf("BIRTH_GRACE_S}s)") - 800, src.indexOf("BIRTH_GRACE_S}s)"));
+    const gate = watchSrc.slice(watchSrc.indexOf("BIRTH_GRACE_S}s)") - 800, watchSrc.indexOf("BIRTH_GRACE_S}s)"));
     expect(gate).toContain('kill -0 "$SP"');
   });
 });
