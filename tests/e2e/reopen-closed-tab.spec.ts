@@ -152,3 +152,93 @@ test.describe("@reopen-closed-tab reopen-closed-tab-history", () => {
     expect(ids).toContain(t2.id);
   });
 });
+
+/**
+ * The SLOT, not just the presence.
+ *
+ * The two tests above close the LAST tab, where "back in its place" and "back at
+ * the end" are the same position — so they were both green while the reported
+ * bug was live: closing the MIDDLE tab of three and pressing the chord brought
+ * it back appended, and since that order is what gets persisted, the reload did
+ * not repair it either. Three tabs is the smallest bar where the two answers
+ * differ.
+ *
+ * @covers CMD-03
+ */
+test.describe("@reopen-closed-tab reopened tab returns to its slot", () => {
+  let a: { id: string; name: string; slug: string };
+  let b: { id: string; name: string; slug: string };
+  let c: { id: string; name: string; slug: string };
+
+  const paneIds = (tabs: import("@playwright/test").Locator) =>
+    tabs.evaluateAll((els) => els.map((el) => el.getAttribute("data-pane-id")));
+
+  test.beforeEach(async ({ request }) => {
+    a = await createTopic(request, `Slot-A-${Date.now()}`);
+    b = await createTopic(request, `Slot-B-${Date.now()}`);
+    c = await createTopic(request, `Slot-C-${Date.now()}`);
+    await seedPaneStore(request, () => ({
+      panes: {
+        [a.id]: { id: a.id, type: "chat", title: a.name, topicId: a.id },
+        [b.id]: { id: b.id, type: "chat", title: b.name, topicId: b.id },
+        [c.id]: { id: c.id, type: "chat", title: c.name, topicId: c.id },
+      },
+      groups: {
+        "group:default": {
+          id: "group:default",
+          paneIds: [a.id, b.id, c.id],
+          splitRatio: 1,
+          splitAxis: "horizontal",
+        },
+      },
+      projects: {},
+      groupOrder: ["group:default"],
+      closedStack: [],
+    }));
+    await request.put(`${BASE}/api/ui-state/panels`, {
+      data: { openPanels: [a.id, b.id, c.id] },
+      ignoreHTTPSErrors: true,
+    });
+  });
+
+  test.afterEach(async ({ request }) => {
+    await deleteTopic(request, a.id).catch(() => {});
+    await deleteTopic(request, b.id).catch(() => {});
+    await deleteTopic(request, c.id).catch(() => {});
+  });
+
+  test("⇧⌘T puts the middle tab back in the middle, and it stays there after a reload", async ({ page }) => {
+    await gotoAndWait(page);
+    await waitForTopicVisible(page, c.id);
+
+    const tabBar = page.locator('[data-testid="panel-tab-bar"]');
+    const tabs = tabBar.locator('[draggable="true"]');
+    await expect(tabs).toHaveCount(3, { timeout: 10_000 });
+    expect(await paneIds(tabs)).toEqual([a.id, b.id, c.id]);
+
+    // Close the MIDDLE one. `force` for the same reason as closeLastTab above:
+    // this click is the setup, not the assertion.
+    const middle = tabs.nth(1);
+    await middle.hover();
+    await middle.locator("button").last().click({ force: true });
+    await expect(tabs).toHaveCount(2, { timeout: 5_000 });
+    expect(await paneIds(tabs)).toEqual([a.id, c.id]);
+
+    await tabBar.click({ position: { x: 5, y: 5 }, force: true });
+    await page.keyboard.press("Meta+Shift+T");
+
+    await expect(tabs).toHaveCount(3, { timeout: 10_000 });
+    await expect
+      .poll(() => paneIds(tabs), { timeout: 5_000 })
+      .toEqual([a.id, b.id, c.id]);
+
+    // The order the user sees must also be the order that was written down:
+    // the report says the tab was still at the end after reloading the session.
+    await page.reload();
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+    await expect(tabs).toHaveCount(3, { timeout: 15_000 });
+    await expect
+      .poll(() => paneIds(tabs), { timeout: 10_000 })
+      .toEqual([a.id, b.id, c.id]);
+  });
+});

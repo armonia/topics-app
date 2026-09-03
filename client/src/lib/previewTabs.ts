@@ -35,6 +35,43 @@ export function consumeTabRestored(id: string): boolean {
 }
 
 /**
+ * Where a restored tab goes back: the slot it was closed from, clamped to the
+ * list as it is NOW.
+ *
+ * A reopen is not a new tab, and appending it is what the user reports as "it
+ * comes back at the end". The undo path already re-inserts at the recorded
+ * `groupIndex` (state/pane/reducers/undo.ts); the ⇧⌘T path went through
+ * `OPEN_PANE` + a `setOpenPanels` append, so the tab settled last and that
+ * wrong order was then persisted, surviving the reload.
+ *
+ * The bar it returns to may have shrunk while the tab was closed, so the
+ * recorded index can point past the end: `length` then means "last", which is
+ * the only slot left that the record can still be read as. A record with no
+ * usable index (a legacy/hand-built one) is appended, same rule.
+ */
+export function restoreSlot(recordedIndex: number | undefined, listLength: number): number {
+  if (typeof recordedIndex !== 'number' || !Number.isFinite(recordedIndex)) return listLength;
+  return Math.min(Math.max(0, Math.trunc(recordedIndex)), listLength);
+}
+
+/**
+ * Insert `id` at its restore slot. A list that already holds the id comes back
+ * BY REFERENCE, not copied: this feeds a `setOpenPanels` updater, where a fresh
+ * array with identical contents is still a state change and would re-run the
+ * React -> store sync for nothing.
+ */
+export function insertAtRestoreSlot(
+  orderedIds: string[],
+  id: string,
+  recordedIndex: number | undefined,
+): string[] {
+  if (orderedIds.includes(id)) return orderedIds;
+  const result = [...orderedIds];
+  result.splice(restoreSlot(recordedIndex, result.length), 0, id);
+  return result;
+}
+
+/**
  * Find the first preview (unpinned) ID in an ordered list.
  */
 export function findPreviewInList(

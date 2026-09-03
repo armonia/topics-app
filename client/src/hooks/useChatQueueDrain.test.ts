@@ -21,7 +21,7 @@
  *
  * @covers CHAT-01
  */
-import { beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import * as React from 'react';
 import { mount } from '../test/reactHarness';
 import { useChat } from './useChat';
@@ -90,6 +90,17 @@ function drive(): { chat: Chat; sk: string; ws(frame: Record<string, unknown>): 
   };
 }
 
+// THE FAKE `fetch` IS PUT BACK, or the files after this one pay for it.
+//
+// `bun test` runs the WHOLE suite in ONE process: a stub planted on
+// `globalThis` and never restored does not end with this file, it stays on
+// every file that comes after. Measured on 03/09: 54 failures spread over
+// `relay-proxy`, the native MCP fleet, `web_fetch` and the real server's
+// WebSocket registries. All of them green on their own, all of them red in the
+// suite, because they were asking this stub for the network. The restore is one
+// line; without it, somebody else reads the failure as theirs.
+const REAL_FETCH = globalThis.fetch;
+
 /** Every body POSTed to /api/chat, in order: the proof that a queued turn went out. */
 let sent: { sessionKey: string; content: string }[] = [];
 
@@ -116,6 +127,10 @@ beforeEach(() => {
   sent = [];
   __setQueueStorage(null);
   installFetch();
+});
+
+afterEach(() => {
+  globalThis.fetch = REAL_FETCH;
 });
 
 describe('a queued turn is not stranded when the stream:end never reaches this window', () => {
