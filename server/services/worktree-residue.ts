@@ -32,6 +32,7 @@
  * nessuno, e il messaggio lo dice a chiare lettere a chi lo troverà.
  */
 import type { GitRunResult } from "./task-automerge";
+import { worktreeRegistrationLost } from "./worktree-registration";
 import { gitEnvFor } from "../lib/git-identity";
 
 export interface ResidueResult {
@@ -113,6 +114,14 @@ export async function commitWorktreeResidue(
   path: string,
   runGit: (cwd: string, args: string[]) => Promise<GitRunResult> = defaultRunGit,
 ): Promise<ResidueResult> {
+  // 0. A folder git no longer registers is not a checkout: `symbolic-ref`
+  //    below exits 128 and the answer used to read "detached HEAD", a false
+  //    diagnosis written on the card. There is no branch to save onto and no
+  //    index to read: state the real fact and leave.
+  if (worktreeRegistrationLost(path)) {
+    return { ok: false, reason: "cartella non più registrata in git (.git/worktrees/<name> assente): niente da committare" };
+  }
+
   // 1. Un'operazione a metà è di una persona, non nostra. Ognuna lascia il suo
   //    ref, e si guardano TUTTI: `MERGE_HEAD` da solo non copre un cherry-pick.
   for (const ref of IN_CORSO) {

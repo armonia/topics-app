@@ -48,6 +48,14 @@ export interface WorktreeReapInput {
   taskArchived: boolean;
   /** Non-junk uncommitted paths present (from worktreeRealDirt). */
   hasRealDirt: boolean;
+  /**
+   * The folder is no longer a checkout: git lost its registration
+   * (`worktreeDirtProbe` reports `unregistered`). The dirt probe will NEVER
+   * answer there, and reading it as "dirty" keeps the folder forever for a
+   * closed task. There is no residue to commit (no index, no HEAD): the
+   * commits live on the branch or on main, the folder is only weight.
+   */
+  unregistered?: boolean;
   /** Worktree tip is an ancestor of main → no unmerged commits to lose. */
   mergedIntoMain: boolean;
   /**
@@ -123,6 +131,19 @@ export function decideWorktreeReap(input: WorktreeReapInput): WorktreeReapDecisi
       return { action: "abandon", reason: `task fermo in 'in_progress' da ${Math.floor(input.idleDays!)} giorni` };
     }
     return { action: "keep", reason: `task '${input.taskStatus}' attivo` };
+  }
+
+  // A folder git no longer registers is not a checkout: the dirt probe exits
+  // 128 forever, so "illegible = dirty" protects nothing here and keeps the
+  // folder for good (sage-well: 137 MB, task closed and already on main).
+  // There is no residue to commit, because there is no index and no HEAD: the
+  // commits live on the branch or on main. Only THAT is looked at.
+  if (input.unregistered) {
+    if (input.mergedIntoMain) return { action: "reap", reason: "cartella non più registrata in git, lavoro già su main" };
+    if (input.mode === "branch" && !input.branchGone) {
+      return { action: "free-checkout", reason: "cartella non più registrata in git: branch conservato, checkout liberato" };
+    }
+    return { action: "keep", reason: "cartella non più registrata in git e nessun ramo che ne conservi i commit" };
   }
 
   // Real uncommitted work sitting in the tree is the only copy — a closed task
@@ -331,8 +352,12 @@ export interface WorktreeGcDeps {
    * niente va trattata come se contenesse lavoro. Prima la sonda restituiva un
    * array vuoto in entrambi i casi e un singhiozzo di git (index.lock, volume
    * che non risponde) SBLOCCAVA il reap invece di fermarlo.
+   *
+   * `unregistered: true` is a fact read, not a default: the folder is no longer
+   * a checkout (see `worktreeDirtProbe`) and the probe will never answer. The
+   * decision then looks only at the branch and at main.
    */
-  realDirt: (absPath: string) => Promise<{ ok: boolean; paths: string[] }>;
+  realDirt: (absPath: string) => Promise<{ ok: boolean; paths: string[]; unregistered?: boolean }>;
   /**
    * The branch's state relative to main, read from the project repo (so it's
    * correct even after the worktree dir was removed): `gone` (branch deleted),
@@ -632,19 +657,29 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
       // non un default. Cartella presente ma sonda muta (`ok: false`, incluso il
       // reject) = SPORCA: chi non ha potuto guardare non ha il diritto di
       // distruggere.
-      const probe = present
+      const probe: { ok: boolean; paths: string[]; unregistered?: boolean } = present
         ? await deps.realDirt(wt.absPath).catch(() => ({ ok: false, paths: [] as string[] }))
         : { ok: true, paths: [] as string[] };
       const dirt = probe.paths;
+      const unregistered = probe.unregistered === true;
       const taskStatus = taskId ? (t as { status: TaskStatus }).status : null;
       const taskArchived = taskId ? (t as { archived: boolean }).archived : false;
+
+      // An unregistered folder has one question left: is the work on main?
+      // The branch answers by ancestry; the card's delivery answers by CONTENT,
+      // which survives a squashed land. Asked only here, because anywhere else
+      // the answer would not change the decision.
+      const landedForUnregistered = unregistered && branch !== "merged" && taskId && deps.deliveryLanded
+        ? await deps.deliveryLanded(taskId, wt).catch(() => null)
+        : null;
 
       let decision = decideWorktreeReap({
         taskStatus,
         taskArchived,
         canCommitResidue: !!deps.commitResidue,
         hasRealDirt: !probe.ok || dirt.length > 0,
-        mergedIntoMain: branch === "merged",
+        unregistered,
+        mergedIntoMain: branch === "merged" || landedForUnregistered === true,
         branchGone: branch === "gone",
         autoMergeEnabled: deps.autoMergeEnabled(wt.projectId),
         mode: wt.mode,
@@ -787,6 +822,16 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
       if (ok) {
         summary.reaped += 1;
         deps.log(`[worktree-gc] reaped ${wt.branchName ?? wt.id} — ${decision.reason}`);
+        // The folder vanishes without anyone asking: say it ONCE, and say the
+        // real fact (registration lost, work on main), never "may hold
+        // uncommitted work".
+        if (unregistered && taskId) {
+          deps.noteOnTask?.(
+            taskId,
+            `🧹 Cartella del worktree \`${wt.branchName ?? wt.id}\` non più registrata in git, rimossa (path: \`${wt.absPath}\`). Il lavoro è su main.`,
+            { kind: "service", once: true },
+          );
+        }
       } else {
         summary.errors += 1;
       }

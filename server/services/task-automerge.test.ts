@@ -2,7 +2,55 @@
  * @covers LAND-04
  */
 import { describe, test, expect } from "bun:test";
-import { chooseMergeTarget, createTaskAutoMerge, landFallout, worktreeRealDirt, type GitRunResult, type LandSkipCode, type TaskMergeTarget } from "./task-automerge";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { chooseMergeTarget, createTaskAutoMerge, landFallout, worktreeDirtProbe, worktreeRealDirt, type GitRunResult, type LandSkipCode, type TaskMergeTarget } from "./task-automerge";
+import { worktreeRegistrationLost } from "./worktree-registration";
+
+/**
+ * THE PROBE HAS THREE ANSWERS, NOT TWO. A folder whose `.git` is a `gitdir:`
+ * file pointing into the void is not "a git status that did not answer": it
+ * will NEVER answer, and reading it as dirty keeps it forever. The distinction
+ * is fixed here without spawning git, and a plain git failure stays generic.
+ */
+describe("worktreeDirtProbe: registrazione persa", () => {
+  test("`.git` file che punta a un gitdir inesistente → unregistered (nessun git spawnato)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "probe-unreg-"));
+    try {
+      writeFileSync(join(dir, ".git"), `gitdir: ${join(dir, "manca", ".git", "worktrees", "x")}\n`);
+      expect(worktreeRegistrationLost(dir)).toBe(true);
+      const calls: string[][] = [];
+      const run = async (_cwd: string, args: string[]): Promise<GitRunResult> => { calls.push(args); return { code: 0, stdout: "", stderr: "" }; };
+      expect(await worktreeDirtProbe(dir, run)).toEqual({ ok: false, unregistered: true, paths: [] });
+      expect(calls).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("`.git` file che punta a un gitdir ESISTENTE → e' un checkout, si chiede a git", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "probe-reg-"));
+    try {
+      const gitDirPath = join(dir, "repo", ".git", "worktrees", "x");
+      mkdirSync(gitDirPath, { recursive: true });
+      mkdirSync(join(dir, "wt"));
+      writeFileSync(join(dir, "wt", ".git"), `gitdir: ${gitDirPath}\n`);
+      expect(worktreeRegistrationLost(join(dir, "wt"))).toBe(false);
+      const clean = async (): Promise<GitRunResult> => ({ code: 0, stdout: "", stderr: "" });
+      expect(await worktreeDirtProbe(join(dir, "wt"), clean)).toEqual({ ok: true, paths: [] });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("senza il `.git` file, un git che non risponde resta il generico ok:false: una cartella senza `.git` puo' essere l'unica copia", async () => {
+    const notRepo = async (): Promise<GitRunResult> => ({ code: 128, stdout: "", stderr: "fatal: not a git repository\n" });
+    expect(await worktreeDirtProbe("/wt-che-non-esiste", notRepo)).toEqual({ ok: false, paths: [] });
+    const lock = async (): Promise<GitRunResult> => ({ code: 128, stdout: "", stderr: "fatal: Unable to create '/x/.git/index.lock': File exists.\n" });
+    expect(await worktreeDirtProbe("/wt-che-non-esiste", lock)).toEqual({ ok: false, paths: [] });
+  });
+});
 
 const TARGET: TaskMergeTarget = { repoPath: "/repo", branch: "topics/lyrical-cobra", defaultBranch: "main" };
 

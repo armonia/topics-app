@@ -910,6 +910,8 @@ export function createAppContext(baseDir: string): AppContext {
   const _worktreeGcDeps: WorktreeManagerGcDeps = {
     killTree: undefined,   // iniettato da server.ts dopo createProcessesRouter
     listOwnedScripts: undefined, // idem
+    // A folder that survives the delete: the row stays, the human must know.
+    notify: (input) => { recordAndAnnounce(input); },
   };
   const worktreeManager = createWorktreeManager(
     { broadcastToAll } as AppContext,

@@ -255,7 +255,17 @@ export function createWorktreesRouter(ctx: AppContext, opts: WorktreesRouterOpts
           // 018) takes care of bound topics. We additionally purge any
           // worktree references inside `ui_state` snapshots so cross-
           // device LWW cannot resurrect the deleted id (WORKTREE-03).
-          const ok = await worktreeManager.delete(idParams.id);
+          let ok: boolean;
+          try {
+            ok = await worktreeManager.delete(idParams.id);
+          } catch (err) {
+            // The folder survived both git and our own rm: the manager keeps
+            // the row so the GC retries. A 404 here would claim the opposite.
+            if (err instanceof WorktreeOperationError) {
+              return errorResponse(409, err.message, { details: err.stderr.slice(0, 1000) });
+            }
+            throw err;
+          }
           if (!ok) return errorResponse(404, "Worktree not found");
           // Drop any live git watcher on the deleted path. Worktree paths are
           // deterministic (~/.topics/worktrees/<slug>/<name>), so a stale
