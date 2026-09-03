@@ -332,12 +332,12 @@ function broadcastPresence() {
   broadcastToAll({ type: 'presence:windows', windows });
 }
 
-function broadcastToBrowserWs(contextId: string, msg: BrowserWsMessage): void {
+function broadcastToBrowserWs(contextId: string, msg: BrowserWsMessage, except?: { data: unknown } | null): void {
   const set = browserWsClients.get(contextId);
   if (!set || set.size === 0) return;
   const payload = JSON.stringify(msg);
   for (const ws of set) {
-    if (ws.readyState !== 1) continue;
+    if (ws.readyState !== 1 || (except && ws === except)) continue;
     try {
       ws.send(payload);
     } catch (err: unknown) {
@@ -356,7 +356,7 @@ function broadcastToBrowserWs(contextId: string, msg: BrowserWsMessage): void {
 // sends only on a change (server/browser-viewer-count.ts).
 const viewerCountPublisher = createViewerCountPublisher(
   (c) => countSharedViewers(browserWsClients.get(c)),
-  (c, count) => broadcastToBrowserWs(c, { type: 'viewers', count }),
+  (c, count, except) => broadcastToBrowserWs(c, { type: 'viewers', count }, except),
 );
 
 // Boot-time invariant (Bug #7): ui_state.payload_version/server_seq must exist
@@ -3309,8 +3309,11 @@ const opzioniServer = {
         // Tell the newcomer where the count stands, then the others that it
         // moved. The direct send covers the one case the broadcast cannot: a
         // socket joining a context whose count did not change.
-        sendBrowserWsMessage(ws, { type: 'viewers', count: countSharedViewers(bset) });
-        viewerCountPublisher.publish(ctxId);
+        // The newcomer is never in its own number: undeclared, it would count
+        // itself and a native pane would flip to shared on its own reflection
+        // (the two-second register/destroy loop of 2026-09-03).
+        sendBrowserWsMessage(ws, { type: 'viewers', count: countSharedViewers(bset, ws) });
+        viewerCountPublisher.publish(ctxId, ws);
         // This WS's own frame consumer. Hoisted to a const so we pass the SAME
         // identity to stopScreencast — with fan-out, that removes only THIS
         // viewer and leaves the shared CDP screencast running for the others

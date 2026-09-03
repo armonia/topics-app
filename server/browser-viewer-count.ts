@@ -51,12 +51,21 @@ export function isSharedViewer(data: ViewerFlags | undefined | null): boolean {
 }
 
 /** Quanti spettatori ha il contesto. `undefined` (nessun socket) ⇒ 0. */
+/**
+ * How many OTHER sockets watch the shared session. `except` is the socket the
+ * number is for: a pane must never be told a count that includes itself.
+ * Between its open and its `register_native_executor` frame a native pane
+ * is undeclared, i.e. counted; told "1 viewer" it flipped to the shared
+ * render, unmounted its own socket, and reopened: measured on 2026-09-03 as
+ * one register/destroy round every two seconds, per pane, all evening.
+ */
 export function countSharedViewers(
   clients: Iterable<{ data: ViewerFlags }> | undefined | null,
+  except?: { data: ViewerFlags } | null,
 ): number {
   if (!clients) return 0;
   let n = 0;
-  for (const c of clients) if (isSharedViewer(c.data)) n++;
+  for (const c of clients) if (c !== except && isSharedViewer(c.data)) n++;
   return n;
 }
 
@@ -76,7 +85,8 @@ export function countSharedViewers(
 export interface ViewerCountPublisher {
   /** Publish the current count of `contextId` if it differs from the last one
    *  sent; returns the count when a frame went out, `null` otherwise. */
-  publish(contextId: string): number | null;
+  /** `except`: a socket the change is not sent to (it gets its own count, see `countSharedViewers`). */
+  publish(contextId: string, except?: { data: ViewerFlags } | null): number | null;
   /** The context is gone (last socket closed): drop its memory so a context
    *  that comes back with the same count is told again. */
   forget(contextId: string): void;
@@ -86,15 +96,15 @@ export interface ViewerCountPublisher {
 
 export function createViewerCountPublisher(
   count: (contextId: string) => number,
-  send: (contextId: string, count: number) => void,
+  send: (contextId: string, count: number, except?: { data: ViewerFlags } | null) => void,
 ): ViewerCountPublisher {
   const published = new Map<string, number>();
   return {
-    publish(contextId) {
+    publish(contextId, except) {
       const n = count(contextId);
       if (published.get(contextId) === n) return null;
       published.set(contextId, n);
-      send(contextId, n);
+      send(contextId, n, except);
       return n;
     },
     forget(contextId) {

@@ -84,3 +84,20 @@ test("contexts do not mix", () => {
   pub.publish("b");
   expect(sent).toEqual([["a", 1], ["b", 1]]);
 });
+
+test("chi entra non e' nel numero che gli si dice: la pane nativa non conta se stessa", () => {
+  const me = { data: {} };
+  const other = { data: { _watching: true } };
+  expect(countSharedViewers([me, other], me)).toBe(1);
+  expect(countSharedViewers([me], me)).toBe(0);
+  expect(countSharedViewers([me, other])).toBe(2);
+});
+
+test("publish(ctx, except) passa il socket escluso a chi spedisce", () => {
+  const sent: Array<{ ctx: string; n: number; except: unknown }> = [];
+  const pub = createViewerCountPublisher(() => 3, (ctx, n, except) => { sent.push({ ctx, n, except }); });
+  const me = { data: {} };
+  expect(pub.publish("c1", me)).toBe(3);
+  expect(sent).toEqual([{ ctx: "c1", n: 3, except: me }]);
+  expect(pub.publish("c1")).toBeNull();
+});
