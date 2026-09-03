@@ -2637,9 +2637,7 @@ const opzioniServer = {
     const url = new URL(req.url);
     const pathname = url.pathname;
     const method = req.method;
-    const startTime = Date.now();
     const isApiRequest = pathname.startsWith("/api/");
-    if (isApiRequest) console.log(`[HTTP] → ${method} ${pathname}`);
 
     // Guasto SINTETICO su una rotta: e' cio' che permette di vedere ROSSO il
     // cancello sulle latenze (`bun run check:rotte`) senza barare sulla soglia.
@@ -3234,7 +3232,6 @@ const opzioniServer = {
         applyDesktopCors(req, response);
         return response;
       }
-      logRequest(method, pathname, 404, startTime);
       return new Response("Not Found", { status: 404 });
     }
 
@@ -3987,7 +3984,35 @@ function withJsonCompression(
   } as typeof opzioniServer.fetch;
 }
 
-const fetchCompresso = withJsonCompression(opzioniServer.fetch);
+/**
+ * One line per completed `/api/*` request: timestamp, status, duration.
+ *
+ * Before this the log had a start line for every API request (`[HTTP] -> GET
+ * /x`, no time, no outcome) and a completion line ONLY for 404s: under load you
+ * could not tell which route was slow or whether a request ever finished, and
+ * the file was mostly the 2s viewer poll. The outcome is what a log is for, so
+ * the start line is gone and the completion line is here, outside every
+ * handler, where every response of both listeners passes. `logRequest`
+ * (server/utils.ts, server/lib/http-log.ts) owns the format and keeps the
+ * chatty routes quiet unless they fail or are slow.
+ *
+ * `undefined` is a WebSocket upgrade: no response, nothing to log.
+ */
+function withHttpLog(
+  handler: typeof opzioniServer.fetch,
+): typeof opzioniServer.fetch {
+  return async function (this: unknown, req, srv) {
+    const t0 = Date.now();
+    const res = await handler.call(this as never, req, srv);
+    if (res) {
+      const pathname = new URL(req.url).pathname;
+      if (pathname.startsWith("/api/")) logRequest(req.method, pathname, res.status, t0);
+    }
+    return res;
+  } as typeof opzioniServer.fetch;
+}
+
+const fetchCompresso = withHttpLog(withJsonCompression(opzioniServer.fetch));
 
 const server = Bun.serve<WSData>({ ...opzioniServer, fetch: fetchCompresso });
 

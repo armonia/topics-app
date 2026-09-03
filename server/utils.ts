@@ -36,6 +36,7 @@ import { releaseHumanHold } from "./lib/human-hold";
 import { isAwaitingHuman } from "../shared/types";
 import type { OutboundMessage } from "../shared/ws-outbound";
 import { imageShape } from "./services/image-shape";
+import { httpLogLine } from "./lib/http-log";
 
 /**
  * v3 foundations WS-01 outbound validation hook. Runs in DEV mode only —
@@ -2056,10 +2057,13 @@ export function createAppContext(baseDir: string): AppContext {
     stmts.appendMessageContent.run((row.content || '') + mediaLines, row.id);
   }
 
+  // The completion line of an API request (called once per request, from the
+  // fetch wrapper in server.ts). Format and the quiet-route rule live in
+  // lib/http-log.ts, where they are tested.
   function logRequest(method: string, path: string, status: number, startTime: number): void {
-    const duration = Date.now() - startTime;
-    const statusColor = status >= 500 ? "❌" : status >= 400 ? "⚠️" : "✓";
-    console.log(`[HTTP] ${statusColor} ${method} ${path} ${status} ${duration}ms`);
+    const now = Date.now();
+    const line = httpLogLine(new Date(now), method, path, status, now - startTime);
+    if (line) console.log(line);
   }
 
   // --- Search (hybrid: SQLite local + gateway JSONL) ---
