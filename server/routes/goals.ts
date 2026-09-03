@@ -69,6 +69,30 @@ export function createGoalsRouter(ctx: AppContext): RouteHandler {
       }
     }
 
+    // GET/DELETE /api/sessions/:sessionKey/goal: the same two calls, addressed
+    // the way an agent knows itself. A tool running inside a session has its
+    // session key, not the topic id; making it look the id up first is a round
+    // trip and one more chance to act on the wrong topic. Added on 2026-09-03
+    // for `get_goal` / `close_goal`: until then an agent could be handed a goal
+    // and had no way to say it was done.
+    {
+      const params = matchRoute(pathname, "/api/sessions/:sessionKey/goal");
+      if (params && (method === "GET" || method === "DELETE")) {
+        const topic = ctx.getTopicBySessionKey(decodeURIComponent(params.sessionKey));
+        if (!topic) return errorResponse(404, "no topic for this session");
+        if (method === "GET") {
+          return json({ goal: getActiveGoal(db, topic.id), history: listGoals(db, topic.id) });
+        }
+        const active = getActiveGoal(db, topic.id);
+        if (!active) return errorResponse(404, "no active goal");
+        const body = await readJSON(req).catch(() => null);
+        const status = body?.status === "achieved" ? "achieved" : "abandoned";
+        const goal = closeGoal(db, active.id, status);
+        announce(topic.id);
+        return json({ goal });
+      }
+    }
+
     // POST /api/goals/:id/reopen
     {
       const params = matchRoute(pathname, "/api/goals/:id/reopen");

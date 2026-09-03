@@ -296,6 +296,27 @@ const TOOLS = [
     annotations: SOLA_LETTURA,
   },
   {
+    name: "get_goal",
+    description:
+      "Read the GOAL of THIS session's topic: the standing objective the person declared for the conversation (the one shown above the chat), with its steps and the past goals. Read it before declaring a long job finished: finished means the goal is met, not that the last message was answered.",
+    inputSchema: { type: "object", properties: {} },
+    annotations: SOLA_LETTURA,
+  },
+  {
+    name: "close_goal",
+    description:
+      "Close the active goal of THIS session's topic. status='achieved' when the objective is met and you have checked it; status='abandoned' when it cannot or should not be pursued. `summary` is what the person reads next to the closed goal: what was achieved and where the proof is, or why it was dropped. Closing as achieved is a claim: do not make it for work you have not verified. Fails with 404 when no goal is active.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["achieved", "abandoned"], description: "achieved = met and verified; abandoned = dropped, with the reason in summary." },
+        summary: { type: "string", description: "One or two sentences for the person: the outcome and where to look, or why it was dropped." },
+      },
+      required: ["status", "summary"],
+    },
+    annotations: MODIFICA,
+  },
+  {
     name: "update_task",
     description:
       "Update a task on THIS session's project board: status, priority, assignee, title/description, preview_image. The project is derived from the session (no project id). DELIVERING (status='review') REQUIRES `summary`: without it the call is refused. NOTE: you CANNOT set status='done' on your MAIN task — that is a human review gate: set status='review' and a human approves it. Exception: subtask STEPS of the task assigned to you (created with parent_task_id) are your checklist — mark each done as you complete it. You also cannot REOPEN a card a human closed (approved in review, or moved to done on the board): that is their decision — comment the reason and ask. Your own steps, which you closed yourself, you may reopen. To give the reviewer something concrete to look at, do NOT reach for output_url: a live page goes in a TAB of the task (open_browser_pane) and files go in the task's download list (comment_task media[]).",
@@ -656,6 +677,10 @@ export interface ParsedArgs {
  * meno moltiplicato per ogni chiamata del turno.
  */
 const DISPATCH_EXCLUDED_TOOLS = new Set([
+  // A dispatched agent works a card in its own topic, which carries no goal:
+  // the two schemas would be paid on every call for a tool it can never use.
+  "get_goal",
+  "close_goal",
   "list_agents",
   "send_chat_message",
   "read_chat_messages",
@@ -1043,6 +1068,61 @@ function lostRequestError(err: unknown, method: string, path: string): Error {
     ? `no answer in ${Math.round(REQUEST_TIMEOUT_MS / 1000)}s`
     : err instanceof Error ? err.message : String(err);
   return new Error(`${method} ${path}: ${detail} (topics-app unreachable?)`);
+}
+
+interface GoalRow {
+  id: string;
+  content: string;
+  status: string;
+  steps?: Array<{ content: string; status: string }>;
+}
+interface GoalResp { goal: GoalRow | null; history?: GoalRow[] }
+
+/**
+ * The goal as the agent should read it: the sentence, then the steps with the
+ * same marks the context block uses (`x` done, `~` in progress, ` ` pending).
+ * With no active goal the answer still says whether there ever was one: a
+ * topic that closed three goals is not a topic without direction.
+ */
+export async function callGetGoal(
+  args: ParsedArgs,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/goal`;
+  const res = await httpJson<GoalResp>(args, "GET", path, undefined, fetchImpl);
+  const g = res?.goal;
+  if (!g) {
+    const past = (res?.history ?? []).length;
+    return past
+      ? `No active goal on this topic (${past} past goal${past === 1 ? "" : "s"}, all closed).`
+      : "No goal declared on this topic.";
+  }
+  const steps = Array.isArray(g.steps) && g.steps.length
+    ? "\nSteps:\n" + g.steps.map((st) => {
+        const mark = st.status === "completed" ? "x" : st.status === "in_progress" ? "~" : " ";
+        return `  [${mark}] ${st.content}`;
+      }).join("\n")
+    : "";
+  return `Active goal (id=${g.id}): ${g.content}${steps}`;
+}
+
+export async function callCloseGoal(
+  args: ParsedArgs,
+  toolArgs: { status?: unknown; summary?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  const status = toolArgs?.status;
+  if (status !== "achieved" && status !== "abandoned") {
+    throw new Error("close_goal: 'status' must be 'achieved' or 'abandoned'");
+  }
+  const summary = typeof toolArgs?.summary === "string" ? toolArgs.summary.trim() : "";
+  if (!summary) throw new Error("close_goal: 'summary' (string) is required: say what was achieved, or why it was dropped");
+  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/goal`;
+  const res = await httpJson<{ goal: GoalRow }>(args, "DELETE", path, { status }, fetchImpl);
+  const g = res?.goal;
+  return g
+    ? `Goal «${g.content}» closed as ${g.status}. Summary: ${summary}`
+    : `Goal closed as ${status}. Summary: ${summary}`;
 }
 
 export async function callRunScript(
@@ -2077,6 +2157,8 @@ export const TOOL_HANDLERS: Record<
   list_tasks: (a, t) => callListTasks(a, t),
   create_task: (a, t) => callCreateTask(a, t),
   get_task: (a, t) => callGetTask(a, t),
+  get_goal: (a) => callGetGoal(a),
+  close_goal: (a, t) => callCloseGoal(a, t as { status?: unknown; summary?: unknown }),
   // `onProgress` come per le domande all'umano, e per lo stesso motivo: una
   // consegna fa girare i check pre-review, che durano minuti, e un client MCP
   // che non sente niente dichiara piantata la chiamata.

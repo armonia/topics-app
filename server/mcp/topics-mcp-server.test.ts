@@ -27,6 +27,8 @@ import {
   callListTasks,
   callCreateTask,
   callGetTask,
+  callGetGoal,
+  callCloseGoal,
   callUpdateTask,
   callCommentTask,
   callWaitForCondition,
@@ -536,6 +538,8 @@ describe("handleMessage", () => {
       "list_tasks",
       "create_task",
       "get_task",
+      "get_goal",
+      "close_goal",
       "update_task",
       "wait_for_condition",
       "label_task",
@@ -607,7 +611,7 @@ describe("handleMessage", () => {
       "browser_list_tabs", "list_processes", "read_process_output",
       // Aspettare la fine di un processo non lo tocca: è una lettura che dura.
       "wait_for_process",
-      "list_tasks", "get_task", "read_agent", "list_agents",
+      "list_tasks", "get_task", "get_goal", "read_agent", "list_agents",
       "read_chat_messages", "resolve_tab",
       // Chiedere a una persona non cambia niente: è la lettura più pura che ci sia.
       "ask_user_question", "approval_prompt",
@@ -620,7 +624,7 @@ describe("handleMessage", () => {
       "browser_act", "browser_eval", "browser_save_state", "browser_load_state",
       "browser_upload",
       "run_script", "stop_process",
-      "create_task", "update_task", "comment_task", "label_task", "wait_for_condition",
+      "create_task", "update_task", "close_goal", "comment_task", "label_task", "wait_for_condition",
       "move_session_to_project", "spawn_agent", "send_to_agent", "stop_agent",
       "switch_topic", "new_topic", "create_project", "open_project",
       "send_chat_message",
@@ -1469,6 +1473,70 @@ describe("callGetTask", () => {
     }), { status: 200 }));
     const text = await callGetTask({ baseUrl: "http://x", sessionKey: "s" }, { task_id: "t1" }, fetchImpl);
     expect(text).toContain("(no comments)");
+  });
+});
+
+describe("callGetGoal", () => {
+  test("renders the active goal with its steps, addressed by session key", async () => {
+    const seen: { url?: string } = {};
+    const fetchImpl = stubFetch(async (url) => {
+      seen.url = String(url);
+      return new Response(JSON.stringify({
+        goal: { id: "g1", content: "Mergia e chiudi tutto", status: "active", steps: [
+          { content: "landare le review", status: "completed" },
+          { content: "spingere main", status: "in_progress" },
+          { content: "chiudere il goal", status: "pending" },
+        ] },
+        history: [],
+      }), { status: 200 });
+    });
+    const text = await callGetGoal({ baseUrl: "http://x", sessionKey: "topic:abc" }, fetchImpl);
+    expect(seen.url).toBe("http://x/api/sessions/topic%3Aabc/goal");
+    expect(text).toContain("Active goal (id=g1): Mergia e chiudi tutto");
+    expect(text).toContain("[x] landare le review");
+    expect(text).toContain("[~] spingere main");
+    expect(text).toContain("[ ] chiudere il goal");
+  });
+
+  test("no active goal: says so, and whether there were past ones", async () => {
+    const none = stubFetch(async () => new Response(JSON.stringify({ goal: null, history: [] }), { status: 200 }));
+    expect(await callGetGoal({ baseUrl: "http://x", sessionKey: "s" }, none)).toBe("No goal declared on this topic.");
+    const past = stubFetch(async () => new Response(JSON.stringify({ goal: null, history: [{ id: "g0", content: "x", status: "achieved" }] }), { status: 200 }));
+    expect(await callGetGoal({ baseUrl: "http://x", sessionKey: "s" }, past)).toContain("1 past goal, all closed");
+  });
+});
+
+describe("callCloseGoal", () => {
+  test("DELETEs the session's goal with the status, and echoes the summary", async () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (url, init) => {
+      seen.url = String(url); seen.init = init;
+      return new Response(JSON.stringify({ goal: { id: "g1", content: "Mergia tutto", status: "achieved" } }), { status: 200 });
+    });
+    const text = await callCloseGoal(
+      { baseUrl: "http://x", sessionKey: "topic:abc" },
+      { status: "achieved", summary: "10 card landate, main spinto." },
+      fetchImpl,
+    );
+    expect(seen.url).toBe("http://x/api/sessions/topic%3Aabc/goal");
+    expect(seen.init?.method).toBe("DELETE");
+    expect(JSON.parse(String(seen.init?.body))).toEqual({ status: "achieved" });
+    expect(text).toContain("closed as achieved");
+    expect(text).toContain("10 card landate");
+  });
+
+  test("refuses a status that is neither achieved nor abandoned, and a missing summary", async () => {
+    const never = stubFetch(async () => { throw new Error("must not be called"); });
+    await expect(callCloseGoal({ baseUrl: "http://x", sessionKey: "s" }, { status: "done", summary: "x" }, never))
+      .rejects.toThrow("'status' must be");
+    await expect(callCloseGoal({ baseUrl: "http://x", sessionKey: "s" }, { status: "achieved" }, never))
+      .rejects.toThrow("'summary'");
+  });
+
+  test("no active goal (404 from the server) surfaces as the server's sentence", async () => {
+    const fetchImpl = stubFetch(async () => new Response(JSON.stringify({ error: "no active goal" }), { status: 404 }));
+    await expect(callCloseGoal({ baseUrl: "http://x", sessionKey: "s" }, { status: "abandoned", summary: "n/a" }, fetchImpl))
+      .rejects.toThrow("no active goal");
   });
 });
 

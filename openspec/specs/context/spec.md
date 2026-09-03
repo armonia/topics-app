@@ -227,6 +227,37 @@ budget del contesto.
 - **WHEN** l'obiettivo non è più attivo e l'utente invia un messaggio
 - **THEN** il preambolo dichiara l'obiettivo non più in vigore
 
+### Requirement: CTX-GOAL-02 — L'agente può leggere e chiudere il goal
+
+Il sistema SHALL offrire all'agente, con i tool `get_goal` e `close_goal`, la
+lettura del goal attivo del proprio topic e la sua chiusura come `achieved` o
+`abandoned`, risolvendo il topic dalla session key. La chiusura SHALL essere la
+stessa operazione del pannello (stesso servizio, stesso annuncio `goal:updated`).
+I due tool SHALL restare fuori dal profilo `dispatch`.
+
+> **Perché.** Fino al 2026-09-03 un goal poteva essere assegnato all'agente ma
+> non chiuso da lui: il messaggio «dovresti essere anche in grado di chiudere
+> goal, c'è goal attivo» è arrivato in una chat che non aveva il tool per farlo.
+
+#### Scenario: Lettura per session key
+- **GIVEN** un topic con un goal attivo e la sua session key
+- **WHEN** l'agente chiama `get_goal`
+- **THEN** riceve il testo del goal, i passi con il loro stato e il numero di goal passati
+
+#### Scenario: Chiusura
+- **GIVEN** un topic con un goal attivo
+- **WHEN** l'agente chiama `close_goal` con `status` e `summary`
+- **THEN** il goal non è più attivo, ha lo stato richiesto, e il client riceve `goal:updated`
+
+#### Scenario: Senza goal
+- **GIVEN** un topic senza goal attivo
+- **WHEN** l'agente chiama `close_goal`
+- **THEN** la chiamata fallisce con 404 e nessun goal cambia
+
+#### Scenario: Fuori dal profilo dispatch
+- **GIVEN** una sessione con profilo `dispatch`
+- **THEN** `get_goal` e `close_goal` non compaiono fra i tool pubblicati
+
 ### Requirement: CTX-DEDUP-02 — Lo stato di invio è valido solo per la conversazione CLI corrente
 
 Il sistema SHALL legare gli slot registrati come inviati a uno scope composto
