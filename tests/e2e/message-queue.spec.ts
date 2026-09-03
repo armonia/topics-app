@@ -262,11 +262,14 @@ test.describe.serial("Coda dei messaggi", () => {
     await expect(queuedBubbles(page)).toHaveCount(0, { timeout: 10_000 });
   });
 
-  test("a coda ferma «invia subito» non si offre", async ({ page, chatPage }) => {
-    // Il gemello negativo: senza un turno in volo il comando non c'è. Un
-    // bottone che non può fare niente è peggio di un bottone assente — invita a
-    // premerlo e non succede nulla.
-    const { state } = await interceptSends(page);
+  test("CHAT-QUEUE-04: a coda ferma «invia subito» resta, e fa partire la coda", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-QUEUE-04" });
+    // The twin of the test above. Stopping the turn KEEPS the queue, and the
+    // command stays too: with nothing left to cut short it promises the other
+    // thing, firing the queue right now. Until 2026-09-03 the control vanished
+    // here, so a queue nobody had released (a reload, a socket lost for a
+    // second) sat in the transcript with no way to fire it.
+    const { sent, state } = await interceptSends(page);
     await openChat(page, chatPage);
     await clearQueue(page);
 
@@ -276,15 +279,21 @@ test.describe.serial("Coda dei messaggi", () => {
     await chatPage.messageInput.fill("in attesa");
     await chatPage.messageInput.press("Enter");
     await expect(queuedBubbles(page)).toHaveCount(1, { timeout: 10_000 });
-    await expect(page.getByTestId("queue-send-now")).toBeVisible({ timeout: 10_000 });
+    const sendNow = page.getByTestId("queue-send-now");
+    await expect(sendNow).toBeVisible({ timeout: 10_000 });
+    await expect(sendNow).toHaveAttribute("data-queue-busy", "true");
 
-    // Fermato il turno, la coda resta (lo stop TIENE) ma non c'è più niente da
-    // anticipare: il comando sparisce.
     state.hang = false;
     await page.getByRole("button", { name: /Stop generating/ }).first().click();
     await expect(chatPage.streamingIndicator).toBeHidden({ timeout: 10_000 });
     await expect(queuedBubbles(page)).toHaveCount(1);
-    await expect(page.getByTestId("queue-send-now")).toHaveCount(0);
+    // Still rendered, now marked idle: the label promises firing, not stopping.
+    await expect(sendNow).toBeVisible();
+    await expect(sendNow).toHaveAttribute("data-queue-busy", "false");
+
+    await sendNow.click();
+    await expect.poll(() => sent, { timeout: 25_000 }).toEqual(["primo", "in attesa"]);
+    await expect(queuedBubbles(page)).toHaveCount(0, { timeout: 10_000 });
   });
 
   test("la X sulla bolla butta il messaggio prima che parta", async ({ page, chatPage }) => {
