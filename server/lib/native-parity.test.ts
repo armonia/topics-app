@@ -1,9 +1,9 @@
 /**
- * Il contratto dei due blocchi che portano il nativo al pari della CLI.
+ * The contract of the two blocks that bring the native runtime level with the CLI.
  *
- * Il caso che conta è l'espansione di `@percorso`: senza, il blocco di regole
- * arriva dimezzato e nessuno se ne accorge — il testo c'è, sono le regole a
- * mancare.
+ * The case that matters is the expansion of `@path`: without it the rules block
+ * arrives halved and nobody notices — the text is there, it is the rules that
+ * are missing.
  */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "node:fs";

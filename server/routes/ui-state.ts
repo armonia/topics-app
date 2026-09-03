@@ -39,27 +39,27 @@ type UiStateEnvelope = { data: Record<string, unknown>; meta: Record<string, UiS
  */
 export const MAX_UI_STATE_BYTES = 256 * 1024;
 
-/** La chiave `ui_state` delle preferenze applicative (client: `SETTINGS_SERVER_KEY`). */
+/** The `ui_state` key holding the app preferences (client: `SETTINGS_SERVER_KEY`). */
 export const SETTINGS_KEY = "settings";
 
-/** La chiave del pane store (client: `middleware/syncServer.ts#REMOTE_KEY`).
- *  E' l'unica che porta i tombstone, cioe' l'unica da cui nasce una cascata. */
+/** The pane store key (client: `middleware/syncServer.ts#REMOTE_KEY`).
+ *  The only one that carries tombstones, so the only one a cascade is born from. */
 export const PANE_STORE_KEY = "pane-store-v2";
 
 export interface UiStateRouterOptions {
   /**
-   * Le conseguenze di una tab chiusa, decise sul PRIMA e il DOPO dello snapshot
-   * (`services/pane-retirement-cascade.ts` per la decisione, il chiamante per
-   * l'applicazione). Chiamata solo per `pane-store-v2` e solo dopo che la
-   * scrittura ha COMMITTATO: una cascata su una scrittura poi rifiutata dal
-   * gate CAS avrebbe archiviato chat per uno snapshot che il server ha scartato.
+   * The consequences of a closed tab, decided on the BEFORE and the AFTER of the
+   * snapshot (`services/pane-retirement-cascade.ts` decides, the caller applies).
+   * Called only for `pane-store-v2` and only once the write has COMMITTED: a
+   * cascade on a write the CAS gate then rejected would have archived chats for a
+   * snapshot the server threw away.
    *
-   * Assente ⇒ il router si comporta esattamente come prima (test, fixture).
+   * Absent ⇒ the router behaves exactly as before (tests, fixtures).
    */
   onPaneSnapshot?: (prev: unknown, next: unknown) => void;
 }
 
-/** I campi di `AppSettings` che restano su QUESTO dispositivo — gemelli di
+/** The `AppSettings` fields that stay on THIS device — twins of
  *  `DEVICE_LOCAL_SETTING_KEYS` in `client/src/lib/settings.ts`. */
 export const DEVICE_LOCAL_SETTINGS_FIELDS = ["sidebarWidth", "sidebarCollapsed"] as const;
 
@@ -83,24 +83,24 @@ export const DEVICE_LOCAL_SETTINGS_FIELDS = ["sidebarWidth", "sidebarCollapsed"]
  * consumer state that happens to use the same field name.
  */
 /**
- * LA CARTELLA E' UNA SOLA, ANCHE SE IL PANNELLO LA CHIAMA IN DUE MODI.
+ * THE FOLDER IS ONE, EVEN IF THE PANE CALLS IT BY TWO NAMES.
  *
- * Un progetto raggiunto da due strade (un symlink, una maiuscola diversa, una
- * cartella spostata) genera due voci. La fusione lato server le univa nel DB, ma
- * il client rimandava il suo `pane-store-v2` da localStorage e il doppione
- * tornava: ripulito alle 08:06, di nuovo li' alle 09:19. Pulire il server mentre
- * il client riscrive e' un giro a vuoto, quindi la normalizzazione sta DOVE SI
- * SCRIVE.
+ * A project reached by two roads (a symlink, a different capitalisation, a moved
+ * folder) yields two entries. Server-side merging joined them in the DB, but the
+ * client kept pushing its own `pane-store-v2` back from localStorage and the
+ * duplicate returned: cleaned at 08:06, back there at 09:19. Cleaning the server
+ * while the client rewrites is a lap for nothing, so normalisation sits WHERE THE
+ * WRITE HAPPENS.
  *
- * E si RIMAPPA, non si cancella. La prima versione toglieva il pannello e basta,
- * e infatti non bastava: il pannello vecchio non era piu' in `panes` ma il suo id
- * era ancora dentro `groups.*.paneIds`, cioe' la fila delle tab — la seconda voce
- * che si vedeva a schermo era quella. Rimappare tiene la tab e la fa puntare al
- * progetto vero; cancellare avrebbe lasciato una tab che punta al nulla.
+ * And it REMAPS, it does not delete. The first version just dropped the pane, and
+ * that was not enough: the old pane was gone from `panes` but its id was still
+ * inside `groups.*.paneIds`, i.e. the tab strip — the second entry on screen was
+ * that one. Remapping keeps the tab and points it at the real project; deleting
+ * would have left a tab pointing at nothing.
  *
- * La condizione: si tocca SOLO un percorso che non esiste piu' e che ha un
- * gemello in `~/Projects`. Senza, un disco esterno smontato perderebbe i suoi
- * pannelli — un danno vero per risolvere un fastidio.
+ * The condition: we touch ONLY a path that no longer exists and that has a twin
+ * in `~/Projects`. Without it, an unmounted external disk would lose its panes —
+ * real damage to fix an annoyance.
  */
 export function dropVanishedProjectPanes(payload: unknown, key?: string): unknown {
   if (key !== "pane-store-v2" || !payload || typeof payload !== "object") return payload;
@@ -111,7 +111,7 @@ export function dropVanishedProjectPanes(payload: unknown, key?: string): unknow
     const c = join(homedir(), "Projects", p.split("/").filter(Boolean).pop() || "");
     return c !== p && existsSync(c) ? c : null;
   };
-  // id → id: si calcola una volta, poi si riscrive ovunque compaia.
+  // id → id: computed once, then rewritten everywhere it shows up.
   const mappa = new Map<string, string>();
   const raccogli = (s: string) => {
     if (mappa.has(s)) return;
@@ -141,16 +141,16 @@ export function dropVanishedProjectPanes(payload: unknown, key?: string): unknow
     if (typeof o === "string") return mappa.get(o) ?? o;
     if (Array.isArray(o)) {
       const fuori = o.map(riscrivi);
-      // Dedup solo di stringhe: dopo la rimappatura la stessa tab compare due volte.
+      // Dedup strings only: after the remap the same tab shows up twice.
       return fuori.every((x) => typeof x === "string") ? [...new Set(fuori as string[])] : fuori;
     }
     if (o && typeof o === "object") {
       const fuori: Record<string, unknown> = {};
       const voci = Object.entries(o);
-      // DUE PASSATE, e l'ordine e' il punto: prima le chiavi gia' canoniche, poi
-      // quelle rimappate solo se manca il posto. Con una passata sola vinceva chi
-      // capitava prima nell'oggetto, cioe' quasi sempre il pannello VECCHIO — e il
-      // contenuto che l'utente sta guardando veniva sostituito da quello morto.
+      // TWO PASSES, and the order is the point: already-canonical keys first,
+      // then the remapped ones only if the slot is still free. With a single pass
+      // whoever came first in the object won, i.e. almost always the OLD pane —
+      // and the content on screen was replaced by the dead one.
       for (const [k, v] of voci) if (!mappa.has(k)) fuori[k] = riscrivi(v);
       for (const [k, v] of voci) {
         if (!mappa.has(k)) continue;
@@ -172,13 +172,12 @@ export function stripDeviceLocalFields(payload: unknown, key?: string): unknown 
   // Shallow clone so we don't mutate caller data.
   const out: Record<string, unknown> = { ...(payload as Record<string, unknown>) };
 
-  // `settings` (AppSettings): la larghezza della sidebar e il suo stato di
-  // collasso sono geometria DI QUESTA finestra, non preferenze dell'utente —
-  // 256px su un 27" sono mezzo schermo su un telefono, e "collassata" viene
-  // forzata da sé dalle finestre staccate e dal mobile. Il client le toglie già
-  // (`syncableSettings`), questo è lo stesso difendersi-in-profondità del
-  // `scrollOffset` qui sotto: un client vecchio o bugato non deve poter
-  // imporre la propria geometria a tutti gli altri dispositivi.
+  // `settings` (AppSettings): sidebar width and its collapsed state are geometry
+  // OF THIS window, not user preferences — 256px on a 27" is half a screen on a
+  // phone, and "collapsed" is forced on its own by detached windows and by
+  // mobile. The client already strips them (`syncableSettings`); this is the same
+  // defense-in-depth as the `scrollOffset` below: an old or bugged client must
+  // not be able to impose its own geometry on every other device.
   if (key === SETTINGS_KEY) {
     for (const field of DEVICE_LOCAL_SETTINGS_FIELDS) delete out[field];
     return out;
