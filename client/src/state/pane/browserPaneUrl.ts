@@ -74,7 +74,7 @@ export interface BrowserPaneFacts {
  * Url and title of MANY browser panes, subscribed — for a list that is built
  * inside a memo.
  *
- * `getBrowserPaneUrl` / `getBrowserPaneTitle` are plain `getState()` reads. A
+ * `getBrowserPaneUrl` is a plain `getState()` read. A
  * pane list built from them inside a `useMemo` is only as fresh as the render
  * that happened to rebuild it: the store moved to the next page, the memo's
  * dependencies did not, and the tab kept writing the previous address until
@@ -150,17 +150,6 @@ export function persistBrowserPaneUrl(paneId: string, url: string): void {
 // `pane.titleSource` mirrors a terminal's `name_source`: 'auto' (or absent) = the
 // title tracks the page; 'user' = the user renamed the tab, which pins it so the
 // poll's 'auto' writes no longer clobber it (see shouldPersistBrowserTitle).
-
-/** Read a browser pane's persisted title (empty when none / not store-resident).
- *  The standalone tab bar rebuilds panes from ids and doesn't carry the stored
- *  title, so it reads it back through here. */
-export function getBrowserPaneTitle(paneId: string): string {
-  try {
-    return usePaneStore.getState().panes[paneId]?.title || '';
-  } catch {
-    return '';
-  }
-}
 
 /** Pure gate: should an incoming auto (page-poll) title be written? Skip blank
  *  titles, no-op writes, and any pane whose label someone DECIDED — la rinomina
