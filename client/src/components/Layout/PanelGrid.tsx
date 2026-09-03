@@ -227,7 +227,7 @@ interface PanelGridProps {
   deleteMessage?: (sessionKey: string, messageId: string) => Promise<boolean>;
   switchBranch?: (sessionKey: string, messageId: string, branchIndex: number) => Promise<boolean>;
   loadHistory: (sessionKey: string) => Promise<boolean>;
-  chatError: string | null;
+  chatError: Record<string, string | null>;
   expiredMessages?: { sessionKey: string; content: string; timestamp: string; options?: SendMessageOptions }[];
   retryExpired?: (item: { sessionKey: string; content: string; timestamp: string; options?: SendMessageOptions }) => void;
   clearExpired?: () => void;

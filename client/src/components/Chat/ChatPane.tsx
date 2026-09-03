@@ -92,7 +92,8 @@ export interface ChatPaneProps {
   stopSession: (sk: string) => Promise<boolean>;
   sendMessage: (sk: string, content: string, options?: SendMessageOptions) => Promise<boolean>;
   loadHistory: (sk: string) => Promise<boolean>;
-  chatError: string | null;
+  /** Send/queue errors keyed by sessionKey: this pane shows only its own. */
+  chatError: Record<string, string | null>;
   sendWS: (msg: WSMessage) => void;
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
   onUpdateTopic: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
@@ -1432,7 +1433,11 @@ function ChatPaneComponent({
    * testa è uscita.
    */
   const handleSendQueueNow = useCallback(async () => {
-    await stopSession(topic.sessionKey);
+    // Nothing in flight, nothing to stop: a stop on an idle session would
+    // paint "stopped by you" and propose wiping a chat that is not running.
+    // This is the stranded case (queue survived a reload, or a turn that ended
+    // while this client was not listening): only the hold and the kick apply.
+    if (currentStreaming) await stopSession(topic.sessionKey);
     releaseHold(topic.sessionKey);
     for (let tentativo = 0; tentativo < QUEUE_KICK_ATTEMPTS; tentativo++) {
       const prima = getQueue(topic.sessionKey).length;
@@ -1441,7 +1446,7 @@ function ChatPaneComponent({
       await new Promise((r) => setTimeout(r, QUEUE_KICK_RETRY_MS));
       if (getQueue(topic.sessionKey).length < prima) return;
     }
-  }, [stopSession, sendMessage, topic.sessionKey]);
+  }, [stopSession, sendMessage, topic.sessionKey, currentStreaming]);
   // Terza scansione dell'intera cronologia a ogni flush dello streaming, per un
   // pannello che quasi sempre è chiuso e quasi sempre dà lo stesso risultato:
   // l'insieme dei messaggi appuntati cambia solo quando qualcuno clicca la
@@ -1528,7 +1533,7 @@ function ChatPaneComponent({
         <SubAgentsStrip topicSessionKey={topic.sessionKey} />
         {aboveInputSlot}
         <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />
-        <ChatInput autonomy={autonomy} onAutonomyChange={handleAutonomyChange} isMobile={isMobile} isFocused={isFocused} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} stoppedByUser={currentStoppedByUser} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { void stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={async (c: string) => {
+        <ChatInput autonomy={autonomy} onAutonomyChange={handleAutonomyChange} isMobile={isMobile} isFocused={isFocused} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} stoppedByUser={currentStoppedByUser} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { void stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError[topic.sessionKey] ?? null} sendMessageDirect={async (c: string) => {
           // Passa dall'imbuto degli slash: il bottone «Compact now» e
           // l'azione dell'anello mandavano `/compact` come messaggio nudo,
           // quindi non vedevano il banner di stato ne' l'esito. Ora le tre

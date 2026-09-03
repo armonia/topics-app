@@ -605,6 +605,7 @@ const EN = {
   'chat.queue.waitingTitle': 'Not sent yet. It goes out when the current turn ends.',
   'chat.queue.sendNow': 'Send now',
   'chat.queue.sendNowTitle': 'Stop the current turn and send the queue now',
+  'chat.queue.sendNowIdleTitle': 'Nothing is running: send the queue now',
   'chat.queue.editTitle': 'Fix it before it goes out',
   'chat.queue.removeTitle': 'Do not send it',
   'chat.queue.clear': 'Clear',

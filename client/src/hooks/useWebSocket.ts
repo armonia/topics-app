@@ -32,6 +32,17 @@ const OFFLINE_THRESHOLD_MS = 10_000;
  */
 const PONG_TIMEOUT_MS = 75_000;
 
+/**
+ * How long a wake-up probe waits for its `pong` before declaring the socket
+ * half-open. Coming back from sleep, a phone unlock or a Tailscale drop, the
+ * socket is often `OPEN` on paper and dead on the wire: the 30s pulse would
+ * notice after 30-105s, during which the status bar says connected and the
+ * chat looks alive. Eight seconds and not five: a WireGuard re-key after a
+ * wake can take a few seconds on its own, and a false positive here costs a
+ * needless reconnect on every return to the app.
+ */
+const WAKE_PROBE_MS = 8_000;
+
 export function useWebSocket(): UseWebSocketReturn {
   // Start as 'connected' initially — only show connecting states after a grace period
   // This prevents UI flicker on page load when the WS hasn't connected yet
@@ -82,6 +93,11 @@ export function useWebSocket(): UseWebSocketReturn {
   // pins the first closure; routing through a ref always invokes the latest
   // `connect` and removes the use-before-declare.
   const connectRef = useRef<() => void>(() => {});
+  // The wake-up probe of the CURRENT socket, armed in `onopen`. A wake event
+  // that finds the socket `OPEN` cannot tell a live one from a half-open one
+  // (see WAKE_PROBE_MS): it asks, and the socket answers or gets closed.
+  const probeRef = useRef<() => void>(() => {});
+  const probeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Remember the last focused topic so onopen can re-announce it to the server.
   // A `focus` frame sent while the socket wasn't OPEN is dropped by sendWS below
   // and never retried — the server then keeps counting the focused topic as
@@ -157,6 +173,11 @@ export function useWebSocket(): UseWebSocketReturn {
     const perdiIlFilo = () => {
       if (persa) return;
       persa = true;
+      // A probe still waiting on this socket has its answer: nothing to close twice.
+      if (probeTimerRef.current) {
+        clearTimeout(probeTimerRef.current);
+        probeTimerRef.current = null;
+      }
       setStatus('reconnecting');
       dispatchLifecycle('close');
       if (pingIntervalRef.current) {
@@ -245,6 +266,27 @@ export function useWebSocket(): UseWebSocketReturn {
         }
       }, 30000);
       pingIntervalRef.current = pingTimer;
+
+      // The wake-up probe (see `reconnectNow` in the effect below). One at a
+      // time per socket: a burst of `online` + `focus` + `visibilitychange`
+      // arrives together on every wake and must cost ONE ping, not three.
+      probeRef.current = () => {
+        if (wsRef.current !== ws || ws.readyState !== WebSocket.OPEN) return;
+        if (probeTimerRef.current) return;
+        const sentAt = Date.now();
+        try { ws.send(JSON.stringify({ type: 'ping' })); } catch { /* the deadline below decides */ }
+        probeTimerRef.current = setTimeout(() => {
+          probeTimerRef.current = null;
+          if (wsRef.current !== ws) return;
+          if (lastPongAtRef.current >= sentAt) return;
+          // Half-open: `send` raised nothing and no `pong` came back. Same
+          // exit as the pulse watchdog, and for the same reason it does not
+          // wait for `onclose` (see `perdiIlFilo`).
+          clearInterval(pingTimer);
+          try { ws.close(); } catch { /* already gone */ }
+          perdiIlFilo();
+        }, WAKE_PROBE_MS);
+      };
     };
 
     ws.onmessage = (event) => {
@@ -382,7 +424,10 @@ export function useWebSocket(): UseWebSocketReturn {
       if (typeof document !== 'undefined' && document.hidden) return; // only when foreground
       const ws = wsRef.current;
       const state = ws ? ws.readyState : WebSocket.CLOSED;
-      if (state === WebSocket.OPEN || state === WebSocket.CONNECTING) return; // already live/connecting
+      // `OPEN` after a wake is a claim, not a fact: a socket suspended with
+      // the device keeps its readyState while the peer is long gone. Ask.
+      if (state === WebSocket.OPEN) { probeRef.current(); return; }
+      if (state === WebSocket.CONNECTING) return; // already connecting
       if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
       reconnectAttemptRef.current = 0; // fresh — no inherited backoff delay
       connectRef.current();
@@ -398,6 +443,7 @@ export function useWebSocket(): UseWebSocketReturn {
       window.removeEventListener('focus', reconnectNow);
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
+      if (probeTimerRef.current) { clearTimeout(probeTimerRef.current); probeTimerRef.current = null; }
       clearOfflineTimer();
       if (wsRef.current) {
         const ws = wsRef.current;
@@ -502,27 +548,12 @@ export function useWebSocket(): UseWebSocketReturn {
     connect();
   }, [connect, clearOfflineTimer]);
 
-  // Auto-reconnect when app comes back to foreground (mobile/tab switch)
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (!document.hidden && wsRef.current?.readyState !== WebSocket.OPEN) {
-        reconnect();
-      }
-    };
-    const handleOnline = () => {
-      if (wsRef.current?.readyState !== WebSocket.OPEN) {
-        reconnect();
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('focus', handleVisibility);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibility);
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('focus', handleVisibility);
-    };
-  }, [reconnect]);
+  // Wake-up handling lives in ONE place, the mount effect above. A second
+  // set of `visibilitychange`/`online`/`focus` listeners used to sit here and
+  // call `reconnect()` whenever the socket was not `OPEN`: on every wake the
+  // first effect had just opened a socket (`CONNECTING`), and this one closed
+  // it and opened another. Measured against the live server: two handshakes
+  // and a "closed before the connection is established" warning per wake.
 
   // Only surface non-connected status after a grace period (avoids flash on load)
   useEffect(() => {

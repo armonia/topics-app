@@ -555,7 +555,10 @@ export function useChat() {
    * turno mai arrivato.
    */
   const [stoppedByUser, setStoppedByUser] = useState<Record<string, boolean>>({});
-  const [error, setError] = useState<string | null>(null);
+  // Keyed by sessionKey like `streaming`/`loading`/`thinking`: `useChat` is
+  // mounted ONCE for the whole app, so a single string here was painted under
+  // EVERY composer on screen and cleared by whichever session sent next.
+  const [error, setError] = useState<Record<string, string | null>>({});
   const [gatewayConnected, setGatewayConnected] = useState(true); // Assume connected until told otherwise
   const [orphanedSessions, setOrphanedSessions] = useState<Set<string>>(new Set());
   const [cachedSessions, setCachedSessions] = useState<Set<string>>(new Set());
@@ -667,6 +670,22 @@ export function useChat() {
   // Il drain della coda del turno si richiama da sé (ritenta se la sessione è
   // ancora occupata) e viene chiamato da `stream:end`, che è definito più su.
   const drainTurnQueueRef = useRef<((sk: string, attempt?: number) => void) | null>(null);
+  /**
+   * A turn is over, whoever says so: forget the name of its in-flight bubble
+   * and let the queue go. Every authoritative end of a turn goes through here.
+   *
+   * The queue used to drain on `stream:end` only. A turn that dies without
+   * one (watchdog, orphan reconciler) or that ends while this client is not
+   * listening (reload, relaunch, socket lost for the second it takes) left
+   * the dashed "to send" bubble in the transcript forever, with nothing to
+   * fire it. `drainTurnQueue` already refuses to run while the queue is held
+   * by a stop, while a turn is in flight, or when the head was claimed by
+   * another window, so calling it from more places is safe by construction.
+   */
+  const settleTurn = useCallback((sessionKey: string) => {
+    streamMessageIdRef.current.end(sessionKey);
+    drainTurnQueueRef.current?.(sessionKey);
+  }, []);
 
   const resetStreamTimeout = useCallback((sessionKey: string) => {
     // Clear existing timeout
@@ -704,12 +723,13 @@ export function useChat() {
           return;
         }
         console.warn(`[useChat] Stream timeout for ${sessionKey}, auto-clearing (server: non più in streaming)`);
-        // Il turno è morto senza `stream:end`: il nome della sua bolla muore con
-        // lui, o il turno DOPO scriverà lì dentro invece che nel segnaposto nuovo.
-        streamMessageIdRef.current.end(sessionKey);
         setStreaming(prev => ({ ...prev, [sessionKey]: false }));
         setLoading(prev => ({ ...prev, [sessionKey]: false }));
         setThinking(prev => ({ ...prev, [sessionKey]: false }));
+        // Il turno è morto senza `stream:end`: il nome della sua bolla muore con
+        // lui, o il turno DOPO scriverà lì dentro invece che nel segnaposto nuovo.
+        // And the queue, if any, goes: a dead turn is a finished turn.
+        settleTurn(sessionKey);
       })();
     }, STREAM_TIMEOUT_MS);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `resetStreamTimeoutRef` NON può stare qui: è dichiarato tre righe più sotto, quindi valutare l'array di dipendenze lo leggerebbe nella sua temporal dead zone. Il corpo della callback lo legge invece quando il timer scatta, a dichiarazione avvenuta — ed è tutto il punto dello specchio. Il ref è comunque stabile (useRefMirror restituisce sempre lo stesso oggetto), quindi non sarebbe una dipendenza reale.
@@ -800,11 +820,12 @@ export function useChat() {
     console.warn('[useChat] clearing orphaned stream flag(s) — server no longer streaming:', orphans);
     // Stesso motivo del watchdog: qui si dichiara morto un turno che non ha mai
     // mandato la sua fine, quindi il nome della bolla in volo va dimenticato.
-    for (const sk of orphans) { clearStreamTimeout(sk); streamMessageIdRef.current.end(sk); }
+    for (const sk of orphans) clearStreamTimeout(sk);
     setStreaming(prev => { const next = { ...prev }; for (const sk of orphans) next[sk] = false; return next; });
     setLoading(prev => { const next = { ...prev }; for (const sk of orphans) next[sk] = false; return next; });
     setThinking(prev => { const next = { ...prev }; for (const sk of orphans) next[sk] = false; return next; });
-  }, [clearStreamTimeout, streamingRef]);
+    for (const sk of orphans) settleTurn(sk);
+  }, [clearStreamTimeout, streamingRef, settleTurn]);
 
   const addMessage = useCallback((sessionKey: string, message: Omit<ChatMessage, 'id'> & { id?: string }) => {
     const newMessage: ChatMessage = {
@@ -1496,8 +1517,6 @@ export function useChat() {
         clearStreamTimeout(sessionKey); // Clear watchdog
         setStreaming(prev => ({ ...prev, [sessionKey]: false }));
         setThinking(prev => ({ ...prev, [sessionKey]: false }));
-        // Clear any stale "queued" error banner on successful stream completion
-        setError(prev => (prev?.includes('queued') ? null : prev));
         // Il turno è stato fermato prima che il modello producesse qualcosa: il
         // server ha CANCELLATO la riga, non finalizzata. Toglierla anche qui, o
         // questa finestra resta con una bolla vuota che il DB non ha più (e che
@@ -1567,8 +1586,7 @@ export function useChat() {
         // finalizzazione qui sopra (`partial:false`, durata, token, costo) deve
         // ancora trovare la bolla giusta, e senza il nome ricadrebbe sull'ultimo
         // messaggio — che a turno con sotto-agenti non è più lui.
-        streamMessageIdRef.current.end(sessionKey);
-        drainTurnQueueRef.current?.(sessionKey);
+        settleTurn(sessionKey);
         break;
 
       case 'stream:catchup':
@@ -1617,7 +1635,7 @@ export function useChat() {
         }
         break;
     }
-  }, [addToolCallToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, bufferToolUpdate, flushToolUpdates, applyToolPatch, upsertMarker, beginStreaming]);
+  }, [addToolCallToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, bufferToolUpdate, flushToolUpdates, applyToolPatch, upsertMarker, beginStreaming, settleTurn]);
 
   // Register WebSocket handler
   const registerWSHandler = useCallback((handler: (event: WSMessage) => void) => {
@@ -1717,7 +1735,7 @@ export function useChat() {
     abortControllersRef.current[sessionKey] = abortController;
 
     try {
-      setError(null);
+      setError(prev => (prev[sessionKey] == null ? prev : { ...prev, [sessionKey]: null }));
       setLoading(prev => ({ ...prev, [sessionKey]: true }));
 
       addMessage(sessionKey, {
@@ -2056,7 +2074,8 @@ export function useChat() {
           }
           return prev;
         });
-        setError('Message queued. It will send when reconnected.');
+        // No banner: the per-message "Queued" badge (the `queued` flag above)
+        // already tells the right session, and a hook-wide string does not.
         return false;
       }
 
@@ -2068,7 +2087,7 @@ export function useChat() {
       // Solo a stream mai partito: se era partito, il server ce l'ha già.
       if (!streamStarted) restoreOnFailure?.();
 
-      setError(err instanceof Error ? err.message : 'Failed to send message');
+      setError(prev => ({ ...prev, [sessionKey]: err instanceof Error ? err.message : 'Failed to send message' }));
 
       // Only remove last message if it's an empty assistant message (partial response)
       setMessages(prev => {
@@ -2170,7 +2189,7 @@ export function useChat() {
         // prosegue per la sua strada. Gli altri errori li vede l'umano.
         const msg = e instanceof Error ? e.message : String(e);
         if (!/no pending input/i.test(msg)) {
-          setError(`Risposta non consegnata: ${msg}`);
+          setError(prev => ({ ...prev, [sessionKey]: `Risposta non consegnata: ${msg}` }));
           return false;
         }
       }
@@ -2339,7 +2358,7 @@ export function useChat() {
     inFlightHistoryRef.current.add(sessionKey);
 
     try {
-      setError(null);
+      setError(prev => (prev[sessionKey] == null ? prev : { ...prev, [sessionKey]: null }));
       setLoading(prev => ({ ...prev, [sessionKey]: true }));
       // Clear stale streaming/thinking state before server confirms the real state
       setStreaming(prev => ({ ...prev, [sessionKey]: false }));
@@ -2408,6 +2427,14 @@ export function useChat() {
         }
         // Reset the stream timeout since we just reconnected
         resetStreamTimeout(sessionKey);
+      } else {
+        // The server is the authority and says nothing is in flight: a turn
+        // queued before a reload/relaunch would otherwise wait for a
+        // `stream:end` this client never saw. Drain only, no `.end()`: no
+        // bubble of ours is in flight, and a `stream:start` that raced this
+        // fetch must keep its name. Fires once per hydrate (HISTORY_DEDUP_MS
+        // short-circuits remounts before reaching here).
+        drainTurnQueueRef.current?.(sessionKey);
       }
 
       // Track orphaned messages (last message from user with no response)
@@ -2441,7 +2468,7 @@ export function useChat() {
         } else {
           // Genuinely empty state — show the error so the user knows
           // something is wrong.
-          setError(err instanceof Error ? err.message : 'Failed to load history');
+          setError(prev => ({ ...prev, [sessionKey]: err instanceof Error ? err.message : 'Failed to load history' }));
         }
       }
       return false;
@@ -2478,7 +2505,7 @@ export function useChat() {
     abortControllersRef.current[sessionKey] = abortController;
 
     try {
-      setError(null);
+      setError(prev => (prev[sessionKey] == null ? prev : { ...prev, [sessionKey]: null }));
       beginStreaming(sessionKey);
       setLoading(prev => ({ ...prev, [sessionKey]: true }));
 
@@ -2580,7 +2607,7 @@ export function useChat() {
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return true;
       console.error(`Failed to ${label}:`, err);
-      setError(err instanceof Error ? err.message : `Failed to ${label}`);
+      setError(prev => ({ ...prev, [sessionKey]: err instanceof Error ? err.message : `Failed to ${label}` }));
       return false;
     } finally {
       releaseSendLock(sessionKey); // Release send lock
@@ -2612,7 +2639,7 @@ export function useChat() {
    *  repaired active thread (same contract as switchBranch). */
   const deleteMessage = useCallback(async (sessionKey: string, messageId: string): Promise<boolean> => {
     try {
-      setError(null);
+      setError(prev => (prev[sessionKey] == null ? prev : { ...prev, [sessionKey]: null }));
       const response = await chatApi.deleteMessage(messageId);
 
       const chatMessages: ChatMessage[] = (response.messages as HistoryMessage[])
@@ -2633,7 +2660,7 @@ export function useChat() {
       return true;
     } catch (err) {
       console.error('Failed to delete message:', err);
-      setError(err instanceof Error ? err.message : 'Failed to delete message');
+      setError(prev => ({ ...prev, [sessionKey]: err instanceof Error ? err.message : 'Failed to delete message' }));
       return false;
     }
   }, []);
@@ -2641,7 +2668,7 @@ export function useChat() {
   /** Switch to a different branch at a message fork point. */
   const switchBranch = useCallback(async (sessionKey: string, messageId: string, branchIndex: number): Promise<boolean> => {
     try {
-      setError(null);
+      setError(prev => (prev[sessionKey] == null ? prev : { ...prev, [sessionKey]: null }));
       const response = await chatApi.switchBranch(messageId, branchIndex);
 
       const chatMessages: ChatMessage[] = (response.messages as HistoryMessage[])
@@ -2662,7 +2689,7 @@ export function useChat() {
       return true;
     } catch (err) {
       console.error('Failed to switch branch:', err);
-      setError(err instanceof Error ? err.message : 'Failed to switch branch');
+      setError(prev => ({ ...prev, [sessionKey]: err instanceof Error ? err.message : 'Failed to switch branch' }));
       return false;
     }
   }, []);
@@ -2901,8 +2928,6 @@ export function useChat() {
       }
     } finally {
       drainingRef.current = false;
-      // Clear any "queued" error banner now that we've processed the queue
-      setError(prev => (prev?.includes('queued') ? null : prev));
       // Qualcosa è rimasto in coda per una sessione occupata: il lock si
       // libererà da solo (fine turno, o scadenza a 60s) ma nessun evento ci
       // richiamerebbe. Ripassiamo noi, finché la coda non si svuota o gli item
