@@ -30,7 +30,7 @@ function fakeSecurity(cmd: string, args: string[]): KeychainRunResult {
   if (args[0] === "find-generic-password") {
     if (!item) return { status: 44, stdout: "", stderr: "The specified item could not be found in the keychain." };
     if (args.includes("-w")) return { status: 0, stdout: JSON.stringify(item) + "\n", stderr: "" };
-    return { status: 0, stdout: 'keychain: "/Users/x/Library/Keychains/login.keychain-db"\n    "acct"<blob>="zorahrel"\n    "svce"<blob>="Claude Code-credentials"\n', stderr: "" };
+    return { status: 0, stdout: 'keychain: "/Users/x/Library/Keychains/login.keychain-db"\n    "acct"<blob>="someone"\n    "svce"<blob>="Claude Code-credentials"\n', stderr: "" };
   }
   if (args[0] === "add-generic-password") {
     const w = args.indexOf("-w");
@@ -99,7 +99,7 @@ describe("the Keychain candidate", () => {
     const add = calls.find((c) => c[1] === "add-generic-password")!;
     expect(add).toBeDefined();
     expect(add).toContain("-U");
-    expect(add[add.indexOf("-a") + 1]).toBe("zorahrel");
+    expect(add[add.indexOf("-a") + 1]).toBe("someone");
     const doc = item as { claudeAiOauth: Record<string, unknown>; mcpOAuth: unknown };
     expect(doc.claudeAiOauth.accessToken).toBe("renewed");
     expect(doc.claudeAiOauth.refreshToken).toBe("renewed-refresh");

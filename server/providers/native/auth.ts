@@ -187,10 +187,11 @@ function keychainAccount(): string {
  */
 export function writeKeychainCredentials(next: OAuthCredentials): void {
   const cur = _runner("security", ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"]);
-  let doc: Record<string, any> = {};
+  let doc: Record<string, unknown> = {};
   try { doc = cur.status === 0 && cur.stdout.trim() ? JSON.parse(cur.stdout.trim()) : {}; } catch { doc = {}; }
+  const previous = (doc.claudeAiOauth && typeof doc.claudeAiOauth === "object" ? doc.claudeAiOauth : {}) as Record<string, unknown>;
   doc.claudeAiOauth = {
-    ...(doc.claudeAiOauth ?? {}),
+    ...previous,
     accessToken: next.accessToken,
     refreshToken: next.refreshToken,
     expiresAt: next.expiresAt,

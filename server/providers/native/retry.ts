@@ -183,3 +183,75 @@ export function exhaustedMessage(original: string, attempts: number, elapsedMs: 
   const retries = Math.max(0, attempts - 1);
   return `${original} (retried ${retries} ${retries === 1 ? "time" : "times"} over ${Math.round(elapsedMs / 1000)}s without success)`;
 }
+
+export interface RetryRoundContext {
+  /** Mutable on purpose: a renewed token must be used by every later attempt. */
+  auth: { token: string };
+  policy: RetryPolicy;
+  signal?: AbortSignal;
+  /** Called once on a 401: returns a fresh token, or null when only /login helps. */
+  renewToken: (staleToken: string) => Promise<string | null>;
+  onRetry?: (info: { attempt: number; maxAttempts: number; delayMs: number; reason: string }) => void;
+}
+
+/**
+ * One round, tried again when the failure is the API's and not ours.
+ *
+ * ── Why this exists ─────────────────────────────────────────────────────────
+ * Until 2026-09-03 a round was ONE request: any failure ended the turn with a
+ * ⚠️ in the chat. The two measured that day (an in-stream overload, a 401 on
+ * a token the CLI had just rotated) were both recoverable in under a second,
+ * and Claude Code recovers from both. A companion that dies where the CLI
+ * shrugs is not a companion.
+ *
+ * ── The rules, in order ─────────────────────────────────────────────────────
+ *   · An abort (Stop, shutdown) is never retried: the cause is in the signal
+ *     and the caller reads it there.
+ *   · 401 → renew the token ONCE and try again. A second 401 is a real one.
+ *   · Transient statuses / in-stream transient errors / a dropped connection
+ *     BEFORE any content → wait with exponential backoff and try again, up to
+ *     `maxAttempts`. `retry-after` is honoured as a floor.
+ *   · Anything else, or anything after content was emitted → give up, and if
+ *     attempts were spent say how many, so the reader knows the provider
+ *     stayed down rather than blinked.
+ *
+ * The wait is announced through `onRetry` so the chat can show WHY nothing
+ * moves, and so the route's silence watchdog counts it as life. `run` receives
+ * the token to use: the only thing that changes between attempts.
+ */
+export async function retryRound<T>(run: (token: string) => Promise<T>, ctx: RetryRoundContext): Promise<T> {
+  const { auth, policy, signal } = ctx;
+  const startedAt = Date.now();
+  let renewedOnce = false;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await run(auth.token);
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      const verdict = classifyFailure(err);
+      const message = err instanceof Error ? err.message : String(err);
+
+      if (verdict.kind === "reauth") {
+        if (renewedOnce) throw err;
+        renewedOnce = true;
+        const fresh = await ctx.renewToken(auth.token);
+        if (!fresh) {
+          throw new Error(`${message}. The token could not be renewed either: run \`claude\` → /login once, then retry.`);
+        }
+        auth.token = fresh;
+        console.warn(`[native] ${verdict.reason}: token renewed, retrying at once (attempt ${attempt + 1}/${policy.maxAttempts})`);
+        ctx.onRetry?.({ attempt, maxAttempts: policy.maxAttempts, delayMs: 0, reason: verdict.reason });
+        continue;
+      }
+
+      if (verdict.kind !== "retry" || attempt >= policy.maxAttempts) {
+        throw attempt > 1 ? new Error(exhaustedMessage(message, attempt, Date.now() - startedAt)) : err;
+      }
+
+      const delayMs = backoffMs(attempt, policy, verdict.retryAfterMs);
+      console.warn(`[native] ${verdict.reason}: retrying in ${delayMs}ms (attempt ${attempt + 1}/${policy.maxAttempts})`);
+      ctx.onRetry?.({ attempt, maxAttempts: policy.maxAttempts, delayMs, reason: verdict.reason });
+      await sleepUnlessAborted(delayMs, signal);
+    }
+  }
+}
