@@ -340,14 +340,14 @@ describe("POST /api/sessions/:sessionKey/open-project", () => {
   });
 
   test("un ref di soli caratteri non ammessi NON lega la topic alla radice del workspace", async () => {
-    // Il ramo di ultima risorsa faceva
-    // `join(WORKSPACE_DIR, raw.replace(/[^a-zA-Z0-9_-]/g, ""))`. Con un ref
-    // come «../..» lo slug esce VUOTO e `join(dir, "")` è `dir`: la directory
-    // esiste, quindi la funzione restituiva la RADICE del workspace e ce la
-    // legava. È la classe che il docstring di resolveProjectRef dice di parare
-    // (prompt injection che emette {{PROJECT_OPEN:…}}), ed è raggiungibile
-    // proprio sul percorso AI, perché una stringa così non inizia né con «/»
-    // né con «~/» e non passa dal controllo sui path assoluti.
+    // The last-resort branch did
+    // `join(WORKSPACE_DIR, raw.replace(/[^a-zA-Z0-9_-]/g, ""))`. With a ref like
+    // «../..» the slug comes out EMPTY and `join(dir, "")` is `dir`: the
+    // directory exists, so the function returned the workspace ROOT and bound us
+    // to it. This is the class the resolveProjectRef docstring claims to block
+    // (prompt injection emitting {{PROJECT_OPEN:…}}), and it is reachable
+    // precisely on the AI path, because such a string starts neither with «/»
+    // nor with «~/» and never reaches the absolute-path check.
     const h = makeHarness();
     try {
       h.topics.set("cur", makeTopic({ id: "cur" }));
@@ -400,7 +400,7 @@ describe("terminal Claude tab (session-key = terminal id, no chat topic)", () =>
       mkdirSync(dir, { recursive: true });
       writeFileSync(join(dir, "CLAUDE.md"), "# yup\n"); // project marker
 
-      // Fix B: resolves by NAME (not an absolute path) — "apri il progetto yup".
+      // Fix B: resolves by NAME (not an absolute path) — "open the yup project".
       const resp = (await h.call("POST", "/api/sessions/term-abc/open-project", { ref: "yup" }))!;
       expect(resp.status).toBe(200);
       expect((await resp.json()).projectPath).toBe(dir);
@@ -548,11 +548,11 @@ describe("terminal Claude tab (session-key = terminal id, no chat topic)", () =>
 });
 
 /**
- * Il ponte MCP del browser vive in `browser-bridge.ts`, ma è `topicsRouter` a
- * montarlo — e il montaggio è l'unico pezzo che i suoi test unitari non possono
- * vedere. Qui si prova solo QUELLO: che le rotte `…/browser/*` sono raggiungibili
- * attraverso il router intero, nella posizione giusta (nessuna rotta a cinque
- * segmenti le scavalca) e con `getTerminalSessionById` davvero collegato.
+ * The browser MCP bridge lives in `browser-bridge.ts`, but it is `topicsRouter`
+ * that mounts it — and the mounting is the one piece its own unit tests cannot
+ * see. Only THAT is proven here: that the `…/browser/*` routes are reachable
+ * through the whole router, in the right position (no five-segment route jumps
+ * ahead of them) and with `getTerminalSessionById` genuinely wired up.
  */
 describe("il ponte MCP del browser è montato dentro topicsRouter", () => {
   test("close-pane risolve la topic e chiede la chiusura del pannello", async () => {
@@ -580,9 +580,9 @@ describe("il ponte MCP del browser è montato dentro topicsRouter", () => {
     try {
       h.topics.set("t1", makeTopic({ id: "t1" }));
       const resp = (await h.call("POST", "/api/topics/t1/browser/open-pane", { url: "https://example.com/" }))!;
-      // 503 = la rotta c'è ed è stata eseguita (questo harness monta
-      // createTopicsRouter senza BrowserService). Un 404 vorrebbe dire che il
-      // sotto-router non è montato o è coperto da un'altra rotta.
+      // 503 = the route is there and ran (this harness mounts createTopicsRouter
+      // without a BrowserService). A 404 would mean the sub-router is not
+      // mounted, or is shadowed by another route.
       expect(resp.status).toBe(503);
     } finally { h.cleanup(); }
   });

@@ -1,24 +1,22 @@
 /**
- * Il giro dell'agente: chiedi, esegui, rimanda, ripeti.
+ * The agent round: ask, run, send back, repeat.
  *
- * È IL PEZZO CHE LA CLI FACEVA PER NOI, e l'unica ragione per cui Topics
- * dipendeva da un binario esterno per lavorare. Un turno d'agente non è una
- * risposta: è una CONVERSAZIONE con la macchina in mezzo. Il modello chiede di
- * leggere un file, noi lo leggiamo, glielo rimandiamo, lui chiede di
- * modificarlo, e così finché non ha finito. Ogni giro è una richiesta HTTP
- * nuova con la storia che cresce.
+ * THIS IS THE PIECE THE CLI DID FOR US, and the only reason Topics depended on
+ * an external binary in order to work. An agent turn is not a reply: it is a
+ * CONVERSATION with the machine in the middle. The model asks to read a file, we
+ * read it, we send it back, it asks to edit it, and so on until it is done.
+ * Every round is a fresh HTTP request with a history that keeps growing.
  *
- * UN PROCESSO, N SESSIONI — il guadagno vero, e viene da qui. Una CLI è un
- * processo Node INTERO per sessione (~206 MB misurati su questa macchina): otto
- * agenti sono ~1,7 GB di soli processi, e la macchina paginava. Qui una
- * sessione è un array di messaggi in memoria: costa i suoi token, non un
- * processo. Otto agenti sono otto array dentro il server che è già acceso.
+ * ONE PROCESS, N SESSIONS — the real win, and it comes from here. A CLI is a
+ * WHOLE Node process per session (~206 MB measured on this machine): eight
+ * agents are ~1.7 GB of processes alone, and the machine started paging. Here a
+ * session is an array of messages in memory: it costs its own tokens, not a
+ * process. Eight agents are eight arrays inside the server that is already up.
  *
- * LO STREAMING È OBBLIGATORIO, non un lusso: senza, un turno lungo arriva tutto
- * insieme dopo minuti di silenzio, e la UI di Topics è costruita sui delta
- * (`onTextDelta`, `onToolStart`). Si parsa SSE a mano perché la forma è
- * semplice e una dipendenza in più su un percorso così centrale si paga per
- * sempre.
+ * STREAMING IS MANDATORY, not a luxury: without it a long turn arrives all at
+ * once after minutes of silence, and the Topics UI is built on deltas
+ * (`onTextDelta`, `onToolStart`). SSE is parsed by hand because the shape is
+ * simple and one more dependency on a path this central is paid for forever.
  */
 
 import { getAccessToken } from "./auth";

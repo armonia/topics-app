@@ -1,9 +1,9 @@
 /**
- * Il tool `skill` — e il motivo per cui non è un `read_file` travestito.
+ * The `skill` tool — and why it is not a `read_file` in disguise.
  *
- * Le skill stanno in casa dell'utente (`~/.agents/skills`), FUORI dalla
- * workspace: `read_file` le rifiuterebbe (ed è giusto che lo faccia). Questo
- * tool è l'unica porta, quindi il cancello sui nomi è la cosa da provare.
+ * Skills live in the user's home (`~/.agents/skills`), OUTSIDE the
+ * workspace: `read_file` would refuse them (and it is right to). This
+ * tool is the only door, so the gate on the names is the thing worth testing.
  */
 import { describe, it, expect } from "bun:test";
 import { CODING_TOOLS, executeTool } from "./tools";

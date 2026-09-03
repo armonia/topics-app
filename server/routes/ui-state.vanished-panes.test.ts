@@ -1,11 +1,11 @@
 /**
- * Il pannello di una cartella sparita, quando quello vero c'è già.
+ * The pane of a vanished folder, when the real one is already there.
  *
- * Successo il 02/09/2026: un progetto raggiunto da un symlink aveva due pannelli.
- * Ripulire il DB non bastava — il client rimandava il suo `pane-store-v2` da
- * localStorage e il doppione tornava dieci minuti dopo. Il filtro sta quindi
- * sulla SCRITTURA, e la condizione «solo se il gemello c'è» è ciò che impedisce
- * che un disco esterno smontato perda i suoi pannelli.
+ * Happened on 02/09/2026: a project reached through a symlink had two panes.
+ * Cleaning the DB was not enough — the client pushed its `pane-store-v2` back
+ * from localStorage and the duplicate returned ten minutes later. So the filter
+ * sits on the WRITE, and the «only if the twin is there» condition is what stops
+ * an unmounted external disk from losing its panes.
  */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";

@@ -1,26 +1,25 @@
 /**
- * Il provider nativo: Topics che parla col modello senza intermediari.
+ * The native provider: Topics talking to the model with nothing in between.
  *
- * COSA CAMBIA RISPETTO AGLI ALTRI. `claude-code`, `codex` e gli agenti ACP sono
- * tutti la stessa forma — un processo esterno da spawnare, un protocollo da
- * parlarci, uno stato da tenere allineato. `claude-code.ts` sono 3640 righe
- * quasi tutte dedicate a quel mestiere: pool di processi, riattacchi, broker,
- * heartbeat, scansione dello store. Qui non c'è niente di tutto ciò, perché non
- * c'è nessun processo: una sessione è un array di messaggi, e il turno è una
- * chiamata HTTP che noi guidiamo.
+ * WHAT CHANGES AGAINST THE OTHERS. `claude-code`, `codex` and the ACP agents are
+ * all the same shape — an external process to spawn, a protocol to speak to it,
+ * a state to keep aligned. `claude-code.ts` is 3640 lines almost entirely about
+ * that trade: process pools, reattaches, broker, heartbeat, store scanning. None
+ * of that exists here, because there is no process: a session is an array of
+ * messages, and the turn is an HTTP call we drive ourselves.
  *
- * DICHIARA `history`, ed è la differenza che conta nel registro. I provider CLI
- * tengono la conversazione per conto loro e ignorano `options.history`; questo è
- * STATELESS verso l'esterno come lo sono `claude` e `openai` — ogni turno
- * rimanda la storia. La tiene in memoria per sessione, così le chat continuano
- * senza rileggere il DB a ogni giro, ma se la memoria si perde (riavvio) la
- * storia arriva comunque dal chiamante.
+ * IT DECLARES `history`, and that is the difference that counts in the registry.
+ * The CLI providers keep the conversation on their own and ignore
+ * `options.history`; this one is STATELESS to the outside just like `claude` and
+ * `openai` — every turn resends the history. It keeps it in memory per session,
+ * so chats continue without re-reading the DB every round, but if that memory is
+ * lost (a restart) the history still arrives from the caller.
  *
- * COSA NON FA, detto qui invece di lasciarlo scoprire. Non sopravvive al
- * riavvio del server: un turno in volo muore col processo che lo ospita, mentre
- * `claude-code` in modalità broker lo ritrova. È il prezzo dell'essere
- * in-process, ed è pagato consapevolmente — il riattacco vale la pena solo
- * quando il turno costa un processo intero, e qui costa un array.
+ * WHAT IT DOES NOT DO, said here instead of left to be discovered. It does not
+ * survive a server restart: an in-flight turn dies with the process hosting it,
+ * while `claude-code` in broker mode finds it again. That is the price of being
+ * in-process, and it is paid knowingly — reattaching is worth it only when a
+ * turn costs a whole process, and here it costs an array.
  */
 
 import { runAgentTurn, toProviderUsage, type AgentMessage } from "./agent-loop";
@@ -49,12 +48,12 @@ import { resolveClaudeModel } from "../../services/app-settings";
 import { cancelled, stopCauseFromSignal, type StopCause, type TurnEndInfo } from "../stop-reason";
 
 /**
- * Il modello di partenza quando nessuno ne chiede uno.
+ * The model we start from when nobody asks for one.
  *
- * Stesso gradino di prima (sonnet, non opus: è il default, non la scelta), ma
- * della generazione corrente. Era fermo a `claude-sonnet-4-6`, e siccome la
- * guardia in `routes/chat.ts` scartava ogni override alla famiglia 5, questo
- * valore non era il default: era il modello di TUTTI.
+ * Same tier as before (sonnet, not opus: this is the default, not the choice),
+ * but of the current generation. It was stuck at `claude-sonnet-4-6`, and since
+ * the guard in `routes/chat.ts` dropped every override to the 5 family, this
+ * value was not the default: it was EVERYONE's model.
  */
 export const DEFAULT_MODEL = "claude-sonnet-5";
 

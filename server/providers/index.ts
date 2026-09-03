@@ -43,8 +43,8 @@ const _providers = new Map<string, AIProvider>();
 let _defaultName: string | undefined;
 
 /**
- * L'ordine con cui si sceglie un default di RIPIEGO fra i provider che
- * conosciamo per nome. Chi non è qui dentro non è escluso: cade dopo (vedi
+ * The order used to pick a FALLBACK default among the providers we know by
+ * name. Anything not listed here is not excluded: it ranks after (see
  * `recomputeDefault`).
  */
 const PROVIDER_PREFERENCE_ORDER = [
@@ -82,15 +82,15 @@ export function createProvider(config: ProviderConfig): AIProvider {
       return new OpenAIProvider(config);
     }
     case "acp": {
-      // UN provider per TUTTI gli agenti che parlano ACP: `config.name` decide
-      // quale. È il punto della fase 3 — il prossimo agente costa una riga in
-      // `acp/agents.ts`, non un file qui.
+      // ONE provider for EVERY agent that speaks ACP: `config.name` picks which.
+      // That is the point of phase 3 — the next agent costs one line in
+      // `acp/agents.ts`, not a file here.
       const { AcpProvider } = require("./acp");
       return new AcpProvider(config);
     }
     case "native": {
-      // Il runtime di casa: nessun processo da spawnare, la sessione vive
-      // dentro questo server. Si registra col nome `topics`.
+      // The in-house runtime: no process to spawn, the session lives inside
+      // this server. It registers under the name `topics`.
       const { NativeProvider } = require("./native/provider");
       return new NativeProvider(config);
     }
@@ -193,13 +193,13 @@ export function recomputeDefault(): boolean {
   // previous one is offline; an explicit `AI_PROVIDER` env and per-topic
   // `provider` always win over this order.
   //
-  // È l'ordine dei NOTI, non l'elenco degli ammessi. Era una lista di cinque
-  // nomi a mano, e nessun agente ACP ci stava dentro: gemini non poteva MAI
-  // diventare il default automatico nemmeno essendo l'unico connesso, perché
-  // `find` non lo trovava e finiva nel ramo di ripiego qui sotto — che sceglie
-  // il primo connesso in ordine di REGISTRAZIONE, cioè per caso. Ora chi non è
-  // in tabella cade DOPO i noti e PRIMA dell'ultimo ripiego: resta fuori dalla
-  // preferenza esplicita, ma dentro la graduatoria.
+  // This is the order of the KNOWN, not the list of the allowed. It was five
+  // hand-written names, and no ACP agent was in it: gemini could NEVER become
+  // the automatic default, not even as the only connected one, because `find`
+  // did not see it and it fell into the fallback branch below — which picks the
+  // first connected one in REGISTRATION order, i.e. by accident. Now anything
+  // off the table ranks AFTER the known ones and BEFORE the last fallback: out
+  // of the explicit preference, but inside the ranking.
   const preferred = PROVIDER_PREFERENCE_ORDER.find(
     (name) => _providers.get(name)?.connected === true,
   );
