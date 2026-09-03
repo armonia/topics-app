@@ -3479,6 +3479,10 @@ const opzioniServer = {
           isThinking: stream.isThinking,
           toolCalls: partial.toolCalls,
           blocks: partial.blocks,
+          // The wait the turn is in, if any: `stream:retry` / `stream:slow`
+          // were broadcast before this client existed (`ActiveStream.retry`).
+          ...(stream.retry ? { retry: stream.retry } : {}),
+          ...(stream.slow ? { slow: true } : {}),
         });
       }
     },

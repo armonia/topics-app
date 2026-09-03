@@ -1253,6 +1253,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             console.warn(`[StreamWS] Soft timeout: no data for ${STREAM_TIMEOUT_MS / 1000}s on ${sessionKey} (grace ${STREAM_GRACE_MS / 1000}s)`);
             streamState = "soft-timed-out";
             softTimedOutAtMs = Date.now();
+            // Kept on the registry entry too: the `stream:slow` frame below
+            // reaches only the clients connected NOW, and whoever attaches
+            // later is served from `activeStreams` (see `ActiveStream.slow`).
+            const slowStream = ctx.activeStreams.get(sessionKey);
+            if (slowStream) slowStream.slow = true;
             // La lentezza si DICE, non si scrive nel messaggio.
             //
             // Prima qui si appendeva `STREAM_SLOW_ANNOTATION` a `fullContent` e si
@@ -1412,6 +1417,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             streamState = "streaming";
             fullContent = stripSlowAnnotation(fullContent);
             updateLastMessage(sessionKey, { content: fullContent });
+            const recovered = ctx.activeStreams.get(sessionKey);
+            if (recovered) delete recovered.slow;
             if (matchedTopic) {
               broadcastToAll({
                 type: "stream:resumed",
@@ -1443,8 +1450,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             updateStreamContent(sessionKey, fullContent, fullThinking);
             if (streamState === "soft-timed-out") recoverFromSoftTimeout();
             if (retryAnnounced) {
-              // The API came back after a retry: the amber notice goes away.
+              // The API came back after a retry: the amber notice goes away,
+              // on the registry entry as well as on the wire.
               retryAnnounced = false;
+              const retryStream = ctx.activeStreams.get(sessionKey);
+              if (retryStream) delete retryStream.retry;
               if (matchedTopic) {
                 broadcastToAll({ type: "stream:resumed", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id });
               }
@@ -2358,6 +2368,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // announce this one.
               resetStreamTimer();
               retryAnnounced = true;
+              // A client attaching during the backoff gets this from the
+              // catchup, not from the frame below (see `ActiveStream.retry`).
+              const waiting = ctx.activeStreams.get(sessionKey);
+              if (waiting) waiting.retry = { ...info, at: Date.now() };
               console.warn(`[StreamWS] ${sessionKey}: ${info.reason} on attempt ${info.attempt}/${info.maxAttempts}, next in ${info.delayMs}ms`);
               if (matchedTopic) {
                 broadcastToAll({

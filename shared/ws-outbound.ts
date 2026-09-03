@@ -304,6 +304,20 @@ const streamCatchupSchema = z.looseObject({
   type: z.literal('stream:catchup'),
   sessionKey: z.string(),
   messageId: z.string(),
+  // The wait the turn is in when this client attaches. `stream:retry` and
+  // `stream:slow` are broadcast once, when the wait starts; a client that
+  // connects during a backoff would otherwise see a moving ring and
+  // "elaborando" for 30 s. Absent = the turn is flowing. Same fields as the
+  // `stream:retry` frame, plus `at` (epoch ms) so the remaining delay can be
+  // computed; `slow` mirrors `stream:slow`, and `stream:resumed` clears both.
+  retry: z.optional(z.object({
+    attempt: z.number(),
+    maxAttempts: z.number(),
+    delayMs: z.number(),
+    reason: z.string(),
+    at: z.number(),
+  })),
+  slow: z.optional(z.boolean()),
 }); // toolCalls, blocks, content, thinking, isThinking are optional rich fields.
 
 // ---- Project events --------------------------------------------------------
