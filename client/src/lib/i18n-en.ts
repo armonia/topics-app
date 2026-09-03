@@ -1147,6 +1147,7 @@ const EN = {
   'mcp.state.ready': 'mounted',
   'mcp.state.failed': 'not answering',
   'mcp.state.excluded': 'excluded',
+  'mcp.state.needs-auth': 'sign-in needed',
   'mcp.tools.one': '1 tool',
   'mcp.tools.many': '{n} tools',
   'mcp.tools.none': 'no tools',
@@ -1154,6 +1155,8 @@ const EN = {
   'mcp.skills.many': '{n} skills',
   'mcp.showTools': 'Show the tools',
   'mcp.hideTools': 'Hide the tools',
+  'mcp.connect': 'Connect',
+  'mcp.connectWaiting': 'Waiting for sign-in…',
   // ── The profile: your usage stats, counted from what actually happened here.
   'profile.stats.title': 'Your stats',
   'profile.stats.blurb': 'Counted from what actually happened here: sessions, messages, board tasks. They stay on this machine.',

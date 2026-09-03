@@ -17,8 +17,13 @@
  * purpose (see `server/providers/mcp-inheritance.ts`), and `reason` carries the
  * rule that did it. `failed` is a server that was meant to be there and did not
  * answer the handshake, and `reason` is then the connection error.
+ *
+ * `needs-auth` is not a failure either, and separating it from `failed` is what
+ * makes the panel actionable. A remote server protected by OAuth answers the
+ * first handshake with `401` and a challenge: nothing is broken, nobody has
+ * signed in yet, and the cure is a button rather than a bug report.
  */
-export type McpServerState = 'ready' | 'failed' | 'excluded';
+export type McpServerState = 'ready' | 'failed' | 'excluded' | 'needs-auth';
 
 export interface McpServerStatus {
   name: string;

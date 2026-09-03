@@ -1,7 +1,20 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, ChevronDown, ChevronRight, Plug, RefreshCw } from 'lucide-react';
+import { AlertCircle, ChevronDown, ChevronRight, LogIn, Plug, RefreshCw } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { mcpApi, type McpFleetStatus, type McpServerStatus } from '../../lib/api';
+import { openExternalOnce } from '../../lib/openExternal';
+
+/**
+ * How often the panel re-reads the fleet while a sign-in is open, and for how
+ * long it keeps doing it.
+ *
+ * The window matches the loopback listener's own five minutes: polling past the
+ * moment the server stopped listening would be asking a question that can no
+ * longer change its answer. Two seconds between reads is cheap because a
+ * mounted fleet answers `GET /api/mcp/fleet` from memory.
+ */
+const AUTH_POLL_MS = 2_000;
+const AUTH_POLL_WINDOW_MS = 5 * 60 * 1000;
 
 /**
  * WHAT IS MOUNTED RIGHT NOW, and why the rest is not.
@@ -53,6 +66,67 @@ export function McpFleetPanel() {
       setRefreshing(false);
     }
   }, []);
+
+  /**
+   * The server whose sign-in tab is open right now, if any.
+   *
+   * One at a time on purpose: it is the name the poll below watches, and a
+   * person signing into two servers at once is not a thing worth the extra
+   * state. Clicking the button again clears it, which is how somebody who gave
+   * up (closed the tab, changed their mind) gets the row back.
+   */
+  const [connecting, setConnecting] = useState<string | null>(null);
+
+  const connect = useCallback(async (name: string) => {
+    try {
+      const { authorizeUrl } = await mcpApi.startOauth(name);
+      // Through the shell bridge, never `window.open`: inside the desktop
+      // shell's webview a plain `_blank` is a no-op, so the person would click
+      // Connect and watch nothing at all happen.
+      openExternalOnce(authorizeUrl);
+      setConnecting(name);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
+  /**
+   * While a sign-in is open, ask the fleet whether that server came back.
+   *
+   * The server does the actual work: when the callback lands it re-mounts the
+   * fleet, so this poll is only how the screen finds out. It stops the moment
+   * the server leaves `needs-auth`, whichever way it went, because a sign-in
+   * that ends in `failed` is still an answer and leaving the spinner running
+   * would be the panel lying about what it knows.
+   */
+  useEffect(() => {
+    if (!connecting) return;
+    const ctrl = new AbortController();
+    const giveUpAt = Date.now() + AUTH_POLL_WINDOW_MS;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const tick = async () => {
+      if (stopped) return;
+      try {
+        const next = await mcpApi.fleet(ctrl.signal);
+        if (stopped) return;
+        setStatus(next);
+        const server = next.servers.find((s) => s.name === connecting);
+        if (server && server.state !== 'needs-auth') { setConnecting(null); return; }
+      } catch {
+        // A failed poll is a poll. The next one may well answer, and the
+        // sign-in itself is happening somewhere this fetch cannot see.
+      }
+      if (stopped) return;
+      if (Date.now() >= giveUpAt) { setConnecting(null); return; }
+      timer = setTimeout(() => { void tick(); }, AUTH_POLL_MS);
+    };
+
+    timer = setTimeout(() => { void tick(); }, AUTH_POLL_MS);
+    return () => { stopped = true; clearTimeout(timer); ctrl.abort(); };
+  }, [connecting]);
 
   const servers = status?.servers ?? [];
 
@@ -121,6 +195,11 @@ export function McpFleetPanel() {
               server={server}
               expanded={expanded === server.name}
               onToggle={() => setExpanded(expanded === server.name ? null : server.name)}
+              connecting={connecting === server.name}
+              onConnect={() => {
+                if (connecting === server.name) setConnecting(null);
+                else void connect(server.name);
+              }}
             />
           ))}
         </div>
@@ -139,19 +218,26 @@ export function McpFleetPanel() {
 }
 
 /** The colour of the state chip. Excluded is deliberately NOT red: it is a rule
- *  doing its job, not a fault, and painting it like one sends people hunting. */
+ *  doing its job, not a fault, and painting it like one sends people hunting.
+ *  `needs-auth` is amber for the same reason and one more: red would say the
+ *  server is broken, when the only thing missing is a sign-in nobody has done
+ *  yet, and the row carries the button that does it. */
 const STATE_TONE: Record<McpServerStatus['state'], string> = {
   ready: 'text-emerald-400 border-emerald-400/30',
   failed: 'text-red-500 border-red-500/30',
   excluded: 'text-app-text-muted border-app-border',
+  'needs-auth': 'text-amber-400 border-amber-400/30',
 };
 
 function McpServerRow({
-  server, expanded, onToggle,
+  server, expanded, onToggle, connecting, onConnect,
 }: {
   server: McpServerStatus;
   expanded: boolean;
   onToggle: () => void;
+  /** A sign-in tab for THIS server is open and the panel is watching for it. */
+  connecting: boolean;
+  onConnect: () => void;
 }) {
   const t = useT();
   const toolCount = server.tools.length;
@@ -195,6 +281,24 @@ function McpServerRow({
         <p data-testid={`mcp-server-reason-${server.name}`} className="mt-1 break-words text-[11px] text-app-text-muted">
           {server.reason}
         </p>
+      )}
+
+      {/* THE ROW CARRIES ITS OWN CURE. A server waiting for a sign-in is the one
+          state on this panel a person can resolve from here, so the button
+          lives next to the reason instead of in a settings page somewhere else.
+          While the tab is open the same button cancels: the sign-in happens in
+          another window and it can simply never come back. */}
+      {server.state === 'needs-auth' && (
+        <button
+          data-testid={`mcp-server-connect-${server.name}`}
+          onClick={onConnect}
+          // `coarse:min-h-11` like every other target in this panel: the touch
+          // rule keys off the POINTER, so on desktop it stays compact.
+          className="mt-1.5 flex items-center gap-1 rounded-md border border-amber-400/30 bg-surface px-2 py-1 text-[11px] text-amber-400 hover:bg-app-hover coarse:min-h-11 coarse:px-3"
+        >
+          <LogIn size={11} className={connecting ? 'animate-pulse' : undefined} />
+          {connecting ? t('mcp.connectWaiting') : t('mcp.connect')}
+        </button>
       )}
 
       {/* The tools ARE reachable without a console, and still not shouted: a

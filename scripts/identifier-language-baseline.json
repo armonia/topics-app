@@ -5807,7 +5807,6 @@
       "txt"
     ],
     "shared/browser-ws-messages.ts": [
-      "frameMetadataSchema",
       "webrtcAnswerMessageSchema",
       "webrtcIceMessageSchema",
       "webrtcOfferMessageSchema"

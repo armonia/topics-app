@@ -1362,6 +1362,7 @@ const IT: Dict = {
   'mcp.state.ready': 'montato',
   'mcp.state.failed': 'non risponde',
   'mcp.state.excluded': 'escluso',
+  'mcp.state.needs-auth': 'accesso richiesto',
   'mcp.tools.one': '1 strumento',
   'mcp.tools.many': '{n} strumenti',
   'mcp.tools.none': 'nessuno strumento',
@@ -1369,6 +1370,8 @@ const IT: Dict = {
   'mcp.skills.many': '{n} skill',
   'mcp.showTools': 'Mostra gli strumenti',
   'mcp.hideTools': 'Nascondi gli strumenti',
+  'mcp.connect': 'Connetti',
+  'mcp.connectWaiting': 'Attesa accesso…',
   // ── Il profilo: le tue statistiche d'uso, lette da ciò che è successo qui.
   'profile.stats.title': 'Le tue statistiche',
   'profile.stats.blurb': 'Contate su ciò che è successo davvero qui: sessioni, messaggi, task della board. Restano su questa macchina.',

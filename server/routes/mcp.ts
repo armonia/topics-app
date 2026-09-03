@@ -16,11 +16,12 @@
 
 import type { AppContext, RouteHandler } from "../types";
 import { ensureMcpFleet, remountMcpFleet, mcpFleetStatus } from "../providers/native/mcp-fleet";
+import { startMcpAuthorization } from "../providers/native/mcp-oauth";
 
 export function createMcpRouter(ctx: AppContext): RouteHandler {
-  const { json } = ctx;
+  const { json, readJSON, errorResponse } = ctx;
 
-  return async (_req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> => {
+  return async (req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> => {
     if (pathname === "/api/mcp/fleet" && method === "GET") {
       await ensureMcpFleet();
       return json(mcpFleetStatus());
@@ -28,6 +29,36 @@ export function createMcpRouter(ctx: AppContext): RouteHandler {
     if (pathname === "/api/mcp/fleet/refresh" && method === "POST") {
       await remountMcpFleet();
       return json(mcpFleetStatus());
+    }
+    /**
+     * Begin the sign-in for one OAuth-protected server.
+     *
+     * ANSWERS BEFORE THE SIGN-IN HAPPENS, which is the whole shape of this
+     * route. Discovery and client registration are awaited here because they
+     * are the steps that fail for a reason worth showing; the part that waits
+     * on a person is the loopback listener, and holding an http request open
+     * for the five minutes they might take would be a request that dies of its
+     * own timeout while the sign-in is still going fine.
+     *
+     * There is no second route to poll. When the callback lands, this re-mounts
+     * through `remountMcpFleet`, the same call the panel's own re-check button
+     * makes, so the fleet the panel is already polling turns green on its own.
+     */
+    if (pathname === "/api/mcp/oauth/start" && method === "POST") {
+      const body = (await readJSON(req)) as { server?: unknown } | null;
+      const server = typeof body?.server === "string" ? body.server.trim() : "";
+      if (!server) return errorResponse(400, "a server name is required");
+      try {
+        const { authorizeUrl, completion } = await startMcpAuthorization(server);
+        void completion
+          .then((ok) => (ok ? remountMcpFleet() : undefined))
+          .catch(() => { /* a re-mount that fails leaves the old status, which is honest */ });
+        return json({ authorizeUrl });
+      } catch (err) {
+        // 502: what failed is the conversation with somebody else's
+        // authorization server, not the request this client made.
+        return errorResponse(502, err instanceof Error ? err.message : String(err));
+      }
     }
     return null;
   };
