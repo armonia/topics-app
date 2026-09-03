@@ -100,6 +100,45 @@ describe("ClaudeCodeProvider — inactivity reaper never fires during a turn", (
     if (pp.inactivityTimer) clearTimeout(pp.inactivityTimer);
   });
 
+  test("(d) a timer that fires while a turn is streaming on the process re-arms instead of killing", async () => {
+    // 2026-09-03, topic ada7e7db: the first turn settled in seconds and re-armed
+    // the 15-min reaper; the CLI then opened a turn BY ITSELF (Stop hook) that
+    // the server adopted as «woken» — a handler on the same pp, no send. Fifteen
+    // minutes later the reaper fired on a child that was mid-tool-loop (43 tool
+    // calls, last result 5 s earlier) and killed it. The invariant lives in the
+    // callback, not only at the arming sites: a process with a stream handler
+    // is never idle.
+    const sessionKey = "sess-inact-d";
+    let killed = 0;
+    const pp = fakePP({ io: { writeStdin: () => {}, kill: () => { killed++; }, signal: () => {} } });
+    const provider = setup(pp, sessionKey);
+    pp.streamHandler = noopHandler as never; // an adopted turn is being streamed
+
+    (provider as any).resetInactivityTimer(sessionKey, pp, { ms: 5 });
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(killed).toBe(0);
+    expect(pp.alive).toBe(true);
+    expect((provider as any).processes.get(sessionKey)).toBe(pp);
+    expect(pp.inactivityTimer).not.toBeNull(); // re-armed, the reaper waits for the turn to end
+    if (pp.inactivityTimer) clearTimeout(pp.inactivityTimer);
+  });
+
+  test("(e) liveness is about the TURN: a fresh idle process on the same key is not a live turn", () => {
+    // After the kill above, a new idle process took the key. The route asked
+    // `isTurnProcessAlive` and got «yes» — so it extended the dead stream for
+    // hours («silent but its child is ALIVE») while the chat showed a running turn
+    // with nothing behind it.
+    const sessionKey = "sess-inact-e";
+    const pp = fakePP();
+    const provider = setup(pp, sessionKey);
+    expect(provider.isTurnProcessAlive(sessionKey)).toBe(false);
+    pp.streamHandler = noopHandler as never;
+    expect(provider.isTurnProcessAlive(sessionKey)).toBe(true);
+    pp.alive = false;
+    expect(provider.isTurnProcessAlive(sessionKey)).toBe(false);
+  });
+
   test("(c) dead/removed process is NOT re-armed", async () => {
     const sessionKey = "sess-inact-c";
     const pp = fakePP({ alive: false }); // PROCESS_DEAD path deletes it

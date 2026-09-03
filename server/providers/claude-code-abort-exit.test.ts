@@ -177,9 +177,18 @@ describe("reattach scan pass — tail classification of a multi-turn broker stor
 describe("isTurnProcessAlive — the stream watchdog's liveness probe", () => {
   const provider = new ClaudeCodeProvider({ type: "claude-code" });
 
-  test("true for a live pooled process (e.g. mute during auto-compact)", () => {
-    (provider as any).processes.set("sess-alive", fakePP({ alive: true }));
+  test("true for a live child MID-TURN (e.g. mute during auto-compact)", () => {
+    // A handler on the pp is what makes it a turn: auto-compact is silence
+    // inside a turn, so the handler is there.
+    (provider as any).processes.set("sess-alive", fakePP({ alive: true, streamHandler: {} as never }));
     expect(provider.isTurnProcessAlive("sess-alive")).toBe(true);
+  });
+
+  test("false for a live child with NO turn on it: alive is not «the turn is alive»", () => {
+    // The 2026-09-03 case: the turn's child was killed, a fresh idle child took
+    // the key, and «alive» kept a dead stream on extend for hours.
+    (provider as any).processes.set("sess-idle", fakePP({ alive: true, streamHandler: null }));
+    expect(provider.isTurnProcessAlive("sess-idle")).toBe(false);
   });
 
   test("false for a dead process and for an unknown session", () => {
