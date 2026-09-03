@@ -19,7 +19,11 @@
  * simple and one more dependency on a path this central is paid for forever.
  */
 
-import { getAccessToken } from "./auth";
+import { getAccessToken, recoverAfter401 } from "./auth";
+import {
+  ApiHttpError, ApiStreamError, ApiTransportError, classifyFailure, backoffMs, parseRetryAfter,
+  sleepUnlessAborted, exhaustedMessage, DEFAULT_RETRY_POLICY, type RetryPolicy,
+} from "./retry";
 import { CODING_TOOLS, executeTool, type ToolContext, type ToolSpec } from "./tools";
 import { detectUserInputRequest } from "../ask-user-detector";
 import type { ProviderUsage } from "../types";
@@ -148,6 +152,12 @@ export interface AgentTurnOptions {
    * i giri che ha fatto, e prima quei token non arrivavano da nessuna parte.
    */
   onRoundUsage?: (usage: RoundResult["usage"]) => void;
+  /**
+   * How many times, and how long apart, a failed API call is tried again.
+   * Tests pass a policy measured in milliseconds; production takes the
+   * default from `retry.ts`, the same shape the CLI uses.
+   */
+  retryPolicy?: RetryPolicy;
 }
 
 /** Un giro solo: una richiesta, i suoi delta, i suoi blocchi. */
@@ -231,152 +241,254 @@ async function streamOnce(
   stripMessageCacheMarks(opts.history);
   applyPromptCache(body as never);
 
-  const res = await fetch(API_URL, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${token}`,
-      "anthropic-version": API_VERSION,
-      "anthropic-beta": betaHeader(longWindow),
-      "user-agent": "claude-cli/2.1.0 (external, cli)",
-    },
-    body: JSON.stringify(body),
-    signal: opts.signal,
-  });
-
-  if (!res.ok || !res.body) {
-    const detail = await res.text().catch(() => "");
-    // `spiegaErrore` traduce SOLO il 400 della finestra lunga, che altrimenti
-    // arriva a turno gia' partito come una frase inglese senza via d'uscita.
-    // Tutto il resto passa intatto: vedi long-window.ts.
-    throw new Error(spiegaErrore(res.status, detail, opts.model));
+  let res: Response;
+  try {
+    res = await fetch(API_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${token}`,
+        "anthropic-version": API_VERSION,
+        "anthropic-beta": betaHeader(longWindow),
+        "user-agent": "claude-cli/2.1.0 (external, cli)",
+      },
+      body: JSON.stringify(body),
+      signal: opts.signal,
+    });
+  } catch (err) {
+    // No status, no event: the connection itself failed. Nothing has been
+    // emitted yet, so `streamWithRetry` may simply try again (unless the
+    // failure is our own abort, which it checks first).
+    throw new ApiTransportError(
+      `API unreachable: ${err instanceof Error ? err.message : String(err)}`, false, err,
+    );
   }
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    // `spiegaErrore` translates ONLY the long-window 400, which otherwise lands
+    // mid-turn as an English sentence with no way out. Everything else passes
+    // as it came: see long-window.ts. The status and the `retry-after` travel
+    // with the error, because the decision to try again is taken upstream.
+    throw new ApiHttpError(
+      spiegaErrore(res.status, detail, opts.model),
+      res.status,
+      parseRetryAfter(res.headers.get("retry-after")),
+    );
+  }
+  if (!res.body) throw new ApiTransportError("API answered 200 with an empty body", false);
 
   const blocks: Block[] = [];
   const partialJson = new Map<number, string>();
   let stopReason: string | null = null;
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 };
+  // Has anything reached the handler yet? Decides whether a failure from here
+  // on can be retried (nothing shown: yes) or must be reported (a replay would
+  // show the same text twice). See `ApiStreamError.emitted`.
+  let emitted = false;
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
 
-    // SSE: eventi separati da riga vuota, a noi serve solo `data:`.
-    let nl: number;
-    while ((nl = buf.indexOf("\n")) >= 0) {
-      const line = buf.slice(0, nl).trim();
-      buf = buf.slice(nl + 1);
-      if (!line.startsWith("data:")) continue;
-      const payload = line.slice(5).trim();
-      if (!payload || payload === "[DONE]") continue;
+      // SSE: eventi separati da riga vuota, a noi serve solo `data:`.
+      let nl: number;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line.startsWith("data:")) continue;
+        const payload = line.slice(5).trim();
+        if (!payload || payload === "[DONE]") continue;
 
-      let ev: any;
-      try { ev = JSON.parse(payload); } catch { continue; }
+        let ev: any;
+        try { ev = JSON.parse(payload); } catch { continue; }
 
-      switch (ev.type) {
-        case "message_start":
-          usage.input += ev.message?.usage?.input_tokens ?? 0;
-          usage.cacheRead += ev.message?.usage?.cache_read_input_tokens ?? 0;
-          usage.cacheWrite += ev.message?.usage?.cache_creation_input_tokens ?? 0;
-          usage.cacheWrite1h += ev.message?.usage?.cache_creation?.ephemeral_1h_input_tokens ?? 0;
-          break;
+        switch (ev.type) {
+          case "message_start":
+            usage.input += ev.message?.usage?.input_tokens ?? 0;
+            usage.cacheRead += ev.message?.usage?.cache_read_input_tokens ?? 0;
+            usage.cacheWrite += ev.message?.usage?.cache_creation_input_tokens ?? 0;
+            usage.cacheWrite1h += ev.message?.usage?.cache_creation?.ephemeral_1h_input_tokens ?? 0;
+            break;
 
-        case "content_block_start": {
-          const b = ev.content_block ?? {};
-          // L'impalcatura va SOLO dove serve accumulare. Metterla su ogni
-          // blocco significa appiccicare `text: ""` e `input: {}` anche a un
-          // `thinking`, e l'API rifiuta la richiesta al giro dopo:
-          // `messages.N.content.0.thinking.text: Extra inputs are not
-          // permitted`. Misurato il 19/08/2026 su OTTO topic in una volta, il
-          // minuto dopo che il catalogo ha smesso di declassare a un modello
-          // che i blocchi di pensiero non li produceva.
-          blocks[ev.index] =
-            b.type === "text"
-              ? { ...b, text: b.text ?? "" }
-              : b.type === "tool_use"
-                ? { ...b, input: b.input ?? {} }
-                : { ...b };
-          if (b.type === "tool_use") {
-            partialJson.set(ev.index, "");
-            handler.onToolStart(b.id, b.name, {});
-          }
-          break;
-        }
-
-        case "content_block_delta": {
-          const d = ev.delta ?? {};
-          const block = blocks[ev.index];
-          if (d.type === "text_delta") {
-            if (block) block.text = (block.text ?? "") + d.text;
-            handler.onTextDelta(d.text, currentText(blocks));
-          } else if (d.type === "thinking_delta") {
-            if (block) block.thinking = (block.thinking ?? "") + d.thinking;
-            handler.onThinkingDelta?.(d.thinking);
-          } else if (d.type === "signature_delta") {
-            // Senza firma il pensiero non torna indietro: l'API la pretende
-            // per verificare che il blocco sia suo e non riscritto.
-            if (block) block.signature = (block.signature ?? "") + d.signature;
-          } else if (d.type === "input_json_delta") {
-            // I frammenti si CONCATENANO: parsarli singolarmente è l'errore
-            // classico su questo stream.
-            partialJson.set(ev.index, (partialJson.get(ev.index) ?? "") + d.partial_json);
-            // A BYTE ARRIVING IS A SIGN OF LIFE, and it has to be said out
-            // loud. Writing the argument of a `write_file` that holds a whole
-            // document takes minutes during which nothing else is emitted:
-            // silent here, the route's watchdog would count that as a dead
-            // stream the moment it stops suspending itself on a tool that has
-            // only been ANNOUNCED. The turn is alive; the call has not started.
-            if (block?.id) handler.onToolActivity?.(block.id);
-          }
-          break;
-        }
-
-        case "content_block_stop": {
-          const raw = partialJson.get(ev.index);
-          if (raw !== undefined && blocks[ev.index]) {
-            // TRUNCATED ARGUMENTS ARE REPORTED, NOT FAKED INTO AN EMPTY OBJECT.
-            //
-            // This `catch` silently replaced an incomplete JSON with `{}`, and the
-            // defect measured on 2026-08-28 (topic:4c935add, three times out of
-            // three) runs right through here: the model was writing a whole
-            // document inside the argument of a `write_file`, blew through the
-            // output cap halfway into the JSON, and the call was left in the
-            // database with `args: {}` and a green tick. A tool with no arguments
-            // does not exist: saying so in the log is the only way for the next
-            // occurrence to be visible instead of reconstructed from the wreckage.
-            try { blocks[ev.index]!.input = raw ? JSON.parse(raw) : {}; }
-            catch {
-              console.warn(
-                `[agent-loop] argomenti troncati per il tool ${blocks[ev.index]!.name ?? "?"} `
-                + `(${raw.length} byte non leggibili): il giro e' stato tagliato a meta' della chiamata`,
-              );
-              blocks[ev.index]!.input = {};
-              blocks[ev.index]!.inputTruncated = true;
+          case "content_block_start": {
+            emitted = true;
+            const b = ev.content_block ?? {};
+            // L'impalcatura va SOLO dove serve accumulare. Metterla su ogni
+            // blocco significa appiccicare `text: ""` e `input: {}` anche a un
+            // `thinking`, e l'API rifiuta la richiesta al giro dopo:
+            // `messages.N.content.0.thinking.text: Extra inputs are not
+            // permitted`. Misurato il 19/08/2026 su OTTO topic in una volta, il
+            // minuto dopo che il catalogo ha smesso di declassare a un modello
+            // che i blocchi di pensiero non li produceva.
+            blocks[ev.index] =
+              b.type === "text"
+                ? { ...b, text: b.text ?? "" }
+                : b.type === "tool_use"
+                  ? { ...b, input: b.input ?? {} }
+                  : { ...b };
+            if (b.type === "tool_use") {
+              partialJson.set(ev.index, "");
+              handler.onToolStart(b.id, b.name, {});
             }
-            partialJson.delete(ev.index);
-            const b = blocks[ev.index]!;
-            handler.onToolArgsUpdate?.(b.id!, b.input as any);
+            break;
           }
-          break;
+
+          case "content_block_delta": {
+            const d = ev.delta ?? {};
+            const block = blocks[ev.index];
+            if (d.type === "text_delta") {
+              if (block) block.text = (block.text ?? "") + d.text;
+              handler.onTextDelta(d.text, currentText(blocks));
+            } else if (d.type === "thinking_delta") {
+              if (block) block.thinking = (block.thinking ?? "") + d.thinking;
+              handler.onThinkingDelta?.(d.thinking);
+            } else if (d.type === "signature_delta") {
+              // Senza firma il pensiero non torna indietro: l'API la pretende
+              // per verificare che il blocco sia suo e non riscritto.
+              if (block) block.signature = (block.signature ?? "") + d.signature;
+            } else if (d.type === "input_json_delta") {
+              // I frammenti si CONCATENANO: parsarli singolarmente è l'errore
+              // classico su questo stream.
+              partialJson.set(ev.index, (partialJson.get(ev.index) ?? "") + d.partial_json);
+              // A BYTE ARRIVING IS A SIGN OF LIFE, and it has to be said out
+              // loud. Writing the argument of a `write_file` that holds a whole
+              // document takes minutes during which nothing else is emitted:
+              // silent here, the route's watchdog would count that as a dead
+              // stream the moment it stops suspending itself on a tool that has
+              // only been ANNOUNCED. The turn is alive; the call has not started.
+              if (block?.id) handler.onToolActivity?.(block.id);
+            }
+            break;
+          }
+
+          case "content_block_stop": {
+            const raw = partialJson.get(ev.index);
+            if (raw !== undefined && blocks[ev.index]) {
+              // TRUNCATED ARGUMENTS ARE REPORTED, NOT FAKED INTO AN EMPTY OBJECT.
+              //
+              // This `catch` silently replaced an incomplete JSON with `{}`, and the
+              // defect measured on 2026-08-28 (topic:4c935add, three times out of
+              // three) runs right through here: the model was writing a whole
+              // document inside the argument of a `write_file`, blew through the
+              // output cap halfway into the JSON, and the call was left in the
+              // database with `args: {}` and a green tick. A tool with no arguments
+              // does not exist: saying so in the log is the only way for the next
+              // occurrence to be visible instead of reconstructed from the wreckage.
+              try { blocks[ev.index]!.input = raw ? JSON.parse(raw) : {}; }
+              catch {
+                console.warn(
+                  `[agent-loop] argomenti troncati per il tool ${blocks[ev.index]!.name ?? "?"} `
+                  + `(${raw.length} byte non leggibili): il giro e' stato tagliato a meta' della chiamata`,
+                );
+                blocks[ev.index]!.input = {};
+                blocks[ev.index]!.inputTruncated = true;
+              }
+              partialJson.delete(ev.index);
+              const b = blocks[ev.index]!;
+              handler.onToolArgsUpdate?.(b.id!, b.input as any);
+            }
+            break;
+          }
+
+          case "message_delta":
+            stopReason = ev.delta?.stop_reason ?? stopReason;
+            usage.output += ev.usage?.output_tokens ?? 0;
+            break;
+
+          case "error":
+            // A 529 does not always come as a status: the API can answer 200
+            // and put `overloaded_error` in the body as the first event. That is
+            // exactly what killed topic:9cb7c969 on 2026-09-03, 43ms after Enter.
+            throw new ApiStreamError(
+              `stream error: ${JSON.stringify(ev.error).slice(0, 200)}`,
+              String(ev.error?.type ?? "unknown"),
+              emitted,
+            );
         }
-
-        case "message_delta":
-          stopReason = ev.delta?.stop_reason ?? stopReason;
-          usage.output += ev.usage?.output_tokens ?? 0;
-          break;
-
-        case "error":
-          throw new Error(`stream error: ${JSON.stringify(ev.error).slice(0, 200)}`);
       }
     }
+  } catch (err) {
+    if (err instanceof ApiStreamError) throw err;
+    // The body broke while we were reading it: a transport failure, retryable
+    // only if the user has not seen any of this round yet.
+    throw new ApiTransportError(
+      `stream dropped: ${err instanceof Error ? err.message : String(err)}`, emitted, err,
+    );
   }
 
   return { blocks: blocks.filter(Boolean), stopReason, usage };
+}
+
+/**
+ * One round, tried again when the failure is the API's and not ours.
+ *
+ * ── Why this exists ─────────────────────────────────────────────────────────
+ * Until 2026-09-03 a round was ONE request: any failure ended the turn with a
+ * ⚠️ in the chat. The two measured that day (an in-stream overload, a 401 on
+ * a token the CLI had just rotated) were both recoverable in under a second,
+ * and Claude Code recovers from both. A companion that dies where the CLI
+ * shrugs is not a companion.
+ *
+ * ── The rules, in order ─────────────────────────────────────────────────────
+ *   · An abort (Stop, shutdown) is never retried: the cause is in the signal
+ *     and the caller reads it there.
+ *   · 401 → renew the token ONCE and try again. A second 401 is a real one.
+ *   · Transient statuses / in-stream transient errors / a dropped connection
+ *     BEFORE any content → wait with exponential backoff and try again, up to
+ *     `maxAttempts`. `retry-after` is honoured as a floor.
+ *   · Anything else, or anything after content was emitted → give up, and if
+ *     attempts were spent say how many, so the reader knows the provider
+ *     stayed down rather than blinked.
+ *
+ * The wait is announced through `handler.onRetry` so the chat can show WHY
+ * nothing moves, and so the route's silence watchdog counts it as life.
+ */
+async function streamWithRetry(
+  auth: { token: string },
+  opts: AgentTurnOptions,
+  handler: StreamHandler,
+): Promise<RoundResult> {
+  const policy = opts.retryPolicy ?? DEFAULT_RETRY_POLICY;
+  const startedAt = Date.now();
+  let reauthed = false;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await streamOnce(auth.token, opts, handler);
+    } catch (err) {
+      if (opts.signal?.aborted) throw err;
+      const verdict = classifyFailure(err);
+      const message = err instanceof Error ? err.message : String(err);
+
+      if (verdict.kind === "reauth") {
+        if (reauthed) throw err;
+        reauthed = true;
+        const fresh = await recoverAfter401(auth.token);
+        if (!fresh) {
+          throw new Error(`${message}. The token could not be renewed either: run \`claude\` → /login once, then retry.`);
+        }
+        auth.token = fresh;
+        console.warn(`[native] ${verdict.reason}: token renewed, retrying at once (attempt ${attempt + 1}/${policy.maxAttempts})`);
+        handler.onRetry?.({ attempt, maxAttempts: policy.maxAttempts, delayMs: 0, reason: verdict.reason });
+        continue;
+      }
+
+      if (verdict.kind !== "retry" || attempt >= policy.maxAttempts) {
+        throw attempt > 1 ? new Error(exhaustedMessage(message, attempt, Date.now() - startedAt)) : err;
+      }
+
+      const delayMs = backoffMs(attempt, policy, verdict.retryAfterMs);
+      console.warn(`[native] ${verdict.reason}: retrying in ${delayMs}ms (attempt ${attempt + 1}/${policy.maxAttempts})`);
+      handler.onRetry?.({ attempt, maxAttempts: policy.maxAttempts, delayMs, reason: verdict.reason });
+      await sleepUnlessAborted(delayMs, opts.signal);
+    }
+  }
 }
 
 function currentText(blocks: Block[]): string {
@@ -528,6 +640,9 @@ export async function runAgentTurn(
     return { turnEnd: { end: "error", cause: "provider-error", detail: msg }, text: "", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 } };
   }
 
+  // Mutable on purpose: a 401 mid-turn renews the token, and every round after
+  // that must carry the new one.
+  const auth = { token };
   const total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 };
   let finalText = "";
 
@@ -571,7 +686,7 @@ export async function runAgentTurn(
       }
     }
 
-    const round = await streamOnce(token, opts, handler);
+    const round = await streamWithRetry(auth, opts, handler);
     total.input += round.usage.input;
     total.output += round.usage.output;
     total.cacheRead += round.usage.cacheRead;

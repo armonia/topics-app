@@ -38,6 +38,19 @@ const REAL_PAYLOADS: { where: string; payload: Record<string, unknown> }[] = [
     },
   },
   {
+    where: "server/routes/chat.ts (onRetry)",
+    payload: {
+      type: "stream:retry",
+      sessionKey: "topic:abc",
+      topicId: "abc",
+      messageId: "m1",
+      attempt: 1,
+      maxAttempts: 10,
+      delayMs: 500,
+      reason: "stream overloaded_error",
+    },
+  },
+  {
     where: "chat.ts — lo stream riprende",
     payload: { type: "stream:resumed", sessionKey: "topic:abc", topicId: "abc" },
   },

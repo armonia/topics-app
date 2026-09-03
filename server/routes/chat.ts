@@ -1429,6 +1429,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           };
 
           /** Single entry point called by every provider event handler. */
+          // A retry was announced to the client and not yet cleared: the next
+          // provider event clears it, the way `stream:resumed` clears "slow".
+          let retryAnnounced = false;
           const resetStreamTimer = () => {
             if (streamState === "finalized") return;
             // Any provider event proves the stream is alive — bump the
@@ -1439,6 +1442,13 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // partial flag force-cleared and the UI spinner killed mid-run.
             updateStreamContent(sessionKey, fullContent, fullThinking);
             if (streamState === "soft-timed-out") recoverFromSoftTimeout();
+            if (retryAnnounced) {
+              // The API came back after a retry: the amber notice goes away.
+              retryAnnounced = false;
+              if (matchedTopic) {
+                broadcastToAll({ type: "stream:resumed", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id });
+              }
+            }
             armSoftTimer();
           };
 
@@ -2307,6 +2317,30 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // timer so a minutes-long Write/Edit input doesn't trip the false
               // "stream slow" annotation. No persistence, no broadcast.
               resetStreamTimer();
+            },
+
+            onRetry: (info) => {
+              // The API failed transiently and the provider is waiting to try
+              // the same call again. The turn is alive, so the wait must not
+              // count as silence for the watchdog; and the person must see WHY
+              // nothing moves, or a 30s backoff reads as a hung chat. Order
+              // matters: reset first (it clears a previous announcement), then
+              // announce this one.
+              resetStreamTimer();
+              retryAnnounced = true;
+              console.warn(`[StreamWS] ${sessionKey}: ${info.reason} on attempt ${info.attempt}/${info.maxAttempts}, next in ${info.delayMs}ms`);
+              if (matchedTopic) {
+                broadcastToAll({
+                  type: "stream:retry",
+                  sessionKey,
+                  topicId: matchedTopic.id,
+                  messageId: partialMsg.id,
+                  attempt: info.attempt,
+                  maxAttempts: info.maxAttempts,
+                  delayMs: info.delayMs,
+                  reason: info.reason,
+                });
+              }
             },
 
             onToolArgsUpdate: (toolCallId: string, args: Record<string, unknown>) => {

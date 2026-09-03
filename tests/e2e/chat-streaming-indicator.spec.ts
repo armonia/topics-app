@@ -177,6 +177,70 @@ test.describe("Chat streaming indicator", () => {
     await unmockChatStream(page);
   });
 
+  test("stream:retry dice che il provider viene riprovato, stream:resumed lo spegne", async ({ page, chatPage, request }) => {
+    // Il runtime nativo riprova un errore transitorio dell'API (529, 5xx, un
+    // token ruotato) aspettando fino a 30s fra un tentativo e l'altro. Senza
+    // un segnale quella pausa e' indistinguibile da una chat piantata: il frame
+    // `stream:retry` la spiega, e `stream:resumed` la chiude quando i dati
+    // tornano a scorrere. Come per `stream:slow`, il contenuto non si tocca.
+    const res = await request.get(`${BASE}/api/topics`, { ignoreHTTPSErrors: true });
+    const topics = (await res.json()) as { topics: Record<string, { id: string; sessionKey: string }> };
+    const sessionKey = Object.values(topics.topics).find((t) => t.id === topicId)?.sessionKey;
+    expect(sessionKey, "il topic di questo file deve avere una sessionKey").toBeTruthy();
+
+    let inject: ((data: string) => void) | null = null;
+    await page.routeWebSocket(/\/ws/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((m) => server.send(m));
+      server.onMessage((m) => ws.send(m));
+      inject = (data: string) => ws.send(data);
+    });
+
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(topicName));
+    await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
+
+    await page.route("**/api/chat", async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      await new Promise((r) => setTimeout(r, 20_000));
+      await route.fulfill({
+        status: 200,
+        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+        body: "data: [DONE]\n\n",
+      });
+    });
+
+    await chatPage.messageInput.click();
+    await chatPage.messageInput.fill("ciao");
+    await chatPage.messageInput.press("Enter");
+    await expect(chatPage.streamingIndicator).toBeVisible({ timeout: 15_000 });
+    await expect(chatPage.streamingIndicator).not.toHaveAttribute("data-retry", "true");
+
+    expect(inject, "la rotta WS deve aver catturato la presa").not.toBeNull();
+    inject!(JSON.stringify({
+      type: "stream:retry",
+      sessionKey,
+      topicId,
+      messageId: "msg-retry-probe",
+      attempt: 1,
+      maxAttempts: 10,
+      delayMs: 500,
+      reason: "stream overloaded_error",
+    }));
+
+    await expect(chatPage.streamingIndicator).toHaveAttribute("data-retry", "true", { timeout: 10_000 });
+    // La frase dice cosa succede E a che tentativo siamo: il prossimo e' il 2 di 10.
+    await expect(chatPage.streamingIndicator.locator('[data-testid="turn-phrase"]'))
+      .toContainText(/riprovo \(2\/10\)/i);
+    await expect(chatPage.messageList).not.toContainText("⏱");
+
+    inject!(JSON.stringify({ type: "stream:resumed", sessionKey, topicId }));
+    await expect(chatPage.streamingIndicator).not.toHaveAttribute("data-retry", "true", { timeout: 10_000 });
+
+    await unmockChatStream(page);
+  });
+
   test("sending a message snaps the view to the bottom even when scrolled up", async ({ page, chatPage, request }) => {
     // Seed enough history to make the topic scrollable.
     for (let i = 0; i < 20; i++) {

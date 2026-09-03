@@ -550,6 +550,21 @@ export interface WSStreamResumedMessage {
   sessionKey: string;
   topicId?: string;
 }
+/**
+ * The provider's API call failed transiently (overload, 5xx, dropped
+ * connection, token renewal) and the turn is waiting to try it again.
+ * `attempt` is the one that just failed, 1-based. Cleared by `stream:resumed`
+ * when data flows again, and by the end of the turn.
+ */
+export interface WSStreamRetryMessage {
+  type: 'stream:retry';
+  sessionKey: string;
+  topicId?: string;
+  attempt: number;
+  maxAttempts: number;
+  delayMs: number;
+  reason: string;
+}
 export interface WSStreamUsageMessage {
   type: 'stream:usage';
   sessionKey: string;
@@ -1128,6 +1143,7 @@ export type WSMessage =
   | WSStreamUsageMessage
   | WSStreamSlowMessage
   | WSStreamResumedMessage
+  | WSStreamRetryMessage
   | WSStreamErrorMessage
   | WSStreamCompactionMessage
   | WSStreamContextMessage

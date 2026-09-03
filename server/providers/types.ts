@@ -228,6 +228,16 @@ export interface StreamHandler {
    */
   onToolActivity?: (toolCallId: string) => void;
   /**
+   * The provider hit a transient API failure (overload, 5xx, a dropped
+   * connection, a token to renew) and is about to try the same call again.
+   * `attempt` is the one that just failed, 1-based; `delayMs` how long it will
+   * wait before the next. The turn is ALIVE during that wait: consumers reset
+   * their silence watchdog and, ideally, tell the person why nothing moves.
+   * Only the native runtime emits this; the CLIs retry internally and stay
+   * silent about it.
+   */
+  onRetry?: (info: { attempt: number; maxAttempts: number; delayMs: number; reason: string }) => void;
+  /**
    * Tool finished. `isError = true` means the tool reported a failure (Claude
    * SDK's `tool_result.is_error`). Default false; existing callers that pass
    * only 2 args remain valid.

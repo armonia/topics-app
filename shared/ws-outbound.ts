@@ -481,6 +481,22 @@ const streamResumedSchema = z.looseObject({
   topicId: z.optional(z.string()),
 });
 
+// The provider's API call failed transiently and the turn is waiting to try it
+// again. Transient like `stream:slow`: `stream:resumed` clears it when data
+// flows again, and the end of the turn clears everything.
+const streamRetrySchema = z.looseObject({
+  type: z.literal('stream:retry'),
+  sessionKey: z.string(),
+  topicId: z.optional(z.string()),
+  /** The attempt that just failed, 1-based. */
+  attempt: z.number(),
+  maxAttempts: z.number(),
+  /** Wait before the next attempt, in milliseconds. */
+  delayMs: z.number(),
+  /** Short cause, e.g. `API 529`, `stream overloaded_error`, `network`. */
+  reason: z.string(),
+});
+
 // Il turno ha compattato il contesto. Emesso DUE volte per lo stesso marker:
 // la prima quando la compattazione avviene (`preTokens`), la seconda quando il
 // risultato successivo rivela la dimensione post (`postTokens` riempito da
@@ -1203,6 +1219,7 @@ const OUTBOUND_SCHEMAS = {
   'stream:error': streamErrorSchema,
   'stream:slow': streamSlowSchema,
   'stream:resumed': streamResumedSchema,
+  'stream:retry': streamRetrySchema,
   'stream:compaction': streamCompactionSchema,
   'stream:tool_call': streamToolCallSchema,
   'stream:tool_detail': streamToolDetailSchema,

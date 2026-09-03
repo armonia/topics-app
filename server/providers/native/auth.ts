@@ -367,31 +367,50 @@ export async function getAccessToken(): Promise<string | null> {
   const fresh = creds.expiresAt - Date.now() > REFRESH_MARGIN_MS;
   if (fresh) return creds.accessToken;
 
-  // Percorso veloce intra-processo: una sola Promise per tutti.
-  if (_inFlight) return (await _inFlight).accessToken;
+  const next = await renewSerialized(creds, (c) => c.expiresAt - Date.now() <= REFRESH_MARGIN_MS);
+  return next.accessToken;
+}
+
+/**
+ * The renewal itself, serialized twice over: one Promise per process (ten
+ * sessions starting together do not renew ten times) and one lock per file
+ * (two processes do not renew the same refresh token, which rotates).
+ *
+ * `stillStale` is the double-check run after the lock is taken: the file is
+ * re-read, and if whoever held the lock before us already left a usable
+ * credential there, we take that and make no request. What "usable" means
+ * depends on why we came: past its expiry margin (the clock) or the very token
+ * the API just refused (a 401). The two callers pass their own question.
+ */
+function renewSerialized(
+  creds: OAuthCredentials,
+  stillStale: (c: OAuthCredentials) => boolean,
+): Promise<OAuthCredentials> {
+  // Intra-process fast path: one Promise for everybody.
+  if (_inFlight) return _inFlight;
 
   _inFlight = (async () => {
     const sourcePath = _sourcePath;
 
-    // Senza un percorso noto non possiamo né bloccare né salvare: si rinnova
-    // senza lock e senza scrivere, accettando la race condition remota.
+    // Without a known path we can neither lock nor save: renew without either,
+    // accepting the remote race.
     if (!sourcePath) {
       return refreshCredentials(creds);
     }
 
-    // Lucchetto inter-processo: uno solo fra tutti i processi esegue il rinnovo.
+    // Inter-process lock: one process at a time performs the renewal.
     const acquired = await acquireLock(sourcePath);
     try {
-      // DOUBLE-CHECK: dopo aver preso il lock si rilegge il file. Se un altro
-      // processo ha già rinnovato, il token sul disco è già fresco.
+      // DOUBLE-CHECK: re-read the file after taking the lock. If another
+      // process already renewed, what is on disk is already good.
       const reread = readCredentials() as (OAuthCredentials & { sourcePath?: string }) | null;
-      if (reread && reread.expiresAt - Date.now() > REFRESH_MARGIN_MS) {
+      if (reread && !stillStale(reread)) {
         return reread;
       }
 
       const next = await refreshCredentials(reread ?? creds);
-      // Si scrive DOVE si è letto: vedi l'intestazione. Un rinnovo non salvato
-      // lascia sloggata la CLI dell'utente.
+      // Written WHERE it was read: see the header. A renewal that is not saved
+      // logs the user's CLI out.
       try { writeCredentials(sourcePath, next); }
       catch (err) {
         console.warn(`[auth] rinnovo riuscito ma non salvato in ${sourcePath}: ${String(err)}`);
@@ -400,12 +419,39 @@ export async function getAccessToken(): Promise<string | null> {
     } finally {
       if (acquired) releaseLock(sourcePath);
     }
-  })();
+  })().finally(() => { _inFlight = null; });
 
+  return _inFlight;
+}
+
+/**
+ * A 401 ON A TOKEN THAT LOOKED FRESH.
+ *
+ * `getAccessToken` renews on the clock, five minutes before `expiresAt`. But
+ * the API revokes an access token the moment somebody uses the refresh token
+ * that issued it, and that somebody is usually the user's own CLI, which then
+ * writes the NEW pair to the same file. Measured on 2026-09-03
+ * (topic:9cb7c969): `API 401: OAuth access token has been revoked` 300ms after
+ * the user's message, with a perfectly good token sitting on disk the whole
+ * time. The turn died on a credential that was one `readFileSync` away.
+ *
+ * So the recovery is, in order: re-read the file (somebody may already have
+ * done the work); if the file still carries the very token that failed, renew
+ * it ourselves through the usual lock. `null` means neither worked, which is
+ * the one case where the refresh token itself is gone and only a new /login
+ * fixes it. The caller says so in the chat instead of retrying forever.
+ */
+export async function recoverAfter401(staleToken: string): Promise<string | null> {
+  const onDisk = readCredentials() as (OAuthCredentials & { sourcePath?: string }) | null;
+  if (!onDisk) return null;
+  if (onDisk.sourcePath) _sourcePath = onDisk.sourcePath;
+  if (onDisk.accessToken !== staleToken) return onDisk.accessToken;
   try {
-    return (await _inFlight).accessToken;
-  } finally {
-    _inFlight = null;
+    const next = await renewSerialized(onDisk, (c) => c.accessToken === staleToken);
+    return next.accessToken;
+  } catch (err) {
+    console.warn(`[auth] renewal after a 401 failed: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
   }
 }
 

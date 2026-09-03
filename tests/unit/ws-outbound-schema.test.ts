@@ -224,6 +224,7 @@ describe('outbound registry contract', () => {
       'stream:end',
       'stream:error',
       'stream:resumed',
+      'stream:retry',
       'stream:slow',
       'stream:start',
       'stream:thinking_chunk',
@@ -362,8 +363,8 @@ describe('outbound registry contract', () => {
   // spegnere il pallino sulle altre — senza un fronte ognuna resterebbe col suo
   // numero fino al ricaricamento. Mittente `server/routes/notifications.ts`,
   // ascoltatore `useNotificationHistory`.
-  test('all 95 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(95);
+  test('all 96 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(96);
   });
 });
 

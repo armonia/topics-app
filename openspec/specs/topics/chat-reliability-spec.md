@@ -89,6 +89,52 @@ kill a turn whose provider process is still alive.
 - **THEN** the grace window is extended instead of finalizing
 - **AND** only the 30-minute hard cap, and only on a dead process, ends the turn
 
+### Requirement: CHAT-REL-06 — A transient API failure is retried, not reported
+
+The native runtime SHALL try a failed model call again when the failure is the
+API's and transient, with exponential backoff and a bounded number of attempts,
+and SHALL surface the failure only once the attempts are spent. It SHALL renew
+the OAuth token and retry once on a 401. It SHALL NOT retry a failure that
+occurred after content was already shown, nor a request the API rejected as
+malformed, nor a turn the user stopped.
+
+> **Why.** On 2026-09-03 two turns in the same chat died within a second of
+> Enter: an `overloaded_error` delivered inside a 200 as the first SSE event,
+> and a 401 on a token the user's CLI had just rotated. Claude Code recovers
+> from both without anyone noticing; here the chat showed a ⚠️ and a Retry
+> button, and the goal the person had declared stayed unattended.
+
+#### Scenario: Overload inside a 200
+- **GIVEN** the API answers a model call with an SSE `error` event of type `overloaded_error` before any content block
+- **WHEN** the native runtime receives it
+- **THEN** it waits and sends the same call again
+- **AND** the turn ends normally if a later attempt succeeds
+- **AND** the chat shows no error
+
+#### Scenario: Transient HTTP status
+- **GIVEN** the API answers 429, 5xx or 529
+- **THEN** the call is retried with a wait that doubles on each attempt, capped, honouring `retry-after` as a floor
+
+#### Scenario: Attempts run out
+- **GIVEN** every attempt failed transiently
+- **THEN** the turn ends in error and the message says how many attempts were spent
+
+#### Scenario: Rotated token
+- **GIVEN** the API answers 401 with a token that is still fresh by its expiry
+- **WHEN** the credentials file already carries a different token
+- **THEN** the call is repeated at once with the token from the file
+- **AND** a second 401 is not retried
+
+#### Scenario: Not retried
+- **GIVEN** a 400, or a stream error after a content block was emitted, or a turn the user stopped during the wait
+- **THEN** no further call is made
+
+#### Scenario: The wait is visible
+- **GIVEN** the runtime is waiting before a retry
+- **THEN** the client is told (`stream:retry`) and the activity indicator says so
+- **AND** the silence watchdog counts the wait as life
+- **AND** the notice clears when data flows again (`stream:resumed`)
+
 ### Requirement: CHAT-REL-04 — WS handler isolation
 
 The system SHALL not route stale WS events to the current HTTP stream handler.

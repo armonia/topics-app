@@ -136,6 +136,10 @@ export function TurnActivityIndicator({
   // riceve `sessionKey` e `onMessage`: uno stato transitorio di un elemento non
   // ha motivo di attraversare l'albero come prop.
   const [slow, setSlow] = useState(false);
+  // The provider is waiting to try a failed API call again: `stream:retry`
+  // sets it, `stream:resumed` clears it. Without this a 30s backoff on an
+  // overloaded API reads as a hung chat, which is exactly what it is not.
+  const [retry, setRetry] = useState<{ attempt: number; maxAttempts: number } | null>(null);
   // I DUE FATTORI del costo, presi dal filo mentre il turno lavora.
   //
   // `calls` = quante volte il modello è stato chiamato in questo turno (una per
@@ -154,7 +158,8 @@ export function TurnActivityIndicator({
     return onMessage((msg: WSMessage) => {
       if (!('sessionKey' in msg) || msg.sessionKey !== sessionKey) return;
       if (msg.type === 'stream:slow') setSlow(true);
-      else if (msg.type === 'stream:resumed') setSlow(false);
+      else if (msg.type === 'stream:resumed') { setSlow(false); setRetry(null); }
+      else if (msg.type === 'stream:retry') setRetry({ attempt: msg.attempt, maxAttempts: msg.maxAttempts });
       else if (msg.type === 'stream:usage') setCalls(msg.calls ?? 0);
       else if (msg.type === 'stream:context') setContext(msg.usage?.used ?? 0);
     });
@@ -211,7 +216,10 @@ export function TurnActivityIndicator({
   const elapsed = Math.max(0, now - base);
   // L'attesa dell'umano vince su "lento": se il turno è fermo su una domanda,
   // uno stream che non produce token è la normalità, non un sintomo.
-  const state = awaitingInput ? 'waiting' : slow ? 'slow' : 'working';
+  // A retry outranks "slow": it is the more specific explanation of the same
+  // silence, and it says what is being done about it.
+  const state = awaitingInput ? 'waiting' : retry ? 'retry' : slow ? 'slow' : 'working';
+  const retryLabel = retry ? tr('turn.retrying', { n: retry.attempt + 1, max: retry.maxAttempts }) : '';
   const clock = turnClock({
     elapsedMs: elapsed,
     waitedMs,
@@ -220,6 +228,8 @@ export function TurnActivityIndicator({
   const label =
     state === 'waiting'
       ? 'in attesa della tua risposta'
+      : state === 'retry'
+        ? retryLabel
       : state === 'slow'
         ? 'stream lento, il provider è ancora connesso'
         // La frase di fatica cresce col LAVORO, non col totale: dopo mezz'ora di
@@ -231,6 +241,7 @@ export function TurnActivityIndicator({
     <div
       data-testid="chat-streaming-indicator"
       data-slow={state === 'slow' ? 'true' : undefined}
+      data-retry={state === 'retry' ? 'true' : undefined}
       data-waiting={state === 'waiting' ? 'true' : undefined}
       className="flex items-center gap-2 mt-1 text-[11px] leading-none select-none"
       role="status"
@@ -238,6 +249,8 @@ export function TurnActivityIndicator({
       aria-label={
         state === 'waiting'
           ? tr('turn.waitingYou')
+          : state === 'retry'
+            ? retryLabel
           : state === 'slow'
             ? tr('turn.slow')
             : tr('turn.working')
@@ -251,7 +264,7 @@ export function TurnActivityIndicator({
           lives in ONE place (`StreamingIndicator`), so they can no longer
           drift. The "slow" state keeps the amber dot: it is the only one that
           is NOT "working", and it deserves to look different. */}
-      {state === 'slow' ? (
+      {state === 'slow' || state === 'retry' ? (
         <span className="turn-activity-dot inline-block w-1.5 h-1.5 rounded-full shrink-0 bg-amber-500" />
       ) : (
         <OrbitLoader className="shrink-0" still={state === 'waiting'} />

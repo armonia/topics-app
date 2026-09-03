@@ -133,6 +133,7 @@ const IT: Dict = {
   'window.elsewhere': "In un'altra finestra",
   'turn.waitingYou': "L'assistente aspetta la tua risposta",
   'turn.slow': 'Lo stream è lento, il provider è ancora connesso',
+  'turn.retrying': 'Il provider ha risposto con un errore temporaneo, riprovo ({n}/{max})',
   'turn.working': "L'assistente sta elaborando",
   'turn.call': 'chiamata',
   'turn.calls': 'chiamate',
