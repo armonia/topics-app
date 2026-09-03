@@ -432,6 +432,9 @@ const gitRunner = async (cwd: string, args: string[]) => {
  *  and flags `truncated` so the UI shows a "…troncato" note rather than shipping
  *  megabytes into the client. */
 const DIFF_PATCH_CAP = 200_000;
+/** `/api/all-boards/publish-status` answers from here for a short while; a publish empties it. */
+const PUBLISH_STATUS_TTL_MS = 30_000;
+let publishStatusCache: { key: string; until: number; body: { projects: unknown[] } } | null = null;
 
 /** Cap on how many untracked files we fold into a task diff — a runaway worktree
  *  (node_modules never gitignored, a build dir…) must not spawn thousands of git
@@ -1820,6 +1823,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (pathname === "/api/all-boards/publish-status" && method === "GET") {
       let dirs: string[] = [];
       try { dirs = opts?.listProjectDirs?.() ?? []; } catch { /* best-effort */ }
+      // Twenty git spawns per project, on every bootstrap of every window:
+      // measured at 3.0s alone and 3.8s under load on 2026-09-03. The answer
+      // only moves on a commit or a push, so a short cache is honest; the
+      // publish route below drops it when it pushes.
+      const cacheKey = dirs.join("\n");
+      const hit = publishStatusCache;
+      if (hit && hit.key === cacheKey && hit.until > Date.now()) return json(hit.body);
       const projects = (await Promise.all(dirs.map(async (path) => {
         const branch = (await runGitCap(path, ["symbolic-ref", "--short", "HEAD"])).out.trim();
         const remotes = (await runGitCap(path, ["remote"])).out.trim();
@@ -1842,6 +1852,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         }
         return { projectId: projectIdForPath(path), name: basename(path), branch, ahead: Number.isFinite(ahead) ? ahead : 0, commits };
       }))).filter((p): p is NonNullable<typeof p> => !!p);
+      publishStatusCache = { key: cacheKey, until: Date.now() + PUBLISH_STATUS_TTL_MS, body: { projects } };
       return json({ projects });
     }
 
@@ -1851,6 +1862,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // (the board UI gates it behind a confirm).
     const bPublish = matchRoute(pathname, "/api/boards/:projectId/publish");
     if (bPublish && method === "POST") {
+      publishStatusCache = null;
       const res = await publishProject(bPublish.projectId);
       if (!res.ok) {
         const code = res.error === "progetto non trovato" ? 404 : res.branch ? 502 : 400;
