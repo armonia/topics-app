@@ -14,7 +14,7 @@
   * @covers KANBAN-53
  */
 import { describe, test, expect } from 'bun:test';
-import { attemptStat, descSummary, fmtCount, taskCopyText } from './format';
+import { attemptStat, descSummary, fmtCount, liveToolLabel, LIVE_TOOL_INPUT_CHARS, taskCopyText } from './format';
 import { formatAttemptStat } from '../../../../shared/task-attempt';
 import { t, ensureLocaleLoaded } from '../../lib/i18n';
 import type { TaskAttempt } from '../../lib/board';
@@ -108,6 +108,33 @@ describe('descSummary', () => {
     expect(descSummary(null)).toBe('');
     expect(descSummary(undefined)).toBe('');
     expect(descSummary('   \n\n  ')).toBe('');
+  });
+});
+
+/**
+ * `liveToolLabel`: the "what is it doing" line of a working card. The server has
+ * already reduced the input to one string; here it is cut to what fits a card,
+ * and the file tools name the FILE, not the path.
+ */
+describe('liveToolLabel', () => {
+  test('tool e input, separati dal punto mediano', () => {
+    expect(liveToolLabel({ name: 'Bash', input: 'bun run test:unit' })).toBe('Bash · bun run test:unit');
+  });
+
+  test('i tool di file mostrano il basename', () => {
+    expect(liveToolLabel({ name: 'Edit', input: '/Users/x/Projects/app/client/src/components/Board/Card.tsx' })).toBe('Edit · Card.tsx');
+    expect(liveToolLabel({ name: 'Write', input: 'C:\\repo\\server.ts' })).toBe('Write · server.ts');
+  });
+
+  test('un input lungo si tronca a 60 caratteri con il segno del taglio', () => {
+    const out = liveToolLabel({ name: 'Bash', input: 'x'.repeat(200) });
+    expect(out.length).toBe('Bash · '.length + LIVE_TOOL_INPUT_CHARS);
+    expect(out.endsWith('…')).toBe(true);
+  });
+
+  test('senza input resta il nome; un tool MCP perde il prefisso', () => {
+    expect(liveToolLabel({ name: 'Read', input: null })).toBe('Read');
+    expect(liveToolLabel({ name: 'mcp__topics__send_chat', input: 'ciao' })).toBe('topics · send_chat · ciao');
   });
 });
 

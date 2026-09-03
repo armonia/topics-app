@@ -105,9 +105,66 @@ describe('il chip dei checks distingue rosso da non-misurato', () => {
  * turno vivo (`dispatchState === 'working'`) e alla fase iniziale (`triage`).
  * Perderne una lascerebbe il chip acceso su una card che non sta lavorando.
  */
+/**
+ * THE DEAD TURN THE DISPATCHER RETRIES, AND WHAT IT IS DOING RIGHT NOW.
+ *
+ * During a provider outage (2026-09-03) every stalled card said "working" with
+ * the stopwatch climbing: the retry branch never moves the chip, and the client
+ * dropped the live entry only on a `task:updated` that never came. The wait
+ * rides the live event (`retry`) and takes the stopwatch's place; the running
+ * tool (`lastTool`) sits under the foot. Source, not render, for the reason
+ * written at the top of this file.
+ */
+describe('the wait before a retry and the running tool', () => {
+  test('the stopwatch does NOT run during a retry wait: the live chip excludes `retry`', () => {
+    expect(src).toContain("live && !live.retry && task.dispatchState === 'working' ? (");
+    expect(src).toContain("live?.retry && task.dispatchState === 'working' && (");
+    expect(src).toContain('data-testid="card-retry-wait"');
+  });
+
+  test('"Retry now" goes through the comments door, which is the existing resume', () => {
+    expect(src).toContain('data-testid="card-retry-now"');
+    expect(src).toContain('onRetryNow={() => steer(RETRY_NOW_MESSAGE)}');
+  });
+
+  test('the "what is it doing" line sits under the foot and goes out with the retry wait', () => {
+    expect(src).toContain("live?.lastTool && !live.retry && task.dispatchState === 'working' && (");
+    expect(src).toContain('data-testid="card-live-tool"');
+  });
+});
+
+/**
+ * A PARKED CARD SAYS WHY, AND OFFERS THE WAY BACK.
+ *
+ * The reason lived in the chip's tooltip (invisible on touch) and the only
+ * gesture was guessing that a drag to Todo restarts it. The line is printed and
+ * the choice row makes the same PATCH the drag makes.
+ */
+describe('the parked card', () => {
+  test('prints dispatchError as a line and draws the park choices', () => {
+    expect(src).toContain("choiceState === 'parked' && (");
+    expect(src).toContain('data-testid="card-dispatch-error"');
+    const block = src.slice(src.indexOf("choiceState === 'parked' && ("));
+    expect(block.slice(0, 1200)).toContain('<TaskChoiceRow task={task}');
+  });
+});
+
+/**
+ * THE AGENT'S WORD ON A CARD IN PROGRESS: the last one, under the checklist,
+ * with the review's fold. The block used to be gated on `status === 'review'`,
+ * and in progress the card was a stopwatch.
+ */
+describe('the progress word', () => {
+  test('draws in in_progress with the same clamp as the review', () => {
+    expect(src).toContain("task.status === 'in_progress' && showsQuestion && lastComment && (");
+    const block = src.slice(src.indexOf('data-testid="card-progress-word"'));
+    expect(block.slice(0, 600)).toContain("line-clamp-[10]");
+  });
+});
+
 describe('il chip del triage', () => {
   test('si disegna solo su un turno VIVO e ancora in inquadramento', () => {
-    expect(src).toContain("live?.triage && task.dispatchState === 'working'");
+    expect(src).toContain("live?.triage && !live.retry && task.dispatchState === 'working'");
     expect(src).toContain('data-testid="card-triage"');
   });
 

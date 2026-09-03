@@ -72,9 +72,11 @@ export function ServiceFold({ count, children }: { count: number; children: Reac
  * (the agent's steps moved into their own pane); it stays because it is the
  * contract of `groupServiceRuns`, which the server shares.
  */
-export function ThreadRuns<T extends ThreadRunsRow>({ comments, breaksRun, renderRow, renderStatusRun }: {
+export function ThreadRuns<T extends ThreadRunsRow>({ comments, breaksRun, renderRow, renderStatusRun, isService }: {
   comments: readonly T[];
   breaksRun?: (comment: T, index: number) => boolean;
+  /** What folds. Absent = the thread's own rule (`isServiceComment`). */
+  isService?: (comment: T) => boolean;
   renderRow: (comment: T, index: number) => ReactNode;
   /**
    * The transitions of a stretch, drawn as ONE thing instead of one paragraph
@@ -91,12 +93,12 @@ export function ThreadRuns<T extends ThreadRunsRow>({ comments, breaksRun, rende
     // along because the runs partition it in order and nothing is dropped.
     const out: Array<{ service: boolean; comments: T[]; start: number }> = [];
     let start = 0;
-    for (const run of groupServiceRuns(comments, breaksRun)) {
+    for (const run of groupServiceRuns(comments, breaksRun, isService)) {
       out.push({ ...run, start });
       start += run.comments.length;
     }
     return out;
-  }, [comments, breaksRun]);
+  }, [comments, breaksRun, isService]);
   /**
    * A run's children. Without `renderStatusRun` this is the row-per-comment it
    * has always been; with it, adjacent transitions hand themselves to the strip

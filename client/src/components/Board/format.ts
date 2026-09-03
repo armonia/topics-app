@@ -152,6 +152,26 @@ export const fmtLive = (ms: number): string => {
   return `${h}h ${String(m % 60).padStart(2, '0')}m`;
 };
 
+/** How much of a tool input the card prints: one line under the foot, never a paragraph. */
+export const LIVE_TOOL_INPUT_CHARS = 60;
+/** The file tools: the card names the FILE, not the whole path. */
+const FILE_TOOLS = /^(edit|write|read|notebookedit|multiedit)$/i;
+
+/**
+ * The «what is it doing» line of a working card: `Bash · bun run test:unit`,
+ * `Edit · Card.tsx`. The server already reduced the input to one string
+ * (`summarizeToolInput`); here it is cut to what fits a card, and the file
+ * tools drop the directory because the path is noise at this width.
+ */
+export function liveToolLabel(tool: { name: string; input: string | null }): string {
+  const name = tool.name.replace(/^mcp__/, '').replace(/__/g, ' · ');
+  let input = tool.input?.trim() ?? '';
+  if (!input) return name;
+  if (FILE_TOOLS.test(tool.name)) input = input.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || input;
+  if (input.length > LIVE_TOOL_INPUT_CHARS) input = `${input.slice(0, LIVE_TOOL_INPUT_CHARS - 1)}…`;
+  return `${name} · ${input}`;
+}
+
 /** Compact token count: 850 · 12.3k · 1.2M. */
 export const fmtTok = (n: number): string =>
   n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);

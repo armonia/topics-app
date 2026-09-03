@@ -15,7 +15,7 @@ import { classifyLanding } from "./landing-audit";
 import { PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, LAND_ACTION_LABEL, type TaskService } from "./tasks";
-import { createTaskDispatcher, rotateFrom, type DispatcherDeps } from "./task-dispatcher";
+import { createTaskDispatcher, rotateFrom, summarizeToolInput, type DispatcherDeps } from "./task-dispatcher";
 import { cancelled, type TurnEndInfo, describeTurnEnd } from "../providers/stop-reason";
 import { beginAsk, endAsk } from "../lib/ask-user-bridge";
 import { beginPermission, endPermission } from "../lib/permission-bridge";
@@ -795,6 +795,87 @@ describe("task-dispatcher", () => {
     expect(ultimaLive(h, "t1")?.triage).toBe(false);
     h.finishTurn();
     await flush();
+  });
+
+  // ── The dead turn the dispatcher retries: the card must KNOW ───────────────
+  //
+  // On the turn-died-and-I-retry branch no column moves: the chip stays
+  // `working`, and the client drops the live chip only on the first
+  // `task:updated` with a different chip, which never comes here. During a
+  // provider outage the board claimed work on every stalled card, stopwatch
+  // climbing. Measured 2026-09-03 on 12 cards.
+
+  it("un turno morto per il provider chiude il chip vivo e annuncia l'ATTESA, con il perché", async () => {
+    const h = harness({ usageTickMs: 5, retryBackoffMs: 60 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const before = Date.now();
+    h.finishTurnWith({ end: "error", cause: "provider-error", detail: "503 overloaded" });
+    await flush();
+
+    const live = h.events.filter((e) => e.type === "task:usage-live" && e.taskId === "t1");
+    // First the END of the turn, then the wait: two facts, in the order they happen.
+    const ended = live.findIndex((e) => e.ended === true);
+    expect(ended).toBeGreaterThan(0);
+    const wait = live[live.length - 1];
+    expect(wait.retry).toBeDefined();
+    expect(wait.retry.at).toBeGreaterThanOrEqual(before + 60);
+    expect(wait.retry.cap).toBe(3);
+    expect(wait.retry.free).toBe(true); // a provider error does not cost an attempt
+    expect(wait.retry.reason).toBe(describeTurnEnd({ end: "error", cause: "provider-error" }));
+    expect(wait.retry.detail).toBe("503 overloaded");
+    expect(live.indexOf(wait)).toBeGreaterThan(ended);
+
+    // Once the wait elapses a turn starts, and the new turn's first live event
+    // carries no wait: the chip is a stopwatch again.
+    await new Promise((r) => setTimeout(r, 90));
+    await flush();
+    expect(h.turns.length).toBe(2);
+    expect(ultimaLive(h, "t1")?.retry).toBeUndefined();
+    h.finishTurn();
+    await flush();
+  });
+
+  it("il chip vivo porta COSA sta facendo la sessione: il tool in corso, letto dal tracker", async () => {
+    // The event used to carry model, time and tokens: a 14-minute stopwatch
+    // did not tell a suite running for nine minutes from a stuck agent.
+    const h = harness({
+      usageTickMs: 5,
+      sessionActivity: (sessionKey) => sessionKey === "topic:sk1"
+        ? { name: "Bash", input: { command: "bun run test:unit", description: "Run the unit suite" }, since: 1_000 }
+        : null,
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(ultimaLive(h, "t1")?.lastTool).toEqual({ name: "Bash", input: "bun run test:unit", since: 1_000 });
+    h.finishTurn();
+    await flush();
+  });
+
+  it("senza un tool in corso (o senza tracker) l'evento dice null, non inventa", async () => {
+    const h = harness({ usageTickMs: 5 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(ultimaLive(h, "t1")?.lastTool).toBeNull();
+    h.finishTurn();
+    await flush();
+  });
+
+  it("summarizeToolInput: una riga per tool, mai un JSON", () => {
+    expect(summarizeToolInput("Bash", { command: "bun   run\n test:unit", description: "x" })).toBe("bun run test:unit");
+    expect(summarizeToolInput("Edit", { file_path: "/a/b/c.ts", old_string: "x", new_string: "y" })).toBe("/a/b/c.ts");
+    expect(summarizeToolInput("Grep", { pattern: "foo", path: "/a" })).toBe("foo");
+    expect(summarizeToolInput("mcp__x__y", { query: "q" })).toBe("q");
+    expect(summarizeToolInput("Bash", { command: "" })).toBeNull();
+    expect(summarizeToolInput("Bash", null)).toBeNull();
+    expect(summarizeToolInput("Bash", { command: "a".repeat(300) })!.length).toBe(200);
   });
 
   it("leaves a task alone when the turn ends in review", async () => {

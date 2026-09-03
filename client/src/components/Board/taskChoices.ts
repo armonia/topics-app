@@ -15,7 +15,7 @@
  * L'esecuzione sta in `TaskChoices.tsx`, uno solo per card e drawer.
  */
 
-import { isAgentWorking, isUnfinishedReview, normalizeActionLabel, type BoardTask } from '../../lib/board';
+import { PARKED_STOPPED, PARKED_WAITED_OUT, isAgentWorking, isUnfinishedReview, normalizeActionLabel, type BoardTask } from '../../lib/board';
 import {
   acceptWord, fallbackTranslate, landWord, redoWord, reservedActionLabel, sendBackDest, sendBackWord, stopWord, taskActionWord, unblockWord,
   type TaskActionId, type Translate,
@@ -49,8 +49,14 @@ type ChoiceTask = Pick<BoardTask,
   'status' | 'assignedTopicId' | 'deliveryBranch' | 'dispatchState' | 'blockedByTaskId' | 'blockedBy'
   | 'deliveredBy' | 'deliveredReason'>;
 
+/**
+ * The chips the dispatcher writes when it sets a card ASIDE, with the reason
+ * in `dispatchError`: failed, blocked, stopped by a person, waited out.
+ */
+export const PARKED_DISPATCH_STATES: ReadonlySet<string> = new Set(['failed', 'blocked', PARKED_STOPPED, PARKED_WAITED_OUT]);
+
 /** Lo stato da cui nascono le scelte — uno solo per card, in quest'ordine. */
-export type TaskChoiceState = 'review-unfinished' | 'review-branch' | 'review-plain' | 'queued' | 'working' | 'blocked' | null;
+export type TaskChoiceState = 'review-unfinished' | 'review-branch' | 'review-plain' | 'queued' | 'working' | 'blocked' | 'parked' | null;
 
 /**
  * In quale dei cinque casi siamo. La precedenza NON è arbitraria:
@@ -86,6 +92,11 @@ export function taskChoiceState(task: ChoiceTask): TaskChoiceState {
   // Stesso predicato del chip «in attesa di» (e del gate di dispatch): un
   // bloccante chiuso o archiviato non blocca più, quindi non offre scelte.
   if (task.blockedByTaskId && !(task.blockedBy && (task.blockedBy.status === 'done' || task.blockedBy.archived))) return 'blocked';
+  // PARKED: the dispatcher set the card aside and wrote why. The reason lived
+  // in a tooltip (invisible on touch) and the only way back was guessing that
+  // dragging to Todo restarts it. In Todo it is already back in the queue, so
+  // the choice would write what the column already says.
+  if (task.dispatchState && PARKED_DISPATCH_STATES.has(task.dispatchState) && task.status !== 'todo') return 'parked';
   return null;
 }
 
@@ -166,6 +177,11 @@ export function taskChoices(
       // dalla coda. «Consegna quello che hai» invece non ha nessuno a cui
       // chiederlo — vedi `taskChoiceState`. Stessa parola, tooltip suo.
       out = [{ id: 'stop', tone: 'neutral', ...stopWord(false, tr) }];
+      break;
+    // Set aside by the dispatcher: the one gesture that restarts it is the same
+    // PATCH the drag to Todo makes (`status: 'todo'`), so the two roads meet.
+    case 'parked':
+      out = [say('requeue', 'primary'), say('drop', 'danger')];
       break;
     case 'blocked':
       out = [

@@ -1481,6 +1481,14 @@ const taskDispatcher = createTaskDispatcher({
   // zero) quando il nativo non ha mai girato su quella sessione: e' cio' che
   // lascia intatto il ripiego per le sessioni CLI.
   getSessionUsage: (sessionKey: string) => readNativeUsage(sessionKey) ?? dispatchUsageReader.read(sessionKey),
+  // What the session is running RIGHT NOW, for the card's «Bash · bun run
+  // test:unit · 3m» line. The tracker learns it from the CLI hooks (PreToolUse
+  // sets `lastTool`, PostToolUse clears it); a runtime that posts no hooks
+  // reads as `null`, and the card simply draws no line.
+  sessionActivity: (sessionKey: string) => {
+    const s = claudeSessionTracker.getSessionByKey(sessionKey);
+    return s?.lastTool ? { name: s.lastTool.name, input: s.lastTool.input, since: s.lastTool.startedAt } : null;
+  },
   // Last assistant prose in the session — the dispatcher mirrors it into a task
   // comment at delivery when the agent forgot comment_task, so a review always
   // carries the agent's own summary. Reads the local message store (sync).

@@ -829,7 +829,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     return onMessage((msg) => {
       const m = msg as { type?: string; projectId?: string; settings?: BoardSettings; autoDispatch?: boolean; task?: BoardTask;
         taskId?: string; turnStartedAt?: number; baseMs?: number; liveTokens?: number; model?: string | null;
-        triage?: boolean; waiting?: boolean };
+        triage?: boolean; waiting?: boolean; ended?: boolean;
+        lastTool?: LiveUsage['lastTool']; retry?: LiveUsage['retry'] };
       if (m.type === 'task:created' || m.type === 'task:updated' || m.type === 'task:deleted') {
         if (mode === 'all' || m.projectId === undefined || m.projectId === projectId) refetch();
         // Il lampo è il segnale «è nato un task», e non ha un autore
@@ -852,7 +853,16 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         && (mode === 'all' || m.projectId === undefined || m.projectId === projectId)) {
         setLiveUsage((prev) => {
           const n = new Map(prev);
-          n.set(m.taskId!, { turnStartedAt: m.turnStartedAt ?? Date.now(), baseMs: m.baseMs ?? 0, liveTokens: m.liveTokens ?? 0, model: m.model ?? null, triage: m.triage === true });
+          // "The turn ended": drop the chip NOW. Waiting for a `task:updated`
+          // whose chip is not `working` let the stopwatch run over a dead turn
+          // the dispatcher retries, because on that branch the chip never
+          // changes.
+          if (m.ended === true) { if (!n.has(m.taskId!)) return prev; n.delete(m.taskId!); return n; }
+          n.set(m.taskId!, {
+            turnStartedAt: m.turnStartedAt ?? Date.now(), baseMs: m.baseMs ?? 0, liveTokens: m.liveTokens ?? 0,
+            model: m.model ?? null, triage: m.triage === true,
+            lastTool: m.lastTool ?? null, retry: m.retry ?? null,
+          });
           return n;
         });
       }

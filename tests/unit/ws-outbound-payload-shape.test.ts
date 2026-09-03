@@ -84,6 +84,26 @@ const REAL_PAYLOADS: { where: string; payload: Record<string, unknown> }[] = [
     where: "tasks.ts:788 — il cap globale cambia, riguarda ogni board aperta",
     payload: { type: "board:global-cap", maxAgentsAuto: true, maxAgents: 4 },
   },
+
+  // ── live preview of the turn (server/services/task-dispatcher.ts) ─────────
+  {
+    where: "task-dispatcher.ts — broadcastLiveUsage: il tool in corso viaggia col tick",
+    payload: {
+      type: "task:usage-live", projectId: "p1", taskId: "t1", turnStartedAt: 1, baseMs: 0, liveTokens: 0,
+      model: "opus", triage: false, lastTool: { name: "Bash", input: "bun run test:unit", since: 1 },
+    },
+  },
+  {
+    where: "task-dispatcher.ts — endLiveTurn: il turno e' finito, via il chip",
+    payload: { type: "task:usage-live", projectId: "p1", taskId: "t1", turnStartedAt: 1, baseMs: 0, liveTokens: 0, model: null, ended: true },
+  },
+  {
+    where: "task-dispatcher.ts — broadcastRetryWait: l'attesa prima del ritentativo",
+    payload: {
+      type: "task:usage-live", projectId: "p1", taskId: "t1", turnStartedAt: 1, baseMs: 0, liveTokens: 0, model: null,
+      retry: { at: 2, attempt: 1, cap: 3, free: true, reason: "Errore del provider", detail: null },
+    },
+  },
 ];
 
 describe("i payload reali passano il loro schema", () => {

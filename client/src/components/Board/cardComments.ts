@@ -341,6 +341,12 @@ export type CardThreadRow = Pick<BoardTask, 'status' | 'assignedTopicId' | 'deli
  * ed è per questo che il server attacca `recentComments` solo a quella colonna.
  */
 export function showsCardThread(task: CardThreadRow): boolean {
+  // IN PROGRESS: the agent's own progress note, when the server sent one. The
+  // kickoff asks the agent to comment as soon as it has framed the work, and
+  // it does; the card showed a stopwatch. No fetch when the server did not send
+  // the rows (an older server): one GET per working card is the cost this
+  // transport exists to avoid.
+  if (task.status === 'in_progress') return progressWord(task.recentComments) !== null;
   if (task.status !== 'review') return false;
   // SE IL SERVER LI HA GIA' MANDATI, L'UNICA DOMANDA E' «c'e' qualcosa da
   // leggere?». Prima si pretendeva una sessione agente, e per le card senza
@@ -390,9 +396,32 @@ export function cardDetailNeed(task: CardThreadRow): 'none' | 'children' | 'thre
   return 'none';
 }
 
+/**
+ * THE AGENT'S LAST WORD ON A CARD STILL IN PROGRESS, or null.
+ *
+ * Only the agent: not the human's request (there is no answer to pair it
+ * with yet), not the machine's notes (a retry note is not progress), never a
+ * blank attachment-only row. Rows travel oldest first, so the scan runs from
+ * the end.
+ */
+export function progressWord(comments: readonly CardComment[] | undefined): CardComment | null {
+  if (!comments?.length) return null;
+  for (let i = comments.length - 1; i >= 0; i--) {
+    const c = comments[i]!;
+    if (!isThreadSpeech(c) || c.author === HUMAN_AUTHOR || isMachineVoice(c)) continue;
+    if (!c.content.trim()) continue;
+    return c;
+  }
+  return null;
+}
+
 /** I commenti che la card disegna, presi dalla riga della lista. `null` quando
  *  non c'è niente da mostrare o quando il server non li manda. */
 export function cardCommentsFromRow(task: CardThreadRow): CardComments | null {
+  if (task.status === 'in_progress') {
+    const latest = progressWord(task.recentComments);
+    return latest ? { latest, humanContext: null, latestIsPlumbing: false } : null;
+  }
   if (!showsCardThread(task) || !task.recentComments) return null;
   // I due numeri che la riga porta sempre: bastano a riconoscere una domanda
   // sui sottotask a cui i sottotask hanno gia' risposto. Il predicato e' quello

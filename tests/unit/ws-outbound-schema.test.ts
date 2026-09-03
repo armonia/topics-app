@@ -797,6 +797,19 @@ describe('validateOutbound — board + task', () => {
     expect(validateOutbound({ ...base, triage: 'si' }).ok).toBe(false);
   });
 
+  test('task:usage-live — `ended`, `lastTool` e `retry` sono facoltativi, ma con la loro forma', () => {
+    const base = {
+      type: 'task:usage-live', projectId: 'p-1', taskId: 't-1',
+      turnStartedAt: 1753700000000, baseMs: 0, liveTokens: 0, model: 'opus',
+    };
+    expect(validateOutbound({ ...base, ended: true }).ok).toBe(true);
+    expect(validateOutbound({ ...base, lastTool: null }).ok).toBe(true);
+    expect(validateOutbound({ ...base, lastTool: { name: 'Bash', input: 'bun test', since: 1 } }).ok).toBe(true);
+    expect(validateOutbound({ ...base, lastTool: { name: 'Bash' } }).ok).toBe(false);
+    expect(validateOutbound({ ...base, retry: { at: 2, attempt: 1, cap: 3, free: false, reason: 'Errore del provider', detail: '503' } }).ok).toBe(true);
+    expect(validateOutbound({ ...base, retry: { at: 2 } }).ok).toBe(false);
+  });
+
   test('board:global-cap — maxAgentsAuto è un BOOLEANO, non un numero', () => {
     expect(validateOutbound({ type: 'board:global-cap', maxAgentsAuto: true, maxAgents: 3 }).ok).toBe(true);
     expect(validateOutbound({ type: 'board:global-cap', maxAgentsAuto: 3, maxAgents: 3 }).ok).toBe(false);

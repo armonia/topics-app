@@ -1920,6 +1920,21 @@ describe("la lista: filtro per id, stato validato, commenti sulla card", () => {
     expect(testi[0]!.startsWith("Consegna: ramo topics/x")).toBe(true);
   });
 
+  test("recentComments: anche una card IN CORSO porta la parola dell'agente (e una in todo no)", () => {
+    // The kickoff asks for a comment as soon as the work is framed, and the
+    // agent writes it: attached to review only, the kanban showed a stopwatch.
+    // Todo stays without: 455 cards out of 467 have nothing to say.
+    const t = s.create({ projectId: PID, text: "work", status: "in_progress" });
+    s.addComment({ taskId: t.id, author: "claude", content: "Inquadrato: parto dal dispatcher." });
+    const idle = s.create({ projectId: PID, text: "idle", status: "todo" });
+    s.addComment({ taskId: idle.id, author: "claude", content: "non dovrebbe viaggiare" });
+
+    const rows = s.list({ scope: "all", rootsOnly: true, ids: [t.id, idle.id] });
+    const working = rows.find((r) => r.id === t.id)!;
+    expect(working.recentComments.map((c) => c.content)).toContain("Inquadrato: parto dal dispatcher.");
+    expect(rows.find((r) => r.id === idle.id)!.recentComments ?? []).toHaveLength(0);
+  });
+
   /**
    * A DECLARED DELIVERY ALWAYS TRAVELS, and it needs a guarantee of its own.
    *

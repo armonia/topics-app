@@ -947,6 +947,33 @@ const taskUsageLiveSchema = z.looseObject({
   // del client non lo manda: assente vale come falso, e nessuna delle due metà si
   // rompe per un chip.
   triage: z.optional(z.boolean()),
+  // "The turn ended": the card drops the live chip AT ONCE. It used to drop it
+  // on the first `task:updated` whose chip was not `working`, and a dead turn
+  // the dispatcher retries sends none, so the stopwatch ran over a session
+  // that was not answering. Optional for the same reason as `triage`.
+  ended: z.optional(z.boolean()),
+  // "What is it doing NOW": the running tool, its input reduced to one line,
+  // since when. `null` when no tool is running or the host cannot tell.
+  lastTool: z.optional(z.nullable(z.object({
+    name: z.string(),
+    input: z.nullable(z.string()),
+    since: z.number(),
+  }))),
+  // THE WAIT before a retry: the turn died (usually the provider) and the
+  // dispatcher retries at `at`. Transient like the rest of the event, because
+  // it is a timer in the process: after a restart it no longer exists.
+  retry: z.optional(z.nullable(z.object({
+    /** When the retry fires (epoch ms): the card counts down to it. */
+    at: z.number(),
+    attempt: z.number(),
+    cap: z.number(),
+    /** The attempt is not counted (provider error, human stop). */
+    free: z.boolean(),
+    /** Why the turn ended, as `describeTurnEnd` says it. */
+    reason: z.string(),
+    /** The raw error text, for the tooltip. */
+    detail: z.nullable(z.string()),
+  }))),
 });
 
 // «Questo task sta aspettando una PERSONA», mentre il turno è ancora vivo: un

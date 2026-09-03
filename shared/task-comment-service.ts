@@ -183,6 +183,35 @@ export function isServiceComment(c: ThreadComment): boolean {
   return isMarkedService(c) || isLegacyDispatcherNote(c);
 }
 
+/**
+ * THE NOTES THE LAND LEAVES BEHIND on a card that is now closed.
+ *
+ * NOT service in `isServiceComment`, and the header of this file says why:
+ * they are outcomes, and on a card still open they are read where they sit.
+ * On a DONE card they are the last words of the thread, above the delivery
+ * that says what changed: measured on the last 30 done cards, 9 closed on
+ * the "stopped the agent, its work just landed" note. The drawer of a closed
+ * card folds them like bookkeeping; every other surface keeps reading them.
+ *
+ * Same fence as `LEGACY_DISPATCHER_NOTES`: machine author, frozen wordings
+ * that exist on disk, positive match.
+ */
+export const LAND_HYGIENE_NOTES: readonly RegExp[] = [
+  /^Fermato l'agente che stava ancora lavorando su questa card/,
+  /^Worktree e branch del task ripuliti/,
+];
+
+export function isLandHygieneNote(c: ThreadComment): boolean {
+  if (c.author !== SYSTEM_AUTHOR) return false;
+  if (c.kind !== 'comment' && c.kind !== SERVICE_KIND) return false;
+  return LAND_HYGIENE_NOTES.some((re) => re.test(c.content));
+}
+
+/** What folds in the thread of a CLOSED card: the bookkeeping, plus the land's hygiene. */
+export function isDoneThreadService(c: ThreadComment): boolean {
+  return isServiceComment(c) || isLandHygieneNote(c);
+}
+
 /** The kind the board writes for a status transition ("chi l'ha spostata"). */
 export const STATUS_KIND = 'status';
 
@@ -249,10 +278,12 @@ export function groupStatusRuns<T extends ThreadComment>(
 export function groupServiceRuns<T extends ThreadComment>(
   comments: readonly T[],
   breaksRun?: (comment: T, index: number) => boolean,
+  /** What counts as service here; the default is the thread's own rule. */
+  isService: (comment: T) => boolean = isServiceComment,
 ): Array<ThreadRun<T>> {
   const runs: Array<ThreadRun<T>> = [];
   comments.forEach((c, i) => {
-    const service = isServiceComment(c);
+    const service = isService(c);
     const last = runs[runs.length - 1];
     const cut = i > 0 && !!breaksRun?.(c, i);
     if (last && last.service === service && !cut) last.comments.push(c);

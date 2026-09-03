@@ -27,10 +27,10 @@ import { taskChoiceState } from './taskChoices';
 import { sendBackDest, sendBackWord, taskActionWord } from './taskActionWords';
 import { useT, useLocale } from '../../hooks/useT';
 import { stripMarkdown } from '../../lib/stripMarkdown';
-import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, COMMENTO_PIEGA_CHARS, RICHIESTA_PIEGA_CHARS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
+import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, COMMENTO_PIEGA_CHARS, RICHIESTA_PIEGA_CHARS, mediaPaneIdFor, type LiveTool, type LiveUsage, type OpenTask, type RetryWait } from './constants';
 import { copyText } from '../../lib/clipboard';
 import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState } from '../../lib/taskSession';
-import { fmtMs, fmtLive, fmtTok, fmtModel, fmtUpdatedAt, fmtAttesa, taskCopyText } from './format';
+import { fmtMs, fmtLive, liveToolLabel, fmtTok, fmtModel, fmtUpdatedAt, fmtAttesa, taskCopyText } from './format';
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
 import { taskHasWork, uncommittedChipCount } from './chipKey';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
@@ -1377,6 +1377,30 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           )}
         </div>
       )}
+      {/* THE AGENT'S PROGRESS NOTE on a card still in progress. The kickoff
+          asks for a comment as soon as the work is framed, and the agent
+          writes it; the card showed a stopwatch and the words stayed in the
+          thread. Same clamp and fold as the review's word, no request pair:
+          there is no answer to pair a request with yet. */}
+      {task.status === 'in_progress' && showsQuestion && lastComment && (
+        <div className="mt-2" data-testid="card-progress-word">
+          <div
+            className={`text-xs leading-relaxed text-app-text-heading ${COMPACT_MD_CLS} ${commentoAperto ? '' : 'line-clamp-[10]'}`}
+            title={`${commentAuthorLabel(lastComment.author).label}: ${stripMarkdown(lastComment.content)}`}
+          >
+            <ChatMarkdown components={{}}>{questionToProse(lastComment.content)}</ChatMarkdown>
+          </div>
+          {lastComment.content.length > COMMENTO_PIEGA_CHARS && (
+            <button
+              data-testid="card-comment-toggle"
+              onClick={(e) => { e.stopPropagation(); setCommentoAperto((v) => !v); }}
+              className="text-xs md:text-[10px] text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
+            >
+              {commentoAperto ? tr('board.card.commentLess') : tr('board.card.commentMore')}
+            </button>
+          )}
+        </div>
+      )}
       {/* THE CARD'S FOOT: what is happening to the turn, and what it has cost
           so far. The same place in every column.
           ═══════════════════════════════════════════════════════════════════
@@ -1418,14 +1442,21 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             l'agente sta leggendo e inquadrando, e il titolo che si sta per
             leggere è ancora quello buttato giù di fretta. Sta PRIMA del chip
             vivo perché è la fase, e il chip vivo è la misura. */}
-        {live?.triage && task.dispatchState === 'working' && (
+        {live?.triage && !live.retry && task.dispatchState === 'working' && (
           <span
             data-testid="card-triage"
             title={tr('board.card.triageTitle')}
             className="shrink-0 whitespace-nowrap rounded bg-violet-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-violet-300"
           >{tr('board.card.triage')}</span>
         )}
-        {live && task.dispatchState === 'working' ? (
+        {/* THE WAIT BEFORE A RETRY takes the live chip's place. The turn is
+            dead and the dispatcher is counting down; a stopwatch here was the
+            board claiming work over a session that was not answering, on
+            every card at once during a provider outage. */}
+        {live?.retry && task.dispatchState === 'working' && (
+          <RetryWaitChip retry={live.retry} disabled={busy} onRetryNow={() => steer(RETRY_NOW_MESSAGE)} />
+        )}
+        {live && !live.retry && task.dispatchState === 'working' ? (
           <LiveEffortChip usage={live} />
         ) : (task.model || task.agentMs > 0 || task.agentTokens > 0) ? (
           // The model always lives here, in the time/effort chip — never as a
@@ -1476,6 +1507,34 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           title={tr('board.card.lastUpdate', { when: new Date(task.updatedAt).toLocaleString(locale) })}
         >{fmtUpdatedAt(task.updatedAt)}</span>
       </div>
+      {/* WHAT IT IS DOING RIGHT NOW: the tool the session is running and for
+          how long. A 14-minute stopwatch did not tell a unit suite that has
+          been running nine minutes from an agent that is stuck; the answer was
+          in the chat, which is what the board was meant to spare. One line,
+          under the measures, muted: a fact about the minute, not the card. */}
+      {live?.lastTool && !live.retry && task.dispatchState === 'working' && (
+        <LiveToolLine tool={live.lastTool} />
+      )}
+      {/* SET ASIDE, AND WHY. A parked card (failed, blocked, stopped, waited
+          out) kept its reason in the chip's tooltip, invisible on touch, and
+          offered no gesture: the way back was guessing that a drag to Todo
+          restarts it. The reason is printed, and the choice row makes the
+          same PATCH the drag makes. Stop on the CONTROLS only: the reason is
+          part of the card, and the card is the button that opens the drawer. */}
+      {choiceState === 'parked' && (
+        <div className="mt-1.5 space-y-1.5">
+          {task.dispatchError && (
+            <p
+              data-testid="card-dispatch-error"
+              className="line-clamp-3 break-words text-xs md:text-[11px] leading-snug text-app-text-muted"
+              title={task.dispatchError}
+            >{task.dispatchError}</p>
+          )}
+          <div onClick={(e) => e.stopPropagation()}>
+            <TaskChoiceRow task={task} disabled={busy} onDone={choiceDone} onError={choiceFailed} />
+          </div>
+        </div>
+      )}
       {/* Steer a WORKING agent right from the card ("anche da kanban"): the
           message is buffered and handed to the agent at the next turn. */}
       {agentBusy && (
@@ -1690,6 +1749,72 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
     </div>
   );
 });
+
+/**
+ * "Retry now" is a human comment on the working card: the /comments route
+ * hands it to `dispatcher.resume`, which finds no turn in flight, starts one
+ * at once and clears the retry timer on its way (`beginRun`). Same door as
+ * the deliver-now choice: the words reach the agent, and the thread keeps the
+ * trace that a person pressed it. The text is what the agent reads, in the
+ * envelope's fallback language, like the deliver-now sentence.
+ */
+const RETRY_NOW_MESSAGE = "Riprova adesso: il turno precedente e' finito per un errore, riprendi da dove eri."; // allow-italian: the sentence the agent reads
+
+/**
+ * The countdown to the retry, in the live chip's slot, with the reason and
+ * the attempt count next to it ("retrying in 42s, provider error, 2/4"). The
+ * raw error text is in the tooltip. "Retry now" skips the timer.
+ */
+export function RetryWaitChip({ retry, disabled, onRetryNow }: { retry: RetryWait; disabled?: boolean; onRetryNow: () => void }) {
+  const tr = useT();
+  const [, force] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => force((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  // eslint-disable-next-line react-hooks/purity -- countdown: re-renders every 1s (interval above) and reads the clock each render on purpose
+  const left = Math.max(0, retry.at - Date.now());
+  return (
+    <span
+      data-testid="card-retry-wait"
+      className="inline-flex min-w-0 items-center gap-1.5 rounded bg-amber-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-amber-300 tabular-nums"
+      title={retry.detail ? tr('board.card.retryTitle', { detail: retry.detail }) : retry.reason}
+    >
+      <span className="truncate">
+        {tr('board.card.retryIn', { in: fmtLive(left), reason: retry.reason, attempt: retry.attempt, cap: retry.cap })}
+        {retry.free ? tr('board.card.retryFree') : ''}
+      </span>
+      <button
+        type="button"
+        data-testid="card-retry-now"
+        disabled={disabled}
+        onClick={(e) => { e.stopPropagation(); onRetryNow(); }}
+        title={tr('board.card.retryNowTitle')}
+        className="shrink-0 rounded bg-amber-500/25 px-1.5 py-px text-[10px] font-medium text-amber-100 hover:bg-amber-500/40 disabled:opacity-50"
+      >{tr('board.card.retryNow')}</button>
+    </span>
+  );
+}
+
+/** "Bash · bun run test:unit · 3m": the running tool and for how long, ticking. */
+export function LiveToolLine({ tool }: { tool: LiveTool }) {
+  const tr = useT();
+  const [, force] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => force((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  // eslint-disable-next-line react-hooks/purity -- live tool line: re-renders every 1s (interval above) and reads the clock each render on purpose
+  const since = fmtLive(Math.max(0, Date.now() - tool.since));
+  const label = liveToolLabel(tool);
+  return (
+    <p
+      data-testid="card-live-tool"
+      className="mt-1 truncate text-xs md:text-[11px] tabular-nums text-app-text-muted"
+      title={tr('board.card.liveToolTitle', { tool: label, since })}
+    >{label} · {since}</p>
+  );
+}
 
 /**
  * Live effort chip shown while a turn runs: model · execution-time · tokens,
