@@ -10,10 +10,12 @@
 import { describe, expect, test } from "bun:test";
 import {
   chatDaRiprendere, FINESTRA_RIPRESA_MS, MAX_RESUME_ATTEMPTS, riprendiTurniInterrotti,
-  RESPONSE_CEILING_MS, STREAM_CEILING_MS, type RigaDaValutare,
+  RESPONSE_CEILING_MS, STREAM_CEILING_MS, RESUME_CAP_MARKER, attemptsInChain, attemptsOnRow,
+  resumeVerdict, type RigaDaValutare,
 } from "./ripresa-boot";
 import { Database } from "bun:sqlite";
 import { insertRestartNotification } from "./boot-partial-sweep";
+import { eCartelloDiInterruzione } from "./cancelled-notice";
 import { decodeCol } from "../../shared/message-blob";
 import type { ContentBlock } from "../types";
 
@@ -26,6 +28,7 @@ const base: RigaDaValutare = {
   ruolo: "assistant",
   blocks: [prosa, interrotto],
   timestampMs: ORA - 60_000,
+  attempts: 0,
 };
 
 describe("quale chat riprende da sola", () => {
@@ -46,26 +49,41 @@ describe("quale chat riprende da sola", () => {
     expect(chatDaRiprendere({ ...base, blocks: [prosa] }, ORA)).toBe(false);
   });
 
-  test("già ripreso: si CONTA, non è un interruttore", () => {
-    // The defect this case used to guard the wrong way. The trace is written
-    // BEFORE the resend, on purpose: written after, a resend that dies halfway
-    // would be retried forever. As a switch, though, that price was paid on the
-    // first try, and a resend that got CUT - the server restarting while the
-    // resumed turn was running - burned the single chance. From then on every
-    // boot skipped that row, under a notice promising it would resume on its own.
+  test("già ripreso: si CONTA sulla catena, non è un interruttore", () => {
+    // The trace is written BEFORE the resend, on purpose: written after, a
+    // resend that dies halfway would be retried forever. As a switch, though,
+    // that price was paid on the first try, and a resend that got CUT - the
+    // server restarting while the resumed turn was running - burned the single
+    // chance. From then on every boot skipped that row, under a notice
+    // promising it would resume on its own. Measured on 2026-08-29 on
+    // topic:0299ac2d, reported four times.
     //
-    // Measured on 2026-08-29 on topic:0299ac2d, reported four times: of its four
-    // answers, the two that never resumed were exactly the two marked.
-    const con = (n: number) => [
-      ...base.blocks!,
-      ...Array.from({ length: n }, () => ({ kind: "ripreso" }) as ContentBlock),
-    ];
-    // One cut attempt does not close the door: that is the user's real case.
-    expect(chatDaRiprendere({ ...base, blocks: con(1) }, ORA)).toBe(true);
-    expect(chatDaRiprendere({ ...base, blocks: con(2) }, ORA)).toBe(true);
-    // And the loop stays impossible, which is what the old case protected.
-    expect(chatDaRiprendere({ ...base, blocks: con(MAX_RESUME_ATTEMPTS) }, ORA)).toBe(false);
-    expect(chatDaRiprendere({ ...base, blocks: con(MAX_RESUME_ATTEMPTS + 5) }, ORA)).toBe(false);
+    // The count is the CHAIN's, handed in by the caller: one cut attempt does
+    // not close the door, the cap does, and past the cap the verdict is not a
+    // silent "no" but "capped", which the loop turns into a notice in the chat.
+    expect(chatDaRiprendere({ ...base, attempts: 1 }, ORA)).toBe(true);
+    expect(resumeVerdict({ ...base, attempts: MAX_RESUME_ATTEMPTS }, ORA)).toBe("capped");
+    expect(resumeVerdict({ ...base, attempts: MAX_RESUME_ATTEMPTS + 5 }, ORA)).toBe("capped");
+    // "capped" is only for rows that DESERVED the resend: a row with no
+    // interruption of ours past the cap is a plain "no", nothing gets written.
+    expect(resumeVerdict({ ...base, blocks: [prosa], attempts: MAX_RESUME_ATTEMPTS }, ORA)).toBe("no");
+    expect(resumeVerdict({ ...base, ruolo: "user", attempts: MAX_RESUME_ATTEMPTS }, ORA)).toBe("no");
+  });
+
+  test("il cartello del tetto non e' un'interruzione: il boot dopo non lo riprende", () => {
+    // Written with the same ⚠️ shape the client renders as "Riprova", it would  allow-italian: button label
+    // be the perfect fuel for the loop it closes if the recogniser took it.
+    expect(RESUME_CAP_MARKER.startsWith("⚠️")).toBe(true);
+    expect(eCartelloDiInterruzione(RESUME_CAP_MARKER)).toBe(false);
+    expect(chatDaRiprendere({ ...base, blocks: [{ kind: "error", text: RESUME_CAP_MARKER }] }, ORA)).toBe(false);
+  });
+
+  test("il numero del tentativo si legge dai blocchi, e le righe vecchie valgono uno", () => {
+    expect(attemptsOnRow([prosa, interrotto])).toBe(0);
+    expect(attemptsOnRow([prosa, interrotto, { kind: "ripreso" }])).toBe(1);
+    expect(attemptsOnRow([{ kind: "ripreso", attempt: 2 }, prosa])).toBe(2);
+    expect(attemptsOnRow([{ kind: "ripreso", attempt: 1 }, interrotto, { kind: "ripreso", attempt: 2 }])).toBe(2);
+    expect(attemptsOnRow(null)).toBe(0);
   });
 
   test("fuori finestra: non si risponde a una domanda di ieri", () => {
@@ -182,6 +200,7 @@ describe("the notice the boot ACTUALLY writes is resumed", () => {
       ruolo: "assistant",
       blocks: blocks as ContentBlock[] | null,
       timestampMs,
+      attempts: 0,
     };
     expect(chatDaRiprendere(row, timestampMs + 60_000)).toBe(true);
   });
@@ -284,5 +303,169 @@ describe("una route che non risponde non pianta il boot", () => {
     // the stream is the whole turn.
     expect(RESPONSE_CEILING_MS).toBeGreaterThanOrEqual(30_000);
     expect(STREAM_CEILING_MS).toBeGreaterThanOrEqual(5 * 60_000);
+  });
+});
+
+/**
+ * THE CHAIN, which the per-row counter could not see.
+ *
+ * The cap counted `ripreso` blocks on ONE row. But a resumed turn that gets
+ * cut by the NEXT restart is a NEW row (the resend's answer), and the boot
+ * notice that explains it is a newer row still: every link starts from zero,
+ * and MAX_RESUME_ATTEMPTS is never reached. Read on the live DB, topic:6b9605e5,
+ * 2026-09-02 between 08:46 and 09:27: the same message resent FIVE times, each
+ * answer redoing every tool round from scratch, five "ripreso" banners in the  allow-italian: block name
+ * chat, and every resumed turn holding the next restart.
+ *
+ * Three boots, one message. Boot 1 kills the turn and resumes it. Boot 2 kills
+ * the resumed turn and resumes it once more: that is the one automatic retry.
+ * Boot 3 kills it again and STOPS, and it says so in the chat, with the same
+ * notice shape restart-interrupted turns already get (⚠️ + "Riprova").  allow-italian: button label
+ *
+ * @covers RESUME-01
+ */
+describe("la catena dei riavvii ha un tetto", () => {
+  const MESSAGE = "misura la catena";
+
+  function freshDb(): Database {
+    const db = new Database(":memory:");
+    db.run(`CREATE TABLE messages (
+      id TEXT PRIMARY KEY, session_key TEXT, role TEXT, content TEXT, blocks TEXT,
+      partial INTEGER, timestamp TEXT, sort_order INTEGER, parent_id TEXT, branch_index INTEGER
+    )`);
+    db.run(
+      "INSERT INTO messages (id, session_key, role, content, partial, timestamp, sort_order, branch_index) VALUES ('u0','topic:x','user',?,0,?,0,0)",
+      [MESSAGE, new Date().toISOString()],
+    );
+    return db;
+  }
+
+  const lastRow = (db: Database) => db.query(
+    "SELECT id, role, content, blocks FROM messages WHERE session_key = 'topic:x' ORDER BY sort_order DESC, rowid DESC LIMIT 1",
+  ).get() as { id: string; role: string; content: string; blocks: unknown };
+  const blocksOf = (raw: unknown) => JSON.parse(decodeCol(raw) ?? "[]") as ContentBlock[];
+
+  /** What boot-partial-sweep does when the server comes back and finds the
+   *  turn that died with it: the ⚠️ notice, parented to the last row. */
+  let notices = 0;
+  const serverDiedUnderTheTurn = (db: Database) => insertRestartNotification(
+    db as unknown as Parameters<typeof insertRestartNotification>[0],
+    "topic:x",
+    { generateId: () => `notice-${++notices}`, now: () => new Date().toISOString() },
+  );
+
+  /** The chat route, as far as the resume can see it: it deposits the resent
+   *  user message and an answer carrying the same banner `chat.ts` pushes,
+   *  then returns a stream that closes. The answer will be "cut" by the test
+   *  calling `serverDiedUnderTheTurn` afterwards. */
+  function chatRoute(db: Database, calls: Array<Record<string, unknown>>): Parameters<typeof riprendiTurniInterrotti>[1] {
+    return async (req) => {
+      const body = await req.json() as Record<string, unknown>;
+      calls.push(body);
+      const n = calls.length;
+      const parent = lastRow(db);
+      const order = (db.query("SELECT COALESCE(MAX(sort_order), -1) AS mo FROM messages").get() as { mo: number }).mo;
+      db.run(
+        "INSERT INTO messages (id, session_key, role, content, partial, timestamp, sort_order, parent_id, branch_index) VALUES (?,?,'user',?,0,?,?,?,0)",
+        [`u${n}`, "topic:x", MESSAGE, new Date().toISOString(), order + 1, parent.id],
+      );
+      const banner: ContentBlock = typeof body.ripresa === "number"
+        ? ({ kind: "ripreso", attempt: body.ripresa } as ContentBlock)
+        : { kind: "ripreso" };
+      db.run(
+        "INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order, parent_id, branch_index) VALUES (?,?,'assistant','',?,0,?,?,?,0)",
+        [`a${n}`, "topic:x", JSON.stringify([banner, { kind: "tool", toolCall: { id: "t", name: "Bash", args: {}, status: "success" } }]), new Date().toISOString(), order + 2, `u${n}`],
+      );
+      return new Response(new ReadableStream({ start(c) { c.close(); } }), { status: 200 });
+    };
+  }
+
+  const ctxOf = (db: Database): Parameters<typeof riprendiTurniInterrotti>[0] => ({ db, getTopicBySessionKey: () => ({ archived: false }) });
+  const quietly = async (work: () => Promise<void>) => {
+    const log = console.log, warn = console.warn;
+    console.log = () => {}; console.warn = () => {};
+    try { await work(); } finally { console.log = log; console.warn = warn; }
+  };
+
+  test("tre boot di fila: ripreso, ripreso una seconda volta, poi fermo e detto in chat", async () => {
+    const db = freshDb();
+    const calls: Array<Record<string, unknown>> = [];
+    const route = chatRoute(db, calls);
+
+    // Boot 1: the turn died with the server, the notice is written, the resume fires.
+    serverDiedUnderTheTurn(db);
+    await quietly(() => riprendiTurniInterrotti(ctxOf(db), route, { responseMs: 500, streamMs: 500 }));
+    expect(calls.length).toBe(1);
+    expect(calls[0].ripresa).toBe(1);
+
+    // Boot 2: the RESUMED turn died with the server. One automatic retry.
+    serverDiedUnderTheTurn(db);
+    await quietly(() => riprendiTurniInterrotti(ctxOf(db), route, { responseMs: 500, streamMs: 500 }));
+    expect(calls.length).toBe(2);
+    expect(calls[1].ripresa).toBe(2);
+
+    // Boot 3: cut again. The chain has spent MAX_RESUME_ATTEMPTS: no resend...
+    serverDiedUnderTheTurn(db);
+    await quietly(() => riprendiTurniInterrotti(ctxOf(db), route, { responseMs: 500, streamMs: 500 }));
+    expect(calls.length).toBe(MAX_RESUME_ATTEMPTS);
+    // ...and the chat SAYS so, in the shape the client already renders as an
+    // amber banner with the "Riprova" button: ⚠️ prefix, error block only.  allow-italian: button label
+    const cap = lastRow(db);
+    expect(cap.role).toBe("assistant");
+    expect(cap.content.startsWith("⚠️")).toBe(true);
+    expect(cap.content).toContain("Riprova");
+    const capBlocks = blocksOf(cap.blocks);
+    expect(capBlocks.length).toBe(1);
+    expect(capBlocks[0].kind).toBe("error");
+
+    // Boot 4: the cap notice is the last row. Nothing resumes, nothing is
+    // written twice.
+    const rowsBefore = (db.query("SELECT COUNT(*) AS n FROM messages").get() as { n: number }).n;
+    await quietly(() => riprendiTurniInterrotti(ctxOf(db), route, { responseMs: 500, streamMs: 500 }));
+    expect(calls.length).toBe(MAX_RESUME_ATTEMPTS);
+    expect((db.query("SELECT COUNT(*) AS n FROM messages").get() as { n: number }).n).toBe(rowsBefore);
+  });
+
+  test("il tetto e' due: una ripresa e un solo tentativo in piu'", () => {
+    expect(MAX_RESUME_ATTEMPTS).toBe(2);
+  });
+
+  /**
+   * The walk itself, on the two shapes a cut resend leaves behind.
+   *
+   * Graceful shutdown writes the verdict ON the cut answer (`avvisoPerTurno`),
+   * so the row being judged already carries the banner. A SIGKILL leaves the
+   * answer partial, and the next boot's sweep explains it with a NEW notice
+   * row that carries nothing: the banner is one hop up. Both must count the
+   * same, and a turn the user asked for afresh must count as zero.
+   */
+  test("la catena si legge lungo parent_id, in entrambe le forme del taglio", () => {
+    const db = freshDb();
+    const insertRow = (id: string, role: string, blocks: ContentBlock[] | null, parent: string | null) => db.run(
+      "INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order, parent_id, branch_index) VALUES (?,?,?,?,?,0,?,?,?,0)",
+      [id, "topic:x", role, "", blocks ? JSON.stringify(blocks) : null, new Date().toISOString(), Number(id.replace(/\D/g, "")) || 1, parent],
+    );
+    const tool = (): ContentBlock => ({ kind: "tool", toolCall: { id: "t", name: "Bash", args: {}, status: "success" } }) as ContentBlock;
+    // Boot 1 explained a0 with a notice n0, then resumed (trace #1 on n0).
+    insertRow("a0", "assistant", [tool()], "u0");
+    insertRow("n0", "assistant", [interrotto, { kind: "ripreso", attempt: 1 }], "a0");
+    insertRow("u1", "user", null, "n0");
+    // Shape A: the resumed answer, cut gracefully: verdict on the row itself.
+    insertRow("a1", "assistant", [{ kind: "ripreso", attempt: 1 }, tool(), interrotto], "u1");
+    expect(attemptsInChain(db, "topic:x", "a1")).toBe(1);
+    // Boot 2 resumed it (trace #2 on a1), and the answer was SIGKILLed:
+    // shape B, the sweep's fresh notice n2 with nothing on it.
+    db.run("UPDATE messages SET blocks = ? WHERE id = 'a1'", [JSON.stringify([{ kind: "ripreso", attempt: 1 }, tool(), interrotto, { kind: "ripreso", attempt: 2 }])]);
+    insertRow("u2", "user", null, "a1");
+    insertRow("a2", "assistant", [{ kind: "ripreso", attempt: 2 }, tool()], "u2");
+    insertRow("n2", "assistant", [interrotto], "a2");
+    expect(attemptsInChain(db, "topic:x", "n2")).toBe(2);
+    // A new message from the user after all that: its own turn, its own chain.
+    insertRow("u3", "user", null, "n2");
+    insertRow("a3", "assistant", [tool()], "u3");
+    insertRow("n3", "assistant", [interrotto], "a3");
+    expect(attemptsInChain(db, "topic:x", "n3")).toBe(0);
+    // A row nobody has resumed yet, with the very first notice: zero.
+    expect(attemptsInChain(db, "topic:x", "a0")).toBe(0);
   });
 });

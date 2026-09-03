@@ -115,14 +115,20 @@ export function runBootPartialSweep(
  *
  * `generateId` e' iniettato per rendere la funzione deterministica in test.
  * `now` e' iniettato per lo stesso motivo.
+ *
+ * `text` is the notice to write, RESTART_INTERRUPTED_MARKER by default. It is
+ * overridden by whoever has another verdict to put in the thread with the same
+ * shape (⚠️ + retry button): the boot resume, when it has spent its attempts on
+ * the same chain and has to say so instead of stopping in silence.
  */
 export function insertRestartNotification(
   db: PartialSweepDb,
   sessionKey: string,
-  opts: { generateId?: () => string; now?: () => string } = {},
+  opts: { generateId?: () => string; now?: () => string; text?: string } = {},
 ): void {
   const generateId = opts.generateId ?? (() => crypto.randomUUID());
   const now = opts.now ?? (() => new Date().toISOString());
+  const text = opts.text ?? RESTART_INTERRUPTED_MARKER;
 
   const maxRow = db.query(
     "SELECT COALESCE(MAX(sort_order), -1) AS mo FROM messages WHERE session_key = ?"
@@ -155,10 +161,10 @@ export function insertRestartNotification(
   // nobody asked whether the notice actually written was one the rule accepts.
   // Read in the chat on 2026-08-28: "now it gives me turn interrupted by a
   // restart", and no resume. The mechanism was on, and could not fire.
-  const verdict = JSON.stringify([{ kind: "error", text: RESTART_INTERRUPTED_MARKER }]);
+  const verdict = JSON.stringify([{ kind: "error", text }]);
   db.run(
     `INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order, parent_id, branch_index)
      VALUES (?, ?, 'assistant', ?, ?, 0, ?, ?, ?, 0)`,
-    [generateId(), sessionKey, RESTART_INTERRUPTED_MARKER, verdict, now(), nextOrder, ultimo?.id ?? null]
+    [generateId(), sessionKey, text, verdict, now(), nextOrder, ultimo?.id ?? null]
   );
 }
