@@ -340,9 +340,12 @@ export const TopicItem = memo(function TopicItem({
             className={cn('transition-transform duration-150', isExpanded && 'rotate-90')}
           />
         </button>
-      ) : (
+      ) : depth === 0 ? (
+        // Only at the top of the tree, where the project rows open: below
+        // it nothing has an accordion (sub-agents nest without one), so the
+        // box was 16px of air on every nested row (card 058ea722, 2026-09-03).
         <span aria-hidden="true" data-row-chevron-slot="empty" className={ROW_CHEVRON_SLOT} />
-      )}
+      ) : null}
 
       {/* IL GLIFO D'ARCHIVIO IN TESTA NON C'È PIÙ, ed è la metà visibile della
           decisione «uno stato solo» (vedi ARCHIVED_ROW in selectionStyles).

@@ -572,15 +572,12 @@ export function PinnedTile({
         >
           <ExpandChevron expanded={expanded} />
         </span>
-      ) : align.reservesChevron ? (
-        // IN ROW FORM THE COLUMN COMES FIRST. A pinned row that does not open
-        // reserves the accordion box anyway, or its icon would start 20px
-        // (slot + gap) left of the icon of the row above it - the same two
-        // alignments the tree had. In GRID form nothing is reserved: there the
-        // tile is centred and the trigger's weight is mirrored on the other
-        // side (see above), so an empty box would push the identity off centre.
-        <span aria-hidden="true" data-row-chevron-slot="empty" className={ROW_CHEVRON_SLOT} />
       ) : null}
+      {/* A tile that does not open reserves NOTHING on the leading side, in
+          either form. The row form used to keep the accordion box "like the
+          tree": but the pinned block is not the tree, no tile beside it opens
+          in that column, and the box was 16px of air before every name
+          (card 058ea722, 2026-09-03). */}
 
       {/* IL CONTENITORE DELL'ICONA SPARISCE QUANDO NON C'E' UN'ICONA.
           Un riquadro largo ZERO non occupa spazio, ma il `gap-2` della riga

@@ -53,10 +53,9 @@ describe('pinned tiles: the form decides the alignment', () => {
   });
 
   test('in grid form nothing is reserved on the leading side', () => {
-    // A fixed box wider than what it holds, or an empty accordion box, is air
-    // on one side only: that asymmetry IS "pushed to the right".
+    // A fixed box wider than what it holds is air on one side only: that
+    // asymmetry IS "pushed to the right". (The accordion box is reserved by no
+    // tile of either form since card 058ea722: the pinned block is not the tree.)
     expect(PINNED_ALIGN.grid.iconSlot).not.toContain('w-[');
-    expect(PINNED_ALIGN.grid.reservesChevron).toBe(false);
-    expect(PINNED_ALIGN.row.reservesChevron).toBe(true);
   });
 });

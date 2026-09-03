@@ -1706,9 +1706,9 @@ export function TopicTree({
             }`}
             style={{ width: `calc(100% - ${ROW_INSET * 2}px)` }}
           >
-            {/* The accordion column, empty: the board row does not expand, and
-                it shares the column with the project rows that do. */}
-            <span aria-hidden="true" data-row-chevron-slot="empty" className={ROW_CHEVRON_SLOT} />
+            {/* No accordion box: the board row stands alone above the pinned
+                block, not in the list of the project rows, so a reserved
+                column here aligned it with nothing (card 058ea722). */}
             {/* Glifo neutro come ogni altra riga: il verde faceva sembrare la
                 board un tipo a parte, e nella sidebar il colore è riservato a
                 uno STATO (attenzione, selezione), non a un'identità. Qui sotto
@@ -2260,11 +2260,11 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
       onContextMenu={hasMenu ? (e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); } : undefined}
     >
       {pendingClose && <PendingActionProgressOverlay status={pendingClose} />}
-      {/* The accordion column. A terminal never opens one, but the column is
-          the sidebar's, not the row's: without this box the glyph of a terminal
-          would sit where the CHEVRON of a chat with children sits, and its name
-          20px left of every other name at the same depth. */}
-      <span aria-hidden="true" data-row-chevron-slot="empty" className={ROW_CHEVRON_SLOT} />
+      {/* The accordion column, only at the top of the tree where the project
+          rows open: there a terminal without the box would put its glyph where
+          their CHEVRON sits. Below, nothing opens, and the box was 16px of air
+          on every nested row (card 058ea722). */}
+      {depth === 0 && <span aria-hidden="true" data-row-chevron-slot="empty" className={ROW_CHEVRON_SLOT} />}
       <button
         onClick={() => { signalsActions.clearTerminalFinished(s.id); onTerminalClick?.(s.id, s.name); }}
         className="flex items-center gap-2 flex-1 min-w-0 h-full text-left"
@@ -2695,10 +2695,9 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
       onContextMenu={hasMenu ? (e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); } : undefined}
     >
       {pendingClose && <PendingActionProgressOverlay status={pendingClose} />}
-      {/* The accordion column, empty here: same reason as the terminal row -
-          a browser row has nothing to expand, but it shares the column with
-          rows that do. */}
-      <span aria-hidden="true" data-row-chevron-slot="empty" className={ROW_CHEVRON_SLOT} />
+      {/* The accordion column, same rule as the terminal row: reserved only
+          at the top of the tree, where the project rows open. */}
+      {depth === 0 && <span aria-hidden="true" data-row-chevron-slot="empty" className={ROW_CHEVRON_SLOT} />}
       {/* Lo slot NON porta più `mr-2`: la riga ha ora il `gap` condiviso
           (`ROW_GAP`, 8px) come ogni altra, quindi lo spazio verso il nome è
           quello di tutti. Il margine a mano c'era perché i comandi in coda

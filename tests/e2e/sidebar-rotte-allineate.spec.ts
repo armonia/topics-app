@@ -68,8 +68,9 @@ test.describe("Sidebar · le rotte partono dalla stessa colonna", () => {
     for (const id of creati) await deleteTopic(request, id).catch(() => {});
   });
 
-  test("ROTTE-01: il nome di un progetto senza favicon parte dalla stessa x di uno che ce l'ha", async ({ page }) => {
+  test("ROTTE-01: il nome di un progetto senza favicon parte dove l'altro disegna la favicon", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "ROWALIGN-01" });
+    test.info().annotations.push({ type: "spec", description: "ROWGLYPH-01" });
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
 
@@ -89,10 +90,25 @@ test.describe("Sidebar · le rotte partono dalla stessa colonna", () => {
 
     // I NUMERI OSSERVATI, sempre, anche quando passa: senza, un verde dice solo
     // «non e' peggiorato» e non permette di rispondere a «di quanto era fuori?».
-    console.log(`[ROTTE-01] con favicon x=${xCon} · senza favicon x=${xWithout} · scarto ${Math.abs(xCon! - xWithout!).toFixed(1)}px`);
+    // RIBALTATO il 03/09/2026 (card 058ea722, ROWGLYPH-01): il progetto senza
+    // favicon non disegna piu' la scatola del glifo, quindi il suo nome parte
+    // PRIMA, esattamente dove l'altro disegna la favicon. Stessa colonna,
+    // un pezzo in meno: non «due colonne diverse».
+    // Stessa base di `xDelNome`: il bordo sinistro della riga del progetto.
+    // La SCATOLA del glifo, non l'immagine: la favicon sta centrata nei suoi
+    // 18px (misurato: +2), e il nome nudo parte dal bordo della scatola.
+    const slotBox = await page.locator(`${conIcona} img`).first().evaluate((img) => {
+      const r = (img.parentElement ?? img).getBoundingClientRect();
+      return { x: r.x, width: r.width };
+    });
+    const rowBox = await page.locator(conIcona).first().boundingBox();
+    const xIcona = rowBox ? +(slotBox.x - rowBox.x).toFixed(1) : null;
+    console.log(`[ROTTE-01] con favicon nome x=${xCon} icona x=${xIcona} · senza favicon nome x=${xWithout}`);
+    expect(xIcona, "la favicon del progetto con icona deve essere misurabile").not.toBeNull();
     expect(
-      Math.abs(xCon! - xWithout!),
-      `il nome parte da due colonne diverse: con icona x=${xCon}, senza icona x=${xWithout}`,
-    ).toBeLessThanOrEqual(0.5);
+      Math.abs(xWithout! - xIcona!),
+      `il nome senza icona (x=${xWithout}) non parte dove l'altro disegna la favicon (x=${xIcona})`,
+    ).toBeLessThanOrEqual(1);
+    expect(xCon!, "con la favicon il nome sta un glifo piu' a destra").toBeGreaterThan(xWithout!);
   });
 });

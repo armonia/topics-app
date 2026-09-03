@@ -18,6 +18,12 @@
  * that single column, on every row family, including the ones no fixture
  * happens to render.
  *
+ * SINCE 2026-09-03 (card 058ea722) the column exists only where something
+ * opens: at the top of the tree, beside the project rows. A nested row, the
+ * board row and a pinned tile reserve nothing, so the guarded `depth === 0`
+ * around the empty box in the tree rows is the rule, not the defect this file
+ * was written against (that one was a chevron with NO else branch at all).
+ *
  * @covers LAYOUT-26
  */
 import { describe, expect, test } from 'bun:test';
@@ -49,11 +55,11 @@ const HERE = import.meta.dir;
  */
 const RESERVED_BY_HAND: Record<string, string[]> = {
   'TopicItem.tsx': ['chat row without children'],
-  'TopicTree.tsx': ['terminal row', 'browser row', 'utility row', 'board row'],
-  // The pinned tile only reserves it in ROW form. In grid form the tile is
-  // centred and the trigger's weight is mirrored, so an empty leading box would
-  // push the identity off centre (see the comment at the call site).
-  'PinnedTile.tsx': ['pinned row without accordion'],
+  'TopicTree.tsx': ['terminal row', 'browser row', 'utility row'],
+  // Not the board row and not the pinned tile, in either form: neither sits
+  // in the list of the project rows, so the box aligned them with nothing
+  // (card 058ea722, 2026-09-03). And the families above reserve it only at
+  // the TOP of the tree (`depth === 0`): below it nothing opens.
 };
 
 function source(file: string): string {

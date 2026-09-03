@@ -174,8 +174,6 @@ export interface PinnedAlignment {
    * fixed box that is wider than what it holds is air on one side only.
    */
   iconSlot: string;
-  /** Whether the leading accordion box is reserved even when nothing opens. */
-  reservesChevron: boolean;
   /**
    * Whether the tile carries the split schematic (see `RowSplitMap`).
    *
@@ -196,10 +194,10 @@ export interface PinnedAlignment {
 
 export const PINNED_ALIGN: Record<PinnedForm, PinnedAlignment> = {
   // A row is read inside a column: it starts where the column starts.
-  row: { justify: 'justify-start', iconSlot: ROW_GLYPH_SLOT, reservesChevron: true, splitMap: true },
+  row: { justify: 'justify-start', iconSlot: ROW_GLYPH_SLOT, splitMap: true },
   // A grid tile is read on its own: what identifies it takes the middle, and
   // an empty box on the leading side is exactly what pushes it off centre.
-  grid: { justify: 'justify-center', iconSlot: 'flex-shrink-0 items-center justify-center', reservesChevron: false, splitMap: false },
+  grid: { justify: 'justify-center', iconSlot: 'flex-shrink-0 items-center justify-center', splitMap: false },
 };
 
 /**

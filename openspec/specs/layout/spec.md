@@ -1194,32 +1194,45 @@ in un posto solo.
 - **GIVEN** una cella che ospita testo denso
 - **THEN** il fondo SHALL restare opaco
 
-### Requirement: LAYOUT-26 — La colonna dell'accordion è UNA, e la riservano anche le righe che non hanno un accordion
+### Requirement: LAYOUT-26 — La colonna dell'accordion esiste dove qualcosa si apre: in cima all'albero, non sotto, non sulle tessere, non sulla bacheca
 
-Nella sidebar lo spazio del chevron SHALL essere riservato da OGNI riga, anche da
-quelle che non hanno niente da aprire: una riga senza accordion che non lo riserva
-fa cominciare il proprio contenuto 20px (il riquadro del chevron più il passo
-della riga) prima di quello della riga sorella che ce l'ha, e nella stessa colonna
-convivono due incolonnamenti.
+In cima all'albero (profondità 0), dove le righe di progetto si aprono, lo spazio
+del chevron SHALL essere riservato da OGNI riga sorella, anche da quelle che non
+hanno niente da aprire (chat senza figli, terminale, browser, righe di utilità):
+una riga che non lo riserva fa cominciare il proprio contenuto 16px prima di
+quello della riga di progetto accanto, e nella stessa colonna convivono due
+incolonnamenti.
 
-Vale per la riga di chat senza figli, per il terminale, per il browser, per le
-righe di utilità e per la riga della bacheca, e per la tessera fissata in forma di
-RIGA. In forma di GRIGLIA la tessera NON SHALL riservarlo: lì l'identità sta al
-centro e un riquadro vuoto in testa la sposterebbe.
+Sotto (profondità 1 e oltre) niente si apre — i sotto-agenti di una chat o di un
+terminale si annidano senza accordion — e NESSUNA riga SHALL riservarlo: fino al
+03/09/2026 (card 058ea722) il riquadro vuoto stava su ogni riga annidata, cioè
+16px d'aria prima di ogni nome, e il rientro di profondità resta leggibile dal
+margine della riga (LAYOUT-30), non dal riquadro.
+
+La riga della bacheca e la tessera fissata, in forma di RIGA come di GRIGLIA,
+NON SHALL riservarlo: non stanno nella lista delle righe di progetto, nessuna
+riga accanto a loro si apre in quella colonna, e il riquadro le allineava a
+niente.
 
 Il riquadro riservato SHALL essere lo STESSO del chevron, non una seconda misura.
 
 La verifica NON SHALL essere a occhio: le `left` delle etichette della colonna
 SHALL avere UN solo valore per ciascun livello di profondità.
 
-Il passo di rientro per profondità resta fuori: lì due valori diversi sono voluti.
+#### Scenario: due righe sorelle in cima all'albero, una con accordion e una senza
+- **GIVEN** una riga di progetto e una chat senza figli allo stesso livello, in cima
+- **THEN** le due SHALL aprirsi con lo STESSO riquadro dell'accordion
 
-#### Scenario: due righe sorelle, una con accordion e una senza
-- **GIVEN** una chat con figli e una chat senza figli allo stesso livello
-- **THEN** le due etichette SHALL cominciare allo STESSO pixel
+#### Scenario: una riga annidata
+- **GIVEN** una chat, un terminale o un browser sotto un progetto
+- **THEN** NON SHALL riservare il riquadro dell'accordion: si apre col glifo o col nome
 
-#### Scenario: la tessera fissata in griglia
-- **GIVEN** una tessera che non si apre, in forma di griglia
+#### Scenario: la tessera fissata, in riga o in griglia
+- **GIVEN** una tessera che non si apre
+- **THEN** NON SHALL riservare il riquadro dell'accordion
+
+#### Scenario: la riga della bacheca
+- **GIVEN** la riga «Board» sopra il blocco dei fissati
 - **THEN** NON SHALL riservare il riquadro dell'accordion
 
 ### Requirement: LAYOUT-27 — La colonna dei NOMI è UNA: lo slot del glifo di testa lo riservano anche le righe senza glifo
@@ -1895,8 +1908,8 @@ riga la apre con lo stesso riquadro (LAYOUT-26).
 - **THEN** quello senza NON disegna la scatola del glifo, e il suo nome parte PRIMA (ROWGLYPH-01)
 
 #### Scenario: la colonna dell'accordion
-- **GIVEN** tutte le righe della colonna
-- **THEN** SHALL aprirsi con lo STESSO riquadro dell'accordion
+- **GIVEN** le righe in cima all'albero
+- **THEN** SHALL aprirsi con lo STESSO riquadro dell'accordion; le righe annidate, la bacheca e le tessere non lo riservano (LAYOUT-26, dal 03/09/2026)
 
 ### Requirement: PINALIGN-01 — Il blocco dei fissati ha UN allineamento per forma, e nessuno spinto a destra
 

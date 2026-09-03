@@ -39,6 +39,9 @@ const COUNTS = [1, 2, 3, 5];
  *  a pinned tile carries an icon where a chat row carries none, and that is the
  *  whole difference the two are allowed to have. */
 const GLYPH_SLOT = 18 + 8;
+/** The accordion column a top-level row reserves and a tile does not: the
+ *  chevron box (`w-3`, 12px, with its `-mr-1`) plus the row gap (`gap-2`). */
+const ACCORDION_COLUMN = 12 - 4 + 8;
 
 /** `stacked` = one tile per row, so every row holds one tile and takes the ROW
  *  form. `packed` = every tile on the same row, which is the GRID form. */
@@ -288,9 +291,16 @@ test.describe("Sidebar: the alignment of the pinned block", () => {
         Math.abs(c.cardDelta),
         `w=${c.width} n=${c.count}: the tile card starts ${c.cardDelta}px away from the column`,
       ).toBeLessThanOrEqual(1);
+      // The content of a row tile starts ONE accordion column before the
+      // content of a top-level row: since card 058ea722 (2026-09-03) a pinned
+      // tile reserves no accordion box in either form (the pinned block is
+      // not the tree, nothing beside a tile opens in that column), while the
+      // top-level row it is compared with still reserves the box beside the
+      // project rows (LAYOUT-26).
       expect(
-        Math.abs(c.leadDelta),
-        `w=${c.width} n=${c.count}: the tile content starts ${c.leadDelta}px away from the column`,
+        Math.abs(c.leadDelta + ACCORDION_COLUMN),
+        `w=${c.width} n=${c.count}: the tile content starts ${c.leadDelta}px away from the column, ` +
+          `expected -${ACCORDION_COLUMN} (no accordion box on a tile)`,
       ).toBeLessThanOrEqual(1);
     }
     // 2. THE BLOCK IS CENTRED in the sidebar, at every width and in every shape.

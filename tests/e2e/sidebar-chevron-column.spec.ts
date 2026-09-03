@@ -11,7 +11,8 @@
  * The verification is NOT by eye. Every row of the tree is read with
  * `getBoundingClientRect()`, and two things are demanded of the real layout:
  *
- *   1. every row OPENS with the accordion box, chevron or not, and the box is
+ *   1. every TOP-LEVEL row opens with the accordion box, chevron or not (a
+ *      nested row opens with nothing: below the top nothing expands), and the box is
  *      the same width on all of them;
  *   2. inside one depth level (rows share the same left edge) the content that
  *      follows the box starts at ONE left value, not two.
@@ -43,7 +44,11 @@ async function readRows(page: import("@playwright/test").Page): Promise<RowMetri
   return page.evaluate(() => {
     const tree = document.querySelector('[role="tree"]');
     if (!tree) return [];
-    const rows = Array.from(tree.querySelectorAll('[role="treeitem"]'));
+    // The board row is not a row of the column: it stands alone above the
+    // pinned block and reserves no accordion box (LAYOUT-26, card 058ea722).
+    const rows = Array.from(tree.querySelectorAll('[role="treeitem"]')).filter(
+      (row) => !row.matches('[data-testid="sidebar-board-generale"]') && !row.closest('[data-testid="sidebar-board-generale"]'),
+    );
     return rows
       .map((row) => {
         const box = row.getBoundingClientRect();
@@ -83,15 +88,29 @@ test.describe("sidebar: the accordion column", () => {
     await expect(page.locator('[role="tree"]')).toBeVisible({ timeout: 15000 });
 
     const rows = await readRows(page);
-    expect(rows.length, "no sidebar row was measurable").toBeGreaterThan(1);
+    // The seeded sidebar can be a single top-level chat once the board row
+    // is left out: one row still has to open with the box.
+    expect(rows.length, "no sidebar row was measurable").toBeGreaterThan(0);
 
-    const widths = [...new Set(rows.map((r) => r.leadWidth))];
+    // The accordion column lives where something opens: at the top of the
+    // tree, beside the project rows. Below it nothing expands, and since card
+    // 058ea722 (2026-09-03) a nested row opens with its glyph or its name, not
+    // with 16px of reserved air.
+    const top = Math.min(...rows.map((r) => r.rowLeft));
+    const topRows = rows.filter((r) => r.rowLeft === top);
+    const widths = [...new Set(topRows.map((r) => r.leadWidth))];
     expect(
       widths.length,
-      `every row must open with the SAME box (the accordion column), found ${widths.join(
+      `every top-level row must open with the SAME box (the accordion column), found ${widths.join(
         ", ",
-      )}px on: ${rows.map((r) => `${r.name}=${r.leadWidth}`).join(" | ")}`,
+      )}px on: ${topRows.map((r) => `${r.name}=${r.leadWidth}`).join(" | ")}`,
     ).toBe(1);
+    for (const r of rows.filter((x) => x.rowLeft > top)) {
+      expect(
+        r.leadWidth,
+        `nested row "${r.name}" still opens with the accordion box (${r.leadWidth}px): below the top of the tree nothing opens, so nothing is reserved`,
+      ).not.toBe(widths[0]);
+    }
   });
 
   test("ROWALIGN-02: one content start per depth level", async ({ page }) => {
@@ -100,7 +119,9 @@ test.describe("sidebar: the accordion column", () => {
     await expect(page.locator('[role="tree"]')).toBeVisible({ timeout: 15000 });
 
     const rows = (await readRows(page)).filter((r) => r.contentLeft !== null);
-    expect(rows.length, "no sidebar row was measurable").toBeGreaterThan(1);
+    // The seeded sidebar can be a single top-level chat once the board row
+    // is left out: one row still has to open with the box.
+    expect(rows.length, "no sidebar row was measurable").toBeGreaterThan(0);
 
     const byDepth = new Map<number, RowMetrics[]>();
     for (const row of rows) {
