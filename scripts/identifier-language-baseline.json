@@ -1078,7 +1078,6 @@
       "scegliVerdetto"
     ],
     "client/src/components/Terminal/SingleTerminalPane.tsx": [
-      "RECONCILE_GRACE_RETRIES",
       "buf",
       "cancelled",
       "fitAddon",
@@ -1918,9 +1917,6 @@
     "client/src/lib/shell/index.ts": [
       "isDesktop"
     ],
-    "client/src/lib/shell/nativeBrowserOpen.ts": [
-      "retries"
-    ],
     "client/src/lib/shell/navErrorQueue.ts": [
       "canonicalize"
     ],
@@ -2079,7 +2075,6 @@
       "paneCapabilities"
     ],
     "client/src/state/pane/adapters/projectLayoutSync.ts": [
-      "MAX_RETRIES",
       "__getUnackedProjectSyncKeys",
       "unackedJsonByKey",
       "unsubscribeProjectLayout"
@@ -2088,7 +2083,6 @@
       "loc"
     ],
     "client/src/state/pane/adapters/tombstoneSync.ts": [
-      "MAX_RETRIES",
       "__getUnackedTombstoneSyncKeys",
       "loc",
       "unackedJson"
@@ -2098,10 +2092,6 @@
     ],
     "client/src/state/pane/devOverlay/MutationLogOverlay.tsx": [
       "ndjson"
-    ],
-    "client/src/state/pane/middleware/selfEcho.ts": [
-      "__getLastEmittedServerSeq",
-      "lastEmittedServerSeq"
     ],
     "client/src/state/pane/middleware/serverHydrated.test.ts": [
       "applicato",
@@ -2115,7 +2105,6 @@
       "uninstallFakeWindow"
     ],
     "client/src/state/pane/middleware/syncServer.ts": [
-      "MAX_RETRIES",
       "armaSpinta",
       "flushNowKeepalive"
     ],
@@ -2893,8 +2882,7 @@
     ],
     "server/browser-dom-cobrowse.test.ts": [
       "CSP_HTML",
-      "CSP_MARKER",
-      "emitted"
+      "CSP_MARKER"
     ],
     "server/browser-dom-walker.ts": [
       "buf",
@@ -3032,8 +3020,6 @@
     ],
     "server/context/adapt.ts": [
       "CLI_BUILTINS",
-      "countEmittedBlocks",
-      "emitted",
       "isCliBuiltin",
       "skipped",
       "sys",
@@ -3113,7 +3099,6 @@
       "dst",
       "exp",
       "isCookieBrowser",
-      "keychainKey",
       "listChromeCookieHosts",
       "pfx",
       "toCdpCookie"
@@ -3976,7 +3961,6 @@
       "MODIFICANO",
       "SOLA_LETTURA",
       "chiamate",
-      "emitted",
       "gambe",
       "invisibile",
       "subito"
@@ -5714,7 +5698,6 @@
       "stripAnsi"
     ],
     "server/utils/worktree-naming.ts": [
-      "MAX_RETRIES",
       "adj"
     ],
     "server/webrtc-bridge.test.ts": [
@@ -5765,7 +5748,6 @@
       "accName",
       "desc",
       "editable",
-      "emitted",
       "satisfies",
       "txt"
     ],
@@ -7642,10 +7624,7 @@
       "stato"
     ],
     "tests/e2e/sw-restart-vs-offline.spec.ts": [
-      "NAV_RETRIES",
-      "bootWithControllingSW",
-      "navRetries",
-      "swNavRetries"
+      "bootWithControllingSW"
     ],
     "tests/e2e/system.spec.ts": [
       "dialog",
@@ -8514,10 +8493,6 @@
     ],
     "tests/unit/worktree-naming.test.ts": [
       "adjSet"
-    ],
-    "tests/unit/ws-outbound-coverage.test.ts": [
-      "emitted",
-      "scanEmitted"
     ]
   }
 }
