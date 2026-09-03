@@ -23,6 +23,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'Card.tsx'), 'utf8');
+/** The live chips (retry wait, running tool, ticking effort) live next door,
+ *  in `CardLive.tsx`: the card only decides WHICH one it draws. */
+const live = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'CardLive.tsx'), 'utf8');
 
 describe('il corpo della colonna', () => {
   test('mappa la fetta calcolata, non la colonna intera', () => {
@@ -114,22 +117,29 @@ describe('il chip dei checks distingue rosso da non-misurato', () => {
  * rides the live event (`retry`) and takes the stopwatch's place; the running
  * tool (`lastTool`) sits under the foot. Source, not render, for the reason
  * written at the top of this file.
+ *
+ * Two files: the GATES (which chip, under which condition) are the card's and
+ * are read from `Card.tsx`; the chips themselves are read from `CardLive.tsx`,
+ * and the card must mount them, or a chip that exists is a chip nobody sees.
  */
 describe('the wait before a retry and the running tool', () => {
   test('the stopwatch does NOT run during a retry wait: the live chip excludes `retry`', () => {
     expect(src).toContain("live && !live.retry && task.dispatchState === 'working' ? (");
     expect(src).toContain("live?.retry && task.dispatchState === 'working' && (");
-    expect(src).toContain('data-testid="card-retry-wait"');
+    expect(src).toContain('<RetryWaitChip retry={live.retry}');
+    expect(live).toContain('data-testid="card-retry-wait"');
   });
 
   test('"Retry now" goes through the comments door, which is the existing resume', () => {
-    expect(src).toContain('data-testid="card-retry-now"');
+    expect(live).toContain('data-testid="card-retry-now"');
+    expect(live).toContain('export const RETRY_NOW_MESSAGE');
     expect(src).toContain('onRetryNow={() => steer(RETRY_NOW_MESSAGE)}');
   });
 
   test('the "what is it doing" line sits under the foot and goes out with the retry wait', () => {
     expect(src).toContain("live?.lastTool && !live.retry && task.dispatchState === 'working' && (");
-    expect(src).toContain('data-testid="card-live-tool"');
+    expect(src).toContain('<LiveToolLine tool={live.lastTool} />');
+    expect(live).toContain('data-testid="card-live-tool"');
   });
 });
 

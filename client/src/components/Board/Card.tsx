@@ -18,9 +18,8 @@ import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
 import { MorphText } from '../Shared/MorphText';
 import { PreviewMedia } from './PreviewMedia';
-import { ZoomableImage } from '../Shared/ImageLightbox';
-import { getMediaUrl } from '../../lib/api';
 import type { DraftPreview } from './draftPreview';
+import { DraftCard } from './DraftCard';
 import { DeliveryFiles } from './DeliveryFiles';
 import { isDeliverySheetPath } from '../../../../shared/media-kind';
 import { TaskChoiceMenu, TaskChoiceRow } from './TaskChoiceRow';
@@ -30,11 +29,12 @@ import { taskChoiceState } from './taskChoices';
 import { sendBackDest, sendBackWord, taskActionWord } from './taskActionWords';
 import { useT, useLocale } from '../../hooks/useT';
 import { stripMarkdown } from '../../lib/stripMarkdown';
-import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, COMMENTO_PIEGA_CHARS, RICHIESTA_PIEGA_CHARS, mediaPaneIdFor, type LiveTool, type LiveUsage, type OpenTask, type RetryWait } from './constants';
+import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, COMMENTO_PIEGA_CHARS, RICHIESTA_PIEGA_CHARS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
 import { copyText } from '../../lib/clipboard';
 import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState } from '../../lib/taskSession';
-import { fmtMs, fmtLive, liveToolLabel, fmtTok, fmtModel, fmtUpdatedAt, fmtAttesa, taskCopyText } from './format';
+import { fmtMs, fmtTok, fmtModel, fmtUpdatedAt, fmtAttesa, taskCopyText } from './format';
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
+import { LiveEffortChip, LiveToolLine, RETRY_NOW_MESSAGE, RetryWaitChip } from './CardLive';
 import { taskHasWork, uncommittedChipCount } from './chipKey';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
 
@@ -229,46 +229,6 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
           </button>
         )}
       </div>
-    </div>
-  );
-}
-
-// ── The ghost card ────────────────────────────────────────────────────────
-/**
- * WHAT THE FLOATING COMPOSER IS ABOUT TO CREATE, drawn where it will land.
- *
- * Asked on 03/09 (card 058ea722): "I wanted the preview, in the kanban, of a
- * task being opened from the floating [composer]". The composer is at the
- * bottom of the board, the card lands at the top of a column: while writing
- * there was nothing that said which column, which line becomes the title,
- * whether the screenshot rides with it. This is that answer, and it is a
- * GHOST on purpose: dashed, dimmed, not sortable, not clickable as a card.
- * The image is the one thing you can click, and it opens the same lightbox
- * as everywhere else.
- */
-function DraftCard({ draft }: { draft: DraftPreview }) {
-  const tr = useT();
-  return (
-    <div
-      data-testid="kanban-draft-card"
-      aria-label={tr('board.draft.label')}
-      className="rounded-lg border border-dashed border-app-border-light bg-white/[0.03] p-3 opacity-80"
-    >
-      <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-app-text-muted">{tr('board.draft.label')}</p>
-      {draft.images.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-1.5">
-          {draft.images.slice(0, 3).map((p) => (
-            <ZoomableImage key={p} src={getMediaUrl(p)} alt={p.split('/').pop() ?? ''} testId="kanban-draft-image" className="h-16 max-w-full rounded-md object-cover" />
-          ))}
-        </div>
-      )}
-      <span className="block break-words text-sm leading-snug text-app-text-heading">{draft.title || tr('board.draft.untitled')}</span>
-      {draft.description && (
-        <p className="mt-1 line-clamp-2 break-words text-xs leading-snug text-app-text-secondary">{stripMarkdown(draft.description)}</p>
-      )}
-      {draft.files.length > 0 && (
-        <p className="mt-1 truncate text-[11px] text-app-text-muted">{draft.files.join(' · ')}</p>
-      )}
     </div>
   );
 }
@@ -1799,102 +1759,3 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
     </div>
   );
 });
-
-/**
- * "Retry now" is a human comment on the working card: the /comments route
- * hands it to `dispatcher.resume`, which finds no turn in flight, starts one
- * at once and clears the retry timer on its way (`beginRun`). Same door as
- * the deliver-now choice: the words reach the agent, and the thread keeps the
- * trace that a person pressed it. The text is what the agent reads, in the
- * envelope's fallback language, like the deliver-now sentence.
- */
-const RETRY_NOW_MESSAGE = "Riprova adesso: il turno precedente e' finito per un errore, riprendi da dove eri."; // allow-italian: the sentence the agent reads
-
-/**
- * The countdown to the retry, in the live chip's slot, with the reason and
- * the attempt count next to it ("retrying in 42s, provider error, 2/4"). The
- * raw error text is in the tooltip. "Retry now" skips the timer.
- */
-export function RetryWaitChip({ retry, disabled, onRetryNow }: { retry: RetryWait; disabled?: boolean; onRetryNow: () => void }) {
-  const tr = useT();
-  const [, force] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => force((n) => n + 1), 1000);
-    return () => clearInterval(t);
-  }, []);
-  // eslint-disable-next-line react-hooks/purity -- countdown: re-renders every 1s (interval above) and reads the clock each render on purpose
-  const left = Math.max(0, retry.at - Date.now());
-  return (
-    <span
-      data-testid="card-retry-wait"
-      className="inline-flex min-w-0 items-center gap-1.5 rounded bg-amber-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-amber-300 tabular-nums"
-      title={retry.detail ? tr('board.card.retryTitle', { detail: retry.detail }) : retry.reason}
-    >
-      <span className="truncate">
-        {tr('board.card.retryIn', { in: fmtLive(left), reason: retry.reason, attempt: retry.attempt, cap: retry.cap })}
-        {retry.free ? tr('board.card.retryFree') : ''}
-      </span>
-      <button
-        type="button"
-        data-testid="card-retry-now"
-        disabled={disabled}
-        onClick={(e) => { e.stopPropagation(); onRetryNow(); }}
-        title={tr('board.card.retryNowTitle')}
-        className="shrink-0 rounded bg-amber-500/25 px-1.5 py-px text-[10px] font-medium text-amber-100 hover:bg-amber-500/40 disabled:opacity-50"
-      >{tr('board.card.retryNow')}</button>
-    </span>
-  );
-}
-
-/** "Bash · bun run test:unit · 3m": the running tool and for how long, ticking. */
-export function LiveToolLine({ tool }: { tool: LiveTool }) {
-  const tr = useT();
-  const [, force] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => force((n) => n + 1), 1000);
-    return () => clearInterval(t);
-  }, []);
-  // eslint-disable-next-line react-hooks/purity -- live tool line: re-renders every 1s (interval above) and reads the clock each render on purpose
-  const since = fmtLive(Math.max(0, Date.now() - tool.since));
-  const label = liveToolLabel(tool);
-  return (
-    <p
-      data-testid="card-live-tool"
-      className="mt-1 truncate text-xs md:text-[11px] tabular-nums text-app-text-muted"
-      title={tr('board.card.liveToolTitle', { tool: label, since })}
-    >{label} · {since}</p>
-  );
-}
-
-/**
- * Live effort chip shown while a turn runs: model · execution-time · tokens,
- * ticking every second. The time is EXECUTION-ONLY: `baseMs` is the agent_ms
- * accumulated over PRIOR turns and we add only (now − turnStartedAt) for the
- * current turn — never the idle/queued/asleep gaps between turns (the server
- * anchors turnStartedAt at the actual turn start). Falls back to the static
- * agent_ms/agent_tokens chip the instant the turn ends.
- */
-export function LiveEffortChip({ usage }: { usage: LiveUsage }) {
-  const tr = useT();
-  const locale = useLocale();
-  const [, force] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => force((n) => n + 1), 1000);
-    return () => clearInterval(t);
-  }, []);
-  // eslint-disable-next-line react-hooks/purity -- live effort chip: force-re-renders every 1s (interval above) and reads the clock each render on purpose
-  const ms = usage.baseMs + Math.max(0, Date.now() - usage.turnStartedAt);
-  return (
-    <span
-      title={tr('board.card.liveEffortTitle', {
-        model: fmtModel(usage.model),
-        work: fmtLive(ms),
-        tokens: usage.liveTokens ? tr('board.card.liveEffortTokens', { n: usage.liveTokens.toLocaleString(locale) }) : '',
-      })}
-      className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-sky-300 tabular-nums"
-    >
-      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400" />
-      {fmtModel(usage.model)} · ⏱ {fmtLive(ms)}{usage.liveTokens > 0 && ` · ${fmtTok(usage.liveTokens)}`}
-    </span>
-  );
-}

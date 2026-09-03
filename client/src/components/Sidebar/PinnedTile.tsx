@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Activity, BarChart3, BookOpen, ChevronRight, Clock, Cpu, Globe, Kanban, LayoutGrid, MessageSquare, TerminalSquare, UserRound, Wrench, type LucideIcon } from 'lucide-react';
 import { getProjectLabel, sidebarItemPaneId, type SidebarItem } from '../../lib/buildSidebarItems';
 import type { AttentionTier } from '../../types';
@@ -15,7 +15,8 @@ import { rememberDraggedPane } from '../../lib/dragPayload';
 import { startDragPreview } from '../../lib/dragPreview';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { cachedIconPalette, cachedIconTint, fromHex, sampleIconPalette, sampleIconTint } from '../../lib/iconTint';
-import { PINNED_ALIGN, PINNED_GRID_CHEVRON_CLASS, PINNED_GRID_CLEAR_CLASS, PINNED_TILE_ACTION_SLOT, PINNED_TILE_H, pinnedLabelShown, type PinnedForm } from './pinnedTileMetrics';
+import { PINNED_ALIGN, PINNED_GRID_CHEVRON_CLASS, PINNED_GRID_CLEAR_CLASS, PINNED_TILE_ACTION_SLOT, PINNED_TILE_H, type PinnedForm } from './pinnedTileMetrics';
+import { PinnedLabelMeasure, usePinnedLabelFit } from './pinnedLabelFit';
 import { RowSplitMap } from './RowSplitMap';
 
 /**
@@ -330,39 +331,12 @@ export function PinnedTile({
   /** Something is drawn in front of the name: a favicon or a type glyph. */
   const hasIdentityIcon = hasRealIcon || !!Glyph;
 
-  // DOES THE NAME FIT? Two widths, read from the DOM: the tile's, which changes
-  // with the sidebar and with how many tiles share the row, and the name's
-  // FULL width, from a 0x0 measuring box that overflows with the text
-  // (`scrollWidth` reports the overflow, and a box with no size paints
-  // nothing and can never be found outside the tile). The verdict is
-  // `pinnedLabelShown`, the pure rule in `pinnedTileMetrics`.
-  //
-  // `useLayoutEffect` and not `useEffect`: the first reading lands before the
-  // first paint, so a name that will not fit is never seen for a frame. The
-  // observer covers everything after that (a drag that packs the row, a
-  // sidebar resize). Until the first reading (`null`) the class list falls
-  // back to the container-query thresholds, which is what the tile did before.
-  const tileRef = useRef<HTMLButtonElement>(null);
-  const measureRef = useRef<HTMLSpanElement>(null);
-  const [fit, setFit] = useState<{ tile: number; label: number } | null>(null);
-  useLayoutEffect(() => {
-    if (isRow) return;
-    const tile = tileRef.current;
-    if (!tile) return;
-    const read = () => {
-      const width = tile.getBoundingClientRect().width;
-      const label = measureRef.current?.scrollWidth ?? 0;
-      setFit((prev) => (prev && prev.tile === width && prev.label === label ? prev : { tile: width, label }));
-    };
-    read();
-    if (typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(read);
-    ro.observe(tile);
-    return () => ro.disconnect();
-  }, [isRow, item.name]);
-  const labelShown = fit === null
-    ? null
-    : pinnedLabelShown({ tileWidth: fit.tile, labelWidth: fit.label, hasIcon: hasIdentityIcon, expandable: !!expandable });
+  // DOES THE NAME FIT? Measured from the DOM, never from the icon's loading
+  // state: the two widths, the observer and the first-paint timing live in
+  // `pinnedLabelFit`, next to the box they read the name from.
+  const { tileRef, measureRef, labelShown } = usePinnedLabelFit({
+    isRow, name: item.name, hasIcon: hasIdentityIcon, expandable: !!expandable,
+  });
 
   return (
     <button
@@ -642,21 +616,9 @@ export function PinnedTile({
             : <span aria-hidden="true" className="block w-[18px]" />}
       </span>
 
-      {/* THE MEASURING BOX: the whole name, in the tile's font, in a box of no
-          size. `scrollWidth` reads the overflow, i.e. the width the name would
-          take untruncated, and the box itself paints nothing and occupies
-          nothing, so no test that walks the tile's descendants can find it
-          outside the tile. Only in grid form, where the question is asked. */}
-      {!isRow && (
-        <span
-          ref={measureRef}
-          aria-hidden="true"
-          data-testid="pinned-tile-measure"
-          className={`pointer-events-none absolute left-0 top-0 h-0 w-0 overflow-hidden whitespace-nowrap ${TAB_LABEL}`}
-        >
-          {item.name}
-        </span>
-      )}
+      {/* THE MEASURING BOX (see `pinnedLabelFit`): the whole name in a box of
+          no size, only in grid form, where the question is asked. */}
+      {!isRow && <PinnedLabelMeasure measureRef={measureRef} name={item.name} />}
 
       {/* THE NAME LEAVES ONLY WHEN THERE IS ANOTHER IDENTITY TO READ.
           Below the threshold the tile is too narrow for the title to say
