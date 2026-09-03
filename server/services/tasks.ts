@@ -1362,7 +1362,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * summary drops out of the window. The card prefers it over recency, so it
    * has to be able to SEE it.
    */
-  const SQL_CONSEGNA =
+  const SQL_IS_DELIVERY =
     "CASE WHEN COALESCE(c.kind, 'comment') = 'delivery' THEN 1 ELSE 0 END";
 
   /**
@@ -1829,9 +1829,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
                   -- AND THE DECLARED DELIVERY, the row the card exists for:
                   -- the machine's notes pile up right underneath it.
                   row_number() OVER (
-                    PARTITION BY c.task_id, ${SQL_CONSEGNA}
-                    ORDER BY c.created_at DESC, c.rowid DESC) AS rn_consegna,
-                  ${SQL_CONSEGNA} AS consegna,
+                    PARTITION BY c.task_id, ${SQL_IS_DELIVERY}
+                    ORDER BY c.created_at DESC, c.rowid DESC) AS rn_delivery,
+                  ${SQL_IS_DELIVERY} AS delivery,
                   ${SQL_MIA} AS mia,
                   ${SQL_PAROLA} AS parola
              FROM task_comments c
@@ -1840,7 +1840,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
          ) WHERE rn <= ${CARD_COMMENTS_DEPTH}
               OR (parola = 1 AND rn_parola = 1)
               OR (mia = 1 AND rn_mia = 1)
-              OR (consegna = 1 AND rn_consegna = 1)
+              OR (delivery = 1 AND rn_delivery = 1)
          ORDER BY task_id ASC, rn DESC`,
       ).all(idParam(ids)) as any[];
     } catch { return out; }
@@ -1900,12 +1900,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // A person speaking AFTER the delivery takes it back: that is a rework,
       // and the last word is theirs again.
       const parole = dalPiuRecente.filter((r) => !contorno(r));
-      const primo = parole.find((r) => {
+      const firstWord = parole.find((r) => {
         const c = rowToComment(r);
         return c.kind === "delivery" || (c.author === "user" && c.kind === "comment");
       });
-      const scelta = (primo && rowToComment(primo).kind === "delivery")
-        ? primo
+      const scelta = (firstWord && rowToComment(firstWord).kind === "delivery")
+        ? firstWord
         : (parole[0] ?? dalPiuRecente[0]);
       for (const r of lines) {
         const full = rowToComment(r);

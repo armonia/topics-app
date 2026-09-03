@@ -158,6 +158,11 @@
         // tempi: `bun scripts/canonicalizza-progetti.ts` elenca, `--esegui` lo
         // fa davvero. Nessuno la importa, e non deve partire da sola.
         "scripts/canonicalizza-progetti.ts!",
+        // La migrazione una-tantum delle card nate con l'UUID del progetto al
+        // posto dell'id di board: `bun scripts/migrate-uuid-board-ids.ts`
+        // elenca, `--esegui` riscrive. Si lancia a mano una volta sola, e
+        // nessuno la importa.
+        "scripts/migrate-uuid-board-ids.ts!",
         "scripts/token-live.ts!",         // diagnostica a mano: `bun scripts/token-live.ts [filtro] [--watch]`
         "scripts/orphan-park-dryrun.ts!", // `bun run orphan:dryrun` — prova a vuoto sul db vero
         // `bun run browser:dryrun [--tutti]` — la spazzata dei chromium orfani

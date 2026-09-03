@@ -50,6 +50,7 @@ function estrai(nome: string): string {
 
 const SQL_PAROLA = estrai("SQL_PAROLA");
 const SQL_MIA = estrai("SQL_MIA");
+const SQL_IS_DELIVERY = estrai("SQL_IS_DELIVERY");
 
 /** La `WHERE` della finestra, letta dal sorgente. */
 const WHERE = (() => {
@@ -64,6 +65,8 @@ const QUERY = `
       row_number() OVER (PARTITION BY c.task_id ORDER BY c.created_at DESC, c.rowid DESC) AS rn,
       row_number() OVER (PARTITION BY c.task_id, ${SQL_PAROLA} ORDER BY c.created_at DESC, c.rowid DESC) AS rn_parola,
       row_number() OVER (PARTITION BY c.task_id, ${SQL_MIA} ORDER BY c.created_at DESC, c.rowid DESC) AS rn_mia,
+      row_number() OVER (PARTITION BY c.task_id, ${SQL_IS_DELIVERY} ORDER BY c.created_at DESC, c.rowid DESC) AS rn_delivery,
+      ${SQL_IS_DELIVERY} AS delivery,
       ${SQL_MIA} AS mia,
       ${SQL_PAROLA} AS parola
     FROM task_comments c

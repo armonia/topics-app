@@ -67,9 +67,9 @@ const MAX_READ_BYTES = 400_000;
 const MAX_OUTPUT_CHARS = 30_000;
 const DEFAULT_BASH_TIMEOUT_MS = 120_000;
 /** How long the last output still in the pipe gets, after the leader has exited. */
-const SCOLO_DOPO_EXIT_MS = 250;
+const DRAIN_AFTER_EXIT_MS = 250;
 /** How long a kill gets before the answer goes out anyway, event or no event. */
-const GRAZIA_DOPO_KILL_MS = 2_000;
+const GRACE_AFTER_KILL_MS = 2_000;
 /** How long a URL gets to answer. A page that needs longer is not documentation. */
 const WEB_FETCH_TIMEOUT_MS = 30_000;
 /** Cosa legge l'agente — e l'utente — quando il turno muore sotto un comando. */
@@ -274,13 +274,13 @@ async function runCommand(
       // timeout doveva fermare, con la sua porta e la sua CPU.
       killProcessTree(child.pid ?? 0).catch(() => { /* nessuno da uccidere */ });
     };
-    let chiuso = false;
-    let scolo: ReturnType<typeof setTimeout> | undefined;
+    let closed = false;
+    let drainTimer: ReturnType<typeof setTimeout> | undefined;
     const chiudi = (r: { out: string; code: number | null }) => {
-      if (chiuso) return;
-      chiuso = true;
+      if (closed) return;
+      closed = true;
       clearTimeout(timer);
-      if (scolo) clearTimeout(scolo);
+      if (drainTimer) clearTimeout(drainTimer);
       signal?.removeEventListener("abort", suAbort);
       res({ ...r, ...(annullato ? { annullato: true } : {}) });
     };
@@ -289,15 +289,15 @@ async function runCommand(
     // reparented to init, out of reach of a tree computed from its pid) or may
     // ignore the signal. A timeout that does not answer is worse than the
     // command it was there to bound.
-    const arrenditi = () => {
-      if (scolo) clearTimeout(scolo);
-      scolo = setTimeout(() => chiudi({ out, code: null }), GRAZIA_DOPO_KILL_MS);
-      scolo.unref?.();
+    const giveUp = () => {
+      if (drainTimer) clearTimeout(drainTimer);
+      drainTimer = setTimeout(() => chiudi({ out, code: null }), GRACE_AFTER_KILL_MS);
+      drainTimer.unref?.();
     };
     const timer = setTimeout(() => {
       abbatti();
       out += `\n[comando ucciso dopo ${timeoutMs}ms]`;
-      arrenditi();
+      giveUp();
     }, timeoutMs);
     timer.unref?.();
     // IL TURNO È FINITO MENTRE IL COMANDO GIRAVA. Non è il timeout del comando:
@@ -307,7 +307,7 @@ async function runCommand(
       annullato = true;
       abbatti();
       out += `\n${MOTIVO_ANNULLATO}`;
-      arrenditi();
+      giveUp();
     }
     signal?.addEventListener("abort", suAbort, { once: true });
     // IT WAITS FOR `exit`, NOT `close`. `close` arrives when the process has
@@ -321,9 +321,9 @@ async function runCommand(
     // `exit` looks at the leader alone. What is still in the pipe is collected in
     // a short drain window, then the answer goes out.
     child.on("exit", (code) => {
-      if (scolo) clearTimeout(scolo);
-      scolo = setTimeout(() => chiudi({ out, code }), SCOLO_DOPO_EXIT_MS);
-      scolo.unref?.();
+      if (drainTimer) clearTimeout(drainTimer);
+      drainTimer = setTimeout(() => chiudi({ out, code }), DRAIN_AFTER_EXIT_MS);
+      drainTimer.unref?.();
     });
     child.on("close", (code) => chiudi({ out, code }));
     child.on("error", (err) => chiudi({ out: String(err), code: null }));

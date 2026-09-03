@@ -118,6 +118,12 @@ export const PROJECT_WORDS = new Set([
   // `readme` is the file every repository has. None of them is a word to
   // translate: renaming would make the code say something less true.
   "automerge", "tsc", "readme",
+  // Two more holes of the same 1934 kind, both plain English in code today.
+  // `oldest` is the regular superlative of `old` (the list carries `old` and
+  // `older`, then stops), and `donut` names the shape the loading glyph draws —
+  // the mask in `StreamingIndicator.tsx` IS a donut, and "torus" would say it
+  // to nobody who has to read that file.
+  "oldest", "donut",
   // `ttl` is time-to-live, the standard name for "how long this stays alive"
   // in caching and networking, and it is already this repository's own word:
   // `HANDOFF_TTL_MS` in `composerHandoff.ts` and `IN_APP_BANNER_TTL_MS` in

@@ -598,7 +598,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * passes through untouched, so legacy boards whose id happened to equal
    * `projects.id` keep working (see `server/lib/tab-resolver.ts`).
    */
-  function boardIdFromAnagraphicId(projectId: string): string {
+  function boardIdFromProjectRowId(projectId: string): string {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(projectId)) return projectId;
     try {
       const row = db.query("SELECT path FROM projects WHERE id = ?").get(projectId) as { path?: string } | null;
@@ -621,7 +621,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * landing-feedback card to whatever sits on the wrong board.
    */
   function resolveBoardId(projectId: string, text: unknown, description: unknown): string {
-    if (projectId !== AUTO_PROJECT_ID) return boardIdFromAnagraphicId(projectId);
+    if (projectId !== AUTO_PROJECT_ID) return boardIdFromProjectRowId(projectId);
     const haystack = `${typeof text === "string" ? text : ""}\n${typeof description === "string" ? description : ""}`.toLowerCase();
     const hits = new Set<string>();
     let dirs: string[] = [];

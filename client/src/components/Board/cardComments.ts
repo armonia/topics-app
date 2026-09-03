@@ -246,9 +246,9 @@ export function selectCardComments<T extends CardComment>(
   // BUT IT NEVER OVERTAKES A PERSON. A human comment after the delivery is a
   // rework — that is the news, and pulling the earlier summary back above a
   // request that just arrived would say someone had already answered it.
-  const daFondo = [...vive].reverse();
-  const consegna = daFondo.find((c) => c.kind === 'delivery' || isHumanComment(c));
-  const latest = (consegna && consegna.kind === 'delivery') ? consegna : vive[vive.length - 1];
+  const fromBottom = [...vive].reverse();
+  const delivered = fromBottom.find((c) => c.kind === 'delivery' || isHumanComment(c));
+  const latest = (delivered && delivered.kind === 'delivery') ? delivered : vive[vive.length - 1];
   if (!latest) return null;
   // NESSUNA PAROLA VERA: quello che stiamo per mostrare e' un RIPIEGO.
   //
