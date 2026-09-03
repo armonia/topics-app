@@ -110,6 +110,16 @@ test('every POPOVER_* surface carries the glass-surface occlusion marker', () =>
   }
 });
 
+test('OVERLAY_SELECTOR matches the tooltip role, so a hint over a native pane is seen', () => {
+  // Both tooltip components portal a `role="tooltip"` node. Read on
+  // 2026-09-04: the hints on the browser toolbar painted under the webview.
+  expect(OVERLAY_SELECTOR).toContain('[role="tooltip"]');
+  for (const file of ['../../components/Shared/Tooltip.tsx', '../../components/Shared/TooltipDelegate.tsx']) {
+    const src = readFileSync(new URL(file, import.meta.url), 'utf8');
+    expect(src, file).toContain('role="tooltip"');
+  }
+});
+
 test('OVERLAY_SELECTOR matches the Menu container roles', () => {
   // Menu sets role="menu" (action menus) or role="listbox" (pickers) on its
   // panel; both must be in the selector so the role alone lifts the menu.
