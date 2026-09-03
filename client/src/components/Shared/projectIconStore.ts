@@ -79,6 +79,8 @@ type Resolved =
   | { s: 'has'; src: string }
   | { s: 'none' };
 const PROBING: Resolved = { s: 'probing' };
+/** How long an <img> probe may stay silent before the fetch lane settles the path. */
+const PROBE_DEADLINE_MS = 4000;
 
 const state = new Map<string, Resolved>();
 const listeners = new Map<string, Set<() => void>>();
@@ -199,12 +201,29 @@ function ensureProbe(path: string): void {
   // vuota fa comunque scattare onerror) da un trasporto immagini rotto
   // (200 → recover via blob).
   const img = new Image();
+  // A probe that never answers is a slot that never closes: in the desktop
+  // shell an <img> to the self-signed server can neither load nor error, and
+  // every row of that project kept 22px of placeholder for the whole session
+  // (seen 2026-09-03). After PROBE_DEADLINE_MS the fetch lane decides.
+  let settled = false;
+  const deadline = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    img.onload = null; img.onerror = null;
+    settleViaFetch(path);
+  }, PROBE_DEADLINE_MS);
   img.onload = () => {
+    if (settled) return;
+    settled = true; clearTimeout(deadline);
     remember(path, 'has');
     setResolved(path, { s: 'has', src: endpointUrl(path) });
     inflight.delete(path);
   };
-  img.onerror = () => { settleViaFetch(path); };
+  img.onerror = () => {
+    if (settled) return;
+    settled = true; clearTimeout(deadline);
+    settleViaFetch(path);
+  };
   img.src = endpointUrl(path);
 }
 
