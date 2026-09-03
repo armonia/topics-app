@@ -14,14 +14,20 @@
  *
  * WHY THIS TEST READS THE SOURCE INSTEAD OF MOUNTING. Mounting is the stronger
  * proof and it is what `ThreadRuns.test.tsx` and `VersionChip.test.tsx` do. It
- * is not available here: `TaskDetail.tsx` imports through the `@/…` alias, which
- * Vite resolves and `bun test` does not (measured: "Cannot find module
- * '@/lib/popoverStyles'"). The file's other guards — `queueReason.test.ts`,
- * `boardOrder.test.ts` — read the source for the same reason, so this follows
- * the house rule instead of dragging a 3000-line component into a resolver that
- * cannot load it. What it can prove: the surface still passes through markdown
- * and still breaks words. What it cannot: what a browser paints — that is the
- * E2E's job.
+ * was not available while the surface lived inside `TaskDetail.tsx`, which
+ * imports through the `@/…` alias that Vite resolves and `bun test` does not
+ * (measured: "Cannot find module '@/lib/popoverStyles'"). The file's other
+ * guards — `queueReason.test.ts`, `boardOrder.test.ts` — read the source for
+ * the same reason, so this follows the house rule.
+ *
+ * WHICH FILE IT READS is the thing to keep honest: the treatment moved out to
+ * `PlanSurface.tsx` (its own file, so it CAN be mounted) and this guard kept
+ * reading `TaskDetail.tsx`, where the three lines no longer are. It went red on
+ * a move that broke nothing — the failure mode of a test that names a location
+ * instead of a behaviour. It now reads the file that holds the treatment.
+ *
+ * What it can prove: the surface still passes through markdown and still breaks
+ * words. What it cannot: what a browser paints — that is the E2E's job.
  *
  * Seen on card 78c3c527.
  *
@@ -31,13 +37,13 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const src = readFileSync(join(import.meta.dir, 'TaskDetail.tsx'), 'utf8');
+const src = readFileSync(join(import.meta.dir, 'PlanSurface.tsx'), 'utf8');
 
-/** The body of `SurfaceContent`, from its signature to the end of the function. */
+/** The body of `PlanSurface`, from its signature to the end of the file. */
 const surface = (() => {
-  const start = src.indexOf('export function SurfaceContent');
+  const start = src.indexOf('export function PlanSurface');
   expect(start).toBeGreaterThan(-1);
-  return src.slice(start, start + 2200);
+  return src.slice(start);
 })();
 
 describe('the Plan tab', () => {
@@ -65,7 +71,9 @@ describe('the Plan tab', () => {
   });
 
   test('the question fence is parsed, not printed', () => {
-    expect(surface).toContain('parseQuestionBlock(surface.content)');
-    expect(surface).toContain('```question');
+    // Both live in `splitPlan`, just above the component: the parser gives back
+    // the question and the options, and the fence itself is cut out of the body.
+    expect(src).toContain('parseQuestionBlock(content)');
+    expect(src).toContain('```question');
   });
 });
