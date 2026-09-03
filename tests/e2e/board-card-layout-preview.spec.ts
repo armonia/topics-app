@@ -30,7 +30,7 @@ import { projectRow } from "./helpers/project-row";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, holdDispatchReconcile, resetPaneStore, resetProjectPanes, seedProjectPane, deleteTask } from "./helpers/api-fixtures";
 import { execFileSync } from "child_process";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { dirname, join } from "path";
 import { E2E_BASE } from "./helpers/test-server";
@@ -40,7 +40,12 @@ import { projectIdForPath as boardIdForPath } from "../../shared/board";
 hermetic(test);
 
 const BASE = E2E_BASE;
-const PROJECT_PATH = `/tmp/e2e-cardpreview-${Date.now()}`;
+// The REAL path, not `/tmp`: on macOS `/tmp` is a link to `/private/tmp` and the
+// project store canonicalises what it registers, so the board id the server
+// derives from the row is the one of `/private/tmp/...`. Hashing the raw path
+// here gave a second id for the same folder, and the diff route, which finds
+// the repo by comparing ids, answered `unreadable` for a commit that was there.
+const PROJECT_PATH = `${realpathSync("/tmp")}/e2e-cardpreview-${Date.now()}`;
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 const BRANCH = "topics/e2e-card-preview";
 
