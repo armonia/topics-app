@@ -41,6 +41,7 @@ import { FilterTokenField } from './FilterTokenField';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
 import { ProjectFilterPicker } from './ProjectFilterPicker';
 import { Column } from './Card';
+import type { DraftPreview } from './draftPreview';
 import { taskActionErrorMessage } from './taskActionError';
 import { taskActionWord } from './taskActionWords';
 import { TaskDetail } from './TaskDetail';
@@ -618,6 +619,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     setSelectedId(id);
     setPendingPaneId(focusPaneId ?? null);
   }, []);
+  // What the floating composer is about to create: previewed as a ghost card
+  // at the top of its birth column (card 058ea722). Only in the column it
+  // will land in; the others see nothing.
+  const [draft, setDraft] = useState<DraftPreview | null>(null);
   const columnsScrollRef = useRef<HTMLDivElement>(null);
   // Mobile-only affordance: the toolbar strip below scrolls horizontally with
   // a hidden scrollbar, so without a visible cue the actions past the right
@@ -1794,6 +1799,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
                   justMoved={justMoved}
                   justCreated={justCreated}
                   archived={showArchived}
+                  draft={draft && draft.status === status && !showArchived ? draft : undefined}
                 />
               ))}
             </div>
@@ -1867,6 +1873,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
             onError={setError}
             hidden={typingElsewhere}
             hiddenBelowLg={!!selected}
+            onDraft={setDraft}
           />
         </div>
         {selected && (

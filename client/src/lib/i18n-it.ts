@@ -1154,6 +1154,8 @@ const IT: Dict = {
   'board.composer.dismissTitle': 'No: task nuovo, senza collegamenti',
   'board.composer.attachTitle': "Allega file (o incolla/trascina un'immagine)",
   'board.composer.dropToAttach': 'Rilascia qui per allegare al task',
+  'board.draft.label': 'Anteprima: Invio la crea',
+  'board.draft.untitled': 'Task senza titolo',
   'board.composer.projectAutoTitle': 'Progetto automatico: risolto dal testo del task (nome citato); se non è chiaro va nel progetto generale',
   'board.composer.projectNamedTitle': 'Progetto: {label}',
   'board.composer.projectPickTitle': 'Scegli il progetto del task',
