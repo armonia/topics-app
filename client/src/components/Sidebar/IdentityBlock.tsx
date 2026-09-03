@@ -71,7 +71,7 @@
  * yet, that is, the only one who needs to get in to begin. Now it stays, it
  * says zero, and its panel explains where the people come from.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { Bot, Building2, ChevronRight, Hourglass, ListChecks, MessagesSquare, Monitor, Smartphone, UserRound, Users } from 'lucide-react';
 import { subscribeSession, type SessionState } from '@/lib/auth/session';
 import { etichettaIdentita } from './identityLabel';
@@ -84,7 +84,25 @@ import { CHIP_INK_DIM, ORG_MARKS_IN_CHIP, SUBJECT_FLOOR, chipClass } from './ide
 import { PALLINO_OK, SEGNALE_ATTESA, SEGNALE_OK } from './chromeSignals';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
 import { PresencePopover } from './PresencePopover';
-import { AccountPanel } from './AccountPanel';
+// THE ACCOUNT PANEL IS LAZY: it is the content of a popover that opens on a
+// click, so nothing of it is on screen at first paint, yet as a static import
+// it sat in the eager entry with `useAccountLink` and the account state behind
+// it (measured 2026-09-03: 6.9 KB raw of the entry chunk, paid by every
+// session, including the ones that never open the chip). The named re-export
+// keeps `check:deadcode-blindspots` able to see which export is used; the
+// prefetch on hover/focus is the same trick the system status panel used, so
+// the popover still opens full on the first click instead of empty.
+const importAccountPanel = async () => {
+  const { AccountPanel: Component } = await import('./AccountPanel');
+  return { default: Component };
+};
+const AccountPanel = lazy(importAccountPanel);
+let accountPanelPrefetched = false;
+function prefetchAccountPanel(): void {
+  if (accountPanelPrefetched) return;
+  accountPanelPrefetched = true;
+  importAccountPanel().catch(() => { accountPanelPrefetched = false; });
+}
 import { useFriendPresence } from '@/hooks/useFriendPresence';
 import { workSignals, type SignalKind } from './workSignals';
 import { useAgentActivityCounts } from '@/state/signals';
@@ -255,6 +273,8 @@ function RigaIo({ presenza, onOpenDevices }: {
         ref={setChip}
         data-testid="identity-me-profile"
         onClick={() => setAperto((v) => !v)}
+        onPointerEnter={prefetchAccountPanel}
+        onFocus={prefetchAccountPanel}
         aria-haspopup="dialog"
         aria-expanded={aperto}
         // NO negative margin. `-mx-1` cancelled the chip's own padding, so this
@@ -329,32 +349,34 @@ function RigaIo({ presenza, onOpenDevices }: {
             </>
           }
         >
-          <AccountPanel
-            who={chi}
-            DeviceIcon={Ferro}
-            facts={{
-              device: chi.dettaglio,
-              now: summary ?? null,
-              devices: ferri ? { connected: ferri.connessi, total: ferri.totali } : null,
-              waiting: [
-                agentCounts && agentCounts.awaitingInput > 0
-                  ? tr('statusBar.agents.awaitingInput', { n: agentCounts.awaitingInput }) : '',
-                awaitingDone > 0 ? tr('statusBar.agents.toLookAt', { n: awaitingDone }) : '',
-              ].filter(Boolean),
-            }}
-            doors={
-              <>
-                <Azione onClick={() => { setAperto(false); apriProfilo('profile'); }} testId="identity-me-open-profile">
-                  {tr('statusBar.me.openProfile')}
-                </Azione>
-                {onOpenDevices && (
-                  <Azione onClick={() => { setAperto(false); onOpenDevices(); }} testId="identity-me-devices">
-                    {tr('statusBar.devicesTitle')}
+          <Suspense fallback={null}>
+            <AccountPanel
+              who={chi}
+              DeviceIcon={Ferro}
+              facts={{
+                device: chi.dettaglio,
+                now: summary ?? null,
+                devices: ferri ? { connected: ferri.connessi, total: ferri.totali } : null,
+                waiting: [
+                  agentCounts && agentCounts.awaitingInput > 0
+                    ? tr('statusBar.agents.awaitingInput', { n: agentCounts.awaitingInput }) : '',
+                  awaitingDone > 0 ? tr('statusBar.agents.toLookAt', { n: awaitingDone }) : '',
+                ].filter(Boolean),
+              }}
+              doors={
+                <>
+                  <Azione onClick={() => { setAperto(false); apriProfilo('profile'); }} testId="identity-me-open-profile">
+                    {tr('statusBar.me.openProfile')}
                   </Azione>
-                )}
-              </>
-            }
-          />
+                  {onOpenDevices && (
+                    <Azione onClick={() => { setAperto(false); onOpenDevices(); }} testId="identity-me-devices">
+                      {tr('statusBar.devicesTitle')}
+                    </Azione>
+                  )}
+                </>
+              }
+            />
+          </Suspense>
         </PresencePopover>
       )}
     </span>

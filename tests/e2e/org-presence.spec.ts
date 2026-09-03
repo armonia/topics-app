@@ -610,8 +610,12 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await page.getByTestId("identity-me-profile").click();
     const panel = page.getByTestId("identity-me-panel");
     await expect(panel).toBeVisible({ timeout: 20000 });
-    await expect(panel.getByTestId("account-signin")).toHaveCount(0);
     // The way to your own profile stays, which is what the panel had before.
+    // Asserted FIRST: the panel body is a lazy chunk, so right after the
+    // popover opens it can still be empty, and a "no sign-in form" check on
+    // an empty panel passes without looking. Once the profile door is there
+    // the body has rendered, and the absence below is a real absence.
     await expect(panel.getByTestId("identity-me-open-profile")).toBeVisible();
+    await expect(panel.getByTestId("account-signin")).toHaveCount(0);
   });
 });
