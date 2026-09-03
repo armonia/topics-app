@@ -18,6 +18,7 @@ import {
   WAIT_DEFAULT_TIMEOUT_MS,
 } from "../lib/process-wait";
 import { registerFleetScriptSource } from "../lib/fleet-usage";
+import { isBroadCwd } from "../lib/broad-cwd";
 
 interface ScriptProcess {
   processId: string;
@@ -1166,11 +1167,8 @@ function isInfraCwd(cwd: string): boolean {
 // attribution would then claim EVERY listening process under home (infra,
 // Electron, unrelated servers). Only sessions cwd'd into a specific project dir
 // get cwd-based detection. (Tree-based detection still applies to them.)
-const _HOME = process.env.HOME || "";
-function isBroadCwd(cwd: string): boolean {
-  if (!cwd || cwd === "/" || cwd === _HOME) return true;
-  return _HOME.length > 1 && (_HOME === cwd || _HOME.startsWith(cwd + "/"));
-}
+// The predicate lives in `server/lib/broad-cwd.ts` because the file-route
+// allowlist (`services/known-project-dirs.ts`) needs the very same rule.
 
 /** cwd of each pid via one batched lsof. Pids without a cwd are omitted. */
 async function getProcessCwds(pids: number[]): Promise<Map<number, string>> {

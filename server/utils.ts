@@ -1925,6 +1925,10 @@ export function createAppContext(baseDir: string): AppContext {
    * (`services/known-project-dirs.ts`) — la stessa lista che `/api/projects/icon`
    * usa da due mesi, estratta invece di riscritta. Nessuna delle sue cinque
    * sorgenti è alimentabile chiamando queste rotte, quindi è un confine vero.
+   * Source 4 (terminal cwds) was the exception: a paired device could POST
+   * any `cwd` to `/api/terminal/sessions` and read it back from here. Since
+   * 2026-09-03 that route accepts from a device only a cwd that passes THIS
+   * function (or the broad default, which `knownProjectDirs` drops).
    *
    * Il fix sta QUI e non sui 47 chiamanti: metterlo lì significherebbe
    * dimenticarne uno, e quello dimenticato sarebbe il buco.

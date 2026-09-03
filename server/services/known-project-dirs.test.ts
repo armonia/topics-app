@@ -105,6 +105,41 @@ describe("knownProjectDirs — le sorgenti", () => {
     expect(dirs.has(join(root, "estranea"))).toBe(false);
   });
 
+  test("HOME, its ancestors and `/` never become a root, whichever source carries them", () => {
+    // A terminal opened without `cwd` is stored with the HOME default, and a
+    // root at HOME makes every file under home "inside a known project":
+    // measured 2026-09-03, `/preview/Users/<me>/.ssh/known_hosts` answered
+    // 200 from loopback. The rule is on the entry point, so a project pane
+    // opened on `~` (source 5) or a topic bound to `~` (source 2) is dropped
+    // the same way, while a real project under HOME stays.
+    const prevHome = process.env.HOME;
+    const home = join(root, "home");
+    const project = join(home, "Projects", "app");
+    mkdirSync(project, { recursive: true });
+    process.env.HOME = home;
+    try {
+      db.run("INSERT INTO terminal_sessions (id, cwd) VALUES (?, ?)", ["s-home", home]);
+      db.run("INSERT INTO terminal_sessions (id, cwd) VALUES (?, ?)", ["s-root", "/"]);
+      db.run("INSERT INTO terminal_sessions (id, cwd) VALUES (?, ?)", ["s-ancestor", root]);
+      db.run("INSERT INTO terminal_sessions (id, cwd) VALUES (?, ?)", ["s-project", project]);
+      db.run("INSERT INTO ui_state (key, value) VALUES (?, ?)", [
+        "panes", JSON.stringify({ id: `project:${encodeURIComponent(home)}` }),
+      ]);
+      const dirs = knownProjectDirs({
+        ...ctxBase(),
+        loadTopics: () => ({ topics: { t1: { projectPath: home } } }),
+      });
+      expect(dirs.has(project)).toBe(true);
+      for (const broad of [home, root, "/"]) {
+        expect(`${broad}:${dirs.has(broad)}`).toBe(`${broad}:false`);
+      }
+      expect(isInsideKnownProject(join(home, ".ssh", "known_hosts"), dirs)).toBe(false);
+      expect(isInsideKnownProject(join(project, "src", "a.ts"), dirs)).toBe(true);
+    } finally {
+      if (prevHome === undefined) delete process.env.HOME; else process.env.HOME = prevHome;
+    }
+  });
+
   test("si RICALCOLA: ciò che diventa un progetto dopo un diniego entra al giro dopo", () => {
     const dir = join(workspaceDir, "nuovo");
     mkdirSync(dir, { recursive: true });

@@ -24,6 +24,7 @@ import { classifyFrame, countsAsActivity, isInputEcho, isResizeRepaint } from ".
 // pong is not a dead daemon if bytes are still arriving. See `startBridgeWatchdog`.
 import { bridgeWatchdogStep } from "../lib/bridge-watchdog";
 import { createIdempotencyCache } from "../lib/idempotency-cache";
+import { isClientCwdAccepted } from "../lib/broad-cwd";
 import { registerFleetSocket, registerFleetSessionSource } from "../lib/fleet-usage";
 import { listSessionCliPids } from "../providers/session-pids";
 import { decidePark, idleParkThresholdMs, summarizeRefusals } from "../lib/terminal-idle-park";
@@ -2664,7 +2665,20 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       }
 
       const body = await readJSON(req).catch(() => ({}));
-      const cwd = body.cwd || process.env.HOME || "/";
+      const suppliedCwd = typeof body.cwd === "string" && body.cwd ? body.cwd : null;
+      // A cwd sent by a PAIRED DEVICE must sit inside a known project (or be
+      // the broad default). The cwd of every terminal session becomes a root
+      // of the file-route allowlist (`services/known-project-dirs.ts`, source
+      // 4), so without this a phone with an owner cookie could open a shell in
+      // `~/.ssh` and read it back through `/api/files/content`. Loopback is
+      // exempt: it already holds a shell over the terminal socket, so a
+      // refusal here would take nothing from it. Agents carry the daemon
+      // token and are exempt for the same reason (they may pass `command`).
+      if (suppliedCwd && ctx.requestIdentity?.(req)?.deviceId && !agentAuthOk(req)
+        && !isClientCwdAccepted(suppliedCwd, ctx.resolveProjectPath)) {
+        return errorResponse(400, "cwd must be inside a known project");
+      }
+      const cwd = suppliedCwd || process.env.HOME || "/";
       const id = crypto.randomUUID();
       const name = body.name || `Terminal ${sessions.size + 1}`;
       const command = body.command || undefined;
