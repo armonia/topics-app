@@ -28,6 +28,7 @@ import {
 } from './scrollAuthority';
 import { coalesceToolRuns, type CoalescedMessage } from './coalesceToolRun';
 import { SkeletonChatMessages } from '../Shared/Skeleton';
+import { listPaintedAndWhole } from './listPaintedAndWhole';
 import type { QueuedTurn } from '../../state/chatQueue';
 import { QueuedTurns } from './QueuedTurns';
 
@@ -911,8 +912,17 @@ export function MessageList({
   /** Oltre questo, si alza comunque. Copre il caso in cui la geometria non stia
    *  ferma per un motivo legittimo (uno stream che scrive mentre apri): lì
    *  l'attesa non finirebbe mai, e vedere la lista muoversi è meglio che non
-   *  vederla. */
-  const LIST_REVEAL_HARD_CAP_MS = 600;
+   *  vederla.
+   *
+   *  1200 and not 600, measured on the reload of a real chat (2026-09-03, the
+   *  desktop state replayed in Chromium at 3440x1410): the authoritative
+   *  history of an 832 KB conversation lands 330-650 ms after the list mounts,
+   *  and the two screenshots in view finish loading ~300 ms after that. With
+   *  the cap at 600 the curtain lifted BEFORE both, and what followed was the
+   *  list re-anchoring in plain sight (item list 5.8k -> 18.5k px, then the
+   *  whole column jumping 640 px when the images got their height): CLS 0.08 to
+   *  0.24 on a gesture whose contract is zero. */
+  const LIST_REVEAL_HARD_CAP_MS = 1200;
   /** Fin qui dall'apertura, una lista che si popola è ancora «la chat che si
    *  apre». Dopo, è un messaggio che arriva — e un messaggio che arriva non
    *  deve far lampeggiare uno scheletro (era il caso della prima riga scritta
@@ -939,6 +949,11 @@ export function MessageList({
     hadCacheAtOpenRef.current = filteredMessages.length > 0;
     setListSettled(false);
   }, [topic.id]); // eslint-disable-line react-hooks/exhaustive-deps -- filteredMessages.length letto in modo ref-safe
+  /** Mirror of `currentLoading` for the frame loop below: the loop is one
+   *  closure per opening, and re-creating it on every loading flip would reset
+   *  the frame count it is in the middle of. */
+  const currentLoadingRef = useRef(currentLoading);
+  useEffect(() => { currentLoadingRef.current = currentLoading; }, [currentLoading]);
   useEffect(() => {
     if (listSettled) return;
     if (!scrollerEl || filteredMessages.length === 0) return;
@@ -960,9 +975,17 @@ export function MessageList({
     const guarda = () => {
       const el = scrollerElRef.current;
       if (!el) { raf = requestAnimationFrame(guarda); return; }
+      // STILL is not SETTLED. Two identical frames also happen on an empty
+      // scroller (Virtuoso has not painted an item yet), on the local copy
+      // while the server's history is still in flight, and on a bubble whose
+      // screenshot has no height yet. Each of those was measured lifting the
+      // curtain right before the list moved (see LIST_REVEAL_HARD_CAP_MS), so
+      // the frame count only starts once there is something painted, whole,
+      // and authoritative to hold still.
+      const ready = !currentLoadingRef.current && listPaintedAndWhole(el);
       const h = el.scrollHeight;
       const top = Math.round(el.scrollTop);
-      if (h === ultimaH && top === ultimoTop) fermi += 1; else fermi = 0;
+      if (ready && h === ultimaH && top === ultimoTop) fermi += 1; else fermi = 0;
       ultimaH = h;
       ultimoTop = top;
       const trascorso = performance.now() - inizio;

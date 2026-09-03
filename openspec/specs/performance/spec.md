@@ -15,6 +15,12 @@ Common preconditions shared across scenarios:
 
 The system SHALL maintain visual stability during all user interactions, with Cumulative Layout Shift (CLS) below 0.1, and SHALL prevent white flash artifacts during page load and topic transitions.
 
+#### Scenario: A reload moves nothing that was already painted
+- **GIVEN** a chat the user was reading, with its local copy of the history, and a reply that landed on the server while they were away (it carries an image)
+- **WHEN** the user reloads the app
+- **THEN** the conversation is revealed only once it is painted, authoritative and whole (server history applied, first item painted, images in view loaded), and the Cumulative Layout Shift of the return is at most 0.01
+- **AND** the tab badges, the goal bar, the identity row and the pinned tiles are drawn from what the device last saw, so their first frame is their final frame
+
 #### Scenario: Topic switch has no visible layout shift
 - **GIVEN** a topic is selected
 - **WHEN** user clicks another topic
