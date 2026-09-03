@@ -21,7 +21,7 @@ import {
   getBrowserContextFromPaneId,
   isDraftPaneId,
 } from '../../state/pane/adapters';
-import { persistBrowserPaneUrl, getBrowserPaneUrl, persistBrowserPaneTitle, getBrowserPaneTitle, setBrowserPaneUserTitle, tryHostname } from '../../state/pane/browserPaneUrl';
+import { persistBrowserPaneUrl, persistBrowserPaneTitle, setBrowserPaneUserTitle, tryHostname, useBrowserPaneFacts } from '../../state/pane/browserPaneUrl';
 import { TERMINAL_AGENT_LABELS, normalizeTerminalAgent } from '../../lib/terminalAgents';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
@@ -256,20 +256,28 @@ export function StandaloneChatGroup({
     draftTopics,
   } = active;
 
+  // A browser tab is labelled from the store's url and page title, which move
+  // with every navigation. This map rebuilds panes from ids, so those two are
+  // SUBSCRIBED here rather than sampled with `getState()` inside the memo: read
+  // that way they were as fresh as the render that happened to rebuild the
+  // list, and after a navigation the tab kept the previous address (see
+  // `useBrowserPaneFacts`). Resolution order matches the sidebar
+  // (buildSidebarItems): live/persisted page title → hostname of the real URL
+  // → "Browser".
+  const browserPaneIds = useMemo(() => validatedOrderedIds.filter(isBrowserPaneId), [validatedOrderedIds]);
+  const browserFacts = useBrowserPaneFacts(browserPaneIds);
+
   // Build Pane[] for PaneTabBar (mix of chat topics, utility panes, project panes, browser panes, and terminal panes)
   const panes: Pane[] = useMemo(() =>
     validatedOrderedIds.map(id => {
       const isPreview = !effectivePinnedIds.has(id);
       if (isBrowserPaneId(id)) {
-        // This map rebuilds panes from ids each render and ignores the stored
-        // pane.title, so read the persisted title back explicitly. Resolution
-        // order matches the sidebar (buildSidebarItems): live/persisted page
-        // title → hostname of the real URL → "Browser".
-        const bUrl = getBrowserPaneUrl(id);
+        const facts = browserFacts.get(id);
+        const bUrl = facts?.url;
         return {
           id,
           type: 'browser' as PaneType,
-          title: getBrowserPaneTitle(id) || tryHostname(bUrl) || 'Browser',
+          title: facts?.title || tryHostname(bUrl) || 'Browser',
           preview: false,
           // Seed the persisted URL from the store so renderPaneBody passes it
           // as initialUrl → the tab reopens to its page after a restart instead
@@ -330,7 +338,7 @@ export function StandaloneChatGroup({
         title: topics[id]?.name || 'New Chat',
         preview: isPreview,
       };
-    }), [validatedOrderedIds, topics, effectivePinnedIds, terminalLabels]);
+    }), [validatedOrderedIds, topics, effectivePinnedIds, terminalLabels, browserFacts]);
 
   // Il nome della superficie davanti — lo legge la riga del telefono (vedi la
   // prop `mobile`). Viene dalla STESSA lista da cui nascono le tab, così il

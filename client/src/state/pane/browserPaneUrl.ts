@@ -7,6 +7,8 @@
  * it on mount to seed `initialUrl`; persist it (debounced, change-gated) as the
  * pane navigates.
  */
+import { useMemo } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { usePaneStore } from './store';
 // Re-exported so browser-pane consumers get the hostname helper from the same
 // module as the title/url helpers; the canonical definition is the pure one in
@@ -60,6 +62,45 @@ export function useBrowserPaneUrl(paneId: string): string | undefined {
   const stored = usePaneStore((s) => s.panes[paneId]?.url);
   if (isRealUrl(stored)) return stored;
   return initialUrlSeeds.get(paneId);
+}
+
+/** What a browser tab is labelled from: the page's address and its title. */
+export interface BrowserPaneFacts {
+  url?: string;
+  title: string;
+}
+
+/**
+ * Url and title of MANY browser panes, subscribed — for a list that is built
+ * inside a memo.
+ *
+ * `getBrowserPaneUrl` / `getBrowserPaneTitle` are plain `getState()` reads. A
+ * pane list built from them inside a `useMemo` is only as fresh as the render
+ * that happened to rebuild it: the store moved to the next page, the memo's
+ * dependencies did not, and the tab kept writing the previous address until
+ * some unrelated re-render. Measured 2026-09-03 (BROWSER-CHROME-INLINE-01):
+ * store and server both already on the second page, the tab still naming
+ * the first sixty seconds later. Same defect as `useBrowserPaneUrl`, for a list.
+ *
+ * The values are read through `useShallow` as one flat array of strings, so
+ * the returned map keeps its identity until an url or a title actually
+ * changes — which is exactly when the caller's memo has to rebuild. Pass a
+ * MEMOIZED id list: a fresh array on every render rebuilds the map every
+ * render and the memo above it with it.
+ */
+export function useBrowserPaneFacts(paneIds: readonly string[]): ReadonlyMap<string, BrowserPaneFacts> {
+  const flat = usePaneStore(useShallow((s) =>
+    paneIds.flatMap((id) => [s.panes[id]?.url ?? '', s.panes[id]?.title ?? ''])));
+  return useMemo(() => {
+    const facts = new Map<string, BrowserPaneFacts>();
+    paneIds.forEach((id, i) => {
+      const stored = flat[i * 2];
+      // Same fallback as `useBrowserPaneUrl`: a force-opened pane knows its
+      // address from the seed before the store does.
+      facts.set(id, { url: isRealUrl(stored) ? stored : initialUrlSeeds.get(id), title: flat[i * 2 + 1] });
+    });
+    return facts;
+  }, [flat, paneIds]);
 }
 
 /** Seed the URL a not-yet-mounted browser pane must open at (force-open). */
