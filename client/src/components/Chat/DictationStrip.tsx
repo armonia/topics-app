@@ -87,7 +87,7 @@ const BARS = 12;
 function LevelMeter({ level }: { level: () => number }) {
   const [lit, setLit] = useState(0);
   useEffect(() => {
-    let raf = 0;
+    let frame = 0;
     const tick = () => {
       // Speech peaks sit around 0.2-0.6 of full scale: a square root spreads
       // the quiet end so a normal voice lights more than two bars.
@@ -96,10 +96,10 @@ function LevelMeter({ level }: { level: () => number }) {
         const next = Math.round(v * BARS);
         return next === prev ? prev : next;
       });
-      raf = requestAnimationFrame(tick);
+      frame = requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
   }, [level]);
   return (
     <span data-testid="dictation-level" data-lit={lit} className="flex items-end gap-[2px] h-3 flex-shrink-0" aria-hidden="true">
