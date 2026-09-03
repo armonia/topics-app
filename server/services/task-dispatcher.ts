@@ -2693,7 +2693,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           const sporchi = senzaCommit && deps.uncommittedInWorktree
             ? await deps.uncommittedInWorktree(taskId).catch(() => null)
             : null;
-          const lavoroNonCommittato = sporchi && sporchi.length > 0 ? sporchi : null;
+          // THE NUMBER GOES TO THE CARD, THE SENTENCE STAYS AS IT WAS. The chip
+          // already speaks about the git side and it now carries the count, so
+          // the widened probe must not widen the NOTE too: saying it a second
+          // time in the thread would be the same fact as noise. The wording
+          // keeps the condition it always had.
+          const lavoroNonCommittato = nienteDaVedere && sporchi && sporchi.length > 0 ? sporchi : null;
           // IL PERCHE' E' DI CHI CHIUDE IL TURNO, IL DOVE NO. Qui si sa perché il
           // turno è finito; NON si sa dove finirà la card, perché
           // `deliverToReviewBySystem` ha due guardie che possono mandarla in

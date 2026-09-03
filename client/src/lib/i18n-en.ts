@@ -755,6 +755,10 @@ const EN = {
   'board.card.commentMore': 'Show all',
   'board.card.commentLess': 'Show less',
   'board.card.uncommitted': 'branch with no commit',
+  // THE WORK IS THERE, IT IS JUST NOT ON A COMMIT. The chip said the same thing
+  // for "produced nothing" and "produced and did not commit", and those are the
+  // two opposite decisions: a re-dispatch against one line asking for a commit.
+  'board.card.uncommittedFiles': '{n} files never committed',
   'board.card.uncommittedTitle': 'There is a branch but it carries no commit: the agent worked in the worktree without committing. Landing will refuse until that work is committed, because the loose files block the realign.',
   'board.card.nothingDelivered': 'Nothing delivered',
   'board.card.nothingDeliveredTitle': "The agent produced nothing: no branch, no files touched, and the system brought it here after the retries ran out. There is no diff to look at. The thread says how the last turn ended: send it forward and it restarts, or take it over yourself.",

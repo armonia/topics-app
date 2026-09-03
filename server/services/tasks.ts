@@ -2290,6 +2290,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       deliveryFilesChanged: r.delivery_files_changed ?? null,
       deliveryInsertions: r.delivery_insertions ?? null,
       deliveryDeletions: r.delivery_deletions ?? null,
+      // The work that is NOT on a commit: it is what turns the chip's "nothing
+      // committed" into "nothing committed, and N files are waiting there".
+      deliveryUncommittedFiles: r.delivery_uncommitted_files ?? null,
       landingState: r.landing_state ?? null,
       deployState: (r.deploy_state as Task["deployState"]) ?? null,
       ...(r.deploy_command_at_propose ? { deployCommandAtPropose: r.deploy_command_at_propose } : {}),

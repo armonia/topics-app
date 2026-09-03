@@ -583,6 +583,12 @@ export interface BoardTask {
   deliveryFilesChanged: number | null;
   deliveryInsertions: number | null;
   deliveryDeletions: number | null;
+  /** How many files changed in the worktree WITHOUT reaching a commit, counted
+   *  at delivery. `null` = never measured. The three numbers above count
+   *  commits, so a turn that ended before committing leaves them at zero and
+   *  the card reads as "produced nothing": this one says how much work is
+   *  waiting there anyway. */
+  deliveryUncommittedFiles: number | null;
   /** Landing audit verdict: is the delivered work actually on main?
    *  null = never audited (no delivery recorded). 'unlanded' is the alarm. */
   landingState: "landed" | "unlanded" | "unverifiable" | "superseded" | null;

@@ -27,6 +27,30 @@ export function chipKey(state: string, deliveredBy?: string | null, hasWork = tr
   return deliveredBy === 'system' ? 'delivered_by_system' : 'delivered';
 }
 
+/**
+ * HOW MANY FILES THE "no commit" CHIP HAS TO NAME, and 0 means "say nothing".
+ *
+ * The chip said "branch with no commit" over a card that had produced nothing
+ * and over one holding two finished files in its worktree, and those are the
+ * two opposite decisions: a re-dispatch against one line asking for a commit.
+ * The count belongs HERE, in the chip that already talks about the git side,
+ * and not as one more note in the thread.
+ *
+ * `null` (never measured) reads as 0: the chip falls back to the sentence it
+ * has always shown instead of inventing a zero.
+ *
+ * Pure and out of the render body for the usual reason: a rule inside JSX is a
+ * rule only a rendered pixel can check.
+ */
+export function uncommittedChipCount(
+  uncommitted: number | null | undefined,
+  senzaCommit: boolean,
+): number {
+  if (!senzaCommit) return 0;
+  const n = uncommitted ?? 0;
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 /** The three columns that say a run left something behind. */
 export function taskHasWork(t: { deliveryBranch?: string | null; deliveryCommit?: string | null; deliveryFilesChanged?: number | null }): boolean {
   return Boolean(t.deliveryBranch || t.deliveryCommit || (t.deliveryFilesChanged ?? 0) > 0);
