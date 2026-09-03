@@ -48,8 +48,15 @@ async function readNames(page: import("@playwright/test").Page): Promise<NameMet
         // edge, i.e. the depth. Chats nest, projects do not.
         const row = el.closest('[role="treeitem"], [data-project-row], li, div[class*="group"]');
         const rowBox = (row ?? el).getBoundingClientRect();
-        // The glyph box that precedes THIS name, inside the same row card.
-        const hasGlyph = !!(row ?? el).querySelector("[data-row-glyph-slot]");
+        // The glyph box that precedes THIS name: a SIBLING of the name, or of
+        // the block that holds it, never a descendant of the row card (a
+        // project's card contains its child rows, and those have glyphs of
+        // their own). Three levels up is the deepest a name sits: the
+        // terminal's name lives in a block under the row's button.
+        let hasGlyph = false;
+        for (let node: HTMLElement | null = el as HTMLElement, depth = 0; node && depth < 3; node = node.parentElement, depth++) {
+          if (node.parentElement?.querySelector(":scope > [data-row-glyph-slot]")) { hasGlyph = true; break; }
+        }
         return {
           kind: el.getAttribute("data-row-name") ?? "?",
           text: (el.textContent ?? "").trim().slice(0, 30),

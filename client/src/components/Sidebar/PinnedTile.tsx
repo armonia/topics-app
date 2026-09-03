@@ -15,7 +15,7 @@ import { rememberDraggedPane } from '../../lib/dragPayload';
 import { startDragPreview } from '../../lib/dragPreview';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { cachedIconPalette, cachedIconTint, fromHex, sampleIconPalette, sampleIconTint } from '../../lib/iconTint';
-import { PINNED_ALIGN, PINNED_GRID_CHEVRON_CLASS, PINNED_TILE_ACTION_SLOT, PINNED_TILE_H, pinnedLabelShown, type PinnedForm } from './pinnedTileMetrics';
+import { PINNED_ALIGN, PINNED_GRID_CHEVRON_CLASS, PINNED_GRID_CLEAR_CLASS, PINNED_TILE_ACTION_SLOT, PINNED_TILE_H, pinnedLabelShown, type PinnedForm } from './pinnedTileMetrics';
 import { RowSplitMap } from './RowSplitMap';
 
 /**
@@ -437,6 +437,12 @@ export function PinnedTile({
         // a 390×844, nome della tessera e nome della riga partivano da due
         // colonne diverse nella stessa colonna.
         `${PINNED_TILE_H} w-full min-w-0 rounded-lg ${ROW_PX} select-none`,
+        // IN GRID FORM, WHILE THE ACCORDION IS DRAWN, THE CONTENT KEEPS CLEAR
+        // OF IT: the chevron is out of the flow at the left edge, and a name
+        // that is the tile's only identity (no favicon) would otherwise run
+        // under it. Symmetric, so the centre stays the centre (see
+        // PINNED_GRID_CLEAR_CLASS).
+        expandable && !isRow ? PINNED_GRID_CLEAR_CLASS : '',
         'transition-colors duration-100',
         // Il filo neutro resta SEMPRE: la cornice accesa gli si sovrappone da
         // selezionata, e a riposo la tessera torna sobria come una qualsiasi.

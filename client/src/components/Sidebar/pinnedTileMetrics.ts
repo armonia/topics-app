@@ -299,3 +299,17 @@ export function pinnedLabelShown(input: PinnedLabelInput): boolean {
  * the tile's height, so it is hit-testable like the slot it replaces.
  */
 export const PINNED_GRID_CHEVRON_CLASS = 'absolute inset-y-0 left-2';
+
+/**
+ * WHAT THE IDENTITY KEEPS CLEAR OF THE EDGE, on a grid tile that opens.
+ *
+ * Out of the flow the chevron reserves nothing, so a name that is the only
+ * identity of the tile (no favicon: drawn at any width, truncated) would run
+ * under it from the padding edge. The tile's padding grows to the chevron
+ * zone on BOTH sides while the chevron is drawn (from `chevronMin` up):
+ * inset 8 + chevron 12 + gap 8 = 28 (`px-7`), symmetric so the centre does
+ * not move, and equal to what `pinnedLabelRoom` already charges. The chevron
+ * itself is positioned from the padding box's edge (`left-2`), so the
+ * padding does not move it.
+ */
+export const PINNED_GRID_CLEAR_CLASS = '@min-[76px]/tile:px-7';

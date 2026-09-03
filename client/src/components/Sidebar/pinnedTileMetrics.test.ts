@@ -5,6 +5,7 @@ import { describe, expect, test } from 'bun:test';
 import { ROW_ACTION_BOX, ROW_CHEVRON, ROW_GAP, ROW_GLYPH_SLOT, ROW_H, ROW_PX } from '../../lib/selectionStyles';
 import {
   PINNED_GRID_CHEVRON_CLASS,
+  PINNED_GRID_CLEAR_CLASS,
   PINNED_GRID_PX,
   PINNED_TILE_ACTION_INSET_CLASS,
   PINNED_TILE_ACTION_INSET_PX,
@@ -222,5 +223,16 @@ describe('the name of a grid tile', () => {
     // the row inset puts every other accordion of the column.
     expect(/(^|\s)absolute(\s|$)/.test(PINNED_GRID_CHEVRON_CLASS)).toBe(true);
     expect(bare(PINNED_GRID_CHEVRON_CLASS, 'left')).toBe(PINNED_GRID_PX.inset);
+  });
+
+  test('while the accordion is drawn the identity keeps its zone clear, on both sides', () => {
+    // The padding the tile grows to is the same zone the fit rule charges:
+    // inset + chevron + gap. Read from the class, at the width the hint
+    // appears at, so the CSS and the arithmetic cannot drift apart.
+    const { inset, chevron, gap, chevronMin } = PINNED_GRID_PX;
+    const m = /^@min-\[(\d+)px\]\/tile:px-(\d+)$/.exec(PINNED_GRID_CLEAR_CLASS);
+    expect(m, `unreadable clear class "${PINNED_GRID_CLEAR_CLASS}"`).not.toBeNull();
+    expect(Number(m![1])).toBe(chevronMin);
+    expect(Number(m![2]) * STEP_PX).toBe(inset + chevron + gap);
   });
 });

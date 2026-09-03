@@ -20,11 +20,11 @@ import { MODAL_LAYER } from '../../lib/modalStyles';
  * Pinch, drag and double-tap zoom are what the chat had; nothing was removed.
  */
 export function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
-  // Escape chiude. Non lo faceva: si usciva solo con la × o cliccando il velo —
-  // e peggio, Escape cadeva sul gestore globale e INTERROMPEVA il turno dell'AI
-  // dietro l'immagine (il lightbox non portava nessun marcatore di modale, così
-  // `hasOpenModalSurface` non lo vedeva). `role="dialog"` qui sotto lo rende
-  // visibile a quel gate.
+  // Escape closes. It did not: the only ways out were the x and a click on
+  // the veil, and worse, Escape fell through to the global handler and
+  // INTERRUPTED the AI turn behind the image (the lightbox carried no modal
+  // marker, so `hasOpenModalSurface` could not see it). `role="dialog"` below
+  // makes it visible to that gate.
   const panelRef = useRef<HTMLDivElement>(null);
   useModalDialog({ onClose, panelRef });
   const [scale, setScale] = useState(1);
@@ -85,11 +85,11 @@ export function ImageLightbox({ src, alt, onClose }: { src: string; alt: string;
       aria-modal="true"
       aria-label={alt || 'Immagine'}
       data-testid="image-lightbox"
-      // `MODAL_LAYER` e non `z-[9999]`: 9999 non è «sopra i popover», è lo
-      // STESSO piano (Z_POPOVER / Z_CONTEXT_MENU). A parità di z decide
-      // l'ordine nel DOM, e qui entrambi sono portal su `<body>`: il lightbox
-      // stava sopra per fortuna, non per contratto. La costante lo mette a
-      // 10000, che è dove i modali stanno per definizione.
+      // `MODAL_LAYER` and not `z-[9999]`: 9999 is not "above the popovers",
+      // it is the SAME plane (Z_POPOVER / Z_CONTEXT_MENU). At equal z the DOM
+      // order decides, and both are portals on `<body>`: the lightbox sat on
+      // top by luck, not by contract. The constant puts it at 10000, where
+      // modals are by definition.
       className={`fixed inset-0 bg-black/90 ${MODAL_LAYER} flex items-center justify-center overflow-hidden`}
       style={{ touchAction: 'none' }}
       onClick={handleBackdropClick}

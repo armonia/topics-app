@@ -2191,14 +2191,20 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
           tile.querySelector('[data-testid="pinned-tile-name"]'),
           tile.querySelector("svg, img"),
         ].filter(Boolean) as Element[];
+        // THE SAME RULE AS THE TILE (card 058ea722): a part that is not drawn
+        // (a name that does not fit whole next to the glyph) has no box and
+        // is not "outside"; a drawn part must be inside, and a drawn name
+        // must be whole.
+        const drawn = parti.filter(e => getComputedStyle(e).display !== "none");
+        const nome = tile.querySelector<HTMLElement>('[data-testid="pinned-tile-name"]');
         out = {
           c: true,
           parti: parti.length,
-          nome: tile.querySelector('[data-testid="pinned-tile-name"]')?.textContent ?? null,
-          fuori: parti.filter(e => {
+          nome: nome?.textContent ?? null,
+          fuori: drawn.filter(e => {
             const r = e.getBoundingClientRect();
             return r.top < b.top - 0.5 || r.bottom > b.bottom + 0.5;
-          }).length,
+          }).length + (nome && getComputedStyle(nome).display !== "none" && nome.scrollWidth > nome.clientWidth + 0.5 ? 1 : 0),
         };
       }
       src.dispatchEvent(new DragEvent("dragend", { dataTransfer: dt, bubbles: true }));
@@ -2208,7 +2214,7 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     expect(anteprima.c, "l'anteprima esiste").toBe(true);
     expect(anteprima.parti, "con icona E titolo").toBe(2);
     expect(anteprima.nome, "il titolo e' quello giusto").toContain("E2E-Fit-Chat");
-    expect(anteprima.fuori, "e si vedono per intero").toBe(0);
+    expect(anteprima.fuori, "e cio' che si vede si vede per intero: dentro, e mai troncato").toBe(0);
   });
 
   test("TILE-26: il titolo se ne va quando la tessera diventa un quadrato, e niente si dipinge fuori", async ({ page, request }) => {
