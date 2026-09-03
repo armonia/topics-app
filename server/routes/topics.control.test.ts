@@ -609,25 +609,25 @@ describe("POST /api/topics — il percorso si scioglie dal link", () => {
   test("un topic creato su un link risulta legato alla cartella vera", async () => {
     const h = makeHarness();
     try {
-      const vero = join(h.workspaceDir, "progetto-vero");
-      mkdirSync(vero, { recursive: true });
+      const realDir = join(h.workspaceDir, "progetto-vero");
+      mkdirSync(realDir, { recursive: true });
       const link = join(h.workspaceDir, "scorciatoia");
-      symlinkSync(vero, link);
+      symlinkSync(realDir, link);
 
       const resp = (await h.call("POST", "/api/topics", { name: "dal link", projectPath: link }))!;
       expect(resp.status).toBe(201);
-      const creato = (await resp.json()) as { projectPath: string };
-      expect(creato.projectPath).toBe(realpathSync(vero));
-      expect(creato.projectPath).not.toBe(link);
+      const created = (await resp.json()) as { projectPath: string };
+      expect(created.projectPath).toBe(realpathSync(realDir));
+      expect(created.projectPath).not.toBe(link);
     } finally { h.cleanup(); }
   });
 
   test("una cartella che non esiste resta com'è: non è un errore", async () => {
     const h = makeHarness();
     try {
-      const mai = join(h.workspaceDir, "non-creata-ancora");
-      const resp = (await h.call("POST", "/api/topics", { name: "futura", projectPath: mai }))!;
-      expect(((await resp.json()) as { projectPath: string }).projectPath).toBe(mai);
+      const missing = join(h.workspaceDir, "non-creata-ancora");
+      const resp = (await h.call("POST", "/api/topics", { name: "futura", projectPath: missing }))!;
+      expect(((await resp.json()) as { projectPath: string }).projectPath).toBe(missing);
     } finally { h.cleanup(); }
   });
 });

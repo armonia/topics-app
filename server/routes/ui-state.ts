@@ -105,64 +105,64 @@ export const DEVICE_LOCAL_SETTINGS_FIELDS = ["sidebarWidth", "sidebarCollapsed"]
 export function dropVanishedProjectPanes(payload: unknown, key?: string): unknown {
   if (key !== "pane-store-v2" || !payload || typeof payload !== "object") return payload;
 
-  const PREFISSO = "project:";
-  const gemello = (p: string): string | null => {
+  const PREFIX = "project:";
+  const twinOf = (p: string): string | null => {
     if (existsSync(p)) return null;
     const c = join(homedir(), "Projects", p.split("/").filter(Boolean).pop() || "");
     return c !== p && existsSync(c) ? c : null;
   };
   // id → id: computed once, then rewritten everywhere it shows up.
-  const mappa = new Map<string, string>();
-  const raccogli = (s: string) => {
-    if (mappa.has(s)) return;
-    if (s.startsWith(PREFISSO)) {
+  const idMap = new Map<string, string>();
+  const collect = (s: string) => {
+    if (idMap.has(s)) return;
+    if (s.startsWith(PREFIX)) {
       let p: string;
-      try { p = decodeURIComponent(s.slice(PREFISSO.length)); } catch { return; }
-      const g = gemello(p);
-      if (g) mappa.set(s, PREFISSO + encodeURIComponent(g));
+      try { p = decodeURIComponent(s.slice(PREFIX.length)); } catch { return; }
+      const g = twinOf(p);
+      if (g) idMap.set(s, PREFIX + encodeURIComponent(g));
       return;
     }
     if (s.startsWith("/")) {
-      const g = gemello(s);
-      if (g) mappa.set(s, g);
+      const g = twinOf(s);
+      if (g) idMap.set(s, g);
     }
   };
-  const visita = (o: unknown): void => {
-    if (typeof o === "string") return raccogli(o);
-    if (Array.isArray(o)) return o.forEach(visita);
+  const visit = (o: unknown): void => {
+    if (typeof o === "string") return collect(o);
+    if (Array.isArray(o)) return o.forEach(visit);
     if (o && typeof o === "object") {
-      for (const [k, v] of Object.entries(o)) { raccogli(k); visita(v); }
+      for (const [k, v] of Object.entries(o)) { collect(k); visit(v); }
     }
   };
-  visita(payload);
-  if (mappa.size === 0) return payload;
+  visit(payload);
+  if (idMap.size === 0) return payload;
 
-  const riscrivi = (o: unknown): unknown => {
-    if (typeof o === "string") return mappa.get(o) ?? o;
+  const rewrite = (o: unknown): unknown => {
+    if (typeof o === "string") return idMap.get(o) ?? o;
     if (Array.isArray(o)) {
-      const fuori = o.map(riscrivi);
+      const out = o.map(rewrite);
       // Dedup strings only: after the remap the same tab shows up twice.
-      return fuori.every((x) => typeof x === "string") ? [...new Set(fuori as string[])] : fuori;
+      return out.every((x) => typeof x === "string") ? [...new Set(out as string[])] : out;
     }
     if (o && typeof o === "object") {
-      const fuori: Record<string, unknown> = {};
-      const voci = Object.entries(o);
+      const out: Record<string, unknown> = {};
+      const entries = Object.entries(o);
       // TWO PASSES, and the order is the point: already-canonical keys first,
       // then the remapped ones only if the slot is still free. With a single pass
       // whoever came first in the object won, i.e. almost always the OLD pane —
       // and the content on screen was replaced by the dead one.
-      for (const [k, v] of voci) if (!mappa.has(k)) fuori[k] = riscrivi(v);
-      for (const [k, v] of voci) {
-        if (!mappa.has(k)) continue;
-        const nk = mappa.get(k)!;
-        if (nk in fuori) continue;
-        fuori[nk] = riscrivi(v);
+      for (const [k, v] of entries) if (!idMap.has(k)) out[k] = rewrite(v);
+      for (const [k, v] of entries) {
+        if (!idMap.has(k)) continue;
+        const nk = idMap.get(k)!;
+        if (nk in out) continue;
+        out[nk] = rewrite(v);
       }
-      return fuori;
+      return out;
     }
     return o;
   };
-  return riscrivi(payload);
+  return rewrite(payload);
 }
 
 export function stripDeviceLocalFields(payload: unknown, key?: string): unknown {

@@ -23,7 +23,7 @@ import { skillDirs } from "./slash-command-source";
 /** Past this, a rules file is an attachment, not an instruction. */
 const MAX_RULES_BYTES = 64 * 1024;
 /** Like Claude Code's `skillListingMaxDescChars`: the listing costs on every turn. */
-const MAX_DESC_CHARS = 180;
+const MAX_DESCRIPTION_CHARS = 180;
 
 /**
  * `~/.claude/CLAUDE.md`, with one pass of `@path` imports expanded.
@@ -61,21 +61,21 @@ export interface SkillEntry { name: string; description: string }
  * description became literally «|» — a listing that gives the name and nothing,
  * that is, a listing the model cannot use to choose from.
  */
-export function descrizioneDaFrontmatter(testa: string): string {
-  const m = /^description:[ \t]*(.*)$/m.exec(testa);
+export function descriptionFromFrontMatter(head: string): string {
+  const m = /^description:[ \t]*(.*)$/m.exec(head);
   if (!m) return "";
-  const primo = m[1].trim();
-  if (primo && primo !== "|" && primo !== ">" && primo !== "|-" && primo !== ">-") {
-    return primo.replace(/^["']|["']$/g, "");
+  const firstLine = m[1].trim();
+  if (firstLine && firstLine !== "|" && firstLine !== ">" && firstLine !== "|-" && firstLine !== ">-") {
+    return firstLine.replace(/^["']|["']$/g, "");
   }
-  const resto = testa.slice(m.index + m[0].length).split("\n").slice(1);
-  const righe: string[] = [];
-  for (const r of resto) {
-    if (!r.trim()) { if (righe.length) break; continue; }
+  const rest = head.slice(m.index + m[0].length).split("\n").slice(1);
+  const lines: string[] = [];
+  for (const r of rest) {
+    if (!r.trim()) { if (lines.length) break; continue; }
     if (!/^\s/.test(r)) break;            // end of the indented block
-    righe.push(r.trim());
+    lines.push(r.trim());
   }
-  return righe.join(" ");
+  return lines.join(" ");
 }
 
 /**
@@ -89,25 +89,25 @@ export function listSkills(home = homedir()): SkillEntry[] {
   // that one dedupes by name against the commands, and five skills whose name
   // is also a command (`commit`, `recap`, `vai`…) dropped out of the listing   allow-italian: `vai` is the command's own name
   // even though they were installed.
-  const visti = new Set<string>();
+  const seen = new Set<string>();
   const files: Array<{ name: string; file: string }> = [];
   for (const dir of skillDirs(home)) {
-    let voci: string[] = [];
-    try { voci = readdirSync(dir); } catch { continue; }
-    for (const nome of voci) {
-      if (visti.has(nome)) continue;
-      const md = join(dir, nome, "SKILL.md");
+    let entries: string[] = [];
+    try { entries = readdirSync(dir); } catch { continue; }
+    for (const name of entries) {
+      if (seen.has(name)) continue;
+      const md = join(dir, name, "SKILL.md");
       if (!existsSync(md)) continue;
-      visti.add(nome);
-      files.push({ name: nome, file: md });
+      seen.add(name);
+      files.push({ name: name, file: md });
     }
   }
   for (const f of files) {
     let description = "";
     try {
-      description = descrizioneDaFrontmatter(readFileSync(f.file, "utf-8").slice(0, 8192));
+      description = descriptionFromFrontMatter(readFileSync(f.file, "utf-8").slice(0, 8192));
     } catch { /* skill with no readable frontmatter: the name stays */ }
-    if (description.length > MAX_DESC_CHARS) description = description.slice(0, MAX_DESC_CHARS) + "…";
+    if (description.length > MAX_DESCRIPTION_CHARS) description = description.slice(0, MAX_DESCRIPTION_CHARS) + "…";
     out.push({ name: f.name, description });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
@@ -117,7 +117,7 @@ export function listSkills(home = homedir()): SkillEntry[] {
 export function skillsBlock(home = homedir()): string {
   const skills = listSkills(home);
   if (skills.length === 0) return "";
-  const righe = skills.map((s) => `- ${s.name}${s.description ? `: ${s.description}` : ""}`);
+  const lines = skills.map((s) => `- ${s.name}${s.description ? `: ${s.description}` : ""}`);
   return [
     "## Skill disponibili",
     "",
@@ -126,7 +126,7 @@ export function skillsBlock(home = homedir()): string {
     "torna sono le istruzioni da seguire al posto del tuo approccio di default.",
     "Se l'utente scrive `/<nome>`, è una richiesta esplicita di invocarla.",
     "",
-    ...righe,
+    ...lines,
   ].join("\n");
 }
 
