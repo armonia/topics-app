@@ -2903,3 +2903,22 @@ trascinamento.
 #### Scenario: un trascinamento senza file
 - **GIVEN** un trascinamento che non porta file
 - **THEN** il composer NON SHALL reagire
+
+### Requirement: PLANTAB-01 — La tab Piano disegna il piano, non il recinto
+
+La tab «Piano» della scheda di un task SHALL rendere il commento del piano come
+le altre due superfici che lo mostrano (il thread e la card): il recinto
+```` ```question ```` SHALL essere interpretato e non stampato, e il corpo SHALL
+passare dal renderer markdown. Il contenitore SHALL spezzare le parole lunghe
+invece di scorrere di lato: il piano si legge, non si scorre.
+
+Nessuna parte di questa superficie SHALL essere disegnata dentro un blocco che
+non va a capo (`<pre`, `whitespace-pre`): e' la forma che ha riportato lo
+scorrimento laterale, e la parola tagliata («legata» per «allegata») e' cio' che
+si vedeva.
+
+#### Scenario: il piano si legge nella tab
+- **GIVEN** una card con un commento di piano che porta un recinto `question` e prosa markdown
+- **WHEN** si apre la tab Piano della scheda
+- **THEN** il recinto NON SHALL comparire come testo, e i marcatori markdown SHALL essere resi
+- **AND** nessuna parola SHALL essere tagliata da uno scorrimento laterale

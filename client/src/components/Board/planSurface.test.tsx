@@ -23,7 +23,9 @@
  * and still breaks words. What it cannot: what a browser paints — that is the
  * E2E's job.
  *
- * @covers 78c3c527
+ * Seen on card 78c3c527.
+ *
+ * @covers PLANTAB-01
  */
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';

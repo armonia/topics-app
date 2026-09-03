@@ -364,3 +364,58 @@ dei file non lo ricevono.
 #### Scenario: un fratello con lo stesso prefisso
 - **GIVEN** una cartella accanto con un nome che comincia uguale
 - **THEN** NON SHALL essere considerata dentro
+
+### Requirement: PROJ-ID-01 — la cartella è il progetto, non la strada per arrivarci
+
+Quando un percorso di progetto viene memorizzato su un topic, DEVE essere canonicalizzato
+(link risolti, `~` espanso, barra finale tolta). Due percorsi che puntano alla stessa
+cartella DEVONO produrre lo stesso `projectId` e le stesse chiavi `ui_state`.
+
+#### Scenario: un topic creato su un symlink
+- **GIVEN** `~/link-al-progetto` è un link a `~/Projects/progetto`
+- **WHEN** si crea un topic con `projectPath: "~/link-al-progetto"`
+- **THEN** il topic risulta legato a `~/Projects/progetto`, e nella sidebar c'è una voce sola
+
+#### Scenario: una cartella non ancora creata
+- **WHEN** si crea un topic con un `projectPath` che non esiste
+- **THEN** il percorso si conserva com'è e la creazione riesce
+
+### Requirement: PROJ-ID-02 — ciò che è già scritto si fonde solo su richiesta
+
+La canonicalizzazione NON DEVE riscrivere percorsi già memorizzati. La fusione delle
+identità doppie esistenti DEVE essere un'operazione esplicita, che per default si limita
+a elencare cosa cambierebbe.
+
+#### Scenario: la prova non scrive
+- **WHEN** si esegue lo script senza `--esegui`
+- **THEN** stampa vecchio e nuovo id con i conteggi, e il database resta invariato
+
+#### Scenario: la fusione scrive solo con `--esegui`
+- **WHEN** si esegue lo script con `--esegui` su un percorso salvato che è un link
+- **THEN** i topic, le righe `tasks` e le chiavi `ui_state` passano sotto l'identità della cartella vera, in una transazione sola
+
+### Requirement: PROJ-ID-03 — Il pannello di una cartella sparita confluisce nel gemello, e si RIMAPPA
+
+Quando lo stato dei pannelli (`pane-store-v2`) viene SCRITTO dal client, un pannello
+di progetto il cui percorso NON esiste più e che ha un gemello in `~/Projects` con lo
+stesso nome DEVE confluire nel pannello del gemello. Ripulire il database non basta: il
+client rispinge il proprio `pane-store-v2` da localStorage e il doppione torna. Il
+filtro sta quindi sulla scrittura, non su una bonifica.
+
+La rimappatura DEVE toccare anche la fila delle tab (`groups.*.paneIds`) e un
+`projectPath` scritto per esteso: cancellare il solo pannello lascia una tab che punta
+a niente, ed è quella tab a comparire doppia.
+
+Una cartella sparita SENZA gemello NON DEVE essere toccata: un disco esterno smontato
+non perde i propri pannelli.
+
+#### Scenario: il pannello del percorso sparito confluisce in quello vero
+- **GIVEN** uno stato con un pannello su `~/.openclaw/workspace/x` (non esiste più) e uno su `~/Projects/x`
+- **WHEN** il client scrive `pane-store-v2`
+- **THEN** resta il solo pannello di `~/Projects/x`, con il proprio contenuto
+- **AND** nella fila delle tab l'id vecchio è sostituito da quello vero, non rimosso
+
+#### Scenario: un disco smontato non perde i pannelli
+- **GIVEN** un pannello su un percorso che non esiste e non ha un gemello in `~/Projects`
+- **WHEN** il client scrive `pane-store-v2`
+- **THEN** il pannello resta com'è

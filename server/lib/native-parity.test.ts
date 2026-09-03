@@ -4,6 +4,8 @@
  * The case that matters is the expansion of `@path`: without it the rules block
  * arrives halved and nobody notices — the text is there, it is the rules that
  * are missing.
+ *
+ * @covers NATIVE-CTX-01, NATIVE-SKILL-01, NATIVE-EFFORT-01
  */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "node:fs";

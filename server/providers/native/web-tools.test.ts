@@ -11,6 +11,8 @@
  * The server is a real one on the loopback interface, at a port the OS picks:
  * a stubbed `fetch` would test the stub, and this code exists precisely to deal
  * with what comes back over the wire (headers, redirects, content types).
+ *
+ * @covers CHAT-NTOOL-01, CHAT-NTOOL-02, CHAT-NTOOL-03
  */
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { CODING_TOOLS, WORKSPACE_FREE_TOOLS, executeTool, type ToolContext } from "./tools";
@@ -138,6 +140,18 @@ describe("la forma dichiarata sopravvive al confine dello stream", () => {
     // The NAME is the contract with `deriveToolDetail`: break it loudly here.
     expect(CODING_TOOLS.map((t) => t.name)).toContain("todo_write");
     expect(CODING_TOOLS.map((t) => t.name)).toContain("web_fetch");
+  });
+});
+
+describe("a tool that would fail at runtime is not declared", () => {
+  it("no web_search without a search credential, no task without a safe nested turn", () => {
+    // A declared tool is an invitation: one that answers "no credential" costs
+    // two rounds before the model gives up. Search reaches the model through
+    // the MCP fleet instead, and a sub-agent needs depth, budget, a UI channel
+    // and cancellation before it can exist (CHAT-NTOOL-03).
+    const declared = [...CODING_TOOLS, ...WORKSPACE_FREE_TOOLS].map((t) => t.name);
+    expect(declared).not.toContain("web_search");
+    expect(declared).not.toContain("task");
   });
 });
 
