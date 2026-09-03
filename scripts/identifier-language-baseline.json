@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-09-01",
+  "generated": "2026-09-03",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -1131,9 +1131,6 @@
     ],
     "client/src/hooks/liveTurn.test.ts": [
       "utente"
-    ],
-    "client/src/hooks/liveTurn.ts": [
-      "oldest"
     ],
     "client/src/hooks/messageCacheWrite.test.ts": [
       "adesso",
@@ -2461,7 +2458,6 @@
       "copiaAlbero",
       "elenco",
       "esegui",
-      "fonti",
       "pem",
       "pulito",
       "ripristina",
@@ -2957,7 +2953,6 @@
       "editable",
       "effectiveDsf",
       "handoff",
-      "href",
       "screencastSessions",
       "skipped",
       "txt"
@@ -3053,7 +3048,6 @@
       "iniziale"
     ],
     "server/context/inline-sent-state.ts": [
-      "oldest",
       "rekeyInlineSent"
     ],
     "server/context/snapshots.ts": [
@@ -3079,9 +3073,6 @@
     ],
     "server/db/notification-log.test.ts": [
       "notifica"
-    ],
-    "server/db/notification-log.ts": [
-      "oldest"
     ],
     "server/db/test-schema.test.ts": [
       "attese",
@@ -3283,9 +3274,6 @@
       "buf",
       "rec"
     ],
-    "server/lib/claude-transcript-title.ts": [
-      "oldest"
-    ],
     "server/lib/codex-session.test.ts": [
       "writeRollout"
     ],
@@ -3301,8 +3289,7 @@
       "safeSubdirs"
     ],
     "server/lib/codex-transcript-title.ts": [
-      "extractCodexTitleFromRollout",
-      "oldest"
+      "extractCodexTitleFromRollout"
     ],
     "server/lib/commit-message.test.ts": [
       "insidioso",
@@ -3434,10 +3421,6 @@
       "Numstat",
       "SHOW_NUMSTAT_ARGS",
       "conteggi"
-    ],
-    "server/lib/git-status-cache.ts": [
-      "oldestKey",
-      "oldestTs"
     ],
     "server/lib/github-profile.ts": [
       "OpzioniGitHub",
@@ -3659,8 +3642,7 @@
       "mia"
     ],
     "server/lib/permission-bridge.ts": [
-      "buf",
-      "oldest"
+      "buf"
     ],
     "server/lib/permission-paint.ts": [
       "arr"
@@ -3710,13 +3692,7 @@
     ],
     "server/lib/project-icon.test.ts": [
       "fav",
-      "href",
       "ico"
-    ],
-    "server/lib/project-icon.ts": [
-      "decodeHtmlEntities",
-      "extractIconHref",
-      "href"
     ],
     "server/lib/project-ref.test.ts": [
       "slugify"
@@ -4119,7 +4095,6 @@
       "ENV_BLOCKLIST_EXCEPTIONS",
       "ENV_BLOCKLIST_PATTERNS",
       "certsDir",
-      "oldest",
       "oneshotKey",
       "parseCompletionStdout",
       "stderr",
@@ -4200,9 +4175,6 @@
     ],
     "server/providers/native-usage-registry.test.ts": [
       "turno"
-    ],
-    "server/providers/native-usage-registry.ts": [
-      "oldest"
     ],
     "server/providers/native/abort-cause.test.ts": [
       "Spia",
@@ -4330,9 +4302,6 @@
     "server/providers/text-delta.test.ts": [
       "eventi",
       "pezzi"
-    ],
-    "server/providers/turn-end-registry.ts": [
-      "oldest"
     ],
     "server/providers/types.ts": [
       "AcpProviderConfig"
@@ -4531,14 +4500,11 @@
       "basename",
       "esempi",
       "esito",
-      "evictOldestBackups",
       "gitignorePath",
       "gitignorePatterns",
       "indici",
       "leggi",
       "modified",
-      "oldestKey",
-      "oldestTime",
       "parseGitignoreFlat",
       "risposta",
       "scaduto",
@@ -4837,7 +4803,6 @@
       "WorktreeDiffStat",
       "WorktreeDiffStatOptions",
       "numstat",
-      "oldest",
       "worktreeDiffStat"
     ],
     "server/services/browser-orphan-reap.test.ts": [
@@ -5294,8 +5259,7 @@
     ],
     "server/services/task-diff-range.ts": [
       "anc",
-      "introducing",
-      "oldest"
+      "introducing"
     ],
     "server/services/task-dispatcher-cap-note.test.ts": [
       "nota"
@@ -5613,8 +5577,7 @@
       "tok"
     ],
     "server/services/transcript-usage.ts": [
-      "buf",
-      "oldest"
+      "buf"
     ],
     "server/services/ui-state-backup.ts": [
       "filename"
@@ -6576,9 +6539,6 @@
     "tests/e2e/browser-persistence.spec.ts": [
       "buf"
     ],
-    "tests/e2e/browser-process.spec.ts": [
-      "href"
-    ],
     "tests/e2e/browser-ws-streaming.spec.ts": [
       "bandwidthKbps",
       "screenshotImg"
@@ -6958,8 +6918,7 @@
       "visti"
     ],
     "tests/e2e/helpers/bench-ai-probe.ts": [
-      "TappedWebSocket",
-      "href"
+      "TappedWebSocket"
     ],
     "tests/e2e/helpers/clip.ts": [
       "clipDiConsegna",
@@ -7790,7 +7749,6 @@
       "testo"
     ],
     "tests/e2e/tool-call-rendering.spec.ts": [
-      "href",
       "lightbox",
       "textarea"
     ],
@@ -8406,13 +8364,7 @@
       "ESENTI",
       "TESTABILE",
       "colpevoli",
-      "email",
       "filtraTermini",
-      "grezzi",
-      "nuovi",
-      "prova",
-      "riga",
-      "stantie",
       "testo",
       "tracciati"
     ],
