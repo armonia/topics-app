@@ -25,6 +25,7 @@
 import { tmpdir } from "os";
 import { join } from "path";
 import { createHash } from "crypto";
+import { worktreeRegistrationLost } from "./worktree-registration";
 import { commitIsIn, countOwnCommits, otherLocalBranches } from "./own-commits";
 import { commitStatusFromRepo } from "./branch-status";
 import { landedMergeRange } from "./task-diff-range";
@@ -1128,11 +1129,32 @@ const WORKTREE_JUNK = [/^\.topics-daemon\//, /^graphify-out\//, /^\.claude-task-
  *
  * Chi distrugge usa questa e tratta `ok: false` come sporco; chi solo consiglia
  * continua a usare `worktreeRealDirt`.
+ *
+ * `unregistered` is the third state, and not just any `ok: false`: the folder
+ * has a `.git` FILE pointing at a `.git/worktrees/<name>` that no longer
+ * exists. There `git status` exits 128 forever, not for a hiccup: the probe
+ * will never answer, and treating it as "dirty" keeps the folder for good.
+ * Measured on 2026-09-03 on `sage-well`: 137 MB for a task closed and already
+ * on main, with a false diagnosis written on the card ("uncommitted changes",
+ * "detached HEAD").
  */
+export interface WorktreeDirtProbe {
+  ok: boolean;
+  paths: string[];
+  /** The folder's git registration is lost: it is no longer a checkout. */
+  unregistered?: boolean;
+}
+
 export async function worktreeDirtProbe(
   path: string,
   runGit: (cwd: string, args: string[]) => Promise<GitRunResult> = defaultRunGit,
-): Promise<{ ok: boolean; paths: string[] }> {
+): Promise<WorktreeDirtProbe> {
+  // Only the FILESYSTEM fact, deliberately: a `git status` answering "not a
+  // git repository" also covers a folder with no `.git` at all, and that one
+  // may hold the only copy of whatever is inside. It stays illegible, i.e.
+  // dirty. The dangling `gitdir:` pointer is the one shape that cannot be a
+  // checkout any more and that every failed `worktree remove` leaves behind.
+  if (worktreeRegistrationLost(path)) return { ok: false, unregistered: true, paths: [] };
   let st: GitRunResult;
   try {
     st = await runGit(path, ["status", "--porcelain"]);
