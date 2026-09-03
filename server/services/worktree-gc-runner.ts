@@ -39,10 +39,19 @@ import { commitWorktreeResidue } from "./worktree-residue";
  */
 export interface WorktreeGcDeps {
   db: Database;
-  /** Lo store dei worktree: la popolazione da valutare. */
-  worktreeStore: { list(filtro?: { status?: string }): any[] };
-  /** Il manager: e' lui che cancella davvero una cartella. */
-  worktreeManager: { delete(id: string, opts?: any): Promise<any> };
+  /**
+   * The worktree store: the population to judge. `update` repairs a row left
+   * in `pending` (see `collectPopulation`); without it those rows are judged
+   * but not repaired.
+   */
+  worktreeStore: { list(filtro?: { status?: string }): any[]; update?(id: string, patch: { status: "ready" }): unknown };
+  /**
+   * The manager: the one that really deletes a folder. `isMaterialising` says
+   * whether a `pending` row is still in THIS process's hands: those are never
+   * touched, however old (the per-project queue can legitimately hold one
+   * behind other installs).
+   */
+  worktreeManager: { delete(id: string, opts?: any): Promise<any>; isMaterialising?(id: string): boolean };
   /** Il progetto di un worktree, per leggere lo stato del ramo dal checkout principale. */
   projectStore: { get(id: string): { path?: string } | null | undefined };
   getTopicBySessionKey: (sessionKey: string) => any;
@@ -281,10 +290,65 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
     return avviata;
   }
 
-  // `null` quando la passata e' fallita: il `.catch` in fondo la trasforma in
+  /**
+   * THE SWEEP'S POPULATION, and why it is not `list({ status: "ready" })`.
+   *
+   * The only writer of `pending -> ready|error` is the in-memory closure of
+   * `create()`: a restart mid-`git worktree add` (or an update the DB
+   * swallowed) leaves the row `pending` forever. The UI shows the loader, the
+   * sweep skipped it every round, and folder (up to ~200 MB) and branch
+   * stayed. Three weeks of evidence on two projects, as of 2026-09-03.
+   *
+   * Here a `pending` row nobody is building and older than the grace is
+   * REPAIRED when folder and branch still exist (back to `ready`, with the
+   * frame the UI has been waiting for), and in every case it enters the same
+   * sweep: the same safety contract as every other row, no new subsystem.
+   * Age alone would be the wrong lever: the per-project queue legitimately
+   * holds a row behind other installs, which is why the deciding word is
+   * `isMaterialising`; the grace stays as a belt for rows born before this
+   * process.
+   */
+  const WORKTREE_PENDING_GRACE_MS = 10 * 60_000;
+
+  type GcRow = { id: string; projectId: string; absPath: string; branchName: string | null; mode: "branch" | "reuse" | "detached"; status?: string; createdAt?: string };
+
+  async function collectPopulation(): Promise<GcRow[]> {
+    const out: GcRow[] = [];
+    for (const w of deps.worktreeStore.list() as GcRow[]) {
+      // `error` rows stay out: their message is what the human sees in the UI,
+      // and a failed `git worktree add` leaves no folder to collect.
+      if (w.status !== "pending") { if (w.status !== "error") out.push(w); continue; }
+      if (deps.worktreeManager.isMaterialising?.(w.id)) continue;
+      const born = Date.parse(w.createdAt ?? "");
+      if (Number.isFinite(born) && Date.now() - born < WORKTREE_PENDING_GRACE_MS) continue;
+
+      const repoPath = deps.projectStore.get(w.projectId)?.path;
+      const present = existsSync(w.absPath);
+      const branch = w.mode !== "branch"
+        ? "merged"
+        : repoPath ? await branchStatusFromRepo(repoPath, w.branchName).catch(() => "gone" as const) : "gone";
+      if (present && branch !== "gone" && deps.worktreeStore.update) {
+        try {
+          const updated = deps.worktreeStore.update(w.id, { status: "ready" });
+          if (updated) deps.broadcast({ type: "worktree:updated", worktree: updated, payload_version: 1 });
+          console.log(`[worktree-gc] riga pending riparata: ${w.branchName ?? w.id} torna ready (cartella e ramo presenti)`);
+        } catch (err) {
+          console.warn("[worktree-gc] riparazione della riga pending fallita", err);
+        }
+      } else {
+        console.log(`[worktree-gc] riga pending stantia ${w.branchName ?? w.id}: cartella ${present ? "presente" : "assente"}, ramo ${branch}; la passata la giudica`);
+      }
+      out.push(w);
+    }
+    return out.map((w) => ({
+      id: w.id, projectId: w.projectId, absPath: w.absPath, branchName: w.branchName, mode: w.mode,
+    }));
+  }
+
+  // `null` quando la passata e' fallita: il `catch` in fondo la trasforma in
   // un esito invece che in un rifiuto, e chi la lancia da un timer non deve
   // gestire una promessa rifiutata.
-  function sweepOnce(): Promise<WorktreeGcSummary | null> {
+  async function sweepOnce(): Promise<WorktreeGcSummary | null> {
     /**
      * QUALCOSA STA GIRANDO LÀ DENTRO?
      *
@@ -330,10 +394,10 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
       return res.ok;
     };
 
-    return sweepWorktrees({
-      listWorktrees: () => deps.worktreeStore.list({ status: "ready" }).map((w) => ({
-        id: w.id, projectId: w.projectId, absPath: w.absPath, branchName: w.branchName, mode: w.mode,
-      })),
+    try {
+    const population = await collectPopulation();
+    return await sweepWorktrees({
+      listWorktrees: () => population,
       resolveTask: (worktreeId) => {
         const topic = deps.db.prepare("SELECT id FROM topics WHERE worktree_id = ? LIMIT 1").get(worktreeId) as { id?: string } | undefined;
         if (!topic?.id) return { taskId: null };
@@ -505,7 +569,11 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
         annuncia(taskId);
       },
       log: (msg) => console.log(msg),
-    }).catch((err) => { console.error("[worktree-gc] sweep failed", err); return null; });
+    });
+    } catch (err) {
+      console.error("[worktree-gc] sweep failed", err);
+      return null;
+    }
   }
   return {
     runWorktreeGc,

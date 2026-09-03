@@ -40,10 +40,12 @@ import {
 import { makeSerialQueue } from "../lib/serial-queue";
 import { provisionTauriSidecars } from "./worktree-sidecars";
 import { existsSync, mkdirSync, statSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { topicsHome } from "./daemon-state";
 import { join, resolve } from "node:path";
 import type { OwnedScript } from "../lib/ghost-script";
+import type { NotificationRecordInput } from "../../shared/notification-log";
 
 export class WorktreeRefusalError extends Error {
   constructor(reason: string) {
@@ -97,6 +99,15 @@ export interface WorktreeManager {
   delete(id: string, opts?: DeleteWorktreeOptions): Promise<boolean>;
   /** Resolves once the `pending` row of `id` has reached a terminal status. */
   awaitMaterialisation(id: string, timeoutMs?: number): Promise<Worktree>;
+  /**
+   * True while THIS process is still building `id` on disk (the closure queued
+   * by `create` has not settled). A `pending` row that nobody is
+   * building is a leftover of a restart mid-`git worktree add`, or of a
+   * status update the DB swallowed: the GC repairs or collects those, and
+   * this is how it tells them apart from a row honestly waiting its turn in
+   * the per-project queue (which can take minutes behind other installs).
+   */
+  isMaterialising(id: string): boolean;
   /** The currently-configured worktrees-base directory. */
   worktreesDir(): string;
 }
@@ -114,7 +125,23 @@ export interface WorktreeManagerGcDeps {
    * che si sta per cancellare.
    */
   listOwnedScripts?: () => OwnedScript[];
+  /**
+   * Writes a row in the notification log (and lights the bell on every open
+   * window). Used for the one failure the delete cannot fix on its own: a folder
+   * that survives both `git worktree remove` and our own `rm`. Absent in
+   * tests; the error log line is written regardless.
+   */
+  notify?: (input: NotificationRecordInput) => void;
 }
+
+/**
+ * How many times, and how far apart, the delete retries removing a folder that
+ * `git worktree remove` gave up on. The typical cause is a process still
+ * writing in the tree during the removal: a second attempt half a second
+ * later usually finds it gone.
+ */
+const RM_ATTEMPTS = 3;
+const RM_RETRY_MS = 500;
 
 /**
  * LA RADICE DEI WORKTREE — e perché non è `homedir()`.
@@ -203,6 +230,9 @@ export function createWorktreeManager(
       await new Promise<void>(res => setTimeout(res, 2000));
     }
   }
+
+  /** Ids whose materialise closure is queued or running in this process. */
+  const buildInFlight = new Set<string>();
 
   // Per-project async serialization (task e33820da: shared safe helper).
   const projectQueue = makeSerialQueue();
@@ -319,6 +349,7 @@ export function createWorktreeManager(
 
     // Caller broadcasts `worktree:new` with `row` immediately.
     // Materialise asynchronously, serialised per project.
+    buildInFlight.add(row.id);
     chainOnProjectQueue(input.projectId, async () => {
       try {
         await materialiseOnDisk(project.path, absPath, branchName, input);
@@ -351,6 +382,8 @@ export function createWorktreeManager(
           `[WorktreeManager] create failed { project_slug: ${project.slug}, worktree_name: ${name} }`,
           err,
         );
+      } finally {
+        buildInFlight.delete(row.id);
       }
     });
 
@@ -465,6 +498,63 @@ export function createWorktreeManager(
     );
   }
 
+  /**
+   * THE FOLDER GOES BEFORE THE ROW, or the row goes and the folder stays
+   * forever.
+   *
+   * `git worktree remove --force` fails for ordinary reasons: a process still
+   * writing in the tree, or a registration git has already lost (`.git` in
+   * the folder points at a `.git/worktrees/<name>` that no longer exists, and
+   * git answers "is not a working tree"). Until 2026-09-03 the failure was a
+   * `console.warn` and the row was deleted anyway. The row is the ONLY handle
+   * the GC has on a folder: once it is gone, a copy of the repo weighing
+   * hundreds of MB is invisible to every sweep, and the human finds out from
+   * a full disk (measured: `sage-well`, 137 MB, task closed and landed).
+   *
+   * So: on failure we prune (idempotent) and remove the folder ourselves,
+   * with a short retry. The decision to destroy was already taken by the
+   * caller and `evictOwnedScripts` has already run. If the folder still
+   * stands after that, we throw: the row and the branch stay, the error is
+   * logged and notified, and the next sweep tries again. Returning `false`
+   * here would read as "not found" to the route.
+   */
+  async function removeFolderOurselves(projectPath: string, absPath: string, cause: string): Promise<void> {
+    try {
+      await runGit(projectPath, ["worktree", "prune"]);
+    } catch (err) {
+      const why = err instanceof WorktreeOperationError ? err.stderr || err.message : String(err);
+      console.warn(`[WorktreeManager] git worktree prune failed for ${projectPath}:`, why);
+    }
+    let lastErr: unknown = null;
+    for (let attempt = 1; attempt <= RM_ATTEMPTS; attempt++) {
+      try {
+        await rm(absPath, { recursive: true, force: true });
+      } catch (err) {
+        lastErr = err;
+      }
+      if (!existsSync(absPath)) {
+        console.log(`[WorktreeManager] folder removed by hand after git refused (attempt ${attempt}): ${absPath}`);
+        return;
+      }
+      if (attempt < RM_ATTEMPTS) await new Promise((r) => setTimeout(r, RM_RETRY_MS));
+    }
+    const detail = lastErr instanceof Error ? lastErr.message : String(lastErr ?? "folder still present");
+    console.error(
+      `[WorktreeManager] cannot remove worktree folder ${absPath} (git: ${cause}; rm: ${detail}), row kept so the GC retries`,
+    );
+    try {
+      gcDeps.notify?.({
+        kind: "other",
+        title: "Cartella di worktree non rimovibile",
+        body: `${absPath}: git ha rifiutato (${cause}) e la rimozione diretta e' fallita (${detail}). La riga resta, il GC riprova.`,
+        dedupeKey: `worktree-rm-failed:${absPath}`,
+      });
+    } catch (err) {
+      console.warn("[WorktreeManager] notify failed:", err);
+    }
+    throw new WorktreeOperationError(`worktree folder could not be removed: ${absPath}`, detail, null);
+  }
+
   async function del(
     id: string,
     opts: DeleteWorktreeOptions = {},
@@ -481,12 +571,10 @@ export function createWorktreeManager(
         try {
           await runGit(project.path, ["worktree", "remove", wt.absPath, "--force"]);
         } catch (err: any) {
-          // If `git worktree remove` fails, still proceed to delete the row.
-          // The user can manually clean up; we should not block deletion.
-          console.warn(
-            `[WorktreeManager] git worktree remove failed for ${wt.absPath}:`,
-            err?.stderr || err?.message,
-          );
+          const cause = String(err?.stderr || err?.message || err).trim();
+          console.warn(`[WorktreeManager] git worktree remove failed for ${wt.absPath}:`, cause);
+          // Throws when the folder survives: row and branch stay, see above.
+          await removeFolderOurselves(project.path, wt.absPath, cause);
         }
       } else if (project) {
         // Directory already gone (user deleted it by hand). Git still holds
@@ -549,6 +637,7 @@ export function createWorktreeManager(
     create,
     delete: del,
     awaitMaterialisation,
+    isMaterialising: (id) => buildInFlight.has(id),
     worktreesDir: () => resolve(worktreesDir),
   };
 }

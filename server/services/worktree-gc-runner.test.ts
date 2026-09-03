@@ -18,10 +18,11 @@
  */
 import { describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createWorktreeGcRunner, type WorktreeGcDeps } from "./worktree-gc-runner";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 /** Dipendenze inerti: rispondono, non fanno nulla, e registrano se le chiamano. */
 function fakeDeps(over: Partial<WorktreeGcDeps> = {}): { deps: WorktreeGcDeps; toccati: string[]; annunci: unknown[]; db: Database } {
@@ -316,5 +317,104 @@ describe("rientro della potatura", () => {
     await gc.runWorktreeGc();
 
     expect(giri).toBe(2);
+  });
+});
+
+/**
+ * `pending` ROWS ENTER THE SWEEP.
+ *
+ * The only writer of `pending -> ready|error` is the in-memory closure of
+ * `create()`: a restart mid-materialise (or an update the DB swallowed) left
+ * the row `pending` forever, and the sweep (`list({ status: "ready" })`)
+ * skipped it every round. The UI showed the loader, the folder (up to ~200 MB)
+ * and the branch stayed. Three weeks of evidence on two projects, 2026-09-03.
+ *
+ * The three lines not to get wrong: a `pending` row in THIS process's hands is
+ * never touched, however old (the per-project queue can hold it behind other
+ * installs); a fresh one neither; a stale one with folder and branch is
+ * repaired (back to `ready`, with the frame for the UI) and the same sweep
+ * judges it.
+ */
+describe("le righe pending stantie", () => {
+  const OLD = new Date(Date.now() - 60 * 60_000).toISOString();
+
+  function realRepo(): { root: string; repo: string; absPath: string } {
+    const root = mkdtempSync(join(tmpdir(), "gc-pending-"));
+    const repo = join(root, "repo");
+    const run = (cwd: string, ...args: string[]) => Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe", env: gitEnv() }).exitCode;
+    expect(run(root, "init", "--quiet", "repo")).toBe(0);
+    run(repo, "config", "user.email", "t@t.t");
+    run(repo, "config", "user.name", "t");
+    run(repo, "symbolic-ref", "HEAD", "refs/heads/main");
+    writeFileSync(join(repo, "README.md"), "base\n");
+    run(repo, "add", "-A");
+    expect(run(repo, "commit", "-q", "-m", "base")).toBe(0);
+    const absPath = join(root, "wt");
+    expect(run(repo, "worktree", "add", "-q", "-b", "topics/wt", absPath, "main")).toBe(0);
+    return { root, repo, absPath };
+  }
+
+  function pendingRow(absPath: string, createdAt: string) {
+    return { id: "w-pend", projectId: "p", absPath, branchName: "topics/wt", mode: "branch", status: "pending", createdAt };
+  }
+
+  it("stantia, con cartella e ramo: torna `ready`, la UI lo sente, e la passata la giudica", async () => {
+    const { root, repo, absPath } = realRepo();
+    const updates: Array<{ id: string; patch: unknown }> = [];
+    try {
+      const row = pendingRow(absPath, OLD);
+      const { deps, toccati, annunci } = fakeDeps({
+        worktreeStore: { list: () => [row], update: (id, patch) => { updates.push({ id, patch }); return { ...row, ...patch }; } },
+        projectStore: { get: () => ({ path: repo }) },
+      });
+      const gc = createWorktreeGcRunner(deps);
+      const esito = await gc.runWorktreeGc();
+
+      expect(updates).toEqual([{ id: "w-pend", patch: { status: "ready" } }]);
+      const frames = annunci as Array<{ type?: string; worktree?: { status?: string } }>;
+      expect(frames.some((m) => m?.type === "worktree:updated" && m.worktree?.status === "ready")).toBe(true);
+      // Orphan, clean, branch level with main: the SAME sweep collects it.
+      expect(esito!.total).toBe(1);
+      expect(toccati).toContain("delete:w-pend");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("in mano a questo processo: non si tocca, per quanto vecchia", async () => {
+    const updates: unknown[] = [];
+    const deletedIds: string[] = [];
+    const { deps } = fakeDeps({
+      worktreeStore: { list: () => [pendingRow("/tmp/non-esiste", OLD)], update: (id, patch) => { updates.push({ id, patch }); return null; } },
+      worktreeManager: { delete: async (id) => { deletedIds.push(id); return null; }, isMaterialising: () => true },
+    });
+    const gc = createWorktreeGcRunner(deps);
+    const esito = await gc.runWorktreeGc();
+    expect(esito!.total).toBe(0);
+    expect(updates).toEqual([]);
+    expect(deletedIds).toEqual([]);
+  });
+
+  it("fresca: la grazia la copre anche senza `isMaterialising`", async () => {
+    const { deps, toccati } = fakeDeps({
+      worktreeStore: { list: () => [pendingRow("/tmp/non-esiste", new Date().toISOString())] },
+    });
+    const gc = createWorktreeGcRunner(deps);
+    const esito = await gc.runWorktreeGc();
+    expect(esito!.total).toBe(0);
+    expect(toccati).toEqual([]);
+  });
+
+  it("stantia, senza cartella ne' ramo: non si ripara, ma la passata la raccoglie come riga fantasma", async () => {
+    const updates: unknown[] = [];
+    const { deps, toccati } = fakeDeps({
+      worktreeStore: { list: () => [pendingRow("/tmp/non-esiste", OLD)], update: (id, patch) => { updates.push({ id, patch }); return null; } },
+      projectStore: { get: () => ({ path: "/tmp/non-esiste-repo" }) },
+    });
+    const gc = createWorktreeGcRunner(deps);
+    const esito = await gc.runWorktreeGc();
+    expect(updates).toEqual([]);
+    expect(esito!.total).toBe(1);
+    expect(toccati).toContain("delete:w-pend");
   });
 });
