@@ -34,8 +34,10 @@ export interface BrowserPaneCommands {
   reload?: () => void;
   back?: () => void;
   forward?: () => void;
-  /** Bring the address bar back and put the caret in it (Cmd+L by another name). */
+  /** Ask the TAB to open its inline address editor (Cmd+L by another name). */
   editAddress?: () => void;
+  /** Go to an address typed in the tab's inline editor. */
+  navigate?: (url: string) => void;
   openExternal?: () => void;
   /** Focus the chat this browser was opened from (when there is one). */
   backToSpawner?: () => void;
@@ -66,6 +68,10 @@ export interface BrowserPaneChrome {
   deviceMode: DeviceMode;
   /** True while the pane renders the shared (server) session instead of native. */
   shared: boolean;
+  /** Grows every time the pane asks the tab to open its inline address editor
+   *  (Cmd+L, the menu entry, a blank pane that wants an address). The tab
+   *  compares it with the last value it acted on. */
+  addressEditRequest: number;
   commands: BrowserPaneCommands;
 }
 

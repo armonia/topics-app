@@ -20,7 +20,7 @@
  *
  * Under `E2E_CLIP=1` the same path also records the delivery clip (helpers/clip).
  *
- * @covers BROWSER-01 @covers BROWSER-CHROME-HYDRATE-01 @covers BROWSER-CHROME-HYDRATE-01b
+ * @covers BROWSER-01 @covers BROWSER-CHROME-HYDRATE-01 @covers BROWSER-CHROME-HYDRATE-01b @covers BROWSER-CHROME-INLINE-01
  */
 import { test, expect } from "@playwright/test";
 import { createServer, type Server } from "http";
@@ -373,5 +373,29 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
       await resetProjectPanes(request, project).catch(() => {});
       rmSync(project, { recursive: true, force: true });
     }
+  });
+  test("BROWSER-CHROME-INLINE-01: il clic sulla tab attiva apre l'editor NELLA tab, e la riga sotto non compare", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "BROWSER-CHROME-INLINE-01" });
+    const origin = site!.origin;
+    await resetPaneStore(request, []);
+    const topic = await createTopic(request, `E2E-TABCHROME-INLINE-${Date.now()}`);
+    topicId = topic.id;
+    const host = new URL(origin).host;
+    const label = new RegExp(host.replace(/\./g, "\\."));
+    await goToApp(page);
+    await waitForTopicVisible(page, topic.id);
+    await mountPane(page, topic.id, `${origin}/rapporto`);
+    await expect(tabDelBrowser(page)).toContainText(label, { timeout: 60_000 });
+    await expect(page.getByTestId("browser-url-input")).toHaveCount(0, { timeout: 30_000 });
+    // The click that focuses the pane: it must NOT bring the row back.
+    await tabDelBrowser(page).getByTestId("pane-tab-label").click();
+    const editor = page.getByTestId("browser-tab-address-input");
+    await expect(editor, "the editor opens inside the tab").toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("browser-url-input"), "no row under the tab").toHaveCount(0);
+    await editor.fill(`${origin}/seconda-pagina`);
+    await editor.press("Enter");
+    await expect(tabDelBrowser(page), "the tab writes the new address").toContainText(/seconda-pagina/, { timeout: 60_000 });
+    await expect(page.getByTestId("browser-tab-address-input")).toHaveCount(0);
+    await expect(page.getByTestId("browser-url-input")).toHaveCount(0);
   });
 });

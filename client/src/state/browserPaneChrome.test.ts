@@ -22,6 +22,7 @@ function chrome(url: string, over: Partial<BrowserPaneChrome> = {}): BrowserPane
     zoom: 100,
     deviceMode: 'desktop',
     shared: false,
+    addressEditRequest: 0,
     commands: {},
     ...over,
   };

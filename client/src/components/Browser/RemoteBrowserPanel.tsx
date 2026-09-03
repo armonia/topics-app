@@ -359,6 +359,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   const canForget = !!siteHostOf(browser.url);
   const chromeCommands = useMemo(() => ({
     reload: () => { void browser.reload(); },
+    navigate: (u: string) => { void browser.navigate(u); },
     back: () => { void browser.goBack(); },
     forward: () => { void browser.goForward(); },
     openExternal: () => { if (browser.url) openExternalOnce(browser.url); },
@@ -744,6 +745,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   const sharedCanForget = !!siteHostOf(browser.url);
   const sharedCommands = useMemo(() => ({
     reload: () => { void browser.reload(); },
+    navigate: (u: string) => { console.log('[inline-shared-nav]', contextId, u); void browser.navigate(u); },
     back: () => { void browser.goBack(); },
     forward: () => { void browser.goForward(); },
     openExternal: () => { if (browser.url) openExternalOnce(browser.url); },
@@ -920,6 +922,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
 
   // Notify parent of URL changes + record in per-topic history.
   useEffect(() => {
+    console.log('[inline-urlchange]', contextId, browser.url, typeof onUrlChange);
     if (browser.url) {
       onUrlChange?.(browser.url);
       pushHistory(browser.url);

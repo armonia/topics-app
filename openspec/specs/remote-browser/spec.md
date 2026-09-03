@@ -1676,6 +1676,32 @@ una navigazione supera il seme.
 - **WHEN** la finestra del progetto va a schermo e il negozio ha parlato
 - **THEN** la tab porta l'indirizzo e il campo dell'indirizzo NON SHALL comparire
 
+
+### Requirement: BROWSER-CHROME-INLINE-01 — L'indirizzo si modifica NELLA tab, e la riga sotto non compare da sola
+
+La riga di navigazione sotto la tab (indietro, avanti, ricarica, campo
+indirizzo) NON SHALL comparire da sola: né su una pane vuota (ha la sua pagina
+iniziale e una tab modificabile), né su una pagina fallita (ha il suo «Riprova»),
+né quando parte un download (la voce sta nel menu della tab, col conteggio).
+SHALL comparire solo su richiesta esplicita: la console o l'elenco dei download,
+che vi si agganciano.
+
+Il clic sulla tab browser attiva, ⌘L e la voce «Modifica indirizzo» del menu
+SHALL aprire un editor DENTRO la tab, al posto dell'etichetta: Invio va
+all'indirizzo, Esc o l'uscita restituiscono l'etichetta. Segnalato il
+03/09/2026: «la riga sotto compare quando faccio focus, ma non dovrebbe proprio
+esserci» — il clic che porta il fuoco sulla pane apriva l'editor nella riga.
+
+#### Scenario: clic sulla tab attiva
+- **GIVEN** una pane browser su una pagina caricata, la sua tab attiva
+- **WHEN** si clicca l'etichetta della tab
+- **THEN** compare un campo dentro la tab con l'indirizzo, e nessuna riga sotto la tab
+
+#### Scenario: Invio nell'editor della tab
+- **GIVEN** l'editor aperto nella tab
+- **WHEN** si scrive un indirizzo e si preme Invio
+- **THEN** la pane va a quell'indirizzo e la tab lo scrive, senza riga sotto
+
 ### Requirement: BROWSER-PORT-01 — A localhost pane SHALL say when the port belongs to another project
 
 Opening `http://localhost:<port>` in a pane is the most ordinary thing an agent

@@ -68,13 +68,15 @@ async function mountBrowserPaneViaEvent(
  * on the TAB and not on the button: until the group is hovered the button is
  * there but transparent, and the label on top of it takes the pointer.
  */
-async function revealUrlBar(page: import("@playwright/test").Page): Promise<void> {
-  const barra = page.locator('[data-testid="browser-url-input"]');
-  if (await barra.count() > 0) return; // already open: a blank pane keeps it
-  await page.locator('[data-testid^="pane-tab-browser:"]').first().hover();
-  await page.locator('[data-testid="browser-tab-menu"]').first().click();
-  await page.locator('[data-testid="browser-tab-edit-address"]').click();
-  await expect(barra).toBeVisible({ timeout: 10_000 });
+async function openTabAddressEditor(page: import("@playwright/test").Page): Promise<void> {
+  // Since 2026-09-03 the address is edited IN the tab (BROWSER-CHROME-INLINE-01):
+  // the click on the active browser tab swaps its label for an input. No row
+  // appears under the tab.
+  const tab = page.locator('[data-testid^="pane-tab-browser:"]').first();
+  await expect(tab).toBeVisible({ timeout: 10_000 });
+  await tab.getByTestId("pane-tab-label").click();
+  await expect(page.getByTestId("browser-tab-address-input")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId("browser-url-input")).toHaveCount(0);
 }
 
 // ── ScriptRunner Tests (PROCESS-01..05: PASS, unchanged from phase 27) ──
@@ -297,7 +299,7 @@ test.describe("RemoteBrowserPanel", () => {
   });
 
   // BROWSER-04: REWRITTEN — mount via CustomEvent (was: click sidebar context).
-  test("BROWSER-04: Toolbar renders navigation controls", async ({
+  test("BROWSER-04: the tab carries the navigation controls, no row under it", async ({
     page,
     browserProcessPage,
     request,
@@ -311,24 +313,17 @@ test.describe("RemoteBrowserPanel", () => {
       await goToApp(page);
       await waitForTopicVisible(page, topic.id);
       await mountBrowserPaneViaEvent(page, topic.id);
-      await revealUrlBar(page);
-
-      // Wait for toolbar buttons to appear. The toolbar is localized (IT): Back
-      // → "Indietro", Forward → "Avanti" (both carry a variable suffix when the
-      // nav-history menu is available, hence title^=). Refresh keeps its English
-      // title. The old "Home" button was replaced by the conditional
-      // back-to-spawner control; assert the always-present URL input instead.
-      // Each with its OWN timeout, and this is why: the row is revealed on
-      // demand now, so the whole toolbar mounts in this instant instead of
-      // having been on screen since the pane opened. Only the first assertion
-      // carried a timeout, the others fell back to the 5s default, and under
-      // four workers "Avanti" lost that race about one run in five — measured
-      // 2026-08-26, and it is the one that failed.
+      // The controls live on the tab (BROWSER-CHROME-INLINE-01): reload under
+      // the pointer, the rest behind the dots, the address editable in place.
       const longWait = { timeout: 10_000 };
-      await expect(page.locator('button[title^="Indietro"]')).toBeVisible(longWait);
-      await expect(page.locator('button[title^="Avanti"]')).toBeVisible(longWait);
-      await expect(page.locator('button[title="Refresh"]')).toBeVisible(longWait);
-      await expect(page.locator('[data-testid="browser-url-input"]')).toBeVisible();
+      const tab = page.locator('[data-testid^="pane-tab-browser:"]').first();
+      await expect(tab).toBeVisible(longWait);
+      await tab.hover();
+      await expect(tab.getByTestId("browser-tab-reload")).toBeVisible(longWait);
+      await page.getByTestId("browser-tab-menu").first().click();
+      await expect(page.getByTestId("browser-tab-edit-address")).toBeVisible(longWait);
+      await page.keyboard.press("Escape");
+      await expect(page.locator('[data-testid="browser-url-input"]'), "no row under the tab").toHaveCount(0);
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }
@@ -339,7 +334,7 @@ test.describe("RemoteBrowserPanel", () => {
   // when the connection succeeds. We add a no-op routeWebSocket mock so the
   // WS attempt fails immediately and the hook falls back to REST /interact
   // (the path this test asserts against).
-  test("BROWSER-05: URL bar accepts input and navigates", async ({
+  test("BROWSER-05: the address typed in the tab navigates", async ({
     page,
     browserProcessPage,
     request,
@@ -360,9 +355,8 @@ test.describe("RemoteBrowserPanel", () => {
       await goToApp(page);
       await waitForTopicVisible(page, topic.id);
       await mountBrowserPaneViaEvent(page, topic.id);
-      await revealUrlBar(page);
-
-      const urlInput = page.locator('[data-testid="browser-url-input"]');
+      await openTabAddressEditor(page);
+      const urlInput = page.getByTestId("browser-tab-address-input");
       await expect(urlInput).toBeVisible({ timeout: 10000 });
 
       // Listen for navigation interact request (REST fallback path).

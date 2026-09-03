@@ -23,7 +23,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { publishBrowserPaneChrome, retireBrowserPaneChrome, type BrowserPaneCommands } from '../../state/browserPaneChrome';
 import { isRealUrl } from '../../state/pane/browserPaneUrl';
-import { useServerHydrated } from '../../state/pane/middleware/serverHydrated';
 import type { DeviceMode } from './browserDevTypes';
 
 export interface BrowserChromeBridgeInput {
@@ -88,9 +87,14 @@ export function useBrowserChromeBridge(
   // The 50ms defer is the same one the auto-focus effect uses: on a hidden row
   // the input does not exist yet when the reveal is decided, so the focus call
   // has to land after the paint that mounts it.
+  // EDITING HAPPENS IN THE TAB. Until 2026-09-03 this revealed the address
+  // row and put the caret there, so a click on the active tab (the gesture
+  // that also FOCUSES the pane) brought the row back under a tab that was
+  // already naming the page. Now it asks the tab to open its inline editor;
+  // the row stays where it belongs, behind the console and the downloads.
+  const [addressEditRequest, setAddressEditRequest] = useState(0);
   const focusAddress = useCallback(() => {
-    setRevealed(true);
-    setTimeout(() => focusFnRef.current?.(), 50);
+    setAddressEditRequest((n) => n + 1);
   }, []);
 
   const revealAddress = focusAddress;
@@ -121,24 +125,9 @@ export function useBrowserChromeBridge(
     if (isRealUrl(url) && revealed) setRevealed(false);
   }
 
-  // A DOWNLOAD THAT STARTS BRINGS THE ROW BACK. Its list is anchored to a
-  // button that lives there, and a download that announces itself into a hidden
-  // row announces itself to nobody. Same during-render adjustment as above.
-  //
-  // AND IT ASKS THE LIST TO OPEN, which is not the same act. The row is
-  // revealed in this very render, so the toolbar - and the downloads menu
-  // inside it - is MOUNTING now: the menu opens itself on a counter that grows
-  // while it watches, and it was not watching when this one grew. It would show
-  // a button nobody asked for and no list behind it. The explicit request
-  // survives the mount instead (see `requestOpen` in DownloadsMenu).
-  const [seenStarted, setSeenStarted] = useState(input.downloadsStarted);
-  if (input.downloadsStarted !== seenStarted) {
-    setSeenStarted(input.downloadsStarted);
-    if (input.downloadsStarted > seenStarted) {
-      if (!revealed) setRevealed(true);
-      setDownloadsRequestOpen((n) => n + 1);
-    }
-  }
+  // A download that starts used to bring the row back (its list is anchored
+  // there). Since 2026-09-03 the tab menu carries the downloads entry and its
+  // count: nothing brings the row back on its own any more.
 
   /**
    * THE ROW SHOWS WHEN YOU ASKED FOR IT, OR WHEN THERE IS NOWHERE TO GO.
@@ -188,8 +177,12 @@ export function useBrowserChromeBridge(
   // state has to be OBSERVED, not sampled. Measured on 2026-08-26: three failures
   // out of four in `browser-tab-chrome.spec.ts` under `--workers=4`, and the same
   // red in CI on a four-shard run.
-  const storeHasSpoken = useServerHydrated();
-  const showChrome = revealed || (storeHasSpoken && !isRealUrl(url) && !isRealUrl(input.knownUrl));
+  // THE ROW APPEARS ONLY WHEN ASKED (console, downloads). A blank pane has
+  // its start page and an editable tab; a page that failed has its own retry;
+  // the address is on the tab. Reported 2026-09-03, in the words of the
+  // report (allow-italian: the report, verbatim): "la riga sotto compare
+  // quando faccio focus, ma non dovrebbe proprio esserci" (allow-italian: same).
+  const showChrome = revealed;
 
   const {
     faviconUrl, loading, canGoBack, canGoForward, consoleSummary, downloads,
@@ -225,6 +218,7 @@ export function useBrowserChromeBridge(
     zoom: zoom ?? 100,
     deviceMode: deviceMode ?? ('desktop' as DeviceMode),
     shared,
+    addressEditRequest,
     commands: {
       ...commands,
       editAddress: revealAddress,
@@ -234,7 +228,7 @@ export function useBrowserChromeBridge(
   }), [
     urlToShow, faviconUrl, loading, canGoBack, canGoForward,
     consoleSummary?.errors, consoleSummary?.warnings, downloads, zoom, deviceMode, shared,
-    commands, revealAddress, openConsole, openDownloads,
+    addressEditRequest, commands, revealAddress, openConsole, openDownloads,
   ]);
 
   const paneId = `browser:${contextId}`;

@@ -50,6 +50,7 @@ import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { SharedOrgBadge } from '../Shared/SharedOrgBadge';
 import { BrowserTabIcon, BrowserTabMenuButton, BrowserTabConsoleCue } from '../Browser/BrowserTabChrome';
+import { BrowserTabAddress } from './BrowserTabAddress';
 import { getBrowserPaneChrome } from '../../state/browserPaneChrome';
 import { browserTabLabel, browserTabSubtitle, type BrowserLabelPreference } from '../../lib/browserTabLabel';
 import { releaseNativeFocus } from '../../lib/shell/tauri';
@@ -1364,10 +1365,9 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               className={`truncate flex-1 min-w-0 ${pane.preview ? 'italic' : ''} ${
                 pane.type === 'browser' && isFullyActive ? 'cursor-text' : ''
               }`}
-              // THE ADDRESS KEEPS THE BEHAVIOUR THE ADDRESS BAR HAD: click it
-              // and you can type over it. Only on the tab you are already
-              // looking at, so the first click on another tab still does the
-              // only thing it can mean, which is "bring me there".
+              // CLICK THE ADDRESS AND TYPE OVER IT, in the tab (BrowserTabAddress).
+              // Only on the tab you are already looking at: the first click on
+              // another tab still means "bring me there".
               onClick={pane.type === 'browser' && isFullyActive
                 ? (e) => {
                   const edit = getBrowserPaneChrome(pane.id)?.commands.editAddress;
@@ -1393,7 +1393,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 // passa da `sessionKeyForPaneId` invece di indovinare.
                 pane.type === 'chat' ? sessionKeyForPaneId(pane.id, topics) : null,
               )}`}
-            >{label}</span>
+            >{pane.type === 'browser' ? <BrowserTabAddress paneId={pane.id} label={label} /> : label}</span>
             {/* Project tabs intentionally do NOT show git status numbers (changed
                 files / ahead-behind / running processes) — the sidebar project row
                 dropped them (cryptic numbers) and the two surfaces must read the
