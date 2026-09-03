@@ -366,7 +366,9 @@ export function createAppContext(baseDir: string): AppContext {
     upsertActiveBranch: db.prepare(`INSERT OR REPLACE INTO active_branches (parent_id, session_key, active_branch_index) VALUES (?, ?, ?)`),
     getRootMessages: db.prepare(`SELECT * FROM messages WHERE session_key = ? AND parent_id IS NULL ORDER BY sort_order ASC`),
     deleteActiveBranchesBySession: db.prepare(`DELETE FROM active_branches WHERE session_key = ?`),
-
+    // On the 15s `/api/topics/streaming` path of every client since it stopped
+    // hydrating the whole table; it used to re-prepare on each call.
+    getTopicBySessionKey: db.prepare(`SELECT * FROM topics WHERE session_key = ? LIMIT 1`),
   };
 
   // Pre-grouped topic relations, built once per loadTopics() call by
@@ -1040,7 +1042,7 @@ export function createAppContext(baseDir: string): AppContext {
    * only know the session, not the topic id.
    */
   function getTopicBySessionKey(sessionKey: string): Topic | null {
-    const row = db.prepare("SELECT * FROM topics WHERE session_key = ? LIMIT 1").get(sessionKey) as any;
+    const row = stmts.getTopicBySessionKey.get(sessionKey) as any;
     if (!row) return null;
     return rowToTopic(row);
   }
