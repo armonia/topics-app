@@ -99,6 +99,7 @@ export function abortLogTitle(info: TurnEndInfo): string {
     case "server-shutdown": return "stream aborted by server shutdown";
     case "session-reset": return "stream aborted by session reset";
     case "turn-in-flight": return "stream not started (turn already in flight)";
+    case "superseded": return "stream aborted by a newer turn on the same session";
     default: return "stream aborted";
   }
 }

@@ -63,6 +63,7 @@ export const STOP_CAUSES = [
   'session-reset',
   'process-died',
   'turn-in-flight',
+  'superseded',
   'provider-error',
 ] as const;
 
