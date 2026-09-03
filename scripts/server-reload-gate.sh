@@ -144,11 +144,19 @@ cp "$DB_PATH" "$TMP_DB" 2>/dev/null || {
 [ -f "${DB_PATH}-wal" ] && cp "${DB_PATH}-wal" "${TMP_DB}-wal" 2>/dev/null || true
 [ -f "${DB_PATH}-shm" ] && cp "${DB_PATH}-shm" "${TMP_DB}-shm" 2>/dev/null || true
 
+# Quante righe abbiamo letto dal registro e quanti file ci sono: se un giorno
+# il registro torna vuoto o parziale con exit 0 (visto una volta il 2026-09-03:
+# '014-message-meta.sql' data per pending su un DB che la registrava dal 2026-04)
+# la riga qui sotto lo dice, invece di lasciare un "duplicate column" muto.
+APPLIED_COUNT=$(printf '%s\n' "$APPLIED" | grep -c .)
+TOTAL_FILES=$(find "$MIGRATIONS_DIR" -maxdepth 1 -name '*.sql' | wc -l | tr -d ' ')
+
 for sql_file in "${PENDING[@]}"; do
   fname="$(basename "$sql_file")"
   if ! mig_out=$("$SQLITE3" "$TMP_DB" < "$sql_file" 2>&1); then
     echo "[reload-gate] migration pending '$fname' fallisce sulla copia del DB:"
     echo "$mig_out" | head -n 5
+    echo "[reload-gate] registro letto: $APPLIED_COUNT righe · file: $TOTAL_FILES · pending: ${#PENDING[@]} (prima: $(basename "${PENDING[0]}"))"
     echo "[reload-gate] il server vecchio resta su — correggi la migration e risalva"
     exit 1
   fi
