@@ -59,3 +59,49 @@ export function countSharedViewers(
   for (const c of clients) if (isSharedViewer(c.data)) n++;
   return n;
 }
+
+/**
+ * Who pushes the count to the panes, and when.
+ *
+ * The count only moves on a handful of server-side events (a socket opens or
+ * closes, `set_watching`, `register_native_executor`, the heartbeat reap), so
+ * the panes hear about it from the server instead of asking every 2s. This
+ * remembers the last value each context was told and sends only when the
+ * value differs: the reap calls it for every context on every tick, and a
+ * steady context must cost nothing on the wire.
+ *
+ * Pure on purpose: how to count and how to send are injected, so the rule
+ * "a change is published once, a non-change never" can fail in a unit test.
+ */
+export interface ViewerCountPublisher {
+  /** Publish the current count of `contextId` if it differs from the last one
+   *  sent; returns the count when a frame went out, `null` otherwise. */
+  publish(contextId: string): number | null;
+  /** The context is gone (last socket closed): drop its memory so a context
+   *  that comes back with the same count is told again. */
+  forget(contextId: string): void;
+  /** What the context was last told, for a socket that joins late. */
+  last(contextId: string): number | undefined;
+}
+
+export function createViewerCountPublisher(
+  count: (contextId: string) => number,
+  send: (contextId: string, count: number) => void,
+): ViewerCountPublisher {
+  const published = new Map<string, number>();
+  return {
+    publish(contextId) {
+      const n = count(contextId);
+      if (published.get(contextId) === n) return null;
+      published.set(contextId, n);
+      send(contextId, n);
+      return n;
+    },
+    forget(contextId) {
+      published.delete(contextId);
+    },
+    last(contextId) {
+      return published.get(contextId);
+    },
+  };
+}

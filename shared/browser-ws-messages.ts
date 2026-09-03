@@ -4,7 +4,7 @@
  *
  * Direzioni:
  *   - frame, agent_active, console, download, engine, webrtc_answer,
- *     render_mode, dom_event, focus_field:  server → client
+ *     render_mode, dom_event, focus_field, viewers:  server → client
  *   - input, take_control, resize, set_engine, set_stream, set_watching,
  *     set_render, webrtc_offer, focus_query: client → server
  *   - nav, webrtc_ice:         entrambe (richiesta da un lato, broadcast dall'altro)
@@ -142,6 +142,22 @@ const setWatchingMessageSchema = z.object({
   active: z.boolean(),
 });
 
+/**
+ * Server -> client: how many shared-session viewers this context has NOW.
+ *
+ * The same number `GET /api/browsers/:id/viewers` returns, pushed to every
+ * socket of the context whenever it changes (join, leave, `set_watching`,
+ * `register_native_executor`, heartbeat reap) and once to a socket that just
+ * opened. It exists because the auto-share decision used to POLL that route
+ * every 2s per pane: measured on the live log, 44% of all API requests for a
+ * value that only moves on those events. The poll survives as a 30s safety
+ * net for a pane whose socket is down (`useSharedViewerCount`).
+ */
+const viewersMessageSchema = z.object({
+  type: z.literal('viewers'),
+  count: z.int().check(z.nonnegative()),
+});
+
 /** Client -> server (T1 DOM co-browse): how this pane renders — 'video' (JPEG/
  *  WebRTC pixels, default) or 'dom' (rrweb DOM stream, reconstructed natively).
  *  Paired with set_stream:false to pause the screencast while in DOM mode. */
@@ -239,6 +255,7 @@ export const browserWsMessageSchema = z.discriminatedUnion('type', [
   engineMessageSchema,
   setStreamMessageSchema,
   setWatchingMessageSchema,
+  viewersMessageSchema,
   setRenderMessageSchema,
   renderModeMessageSchema,
   domEventMessageSchema,

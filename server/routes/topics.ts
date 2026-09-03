@@ -1008,7 +1008,12 @@ export function createTopicsRouter(
     // Replaces the route lost when Master was removed: the old client path
     // /api/topics/master/sessions 404'd, so hydration silently never fired.
     if (method === "GET" && pathname === "/api/topics/streaming") {
-      const data = loadTopics();
+      // Walk the registry, not the topics table. This used to `loadTopics()`
+      // and filter EVERY topic (1,452 rows plus the four relation-table scans
+      // of buildTopicRelations) every 15s per client, to keep the zero, one or
+      // two whose session is in a Map with as many entries. The Map is the
+      // source; the topic row is looked up per stream. A stream with no topic
+      // row is omitted, exactly as the old filter omitted it.
       // sessionKey is included so the client can reconcile its per-session
       // streaming flags against this authoritative registry (self-heal a
       // spinner stuck after a lost stream:end). topicId stays for the
@@ -1025,8 +1030,12 @@ export function createTopicsRouter(
         state: "streaming" | "waiting";
         awaitingSince?: number;
       }[] = [];
-      for (const topic of Object.values(data.topics)) {
-        if (!topic.sessionKey || !isStreaming(topic.sessionKey)) continue;
+      for (const sessionKey of activeStreams.keys()) {
+        // `isStreaming` is the staleness gate; it never deletes from the Map,
+        // the sweeper in server.ts owns that.
+        if (!isStreaming(sessionKey)) continue;
+        const topic = getTopicBySessionKey(sessionKey);
+        if (!topic?.sessionKey) continue;
         let awaitingSince: number | null = null;
         // Un provider che non sa sospendersi non espone il metodo, e un provider
         // morto non deve far fallire lo scatto di tutti gli altri.

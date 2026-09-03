@@ -78,6 +78,12 @@ export interface NativeExecutorSocketOptions {
   runOp: (tool: string, args: unknown) => Promise<DelegatedOpOutcome>;
   /** The pill: true/false from the server, and false whenever the socket dies. */
   onAgentActive: (active: boolean, action?: string) => void;
+  /** The pushed viewer count of the context (`viewers` frame): the auto-share
+   *  decision reads it from here instead of polling the route every 2s. */
+  onViewers?: (count: number) => void;
+  /** The socket is up (true) or gone (false): while up, a change in the count
+   *  is pushed through it and the fallback poll can sleep. */
+  onChannel?: (up: boolean) => void;
   createSocket?: ExecutorSocketFactory;
   schedule?: Schedule;
 }
@@ -140,11 +146,13 @@ export function startNativeExecutorSocket(opts: NativeExecutorSocketOptions): Na
         // not a hijack (server.ts checks the previous owner's liveness).
         attempt = 0;
         sendOn(self, { type: 'register_native_executor' });
+        opts.onChannel?.(true);
       },
       onMessage: (data) => { if (self) handleFrame(self, data); },
       onDead: () => {
         if (stopped || socket !== self) return;
         socket = null;
+        opts.onChannel?.(false);
         // A socket that died is not reporting anything (BROWSER-AGENT-PILL-01).
         opts.onAgentActive(nextAgentActive({ kind: 'disconnected' }));
         if (cancelRetry) cancelRetry();
@@ -192,7 +200,12 @@ export function startNativeExecutorSocket(opts: NativeExecutorSocketOptions): Na
       return;
     }
     const parsed = parseBrowserWsMessage(raw);
-    if (!parsed.ok || parsed.data.type !== 'agent_active') return;
+    if (!parsed.ok) return;
+    if (parsed.data.type === 'viewers') {
+      opts.onViewers?.(parsed.data.count);
+      return;
+    }
+    if (parsed.data.type !== 'agent_active') return;
     opts.onAgentActive(nextAgentActive({ kind: 'frame', active: Boolean(parsed.data.active) }), parsed.data.action);
   };
 
@@ -205,6 +218,8 @@ export function startNativeExecutorSocket(opts: NativeExecutorSocketOptions): Na
       cancelRetry = null;
       const open = socket;
       socket = null;
+      // `onDead` is inert once stopped: the withdrawal happens here instead.
+      if (open) opts.onChannel?.(false);
       open?.close();
     },
   };

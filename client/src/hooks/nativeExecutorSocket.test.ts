@@ -195,3 +195,46 @@ describe('native pane executor socket', () => {
     expect(reconnectDelayMs(50)).toBe(10000);
   });
 });
+
+describe('the pushed viewer count rides the executor socket', () => {
+  test('a `viewers` frame reaches onViewers; open and death are announced as a channel', () => {
+    const sockets: FakeSocket[] = [];
+    const viewers: number[] = [];
+    const channel: boolean[] = [];
+    const run = startNativeExecutorSocket({
+      url: 'ws://127.0.0.1:3333/ws/browser/ctx-1',
+      createSocket: (url, handlers) => { const s = new FakeSocket(url, handlers); sockets.push(s); return s; },
+      schedule: () => () => {},
+      runOp: async () => ({ result: null }),
+      onAgentActive: () => {},
+      onViewers: (n) => { viewers.push(n); },
+      onChannel: (up) => { channel.push(up); },
+    });
+    const s = sockets[0]!;
+    s.open();
+    expect(channel).toEqual([true]);
+    s.frame({ type: 'viewers', count: 2 });
+    s.frame({ type: 'agent_active', active: true });
+    s.frame({ type: 'viewers', count: 0 });
+    expect(viewers, 'only the viewers frames, in order').toEqual([2, 0]);
+    s.die();
+    expect(channel, 'a dead socket pushes nothing: the poll must know').toEqual([true, false]);
+    run.stop();
+  });
+
+  test('stop withdraws the channel of the socket it closes', () => {
+    const sockets: FakeSocket[] = [];
+    const channel: boolean[] = [];
+    const run = startNativeExecutorSocket({
+      url: 'ws://127.0.0.1:3333/ws/browser/ctx-1',
+      createSocket: (url, handlers) => { const s = new FakeSocket(url, handlers); sockets.push(s); return s; },
+      schedule: () => () => {},
+      runOp: async () => ({ result: null }),
+      onAgentActive: () => {},
+      onChannel: (up) => { channel.push(up); },
+    });
+    sockets[0]!.open();
+    run.stop();
+    expect(channel).toEqual([true, false]);
+  });
+});
