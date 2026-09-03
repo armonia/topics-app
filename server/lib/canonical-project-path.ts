@@ -26,8 +26,8 @@ export function canonicalProjectPath(p: string | null | undefined): string {
   // with `~/` once trimmed, and the literal string "~" survived.
   const raw = String(p ?? "").trim();
   if (!raw) return "";
-  const espanso = raw === "~" ? homedir() : raw.startsWith("~/") ? join(homedir(), raw.slice(2)) : raw;
-  const abs = espanso.replace(/(.)\/+$/, "$1");
+  const expanded = raw === "~" ? homedir() : raw.startsWith("~/") ? join(homedir(), raw.slice(2)) : raw;
+  const abs = expanded.replace(/(.)\/+$/, "$1");
   try {
     return realpathSync(abs);
   } catch {

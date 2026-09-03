@@ -40,10 +40,10 @@ describe("readUserRules", () => {
 });
 
 describe("listSkills", () => {
-  const skill = (nome: string, desc: string) => {
-    const dir = join(home, ".claude", "skills", nome);
+  const skill = (name: string, description: string) => {
+    const dir = join(home, ".claude", "skills", name);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "SKILL.md"), `---\nname: ${nome}\ndescription: ${desc}\n---\n\ncorpo lungo\n`);
+    writeFileSync(join(dir, "SKILL.md"), `---\nname: ${name}\ndescription: ${description}\n---\n\ncorpo lungo\n`);
   };
 
   it("prende nome e descrizione dal frontmatter, in ordine", () => {
@@ -85,11 +85,11 @@ describe("thinkingBudgetFor", () => {
 });
 
 describe("listSkills — i casi che le facevano sparire", () => {
-  const skillLink = (nome: string, desc: string) => {
-    const vero = join(home, "altrove", nome);
-    mkdirSync(vero, { recursive: true });
-    writeFileSync(join(vero, "SKILL.md"), `---\nname: ${nome}\ndescription: ${desc}\n---\ncorpo\n`);
-    symlinkSync(vero, join(home, ".claude", "skills", nome));
+  const skillLink = (name: string, description: string) => {
+    const realDir = join(home, "altrove", name);
+    mkdirSync(realDir, { recursive: true });
+    writeFileSync(join(realDir, "SKILL.md"), `---\nname: ${name}\ndescription: ${description}\n---\ncorpo\n`);
+    symlinkSync(realDir, join(home, ".claude", "skills", name));
   };
 
   it("una skill raggiunta da un SYMLINK non è meno installata: 31 su 43 sparivano così", () => {

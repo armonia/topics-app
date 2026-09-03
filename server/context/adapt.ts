@@ -137,13 +137,13 @@ export interface AdaptOptions {
  * preview and not in the message, i.e. the worst way to be wrong, because the
  * inspector claimed they were there.
  */
-const SOLO_NATIVO = new Set(["user:CLAUDE.md", "synthetic:skills"]);
+const NATIVE_ONLY_BLOCKS = new Set(["user:CLAUDE.md", "synthetic:skills"]);
 
 export function adaptEnvelope(envelope: ContextEnvelope, opts?: AdaptOptions): ProviderPayload {
-  const blocchi = envelope.providerName === "topics"
+  const blocks = envelope.providerName === "topics"
     ? envelope.systemBlocks
-    : envelope.systemBlocks.filter((b) => !SOLO_NATIVO.has(b.id));
-  const slots = composeSystemSlots(blocchi);
+    : envelope.systemBlocks.filter((b) => !NATIVE_ONLY_BLOCKS.has(b.id));
+  const slots = composeSystemSlots(blocks);
   const composedSystem = slots.map((s) => sys(s.content));
 
   switch (envelope.providerStrategy) {

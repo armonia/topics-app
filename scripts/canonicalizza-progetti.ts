@@ -28,7 +28,7 @@ import { homedir } from "node:os";
 import { projectIdForPath } from "../shared/board";
 import { projectHash, PROJECT_PANES_PREFIX, PROJECT_LAYOUT_PREFIX } from "../shared/project-keys";
 
-const esegui = process.argv.includes("--esegui");
+const execute = process.argv.includes("--esegui");
 // The DB lives under the app's dataRoot (`data/topics.db` in development), NOT
 // in ~/.topics: there sits a 0-byte topics.db left over from an old path, and
 // pointing at it would make a migration that looked at nothing report "nothing
@@ -42,65 +42,65 @@ if (!dbPath) { console.error("nessun database trovato: passa TOPICS_DB=<percorso
 console.log(`database: ${dbPath}`);
 const db = new Database(dbPath);
 
-function canonico(p: string): string {
+function canonical(p: string): string {
   try { return realpathSync(p); } catch { return p; }
 }
 
 // The paths the app knows: the ones bound to topics. They are the same source
 // boards and panes are born from, so they suffice to find every double identity.
-const percorsi = new Set<string>();
+const savedPaths = new Set<string>();
 for (const r of db.query<{ project_path: string }, []>(
   "SELECT DISTINCT project_path FROM topics WHERE project_path IS NOT NULL AND project_path != ''").all()) {
-  percorsi.add(r.project_path);
+  savedPaths.add(r.project_path);
 }
 
-interface Caso { vecchio: string; nuovo: string; topics: number; tasks: number; chiavi: string[] }
-const casi: Caso[] = [];
-for (const p of percorsi) {
-  const nuovo = canonico(p);
-  if (nuovo === p) continue;
-  const idV = projectIdForPath(p), idN = projectIdForPath(nuovo);
+interface MergeCase { oldPath: string; newPath: string; topics: number; tasks: number; uiStateKeys: string[] }
+const cases: MergeCase[] = [];
+for (const p of savedPaths) {
+  const newPath = canonical(p);
+  if (newPath === p) continue;
+  const oldId = projectIdForPath(p), newId = projectIdForPath(newPath);
   const nTopics = db.query<{ n: number }, [string]>("SELECT COUNT(*) n FROM topics WHERE project_path = ?").get(p)!.n;
   let nTasks = 0;
-  try { nTasks = db.query<{ n: number }, [string]>("SELECT COUNT(*) n FROM tasks WHERE project_id = ?").get(idV)!.n; } catch { /* no tasks table */ }
-  const chiavi: string[] = [];
-  for (const pref of [PROJECT_PANES_PREFIX, PROJECT_LAYOUT_PREFIX]) {
-    const k = pref + projectHash(p);
+  try { nTasks = db.query<{ n: number }, [string]>("SELECT COUNT(*) n FROM tasks WHERE project_id = ?").get(oldId)!.n; } catch { /* no tasks table */ }
+  const uiStateKeys: string[] = [];
+  for (const prefix of [PROJECT_PANES_PREFIX, PROJECT_LAYOUT_PREFIX]) {
+    const k = prefix + projectHash(p);
     const row = db.query<{ key: string }, [string]>("SELECT key FROM ui_state WHERE key = ?").get(k);
-    if (row) chiavi.push(k);
+    if (row) uiStateKeys.push(k);
   }
-  casi.push({ vecchio: p, nuovo, topics: nTopics, tasks: nTasks, chiavi });
-  void idN;
+  cases.push({ oldPath: p, newPath, topics: nTopics, tasks: nTasks, uiStateKeys });
+  void newId;
 }
 
-if (casi.length === 0) console.log("board e topic: niente da fondere, nessun percorso salvato passa da un link.");
-else console.log(esegui ? "ESEGUO" : "PROVA (niente viene scritto) — aggiungi --esegui per farlo davvero");
-for (const c of casi) {
-  console.log(`\n${c.vecchio}\n  -> ${c.nuovo}`);
+if (cases.length === 0) console.log("board e topic: niente da fondere, nessun percorso salvato passa da un link.");
+else console.log(execute ? "ESEGUO" : "PROVA (niente viene scritto) — aggiungi --esegui per farlo davvero");
+for (const c of cases) {
+  console.log(`\n${c.oldPath}\n  -> ${c.newPath}`);
   console.log(`  topic da rilegare: ${c.topics} · righe tasks da spostare: ${c.tasks}` +
-              `${c.chiavi.length ? ` · chiavi ui_state: ${c.chiavi.join(", ")}` : ""}`);
-  console.log(`  projectId: ${projectIdForPath(c.vecchio)} -> ${projectIdForPath(c.nuovo)}`);
+              `${c.uiStateKeys.length ? ` · chiavi ui_state: ${c.uiStateKeys.join(", ")}` : ""}`);
+  console.log(`  projectId: ${projectIdForPath(c.oldPath)} -> ${projectIdForPath(c.newPath)}`);
 }
 
-const migra = db.transaction(() => {
-  for (const c of casi) {
-    const idV = projectIdForPath(c.vecchio), idN = projectIdForPath(c.nuovo);
-    try { db.run("UPDATE tasks SET project_id = ? WHERE project_id = ?", [idN, idV]); } catch { /* no tasks table */ }
-    db.run("UPDATE topics SET project_path = ? WHERE project_path = ?", [c.nuovo, c.vecchio]);
-    for (const pref of [PROJECT_PANES_PREFIX, PROJECT_LAYOUT_PREFIX]) {
-      const kV = pref + projectHash(c.vecchio), kN = pref + projectHash(c.nuovo);
-      const vecchia = db.query<{ value: string }, [string]>("SELECT value FROM ui_state WHERE key = ?").get(kV);
-      if (!vecchia) continue;
-      const nuova = db.query<{ value: string }, [string]>("SELECT value FROM ui_state WHERE key = ?").get(kN);
+const migrate = db.transaction(() => {
+  for (const c of cases) {
+    const oldId = projectIdForPath(c.oldPath), newId = projectIdForPath(c.newPath);
+    try { db.run("UPDATE tasks SET project_id = ? WHERE project_id = ?", [newId, oldId]); } catch { /* no tasks table */ }
+    db.run("UPDATE topics SET project_path = ? WHERE project_path = ?", [c.newPath, c.oldPath]);
+    for (const prefix of [PROJECT_PANES_PREFIX, PROJECT_LAYOUT_PREFIX]) {
+      const oldKey = prefix + projectHash(c.oldPath), newKey = prefix + projectHash(c.newPath);
+      const oldRow = db.query<{ value: string }, [string]>("SELECT value FROM ui_state WHERE key = ?").get(oldKey);
+      if (!oldRow) continue;
+      const newRow = db.query<{ value: string }, [string]>("SELECT value FROM ui_state WHERE key = ?").get(newKey);
       // Where both exist the new one wins: it is the one the user is looking at
       // right now. The old one goes away — two layouts are not blended at random.
-      if (!nuova) db.run("UPDATE ui_state SET key = ? WHERE key = ?", [kN, kV]);
-      else db.run("DELETE FROM ui_state WHERE key = ?", [kV]);
+      if (!newRow) db.run("UPDATE ui_state SET key = ? WHERE key = ?", [newKey, oldKey]);
+      else db.run("DELETE FROM ui_state WHERE key = ?", [oldKey]);
     }
   }
 });
-if (esegui && casi.length > 0) {
-  migra();
+if (execute && cases.length > 0) {
+  migrate();
   console.log("\nboard e topic rilegati.");
 }
 
@@ -120,30 +120,30 @@ if (esegui && casi.length > 0) {
 {
   const BLOB = ["pane-store-v2", "sidebar-state", "panels"];
   const home = homedir();
-  const orfani = new Map<string, string>();
+  const orphans = new Map<string, string>();
   for (const key of BLOB) {
     const row = db.query<{ value: string }, [string]>("SELECT value FROM ui_state WHERE key = ?").get(key);
     if (!row) continue;
     for (const m of row.value.matchAll(/project:((?:%2F|\/)[^"',\]]+)/g)) {
       const p = decodeURIComponent(m[1]);
       if (existsSync(p)) continue;
-      const candidato = join(home, "Projects", p.split("/").filter(Boolean).pop() || "");
-      if (existsSync(candidato)) orfani.set(p, candidato);
+      const candidate = join(home, "Projects", p.split("/").filter(Boolean).pop() || "");
+      if (existsSync(candidate)) orphans.set(p, candidate);
     }
   }
-  if (orfani.size === 0) console.log("\nstato UI: nessun riferimento orfano.");
+  if (orphans.size === 0) console.log("\nstato UI: nessun riferimento orfano.");
   else {
-    console.log(`\nstato UI — ${orfani.size} riferimenti a cartelle che non esistono piu':`);
-    for (const [v, n] of orfani) console.log(`  ${v}\n    -> ${n}`);
-    if (esegui) {
-      const rimappa = db.transaction(() => {
+    console.log(`\nstato UI — ${orphans.size} riferimenti a cartelle che non esistono piu':`);
+    for (const [v, n] of orphans) console.log(`  ${v}\n    -> ${n}`);
+    if (execute) {
+      const remap = db.transaction(() => {
         for (const key of BLOB) {
           const row = db.query<{ value: string }, [string]>("SELECT value FROM ui_state WHERE key = ?").get(key);
           if (!row) continue;
           let v = row.value;
-          for (const [vecchio, nuovo] of orfani) {
-            v = v.split(vecchio).join(nuovo)
-                 .split(encodeURIComponent(vecchio)).join(encodeURIComponent(nuovo));
+          for (const [oldPath, newPath] of orphans) {
+            v = v.split(oldPath).join(newPath)
+                 .split(encodeURIComponent(oldPath)).join(encodeURIComponent(newPath));
           }
           // Dedup the pins: after the remap the same entry can show up twice.
           try {
@@ -151,14 +151,14 @@ if (esegui && casi.length > 0) {
             const dedup = (a: unknown) => Array.isArray(a) ? [...new Set(a as string[])] : a;
             if (o?.pinnedItems) o.pinnedItems = dedup(o.pinnedItems);
             if (Array.isArray(o?.pinnedLayout)) {
-              for (const riga of o.pinnedLayout) if (riga?.keys) riga.keys = dedup(riga.keys);
+              for (const layoutRow of o.pinnedLayout) if (layoutRow?.keys) layoutRow.keys = dedup(layoutRow.keys);
             }
             v = JSON.stringify(o);
           } catch { /* non-JSON blob: the textual replacement still holds */ }
           db.run("UPDATE ui_state SET value = ? WHERE key = ?", [v, key]);
         }
       });
-      rimappa();
+      remap();
       console.log("stato UI riscritto.");
     }
   }
