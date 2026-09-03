@@ -4,6 +4,8 @@
  * Skills live in the user's home (`~/.agents/skills`), OUTSIDE the
  * workspace: `read_file` would refuse them (and it is right to). This
  * tool is the only door, so the gate on the names is the thing worth testing.
+ *
+ * @covers NATIVE-SKILL-01
  */
 import { describe, it, expect } from "bun:test";
 import { CODING_TOOLS, executeTool } from "./tools";

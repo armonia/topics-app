@@ -938,6 +938,50 @@ niente.
 - **WHEN** lo si richiede di nuovo
 - **THEN** nessuno schema SHALL portare il marcatore della lettura precedente
 
+### Requirement: MCPSRV-04 — Un server MCP protetto da OAuth si monta: l'accesso lo fa la flotta, non la persona
+
+Un server remoto che risponde al primo `initialize` con `401` e una sfida
+`www-authenticate` NON e' un server guasto: e' un server che chiede l'accesso.
+La flotta SHALL distinguerlo da un `failed` con uno stato proprio (`needs-auth`)
+la cui ragione dice che serve l'accesso, e nessuno dei suoi strumenti SHALL
+comparire nel registro finche' l'accesso non e' fatto.
+
+L'accesso SHALL seguire OAuth 2.1 come lo chiede il protocollo MCP: metadati
+della risorsa protetta letti dalla sfida, metadati del server di autorizzazione
+(la forma RFC 8414 prima, poi quella appesa, e `openid-configuration` come
+ripiego), registrazione dinamica del client UNA volta per emittente e riusata
+dai server dietro lo stesso emittente, PKCE con `S256`, e un ascoltatore di
+ritorno su loopback che vive solo per la durata di un accesso. Un ritorno con
+uno `state` sbagliato, o un codice che il server rifiuta, NON SHALL scrivere
+niente.
+
+Il token SHALL essere conservato in un file leggibile solo dal proprietario, e
+NON SHALL comparire in nessun log, errore o ragione mostrata a schermo. Un token
+di accesso scaduto SHALL essere rinnovato UNA volta sotto la connessione, senza
+costare il montaggio; un token di rinnovo che il server rifiuta riporta il
+server a `needs-auth`, non a `failed`, perche' la sola cura e' rifare l'accesso.
+
+#### Scenario: un server protetto senza token non e' guasto
+- **GIVEN** un server configurato che risponde `401` con una sfida Bearer
+- **WHEN** la flotta lo monta
+- **THEN** il suo stato SHALL essere `needs-auth`, con una ragione che parla di accesso
+- **AND** i suoi strumenti NON SHALL essere nel registro
+
+#### Scenario: dopo l'accesso lo stesso server monta
+- **GIVEN** un accesso completato dal ritorno su loopback
+- **WHEN** la flotta viene rimontata
+- **THEN** il server SHALL essere `ready` e i suoi strumenti richiamabili
+
+#### Scenario: un token morto sotto la connessione si rinnova una volta
+- **GIVEN** un token di accesso che il server non riconosce piu' mentre il file lo crede vivo
+- **WHEN** la flotta lo monta
+- **THEN** la richiesta SHALL essere ripetuta con un token rinnovato, e il montaggio SHALL riuscire
+
+#### Scenario: un ritorno con lo state sbagliato non scrive niente
+- **GIVEN** un accesso avviato
+- **WHEN** il ritorno porta uno `state` diverso da quello emesso
+- **THEN** SHALL essere rifiutato e il file dei token SHALL restare vuoto
+
 ### Requirement: CMD-COMMA-01 — La scorciatoia delle Impostazioni cede solo a chi POSSIEDE il tasto
 
 `⌘,` e `Ctrl+,` SHALL aprire le Impostazioni. La palette dei comandi lo

@@ -5,6 +5,8 @@
  * wrong: markup that must vanish entirely, structure that must NOT (a list read
  * as one paragraph says something different from a list), and code, whose
  * indentation is the content.
+ *
+ * @covers CHAT-NTOOL-02
  */
 import { describe, it, expect } from "bun:test";
 import { htmlToMarkdown, decodeEntities } from "./html-to-markdown";

@@ -1,3 +1,9 @@
+/**
+ * The folder is the project, not the road that leads to it: a link, a trailing
+ * slash and `~` all name the same directory, and the id must not see them.
+ *
+ * @covers PROJ-ID-01
+ */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, symlinkSync, rmSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";

@@ -14,6 +14,8 @@
  * directory for the whole file, so the real `~/.openclaw/mcp-oauth.json` is
  * never read and never written, and `TOPICS_MCP_CONFIG_FILE` is what lets the
  * fleet mount at all under `NODE_ENV=test`.
+ *
+ * @covers MCPSRV-04
  */
 
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from "bun:test";

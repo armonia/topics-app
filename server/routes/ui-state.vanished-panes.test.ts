@@ -6,6 +6,8 @@
  * from localStorage and the duplicate returned ten minutes later. So the filter
  * sits on the WRITE, and the «only if the twin is there» condition is what stops
  * an unmounted external disk from losing its panes.
+ *
+ * @covers PROJ-ID-03
  */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
