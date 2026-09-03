@@ -5,7 +5,7 @@ import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquar
 import { decideComposerAction } from './composerAction';
 import { SLASH_COMMANDS } from './slashCommands';
 import { canAnswerWithText, findPendingAsk } from '../../state/pendingAsk';
-import { useTopicLoading } from '../../state/signals';
+import { useServerTurnAsked, useTopicLoading } from '../../state/signals';
 import { turnLooksUnanswered } from './turnError';
 import type { Topic, ChatMessage, UpdateTopicRequest, WSMessage } from '../../types';
 import { ImageThumbnail } from '../MessageContent';
@@ -372,6 +372,7 @@ export function ChatInput({
    * agente al lavoro. Vedi `turnLooksUnanswered`.
    */
   const serverTurnOpen = useTopicLoading(topic?.id);
+  const serverTurnAsked = useServerTurnAsked();
   // Context pills state. Excluded pills derive from the topic's SERVER-side
   // disabledContextSources (id format `file:<path>` — the same channel the
   // Context inspector and the envelope assembler use, and the only one the
@@ -990,6 +991,7 @@ export function ChatInput({
         lastMessageIsUser: currentMessages[currentMessages.length - 1]?.role === 'user',
         locallyStreaming: currentStreaming,
         serverSaysOpen: serverTurnOpen,
+        serverAsked: serverTurnAsked,
       }) && (
         <div
           data-testid="no-reply-banner"

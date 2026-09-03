@@ -244,6 +244,10 @@ interface SignalsState {
   // loading inputs
   liveStreamTopics: Set<string>;     // useChat live stream (sessionKey resolved to topicId)
   hydratedStreamTopics: Set<string>; // server "mid-reply" (DB partial flag), survives reload
+  /** Whether `/api/topics/streaming` has answered at least once in this page:
+   *  before that the hydrated set is empty because nobody asked, not because
+   *  nothing is open. */
+  hydratedStreamAsked: boolean;
   terminalBusyIds: Set<string>;      // server-tracked pty busy, by session id (fallback heuristic)
   browserBusyPaneIds: Set<string>;   // browser panel loading/agent, by pane id
   // claude-code terminals whose known phase is active (running/tool-running).
@@ -306,6 +310,7 @@ interface SignalsState {
   sessionLastActivity: Map<string, number>;
 
   setTopicSet: (key: TopicSetKey, ids: Set<string>) => void;
+  markHydratedStreamAsked: () => void;
   /** Segna un soggetto come VISTO (la soglia è scattata). Idempotente. */
   markSubjectSeen: (id: string) => void;
   /** Clears the "seen" flag of the chat subjects that ENTER the attention set
@@ -462,6 +467,7 @@ export function reconcileOrphanStreams(
 export const useSignalsStore = create<SignalsState>((set) => ({
   liveStreamTopics: new Set(),
   hydratedStreamTopics: new Set(),
+  hydratedStreamAsked: false,
   terminalBusyIds: new Set(),
   browserBusyPaneIds: new Set(),
   claudePhaseActiveTermIds: new Set(),
@@ -478,6 +484,7 @@ export const useSignalsStore = create<SignalsState>((set) => ({
   sessionActivity: new Map(),
   sessionLastActivity: new Map(),
 
+  markHydratedStreamAsked: () => set((s) => (s.hydratedStreamAsked ? s : { hydratedStreamAsked: true })),
   setTopicSet: (key, ids) =>
     set((s) => (setsEqual(ids, s[key]) ? s : ({ [key]: ids } as Pick<SignalsState, TopicSetKey>))),
 
@@ -606,7 +613,11 @@ function sessionLastActivityEqual(a: Map<string, number>, b: Map<string, number>
 
 export const signalsActions = {
   setLiveStreamTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('liveStreamTopics', ids),
-  setHydratedStreamTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('hydratedStreamTopics', ids),
+  setHydratedStreamTopics: (ids: Set<string>) => {
+    const st = useSignalsStore.getState();
+    st.setTopicSet('hydratedStreamTopics', ids);
+    st.markHydratedStreamAsked();
+  },
   setClaudeAttentionTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('claudeAttentionTopics', ids),
   setAwaitingFeedbackTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('awaitingFeedbackTopics', ids),
   setAwaitingInputTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('awaitingInputTopics', ids),
@@ -1003,6 +1014,12 @@ export function projectAttentionTier(
 // per-signal narrowing they exist for.
 
 // ---- Id-based loading hooks (keep the spinner component API stable) ---------
+
+/** Has the server's stream registry answered at least once in this page? The
+ *  «no reply» banner must not speak before it has. */
+export function useServerTurnAsked(): boolean {
+  return useSignalsStore((s) => s.hydratedStreamAsked);
+}
 
 /** A topic is loading if it has a live stream or a hydrated mid-reply. */
 export function useTopicLoading(topicId: string | undefined): boolean {

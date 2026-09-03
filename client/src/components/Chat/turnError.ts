@@ -105,7 +105,16 @@ export function turnLooksUnanswered(input: {
    * una domanda. Sopravvive al reload, ed è la testimonianza che mancava.
    */
   serverSaysOpen: boolean;
+  /**
+   * Has the server's registry been read at least once since this page loaded?
+   * Until then `serverSaysOpen` is not «no», it is «nobody asked yet»: on a
+   * reload the local map is empty and the GET is still in flight, and the
+   * banner drawn in that window was a 51 px composer that shrank under the
+   * conversation the moment the answer came (measured 2026-09-03).
+   */
+  serverAsked: boolean;
 }): boolean {
   if (!input.lastMessageIsUser) return false;
+  if (!input.serverAsked) return false;
   return !input.locallyStreaming && !input.serverSaysOpen;
 }

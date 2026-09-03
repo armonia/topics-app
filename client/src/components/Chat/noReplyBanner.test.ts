@@ -39,7 +39,7 @@ describe('banner «Nessuna risposta» — la tabella di verità completa', () =>
       expect(turnLooksUnanswered({
         lastMessageIsUser: true,
         locallyStreaming: c.local,
-        serverSaysOpen: c.server,
+        serverSaysOpen: c.server, serverAsked: true
       })).toBe(c.atteso);
     });
   }
@@ -51,7 +51,7 @@ describe('banner «Nessuna risposta» — la tabella di verità completa', () =>
       expect(turnLooksUnanswered({
         lastMessageIsUser: false,
         locallyStreaming: c.local,
-        serverSaysOpen: c.server,
+        serverSaysOpen: c.server, serverAsked: true
       })).toBe(false);
     }
   });
@@ -75,7 +75,7 @@ describe('banner «Nessuna risposta» — i bordi', () => {
     // `undefined` e `serverTurnOpen` di conseguenza `false`.
     for (const local of [false, true]) {
       for (const server of [false, true]) {
-        expect(turnLooksUnanswered({ lastMessageIsUser: false, locallyStreaming: local, serverSaysOpen: server })).toBe(false);
+        expect(turnLooksUnanswered({ lastMessageIsUser: false, locallyStreaming: local, serverSaysOpen: server, serverAsked: true })).toBe(false);
       }
     }
   });
@@ -85,7 +85,7 @@ describe('banner «Nessuna risposta» — i bordi', () => {
     // proprietà che rende il banner testabile senza montare React: se un giorno
     // qualcuno ci infilasse una lettura di store o un `Date.now()`, questo
     // smetterebbe di valere e il resto del file mentirebbe.
-    const a = { lastMessageIsUser: true, locallyStreaming: false, serverSaysOpen: false };
+    const a = { lastMessageIsUser: true, locallyStreaming: false, serverSaysOpen: false, serverAsked: true };
     expect(turnLooksUnanswered(a)).toBe(turnLooksUnanswered({ ...a }));
   });
 });

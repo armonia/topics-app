@@ -84,7 +84,17 @@ describe('turnIsOnlyError — il cancello del bottone Riprova', () => {
  */
 describe('turnLooksUnanswered — il banner tace se qualcuno dice che il turno è vivo', () => {
   const caso = (p: Partial<Parameters<typeof turnLooksUnanswered>[0]>) =>
-    turnLooksUnanswered({ lastMessageIsUser: true, locallyStreaming: false, serverSaysOpen: false, ...p });
+    turnLooksUnanswered({ lastMessageIsUser: true, locallyStreaming: false, serverSaysOpen: false, serverAsked: true, ...p });
+
+  test('finché il server NON è stato interrogato il banner tace: un testimone assente non è un testimone contrario', () => {
+    // On a reload the local map is empty AND the server's registry has not
+    // answered yet (the GET leaves with the page): for ~300 ms both witnesses
+    // are silent. Reading that as «nobody says it is alive» lit the amber box
+    // above the composer and put it out a moment later: 51 px of composer
+    // shrinking under the conversation (measured 2026-09-03).
+    expect(caso({ serverAsked: false })).toBe(false);
+    expect(caso({ serverAsked: false, serverSaysOpen: true })).toBe(false);
+  });
 
   test('turno davvero senza risposta: il banner si mostra', () => {
     expect(caso({})).toBe(true);
