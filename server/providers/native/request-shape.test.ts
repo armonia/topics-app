@@ -15,6 +15,8 @@
  *
  * Driven against a fake `fetch`, like `round-cut.test.ts` next door: the body
  * is captured on its way out, the stream coming back is a string.
+ *
+ * @covers NATIVE-SHAPE-01, NATIVE-EFFORT-01
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";

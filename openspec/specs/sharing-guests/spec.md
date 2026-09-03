@@ -76,6 +76,20 @@ SHALL NOT be — either refused or reported as absent.
 - **THEN** the server SHALL answer 403 with code `guest_forbidden`
 - **AND** the path allowlist SHALL name `/api/topics/:id/messages` exactly, not `/api/topics/` as a prefix
 
+### Requirement: GUEST-01b — A granted chat does not open the project behind it
+
+> Written from the test, after the 2026-09-03 audit: a guest holding a
+> chat could read `/context-preview`, `/environment`, `/checkpoints`,
+> `/turn-checkpoints`, `/context-snapshots` and `/project-id` of that chat,
+> which describe the PROJECT (its CLAUDE.md, its environment, its
+> checkpoints), not the conversation.
+
+A grant on a chat SHALL open the conversation itself (`/messages` answers
+200) and SHALL NOT open the introspection sub-routes of that chat: each of
+`context-preview`, `environment`, `checkpoints`, `turn-checkpoints`,
+`context-snapshots` and `project-id` SHALL answer 403 to the guest. The
+allowlist of sub-routes a grant opens is exact, not a prefix match.
+
 ### Requirement: GUEST-02 — A guest reads, including on what was shared with it
 
 > Written from the test. `SHARE-06` in the `task-sharing-guests` proposal also
@@ -369,6 +383,47 @@ Nessun socket SHALL fare zero.
 #### Scenario: la macchina in secondo piano e un telefono che guarda
 - **GIVEN** i due socket
 - **THEN** il conteggio SHALL essere uno
+
+### Requirement: VIEWCNT-02 — The viewer count is pushed, not polled
+
+The server SHALL push the viewer count of a browser context on the browser
+socket when it changes, and the client SHALL take a pushed count as a reading
+at once. Every push SHALL arm ONE confirming fetch after a short delay, and a
+burst of pushes SHALL end with one confirmation after the last push: the
+auto-share decision needs two agreeing samples before a pane moves, and a
+push arrives once.
+
+While a socket of the context is up the fallback poll SHALL fetch nothing;
+while none is up it SHALL fetch at its slow cadence (30s), never at the old
+2s. A hidden tab SHALL take no reading, and a fetch that fails or answers no
+JSON SHALL produce no reading. Stopping the feed SHALL disarm every timer and
+deafen the push.
+
+The bus between the sockets and the hook SHALL deliver a push to the
+subscribers of its context only. A late subscriber SHALL receive the last
+value while a socket of the context is up, and nothing once the last socket
+is gone: a count from a socket that is gone is not a fact about now. The
+channel SHALL be counted per socket, so that replacing a socket keeps the
+context up, and detaching twice SHALL be harmless.
+
+> **Why.** Measured on the live server log (20,000-line tail): 7,662 of
+> 17,335 API request lines were `GET /api/browsers/:id/viewers`, one every 2s
+> per browser pane, for a value that changes when a device joins or leaves.
+
+#### Scenario: a push while a socket is up
+- **GIVEN** a browser pane with its socket up
+- **WHEN** the server pushes a count
+- **THEN** the pane takes the reading now, and one confirming fetch leaves after the delay
+- **AND** the next 30s tick fetches nothing
+
+#### Scenario: no socket at all
+- **GIVEN** a context with no socket up
+- **THEN** the feed fetches every 30s, and never at 2s
+
+#### Scenario: a late subscriber after the last socket left
+- **GIVEN** a count pushed on a socket that has since detached
+- **WHEN** a subscriber arrives
+- **THEN** it receives nothing
 
 ### Requirement: PRJSHARE-01 — Anche un PROGETTO si condivide, dal menu contestuale
 

@@ -213,8 +213,8 @@ test.describe("Confinamento dell'ospite", () => {
     }
   });
 
-  test("GUEST-01: a shared chat does not open the project's introspection routes", async ({ request }) => {
-    test.info().annotations.push({ type: "spec", description: "GUEST-01" });
+  test("GUEST-01b: a shared chat does not open the project's introspection routes", async ({ request }) => {
+    test.info().annotations.push({ type: "spec", description: "GUEST-01b" });
     // The allowlist matched `/api/topics/` as a PREFIX, so the grant on one
     // chat also answered `/context-preview` (the project's CLAUDE.md, README,
     // AGENTS.md), `/environment` (tool and MCP configuration, permission
@@ -230,10 +230,10 @@ test.describe("Confinamento dell'ospite", () => {
 
     // Positive control first: the messages of the granted chat are readable,
     // so a 403 below is the path rule and not a broken grant.
-    const messaggi = await request.get(`${E2E_TUNNEL_BASE}/api/topics/${condivisa.id}/messages`, {
+    const messages = await request.get(`${E2E_TUNNEL_BASE}/api/topics/${condivisa.id}/messages`, {
       headers: daOspite(cookie),
     });
-    expect(messaggi.status()).toBe(200);
+    expect(messages.status()).toBe(200);
 
     for (const sub of ["context-preview", "environment", "checkpoints", "turn-checkpoints", "context-snapshots", "project-id"]) {
       const r = await request.get(`${E2E_TUNNEL_BASE}/api/topics/${condivisa.id}/${sub}`, {

@@ -10,6 +10,8 @@
  *
  * Rendered with `renderToStaticMarkup` (no DOM in this repo): the assertion is
  * on the markup, which is what the E2E locator `queue-send-now` looks for.
+ *
+ * @covers CHAT-QUEUE-04
  */
 import { describe, expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';

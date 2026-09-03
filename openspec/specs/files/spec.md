@@ -625,6 +625,43 @@ l'originale.
 - **GIVEN** una regola che esclude e una successiva che riapre
 - **THEN** SHALL valere la seconda
 
+### Requirement: GIT-STATUS-SPAWNS-01 — The git status is computed once, in five spawns, by the route and the watcher alike
+
+The git status of a working tree SHALL be computed by ONE function, used by
+`GET /api/git/status` and by the git watcher, and on a normal branch that
+function SHALL spawn FIVE git processes: `rev-parse` for "is it a repo, and
+where is its root", `status --porcelain -z --branch` for the files AND the
+branch header, `log -1` for the last commit, and the two numstats. A folder
+that is not a repo SHALL cost ONE spawn and answer null.
+
+The collapse SHALL NOT change an answer: the branch name, the ahead and
+behind counts, the dirty files, the label of a detached HEAD (its short
+hash), the name of an unborn branch, and the scoping of a subfolder to its
+own entries with the name of the repo that hosts it SHALL read as they read
+before.
+
+The `## ` header of `status --branch` SHALL be parsed in every shape git
+prints: with and without an upstream, `[ahead N]`, `[behind M]`,
+`[ahead N, behind M]`, `[gone]`, `HEAD (no branch)`, `No commits yet on X`
+and `Initial commit on X`; a branch name with a slash and a dot SHALL
+survive. The header SHALL be split off and the entries SHALL keep their raw
+XY codes.
+
+> **Why.** Two copies of the same procedure, one in the route and one in the
+> watcher, each spawned EIGHT git processes per call: with two project panels
+> open that was about one git subprocess per second at steady state, on a
+> machine at loadavg 33, and the two copies had already drifted once.
+
+#### Scenario: a normal branch, one commit ahead, one untracked file
+- **GIVEN** a clone of an origin, one commit ahead, with an untracked file
+- **WHEN** the status is computed
+- **THEN** exactly five processes are spawned
+- **AND** the branch, ahead 1, behind 0, the last commit and the untracked file read as before
+
+#### Scenario: not a repo
+- **GIVEN** a plain folder
+- **THEN** the status is null, after one spawn
+
 ### Requirement: TRASH-01 — Cancellare vuol dire spostare nel cestino, e due file con lo stesso nome non si sovrascrivono
 
 Cancellare dall'interfaccia SHALL significare SPOSTARE NEL CESTINO del sistema,

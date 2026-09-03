@@ -1262,6 +1262,35 @@ riguarda resterebbe fuori dalla misura.
 - **GIVEN** un progetto e un terminale di primo livello
 - **THEN** i due nomi SHALL cominciare dallo STESSO pixel
 
+### Requirement: ROWGLYPH-01 — A project without a favicon draws no glyph box, and a bare name starts right after the accordion
+
+A sidebar row whose leading glyph would be EMPTY SHALL NOT draw the glyph box:
+a project whose folder carries no favicon is such a row, exactly like a chat.
+Its name SHALL begin right after the accordion box, and the ink of that name
+SHALL be within `SIDEBAR_LABEL_GUTTER_BARE_MAX` of the sidebar edge at depth
+zero, at the SAME x as a chat that draws no glyph. A row that DOES draw a
+glyph (a project with a favicon, the board, a terminal, a browser) SHALL start
+one glyph box plus its gap later, within `SIDEBAR_LABEL_GUTTER_MAX`
+(LAYOUT-30).
+
+There are therefore TWO name columns, with and without a glyph, and the glyph
+box is the ONLY thing allowed to move a name to the right. A placeholder that
+holds the space of an icon nobody has SHALL NOT be drawn: it was the "lot of
+useless space" between the accordion and the name reported on 2026-09-03
+(card 058ea722), and it is the case ROWALIGN-01 used to require.
+
+The check SHALL be a measurement: the first ink of the name, read with a
+`Range` rect on the text node, against the sidebar's left edge.
+
+#### Scenario: a project without a favicon, next to a chat
+- **GIVEN** a project whose folder has no favicon and a chat at the same level
+- **THEN** neither row draws a glyph box
+- **AND** the two names start at the same x, within the bare budget
+
+#### Scenario: a row with a glyph
+- **GIVEN** the board row, which draws its glyph
+- **THEN** its name starts to the right of the bare rows, within `SIDEBAR_LABEL_GUTTER_MAX`
+
 ### Requirement: POPOVER-01 — Uno alla volta, ma un FIGLIO non caccia il genitore
 
 L'apertura di un popover ESCLUSIVO SHALL chiudere i FRATELLI e NON SHALL chiudere
@@ -1818,19 +1847,56 @@ Bacheca, righe di tessere e separatore SHALL stare a UNA sola distanza fra loro.
 - **GIVEN** la bacheca fra i fissati
 - **THEN** SHALL dire quanti task e in quale colonna
 
+### Requirement: PINTILE-04 — A packed tile shows its name whole or not at all, and its accordion stays at the row inset
+
+A pinned tile that shares its row with others SHALL draw its name only when
+the WHOLE name fits next to the icon in the width the tile has: when it does
+not fit, the name SHALL go and the icon alone SHALL be centred in the tile. A
+truncated name ("to...", "ar...", "ed...") SHALL NOT stand in for a name. The
+decision SHALL be measured on the name's real width, not on a width
+threshold, and nothing SHALL paint outside the tile while it is measured.
+
+The accordion of a tile SHALL sit at the row inset on the left edge of the
+tile, out of the flow, where it sits in every other row, instead of
+travelling to the centre with the icon.
+
+> **Why.** Reported on 2026-09-03 with a screenshot (card 058ea722): three
+> projects pinned on one row, at 400px of sidebar, read "to...", "ar...",
+> "ed..." with the accordion in the middle. A name cut to two letters says
+> nothing; the icon says the same thing in less space.
+
+#### Scenario: three long names on one row
+- **GIVEN** three pinned projects with a favicon on one row, at 400px and at 260px of sidebar
+- **THEN** every tile draws its name whole or draws no name
+- **AND** a tile without a name centres its icon
+
+#### Scenario: the accordion of a tile
+- **GIVEN** a pinned tile that can open
+- **THEN** its accordion is positioned out of the flow, at the row inset
+
 ### Requirement: ROWALIGN-01 — Le righe della colonna partono dalla STESSA x
 
 Segnalato: le rotte dovevano essere allineate, e i progetti dovevano avere
 un'icona come le chat.
 
-Il nome di un progetto SENZA icona SHALL partire dalla STESSA coordinata
-orizzontale di uno che ce l'ha: una riga che parte più a sinistra perché le manca
-un'icona fa sembrare storta tutta la colonna, senza che nessuna riga sia
-sbagliata.
+Il nome di un progetto SENZA icona partiva dalla STESSA coordinata orizzontale
+di uno che ce l'ha, grazie a un segnaposto neutro che occupava lo spazio
+dell'icona mancante.
 
-#### Scenario: un progetto senza icona
+**RIBALTATO IL 03/09/2026** (card 058ea722): quel segnaposto era «un sacco di
+spazio inutile» fra l'accordion e il nome. Un progetto senza favicon adesso NON
+disegna la scatola del glifo e parte dalla stessa x di una chat, cioè PRIMA di
+un progetto che la favicon ce l'ha: la regola in vigore è ROWGLYPH-01. Di
+questa resta la parte ancora vera: la colonna dell'ACCORDION è una sola, e ogni
+riga la apre con lo stesso riquadro (LAYOUT-26).
+
+#### Scenario: un progetto senza icona (dal 03/09/2026)
 - **GIVEN** due progetti, uno con icona e uno senza
-- **THEN** i due nomi SHALL partire dalla stessa x
+- **THEN** quello senza NON disegna la scatola del glifo, e il suo nome parte PRIMA (ROWGLYPH-01)
+
+#### Scenario: la colonna dell'accordion
+- **GIVEN** tutte le righe della colonna
+- **THEN** SHALL aprirsi con lo STESSO riquadro dell'accordion
 
 ### Requirement: PINALIGN-01 — Il blocco dei fissati ha UN allineamento per forma, e nessuno spinto a destra
 

@@ -159,6 +159,33 @@ The system SHALL periodically clean up stale active streams, not only on access.
 
 **Implementation**: Add a `setInterval` (every 60s) that iterates `activeStreams` and removes expired entries.
 
+### Requirement: STREAM-SNAPSHOT-01 — The streaming snapshot walks the registry, not the topics table
+
+`GET /api/topics/streaming` SHALL answer from the in-memory registry of active
+streams: for each entry that is still streaming it SHALL look up the topic by
+its session key, and it SHALL NOT hydrate the whole topics table to do so.
+With no active stream it SHALL run no query and answer an empty list.
+
+A stale entry (one the registry no longer reports as streaming) SHALL be
+skipped and SHALL NOT be deleted by this route: the sweeper of CHAT-REL-05
+owns the finalisation. An entry whose topic row is gone SHALL be omitted, as
+the old filter omitted it.
+
+> **Why.** Every 15s each client asked this route, and the route answered by
+> loading EVERY topic (1,452 rows plus four relation-table scans) to keep the
+> zero, one or two whose session key sat in a Map with as many entries. That
+> churn is what kept the idle server warm.
+
+#### Scenario: two live streams
+- **GIVEN** two active streams and three topics
+- **WHEN** the snapshot is requested
+- **THEN** the answer lists the two streaming topics
+- **AND** the topics table was not loaded, and the session-key lookup ran once per stream
+
+#### Scenario: a stale stream
+- **GIVEN** an entry the registry reports as no longer streaming
+- **THEN** it is not in the answer, and it is still in the registry
+
 ## Out of Scope
 
 - Changing the primary model from Opus (rate limit is an Anthropic API issue, not a Topics bug)

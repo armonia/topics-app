@@ -2036,8 +2036,9 @@ allineate.
 Premere FERMA NON SHALL far partire il messaggio successivo. Lo svuotamento della
 coda NON SHALL avere come unica condizione «non sta più scrivendo»: si preme
 fermare per fermare l'agente, e partiva il messaggio dopo senza che nessuno
-l'avesse chiesto. A coda ferma il comando che manda subito NON SHALL essere
-offerto.
+l'avesse chiesto. Dal 03/09/2026 il comando che manda subito resta offerto
+anche a coda ferma, e la regola su quando esiste e cosa promette è
+CHAT-QUEUE-04.
 
 Un messaggio in coda SHALL essere MODIFICABILE e RIMUOVIBILE prima di partire.
 SHALL esistere un comando per mandarlo SUBITO senza aspettare la fine del turno.
@@ -2059,6 +2060,37 @@ farlo partire a fine turno, e NON SHALL lasciare a schermo una bolla fantasma.
 #### Scenario: tre messaggi accodati
 - **GIVEN** tre messaggi in coda e un turno che finisce
 - **THEN** SHALL partire insieme, in un turno solo
+
+### Requirement: CHAT-QUEUE-04 — An idle queue still has its send-now control
+
+The send-now command of the queue SHALL be rendered whenever the queue holds at
+least one message and a handler for it exists, whether or not a turn is in
+flight. With a turn in flight it SHALL promise to stop that turn first; with
+nothing running it SHALL fire the queue right away, and its label SHALL say
+which of the two it does. It SHALL NOT be rendered without a handler, and an
+empty queue SHALL render nothing at all.
+
+> **Why.** The control used to exist only while a turn was in flight, on the
+> theory that its job is to cut a running turn short. But a queue can be idle
+> for reasons that are not a choice: the turn it waited for ended while this
+> window was not listening (a reload, a relaunch, a socket lost for a second).
+> The dashed bubbles then sat in the transcript with no control that could
+> fire them, and the way out was to copy the text, delete the bubble and type
+> it again. Since 2026-09-03 the command is there in both states; what changes
+> with the state is what it promises.
+
+#### Scenario: a queue with a turn in flight
+- **GIVEN** one queued message and a turn still streaming
+- **THEN** the send-now control is rendered and marked as busy
+
+#### Scenario: a queue nobody released
+- **GIVEN** one queued message and no turn in flight
+- **THEN** the send-now control is rendered and marked as idle
+- **AND** pressing it fires the queue now
+
+#### Scenario: nothing to send
+- **GIVEN** an empty queue
+- **THEN** the queue renders nothing, and no send-now control
 
 ### Requirement: CHAT-BUBBLE-01 — La bolla porta l'id del SERVER, e una riadozione non la raddoppia
 
@@ -2741,9 +2773,57 @@ Un turno nativo DEVE tradurre l'effort (topic, altrimenti impostazione globale) 
 `thinking.budget_tokens`, e `max_tokens` DEVE restare maggiore del budget. L'effort
 `low` NON DEVE abilitare il thinking.
 
+Dal 03/09/2026 la traduzione dipende dalla GENERAZIONE del modello: sulla
+famiglia 5 (e su Opus e Sonnet 4.6 e successivi) l'effort viaggia come
+`thinking: {type: "adaptive"}` più `output_config.effort`, senza
+`budget_tokens`, e `low` resta un pensiero; la tabella dei budget vale per i
+modelli precedenti, dove `low` continua a non abilitare il thinking. La forma
+del corpo della richiesta è NATIVE-SHAPE-01.
+
 #### Scenario: high
 - **GIVEN** effort `high`
 - **THEN** la richiesta porta un budget di thinking > 1024 e `max_tokens` > budget
+
+### Requirement: NATIVE-SHAPE-01 — What the native loop puts in the request body
+
+The request the native runtime sends to the API SHALL carry, when nobody set an
+output cap, a `max_tokens` equal to the CLI catalogue default (64000), not half
+of it. A cap passed by the caller SHALL be honoured. On a model that takes a
+thinking budget the cap SHALL be raised above the budget, and the budget SHALL
+NOT be cut to fit the cap.
+
+The model id SHALL reach the API bare: the `[1m]` suffix is a convention of
+this app for the long window and SHALL be stripped before the request leaves,
+the thinking configuration being decided on the bare id.
+
+A tool result SHALL enter the history cut to a head and a tail, with a notice
+between them that says how many characters were left out and how to read a
+slice, so that two large reads in one round cannot push the context past its
+window and repeat the same 400 on every later turn of the session.
+
+> **Why.** None of this was visible from the outside, because the body was
+> never asserted on, only the stream that came back. Measured on 2026-09-03: a
+> `max_tokens` of 16384 meant a single `write_file` above ~16k tokens of output
+> could never succeed here while it did on the CLI; the effort tier became a
+> fixed `budget_tokens` for EVERY model, which the 5 family rejects; two 400k
+> reads in one round were enough to push a 200k window past its limit for the
+> rest of the session.
+
+#### Scenario: no cap set
+- **GIVEN** a turn with no `maxTokens` option
+- **THEN** the body carries `max_tokens: 64000`
+
+#### Scenario: a cap under the thinking budget
+- **GIVEN** a legacy model, effort `high` and a caller cap of 8000
+- **THEN** the body carries the 10000-token budget and a `max_tokens` above it
+
+#### Scenario: the long window
+- **GIVEN** the model `claude-sonnet-5[1m]`
+- **THEN** the body names `claude-sonnet-5` and its thinking is `adaptive`
+
+#### Scenario: a huge tool result
+- **GIVEN** a `read_file` whose output exceeds the per-result budget
+- **THEN** the history holds its head and its tail, with the omission notice between them
 
 ### Requirement: CHAT-NTOOL-01 — Il piano del turno esiste anche senza la CLI
 

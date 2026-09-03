@@ -206,6 +206,8 @@ test.describe("card 058ea722: spacing, pinned names, attachments, ghost card", (
   });
 
   test("058-1/2: no empty glyph box in the tree; packed tiles show the name whole or the icon alone", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "ROWGLYPH-01" });
+    test.info().annotations.push({ type: "spec", description: "PINTILE-04" });
     await resetProjectPanes(request, NO_ICON);
     await seedProjectPane(request, NO_ICON);
     // A chat OPEN INSIDE each favicon project, seeded after the hermetic reset
@@ -278,6 +280,8 @@ test.describe("card 058ea722: spacing, pinned names, attachments, ghost card", (
   });
 
   test("058-3/4: an attached image opens the lightbox from the thread and from the composer; the ghost card follows the typing", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "LIGHTBOX-01" });
+    test.info().annotations.push({ type: "spec", description: "BOARD-DRAFT-01" });
     await resetPaneStore(request, []);
     await resetProjectPanes(request, NO_ICON);
     await seedProjectPane(request, NO_ICON);

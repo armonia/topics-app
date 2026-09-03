@@ -2904,6 +2904,52 @@ trascinamento.
 - **GIVEN** un trascinamento che non porta file
 - **THEN** il composer NON SHALL reagire
 
+### Requirement: BOARD-DRAFT-01 — The card before it exists: the floating composer previews the task in its birth column
+
+While the floating composer of the board holds text or an attachment, the
+column the task will be born in SHALL show a ghost of the card: the title cut
+the way the create cuts it (the first line, through the same title split the
+server applies), the rest of the text as its description, the staged images
+by path and the other files by name. Nothing typed and nothing attached SHALL
+show no ghost. An attachment alone SHALL still be a card, named after the
+file. The ghost SHALL go when the text and the attachments go.
+
+The preview SHALL be computed by the same title split the create uses, so
+that what the ghost shows is what the server receives, not an approximation
+of it.
+
+> **Why.** Asked on 2026-09-03 (card 058ea722): the composer sits at the
+> bottom of the board and the card lands at the top of a column; between
+> writing and pressing Enter nothing on the board said WHERE the task would
+> go and WHAT it would look like.
+
+#### Scenario: two lines typed
+- **GIVEN** the floating composer with "Sidebar spacing" and a second line
+- **THEN** the Todo column shows a ghost card titled "Sidebar spacing", with the second line as its description
+
+#### Scenario: an image staged, then the text removed
+- **GIVEN** a staged image in the composer and the text cleared
+- **THEN** the ghost is still there and carries the image
+- **AND** removing the attachment removes the ghost
+
+### Requirement: LIGHTBOX-01 — An attached image opens large with a click, wherever it is attached
+
+A click on an image attached to a task SHALL open the lightbox, from the
+thread of the task drawer and from the thumbnail of an image staged in the
+floating composer alike; the image thumbnails of the chat keep the same
+behaviour (CHAT-02). `Escape` SHALL close it. The lightbox SHALL be ONE
+shared surface, not one copy per place an image can be shown.
+
+#### Scenario: the thread of the drawer
+- **GIVEN** a task with an image attached, opened in the drawer
+- **WHEN** the thumbnail in the thread is clicked
+- **THEN** the lightbox opens, and `Escape` closes it
+
+#### Scenario: the staged thumbnail of the composer
+- **GIVEN** an image staged in the floating composer
+- **WHEN** its thumbnail is clicked
+- **THEN** the lightbox opens
+
 ### Requirement: PLANTAB-01 — La tab Piano disegna il piano, non il recinto
 
 La tab «Piano» della scheda di un task SHALL rendere il commento del piano come

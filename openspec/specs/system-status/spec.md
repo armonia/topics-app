@@ -145,6 +145,35 @@ lenta.
 - **GIVEN** più righe del tetto
 - **THEN** la tabella SHALL restare al tetto
 
+### Requirement: HTTP-LOG-01 — An API request leaves one log line, on completion, with time, status and duration
+
+The server log SHALL write ONE line per API request, when the response is
+known and not at request start, carrying an ISO timestamp, the method, the
+path, the status and the duration in milliseconds. A 4xx and a 5xx SHALL be
+told apart at a glance from a 2xx by their mark.
+
+The routes a client hits on a clock rather than on a user (the viewer count
+of a browser context, the presence beat, the Claude hooks) SHALL stay quiet
+while they succeed fast, and SHALL still print when they fail (status 400 or
+more) or drag (duration over `SLOW_MS`); exactly `SLOW_MS` is not over. They
+SHALL NOT be sampled: a 2xx logged one time in ten would look like a request
+that happened one time in ten. Every other API route SHALL always write its
+line, even a 200 in 1ms.
+
+> **Why.** The log had a START line per request (no time, no outcome, no
+> duration) and a completion line for 404s only; 44% of those lines were the
+> 2s viewer poll (7,662 of 17,335 on a 20,000-line tail), and they buried the
+> lines that matter.
+
+#### Scenario: a normal route
+- **GIVEN** `GET /api/topics` answered 200 in 12ms
+- **THEN** one line is written, on completion, with the ISO time and `GET /api/topics 200 12ms`
+
+#### Scenario: a route on a clock
+- **GIVEN** `GET /api/browsers/:id/viewers` answered 200 in 5ms
+- **THEN** no line is written
+- **AND** the same route answering 404, or taking longer than `SLOW_MS`, writes its line
+
 ### Requirement: SYSTEM-02 — Un riavvio fallito si vede, e un riavvio riuscito spegne l'allarme
 
 La rotta di riavvio del gateway risponde HTTP 200 con `ok: false` e il codice di
