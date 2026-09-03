@@ -73,7 +73,7 @@
  */
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { Bot, Building2, ChevronRight, Hourglass, ListChecks, MessagesSquare, Monitor, Smartphone, UserRound, Users } from 'lucide-react';
-import { subscribeSession, type SessionState } from '@/lib/auth/session';
+import { getSession, subscribeSession, type SessionState } from '@/lib/auth/session';
 import { etichettaIdentita } from './identityLabel';
 import { useIdentityPresence, type OrgWithPresence } from '@/hooks/useIdentityPresence';
 import { usePresenceSummary } from '@/hooks/usePresenceSummary';
@@ -198,7 +198,10 @@ function RigaIo({ presenza, onOpenDevices }: {
   onOpenDevices?: () => void;
 }) {
   const tr = useT();
-  const [session, setSession] = useState<SessionState>({ status: 'loading' });
+  // `getSession`, not «loading»: the store may already know (last answer kept
+  // on this device), and a first frame without the chip is the shift the
+  // cache exists to remove.
+  const [session, setSession] = useState<SessionState>(getSession);
   const [ferri, setFerri] = useState<{ connessi: number; totali: number } | null>(null);
   const [aperto, setAperto] = useState(false);
   const [chip, setChip] = useState<HTMLButtonElement | null>(null);

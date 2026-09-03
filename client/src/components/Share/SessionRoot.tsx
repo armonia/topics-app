@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { refreshSession, subscribeSession, type SessionState } from '@/lib/auth/session';
+import { getSession, refreshSession, subscribeSession, type SessionState } from '@/lib/auth/session';
 import { PairingGate } from '../Auth/PairingGate';
 import { GuestView } from './GuestView';
 
@@ -23,7 +23,7 @@ import { GuestView } from './GuestView';
  * vede cosa, prima o poi, dicono cose diverse.
  */
 export function SessionRoot({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<SessionState>({ status: 'loading' });
+  const [session, setSession] = useState<SessionState>(getSession);
 
   useEffect(() => subscribeSession(setSession), []);
   useEffect(() => { void refreshSession(); }, []);

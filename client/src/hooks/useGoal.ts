@@ -9,9 +9,34 @@
  * cui esiste.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { TopicGoal, WSMessage } from '../types';
 import { goalApi } from '../lib/api';
+
+/**
+ * The goal this device last saw for a topic. The bar it feeds sits INSIDE the
+ * composer block, so a goal that arrives with the GET (300 ms after the first
+ * paint) grows the composer by its 32 px and pushes the whole conversation
+ * up — measured on a reload, 2026-09-03. Read synchronously at mount, so the
+ * first frame already has the bar; the GET still decides, and a goal closed
+ * elsewhere disappears when it answers.
+ */
+const GOAL_CACHE_PREFIX = 'topics-goal-cache:';
+function readCachedGoal(topicId: string | null): TopicGoal | null {
+  if (!topicId) return null;
+  try {
+    const raw = localStorage.getItem(GOAL_CACHE_PREFIX + topicId);
+    return raw ? (JSON.parse(raw) as TopicGoal) : null;
+  } catch {
+    return null;
+  }
+}
+function rememberGoal(topicId: string, goal: TopicGoal | null): void {
+  try {
+    if (goal) localStorage.setItem(GOAL_CACHE_PREFIX + topicId, JSON.stringify(goal));
+    else localStorage.removeItem(GOAL_CACHE_PREFIX + topicId);
+  } catch { /* storage denied: the bar simply arrives with the GET */ }
+}
 
 export function useGoal(
   topicId: string | null,
@@ -24,9 +49,13 @@ export function useGoal(
   // niente ref di guardia, e niente azzeramento in un effetto solo per evitare
   // il lampo dell'obiettivo sbagliato.
   const [entry, setEntry] = useState<{ topicId: string | null; goal: TopicGoal | null }>(
-    { topicId: null, goal: null },
+    () => ({ topicId, goal: readCachedGoal(topicId) }),
   );
-  const goal = entry.topicId === topicId ? entry.goal : null;
+  // On a topic switch the entry still belongs to the previous topic: until the
+  // GET answers, the new topic's last known goal fills in for the same reason
+  // as at mount.
+  const cached = useMemo(() => readCachedGoal(topicId), [topicId]);
+  const goal = entry.topicId === topicId ? entry.goal : cached;
 
   const reload = useCallback(async () => {
     // Niente topic, niente da azzerare: l'etichetta rende `goal` già nullo.
@@ -34,9 +63,11 @@ export function useGoal(
     const id = topicId;
     try {
       const data = await goalApi.get(id);
+      rememberGoal(id, data.goal);
       setEntry({ topicId: id, goal: data.goal });
     } catch {
       // Una topic senza goal non è un errore da mostrare: la barra sparisce.
+      rememberGoal(id, null);
       setEntry({ topicId: id, goal: null });
     }
   }, [topicId]);
@@ -50,6 +81,7 @@ export function useGoal(
     if (!onMessage || !topicId) return;
     return onMessage((msg: WSMessage) => {
       if (msg.type === 'goal:updated' && msg.topicId === topicId) {
+        rememberGoal(topicId, msg.goal);
         setEntry({ topicId, goal: msg.goal });
       }
     });

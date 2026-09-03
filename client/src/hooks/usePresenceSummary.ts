@@ -24,6 +24,27 @@ import { useLocale } from './useT';
 
 const INTERVALLO_MS = 8000;
 
+/**
+ * The counts this device last drew. They feed the digits at the foot of the
+ * sidebar, and digits that arrive with the first poll (300-1200 ms after the
+ * first paint) change the width of the chip that carries them: measured on a
+ * reload, 2026-09-03, the two chips beside it slid 8 px. The poll still
+ * replaces the cache as soon as it answers.
+ */
+const COUNTS_CACHE_KEY = 'topics-presence-counts-cache';
+function readCachedCounts(): PresenceCounts | null {
+  try {
+    const raw = localStorage.getItem(COUNTS_CACHE_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === 'object' ? (parsed as PresenceCounts) : null;
+  } catch {
+    return null;
+  }
+}
+function rememberCounts(counts: PresenceCounts): void {
+  try { localStorage.setItem(COUNTS_CACHE_KEY, JSON.stringify(counts)); } catch { /* storage denied: the poll still draws them */ }
+}
+
 interface PresenceSummaryState {
   counts: PresenceCounts | null;
   /** La riga gia' composta, nella lingua dell'interfaccia. `null` = non c'e'
@@ -32,7 +53,7 @@ interface PresenceSummaryState {
 }
 
 export function usePresenceSummary(enabled = true, intervalMs = INTERVALLO_MS): PresenceSummaryState {
-  const [counts, setCounts] = useState<PresenceCounts | null>(null);
+  const [counts, setCounts] = useState<PresenceCounts | null>(readCachedCounts);
   const locale = useLocale();
 
   useEffect(() => {
@@ -45,6 +66,7 @@ export function usePresenceSummary(enabled = true, intervalMs = INTERVALLO_MS): 
         const res = await fetch('/api/system/presence');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = (await res.json()) as PresenceCounts;
+        rememberCounts(data);
         if (vivo) setCounts(data);
       } catch {
         // Il server irraggiungibile ha gia' il suo segnale in questa barra (il

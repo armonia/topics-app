@@ -22,16 +22,40 @@
  * non compete con `NotificationBadge`. È il contenuto della board, detto in due
  * numeri.
  */
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { StatusIcon } from '../Board/atoms';
 import { STATUS_LABEL } from '../../lib/board';
-import { boardTabCounts } from '../../lib/boardTabCounts';
-import { useBoardTasks } from '../../lib/boardTasksStore';
+import { boardTabCounts, type StatusCount } from '../../lib/boardTabCounts';
+import { useBoardTasks, useBoardTasksLoaded } from '../../lib/boardTasksStore';
 import { useBoardProjects } from '../../lib/boardProjectsStore';
 
 /** Un percorso confrontabile: la stessa cartella non deve diventare due
  *  progetti diversi per via di uno slash finale. */
 const norm = (p: string): string => p.replace(/\/+$/, '');
+
+/**
+ * The counts this device last drew for a tab, kept until the 1.5 MB task feed
+ * has landed. The feed arrives 1-1.3 s after the first paint, and a trail that
+ * grows by 23 px at that moment moves the tab label under it — measured on a
+ * reload, 2026-09-03. What is cached is the RESULT (a handful of numbers per
+ * tab), never the feed; the live rows replace it as soon as they exist.
+ */
+const COUNTS_CACHE_PREFIX = 'topics-board-tab-counts:';
+function readCachedCounts(key: string): StatusCount[] {
+  try {
+    const raw = localStorage.getItem(key);
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    return Array.isArray(parsed) ? (parsed as StatusCount[]) : [];
+  } catch {
+    return [];
+  }
+}
+function rememberCounts(key: string, counts: StatusCount[]): void {
+  try {
+    if (counts.length === 0) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(counts));
+  } catch { /* storage denied: the trail simply arrives with the feed */ }
+}
 
 export function BoardTabCounts({ projectPath }: { projectPath?: string }) {
   const tasks = useBoardTasks();
@@ -42,7 +66,7 @@ export function BoardTabCounts({ projectPath }: { projectPath?: string }) {
     () => (projectPath ? index?.find((p) => p.path && norm(p.path) === norm(projectPath))?.projectId ?? null : null),
     [index, projectPath],
   );
-  const counts = useMemo(
+  const live = useMemo(
     // Finché il percorso non è risolto in un board id NON si conta: mostrare
     // intanto il totale di TUTTI i progetti sarebbe un numero sbagliato che si
     // corregge da solo dopo un giro — e nel frattempo è indistinguibile da uno
@@ -50,6 +74,14 @@ export function BoardTabCounts({ projectPath }: { projectPath?: string }) {
     () => (projectPath && !projectId ? [] : boardTabCounts(tasks, projectId)),
     [tasks, projectId, projectPath],
   );
+  // Live only once BOTH inputs exist: the feed, and — for a project tab — its
+  // board id. Before that the live value is an empty list that means «not yet»,
+  // not «zero», and remembering it would erase a real count.
+  const loaded = useBoardTasksLoaded() && (!projectPath || projectId !== null);
+  const cacheKey = COUNTS_CACHE_PREFIX + (projectPath ? norm(projectPath) : 'all');
+  const cached = useMemo(() => readCachedCounts(cacheKey), [cacheKey]);
+  useEffect(() => { if (loaded) rememberCounts(cacheKey, live); }, [loaded, live, cacheKey]);
+  const counts = loaded ? live : cached;
   if (counts.length === 0) return null;
   return (
     <>

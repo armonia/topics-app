@@ -45,7 +45,43 @@ export type SessionState =
       installationName?: string | null;
     };
 
-let state: SessionState = { status: 'loading' };
+/**
+ * The last answer this device got, kept so the next boot does not start from
+ * «loading». Everything drawn from the session — the name chip at the foot of
+ * the sidebar first of all — used to appear only when `/api/auth/session`
+ * came back, 400-1500 ms after the first paint, and appearing late is a
+ * shift: measured 2026-09-03, the two chips beside it slid 265 px to the
+ * right. The server's answer still replaces this the moment it lands, and a
+ * refusal removes it, so a revoked device is never told it is in for longer
+ * than one request. Only `paired` is kept: an unpaired state is not worth
+ * remembering, the gate asks again anyway.
+ */
+const LAST_PAIRED_KEY = 'topics-session-last-paired';
+function readLastPaired(): SessionState | null {
+  try {
+    const raw = localStorage.getItem(LAST_PAIRED_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as Partial<Extract<SessionState, { status: 'paired' }>> | null;
+    if (!p || p.status !== 'paired' || typeof p.name !== 'string') return null;
+    if (p.as !== 'loopback' && p.as !== 'device') return null;
+    return {
+      status: 'paired', as: p.as, name: p.name, deviceId: p.deviceId,
+      role: p.role === 'owner' ? 'owner' : 'guest',
+      installationName: p.installationName ?? null,
+      personId: p.personId ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+function rememberSession(next: SessionState): void {
+  try {
+    if (next.status === 'paired') localStorage.setItem(LAST_PAIRED_KEY, JSON.stringify(next));
+    else if (next.status === 'unpaired') localStorage.removeItem(LAST_PAIRED_KEY);
+  } catch { /* storage denied: the next boot just starts from «loading» */ }
+}
+
+let state: SessionState = readLastPaired() ?? { status: 'loading' };
 const listeners = new Set<(s: SessionState) => void>();
 
 /**
@@ -84,6 +120,7 @@ function sameState(a: SessionState, b: SessionState): boolean {
 function emit(next: SessionState): void {
   if (sameState(next, state)) return;
   state = next;
+  rememberSession(state);
   for (const fn of listeners) fn(state);
 }
 
@@ -155,4 +192,5 @@ export async function refreshSession(): Promise<SessionState> {
 export function __resetSessionForTests(): void {
   state = { status: 'loading' };
   listeners.clear();
+  try { localStorage.removeItem(LAST_PAIRED_KEY); } catch { /* no storage in this runtime */ }
 }

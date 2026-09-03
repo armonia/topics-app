@@ -43,18 +43,40 @@ const PONG_TIMEOUT_MS = 75_000;
  */
 const WAKE_PROBE_MS = 8_000;
 
+/** Device-local copy of the unread map, so the first frame after a reload
+ *  already shows the badges the socket will confirm a few hundred ms later. */
+const UNREAD_CACHE_KEY = 'topics-unread-cache';
+function readUnreadCache(): UnreadData {
+  try {
+    const raw = localStorage.getItem(UNREAD_CACHE_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === 'object' ? (parsed as UnreadData) : {};
+  } catch {
+    return {};
+  }
+}
+function writeUnreadCache(data: UnreadData): void {
+  try { localStorage.setItem(UNREAD_CACHE_KEY, JSON.stringify(data)); } catch { /* storage denied: the socket still fills it */ }
+}
+
 export function useWebSocket(): UseWebSocketReturn {
   // Start as 'connected' initially — only show connecting states after a grace period
   // This prevents UI flicker on page load when the WS hasn't connected yet
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [displayStatus, setDisplayStatus] = useState<ConnectionStatus>('connected');
   const connectingGraceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [unreadData, setUnreadData] = useState<UnreadData>({});
+  // Seeded from the last value this device saw, not from `{}`: the badges on
+  // the tabs and the unread rows in the sidebar are drawn from here, and
+  // `unread:init` only arrives with the socket, 300-500 ms after the first
+  // paint. On a reload that gap was a tab trail growing 24 px and the label
+  // sliding under it (measured 2026-09-03). The socket's snapshot still wins
+  // the moment it lands; the cache only decides what the first frame shows.
+  const [unreadData, setUnreadData] = useState<UnreadData>(readUnreadCache);
   // Specchio sincrono di `unreadData`. Serve a `sendWS`, che sul ping di focus
   // deve sapere SUBITO se c'è davvero qualcosa da azzerare prima di azzerarlo
   // ottimisticamente: lo stato React lo leggerebbe un render troppo tardi, e la
   // decisione arriverebbe sempre dopo lo zero, cioè sempre sbagliata.
-  const unreadRef = useRef<UnreadData>({});
+  const unreadRef = useRef<UnreadData>(unreadData);
   /**
    * Unico punto di scrittura dell'unread: aggiorna il ref (verità sincrona) e
    * poi lo stato. Il valore passato a `setUnreadData` è già calcolato, mai una
@@ -70,6 +92,7 @@ export function useWebSocket(): UseWebSocketReturn {
     if (computed === unreadRef.current) return;
     unreadRef.current = computed;
     setUnreadData(computed);
+    writeUnreadCache(computed);
   }, []);
   const [lastConnectedAt, setLastConnectedAt] = useState<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
