@@ -557,7 +557,7 @@ export interface AppContext {
   discardIfEmptyTurn: (sessionKey: string, msg: StoredMessage | null) => string | null;
   switchActiveBranch: (sessionKey: string, parentId: string, branchIndex: number) => void;
   getSiblingMessages: (parentId: string) => StoredMessage[];
-  loadActiveThread: (sessionKey: string) => StoredMessage[];
+  loadActiveThread: (sessionKey: string, opts?: ThreadLoadOpts) => StoredMessage[];
 
   // Constants
   ALLOWED_UPLOAD_MIMES: Set<string>;

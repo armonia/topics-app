@@ -12,8 +12,8 @@
   * @covers RT-03
  */
 import { describe, expect, test } from "bun:test";
-import { estimateTokens, needsCompaction, compact, windowFor } from "./compaction";
-import type { AgentMessage } from "./agent-loop";
+import { estimateTokens, needsCompaction, compact, windowFor, clipToolResult } from "./compaction";
+import type { AgentMessage, Block } from "./agent-loop";
 
 /** Una conversazione lunga come quella di un agente che ha lavorato sul serio. */
 function longHistory(rounds: number, resultSize = 4000): AgentMessage[] {
@@ -120,6 +120,68 @@ describe("cosa sopravvive alla compattazione", () => {
     const r = compact(corta);
     expect(r.messages).toEqual(corta);
     expect(r.after).toBe(r.before);
+  });
+});
+
+/**
+ * THE 400 THAT REPEATED FOREVER. Two big reads in one round: the history is
+ * three messages, `compact` returned it untouched, the request got a 400 and
+ * the same history was sent again on every later turn of the session.
+ */
+describe("quando la coda e' il peso", () => {
+  const twoBigReads: AgentMessage[] = [
+    { role: "user", content: "leggi tutto" },
+    { role: "assistant", content: [
+      { type: "tool_use", id: "a", name: "read_file", input: { path: "a" } },
+      { type: "tool_use", id: "b", name: "read_file", input: { path: "b" } },
+    ] },
+    { role: "user", content: [
+      { type: "tool_result", tool_use_id: "a", content: "a".repeat(400_000) },
+      { type: "tool_result", tool_use_id: "b", content: "b".repeat(400_000) },
+    ] },
+  ];
+
+  test("una storia corta con risultati enormi viene alleggerita in coda, non lasciata al 400", () => {
+    expect(needsCompaction(twoBigReads, 200_000)).toBe(true);
+    const r = compact(twoBigReads, { windowTokens: 200_000 });
+    expect(r.after).toBeLessThan(r.before);
+    expect(needsCompaction(r.messages, 200_000)).toBe(false);
+    // The pairing survives, and the model is told how to read the rest.
+    const results = r.messages[2]!.content as Block[];
+    expect(results.map((b) => b.tool_use_id)).toEqual(["a", "b"]);
+    for (const b of results) expect(String(b.content)).toContain("offset/limit");
+  });
+
+  test("la richiesta iniziale resta intatta anche in questo ramo", () => {
+    const r = compact(twoBigReads, { windowTokens: 200_000 });
+    expect(r.messages[0]).toEqual(twoBigReads[0]!);
+  });
+
+  test("se alleggerire il mezzo basta, la coda non si tocca", () => {
+    const h = longHistory(40, 5000);
+    const r = compact(h, { windowTokens: 200_000 });
+    expect(r.messages.slice(-6)).toEqual(h.slice(-6));
+  });
+
+  test("il prompt di sistema e gli schemi dei tool contano nella stessa finestra", () => {
+    const h = longHistory(10, 20_000); // ~50k tokens of messages
+    expect(needsCompaction(h, 200_000)).toBe(false);
+    // With 500k chars of overhead (a mounted fleet) the same history is over.
+    expect(needsCompaction(h, 200_000, 500_000)).toBe(true);
+    expect(estimateTokens(h, 400)).toBe(estimateTokens(h) + 100);
+  });
+});
+
+describe("clipToolResult", () => {
+  test("sotto il budget torna identico", () => {
+    expect(clipToolResult("corto", 10, 5)).toBe("corto");
+  });
+  test("sopra, tiene testa e coda e dice quanto manca", () => {
+    const out = clipToolResult("H".repeat(100) + "M".repeat(1000) + "T".repeat(50), 100, 50);
+    expect(out.startsWith("H".repeat(100))).toBe(true);
+    expect(out.endsWith("T".repeat(50))).toBe(true);
+    expect(out).toContain("1000 chars omitted");
+    expect(out).not.toContain("M");
   });
 });
 

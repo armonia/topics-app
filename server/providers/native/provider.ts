@@ -44,7 +44,8 @@ import type {
 } from "../types";
 import { recordTurnEnd } from "../turn-end-registry";
 import { resolveClaudeEffort } from "../../lib/topics-agent-prompt";
-import { resolveClaudeModel } from "../../services/app-settings";
+import { resolveClaudeModel, resolveClaudeMaxTokens } from "../../services/app-settings";
+import { clampMaxTokens } from "../../lib/native-parity";
 import { cancelled, stopCauseFromSignal, type StopCause, type TurnEndInfo } from "../stop-reason";
 
 /**
@@ -415,9 +416,15 @@ export class NativeProvider implements AIProvider {
     // apposta — buttarla via sarebbe perdere proprio ciò che l'utente non ha mai
     // ottenuto. In esercizio normale l'ultimo turno è sempre dell'assistente,
     // quindi questo ramo non scatta. Fondere tiene anche l'alternanza dei ruoli.
+    // A rehydrated history can also end with the RESULTS of the last tool
+    // calls (the turn died before the model wrote its closing sentence): the
+    // new message joins them as a text block, after the results, which is the
+    // order the API wants inside a user message.
     const tail = session.history[session.history.length - 1];
     if (tail && tail.role === "user" && typeof tail.content === "string") {
       tail.content = `${tail.content}\n\n${message}`;
+    } else if (tail && tail.role === "user" && Array.isArray(tail.content)) {
+      tail.content = [...tail.content, { type: "text", text: message }];
     } else {
       session.history.push({ role: "user", content: message });
     }
@@ -540,10 +547,16 @@ export class NativeProvider implements AIProvider {
       // L'effort si rilegge a ogni turno, come l'autonomia: chi muove lo slider
       // se lo aspetta dal messaggio dopo, non dalla prossima chat.
       const turnEffort = resolveClaudeEffort(this.topicEffort(sessionKey));
+      // The output cap is read per turn as well, from the same setting the
+      // CLI runtime honours (`claude_max_tokens`, then `CLAUDE_MAX_TOKENS`).
+      // This runtime never passed one, so the loop's own default applied to
+      // every session whatever the user had set.
+      const turnMaxTokens = clampMaxTokens(resolveClaudeMaxTokens());
       const out = await runAgentTurn(
         {
           model: turnModel,
           effort: turnEffort,
+          maxTokens: turnMaxTokens,
           system: workspace
             ? options?.systemPrompt
             : [options?.systemPrompt, NO_WORKSPACE_NOTE].filter(Boolean).join("\n\n"),
