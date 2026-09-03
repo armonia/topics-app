@@ -2285,8 +2285,8 @@ export class ClaudeCodeProvider implements AIProvider {
   isTurnProcessAlive(sessionKey: string): boolean {
     const pp = this.processes.get(sessionKey);
     // Alive AND mid-turn. A fresh idle child that took the key after a kill is
-    // alive too, and answering «yes» for it kept a dead stream on «silent but
-    // its child is ALIVE — extending» for hours (2026-09-03, topic ada7e7db):
+    // alive too, and answering yes for it kept a dead stream on the extend path (silent but
+    // its child is ALIVE) for hours (2026-09-03, topic ada7e7db):
     // the route was asking about the turn, and the turn's child was gone.
     return !!pp && pp.alive && pp.streamHandler !== null;
   }
@@ -3616,11 +3616,11 @@ export class ClaudeCodeProvider implements AIProvider {
       // A process with a stream handler is NOT idle, whoever armed this timer.
       // The arming sites (turn start clears, turn end re-arms) covered the turns
       // the server sends; they did not cover a turn the CLI opens BY ITSELF
-      // (Stop hook, Monitor) that the route adopts as «woken» on the same
-      // child — no send, so no clear. On 2026-09-03 (topic ada7e7db) that
+      // (Stop hook, Monitor) that the route adopts as a woken turn on the same
+      // child: no send, so no clear. On 2026-09-03 (topic ada7e7db) that
       // adopted turn had run 43 tool calls for 15 minutes when the reaper armed
       // by the previous turn's end fired and killed it mid-work, and the chat
-      // sat on «in corso» for hours with nothing behind it. The invariant
+      // showed a running turn for hours with nothing behind it. The invariant
       // belongs where the kill happens: never reap a child that is streaming.
       if (pp.streamHandler) { this.resetInactivityTimer(key, pp, opts); return; }
       console.log(`[claude-code] Inactivity timeout for ${key}`);
