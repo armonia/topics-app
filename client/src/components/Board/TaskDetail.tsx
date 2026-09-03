@@ -35,6 +35,7 @@ import { DictationButton } from '../Shared/DictationButton';
 import { emptyThreadKey } from './emptyThread';
 import { boardApi, commentAuthorLabel, diffTotals, hasCodeQuestion, showsLandingDebt, showsDeployProposal, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, subtaskQueueChip, subtaskOpenable, reopenedChip, attemptHasWork, priorityAwaitingAgent, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef, type DiffBundle, type DiffNote, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
+import { ZoomableImage } from '../Shared/ImageLightbox';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths } from './taskMedia';
 import { TaskChoiceRow } from './TaskChoiceRow';
@@ -2937,7 +2938,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 {attachments.map((a) => (
                   <span key={a.path} className="group/att relative">
                     {a.isImage ? (
-                      <img src={getMediaUrl(a.path)} alt={a.name} title={a.name} className="h-12 w-12 rounded object-cover" />
+                      <ZoomableImage src={getMediaUrl(a.path)} alt={a.name} title={a.name} testId="task-composer-attachment-image" className="h-12 w-12 rounded object-cover" />
                     ) : (
                       <span className="flex max-w-[10rem] items-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[11px] text-app-text-heading">
                         <Paperclip className="h-3 w-3 shrink-0" /><span className="truncate">{a.name}</span>
@@ -3220,9 +3221,18 @@ export function MediaViewer({ url, path }: { url: string; path: string }) {
 }
 
 /**
- * Attachments of a thread message: images inline (click = full size), other
- * files as name chips. Served through the allowlist-gated /api/media, exactly
- * like chat message media.
+ * Attachments of a thread message: images inline, other files as name chips.
+ * Served through the allowlist-gated /api/media, exactly like chat message
+ * media.
+ *
+ * AN IMAGE OPENS THE LIGHTBOX, the same one the chat opens (card 058ea722,
+ * 03/09: "I attached to the task, and it does not show me the preview when I
+ * click on it"). It used to open a workspace TAB through `onPreview`, which
+ * needs the drawer's tab group to be mounted and reads as nothing happening
+ * when it is not, and outside the drawer fell back to the system browser. A
+ * tab is still one click away in the "Delivered files" list; a click on the
+ * picture means "let me see it", and that is what it does everywhere now.
+ * `onPreview` keeps serving the non-image chips (a PDF, a video, a log).
  */
 export function MediaStrip({ media, onPreview }: { media?: string[]; onPreview?: (path: string) => void }) {
   const tr = useT();
@@ -3238,9 +3248,7 @@ export function MediaStrip({ media, onPreview }: { media?: string[]; onPreview?:
   return (
     <div className="mt-1 flex flex-wrap gap-1.5">
       {media.map((p) => isImg(p) ? (
-        <a key={p} href={getMediaUrl(p)} target="_blank" rel="noreferrer" title={p.split('/').pop()} onClick={(e) => open(e, p)}>
-          <img src={getMediaUrl(p)} alt="" loading="lazy" className="max-h-40 max-w-full rounded-md object-contain" />
-        </a>
+        <ZoomableImage key={p} src={getMediaUrl(p)} alt={p.split('/').pop() ?? ''} title={p.split('/').pop()} testId="task-media-image" className="max-h-40 max-w-full rounded-md object-contain" />
       ) : (
         <a
           key={p} href={getMediaUrl(p)} target="_blank" rel="noreferrer" onClick={(e) => open(e, p)}

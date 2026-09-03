@@ -4,6 +4,7 @@ import { Menu } from '../Shared/Menu';
 import { useToast } from '../Shared/Toast';
 import { insertAtCaret } from '../../lib/insertAtCaret';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
+import { ZoomableImage } from '../Shared/ImageLightbox';
 import { boardApi, boardDrafts, AUTO_PROJECT_ID, STATUS_LABEL, UNASSIGNED_PROJECT_ID, type BoardProjectRef, type LinkProposal, type TaskStatus } from '../../lib/board';
 import { addBoardProject, projectNameFromId, useBoardProjects, useNewProjectDir } from '../../lib/boardProjectsStore';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
@@ -18,6 +19,7 @@ import { DictationButton } from '../Shared/DictationButton';
 import { getMediaUrl } from '../../lib/api';
 import { dragCarriesFiles, filesFromDrop, imagesFromClipboard, uploadAttachment, MAX_ATTACHMENTS, type StagedAttachment } from '../../lib/attachments';
 import { titoloDaTesto } from '../../../../shared/task-title';
+import { draftPreviewOf, type DraftPreview } from './draftPreview';
 
 /** Le due colonne in cui un task può NASCERE, nell'ordine in cui il menu le
  *  offre, ognuna con la CHIAVE della riga che dice cosa succede scegliendola.
@@ -63,7 +65,7 @@ type BirthStatus = Extract<TaskStatus, 'todo' | 'backlog'>;
  * sparire. Quando serve toglierlo di mezzo (un campo che gli si sovrappone, il
  * drawer a tutto schermo del telefono) lo si NASCONDE con `hidden`/`hiddenBelowLg`.
  */
-export function FloatingTaskComposer({ projectId, global, onCreated, onError, hidden, hiddenBelowLg }: {
+export function FloatingTaskComposer({ projectId, global, onCreated, onError, hidden, hiddenBelowLg, onDraft }: {
   projectId: string;
   /** Cross-project mode: no implicit board — the project picker chip appears. */
   global: boolean;
@@ -83,6 +85,11 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   hidden?: boolean;
   /** Nascosto solo sotto `lg`, dove il drawer del task è un overlay a tutto schermo. */
   hiddenBelowLg?: boolean;
+  /** WHAT IS ABOUT TO BE CREATED, as the board should preview it: the ghost
+   *  card in the birth column (see `draftPreview.ts`). `null` when there is
+   *  nothing to preview. Called on every change of text, attachments or birth
+   *  column, so the ghost follows the typing. */
+  onDraft?: (draft: DraftPreview | null) => void;
 }) {
   const [text, setText] = useState('');
   const [focused, setFocused] = useState(false);
@@ -284,6 +291,17 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   const target = global ? targetProject : projectId;
   const todo = birthStatus === 'todo';
 
+  // THE GHOST FOLLOWS THE TYPING. Same inputs as the create, same title cut
+  // (`draftPreviewOf` calls `titoloDaTesto`), so what the column shows while
+  // you write is what it will hold when you press Enter. It clears with the
+  // text (the create empties it) and on unmount, so no column keeps a ghost
+  // of a composer that is gone.
+  useEffect(() => {
+    if (!onDraft) return;
+    onDraft(draftPreviewOf(text, attachments, birthStatus));
+  }, [onDraft, text, attachments, birthStatus]);
+  useEffect(() => () => { onDraft?.(null); }, [onDraft]);
+
   // Interroga la board mentre scrivi, ma solo quando c'è abbastanza testo da
   // giudicare (sotto una manciata di caratteri qualunque somiglianza è un caso)
   // e solo finché non hai deciso: una scelta fatta non si ridiscute a ogni
@@ -475,7 +493,10 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
             {attachments.map((a) => (
               <span key={a.path} className="group/att relative">
                 {a.isImage ? (
-                  <img src={getMediaUrl(a.path)} alt={a.name} title={a.name} className="h-12 w-12 rounded object-cover" />
+                  // Click = the lightbox, like every other thumbnail of the
+                  // app (card 058ea722): what you are about to send can be
+                  // looked at before you send it.
+                  <ZoomableImage src={getMediaUrl(a.path)} alt={a.name} title={a.name} testId="composer-attachment-image" className="h-12 w-12 rounded object-cover" />
                 ) : (
                   <span className="flex max-w-[10rem] items-center gap-1 rounded bg-black/5 px-1.5 py-1 text-[11px] text-app-text-heading dark:bg-white/10">
                     <Paperclip className="h-3 w-3 shrink-0" /><span className="truncate">{a.name}</span>

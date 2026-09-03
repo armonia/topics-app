@@ -9,6 +9,7 @@ import { useTopicLoading } from '../../state/signals';
 import { turnLooksUnanswered } from './turnError';
 import type { Topic, ChatMessage, UpdateTopicRequest, WSMessage } from '../../types';
 import { ImageThumbnail } from '../MessageContent';
+import { ZoomableImage } from '../Shared/ImageLightbox';
 import { useTextToSpeech, useVoiceCall } from '../../hooks/useSpeech';
 import { useDictation } from '../../hooks/useDictation';
 import { useToast } from '../Shared/Toast';
@@ -1132,7 +1133,7 @@ export function ChatInput({
               <div className="px-3 pt-2.5 flex flex-wrap gap-1.5">
                 {pendingImages.map((img, index) => (
                   <div key={`img-${index}`} data-testid="composer-attachment" className="relative inline-block">
-                    <img src={img.dataUrl} alt="Pasted image" className="h-[80px] max-w-[160px] object-cover rounded-lg border border-app-border-light" />
+                    <ZoomableImage src={img.dataUrl} alt="Pasted image" className="h-[80px] max-w-[160px] object-cover rounded-lg border border-app-border-light" />
                     <button onClick={() => setPendingImages(prev => prev.filter((_, i) => i !== index))} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600">×</button>
                   </div>
                 ))}

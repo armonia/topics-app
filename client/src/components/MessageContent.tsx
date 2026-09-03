@@ -1,7 +1,6 @@
 // VoiceMessagePlayer v2 - custom player for voice messages
 import React, { createContext, useContext, useDeferredValue, useEffect, useMemo, useState, useCallback, useRef, useSyncExternalStore, memo } from 'react';
 import { useT } from '../hooks/useT';
-import { createPortal } from 'react-dom';
 import { type Components } from 'react-markdown';
 import { ChatMarkdown } from './ChatMarkdown';
 import { highlightCode, subscribeHighlighter, highlighterReady } from '../lib/syntaxHighlight';
@@ -20,8 +19,7 @@ import { SlashCommandChip } from './Chat/SlashCommandChip';
 import type { ToolCall } from '../types';
 import { LEGACY_ERROR_PREFIX, turnErrorOf } from './Chat/turnError';
 import { releaseAudio } from '../lib/releaseAudio';
-import { useModalDialog } from '../hooks/useModalDialog';
-import { MODAL_LAYER } from '../lib/modalStyles';
+import { ImageLightbox, ZoomableImage } from './Shared/ImageLightbox';
 import { hasDiffBlocks, parseMessageWithDiffs, type MessageSegment } from '../lib/diffParser';
 import { DiffBlock, type DiffBlockHandle } from './Chat/DiffBlock';
 import { parseSlashInvocation } from '../../../shared/slash-invocation';
@@ -116,108 +114,6 @@ function FileIcon({ path, size = 24 }: { path: string; size?: number }) {
   const def = getFileIconDef(getFileName(path));
   const I = def.icon;
   return <I size={size} style={{ color: def.color }} />;
-}
-
-function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
-  // Escape chiude. Non lo faceva: si usciva solo con la × o cliccando il velo —
-  // e peggio, Escape cadeva sul gestore globale e INTERROMPEVA il turno dell'AI
-  // dietro l'immagine (il lightbox non portava nessun marcatore di modale, così
-  // `hasOpenModalSurface` non lo vedeva). `role="dialog"` qui sotto lo rende
-  // visibile a quel gate.
-  const panelRef = useRef<HTMLDivElement>(null);
-  useModalDialog({ onClose, panelRef });
-  const [scale, setScale] = useState(1);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const lastTouchDist = useRef<number | null>(null);
-  const lastTouchMid = useRef<{ x: number; y: number } | null>(null);
-  const isDragging = useRef(false);
-  const lastSingleTouch = useRef<{ x: number; y: number } | null>(null);
-
-  const getTouchDist = (t: React.TouchList) =>
-    Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
-
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length === 2) {
-      lastTouchDist.current = getTouchDist(e.touches);
-      lastTouchMid.current = {
-        x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
-        y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
-      };
-    } else if (e.touches.length === 1 && scale > 1) {
-      isDragging.current = true;
-      lastSingleTouch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-    }
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    e.stopPropagation();
-    if (e.touches.length === 2 && lastTouchDist.current !== null) {
-      const newDist = getTouchDist(e.touches);
-      const ratio = newDist / lastTouchDist.current;
-      setScale(s => Math.min(Math.max(s * ratio, 1), 5));
-      lastTouchDist.current = newDist;
-    } else if (e.touches.length === 1 && isDragging.current && lastSingleTouch.current) {
-      const dx = e.touches[0].clientX - lastSingleTouch.current.x;
-      const dy = e.touches[0].clientY - lastSingleTouch.current.y;
-      setOffset(o => ({ x: o.x + dx, y: o.y + dy }));
-      lastSingleTouch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-    }
-  };
-
-  const handleTouchEnd = () => {
-    lastTouchDist.current = null;
-    lastTouchMid.current = null;
-    isDragging.current = false;
-    lastSingleTouch.current = null;
-    if (scale < 1.05) { setScale(1); setOffset({ x: 0, y: 0 }); }
-  };
-
-  const handleBackdropClick = () => {
-    if (scale > 1) { setScale(1); setOffset({ x: 0, y: 0 }); }
-    else onClose();
-  };
-
-  return createPortal(
-    <div
-      ref={panelRef}
-      role="dialog"
-      aria-modal="true"
-      aria-label={alt || 'Immagine'}
-      data-testid="image-lightbox"
-      // `MODAL_LAYER` e non `z-[9999]`: 9999 non è «sopra i popover», è lo
-      // STESSO piano (Z_POPOVER / Z_CONTEXT_MENU). A parità di z decide
-      // l'ordine nel DOM, e qui entrambi sono portal su `<body>`: il lightbox
-      // stava sopra per fortuna, non per contratto. La costante lo mette a
-      // 10000, che è dove i modali stanno per definizione.
-      className={`fixed inset-0 bg-black/90 ${MODAL_LAYER} flex items-center justify-center overflow-hidden`}
-      style={{ touchAction: 'none' }}
-      onClick={handleBackdropClick}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-    >
-      <img
-        src={src}
-        alt={alt}
-        className="max-w-full max-h-full object-contain rounded-lg select-none"
-        style={{ transform: `scale(${scale}) translate(${offset.x / scale}px, ${offset.y / scale}px)`, transformOrigin: 'center', transition: scale === 1 ? 'transform 0.2s' : 'none', cursor: scale > 1 ? 'grab' : 'zoom-in' }}
-        onClick={(e) => e.stopPropagation()}
-        draggable={false}
-      />
-      <button
-        data-testid="lightbox-close"
-        className="absolute top-4 right-4 text-white text-2xl bg-black/50 rounded-full w-10 h-10 flex items-center justify-center"
-        onClick={(e) => { e.stopPropagation(); onClose(); }}
-      >×</button>
-      {scale > 1 && (
-        <button
-          className="absolute bottom-8 left-1/2 -translate-x-1/2 text-white text-xs bg-black/50 rounded-full px-3 py-1"
-          onClick={(e) => { e.stopPropagation(); setScale(1); setOffset({ x: 0, y: 0 }); }}
-        >Reset zoom</button>
-      )}
-    </div>,
-    document.body
-  );
 }
 
 function MediaImage({ path }: { path: string }) {
@@ -1455,7 +1351,7 @@ export function ImageThumbnail({ file, onRemove }: { file: File; onRemove: () =>
 
   return (
     <div className="relative inline-block">
-      <img src={src} alt={file.name} className="w-16 h-16 object-cover rounded-lg border border-app-border-light" />
+      <ZoomableImage src={src} alt={file.name} className="w-16 h-16 object-cover rounded-lg border border-app-border-light" />
       <button onClick={onRemove} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600">×</button>
     </div>
   );
