@@ -2129,6 +2129,10 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          -- (Niente backtick nei commenti SQL: questo DDL vive in un template
          -- literal e un backtick apre un'interpolazione JS. Seconda volta oggi.)
          delivery_files_changed = 7, delivery_insertions = 120, delivery_deletions = 30,
+         -- 20260903092935: the work that sits in the worktree and not on a
+         -- commit. Same reason as the three above: a column left NULL is not
+         -- covered by the list-against-detail comparison.
+         delivery_uncommitted_files = 2,
          -- 20260816214500: da quando la card aspetta una risposta umana.
          review_at = ?,
          -- 20260818164410: esito sonda server-side sull'output_url.

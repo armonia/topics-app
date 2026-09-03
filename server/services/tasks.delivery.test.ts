@@ -842,6 +842,54 @@ describe("scheda di consegna (anteprima disegnata dal server)", () => {
     expect(disegno).not.toContain("+340");
   });
 
+  /**
+   * THE WHOLE CHAIN: dispatcher probe, column, sheet.
+   *
+   * The turn ends before the commit, the system delivers, and the sheet must
+   * say the work EXISTS. It used to print the opposite case's sentence ("no
+   * commit"), and the reviewer read "did nothing": the cure here is one line
+   * asking for a commit, there it is a re-dispatch. Measured 2026-09-01 on card
+   * 1c8fd103, two files in the worktree and zero commits.
+   */
+  test("consegna di sistema col worktree sporco: la scheda conta i file non committati", () => {
+    const s = mk();
+    const t = s.create({ projectId: PID, text: "turno finito prima del commit" });
+    db.prepare("UPDATE tasks SET status = 'in_progress', dispatch_attempts = 3 WHERE id = ?").run(t.id);
+    s.recordDelivery({
+      taskId: t.id, branch: "topics/stormy-teardrop", commit: null,
+      stat: { filesChanged: 0, insertions: 0, deletions: 0 },
+    });
+
+    s.deliverToReviewBySystem({
+      taskId: t.id, reason: "turni esauriti", cause: "retries_exhausted",
+      uncommittedFiles: 2,
+    });
+
+    // The sheet exists RIGHT AWAY: it used to be born only in the boot sweep,
+    // that is at the next restart, and this is the card that needs it most.
+    expect(preview(t.id)).toContain("task-sheets");
+    expect(readFileSync(preview(t.id)!, "utf-8")).toContain("2 file modificati");
+  });
+
+  test("il controllo: senza lavoro nel worktree la scheda dice quello che diceva prima", () => {
+    const s = mk();
+    const t = s.create({ projectId: PID, text: "turno senza niente da salvare" });
+    db.prepare("UPDATE tasks SET status = 'in_progress', dispatch_attempts = 3 WHERE id = ?").run(t.id);
+    s.recordDelivery({
+      taskId: t.id, branch: "topics/stormy-teardrop", commit: null,
+      stat: { filesChanged: 0, insertions: 0, deletions: 0 },
+    });
+
+    s.deliverToReviewBySystem({
+      taskId: t.id, reason: "turni esauriti", cause: "retries_exhausted",
+      uncommittedFiles: 0,
+    });
+
+    const disegno = readFileSync(preview(t.id)!, "utf-8");
+    expect(disegno).toContain("Il ramo non porta ancora nessun commit");
+    expect(disegno).not.toContain("file modificati");
+  });
+
   /** A DUPLICATE AUTO SHOT IS NOT EVIDENCE, AND A NOTE IS NOT A GATE: measured
    *  2026-09-01, task 1f225c0f carried byte for byte the empty-app frame of
    *  1c8fd103, noted and used anyway. A note still fits an image a PERSON

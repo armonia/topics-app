@@ -229,6 +229,13 @@ export interface Task {
   deliveryFilesChanged: number | null;
   deliveryInsertions: number | null;
   deliveryDeletions: number | null;
+  /**
+   * Files changed in the worktree and NEVER committed, counted at delivery.
+   * `null` = nobody could measure it, which is not zero: the three numbers
+   * above count commits only, so a turn that ended before committing scored
+   * zero everywhere and the card read as "nothing was produced".
+   */
+  deliveryUncommittedFiles: number | null;
   /** Landing audit verdict: is the delivered content actually on main?
    *  null = never audited (pre-audit task, or no delivery recorded). */
   landingState: "landed" | "unlanded" | "unverifiable" | null;

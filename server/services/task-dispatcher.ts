@@ -2682,10 +2682,23 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           // quando la storia e' vuota: e' l'unico caso in cui la risposta
           // cambia cosa deve fare chi legge, e su una card con un diff da
           // guardare sarebbe una domanda a git per niente.
-          const sporchi = nienteDaVedere && deps.uncommittedInWorktree
+          //
+          // ASKED ALSO WHEN A BRANCH EXISTS BUT CARRIES NOTHING: the delivery
+          // sheet draws zero files in both cases, and zero reads as "did
+          // nothing". The question costs one `git status` and it separates the
+          // two opposite decisions (one line asking for a commit against a
+          // re-dispatch). On a card that really has a diff nothing is asked:
+          // there the condition is false.
+          const senzaCommit = !t.deliveryFilesChanged;
+          const sporchi = senzaCommit && deps.uncommittedInWorktree
             ? await deps.uncommittedInWorktree(taskId).catch(() => null)
             : null;
-          const lavoroNonCommittato = sporchi && sporchi.length > 0 ? sporchi : null;
+          // THE NUMBER GOES TO THE CARD, THE SENTENCE STAYS AS IT WAS. The chip
+          // already speaks about the git side and it now carries the count, so
+          // the widened probe must not widen the NOTE too: saying it a second
+          // time in the thread would be the same fact as noise. The wording
+          // keeps the condition it always had.
+          const lavoroNonCommittato = nienteDaVedere && sporchi && sporchi.length > 0 ? sporchi : null;
           // IL PERCHE' E' DI CHI CHIUDE IL TURNO, IL DOVE NO. Qui si sa perché il
           // turno è finito; NON si sa dove finirà la card, perché
           // `deliverToReviewBySystem` ha due guardie che possono mandarla in
@@ -2732,6 +2745,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
               // rifiutato" no — riproverebbe a rifiutarsi. Il reviewer decide
               // diversamente nei due casi, quindi la card deve dirglielo.
               cause: needsHuman(end) ? "model_refused" : "retries_exhausted",
+              // The number the delivery sheet never had: `[]` measured clean
+              // is zero, "not measurable" stays null, and the sheet says two
+              // different sentences instead of passing one off as the other.
+              uncommittedFiles: sporchi ? sporchi.length : null,
             });
             emit(delivered);
             // System-delivery bypasses the route PATCH, so the review-edge

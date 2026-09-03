@@ -221,6 +221,11 @@ const DELIVERY_SNAPSHOT_COLUMNS = [
   "delivery_files_changed",
   "delivery_insertions",
   "delivery_deletions",
+  // The work that exists WITHOUT a commit, counted at delivery time. It is part
+  // of the snapshot for the same reason as the diffstat: sent back to the queue
+  // the card starts a new turn, and the old count would describe a worktree the
+  // next turn is free to change.
+  "delivery_uncommitted_files",
   "checks_state",
   "checks_json",
   "checks_commit",
@@ -449,6 +454,13 @@ export interface TaskService {
      * scrive chi sa dov'è atterrata — e non resta nel thread una promessa falsa.
      */
     nextMove?: string;
+    /**
+     * How many files the worktree changed WITHOUT committing them, counted now.
+     * `undefined`/`null` = nobody could measure it, which the sheet reads
+     * differently from zero: zero is "there is nothing to save", null is "I do
+     * not know". The caller (the dispatcher) already owns the probe.
+     */
+    uncommittedFiles?: number | null;
   }): Task;
   /**
    * Alza la DOMANDA dello stallo: il task va in review con chip `needs_input` e
@@ -995,6 +1007,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         delivery_files_changed?: number | null;
         delivery_insertions?: number | null;
         delivery_deletions?: number | null;
+        delivery_uncommitted_files?: number | null;
       } | undefined;
       if (!row || row.status !== "review") return;
       const attuale = (row.preview_image ?? "").trim();
@@ -1012,6 +1025,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         filesChanged: row.delivery_files_changed ?? null,
         insertions: row.delivery_insertions ?? null,
         deletions: row.delivery_deletions ?? null,
+        // The work that is NOT on a commit: without this number the sheet has
+        // one sentence for two opposite situations (nothing to hand over, and a
+        // delivery left behind in the worktree), and the reviewer picks blind.
+        uncommittedFiles: row.delivery_uncommitted_files ?? null,
         subtasksTotal: figli.length,
         subtasksDone: figli.filter((f) => f.status === "done").length,
         labels,
@@ -2273,6 +2290,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       deliveryFilesChanged: r.delivery_files_changed ?? null,
       deliveryInsertions: r.delivery_insertions ?? null,
       deliveryDeletions: r.delivery_deletions ?? null,
+      // The work that is NOT on a commit: it is what turns the chip's "nothing
+      // committed" into "nothing committed, and N files are waiting there".
+      deliveryUncommittedFiles: r.delivery_uncommitted_files ?? null,
       landingState: r.landing_state ?? null,
       deployState: (r.deploy_state as Task["deployState"]) ?? null,
       ...(r.deploy_command_at_propose ? { deployCommandAtPropose: r.deploy_command_at_propose } : {}),
@@ -4341,7 +4361,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    deliverToReviewBySystem({ taskId, reason, cause, nextMove }): Task {
+    deliverToReviewBySystem({ taskId, reason, cause, nextMove, uncommittedFiles }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       const ts = now();
@@ -4476,10 +4496,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // stesso avvertimento: questa porta non passa da `update()`, quindi
         // senza la riga qui la card arriverebbe in review senza sapere da
         // quando ci sta - e la colonna direbbe «ora» per sempre.
+        // `delivery_uncommitted_files` travels WITH the transition, not after
+        // it: the sheet is drawn a few lines below, and a number written an
+        // instant later would be a number that first drawing never saw.
         "UPDATE tasks SET status = 'review', dispatch_state = 'needs_input', dispatch_error = NULL, " +
           "wait_streak = 0, wait_reason = NULL, wait_since = NULL, review_at = ?, " +
+          "delivery_uncommitted_files = ?, " +
           "delivered_by = 'system', delivered_reason = ?, updated_at = ? WHERE id = ?",
-      ).run(ts, cause ?? null, ts, taskId);
+      ).run(ts, typeof uncommittedFiles === "number" ? uncommittedFiles : null, cause ?? null, ts, taskId);
       if (row.status !== "review") logStatus(taskId, row.status, "review", "dispatcher");
       markReopened(taskId, row.status, "review", "system", "dispatcher");
       // Open the pending review approval so the review decision flow works, just
@@ -4490,6 +4514,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
            VALUES (?, ?, 'dispatcher', 'review', ?, 'done', 'pending', ?)`,
         ).run(uuid(), taskId, row.status, ts);
       } catch { /* an existing pending approval is fine */ }
+      // THE PREVIEW HERE TOO. In `update()` the edge into review calls it
+      // (`patch.status === "review"`); this door did not, so a card delivered by
+      // the system stayed without a sheet until the server's BOOT sweep, that is
+      // until the next restart. And it is exactly the card that needs one most,
+      // because its agent never got the time to tell the story.
+      promoteReviewPreview(taskId);
       return rowToTask(getTaskRow(taskId));
     },
 

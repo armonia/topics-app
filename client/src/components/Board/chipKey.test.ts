@@ -5,7 +5,7 @@
  * @covers KANBAN-07
  */
 import { describe, expect, test } from 'bun:test';
-import { chipKey, taskHasWork } from './chipKey';
+import { chipKey, taskHasWork, uncommittedChipCount } from './chipKey';
 import { DISPATCH_CHIP } from './constants';
 
 describe('chip di una consegna', () => {
@@ -50,6 +50,25 @@ describe('una card senza niente dietro', () => {
     expect(taskHasWork({ deliveryFilesChanged: 3 })).toBe(true);
     expect(taskHasWork({ deliveryFilesChanged: 0 })).toBe(false);
     expect(taskHasWork({})).toBe(false);
+  });
+
+  /**
+   * THE NUMBER GOES IN THE CHIP, not in one more comment. "Branch with no
+   * commit" says what is MISSING and stays silent on what is there: the same
+   * words over a card that produced nothing and over one holding two finished
+   * files in its worktree, which are the two opposite decisions.
+   */
+  test('il chip del ramo senza commit porta QUANTI file aspettano', () => {
+    expect(uncommittedChipCount(2, true)).toBe(2);
+    // A measured zero: nothing to save, so the chip keeps its old sentence.
+    expect(uncommittedChipCount(0, true)).toBe(0);
+    // NOT MEASURED IS NOT ZERO, but in the chip it reads the same: no number
+    // gets invented, it just says what it has always said.
+    expect(uncommittedChipCount(null, true)).toBe(0);
+    expect(uncommittedChipCount(undefined, true)).toBe(0);
+    // And outside the "branch with no commit" case the number is not shown at
+    // all: on a measured delivery it would describe a worktree that is not it.
+    expect(uncommittedChipCount(9, false)).toBe(0);
   });
 
   test('anche questa chiave esiste davvero, o la card resta MUTA', () => {

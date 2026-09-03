@@ -127,6 +127,14 @@
         // suo test.
         "scripts/fd-leak-probe.ts!",
         "scripts/effort-variance.ts!",
+        // Le due migrazioni una tantum sul DB della board, entrambe in sola
+        // lettura finche' non ricevono `--apply`: `bun run
+        // scripts/migrate-uuid-board-ids.ts [<file>.db] [--apply]` sposta i
+        // task nati sotto l'UUID del progetto sulla board vera, e `bun run
+        // scripts/canonicalizza-progetti.ts [--apply]` fonde i progetti
+        // sdoppiati da un symlink. Si lanciano a mano, non le importa nessuno.
+        "scripts/migrate-uuid-board-ids.ts!",
+        "scripts/canonicalizza-progetti.ts!",
         // La rimisura del cancello sui rapporti di consegna: `bun run
         // scripts/delivery-claims-audit.ts [--db <file>] [--code <codice>]
         // [--list] [--json]`. Sola lettura sul DB della board e su git, si

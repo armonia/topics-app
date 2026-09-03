@@ -96,6 +96,53 @@ describe("renderDeliverySheet", () => {
   });
 
   /**
+   * "NOTHING DONE" AND "DONE AND NOT COMMITTED" ARE TWO DIFFERENT CARDS, and
+   * the sheet had one sentence for both. The number was not wrong, it was
+   * INCOMPLETE: it counted commits, and a reader takes that for "produced
+   * nothing". The cure differs in the two cases - one line asking for a commit
+   * against a re-dispatch - so hiding the difference hides the decision.
+   * Measured 2026-09-01 on card 1c8fd103: two files changed in the worktree,
+   * zero commits, sheet at zero.
+   */
+  test("lavoro non committato: la scheda conta i file, non dice «niente»", () => {
+    const sporca = renderDeliverySheet({
+      ...base,
+      branch: "topics/stormy-teardrop",
+      filesChanged: 0,
+      uncommittedFiles: 2,
+      summary: "Ho spostato le tab da depth 2 a depth 1.",
+    });
+    expect(sporca).toContain("2 file modificati");
+    expect(sporca).toContain("mai committati");
+    // AND NOT the other case's sentence: the two exclude each other, or the
+    // distinction would just be one more line to read.
+    expect(sporca).not.toContain("Il ramo non porta ancora nessun commit");
+
+    // THE CONTROL, without which the case above would pass with the
+    // distinction switched off too: a clean worktree means the sheet says what
+    // it has always said, and names no file at all.
+    const pulita = renderDeliverySheet({
+      ...base,
+      branch: "topics/stormy-teardrop",
+      filesChanged: 0,
+      uncommittedFiles: 0,
+      summary: "Ho spostato le tab da depth 2 a depth 1.",
+    });
+    expect(pulita).toContain("Il ramo non porta ancora nessun commit");
+    expect(pulita).not.toContain("file modificati");
+
+    // NOT MEASURED IS NOT CLEAN: with no probe the sheet does not invent a
+    // zero, it falls back to the previous sentence.
+    const ignota = renderDeliverySheet({
+      ...base,
+      branch: "topics/stormy-teardrop",
+      filesChanged: 0,
+      uncommittedFiles: null,
+    });
+    expect(ignota).toContain("Il ramo non porta ancora nessun commit");
+  });
+
+  /**
    * IL RAMO SENZA RAMO non dichiara piu' un'assenza: prova a dire cosa e' stato
    * fatto. «Nessun codice consegnato. La consegna sta nel thread della card»
    * occupava il 60% della scheda per dire che l'informazione era altrove —

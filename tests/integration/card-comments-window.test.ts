@@ -50,6 +50,10 @@ function estrai(nome: string): string {
 
 const SQL_PAROLA = estrai("SQL_PAROLA");
 const SQL_MIA = estrai("SQL_MIA");
+// The window grew a third exception (the DECLARED delivery) and this fixture
+// did not: the WHERE read from the source names a column this query never
+// selected, so it threw "no such column" and three cases went red while the
+// window itself had not changed at all.
 const SQL_IS_DELIVERY = estrai("SQL_IS_DELIVERY");
 
 /** La `WHERE` della finestra, letta dal sorgente. */

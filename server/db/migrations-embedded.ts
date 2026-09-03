@@ -142,6 +142,7 @@ import m20260828094441_spesa_agenti_in_centesimi from "./migrations/202608280944
 import m20260828094444_tetti_di_spesa_spenti from "./migrations/20260828094444-tetti-di-spesa-spenti.sql" with { type: "text" };
 import m20260829173000_notifiche_il_cui_soggetto_e_andato_avanti from "./migrations/20260829173000-notifiche-il-cui-soggetto-e-andato-avanti.sql" with { type: "text" };
 import m20260830225759_amicizie from "./migrations/20260830225759-amicizie.sql" with { type: "text" };
+import m20260903092935_delivery_uncommitted_files from "./migrations/20260903092935-delivery-uncommitted-files.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -288,4 +289,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260828094444, name: "20260828094444-tetti-di-spesa-spenti.sql", sql: m20260828094444_tetti_di_spesa_spenti },
   { version: 20260829173000, name: "20260829173000-notifiche-il-cui-soggetto-e-andato-avanti.sql", sql: m20260829173000_notifiche_il_cui_soggetto_e_andato_avanti },
   { version: 20260830225759, name: "20260830225759-amicizie.sql", sql: m20260830225759_amicizie },
+  { version: 20260903092935, name: "20260903092935-delivery-uncommitted-files.sql", sql: m20260903092935_delivery_uncommitted_files },
 ];
