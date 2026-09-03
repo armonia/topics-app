@@ -20,15 +20,24 @@ import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 
 // ── Persisted cache (localStorage) ──────────────────────────────────────
 //
-// INVARIANT — 'none' is NEVER persisted to localStorage, only kept in memory
+// INVARIANT — an UNVERIFIED 'none' is never persisted, only kept in memory
 // for the current page lifetime. Four cache-key bumps (v1→v4) were spent
 // flushing 'none' entries latched by transient failures (server restarts,
-// allowlist warm-up 403s, dev-bundle reload storms): any code path that
-// writes 'none' to disk eventually poisons the cache for the whole TTL and
-// real icons vanish. Persisting only 'has' makes that class of bug
-// impossible. Entries with s:'none' still found under the key (written by
-// older bundles) are dropped — and the purge is persisted immediately, so a
-// concurrent window still running an old bundle can't re-read the poison.
+// allowlist warm-up 403s, dev-bundle reload storms): a transient written to
+// disk poisons the cache for the whole TTL and real icons vanish.
+//
+// A VERIFIED 'none' — the server itself answered 204 («no icon») or 404 («no
+// such directory») — IS persisted, since 2026-09-03, and the reason is a
+// layout shift. Without it every reload re-probed every project without an
+// icon: the tile reserved the 18 px slot while probing and dropped it when the
+// answer came back, so the names of six pinned tiles slid 22 px to the left
+// about a second after the first paint, on every single refresh. Persisted, the
+// answer is already known at the first render (`getSnapshot`) and nothing
+// moves. Expiry does not reopen the slot either: a stale verified 'none' keeps
+// drawing as 'none' while `ensureProbe` re-asks in the background, and only
+// a real icon flips it (see the silent re-probe there). Entries with an
+// unverified 'none' still found under the key (written by an older bundle)
+// are dropped, and the purge is persisted immediately.
 const CACHE_KEY = 'topics-project-icon-cache-v4';
 // A VERIFIED 'none' (a fetch confirmed a real 204/404) holds for hours; an
 // UNVERIFIED one (transport error without confirmation) only briefly, enough
@@ -43,19 +52,24 @@ function cache(): Record<string, CacheEntry> {
   if (memCache) return memCache;
   try { memCache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); }
   catch { memCache = {}; }
-  let hadNone = false;
+  let hadUnverifiedNone = false;
   for (const k of Object.keys(memCache!)) {
-    if (memCache![k].s === 'none') { delete memCache![k]; hadNone = true; }
+    if (memCache![k].s === 'none' && memCache![k].v !== true) { delete memCache![k]; hadUnverifiedNone = true; }
   }
-  if (hadNone) persist();
+  if (hadUnverifiedNone) persist();
   return memCache!;
 }
+/** Is this entry allowed on disk? 'has' always; 'none' only when the server
+ *  itself said so (see the invariant above). */
+function keepOnDisk(e: CacheEntry): boolean {
+  return e.s === 'has' || e.v === true;
+}
 function persist(): void {
-  const hasOnly: Record<string, CacheEntry> = {};
+  const onDisk: Record<string, CacheEntry> = {};
   for (const [k, e] of Object.entries(memCache ?? {})) {
-    if (e.s === 'has') hasOnly[k] = e;
+    if (keepOnDisk(e)) onDisk[k] = e;
   }
-  try { localStorage.setItem(CACHE_KEY, JSON.stringify(hasOnly)); } catch {}
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(onDisk)); } catch {}
 }
 function cachedStatus(path: string): IconStatus | 'unknown' {
   const e = cache()[path];
@@ -79,6 +93,9 @@ type Resolved =
   | { s: 'has'; src: string }
   | { s: 'none' };
 const PROBING: Resolved = { s: 'probing' };
+/** One object for every 'none', so a re-probe that lands on the same answer
+ *  hands `useSyncExternalStore` the same snapshot and nobody re-renders. */
+const NONE: Resolved = { s: 'none' };
 /** How long an <img> probe may stay silent before the fetch lane settles the path. */
 const PROBE_DEADLINE_MS = 4000;
 
@@ -140,6 +157,12 @@ function getSnapshot(path: string): Resolved {
     state.set(path, known);
     return known;
   }
+  // A verified 'none' on disk is an answer too, and it stays the answer past
+  // its TTL: the first frame draws no slot, `ensureProbe` re-asks quietly.
+  if (cache()[path]?.s === 'none' && cache()[path]?.v === true) {
+    state.set(path, NONE);
+    return NONE;
+  }
   return PROBING;
 }
 
@@ -159,7 +182,7 @@ function settleViaFetch(path: string): void {
       // riprova continua per ogni progetto senza icona.
       if (r.status === 204) {
         remember(path, 'none', true);
-        setResolved(path, { s: 'none' });
+        setResolved(path, NONE);
       } else if (r.ok) {
         const src = URL.createObjectURL(await r.blob());
         remember(path, 'has');
@@ -167,16 +190,16 @@ function settleViaFetch(path: string): void {
       } else if (r.status === 404) {
         // La directory non esiste più (progetto spostato/cancellato).
         remember(path, 'none', true);
-        setResolved(path, { s: 'none' });
+        setResolved(path, NONE);
       } else {
         // 403 during allowlist warm-up / restart — transient, short TTL.
         remember(path, 'none', false);
-        setResolved(path, { s: 'none' });
+        setResolved(path, NONE);
       }
     })
     .catch(() => {
       remember(path, 'none', false);
-      setResolved(path, { s: 'none' });
+      setResolved(path, NONE);
     })
     .finally(() => { inflight.delete(path); });
 }
@@ -195,7 +218,11 @@ function ensureProbe(path: string): void {
     return;
   }
   inflight.add(path);
-  if (!cur || cur.s !== 'probing') setResolved(path, PROBING);
+  // SILENT when re-asking past a verified 'none': the surfaces keep drawing
+  // «no icon» and only a real icon changes anything. Announcing 'probing' here
+  // would reopen the 18 px slot every 12 hours for the sake of a question
+  // whose answer is almost always the same.
+  if (!cur || (cur.s !== 'probing' && cur.s !== 'none')) setResolved(path, PROBING);
   // Probe with a detached Image(): the natural, cache-friendly path. On error
   // fall through to fetch, which distinguishes "no icon" (204 — un'immagine
   // vuota fa comunque scattare onerror) da un trasporto immagini rotto
@@ -235,7 +262,7 @@ export function reportImgError(path: string, failedSrc: string): void {
   if (cur?.s !== 'has' || cur.src !== failedSrc) return; // stale report
   if (failedSrc.startsWith('blob:')) {
     remember(path, 'none', false);
-    setResolved(path, { s: 'none' });
+    setResolved(path, NONE);
     return;
   }
   if (inflight.has(path)) return;

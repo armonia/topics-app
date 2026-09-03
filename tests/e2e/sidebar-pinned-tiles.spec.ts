@@ -2500,6 +2500,56 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     expect(stati.length, `il titolo non deve cambiare stato: visti ${JSON.stringify(stati)}`).toBe(1);
     expect(stati[0], "e lo stato e' 'nascosto', perche' la tessera e' stretta").toBe("none");
   });
+
+  test("TILE-33: al ricarico il nome di una tessera SENZA icona non si sposta", async ({ page, request }) => {
+    // The mirror of TILE-27. A project with no favicon used to be re-probed on
+    // EVERY reload: the tile reserved the 18 px slot while asking, dropped it
+    // when the server said 204, and the name slid 22 px to the left about a
+    // second after the first paint — on six tiles at once, measured
+    // 2026-09-03 on the desktop's own state. The first visit is where the
+    // store learns the answer; the measure is the return.
+    const senzaIcona = "/tmp/e2e-tile-senza-icona";
+    fs.mkdirSync(senzaIcona, { recursive: true });
+    const proj = await createTopic(request, `E2E-Fermo-Proj-${Date.now()}`, { projectPath: senzaIcona });
+    created.push(proj.id);
+    const chiaveProj = `project:${senzaIcona}`;
+    const riempitivi: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      const t = await createTopic(request, `E2E-Fermo-${i}-${Date.now()}`);
+      created.push(t.id);
+      riempitivi.push(t.id);
+    }
+    const tutte = [chiaveProj, ...riempitivi];
+    await setPins(page, tutte, [tutte]);
+
+    await gotoSidebar(page);
+    await expect(tileNamed(page, "e2e-tile-senza-icona")).toBeVisible({ timeout: 15000 });
+    // Enough for the probe to be answered and remembered before the return.
+    await page.waitForTimeout(1500);
+
+    await page.addInitScript(() => {
+      const visti = new Set<number>();
+      (window as unknown as { __xNome: Set<number> }).__xNome = visti;
+      const giro = () => {
+        const tessera = document.querySelector('[data-pinned-tile^="project:"]');
+        const nome = tessera?.querySelector('[data-testid="pinned-tile-name"]');
+        if (nome) {
+          const r = nome.getBoundingClientRect();
+          if (r.width > 0) visti.add(Math.round(r.x));
+        }
+        requestAnimationFrame(giro);
+      };
+      requestAnimationFrame(giro);
+    });
+
+    await gotoSidebar(page);
+    await expect(tileNamed(page, "e2e-tile-senza-icona")).toBeVisible({ timeout: 15000 });
+    await page.waitForTimeout(2500);
+
+    const posizioni = await page.evaluate(() =>
+      [...(window as unknown as { __xNome: Set<number> }).__xNome]);
+    expect(posizioni.length, `il nome deve stare fermo: visto a x=${JSON.stringify(posizioni)}`).toBe(1);
+  });
 });
 
 test.describe("Sidebar — avanti e indietro fra lista e fissati", () => {
