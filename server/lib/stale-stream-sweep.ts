@@ -73,6 +73,14 @@ export interface StaleStreamSweepDeps {
   cancelAsk: (sessionKey: string, reason: string) => void;
   updateStreamActivity: (sessionKey: string) => void;
   getTopicId: (sessionKey: string) => string | undefined;
+  /**
+   * Stop the provider's turn, through the same door `handleGraceExpiry` and
+   * `handleHardTimeout` use (`provider.abort(sk, undefined, "watchdog")`).
+   * Finalizing the ROW without aborting the LOOP is how a native turn kept
+   * running as a zombie after the user was told it was over: still spending
+   * tokens, still running tools, writing its blocks onto the next turn's row.
+   */
+  abortProvider: (sessionKey: string) => void;
   endStream: (sessionKey: string) => InterruptedTool[];
   broadcast: (msg: Record<string, unknown>) => void;
   /** `marker` non nullo = il turno non aveva prosa e va spiegato all'utente. */
@@ -330,6 +338,15 @@ export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, Sweep
     deps.rescued.delete(sessionKey);
     deps.silence.delete(sessionKey);
     const topicId = deps.getTopicId(sessionKey);
+    // THE LOOP FIRST, THEN THE ROW. A native turn runs INSIDE this process:
+    // nothing below reaches it. `endStream`, the marker, `recordTurnEnd` and
+    // the SSE abort all describe the turn as over while the agent loop keeps
+    // going, and a loop nobody watches is the worst kind of alive (measured on
+    // 2026-08-27 and 2026-08-29: tool blocks of a "closed" turn landing on the
+    // next turn's row). Before the SSE controller, for the same reason
+    // `/api/chat/abort` gives: once the route's state machine is latched the
+    // provider's own `onAborted` finds a `finalizeStream` already shut.
+    try { deps.abortProvider(sessionKey); } catch (err) { deps.warn(`[StaleStream] provider abort failed for ${sessionKey}: ${String(err)}`); }
     // Finalize any tool call left 'running'. Previously the sweeper did a bare
     // `activeStreams.delete`, bypassing endStream — so a hung tool kept its
     // spinner ticking forever (observed: a tool "running" for 2h+ at session

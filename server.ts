@@ -122,6 +122,7 @@ import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider, resolveTurnAlive, resolveSessionOwner, childAliveForSweep } from "./server/providers";
 import { aiBridgeEnabled, ClaudeCodeProvider } from "./server/providers/claude-code";
 import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers/stop-reason";
+import type { AbortReason } from "./server/providers/types";
 import { recordTurnEnd, takeTurnEnd } from "./server/providers/turn-end-registry";
 import { readNativeUsage } from "./server/providers/native-usage-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
@@ -4211,6 +4212,17 @@ const staleStreamTimer = setInterval(() => {
     cancelAsk,
     updateStreamActivity: (sk) => ctx.updateStreamActivity(sk),
     getTopicId: (sk) => ctx.getTopicBySessionKey(sk)?.id,
+    // The same door as the two watchdogs in routes/chat.ts, and to the OWNER
+    // of the session: for a native turn `abort` is the only thing that reaches
+    // the loop running inside this process.
+    abortProvider: (sk) => {
+      const owner = resolveSessionOwner(sk) as
+        | { abort?: (sk: string, runId: string | undefined, reason: AbortReason) => Promise<void>; unregisterStreamHandler?: (sk: string) => void }
+        | null;
+      owner?.abort?.(sk, undefined, "watchdog")
+        ?.catch((err) => console.warn(`[StaleStream] provider abort failed for ${sk}:`, err));
+      owner?.unregisterStreamHandler?.(sk);
+    },
     endStream: (sk) => ctx.endStream(sk),
     broadcast: (msg) => broadcastToAll(msg as Parameters<typeof broadcastToAll>[0]),
     finalizeMessage: ({ messageId, marker }) => {

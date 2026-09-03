@@ -31,6 +31,9 @@ interface Harness {
   rows: Map<string, { content: string; partial: boolean }>;
   warnings: string[];
   aborted: string[];
+  /** Who was told to stop the provider's turn, and in what order with `endStream`. */
+  providerAborts: string[];
+  order: string[];
   resyncs: string[];
   turnsEnded: string[];
   stream: SweepableStream;
@@ -81,6 +84,8 @@ function harness(opts?: {
   ]);
   const warnings: string[] = [];
   const aborted: string[] = [];
+  const providerAborts: string[] = [];
+  const order: string[] = [];
   const resyncs: string[] = [];
   const turnsEnded: string[] = [];
   const stream: SweepableStream = {
@@ -116,9 +121,10 @@ function harness(opts?: {
       if (s) s.lastActivity = new Date(clock.t + 1).toISOString();
     },
     getTopicId: () => "topic-1",
+    abortProvider: (sk) => { providerAborts.push(sk); order.push("abortProvider"); },
     // Come il vero `ctx.endStream`: chiude i tool rimasti 'running' E toglie la
     // voce dalla mappa. È lui il proprietario della cancellazione, non il giro.
-    endStream: (sk) => { activeStreams.delete(sk); return []; },
+    endStream: (sk) => { order.push("endStream"); activeStreams.delete(sk); return []; },
     broadcast: () => {},
     finalizeMessage: ({ messageId, marker }) => {
       const row = rows.get(messageId);
@@ -130,7 +136,7 @@ function harness(opts?: {
     warn: (m) => warnings.push(m),
     info: (m) => warnings.push(m),
   };
-  return { deps, clock, rows, warnings, aborted, resyncs, turnsEnded, stream };
+  return { deps, clock, rows, warnings, aborted, providerAborts, order, resyncs, turnsEnded, stream };
 }
 
 describe("un figlio VIVO non viene chiuso dall'orologio", () => {
@@ -326,6 +332,65 @@ describe("alive is not enough: it must also be doing something", () => {
       sweepStaleStreams(h.deps);
       h.clock.t += 4 * MIN;
     }
+    expect(h.rows.get(MSG)?.partial).toBe(false);
+    expect(h.turnsEnded).toEqual([SK]);
+  });
+});
+
+/**
+ * FINALIZING THE ROW IS NOT STOPPING THE TURN.
+ *
+ * Everything the finalize branch did (`endStream`, the marker, `recordTurnEnd`,
+ * the SSE abort) describes the turn as over. None of it reaches the agent
+ * loop of a native turn, which runs INSIDE the server process: on 2026-08-27
+ * and 2026-08-29 a turn the user had been told was closed kept spending
+ * tokens and running tools, and its blocks landed on the next turn's row. The
+ * two watchdogs of `routes/chat.ts` abort the provider on their way out; the
+ * sweeper did not.
+ */
+describe("the sweeper stops the provider's turn, not only the row", () => {
+  test("dead child: the provider is aborted, before the row is closed", () => {
+    const h = harness({ alive: false, silentMs: 7 * MIN });
+    expect(sweepStaleStreams(h.deps).get(SK)).toBe("finalized");
+    expect(h.providerAborts).toEqual([SK]);
+    // The loop first, then the row: the same order `/api/chat/abort` keeps, so
+    // the provider's own `onAborted` still finds the route's state machine open.
+    expect(h.order).toEqual(["abortProvider", "endStream"]);
+  });
+
+  test("hung tool: the provider is aborted", () => {
+    const h = harness({ alive: true, silentMs: 7 * MIN, toolRunning: true, toolRunningForMs: 210 * MIN });
+    expect(sweepStaleStreams(h.deps).get(SK)).toBe("finalized");
+    expect(h.providerAborts).toEqual([SK]);
+  });
+
+  test("frozen (alive, nothing in flight, past the cap): the provider is aborted", () => {
+    const h = harness({ alive: true, silentMs: 4 * MIN, toolRunning: false });
+    let outcome: string | undefined;
+    for (let i = 0; i < 20 && outcome !== "finalized"; i++) {
+      outcome = sweepStaleStreams(h.deps).get(SK);
+      h.clock.t += 4 * MIN;
+    }
+    expect(outcome).toBe("finalized");
+    expect(h.providerAborts).toEqual([SK]);
+  });
+
+  test("rescue, extend and held never touch the provider", () => {
+    const rescued = harness({ alive: true, silentMs: 7 * MIN, toolRunning: true });
+    expect(sweepStaleStreams(rescued.deps).get(SK)).toBe("rescued");
+    rescued.clock.t += 4 * MIN;
+    expect(sweepStaleStreams(rescued.deps).get(SK)).toBe("extended");
+    expect(rescued.providerAborts).toEqual([]);
+
+    const held = harness({ alive: true, silentMs: 20 * MIN, humanHoldAgeMs: 5 * MIN });
+    expect(sweepStaleStreams(held.deps).get(SK)).toBe("held");
+    expect(held.providerAborts).toEqual([]);
+  });
+
+  test("a provider abort that throws does not stop the finalize", () => {
+    const h = harness({ alive: false, silentMs: 7 * MIN });
+    h.deps.abortProvider = () => { throw new Error("no owner"); };
+    expect(sweepStaleStreams(h.deps).get(SK)).toBe("finalized");
     expect(h.rows.get(MSG)?.partial).toBe(false);
     expect(h.turnsEnded).toEqual([SK]);
   });
