@@ -292,6 +292,37 @@ export interface ActiveStream {
    * from the first.
    */
   survivesRestart: boolean;
+  /**
+   * WHY NOTHING MOVES, for whoever connects mid-turn.
+   *
+   * `stream:retry` and `stream:slow` are broadcast once, when the wait starts.
+   * A client that attaches AFTER that instant (topic reopened, tab switched
+   * back, WS reconnect after a server hot-reload) only gets `stream:catchup`,
+   * which used to carry the text and nothing about the wait: a 30 s backoff
+   * read as a hung chat, which is exactly what those two frames exist to
+   * prevent. So the wait is kept HERE, on the registry entry the catchup is
+   * built from, and cleared where `stream:resumed` is broadcast.
+   *
+   * `retry` = the provider's API call failed transiently and it is waiting to
+   * try again (native runtime only; `at` is epoch ms, so a client can compute
+   * how much of `delayMs` is left). `slow` = the soft inactivity timeout fired
+   * and the grace window is running. Both absent = the turn is flowing.
+   */
+  retry?: StreamRetryInfo;
+  slow?: boolean;
+}
+
+/** The wait announced by `StreamHandler.onRetry`, plus WHEN it was announced. */
+export interface StreamRetryInfo {
+  /** The attempt that just failed, 1-based. */
+  attempt: number;
+  maxAttempts: number;
+  /** Wait before the next attempt, in milliseconds. */
+  delayMs: number;
+  /** Short cause, e.g. `API 529`, `stream overloaded_error`, `network`. */
+  reason: string;
+  /** Epoch ms at which the wait started. */
+  at: number;
 }
 
 export interface ErrorResponseOptions {

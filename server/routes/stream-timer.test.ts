@@ -69,6 +69,12 @@ const STREAM_SLOW_ANNOTATION =
 
 interface Harness {
   state: "streaming" | "soft-timed-out" | "finalized";
+  /**
+   * Mirror of `ActiveStream.slow` on the registry entry: what a client that
+   * attaches mid-wait reads from `stream:catchup`. Set by the soft timeout,
+   * cleared by recovery, and never left behind on a flowing turn.
+   */
+  slow?: boolean;
   fullContent: string;
   trackedToolCallIds: string[];
   /** Mirror of `executingToolCallIds`: tools that REALLY started. */
@@ -133,6 +139,7 @@ function build(signalsExecStart = false) {
     softTimer = setTimeout(() => {
       if (h.state !== "streaming") return;
       h.state = "soft-timed-out";
+      h.slow = true;
       // NON tocca `fullContent`: dal 30/07 la lentezza e' un EVENTO
       // (`stream:slow`, reso da TurnActivityIndicator), non testo appeso al
       // messaggio. Vedi il commento su STREAM_SLOW_ANNOTATION sopra.
@@ -145,6 +152,7 @@ function build(signalsExecStart = false) {
     if (h.state !== "soft-timed-out") return;
     if (graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
     h.state = "streaming";
+    delete h.slow;
     h.fullContent = stripSlow(h.fullContent);
     h.events.push("recovered");
   };
@@ -311,12 +319,15 @@ describe("stream timer state machine", () => {
       expect(h.state).toBe("soft-timed-out");
       // Il soft timeout cambia STATO e annuncia, e basta: il messaggio resta
       // quello che era.
+      // The wait stays on the registry entry, for whoever attaches now.
       expect(h.fullContent).toBe("");
+      expect(h.slow).toBe(true);
       // Half-grace, provider sneezes back to life.
       advance(30_000);
       onEvent();
       expect(h.state).toBe("streaming");
       expect(h.fullContent).toBe("");
+      expect(h.slow).toBeUndefined();
       expect(h.events).toContain("recovered");
     });
   });

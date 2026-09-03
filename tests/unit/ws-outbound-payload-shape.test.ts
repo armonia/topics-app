@@ -54,6 +54,24 @@ const REAL_PAYLOADS: { where: string; payload: Record<string, unknown> }[] = [
     where: "chat.ts — lo stream riprende",
     payload: { type: "stream:resumed", sessionKey: "topic:abc", topicId: "abc" },
   },
+  {
+    // The wait fields are the whole point: a client that attaches during a
+    // backoff learns it from here, not from the `stream:retry` it never saw.
+    where: "server.ts — catchup di un turno in attesa (retry + slow)",
+    payload: {
+      type: "stream:catchup",
+      sessionKey: "topic:abc",
+      topicId: "abc",
+      messageId: "m1",
+      content: "mezza frase",
+      thinking: "",
+      isThinking: false,
+      toolCalls: [],
+      blocks: [],
+      retry: { attempt: 2, maxAttempts: 10, delayMs: 30_000, reason: "API 529", at: 1_756_915_200_000 },
+      slow: true,
+    },
+  },
 
   // ── output dei processi (server/routes/processes.ts) ──────────────────────
   {

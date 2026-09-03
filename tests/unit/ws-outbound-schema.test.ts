@@ -690,6 +690,26 @@ describe('validateOutbound — project + provider + error', () => {
       messageId: 'm-1',
     }).ok).toBe(true);
   });
+
+  test('stream:catchup wait fields: same shape as stream:retry plus `at`, and typed', () => {
+    const base = { type: 'stream:catchup', sessionKey: 'sk-1', messageId: 'm-1' };
+    expect(validateOutbound({
+      ...base,
+      retry: { attempt: 1, maxAttempts: 10, delayMs: 500, reason: 'network', at: 1 },
+      slow: true,
+    }).ok).toBe(true);
+    // Not passthrough: a client computing the remaining delay from `at` and
+    // `delayMs` must never receive a string there.
+    expect(validateOutbound({
+      ...base,
+      retry: { attempt: '1', maxAttempts: 10, delayMs: 500, reason: 'network', at: 1 },
+    }).ok).toBe(false);
+    expect(validateOutbound({
+      ...base,
+      retry: { attempt: 1, maxAttempts: 10, delayMs: 500, reason: 'network' },
+    }).ok).toBe(false);
+    expect(validateOutbound({ ...base, slow: 'yes' }).ok).toBe(false);
+  });
 });
 
 // ----- Tipi modellati nel giro 3.3 ------------------------------------------
