@@ -40,7 +40,7 @@ interface ChatPanelProps {
   regenerateMessage?: (sk: string, messageId: string) => Promise<boolean>;
   deleteMessage?: (sk: string, messageId: string) => Promise<boolean>;
   switchBranch?: (sk: string, messageId: string, branchIndex: number) => Promise<boolean>;
-  loadHistory: (sk: string) => Promise<boolean>; chatError: string | null;
+  loadHistory: (sk: string) => Promise<boolean>; chatError: Record<string, string | null>;
   sendWS: (msg: WSMessage) => void; onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
   onUpdateTopic: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
   initialTab?: PanelTab;

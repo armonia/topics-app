@@ -667,6 +667,7 @@ const IT: Dict = {
   'chat.queue.waitingTitle': 'Non è ancora partito. Parte quando il turno finisce.',
   'chat.queue.sendNow': 'Invia subito',
   'chat.queue.sendNowTitle': 'Interrompi il turno in corso e fai partire la coda adesso',
+  'chat.queue.sendNowIdleTitle': 'Niente in corso: fai partire la coda adesso',
   'chat.queue.editTitle': 'Correggilo prima che parta',
   'chat.queue.removeTitle': 'Non mandarlo',
   'chat.queue.clear': 'Svuota',

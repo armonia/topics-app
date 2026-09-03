@@ -17,9 +17,10 @@
  *     `Esc` annulla). Il pannello faceva scrivere in una textarea staccata dal
  *     posto in cui il messaggio sarebbe apparso;
  *   - **buttare** — la X sulla riga;
- *   - **non aspettare** — «invia subito» ferma il turno in volo e fa partire la
- *     coda adesso; compare solo mentre un turno è in volo, che è l'unica
- *     condizione in cui c'è qualcosa da anticipare;
+ *   - **send now**: stops the turn in flight and fires the queue now. Shown
+ *     with the turn IDLE too: a queue that no `stream:end` ever released
+ *     (reload, relaunch, socket lost for a second) used to sit in the
+ *     transcript with no control that could fire it;
  *   - **svuotare** — solo quando le righe sono più d'una: con una riga sola la
  *     X di quella riga È lo svuota, e due bottoni per la stessa azione sono un
  *     bivio finto.
@@ -44,9 +45,9 @@ export interface QueuedTurnsProps {
   onUpdate?: (id: string, content: string) => void;
   onRemove?: (id: string) => void;
   onClear?: () => void;
-  /** Ferma il turno in corso e fa partire la coda adesso. Vedi ChatPane. */
+  /** Stops the turn in flight (if any) and fires the queue now. See ChatPane. */
   onSendNow?: () => void;
-  /** Il turno è ancora in volo: senza niente da fermare, «invia subito» non ha senso. */
+  /** A turn is still in flight: only changes what the button promises (stop it or not). */
   busy?: boolean;
 }
 
@@ -70,13 +71,14 @@ export function QueuedTurns({ turns, isMobile, onUpdate, onRemove, onClear, onSe
         <div className="mt-1 flex items-center justify-end gap-3 pr-1">
           {/* Prima dello «svuota» e non dopo: l'azione che costruisce viene
               prima di quella che butta. */}
-          {onSendNow && busy && (
+          {onSendNow && (
             <button
               type="button"
               onClick={onSendNow}
               data-testid="queue-send-now"
+              data-queue-busy={busy ? 'true' : 'false'}
               className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:text-primary-hover transition-colors"
-              title={t('chat.queue.sendNowTitle')}
+              title={t(busy ? 'chat.queue.sendNowTitle' : 'chat.queue.sendNowIdleTitle')}
             >
               <Send size={11} className="flex-shrink-0" />
               {t('chat.queue.sendNow')}
