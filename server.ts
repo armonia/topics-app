@@ -581,11 +581,17 @@ configureSessionParkingForTracker(claudeSessionTracker);
 // salvataggio in `server/`. Da qui in poi, quando una sua sessione nasce, se la
 // va a riprendere dal DB: `loadActiveThread` è la stessa lettura che alimenta la
 // chat, quindi il modello riparte esattamente da ciò che l'utente ha davanti.
+// The tool calls travel too: without them the rebuilt history was prose only,
+// and an agent resumed after a restart no longer knew which files it had read
+// or edited, so it explored or redid the work. The `blocks` column is skipped
+// on purpose: it is the fat one (7 MB on the heaviest topic) and nothing here
+// reads it, while `tool_calls` is exactly what is needed.
 configureNativeHistorySource((sessionKey) =>
-  ctx.loadActiveThread(sessionKey).map((m) => ({
+  ctx.loadActiveThread(sessionKey, { withBlocks: false }).map((m) => ({
     role: m.role,
     content: typeof m.content === "string" ? m.content : String(m.content ?? ""),
     partial: (m as { partial?: number | boolean | null }).partial ?? null,
+    toolCalls: m.toolCalls ?? null,
   })),
 );
 
