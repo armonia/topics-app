@@ -39,6 +39,21 @@ fi
 
 # L'impronta di cio' che il server esegue: tutti i file sotto server/ piu'
 # server.ts, ordinati, un solo sha. Non guarda mtime: e' il punto.
+# A server that is alive but never answers is, on this machine, a main thread
+# stuck in a synchronous syscall (2026-09-03: `openat` under a dead NFS mount
+# of OrbStack, 30 minutes of outage while the code was searched for a bug).
+# Say WHERE it is stuck and WHICH network mount does not answer, before the
+# SIGTERM that will not work and the SIGKILL that will only breed a twin.
+diagnose_stall() {
+  local pid="$1" frames mnt
+  frames=$(sample "$pid" 1 -mayDie 2>/dev/null | awk '/com.apple.main-thread/{f=1} f' | /usr/bin/grep -oE '[a-zA-Z_$]+\$?[A-Z_]*  \(in [a-zA-Z_.]+\)' | tail -3 | tr '\n' ' ')
+  [ -n "$frames" ] && echo "[start-prod]   main thread del server $pid fermo in: $frames"
+  mount | /usr/bin/grep -vE '^(/dev/|devfs|map |autofs)' | awk '{print $3}' | while read -r mnt; do
+    [ -d "$mnt" ] || continue
+    ( ls "$mnt" >/dev/null 2>&1 & p=$!; sleep 3; if kill -0 $p 2>/dev/null; then kill -9 $p 2>/dev/null; echo "[start-prod]   mount di rete $mnt NON RISPONDE: qualunque accesso sincrono sotto quel path blocca il server. Sblocco: umount -f $mnt (o riavvia chi lo monta)"; fi )
+  done
+}
+
 src_hash() {
   (cd "$APP_DIR" && find server server.ts -type f ! -path '*/node_modules/*' -print0 2>/dev/null \
     | sort -z | xargs -0 shasum -a 1 2>/dev/null | shasum -a 1 | cut -c1-40)
@@ -387,6 +402,7 @@ echo "[start-prod] server hot-reload watch ON (graceful, debounce 2s, impronta $
                 continue
               fi
               echo "[start-prod] server source changed → graceful hot-reload (SIGTERM $SP): non risponde nemmeno dopo l'attesa di nascita"
+              diagnose_stall "$SP"
               kill -TERM "$SP" 2>/dev/null
               # Settle window: one save can emit TWO fswatch batches (write +
               # rename straddling the 2s latency). Without this pause the second
