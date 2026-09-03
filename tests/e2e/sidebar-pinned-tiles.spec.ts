@@ -2156,10 +2156,15 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     await expect(tessellaProj.locator("img"), "la favicon c'e'").toHaveCount(1, { timeout: 15000 });
     const boxProj = (await tessellaProj.boundingBox())!;
     expect(boxProj.width, "in due su una riga la tessera e' larga, non quadrata").toBeGreaterThan(72);
-    await expect(
-      tessellaProj.getByTestId("pinned-tile-name"),
-      "e allora il titolo si legge accanto all'icona",
-    ).toBeVisible();
+    // WHOLE OR NOT AT ALL (card 058ea722, 03/09): with a favicon holding the
+    // identity, the title is drawn only if it fits untruncated. It used to
+    // come back above a fixed width and read "e2..." next to the icon.
+    const titolo = await tessellaProj.evaluate((t: HTMLElement) => {
+      const n = t.querySelector<HTMLElement>('[data-testid="pinned-tile-name"]')!;
+      const drawn = getComputedStyle(n).display !== "none";
+      return { drawn, intero: !drawn || n.scrollWidth <= n.clientWidth + 0.5 };
+    });
+    expect(titolo.intero, `il titolo e' intero o non c'e', mai troncato: ${JSON.stringify(titolo)}`).toBe(true);
 
     // 2. L'ANTEPRIMA, trascinando una riga della lista sui fissati, mostra le
     //    stesse due cose — e nemmeno lei trabocca.
@@ -2342,16 +2347,19 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
       Math.abs(misura.scarto),
       `l'icona sta al centro della tessera: ${JSON.stringify(misura)}`,
     ).toBeLessThanOrEqual(1);
-    // THE CHEVRON STAYS IN THE FLOW, AND IT IS MIRRORED.
-    // It used to leave the flow between 54 and 72px: the centre came out right
-    // and the name ended up UNDER the chevron, because out of the flow it
-    // stops reserving its room. Now it weighs 12px at the head and 12 at the
-    // tail (same weight at both ends, so it moves nothing) and it overlaps
-    // nothing, at any width.
-    expect(misura.posizioneChevron, "il chevron resta nel flusso, in testa alla riga").toBe("static");
+    // THE CHEVRON IS OUT OF THE FLOW, AT THE LEFT EDGE (card 058ea722, 03/09:
+    // "when the icon is centred the accordion must stay on the left, where it
+    // would be if nothing were centred"). It used to sit in the flow next to
+    // the icon with an empty mirror on the other side: the centre came out
+    // right and the chevron travelled to the middle with it. Now it sits at
+    // the row inset, like every accordion of the column, weighs nothing on
+    // the centre, and does not touch the icon: the name is drawn only when
+    // it fits with the chevron zone kept free on both sides.
+    expect(misura.posizioneChevron, "il chevron esce dal flusso").toBe("absolute");
     expect(misura.chevronPrecede, "il chevron non si sovrappone all'icona").toBeLessThanOrEqual(0);
-    expect(misura.chevronDentro, "e resta dentro la tessera").toBeGreaterThanOrEqual(-0.5);
-    expect(misura.mirror, "in coda c'e' lo specchio del chevron, largo uguale").toBe(misura.slot);
+    expect(misura.chevronDentro, "e sta al rientro della riga, 8px dal bordo").toBeGreaterThanOrEqual(7.5);
+    expect(misura.chevronDentro, "e sta al rientro della riga, 8px dal bordo").toBeLessThanOrEqual(8.5);
+    expect(misura.mirror, "e non c'e' piu' nessuno specchio in coda").toBeNull();
 
     // ── Il CONTEGGIO non pesa mai: va nell'angolo ──────────────────────────
     // Non si semina un non-letto vero — servirebbe una chat aperta e non

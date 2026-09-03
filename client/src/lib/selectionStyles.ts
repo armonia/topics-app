@@ -623,20 +623,21 @@ export const ROW_LEAD_TIGHTEN = '-mr-1';
  * 18px e non 14: i due px di aria per lato tengono dentro anche i glifi che
  * lucide disegna più larghi dell'inchiostro nominale, senza toccare la colonna.
  *
- * AND EVERY ROW RESERVES IT, glyph or not. This is the same rule as {@link
- * ROW_CHEVRON_SLOT}, one column to the right, and it was decided for the same
- * reason (card 018fd91f): with the slot only on the rows that draw something,
- * the sidebar held THREE name columns at once, measured in the live DOM at a
- * default 256px width. A chat name started at 34px from the sidebar edge, a
- * project name at 56 (its favicon sat in a 14px box of its own, the last glyph
- * outside this slot), a board / utility / terminal / browser name at 60.
+ * AND ONLY THE ROWS THAT DRAW A GLYPH RESERVE IT. It was the opposite for a
+ * while (card 018fd91f: every row kept the box, glyph or not, so the sidebar
+ * held ONE name column), and the owner reversed it twice, each time with a
+ * screenshot: on 29/08 for the chat row, on 03/09 (card 058ea722) for the
+ * project row without a favicon and the pinned row. The empty box IS the air
+ * complained about: "the name must sit at the minimum distance, and move only
+ * when there is the icon". So the column is now two: the rows with a glyph
+ * (board, utility, terminal, browser, a project with a favicon, a pinned tile
+ * with an icon) share one x, and the rows without start
+ * `ROW_GLYPH_SLOT` + gap to their left. `rowLeadGlyph.ts` holds the rule for
+ * the project row; `tests/e2e/sidebar-name-column.spec.ts` measures both
+ * columns in the real DOM.
  *
  * A chat still draws NO leading glyph, and that decision is untouched: the
- * marks (Claude / Codex) belong to real agent sessions, never to a chat. Not
- * drawing one and not reserving its box are two separate questions, and only
- * the first had ever been answered. The price is 26px of air on a chat row,
- * paid knowingly: a column is read down, so the saved air is invisible and the
- * broken alignment is not.
+ * marks (Claude / Codex) belong to real agent sessions, never to a chat.
  */
 export const ROW_GLYPH = 14;
 export const ROW_GLYPH_SLOT = `w-[18px] self-stretch shrink-0 flex items-center justify-center ${ROW_LEAD_TIGHTEN}`;
@@ -658,8 +659,22 @@ export const ROW_GLYPH_SLOT = `w-[18px] self-stretch shrink-0 flex items-center 
  *
  * `tests/e2e/sidebar-label-gutter.spec.ts` measures it in the real DOM, because
  * nothing about this distance can be decided by eye: the change is 8px.
+ *
+ * Since 03/09 (card 058ea722) it is the ceiling of the rows WITH a glyph only:
+ * a row without one draws no glyph box any more and comes in at
+ * {@link SIDEBAR_LABEL_GUTTER_BARE_MAX}.
  */
 export const SIDEBAR_LABEL_GUTTER_MAX = 52;
+
+/**
+ * THE SAME DISTANCE ON A ROW WITHOUT A LEADING GLYPH: inset 6, row padding 8,
+ * accordion box 12, and the gap after it (8 less the 4 of
+ * {@link ROW_LEAD_TIGHTEN}) = 30. This is "the minimum" the owner asked for on
+ * 03/09: the accordion, one gap, the name. What separates it from
+ * {@link SIDEBAR_LABEL_GUTTER_MAX} is exactly one glyph box plus its gap,
+ * which is the only thing allowed to move a name to the right.
+ */
+export const SIDEBAR_LABEL_GUTTER_BARE_MAX = 30;
 
 /**
  * THE ACCORDION SLOT — one box for every chevron that opens a sidebar row.

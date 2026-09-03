@@ -201,3 +201,101 @@ export const PINNED_ALIGN: Record<PinnedForm, PinnedAlignment> = {
   // an empty box on the leading side is exactly what pushes it off centre.
   grid: { justify: 'justify-center', iconSlot: 'flex-shrink-0 items-center justify-center', reservesChevron: false, splitMap: false },
 };
+
+/**
+ * THE GRID TILE, IN PIXELS, so that "does the name fit" can be answered
+ * without a browser.
+ *
+ * Reported on 03/09 (card 058ea722), with a screenshot of three tiles reading
+ * "to...", "ar...", "ed...": a grid tile kept its name as long as the tile was
+ * wider than a fixed threshold (104px), and truncated it from there on. Two
+ * letters and an ellipsis are not a name; the owner's rule is the one written
+ * in `pinnedLabelShown`: if the whole name does not fit, hide it and show the
+ * icon alone (when there is one). A threshold in CSS cannot know how wide a
+ * name is, so the question moved to a measurement (the tile's width and the
+ * name's full width, both read from the DOM by `PinnedTile`) and to this
+ * function, which is the part that can be tested.
+ *
+ * The numbers are the classes the tile is drawn with, restated: `ROW_PX` per
+ * side, `ROW_CHEVRON` in its slot, `ROW_GAP` between the pieces, the 18px
+ * glyph box. `pinnedTileMetrics.test.ts` ties them to the constants.
+ */
+export const PINNED_GRID_PX = {
+  /** Horizontal padding of the tile, ONE side (`ROW_PX`, `px-2`). */
+  inset: 8,
+  /** The accordion glyph and its slot (`ROW_CHEVRON`). */
+  chevron: 12,
+  /** The air between two pieces of the line (`ROW_GAP`, `gap-2`). */
+  gap: 8,
+  /** The box the leading icon sits in (a favicon fills it, a glyph centres). */
+  icon: 18,
+  /** Under this width the accordion hint is not drawn at all: 8 + 12 + 8 of
+   *  chevron zone on each side plus the 18 of the icon is 74, and below it the
+   *  centred icon would land on the chevron. Written out in the tile's classes
+   *  (`@min-[76px]/tile`), because Tailwind reads the source. */
+  chevronMin: 76,
+  /** The least a name can be to exist at all: one character at 11px. */
+  glyphMin: 14,
+} as const;
+
+export interface PinnedLabelInput {
+  /** The tile's width, as laid out. */
+  tileWidth: number;
+  /** The FULL width of the name, untruncated, in the tile's font. */
+  labelWidth: number;
+  /** A favicon or a type glyph is drawn next to the name. */
+  hasIcon: boolean;
+  /** The tile opens (a project with tabs): the accordion hint is drawn. */
+  expandable: boolean;
+}
+
+/**
+ * How many pixels are left for the name on a grid tile.
+ *
+ * The accordion, when drawn, is OUT OF THE FLOW at the left edge (see
+ * `PINNED_GRID_CHEVRON_CLASS`), so it does not weigh on the centre; but the
+ * identity stays centred only if the same zone is kept free on BOTH sides,
+ * or the name would run under the chevron on the left. Hence twice
+ * `chevron + gap`, and only above `chevronMin`, where the hint is drawn.
+ */
+export function pinnedLabelRoom({ tileWidth, hasIcon, expandable }: Omit<PinnedLabelInput, 'labelWidth'>): number {
+  const { inset, chevron, gap, icon, chevronMin } = PINNED_GRID_PX;
+  let room = tileWidth - inset * 2;
+  if (expandable && tileWidth >= chevronMin) room -= (chevron + gap) * 2;
+  if (hasIcon) room -= icon + gap;
+  return room;
+}
+
+/**
+ * WHETHER THE NAME IS DRAWN ON A GRID TILE.
+ *
+ * With an icon the name leaves as soon as it does not fit WHOLE: a truncated
+ * name next to an icon is ink without information, and the icon already says
+ * what the tile is. Without an icon the name is the only identity the tile
+ * has, so it stays at any width where at least one character exists, truncated
+ * if it must be (a project without a favicon: only a real icon or nothing,
+ * never a monogram in its place).
+ */
+export function pinnedLabelShown(input: PinnedLabelInput): boolean {
+  const room = pinnedLabelRoom(input);
+  if (input.hasIcon) return input.labelWidth <= room;
+  return room >= PINNED_GRID_PX.glyphMin;
+}
+
+/**
+ * WHERE THE ACCORDION SITS ON A GRID TILE: at the left edge, out of the flow,
+ * exactly where it would be if nothing were centred.
+ *
+ * Reported on 03/09 with the rest of card 058ea722: "when the icon is centred
+ * the accordion must stay on the left, in the position it would have if it
+ * were not centred". It used to sit IN the flow next to the icon, mirrored by
+ * an empty 12px box on the other side so that the pair weighed nothing on the
+ * centre: correct as arithmetic, wrong as a picture, because the chevron then
+ * travelled with the icon to the middle of the tile instead of marking the
+ * row's edge like every other accordion of the column.
+ *
+ * `left-2` is `ROW_PX` (8px): the chevron ink starts at the row inset, which
+ * is the same x a row-form tile and a tree row put it at. `inset-y-0` gives it
+ * the tile's height, so it is hit-testable like the slot it replaces.
+ */
+export const PINNED_GRID_CHEVRON_CLASS = 'absolute inset-y-0 left-2';
