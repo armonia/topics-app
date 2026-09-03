@@ -371,7 +371,15 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
     forgetSite: canForget ? () => setForgetOpen(true) : undefined,
   }), [browser, canForget, onToggleShare, backToSpawner]);
   // Subscribed, not sampled: on a restored pane this lands AFTER the mount.
-  const knownPaneUrl = useBrowserPaneUrl(`browser:${contextId}`);
+  // A browser pane INSIDE A PROJECT WINDOW is not in the pane store: it lives
+  // in the project's own layout, and its persisted url reaches this panel as
+  // `initialUrl`. Read from the store alone, `knownUrl` was undefined for every
+  // such pane, so the address row came back under the tab on a page the tab
+  // was already naming (measured 2026-09-03 on a project browser tab: row
+  // visible, value empty, tab showing the url). The store still wins when it
+  // knows: a navigation supersedes the seed.
+  const storePaneUrl = useBrowserPaneUrl(`browser:${contextId}`);
+  const knownPaneUrl = storePaneUrl ?? (isRealUrl(initialUrl) ? initialUrl : undefined);
   const chromeBridge = useBrowserChromeBridge(contextId, {
     url: browser.url,
     // The store's url, which on a restored pane is already right while
@@ -744,7 +752,15 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     forgetSite: sharedCanForget ? () => setForgetOpen(true) : undefined,
   }), [browser, sharedCanForget, onToggleShare, backToSpawner]);
   // Subscribed, not sampled: on a restored pane this lands AFTER the mount.
-  const knownPaneUrl = useBrowserPaneUrl(`browser:${contextId}`);
+  // A browser pane INSIDE A PROJECT WINDOW is not in the pane store: it lives
+  // in the project's own layout, and its persisted url reaches this panel as
+  // `initialUrl`. Read from the store alone, `knownUrl` was undefined for every
+  // such pane, so the address row came back under the tab on a page the tab
+  // was already naming (measured 2026-09-03 on a project browser tab: row
+  // visible, value empty, tab showing the url). The store still wins when it
+  // knows: a navigation supersedes the seed.
+  const storePaneUrl = useBrowserPaneUrl(`browser:${contextId}`);
+  const knownPaneUrl = storePaneUrl ?? (isRealUrl(initialUrl) ? initialUrl : undefined);
   const chromeBridge = useBrowserChromeBridge(contextId, {
     url: browser.url,
     // The store's url, which on a restored pane is already right while

@@ -1660,6 +1660,22 @@ prova sarebbe verde anche su una pagina che l'idratazione non l'ha mai chiesta.
 - **GIVEN** il negozio che ha parlato e nessun indirizzo reale
 - **THEN** la barra SHALL comparire
 
+
+### Requirement: BROWSER-CHROME-HYDRATE-01b — La pane browser di una finestra di progetto conosce il suo indirizzo
+
+Una pane browser aperta DENTRO una finestra di progetto non sta nel negozio delle
+pane: vive nel layout del progetto, e il suo indirizzo persistito arriva al
+pannello come `initialUrl`. L'indirizzo «noto» che decide la barra SHALL leggere
+anche quello: letto dal solo negozio era sempre assente, e la barra tornava sotto
+la tab su una pagina che la tab già nominava (misurato il 03/09/2026: campo
+visibile e vuoto, tab con l'indirizzo). Il negozio SHALL prevalere quando sa:
+una navigazione supera il seme.
+
+#### Scenario: pane browser ripristinata in una finestra di progetto
+- **GIVEN** un progetto con una pane browser persistita su un indirizzo reale
+- **WHEN** la finestra del progetto va a schermo e il negozio ha parlato
+- **THEN** la tab porta l'indirizzo e il campo dell'indirizzo NON SHALL comparire
+
 ### Requirement: BROWSER-PORT-01 — A localhost pane SHALL say when the port belongs to another project
 
 Opening `http://localhost:<port>` in a pane is the most ordinary thing an agent

@@ -20,7 +20,7 @@
  *
  * Under `E2E_CLIP=1` the same path also records the delivery clip (helpers/clip).
  *
- * @covers BROWSER-01 @covers BROWSER-CHROME-HYDRATE-01
+ * @covers BROWSER-01 @covers BROWSER-CHROME-HYDRATE-01 @covers BROWSER-CHROME-HYDRATE-01b
  */
 import { test, expect } from "@playwright/test";
 import { createServer, type Server } from "http";
@@ -33,8 +33,14 @@ import {
   deleteTopic,
   waitForTopicVisible,
   resetPaneStore,
+  resetProjectPanes,
+  seedProjectPane,
   closeAllBrowserContexts,
 } from "./helpers/api-fixtures";
+import { projectPanesKey } from "../../shared/project-keys";
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { join } from "path";
+import { tmpdir } from "os";
 import { clipDiConsegna } from "./helpers/clip";
 import { beat } from "./helpers/evidence";
 import { hermetic } from "./fixtures/hermetic";
@@ -335,5 +341,37 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
       page.getByTestId("browser-url-input"),
       "la barra e' tornata mentre il negozio non aveva ancora parlato",
     ).toHaveCount(0, { timeout: 3_000 });
+  });
+  test("BROWSER-CHROME-HYDRATE-01b: dentro una finestra di progetto la pane ripristinata non rimette la barra sotto la tab", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "BROWSER-CHROME-HYDRATE-01b" });
+    // A project browser pane lives in the project layout, not in the pane
+    // store: seeded there with its url, exactly as a restart leaves it.
+    const origin = site!.origin;
+    const project = join(realpathSync(tmpdir()), `e2e-tab-chrome-project-${Date.now()}`);
+    mkdirSync(project, { recursive: true });
+    writeFileSync(join(project, "package.json"), JSON.stringify({ name: "e2e-tab-chrome-project" }));
+    const ctx = `e2e-chrome-${Date.now()}`;
+    try {
+      await resetPaneStore(request, []);
+      await resetProjectPanes(request, project).catch(() => {});
+      await seedProjectPane(request, project);
+      const put = await request.put(`${E2E_BASE}/api/ui-state/${projectPanesKey(project)}`, {
+        data: { nonChatPanes: [{ id: `browser:${ctx}`, type: "browser", title: "Rapporto", url: `${origin}/rapporto` }], openChatTopicIds: [] },
+        ignoreHTTPSErrors: true,
+      });
+      expect(put.ok(), "seeding the project browser pane").toBe(true);
+      await goToApp(page);
+      const projectTab = page.getByTestId(`pane-tab-project:${encodeURIComponent(project)}`);
+      await expect(projectTab).toBeVisible({ timeout: 15000 });
+      await projectTab.click();
+      const host = new URL(origin).host;
+      await expect(tabDelBrowser(page)).toContainText(new RegExp(host.replace(/\./g, "\\.")), { timeout: 60_000 });
+      // The row must not come back on its own once the store has spoken.
+      await page.waitForTimeout(3000);
+      await expect(page.getByTestId("browser-url-input")).toHaveCount(0, { timeout: 30_000 });
+    } finally {
+      await resetProjectPanes(request, project).catch(() => {});
+      rmSync(project, { recursive: true, force: true });
+    }
   });
 });
