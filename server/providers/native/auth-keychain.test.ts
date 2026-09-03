@@ -40,7 +40,7 @@ function fakeSecurity(cmd: string, args: string[]): KeychainRunResult {
   return { status: 1, stdout: "", stderr: "unexpected" };
 }
 
-function fileCreds(accessToken: string, expiresAt: number) {
+function writeFileCredentials(accessToken: string, expiresAt: number) {
   writeFileSync(join(homeDir, ".claude", ".credentials.json"), JSON.stringify({
     claudeAiOauth: { accessToken, refreshToken: "file-refresh", expiresAt },
   }));
@@ -67,24 +67,24 @@ describe("the Keychain candidate", () => {
   test("off under bun test (NODE_ENV=test) and when set to 0: `security` is never called and the file wins", () => {
     delete process.env.TOPICS_CREDENTIALS_KEYCHAIN;
     expect(process.env.NODE_ENV).toBe("test");
-    fileCreds("file-live", Date.now() + 3_600_000);
+    writeFileCredentials("file-live", Date.now() + 3_600_000);
     expect(readCredentials()?.accessToken).toBe("file-live");
     expect(calls.length).toBe(0);
     process.env.TOPICS_CREDENTIALS_KEYCHAIN = "0";
-    fileCreds("file-live", Date.now() + 3_600_000);
+    writeFileCredentials("file-live", Date.now() + 3_600_000);
     expect(readCredentials()?.accessToken).toBe("file-live");
     expect(calls.length).toBe(0);
   });
 
   test("on: the Keychain is the first candidate and beats a stale file (the 2026-09-03 shape)", () => {
-    fileCreds("file-revoked", Date.now() - 63 * 24 * 3_600_000);
+    writeFileCredentials("file-revoked", Date.now() - 63 * 24 * 3_600_000);
     const c = readCredentials() as { accessToken: string; sourcePath?: string };
     expect(c.accessToken).toBe("kc-live");
     expect(c.sourcePath).toBe(KEYCHAIN_SOURCE);
   });
 
   test("a 401 on the file's token: the recovery finds the Keychain's fresher one without touching the network", async () => {
-    fileCreds("file-stale", Date.now() + 3_600_000);
+    writeFileCredentials("file-stale", Date.now() + 3_600_000);
     const realFetch = globalThis.fetch;
     let fetched = 0;
     globalThis.fetch = (async () => { fetched++; return new Response("{}", { status: 500 }); }) as unknown as typeof fetch;
@@ -109,7 +109,7 @@ describe("the Keychain candidate", () => {
 
   test("no item in the Keychain: the candidate is simply absent, the files decide", () => {
     item = null;
-    fileCreds("file-live", Date.now() + 3_600_000);
+    writeFileCredentials("file-live", Date.now() + 3_600_000);
     expect(readCredentials()?.accessToken).toBe("file-live");
     expect(readKeychainCredentials()).toBeNull();
   });
