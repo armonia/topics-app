@@ -47,7 +47,8 @@ export type TaskActionId =
   | 'stop'
   | 'deliver-now'
   | 'unblock'
-  | 'unlink';
+  | 'unlink'
+  | 'requeue';
 
 /** What a surface needs to draw one action: the word, and what it really does. */
 export interface TaskActionWord {
@@ -75,6 +76,7 @@ const KEYS: Record<TaskActionId, { label: string; title: string }> = {
   'deliver-now': { label: 'board.action.deliverNow', title: 'board.action.deliverNow.title' },
   'unblock': { label: 'board.action.unblock', title: 'board.action.unblock.title' },
   'unlink': { label: 'board.action.unlink', title: 'board.action.unlink.title' },
+  'requeue': { label: 'board.action.requeue', title: 'board.action.requeue.title' },
 };
 
 /**

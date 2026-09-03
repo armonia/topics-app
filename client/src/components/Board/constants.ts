@@ -186,9 +186,35 @@ export type TaskSurface =
   // store (see state/taskBrowserTabs + state/taskBrowserLayout).
   | { id: 'browser'; kind: 'browser'; label: string };
 
+/** The tool the session is running RIGHT NOW: name, its input cut to one line, since when. */
+export interface LiveTool { name: string; input: string | null; since: number }
+
+/**
+ * The wait before the dispatcher retries a turn that died (usually the
+ * provider). `at` is when the retry fires; the card counts down to it. Transient
+ * like the rest of the event: it is a timer in the server process.
+ */
+export interface RetryWait {
+  at: number; attempt: number; cap: number;
+  /** The attempt is not counted (provider error, human stop). */
+  free: boolean;
+  /** Why the turn ended, as the dispatcher says it. */
+  reason: string;
+  /** The raw error text, for the tooltip. */
+  detail: string | null;
+}
+
 /** Live per-turn usage pushed by the dispatcher (`task:usage-live`, transient). */
 export interface LiveUsage {
   turnStartedAt: number; baseMs: number; liveTokens: number; model: string | null;
+  /** What the agent is doing now, or null when no tool is running / unknown. */
+  lastTool?: LiveTool | null;
+  /**
+   * The turn is dead and the dispatcher is waiting to retry it. While this is
+   * set the card draws the wait, not a stopwatch: a stopwatch running on a
+   * session that is not answering was the lie this field removes.
+   */
+  retry?: RetryWait | null;
   /**
    * Primo turno, card ancora com'era: l'agente sta INQUADRANDO il lavoro
    * (titolo, priorità, primi passi) e non ha ancora lasciato un segno. Si

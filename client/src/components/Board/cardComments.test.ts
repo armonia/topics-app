@@ -6,7 +6,7 @@
  * @covers KANBAN-05
  */
 import { describe, test, expect } from 'bun:test';
-import { cardCommentsFromRow, cardDetailNeed, selectCardComments, isHumanComment, isMachineVoice, showsCardThread, type CardThreadRow } from './cardComments';
+import { cardCommentsFromRow, cardDetailNeed, progressWord, selectCardComments, isHumanComment, isMachineVoice, showsCardThread, type CardThreadRow } from './cardComments';
 import { NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, noteParkedChildrenResolved } from '../../../../shared/board';
 import type { CardComment, TaskComment } from '../../lib/board';
 
@@ -36,6 +36,50 @@ function comment(author: string, content: string, kind: TaskComment['kind'] = 'c
     kind,
   };
 }
+
+/**
+ * IN PROGRESS: the card shows the AGENT's last word, and nothing else.
+ *
+ * The kickoff asks for a comment as soon as the work is framed, and the agent
+ * writes it; on the kanban the progress of a working card was a stopwatch. No
+ * request/answer pair (there is no answer yet), no machine notes (a retry is
+ * not progress), and no GET when the server did not send the rows.
+ */
+describe('the progress word (in_progress)', () => {
+  const inProgress = (recentComments: CardComment[] | undefined): CardThreadRow => ({
+    status: 'in_progress', assignedTopicId: 'top-1', deliveredBy: null, deliveredReason: null,
+    subtaskCount: 0, subtaskDoneCount: 0, recentComments,
+  });
+
+  test("l'ultima parola dell'agente, saltando le note di macchina e la richiesta umana", () => {
+    const rows: CardComment[] = [
+      { author: 'claude', content: 'Inquadrato: parto dal dispatcher.', kind: 'comment' },
+      { author: 'user', content: 'guarda anche il client', kind: 'comment' },
+      { author: 'system', content: 'Errore del provider: riprovo tra 60s', kind: 'service' },
+      { author: 'system', content: "L'agent ha lavorato 2 turni", kind: 'comment' },
+    ];
+    expect(progressWord(rows)?.content).toBe('Inquadrato: parto dal dispatcher.');
+    expect(showsCardThread(inProgress(rows))).toBe(true);
+    const out = cardCommentsFromRow(inProgress(rows));
+    expect(out?.latest.content).toBe('Inquadrato: parto dal dispatcher.');
+    expect(out?.humanContext).toBeNull();
+  });
+
+  test('senza una parola dell\'agente la card non apre nessun riquadro', () => {
+    const rows: CardComment[] = [
+      { author: 'user', content: 'fai x', kind: 'comment' },
+      { author: 'system', content: 'Nuovo worktree', kind: 'comment' },
+    ];
+    expect(progressWord(rows)).toBeNull();
+    expect(showsCardThread(inProgress(rows))).toBe(false);
+    expect(cardCommentsFromRow(inProgress(rows))).toBeNull();
+  });
+
+  test('un server vecchio (righe assenti) non fa partire un GET per card', () => {
+    expect(showsCardThread(inProgress(undefined))).toBe(false);
+    expect(cardDetailNeed(inProgress(undefined))).toBe('none');
+  });
+});
 
 describe('selectCardComments', () => {
   test('no human in the thread: the agent alone, exactly like before', () => {

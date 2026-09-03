@@ -54,6 +54,26 @@ function drawerTask(over: Partial<Parameters<typeof reviewDecisionButtons>[0]> =
 const ids = (t: ChoiceInput, opts?: { exclude?: TaskChoiceId[] }) => taskChoices(t, opts).map((c) => c.id);
 
 describe('taskChoiceState', () => {
+  // The card the dispatcher set aside: the reason lived in a tooltip and the
+  // only gesture was guessing the drag to Todo.
+  it('una card parcheggiata (failed/blocked/stopped/waited_out) offre «Rimetti in coda» e «Archivia»', () => {
+    for (const dispatchState of ['failed', 'blocked', 'stopped', 'waited_out']) {
+      const t = task({ status: 'backlog', dispatchState });
+      expect(taskChoiceState(t)).toBe('parked');
+      expect(ids(t)).toEqual(['requeue', 'drop']);
+    }
+    expect(taskActionWord('requeue').label).toBe('Rimetti in coda');
+  });
+
+  it('in Todo il parcheggio non offre niente: è già in coda', () => {
+    expect(taskChoiceState(task({ status: 'todo', dispatchState: 'failed' }))).toBeNull();
+  });
+
+  it('un bloccante aperto vince sul parcheggio: rimettere in coda non farebbe partire niente', () => {
+    const t = task({ status: 'backlog', dispatchState: 'failed', blockedByTaskId: 'b1', blockedBy: { id: 'b1', text: 'x', status: 'todo', archived: false } as never });
+    expect(taskChoiceState(t)).toBe('blocked');
+  });
+
   it('review con ramo e review senza ramo sono due stati diversi', () => {
     expect(taskChoiceState(task({ status: 'review', assignedTopicId: 'top-1', deliveryBranch: 'task/abc' }))).toBe('review-branch');
     expect(taskChoiceState(task({ status: 'review', assignedTopicId: 'top-1', deliveryBranch: null }))).toBe('review-plain');

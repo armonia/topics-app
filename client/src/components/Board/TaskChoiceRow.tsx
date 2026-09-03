@@ -127,6 +127,9 @@ function useTaskChoiceRunner(task: BoardTask, { exclude, onDone, onError, onNeed
           break;
         case 'unblock': await boardApi.update(projectId, id, { blockedByTaskId: null, status: 'todo' }); break;
         case 'unlink': await boardApi.update(projectId, id, { blockedByTaskId: null }); break;
+        // The same PATCH the drag to Todo makes: a human putting a card back in
+        // Todo is a fresh mandate, and the server resets the attempts on it.
+        case 'requeue': await boardApi.update(projectId, id, { status: 'todo' }); break;
       }
       onDone();
     } catch (e) {

@@ -18,6 +18,7 @@ import { dragCarriesFiles, filesFromDrop, imagesFromClipboard, uploadAttachment,
 import { isImagePath, isPdfPath, isVideoPath } from '../../lib/mediaKind';
 import { isSupersededPreviewNote } from '../../../../shared/preview-retirement';
 import { isResolvedParkedQuestion } from '../../../../shared/parked-question';
+import { isDoneThreadService } from '../../../../shared/task-comment-service';
 import { questionToProse } from '../../../../shared/question-prose';
 import { ThreadRuns } from './ThreadRuns';
 import { copyText } from '../../lib/clipboard';
@@ -1688,6 +1689,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     const statusRun = (cs: TaskComment[]) => (
       <StatusTrail comments={cs} ownerName={ownerName} />
     );
+    // The declared delivery (`kind: 'delivery'`), latest one: the row the
+    // closed card is pinned on. Null when nobody declared one.
+    const deliveryWord = [...threadComments].reverse().find((c) => c.kind === 'delivery') ?? null;
     return (
       <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
         {/* IL VUOTO DICE COSA SUCCEDERA', non che e' vuoto. «Nessun commento»
@@ -1701,7 +1705,22 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             {tr(emptyThreadKey(task.status))}
           </p>
         )}
-        <ThreadRuns comments={threadComments} renderRow={row} renderStatusRun={statusRun} />
+        {/* THE DELIVERY, PINNED, on a closed card. Whoever opens a done task
+            without having followed the chat read four lines of land plumbing
+            before finding what changed and why. The declared delivery is the
+            one anchor the thread has; up here it is the first thing read. */}
+        {task.status === 'done' && deliveryWord && (
+          <div data-testid="task-delivery-band" className="rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 pb-1 pt-1.5">
+            <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-emerald-300">{tr('board.task.deliveryBand')}</div>
+            {row(deliveryWord)}
+          </div>
+        )}
+        <ThreadRuns
+          comments={threadComments} renderRow={row} renderStatusRun={statusRun}
+          // On a closed card the land's hygiene notes fold with the bookkeeping:
+          // the outcome they report is the column the card sits in.
+          isService={task.status === 'done' ? isDoneThreadService : undefined}
+        />
         {/* THE LIVE ROW STAYS HERE even though the steps left. "How is it
             going" is asked where you write, and a composer with no sign of life
             above it reads as an agent that stopped. The preview is one line,

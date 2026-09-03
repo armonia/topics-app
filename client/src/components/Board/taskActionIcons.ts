@@ -27,7 +27,7 @@
  */
 
 import {
-  ArchiveRestore, Check, GitMerge, Hand, Link2Off, LockOpen, PackageCheck,
+  ArchiveRestore, Check, GitMerge, Hand, Link2Off, ListRestart, LockOpen, PackageCheck,
   RotateCcw, Square, Trash2, Undo2, type LucideIcon,
 } from 'lucide-react';
 import type { TaskActionId } from './taskActionWords';
@@ -48,6 +48,7 @@ import type { TaskActionId } from './taskActionWords';
  * · `unblock` / `unlink` — il lucchetto che si apre e la catena spezzata: la
  *   prima fa ripartire il task, la seconda toglie solo il legame.
  * · `drop` / `restore` — cestino e ritorno dall'archivio.
+ * · `requeue`: the list that starts again, a parked card going back in the queue.
  */
 export const TASK_ACTION_ICON: Record<TaskActionId, LucideIcon> = {
   'land': GitMerge,
@@ -61,6 +62,7 @@ export const TASK_ACTION_ICON: Record<TaskActionId, LucideIcon> = {
   'unlink': Link2Off,
   'drop': Trash2,
   'restore': ArchiveRestore,
+  'requeue': ListRestart,
 };
 
 /**
