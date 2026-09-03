@@ -25,7 +25,10 @@ type Listener = (e: unknown) => void;
 type StubWindow = {
   location: { origin: string; href: string; pathname: string; search: string };
   dispatchEvent?: (e: { type: string; detail?: unknown }) => boolean;
-  history?: { pushState: (state: unknown, title: unknown, url: string) => void };
+  history?: {
+    pushState: (state: unknown, title: unknown, url: string) => void;
+    replaceState?: (state: unknown, title: unknown, url: string) => void;
+  };
   addEventListener?: (type: string, cb: Listener) => void;
   removeEventListener?: (type: string, cb: Listener) => void;
 };
@@ -225,8 +228,9 @@ describe('URL reflection (reflectTaskOpen / reflectTaskClose)', () => {
       pushState: (_s, _t, url) => { pushes++; sync(url); },
       replaceState: (_s, _t, url) => { replaces++; sync(url); },
     };
-    reflectTaskFocus({ taskId: 't1' }, 'Titolo del task');
-    expect(g.window.location.pathname).toBe('/task/titolo-del-task-t1');
+    const taskId = 'd8ea2ff3-d412-4771-810d-401faa1d1754';
+    reflectTaskFocus({ taskId }, 'Titolo del task');
+    expect(g.window.location.pathname).toBe(`/task/titolo-del-task-${taskId}`);
     expect(pushes).toBe(0);
     expect(replaces).toBe(1);
   });
