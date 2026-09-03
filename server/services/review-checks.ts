@@ -43,6 +43,44 @@ import { killProcessTree } from "../lib/process-tree";
  * veloci sono passate.
  */
 export const MAX_CHECKS = 6;
+
+/**
+ * THE STATIC RAILS, CHAINED INTO ONE SLOT.
+ *
+ * The cap is six and the repo has grown ten gates. On 2026-09-03 the board's
+ * six slots held typecheck, lint, check:deadcode, check:emdash,
+ * check:migrations and test:unit, and NOT check:identifier-language,
+ * check:comment-language, check:untraced-tests or check:spec-coverage. So a
+ * card reached review green on six commands and main's CI found the red after
+ * the land, when the worktree was gone and no agent was assigned any more.
+ * That is KANBAN-15 read backwards: a green that measured nothing is not a
+ * green.
+ *
+ * Raising the cap would be the wrong lever (the doc above says why: past six
+ * the "verification" is a CI pipeline in disguise). The right one is the door
+ * the settings PATCH itself names when it refuses a seventh check: merge two
+ * commands into one. `runOne` executes the line in `sh -lc`, so a `&&` chain
+ * stops at the first red and hands its exit code through UNTOUCHED: a 1 stays
+ * a 1, and a 97 ("not measured") stays a 97, which is what keeps the
+ * three-state verdict honest on a chained slot. Together the six links cost
+ * about four seconds, measured.
+ *
+ * The board still declares its own commands (see the file header: no default
+ * is inferred). This constant is the ONE spelling of the chain, so the
+ * settings hint, the tests and whoever fills a board's slots say the same
+ * string instead of six drifting copies.
+ */
+export const STATIC_RAILS_CHECK: ReviewCheck = {
+  name: "static-rails",
+  cmd: [
+    "bun run check:emdash",
+    "bun run check:migrations",
+    "bun run check:identifier-language",
+    "bun run check:comment-language",
+    "bun run check:untraced-tests",
+    "bun run check:spec-coverage",
+  ].join(" && "),
+};
 /** Righe di output tenute per ogni check. Bastano a vedere l'errore, non riempiono il DB. */
 export const TAIL_LINES = 40;
 /**

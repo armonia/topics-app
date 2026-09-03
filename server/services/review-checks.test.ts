@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { readFileSync } from "fs";
 import {
   formatChecksComment,
   parseReviewChecks,
@@ -12,6 +13,8 @@ import {
   serializeReviewChecks,
   tailOf,
   MAX_CHECKS,
+  NOT_MEASURED_EXIT,
+  STATIC_RAILS_CHECK,
   type CheckRun,
   checksVerdict,
 } from "./review-checks";
@@ -122,6 +125,33 @@ describe("runReviewChecks", () => {
     expect(runs[0].code).toBeNull();
   }, 15_000);
 
+  // The cap is six and the repo has ten gates: the four missing from the
+  // board's slots on 2026-09-03 went in as ONE chained slot. What makes a chain
+  // an honest slot is the shell: `&&` stops at the first red and hands its
+  // exit code through untouched, so a chained 97 still reads "not measured"
+  // and a chained 1 still reads "red". Real `sh`, not a stub: the claim is
+  // about the shell.
+  test("una catena `&&` si ferma al primo rosso e ne propaga l'exit code intero", async () => {
+    const [red] = await runReviewChecks(
+      [{ name: "chain", cmd: "echo uno && exit 3 && echo mai" }],
+      { cwd },
+    );
+    expect(red.ok).toBe(false);
+    expect(red.code).toBe(3);
+    expect(red.notMeasured).toBe(false);
+    expect(red.tail).toContain("uno");
+    expect(red.tail).not.toContain("mai");
+
+    const [blind] = await runReviewChecks(
+      [{ name: "chain", cmd: `echo uno && exit ${NOT_MEASURED_EXIT} && echo mai` }],
+      { cwd },
+    );
+    expect(blind.code).toBe(NOT_MEASURED_EXIT);
+    expect(blind.notMeasured).toBe(true);
+    expect(checksVerdict([blind], 1)).toBe("unknown");
+    expect(checksVerdict([red], 1)).toBe("fail");
+  });
+
   test("cwd inesistente: rosso col motivo vero, non 'check fallito'", async () => {
     const runs = await runReviewChecks([{ name: "x", cmd: "true" }], { cwd: join(cwd, "non-esiste") });
     expect(runs[0].ok).toBe(false);
@@ -206,6 +236,56 @@ describe("runReviewChecks", () => {
     const { visti, spawn } = spia();
     expect(await runReviewChecks([], { cwd, spawn, missingInstallRoots: () => ["", "client"] })).toEqual([]);
     expect(visti).toEqual([]);
+  });
+});
+
+/**
+ * THE STATIC RAILS FIT IN ONE SLOT, AND EVERY LINK IS A REAL SCRIPT.
+ *
+ * Measured 2026-09-03 on the live board: six slots, none of them
+ * identifier-language, comment-language, untraced-tests or spec-coverage, and
+ * main's CI finding the red after the land. The chain is the cure the settings
+ * PATCH itself suggests ("unisci due comandi in uno solo"), and this file is
+ * where its spelling lives, so the test pins two things: the four missing
+ * gates are IN it, and every `bun run X` it names exists in package.json.
+ * A chain that names a script nobody has is a slot that goes 1 on `bun run`
+ * before measuring anything, indistinguishable from a red.
+ */
+describe("static-rails: la catena dei cancelli statici", () => {
+  const links = STATIC_RAILS_CHECK.cmd.split(" && ");
+  const scripts = JSON.parse(readFileSync(join(import.meta.dir, "../../package.json"), "utf8")).scripts as Record<string, string>;
+
+  test("porta i quattro cancelli che i sei slot non avevano, oltre ai due che gia' c'erano", () => {
+    for (const gate of [
+      "check:emdash",
+      "check:migrations",
+      "check:identifier-language",
+      "check:comment-language",
+      "check:untraced-tests",
+      "check:spec-coverage",
+    ]) {
+      expect(links).toContain(`bun run ${gate}`);
+    }
+  });
+
+  test("ogni anello e' uno script dichiarato in package.json", () => {
+    for (const link of links) {
+      const m = /^bun run ([\w:-]+)$/.exec(link);
+      expect(m, link).not.toBeNull();
+      expect(scripts[m![1]!], link).toBeDefined();
+    }
+  });
+
+  test("sta nei sei slot insieme agli altri cinque, e sopravvive al round-trip della config", () => {
+    const six = [
+      { name: "typecheck", cmd: "bun run typecheck" },
+      { name: "lint", cmd: "bun run lint" },
+      { name: "check:deadcode", cmd: "bun run check:deadcode" },
+      STATIC_RAILS_CHECK,
+      { name: "test:unit", cmd: "bun run test:unit" },
+    ];
+    expect(six.length).toBeLessThanOrEqual(MAX_CHECKS);
+    expect(parseReviewChecks(serializeReviewChecks(six))).toEqual(six);
   });
 });
 

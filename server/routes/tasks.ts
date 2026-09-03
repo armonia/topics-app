@@ -44,7 +44,7 @@ import { landFallout, type TaskAutoMerge } from "../services/task-automerge";
 import type { LandingState } from "../services/landing-audit";
 import { createLandingQueue, type LandingTicket, type LandOutcomeResult } from "../services/landing-queue";
 import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../services/worktree-gc";
-import { MAX_CHECKS, checksVerdict, formatChecksComment, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
+import { MAX_CHECKS, STATIC_RAILS_CHECK, checksVerdict, formatChecksComment, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
 import { clampLegMs, createChecksGate, type ChecksLeg } from "../services/checks-gate";
 import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
 import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
@@ -2303,7 +2303,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                 error:
                   `troppi check: ne hai mandati ${body.reviewChecks.length}, il massimo è ${MAX_CHECKS}. ` +
                   "Non ne salvo un sottoinsieme: avresti un cancello che credi di avere e non hai. " +
-                  "Togline qualcuno, o unisci due comandi in uno solo.",
+                  "Togline qualcuno, o unisci due comandi in uno solo con `&&`: il primo rosso ferma la catena " + // allow-italian: the board's error copy is Italian, like the two lines above it
+                  "e il suo exit code arriva intero, come fa `" + STATIC_RAILS_CHECK.name + "`: `" + STATIC_RAILS_CHECK.cmd + "`.", // allow-italian: the board's error copy is Italian, like the two lines above it
                 code: "review_checks_too_many",
               },
               400,
