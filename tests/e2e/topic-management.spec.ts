@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/topic-management.fixture";
-import { createTopic, patchTopic, cleanupAll, resetPaneStore } from "./helpers/api-fixtures";
+import { createTopic, archiveTopic, cleanupAll, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 
@@ -201,7 +201,7 @@ test.describe("Topic Management", () => {
     const name = `E2E-Reopen-${Date.now()}`;
     const disp = await createTopic(request, name);
     topicIds.push(disp.id);
-    await patchTopic(request, disp.id, { archived: true });
+    await archiveTopic(request, disp.id);
 
     await topicPage.goto();
     // Wait for the app to be interactive before the ⌘K chord (a keypress fired

@@ -517,6 +517,27 @@ export async function unarchiveTopic(
     .catch(() => { /* best-effort — waitFor downstream surfaces failure */ });
 }
 
+/**
+ * Archive (close) a topic — the same door as `unarchiveTopic`, the other way.
+ *
+ * It is NOT `patchTopic(id, { archived: true })`: that route answers **400**
+ * with `code: "wrong_route"` on purpose (`server/routes/topics.ts`), because
+ * archiving is more than a column — it zeroes the unread counter and purges
+ * `ui_state`, or the closed chat comes back as a ghost tab on the next sync.
+ * TOPICUI-04b still called the PATCH and had been red on every CI run since the
+ * route started saying no.
+ */
+export async function archiveTopic(
+  request: APIRequestContext,
+  id: string
+): Promise<void> {
+  const res = await request.delete(`${BASE}/api/topics/${id}`, {
+    data: { archived: true },
+    ignoreHTTPSErrors: true,
+  });
+  if (!res.ok()) throw new Error(`Failed to archive topic: ${res.status()}`);
+}
+
 export async function deleteTopic(
   request: APIRequestContext,
   id: string
