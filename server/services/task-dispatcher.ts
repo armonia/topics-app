@@ -57,6 +57,40 @@ import { OUTPUT_LANGUAGES, type OutputLanguage } from "../../shared/types";
 /** Fallback retry cap when a board's setting can't be read (default 2). */
 const DEFAULT_RETRY_CAP = 2;
 
+/** The tool a dispatched session is running, as the session tracker knows it. */
+export interface SessionActivity { name: string; input?: unknown; since: number }
+
+/** How much of a tool input travels on the wire: the card cuts further. */
+const LIVE_TOOL_INPUT_CHARS = 200;
+
+/**
+ * The ONE line that says what a tool is doing, taken from its input.
+ *
+ * A tool input is an object shaped by the tool, and the card wants a string:
+ * the command for Bash, the path for the file tools, the pattern for a search.
+ * Anything else falls back to the first string field, then to nothing, never
+ * to a JSON dump. Pure and exported so the mapping is tested on its own.
+ */
+export function summarizeToolInput(name: string, input: unknown): string | null {
+  if (!input || typeof input !== "object") return typeof input === "string" ? cut(input) : null;
+  const o = input as Record<string, unknown>;
+  const keys = /^bash$/i.test(name) ? ["command", "description"]
+    : /^(edit|write|read|notebookedit|multiedit)$/i.test(name) ? ["file_path", "notebook_path", "path"]
+    : /^(grep|glob|websearch|webfetch)$/i.test(name) ? ["pattern", "query", "url"]
+    : /^(task|agent)$/i.test(name) ? ["description", "prompt"]
+    : ["command", "file_path", "path", "pattern", "query", "url", "description", "prompt"];
+  for (const k of keys) {
+    const v = o[k];
+    if (typeof v === "string" && v.trim()) return cut(v);
+  }
+  for (const v of Object.values(o)) if (typeof v === "string" && v.trim()) return cut(v);
+  return null;
+}
+function cut(v: string): string {
+  const one = v.trim().replace(/\s+/g, " ");
+  return one.length > LIVE_TOOL_INPUT_CHARS ? one.slice(0, LIVE_TOOL_INPUT_CHARS) : one;
+}
+
 /** What the dispatcher needs from the outside world — all injected. */
 export interface DispatcherDeps {
   svc: TaskService;
@@ -271,6 +305,16 @@ export interface DispatcherDeps {
    * task, so totals survive retries on fresh sessions.
    */
   getSessionUsage?: (sessionKey: string) => SessionUsage;
+  /**
+   * What the session is doing RIGHT NOW: the tool it is running, its input and
+   * when it started; `null` when no tool is running or the host cannot tell.
+   * The live ticker rides it on `task:usage-live` so the card can say
+   * «Bash · bun run test:unit · 3m» instead of a bare stopwatch: a 14-minute
+   * turn that is running the unit suite and one that is stuck looked the same,
+   * and telling them apart meant opening the chat, which is what the board was
+   * meant to spare. Best-effort, never persisted.
+   */
+  sessionActivity?: (sessionKey: string) => SessionActivity | null;
   /**
    * The agent's LAST assistant prose in the session (trimmed), or null. Used to
    * GUARANTEE a delivery carries the agent's own words: when a turn ends and the
@@ -1507,9 +1551,44 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           type: "task:usage-live", projectId: lt.projectId, taskId,
           turnStartedAt: lt.turnStartedAt, baseMs: lt.baseMs, liveTokens, model: lt.model,
           triage: lt.triage,
+          lastTool: liveTool(lt.sessionKey),
         });
       } catch { /* best-effort */ }
     }
+  }
+
+  /** The running tool of a session as the card prints it, or `null`. */
+  function liveTool(sessionKey: string): { name: string; input: string | null; since: number } | null {
+    try {
+      const a = deps.sessionActivity?.(sessionKey);
+      if (!a || !a.name) return null;
+      return { name: a.name, input: summarizeToolInput(a.name, a.input), since: a.since };
+    } catch { return null; }
+  }
+
+  /**
+   * The wait before a retry, told to the card as it happens.
+   *
+   * On the turn-died-and-I-retry branch nothing in `dispatch_state` moves: the
+   * chip stays `working` and the card's stopwatch keeps running on a session
+   * that is not answering. During a provider outage that is every stalled
+   * card saying «sto lavorando», and the reason (a `service` note) never
+   * reaches the card. The wait is transient by construction (a timer in this
+   * process), so it rides the transient event, like `awaiting-human`: `at` is
+   * when the retry fires, and the card counts down to it.
+   */
+  function broadcastRetryWait(task: Task, wait: { at: number; attempt: number; cap: number; free: boolean; end: TurnEndInfo }): void {
+    try {
+      deps.broadcast({
+        type: "task:usage-live", projectId: task.projectId, taskId: task.id,
+        turnStartedAt: Date.now(), baseMs: task.agentMs ?? 0, liveTokens: task.agentTokens ?? 0,
+        model: task.model ?? null,
+        retry: {
+          at: wait.at, attempt: wait.attempt, cap: wait.cap, free: wait.free,
+          reason: describeTurnEnd(wait.end), detail: wait.end.detail ?? null,
+        },
+      });
+    } catch { /* best-effort */ }
   }
 
   function startLiveTurn(task: Task, sessionKey: string, t0: number, usage0: SessionUsage | null, model: string | null): void {
@@ -1524,8 +1603,21 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   }
 
   function endLiveTurn(taskId: string): void {
+    const lt = liveTurns.get(taskId);
     liveTurns.delete(taskId);
     if (liveTurns.size === 0 && usageTicker) { clearInterval(usageTicker); usageTicker = null; }
+    // The card drops its live chip on the NEXT `task:updated` whose chip is not
+    // `working` — and a turn that dies and is retried never sends one: the chip
+    // stays `working` by design. So the end is told here, on the same event,
+    // or the stopwatch ticks on over a session that is not answering.
+    if (!lt) return;
+    try {
+      deps.broadcast({
+        type: "task:usage-live", projectId: lt.projectId, taskId,
+        turnStartedAt: lt.turnStartedAt, baseMs: lt.baseMs, liveTokens: lt.baseTokens, model: lt.model,
+        ended: true,
+      });
+    } catch { /* best-effort */ }
   }
 
   /**
@@ -2626,11 +2718,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           // card `in_progress` senza turno vivo e la sveglia comunque, contro
           // una sessione che sta ancora rispondendo. Vedi `retryWaits`.
           clearRetryWait(taskId);
+          const waitMs = outage ? backoff : 0;
           const retryTimer = setTimeout(() => {
             retryWaits.delete(taskId);
             void resume(taskId, "", { continuation: true });
-          }, outage ? backoff : 0);
+          }, waitMs);
           retryWaits.set(taskId, retryTimer);
+          broadcastRetryWait(bumped, { at: Date.now() + waitMs, attempt: bumped.dispatchAttempts, cap, free, end });
           return;
         }
       }
