@@ -25,7 +25,7 @@ import { detectUserInputRequest } from "../ask-user-detector";
 import type { ProviderUsage } from "../types";
 import { decide, DEFAULT_AUTONOMY } from "./permissions";
 import { applyPromptCache } from "../prompt-cache";
-import { needsCompaction, compact, windowFor } from "./compaction";
+import { needsCompaction, compact, windowFor, clipToolResult, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS } from "./compaction";
 import { isTopicsTool, executeTopicsTool, type TopicsToolContext } from "./topics-tools";
 import { isMcpTool, executeMcpTool } from "./mcp-fleet";
 import type { AutonomyLevel } from "../../../shared/types";
@@ -33,7 +33,7 @@ import type { StreamHandler } from "../types";
 import type { TurnEndInfo } from "../stop-reason";
 import { stopCauseFromSignal } from "../stop-reason";
 import { splitLongWindow, betaHeader, spiegaErrore } from "./long-window";
-import { thinkingBudgetFor } from "../../lib/native-parity";
+import { thinkingConfigFor, DEFAULT_MAX_TOKENS } from "../../lib/native-parity";
 
 const API_URL = "https://api.anthropic.com/v1/messages";
 const API_VERSION = "2023-06-01";
@@ -102,7 +102,7 @@ export interface AgentTurnOptions {
   model: string;
   maxTokens?: number;
   system?: string;
-  /** Il tier scelto dall'utente (`low`…`max`): diventa budget di thinking. */
+  /** The tier the user picked (`low`...`max`): see `thinkingConfigFor`. */
   effort?: string | null;
   /**
    * The tool registry, read once PER ROUND rather than once per turn.
@@ -185,14 +185,16 @@ async function streamOnce(
   // sceglieva si portava dietro la CLI intera senza saperlo. Vedi long-window.ts.
   const { model: modelloApi, longWindow } = splitLongWindow(opts.model);
 
-  // Il thinking va dichiarato PRIMA di max_tokens: il budget deve starci dentro
-  // (l'API rifiuta `budget_tokens >= max_tokens`), quindi o il tetto sale o il
-  // budget scende. Sale: tagliare il ragionamento per non toccare il tetto
-  // sarebbe scegliere in silenzio al posto di chi ha mosso lo slider.
-  const budget = thinkingBudgetFor(opts.effort);
-  const maxTokens = budget > 0
-    ? Math.max(opts.maxTokens ?? 16384, budget + 4096)
-    : (opts.maxTokens ?? 16384);
+  // EFFORT AND THINKING ARE DECIDED PER MODEL, in `native-parity`: the 5
+  // family takes `adaptive` plus `output_config.effort`, the old ones a
+  // `budget_tokens`. The gate looks at the BARE id: `[1m]` is our suffix.
+  //
+  // The cap is decided after, because a legacy budget must fit under it (the
+  // API refuses `budget_tokens >= max_tokens`): the cap rises, the budget does
+  // not shrink. Cutting the reasoning to spare the cap would be choosing
+  // silently for whoever moved the slider.
+  const thinking = thinkingConfigFor(modelloApi, opts.effort);
+  const maxTokens = Math.max(opts.maxTokens ?? DEFAULT_MAX_TOKENS, thinking.minMaxTokens);
 
   const body: Record<string, unknown> = {
     model: modelloApi,
@@ -206,7 +208,8 @@ async function streamOnce(
       ...(opts.system ? [{ type: "text", text: opts.system }] : []),
     ],
   };
-  if (budget > 0) body.thinking = { type: "enabled", budget_tokens: budget };
+  if (thinking.thinking) body.thinking = thinking.thinking;
+  if (thinking.output_config) body.output_config = thinking.output_config;
   const tools = opts.tools?.() ?? CODING_TOOLS;
   if (tools.length > 0) body.tools = tools;
 
@@ -379,6 +382,14 @@ async function streamOnce(
   return { blocks: blocks.filter(Boolean), stopReason, usage };
 }
 
+/** The characters of a request that are not in `messages`: system and tools. */
+function overheadCharsFor(opts: AgentTurnOptions): number {
+  const tools = opts.tools?.() ?? CODING_TOOLS;
+  return CLAUDE_CODE_IDENTITY.length
+    + (opts.system?.length ?? 0)
+    + (tools.length > 0 ? JSON.stringify(tools).length : 0);
+}
+
 function currentText(blocks: Block[]): string {
   return blocks.filter((b) => b?.type === "text").map((b) => b.text ?? "").join("");
 }
@@ -489,8 +500,9 @@ export function forApi(blocks: Block[]): Block[] {
  * closes with `end_turn` and no `tool_use` block, so this never touches it.
  *
  * `max_tokens` keeps its own end even with tool blocks: the output cap cut it,
- * which is a different (and honest) sentence, and the dispatcher already knows
- * that one means "compact and resume".
+ * which is a different (and honest) sentence. The dispatcher marks that end as
+ * failed; it does not compact or resume it, so the cap itself has to be high
+ * enough for the work (see `DEFAULT_MAX_TOKENS`).
  */
 function roundEnd(stopReason: string | null, toolUseCount: number): TurnEndInfo {
   if (stopReason === "max_tokens") return { end: "max_tokens" };
@@ -556,8 +568,14 @@ export async function runAgentTurn(
     // punto il turno è già morto e il lavoro fatto fin qui è perso. Il
     // controllo costa una scansione della storia, cioè niente rispetto al giro
     // di rete che segue.
-    if (needsCompaction(opts.history, windowFor(opts.model))) {
-      const c = compact(opts.history);
+    // The system prompt and the tool schemas travel with EVERY request and
+    // count in the same window as the messages: with the MCP fleet mounted the
+    // schemas alone are tens of thousands of tokens. Counted here, per round,
+    // because the fleet is alive and the list can change between rounds.
+    const windowTokens = windowFor(opts.model);
+    const overheadChars = overheadCharsFor(opts);
+    if (needsCompaction(opts.history, windowTokens, overheadChars)) {
+      const c = compact(opts.history, { windowTokens, overheadChars });
       if (c.after < c.before) {
         // Si sostituisce IN PLACE perché `history` è la memoria della sessione
         // e il chiamante tiene lo stesso array: assegnargliene uno nuovo
@@ -674,10 +692,17 @@ export async function runAgentTurn(
             ? await executeTopicsTool(t.name!, (t.input ?? {}) as Record<string, unknown>, opts.topics)
             : await executeTool(t.name!, (t.input ?? {}) as Record<string, any>, opts.toolContext);
       handler.onToolResult(t.id!, out.content, out.isError);
+      // EVERY RESULT IS CAPPED HERE, whichever family produced it (machine,
+      // Topics, MCP): one place, one budget. The UI above gets the whole
+      // output; what enters the history is head and tail with a notice on how
+      // to read the rest. Without this, two big reads in one round could push
+      // a 200k window past its limit on their own, and the resulting 400 sat
+      // in the session for good. The same clip, tighter, is what the
+      // compaction applies to the tail when everything else has failed.
       results.push({
         type: "tool_result",
         tool_use_id: t.id,
-        content: out.content,
+        content: clipToolResult(out.content, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS),
         ...(out.isError ? { is_error: true } : {}),
       });
       // IL TURNO PUÒ ESSERE MORTO MENTRE QUESTO TOOL GIRAVA.

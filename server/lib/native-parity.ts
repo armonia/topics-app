@@ -131,18 +131,37 @@ export function skillsBlock(home = homedir()): string {
 }
 
 /**
- * EFFORT BECOMES A THINKING BUDGET.
+ * EFFORT BECOMES A REQUEST PARAMETER, AND WHICH ONE DEPENDS ON THE MODEL.
  *
- * On `claude` the effort is a CLI flag; on the API it is `thinking.budget_tokens`,
- * and the native runtime was not sending it at all — so the effort slider, which
- * the UI shows on every topic, moved nothing on the native runtime.
+ * On `claude` the effort is a CLI flag. On the API it is two different things
+ * depending on the generation, and the native runtime sent the wrong one to
+ * every model that matters: a fixed `thinking.budget_tokens` picked from the
+ * tier. Measured on 2026-09-03 against the request the loop builds: with the
+ * default `claude-sonnet-5` and effort `high` the body carried
+ * `{type: "enabled", budget_tokens: 10000}`, which the 5 family rejects with a
+ * 400 (`budget_tokens` is removed there), and `low` produced no thinking at all
+ * on models where thinking is the default and cannot be switched off (Fable 5
+ * refuses `disabled`, Opus 5 refuses it at `xhigh`/`max`). So the slider that
+ * every topic shows did, on the native runtime, nothing the user expected.
  *
- * `low` = no thinking (not «a little»): under 1024 tokens the API refuses, and a
- * symbolic budget would buy latency for reasoning that does not fit.
+ * The rule, per the live docs (see the claude-api skill, "Thinking & Effort"):
  *
- * The budget must stay UNDER `max_tokens`, or the request is invalid: the caller
- * either raises the ceiling or trims the budget, and that choice lives in
- * `agent-loop` because that is where `max_tokens` for the turn is known.
+ *   - Fable, Mythos, Opus 5+, Opus 4.7/4.8, Sonnet 5+: `thinking: {type:
+ *     "adaptive"}` plus `output_config: {effort}`, all five tiers, `low`
+ *     included. `low` is NOT "no thinking": it is the model deciding to think
+ *     less, which is what the CLI does too.
+ *   - Opus 4.6 / Sonnet 4.6: adaptive must be EXPLICIT (default is off) and
+ *     `xhigh` did not exist yet, so it clamps to `high`.
+ *   - Older (Haiku 4.5, Sonnet 4.5, Opus 4.5 and unknowns): the legacy
+ *     `{type: "enabled", budget_tokens}` from the table below, and no
+ *     `output_config`. There `low` is still no thinking: under 1024 tokens the
+ *     API refuses, and a symbolic budget would buy latency for reasoning that
+ *     does not fit.
+ *
+ * A legacy budget must stay UNDER `max_tokens` or the request is invalid:
+ * `minMaxTokens` is the floor the caller raises the cap to. Raising rather
+ * than trimming, because cutting the reasoning to spare the cap would be
+ * choosing silently for whoever moved the slider.
  */
 export const THINKING_BUDGET: Record<string, number> = {
   low: 0,
@@ -154,4 +173,77 @@ export const THINKING_BUDGET: Record<string, number> = {
 
 export function thinkingBudgetFor(effort: string | null | undefined): number {
   return THINKING_BUDGET[(effort ?? "").trim().toLowerCase()] ?? 0;
+}
+
+const EFFORT_TIERS = new Set(["low", "medium", "high", "xhigh", "max"]);
+
+export interface ThinkingConfig {
+  thinking?: { type: "adaptive" } | { type: "enabled"; budget_tokens: number };
+  output_config?: { effort: string };
+  /** The floor for `max_tokens`: a legacy budget has to fit under the cap. */
+  minMaxTokens: number;
+}
+
+/**
+ * Which generation a bare model id belongs to, for the gate above. `[1m]` is
+ * a convention of ours and never reaches the API: strip it before asking.
+ */
+function generationOf(model: string): "adaptive" | "adaptive-4-6" | "legacy" {
+  const bare = model.replace(/\[1m\]$/, "");
+  const m = /^claude-(opus|sonnet|haiku|fable|mythos)-(\d{1,2})(?:-(\d{1,2}))?/.exec(bare);
+  if (!m) return "legacy";
+  const family = m[1]!;
+  const major = Number(m[2]);
+  const minor = m[3] === undefined ? 0 : Number(m[3]);
+  if (family === "fable" || family === "mythos") return "adaptive";
+  if (family === "opus") {
+    if (major >= 5 || (major === 4 && minor >= 7)) return "adaptive";
+    if (major === 4 && minor === 6) return "adaptive-4-6";
+    return "legacy";
+  }
+  if (family === "sonnet") {
+    if (major >= 5) return "adaptive";
+    if (major === 4 && minor === 6) return "adaptive-4-6";
+    return "legacy";
+  }
+  return "legacy";
+}
+
+export function thinkingConfigFor(model: string, effort: string | null | undefined): ThinkingConfig {
+  const tier = (effort ?? "").trim().toLowerCase();
+  const gen = generationOf(model);
+  if (gen === "legacy") {
+    const budget = thinkingBudgetFor(tier);
+    return budget > 0
+      ? { thinking: { type: "enabled", budget_tokens: budget }, minMaxTokens: budget + 4096 }
+      : { minMaxTokens: 0 };
+  }
+  const out: ThinkingConfig = { thinking: { type: "adaptive" }, minMaxTokens: 0 };
+  if (EFFORT_TIERS.has(tier)) {
+    out.output_config = { effort: gen === "adaptive-4-6" && tier === "xhigh" ? "high" : tier };
+  }
+  return out;
+}
+
+/**
+ * The output cap the native runtime asks for when nobody set one.
+ *
+ * 64k is the CLI catalog default for opus-5 / sonnet-5 / fable-5 / opus-4-6,
+ * and equals haiku-4-5's upper bound, so no model in the picker gets a 400.
+ * The previous 16384 was half the CLI's: any single `write_file` above ~16k
+ * tokens of output could never succeed on this runtime while it did on the
+ * CLI, and the user was told to split the work by hand.
+ */
+export const DEFAULT_MAX_TOKENS = 64_000;
+const MIN_MAX_TOKENS = 1_024;
+const MAX_MAX_TOKENS = 128_000;
+
+/**
+ * A user-set cap, kept inside what the API accepts. `undefined`, NaN or a
+ * non-positive value means "nobody set one" and falls back to the default:
+ * a setting typed wrong must not turn into a request the API refuses.
+ */
+export function clampMaxTokens(n: number | null | undefined): number {
+  if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) return DEFAULT_MAX_TOKENS;
+  return Math.min(MAX_MAX_TOKENS, Math.max(MIN_MAX_TOKENS, Math.floor(n)));
 }

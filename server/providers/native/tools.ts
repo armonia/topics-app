@@ -61,8 +61,13 @@ export interface ToolResult {
   isError?: boolean;
 }
 
-/** Quanto di un file si legge in una volta, senza `limit`. */
-const MAX_READ_BYTES = 400_000;
+/**
+ * How much of a file one call reads, without `limit`. It was 400k: two such
+ * reads in the same round were enough on their own to blow a 200k window,
+ * and the 400 they produced stayed in the session for good. Now it is of the
+ * order of the CLI's 2000 lines: past that, the tool says to page.
+ */
+const MAX_READ_BYTES = 120_000;
 /** Quanto output di un comando si rimanda al modello. */
 const MAX_OUTPUT_CHARS = 30_000;
 const DEFAULT_BASH_TIMEOUT_MS = 120_000;
