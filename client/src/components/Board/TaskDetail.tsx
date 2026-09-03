@@ -8,6 +8,7 @@ import { authorDisplay } from '../../lib/authorDisplay';
 import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, GitCompare, GitMerge, Globe, Hourglass, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, Sparkles, StickyNote, Tag, UserRound, WifiOff, X } from 'lucide-react';
 import { SectionHeader, useSectionOpen } from './sectionAccordion';
 import { ChatMarkdown } from '../ChatMarkdown';
+import { PlanSurface } from './PlanSurface';
 import { Menu } from '../Shared/Menu';
 import { MorphText } from '../Shared/MorphText';
 import { ShareControl } from '../Share/ShareControl';
@@ -46,7 +47,7 @@ import { drawerSurfaceLabels, reviewDecisionButtons, taskActionWord } from './ta
 import { TASK_ACTION_ICON } from './taskActionIcons';
 import { manualStatusTarget } from '../../lib/boardOrder';
 import { formatReviewNotes } from './reviewNotes';
-import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, mediaPaneIdFor, type TaskSurface } from './constants';
+import { COMPACT_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, mediaPaneIdFor, type TaskSurface } from './constants';
 import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtTok, fmtUpdatedAt, autoGrow, attemptStat, taskCopyText, descSummary, fmtCount } from './format';
 import { StatusIcon, DispatchChip, QueueReasonChip } from './atoms';
 import { bucketSessionMsgs, EMPTY_SESSION_BUCKETS, type SessionBuckets, type SessionMsg } from './sessionBuckets';
@@ -3163,38 +3164,12 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
  * caller places this inside a flex-col so flex-1 children fill.
  */
 export function SurfaceContent({ surface, taskId }: { surface: TaskSurface; taskId?: string }) {
-  const tr = useT();
   void taskId;
   if (surface.kind === 'media') return <MediaViewer key={surface.url} url={surface.url} path={surface.path} />;
   if (surface.kind === 'browser') return null; // handled by GroupLayout in TaskDetail
-  // La fence NON è il piano. Il thread la scarta e la card la scarta; questa
-  // tab era l'unica delle tre superfici che la rendeva grezza — cioè come un
-  // `<pre>` che non va a capo, dove il piano si leggeva scorrendo di lato e
-  // «allegata» compariva tagliata a «legata». Stesso trattamento delle altre
-  // due: il corpo è markdown, le opzioni sono un elenco.
-  const q = parseQuestionBlock(surface.content);
-  const outside = q ? surface.content.replace(/```question[\s\S]*?```/, '').trim() : '';
-  const body = q ? [outside, q.question].filter(Boolean).join('\n\n') : surface.content;
-  return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-      <div className="min-w-0 rounded-lg border border-violet-500/25 bg-violet-500/5 px-4 py-3.5">
-        <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-wide text-violet-300">{tr('board.task.proposedPlan')}</p>
-        <div className={`min-w-0 break-words text-sm text-app-text ${PLAN_MD_CLS}`} data-testid="plan-surface-body">
-          <ChatMarkdown components={{}}>{body}</ChatMarkdown>
-        </div>
-        {q && q.options.length > 0 && (
-          <ul className="mt-3 space-y-1 border-t border-violet-500/20 pt-3" data-testid="plan-surface-options">
-            {q.options.map((opt, i) => (
-              <li key={i} className="flex items-start gap-2 text-[13px] text-app-text">
-                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-violet-300/70" />
-                <span className="min-w-0 break-words">{opt}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
-  );
+  // The fence is NOT the plan. The treatment lives in `PlanSurface`, in a file
+  // of its own, because this one does not mount in a unit test.
+  return <PlanSurface content={surface.content} />;
 }
 
 /**

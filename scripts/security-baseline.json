@@ -11,7 +11,7 @@
     "Che un avviso sparisca non fa mai rosso, ma il comando lo dice: quello e il momento di",
     "riscrivere la baseline, o marcisce."
   ],
-  "updated": "2026-09-02",
+  "updated": "2026-09-03",
   "advisories": {
     ".": [
       {
@@ -304,14 +304,6 @@
         "url": "https://github.com/advisories/GHSA-fx2h-pf6j-xcff"
       }
     ],
-    "landing": [
-      {
-        "package": "nanoid",
-        "id": 1139427,
-        "severity": "high",
-        "title": "nanoid: custom generators can loop indefinitely when size is zero",
-        "url": "https://github.com/advisories/GHSA-2v37-7h3g-55p8"
-      }
-    ]
+    "landing": []
   }
 }

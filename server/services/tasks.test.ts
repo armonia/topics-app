@@ -108,10 +108,10 @@ describe("projectIdForPath", () => {
     expect(a.startsWith("topics-app-")).toBe(true);
     expect(a.slice("topics-app-".length)).toMatch(/^[0-9a-z]{1,6}$/);
   });
-  // Regression lock: la funzione ora vive in shared/board.ts e questo modulo
-  // la ri-esporta. Il test pinna che il re-export non sia un alias silenzioso
-  // verso un'implementazione derivata.
-  // (Il trailing slash cambia l'hash: topic.projectPath e' normalizzato, non morde.)
+  // Regression lock: the function now lives in shared/board.ts and this module
+  // re-exports it. The test pins that the re-export is not a silent alias
+  // toward a derived implementation.
+  // (A trailing slash changes the hash: topic.projectPath is normalised, it does not bite.)
   test("exact output is stable (regression lock)", () => {
     expect(projectIdForPath("/x/proj")).toBe("proj-xwac8t");
   });
@@ -1933,6 +1933,34 @@ describe("la lista: filtro per id, stato validato, commenti sulla card", () => {
     const working = rows.find((r) => r.id === t.id)!;
     expect(working.recentComments.map((c) => c.content)).toContain("Inquadrato: parto dal dispatcher.");
     expect(rows.find((r) => r.id === idle.id)!.recentComments ?? []).toHaveLength(0);
+  });
+
+  /**
+   * A DECLARED DELIVERY ALWAYS TRAVELS, and it needs a guarantee of its own.
+   *
+   * `rn_parola = 1` carries the last real word: not enough. After delivering,
+   * the agent keeps talking, and the chronicle of commits is made of words — so
+   * it takes that slot and pushes the delivery out of the window. That is
+   * exactly the reported defect (only useless git things visible in review),
+   * coming back through the transport door even with a card that chooses right.
+   * Hence `rn_consegna`.
+   */
+  test("recentComments: la consegna dichiarata arriva anche sepolta sotto quattro commenti dell'agente", () => {
+    const t = s.create({ projectId: PID, text: "work", status: "todo" });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "in_progress" } });
+    s.update({
+      taskId: t.id,
+      actor: "agent",
+      by: "claude",
+      patch: { status: "review", summary: "Importate le 25 righe: la board le mostra col nome del progetto." },
+    });
+    for (const n of [1, 2, 3, 4]) s.addComment({ taskId: t.id, author: "claude", content: `commit ${n}: refactor` });
+
+    const [card] = s.list({ scope: "all", rootsOnly: true, ids: [t.id] });
+    expect(
+      card!.recentComments.filter((c) => c.kind === "delivery").map((c) => c.content),
+      `la consegna non e' arrivata alla card: ${JSON.stringify(card!.recentComments.map((c) => c.content))}`,
+    ).toEqual(["Importate le 25 righe: la board le mostra col nome del progetto."]);
   });
 
   /**

@@ -255,6 +255,16 @@
         // cambierebbe senza toccare niente. Nessuno lo importa, e non deve:
         // e' un gesto una tantum su un DB vero.
         "scripts/retitle-review-cards.ts!",
+        // Two one-off migrations on a REAL database, both run by hand and both
+        // read-only until `--apply`:
+        //   bun scripts/canonicalizza-progetti.ts [--apply]   (project split in
+        //   two by a symlink: merges the twin identities)
+        //   bun scripts/migrate-uuid-board-ids.ts [--apply]   (tasks born on a
+        //   board id that is a UUID, which no kanban reads)
+        // Nobody imports them, and nobody should: they landed without this
+        // declaration and the dead-code gate was red on main for it.
+        "scripts/canonicalizza-progetti.ts!",
+        "scripts/migrate-uuid-board-ids.ts!",
         "scripts/*.test.ts!",             // run by `bun test ./scripts` in test:unit
         // Everything else under scripts/ stays a PROJECT file only (see the
         // `project` list below). Listing the folder here — with or without `!` —
