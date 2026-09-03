@@ -65,6 +65,18 @@ export interface DeliverySheetData {
    * things but USEFUL things, I do not need git".
    */
   summary?: string | null;
+  /**
+   * Files changed in the worktree and NEVER committed, counted when the card
+   * was delivered. `null` means nobody could measure it, which is not the same
+   * as zero and does not print the same sentence.
+   *
+   * WHY IT IS HERE AT ALL: the three numbers above count commits, so a turn
+   * that ended before committing scored zero everywhere and the card read as
+   * "this produced nothing". Measured 2026-09-01 on card 1c8fd103: two modified
+   * files, +29/-6, no commit, sheet at zero. The reviewer's decision hangs
+   * exactly on that difference - one line ("commit it") against a re-dispatch.
+   */
+  uncommittedFiles?: number | null;
 }
 
 const W = 1200;
@@ -146,9 +158,24 @@ export function renderDeliverySheet(data: DeliverySheetData): string {
   // commit on it is not "zero files": it is work that has not been handed over
   // yet, and that is a thing to decide about. Said as a sentence, because the
   // number said it in a form that read as "nothing happened".
+  //
+  // AND THE TWO NON-DELIVERIES ARE NOT ONE. "Nothing was produced" and
+  // "produced, never committed" both scored zero here, and they are the two
+  // opposite decisions the reviewer has to take: a re-dispatch against one line
+  // asking for a commit. When the probe counted uncommitted files, THAT is the
+  // sentence: it names work that still exists on disk and can be lost.
   const handedOver = hasCode && (files ?? 0) > 0;
-  const stateLine = data.branch && !handedOver
-    ? `<text x="72" y="${BRANCH_Y}" class="k">Il ramo non porta ancora nessun commit: il lavoro non e' consegnato.</text>`
+  const dirty = num(data.uncommittedFiles);
+  const stateText = !handedOver && dirty !== null && dirty > 0
+    ? `Nel worktree ci sono ${dirty} file modificati mai committati: il lavoro c'e', non e' consegnato.`
+    : data.branch && !handedOver
+      ? "Il ramo non porta ancora nessun commit: il lavoro non e' consegnato."
+      : "";
+  // CONSTANT TEXT, not data: this file writes both sentences and the only
+  // variable part is a number. Running them through `escapeXml` would turn
+  // their apostrophes into `&apos;` while protecting nothing.
+  const stateLine = stateText
+    ? `<text x="72" y="${BRANCH_Y}" class="k">${stateText}</text>`
     : "";
 
   const total = data.subtasksTotal ?? 0;
@@ -220,20 +247,21 @@ export function makeSheetWriter(openclawDir: string): (taskId: string, svg: stri
 }
 
 /**
- * Il ramo SENZA codice: cosa e' stato fatto, a parole.
+ * THE BRANCH WITH NO CODE: what was done, in words.
  *
- * Prima diceva «Nessun codice consegnato. La consegna sta nel thread della
- * card»: un'assenza e un rimando, per il 60% della larghezza. Ora prova a
- * scrivere l'ultima parola del thread — la stessa che la card mostra sopra il
- * titolo — perche' e' l'unica cosa utile che qui si possa mettere.
+ * It used to read "no code delivered, the delivery is in the card's thread":
+ * an absence plus a redirection, over 60% of the width. Now it tries to write
+ * the last word of the thread, the same one the card shows above the title,
+ * because that is the only useful thing this space can hold.
  *
- * Il ripiego resta per il caso in cui una parola non c'e' proprio (turno morto
- * prima di commentare): li' l'assenza E' l'informazione, e dirla e' onesto.
+ * The fallback stays for when a word is genuinely missing (a turn that died
+ * before commenting): there the absence IS the information, and saying so is
+ * honest.
  *
- * Le due Y arrivano come PARAMETRI e non come costanti di modulo: vivono nella
- * funzione che disegna il resto della scheda, e ricopiarne i valori qui
- * significherebbe due numeri da tenere allineati a mano — cioe' una scheda che
- * si scompagina al primo ritocco del layout.
+ * The two Y values arrive as PARAMETERS and not as module constants: they live
+ * in the function that draws the rest of the sheet, and copying them here would
+ * mean two numbers to keep aligned by hand, that is a sheet that falls apart at
+ * the first tweak of the layout.
  */
 function summarySvg(summary: string | null | undefined, NUM_Y: number, KEY_Y: number): string {
   // A QUESTION IS NOT CODE, and the sheet was printing the transport fence.
@@ -247,8 +275,8 @@ function summarySvg(summary: string | null | undefined, NUM_Y: number, KEY_Y: nu
     <text x="72" y="${NUM_Y - 22}" class="b">Nessun riassunto della consegna.</text>
     <text x="72" y="${KEY_Y}" class="k">Il turno e' finito prima che l'agente commentasse.</text>`;
   }
-  // Tre righe da 62 caratteri: sotto la soglia di leggibilita' a 268px, che e'
-  // il cancello di tutta la scheda.
+  // Three lines of 62 characters: under the readability threshold at 268px,
+  // which is the gate the whole sheet has to pass.
   const righe = wrapText(testo, 62, 3);
   return righe
     .map((l, i) => `<text x="72" y="${NUM_Y - 22 + i * 44}" class="b">${escapeXml(l)}</text>`)

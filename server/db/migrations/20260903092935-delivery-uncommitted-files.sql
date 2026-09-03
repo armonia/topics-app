@@ -1,0 +1,26 @@
+-- 20260903092935-delivery-uncommitted-files.sql
+--
+-- Il prefisso è un timestamp UTC (YYYYMMDDHHMMSS), non un contatore: è quello
+-- che rende impossibile la collisione fra card in parallelo. Non rinominarlo.
+--
+-- ─────────────────────────────────────────────────────────────────────────────
+-- WORK THAT EXISTS BUT WAS NEVER COMMITTED, counted on the card.
+--
+-- The three delivery_* numbers next to this one count COMMITS. A turn that
+-- ends before the commit leaves them at zero, and zero on the delivery sheet
+-- reads as "this agent produced nothing" - which is the opposite of the truth
+-- and the opposite of the decision to take. Measured 2026-09-01 on card
+-- 1c8fd103: worktree with 2 modified files, +29/-6, no commit, sheet at zero.
+--
+-- The cure for "produced and did not commit" is one line to the agent
+-- ("commit it"); the cure for "produced nothing" is a re-dispatch. Hiding the
+-- difference makes the reviewer pick blind.
+--
+-- A COLUMN and not a live probe at drawing time: the sheet is redrawn later
+-- (boot sweep) and by then the worktree may be reaped, so a probe would
+-- silently flip the card back to "nothing here". The count is a FACT of the
+-- moment of delivery, so it is stored like the other delivery facts.
+--
+-- NULL = never measured (no branch worktree, unreadable git). 0 = measured
+-- clean. The two are different answers and the sheet says different things.
+ALTER TABLE tasks ADD COLUMN delivery_uncommitted_files INTEGER;

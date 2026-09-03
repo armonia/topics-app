@@ -140,7 +140,12 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   -- rises with a MAX floor (raiseAgentUsage) and is not derivable from the
   -- tokens: the same million tokens is worth 12 to 49 USD depending on the model
   -- and on the cache.
-  agent_cost_cents INTEGER NOT NULL DEFAULT 0
+  agent_cost_cents INTEGER NOT NULL DEFAULT 0,
+  -- 20260903092935: files changed in the worktree and NEVER committed, counted
+  -- when the delivery happens. The three delivery_* numbers above count commits
+  -- only, so a turn that ended before committing left them at zero and the card
+  -- read as "nothing was produced". NULL = never measured, 0 = measured clean.
+  delivery_uncommitted_files INTEGER
 )`;
 
 /**

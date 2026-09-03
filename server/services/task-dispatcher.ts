@@ -2682,7 +2682,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           // quando la storia e' vuota: e' l'unico caso in cui la risposta
           // cambia cosa deve fare chi legge, e su una card con un diff da
           // guardare sarebbe una domanda a git per niente.
-          const sporchi = nienteDaVedere && deps.uncommittedInWorktree
+          //
+          // ASKED ALSO WHEN A BRANCH EXISTS BUT CARRIES NOTHING: the delivery
+          // sheet draws zero files in both cases, and zero reads as "did
+          // nothing". The question costs one `git status` and it separates the
+          // two opposite decisions (one line asking for a commit against a
+          // re-dispatch). On a card that really has a diff nothing is asked:
+          // there the condition is false.
+          const senzaCommit = !t.deliveryFilesChanged;
+          const sporchi = senzaCommit && deps.uncommittedInWorktree
             ? await deps.uncommittedInWorktree(taskId).catch(() => null)
             : null;
           const lavoroNonCommittato = sporchi && sporchi.length > 0 ? sporchi : null;
@@ -2732,6 +2740,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
               // rifiutato" no — riproverebbe a rifiutarsi. Il reviewer decide
               // diversamente nei due casi, quindi la card deve dirglielo.
               cause: needsHuman(end) ? "model_refused" : "retries_exhausted",
+              // The number the delivery sheet never had: `[]` measured clean
+              // is zero, "not measurable" stays null, and the sheet says two
+              // different sentences instead of passing one off as the other.
+              uncommittedFiles: sporchi ? sporchi.length : null,
             });
             emit(delivered);
             // System-delivery bypasses the route PATCH, so the review-edge
