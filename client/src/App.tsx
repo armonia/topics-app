@@ -1757,7 +1757,7 @@ function App() {
           drawer, like the bottom row: visible without opening anything. The
           identity band stays desktop-only, which is the other half. */}
       {isMobile && (
-        <ErrorBoundary fallbackMessage="Transport status error">
+        <ErrorBoundary fallbackMessageKey="crash.transportBand">
           <MobileTransportBand wsStatus={wsStatus} dataNotice={topicsError} />
         </ErrorBoundary>
       )}

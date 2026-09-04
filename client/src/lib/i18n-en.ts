@@ -1842,6 +1842,7 @@ const EN = {
   'crash.staleBundle.action': 'Reload',
   'crash.sidebar': 'The sidebar broke',
   'crash.identityBand': 'The identity band broke',
+  'crash.transportBand': 'The connection status broke',
   'crash.panel': 'This panel broke',
   'crash.settings': 'Settings broke',
   'crash.pane': 'This pane broke',

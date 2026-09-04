@@ -2153,6 +2153,7 @@ const IT: Dict = {
   'crash.staleBundle.action': 'Ricarica',
   'crash.sidebar': 'La barra laterale si è rotta',
   'crash.identityBand': 'La banda di identità si è rotta',
+  'crash.transportBand': 'Lo stato della connessione si è rotto',
   'crash.panel': 'Questo pannello si è rotto',
   'crash.settings': 'Le impostazioni si sono rotte',
   'crash.pane': 'Questa pane si è rotta',
