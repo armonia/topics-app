@@ -227,6 +227,41 @@ Un errore in una lettura NON SHALL bloccare quelle successive.
 - **GIVEN** la risposta più vecchia che arriva per ultima
 - **THEN** nello store SHALL restare quella emessa per ultima
 
+### Requirement: STORAGE-WAL-01 — Una cache di localStorage non si riscrive uguale, e non si riscrive a ogni cambiamento
+
+Il costo di `localStorage` in WebKit non è quanto ci tieni, è **quante volte lo
+riscrivi**: il database sta in modalità WAL e WebKit non fa checkpoint finché la
+sessione della webview vive, quindi ogni `setItem` appende al giornale tutte le
+pagine che sporca. Misurato sulla macchina di chi usa la app il 2026-09-05:
+`localstorage.sqlite3-wal` a **5,92 GB**, in crescita di circa 100 MB al giorno,
+con `topics-cache` (~1 MB) riscritta a ogni cambiamento dello stato dei topic.
+
+Una cache che serve solo a dipingere il primo fotogramma del prossimo
+caricamento SHALL essere scritta attraverso uno scrittore che:
+
+- COALESCE una raffica di scritture in UNA sola, con finestra FISSA dalla prima
+  scrittura della raffica. Una finestra scorrevole NON SHALL essere usata:
+  mentre un agente aggiorna lo stato di continuo non scatterebbe mai, ed è
+  proprio l'ora che va persistita.
+- SALTA la scrittura quando i byte sono identici a quelli già memorizzati. Il
+  confronto SHALL passare da `getItem` e non da una variabile in memoria: la
+  chiave è condivisa fra le finestre, e una memoria locale non vede la
+  scrittura dell'altra finestra.
+- SCARICA il pendente su `pagehide` e quando il documento diventa nascosto, così
+  che chiudere la finestra non perda l'ultimo stato.
+
+La LETTURA al boot NON SHALL cambiare: il primo fotogramma continua a leggere la
+cache dal dispositivo, e il ritardo della scrittura non SHALL introdurre nessuno
+spostamento di layout al ricarico (vedi PERF-01).
+
+#### Scenario: una raffica di scritture nella stessa finestra
+- **GIVEN** cento scritture consecutive della stessa chiave
+- **THEN** SHALL raggiungere il giornale UNA sola volta, con l'ultimo valore
+
+#### Scenario: lo stesso identico contenuto
+- **GIVEN** un valore uguale byte per byte a quello già memorizzato
+- **THEN** nessun `setItem` SHALL essere eseguito
+
 ### Requirement: FPS-01 — Il numero dei fotogrammi è VERO, e a riposo la sonda DORME
 
 Il frame rate riportato SHALL essere quello VERO, senza lo scarto di uno che nasce
