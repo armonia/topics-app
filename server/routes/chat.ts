@@ -1214,8 +1214,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // freeze. Harmless if a healthy-but-slow turn trips it — the slow
           // annotation is stripped the moment output resumes (resetStreamTimer
           // recovery). Grace (recovery window) and the hard cap are unchanged.
-          const STREAM_TIMEOUT_MS = 60_000;        // 1 min soft
-          const STREAM_GRACE_MS = 60_000;          // 1 min grace
+          // The knobs shrink both windows for a test that drives the real route.
+          const STREAM_TIMEOUT_MS = Number(process.env.TOPICS_STREAM_SOFT_MS) || 60_000; // 1 min soft
+          const STREAM_GRACE_MS = Number(process.env.TOPICS_STREAM_GRACE_MS) || 60_000;  // 1 min grace
           const STREAM_HARD_TIMEOUT_MS = 30 * 60_000; // 30 min hard upper-bound
           let softTimer: ReturnType<typeof setTimeout> | null = null;
           let graceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1228,6 +1229,25 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             if (softTimer) { clearTimeout(softTimer); softTimer = null; }
             if (graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
             if (hardTimer) { clearTimeout(hardTimer); hardTimer = null; }
+          };
+
+          /**
+           * Close the turn in the database AND tell the screens about it.
+           * `endStream` returns the tool calls it cancelled, and that list is
+           * the only event able to switch off a panel already drawn: dropped by
+           * the two watchdogs below, it left the spinner spinning and a
+           * question clickable on a turn that was over.
+           */
+          const endStreamAndAnnounce = (opts?: Parameters<typeof endStream>[1]): ToolCall[] => {
+            const interruptedTools = endStream(sessionKey, opts);
+            for (const tc of interruptedTools) {
+              broadcastStreamToTopic({
+                type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id,
+                toolCallId: tc.id, status: "error",
+                result: tc.result, error: tc.error, endedAt: tc.endedAt,
+              }, matchedTopic?.id);
+            }
+            return interruptedTools;
           };
 
           /**
@@ -1353,7 +1373,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // what the client draws the banner off (`interrupted-turn-block`).
             const graceBlocks = appendInterruptedVerdict(blocks, { text: timeoutMsg, cause: "watchdog" });
             updateLastMessage(sessionKey, { content: fullContent, blocks: graceBlocks, partial: undefined, streamedAt: undefined });
-            endStream(sessionKey);
+            endStreamAndAnnounce();
             topicProvider.unregisterStreamHandler?.(sessionKey);
             // Abort the underlying provider turn too. `unregisterStreamHandler` is
             // a no-op for providers that don't implement it (e.g. ClaudeCodeProvider),
@@ -1409,7 +1429,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // witnesses of the same turn must not disagree.
             const hardBlocks = appendInterruptedVerdict(blocks, { text: msg, cause: "watchdog" });
             updateLastMessage(sessionKey, { content: fullContent, blocks: hardBlocks, partial: undefined, streamedAt: undefined });
-            endStream(sessionKey);
+            endStreamAndAnnounce();
             topicProvider.unregisterStreamHandler?.(sessionKey);
             // See handleGraceExpiry: abort the orphaned provider turn (no-op
             // unregister otherwise leaves the process running).
@@ -1898,6 +1918,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // the BLOCKS, and in the text only when there is no text.
               blocks.push({ kind: "error", text: cutNotice.replace(/^⚠️\s*/, "") });
               if (!fullContent.trim()) fullContent = cutNotice;
+              // AND THE END MUST SAY IT WENT WRONG, or `stream:end` carries no
+              // `reason: "error"` and the push gate mutes the cut turn.
+              turnError = cutNotice;
               console.warn(`[StreamWS] ${sessionKey}: turn cut by the output cap`);
               if (matchedTopic) {
                 broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: cutNotice });
@@ -1995,41 +2018,19 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               ? discardIfEmptyTurn(sessionKey, finalizedMsg)
               : null;
             if (discardedMessageId) console.log(`[StreamWS] ${sessionKey}: turno vuoto scartato (${discardedMessageId})`);
-            // Two things this call does, and both used to be thrown away here.
-            //
-            // It CANCELS every tool still awaiting a human, because the turn is
-            // over and a click would reach nobody. The plan approval is the one
-            // ask that must survive: this same function installed it a few
-            // hundred lines above, its answer opens a NEW turn, and no provider
-            // will ever send a result for that id. Without the exemption the
-            // panel was already `error` in the database before anyone saw it,
-            // and after a reload even the bar above the composer was gone,
-            // because `findPendingAsk` looks for `waiting_for_input`.
-            //
-            // And it RETURNS what it cancelled. That list is the only event
-            // able to switch off a panel already on screen: dropped, the form
-            // stayed grey on `Invio...` over a turn that no longer exists. The
-            // stale-stream sweeper announces its own list the same way.
-            const interrupted = endStream(
-              sessionKey,
+            // This CANCELS every tool still awaiting a human (the turn is over,
+            // a click would reach nobody) and announces the list, which is what
+            // switches those panels off on a screen that is already open: see
+            // `endStreamAndAnnounce`. The plan approval is the one ask exempted:
+            // this same function installed it a few hundred lines above, its
+            // answer opens a NEW turn, and no provider will ever send a result
+            // for that id. Without the exemption the panel was `error` in the
+            // database before anyone saw it, and after a reload even the bar
+            // above the composer was gone (`findPendingAsk` looks for
+            // `waiting_for_input`).
+            const interrupted = endStreamAndAnnounce(
               askingPlanApproval && pendingPlan ? { keepAwaiting: [pendingPlan.toolCallId] } : undefined,
             );
-            for (const tc of interrupted) {
-              broadcastStreamToTopic({
-                type: "stream:tool_result",
-                sessionKey,
-                topicId: matchedTopic?.id,
-                toolCallId: tc.id,
-                status: "error",
-                // The row's own output, not an empty string: cancelling a tool
-                // does not erase what it had already printed, and the database
-                // still has it, so a screen wiped here would come back on the
-                // next reload.
-                result: tc.result,
-                error: tc.error,
-                endedAt: tc.endedAt,
-              }, matchedTopic?.id);
-            }
             topicProvider.unregisterStreamHandler?.(sessionKey, handler);
 
             // Detect sub-agent launches

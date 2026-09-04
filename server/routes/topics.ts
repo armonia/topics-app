@@ -42,7 +42,7 @@ import { parseTranscriptFacts } from "../lib/external-claude-sessions";
 import { EFFORT_TIERS } from "../../shared/effort";
 // Only the «delivery» side: the waiting legs (beginAsk/waitForAnswer) live in
 // the human channel, in ./permission.
-import { deliverAnswer, hasPendingAsk } from "../lib/ask-user-bridge";
+import { deliverAnswer, hasPendingAsk, cancelAsk } from "../lib/ask-user-bridge";
 // "Waiting on you" is also read off the ROW: the panel's questions travel over
 // the MCP bridge, not the provider's native channel, and after a restart no
 // in-memory map remembers them. See lib/waiting-ask.ts.
@@ -1555,6 +1555,7 @@ export function createTopicsRouter(
             purgeFromUiState: (id) => purgeTopicFromUiState(ctx.db, broadcastToAll, id),
             parkClaudeSession: parkTopicSession,
             recordRetirement: (id, at) => recordRetirement(ctx.db, "topic", id, at, "archive"),
+            cancelPendingAsk: cancelAsk,
           }, params.id);
           // Bug #12: if the purge fails we return 500 — topic is archived but
           // ui_state is stale, so client-side reload will see a phantom id.
