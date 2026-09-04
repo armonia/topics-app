@@ -233,7 +233,7 @@ const SECURITY_RUN_TIMEOUT_MS = 15 * 60_000;
  * asserted for real; the fourth is asserted when the network is asked for.
  */
 const REGISTRY_TESTS = process.env.TOPICS_NETWORK_TESTS === "1";
-const OFFLINE_PIECES = "--only=data,home,secrets";
+const NO_NETWORK_PIECES = "--only=data,home,secrets";
 
 describe("check:security - i pezzi che vogliono l'albero vero", () => {
   let copia = "";
@@ -258,7 +258,7 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
   test(REGISTRY_TESTS
     ? "la copia parte verde su tutti e quattro i pezzi"
     : "la copia parte verde sui tre pezzi che non chiedono la rete", () => {
-    const { code, out } = REGISTRY_TESTS ? esegui(copia) : esegui(copia, OFFLINE_PIECES);
+    const { code, out } = REGISTRY_TESTS ? esegui(copia) : esegui(copia, NO_NETWORK_PIECES);
     expect(out).toContain("pubblicabile");
     expect(code).toBe(0);
   }, SECURITY_RUN_TIMEOUT_MS);

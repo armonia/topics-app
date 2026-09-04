@@ -2800,7 +2800,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             // at once, 40 minutes each before anyone noticed. Back to todo, where
             // the dispatcher claims it fresh with the thread (feedback included).
             try {
-              const requeued = svc.update({
+              const backInQueue = svc.update({
                 taskId: bReview.taskId, actor: "human", by: HUMAN, projectId: bReview.projectId,
                 patch: { status: "todo" },
               });
@@ -2810,9 +2810,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                   content: "Rifiutata senza una sessione da riprendere (il binding all'agente era sciolto): torna in coda e riparte con il thread, invece di restare in lavorazione senza nessuno.",
                 });
               } catch { /* the requeue is what matters */ }
-              broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task: requeued });
-              if (requeued.status === "todo") dispatcher.onEnterTodo(bReview.projectId, bReview.taskId);
-              return json(requeued);
+              broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task: backInQueue });
+              if (backInQueue.status === "todo") dispatcher.onEnterTodo(bReview.projectId, bReview.taskId);
+              return json(backInQueue);
             } catch (err) {
               console.warn(`[Tasks] requeue after unbound reject failed for ${bReview.taskId}:`, err);
             }
