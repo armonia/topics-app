@@ -1187,7 +1187,20 @@ export function ChatInput({
                 {pendingImages.map((img, index) => (
                   <div key={`img-${index}`} data-testid="composer-attachment" className="relative inline-block">
                     <ZoomableImage src={img.dataUrl} alt="Pasted image" className="h-[80px] max-w-[160px] object-cover rounded-lg border border-app-border-light" />
-                    <button type="button" onClick={() => setPendingImages(prev => prev.filter((_, i) => i !== index))} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600">×</button>
+                    {/* 20x20 with no accessible name, sitting on the corner of
+                        an image that OPENS THE LIGHTBOX when tapped: missing it
+                        did not do nothing, it did the other thing.
+                        `tap-expand` claims the corner for the remove: that area
+                        overlaps the image, and the button wins it by being
+                        later in the DOM. It is the intended trade -- a finger
+                        aiming at the corner badge means the badge. */}
+                    <button
+                      type="button"
+                      aria-label={tr('chat.attachments.removeImage')}
+                      data-testid="composer-image-remove"
+                      onClick={() => setPendingImages(prev => prev.filter((_, i) => i !== index))}
+                      className="tap-expand absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 coarse:w-6 coarse:h-6 flex items-center justify-center text-xs hover:bg-red-600"
+                    >×</button>
                   </div>
                 ))}
                 {pendingFiles.map((file, index) => (
@@ -1198,7 +1211,18 @@ export function ChatInput({
                       <div className="relative flex items-center gap-1.5 bg-app-hover rounded-lg px-2 py-1 text-[11px]">
                         <Paperclip size={14} className="text-app-text-tertiary" />
                         <span className="max-w-24 truncate text-app-text-secondary">{file.name}</span>
-                        <button type="button" onClick={() => removePendingFile(index)} className="ml-0.5 text-red-400 hover:text-red-500 font-bold text-xs">×</button>
+                        {/* ~8x16 and nameless. `tap-expand-y` and not the full
+                            square: these chips wrap in a `gap-1.5` row, and a
+                            44px square here would reach over the NEXT chip and
+                            take its remove with it. Vertical only costs the
+                            neighbour nothing (see index.css). */}
+                        <button
+                          type="button"
+                          aria-label={tr('chat.attachments.removeFile', { name: file.name })}
+                          data-testid="composer-file-remove"
+                          onClick={() => removePendingFile(index)}
+                          className="tap-expand-y ml-0.5 inline-flex items-center justify-center text-red-400 hover:text-red-500 font-bold text-xs coarse:h-6 coarse:w-6"
+                        >×</button>
                       </div>
                     )}
                   </div>

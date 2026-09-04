@@ -239,7 +239,7 @@ export const PREVIEW_RULE = [
  * per board (`reviewChecks`) — questa stringa non li sostituisce, li precede.
  */
 export const CODE_GATES_RULE = [
-  "THE SEVEN CODE GATES, and ALL of them hold before you deliver — the script names you read in `package.json`, the gates you do not: types (`bun run typecheck`), lint (`bun run lint`), dead code (`bun run check:deadcode`), unit tests (`bun run test:unit`), prose (`bun run check:emdash`), comment language (`bun run check:comment-language`), identifier language (`bun run check:identifier-language`: every NEW name you declare, constants and test fixtures included, must be an English word or go into PROJECT_WORDS with a reason; on 2026-09-04 thirty-five Italian test names landed green through the other six and turned main red).",
+  "THE SEVEN CODE GATES, and ALL of them hold before you deliver — the script names you read in `package.json`, the gates you do not: types (`bun run typecheck`), lint (`bun run lint`), dead code (`bun run check:deadcode`), unit tests (`bun test <the files you touched and the tests that import them>`; the FULL `bun run test:unit` is what the board runs when you deliver, inside your worktree, and its verdict comes back in the `update_task` result: do not run the whole suite yourself, and never in the background with nohup, because under a fleet it is the single heaviest thing on this machine and on 2026-09-04 two orphaned copies of it, left by a cut turn, drove the load to 115 on 12 cores), prose (`bun run check:emdash`), comment language (`bun run check:comment-language`), identifier language (`bun run check:identifier-language`: every NEW name you declare, constants and test fixtures included, must be an English word or go into PROJECT_WORDS with a reason; on 2026-09-04 thirty-five Italian test names landed green through the other six and turned main red).",
   "The fifth one is new and it surprises people: `check:emdash` rejects the long dash in ANY text in the repo, protocol strings and the comments you write in the code included. You do not replace it with a short dash: the sentence the dash was holding together was two sentences, and they split. If the character IS the data, the line ends with `// allow-emdash: <reason>`.",
   "THE REPO IS ENGLISH, and that includes the comments you write. `bun run check:comment-language` is a ratchet: it does not ask you to translate what is already there, it fails when a file gains a NEW Italian comment line. So write the comment in English the first time, because a comment written in Italian will not land. When the Italian IS the subject (a quoted message, a term of art, someone's exact words), the line ends with `allow-italian: <reason>`. This is about the CODE. What you write to the person on the board follows the language line above, which is a separate question.",
   "The third one is the one everybody forgets: for the dead-code gate, a file NOBODY IMPORTS is dead code. So a script you run by hand (a probe, a bench, a measurement) has to be DECLARED among the project entries in the same commit that adds it — with knip: the entry with the `!` suffix in `knip.jsonc` (like `scripts/disk-report.ts!`), and next to it the comment line that says how it is run.",
@@ -813,6 +813,8 @@ export type QueueReasonKind =
   | 'parent_idle'    // è uno step e il padre non è al lavoro: non lo lavora nessuno
   | 'heavy_hold'     // è PESANTE, aspetta margine, e intanto tiene ferma la coda
   | 'heavy_busy'     // un ALTRO task pesante è al lavoro e si prende la macchina da solo
+  | 'resource_floor' // the machine is under the RAM/disk floor: no agent is admitted at all
+  | 'spend_cap'      // the 24h spend cap is reached: the queue holds until it scrolls or you raise it
   | 'checklist_frozen' // in review senza domande aperte, ma con la checklist aperta: approvarla non la chiude
   | 'children_parked' // sta CHIEDENDO cosa fare dei suoi step fermi: il chip ne porta il numero
   | 'parked'         // in backlog: il dispatcher non guarda questa colonna
@@ -871,6 +873,7 @@ export interface QueueReason {
 export const QUEUE_REASON_KINDS: QueueReasonKind[] = [
   'slot', 'blocked', 'deferred', 'attempts', 'dispatch_off', 'no_project',
   'parent_review', 'parent_turn', 'parent_idle', 'heavy_hold', 'heavy_busy',
+  'resource_floor', 'spend_cap',
   'checklist_frozen', 'children_parked', 'parked', 'no_agent', 'unknown',
 ];
 
@@ -894,6 +897,8 @@ export const QUEUE_REASON_MESSAGE_KEYS: Record<QueueReasonKind, string[]> = {
   parent_idle: ['board.queue.parentIdle'],
   heavy_hold: ['board.queue.heavyHold.alone', 'board.queue.heavyHold.blocking'],
   heavy_busy: ['board.queue.heavyBusy'],
+  resource_floor: ['board.queue.resourceFloor'],
+  spend_cap: ['board.queue.spendCap'],
   checklist_frozen: ['board.queue.checklistFrozen.one', 'board.queue.checklistFrozen.many'],
   children_parked: ['board.queue.childrenParked.one', 'board.queue.childrenParked.many'],
   parked: [
@@ -950,6 +955,21 @@ export interface QueueContext {
   heavyInFlight?: boolean;
   /** Quanti task idonei stanno DIETRO: quelli che il `break` sta fermando. */
   behind?: number;
+  /**
+   * THE FLOOR AND THE CEILING, the two blocks that stop the WHOLE machine.
+   *
+   * The tick reads them once per round (`admissionBlock() ?? dayBlock()`) and
+   * skips every card of every board: not one slot is missing, no slot is going
+   * to free up, and nothing moves until the disk, the RAM or the 24h spend
+   * window says otherwise. Without this the card fell through to `slot` and
+   * said "queued · next up" for hours, which is the opposite of what happens.
+   *
+   * `reason` is the sentence the block itself composed, with its numbers: it
+   * travels because those numbers are the answer ("2.1 GB free against a floor
+   * of 3"), and recomputing them on the client would mean measuring another
+   * machine.
+   */
+  dispatchBlock?: { kind: 'resources' | 'spend'; reason: string } | null;
   /** Lo stato del padre, per uno step. `null` = non è uno step, o padre sparito. */
   parentStatus: TaskStatus | string | null;
   /** Vero quando il task non ha una board con una directory (`_none`). */
@@ -1289,6 +1309,26 @@ export function deriveQueueReason(
   // fatto e la mossa: non c'è mossa, riparte da sé.
   if (ctx.heavyInFlight) {
     return { kind: 'heavy_busy', tone: 'waiting', key: 'board.queue.heavyBusy' };
+  }
+
+  // THE INVISIBLE BRAKE. Under the RAM/disk floor, or over the 24h spend cap,
+  // the tick skips EVERY card and puts the same `queued` chip on all of them.
+  // Falling through to the queue branch, the card said "in coda, la prossima"
+  // with the tooltip "it starts as soon as an agent slot frees up": no slot is
+  // missing, none is going to free up, and the board sits still for hours while
+  // every card claims the opposite.
+  //
+  // Tone `stalled` for both: a disk does not empty itself and a cap is raised
+  // by a person. The spend one is second because the tick reads it second
+  // (`admissionBlock() ?? dayBlock()`), and a machine out of RAM does not start
+  // anything even with the ledger at zero.
+  if (ctx.dispatchBlock) {
+    return {
+      kind: ctx.dispatchBlock.kind === 'spend' ? 'spend_cap' : 'resource_floor',
+      tone: 'stalled',
+      key: ctx.dispatchBlock.kind === 'spend' ? 'board.queue.spendCap' : 'board.queue.resourceFloor',
+      params: { reason: ctx.dispatchBlock.reason },
+    };
   }
 
   return {

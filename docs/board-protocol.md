@@ -46,6 +46,15 @@ equivalente, le parole esatte di qualcuno) la riga finisce con
 `allow-italian: <perche>`. Per leggere il debito di un file:
 `bun run scripts/check-comment-language.ts --list <path>`.
 
+**La suite unit intera la fa girare la BOARD, non l'agente (dal 04/09/2026).**
+L'envelope chiede all'agente `bun test <i file toccati e i test che li importano>`;
+il `bun run test:unit` completo parte alla consegna, nel suo worktree, e l'esito
+torna nel risultato di `update_task`. Prima ogni agente lanciava la suite piena
+da sé (spesso con `nohup … &` per poi leggere il log), e la board la rilanciava
+alla consegna: con sei agent erano fino a tre suite in parallelo sui tre slot
+del gate, più le copie orfane lasciate da un turno tagliato — misurato load 115
+su 12 core alle 14:40 del 04/09. Il carico sono i cancelli, non gli agent.
+
 **Il settimo cancello sono i NOMI (dal 04/09/2026).** `check:comment-language`
 legge i commenti e non vede un identificatore: nella notte del 04/09 trentacinque
 nomi italiani di test e costanti sono passati verdi da tutti i cancelli della

@@ -11,7 +11,7 @@ import { describe, expect, test } from "bun:test";
 import {
   chatDaRiprendere, FINESTRA_RIPRESA_MS, MAX_RESUME_ATTEMPTS, riprendiTurniInterrotti,
   RESPONSE_CEILING_MS, STREAM_CEILING_MS, RESUME_CAP_MARKER, attemptsInChain, attemptsOnRow,
-  resumeVerdict, type RigaDaValutare,
+  resumeVerdict, type RigaDaValutare, USER_TAIL_GRACE_MS, UNANSWERED_NOTICE,
 } from "./ripresa-boot";
 import { Database } from "bun:sqlite";
 import { insertRestartNotification } from "./boot-partial-sweep";
@@ -36,10 +36,25 @@ describe("quale chat riprende da sola", () => {
     expect(chatDaRiprendere(base, ORA)).toBe(true);
   });
 
-  test("l'ultima parola è dell'utente: ha ripreso lui", () => {
-    // Ha riscritto nel frattempo. Rimandare il suo messaggio vecchio gli
-    // farebbe rispondere due volte, di cui una a una domanda superata.
-    expect(chatDaRiprendere({ ...base, ruolo: "user" }, ORA)).toBe(false);
+  /**
+   * 2026-09-04, topic:6b9605e5: a message sent at 09:58 under a restart, no
+   * answer row ever born, and five hours of sweeps reading "the last word is
+   * the person's" as "they resumed by hand". Nobody had.
+   */
+  test("l'ultima parola è dell'utente e nessuno ha risposto: prima il cartello, poi si riprende", () => {
+    const tail: RigaDaValutare = { ...base, ruolo: "user", blocks: null, timestampMs: ORA - USER_TAIL_GRACE_MS - 1 };
+    expect(resumeVerdict(tail, ORA)).toBe("unanswered");
+    // Fresh: the answer row is on its way.
+    expect(resumeVerdict({ ...tail, timestampMs: ORA - 10_000 }, ORA)).toBe("no");
+    // A turn is live: they resumed by hand, or the answer is being written.
+    expect(resumeVerdict({ ...tail, streaming: true }, ORA)).toBe("no");
+    // A board card's chat: the dispatcher re-sends its own kickoff.
+    expect(resumeVerdict({ ...tail, boundToCard: true }, ORA)).toBe("no");
+    // Window and cap as for every interruption of ours.
+    expect(resumeVerdict({ ...tail, timestampMs: ORA - FINESTRA_RIPRESA_MS - 1 }, ORA)).toBe("no");
+    expect(resumeVerdict({ ...tail, attempts: MAX_RESUME_ATTEMPTS }, ORA)).toBe("capped");
+    // `chatDaRiprendere` only resends what already carries its notice.
+    expect(chatDaRiprendere(tail, ORA)).toBe(false);
   });
 
   test("nessun verdetto di interruzione: il turno è finito bene, o l'ha fermato lui", () => {
@@ -387,24 +402,53 @@ describe("la catena dei riavvii ha un tetto", () => {
     try { await work(); } finally { console.log = log; console.warn = warn; }
   };
 
-  test("tre boot di fila: ripreso, ripreso una seconda volta, poi fermo e detto in chat", async () => {
+  test("l'ultima riga è dell'utente da cinque minuti e nessun turno è vivo: cartello, poi rimando, una volta", async () => {
+    const db = freshDb();
+    db.run("UPDATE messages SET timestamp = ? WHERE id = 'u0'", [new Date(Date.now() - 5 * 60_000).toISOString()]);
+    const calls: Array<Record<string, unknown>> = [];
+    await quietly(() => riprendiTurniInterrotti(ctxOf(db), chatRoute(db, calls)));
+    expect(calls.map((c) => (c.messages as Array<{ content: string }>)[0]?.content)).toEqual([MESSAGE]);
+    expect(calls[0]?.ripresa).toBe(1);
+    // The explanation came first (RESUME-02), parented to the person's row,
+    // and it carries the trace of the resend.
+    const notice = db.query(
+      "SELECT parent_id, blocks FROM messages WHERE session_key = 'topic:x' AND role = 'assistant' ORDER BY sort_order ASC LIMIT 1",
+    ).get() as { parent_id: string; blocks: unknown };
+    expect(notice.parent_id).toBe("u0");
+    expect(blocksOf(notice.blocks).some((b) => b.kind === "error" && (b as { text: string }).text === UNANSWERED_NOTICE)).toBe(true);
+    expect(blocksOf(notice.blocks).some((b) => b.kind === "ripreso")).toBe(true);
+    // The next sweep finds the answer the route deposited and leaves it alone.
+    await quietly(() => riprendiTurniInterrotti(ctxOf(db), chatRoute(db, calls)));
+    expect(calls).toHaveLength(1);
+  });
+
+  test("l'ultima riga è dell'utente ma un turno è in volo, o è fresca: non si tocca", async () => {
+    const live = freshDb();
+    live.run("UPDATE messages SET timestamp = ? WHERE id = 'u0'", [new Date(Date.now() - 5 * 60_000).toISOString()]);
+    const calls: Array<Record<string, unknown>> = [];
+    await quietly(() => riprendiTurniInterrotti({ ...ctxOf(live), isStreaming: () => ({ live: true }) }, chatRoute(live, calls)));
+    expect(calls).toHaveLength(0);
+    expect(lastRow(live).role).toBe("user");
+    const fresh = freshDb();
+    await quietly(() => riprendiTurniInterrotti(ctxOf(fresh), chatRoute(fresh, calls)));
+    expect(calls).toHaveLength(0);
+  });
+
+  test("boot di fila: ripreso fino al tetto, poi fermo e detto in chat", async () => {
     const db = freshDb();
     const calls: Array<Record<string, unknown>> = [];
     const route = chatRoute(db, calls);
 
-    // Boot 1: the turn died with the server, the notice is written, the resume fires.
-    serverDiedUnderTheTurn(db);
-    await quietly(() => riprendiTurniInterrotti(ctxOf(db), route, { responseMs: 500, streamMs: 500 }));
-    expect(calls.length).toBe(1);
-    expect(calls[0].ripresa).toBe(1);
+    // Boot 1..N: the turn (or its resume) died with the server each time; the
+    // notice is written and the resume fires, attempt numbered along the chain.
+    for (let boot = 1; boot <= MAX_RESUME_ATTEMPTS; boot++) {
+      serverDiedUnderTheTurn(db);
+      await quietly(() => riprendiTurniInterrotti(ctxOf(db), route, { responseMs: 500, streamMs: 500 }));
+      expect(calls.length).toBe(boot);
+      expect(calls[boot - 1].ripresa).toBe(boot);
+    }
 
-    // Boot 2: the RESUMED turn died with the server. One automatic retry.
-    serverDiedUnderTheTurn(db);
-    await quietly(() => riprendiTurniInterrotti(ctxOf(db), route, { responseMs: 500, streamMs: 500 }));
-    expect(calls.length).toBe(2);
-    expect(calls[1].ripresa).toBe(2);
-
-    // Boot 3: cut again. The chain has spent MAX_RESUME_ATTEMPTS: no resend...
+    // Boot N+1: cut again. The chain has spent MAX_RESUME_ATTEMPTS: no resend...
     serverDiedUnderTheTurn(db);
     await quietly(() => riprendiTurniInterrotti(ctxOf(db), route, { responseMs: 500, streamMs: 500 }));
     expect(calls.length).toBe(MAX_RESUME_ATTEMPTS);
@@ -418,7 +462,7 @@ describe("la catena dei riavvii ha un tetto", () => {
     expect(capBlocks.length).toBe(1);
     expect(capBlocks[0].kind).toBe("error");
 
-    // Boot 4: the cap notice is the last row. Nothing resumes, nothing is
+    // Boot N+2: the cap notice is the last row. Nothing resumes, nothing is
     // written twice.
     const rowsBefore = (db.query("SELECT COUNT(*) AS n FROM messages").get() as { n: number }).n;
     await quietly(() => riprendiTurniInterrotti(ctxOf(db), route, { responseMs: 500, streamMs: 500 }));
@@ -426,8 +470,8 @@ describe("la catena dei riavvii ha un tetto", () => {
     expect((db.query("SELECT COUNT(*) AS n FROM messages").get() as { n: number }).n).toBe(rowsBefore);
   });
 
-  test("il tetto e' due: una ripresa e un solo tentativo in piu'", () => {
-    expect(MAX_RESUME_ATTEMPTS).toBe(2);
+  test("il tetto e' quattro: tre riavvii pianificati in quaranta minuti non devono lasciare «premi Riprova» su una chat che nessuno ha toccato", () => {
+    expect(MAX_RESUME_ATTEMPTS).toBe(4);
   });
 
   /**

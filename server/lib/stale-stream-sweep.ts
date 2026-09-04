@@ -70,6 +70,11 @@ export interface StaleStreamSweepDeps {
   humanHoldAgeMs: (sessionKey: string) => number | null;
   /** `undefined` = il provider non sa rispondere, che qui vale «morto». */
   childAlive: (sessionKey: string) => boolean | undefined;
+  /** The fact the stall detector already reads (`isWaitingForChecks`): the
+   *  card bound to this session has OUR pre-review checks running or queued,
+   *  so a tool held open by that wait is never "hung". Optional: a caller with
+   *  no board answers nothing and the hung cap applies as before. */
+  waitingOnOurChecks?: (sessionKey: string) => boolean;
   resyncStream: (sessionKey: string) => void;
   cancelAsk: (sessionKey: string, reason: string) => void;
   updateStreamActivity: (sessionKey: string) => void;
@@ -287,6 +292,7 @@ export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, Sweep
     // depends only on `childAlive === false`, exactly as handleGraceExpiry
     // and handleHardTimeout already do in routes/chat.ts.
     const toolStartedAt = runningToolStartedAt(partial.toolCalls) ?? runningToolStartedAt(partial.blocks);
+    const ourChecks = deps.waitingOnOurChecks?.(sessionKey) ?? false;
     const verdict = staleStreamVerdict({
       silentMs: now - lastActivity,
       // The TRUE silence: `now - lastActivity` drops back under the threshold on
@@ -303,6 +309,7 @@ export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, Sweep
       // The age of the oldest tool still 'running', read off its own
       // `startedAt`: the one clock the extensions do not reset.
       toolRunningMs: toolStartedAt === null ? undefined : now - toolStartedAt,
+      waitingOnOurChecks: ourChecks,
       alreadyResynced: deps.rescued.has(sessionKey),
     });
     if (verdict === "ok") continue;
@@ -321,7 +328,11 @@ export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, Sweep
       // never finalize. Re-issuing a resync every 30s against a healthy but
       // quiet child is pure noise, so this leg only bumps the clock.
       // Il numero è il silenzio VERO, non la distanza dall'ultima proroga.
-      deps.warn(`[StaleStream] ${sessionKey} silent for ${Math.round((now - silenceSince) / 60_000)} min but its child is ALIVE: extending (a live turn is never killed by a clock)`);
+      // Say WHO is being waited on when it is us: a delivery sitting in the
+      // checks queue reads, from the outside, exactly like a hung tool.
+      deps.warn(ourChecks
+        ? `[StaleStream] ${sessionKey} silent for ${Math.round((now - silenceSince) / 60_000)} min, its tool is waiting on OUR pre-review checks: extending (that wait is ours)`
+        : `[StaleStream] ${sessionKey} silent for ${Math.round((now - silenceSince) / 60_000)} min but its child is ALIVE: extending (a live turn is never killed by a clock)`);
       bumpAndMark(deps, sessionKey, stream, silenceSince, now);
       outcomes.set(sessionKey, "extended");
       continue;

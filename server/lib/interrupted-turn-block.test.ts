@@ -13,11 +13,11 @@ import { interruptedTurnBlock, timelineWithInterruptedVerdict } from "./interrup
 import type { ContentBlock } from "../types";
 
 const AT = "2026-09-03T22:25:00.000Z";
-const testo = (t = "ci stavo lavorando"): ContentBlock => ({ kind: "text", text: t });
+const textBlock = (t = "ci stavo lavorando"): ContentBlock => ({ kind: "text", text: t });
 
 describe("interruptedTurnBlock", () => {
   test("la causa viaggia in codice, accanto al testo e all'istante", () => {
-    expect(interruptedTurnBlock([testo()], { text: "Response timed out.", cause: "watchdog", at: AT }))
+    expect(interruptedTurnBlock([textBlock()], { text: "Response timed out.", cause: "watchdog", at: AT }))
       .toEqual({ kind: "error", text: "Response timed out.", cause: "watchdog", at: AT });
   });
 
@@ -31,25 +31,25 @@ describe("interruptedTurnBlock", () => {
   });
 
   test("chi ha già spiegato tiene la sua spiegazione", () => {
-    const già: ContentBlock[] = [testo(), { kind: "error", text: "l'ha fermato la persona", cause: "user" }];
+    const già: ContentBlock[] = [textBlock(), { kind: "error", text: "l'ha fermato la persona", cause: "user" }];
     expect(interruptedTurnBlock(già, { text: "Response timed out.", cause: "watchdog", at: AT })).toBeNull();
   });
 
   test("il ⚠️ resta al formato vecchio: dentro il blocco è rumore", () => {
-    const b = interruptedTurnBlock([testo()], { text: "⚠️ Response timed out.", cause: "watchdog", at: AT });
+    const b = interruptedTurnBlock([textBlock()], { text: "⚠️ Response timed out.", cause: "watchdog", at: AT });
     expect(b).toEqual({ kind: "error", text: "Response timed out.", cause: "watchdog", at: AT });
   });
 });
 
 describe("timelineWithInterruptedVerdict - the reaper's half", () => {
   test("a turn cut mid answer gets the verdict at the end of its timeline", () => {
-    const timeline = timelineWithInterruptedVerdict([testo("stavo scrivendo")], {
+    const timeline = timelineWithInterruptedVerdict([textBlock("stavo scrivendo")], {
       text: "⚠️ Risposta interrotta: nessuna attività per 3 minuti.",
       cause: "watchdog",
       at: AT,
     });
     expect(timeline).toEqual([
-      testo("stavo scrivendo"),
+      textBlock("stavo scrivendo"),
       { kind: "error", text: "Risposta interrotta: nessuna attività per 3 minuti.", cause: "watchdog", at: AT },
     ]);
   });
@@ -63,12 +63,12 @@ describe("timelineWithInterruptedVerdict - the reaper's half", () => {
   });
 
   test("already explained: the sweep can run twice without stacking verdicts", () => {
-    const già: ContentBlock[] = [testo(), { kind: "error", text: "spiegato prima", cause: "watchdog", at: AT }];
+    const già: ContentBlock[] = [textBlock(), { kind: "error", text: "spiegato prima", cause: "watchdog", at: AT }];
     expect(timelineWithInterruptedVerdict(già, { text: "x", cause: "watchdog", at: AT })).toBeNull();
   });
 
   test("the source array is not mutated: the caller decides whether to write", () => {
-    const blocks = [testo("intatto")];
+    const blocks = [textBlock("intatto")];
     timelineWithInterruptedVerdict(blocks, { text: "x", cause: "watchdog", at: AT });
     expect(blocks).toHaveLength(1);
   });

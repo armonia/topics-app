@@ -1,13 +1,21 @@
 import { useEffect, useState } from 'react';
-import { Folder, FolderPlus, Music, Globe, Briefcase, Code2, Cpu, Leaf } from 'lucide-react';
+import { Folder } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 
 /**
- * PROGETTI DELL'ORGANIZZAZIONE: cosa c'e' gia' e cosa potrebbe esserci.
+ * THE PROJECTS OF THE ORGANISATION: what is there, and nothing else.
  *
- * Mostra i progetti gia' associati all'org di questa installazione, poi
- * propone una lista curata di spazi di lavoro utili per un'org come Armonia.
- * Non crea niente da sola: la proposta e' una guida, non un wizard.
+ * It used to also propose a curated list of workspaces. The list was six names
+ * from ONE installation, two of them badged «suggested», shipped to every
+ * install: whoever opened this panel read the name of a company that is not
+ * theirs and somebody else's personal projects presented as advice. A
+ * recommendation nobody can derive from the machine in front of them is not a
+ * guide, it is a leak. Next to each missing one sat a `FolderPlus` icon with no
+ * handler - it looked like «add this space» and did nothing.
+ *
+ * So the panel now shows what the installation actually has, and the one line
+ * that says how to add more. When there is something real to derive a proposal
+ * from, it can come back with a working command attached.
  */
 
 interface Project {
@@ -16,54 +24,6 @@ interface Project {
   path: string;
   incognito?: boolean;
 }
-
-/**
- * Una proposta porta la CHIAVE della sua descrizione, non la descrizione.
- * Il testo lo sceglie `useT()` al momento del disegno: scritto qui sarebbe
- * italiano fisso, e la riga che spiega a cosa serve uno spazio e' l'unica cosa
- * che di una proposta si legge davvero.
- */
-interface Proposta {
-  nome: string;
-  blurbKey: string;
-  icon: typeof Folder;
-  suggerito?: boolean;
-}
-
-const PROPOSTE: Proposta[] = [
-  {
-    nome: 'danceroom',
-    blurbKey: 'settings.org.projects.blurb.danceroom',
-    icon: Music,
-    suggerito: true,
-  },
-  {
-    nome: 'topics-app',
-    blurbKey: 'settings.org.projects.blurb.topicsApp',
-    icon: Cpu,
-    suggerito: true,
-  },
-  {
-    nome: 'finance',
-    blurbKey: 'settings.org.projects.blurb.finance',
-    icon: Briefcase,
-  },
-  {
-    nome: 'marketing',
-    blurbKey: 'settings.org.projects.blurb.marketing',
-    icon: Globe,
-  },
-  {
-    nome: 'dev',
-    blurbKey: 'settings.org.projects.blurb.dev',
-    icon: Code2,
-  },
-  {
-    nome: 'ops',
-    blurbKey: 'settings.org.projects.blurb.ops',
-    icon: Leaf,
-  },
-];
 
 export function OrgProjectsSection() {
   const t = useT();
@@ -82,17 +42,14 @@ export function OrgProjectsSection() {
     return () => { vivo = false; };
   }, []);
 
-  const namesProjects = new Set(progetti.map((p) => p.name.toLowerCase()));
-
   return (
     <div>
       <h3 className="mb-3 text-[11px] font-medium uppercase tracking-wide text-app-text-muted">
         {t('settings.org.projects.title')}
       </h3>
 
-      {/* Progetti gia' presenti */}
       {!caricamento && progetti.length > 0 && (
-        <div className="mb-4 overflow-hidden rounded-lg border border-app-border">
+        <div className="overflow-hidden rounded-lg border border-app-border">
           {progetti.map((p, i) => (
             <div
               key={p.id}
@@ -108,46 +65,10 @@ export function OrgProjectsSection() {
         </div>
       )}
       {!caricamento && progetti.length === 0 && (
-        <p className="mb-4 text-[12px] text-app-text-muted">
+        <p className="text-[12px] text-app-text-muted">
           {t('settings.org.projects.empty')}
         </p>
       )}
-
-      {/* Proposte */}
-      <h4 className="mb-2 text-[11px] font-medium text-app-text-muted">
-        {t('settings.org.projects.suggestedTitle')}
-      </h4>
-      <div className="overflow-hidden rounded-lg border border-app-border">
-        {PROPOSTE.map((proposta, i) => {
-          const Icon = proposta.icon;
-          const presente = namesProjects.has(proposta.nome.toLowerCase());
-          return (
-            <div
-              key={proposta.nome}
-              className={`flex items-center gap-2.5 px-3 py-2 ${i < PROPOSTE.length - 1 ? 'border-b border-app-border' : ''} ${presente ? 'opacity-50' : ''}`}
-            >
-              <Icon size={13} className={`flex-shrink-0 ${proposta.suggerito ? 'text-indigo-400' : 'text-app-text-tertiary'}`} />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[12px] font-medium text-app-text">{proposta.nome}</span>
-                  {proposta.suggerito && !presente && (
-                    <span className="rounded bg-indigo-500/15 px-1 py-0.5 text-[9px] font-medium text-indigo-400">
-                      {t('settings.org.projects.suggestedBadge')}
-                    </span>
-                  )}
-                  {presente && (
-                    <span className="text-[10px] text-app-text-muted">{t('settings.org.projects.alreadyThere')}</span>
-                  )}
-                </div>
-                <p className="text-[11px] text-app-text-muted">{t(proposta.blurbKey)}</p>
-              </div>
-              {!presente && (
-                <FolderPlus size={12} className="flex-shrink-0 text-app-text-tertiary opacity-50" />
-              )}
-            </div>
-          );
-        })}
-      </div>
 
       <p className="mt-2 text-[11px] text-app-text-muted">
         {t('settings.org.projects.hint')}

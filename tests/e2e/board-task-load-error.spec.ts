@@ -1,39 +1,39 @@
 /**
- * board-task-load-error.spec.ts — una lettura fallita si DICE, non si gira a
- * vuoto.
+ * board-task-load-error.spec.ts: a read that failed is SAID, not spun on.
  *
- * Il drawer del task ha una sola lettura (`load()` → GET del dettaglio) e la
- * fa in due momenti: al mount, e in coda a ogni mutazione (priorità, stato,
- * decisione, commento). Quando quella GET cadeva, i due momenti producevano
- * due silenzi diversi:
+ * The task drawer has a single read (`load()`, the GET of the detail) and runs
+ * it at two moments: on mount, and after every mutation (priority, status,
+ * decision, comment). When that GET fell over, the two moments produced two
+ * different silences:
  *
- *  · al MOUNT restava lo Spinner a tutta altezza, per sempre. Lo spinner
- *    promette che la riga sta arrivando, quindi nessuno chiudeva e riapriva —
- *    l'unica via d'uscita che c'era;
- *  · DOPO UNA MUTAZIONE il server era già cambiato e il drawer continuava a
- *    disegnare la riga di prima senza dirlo: il click sembrava non aver fatto
- *    niente, e chi lo ripeteva mandava una seconda scrittura.
+ *  · on MOUNT the full-height spinner stayed there forever. A spinner promises
+ *    the row is on its way, so nobody closed and reopened, which was the only
+ *    way out there was;
+ *  · AFTER A MUTATION the server had already changed and the drawer kept
+ *    drawing the previous row without saying so: the click looked like it had
+ *    done nothing, and whoever repeated it sent a second write.
  *
- * Ora il primo caso mostra un blocco d'errore col messaggio del server e un
- * «Riprova» (`task-load-error`), e la testata smette di dire «Carico…»; il
- * secondo mostra un avviso nella zona di decisione (`task-stale-warning`) col
- * suo «Riprova». Due stati, due test.
+ * Now the first case shows an error block with the server message and a Retry
+ * (`task-load-error`), and the header stops saying "Loading"; the second shows
+ * a warning in the decision area (`task-stale-warning`) with its own Retry.
+ * Two states, two tests.
  *
- * COME SI FA CADERE LA GET. `page.route` che abortisce SOLO il metodo GET su
- * `**\/api/boards/*\/tasks/*`: le PATCH sullo stesso path devono passare, perché
- * il secondo caso è proprio «l'azione è passata, l'aggiornamento no». Il glob
- * `*` non attraversa `/`, quindi `…/tasks/<id>/comments` e le altre sotto-rotte
- * non sono toccate — e nemmeno la lista `…/tasks`, che non ha il segmento in
- * più.
+ * HOW THE GET IS MADE TO FALL. A `page.route` that aborts ONLY the GET method
+ * on `**\/api/boards/*\/tasks/*`: PATCH on the same path must go through,
+ * because the second case is exactly "the action landed, the refresh did not".
+ * The `*` glob does not cross `/`, so `.../tasks/<id>/comments` and the other
+ * sub-routes are untouched, and so is the `.../tasks` list, which has no extra
+ * segment.
  *
- * COSA PROVA CHE IL DRAWER È CARICATO. `task-brief-scroll`, che esiste in
- * entrambi i layout ed è gated solo su `task`. Non `task-drawer-body`: quello
- * monta solo quando il gruppo del task ha delle pane, e un task mai
- * dispatchato ne ha zero. Non `task-brief-header`: esiste solo in modo largo.
+ * WHAT PROVES THE DRAWER IS LOADED. `task-brief-scroll`, which exists in both
+ * layouts and is gated on `task` alone. Not `task-drawer-body`: that mounts
+ * only when the task group has panes, and a task never dispatched has none.
+ * Not `task-brief-header`: it exists only in the wide layout.
  *
- * Il caso portante gira dentro `clipDiConsegna` (helpers/clip.ts): sotto
- * `E2E_CLIP=1` accende un contesto DEDICATO sul solo tratto utile e misura il
- * .webm. Il setup sta nel `prologo`, su una pagina il cui video si butta.
+ * The main case runs inside `clipDiConsegna` (helpers/clip.ts): under
+ * `E2E_CLIP=1` it opens a DEDICATED context on the useful stretch only and
+ * measures the .webm. Setup lives in the `prologo`, on a page whose video is
+ * thrown away.
  *
  * @covers KANBAN-08
  */
@@ -69,11 +69,11 @@ const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 const TASK = "Rivedere il contratto del drawer";
 
 /**
- * La GET del dettaglio e solo quella. Le mutazioni (PATCH/POST) sullo stesso
- * path passano: il secondo test è «l'azione è passata», quindi deve passare.
+ * The detail GET and only that one. Mutations (PATCH/POST) on the same path go
+ * through: the second test is "the action landed", so it has to land.
  */
-const DETTAGLIO = "**/api/boards/*/tasks/*";
-const abortisciSoloLaGet = (route: Route) =>
+const DETAIL = "**/api/boards/*/tasks/*";
+const abortOnlyTheGet = (route: Route) =>
   route.request().method() === "GET" ? route.abort() : route.continue();
 
 let topicId: string | null = null;
@@ -140,15 +140,15 @@ test.describe("Board · una lettura fallita del task si dice, non si gira a vuot
     const topic = await createTopic(request, "E2E-TaskLoad", { projectPath: PROJECT_PATH });
     topicId = topic.id;
 
-    // `review` senza ramo: nessun dispatcher lo prende, quindi nessun agente a
-    // metà scena; e fuori da backlog/todo il chip della priorità mostra il
-    // VALORE (non «Priorità auto»), che è ciò che il secondo test legge.
-    // Priorità 2 = Media, dichiarata: il test parte da un valore noto.
+    // `review` with no branch: no dispatcher picks it up, so no agent shows up
+    // mid-scene; and outside backlog/todo the priority chip shows the VALUE
+    // (not "auto priority"), which is what the second test reads. Priority 2 =
+    // Medium, stated: the test starts from a known value.
     taskId = await createTask(request, { text: TASK, status: "review", priority: 2 });
 
-    const riga = await readTask(request, taskId);
-    expect(riga.status, "il task parte in review").toBe("review");
-    expect(riga.priority, "priorità di partenza = Media").toBe(2);
+    const row = await readTask(request, taskId);
+    expect(row.status, "il task parte in review").toBe("review");
+    expect(row.priority, "priorità di partenza = Media").toBe(2);
   });
 
   test.afterAll(async ({ request }) => {
@@ -168,19 +168,19 @@ test.describe("Board · una lettura fallita del task si dice, non si gira a vuot
 
     await clipDiConsegna({
       nome: "board-task-load-error",
-      // Il contesto è NOSTRO: niente di `use` arriva qui da solo. `locale`
-      // perché l'app senza risponde in inglese; 1280×680 = 0,531 di rapporto,
-      // perché sopra 0,70 la card taglia la clip dal basso invece di
-      // rimpicciolirla.
+      // The context is OURS: nothing from `use` reaches here on its own.
+      // `locale` because without it the app answers in English; 1280x680 =
+      // 0.531 ratio, because above 0.70 the card crops the clip from the
+      // bottom instead of shrinking it.
       context: {
         baseURL: BASE,
         locale: "it-IT",
         viewport: { width: 1280, height: 680 },
         reducedMotion: "reduce",
       },
-      // FUORI DALLA REGISTRAZIONE: aprire il progetto e montare la board è
-      // lavoro di scena, non la scena. Nessuna route qui: il prologo deve
-      // vedere l'app sana.
+      // OUTSIDE THE RECORDING: opening the project and mounting the board is
+      // stagehand work, not the scene. No route here: the prologue has to see
+      // a healthy app.
       prologo: async (p) => {
         await p.goto("/");
         await openProjectBoard(p);
@@ -188,14 +188,15 @@ test.describe("Board · una lettura fallita del task si dice, non si gira a vuot
         await waitForProjectPaneType(request, PROJECT_PATH, "kanban");
       },
       scena: async (page) => {
-        // La route PRIMA del goto: la pagina nasce con la GET del dettaglio già
-        // rotta, la lista della board (`…/tasks`, senza segmento) passa.
-        await page.route(DETTAGLIO, abortisciSoloLaGet);
+        // The route BEFORE the goto: the page is born with the detail GET
+        // already broken, while the board list (`.../tasks`, no extra
+        // segment) goes through.
+        await page.route(DETAIL, abortOnlyTheGet);
         await page.goto("/");
         const card = page.locator(`[data-task-card="${taskId}"]`);
         await expect(card).toBeVisible({ timeout: 20000 });
-        // Review è la quarta colonna: senza questo la scena comincia su
-        // Backlog. `toBeVisible` non scorre in orizzontale.
+        // Review is the fourth column: without this the scene starts on
+        // Backlog. `toBeVisible` does not scroll horizontally.
         await card.scrollIntoViewIfNeeded();
         await didascalia(page, "La card sulla board: il server del dettaglio non risponde");
         await beat(page, 1400);
@@ -204,26 +205,26 @@ test.describe("Board · una lettura fallita del task si dice, non si gira a vuot
         const drawer = page.getByTestId("task-detail-drawer");
         await expect(drawer).toBeVisible({ timeout: 10000 });
 
-        // PRIMO STATO: il blocco d'errore, col suo bottone. Non lo spinner
-        // (nessun anello che gira nel drawer) e non la riga caricata.
-        const errore = drawer.getByTestId("task-load-error");
-        await expect(errore).toBeVisible({ timeout: 10000 });
-        await expect(errore.getByTestId("task-load-retry")).toBeVisible();
+        // FIRST STATE: the error block with its button. Not the spinner (no
+        // ring turning inside the drawer) and not the loaded row.
+        const errorBox = drawer.getByTestId("task-load-error");
+        await expect(errorBox).toBeVisible({ timeout: 10000 });
+        await expect(errorBox.getByTestId("task-load-retry")).toBeVisible();
         await expect(drawer.locator(".animate-spin")).toHaveCount(0);
         await expect(drawer.getByTestId("task-brief-scroll")).toHaveCount(0);
-        // La testata non promette più «Carico…»: il chip dello stato non ha
-        // l'anello. Si legge il segno, non la parola.
+        // The header no longer promises "Loading": the status chip has no
+        // ring. We read the sign, not the word.
         await expect(drawer.getByTestId("task-status-chip").locator(".animate-spin")).toHaveCount(0);
         await didascalia(page, "Il drawer lo dice, e offre Riprova");
         await beat(page, 1800);
 
-        // Il server torna. Il Riprova rifà la stessa `load()`.
-        await page.unroute(DETTAGLIO, abortisciSoloLaGet);
+        // The server comes back. Retry runs the same `load()` again.
+        await page.unroute(DETAIL, abortOnlyTheGet);
         await didascalia(page, "Il server torna: Riprova");
         await beat(page, 1000);
-        await errore.getByTestId("task-load-retry").click();
+        await errorBox.getByTestId("task-load-retry").click();
 
-        // SECONDO STATO: la riga caricata, l'errore sparito.
+        // SECOND STATE: the row loaded, the error gone.
         await expect(drawer.getByTestId("task-brief-scroll")).toBeVisible({ timeout: 10000 });
         await expect(drawer).toContainText(TASK);
         await expect(drawer.getByTestId("task-load-error")).toHaveCount(0);
@@ -238,7 +239,7 @@ test.describe("Board · una lettura fallita del task si dice, non si gira a vuot
     await resetProjectPanes(request, PROJECT_PATH);
     await seedProjectPane(request, PROJECT_PATH);
 
-    // Drawer caricato con l'app SANA: nessuna route ancora.
+    // Drawer loaded against a HEALTHY app: no route yet.
     await page.goto("/");
     await openProjectBoard(page);
     const card = page.locator(`[data-task-card="${taskId}"]`);
@@ -254,34 +255,37 @@ test.describe("Board · una lettura fallita del task si dice, non si gira a vuot
     const primaDelClick = (await chip.textContent())?.trim() ?? "";
     expect(primaDelClick, "il chip mostra un valore").not.toBe("");
 
-    // ORA cade la sola GET: la PATCH della priorità passa, la `load()` in coda no.
-    await page.route(DETTAGLIO, abortisciSoloLaGet);
+    // NOW only the GET falls: the priority PATCH lands, the `load()` behind
+    // it does not.
+    await page.route(DETAIL, abortOnlyTheGet);
     await chip.click();
-    // Le voci del menu seguono `PRIORITY_ORDER` = [4,3,2,1,0]; la selezionata è
-    // la 2 (Media). Si sceglie quella SOPRA (3): un valore diverso, senza
-    // scrivere una parola del menu nel test.
-    const opzioni = page.getByRole("listbox").getByRole("option");
-    await expect(opzioni).toHaveCount(5);
-    await expect(opzioni.nth(2)).toHaveAttribute("aria-selected", "true");
-    await opzioni.nth(1).click();
+    // The menu items follow `PRIORITY_ORDER` = [4,3,2,1,0]; the selected one
+    // is 2 (Medium). We pick the one ABOVE (3): a different value, without
+    // writing a single menu word into the test.
+    const options = page.getByRole("listbox").getByRole("option");
+    await expect(options).toHaveCount(5);
+    await expect(options.nth(2)).toHaveAttribute("aria-selected", "true");
+    await options.nth(1).click();
 
-    // L'avviso: l'azione è passata, l'aggiornamento no. Col suo Riprova, e il
-    // chip ancora sul valore di prima — che è esattamente la riga vecchia.
-    const avviso = drawer.getByTestId("task-stale-warning");
-    await expect(avviso).toBeVisible({ timeout: 10000 });
-    await expect(avviso.getByTestId("task-stale-retry")).toBeVisible();
+    // The warning: the action landed, the refresh did not. With its Retry,
+    // and the chip still on the previous value, which is exactly the stale
+    // row.
+    const warning = drawer.getByTestId("task-stale-warning");
+    await expect(warning).toBeVisible({ timeout: 10000 });
+    await expect(warning.getByTestId("task-stale-retry")).toBeVisible();
     await expect(chip).toHaveText(primaDelClick);
 
-    // SUL SERVER è passata davvero: non una vernice sul client.
+    // ON THE SERVER it really landed: not paint on the client.
     expect((await readTask(request, taskId)).priority, "la PATCH è arrivata").toBe(3);
 
-    // Il server torna: il Riprova rilegge, l'avviso sparisce, il valore nuovo
-    // è a schermo (il chip cambia testo; la riga non è più quella vecchia).
-    await page.unroute(DETTAGLIO, abortisciSoloLaGet);
-    await avviso.getByTestId("task-stale-retry").click();
+    // The server comes back: Retry re-reads, the warning disappears, the new
+    // value is on screen (the chip changes text; the row is no longer the
+    // stale one).
+    await page.unroute(DETAIL, abortOnlyTheGet);
+    await warning.getByTestId("task-stale-retry").click();
     await expect(drawer.getByTestId("task-stale-warning")).toHaveCount(0, { timeout: 10000 });
     await expect(chip).not.toHaveText(primaDelClick);
-    // E il menu, riaperto, ha la selezione sulla voce cliccata.
+    // And the menu, reopened, has the selection on the item that was clicked.
     await chip.click();
     await expect(page.getByRole("listbox").getByRole("option").nth(1)).toHaveAttribute("aria-selected", "true");
     await page.keyboard.press("Escape");

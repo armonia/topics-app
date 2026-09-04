@@ -109,6 +109,11 @@ export const PROJECT_WORDS = new Set([
   // it parses), and `entities` is the plural of `entity` exactly as `entries` is
   // of `entry`: both reach identifiers through the markup they read.
   "href", "entities",
+  // Three names git itself uses, read verbatim from its own flags and output in
+  // `server/lib/topic-changes.ts`: `numstat` is `git diff --numstat`, `pathspec`
+  // is git's own word for the path filter, `stat` is `--stat`. Renaming them
+  // would put a gap between the code and the command it parses.
+  "numstat", "pathspec", "stat",
   // `affordance` is design vocabulary this repository already speaks - the
   // file `tests/e2e/chat-affordances-audit.spec.ts` predates the gate - and no
   // 1934 word list carries it. There is no English word to rename it to that
@@ -146,6 +151,17 @@ export const PROJECT_WORDS = new Set([
   // `onToolExecStart`, the signal that tells a tool ANNOUNCED apart from a
   // tool RUNNING.
   "exec", "executing",
+  // The vocabulary of git and POSIX, read straight off the commands this
+  // repository runs: `git diff --numstat` is parsed in `git-numstat.ts`,
+  // `pathspec` is git's own name for the path filter passed to it, and `stat`
+  // is the system call every file-size read goes through. Renaming any of them
+  // would make the code stop naming the thing it calls.
+  "numstat", "pathspec", "stat",
+  // `dialog` is the ARIA role (`getByRole("dialog")`) and the DOM element
+  // (`<dialog>`), so the name has to match the platform it queries, and
+  // `lifecycle` is the standard word for the mount/unmount arc - it already
+  // names `useTerminalLifecycle.ts`. Neither is in the 1934 list.
+  "dialog", "lifecycle",
 
   // the product and its parts. "org" is the schema's own word, not an
   // abbreviation someone chose in passing: the tables are `orgs` and

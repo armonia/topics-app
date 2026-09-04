@@ -254,3 +254,19 @@ I comandi sui riquadri NON SHALL comparire dove i riquadri non ci sono.
 #### Scenario: i comandi sui riquadri
 - **GIVEN** una superficie senza riquadri
 - **THEN** NON SHALL comparire i loro comandi
+
+### Requirement: ORG-PROJECTS-NO-HARDCODE-01 — Il pannello dei progetti dell'organizzazione non spedisce i progetti di UNA macchina a tutti
+
+Il pannello «progetti consigliati» delle impostazioni SHALL mostrare solo ciò
+che arriva dai dati dell'installazione. Le stringhe dell'interfaccia e il
+componente NON SHALL contenere nomi che esistono solo sulla macchina dove il
+pannello è stato scritto: il nome di un'azienda, i repository personali di
+qualcuno, questo stesso progetto.
+
+#### Scenario: i cataloghi e il componente
+- **GIVEN** i cataloghi delle due lingue e il componente del pannello
+- **THEN** nessuno dei nomi locali SHALL comparire
+
+#### Scenario: nessun consiglio senza dati
+- **GIVEN** un'installazione senza progetti dell'organizzazione
+- **THEN** il pannello NON SHALL inventare suggerimenti

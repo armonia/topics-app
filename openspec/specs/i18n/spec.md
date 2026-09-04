@@ -104,3 +104,44 @@ scrivono gli agenti sono contenuto, non interfaccia.
 #### Scenario: un nome di etichetta
 - **GIVEN** un'etichetta definita dall'utente
 - **THEN** NON SHALL essere tradotta
+
+### Requirement: I18N-04 - The surfaces where the wrong language costs something are read in the chosen one
+
+The whole e2e suite runs with the locale pinned to Italian, so an Italian literal
+hard-coded into a component breaks nothing there: it stays Italian in an English
+app and the person who finds out is a user. There SHALL be a bench that RUNS in
+the second language and reads, on screen, the three surfaces where reading the
+wrong words costs something: the PERMISSION panel (it decides whether an agent
+may touch files), the browser pane CONTEXT MENU, and the DESTRUCTIVE dialogs.
+
+The destructive dialogs SHALL be checked with the locale in Italian, deliberately:
+their defect was English leaking into the Italian interface, which is the mirror
+image of the other two.
+
+#### Scenario: the permission panel in the second language
+- **GIVEN** the interface in English
+- **THEN** the decision buttons SHALL read the English catalogue, not the Italian one
+
+#### Scenario: a destructive dialog in the home language
+- **GIVEN** the interface in Italian
+- **THEN** no button of the dialog SHALL be left in English
+
+### Requirement: I18N-05 - A key of a generated or native surface exists in BOTH catalogues
+
+`t()` falls back to the home language for a key the second one lacks: the right
+behaviour at runtime, and the wrong one to rely on, because a person reads the
+other language and nothing anywhere says so. For the surfaces a browser test
+CANNOT reach - a message key chosen on the SERVER, a menu drawn by a NATIVE view
+that headless CI does not have - there SHALL be a bench that reads the two
+catalogues together and fails when one side is missing a key.
+
+The two sides SHALL also DIFFER: an entry identical in both languages is how a
+surface declared translated stays untranslated.
+
+#### Scenario: a key the server chooses
+- **GIVEN** a message key picked by the server for a queue reason
+- **THEN** it SHALL exist in both catalogues
+
+#### Scenario: a menu no browser test can click
+- **GIVEN** the entries of the browser pane context menu
+- **THEN** each SHALL exist in both catalogues, with different text, and the component SHALL read the table instead of holding the words

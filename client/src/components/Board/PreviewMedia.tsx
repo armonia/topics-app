@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
-import { FileText, Maximize2, PanelTop, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, FileText, Maximize2, PanelTop, X } from 'lucide-react';
 import { getMediaUrl } from '../../lib/api';
 import { isVideoPath, isPreviewablePath } from '../../lib/mediaKind';
 import { MODAL_LAYER } from '../../lib/modalStyles';
@@ -72,6 +72,29 @@ function Lightbox({ url, video, onClose, su, giu, posizione }: {
         title={tr('board.preview.close')}
         className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-app-text hover:bg-white/20"
       ><X className="h-5 w-5" /></button>
+      {/* THE COUNTER PROMISED A NAVIGATION THAT DID NOT EXIST: «2 / 5» was on
+          screen while the only ways to move were the arrow keys and the wheel,
+          neither of which a phone has. The two commands are the same `su`/`giu`
+          the keyboard already called -- they add a door, not a behaviour.
+          `stopPropagation` because the backdrop closes on click. */}
+      {su && (
+        <button
+          onClick={(e) => { e.stopPropagation(); su(); }}
+          title={tr('board.preview.prev')}
+          aria-label={tr('board.preview.prev')}
+          data-testid="lightbox-prev"
+          className="absolute left-4 top-1/2 -translate-y-1/2 rounded-full bg-white/10 p-3 text-app-text hover:bg-white/20"
+        ><ChevronLeft className="h-6 w-6" /></button>
+      )}
+      {giu && (
+        <button
+          onClick={(e) => { e.stopPropagation(); giu(); }}
+          title={tr('board.preview.next')}
+          aria-label={tr('board.preview.next')}
+          data-testid="lightbox-next"
+          className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full bg-white/10 p-3 text-app-text hover:bg-white/20"
+        ><ChevronRight className="h-6 w-6" /></button>
+      )}
       {video ? (
         <video
           src={url}
@@ -258,6 +281,52 @@ export function PreviewMedia({ path, paths, variant, onOpenTab }: {
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
+  }, [slides.length]);
+
+  /* THE SAME GESTURE, FOR THE FINGER: the wheel above is the mouse's way
+   * through the slides, and a phone has no wheel -- so the carousel was inert
+   * on touch and the dots were the only way across, at 6px each.
+   *
+   * A horizontal swipe, and horizontal ON PURPOSE: vertical belongs to the
+   * column, which scrolls under the finger, and stealing it would make the
+   * board unscrollable wherever a card carries evidence. So the gesture only
+   * claims the touch once it is clearly sideways (`|dx| > |dy|`), and only past
+   * a threshold a tap cannot reach.
+   *
+   * Native and `{ passive: false }` for the reason written above about the
+   * wheel: React registers `touchmove` as passive, where `preventDefault()` is
+   * a no-op -- and without it the column scrolls under the slide mid-swipe. */
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || slides.length < 2) return;
+    let x0 = 0;
+    let y0 = 0;
+    let claimed = false;
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) { claimed = false; return; }
+      x0 = e.touches[0]!.clientX;
+      y0 = e.touches[0]!.clientY;
+      claimed = false;
+    };
+    const onMove = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (!t || claimed) return;
+      const dx = t.clientX - x0;
+      const dy = t.clientY - y0;
+      if (Math.abs(dx) < 32 || Math.abs(dx) <= Math.abs(dy)) return;
+      // Sideways and past the threshold: from here the touch is the
+      // carousel's, and the column must not scroll with it.
+      e.preventDefault();
+      e.stopPropagation();
+      claimed = true;
+      setI((n) => Math.max(0, Math.min(dx < 0 ? n + 1 : n - 1, slides.length - 1)));
+    };
+    el.addEventListener('touchstart', onStart, { passive: true });
+    el.addEventListener('touchmove', onMove, { passive: false });
+    return () => {
+      el.removeEventListener('touchstart', onStart);
+      el.removeEventListener('touchmove', onMove);
+    };
   }, [slides.length]);
 
   // IL TETTO È UN RAPPORTO, non un'altezza.
@@ -449,8 +518,15 @@ export function PreviewMedia({ path, paths, variant, onOpenTab }: {
               aria-label={tr('board.preview.slide', { n: n + 1, tot: slides.length })}
               aria-current={n === idx}
               data-testid={n === idx ? 'preview-slide-attiva' : 'preview-slide'}
-              className={`h-1.5 rounded-full transition-all ${
-                n === idx ? 'w-4 bg-white' : 'w-1.5 bg-white/50 hover:bg-white/80'
+              // 6px was the whole target: the bounding box IS the target here.
+              // `tap-expand-y` and not the 44px square, for the reason index.css
+              // spells out: these dots are 6px apart, so square areas would
+              // overlap each other and the LAST one in the DOM would take every
+              // tap -- one dot would answer for all of them. Vertical is the
+              // axis that has room, and on a coarse pointer the dot itself
+              // grows a little so it can be aimed at.
+              className={`tap-expand-y h-1.5 coarse:h-2.5 rounded-full transition-all ${
+                n === idx ? 'w-4 coarse:w-5 bg-white' : 'w-1.5 coarse:w-2.5 bg-white/50 hover:bg-white/80'
               }`}
             />
           ))}

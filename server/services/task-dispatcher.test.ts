@@ -16,6 +16,7 @@ import { PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_CARD_
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, LAND_ACTION_LABEL, type TaskService } from "./tasks";
 import { createTaskDispatcher, rotateFrom, summarizeToolInput, type DispatcherDeps } from "./task-dispatcher";
+import { currentDispatchBlock } from "./dispatch-block-signal";
 import { cancelled, type TurnEndInfo, describeTurnEnd } from "../providers/stop-reason";
 import { beginAsk, endAsk } from "../lib/ask-user-bridge";
 import { beginPermission, endPermission } from "../lib/permission-bridge";
@@ -3890,6 +3891,56 @@ describe("il pavimento delle risorse si spiega", () => {
     expect(blocchi[0]).toContain("pavimento");
     // E nessun agente è partito: il pavimento fa il suo lavoro.
     expect(h.topicsCreated).toHaveLength(0);
+  });
+
+  /**
+   * THE CARD SAYS IT TOO, and it used to be the one surface that did not.
+   *
+   * The log line above is for whoever opens a terminal. Whoever is looking at
+   * the board saw the `queued` chip and the queue sentence under it: "in coda,
+   * la prossima", "parte appena si libera uno slot agente". No slot is missing
+   * and none is going to free up. Two channels now: a line in the thread (once
+   * per episode, like the resume's twin path) and the block itself, published
+   * for the card mapper to read.
+   */
+  it("scrive il motivo nel thread, una volta per episodio, e lo pubblica per la card", async () => {
+    let bloccato = true;
+    let gb = 8.7;
+    const h = harness({
+      resourceBlock: () => (bloccato ? `Memoria quasi finita: ${(gb -= 0.1).toFixed(1)} GB disponibili, sotto il pavimento di 12 GB.` : null),
+    });
+    accendiDispatch(h.db);
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    await h.dispatcher.tick(PID);
+    await h.dispatcher.tick(PID);
+    await h.dispatcher.tick(PID);
+
+    const note = (h.svc.get("t1")?.comments ?? []).filter((c) => c.content.includes("Memoria quasi finita"));
+    expect(note).toHaveLength(1);
+    // Non è una parola dell'agente: è contabilità, e come tale non deve
+    // spostare il gate di review né coprire una domanda aperta.
+    expect(note[0]!.kind).toBe("service");
+    // E il blocco è leggibile da chi disegna la card: senza, la ragione
+    // ricadrebbe sul ramo della fila con la frase dello slot.
+    expect(currentDispatchBlock()).toMatchObject({ kind: "resources" });
+    expect(currentDispatchBlock()!.reason).toContain("GB disponibili");
+
+    // Rientrato il blocco, la card riparte e il segnale si spegne: un segnale
+    // che sopravvive al fatto che descrive è peggio di nessun segnale.
+    bloccato = false;
+    await h.dispatcher.tick(PID);
+    expect(currentDispatchBlock()).toBeNull();
+    expect(h.topicsCreated).toHaveLength(1);
+
+    // Un blocco NUOVO parla di nuovo, e parla alla card che ci finisce dentro.
+    bloccato = true;
+    seedTask(h.db, { id: "t2", status: "todo" });
+    await h.dispatcher.tick(PID);
+    expect(currentDispatchBlock()).toMatchObject({ kind: "resources" });
+    expect((h.svc.get("t2")?.comments ?? []).filter((c) => c.content.includes("Memoria quasi finita"))).toHaveLength(1);
+    // E la prima card non si è riempita di doppioni per strada.
+    expect((h.svc.get("t1")?.comments ?? []).filter((c) => c.content.includes("Memoria quasi finita"))).toHaveLength(1);
   });
 
   it("dice anche quando riparte, o l'ultima riga resterebbe un allarme per sempre", async () => {
