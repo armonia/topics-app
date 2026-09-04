@@ -34,7 +34,7 @@ import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
 import { CODE_GATES_RULE, DISPATCH_CHIP_QUEUED, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap } from "./dispatch-capacity";
-import { setDispatchBlock } from "./dispatch-block-signal";
+import { publishDispatchBlock } from "./dispatch-block-signal";
 import {
   bookSessionCost,
   createSpendBrake,
@@ -3555,27 +3555,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const resourceFloor = admissionBlock();
     const daySpendBlock = resourceFloor ? null : spendBrake.dayBlock();
     const floorBlock = resourceFloor ?? daySpendBlock;
-    // WHAT HOLDS THE WHOLE QUEUE, where the card can read it. Both blocks are
-    // about the machine, so no row records them: without this the mapper fell
-    // through to the queue branch and every card said "queued, next up" while
-    // nothing had moved for hours. Set every tick, `null` included, so it never
-    // outlives the block it describes (`dispatch-block-signal.ts`).
-    //
-    // The spend one is re-composed into a sentence: `dayBlock` returns the
-    // FRAGMENT the log line embeds ("spesa: $12 negli ultimi 24h ...") and a
-    // fragment dropped alone on a card reads like a truncated string.
-    const spendSentence = daySpendBlock
-      ? `Tetto di spesa giornaliero raggiunto (${daySpendBlock.replace(/^spesa:\s*/, "")}). `
-        + "Non parte niente su nessuna board finché la finestra delle 24 ore non scorre, "
-        + "oppure finché non alzi il tetto dalle impostazioni della board."
-      : null;
-    setDispatchBlock(
-      resourceFloor ? { kind: "resources", reason: resourceFloor }
-        : spendSentence ? { kind: "spend", reason: spendSentence }
-          : null,
-    );
-    /** The same block, as the line that goes in the thread once per episode. */
-    const floorNote = resourceFloor ?? spendSentence;
+    // WHAT HOLDS THE WHOLE QUEUE, published where the card mapper can read it
+    // (no row records these two: they are about the machine) and turned into
+    // the line for the thread. Called every tick, `null` included, so the
+    // signal never outlives the block it describes.
+    const floorNote = publishDispatchBlock(resourceFloor, daySpendBlock);
     // The spend caps, read ONCE per tick from the same '*' row that carries the
     // concurrency cap. With the caps off (zero = unlimited, the state of a fresh
     // install) this is the only extra read of the loop: no sum over the spend
@@ -3659,7 +3643,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // nothing started, on any board, for hours.
         //
         // Two channels, two different things: the chip is fed by
-        // `setDispatchBlock` above (it lives exactly as long as the block), the
+        // `publishDispatchBlock` above (it lives exactly as long as the block), the
         // thread line stays as the trace of what happened. One per EPISODE,
         // like the twin path of the resume already does - that discipline was
         // missing here entirely.

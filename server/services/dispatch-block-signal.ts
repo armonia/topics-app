@@ -43,3 +43,36 @@ export function setDispatchBlock(block: DispatchBlock | null): void {
 export function currentDispatchBlock(): DispatchBlock | null {
   return current;
 }
+
+/**
+ * The tick's verdict, published and turned into the line for the thread.
+ *
+ * Both arguments come straight out of the two brakes the tick already reads
+ * once per round (`admissionBlock()` and `SpendBrake.dayBlock()`); this is the
+ * one place that decides which of them wins and what it READS like, so the chip
+ * and the thread line cannot drift apart.
+ *
+ * The spend one is re-composed: `dayBlock` returns the FRAGMENT its log line
+ * embeds ("spesa: $12 negli ultimi 24h su un tetto di $10"), and a fragment   allow-italian: the quoted fragment the brake returns
+ * dropped alone on a card reads like a truncated string. The floor's message is
+ * already a sentence, with its numbers, and it travels as it is.
+ *
+ * Returns the sentence to write in the thread, or `null` when nothing is
+ * holding the queue.
+ */
+export function publishDispatchBlock(
+  resourceFloor: string | null,
+  daySpendBlock: string | null,
+): string | null {
+  const spend = daySpendBlock
+    ? `Tetto di spesa giornaliero raggiunto (${daySpendBlock.replace(/^spesa:\s*/, "")}). `
+      + "Non parte niente su nessuna board finché la finestra delle 24 ore non scorre, "   // allow-italian: the sentence shown on the card
+      + "oppure finché non alzi il tetto dalle impostazioni della board."                  // allow-italian: the sentence shown on the card
+    : null;
+  setDispatchBlock(
+    resourceFloor ? { kind: "resources", reason: resourceFloor }
+      : spend ? { kind: "spend", reason: spend }
+        : null,
+  );
+  return resourceFloor ?? spend;
+}
