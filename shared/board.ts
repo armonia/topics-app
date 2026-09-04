@@ -842,12 +842,71 @@ export type QueueTone = 'queued' | 'waiting' | 'stalled';
 export interface QueueReason {
   kind: QueueReasonKind;
   tone: QueueTone;
-  /** Prima parola del chip: «in coda», «ferma», «rinviata». */
-  head: string;
-  /** Il seguito: «3 davanti», «riprende alle 06:40», «tentativi finiti». */
-  detail: string;
-  /** Per esteso, nel tooltip: cosa succede dopo e cosa devi fare tu. */
-  title: string;
+  /**
+   * The i18n BASE key of the sentence, chosen here and rendered by whoever
+   * draws. `<key>.head`, `<key>.detail` and `<key>.title` are the three
+   * strings of the chip.
+   *
+   * The key and not the words: the phrase used to travel already composed, in
+   * Italian, from a module the language selector cannot reach. The reason for
+   * composing it here has not changed and is not weakened by this, because it
+   * was never about the words: the DECISION of which branch applies belongs to
+   * the side that decides not to dispatch. A client that picked the branch
+   * itself would keep answering yesterday's rule, with a confident face, the
+   * day the dispatcher changes. It still does not pick: it receives a key.
+   *
+   * Several kinds have more than one key, because a singular and a plural, or
+   * "in Backlog" and "in Review", are two sentences and not one sentence with
+   * a hole in it.
+   */
+  key: string;
+  /** The values the sentence interpolates: `{n}`, `{ahead}`, `{clock}`. */
+  params?: Record<string, string | number>;
+}
+
+/**
+ * Every kind, as data. The union above is the contract; this is the same list
+ * a test can walk to prove that each branch has somewhere to be written.
+ */
+export const QUEUE_REASON_KINDS: QueueReasonKind[] = [
+  'slot', 'blocked', 'deferred', 'attempts', 'dispatch_off', 'no_project',
+  'parent_review', 'parent_turn', 'parent_idle', 'heavy_hold', 'heavy_busy',
+  'checklist_frozen', 'children_parked', 'parked', 'no_agent', 'unknown',
+];
+
+/**
+ * The base keys each kind can emit. A kind with more than one entry is a kind
+ * whose sentence changes shape, not just its numbers: one step against three,
+ * a deferral in minutes against one on the clock, Backlog against Review.
+ */
+export const QUEUE_REASON_MESSAGE_KEYS: Record<QueueReasonKind, string[]> = {
+  slot: ['board.queue.slot.first', 'board.queue.slot.ahead'],
+  blocked: ['board.queue.blocked.named', 'board.queue.blocked.anon'],
+  deferred: [
+    'board.queue.deferred.soon', 'board.queue.deferred.soonBecause',
+    'board.queue.deferred.later', 'board.queue.deferred.laterBecause',
+  ],
+  attempts: ['board.queue.attempts'],
+  dispatch_off: ['board.queue.dispatchOff'],
+  no_project: ['board.queue.noProject'],
+  parent_review: ['board.queue.parentReview'],
+  parent_turn: ['board.queue.parentTurn'],
+  parent_idle: ['board.queue.parentIdle'],
+  heavy_hold: ['board.queue.heavyHold.alone', 'board.queue.heavyHold.blocking'],
+  heavy_busy: ['board.queue.heavyBusy'],
+  checklist_frozen: ['board.queue.checklistFrozen.one', 'board.queue.checklistFrozen.many'],
+  children_parked: ['board.queue.childrenParked.one', 'board.queue.childrenParked.many'],
+  parked: [
+    'board.queue.parked.backlog', 'board.queue.parked.backlogBecause',
+    'board.queue.parked.review', 'board.queue.parked.reviewBecause',
+  ],
+  no_agent: ['board.queue.noAgent'],
+  unknown: ['board.queue.unknown'],
+};
+
+/** The three catalogue entries every base key of a kind needs, flattened. */
+export function queueReasonKeys(kind: QueueReasonKind): string[] {
+  return QUEUE_REASON_MESSAGE_KEYS[kind].flatMap((base) => [`${base}.head`, `${base}.detail`, `${base}.title`]);
 }
 
 /** Il contesto che la ragione non può leggere dalla riga del task. */
@@ -923,8 +982,7 @@ export interface QueueContext {
  * chi legge un rosso sa che c'è un guasto da guardare.
  */
 export const QUEUE_REASON_UNKNOWN: QueueReason = {
-  kind: 'unknown', tone: 'stalled', head: 'ferma', detail: 'motivo non registrato',
-  title: 'Ferma, e il motivo non risulta: il server non è riuscito a calcolarlo. Non è «in coda». Apri il task e guarda il thread.',
+  kind: 'unknown', tone: 'stalled', key: 'board.queue.unknown',
 };
 
 /** Ore e minuti, 24h — il default di `QueueContext.formatTime`. */
@@ -948,15 +1006,9 @@ function shortId(id: string): string {
 }
 
 /** Le colonne in cui una promessa di ritorno in coda è una bugia, dette a parole. */
-const OUT_OF_QUEUE: Record<'backlog' | 'review', { where: string; what: string }> = {
-  backlog: {
-    where: 'in Backlog',
-    what: 'Trascinala in Todo per farla ripartire.',
-  },
-  review: {
-    where: 'in Review',
-    what: 'Decidi tu: approvala, rimandala indietro, oppure rimettila in Todo se il lavoro non è finito.',
-  },
+const OUT_OF_QUEUE: Record<'backlog' | 'review', string> = {
+  backlog: 'board.queue.parked.backlog',
+  review: 'board.queue.parked.review',
 };
 
 /**
@@ -982,13 +1034,13 @@ function outOfQueuePromise(
   column: 'backlog' | 'review',
 ): QueueReason | null {
   if (task.dispatchState !== 'waiting' && !task.dispatchDeferredUntil) return null;
-  const { where, what } = OUT_OF_QUEUE[column];
+  const base = OUT_OF_QUEUE[column];
+  // What it was waiting FOR is the one thing the column cannot say by itself,
+  // so it gets its own sentence rather than a hole that is empty half the time.
+  const because = task.dispatchError ? `${base}Because` : base;
   return {
-    kind: 'parked', tone: 'stalled', head: 'ferma',
-    detail: `${where.toLowerCase()}, fuori dalla coda`,
-    title:
-      `Il chip dice che torna in coda da sé, ma è ${where} e il dispatcher reclama solo la colonna Todo: ` +
-      `quella finestra non scade più per nessuno${task.dispatchError ? `. Aspettava: ${task.dispatchError}` : ''}. ${what}`,
+    kind: 'parked', tone: 'stalled', key: because,
+    params: task.dispatchError ? { reason: task.dispatchError } : undefined,
   };
 }
 
@@ -1098,16 +1150,16 @@ export function deriveQueueReason(
       if (task.deliveredReason !== 'parked_children') return null;
       const n = ctx.openSubtasks;
       return {
-        kind: 'children_parked', tone: 'stalled', head: 'serve te',
-        detail: n === 1 ? '1 step fermo' : `${n} step fermi`,
-        title: `Questa card sta chiedendo cosa fare di ${n === 1 ? 'uno step fermo' : `${n} step fermi`}: non li prende nessun dispatcher, li lavora solo l'agente di questa card dentro il proprio turno, e finché sono aperti approvarla non la chiude. Rispondi sulla card: rimettili in coda, oppure archivia quelli che non servono più.`,
+        kind: 'children_parked', tone: 'stalled',
+        key: n === 1 ? 'board.queue.childrenParked.one' : 'board.queue.childrenParked.many',
+        params: { n },
       };
     }
     const n = ctx.openSubtasks;
     return {
-      kind: 'checklist_frozen', tone: 'stalled', head: 'ferma',
-      detail: n === 1 ? '1 sottotask aperto' : `${n} sottotask aperti`,
-      title: `In review con ${n === 1 ? 'un sottotask ancora aperto' : `${n} sottotask ancora aperti`}: approvarla non la chiude, perché una card con un sottotask aperto non può andare in done. E quei passi non li prende nessun dispatcher: li lavora solo l'agente di questa card, dentro il proprio turno. Chiudili o archiviali, oppure rimetti questa card in coda e falla finire.`,
+      kind: 'checklist_frozen', tone: 'stalled',
+      key: n === 1 ? 'board.queue.checklistFrozen.one' : 'board.queue.checklistFrozen.many',
+      params: { n },
     };
   }
 
@@ -1138,10 +1190,7 @@ export function deriveQueueReason(
     if (task.status === 'in_progress') {
       // Presa da una persona: «in corso» è vero, e non c'è niente da dire.
       if (task.assignedTo) return null;
-      return {
-        kind: 'no_agent', tone: 'stalled', head: 'ferma', detail: 'nessun agente',
-        title: "È in corso, ma non c'è nessun agente al lavoro: il turno è finito senza consegnare, o la card è stata mossa qui a mano. Il dispatcher reclama solo la colonna Todo, quindi da qui non riparte da sola: rimettila in Todo, oppure prendila tu.",
-      };
+      return { kind: 'no_agent', tone: 'stalled', key: 'board.queue.noAgent' };
     }
 
     // In Backlog si TACE, di regola: quella colonna è il parcheggio, e dirlo
@@ -1155,56 +1204,50 @@ export function deriveQueueReason(
 
   if (task.parentTaskId) {
     if (ctx.parentStatus === 'review') {
-      return {
-        kind: 'parent_review', tone: 'stalled', head: 'ferma', detail: 'il padre aspetta te',
-        title: 'È uno step: parte solo dentro il turno del padre, e il padre è in review. Finché non approvi o rimandi indietro, questo step non lo lavora nessuno.',
-      };
+      return { kind: 'parent_review', tone: 'stalled', key: 'board.queue.parentReview' };
     }
     if (ctx.parentStatus === 'in_progress') {
-      return {
-        kind: 'parent_turn', tone: 'waiting', head: 'ferma', detail: 'la lavora il padre',
-        title: "È uno step: lo spunta l'agente del padre dentro il proprio turno. Non parte da solo, e non deve.",
-      };
+      return { kind: 'parent_turn', tone: 'waiting', key: 'board.queue.parentTurn' };
     }
-    return {
-      kind: 'parent_idle', tone: 'stalled', head: 'ferma', detail: 'il padre non è al lavoro',
-      title: 'È uno step, e il padre non ha nessun agente al lavoro. Nessuno lo prenderà: fai partire il padre, oppure staccalo e rendilo un task suo.',
-    };
+    return { kind: 'parent_idle', tone: 'stalled', key: 'board.queue.parentIdle' };
   }
 
   if (ctx.projectless) {
-    return {
-      kind: 'no_project', tone: 'stalled', head: 'ferma', detail: 'nessun progetto',
-      title: "Senza una board legata a una directory l'agente non ha una cartella in cui girare: non partirà mai. Assegna il task a un progetto.",
-    };
+    return { kind: 'no_project', tone: 'stalled', key: 'board.queue.noProject' };
   }
 
   const until = task.dispatchDeferredUntil;
   if (until && until > ctx.now) {
     const min = Math.max(1, Math.round((new Date(until).getTime() - new Date(ctx.now).getTime()) / 60000));
-    const when = min <= NEAR_DEFERRAL_MIN ? `fra ${min} min` : `alle ${(ctx.formatTime ?? formatClock)(until)}`;
+    const soon = min <= NEAR_DEFERRAL_MIN;
+    const base = soon ? 'board.queue.deferred.soon' : 'board.queue.deferred.later';
+    const params: Record<string, string | number> = soon
+      ? { min }
+      : { clock: (ctx.formatTime ?? formatClock)(until) };
+    if (task.dispatchError) params.reason = task.dispatchError;
     return {
-      kind: 'deferred', tone: 'waiting', head: 'rinviata', detail: `riprende ${when}`,
-      title: `L'agente aspetta una condizione esterna e ha liberato lo slot: torna in coda ${when}${task.dispatchError ? `. Motivo: ${task.dispatchError}` : ''}`,
+      kind: 'deferred', tone: 'waiting',
+      key: task.dispatchError ? `${base}Because` : base,
+      params,
     };
   }
 
   const b = task.blockedBy;
   const blockerOpen = !!task.blockedByTaskId && !(b && (b.status === 'done' || b.archived));
   if (blockerOpen) {
-    const who = b ? `«${b.text}»` : 'un altro task';
     return {
-      kind: 'blocked', tone: 'waiting', head: 'ferma',
-      detail: `aspetta ${shortId(task.blockedByTaskId!)}`,
-      title: `Non parte finché ${who} non chiude. Quando quello va in done questa torna in coda da sé: non devi rimetterla tu.`,
+      kind: 'blocked', tone: 'waiting',
+      key: b ? 'board.queue.blocked.named' : 'board.queue.blocked.anon',
+      params: b
+        ? { id: shortId(task.blockedByTaskId!), who: b.text }
+        : { id: shortId(task.blockedByTaskId!) },
     };
   }
 
   if (task.dispatchAttempts >= ctx.retryCap) {
     return {
-      kind: 'attempts', tone: 'stalled', head: 'ferma',
-      detail: 'tentativi finiti, rimettila in coda',
-      title: `Budget dei tentativi finito (${task.dispatchAttempts}/${ctx.retryCap}): non riparte da sola. Trascinala di nuovo in Todo per ridarle i tentativi, oppure guarda cosa la fa fallire.`,
+      kind: 'attempts', tone: 'stalled', key: 'board.queue.attempts',
+      params: { attempts: task.dispatchAttempts, cap: ctx.retryCap },
     };
   }
 
@@ -1215,10 +1258,7 @@ export function deriveQueueReason(
   // interruttore spento sarebbe una bugia: «in coda, N davanti» — non c'è
   // nessuna coda che scorre.
   if (!ctx.autoDispatch) {
-    return {
-      kind: 'dispatch_off', tone: 'stalled', head: 'ferma', detail: 'dispatch spento',
-      title: "Idonea, ma l'auto-dispatch è spento: questa colonna è una lista, non una coda. Non partirà nessuno finché non riaccendi l'interruttore.",
-    };
+    return { kind: 'dispatch_off', tone: 'stalled', key: 'board.queue.dispatchOff' };
   }
 
   // Un pesante trattenuto non «aspetta uno slot»: è il tappo. Viene dopo
@@ -1227,14 +1267,11 @@ export function deriveQueueReason(
   // lettera e completamente fuorviante: fa sembrare che manchi un posto, mentre
   // il posto c'è e a non muoversi è la fila intera per colpa di questa riga.
   if (ctx.heavyHeld) {
-    const dietro = ctx.behind ?? 0;
+    const behind = ctx.behind ?? 0;
     return {
-      kind: 'heavy_hold', tone: 'waiting', head: 'ferma la coda',
-      detail: dietro === 0 ? 'pesante, aspetta margine' : `pesante, ${dietro} dietro`,
-      title: dietro === 0
-        ? 'È un task PESANTE: parte da solo, quindi aspetta che la macchina abbia margine. Riparte da sé, non devi fare niente.'
-        : `È un task PESANTE e tiene la testa della coda: ${dietro} task dietro di lui non partono finché non parte questo. ` +
-          "Aspetta che la macchina abbia margine, e comunque parte entro il tetto d'attesa. Se ti serve prima la coda dietro, abbassagli la priorità.",
+      kind: 'heavy_hold', tone: 'waiting',
+      key: behind === 0 ? 'board.queue.heavyHold.alone' : 'board.queue.heavyHold.blocking',
+      params: { behind },
     };
   }
 
@@ -1251,20 +1288,13 @@ export function deriveQueueReason(
   // abbassarle la priorità sblocca qualcosa (non sblocca niente). Restano il
   // fatto e la mossa: non c'è mossa, riparte da sé.
   if (ctx.heavyInFlight) {
-    return {
-      kind: 'heavy_busy', tone: 'waiting', head: 'ferma',
-      detail: 'un pesante ha la macchina',
-      title: "C'è un task PESANTE al lavoro, e un pesante si prende la macchina da solo: finché non finisce quel turno non parte nessuno, "
-        + 'nemmeno le card leggere. Riparte da sé appena ha finito: non devi fare niente.',
-    };
+    return { kind: 'heavy_busy', tone: 'waiting', key: 'board.queue.heavyBusy' };
   }
 
   return {
-    kind: 'slot', tone: 'queued', head: 'in coda',
-    detail: ctx.ahead === 0 ? 'la prossima' : `${ctx.ahead} davanti`,
-    title: ctx.ahead === 0
-      ? 'Idonea e prima della fila: parte appena si libera uno slot agente.'
-      : `Idonea: aspetta uno slot agente, con ${ctx.ahead} task davanti nella coda. Parte da sola, non devi fare niente.`,
+    kind: 'slot', tone: 'queued',
+    key: ctx.ahead === 0 ? 'board.queue.slot.first' : 'board.queue.slot.ahead',
+    params: { ahead: ctx.ahead },
   };
 }
 

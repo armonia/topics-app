@@ -912,7 +912,7 @@ function ChatPaneComponent({
       finally { setCommandLoading(false); }
       return true;
     }
-    if (cmd === '/clear') { if (!await confirm({ title: 'Clear conversation?', body: 'A backup will be saved.', confirmLabel: 'Clear' })) return true; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); setCommandResult({ type: 'success', message: 'Conversation cleared' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
+    if (cmd === '/clear') { if (!await confirm({ title: tr('chat.clear.title'), body: tr('chat.clear.body'), confirmLabel: tr('chat.clear.confirm') })) return true; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); setCommandResult({ type: 'success', message: tr('chat.clear.done') }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     if (cmd === '/reasoning') { setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey); setCommandResult({ type: 'success', message: r.message || 'Reasoning toggled' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     if (cmd === '/help') { setCommandResult({ type: 'success', message: slashCommandsHelp(tr).join('\n') }); return true; }
 
@@ -1002,7 +1002,7 @@ function ChatPaneComponent({
       try {
         if (!rest) {
           setCommandResult(goal
-            ? { type: 'success', message: `Obiettivo: ${goal.content}` }
+            ? { type: 'success', message: tr('chat.goal.current', { goal: goal.content }) }
             : { type: 'error', message: tr('chat.goal.usage') });
           return true;
         }
@@ -1010,17 +1010,17 @@ function ChatPaneComponent({
         if (rest === 'fatto' || rest === 'done') {
           if (!goal) { setCommandResult({ type: 'error', message: tr('chat.goal.none') }); return true; }
           await closeGoal('achieved');
-          setCommandResult({ type: 'success', message: `Obiettivo raggiunto: ${goal.content}` });
+          setCommandResult({ type: 'success', message: tr('chat.goal.achieved', { goal: goal.content }) });
           return true;
         }
         if (rest === 'basta' || rest === 'stop') {
           if (!goal) { setCommandResult({ type: 'error', message: tr('chat.goal.none') }); return true; }
           await closeGoal('abandoned');
-          setCommandResult({ type: 'success', message: `Obiettivo abbandonato: ${goal.content}` });
+          setCommandResult({ type: 'success', message: tr('chat.goal.abandoned', { goal: goal.content }) });
           return true;
         }
         await declareGoal(rest);
-        setCommandResult({ type: 'success', message: `Obiettivo: ${rest}` });
+        setCommandResult({ type: 'success', message: tr('chat.goal.current', { goal: rest }) });
       } catch (e) {
         setCommandResult({ type: 'error', message: errMessage(e) });
       }

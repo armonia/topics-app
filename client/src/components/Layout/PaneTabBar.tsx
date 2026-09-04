@@ -1795,7 +1795,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               title={tr('tab.restartSession')}
             >
               <RotateCw size={14} />
-              <span className="flex-1 text-left">Ricarica</span>
+              <span className="flex-1 text-left">{tr('terminal.reload')}</span>
             </button>
           )}
           {/* "Rinomina" — inline editor (Enter saves, Esc cancels).  allow-italian: quoted UI string

@@ -65,8 +65,8 @@ describe("la ragione della coda arriva dal server, con la card", () => {
 
     // Il terzo entrato ha due task davanti: stessa priorità, più giovane.
     const r = s.get(terzo.id)!.task.queueReason!;
-    expect(r).toMatchObject({ kind: "slot", tone: "queued", head: "in coda", detail: "2 davanti" });
-    expect(s.get(primo.id)!.task.queueReason!.detail).toBe("la prossima");
+    expect(r).toMatchObject({ kind: "slot", tone: "queued", key: "board.queue.slot.ahead", params: { ahead: 2 } });
+    expect(s.get(primo.id)!.task.queueReason!.key).toBe("board.queue.slot.first");
   });
 
   test("la fila si conta su TUTTE le board: il tetto agenti è machine-wide", () => {
@@ -76,7 +76,7 @@ describe("la ragione della coda arriva dal server, con la card", () => {
     mv(s, altrove.id, "todo");
     const mio = s.create({ projectId: PID, text: "Il mio" });
     mv(s, mio.id, "todo");
-    expect(s.get(mio.id)!.task.queueReason!.detail).toBe("1 davanti");
+    expect(s.get(mio.id)!.task.queueReason!.params).toMatchObject({ ahead: 1 });
   });
 
   test("interruttore spento: la stessa card cambia ragione senza cambiare un campo suo", () => {
@@ -88,7 +88,7 @@ describe("la ragione della coda arriva dal server, con la card", () => {
     // client che deducesse dai campi direbbe ancora «in coda».
     s.setGlobalAutoDispatch(false);
     const r = s.get(t.id)!.task.queueReason!;
-    expect(r).toMatchObject({ kind: "dispatch_off", tone: "stalled", detail: "dispatch spento" });
+    expect(r).toMatchObject({ kind: "dispatch_off", tone: "stalled", key: "board.queue.dispatchOff" });
   });
 
   test("bloccata da un'altra card, e la ragione si spegne quando quella chiude", () => {
@@ -99,9 +99,9 @@ describe("la ragione della coda arriva dal server, con la card", () => {
 
     const r = s.get(dipendente.id)!.task.queueReason!;
     expect(r.kind).toBe("blocked");
-    expect(r.detail).toBe(`aspetta ${bloccante.id.slice(0, 8)}`);
+    expect(r.params).toMatchObject({ id: bloccante.id.slice(0, 8) });
     // Il titolo del bloccante lo risolve il server: sulla card non c'è.
-    expect(r.title).toContain("Migrare le foto");
+    expect(r.params).toMatchObject({ who: "Migrare le foto" });
 
     mv(s, bloccante.id, "done");
     expect(s.get(dipendente.id)!.task.queueReason!.kind).toBe("slot");
@@ -112,7 +112,7 @@ describe("la ragione della coda arriva dal server, con la card", () => {
     mv(s, t.id, "todo");
     db.prepare("UPDATE tasks SET dispatch_attempts = 2 WHERE id = ?").run(t.id);
     expect(s.get(t.id)!.task.queueReason).toMatchObject({
-      kind: "attempts", tone: "stalled", detail: "tentativi finiti, rimettila in coda",
+      kind: "attempts", tone: "stalled", key: "board.queue.attempts",
     });
 
     // Alzato il tetto, la stessa riga torna idonea: il numero non è sul task.
@@ -126,8 +126,9 @@ describe("la ragione della coda arriva dal server, con la card", () => {
     const fra20 = new Date(Date.now() + 20 * 60_000).toISOString();
     db.prepare("UPDATE tasks SET dispatch_deferred_until = ? WHERE id = ?").run(fra20, t.id);
     const r = s.get(t.id)!.task.queueReason!;
-    expect(r).toMatchObject({ kind: "deferred", tone: "waiting", head: "rinviata" });
-    expect(r.detail).toMatch(/^riprende fra (19|20|21) min$/);
+    expect(r).toMatchObject({ kind: "deferred", tone: "waiting", key: "board.queue.deferred.soon" });
+    expect(r.params!.min).toBeGreaterThanOrEqual(19);
+    expect(r.params!.min).toBeLessThanOrEqual(21);
   });
 
   test("uno step in todo dice del padre, non della coda", () => {
@@ -136,7 +137,7 @@ describe("la ragione della coda arriva dal server, con la card", () => {
     const step = s.create({ projectId: PID, text: "Uno step", parentTaskId: padre.id });
     mv(s, step.id, "todo");
     expect(s.get(step.id)!.task.queueReason).toMatchObject({
-      kind: "parent_review", tone: "stalled", detail: "il padre aspetta te",
+      kind: "parent_review", tone: "stalled", key: "board.queue.parentReview",
     });
   });
 
@@ -178,7 +179,8 @@ describe("la ragione della coda arriva dal server, con la card", () => {
     mv(s, padre.id, "review");
     const r = s.get(padre.id)!.task.queueReason!;
     expect(r).toMatchObject({ kind: "checklist_frozen", tone: "stalled" });
-    expect(r.detail).toBe("2 sottotask aperti");
+    expect(r.key).toBe("board.queue.checklistFrozen.many");
+    expect(r.params).toMatchObject({ n: 2 });
   });
 
   test("chiusi i sottotask, la stessa card in review torna muta", () => {
@@ -224,7 +226,7 @@ describe("la ragione della coda arriva dal server, con la card", () => {
     expect(chiesto.deliveredReason).toBe("parked_children");
     // …e il chip che l'umano deve vedere resta il suo, col numero attaccato.
     expect(chiesto.dispatchState).toBe("needs_input");
-    expect(chiesto.queueReason).toMatchObject({ kind: "children_parked", head: "serve te", detail: "1 step fermo" });
+    expect(chiesto.queueReason).toMatchObject({ kind: "children_parked", key: "board.queue.childrenParked.one", params: { n: 1 } });
     // Anche riletta da `get`, non solo sul payload della scrittura.
     expect(s.get(padre.id)!.task.queueReason!.kind).toBe("children_parked");
   });
@@ -251,7 +253,7 @@ describe("la ragione della coda arriva dal server, con la card", () => {
     expect(r.dispatch_state).toBe("needs_input");
     // «Non dice mai ferma» è la promessa, e regge anche ora che il chip porta il
     // numero: la testa resta la mossa, e `checklist_frozen` non compare.
-    expect(s.get(padre.id)!.task.queueReason!.head).toBe("serve te");
+    expect(s.get(padre.id)!.task.queueReason!.kind).toBe("children_parked");
     expect(s.get(padre.id)!.task.queueReason!.kind).not.toBe("checklist_frozen");
   });
 
@@ -281,7 +283,7 @@ describe("la ragione della coda arriva dal server, con la card", () => {
     mv(s, padre.id, "review");
     db.prepare("UPDATE tasks SET dispatch_state = 'waiting' WHERE id = ?").run(padre.id);
     expect(s.get(padre.id)!.task.queueReason).toMatchObject({
-      kind: "checklist_frozen", tone: "stalled", detail: "1 sottotask aperto",
+      kind: "checklist_frozen", tone: "stalled", key: "board.queue.checklistFrozen.one",
     });
   });
 
@@ -297,7 +299,7 @@ describe("la ragione della coda arriva dal server, con la card", () => {
     // mentre l'umano guarda la card che ha appena mosso.
     const t = s.create({ projectId: PID, text: "Appena mossa" });
     const dopo = mv(s, t.id, "todo");
-    expect(dopo.queueReason).toMatchObject({ kind: "slot", head: "in coda" });
+    expect(dopo.queueReason).toMatchObject({ kind: "slot", key: "board.queue.slot.first" });
   });
 });
 
@@ -331,7 +333,7 @@ describe("il motivo dell'attesa arriva sulla card, non solo nel thread", () => {
     const ferma = s.create({ projectId: PID, text: "Una qualunque" });
     mv(s, ferma.id, "todo");
     // Prima: nessun pesante, la fila scorre e la frase è quella della fila.
-    expect(s.get(ferma.id)!.task.queueReason).toMatchObject({ kind: "slot", head: "in coda" });
+    expect(s.get(ferma.id)!.task.queueReason).toMatchObject({ kind: "slot" });
 
     pesanteInVolo();
     // Il tick chipa `queued` su OGNI todo quando esce da quel ramo.
@@ -340,7 +342,8 @@ describe("il motivo dell'attesa arriva sulla card, non solo nel thread", () => {
     const r = s.get(ferma.id)!.task.queueReason!;
     expect(r.kind).toBe("heavy_busy");
     expect(r.tone).toBe("waiting");
-    expect(r.detail).not.toContain("davanti");
+    // The queue order is not named: nobody reads it here, the tick returns before the loop.
+    expect(r.key).not.toContain("slot");
   });
 
   test("la frase del CARICO resta diversa da quella del turno altrui", () => {
@@ -357,8 +360,9 @@ describe("il motivo dell'attesa arriva sulla card, non solo nel thread", () => {
     pesanteInVolo();
     const altrui = s.get(tappo.id)!.task.queueReason!;
     expect(altrui.kind).toBe("heavy_busy");
-    expect(altrui.detail).not.toBe(carico.detail);
-    expect(altrui.title).not.toBe(carico.title);
+    // Two different keys: the load sentence and the someone-else-is-running
+    // sentence must not collapse into one.
+    expect(altrui.key).not.toBe(carico.key);
   });
 
   test("uno STEP non prende la frase del pesante: la sua ragione è il padre", () => {

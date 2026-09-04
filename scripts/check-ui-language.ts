@@ -24,9 +24,20 @@
  *  · IN  -> JSX text nodes in tracked `.tsx` under `client/src`, plus the four
  *    attributes a person actually reads: `title`, `aria-label`, `placeholder`,
  *    `alt`.
+ *  · IN  -> string literals inside a JSX EXPRESSION CONTAINER in child
+ *    position: `{'Consenti'}`, `{n ? 'Invia' : 'Avanti'}`. allow-italian: the quoted labels ARE the example. The first cut
+ *    stripped every `{...}` before looking, so a label written as an
+ *    expression was invisible to a gate whose whole job is labels.
+ *  · IN  -> the value of a property a person reads: `label`, `message`,
+ *    `hint`, `title`, `head`, `detail`, `description`, `confirmLabel`,
+ *    `cancelLabel`, `placeholder`, `tooltip`. A dialog that takes its words
+ *    from an object literal is not less visible than one that inlines them.
  *  · IN  -> `error:` / `detail:` / `reason:` / `message:` string values in the
  *    tracked modules under `server/routes`. Those are the payloads the client
  *    prints straight into a toast or an inline error.
+ *  · IN  -> `client/src/lib/**.ts`, `client/src/hooks/**.ts` and `shared/**.ts`.
+ *    A `.ts` module has no JSX, which is exactly why the copy that lives there
+ *    (a decision label, a queue phrase, an error sentence) never got looked at.
  *  · OUT -> COMMENTS, always and on purpose. This repo's comments are Italian
  *    by design and there are thousands of them; policing prose in comments is a
  *    separate and much larger decision, and a gate that flagged them would be
@@ -34,9 +45,23 @@
  *    `scripts/check-script-naming.test.ts` already write down).
  *  · OUT -> test and spec files. Their strings are assertions, not copy, and
  *    several of them anchor Italian text on purpose.
- *  · OUT -> `client/src/lib/i18n.ts`. It is a `.ts`, so it is not scanned at
- *    all: the `it` dictionary IS the Italian, and flagging it would be flagging
- *    the feature.
+ *  · OUT -> the translation catalogues themselves (`i18n*.ts`), by name now
+ *    that `.ts` modules are scanned: the `it` dictionary IS the Italian, and
+ *    flagging it would be flagging the feature.
+ *
+ * THE SECOND PASS, and why it is a different question. Italian is only half of
+ * "this string cannot follow the chosen language". The other half is English
+ * hard-coded in a file that ALREADY imports `useT`: the surface was migrated,
+ * a later change wrote `Copy` straight into the JSX, and nothing complains
+ * because the gate was only ever looking for Italian. Those hits are counted
+ * as `untranslated`, in their own baseline map, because the fix is different
+ * (add a key) and the debt is much larger.
+ *
+ * The heuristic for "prose a person reads" is deliberately tight: two words or
+ * more, or one word from a short list of button verbs, capitalised, and never
+ * anything that smells like an identifier, a class name, a path or a URL. One
+ * false positive here costs more trust than ten missed strings, and this pass
+ * runs over files that are already doing the right thing.
  *
  * HOW THE MATCH WORKS. Whole tokens against a stopword list, never substrings:
  * "alter" must not trip on "alt", "content" must not trip on "con", and a
@@ -73,422 +98,10 @@ import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { resolve, relative } from "node:path";
 import { spawnSync } from "node:child_process";
 
-import { ACCENTS, STOPWORDS } from "./ui-language-words";
+import { ALLOW, I18N_CATALOGUES, scanFile, type Hit } from "./ui-language-scan";
 
 const ROOT = resolve(import.meta.dir, "..");
 const BASELINE_PATH = resolve(ROOT, "scripts/ui-language-baseline.json");
-
-/** The marker that turns one line into data instead of copy. */
-const ALLOW = "allow-italian:";
-
-/**
- * The four attributes a person reads. `value` and `name` are out: they are
- * almost always identifiers, and `children` is covered by the JSX text pass.
- */
-const READABLE_ATTRS = ["aria-label", "placeholder", "title", "alt"] as const;
-
-/** The payload keys a client renders verbatim into a toast or an inline error. */
-const PAYLOAD_KEYS = ["error", "detail", "reason", "message"] as const;
-
-
-interface Hit {
-  file: string;
-  line: number;
-  /** `jsx` | `attr:<name>` | `payload:<key>`, so a report says WHY it looked. */
-  where: string;
-  words: string[];
-  text: string;
-}
-
-interface Literal {
-  /** Offsets of the literal's CONTENT in the source, delimiters excluded. */
-  start: number;
-  end: number;
-}
-
-interface Lexed {
-  /**
-   * The source with comments AND string contents blanked to spaces, byte
-   * positions preserved. Every structural scan (attributes, braces, JSX
-   * angles) runs on this, so a `>` or a `{` inside a string cannot fake
-   * structure and a `title=` inside a string cannot fake an attribute.
-   */
-  codeOnly: string;
-  literals: Literal[];
-}
-
-/** After these, a `/` opens a regex literal instead of dividing. */
-const REGEX_CAN_FOLLOW = new Set([
-  "", "(", ",", "=", ":", "[", "!", "&", "|", "?", "{", "}", ";",
-  "+", "-", "*", "%", "~", "^", "<", ">", "\n",
-]);
-
-/**
- * One pass over the file. Templates are recorded as one literal per raw chunk
- * between `${...}` holes, which is exactly what the token check wants: an
- * interpolated value is code and must not be read as prose.
- */
-function lex(src: string): Lexed {
-  const chars = src.split("");
-  const literals: Literal[] = [];
-  // One entry per template literal we are currently inside via a `${` hole.
-  const templates: { braces: number }[] = [];
-  let i = 0;
-  let prev = "";
-
-  const blank = (from: number, to: number): void => {
-    for (let k = from; k < to && k < chars.length; k++) {
-      if (chars[k] !== "\n") chars[k] = " ";
-    }
-  };
-
-  /** Reads raw template text from `pos` up to the closing backtick or a hole. */
-  const readTemplateChunk = (pos: number): void => {
-    let j = pos;
-    while (j < src.length) {
-      if (src[j] === "\\") {
-        j += 2;
-        continue;
-      }
-      if (src[j] === "`") {
-        literals.push({ start: pos, end: j });
-        blank(pos, j);
-        i = j + 1;
-        prev = "`";
-        return;
-      }
-      if (src[j] === "$" && src[j + 1] === "{") {
-        literals.push({ start: pos, end: j });
-        blank(pos, j);
-        templates.push({ braces: 0 });
-        i = j + 2;
-        prev = "{";
-        return;
-      }
-      j++;
-    }
-    literals.push({ start: pos, end: j });
-    blank(pos, j);
-    i = j;
-  };
-
-  while (i < src.length) {
-    const c = src[i];
-    const next = src[i + 1];
-
-    if (c === "/" && next === "/") {
-      const nl = src.indexOf("\n", i);
-      const stop = nl === -1 ? src.length : nl;
-      blank(i, stop);
-      i = stop;
-      continue;
-    }
-
-    if (c === "/" && next === "*") {
-      const close = src.indexOf("*/", i + 2);
-      const stop = close === -1 ? src.length : close + 2;
-      blank(i, stop);
-      i = stop;
-      continue;
-    }
-
-    if (c === "/" && REGEX_CAN_FOLLOW.has(prev)) {
-      // A regex body can hold backticks and angle brackets. Left alive it opens
-      // a phantom template and swallows the rest of the file, which is the
-      // false positive `check-emdash.ts` already had to fix once.
-      let j = i + 1;
-      let inClass = false;
-      let closed = false;
-      while (j < src.length && src[j] !== "\n") {
-        if (src[j] === "\\") {
-          j += 2;
-          continue;
-        }
-        if (src[j] === "[") inClass = true;
-        else if (src[j] === "]") inClass = false;
-        else if (src[j] === "/" && !inClass) {
-          j++;
-          closed = true;
-          break;
-        }
-        j++;
-      }
-      if (closed) {
-        blank(i + 1, j - 1);
-        i = j;
-        prev = "/";
-        continue;
-      }
-      // Never closed on this line: it was a division after all.
-    }
-
-    // An apostrophe INSIDE a word is not a quote: `c'è`, `l'agente`, `don't`.
-    // Read as a string opener it blanks the rest of the line, and with it the
-    // `<` that closes the JSX text node, so the whole sentence goes unseen.
-    // The test is the character immediately before, with no space: JavaScript
-    // never puts a string literal straight after an identifier character, so
-    // `case 'a'` and `return 'x'` (which have one) still open normally.
-    if (c === "'" && /[A-Za-z0-9À-ÿ]/.test(src[i - 1] ?? "")) {
-      prev = c;
-      i++;
-      continue;
-    }
-
-    if (c === "'" || c === '"') {
-      let j = i + 1;
-      while (j < src.length && src[j] !== c && src[j] !== "\n") {
-        if (src[j] === "\\") j++;
-        j++;
-      }
-      literals.push({ start: i + 1, end: j });
-      blank(i + 1, j);
-      i = Math.min(j + 1, src.length);
-      prev = c;
-      continue;
-    }
-
-    if (c === "`") {
-      readTemplateChunk(i + 1);
-      continue;
-    }
-
-    if (c === "{" && templates.length > 0) {
-      templates[templates.length - 1]!.braces++;
-      i++;
-      prev = "{";
-      continue;
-    }
-
-    if (c === "}" && templates.length > 0) {
-      const top = templates[templates.length - 1]!;
-      if (top.braces === 0) {
-        templates.pop();
-        readTemplateChunk(i + 1);
-        continue;
-      }
-      top.braces--;
-      i++;
-      prev = "}";
-      continue;
-    }
-
-    if (c !== undefined && c.trim() !== "") prev = c;
-    i++;
-  }
-
-  return { codeOnly: chars.join(""), literals };
-}
-
-/** Offsets where each line starts, so a hit can name a line you can open. */
-function lineIndex(src: string): number[] {
-  const starts = [0];
-  for (let i = 0; i < src.length; i++) if (src[i] === "\n") starts.push(i + 1);
-  return starts;
-}
-
-function lineOf(starts: number[], offset: number): number {
-  let lo = 0;
-  let hi = starts.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    if (starts[mid]! <= offset) lo = mid;
-    else hi = mid - 1;
-  }
-  return lo + 1;
-}
-
-/**
- * The Italian words in a piece of text, empty when it reads as English.
- *
- * The hyphen is part of a token, not a separator, and that is the whole of the
- * "whole token" rule in practice: English writes "non-empty", "non-null",
- * "non-zero" all over the server's validation errors, and splitting on the
- * hyphen would hand back "non", the commonest Italian word there is. Italian
- * copy in this repo does not hyphenate, so nothing real is lost.
- */
-function italianWords(text: string): string[] {
-  const found = new Set<string>();
-  if (ACCENTS.test(text)) found.add("<accent>");
-  for (const raw of text.toLowerCase().split(/[^a-zàèéìòù-]+/)) {
-    const token = raw.replace(/^-+|-+$/g, "");
-    if (token.length >= 3 && STOPWORDS.has(token)) found.add(token);
-  }
-  return [...found];
-}
-
-/** Removes balanced `{...}` regions, keeping byte positions. */
-function stripBraces(chunk: string): string {
-  const out = chunk.split("");
-  let depth = 0;
-  for (let i = 0; i < out.length; i++) {
-    if (out[i] === "{") {
-      depth++;
-      out[i] = " ";
-      continue;
-    }
-    if (out[i] === "}") {
-      if (depth > 0) depth--;
-      out[i] = " ";
-      continue;
-    }
-    if (depth > 0 && out[i] !== "\n") out[i] = " ";
-  }
-  return out.join("");
-}
-
-/** True when this line, or the line the literal opens on, waives the rule. */
-function waived(rawLines: string[], hitLine: number, openLine: number): boolean {
-  return (
-    (rawLines[hitLine - 1] ?? "").includes(ALLOW) ||
-    (rawLines[openLine - 1] ?? "").includes(ALLOW)
-  );
-}
-
-/** The literals whose content starts inside `[from, to)`, in source order. */
-function literalsIn(literals: Literal[], from: number, to: number): Literal[] {
-  return literals.filter((l) => l.start >= from && l.start < to);
-}
-
-function excerpt(text: string): string {
-  const flat = text.replace(/\s+/g, " ").trim();
-  return flat.length > 120 ? `${flat.slice(0, 117)}...` : flat;
-}
-
-/**
- * Punctuation that prose does not use and code cannot avoid. A span between a
- * `>` and a `<` is not always a JSX text node: `a > b ... <` leaves a slice of
- * real code in the middle, and an Italian IDENTIFIER in it (there are still a
- * few) would be reported as a text a user reads, which it is not. That is a
- * different problem with a different fix, so the span is dropped here.
- */
-const CODE_RESIDUE = /[;=]|&&|\|\|/;
-
-/**
- * JSX text nodes: everything between a `>` and the next `<` in the structural
- * view, minus the `{...}` holes.
- */
-function scanJsxText(file: string, src: string, lexed: Lexed, starts: number[], rawLines: string[]): Hit[] {
-  const hits: Hit[] = [];
-  const code = lexed.codeOnly;
-  for (let i = 0; i < code.length; i++) {
-    if (code[i] !== "<") continue;
-    const open = code.lastIndexOf(">", i - 1);
-    if (open === -1) continue;
-    const chunk = stripBraces(code.slice(open + 1, i));
-    if (CODE_RESIDUE.test(chunk)) continue;
-    const words = italianWords(chunk);
-    if (words.length === 0) continue;
-    const line = lineOf(starts, open + 1 + Math.max(0, chunk.search(/\S/)));
-    if (waived(rawLines, line, lineOf(starts, open))) continue;
-    hits.push({ file, line, where: "jsx", words, text: excerpt(chunk) });
-  }
-  return hits;
-}
-
-/** The four attributes, whether written as a bare literal or inside braces. */
-function scanAttributes(file: string, src: string, lexed: Lexed, starts: number[], rawLines: string[]): Hit[] {
-  const hits: Hit[] = [];
-  const code = lexed.codeOnly;
-  const re = new RegExp(`(?<![\\w$.-])(${READABLE_ATTRS.join("|")})\\s*=\\s*`, "g");
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(code)) !== null) {
-    const attr = m[1]!;
-    const at = m.index + m[0].length;
-    const opener = code[at];
-    let scoped: Literal[] = [];
-    if (opener === '"' || opener === "'" || opener === "`") {
-      scoped = literalsIn(lexed.literals, at + 1, at + 2);
-    } else if (opener === "{") {
-      let depth = 0;
-      let end = at;
-      for (let k = at; k < code.length; k++) {
-        if (code[k] === "{") depth++;
-        else if (code[k] === "}") {
-          depth--;
-          if (depth === 0) {
-            end = k;
-            break;
-          }
-        }
-      }
-      scoped = literalsIn(lexed.literals, at + 1, end);
-    }
-    for (const lit of scoped) {
-      const text = src.slice(lit.start, lit.end);
-      const words = italianWords(text);
-      if (words.length === 0) continue;
-      const line = lineOf(starts, lit.start);
-      if (waived(rawLines, line, lineOf(starts, m.index))) continue;
-      hits.push({ file, line, where: `attr:${attr}`, words, text: excerpt(text) });
-    }
-  }
-  return hits;
-}
-
-/** `error:` / `detail:` / `reason:` / `message:` values, the client's copy. */
-function scanPayloads(file: string, src: string, lexed: Lexed, starts: number[], rawLines: string[]): Hit[] {
-  const hits: Hit[] = [];
-  const code = lexed.codeOnly;
-  const re = new RegExp(`(?<![\\w$.])(${PAYLOAD_KEYS.join("|")})\\s*:\\s*`, "g");
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(code)) !== null) {
-    const key = m[1]!;
-    const at = m.index + m[0].length;
-    if (code[at] !== '"' && code[at] !== "'" && code[at] !== "`") continue;
-    // A template with holes is several literals: check every raw chunk of it.
-    const scoped = literalsIn(lexed.literals, at + 1, at + 2);
-    const first = scoped[0];
-    if (!first) continue;
-    const chunks = code[at] === "`" ? templateChunks(lexed.literals, first) : scoped;
-    for (const lit of chunks) {
-      const text = src.slice(lit.start, lit.end);
-      const words = italianWords(text);
-      if (words.length === 0) continue;
-      const line = lineOf(starts, lit.start);
-      if (waived(rawLines, line, lineOf(starts, m.index))) continue;
-      hits.push({ file, line, where: `payload:${key}`, words, text: excerpt(text) });
-    }
-  }
-  return hits;
-}
-
-/**
- * Every raw chunk of the template that starts at `first`. The lexer emits them
- * consecutively, and a chunk that follows a hole starts one byte after the `}`
- * that closed it, so contiguity in the literal list is the reliable link.
- */
-function templateChunks(literals: Literal[], first: Literal): Literal[] {
-  const out: Literal[] = [];
-  let idx = literals.indexOf(first);
-  if (idx === -1) return [first];
-  out.push(first);
-  for (let k = idx + 1; k < literals.length; k++) {
-    const prevEnd = literals[k - 1]!.end;
-    // The hole between two chunks is `${...}`: at least four bytes.
-    if (literals[k]!.start <= prevEnd || literals[k]!.start - prevEnd > 400) break;
-    out.push(literals[k]!);
-  }
-  return out;
-}
-
-function scanFile(file: string): Hit[] {
-  const abs = resolve(ROOT, file);
-  if (!existsSync(abs)) {
-    console.warn(`[check-ui-language] missing: ${file} (skipped)`);
-    return [];
-  }
-  const src = readFileSync(abs, "utf-8");
-  const lexed = lex(src);
-  const starts = lineIndex(src);
-  const rawLines = src.split(/\r?\n/);
-  const hits: Hit[] = [];
-  if (file.endsWith(".tsx")) {
-    hits.push(...scanJsxText(file, src, lexed, starts, rawLines));
-    hits.push(...scanAttributes(file, src, lexed, starts, rawLines));
-  }
-  hits.push(...scanPayloads(file, src, lexed, starts, rawLines));
-  return hits.sort((a, b) => a.line - b.line);
-}
 
 // ---------------------------------------------------------------------------
 // Which files
@@ -496,8 +109,24 @@ function scanFile(file: string): Hit[] {
 
 const IS_TEST = /\.(test|spec|e2e)\.[cm]?tsx?$/;
 
+/**
+ * EVERY tracked `.ts` under `client/src` is in scope, not just `lib` and
+ * `hooks`. The first cut named those two directories and missed exactly the
+ * modules the bug report was about: `components/Browser/navErrorMessage.ts`
+ * and `components/Chat/useVoiceRecording.ts` are plain modules that live
+ * beside the component that uses them, and a scope written by directory name
+ * declared them out of the product.
+ */
+function inScope(p: string): boolean {
+  if (IS_TEST.test(p)) return false;
+  if (I18N_CATALOGUES.has(p)) return false;
+  if (p.endsWith(".tsx")) return p.startsWith("client/src/");
+  if (!p.endsWith(".ts")) return false;
+  return p.startsWith("client/src/") || p.startsWith("server/routes/") || p.startsWith("shared/");
+}
+
 function trackedFiles(): string[] {
-  const git = spawnSync("git", ["ls-files", "-z", "client/src", "server/routes"], {
+  const git = spawnSync("git", ["ls-files", "-z", "client/src", "server/routes", "shared"], {
     cwd: ROOT,
     encoding: "utf-8",
     maxBuffer: 64 * 1024 * 1024,
@@ -506,11 +135,7 @@ function trackedFiles(): string[] {
     console.error("[check-ui-language] cannot list tracked files: is this a git checkout?");
     process.exit(2);
   }
-  return git.stdout
-    .split("\0")
-    .filter(Boolean)
-    .filter((p) => !IS_TEST.test(p))
-    .filter((p) => (p.startsWith("client/src/") ? p.endsWith(".tsx") : p.endsWith(".ts")));
+  return git.stdout.split("\0").filter(Boolean).filter(inScope);
 }
 
 // ---------------------------------------------------------------------------
@@ -521,8 +146,10 @@ interface Baseline {
   $schema: string;
   _comment: string[];
   updated: string;
-  /** path -> number of hits on the day recorded. Absent means "must stay at 0". */
+  /** path -> hard-coded ITALIAN hits the day recorded. Absent means "stay at 0". */
   files: Record<string, number>;
+  /** path -> hard-coded ENGLISH hits in a file that already imports `useT`. */
+  untranslated: Record<string, number>;
 }
 
 const BASELINE_COMMENT = [
@@ -543,6 +170,13 @@ const BASELINE_COMMENT = [
   "string, or if the Italian IS the data (a fixture, a parser, a label compared",
   "by value across the client/server boundary) mark that line with",
   "`// allow-italian: <why>` instead of buying the exemption here.",
+  "",
+  "TWO MAPS, TWO DEFECTS. `files` counts hard-coded ITALIAN: a string an",
+  "English-speaking user reads in the wrong language. `untranslated` counts",
+  "hard-coded ENGLISH inside a file that already imports `useT`: the surface was",
+  "migrated and a later change wrote the label straight into the JSX, so the",
+  "language selector silently stops governing it. The fix differs (translate vs",
+  "add a key), so the debt is counted apart.",
 ];
 
 function readBaseline(): Baseline | null {
@@ -552,7 +186,11 @@ function readBaseline(): Baseline | null {
     if (parsed === null || typeof parsed !== "object") return null;
     const files = (parsed as { files?: unknown }).files;
     if (files === null || typeof files !== "object") return null;
-    return parsed as Baseline;
+    const body = parsed as Baseline;
+    // A v1 baseline has no second map: an absent map is an empty one, so an
+    // older file still reads and every untranslated hit shows up as new.
+    body.untranslated ??= {};
+    return body;
   } catch (err) {
     console.error(`[check-ui-language] baseline unreadable: ${String(err)}`);
     process.exit(2);
@@ -560,19 +198,25 @@ function readBaseline(): Baseline | null {
   return null;
 }
 
-function writeBaseline(counts: Map<string, number>): void {
-  const files: Record<string, number> = {};
-  for (const key of [...counts.keys()].sort()) files[key] = counts.get(key)!;
+function sortedMap(counts: Map<string, number>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const key of [...counts.keys()].sort()) out[key] = counts.get(key)!;
+  return out;
+}
+
+function writeBaseline(italian: Map<string, number>, untranslated: Map<string, number>): void {
   const body: Baseline = {
-    $schema: "ui-language-baseline-v1",
+    $schema: "ui-language-baseline-v2",
     _comment: BASELINE_COMMENT,
     updated: new Date().toISOString().slice(0, 10),
-    files,
+    files: sortedMap(italian),
+    untranslated: sortedMap(untranslated),
   };
   writeFileSync(BASELINE_PATH, `${JSON.stringify(body, null, 2)}\n`, "utf-8");
+  const total = (m: Map<string, number>): number => [...m.values()].reduce((a, b) => a + b, 0);
   console.log(
-    `[check-ui-language] baseline written: ${Object.keys(files).length} file(s), ` +
-      `${[...counts.values()].reduce((a, b) => a + b, 0)} hit(s).`,
+    `[check-ui-language] baseline written: ${italian.size} file(s) with ${total(italian)} Italian hit(s), ` +
+      `${untranslated.size} file(s) with ${total(untranslated)} untranslated hit(s).`,
   );
 }
 
@@ -592,23 +236,23 @@ function main(): void {
   const hits: Hit[] = [];
   for (const file of files) hits.push(...scanFile(file));
 
-  const counts = new Map<string, number>();
-  for (const h of hits) counts.set(h.file, (counts.get(h.file) ?? 0) + 1);
+  const italianHits = hits.filter((h) => h.kind === "italian");
+  const untranslatedHits = hits.filter((h) => h.kind === "untranslated");
+  const countBy = (list: Hit[]): Map<string, number> => {
+    const m = new Map<string, number>();
+    for (const h of list) m.set(h.file, (m.get(h.file) ?? 0) + 1);
+    return m;
+  };
+  const counts = countBy(italianHits);
+  const untranslatedCounts = countBy(untranslatedHits);
 
   if (update) {
     if (absolute) {
       console.error("[check-ui-language] --update-baseline needs the full tracked scan, not a file list.");
       process.exit(2);
     }
-    writeBaseline(counts);
+    writeBaseline(counts, untranslatedCounts);
     process.exit(0);
-  }
-
-  const byFile = new Map<string, Hit[]>();
-  for (const h of hits) {
-    const list = byFile.get(h.file) ?? [];
-    list.push(h);
-    byFile.set(h.file, list);
   }
 
   const report = (list: Hit[]): void => {
@@ -620,22 +264,26 @@ function main(): void {
     }
     for (const [file, rows] of grouped) {
       console.error(`\n  ${file}`);
-      for (const r of rows) console.error(`    :${r.line}  [${r.where}] ${r.words.join(" ")} | ${r.text}`);
+      for (const r of rows) {
+        const why = r.kind === "italian" ? r.words.join(" ") : "not keyed";
+        console.error(`    :${r.line}  [${r.where}] ${why} | ${r.text}`);
+      }
     }
   };
 
   if (absolute) {
     if (json) console.log(JSON.stringify({ mode: "absolute", files: files.length, hits }, null, 2));
     if (hits.length === 0) {
-      if (!json) console.log(`[check-ui-language] OK (absolute): ${files.length} file(s), no Italian in app text.`);
+      if (!json) console.log(`[check-ui-language] OK (absolute): ${files.length} file(s), every app text is keyed.`);
       process.exit(0);
     }
     if (!json) {
       console.error(
-        `[check-ui-language] FAIL (absolute): ${hits.length} Italian string(s) across ${byFile.size} file(s).`,
+        `[check-ui-language] FAIL (absolute): ${italianHits.length} Italian string(s) and ` +
+          `${untranslatedHits.length} unkeyed string(s).`,
       );
       report(hits);
-      console.error(`\nTranslate them, or mark the line with '// ${ALLOW} <why>' when the Italian IS the data.`);
+      console.error(`\nPut them through i18n, or mark the line with '// ${ALLOW} <why>' when the string IS the data.`);
     }
     process.exit(1);
   }
@@ -649,31 +297,42 @@ function main(): void {
     process.exit(2);
   }
 
-  const newFiles: string[] = [];
-  const grown: { file: string; was: number; now: number }[] = [];
-  const cured: { file: string; was: number; now: number }[] = [];
+  interface Move { file: string; was: number; now: number }
+  interface Verdict { newFiles: string[]; grown: Move[]; cured: Move[] }
 
-  for (const [file, count] of counts) {
-    const was = baseline.files[file];
-    if (was === undefined) newFiles.push(file);
-    else if (count > was) grown.push({ file, was, now: count });
-    else if (count < was) cured.push({ file, was, now: count });
-  }
-  for (const [file, was] of Object.entries(baseline.files)) {
-    if (!counts.has(file)) cured.push({ file, was, now: 0 });
-  }
+  /** The ratchet, one family at a time: new file or grown file fails, cured is free. */
+  const compare = (now: Map<string, number>, was: Record<string, number>): Verdict => {
+    const v: Verdict = { newFiles: [], grown: [], cured: [] };
+    for (const [file, count] of now) {
+      const before = was[file];
+      if (before === undefined) v.newFiles.push(file);
+      else if (count > before) v.grown.push({ file, was: before, now: count });
+      else if (count < before) v.cured.push({ file, was: before, now: count });
+    }
+    for (const [file, before] of Object.entries(was)) {
+      if (!now.has(file)) v.cured.push({ file, was: before, now: 0 });
+    }
+    return v;
+  };
+
+  const italian = compare(counts, baseline.files);
+  const untranslated = compare(untranslatedCounts, baseline.untranslated);
 
   if (json) {
-    console.log(JSON.stringify({ mode: "ratchet", files: files.length, newFiles, grown, cured, hits }, null, 2));
+    console.log(JSON.stringify({ mode: "ratchet", files: files.length, italian, untranslated, hits }, null, 2));
   }
 
-  const failing = newFiles.length > 0 || grown.length > 0;
+  const failing =
+    italian.newFiles.length + italian.grown.length + untranslated.newFiles.length + untranslated.grown.length > 0;
+
   if (!failing) {
     if (!json) {
       console.log(
         `[check-ui-language] OK: ${files.length} file(s) scanned, ` +
-          `${hits.length} known hit(s) in ${counts.size} baselined file(s).`,
+          `${italianHits.length} known Italian hit(s) in ${counts.size} file(s), ` +
+          `${untranslatedHits.length} known unkeyed hit(s) in ${untranslatedCounts.size} file(s).`,
       );
+      const cured = [...italian.cured, ...untranslated.cured];
       if (cured.length > 0) {
         console.log(
           `[check-ui-language] ${cured.length} file(s) improved. ` +
@@ -686,21 +345,27 @@ function main(): void {
   }
 
   if (!json) {
-    console.error("[check-ui-language] FAIL: Italian reached a text a person reads.");
-    if (newFiles.length > 0) {
-      console.error(`\n${newFiles.length} file(s) NOT in the baseline gained a hit:`);
-      report(hits.filter((h) => newFiles.includes(h.file)));
-    }
-    if (grown.length > 0) {
-      console.error(`\n${grown.length} baselined file(s) gained MORE:`);
-      for (const g of grown) console.error(`  ${g.file}: ${g.was} -> ${g.now}`);
-      report(hits.filter((h) => grown.some((g) => g.file === h.file)));
+    console.error("[check-ui-language] FAIL: a text a person reads does not follow the chosen language.");
+    const families: [string, Verdict, Hit[]][] = [
+      ["hard-coded Italian", italian, italianHits],
+      ["copy that does not go through i18n", untranslated, untranslatedHits],
+    ];
+    for (const [what, verdict, family] of families) {
+      if (verdict.newFiles.length > 0) {
+        console.error(`\n${verdict.newFiles.length} file(s) NOT in the baseline gained ${what}:`);
+        report(family.filter((h) => verdict.newFiles.includes(h.file)));
+      }
+      if (verdict.grown.length > 0) {
+        console.error(`\n${verdict.grown.length} baselined file(s) gained MORE ${what}:`);
+        for (const g of verdict.grown) console.error(`  ${g.file}: ${g.was} -> ${g.now}`);
+        report(family.filter((h) => verdict.grown.some((g) => g.file === h.file)));
+      }
     }
     console.error(
-      `\nThe app ships in English. Put the string through 'client/src/lib/i18n.ts'` +
-        `\nor write it in English. If the Italian IS the data (a fixture, a parser, a` +
-        `\nlabel the server and the client compare by value), end the line with` +
-        `\n'// ${ALLOW} <why>'. Do not raise a number in the baseline to pass.`,
+      `\nThe app ships in the language the person chose. Put the string through` +
+        `\n'client/src/lib/i18n.ts' and add the key to BOTH catalogues. If the string IS` +
+        `\nthe data (a fixture, a parser, a label the server and the client compare by` +
+        `\nvalue), end the line with '// ${ALLOW} <why>'. Do not raise a baseline number.`,
     );
   }
   process.exit(1);

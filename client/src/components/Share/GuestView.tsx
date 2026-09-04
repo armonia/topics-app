@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { MessageSquare, LayoutGrid, RefreshCw } from 'lucide-react';
 import { MODAL_LAYER } from '../../lib/modalStyles';
+import { STATUS_LABEL, isProjectlessId } from '../../lib/board';
+import type { TaskStatus } from '../../../../shared/board';
 
 /**
  * Cosa vede un OSPITE quando apre Topics.
@@ -85,14 +87,14 @@ export function GuestView({ deviceName }: { deviceName: string }) {
         <button
           onClick={() => void carica()}
           className="ml-auto rounded p-1 text-app-text-tertiary hover:bg-app-hover hover:text-app-text"
-          aria-label="Ricarica"
+          aria-label={tr('guest.reload')}
         >
           <RefreshCw size={13} />
         </button>
       </header>
 
       <main className="mx-auto max-w-2xl px-4 py-5">
-        {stato === 'carico' && <p className="text-[13px] text-app-text-muted">Carico…</p>}
+        {stato === 'carico' && <p className="text-[13px] text-app-text-muted">{tr('guest.loading')}</p>}
 
         {stato === 'errore' && (
           <p className="text-[13px] text-app-text-secondary">
@@ -121,8 +123,12 @@ export function GuestView({ deviceName }: { deviceName: string }) {
                 <li key={t.id} className="rounded-lg border border-app-border px-3 py-2.5">
                   <div className="text-[13px] leading-snug text-app-text">{t.text}</div>
                   <div className="mt-1 flex items-center gap-2 text-[11px] text-app-text-muted">
-                    <span>{t.status}</span>
-                    {t.project_id && <span>· {t.project_id}</span>}
+                    {/* The guest is the one person here who is NOT a Topics
+                        user: `in_progress` and a project slug are our
+                        internals, and this is the only screen where they were
+                        printed raw. Same two helpers the board card uses. */}
+                    <span>{STATUS_LABEL[t.status as TaskStatus] ?? t.status}</span>
+                    {t.project_id && !isProjectlessId(t.project_id) && <span>· {t.project_id}</span>}
                   </div>
                   {t.preview_image && (
                     // L'anteprima passa dal gate solo se è quella di un task

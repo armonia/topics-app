@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { useT } from '../../hooks/useT';
 import { uploadApi } from '../../lib/api';
 import {
   transcribeAudio,
@@ -50,6 +51,11 @@ export function useVoiceRecording(
 
   const onErrorRef = useRef(onError);
   useEffect(() => { onErrorRef.current = onError; }, [onError]);
+  // Same shape as `onErrorRef`: the recorder callbacks live outside the render
+  // and still have to speak the language the person chose.
+  const tr = useT();
+  const trRef = useRef(tr);
+  trRef.current = tr;
   /** Misura il segnale mentre si registra: serve solo se il trascritto torna vuoto. */
   const sondaRef = useRef<SondaLivello | null>(null);
 
@@ -74,7 +80,7 @@ export function useVoiceRecording(
       recordingTimerRef.current = setInterval(() => setRecordingTime(t => t + 1), 1000);
     } catch (err) {
       console.error('Failed to start recording:', err);
-      onErrorRef.current?.(micErrorMessage(err));
+      onErrorRef.current?.(micErrorMessage(err, trRef.current));
     }
   }, [sessionKey]);
 
@@ -104,7 +110,7 @@ export function useVoiceRecording(
           // motivo per cui la nota vocale "non funziona" senza una diagnosi.
           // Il numero serve: dice se il microfono non ha aperto affatto (0
           // spezzoni) o se ha prodotto solo l'intestazione del contenitore.
-          onErrorRef.current?.(messaggioNotaVuota(audioChunksRef.current.length, blob.size, mimeType));
+          onErrorRef.current?.(messaggioNotaVuota(audioChunksRef.current.length, blob.size, mimeType, trRef.current));
           segnalaNotaVuota(audioChunksRef.current.length, blob.size, mimeType, 'nota-vocale');
           audioChunksRef.current = [];
           recordingSessionKeyRef.current = null;
@@ -153,7 +159,7 @@ export function useVoiceRecording(
                     provider: transcription.provider,
                     durataMs: transcription.durationMs,
                   })
-                : `Nota vocale inviata senza trascrizione: l'agente riceve solo il file audio, che non può ascoltare.${failure ? ` Motivo: ${failure}` : ''}`,
+                : trRef.current(failure ? 'voice.noTranscriptBecause' : 'voice.noTranscript', { reason: failure ?? '' }),
             );
           }
           // Deliver to the session the recording STARTED on, not whatever
@@ -161,7 +167,7 @@ export function useVoiceRecording(
           await sendMessage(recordingSessionKeyRef.current ?? sessionKey, spoken ? `${spoken}\n\n${marker}` : marker);
         } catch (err) {
           console.error('Voice upload failed:', err);
-          onErrorRef.current?.(`Invio del vocale fallito: ${err instanceof Error ? err.message : 'errore sconosciuto'}`);
+          onErrorRef.current?.(trRef.current('voice.uploadFailed', { reason: err instanceof Error ? err.message : trRef.current('stt.unknownError') }));
         }
         finally { setUploading(false); recordingSessionKeyRef.current = null; }
         resolve();

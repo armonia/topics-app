@@ -45,6 +45,7 @@ interface Props {
  * separately.
  */
 export function ToolInputForm({ schema, onSubmit, toolCallId }: Props) {
+  const tr = useT();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -60,7 +61,7 @@ export function ToolInputForm({ schema, onSubmit, toolCallId }: Props) {
       await onSubmit(payload);
       clearAskDraft(toolCallId);
     } catch (err: unknown) {
-      setError(errorMessage(err) || 'Submission failed');
+      setError(errorMessage(err) || tr('ask.submitFailed'));
       setSubmitting(false);
     }
   };
@@ -112,11 +113,11 @@ export function ToolInputForm({ schema, onSubmit, toolCallId }: Props) {
  * Il valore della scelta libera SUL FILO. Resta in inglese: è il sentinella che
  * `resolveAnswerFor` sostituisce col testo scritto, e lo stesso contratto che
  * la SDK usa. Quello che si legge a schermo è un'altra cosa — vedi
- * `OTHER_LABEL`.
+ * `OTHER_LABEL_KEY`.
  */
 const OTHER = 'Other';
-/** Come si chiama per chi legge. L'app parla italiano. */
-const OTHER_LABEL = 'Altro';
+/** What it is called for whoever reads it: a key, so it follows the choice. */
+const OTHER_LABEL_KEY = 'ask.other';
 
 /**
  * L'opzione consigliata, e da dove si sa che lo è.
@@ -376,7 +377,7 @@ function QuestionsForm({
                 className="mt-[3px]"
               />
               <div className="flex-1 min-w-0">
-                <div className="text-app-text">{OTHER_LABEL}</div>
+                <div className="text-app-text">{tr(OTHER_LABEL_KEY)}</div>
                 <textarea
                   value={otherText[q.question] || ''}
                   onChange={(e) => writeOther(q, e.target.value)}
@@ -405,7 +406,7 @@ function QuestionsForm({
             data-testid="ask-step-back"
             className="px-3 py-1.5 text-[12.5px] font-medium rounded-md text-app-text-secondary hover:bg-app-hover disabled:opacity-40 transition-colors"
           >
-            Indietro
+            {tr('ask.back')}
           </button>
         )}
         <button
@@ -415,7 +416,7 @@ function QuestionsForm({
           className="flex items-center gap-1.5 px-3.5 py-1.5 text-[12.5px] font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:text-app-text-muted disabled:cursor-not-allowed transition-colors"
         >
           {submitting ? <Loader2 size={13} className="animate-spin" /> : isLast ? <Send size={13} /> : <ChevronRight size={13} />}
-          {submitting ? 'Invio…' : isLast ? 'Invia' : 'Avanti'}
+          {submitting ? tr('ask.sending') : isLast ? tr('ask.send') : tr('ask.next')}
         </button>
       </div>
     </form>
@@ -434,6 +435,7 @@ interface ElicitationProp {
 }
 
 function ElicitationForm({ requestedSchema, message, toolCallId, submitting, error, onSubmit }: ElicitationProp) {
+  const tr = useT();
   const fields = useMemo(() => parseElicitationFields(requestedSchema), [requestedSchema]);
   const savedElicit = useMemo(() => readAskDraft(toolCallId), [toolCallId]);
   const [values, setValues] = useState<Record<string, unknown>>(() => savedElicit?.values ?? {});
@@ -461,14 +463,14 @@ function ElicitationForm({ requestedSchema, message, toolCallId, submitting, err
           onChange={(e) => setJsonText(e.target.value)}
           disabled={submitting}
           rows={4}
-          placeholder="JSON value (or plain text)…"
+          placeholder={tr('ask.jsonPlaceholder')}
           className="w-full text-[12.5px] font-mono bg-surface border border-app-border rounded px-2 py-1.5 resize-none"
         />
         {error && <div className="text-[12px] text-red-500">{error}</div>}
         <div className="flex justify-end">
           <button type="submit" disabled={submitting} className="flex items-center gap-1.5 px-3.5 py-1.5 text-[12.5px] font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:cursor-not-allowed">
             {submitting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
-            {submitting ? 'Sending…' : 'Send'}
+            {submitting ? tr('ask.sending') : tr('ask.send')}
           </button>
         </div>
       </form>
@@ -548,7 +550,7 @@ function ElicitationForm({ requestedSchema, message, toolCallId, submitting, err
       <div className="flex justify-end">
         <button type="submit" disabled={!allRequiredFilled || submitting} className="flex items-center gap-1.5 px-3.5 py-1.5 text-[12.5px] font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:cursor-not-allowed">
           {submitting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
-          {submitting ? 'Sending…' : 'Send'}
+          {submitting ? tr('ask.sending') : tr('ask.send')}
         </button>
       </div>
     </form>
@@ -626,14 +628,14 @@ function RawForm({
         onChange={(e) => setText(e.target.value)}
         disabled={submitting}
         rows={3}
-        placeholder="Your answer…"
+        placeholder={tr('ask.answerPlaceholder')}
         className="w-full text-[13px] bg-surface border border-app-border rounded px-2 py-1.5 resize-none"
       />
       {error && <div className="text-[12px] text-red-500">{error}</div>}
       <div className="flex justify-end">
         <button type="submit" disabled={submitting || !text.trim()} className="flex items-center gap-1.5 px-3.5 py-1.5 text-[12.5px] font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:cursor-not-allowed">
           {submitting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
-          {submitting ? 'Sending…' : 'Send'}
+          {submitting ? tr('ask.sending') : tr('ask.send')}
         </button>
       </div>
     </form>

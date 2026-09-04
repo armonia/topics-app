@@ -28,7 +28,7 @@ function hhmm(ms: number): string {
 
 export function ParkedPane({ url, checkedAt, checking, onRetry }: ParkedPaneProps) {
   const tr = useT();
-  const { message, hint } = loopbackDownText(url);
+  const { message, hint } = loopbackDownText(url, tr);
   return (
     <div
       className="flex-1 min-h-0 flex items-center justify-center p-6 bg-app-bg"
@@ -53,7 +53,7 @@ export function ParkedPane({ url, checkedAt, checking, onRetry }: ParkedPaneProp
             className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] rounded-md border border-app-border-light text-app-text hover:bg-app-hover transition-colors disabled:opacity-50"
           >
             <RotateCw size={12} className={checking ? 'animate-spin' : undefined} aria-hidden />
-            {checking ? 'Controllo…' : 'Riprova'}
+            {checking ? tr('browser.parked.checking') : tr('browser.parked.retry')}
           </button>
         </div>
         {/* La scheda si chiude con la scorciatoia che chiude qualunque pane: non

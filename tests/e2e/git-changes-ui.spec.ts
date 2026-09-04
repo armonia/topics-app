@@ -94,7 +94,10 @@ test.describe("pannello delle modifiche git", () => {
     // Il menu deve continuare a dire su cosa agisce. Prima qui restava
     // l'intestazione vuota — e le voci sotto agivano sul nulla.
     await expect(menu).toContainText("index.ts");
-    await expect(menu.getByText("Discard", { exact: false })).toBeVisible();
+    // The menu entry follows the language now, and the suite runs in Italian
+    // (`playwright.config.ts` pins `locale: "it-IT"`): the English word here
+    // was the defect, not the anchor.
+    await expect(menu.getByText("Scarta", { exact: false })).toBeVisible();
 
     await page.keyboard.press("Escape");
   });

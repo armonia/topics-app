@@ -1637,7 +1637,7 @@ function App() {
           {/* I GRUPPI sono card dentro l'albero (TopicTree): ognuna tiene in
               mano le sue tab e si apre e si chiude per conto suo. Non esiste
               nessun posto separato dove i gruppi «vivono». */}
-          <ErrorBoundary fallbackMessage="Sidebar error">
+          <ErrorBoundary fallbackMessageKey="crash.sidebar">
           {topicsLoading && Object.keys(topics).length === 0 ? (
             <div className="overflow-y-auto sidebar-scroll"><SkeletonTopicList count={5} /></div>
           ) : (
@@ -1732,7 +1732,7 @@ function App() {
             already looks, which is the half that sent this bar back down here
             on 07/08. See SIDEBAR-STATUS-01. */}
         {!isMobile && (
-        <ErrorBoundary fallbackMessage="Identity band error">
+        <ErrorBoundary fallbackMessageKey="crash.identityBand">
           <SidebarStatusBar
             wsStatus={wsStatus}
             dataNotice={topicsError}
@@ -1879,7 +1879,7 @@ function App() {
         {/* FLIP layer: carries the translateX push reveal (useSidebarFlipPush). Must keep the
             flex column so PanelGrid sizes exactly as before. */}
         <div ref={contentFlipRef} className="content-flip-layer flex-1 flex flex-col min-h-0 min-w-0 bg-app-bg">
-        <ErrorBoundary fallbackMessage="Panel error">
+        <ErrorBoundary fallbackMessageKey="crash.panel">
         {/* Spazi: the grid gets the VISIBLE subset (openPanels stays the full
             store-backed set — see usePanelLifecycle.visiblePanels) and
             remounts per space (key) so per-space grid layouts stay isolated:
@@ -2182,7 +2182,7 @@ function App() {
            optional-chain comparison that was true against null, closed over
            there). It is the same net the sidebar, the status bar and the panels
            already have. */
-        <ErrorBoundary fallbackMessage="Settings error">
+        <ErrorBoundary fallbackMessageKey="crash.settings">
         <Suspense fallback={null}>
           <GlobalSettings
             isOpen={showSettings}

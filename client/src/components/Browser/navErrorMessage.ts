@@ -30,6 +30,8 @@ export interface RawNavError {
   code: number;
 }
 
+import type { Translate } from '../../../../shared/queue-reason-text';
+
 export interface NavErrorText {
   /** La riga principale della strip. */
   message: string;
@@ -84,10 +86,14 @@ const SCHEME_REFUSED = -7001;
  * `description` resta il fallback: un codice che non conosciamo è meglio
  * riportarlo con le parole di WebKit che nasconderlo dietro un generico.
  */
-export function navErrorMessage(e: RawNavError): NavErrorText {
+export function navErrorMessage(e: RawNavError, tr: Translate): NavErrorText {
   const where = hostLabel(e.url);
   const loopback = isLoopbackUrl(e.url);
-  const fallback = e.description || `Caricamento fallito (codice ${e.code})`;
+  // WebKit's own words when we do not recognise the code: reporting them is
+  // better than hiding an unknown failure behind a generic sentence. They
+  // arrive in the browser engine's language and stay as they are, which is
+  // what a quoted diagnostic does.
+  const fallback = e.description || tr('browser.navError.unknown', { code: e.code });
 
   // Il rifiuto che prima non si vedeva. Non è un fallimento della rete: la
   // navigazione non è mai partita, quindi WKWebView non ha nulla da riportare e
@@ -95,53 +101,51 @@ export function navErrorMessage(e: RawNavError): NavErrorText {
   if (e.code === SCHEME_REFUSED) {
     const localFile = /^file:/i.test(e.url);
     return {
-      message: localFile
-        ? 'Un file sul disco non si apre dal pannello.'
-        : 'Questo indirizzo non si apre in un pannello.',
+      message: tr(localFile ? 'browser.navError.localFile' : 'browser.navError.notAPage'),
       hint: localFile
-        ? 'I file locali si aprono comunque: vengono serviti dall’app. Chiedilo in chat, oppure scrivi il percorso nella barra qui sopra.'
-        : `Il pannello apre solo pagine web (http, https). Indirizzo: ${e.url}`,
+        ? tr('browser.navError.localFile.hint')
+        : tr('browser.navError.notAPage.hint', { url: e.url }),
     };
   }
 
   if (e.code === CANNOT_CONNECT || e.code === CONNECTION_LOST) {
     if (loopback && where) {
       return {
-        message: `Nessuno risponde su ${where}. Su quella porta non c'è nessun server in ascolto.`,
-        hint: "Se era l'anteprima di un task, quel server si è spento a fine sessione: riaprirla non lo riaccende.",
+        message: tr('browser.navError.loopbackSilent', { where }),
+        hint: tr('browser.navError.loopbackSilent.hint'),
       };
     }
-    return { message: where ? `${where} non accetta la connessione.` : fallback };
+    return { message: where ? tr('browser.navError.refused', { where }) : fallback };
   }
 
   if (e.code === CANNOT_FIND_HOST) {
-    return { message: where ? `Indirizzo non trovato: ${where}.` : fallback };
+    return { message: where ? tr('browser.navError.hostNotFound', { where }) : fallback };
   }
 
   if (e.code === TIMED_OUT) {
-    return { message: where ? `${where} non ha risposto in tempo.` : fallback };
+    return { message: where ? tr('browser.navError.timedOut', { where }) : fallback };
   }
 
   if (e.code === NOT_CONNECTED) {
-    return { message: 'Nessuna connessione a internet.' };
+    return { message: tr('browser.navError.offline') };
   }
 
   if (TLS_CODES.has(e.code)) {
     return {
-      message: where ? `Connessione non sicura verso ${where}: certificato non valido.` : fallback,
+      message: where ? tr('browser.navError.tls', { where }) : fallback,
       hint: fallback,
     };
   }
 
   if (e.code === ATS_BLOCKED) {
     return {
-      message: where ? `${where} è in http e il sistema blocca il traffico non cifrato.` : fallback,
-      hint: 'Prova la stessa pagina in https.',
+      message: where ? tr('browser.navError.ats', { where }) : fallback,
+      hint: tr('browser.navError.ats.hint'),
     };
   }
 
   if (e.code === FILE_NOT_FOUND) {
-    return { message: `File non trovato: ${e.url || fallback}` };
+    return { message: tr('browser.navError.fileNotFound', { what: e.url || fallback }) };
   }
 
   return { message: fallback };
@@ -161,14 +165,14 @@ function hhmm(d: Date): string {
  * Cambiando, dice «ho guardato di nuovo adesso, ancora niente».
  */
 /** Cosa c'è da dire di una porta locale spenta, senza l'ora. */
-export function loopbackDownText(url: string): NavErrorText {
-  return navErrorMessage({ url, description: '', code: CANNOT_CONNECT });
+export function loopbackDownText(url: string, tr: Translate): NavErrorText {
+  return navErrorMessage({ url, description: '', code: CANNOT_CONNECT }, tr);
 }
 
-export function deadLoopbackNotice(url: string, checkedAt: Date): NavErrorText {
-  const base = loopbackDownText(url);
+export function deadLoopbackNotice(url: string, checkedAt: Date, tr: Translate): NavErrorText {
+  const base = loopbackDownText(url, tr);
   return {
     message: base.message,
-    hint: `Controllato alle ${hhmm(checkedAt)}. ${base.hint ?? ''}`.trim(),
+    hint: `${tr('browser.navError.checkedAt', { clock: hhmm(checkedAt) })} ${base.hint ?? ''}`.trim(),
   };
 }

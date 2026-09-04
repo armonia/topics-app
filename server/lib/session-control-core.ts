@@ -119,6 +119,12 @@ export interface DetachedTopicOptions {
   /** Model override for the topic's spawns (`--model`); absent = provider default. */
   model?: string;
   /**
+   * Which agent runs the topic: absent = the default provider. The board sets
+   * it to "codex" to work a card on the OpenAI CLI next to the Claude fleet
+   * (a second quota, and a second opinion on mechanical work).
+   */
+  provider?: string | null;
+  /**
    * Livello di autonomia della chat, cioè il `--permission-mode` dello spawn.
    *
    * ESPLICITO e non lasciato al default della colonna, per una ragione che vale
@@ -214,6 +220,7 @@ export function createDetachedTopic(
   if (opts.worktreeId) newTopic.worktreeId = opts.worktreeId;
   if (opts.effort) newTopic.effort = opts.effort;
   if (opts.model) newTopic.model = opts.model;
+  if (opts.provider) (newTopic as Topic & { provider?: string | null }).provider = opts.provider;
   if (opts.standalone) newTopic.standalone = true;
   if (opts.mcpPolicy) newTopic.mcpPolicy = opts.mcpPolicy;
   // Always written, never left to the persistence fallback: `saveSingleTopic`
