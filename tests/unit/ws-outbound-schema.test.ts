@@ -169,6 +169,13 @@ describe('outbound registry contract', () => {
     // finito: in un turno agentico da otto tool call non si vedeva muovere
     // niente. Non si poteva allargare `stream:context` senza far dire a un
     // evento due cose che si muovono in verso opposto.
+    //
+    // 2026-09-04, +1 -> `provider:hold`: la finestra d'uso del piano e' esaurita
+    // e il server non avvia turni fino al reset pubblicato. E' un fatto del
+    // SERVER, non del turno: vale per chiunque sia collegato, e va riemesso a
+    // ogni connessione, perche' un ricarico deve ritrovare lo stesso cartello.
+    // Per questo e' un frame e non un campo di `stream:usage`, che parla di UN
+    // turno e muore con lui.
     expect(REGISTERED_OUTBOUND_TYPES).toEqual([
       'auth:device-revoked',
       'auth:pair-requested',
@@ -213,6 +220,7 @@ describe('outbound registry contract', () => {
       'project:deleted',
       'project:new',
       'project:updated',
+      'provider:hold',
       'providers:snapshot',
       'scripts:output',
       'scripts:updated',
@@ -363,8 +371,8 @@ describe('outbound registry contract', () => {
   // spegnere il pallino sulle altre — senza un fronte ognuna resterebbe col suo
   // numero fino al ricaricamento. Mittente `server/routes/notifications.ts`,
   // ascoltatore `useNotificationHistory`.
-  test('all 96 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(96);
+  test('all 97 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(97);
   });
 });
 

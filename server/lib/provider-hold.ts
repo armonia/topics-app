@@ -15,18 +15,11 @@
 // the resume sweep read it and wait; a successful round clears it early. It is
 // process-local on purpose: the account is one, the server is one.
 
-export type UsageWindowKind = "five_hour" | "seven_day";
-
-export interface ProviderHold {
-  /** When the provider is expected to accept requests again (ms epoch). */
-  untilMs: number;
-  /** Which of the plan's windows is spent: the client translates this. */
-  window: UsageWindowKind;
-  /** One line for logs and the chat, e.g. "finestra di 5 ore esaurita". */
-  reason: string;
-  /** When the hold was recorded (ms epoch). */
-  sinceMs: number;
-}
+// The shape is declared once, in shared/, because the client holds the same
+// hold to draw the banner. Re-exported here so this module stays the door
+// everything on the server already comes through.
+export type { ProviderHold, UsageWindowKind } from "../../shared/provider-hold-types";
+import type { ProviderHold, UsageWindowKind } from "../../shared/provider-hold-types";
 
 let current: ProviderHold | null = null;
 const listeners = new Set<(hold: ProviderHold | null) => void>();
