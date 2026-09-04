@@ -372,7 +372,7 @@ export function BrowserToolbar({
       <button
         onClick={onRefresh}
         className={`w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary transition-colors ${loading ? 'animate-spin' : ''}`}
-        title="Refresh"
+        title={tr('browser.toolbar.refresh')}
       >
         <RotateCw size={14} />
       </button>
@@ -613,7 +613,7 @@ export function BrowserToolbar({
                 type="button"
                 onClick={() => setHistoryOpen((open) => !open)}
                 className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary transition-colors"
-                title="Recent URLs"
+                title={tr('browser.toolbar.recentUrls')}
                 data-testid="browser-history-button"
               >
                 <Clock size={14} />

@@ -191,6 +191,15 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   const rosterAuthoritativeRef = useRef(rosterAuthoritative);
   useEffect(() => { rosterAuthoritativeRef.current = rosterAuthoritative; }, [rosterAuthoritative]);
   const staleRef = useRef(stale);
+  // The three banners are written into the TERMINAL, from inside a socket
+  // handler that lives in an effect keyed on sessionId: a hook cannot be
+  // called there, and re-running that effect on a language change would tear
+  // down the xterm. A ref keeps the current translator reachable without
+  // either. `expiredShownRef` remembers that the scrollback carries a line
+  // saying the session is gone, so a successful reattach can correct it.
+  const sayRef = useRef(t);
+  useEffect(() => { sayRef.current = t; }, [t]);
+  const expiredShownRef = useRef(false);
   const reconnectRef = useRef<(() => void) | null>(null);
   useEffect(() => { staleRef.current = stale; }, [stale]);
 
@@ -460,6 +469,15 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       ws.onopen = () => {
         retryCount = 0;
         setStale(false);
+        // A banner that lies is worse than one in the wrong language. The
+        // "expired" line is written into the SCROLLBACK, so a later successful
+        // reattach used to leave it sitting there for good, above live output,
+        // saying the session was gone. It cannot be deleted (that would delete
+        // real output with it), so the record gets corrected instead.
+        if (expiredShownRef.current) {
+          expiredShownRef.current = false;
+          coalescer.push(`\r\n\x1b[90m[${sayRef.current('terminal.banner.reattached')}]\x1b[0m\r\n`);
+        }
         // Each fresh attach is judged on its own: reset the byte counter and
         // any pending dormant grace so a reconnect (server reload, resume) can
         // clear a previously-shown empty overlay once real output flows again.
@@ -533,7 +551,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
         if (event.code === 1000) {
           // Clean end — the PTY exited (`exit`, process finished). Not a
           // reconnect candidate; the session drops from the list on its own.
-          coalescer.push('\r\n\x1b[90m[Session ended]\x1b[0m\r\n');
+          coalescer.push(`\r\n\x1b[90m[${sayRef.current('terminal.banner.ended')}]\x1b[0m\r\n`);
           return;
         }
         // 1008 ("session not found") or any abnormal close. The PTY bridge
@@ -559,7 +577,8 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           const delay = Math.min(500 * retryCount, 3000);
           retryTimer = setTimeout(connectWs, delay);
         } else {
-          coalescer.push('\r\n\x1b[90m[Session expired]\x1b[0m\r\n');
+          coalescer.push(`\r\n\x1b[90m[${sayRef.current('terminal.banner.expired')}]\x1b[0m\r\n`);
+          expiredShownRef.current = true;
           setStale(true);
           onStale?.();
         }
@@ -875,10 +894,10 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           <button
             onClick={handleCopyOutput}
             className="flex-shrink-0 flex items-center gap-1 px-2 py-[3px] rounded bg-white/10 text-white text-[11px] active:bg-white/30 transition-colors"
-            title="Copy output"
+            title={t('terminal.copyOutput')}
           >
             {copied ? <Check size={11} /> : <Copy size={11} />}
-            <span>{copied ? 'Copied!' : 'Copy'}</span>
+            <span>{copied ? t('terminal.copied') : t('terminal.copy')}</span>
           </button>
         </div>
       )}
@@ -925,10 +944,10 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
             // of GPU compositing, measured via CDP trace). Gating it to hover keeps
             // the exact glass look when shown and drops the idle GPU cost to zero.
             className="absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 rounded-md bg-black/40 text-white text-[11px] opacity-0 hover:opacity-100 hover:backdrop-blur-sm transition-opacity"
-            title="Copy output"
+            title={t('terminal.copyOutput')}
           >
             {copied ? <Check size={12} /> : <Copy size={12} />}
-            <span>{copied ? 'Copied!' : 'Copy'}</span>
+            <span>{copied ? t('terminal.copied') : t('terminal.copy')}</span>
           </button>
         )}
         {stale && (

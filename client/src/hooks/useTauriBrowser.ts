@@ -43,6 +43,7 @@ import {
 } from '../../../shared/element-describe';
 import { cropToElement } from '../lib/imageCrop';
 import { deadLoopbackNotice, isLoopbackUrl, navErrorMessage } from '../components/Browser/navErrorMessage';
+import { useT } from './useT';
 import { loopbackAlive } from '../lib/loopbackAlive';
 import type { NativeBrowserHandle, DeviceMode, BrowserConsoleEntry, PaneContextTarget } from '@/components/Browser/browserDevTypes';
 import { DEVICE_PRESETS, deviceModeFromUserAgent } from '@/components/Browser/browserDevTypes';
@@ -163,6 +164,12 @@ function releaseBrowserView(id: string): number {
 
 export function useTauriBrowser(contextId: string, initialUrl?: string, isVisible = true, onFocused?: () => void): NativeBrowserHandle {
   const id = contextId;
+  // The navigation error strip is written from inside socket and poll
+  // callbacks that must not re-create on a language change, so the translator
+  // is reachable through a ref instead of being captured.
+  const tr = useT();
+  const trRef = useRef(tr);
+  trRef.current = tr;
   const [ready, setReady] = useState(false);
   const [url, setUrl] = useState(initialUrl ?? '');
   // Mirrors `url` so `recreate()` can reopen at the address the pane is actually
@@ -871,7 +878,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     async (u: string) => {
       const target = normalizeUrl(u);
       if (isLoopbackUrl(target) && !(await loopbackAlive(target))) {
-        setNavError({ ...deadLoopbackNotice(target, new Date()), url: target });
+        setNavError({ ...deadLoopbackNotice(target, new Date(), trRef.current), url: target });
         return;
       }
       await navigate(target);
@@ -1151,7 +1158,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
           // riapre su una porta locale ormai spenta) è «Could not connect to the
           // server.» — muta su quale server, su cosa manca e sul fatto che
           // «Riprova» non può bastare.
-          setNavError({ ...navErrorMessage(last), url: last.url });
+          setNavError({ ...navErrorMessage(last, trRef.current), url: last.url });
           // A known failure outranks whatever the last tick read — eval poll AND
           // native drain. Il timestamp è come lo dice al drain dello stato nav,
           // che gira quattro volte più spesso di questo (vedi NAV_FAIL_GRACE_MS).
