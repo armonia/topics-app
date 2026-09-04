@@ -105,7 +105,7 @@ import { normalizeTerminalAgent } from './lib/terminalAgents';
 import { popOutTopic } from './lib/popOutTopic';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
-import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
+import { SidebarStatusBar, MobileTransportBand } from './components/Sidebar/SidebarStatusBar';
 import { NotificationHistoryButton } from './components/Sidebar/NotificationHistoryButton';
 import { MobileChromeBar } from './components/Sidebar/MobileChromeBar';
 import { shortcut, usesCtrl } from './lib/shortcutLabel';
@@ -1750,6 +1750,18 @@ function App() {
           si dipinge da sé invece di ereditare il chrome della sidebar.
           Il «+» è lo STESSO `PaneAddMenu` del desktop, con la faccia della
           fila: l'elenco delle cose creabili è uno solo. */}
+      {/* THE TRANSPORT ALARM ON THE PHONE. The «Offline» / «Reconnecting…» /
+          «cached data» rows lived ONLY inside the `{!isMobile && …}` block of
+          the bar at the foot of the column, i.e. they did not exist at all on
+          the device that actually loses the network. Here they are outside the
+          drawer, like the bottom row: visible without opening anything. The
+          identity band stays desktop-only, which is the other half. */}
+      {isMobile && (
+        <ErrorBoundary fallbackMessageKey="crash.transportBand">
+          <MobileTransportBand wsStatus={wsStatus} dataNotice={topicsError} />
+        </ErrorBoundary>
+      )}
+
       <MobileChromeBar
         onSearch={() => { setSearchScope('all'); setShowSearch(true); }}
         addSlot={
@@ -1764,6 +1776,10 @@ function App() {
         }
         boardInFront={boardInFront}
         onToggleBoard={handleMobileBoardToggle}
+        // THE SAME boolean `boardInFront` above is computed from: they used to
+        // be two different predicates, and between 768 and 1023 on touch the
+        // row lit up over a desktop layout with its switch stuck one-way.
+        mobile={isMobile}
         // LA PANE Profilo, non più la modale delle Impostazioni.
         //
         // Portava a Impostazioni → Profilo, cioè dentro un pannello che si apre

@@ -1589,6 +1589,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             {(!nonClosablePaneIds?.has(pane.id) || pane.type === 'browser') && (
               <PaneCloseButton
                 paneId={pane.id}
+                label={label}
                 onClose={onClose}
                 closable={!nonClosablePaneIds?.has(pane.id)}
                 before={pane.type === 'browser' ? <BrowserTabMenuButton paneId={pane.id} /> : undefined}
@@ -2163,9 +2164,19 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
  * `usePanePendingStatus` — hooks can't run inside `panes.map(...)`.
  */
 function PaneCloseButton({
-  paneId, onClose, before, closable = true,
+  paneId, label, onClose, before, closable = true,
 }: {
   paneId: string;
+  /**
+   * THE HUMAN NAME OF THE TAB, the one written on the tab itself
+   * (`etichettaTab`).
+   *
+   * It feeds the accessible name of the X, which used to carry the INTERNAL ID:
+   * VoiceOver announced a destructive action as «Chiudi tab 7f3a1c22-4b9e-...», allow-italian: the exact string a screen reader used to speak
+   * i.e. it asked to destroy something that cannot be recognised. The twins in
+   * the sidebar (TopicItem, TopicTree) have always said the chat name.
+   */
+  label: string;
   onClose: (id: string) => void;
   /** Commands that ride in the same rail, BEFORE the close ring (the browser
    *  tab's three dots). See the ROW_ACTIONS contract. */
@@ -2289,7 +2300,10 @@ function PaneCloseButton({
         testId="pane-tab-close"
         onIdleClick={() => onClose(paneId)}
         idleTitle="Chiudi tab"
-        idleAriaLabel={`Chiudi tab ${paneId}`}
+        // The NAME, not the id: see the `label` prop. The prefix below stays
+        // first because test locators hook onto it and because in a spoken
+        // announcement the action has to come before its subject.
+        idleAriaLabel={`Chiudi tab ${label}`}
         pendingTitle="Annulla chiusura"
         pendingAriaLabel="Annulla chiusura"
       />}

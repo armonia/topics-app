@@ -30,13 +30,36 @@ import { useT } from '@/hooks/useT';
  * spostarla di nuovo per portare via le cifre sarebbe stato uno scambio, non
  * una cura.
  */
-export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
+/**
+ * THE TRANSPORT ALARMS, ON THEIR OWN: the websocket that is not connected, the
+ * «cached data» notice, the shell's degraded boot with its way out.
+ *
+ * They live in a component of THEIR OWN, split from the identity band, because
+ * the two halves of this bar have different audiences. `App` used to mount the
+ * whole thing inside `{!isMobile && (…)}`, and these rows were the ONLY
+ * surfaces in all of `client/src` that name the connection state: on the PHONE
+ * — the device that actually loses the network, in a lift or underground —
+ * there was no element saying «Offline» or «Reconnecting…» at all. What was
+ * left was the dot in the drawer header, which with the drawer closed is zero
+ * wide and off screen: an alarm that needs a gesture to be seen is not an
+ * alarm. Spec SIDEBAR-STATUS-01 says «an ALARM is not a statistic», and every
+ * one of its scenarios used to start with «GIVEN a desktop».
+ *
+ * The identity stays desktop-only, and that is not an oversight: it is a band
+ * with a RESPONSIVE contract on the column widths, and on the phone the same
+ * question is already answered by the fourth door of the bottom row.
+ */
+export function TransportAlarms({ wsStatus, dataNotice, inset }: {
   wsStatus?: ConnectionStatus;
   dataNotice?: string | null;
-  onOpenDevices?: () => void;
-} = {}) {
+  /** The side inset of the rows. In the column it is the sidebar row inset; in
+   *  the phone band it is dictated by the safe area. */
+  inset?: { left: string; right: string };
+}) {
   const tr = useT();
   const { isMobile } = useMobile();
+  const padLeft = inset?.left ?? ROW_INSET;
+  const padRight = inset?.right ?? ROW_INSET;
 
   /**
    * L'ATTESA MUTA, DETTA.
@@ -75,8 +98,8 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           data-testid="boot-degraded-notice"
           className={`flex flex-col gap-0.5 pt-1 pb-1.5 text-[11px] leading-snug ${SEGNALE_ATTESA}`}
           style={{
-            paddingLeft: isMobile ? 'max(32px, var(--sal))' : ROW_INSET,
-            paddingRight: isMobile ? 'max(32px, var(--sar))' : ROW_INSET,
+            paddingLeft: inset?.left ?? (isMobile ? 'max(32px, var(--sal))' : ROW_INSET),
+            paddingRight: inset?.right ?? (isMobile ? 'max(32px, var(--sar))' : ROW_INSET),
           }}
         >
           <span>{tr(degradedLines.whyKey, { port: degradedLines.port })}</span>
@@ -111,7 +134,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           red, connecting/reconnecting = amber. The dot pulses; the label stays
           steady, because a moving word is unreadable. */}
       {wsStatus && wsStatus !== 'connected' && (
-        <div style={{ paddingInline: ROW_INSET }}>
+        <div style={{ paddingLeft: padLeft, paddingRight: padRight }}>
           <span
             data-testid="ws-connection-status"
             className={`flex items-center gap-1.5 text-[11px] min-w-0 overflow-hidden ${
@@ -133,7 +156,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
           Shown only when the WS IS connected: otherwise the line above already
           says it, and two amber rows for one outage read as two outages. */}
       {wsStatus === 'connected' && dataNotice && (
-        <div style={{ paddingInline: ROW_INSET }}>
+        <div style={{ paddingLeft: padLeft, paddingRight: padRight }}>
           <span
             data-testid="data-notice"
             className={`flex items-center gap-1.5 text-[11px] ${SEGNALE_ATTESA} min-w-0 overflow-hidden`}
@@ -145,6 +168,21 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
         </div>
       )}
 
+    </>
+  );
+}
+
+export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
+  wsStatus?: ConnectionStatus;
+  dataNotice?: string | null;
+  onOpenDevices?: () => void;
+} = {}) {
+  return (
+    <>
+      {/* The very same rows that on the phone live in the bottom band
+          (`MobileTransportBand`): one component, mounted in two places. */}
+      <TransportAlarms wsStatus={wsStatus} dataNotice={dataNotice} />
+
       {/* ONLY THE HOME INDICATOR IS LEFT ON THIS WRAPPER. The bottom breathing
           room itself belongs to the band and is written on the band
           (`IdentityBlock`, `paddingBottom: ROW_INSET`), because a wrapper's
@@ -155,5 +193,43 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
         <IdentityBlock onOpenDevices={onOpenDevices} />
       </div>
     </>
+  );
+}
+
+/**
+ * THE PHONE BAND: the same sentence, where the phone can actually see it.
+ *
+ * It sits ABOVE the bottom row and not inside the column, for the same reason
+ * the row itself does (`MobileChromeBar`): on the phone the column is a drawer,
+ * and an alarm you only see by opening the drawer is an alarm you do not see.
+ * Fixed to the bottom, lifted by `--mobile-chrome-h` — the very variable the
+ * row publishes, so the band follows it by itself when the row disappears with
+ * the keyboard open, without a second computation of the same height.
+ *
+ * IT ONLY EXISTS WHEN THERE IS SOMETHING TO SAY: connected and with no notice,
+ * there is no element here at all. This is not a permanent status bar, it is an
+ * alarm, which is why it reserves no band on the root: reserving one would make
+ * the normal case (all well) pay the space of the exceptional one.
+ */
+export function MobileTransportBand({ wsStatus, dataNotice }: {
+  wsStatus?: ConnectionStatus;
+  dataNotice?: string | null;
+}) {
+  const somethingToSay = (wsStatus && wsStatus !== 'connected') || (wsStatus === 'connected' && !!dataNotice);
+  if (!somethingToSay) return null;
+  return (
+    <div
+      data-testid="mobile-transport-band"
+      // Below the row (`zIndex: 60`) on purpose: the row is how you get out of
+      // here, and no notice may be allowed to cover it.
+      className="fixed left-0 right-0 py-1 bg-app-chrome border-t border-app-border"
+      style={{ zIndex: 59, bottom: 'var(--mobile-chrome-h, 0px)' }}
+    >
+      <TransportAlarms
+        wsStatus={wsStatus}
+        dataNotice={dataNotice}
+        inset={{ left: 'max(12px, var(--sal))', right: 'max(12px, var(--sar))' }}
+      />
+    </div>
   );
 }
