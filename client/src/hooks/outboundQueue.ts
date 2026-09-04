@@ -51,7 +51,19 @@ export interface QueueStorage {
 export const OUTBOUND_QUEUE_KEY = 'messages-outbound-queue';
 export const EXPIRED_QUEUE_KEY = 'messages-expired-queue';
 
-/** Un messaggio scade dopo 5 minuti in coda: oltre, l'invio automatico sorprenderebbe. */
+/**
+ * Un messaggio scade dopo 5 minuti in coda: oltre, l'invio automatico sorprenderebbe.
+ *
+ * This is the ONE deadline that expires a message, and it is measured from the
+ * moment the message was written (`item.timestamp`) to the moment the drain
+ * looks at it, which happens on a WebSocket reconnect. A planned server
+ * restart (SIGTERM plus a boot under a minute) therefore cannot expire
+ * anything: the reconnect lands about four minutes inside the window. The
+ * deadline is kept at five minutes on purpose, because it does not guard
+ * against downtime but against surprise: a message the person wrote and then
+ * forgot must not leave on its own much later. Anything longer than a restart
+ * ends up in the unsent banner, where a human decides.
+ */
 export const MAX_QUEUE_AGE_MS = 5 * 60 * 1000;
 
 /**
