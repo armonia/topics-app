@@ -510,8 +510,8 @@ export interface AppContext {
   updateLastMessage: (sessionKey: string, updates: Partial<StoredMessage>) => StoredMessage | null;
   appendToLastMessage: (sessionKey: string, contentDelta: string, thinkingDelta?: string) => StoredMessage | null;
   finalizeLastMessage: (sessionKey: string) => StoredMessage | null;
-  addToolCallToLastMessage: (sessionKey: string, toolCall: ToolCall) => StoredMessage | null;
-  updateToolCallResult: (sessionKey: string, toolCallId: string, result: string, error?: string, extra?: Partial<ToolCall>) => StoredMessage | null;
+  addToolCallToLastMessage: (sessionKey: string, toolCall: ToolCall, opts?: { mirroredInBlocks?: boolean }) => StoredMessage | null;
+  updateToolCallResult: (sessionKey: string, toolCallId: string, result: string, error?: string, extra?: Partial<ToolCall>, opts?: { mirroredInBlocks?: boolean }) => StoredMessage | null;
   /**
    * Patch arbitrary fields on a single ToolCall of the last assistant
    * message. Used by the user-input flow (status='waiting_for_input',

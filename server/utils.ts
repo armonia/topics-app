@@ -28,7 +28,7 @@ import { createWorktreeStore } from "./services/worktree-store";
 import { createWorktreeManager, type WorktreeManagerGcDeps } from "./services/worktree-manager";
 import { createMachineStore } from "./services/machine-store";
 import { parseToolCallDetail, knownDetailTypes } from "../shared/tool-call-detail";
-import { blocksForDisk, rowHasBlocks, toolCallsColumnForRow, toolCallsForDisk } from "../shared/lean-tool-call";
+import { blocksForDisk, toolCallsColumnForRow, toolCallsForDisk } from "../shared/lean-tool-call";
 import { shouldCompressFrame } from "./lib/ws-compression";
 import { isEmptyAssistantTurn } from "../shared/empty-turn";
 import { validateOutbound } from "../shared/ws-outbound";
@@ -337,8 +337,7 @@ export function createAppContext(baseDir: string): AppContext {
               plan_status, timestamp, parent_id, branch_index, latency_ms,
               usage_prompt_tokens, usage_completion_tokens, cost_cents, cache_read_tokens,
               cache_creation_tokens, cache_creation_1h_tokens, model, author_person_id,
-              author_device_id,
-              CASE WHEN blocks IS NULL OR blocks IN ('', '[]', 'null') THEN 0 ELSE 1 END AS has_blocks
+              author_device_id
        FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`,
     ),
     /** Le due sonde di `getLastMessageForBodyUpdate`, per id. Vedi `discardIfEmptyTurn`. */
@@ -1288,7 +1287,7 @@ export function createAppContext(baseDir: string): AppContext {
           $role: msg.role,
           $content: msg.content || '',
           $thinking: msg.thinking || null,
-          $tool_calls: toolCallsColumnForRow(msg.toolCalls, rowHasBlocks(msg.blocks)),
+          $tool_calls: toolCallsColumnForRow(msg.toolCalls, msg.blocks),
           $media: msg.media ? JSON.stringify(msg.media) : null,
           $partial: msg.partial ? 1 : 0,
           $streamed_at: msg.streamedAt || null,
@@ -1376,7 +1375,7 @@ export function createAppContext(baseDir: string): AppContext {
           $role: msg.role,
           $content: msg.content || '',
           $thinking: msg.thinking || null,
-          $tool_calls: toolCallsColumnForRow(msg.toolCalls, rowHasBlocks(msg.blocks)),
+          $tool_calls: toolCallsColumnForRow(msg.toolCalls, msg.blocks),
           $media: msg.media ? JSON.stringify(msg.media) : null,
           $partial: 0,
           $streamed_at: null,
@@ -1530,9 +1529,7 @@ export function createAppContext(baseDir: string): AppContext {
       $id: msg.id,
       $content: 'content' in updates ? (msg.content || '') : null,
       $thinking: 'thinking' in updates ? (msg.thinking || null) : null,
-      $tool_calls: 'toolCalls' in updates
-        ? toolCallsColumnForRow(msg.toolCalls, rowHasBlocks(updates.blocks) || row.has_blocks === 1)
-        : null,
+      $tool_calls: 'toolCalls' in updates ? toolCallsColumnForRow(msg.toolCalls, updates.blocks) : null,
       $media: msg.media ? JSON.stringify(msg.media) : null,
       $partial: msg.partial ? 1 : 0,
       $streamed_at: msg.streamedAt || null,
@@ -1602,16 +1599,26 @@ export function createAppContext(baseDir: string): AppContext {
    * event loop, while the turn is alive and needs it for tokens, WS frames and
    * PTY.
    *
-   * `hadToolCalls` is the one exception: a row that already carries the copy
+   * `has_tool_calls` is the one exception: a row that already carries the copy
    * (an older row, or the first tool of a turn announced before the first
    * block was persisted) gets ONE write to clear it, and then no more.
+   *
+   * `mirroredInBlocks` is DECLARED by the caller, not guessed from the row:
+   * only whoever writes the block knows that the block carries this same tool
+   * call (`routes/chat.ts` does, right after). The paths that write no
+   * timeline at all (the gateway SSE consumer, an import) say nothing and keep
+   * the column, which for them is the only source there is. Reading the blocks
+   * here to check would cost the very parse this exists to avoid.
    */
-  function toolColumnWriteMode(row: { has_blocks?: number; has_tool_calls?: number }): 'skip' | 'clear' | 'write' {
-    if (row.has_blocks !== 1) return 'write';
+  function toolColumnWriteMode(
+    row: { has_blocks?: number; has_tool_calls?: number },
+    mirroredInBlocks: boolean,
+  ): 'skip' | 'clear' | 'write' {
+    if (!mirroredInBlocks || row.has_blocks !== 1) return 'write';
     return row.has_tool_calls === 1 ? 'clear' : 'skip';
   }
 
-  function addToolCallToLastMessage(sessionKey: string, toolCall: ToolCall): StoredMessage | null {
+  function addToolCallToLastMessage(sessionKey: string, toolCall: ToolCall, opts?: { mirroredInBlocks?: boolean }): StoredMessage | null {
     const row = stmts.getLastMessageForToolUpdate.get(sessionKey) as any;
     if (!row) return null;
     const msg = rowToMessage(row, { withBlocks: false });
@@ -1630,7 +1637,7 @@ export function createAppContext(baseDir: string): AppContext {
     } else {
       msg.toolCalls.push(toolCall);
     }
-    const mode = toolColumnWriteMode(row);
+    const mode = toolColumnWriteMode(row, opts?.mirroredInBlocks === true);
     if (mode === 'skip') return msg;
     stmts.updateMessage.run({
       $id: msg.id,
@@ -1647,11 +1654,11 @@ export function createAppContext(baseDir: string): AppContext {
     return msg;
   }
 
-  function updateToolCallResult(sessionKey: string, toolCallId: string, result: string, error?: string, extra?: Partial<ToolCall>): StoredMessage | null {
+  function updateToolCallResult(sessionKey: string, toolCallId: string, result: string, error?: string, extra?: Partial<ToolCall>, opts?: { mirroredInBlocks?: boolean }): StoredMessage | null {
     const row = stmts.getLastMessageForToolUpdate.get(sessionKey) as any;
     if (!row) return null;
     const msg = rowToMessage(row, { withBlocks: false });
-    const mode = toolColumnWriteMode(row);
+    const mode = toolColumnWriteMode(row, opts?.mirroredInBlocks === true);
     // Same rule as `addToolCallToLastMessage`: with blocks on the row the
     // result is written there (routes/chat.ts `updateBlockTool`), and this
     // column is either already empty or cleared once.
@@ -1740,7 +1747,7 @@ export function createAppContext(baseDir: string): AppContext {
       $id: msg.id,
       $content: null,
       $thinking: null,
-      $tool_calls: toolCallsColumnForRow(msg.toolCalls, rowHasBlocks(nextBlocks ?? msg.blocks)),
+      $tool_calls: toolCallsColumnForRow(msg.toolCalls, nextBlocks ?? msg.blocks),
       $media: msg.media ? JSON.stringify(msg.media) : null,
       $partial: msg.partial ? 1 : 0,
       $streamed_at: msg.streamedAt || null,

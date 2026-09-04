@@ -123,9 +123,9 @@ describe("the column is not the second copy", () => {
     for (const id of ["a", "b", "c"]) {
       const tc = tool(id, { status: "running", result: undefined });
       blocks.push({ kind: "tool", toolCall: tc });
-      ctx.addToolCallToLastMessage(SK, tc);
+      ctx.addToolCallToLastMessage(SK, tc, { mirroredInBlocks: true });
       ctx.updateLastMessage(SK, { blocks });
-      ctx.updateToolCallResult(SK, id, `out ${id}`);
+      ctx.updateToolCallResult(SK, id, `out ${id}`, undefined, undefined, { mirroredInBlocks: true });
       blocks[blocks.length - 1] = { kind: "tool", toolCall: { ...tc, status: "success", result: `out ${id}` } };
       ctx.updateLastMessage(SK, { blocks });
     }

@@ -212,17 +212,35 @@ export function toolCallsForDisk<T extends LeanableToolCall>(calls: readonly T[]
  * A message WITHOUT blocks keeps its column: on this database that is 4.8 MB
  * over 5,332 rows where `tool_calls` is the only source there is.
  */
-export function toolCallsColumnForRow<T extends LeanableToolCall>(
+export function toolCallsColumnForRow<T extends LeanableToolCall & { id?: unknown }>(
   calls: readonly T[] | null | undefined,
-  hasBlocks: boolean,
+  blocks: readonly LeanableBlock[] | null | undefined,
 ): string | null {
-  if (hasBlocks) return '[]';
+  if (calls && calls.length > 0 && blocksCoverToolCalls(blocks, calls)) return '[]';
   return toolCallsForDisk(calls);
 }
 
-/** `hasBlocks` from an in-memory message, for the callers that hold the array. */
-export function rowHasBlocks(blocks: readonly unknown[] | null | undefined): boolean {
-  return !!blocks && blocks.length > 0;
+/**
+ * Do the blocks carry every one of these tool calls?
+ *
+ * The check is by id and it is EXACT, not a guess: the column is given up
+ * only when there is somewhere else it can be read back from. A message whose
+ * timeline does not mirror its tool calls (an import that builds one and not
+ * the other) keeps the column, and keeps its tool calls.
+ */
+function blocksCoverToolCalls(
+  blocks: readonly LeanableBlock[] | null | undefined,
+  calls: readonly { id?: unknown }[],
+): boolean {
+  if (!blocks || blocks.length === 0) return false;
+  const inBlocks = new Set<unknown>();
+  for (const b of blocks) {
+    const id = (b?.toolCall as { id?: unknown } | undefined)?.id;
+    if (id !== undefined) inBlocks.add(id);
+  }
+  if (inBlocks.size === 0) return false;
+  for (const c of calls) if (!inBlocks.has((c as { id?: unknown }).id)) return false;
+  return true;
 }
 
 /**

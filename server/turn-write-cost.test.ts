@@ -39,6 +39,9 @@ const DATA_DIR_BEFORE = process.env.DATA_DIR;
 let tmpRoot: string;
 let ctx: AppContext;
 
+/** What `routes/chat.ts` declares: this handler writes the same tool call into the blocks. */
+const MIRRORED = { mirroredInBlocks: true } as const;
+
 /** 100 calls of 30 KB: the shape of a long agentic turn, small enough to run in a second. */
 const TOOL_CALLS = 100;
 const RESULT_BYTES = 30_000;
@@ -90,14 +93,14 @@ function runTurn(sessionKey: string, opts: { throttle: boolean }): { walDelta: n
     const tc: ToolCall = { id: `t${i}`, name: "Bash", args: { command: `echo ${i}` }, status: "running" };
     blocks.push({ kind: "tool", toolCall: tc });
     blocksBytes += JSON.stringify(tc).length;
-    ctx.addToolCallToLastMessage(sessionKey, tc);
+    ctx.addToolCallToLastMessage(sessionKey, tc, MIRRORED);
     persist();
 
     const result = "x".repeat(RESULT_BYTES);
     const patch = { status: "success" as const, result, endedAt: Date.now() };
     blocks[blocks.length - 1] = { kind: "tool", toolCall: { ...tc, ...patch } };
     blocksBytes += JSON.stringify(patch).length;
-    ctx.updateToolCallResult(sessionKey, tc.id, result, undefined, { endedAt: patch.endedAt });
+    ctx.updateToolCallResult(sessionKey, tc.id, result, undefined, { endedAt: patch.endedAt }, MIRRORED);
     persist();
   }
   throttle.flush();
