@@ -45,8 +45,8 @@ const BASE = E2E_BASE;
  * @covers CHAT-INT-01
  */
 
-const DOMANDA = "Riassumi il documento che ti ho mandato";
-const PROSA = "Il documento parla di tre cose. La prima";
+const QUESTION = "Riassumi il documento che ti ho mandato";
+const PROSE = "Il documento parla di tre cose. La prima";
 const MSG_ID = "live-interrupted-0001";
 
 const banner = (page: Page) => page.locator('[data-testid="turn-interrupted-banner"]');
@@ -61,7 +61,7 @@ const assistantBubble = (page: Page) =>
  * The clip gets its rhythm from work that really happened - a turn typing -
  * instead of from a clock, and it is legible for the same reason it is honest.
  */
-const PEZZI = [
+const PIECES = [
   "Il documento parla di tre cose. ",
   "La prima riguarda i termini di consegna, ",
   "che il fornitore ha spostato di due settimane ",
@@ -84,7 +84,7 @@ test.describe.serial("Turno interrotto dal vivo: il banner compare da solo", () 
     expect(sessionKey, "the topic must carry a sessionKey").toBeTruthy();
     // Retry resends the user's last message: without one on the row there is
     // nothing to offer, and the button would be correctly absent.
-    await seedMessage(request, { sessionKey, role: "user", content: DOMANDA });
+    await seedMessage(request, { sessionKey, role: "user", content: QUESTION });
   });
 
   test.afterAll(async ({ request }) => {
@@ -96,7 +96,7 @@ test.describe.serial("Turno interrotto dal vivo: il banner compare da solo", () 
   });
 
   /** Opens the topic holding the WS, so frames can be injected "from the server". */
-  async function apri(page: Page): Promise<(frame: Record<string, unknown>) => void> {
+  async function openStream(page: Page): Promise<(frame: Record<string, unknown>) => void> {
     let inject: ((data: string) => void) | null = null;
     // Armed BEFORE goto, or the initial connection goes around it.
     await page.routeWebSocket(/\/ws/, (ws) => {
@@ -114,23 +114,23 @@ test.describe.serial("Turno interrotto dal vivo: il banner compare da solo", () 
   }
 
   /** A turn that starts and writes, like the real one. */
-  async function detta(page: Page, send: (f: Record<string, unknown>) => void): Promise<void> {
+  async function dictate(page: Page, send: (f: Record<string, unknown>) => void): Promise<void> {
     send({ type: "stream:start", messageId: MSG_ID });
-    let scritto = "";
-    for (const pezzo of PEZZI) {
-      send({ type: "stream:content_chunk", messageId: MSG_ID, content: pezzo });
-      scritto += pezzo;
+    let written = "";
+    for (const piece of PIECES) {
+      send({ type: "stream:content_chunk", messageId: MSG_ID, content: piece });
+      written += piece;
       // The wait IS the assertion: the next chunk leaves only once this one is
       // on screen, so the pacing comes from the page, not from a clock.
-      await expect(assistantBubble(page)).toContainText(scritto.trim(), { timeout: 10_000 });
+      await expect(assistantBubble(page)).toContainText(written.trim(), { timeout: 10_000 });
     }
     // While it is answering there is nothing to explain.
     await expect(banner(page)).toHaveCount(0);
   }
 
   test("il watchdog chiude il turno sotto gli occhi: il banner compare senza ricaricare", async ({ page }) => {
-    const send = await apri(page);
-    await detta(page, send);
+    const send = await openStream(page);
+    await dictate(page, send);
 
     // The end the watchdog broadcasts, in the shape the server sends it.
     send({
@@ -153,18 +153,18 @@ test.describe.serial("Turno interrotto dal vivo: il banner compare da solo", () 
     // And the way out is there, on the message that has to be resent.
     await expect(page.locator('[data-testid="turn-interrupted-retry"]')).toBeVisible();
     // The prose the turn had written is untouched: the banner adds, never replaces.
-    await expect(assistantBubble(page)).toContainText(PROSA);
+    await expect(assistantBubble(page)).toContainText(PROSE);
   });
 
   test("una fine PULITA non accende niente: è quello che succede mille volte al giorno", async ({ page }) => {
-    const send = await apri(page);
-    await detta(page, send);
+    const send = await openStream(page);
+    await dictate(page, send);
 
     send({ type: "stream:end", messageId: MSG_ID, completed: true, latencyMs: 1200 });
 
     // Settled on the finished turn, and still no banner: waiting for the
     // spinner to stop is what makes the absence meaningful instead of early.
-    await expect(assistantBubble(page)).toContainText(PROSA);
+    await expect(assistantBubble(page)).toContainText(PROSE);
     await expect(banner(page)).toHaveCount(0);
   });
 
@@ -180,10 +180,10 @@ test.describe.serial("Turno interrotto dal vivo: il banner compare da solo", () 
         reducedMotion: "reduce",
       },
       scena: async (page) => {
-        const send = await apri(page);
+        const send = await openStream(page);
 
         // FIRST STATE: the turn is answering. No banner.
-        await detta(page, send);
+        await dictate(page, send);
 
         // The watchdog closes it under the reader's eyes.
         send({

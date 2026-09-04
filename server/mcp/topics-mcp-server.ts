@@ -1778,7 +1778,7 @@ export async function callUpdateTask(
     return `task ${toolArgs.task_id} → ${body?.status ?? (typeof patch.status === "string" ? patch.status : "updated")}`;
   }
   throw new Error(
-    `update_task: i check pre-review girano da oltre ${Math.round((maxLegs * legMs) / 60_000)} minuti e non hanno ancora un esito. Guarda la card: lo stato dei check e' su di lei.`,
+    `update_task: i check pre-review girano da oltre ${Math.round((maxLegs * legMs) / 60_000)} minuti e non hanno ancora un esito. La consegna si completa DA SOLA quando finiscono: la card passa in review se sono verdi, resta in lavorazione con il rosso nel thread se no. Non richiamare update_task e non consegnare di nuovo: chiudi il turno.`,
   );
 }
 

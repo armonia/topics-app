@@ -37,7 +37,7 @@ import { CODING_TOOLS as DEFAULT_TOOLS } from "./tools";
  * where we are looking for it, and insisting means spinning, one network round
  * at a time.
  */
-export const MAX_COMPACT_RECOVERIES = 2;
+export const MAX_COMPACT_RECOVERY_ATTEMPTS = 2;
 
 /**
  * HOW MANY CHARACTERS MAKE A TOKEN IN THIS CONVERSATION, measured.
@@ -122,7 +122,7 @@ export function recoverFromFullContext(err: unknown, ctx: {
   const detail = err instanceof Error ? err.message : String(err);
   const tooLong = promptTooLong(detail);
   if (!tooLong || ctx.aborted) throw err;
-  if (ctx.state.attempts >= MAX_COMPACT_RECOVERIES) throw new Error(contextFullMessage(tooLong, ctx.state.attempts));
+  if (ctx.state.attempts >= MAX_COMPACT_RECOVERY_ATTEMPTS) throw new Error(contextFullMessage(tooLong, ctx.state.attempts));
   ctx.state.attempts++;
 
   ctx.calibration.charsPerToken = charsPerTokenFrom(ctx.sentChars, tooLong.tokens);
@@ -148,7 +148,7 @@ export function recoverFromFullContext(err: unknown, ctx: {
   ctx.handler.onCompaction?.({ trigger: "auto", preTokens: c.before, postTokens: c.after });
   ctx.handler.onRetry?.({
     attempt: ctx.state.attempts,
-    maxAttempts: MAX_COMPACT_RECOVERIES,
+    maxAttempts: MAX_COMPACT_RECOVERY_ATTEMPTS,
     delayMs: 0,
     reason: "contesto pieno: compatto e riprovo", // allow-italian: user-facing chat text, the UI is in Italian
   });

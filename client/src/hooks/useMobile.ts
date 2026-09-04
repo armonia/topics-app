@@ -16,9 +16,18 @@ import { mediaQuery, mediaQueryMatches } from '../lib/mediaQuery';
  *    dietro l'hover: se la risposta è no, quel comando è irraggiungibile. Serve
  *    anche a decidere se armare i gestori MOUSE di un gesto.
  *
- *  · `isMobile` — «lo schermo è piccolo» (<768px, o <1024 se touch). È una
- *    domanda di LAYOUT: quante colonne, sidebar a scomparsa, tab-strip unica.
- *    Non c'entra né col dito né col mouse.
+ *  · `isMobile` — «lo schermo è piccolo» (<768px, o <1024 se touch). Non
+ *    c'entra né col dito né col mouse.
+ *    AND IT IS NOT THE LAYOUT PREDICATE, whatever this block used to claim: the
+ *    shell folds into one column at 768px flat (`useLayoutMobile` below, which
+ *    is what `PanelGrid`, `GroupLayout` and the sidebar branch on). Between 768
+ *    and 1023 on a touch screen the two disagree, and every surface that read
+ *    `isMobile` to decide a LAYOUT question drew a phone chrome on top of a
+ *    desktop one: an iPhone held sideways (844x390) got the bottom row of
+ *    commands over a fixed sidebar, and an iPad in portrait was told there were
+ *    no splits while `SplitTree` was drawing dividers behind the menu.
+ *    Rule: quante colonne -> `useLayoutMobile`; «is this a small handset at
+ *    all», for anything that is not a layout branch -> `isMobile`.
  *
  * Le tre non sono esclusive e vanno usate INSIEME quando servono insieme. Il
  * caso che ha rotto le cose: `isTouch` usato come se significasse «niente
@@ -52,6 +61,43 @@ interface MobileState {
  *  in `lib/mediaQuery`: one list each, for the whole session. */
 const HOVER_QUERY = '(hover: hover)';
 const STANDALONE_QUERY = '(display-mode: standalone)';
+
+/**
+ * The width where the shell stops being two columns. Below it `PanelGrid` and
+ * `GroupLayout` skip the split tree entirely, the sidebar becomes a drawer and
+ * the panes become one tab strip.
+ */
+export const LAYOUT_MOBILE_WIDTH = 768;
+
+/**
+ * ONE ANSWER TO «how many columns fit on this screen», and it is a width, not a
+ * finger. Every layout branch of the shell reads this one: the sidebar
+ * (`useSidebarAndLayout`), the two grids, the bottom row of commands and the
+ * split commands that only exist where splits are drawn. Four private copies of
+ * `window.innerWidth < 768` used to answer it, plus a fifth predicate
+ * (`useMobile().isMobile`) that answered something else and was used here by
+ * mistake; the copies agreed, the fifth did not.
+ */
+export function useLayoutMobile(): boolean {
+  const [narrow, setNarrow] = useState(() =>
+    typeof window !== 'undefined' && window.innerWidth < LAYOUT_MOBILE_WIDTH);
+  useEffect(() => {
+    const read = () => setNarrow(window.innerWidth < LAYOUT_MOBILE_WIDTH);
+    // Read once on mount too: between the initial state and this effect the
+    // window may already have been resized (a restored window, a rotation
+    // during boot).
+    read();
+    window.addEventListener('resize', read);
+    // A phone rotated from portrait to landscape crosses this threshold, and
+    // some browsers announce that only here.
+    window.addEventListener('orientationchange', read);
+    return () => {
+      window.removeEventListener('resize', read);
+      window.removeEventListener('orientationchange', read);
+    };
+  }, []);
+  return narrow;
+}
 
 export function useMobile(): MobileState {
   const [state, setState] = useState<MobileState>(() => getInitialState());

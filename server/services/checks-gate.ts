@@ -77,6 +77,10 @@ export type ChecksGate = {
   }): Promise<ChecksLeg>;
   /** C'e' una corsa viva (girando o accodata) su questa chiave? (sonde e test) */
   isRunning(key: string): boolean;
+  /** The registry holds this key at all: a live run OR a retained verdict.
+   *  `false` = the next leg opens a NEW delivery, which is when the branch is
+   *  realigned on main before anything is measured (see `runChecksGate`). */
+  known(key: string): boolean;
   /**
    * Quante corse stanno GIRANDO adesso (non conteggiate quelle in coda).
    * Letto dal dispatcher per includere le barre di check nel freno del dispatch:
@@ -200,6 +204,9 @@ export function createChecksGate(opts: {
     isRunning(key) {
       const corsa = corse.get(key);
       return !!corsa && corsa.endedAt === null;
+    },
+    known(key) {
+      return corse.has(key);
     },
     async leg(key, { commit, legMs, run }) {
       let corsa = corse.get(key);

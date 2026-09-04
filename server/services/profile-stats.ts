@@ -51,6 +51,7 @@ import type { Database } from "bun:sqlite";
 // doomed to diverge (`tests/unit/no-type-mirrors.test.ts`). Here it is
 // re-exported, so every historical import of this module stays valid.
 import type { ProfileStats } from "../../shared/types";
+import { projectIdForPath } from "../../shared/board";
 export type { ProfileStats };
 
 const EMPTY: ProfileStats = {
@@ -282,15 +283,34 @@ export function computePresenceCounts(
   // running for the longest. If the board is idle, the one of the most recently
   // updated topic - "where are you right now" is a question that has an answer
   // even without agents.
+  //
+  // `tasks.project_id` IS THE BOARD SLUG, NOT `projects.id`. It is
+  // `projectIdForPath(path)` - `<folder>-<hash>` - while `projects.id` is a
+  // UUID, so the obvious join `p.id = t.project_id` matched 0 rows out of 3024
+  // on the production DB and this query was always empty. The presence then
+  // fell through to the topic branch and NAMED ANOTHER PROJECT with total
+  // confidence, in the status bar and in the Discord Rich Presence other people
+  // read. The slug is derived, not stored, so the match is done here on the few
+  // project rows rather than in SQL.
   let focusProject: string | null = null;
   try {
     const r = db.query(
-      `SELECT p.name AS v
-         FROM tasks t JOIN projects p ON p.id = t.project_id
-        WHERE t.dispatch_state = 'working'
+      `SELECT t.project_id AS v
+         FROM tasks t
+        WHERE t.dispatch_state = 'working' AND t.project_id IS NOT NULL
         ORDER BY t.in_progress_at ASC LIMIT 1`,
     ).get() as { v?: string } | null;
-    focusProject = r?.v ?? null;
+    const boardId = r?.v ?? null;
+    if (boardId) {
+      const projects = db.query(
+        `SELECT id, name, path FROM projects WHERE path IS NOT NULL`,
+      ).all() as Array<{ id: string; name: string; path: string }>;
+      focusProject = projects.find(
+        // `p.id` too: rows written before the board switched to the slug still
+        // carry the UUID (`scripts/migrate-uuid-board-ids.ts`).
+        (p) => projectIdForPath(p.path) === boardId || p.id === boardId,
+      )?.name ?? null;
+    }
     if (!focusProject) {
       const s = db.query(
         `SELECT p.name AS v

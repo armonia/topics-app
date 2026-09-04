@@ -33,6 +33,7 @@ import { renderDeliverySheet } from "./delivery-sheet";
 import { isAutoCapturedPreview, isDeliverySheetPath } from "../../shared/media-kind";
 import { NUDGE_CLAIM_MS, gateNudge } from "./nudge-gate";
 import { readGlobalCap, readSpendCaps } from "./dispatch-capacity";
+import { currentDispatchBlock } from "./dispatch-block-signal";
 import { liveAgentCount } from "./agent-census";
 
 // The statuses and the thread's shape live in `shared/board.ts`, so the client
@@ -2174,6 +2175,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           // questa riga ma se c'è un turno pesante in volo.
           heavyInFlight: inCoda && r.dispatch_state === DISPATCH_CHIP_QUEUED && b.heavy,
           behind: inCoda && b.queue ? b.queue.behind(r.priority, r.created_at) : 0,
+          // The two blocks that stop the WHOLE machine: the RAM/disk floor and
+          // the 24h spend cap. The tick reads them once per round and then
+          // skips every card, so no column records them: without this the card
+          // fell through to the queue branch and said "in coda, la prossima" on
+          // a board that had not moved in hours. Only for a card really in the
+          // queue: outside it, this block is not what it waits on
+          // (`dispatch-block-signal.ts`).
+          dispatchBlock: inCoda ? currentDispatchBlock() : null,
           parentStatus: r.parent_task_id ? (b.parentStatus.get(r.parent_task_id) ?? null) : null,
           projectless: r.project_id === UNASSIGNED_PROJECT_ID,
           openSubtasks: r.status === "review" ? (b.openChildren.get(r.id) ?? 0) : 0,
@@ -3592,6 +3601,17 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           put("wait_reason", null);
           put("wait_since", null);
         }
+        // A CLOSED CARD DOES NOT WEAR A FAILURE.
+        //
+        // `dispatch_error` is the LAST turn that did not get there ("the turn
+        // ended without reaching review after 2 attempts"): true while the card
+        // is still trying, a lie the moment it is done, because the work landed.
+        // Nothing used to clear it, and the chip that reads it (`!dispatchState
+        // && dispatchError`) never looked at the status: 44 cards sat in Done
+        // wearing a red 'stopped' badge. The chip now guards on the status, and
+        // this clears the field at the source, so the two surfaces cannot
+        // diverge again and the row stops carrying an answer to a dead question.
+        if (patch.status === "done") put("dispatch_error", null);
       }
       // DA QUANDO ASPETTA UNA RISPOSTA. `updated_at` non lo dice: si muove a
       // ogni commento, etichetta, ri-audit dell'atterraggio, quindi una card
