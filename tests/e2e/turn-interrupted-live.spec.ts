@@ -52,7 +52,7 @@ const MSG_ID = "live-interrupted-0001";
 /** The bubble the boot's resend opens: a NEW row, as on the real path. */
 const RESUME_MSG_ID = "live-resumed-0001";
 /** The first word of the resumed answer, which is what closes the banner. */
-const RIPRESO = "Riprendo da dove ero rimasto:";
+const RESUMED_OPENING = "Riprendo da dove ero rimasto:";
 
 const banner = (page: Page) => page.locator('[data-testid="turn-interrupted-banner"]');
 const assistantBubble = (page: Page) =>
@@ -220,8 +220,8 @@ test.describe.serial("Turno interrotto dal vivo: il banner compare da solo", () 
     await expect(box.locator(".animate-spin")).toBeVisible();
 
     // First token: from here the answer is its own proof, and the banner goes.
-    send({ type: "stream:content_chunk", messageId: RESUME_MSG_ID, content: RIPRESO });
-    await expect(assistantBubble(page)).toContainText(RIPRESO);
+    send({ type: "stream:content_chunk", messageId: RESUME_MSG_ID, content: RESUMED_OPENING });
+    await expect(assistantBubble(page)).toContainText(RESUMED_OPENING);
     await expect(banner(page)).toHaveCount(0);
   });
 
@@ -279,8 +279,8 @@ test.describe.serial("Turno interrotto dal vivo: il banner compare da solo", () 
         await beat(page, 3000);
 
         // THIRD STATE: the first token arrives and the banner closes itself.
-        send({ type: "stream:content_chunk", messageId: RESUME_MSG_ID, content: RIPRESO });
-        await expect(assistantBubble(page)).toContainText(RIPRESO);
+        send({ type: "stream:content_chunk", messageId: RESUME_MSG_ID, content: RESUMED_OPENING });
+        await expect(assistantBubble(page)).toContainText(RESUMED_OPENING);
         await expect(banner(page)).toHaveCount(0);
         await beat(page, 2000);
       },
