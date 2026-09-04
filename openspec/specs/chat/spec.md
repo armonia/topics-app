@@ -3245,3 +3245,57 @@ vuol dire «non attribuito», non «watchdog»).
 #### Scenario: Uno stop della persona non accende il banner
 - **GIVEN** un turno chiuso con causa `user`
 - **THEN** il banner «Risposta interrotta» non compare
+
+### Requirement: USERROW-01 — A `user` row nobody typed says so, and one somebody typed does not
+
+Two turns reach the chat wearing the person's role without being the person:
+the dispatcher's envelope (kickoff, resume, nudge of a board task) and the goal
+loop continuation. Both HAVE to be `user` rows, because that is the only role a
+provider answers. Measured on the live database: 411 rows opening with the
+kickoff text and 1,033 with the interrupted-turn text, all with a NULL author.
+
+A row written by the dispatcher SHALL carry a `dispatched-envelope` mark, and a
+row bought by the goal loop SHALL carry a `goal-nudge` mark with its attempt
+number. A row the person really typed SHALL carry NOTHING: absent marks are
+what gives the present ones any meaning.
+
+The absence SHALL be `undefined`, never an empty list: an empty `blocks` column
+would claim "we looked and found nothing" where the truth is there was nothing
+to mark, and it is also what every row written before this rule carries.
+
+A continuation number that is not a positive number NOT SHALL produce a mark:
+zero is the loop saying it bought nothing, and a non-numeric value is not a
+continuation to invent one from.
+
+#### Scenario: the person's own message
+- **GIVEN** a `user` row with no dispatch and no continuation
+- **THEN** no marks SHALL be written, and the column SHALL stay unset
+
+#### Scenario: the board's envelope
+- **GIVEN** a turn the board drives
+- **THEN** the row SHALL carry the `dispatched-envelope` mark
+
+#### Scenario: a continuation the loop bought
+- **GIVEN** a turn bought by the goal loop as attempt 3
+- **THEN** the row SHALL carry the continuation mark with attempt 3
+
+### Requirement: DISPENV-01 — The dispatcher's envelope is drawn as a service line, not as your bubble
+
+A row marked as the dispatcher's envelope NOT SHALL be drawn as a right-hand
+user bubble: three hundred lines of generated instructions in the person's
+mouth, with an "edit" button on hover, is the transcript lying about who spoke.
+
+The renderer SHALL read the mark off the row's blocks and draw ONE collapsed
+service line instead. COLLAPSED, NOT HIDDEN: the resume envelope quotes the
+person's own message inside it, so the text SHALL stay one click away.
+
+The mark SHALL be recognised beside other marks on the same row, and an
+unmarked row SHALL keep the ordinary bubble.
+
+#### Scenario: a kickoff row
+- **GIVEN** a `user` row carrying the `dispatched-envelope` mark
+- **THEN** the service line SHALL be rendered and the user bubble NOT SHALL be
+
+#### Scenario: a row a person typed
+- **GIVEN** a `user` row with no marks
+- **THEN** the ordinary bubble SHALL be rendered

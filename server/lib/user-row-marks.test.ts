@@ -1,4 +1,6 @@
 /**
+ * @covers USERROW-01
+ *
  * A `user` row that nobody typed says so - and one that somebody typed does not.
  *
  * The second half is the one that gives the first any meaning: a mark on every
