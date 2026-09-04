@@ -50,6 +50,11 @@ import { browserTools } from "../browser-tools";
 import { isPassthroughProvider } from "../browser-tools-adapters";
 import { dispatchBrowserToolCall, resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import { decodeCol } from "../../shared/message-blob";
+import { isAwaitingHuman } from "../../shared/types";
+import { createTurnBodyPersist } from "../lib/turn-body-persist";
+
+/** This handler writes the timeline: see `toolColumnWriteMode` in server/utils.ts. */
+const MIRRORED = { mirroredInBlocks: true } as const;
 import {
   controlTools,
   isControlTool,
@@ -977,64 +982,40 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // Counting on the single row let the same message resume at every boot.
           const attempt = typeof body.ripresa === "number" ? body.ripresa : body.ripresa === true ? 1 : 0;
           if (attempt > 0) blocks.push({ kind: "ripreso", attempt });
+          // What the timeline is worth in bytes, near enough: it decides WHEN
+          // the row is rewritten, never what goes into it (see
+          // `createBlockPersistThrottle`). Each event adds only what IT brings.
+          let blocksBytes = 0;
           const appendTextBlock = (delta: string) => {
             if (!delta) return;
+            blocksBytes += delta.length;
             const last = blocks[blocks.length - 1];
             if (last && last.kind === "text") last.text += delta;
             else blocks.push({ kind: "text", text: delta });
           };
           const appendThinkingBlock = (delta: string) => {
             if (!delta) return;
+            blocksBytes += delta.length;
             const last = blocks[blocks.length - 1];
             if (last && last.kind === "thinking") last.text += delta;
             else blocks.push({ kind: "thinking", text: delta });
           };
-          /**
-           * L'unica porta da cui il CORPO del turno finisce sulla riga —
-           * salvataggio periodico del testo e scatti dei tool passano di qui.
-           *
-           * Dentro una RIADOZIONE applica la regola di `reattachMerge.ts` a
-           * OGNI scrittura, non solo all'ultima: quello che il replay non ha
-           * ancora ri-emesso resta quello di prima. Serve perché la finestra
-           * pericolosa è lunga quanto il replay, non quanto il finalize — un
-           * riavvio (o un guasto) preso nel mezzo lasciava la riga con la metà
-           * di quello che c'era. Fuori da una riadozione è la scrittura di
-           * sempre, senza costi aggiunti.
-           *
-           * `withText` distingue le due chiamate: il salvataggio periodico
-           * porta testo + blocchi, quello dopo un evento di tool solo i blocchi.
-           */
-          const persistTurnBody = (withText: boolean) => {
-            const blocchi = blocks.length > 0 ? blocks : undefined;
-            if (!isReattach || !reattachSnapshot) {
-              updateLastMessage(sessionKey, withText
-                ? { content: fullContent, thinking: fullThinking || undefined, blocks: blocchi }
-                : { blocks: blocchi });
-              return;
-            }
-            const merged = mergeReattachedRow(reattachSnapshot, {
-              content: fullContent,
-              thinking: fullThinking || undefined,
-              trackedTools: trackedToolCallIds.length,
-              blocks,
-            }, "progress");
-            updateLastMessage(sessionKey, {
-              content: merged.content,
-              thinking: merged.thinking,
-              blocks: (merged.blocks as ContentBlock[] | undefined) ?? blocchi,
-            });
-          };
-          // Persist `blocks` immediately on every tool lifecycle event (start,
-          // result, abort). Without this, mid-stream reload misses tool calls:
-          // `addToolCallToLastMessage` writes the legacy `tool_calls` column
-          // synchronously but `blocks` only persists every SAVE_INTERVAL=10
-          // text chunks. The renderer prefers `blocks` when present, so any
-          // reload between text saves shows stale rows. This helper closes
-          // that race — the cost is one extra UPDATE per tool event, which is
-          // small relative to the model's tool-call cadence.
-          const persistBlocks = () => persistTurnBody(false);
+          // The body of the turn reaches its row from here and nowhere else:
+          // WHAT gets written and HOW OFTEN both live in lib/turn-body-persist.ts.
+          const turnBody = createTurnBodyPersist({
+            sessionKey,
+            updateLastMessage,
+            blocks,
+            content: () => fullContent,
+            thinking: () => fullThinking,
+            trackedTools: () => trackedToolCallIds.length,
+            reattachSnapshot: () => reattachSnapshot,
+          });
+          const persistTurnBody = (withText: boolean, force = false) => turnBody.request(withText, blocksBytes, force);
+          const persistBlocks = (force = false) => persistTurnBody(false, force);
           const appendToolBlock = (tc: ToolCall) => {
             blocks.push({ kind: "tool", toolCall: tc });
+            blocksBytes += JSON.stringify(tc).length;
             persistBlocks();
           };
           const updateBlockTool = (id: string, patch: Partial<ToolCall>) => {
@@ -1050,7 +1031,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   kind: "tool",
                   toolCall: { ...b.toolCall, ...patch },
                 };
-                persistBlocks();
+                blocksBytes += JSON.stringify(patch).length;
+                // A tool that stops to ask is written NOW: a panel that lives
+                // only in memory is a question a reload throws away.
+                persistBlocks(isAwaitingHuman(patch.status));
                 return;
               }
             }
@@ -1239,6 +1223,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           let softTimedOutAtMs: number | null = null;
 
           const clearAllTimers = () => {
+            // The deferred block write goes too: every path here rewrites the row whole.
+            turnBody.dispose();
             if (softTimer) { clearTimeout(softTimer); softTimer = null; }
             if (graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
             if (hardTimer) { clearTimeout(hardTimer); hardTimer = null; }
@@ -1614,7 +1600,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // `content`, e riscriverci sopra cancellerebbe la spiegazione. E i
             // flag di controllo non si toccano — `persistTurnBody` non passa
             // `partial`, quindi resta quello della riga.
-            try { persistBlocks(); }
+            try { persistBlocks(true); }
             catch (err) { console.warn(`[StreamWS] salvataggio dei blocchi su abort esterno fallito:`, err); }
             streamState = "finalized";
             clearAllTimers();
@@ -1794,14 +1780,14 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             for (const tcId of trackedToolCallIds) {
               if (finalizeStatus === 'error') {
                 // updateToolCallResult sets status='error' when error is provided.
-                updateToolCallResult(sessionKey, tcId, '', finalizeError, { endedAt: finalizeEndedAt });
+                updateToolCallResult(sessionKey, tcId, '', finalizeError, { endedAt: finalizeEndedAt }, MIRRORED);
                 updateBlockTool(tcId, { status: 'error', error: finalizeError, endedAt: finalizeEndedAt });
                 broadcastStreamToTopic({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId: tcId, status: 'error', result: '', error: finalizeError, endedAt: finalizeEndedAt }, matchedTopic?.id);
                 writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: tcId, status: 'error', error: finalizeError } } }] }));
               } else {
                 // Fire-and-forget success. Empty result so the UI shows just
                 // the green ✓ without a literal "success" body.
-                updateToolCallResult(sessionKey, tcId, '', undefined, { endedAt: finalizeEndedAt });
+                updateToolCallResult(sessionKey, tcId, '', undefined, { endedAt: finalizeEndedAt }, MIRRORED);
                 updateBlockTool(tcId, { status: 'success', endedAt: finalizeEndedAt });
                 broadcastStreamToTopic({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId: tcId, status: 'success', endedAt: finalizeEndedAt }, matchedTopic?.id);
                 writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: tcId, status: 'success' } } }] }));
@@ -2298,7 +2284,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // DOPO la push, mai prima: `armSoftTimer` si sospende sull'insieme
               // che vede in questo istante. Vedi l'invariante su `armSoftTimer`.
               resetStreamTimer();
-              addToolCallToLastMessage(sessionKey, toolCall);
+              addToolCallToLastMessage(sessionKey, toolCall, MIRRORED);
               appendToolBlock(toolCall);
               broadcastStreamToTopic({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall }, matchedTopic?.id);
 
@@ -2329,7 +2315,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     // state updates happen consistently. Same surface as the existing
                     // onToolResult callback below.
                     const browserEndedAt = Date.now();
-                    updateToolCallResult(sessionKey, toolCallId, resultStr, undefined, { endedAt: browserEndedAt });
+                    updateToolCallResult(sessionKey, toolCallId, resultStr, undefined, { endedAt: browserEndedAt }, MIRRORED);
                     updateBlockTool(toolCallId, { status: 'success', result: resultStr, endedAt: browserEndedAt });
                     broadcastStreamToTopic({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result: resultStr, endedAt: browserEndedAt }, matchedTopic?.id);
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result: resultStr } } }] }));
@@ -2364,7 +2350,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     console.warn(`[browser-tool-dispatcher] ${name} failed: ${msg}`);
                     const errResult = JSON.stringify({ error: msg });
                     const browserErrEndedAt = Date.now();
-                    updateToolCallResult(sessionKey, toolCallId, errResult, undefined, { endedAt: browserErrEndedAt });
+                    updateToolCallResult(sessionKey, toolCallId, errResult, undefined, { endedAt: browserErrEndedAt }, MIRRORED);
                     updateBlockTool(toolCallId, { status: 'error', result: errResult, endedAt: browserErrEndedAt });
                     broadcastStreamToTopic({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result: errResult, endedAt: browserErrEndedAt }, matchedTopic?.id);
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'error', result: errResult } } }] }));
@@ -2385,7 +2371,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 dispatchControlToolCall(name, args || {}, matchedTopic, controlDispatchDeps)
                   .then((confirmation) => {
                     const controlEndedAt = Date.now();
-                    updateToolCallResult(sessionKey, toolCallId, confirmation, undefined, { endedAt: controlEndedAt });
+                    updateToolCallResult(sessionKey, toolCallId, confirmation, undefined, { endedAt: controlEndedAt }, MIRRORED);
                     updateBlockTool(toolCallId, { status: 'success', result: confirmation, endedAt: controlEndedAt });
                     broadcastStreamToTopic({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result: confirmation, endedAt: controlEndedAt }, matchedTopic?.id);
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result: confirmation } } }] }));
@@ -2396,7 +2382,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     console.warn(`[control-tool] ${name} failed: ${msg}`);
                     const errResult = JSON.stringify({ error: msg });
                     const controlErrEndedAt = Date.now();
-                    updateToolCallResult(sessionKey, toolCallId, errResult, undefined, { endedAt: controlErrEndedAt });
+                    updateToolCallResult(sessionKey, toolCallId, errResult, undefined, { endedAt: controlErrEndedAt }, MIRRORED);
                     updateBlockTool(toolCallId, { status: 'error', result: errResult, endedAt: controlErrEndedAt });
                     broadcastStreamToTopic({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result: errResult, endedAt: controlErrEndedAt }, matchedTopic?.id);
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'error', result: errResult } } }] }));
@@ -2591,12 +2577,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // and the row renders red ✗ + error body. The Claude SDK puts the
                 // failure message inside `tool_result.content` so `result` IS the
                 // error text — passing it as both result and error is intentional.
-                updateToolCallResult(sessionKey, toolCallId, result, result, { endedAt });
+                updateToolCallResult(sessionKey, toolCallId, result, result, { endedAt }, MIRRORED);
                 updateBlockTool(toolCallId, { status: 'error', result, error: result, endedAt, ...(detail ? { detail } : {}) });
                 broadcastStreamToTopic({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result, error: result, detail, endedAt }, matchedTopic?.id);
                 writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'error', result, error: result } } }] }));
               } else {
-                updateToolCallResult(sessionKey, toolCallId, result, undefined, { endedAt });
+                updateToolCallResult(sessionKey, toolCallId, result, undefined, { endedAt }, MIRRORED);
                 updateBlockTool(toolCallId, { status: 'success', result, endedAt, ...(detail ? { detail } : {}) });
                 broadcastStreamToTopic({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result, detail, endedAt }, matchedTopic?.id);
                 writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result } } }] }));

@@ -186,6 +186,64 @@ export function toolCallsForDisk<T extends LeanableToolCall>(calls: readonly T[]
 }
 
 /**
+ * The value the `tool_calls` column must take for a row that also carries
+ * `blocks`: the empty array, because those very same tool calls already live
+ * inside the blocks.
+ *
+ * This is the write-side twin of the rule `leanMessageForWire` applies on the
+ * wire ("they carry the same thing and the renderer uses the blocks"): until
+ * now the wire was lean and the disk was not. Measured on the database of this
+ * machine: `tool_calls` weighs 149.2 MB, of which 144.4 MB sits on rows that
+ * ALSO have `blocks`, and on the 40 heaviest rows every toolCall of
+ * `tool_calls` exists identical inside `blocks`. It is the bulk of the
+ * `messages` table, and every scan, every backup and every WAL page pays for
+ * it.
+ *
+ * `'[]'` and not `null` on purpose: `updateMessage` writes the column through
+ * `COALESCE($tool_calls, tool_calls)`, so `null` means "leave what is there"
+ * and would never clear a row that already carries the copy. The empty array
+ * is the same "no tool calls" the readers already understand (see the
+ * `has_tool_calls` expression in `messageBodyPresence`).
+ *
+ * The other half of the guarantee is `rowToMessage`, which rebuilds
+ * `msg.toolCalls` from the tool blocks when the column is empty: nothing is
+ * lost, it is read from the one copy that remains.
+ *
+ * A message WITHOUT blocks keeps its column: on this database that is 4.8 MB
+ * over 5,332 rows where `tool_calls` is the only source there is.
+ */
+export function toolCallsColumnForRow<T extends LeanableToolCall & { id?: unknown }>(
+  calls: readonly T[] | null | undefined,
+  blocks: readonly LeanableBlock[] | null | undefined,
+): string | null {
+  if (calls && calls.length > 0 && blocksCoverToolCalls(blocks, calls)) return '[]';
+  return toolCallsForDisk(calls);
+}
+
+/**
+ * Do the blocks carry every one of these tool calls?
+ *
+ * The check is by id and it is EXACT, not a guess: the column is given up
+ * only when there is somewhere else it can be read back from. A message whose
+ * timeline does not mirror its tool calls (an import that builds one and not
+ * the other) keeps the column, and keeps its tool calls.
+ */
+function blocksCoverToolCalls(
+  blocks: readonly LeanableBlock[] | null | undefined,
+  calls: readonly { id?: unknown }[],
+): boolean {
+  if (!blocks || blocks.length === 0) return false;
+  const inBlocks = new Set<unknown>();
+  for (const b of blocks) {
+    const id = (b?.toolCall as { id?: unknown } | undefined)?.id;
+    if (id !== undefined) inBlocks.add(id);
+  }
+  if (inBlocks.size === 0) return false;
+  for (const c of calls) if (!inBlocks.has((c as { id?: unknown }).id)) return false;
+  return true;
+}
+
+/**
  * `blocks` come va scritta sulla riga: stessa regola, dentro i toolCall
  * annidati nei blocchi della timeline.
  *
