@@ -1597,12 +1597,15 @@ describe("task-dispatcher", () => {
     expect(h.dispatcher.isInFlight("t1")).toBe(false);
   });
 
-  it("il feedback scritto a turno VIVO arriva anche se quel turno finisce in review", async () => {
-    // Scrivere all'agent mentre lavora è il gesto che la card promette («lo
-    // riceve al prossimo turno»): il messaggio si imbuca in `pendingResume` e
-    // `onTurnEnd` lo consegna. Ma la consegna era condizionata alla card ancora
-    // `in_progress`, e il modo NORMALE in cui un turno finisce è portarla in
-    // review: lì il buffer veniva cancellato e il feedback spariva in silenzio.
+  it("il feedback scritto a turno VIVO non rifiuta la consegna: resta nel thread, con l'ora", async () => {
+    // THE MUTE BOUNCE. The message is buffered while the turn is alive, and the
+    // NORMAL way that turn ends is by taking the card to review: from there it
+    // went through the automatic rejection, and the card was back in progress
+    // twenty seconds after the delivery, signed "user", with not one line in the
+    // thread. Three times on the night of 2026-09-04 (18bdf214, cdeb9868,
+    // d2a4a907), a wasted turn each, with the agent hunting for the hole in a
+    // delivery nobody had objected to. The feedback is not lost: it is in the
+    // thread, and the note quotes it back.
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-42", attempts: 1 });
@@ -1621,9 +1624,68 @@ describe("task-dispatcher", () => {
     await p;
     await flush();
 
+    expect(h.turns.length).toBe(1);                     // nessun secondo turno
+    expect(h.task("t1")!.status).toBe("review");        // la consegna regge
+    expect(h.task("t1")!.dispatchState).toBe("delivered");
+    const nota = h.svc.get("t1")!.comments.find((c) => c.kind === "service" && c.content.includes("mentre l'agent stava consegnando"));
+    expect(nota).toBeTruthy();
+    expect(nota!.content).toContain("caso B");          // il testo è lì da leggere
+    expect(nota!.content).toMatch(/\d\d:\d\d/);         // e con l'ora in cui fu scritto
+  });
+
+  it("la card che aveva CHIESTO riprende, ma la riapertura dice cosa consegna", async () => {
+    // The only automatic reopen left: the message is the ANSWER to a question the
+    // agent asked (chip "serve te"), and that session is sitting there waiting
+    // for it. No mute status change here either: the note says why the card went
+    // back to work and what was handed over.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-42", attempts: 1 });
+
+    const p = h.dispatcher.resume("t1", "primo giro");
+    await flush();
+    void h.dispatcher.resume("t1", "usa la B");
+    await flush();
+
+    h.svc.addComment({ taskId: "t1", author: "claude", content: "Quale opzione?", questionOptions: ["A", "B"] });
+    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review", summary: "serve una decisione" } });
+    h.finishTurn();
+    await p;
+    await flush();
+
     expect(h.turns.length).toBe(2);
-    expect(h.turns[1].content).toContain("caso B");
-    expect(h.task("t1")!.status).toBe("in_progress");  // il feedback la riapre, come un reject
+    expect(h.turns[1].content).toContain("usa la B");
+    expect(h.task("t1")!.status).toBe("in_progress");
+    const nota = h.svc.get("t1")!.comments.find((c) => c.kind === "service" && c.content.includes("Riaperta per consegnare"));
+    expect(nota).toBeTruthy();
+    expect(nota!.content).toContain("usa la B");
+  });
+
+  it("un messaggio vuoto non è un messaggio: non si imbuca e non riapre niente", async () => {
+    // The third case of that night (`d2a4a907`): the queue held no human feedback
+    // at all, it held an empty string left by the continuation nudge ("turn ended
+    // without reaching review"), which against a live turn has nothing to say.
+    // The buffer kept it anyway, and at turn end it counted as much as a
+    // sentence: a reopen, and a message with no text for the agent.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-42", attempts: 1 });
+
+    const p = h.dispatcher.resume("t1", "primo giro");
+    await flush();
+    void h.dispatcher.resume("t1", "   ");
+    await flush();
+
+    h.svc.addComment({ taskId: "t1", author: "claude", content: "consegnato" });
+    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
+    h.finishTurn();
+    await p;
+    await flush();
+
+    expect(h.turns.length).toBe(1);
+    expect(h.task("t1")!.status).toBe("review");
+    // Not even a note: nothing happened that is worth telling.
+    expect(h.svc.get("t1")!.comments.some((c) => c.kind === "service" && c.content.includes("Feedback arrivato"))).toBe(false);
   });
 
   it("il feedback imbucato si ANNUNCIA sulla card, una volta sola", async () => {
