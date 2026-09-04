@@ -23,7 +23,7 @@ import { isDoneThreadService } from '../../../../shared/task-comment-service';
 import { questionToProse } from '../../../../shared/question-prose';
 import { ThreadRuns } from './ThreadRuns';
 import { copyText } from '../../lib/clipboard';
-import { openExternalOnce } from '../../lib/openExternal';
+import { openLink, isExternalLinkGesture } from '../../lib/openLink';
 import { buildTaskLink } from '../../lib/openTaskLink';
 import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState } from '../../lib/taskSession';
 import { useTaskSessionResolver } from '../../hooks/useTaskSession';
@@ -3312,7 +3312,7 @@ export function MediaViewer({ url, path }: { url: string; path: string }) {
     <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
       <p className="text-sm text-app-text-secondary">{tr('board.task.noPreviewForType')}</p>
       <button
-        onClick={() => openExternalOnce(url)}
+        onClick={(e) => openLink(url, { external: isExternalLinkGesture(e), origin: e.target })}
         className="flex items-center gap-1 rounded bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20"
       ><ExternalLink className="h-3.5 w-3.5" /> {tr('board.task.openInBrowser')}</button>
     </div>
@@ -3342,7 +3342,9 @@ export function MediaStrip({ media, onPreview }: { media?: string[]; onPreview?:
   const open = (e: React.MouseEvent, p: string) => {
     e.preventDefault();
     if (onPreview) onPreview(p);
-    else openExternalOnce(getMediaUrl(p)); // target=_blank is dead in WKWebView
+    // A tab of the Topics browser, not the system one: target=_blank is dead in
+    // WKWebView, and an attachment is something you look at without leaving.
+    else openLink(getMediaUrl(p), { external: isExternalLinkGesture(e), origin: e.target });
   };
   return (
     <div className="mt-1 flex flex-wrap gap-1.5">

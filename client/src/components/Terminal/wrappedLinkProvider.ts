@@ -1,5 +1,5 @@
 import type { Terminal, IDisposable, ILink, ILinkProvider } from '@xterm/xterm';
-import { openExternalOnce } from '@/lib/openExternal';
+import { openLink, isExternalLinkGesture } from '@/lib/openLink';
 
 // xterm's WebLinksAddon scans one visible line at a time, so a URL that breaks
 // across rows only becomes clickable on its first row. This provider joins
@@ -106,7 +106,7 @@ function indexToCoord(segments: Segment[], idx: number): { row: number; col: num
 
 export function registerWrappedLinkProvider(
   term: Terminal,
-  handler: (uri: string) => void,
+  handler: (uri: string, e: MouseEvent) => void,
 ): IDisposable {
   const provider: ILinkProvider = {
     provideLinks(y, callback) {
@@ -138,7 +138,7 @@ export function registerWrappedLinkProvider(
               end: { x: endCoord.col, y: endCoord.row },
             },
             text: uri,
-            activate: (_e, u) => handler(u),
+            activate: (e, u) => handler(u, e),
           });
         }
       }
@@ -148,6 +148,19 @@ export function registerWrappedLinkProvider(
   return term.registerLinkProvider(provider);
 }
 
-export function openLinkExternally(uri: string): void {
-  openExternalOnce(uri);
+/**
+ * A URL clicked in a terminal opens as a TAB of the Topics browser, beside the
+ * terminal that printed it (`nearPaneId`), instead of throwing the user out to
+ * the system browser. Cmd/Ctrl-click and the middle button still leave the app.
+ *
+ * `paneId` is optional because the provider is also registered by surfaces that
+ * do not know their pane; without it the tab still opens, just wherever the
+ * window's browser strip already is.
+ */
+export function openTerminalLink(uri: string, paneId?: string, e?: MouseEvent): void {
+  openLink(uri, {
+    external: e ? isExternalLinkGesture(e) : false,
+    nearPaneId: paneId,
+    origin: e?.target ?? null,
+  });
 }

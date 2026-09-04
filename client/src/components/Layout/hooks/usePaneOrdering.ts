@@ -33,6 +33,8 @@ import { usePaneStore } from '../../../state/pane/store';
 import { openPane } from '../../../state/pane/actions';
 import { setBrowserSpawner } from '../../../state/browserSpawner';
 import { persistBrowserPaneUrl } from '../../../state/pane/browserPaneUrl';
+import { OPEN_TAB_EVENT, type OpenTabDetail } from '../../../lib/openLink';
+import { insertPaneAfter } from '../../../lib/openTabTarget';
 
 /**
  * Phase 30.1 polish — persist a browser pane in the global pane store so
@@ -66,6 +68,27 @@ function persistBrowserPane(paneId: string): void {
     }));
   } catch (err) {
     console.warn('[usePaneOrdering] persistBrowserPane failed:', err);
+  }
+}
+
+/** Same persistence, but the tab lands right AFTER `afterPaneId` instead of at
+ *  the end of the strip: a tab opened from the tab you are on shows up next to
+ *  it. Falls back to appending when the anchor is unknown. */
+function persistBrowserPaneAfter(paneId: string, afterPaneId?: string): void {
+  if (!isBrowserPaneId(paneId)) return;
+  try {
+    const state = usePaneStore.getState();
+    const group = state.groups['group:default'];
+    if (group?.paneIds.includes(paneId)) return; // already persisted
+    const at = afterPaneId ? group?.paneIds.indexOf(afterPaneId) ?? -1 : -1;
+    state.dispatch(openPane({
+      id: paneId,
+      type: 'browser',
+      groupId: 'group:default',
+      ...(at >= 0 ? { insertIndex: at + 1 } : {}),
+    }));
+  } catch (err) {
+    console.warn('[usePaneOrdering] persistBrowserPaneAfter failed:', err);
   }
 }
 
@@ -587,6 +610,58 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
     window.addEventListener('browser:open-and-navigate', handler as EventListener);
     return () => window.removeEventListener('browser:open-and-navigate', handler as EventListener);
   }, [onFocusPanel, onBrowserNavigateUrl]);
+
+  // 8c. A LINK was clicked (chat, terminal, tool card, or a page inside a
+  // browser pane asking for `target=_blank`). Unlike 8/8b this is never a
+  // "navigate the session's browser": it is a NEW tab, so it always creates its
+  // own pane from the fresh contextId the router minted, and the page that was
+  // on screen stays where it was.
+  //
+  // The claim is SYNCHRONOUS (preventDefault before any setState): `openLink`
+  // reads it to decide whether anybody can host the tab, and falls back to the
+  // system browser when nobody does. A claim decided inside a state updater
+  // would come back after that decision was already taken.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      if (e.defaultPrevented) return;
+      const d = (e as CustomEvent<OpenTabDetail>).detail;
+      if (!d?.url || !d.contextId) return;
+      const fromHere = !!d.nearPaneId && orderedIdsRef.current.includes(d.nearPaneId);
+      // A link clicked INSIDE a project window carries its path and belongs to
+      // that window; anything else is standalone work and lands here. The
+      // `defaultPrevented` guard above is what makes this safe to state so
+      // loosely: several standalone groups may match, the first one takes it.
+      const claims =
+        fromHere ||
+        (!d.nearPaneId &&
+          !d.projectPath &&
+          (!d.topicId || orderedIdsRef.current.includes(d.topicId) || !hasProjectPaneRef.current));
+      if (!claims) return;
+      e.preventDefault();
+
+      const navigateUrl = resolveBrowserNavigateUrl(d.url);
+      const newId = createPaneId('browser', d.contextId);
+      // A strip that already shows a browser gains a tab; the first browser of
+      // the group still gets a cell of its own beside the chat, which is what
+      // every other open path does here.
+      const hadBrowser = orderedIdsRef.current.some(isBrowserPaneId);
+      const anchor = activePaneIdRef.current ?? undefined;
+      setOrderedIds(prev => insertPaneAfter([...prev, newId], newId, anchor));
+      persistBrowserPaneAfter(newId, anchor);
+      persistBrowserPaneUrl(newId, navigateUrl);
+      if (d.topicId) setBrowserSpawner(d.contextId, d.topicId);
+      // No onBrowserNavigateUrl here on purpose: that prop drives whichever
+      // browser panel is mounted, and pushing the URL through it would navigate
+      // the tab the user was reading. The new pane picks the URL up from its own
+      // persisted `url` when it mounts.
+      queueMicrotask(() => {
+        onFocusPanel(newId);
+        if (!hadBrowser) requestBrowserSolo(newId);
+      });
+    };
+    window.addEventListener(OPEN_TAB_EVENT, handler as EventListener);
+    return () => window.removeEventListener(OPEN_TAB_EVENT, handler as EventListener);
+  }, [onFocusPanel]);
 
   // 9. initialTab === 'browser' — reads activePaneIdRef (Path 4).
   useEffect(() => {
