@@ -2967,6 +2967,20 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             const queued = svc.get(bReview.taskId, { projectId: bReview.projectId })?.task ?? before;
             return json({ ...queued, landing: ticket }, 202);
           }
+          // The rejection text is written HERE first, so the row exists and has
+          // an id before the resume that delivers it. `reviewDecision` writes
+          // the same comment right after and the author+content dedupe makes
+          // that second write a no-op, which is why the review_comment it keeps
+          // is untouched.
+          let rejectCommentId: string | null = null;
+          if (decision === "reject" && comment) {
+            try {
+              rejectCommentId = svc.addComment({
+                taskId: bReview.taskId, author: HUMAN, content: comment,
+                projectId: bReview.projectId,
+              }).id;
+            } catch { rejectCommentId = null; }
+          }
           const task = svc.reviewDecision({
             taskId: bReview.taskId, by: HUMAN, decision, comment,
             projectId: bReview.projectId,
@@ -2977,7 +2991,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // resumes instead of a fresh agent spawning. reviewDecision already
           // moved it back to in_progress.
           if (dispatcher && decision === "reject" && task.assignedTopicId) {
-            dispatcher.resume(bReview.taskId, comment ?? "")
+            dispatcher.resume(bReview.taskId, comment ?? "", rejectCommentId ? { commentIds: [rejectCommentId] } : undefined)
               .catch((err) => console.warn(`[Tasks] resume after reject failed for ${bReview.taskId}:`, err));
           } else if (dispatcher && decision === "reject") {
             // No session to resume: the binding was released (a restart with
@@ -3268,7 +3282,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               // Attachments ride along as disk paths — the agent reads them
               // directly (screenshots, docs, mockups the human dropped in).
               if (comment.media.length) msg += `\nAllegati (file su disco, leggili): ${comment.media.join(" ")}`;
-              dispatcher.resume(root.id, msg)
+              // The envelope carries the id of the comment it delivers: those
+              // words are already a row in the thread, and the anchor is what
+              // lets a reader draw them once instead of twice.
+              dispatcher.resume(root.id, msg, { commentIds: [comment.id] })
                 .catch((err) => console.warn(`[Tasks] resume after comment failed for ${root.id}:`, err));
             }
           } catch { /* the root may have moved meanwhile */ }

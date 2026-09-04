@@ -8,6 +8,7 @@
  * wear the person's role without being the person.
  *
  * @covers CHAT-USERROW-01
+ * @covers CHAT-ENV-01
  */
 import { describe, expect, test } from "bun:test";
 import { userRowMarks } from "./user-row-marks";
@@ -38,5 +39,25 @@ describe("userRowMarks", () => {
       { kind: "goal-nudge", attempt: 1 },
       { kind: "dispatched-envelope" },
     ]);
+  });
+
+  test("a resume envelope carries the ids of the comments it delivers", () => {
+    expect(userRowMarks({ dispatched: true, commentIds: ["c1", "c2"] })).toEqual([
+      { kind: "dispatched-envelope", commentIds: ["c1", "c2"] },
+    ]);
+  });
+
+  test("no ids without the envelope: they would anchor words this row never carried", () => {
+    expect(userRowMarks({ commentIds: ["c1"] })).toBeUndefined();
+    expect(userRowMarks({ dispatched: false, commentIds: ["c1"] })).toBeUndefined();
+    expect(userRowMarks({ goalNudge: 1, commentIds: ["c1"] })).toEqual([{ kind: "goal-nudge", attempt: 1 }]);
+  });
+
+  test("an empty or junk list leaves the kickoff envelope bare", () => {
+    // A kickoff delivers no comment at all, and `commentIds: []` would be it
+    // claiming otherwise.
+    expect(userRowMarks({ dispatched: true, commentIds: [] })).toEqual([{ kind: "dispatched-envelope" }]);
+    expect(userRowMarks({ dispatched: true, commentIds: ["", null, 7] })).toEqual([{ kind: "dispatched-envelope" }]);
+    expect(userRowMarks({ dispatched: true, commentIds: "c1" })).toEqual([{ kind: "dispatched-envelope" }]);
   });
 });

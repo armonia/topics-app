@@ -875,7 +875,7 @@ async function stallJudgeComplete(prompt: string): Promise<string> {
 async function runHeadlessTurn(
   sessionKey: string,
   content: string,
-  opts: { timeoutMs: number; idleMs?: number; contextMode?: "full" | "lean" },
+  opts: { timeoutMs: number; idleMs?: number; contextMode?: "full" | "lean"; dispatchedFor?: string[] },
 ): Promise<TurnEndInfo> {
   const url = new URL("http://localhost/api/chat");
   // Butta via un eventuale residuo: una fine depositata e mai ritirata è di un
@@ -887,7 +887,13 @@ async function runHeadlessTurn(
   // `dispatched`: è un turno d'AGENTE guidato dalla board, non una chat umana.
   // La route lo rimanda sul `stream:end` di completamento così la push di fine
   // risposta lo esclude (decine di turni d'agente = spam).
-  const body = JSON.stringify({ sessionKey, messages: [{ role: "user", content }], contextMode: opts.contextMode ?? "full", dispatched: true });
+  // `dispatchedFor`: the ids of the card comments this envelope delivers, so
+  // the row carries them and nobody has to read them back out of the text.
+  const body = JSON.stringify({
+    sessionKey, messages: [{ role: "user", content }],
+    contextMode: opts.contextMode ?? "full", dispatched: true,
+    ...(opts.dispatchedFor?.length ? { dispatchedFor: opts.dispatchedFor } : {}),
+  });
   const resp = await topicsRouter(
     new Request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body }),
     url, "/api/chat", "POST",

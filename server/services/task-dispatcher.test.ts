@@ -105,7 +105,7 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
   const events: any[] = [];
   const worktreesCreated: string[] = [];
   const topicsCreated: { name: string; projectPath: string; worktreeId?: string; effort?: string; model?: string; standalone?: boolean }[] = [];
-  const turns: { sessionKey: string; content: string; contextMode?: "full" | "lean"; timeoutMs?: number; idleMs?: number }[] = [];
+  const turns: { sessionKey: string; content: string; contextMode?: "full" | "lean"; timeoutMs?: number; idleMs?: number; dispatchedFor?: string[] }[] = [];
   let resolveTurn: ((info?: TurnEndInfo) => void) | null = null;
   let rejectTurn: ((e: unknown) => void) | null = null;
 
@@ -127,7 +127,7 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
     createWorktree: async (storeId) => { worktreesCreated.push(storeId); return `wt-${storeId}`; },
     runTurn: (sessionKey, content, opts) =>
       new Promise<TurnEndInfo | void>((res, rej) => {
-        turns.push({ sessionKey, content, contextMode: opts?.contextMode, timeoutMs: opts?.timeoutMs, idleMs: opts?.idleMs });
+        turns.push({ sessionKey, content, contextMode: opts?.contextMode, timeoutMs: opts?.timeoutMs, idleMs: opts?.idleMs, dispatchedFor: opts?.dispatchedFor });
         resolveTurn = res; rejectTurn = rej;
       }),
     broadcast: (m) => events.push(m),
@@ -3798,6 +3798,43 @@ describe("l'envelope non parla italiano", () => {
     const testo = h.turns[0]!.content;
     expect(testo).toContain("Human update on task");
     expect(italianRows(testo)).toEqual([]);
+    h.dispatcher.shutdown();
+  });
+
+  it("the resume carries the ids of the comments it delivers, and the kickoff carries none", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-live" });
+    void h.dispatcher.resume("t1", "also rename the docs", { commentIds: ["c1"] });
+    await flush();
+
+    expect(h.turns[0]!.dispatchedFor).toEqual(["c1"]);
+    // The TEXT is the same one an agent has always read: the ids ride the row,
+    // not the envelope's prose.
+    expect(h.turns[0]!.content).toContain("Human update on task");
+    h.dispatcher.shutdown();
+  });
+
+  it("two messages buffered on a live turn come out as ONE envelope with both ids", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    // The turn is alive: both resumes are buffered until it ends.
+    void h.dispatcher.resume("t1", "first", { commentIds: ["c1"] });
+    void h.dispatcher.resume("t1", "second", { commentIds: ["c2"] });
+    await flush();
+    expect(h.turns.length).toBe(1);
+
+    h.finishTurnWith({ end: "end_turn" });
+    await flush();
+    await flush();
+
+    const resumed = h.turns[1]!;
+    expect(resumed.dispatchedFor).toEqual(["c1", "c2"]);
+    expect(resumed.content).toContain("first");
+    expect(resumed.content).toContain("second");
     h.dispatcher.shutdown();
   });
 
