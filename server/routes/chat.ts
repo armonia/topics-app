@@ -1234,12 +1234,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // freeze. Harmless if a healthy-but-slow turn trips it — the slow
           // annotation is stripped the moment output resumes (resetStreamTimer
           // recovery). Grace (recovery window) and the hard cap are unchanged.
-          // The soft and grace windows are minutes long, which is right in
-          // production and makes the watchdog untestable anywhere else: proving
-          // what a timed-out turn leaves on the row and on the wire would cost
-          // two minutes of wall clock per case. These two knobs shrink the
-          // windows for a test that drives the real route; unset, the values
-          // are the ones that have always been here.
+          // The knobs shrink both windows for a test that drives the real route.
           const STREAM_TIMEOUT_MS = Number(process.env.TOPICS_STREAM_SOFT_MS) || 60_000; // 1 min soft
           const STREAM_GRACE_MS = Number(process.env.TOPICS_STREAM_GRACE_MS) || 60_000;  // 1 min grace
           const STREAM_HARD_TIMEOUT_MS = 30 * 60_000; // 30 min hard upper-bound
@@ -1256,29 +1251,18 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
 
           /**
            * Close the turn in the database AND tell the screens about it.
-           *
-           * `endStream` repairs the row and RETURNS the tool calls it cancelled,
-           * and that list is the only event able to switch off a panel already
-           * drawn: dropped, the spinner keeps spinning and a question or a
-           * permission prompt stays clickable on a turn that is over and whose
-           * human hold is already released. `finalizeStream` and the stale
-           * stream sweeper announce it; the two watchdogs below used to throw
-           * it away, which is the same defect with nobody watching.
+           * `endStream` returns the tool calls it cancelled, and that list is
+           * the only event able to switch off a panel already drawn: dropped by
+           * the two watchdogs below, it left the spinner spinning and a
+           * question clickable on a turn that was over.
            */
           const endStreamAndAnnounce = (opts?: Parameters<typeof endStream>[1]): ToolCall[] => {
             const interruptedTools = endStream(sessionKey, opts);
             for (const tc of interruptedTools) {
               broadcastStreamToTopic({
-                type: "stream:tool_result",
-                sessionKey,
-                topicId: matchedTopic?.id,
-                toolCallId: tc.id,
-                status: "error",
-                // The row's own output, not an empty string: cancelling a tool
-                // does not erase what it had already printed.
-                result: tc.result,
-                error: tc.error,
-                endedAt: tc.endedAt,
+                type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id,
+                toolCallId: tc.id, status: "error",
+                result: tc.result, error: tc.error, endedAt: tc.endedAt,
               }, matchedTopic?.id);
             }
             return interruptedTools;
@@ -1952,12 +1936,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // the BLOCKS, and in the text only when there is no text.
               blocks.push({ kind: "error", text: cutNotice.replace(/^⚠️\s*/, "") });
               if (!fullContent.trim()) fullContent = cutNotice;
-              // AND THE END MUST SAY IT WENT WRONG. Without this the
-              // `stream:end` goes out with no `reason: "error"`, so
-              // `maybeSendPush` returns at its gate and the turn that stopped
-              // in the middle of a document notifies nobody. The three sibling
-              // branches all set it: this one is the invariant stated in the
-              // comment above, not an exception to it.
+              // AND THE END MUST SAY IT WENT WRONG, or `stream:end` carries no
+              // `reason: "error"` and the push gate mutes the cut turn.
               turnError = cutNotice;
               console.warn(`[StreamWS] ${sessionKey}: turn cut by the output cap`);
               if (matchedTopic) {
@@ -2056,21 +2036,16 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               ? discardIfEmptyTurn(sessionKey, finalizedMsg)
               : null;
             if (discardedMessageId) console.log(`[StreamWS] ${sessionKey}: turno vuoto scartato (${discardedMessageId})`);
-            // Two things this call does, and both used to be thrown away here.
-            //
-            // It CANCELS every tool still awaiting a human, because the turn is
-            // over and a click would reach nobody. The plan approval is the one
-            // ask that must survive: this same function installed it a few
-            // hundred lines above, its answer opens a NEW turn, and no provider
-            // will ever send a result for that id. Without the exemption the
-            // panel was already `error` in the database before anyone saw it,
-            // and after a reload even the bar above the composer was gone,
-            // because `findPendingAsk` looks for `waiting_for_input`.
-            //
-            // And it RETURNS what it cancelled. That list is the only event
-            // able to switch off a panel already on screen: dropped, the form
-            // stayed grey on `Invio...` over a turn that no longer exists. The
-            // stale-stream sweeper announces its own list the same way.
+            // This CANCELS every tool still awaiting a human (the turn is over,
+            // a click would reach nobody) and announces the list, which is what
+            // switches those panels off on a screen that is already open: see
+            // `endStreamAndAnnounce`. The plan approval is the one ask exempted:
+            // this same function installed it a few hundred lines above, its
+            // answer opens a NEW turn, and no provider will ever send a result
+            // for that id. Without the exemption the panel was `error` in the
+            // database before anyone saw it, and after a reload even the bar
+            // above the composer was gone (`findPendingAsk` looks for
+            // `waiting_for_input`).
             const interrupted = endStreamAndAnnounce(
               askingPlanApproval && pendingPlan ? { keepAwaiting: [pendingPlan.toolCallId] } : undefined,
             );
