@@ -1,6 +1,28 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { Topic, CreateTopicRequest, UpdateTopicRequest } from '../types';
 import { topicsApi } from '../lib/api';
+import { createThrottledLocalWriter } from '../lib/throttledLocalWrite';
+
+/**
+ * The two caches of this hook go through a throttled writer, and it is not a
+ * micro-optimisation: `topics-cache` is the whole topics map (about 1 MB on a
+ * workspace of a thousand topics) and it used to be rewritten on EVERY change
+ * of the state, so a burst of WebSocket updates was a burst of megabytes into
+ * the WebKit localStorage journal, which is never checkpointed while the
+ * webview lives. Two seconds of window, plus the skip when the bytes are
+ * identical, and the burst costs one write or none. Nobody reads these keys
+ * before the next boot, and the writer flushes on `pagehide`, so the delay
+ * costs nothing. See `lib/throttledLocalWrite.ts`.
+ */
+const TOPICS_CACHE_DEBOUNCE_MS = 2000;
+const topicsCacheWriter = createThrottledLocalWriter({
+  key: 'topics-cache',
+  debounceMs: TOPICS_CACHE_DEBOUNCE_MS,
+});
+const workspaceProjectsCacheWriter = createThrottledLocalWriter({
+  key: 'workspace-projects-cache',
+  debounceMs: TOPICS_CACHE_DEBOUNCE_MS,
+});
 
 function getInitialTopics(): Record<string, Topic> {
   try {
@@ -46,10 +68,10 @@ export function useTopics() {
       setTopics(data.topics);
       if (data.workspaceProjects) {
         setWorkspaceProjects(data.workspaceProjects);
-        try { localStorage.setItem('workspace-projects-cache', JSON.stringify(data.workspaceProjects)); } catch {}
+        workspaceProjectsCacheWriter.write(() => JSON.stringify(data.workspaceProjects));
       }
-      // Cache to localStorage
-      try { localStorage.setItem('topics-cache', JSON.stringify(data.topics)); } catch {}
+      // Cache to localStorage (throttled: see the writers above)
+      topicsCacheWriter.write(() => JSON.stringify(data.topics));
     } catch (err: unknown) {
       console.error('Failed to load topics:', err);
       // Narrow the opaque caught value to the Error-ish fields we read.
@@ -206,7 +228,7 @@ export function useTopics() {
   // Persist topics cache whenever topics change
   useEffect(() => {
     if (Object.keys(topics).length > 0) {
-      try { localStorage.setItem('topics-cache', JSON.stringify(topics)); } catch {}
+      topicsCacheWriter.write(() => JSON.stringify(topics));
     }
   }, [topics]);
 
