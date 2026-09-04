@@ -5362,6 +5362,13 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
 }
 
 async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_MS): Promise<void> {
+  // FIRST CLOSE THE DOOR. Every caller of this wait is a restart, and a wait
+  // that lets the dispatcher keep starting turns behind a full cap never ends:
+  // on 2026-09-04 `restart-when-idle` was still deferred after 18,482 s, three
+  // card turns at a time, one starting as soon as one finished. From here on
+  // no new card turn starts; the ones in flight finish, the queued ones keep
+  // their sessions and the next process resumes them at boot.
+  taskDispatcher.drain(label);
   // DUE SCADENZE, E TUTTE E DUE SONO TETTI VERI — contate dall'INIZIO
   // dell'attesa, non da «l'ultima volta che ho visto del lavoro».
   //

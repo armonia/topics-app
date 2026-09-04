@@ -1597,12 +1597,15 @@ describe("task-dispatcher", () => {
     expect(h.dispatcher.isInFlight("t1")).toBe(false);
   });
 
-  it("il feedback scritto a turno VIVO arriva anche se quel turno finisce in review", async () => {
-    // Scrivere all'agent mentre lavora è il gesto che la card promette («lo
-    // riceve al prossimo turno»): il messaggio si imbuca in `pendingResume` e
-    // `onTurnEnd` lo consegna. Ma la consegna era condizionata alla card ancora
-    // `in_progress`, e il modo NORMALE in cui un turno finisce è portarla in
-    // review: lì il buffer veniva cancellato e il feedback spariva in silenzio.
+  it("il feedback scritto a turno VIVO non rifiuta la consegna: resta nel thread, con l'ora", async () => {
+    // THE MUTE BOUNCE. The message is buffered while the turn is alive, and the
+    // NORMAL way that turn ends is by taking the card to review: from there it
+    // went through the automatic rejection, and the card was back in progress
+    // twenty seconds after the delivery, signed "user", with not one line in the
+    // thread. Three times on the night of 2026-09-04 (18bdf214, cdeb9868,
+    // d2a4a907), a wasted turn each, with the agent hunting for the hole in a
+    // delivery nobody had objected to. The feedback is not lost: it is in the
+    // thread, and the note quotes it back.
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-42", attempts: 1 });
@@ -1621,9 +1624,68 @@ describe("task-dispatcher", () => {
     await p;
     await flush();
 
+    expect(h.turns.length).toBe(1);                     // nessun secondo turno
+    expect(h.task("t1")!.status).toBe("review");        // la consegna regge
+    expect(h.task("t1")!.dispatchState).toBe("delivered");
+    const nota = h.svc.get("t1")!.comments.find((c) => c.kind === "service" && c.content.includes("mentre l'agent stava consegnando"));
+    expect(nota).toBeTruthy();
+    expect(nota!.content).toContain("caso B");          // il testo è lì da leggere
+    expect(nota!.content).toMatch(/\d\d:\d\d/);         // e con l'ora in cui fu scritto
+  });
+
+  it("la card che aveva CHIESTO riprende, ma la riapertura dice cosa consegna", async () => {
+    // The only automatic reopen left: the message is the ANSWER to a question the
+    // agent asked (chip "serve te"), and that session is sitting there waiting
+    // for it. No mute status change here either: the note says why the card went
+    // back to work and what was handed over.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-42", attempts: 1 });
+
+    const p = h.dispatcher.resume("t1", "primo giro");
+    await flush();
+    void h.dispatcher.resume("t1", "usa la B");
+    await flush();
+
+    h.svc.addComment({ taskId: "t1", author: "claude", content: "Quale opzione?", questionOptions: ["A", "B"] });
+    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review", summary: "serve una decisione" } });
+    h.finishTurn();
+    await p;
+    await flush();
+
     expect(h.turns.length).toBe(2);
-    expect(h.turns[1].content).toContain("caso B");
-    expect(h.task("t1")!.status).toBe("in_progress");  // il feedback la riapre, come un reject
+    expect(h.turns[1].content).toContain("usa la B");
+    expect(h.task("t1")!.status).toBe("in_progress");
+    const nota = h.svc.get("t1")!.comments.find((c) => c.kind === "service" && c.content.includes("Riaperta per consegnare"));
+    expect(nota).toBeTruthy();
+    expect(nota!.content).toContain("usa la B");
+  });
+
+  it("un messaggio vuoto non è un messaggio: non si imbuca e non riapre niente", async () => {
+    // The third case of that night (`d2a4a907`): the queue held no human feedback
+    // at all, it held an empty string left by the continuation nudge ("turn ended
+    // without reaching review"), which against a live turn has nothing to say.
+    // The buffer kept it anyway, and at turn end it counted as much as a
+    // sentence: a reopen, and a message with no text for the agent.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-42", attempts: 1 });
+
+    const p = h.dispatcher.resume("t1", "primo giro");
+    await flush();
+    void h.dispatcher.resume("t1", "   ");
+    await flush();
+
+    h.svc.addComment({ taskId: "t1", author: "claude", content: "consegnato" });
+    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
+    h.finishTurn();
+    await p;
+    await flush();
+
+    expect(h.turns.length).toBe(1);
+    expect(h.task("t1")!.status).toBe("review");
+    // Not even a note: nothing happened that is worth telling.
+    expect(h.svc.get("t1")!.comments.some((c) => c.kind === "service" && c.content.includes("Feedback arrivato"))).toBe(false);
   });
 
   it("il feedback imbucato si ANNUNCIA sulla card, una volta sola", async () => {
@@ -1683,8 +1745,8 @@ describe("task-dispatcher", () => {
     expect(h.turns.length).toBe(0);
   });
 
-  it("reconcile requeues an orphaned (mid-dispatch) in-progress task, refunding the attempt", async () => {
-    const h = harness();
+  it("reconcile requeues an orphaned (mid-dispatch) in-progress task whose session is gone, refunding the attempt", async () => {
+    const h = harness({ topicExists: () => false });
     seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-dead", attempts: 1, dispatchState: "working" });
     await h.dispatcher.reconcile();
     await flush();
@@ -1694,11 +1756,11 @@ describe("task-dispatcher", () => {
     expect(t.dispatchAttempts).toBe(0);       // restart refunds the interrupted attempt
   });
 
-  it("reconcile ALWAYS requeues a restart orphan (never parks): a restart is not a failure", async () => {
+  it("reconcile ALWAYS requeues a restart orphan with no session left (never parks): a restart is not a failure", async () => {
     // Even at the cap, a server restart must not park the task — it rolls the
     // interrupted attempt back and requeues, so deploys can't bounce a healthy
     // task into backlog "per errore".
-    const h = harness();
+    const h = harness({ topicExists: () => false });
     seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-dead", attempts: 3, dispatchState: "working" });
     await h.dispatcher.reconcile();
     await flush();
@@ -1931,22 +1993,37 @@ describe("task-dispatcher", () => {
     expect(h.turns[0].content).toContain("exclusive owner of task"); // kickoff da capo
   });
 
-  it("reconcile with the global switch OFF requeues without resuming and without a stranded chip", async () => {
-    // The human turned auto-dispatch off: no agent may relaunch. The orphan
-    // goes back to todo, and the requeue's `queued` chip is cleared — on a
-    // board that never dispatches it would strand forever.
+  it("reconcile with the global switch OFF keeps the orphan's session: no turn starts, nothing is thrown away", async () => {
+    // The human turned auto-dispatch off: no agent may relaunch. But the
+    // session and the worktree are still there, and on 2026-09-04 03:54 a
+    // boot with the switch off requeued twelve cards at once, binding
+    // released, eight worktrees with uncommitted work left behind. A switch
+    // that is off may stop turns; it may not throw sessions away.
     const h = harness({ topicExists: () => true });
-    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-live", attempts: 2, dispatchState: "working" });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-live", attempts: 1, dispatchState: "working" });
 
     await h.dispatcher.reconcile();
     await flush();
 
     const t = h.task("t1")!;
-    expect(t.status).toBe("todo");
-    expect(t.assignedTopicId).toBeNull();
-    expect(t.dispatchAttempts).toBe(1);   // interrupted attempt refunded
-    expect(t.dispatchState).toBeNull();   // no stranded 'queued'
-    expect(h.turns.length).toBe(0);
+    expect(t.status).toBe("in_progress");            // never bounced through todo
+    expect(t.assignedTopicId).toBe("topic-live");    // SAME session, same worktree
+    expect(t.dispatchAttempts).toBe(1);              // a restart consumes nothing, refunds nothing
+    expect(t.dispatchState).toBe("queued");          // the chip says it waits, not that it works
+    expect(h.turns.length).toBe(0);                  // off: nothing started
+    expect(h.topicsCreated.length).toBe(0);          // and no fresh topic
+    expect(h.svc.get("t1")!.comments.some((c) => c.author === "system" && c.content.includes("Dispatch spento al riavvio"))).toBe(true);
+
+    // The switch comes back on: the poll resumes the very same session.
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 5 });
+    await h.dispatcher.reconcile();
+    await flush();
+    expect(h.turns.length).toBe(1);
+    expect(h.turns[0].sessionKey).toBe("topic:" + "topic-live".slice(0, 8));
+    expect(h.turns[0].content).toContain("Resume where you were");
+    expect(h.topicsCreated.length).toBe(0);
+    h.dispatcher.shutdown();
   });
 
   it("reconcile LIBERA un orfano fermo su `queued` con la board SPENTA", async () => {
@@ -1957,8 +2034,11 @@ describe("task-dispatcher", () => {
     // SEMPRE — il recupero orfani la saltava perché guardava solo
     // {working, starting}.
     //
-    // La board spenta è il caso duro: non reclama nulla, ma deve comunque
-    // poter LIBERARE la card (e con lei lo slot che l'umano le vede occupare).
+    // The board being off is the hard case: it claims nothing. Since 2026-09-04
+    // the card is NOT released any more: its session exists, and releasing it
+    // meant a new, empty worktree at redispatch. It stays queued, with the chip
+    // saying so and a note saying why, and resumes on the SAME session as soon
+    // as the board is switched back on (the poll sees bound + queued + on).
     const h = harness({ topicExists: () => true });
     seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-live", attempts: 1, dispatchState: "queued" });
 
@@ -1966,18 +2046,20 @@ describe("task-dispatcher", () => {
     await flush();
 
     const t = h.task("t1")!;
-    expect(t.status).toBe("todo");
-    expect(t.assignedTopicId).toBeNull();
-    expect(t.dispatchAttempts).toBe(0);   // il riavvio non consuma un tentativo
-    expect(t.dispatchState).toBeNull();   // niente chip arenato su una board che non dispaccia
-    expect(h.turns.length).toBe(0);       // spenta: nessun agente riparte
+    expect(t.status).toBe("in_progress");
+    expect(t.assignedTopicId).toBe("topic-live");   // the session is still its own
+    expect(t.dispatchAttempts).toBe(1);             // a restart consumes no attempt
+    expect(t.dispatchState).toBe("queued");         // the chip tells the truth: it waits
+    expect(h.turns.length).toBe(0);                 // off: no agent restarts
+    expect(h.svc.get("t1")!.comments.some((c) => c.content.includes("Dispatch spento al riavvio"))).toBe(true);
   });
 
-  it("reconcile LIBERA un orfano fermo su `queued` anche con la board ACCESA", async () => {
-    // Stesso fantasma, board accesa. Il passaggio da `todo` c'è ma non si
-    // fotografa: la STESSA reconcile, dopo il requeue, ticca la board e la
-    // riclaima — ed è il punto, perché è così che lo slot torna a lavorare
-    // invece di restare occupato da una card ferma.
+  it("reconcile RIPRENDE un orfano fermo su `queued` con la board ACCESA, sulla sua sessione", async () => {
+    // Same ghost, board on. It used to go through `todo` and come back with a
+    // new topic: the worktree with the work stayed behind. Now the card resumes
+    // on the SAME session (or re-enters a LIVE slot wait when the cap is full):
+    // the invariant holds, no card survives in_progress + `queued` without a
+    // turn or a wait in memory.
     const h = harness({ topicExists: () => true });
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-live", attempts: 1, dispatchState: "queued" });
@@ -1986,13 +2068,14 @@ describe("task-dispatcher", () => {
     await flush();
 
     const t = h.task("t1")!;
-    // L'invariante, in entrambe le modalità: nessuna card sopravvive come
-    // in_progress + `queued` senza un turno.
-    expect(t.status === "in_progress" && t.dispatchState === "queued").toBe(false);
-    expect(t.assignedTopicId).toBe("topic-1");                       // topic NUOVO, il fantasma era sbindato
-    expect(t.dispatchAttempts).toBe(1);                              // rimborsato (1→0) e riclaimato (0→1)
-    expect(h.turns.length).toBe(1);                                  // lo slot lavora davvero
-    expect(h.turns[0].content).toContain("exclusive owner of task"); // kickoff, non un turno fantasma
+    expect(t.status).toBe("in_progress");
+    expect(t.assignedTopicId).toBe("topic-live");                    // SAME session, same worktree
+    expect(t.dispatchAttempts).toBe(1);                              // no attempt consumed
+    expect(t.dispatchState).toBe("working");                         // the seat really works
+    expect(h.topicsCreated.length).toBe(0);                          // no new topic
+    expect(h.turns.length).toBe(1);
+    expect(h.turns[0].sessionKey).toBe("topic:" + "topic-live".slice(0, 8));
+    expect(h.turns[0].content).toContain("Resume where you were");   // a resume, not a kickoff
   });
 
   it("un'attesa di slot VIVA non è un orfano: reconcile la lascia stare, il riavvio no", async () => {
@@ -2033,17 +2116,56 @@ describe("task-dispatcher", () => {
     expect(h.turns.length).toBe(1);                         // e nessun agente in più
     expect(waiting.dispatchState === "queued" && h.svc.get("t2")!.comments.some((c) => c.content.includes("rimesso in coda"))).toBe(false);
 
-    // Riavvio: il processo nuovo non ha né il timer né il registro. ADESSO la
-    // stessa card è orfana per davvero, e reconcile deve liberarla.
+    // Restart: the new process has neither the timer nor the registry. The WAIT
+    // died, the SESSION did not: the card resumes on its topic (or waits for a
+    // seat again), without passing through todo and without a new worktree.
+    const topicsBefore = h.topicsCreated.length;
     const restarted = h.restart();
-    await restarted.reconcile();
+    await restarted.reconcile({ reason: "boot" });
     await flush();
 
-    const ghost = h.task("t2")!;
-    expect(ghost.status).toBe("todo");                      // rimessa in coda
-    expect(ghost.assignedTopicId).toBeNull();               // sbindata: la sessione non ha più nessuno
-    expect(ghost.dispatchAttempts).toBe(0);                 // il riavvio non consuma un tentativo
-    expect(h.svc.get("t2")!.comments.some((c) => c.content.includes("aspettava uno slot libero"))).toBe(true);
+    const kept = h.task("t2")!;
+    expect(kept.status).toBe("in_progress");                // never went through todo
+    expect(kept.assignedTopicId).toBe("topic-live");        // same session, same worktree
+    expect(kept.dispatchAttempts).toBe(1);                  // a restart consumes no attempt
+    expect(h.topicsCreated.length).toBe(topicsBefore);      // no new topic
+    expect(h.svc.get("t2")!.comments.some((c) => c.content.includes("aspettava uno slot: riprendo la stessa sessione"))).toBe(true);
+    expect(h.svc.get("t2")!.comments.some((c) => c.content.includes("lo rimetto in coda"))).toBe(false);
+    restarted.shutdown();
+  });
+
+  it("a planned restart DRAINS the fleet: the queue starts nothing, a resume parks on its own session, the next boot resumes it", async () => {
+    // `restart-when-idle` waits for zero card turns. With a queue behind a full
+    // cap that never came (18,482 s on 2026-09-04): a turn started the second
+    // one ended. Draining closes the door; nothing is lost across the boot.
+    const h = harness({ topicExists: () => true });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    seedTask(h.db, { id: "t2", status: "in_progress", assignedTopicId: "topic-live", attempts: 1, dispatchState: "working" });
+
+    h.dispatcher.drain("restart-when-idle");
+    await h.dispatcher.tick(PID);
+    await h.dispatcher.resume("t2", "e adesso finisci");
+    await flush();
+
+    expect(h.turns.length).toBe(0);                           // the door is closed
+    expect(h.task("t1")!.status).toBe("todo");                // still first in line
+    expect(h.task("t2")!.status).toBe("in_progress");
+    expect(h.task("t2")!.assignedTopicId).toBe("topic-live"); // binding intact
+    expect(h.task("t2")!.dispatchState).toBe("queued");
+    expect(h.svc.get("t2")!.comments.some((c) => c.content.includes("Riavvio del server in arrivo"))).toBe(true);
+    expect(h.dispatcher.busyCount()).toBe(0);                 // what the restart waits on
+
+    // The new process has no drain and no timers: it resumes t2 on its session
+    // and picks t1 from the queue.
+    const restarted = h.restart();
+    await restarted.reconcile({ reason: "boot" });
+    await restarted.tick(PID);
+    await flush();
+    expect(h.turns.some((x) => x.sessionKey === "topic:" + "topic-live".slice(0, 8))).toBe(true);
+    expect(h.task("t2")!.assignedTopicId).toBe("topic-live");
+    expect(h.task("t1")!.status).toBe("in_progress");
     restarted.shutdown();
   });
 
@@ -3572,7 +3694,7 @@ describe("l'envelope non parla italiano", () => {
     const { h, kickoff } = await envelopeDiKickoff();
     // I rami che devono essere davvero nel testo: senza questa riga il cancello
     // sotto passerebbe anche su un envelope a cui manca metà.
-    for (const ramo of ["PLAN FIRST", "AUTOMATIC PRIORITY", "open subtask(s)", "PRE-REVIEW CHECKS", "REVIEW EVIDENCE", "THE SIX CODE GATES", "THE REPO IS ENGLISH", "A VERSION BUMP IS ONE COMMAND", "Start now."]) {
+    for (const ramo of ["PLAN FIRST", "AUTOMATIC PRIORITY", "open subtask(s)", "PRE-REVIEW CHECKS", "REVIEW EVIDENCE", "THE SEVEN CODE GATES", "THE REPO IS ENGLISH", "A VERSION BUMP IS ONE COMMAND", "Start now."]) {
       expect(kickoff).toContain(ramo);
     }
     expect(italianRows(kickoff)).toEqual([]);

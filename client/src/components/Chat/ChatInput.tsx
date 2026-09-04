@@ -1187,7 +1187,7 @@ export function ChatInput({
                 {pendingImages.map((img, index) => (
                   <div key={`img-${index}`} data-testid="composer-attachment" className="relative inline-block">
                     <ZoomableImage src={img.dataUrl} alt="Pasted image" className="h-[80px] max-w-[160px] object-cover rounded-lg border border-app-border-light" />
-                    <button onClick={() => setPendingImages(prev => prev.filter((_, i) => i !== index))} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600">×</button>
+                    <button type="button" onClick={() => setPendingImages(prev => prev.filter((_, i) => i !== index))} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600">×</button>
                   </div>
                 ))}
                 {pendingFiles.map((file, index) => (
@@ -1198,7 +1198,7 @@ export function ChatInput({
                       <div className="relative flex items-center gap-1.5 bg-app-hover rounded-lg px-2 py-1 text-[11px]">
                         <Paperclip size={14} className="text-app-text-tertiary" />
                         <span className="max-w-24 truncate text-app-text-secondary">{file.name}</span>
-                        <button onClick={() => removePendingFile(index)} className="ml-0.5 text-red-400 hover:text-red-500 font-bold text-xs">×</button>
+                        <button type="button" onClick={() => removePendingFile(index)} className="ml-0.5 text-red-400 hover:text-red-500 font-bold text-xs">×</button>
                       </div>
                     )}
                   </div>
@@ -1215,7 +1215,7 @@ export function ChatInput({
                     Editing message
                   </div>
                 </div>
-                <button onClick={onCancelEdit} className="text-app-text-tertiary hover:text-app-text p-0.5" title="Cancel edit">
+                <button type="button" onClick={onCancelEdit} className="text-app-text-tertiary hover:text-app-text p-0.5" title="Cancel edit">
                   <X size={14} />
                 </button>
               </div>
@@ -1233,7 +1233,7 @@ export function ChatInput({
                     {replyingTo.content.slice(0, 80)}{replyingTo.content.length > 80 ? '…' : ''}
                   </div>
                 </div>
-                <button aria-label={tr('chat.cancelReply')} onClick={() => setReplyingTo(null)} className="text-app-text-tertiary hover:text-app-text p-0.5">
+                <button type="button" aria-label={tr('chat.cancelReply')} onClick={() => setReplyingTo(null)} className="text-app-text-tertiary hover:text-app-text p-0.5">
                   <X size={14} />
                 </button>
               </div>

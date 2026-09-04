@@ -45,6 +45,16 @@ export interface SpaFallbackRequest {
  */
 const CLIENT_ROUTE_PREFIXES = ["/task/", "/topic/", "/tab/"] as const;
 
+// Does this `Accept` leave room for HTML? True when it names `text/html` and
+// when it accepts ANY type. False when it asks for something else and for
+// nothing that could be a page, and false when there is no header at all: an
+// absent `Accept` is not a browser navigation, and the shell is a page.
+function acceptsHtmlOrAnything(accept: string | null): boolean {
+  const a = (accept || "").trim().toLowerCase();
+  if (a === "") return false;
+  return a.includes("text/html") || a.includes("*/*") || a.includes("text/*");
+}
+
 export function shouldServeSpaFallback({ method, pathname, accept }: SpaFallbackRequest): boolean {
   // GET **o HEAD**: per RFC 9110 §9.3.2 la risposta a HEAD è quella di GET senza
   // il corpo, quindi un link checker che chiede «esiste /task/<uuid>?» deve
@@ -53,9 +63,19 @@ export function shouldServeSpaFallback({ method, pathname, accept }: SpaFallback
   // sullo stesso path. Il corpo lo toglie Bun.serve da sé.
   if (method !== "GET" && method !== "HEAD") return false;
   if (pathname.startsWith("/api/") || pathname.startsWith("/ws")) return false;
-  if (!(accept || "").includes("text/html")) return false;
   // Rotta client nota per nome → shell, anche se la chiave contiene un punto.
-  if (CLIENT_ROUTE_PREFIXES.some((p) => pathname.startsWith(p))) return true;
+  //
+  // `Accept` is NOT a condition here, and that is the difference from the
+  // generic branch below. A permalink is an ADDRESS OF THE APP, and what opens
+  // it is often not a browser's rendering engine but something in front of it
+  // sending `Accept: *` + `/*`: the OS link handler, an embedded webview, a
+  // chat client's preview, a curl pasted into a report. With the Accept guard
+  // in the way those clients read `404 Not Found` in `text/plain` on a
+  // perfectly valid link, so the app's own address answered "does not exist"
+  // depending on WHO knocked. A client that explicitly asks for something else
+  // (`application/json` and nothing more) still gets its real 404.
+  if (CLIENT_ROUTE_PREFIXES.some((p) => pathname.startsWith(p))) return acceptsHtmlOrAnything(accept);
+  if (!(accept || "").includes("text/html")) return false;
   // Last path segment carries a file extension → it's an asset request that
   // already 404'd upstream; leave it 404 rather than serving HTML.
   const lastSegment = pathname.slice(pathname.lastIndexOf("/") + 1);

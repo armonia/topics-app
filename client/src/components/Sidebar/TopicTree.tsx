@@ -2,7 +2,8 @@ import { useState, useCallback, useEffect, useRef, useMemo, type HTMLAttributes 
 import { useT } from '../../hooks/useT';
 import { boardIdForPath } from '../../lib/board';
 import { ShareControl } from '../Share/ShareControl';
-import { MODAL_OVERLAY } from '../../lib/modalStyles';
+import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
+import { useModalDialog } from '../../hooks/useModalDialog';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
 import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, UserRound, Hourglass, BellOff, BellRing, Eye, EyeOff, type LucideIcon, Share2 } from 'lucide-react';
 import {
@@ -435,6 +436,13 @@ export function TopicTree({
   // `ShareControl` e' generico sul tipo di risorsa - perche' «con chi e'
   // condiviso» dev'essere una domanda sola con una risposta sola.
   const [progettoDaCondividere, setProgettoDaCondividere] = useState<{ id: string; nome: string } | null>(null);
+  /** The share panel CARD (not the backdrop): focus trap boundary for
+   *  `useModalDialog`. Hand-rolled, this dialog had none of the three things
+   *  the contract gives: Escape reached the global shortcut handler and sent
+   *  the stop signal to the focused session instead of closing the panel. */
+  const shareProjectPanelRef = useRef<HTMLDivElement>(null);
+  const closeShareProject = useCallback(() => setProgettoDaCondividere(null), []);
+  useModalDialog({ open: !!progettoDaCondividere, onClose: closeShareProject, panelRef: shareProjectPanelRef });
   /** Menu della tessera fissata di un terminale o di un browser: quei tipi non
    *  hanno un menu di riga proprio, e senza questo una volta fissati non si
    *  potrebbero più togliere dai Fissati da nessuna parte. */
@@ -2127,10 +2135,19 @@ export function TopicTree({
           // Un `z-[10000]` scritto qui divergerebbe in silenzio - ed e' quello
           // che il cancello `overlay-z-plane` ha preso.
           className={`${MODAL_OVERLAY} !items-start pt-24`}
-          onClick={() => setProgettoDaCondividere(null)}
+          onClick={closeShareProject}
         >
+          {/* `MODAL_PANEL` and `role="dialog"`, not a hand-written card: the
+              marker class `native-occlude` is what freezes the Tauri native
+              browser pane under a modal (OVERLAY_SELECTOR in
+              lib/shell/browserOcclusion), and the role is what makes
+              `hasOpenModalSurface()` see this panel at all. */}
           <div
-            className="w-[360px] rounded-lg border border-app-border bg-app-bg p-3 shadow-xl"
+            ref={shareProjectPanelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={progettoDaCondividere.nome}
+            className={`${MODAL_PANEL} w-[360px] p-3`}
             onClick={(e) => e.stopPropagation()}
           >
             <p className="mb-2 truncate text-[12px] font-medium text-app-text-heading">
