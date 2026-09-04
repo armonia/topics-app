@@ -3101,6 +3101,18 @@ vuol dire «non attribuito», non «watchdog»).
 - **THEN** il messaggio porta un blocco `error` con `cause: "watchdog"` e l'istante
 - **AND** sopra il composer compare il banner «Risposta interrotta» con la causa in chiaro
 
+#### Scenario: Il reaper d'inattività chiude un turno tagliato a metà risposta
+- **GIVEN** un turno che ha già scritto una risposta lunga
+- **WHEN** il reaper d'inattività lo chiude perché il processo figlio è morto
+- **THEN** la prosa già scritta resta al suo posto
+- **AND** in fondo alla sua timeline compare il verdetto con `cause: "watchdog"` e l'istante
+- **AND** una seconda passata del reaper non aggiunge un secondo verdetto
+
+#### Scenario: Una riga senza timeline non si riscrive
+- **GIVEN** un turno chiuso dal reaper la cui timeline è vuota
+- **THEN** il verdetto NON viene scritto nei blocchi
+- **AND** la spiegazione resta quella che il reaper mette in `content`, che è ciò che quella riga disegna
+
 #### Scenario: Riprova rimanda l'ultimo messaggio dell'utente
 - **GIVEN** il banner di turno interrotto a schermo
 - **WHEN** si preme «Riprova»

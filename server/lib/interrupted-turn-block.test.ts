@@ -9,7 +9,7 @@
  * @covers CHAT-INT-01
  */
 import { describe, expect, test } from "bun:test";
-import { interruptedTurnBlock } from "./interrupted-turn-block";
+import { interruptedTurnBlock, timelineWithInterruptedVerdict } from "./interrupted-turn-block";
 import type { ContentBlock } from "../types";
 
 const AT = "2026-09-03T22:25:00.000Z";
@@ -38,5 +38,38 @@ describe("interruptedTurnBlock", () => {
   test("il ⚠️ resta al formato vecchio: dentro il blocco è rumore", () => {
     const b = interruptedTurnBlock([testo()], { text: "⚠️ Response timed out.", cause: "watchdog", at: AT });
     expect(b).toEqual({ kind: "error", text: "Response timed out.", cause: "watchdog", at: AT });
+  });
+});
+
+describe("timelineWithInterruptedVerdict - the reaper's half", () => {
+  test("a turn cut mid answer gets the verdict at the end of its timeline", () => {
+    const timeline = timelineWithInterruptedVerdict([testo("stavo scrivendo")], {
+      text: "⚠️ Risposta interrotta: nessuna attività per 3 minuti.",
+      cause: "watchdog",
+      at: AT,
+    });
+    expect(timeline).toEqual([
+      testo("stavo scrivendo"),
+      { kind: "error", text: "Risposta interrotta: nessuna attività per 3 minuti.", cause: "watchdog", at: AT },
+    ]);
+  });
+
+  test("AN EMPTY TIMELINE IS NOT TOUCHED: writing the first block would hide the prose", () => {
+    // Such a row renders from `content`, and the renderer prints `content` only
+    // while `blocks` is absent. The caller covers this case with the marker.
+    expect(timelineWithInterruptedVerdict([], { text: "x", cause: "watchdog", at: AT })).toBeNull();
+    expect(timelineWithInterruptedVerdict(null, { text: "x", cause: "watchdog", at: AT })).toBeNull();
+    expect(timelineWithInterruptedVerdict(undefined, { text: "x", cause: "watchdog", at: AT })).toBeNull();
+  });
+
+  test("already explained: the sweep can run twice without stacking verdicts", () => {
+    const già: ContentBlock[] = [testo(), { kind: "error", text: "spiegato prima", cause: "watchdog", at: AT }];
+    expect(timelineWithInterruptedVerdict(già, { text: "x", cause: "watchdog", at: AT })).toBeNull();
+  });
+
+  test("the source array is not mutated: the caller decides whether to write", () => {
+    const blocks = [testo("intatto")];
+    timelineWithInterruptedVerdict(blocks, { text: "x", cause: "watchdog", at: AT });
+    expect(blocks).toHaveLength(1);
   });
 });

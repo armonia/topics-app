@@ -62,3 +62,31 @@ export function appendInterruptedVerdict(
   if (block) blocks.push(block);
   return blocks.length > 0 ? blocks : undefined;
 }
+
+/**
+ * THE SWEEPER'S HALF: the verdict onto a row we only have the timeline of.
+ *
+ * The reaper (`lib/stale-stream-sweep.ts`) is the path the 2026-09-03 report
+ * actually went through: it closes a turn whose child stopped talking, and it
+ * is the one that killed the turn whose only trace was a footnote. It does not
+ * hold the live `blocks` array the way the route does, it reads the row.
+ *
+ * NO BLOCKS, NO VERDICT, and this is the trap in it. A row with an empty
+ * timeline renders from `content`, and the renderer prints `content` only
+ * WHILE `blocks` is absent: writing the first block here would HIDE the prose
+ * the turn had produced, to show a one-line notice in its place. Those rows are
+ * exactly the ones the caller already covers by replacing `content` with the
+ * marker, so here they are left alone.
+ *
+ * `null` means "write nothing": no row, unreadable column, empty timeline, or
+ * somebody already explained.
+ */
+export function timelineWithInterruptedVerdict(
+  blocks: ContentBlock[] | null | undefined,
+  input: { text: string; cause: TurnEndCause; at?: string },
+): ContentBlock[] | null {
+  if (!Array.isArray(blocks) || blocks.length === 0) return null;
+  const block = interruptedTurnBlock(blocks, { ...input, at: input.at ?? new Date().toISOString() });
+  if (!block) return null;
+  return [...blocks, block];
+}

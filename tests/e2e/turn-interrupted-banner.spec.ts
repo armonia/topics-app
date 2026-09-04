@@ -13,36 +13,35 @@ hermetic(test);
 const BASE = E2E_BASE;
 
 /**
- * UN TURNO INTERROTTO DICE PERCHÉ, E OFFRE UNA VIA D'USCITA.
+ * AN INTERRUPTED TURN SAYS WHY, AND OFFERS A WAY OUT.
  *
- * Il referto del 2026-09-03: il watchdog chiude un turno alle 22:25 e la chat
- * «resta ferma senza nessun feedback». L'unico segno era una riga appesa in
- * fondo a un messaggio lungo, «[Response timed out]», che nessuno legge: per
- * arrivare in fondo a un muro di testo bisogna scorrere apposta. La causa vera
- * stava nel log del server, e non c'era una via d'uscita: rimandare il
- * messaggio o continuare ad aspettare era lasciato all'intuito.
+ * The 2026-09-03 report: the watchdog closes a turn at 22:25 and the chat
+ * "sits there with no feedback at all". The only sign was a line appended at
+ * the bottom of a long message, "[Response timed out]", which nobody reads:
+ * getting to the bottom of a wall of text takes scrolling on purpose. The real
+ * cause was in the server log, and there was no way out: resend the message or
+ * keep waiting was left to guesswork.
  *
- * Ora il verdetto viaggia come BLOCCO `error` con la causa in codice (`cause`,
- * lo stesso vocabolario di `stream:end`) e il composer la traduce in un banner
- * ambra sopra la casella: «Risposta interrotta», la causa nella lingua di chi
- * legge, e «Riprova» che rimanda l'ultimo messaggio dell'utente.
+ * Now the verdict travels as an `error` BLOCK with the cause as a code
+ * (`cause`, the same vocabulary as `stream:end`) and the composer turns it into
+ * an amber banner above the box, headed "Risposta interrotta", with the cause  allow-italian: the banner's exact wording, which the assertions match on
+ * in the reader's language and Retry, which resends the user's last message.
  *
- * PERCHÉ SI SEMINA il turno già chiuso invece di far scattare il watchdog vero.
- * Il watchdog aspetta minuti di silenzio, e un test che li aspetta è un test
- * che nessuno esegue; abbassare la soglia via env è misurare un'altra
- * configurazione. Il blocco che il watchdog scrive è UNO (`server/lib/
- * interrupted-turn-block.ts`, coi suoi test di unità) e il seed lo mette in
- * pagina esattamente nella forma in cui `handleGraceExpiry` lo persiste: qui si
- * prova ciò che l'utente vede a partire da quella riga, non il timer.
+ * WHY THE CLOSED TURN IS SEEDED instead of tripping the real watchdog. The
+ * watchdog waits minutes of silence, and a test that waits them is a test
+ * nobody runs; lowering the threshold through an env var measures a different
+ * configuration. The block the watchdog writes is ONE
+ * (`server/lib/interrupted-turn-block.ts`, with its unit tests) and the seed
+ * puts it on the page in exactly the shape `handleGraceExpiry` persists: what
+ * is proven here is what the user sees starting from that row, not the timer.
  *
- * TRE CASI, e il terzo non è un lusso: senza, il banner potrebbe accendersi su
- * OGNI blocco `error`, compreso quello di uno stop fatto a mano — che ha già il
- * suo banner e non è un'interruzione da spiegare.
+ * THREE CASES, and the third is not a luxury: without it the banner could light
+ * up on EVERY `error` block, including a stop pressed by hand, which already
+ * has its own banner and is not an interruption to explain.
  *
- * Il secondo caso gira dentro `clipDiConsegna` (helpers/clip.ts): con
- * `E2E_CLIP=1` filma il solo tratto utile — il banner con la causa, il click su
- * «Riprova», il messaggio che riparte — e alza se sfora i 20 s. Senza, il
- * percorso è lo stesso e non registra.
+ * The second case runs inside `clipDiConsegna` (helpers/clip.ts): with
+ * `E2E_CLIP=1` it films the useful stretch only, and fails if it goes past 20s.
+ * Without it the path is the same and nothing is recorded.
  *
  * @covers CHAT-INT-01
  */
@@ -63,7 +62,7 @@ async function sessionKeyOf(request: APIRequestContext, topicId: string): Promis
   const res = await request.get(`${BASE}/api/topics`, { ignoreHTTPSErrors: true });
   const { topics } = (await res.json()) as { topics: Record<string, { id: string; sessionKey: string }> };
   const key = Object.values(topics).find((t) => t.id === topicId)?.sessionKey ?? "";
-  expect(key, "il topic deve avere una sessionKey").toBeTruthy();
+  expect(key, "the topic must carry a sessionKey").toBeTruthy();
   return key;
 }
 
@@ -104,7 +103,7 @@ async function mockRetryReply(page: Page, sessionKey: string): Promise<void> {
   const res = await page.request.get(`${BASE}/api/history/${encodeURIComponent(sessionKey)}?limit=0`, {
     ignoreHTTPSErrors: true,
   });
-  expect(res.ok(), "la history vera deve rispondere").toBe(true);
+  expect(res.ok(), "the real history must answer").toBe(true);
   const { messages } = (await res.json()) as { messages: Array<Record<string, unknown>> };
 
   await page.route(CHAT_ROUTE_PATTERN, async (route) => {
