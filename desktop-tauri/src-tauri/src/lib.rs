@@ -3987,6 +3987,39 @@ fn install_nav_failure_hook(wv: &tauri::Webview, pane_id: &str) {
     });
 }
 
+/// A `window.open` / `target=_blank` a page asked for, waiting for the client to
+/// turn it into a TAB.
+///
+/// It is a REQUEST, not a navigation: the pane that asked keeps its page, and
+/// the client decides where the tab lands (the same strip, beside the pane that
+/// asked). Same per-pane scoped-drain contract as NAV_ERROR_EVENTS.
+#[derive(Clone, Serialize)]
+struct NewTabMsg {
+    url: String,
+    // Pane that asked for it: internal scoping only, like NavErrorMsg.
+    #[serde(skip)]
+    pane_id: String,
+}
+
+static NEW_TAB_REQUESTS: std::sync::Mutex<Vec<NewTabMsg>> = std::sync::Mutex::new(Vec::new());
+
+/// Above any believable burst of user-opened tabs, low enough that a page stuck
+/// in a `window.open` loop cannot use it as unbounded memory.
+const NEW_TAB_QUEUE_MAX: usize = 64;
+
+/// Drain the tabs `id`'s page asked to open. Empty is the normal answer.
+#[tauri::command]
+fn browser_take_new_tabs(id: String) -> Vec<NewTabMsg> {
+    match NEW_TAB_REQUESTS.lock() {
+        Ok(mut v) => {
+            let (mine, rest): (Vec<_>, Vec<_>) = v.drain(..).partition(|e| e.pane_id == id);
+            *v = rest;
+            mine
+        }
+        Err(_) => Vec::new(),
+    }
+}
+
 /// Drain queued navigation failures for `id`'s pane — same scoped-drain contract
 /// as browser_take_download_events. Non-macOS builds have no hook installed, so
 /// the queue is simply always empty there.
@@ -4768,15 +4801,18 @@ fn browser_open_inner(
         .ok_or("no host window")?;
     let parsed: tauri::Url = url.parse().map_err(|_| format!("bad url: {url}"))?;
     // window.open / target=_blank: wry's WKUIDelegate asks this handler what to
-    // do (with NO handler set the popup was silently dropped). Electron-parity
-    // semantics (setWindowOpenHandler): never spawn a detached native window —
-    // navigate the SAME pane in place for web URLs and deny the popup; deny
-    // silently for non-web schemes. The handler runs inside the UI delegate on
-    // the main thread, so the navigation is deferred to the async runtime
-    // (Webview::navigate marshals back to main itself) rather than re-entering
-    // WebKit mid-delegate. NOTE: the popup sees a nil return (window.open() →
-    // null), so opener/postMessage popup flows won't link up — accepted.
-    let nw_app = app.clone();
+    // do (with NO handler set the popup was silently dropped). We still never
+    // spawn a detached native window, but we no longer navigate the pane IN
+    // PLACE either: that made the page you were reading disappear, which is not
+    // what `_blank` means anywhere else. The request is queued per pane and the
+    // client's poll drains it and opens a SECOND TAB in the same strip, exactly
+    // like Chrome. Non-web schemes are denied silently.
+    //
+    // Queueing rather than emitting: the handler runs inside the UI delegate on
+    // the main thread, and a Mutex push is the cheapest thing that cannot
+    // re-enter WebKit mid-delegate. NOTE: the popup sees a nil return
+    // (window.open() -> null), so opener/postMessage popup flows still won't
+    // link up: accepted, and out of scope of this change.
     let nw_label = label.clone();
     // Nasce già con la sua URL: annotarla qui evita che il primo remount della
     // pane la creda «sconosciuta» e ri-navighi su una pagina che sta già
@@ -4825,13 +4861,17 @@ fn browser_open_inner(
         .on_new_window(move |url, _features| {
             let scheme = url.scheme();
             if scheme == "http" || scheme == "https" {
-                let app = nw_app.clone();
-                let label = nw_label.clone();
-                tauri::async_runtime::spawn(async move {
-                    if let Some(wv) = app.get_webview(&label) {
-                        let _ = wv.navigate(url);
+                if let Some(pane) = pane_id_from_label(&nw_label) {
+                    if let Ok(mut v) = NEW_TAB_REQUESTS.lock() {
+                        // Bounded like every other per-pane queue here: a page
+                        // in a popup loop must not grow this without limit.
+                        if v.len() >= NEW_TAB_QUEUE_MAX {
+                            let overflow = v.len() + 1 - NEW_TAB_QUEUE_MAX;
+                            v.drain(0..overflow);
+                        }
+                        v.push(NewTabMsg { url: url.to_string(), pane_id: pane.to_string() });
                     }
-                });
+                }
             }
             tauri::webview::NewWindowResponse::Deny
         });
@@ -5415,6 +5455,10 @@ fn browser_evict_pane(app: &tauri::AppHandle, id: &str, close: bool, purge_cache
         g.retain(|_, v| v != id);
     }
     if let Ok(mut v) = NAV_ERROR_EVENTS.lock() {
+        v.retain(|e| e.pane_id != id);
+    }
+    // A tab nobody will ever open now that the pane asking for it is gone.
+    if let Ok(mut v) = NEW_TAB_REQUESTS.lock() {
         v.retain(|e| e.pane_id != id);
     }
     if let Ok(mut v) = NAV_STATE_EVENTS.lock() {
@@ -11074,6 +11118,7 @@ pub fn run() {
             focus_report,
             browser_take_download_events,
             browser_take_nav_errors,
+            browser_take_new_tabs,
             browser_take_nav_state,
             browser_download_progress,
             updater_check,
