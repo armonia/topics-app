@@ -71,6 +71,24 @@ export const FINESTRA_RIPRESA_MS = 24 * 60 * 60 * 1000;
 export const MAX_RESUME_ATTEMPTS = 4;
 
 /**
+ * THE QUESTION NOBODY ANSWERED. A chat whose LAST row is the person's message,
+ * with no answer row after it, used to be read as "they resumed by hand" and
+ * skipped. But that is also what a turn looks like when the server died BEFORE
+ * the answer row was born, or when the boot swept an empty answer away: the
+ * person wrote, nothing came, and nothing ever would. Measured 2026-09-04 on
+ * topic:6b9605e5, a message sent at 09:58 under a restart and unanswered for
+ * five hours while every sweep read it as "already resumed". A live turn writes
+ * its answer row within seconds, so a person's row older than this grace, with
+ * no stream on the chat, is an interruption of ours that never got its notice.
+ */
+export const USER_TAIL_GRACE_MS = 2 * 60_000;
+/** The notice written on such a chat BEFORE it is resumed (RESUME-02: first the
+ *  explanation in the thread, then the resend). Its opening words are one of
+ *  `CARTELLI_RIPRENDIBILI`, so the resume that follows recognises it. */
+export const UNANSWERED_NOTICE =
+  "⚠️ Turno interrotto: il server si è riavviato prima che la risposta partisse: il messaggio è rimasto senza risposta.";
+
+/**
  * The notice written in the chat when the chain has spent its attempts. Same
  * shape as RESTART_INTERRUPTED_MARKER (⚠️ prefix, error block only), so the
  * client renders the amber banner and the "Riprova" button without a change.  allow-italian: button label
@@ -94,10 +112,15 @@ export interface RigaDaValutare {
    * the chain (`attemptsInChain`); the rule stays pure.
    */
   attempts: number;
+  /** A turn is live on this chat right now (`ctx.isStreaming`). */
+  streaming?: boolean;
+  /** The chat belongs to a board card: the dispatcher resumes those itself. */
+  boundToCard?: boolean;
 }
 
-/** The rule's answer: resend, stop AND say so, or leave the row alone. */
-export type ResumeVerdict = "resend" | "capped" | "no";
+/** The rule's answer: resend, stop AND say so, leave the row alone - or, for a
+ *  person's message nobody answered, write the notice first and then resend. */
+export type ResumeVerdict = "resend" | "capped" | "no" | "unanswered";
 
 /**
  * Questa chat va ripresa adesso?
@@ -109,7 +132,18 @@ export type ResumeVerdict = "resend" | "capped" | "no";
  * chain has already had its share, so the chat has to be told, once.
  */
 export function resumeVerdict(r: RigaDaValutare, oraMs: number): ResumeVerdict {
-  // L'ultima parola è dell'utente: ha già ripreso lui, a modo suo.
+  if (r.ruolo === "user") {
+    // The last word is the person's. Either they resumed by hand and a turn
+    // is running, or the row is fresh and its answer is on the way - or nobody
+    // ever answered (see USER_TAIL_GRACE_MS). A card's chat is the
+    // dispatcher's, which re-sends its own kickoff. Window and cap apply as
+    // for any other interruption of ours.
+    if (r.streaming || r.boundToCard) return "no";
+    if (oraMs - r.timestampMs < USER_TAIL_GRACE_MS) return "no";
+    if (oraMs - r.timestampMs > FINESTRA_RIPRESA_MS) return "no";
+    if (r.attempts >= MAX_RESUME_ATTEMPTS) return "capped";
+    return "unanswered";
+  }
   if (r.ruolo !== "assistant") return "no";
   if (!Array.isArray(r.blocks) || r.blocks.length === 0) return "no";
   // Fuori finestra: una risposta che arriva domani a una domanda di ieri è
@@ -178,7 +212,19 @@ import { insertRestartNotification, type PartialSweepDb } from "./boot-partial-s
 /** Quel poco del contesto del server che serve al giro. */
 export interface CtxRipresa {
   db: Database;
-  getTopicBySessionKey(sessionKey: string): { archived?: boolean | number } | undefined | null;
+  getTopicBySessionKey(sessionKey: string): { id?: string; archived?: boolean | number } | undefined | null;
+  /** Truthy when a turn is live on that chat (`ctx.isStreaming` in production). */
+  isStreaming?(sessionKey: string): unknown;
+}
+
+/** Whether a board card is working on this topic: those chats are the
+ *  dispatcher's to resume (it re-sends its own kickoff), never this sweep's. */
+function cardBound(db: Pick<Database, "query">, topicId: string): boolean {
+  try {
+    return db.query(
+      `SELECT 1 FROM tasks WHERE assigned_topic_id = ? AND archived = 0 AND status IN ('todo','in_progress','review') LIMIT 1`,
+    ).get(topicId) != null;
+  } catch { return false; }
 }
 
 /** A chain longer than this is not a chain: `parent_id` is cyclic or corrupt. */
@@ -320,12 +366,36 @@ export async function riprendiTurniInterrotti(
       let blocks: ContentBlock[] | null = null;
       try { blocks = JSON.parse(decodeCol(r.blocks) ?? "null") as ContentBlock[] | null; } catch { continue; }
       const attempts = attemptsInChain(ctx.db, r.sk, r.id);
-      const verdict = resumeVerdict(
-        { sessionKey: r.sk, ruolo: r.ruolo, blocks, timestampMs: Date.parse(r.ts), attempts }, ora,
-      );
-      if (verdict === "no") continue;
       const topic = ctx.getTopicBySessionKey(r.sk);
       if (!topic || topic.archived) continue;
+      let verdict: ResumeVerdict = resumeVerdict({
+        sessionKey: r.sk, ruolo: r.ruolo, blocks, timestampMs: Date.parse(r.ts), attempts,
+        streaming: Boolean(ctx.isStreaming?.(r.sk)),
+        boundToCard: topic.id ? cardBound(ctx.db, topic.id) : false,
+      }, ora);
+      if (verdict === "no") continue;
+      let resendRowId = r.id;
+      let rowBlocks: ContentBlock[] = blocks ?? [];
+      if (verdict === "unanswered") {
+        // RESUME-02: the explanation goes in the thread FIRST. The notice has
+        // the boot's own shape, parented to the person's row, and it becomes
+        // the row the resend is traced on: the next sweep counts this chain
+        // like any other, and a second boot does not resend it again.
+        try {
+          insertRestartNotification(ctx.db as unknown as PartialSweepDb, r.sk, { text: UNANSWERED_NOTICE });
+        } catch (err) {
+          console.warn(`[ripresa] ${r.sk}: messaggio senza risposta, ma non riesco a scrivere il cartello, lo salto:`, err);
+          continue;
+        }
+        const notice = ctx.db.query(
+          `SELECT id, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC, rowid DESC LIMIT 1`,
+        ).get(r.sk) as { id: string; blocks: unknown } | undefined;
+        if (!notice || notice.id === r.id) continue;
+        try { rowBlocks = JSON.parse(decodeCol(notice.blocks) ?? "[]") as ContentBlock[]; } catch { rowBlocks = []; }
+        resendRowId = notice.id;
+        console.log(`[ripresa] ${r.sk}: messaggio dell'utente senza risposta da ${Math.round((ora - Date.parse(r.ts)) / 60_000)} min, cartello scritto, lo rimando`);
+        verdict = "resend";
+      }
       // THE CAP IS SAID, NOT SUFFERED. The row is an interruption of ours and
       // the chain has had its resends: stopping here in silence would leave
       // the chat under a notice promising it resumes on its own, which is the
@@ -352,7 +422,7 @@ export async function riprendiTurniInterrotti(
       ).get(r.sk) as { content: unknown } | undefined;
       const messaggio = (decodeCol(dom?.content) ?? "").trim();
       if (!messaggio) continue;
-      candidati.push({ sessionKey: r.sk, messaggio, idTurno: r.id, blocks: blocks!, attempt: attempts + 1 });
+      candidati.push({ sessionKey: r.sk, messaggio, idTurno: resendRowId, blocks: rowBlocks, attempt: attempts + 1 });
     }
   } catch (err) {
     console.warn("[ripresa] non riesco a cercare i turni interrotti:", err);
