@@ -19,7 +19,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { homedir } from "node:os";
+import { cpus, homedir } from "node:os";
 import type { AppContext, RouteHandler } from "../types";
 import { grantedResourceIds } from "../lib/grants-query";
 import { titoloMigliore } from "../services/task-title";
@@ -567,6 +567,15 @@ function isServerRepo(repoPath: string): boolean {
   }
 }
 
+/** How many pre-review check runs may execute at once (see `createChecksGate`). */
+function checksLanes(): number {
+  const forced = Number(process.env.TOPICS_CHECKS_LANES);
+  if (Number.isFinite(forced) && forced >= 1) return Math.floor(forced);
+  let cores = 0;
+  try { cores = cpus().length; } catch { cores = 0; }
+  return cores >= 12 ? 2 : 1;
+}
+
 export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, opts?: TasksRouterOpts): RouteHandler {
   const { db, json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey, isPathAllowed } = ctx;
   // La SCHEDA DI CONSEGNA (l'anteprima disegnata quando non ce n'e' nessuna)
@@ -837,7 +846,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * con l'istanza: due server nello stesso processo, due registri, come per la
    * fila dei land qui sotto.
    */
-  const checksGate = createChecksGate();
+  // TWO RUNS AT ONCE ON A BIG MACHINE. One run at a time was the right
+  // default when every agent also ran the whole suite by itself; since the
+  // envelope stopped that (2026-09-04) a run costs ~6-8 load for ~7 minutes,
+  // and with six agents delivering in the same quarter hour a single lane
+  // meant 40+ minutes of queue for the last one - past the 50-minute cap of
+  // `update_task`. Two lanes on twelve cores keep the load under ~20 and halve
+  // the queue; smaller machines keep the one lane. `TOPICS_CHECKS_LANES`
+  // overrides either way.
+  const checksGate = createChecksGate({ maxConcurrent: checksLanes() });
   // Notifica il chiamante non appena il gate esiste, cosi' puo' passarne
   // `runningCount` al dispatcher senza accoppiamenti circolari.
   try { opts?.onChecksGate?.(checksGate); } catch { /* best-effort */ }
