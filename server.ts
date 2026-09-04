@@ -4917,7 +4917,24 @@ reattachSurvivingChatTurns()
   .then(() => reconcileOrphanedTranscripts())
   .then(() => reconcileArchivedTopicSessions())
   .then(() => riprendiTurniInterrotti(ctx, topicsRouter))
-  .catch((err) => console.error("[chat-reattach] boot sweep failed", err));
+  .catch((err) => console.error("[chat-reattach] boot sweep failed", err))
+  .finally(() => scheduleResumeSweep());
+
+// NOT ONLY AT BOOT. A turn cut by the watchdog, a stall or a provider error
+// while the server keeps running was never resumed until the next boot: on
+// 2026-09-04 the person had to write "riprendi" by hand. The same sweep runs
+// every five minutes; a resumed row carries its `ripreso` marker and a new
+// answer after it, so a sweep never resends twice. Chained, not on an
+// interval: one sweep can wait up to fifteen minutes on a stream.
+const RESUME_SWEEP_MS = 5 * 60_000;
+function scheduleResumeSweep(): void {
+  const t = setTimeout(() => {
+    riprendiTurniInterrotti(ctx, topicsRouter)
+      .catch((err) => console.error("[ripresa] periodic sweep failed", err))
+      .finally(() => scheduleResumeSweep());
+  }, RESUME_SWEEP_MS);
+  t.unref?.();
+}
 
 // ── Worktree GC — origin fix for worktree pile-up ──────────────────────────
 // La decisione sta in `server/services/worktree-gc.ts` (`sweepWorktrees`), il

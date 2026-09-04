@@ -40,7 +40,10 @@ import type { ContentBlock } from "../types";
 import { eCartelloDiInterruzione } from "./cancelled-notice";
 
 /** Quanto indietro si va a riprendere. Oltre, è storia. */
-export const FINESTRA_RIPRESA_MS = 30 * 60 * 1000;
+// 24 hours, not 30 minutes (2026-09-04, asked out loud: every interrupted
+// topic must resume). A turn cut last night is still the last thing that
+// happened in that chat, and whoever opens it wants the answer, not a banner.
+export const FINESTRA_RIPRESA_MS = 24 * 60 * 60 * 1000;
 
 /**
  * How many resends the same MESSAGE gets, across different boots, before the
@@ -62,7 +65,10 @@ export const FINESTRA_RIPRESA_MS = 30 * 60 * 1000;
  * on the same message says the problem is not the moment, and from there the
  * user gets the ⚠️ notice with "Riprova" and decides.
  */
-export const MAX_RESUME_ATTEMPTS = 2;
+// Four, not two: three planned restarts in forty minutes hit the old cap and
+// left the retry banner on chats nobody had touched. The cap still exists for
+// the message that crashes its turn every time.
+export const MAX_RESUME_ATTEMPTS = 4;
 
 /**
  * The notice written in the chat when the chain has spent its attempts. Same
@@ -307,7 +313,7 @@ export async function riprendiTurniInterrotti(
          FROM messages m
          JOIN (SELECT session_key, MAX(rowid) AS r FROM messages GROUP BY session_key) u
            ON u.r = m.rowid
-        WHERE m.timestamp >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour')`,
+        WHERE m.timestamp >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-25 hours')`,
     ).all() as Array<{ sk: string; id: string; ruolo: string; blocks: unknown; ts: string }>;
     const ora = Date.now();
     for (const r of righe) {
