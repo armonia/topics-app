@@ -110,12 +110,12 @@ test.describe("La board col dito", () => {
   });
 
   /**
-   * IL GESTO VERO, non la sua imitazione col mouse.
+   * THE REAL GESTURE, not its imitation with a mouse.
    *
-   * Backlog -> Todo e non una colonna qualsiasi: `manualStatusTarget` redirects
-   * a manual drop into In Progress back to Todo (In Progress is not a queue),
-   * so dropping there would assert a rule instead of the gesture. Todo accepts
-   * the card where it was dropped, which is what has to be proven.
+   * Backlog -> Todo and not just any column: `manualStatusTarget` redirects a
+   * manual drop into In Progress back to Todo (In Progress is not a queue), so
+   * dropping there would assert a rule instead of the gesture. Todo accepts the
+   * card where it was dropped, which is what has to be proven.
    *
    * The verdict is read from the SERVER, not from the DOM: the board paints an
    * optimistic layer on drop, so a card can sit in the new column for a moment
@@ -123,41 +123,41 @@ test.describe("La board col dito", () => {
    */
   test("TOUCHDRAG-01: una card si sposta di colonna col dito", async ({ page, request }) => {
     const task = await createTask(request, `Trascinami col dito ${Date.now()}`);
-    expect(await taskStatus(request, task.id), "il seme non nasce in backlog").toBe("backlog");
+    expect(await taskStatus(request, task.id), "the seed did not start in backlog").toBe("backlog");
 
     await page.goto(BASE);
     await openProjectBoard(page);
 
     const card = page.locator(`[data-task-card="${task.id}"]`);
-    await expect(card, "la card seminata non è sulla board").toBeVisible({ timeout: 15000 });
+    await expect(card, "the seeded card is not on the board").toBeVisible({ timeout: 15000 });
 
     const todoColumn = page.getByTestId("kanban-column-body-todo");
     await expect(todoColumn).toBeVisible();
 
     const from = await grabPoint(page, `[data-task-card="${task.id}"]`);
     const box = await todoColumn.boundingBox();
-    expect(box, "la colonna Todo non ha un box").toBeTruthy();
+    expect(box, "the Todo column has no box").toBeTruthy();
     const to = { x: Math.round(box!.x + box!.width / 2), y: Math.round(box!.y + 80) };
 
     await touchDrag(page, from, to);
 
-    // La scrittura è una PATCH: si aspetta il server, non un'animazione.
+    // The write is a PATCH: wait for the server, not for an animation.
     await expect
       .poll(() => taskStatus(request, task.id), {
-        message: "col dito la card non ha cambiato colonna: l'attivatore di dnd-kit non è arrivato al DOM",
+        message: "with a finger the card did not change column: dnd-kit's activator never reached the DOM",
         timeout: 15000,
       })
       .toBe("todo");
   });
 
   /**
-   * IL LONG-PRESS NON È MORTO PER FARE POSTO AL DRAG.
+   * THE LONG PRESS DID NOT DIE TO MAKE ROOM FOR THE DRAG.
    *
-   * I due gesti condividono lo stesso `touchstart`, e la cura del drag consiste
-   * nel comporli invece di sovrascriverne uno. Una cura che rompesse l'altro
-   * sarebbe lo stesso difetto girato: il menu della card, su touch, non ha
-   * un'altra porta. Dito fermo -> menu; è la metà del contratto che il test
-   * qui sopra non guarda.
+   * The two gestures share the same `touchstart`, and the cure for the drag is
+   * to COMPOSE them instead of overwriting one. A cure that broke the other
+   * would be the same defect turned around: on touch the card menu has no other
+   * door. Still finger -> menu; it is the half of the contract the test above
+   * does not look at.
    */
   test("TOUCHDRAG-02: il dito fermo apre ancora il menu della card", async ({ page, request }) => {
     const task = await createTask(request, `Tienimi premuto ${Date.now()}`);
@@ -177,9 +177,9 @@ test.describe("La board col dito", () => {
       }));
     }, { at });
 
-    // Il menu è la prova che il timer da 500ms è arrivato in fondo: si aspetta
-    // LUI, non un numero di millisecondi (il timer dell'app e questo test
-    // vivono sullo stesso thread, vedi helpers/long-press.ts).
+    // The menu is the proof the 500ms timer ran to the end: we wait for IT, not
+    // for a number of milliseconds (the app's timer and this test live on the
+    // same thread, see helpers/long-press.ts).
     await expect(page.getByRole("menu").or(page.locator('[data-testid="card-context-menu"]')).first())
       .toBeVisible({ timeout: 5000 });
 
@@ -193,15 +193,16 @@ test.describe("La board col dito", () => {
   });
 
   /**
-   * I BERSAGLI PICCOLI DELLA BOARD, MISURATI DOVE IL POLLICE LI TROVA.
+   * THE BOARD'S SMALL TARGETS, MEASURED WHERE THE THUMB FINDS THEM.
    *
-   * `.tap-expand` allarga l'area sensibile con un `::after` che in
-   * `getBoundingClientRect()` non compare: misurare il box direbbe 16x16 su un
-   * bersaglio che il dito trova a 44, e resterebbe VERDE se qualcuno togliesse
-   * la classe. Quindi si misura a banda con `elementFromPoint` (helpers/hit-area).
+   * `.tap-expand` grows the sensitive area with an `::after` that does not show
+   * up in `getBoundingClientRect()`: measuring the box would report 16x16 for a
+   * target the finger finds at 44, and would stay GREEN if somebody deleted the
+   * class. So the measure is the band probe with `elementFromPoint`
+   * (helpers/hit-area).
    *
-   * La ✕ che chiude l'errore della card è il rappresentante della famiglia: le
-   * altre due (nel drawer) sono lo stesso bottone con la stessa classe.
+   * The X that closes the card's error is the representative of the family: the
+   * other two (in the drawer) are the same button with the same class.
    */
   test("TOUCHTAP-01: la ✕ che chiude l'errore ha l'area di un dito e ha un nome", async ({ page, request }) => {
     const task = await createTask(request, `Errore da chiudere ${Date.now()}`);
@@ -209,24 +210,24 @@ test.describe("La board col dito", () => {
     await openProjectBoard(page);
     await expect(page.locator(`[data-task-card="${task.id}"]`)).toBeVisible({ timeout: 15000 });
 
-    // L'errore sulla card lo produce un'azione RIFIUTATA dal server, non un
-    // seme: si chiede al task di andare in done mentre ha un figlio aperto —
-    // lo stesso rifiuto che la banda rossa esiste per raccontare.
+    // The error on the card comes from an action the server REFUSES, not from a
+    // seed: the task is asked to go to done while it still has an open child,
+    // which is the very refusal the red band exists to report.
     const child = await createTask(request, `Figlio aperto ${Date.now()}`);
     await request.patch(`${BASE}/api/boards/${PROJECT_ID}/tasks/${child.id}`, { data: { parentTaskId: task.id } });
 
     const errorBand = page.locator('[data-testid="card-action-error"]');
-    // Se la banda non compare in questo giro il test non ha nulla da misurare e
-    // lo DICE, invece di passare misurando zero bersagli.
+    // If the band does not appear this round the test has nothing to measure and
+    // SAYS so, instead of passing having measured zero targets.
     const appeared = await errorBand.first().isVisible().catch(() => false);
-    test.skip(!appeared, "nessuna banda d'errore sulla board in questo giro");
+    test.skip(!appeared, "no error band on the board this round");
 
     const [x] = await measureTargets(page, ['[data-testid="card-action-error"] button']);
-    expect(x, "la ✕ dell'errore non è sullo schermo").toBeTruthy();
-    expect(x.absent, `la ✕ dell'errore è un bersaglio assente: ${JSON.stringify(x)}`).toBe(false);
-    expect(x.ownsItsCentre, `il centro della ✕ è coperto da un vicino: ${JSON.stringify(x)}`).toBe(true);
-    expect(x.tap.h, `la ✕ dell'errore è alta ${x.tap.h}px di area toccabile`).toBeGreaterThanOrEqual(44);
-    expect(x.tap.w, `la ✕ dell'errore è larga ${x.tap.w}px di area toccabile`).toBeGreaterThanOrEqual(44);
+    expect(x, "the error's X is not on screen").toBeTruthy();
+    expect(x.absent, `the error's X is an absent target: ${JSON.stringify(x)}`).toBe(false);
+    expect(x.ownsItsCentre, `the X's centre is covered by a neighbour: ${JSON.stringify(x)}`).toBe(true);
+    expect(x.tap.h, `the error's X is ${x.tap.h}px tall of touchable area`).toBeGreaterThanOrEqual(44);
+    expect(x.tap.w, `the error's X is ${x.tap.w}px wide of touchable area`).toBeGreaterThanOrEqual(44);
     await expect(errorBand.locator("button").first()).toHaveAccessibleName(/.+/);
   });
 });
