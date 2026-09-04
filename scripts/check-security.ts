@@ -371,10 +371,34 @@ const LOCKFILE_DIRS = [".", "client", "landing"];
 
 const BASELINE_REL = "scripts/security-baseline.json";
 
+/**
+ * Quanto si aspetta il registro, per cartella, prima di dire che non risponde.
+ *
+ * Senza questo limite si aspetta quello interno di `bun audit`, che il
+ * 2026-09-04 (card 18bdf214) ha impiegato circa due minuti e mezzo per
+ * cartella: con tre lockfile fanno sette minuti e mezzo per arrivare a dire
+ * «la rete era occupata». Sette minuti e mezzo dentro i venti che ha in tutto
+ * la suite unit, cioe' un cancello la cui DURATA la decide il registro.
+ *
+ * Quarantacinque secondi sono larghi per un'interrogazione che di norma ne
+ * impiega due o tre, e l'esito non cambia di natura: un registro che non ha
+ * risposto entro il limite non ha risposto, ed e' gia' il terzo stato che
+ * questo comando sa dire, MUTO. Non e' un verde e non e' un rosso.
+ */
+const AUDIT_TIMEOUT_MS = Number(process.env.TOPICS_AUDIT_TIMEOUT_MS) || 45_000;
+
 function auditDir(root: string, dir: string): { advisories: Advisory[]; error: string | null } {
   const cwd = dir === "." ? root : join(root, dir);
   if (!existsSync(join(cwd, "bun.lock"))) return { advisories: [], error: null };
-  const res = spawnSync("bun", ["audit", "--json"], { cwd, encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
+  const res = spawnSync("bun", ["audit", "--json"], {
+    cwd, encoding: "utf8", maxBuffer: 32 * 1024 * 1024, timeout: AUDIT_TIMEOUT_MS,
+  });
+  // Scaduto il tempo il figlio viene ucciso: senza questo ramo l'uscita per
+  // segnale finirebbe piu' sotto come «uscito null senza JSON», che manda a
+  // cercare un guasto di `bun` invece di un registro che tace.
+  if (res.signal) {
+    return { advisories: [], error: `bun audit in ${dir} non ha risposto entro ${AUDIT_TIMEOUT_MS} ms` };
+  }
   if (res.error) return { advisories: [], error: `bun audit non e' partito in ${dir}: ${String(res.error)}` };
   const raw = (res.stdout ?? "").trim();
   if (raw.length === 0) {
