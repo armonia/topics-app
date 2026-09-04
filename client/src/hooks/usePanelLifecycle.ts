@@ -37,9 +37,11 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type Dispatch,
   type SetStateAction,
 } from 'react';
+import { getExtraTopicIds, subscribeExtraTopics, withExtraTopics } from '../state/topicSubscriptions';
 import type { CreateTopicRequest, PaneType, PanelTab, TerminalSessionInfo, Topic, WSMessage } from '../types';
 import type { ChatStreamHandlers, TerminalOps } from './appHookTypes';
 import {
@@ -2526,6 +2528,16 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     }),
     [paneTabsEncoded],
   );
+  // Topics declared by a surface that is NOT a pane — today the task drawer,
+  // which reads the agent's session inside the board. Without them that drawer
+  // sees only `stream:start` / `message:new` / `stream:end` and stays empty for
+  // the whole turn, because per-token deltas are routed on the subscribed set
+  // (`server/lib/ws-topic-routing.ts`). See `state/topicSubscriptions.ts`.
+  const extraTopicIds = useSyncExternalStore(subscribeExtraTopics, getExtraTopicIds, getExtraTopicIds);
+  const subscribedTopicIds = useMemo(
+    () => withExtraTopics(presenceTopicIds, extraTopicIds),
+    [presenceTopicIds, extraTopicIds],
+  );
   const prevPresenceWsStatus = useRef(wsStatus);
   useEffect(() => {
     const reconnected =
@@ -2546,12 +2558,17 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       focusedTopicId: focusedTopicForPresence,
       tabs: presenceTabs,
     });
-    // Same trigger, same topic set: declare the open topics for per-token delta
-    // routing (server → WSData.openTopicIds). Kept in lock-step with the presence
-    // announce so a window never has a stale subscription and misses its stream;
-    // a window that never sends this still receives everything (legacy branch).
-    sendWS({ type: 'subscribe', topicIds: presenceTopicIds });
-  }, [wsStatus, windowId, isDetached, presenceTopicIds, focusedTopicForPresence, presenceTabs, sendWS]);
+    // Same trigger, WIDER set: declare the open topics for per-token delta
+    // routing (server → WSData.openTopicIds), plus the ones a non-pane surface
+    // is holding. Kept in lock-step with the presence announce so a window never
+    // has a stale subscription and misses its stream; a window that never sends
+    // this still receives everything (legacy branch).
+    //
+    // The presence announce above stays on `presenceTopicIds` alone: a drawer
+    // reading a session is not "a chat open in this window" for the peers, and
+    // declaring it there would draw an "open elsewhere" marker nobody asked for.
+    sendWS({ type: 'subscribe', topicIds: subscribedTopicIds });
+  }, [wsStatus, windowId, isDetached, presenceTopicIds, subscribedTopicIds, focusedTopicForPresence, presenceTabs, sendWS]);
 
   return {
     state: {
