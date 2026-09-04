@@ -1238,7 +1238,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     noted.add(task.id);
     try {
       emit(deps.svc.setDispatchState({ taskId: task.id, state: CHIP_QUEUED }));
-      deps.svc.addComment({ taskId: task.id, author: "system", content: why, kind: "service" });
+      // ONE SLOT, not a pile. "In coda: N agent su un tetto di M" is the STATE
+      // of the queue, and it changes at every boot and every cap move: 363
+      // such notes in twelve hours on 2026-09-04, four on one card, the old
+      // ones contradicting the new. The card keeps the current one only.
+      deps.svc.addComment({
+        taskId: task.id, author: "system", content: why, kind: "service",
+        replaces: why.startsWith("In coda:") ? "In coda:" : undefined,
+      });
     } catch { /* il task può essersi mosso sotto i piedi */ }
   }
 

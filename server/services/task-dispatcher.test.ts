@@ -1319,6 +1319,20 @@ describe("task-dispatcher", () => {
     await h.dispatcher.tick(PID);
     await flush();
     expect(h.svc.get("t2")!.comments.filter((c) => c.content.includes("In coda")).length).toBe(1);
+
+    // And ONE per card across boots and cap moves: the note is the queue's
+    // state, so a new process (empty dedupe set) and new numbers REPLACE the
+    // line instead of stacking a fourth contradicting version under the first
+    // (363 such notes in twelve hours on 2026-09-04).
+    const restarted = h.restart();
+    h.svc.setGlobalCap({ auto: false, max: 2 });
+    seedTask(h.db, { id: "t3", status: "todo", createdAt: "2020-01-03T00:00:00.000Z" });
+    await restarted.tick(PID);
+    await flush();
+    const notes = h.svc.get("t3")!.comments.filter((c) => c.content.includes("In coda"));
+    expect(h.svc.get("t2")!.comments.filter((c) => c.content.includes("In coda")).length).toBeLessThanOrEqual(1);
+    expect(notes.length).toBeLessThanOrEqual(1);
+    restarted.shutdown();
   });
 
   it("la nota del tetto non parla quando il posto c'è", async () => {
