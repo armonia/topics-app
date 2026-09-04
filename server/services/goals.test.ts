@@ -19,6 +19,7 @@ import {
   reopenGoal,
   replaceSteps,
   setGoal,
+  setGoalLoop,
 } from "./goals";
 
 let db: Database;
@@ -30,6 +31,12 @@ beforeEach(() => {
   db.run("PRAGMA foreign_keys = ON");
   db.run("CREATE TABLE topics (id TEXT PRIMARY KEY)");
   db.run(readFileSync(join(import.meta.dir, "..", "db", "migrations", "064-topic-goals.sql"), "utf-8"));
+  // The loop columns arrive with a LATER migration, and this bench applies the
+  // real files rather than a hand-written schema: a copy here would be a second
+  // definition of the table, free to drift from the one that ships.
+  db.run(readFileSync(
+    join(import.meta.dir, "..", "db", "migrations", "20260903232650-goal-continuazione.sql"), "utf-8",
+  ));
   db.run("INSERT INTO topics (id) VALUES ('t1'), ('t2')");
 });
 
@@ -174,6 +181,41 @@ describe("passi: sostituzione in blocco", () => {
     const byId = new Map(listGoals(db, "t1").map((g) => [g.id, g]));
     expect(byId.get(primo.id)!.steps.map((s) => s.content)).toEqual(["a1"]);
     expect(byId.get(secondo.id)!.steps.map((s) => s.content)).toEqual(["b1", "b2"]);
+  });
+});
+
+describe("lo stato del ciclo di auto-continuazione", () => {
+  test("nasce fermo a zero e in corsa: un goal nuovo non eredita niente", () => {
+    const g = setGoal(db, { topicId: "t1", content: "arrivare in fondo" });
+    expect(g.continuations).toBe(0);
+    expect(g.idleTurns).toBe(0);
+    expect(g.loopState).toBe("running");
+  });
+
+  test("i contatori si scrivono uno per volta, gli altri restano dove sono", () => {
+    const g = setGoal(db, { topicId: "t1", content: "arrivare in fondo" });
+    setGoalLoop(db, g.id, { continuations: 3 });
+    const dopo = setGoalLoop(db, g.id, { state: "blocked" })!;
+    expect(dopo.continuations).toBe(3);
+    expect(dopo.loopState).toBe("blocked");
+  });
+
+  test("un goal chiuso non si tocca: il suo ciclo è finito per definizione", () => {
+    const g = setGoal(db, { topicId: "t1", content: "arrivare in fondo" });
+    closeGoal(db, g.id, "achieved");
+    const dopo = setGoalLoop(db, g.id, { continuations: 9, state: "running" })!;
+    expect(dopo.continuations).toBe(0);
+    expect(dopo.status).toBe("achieved");
+  });
+
+  test("riaprire riparte da zero: il tetto speso apparteneva al giro finito", () => {
+    const g = setGoal(db, { topicId: "t1", content: "arrivare in fondo" });
+    setGoalLoop(db, g.id, { continuations: 7, idleTurns: 1, state: "stopped" });
+    closeGoal(db, g.id, "abandoned");
+    const riaperto = reopenGoal(db, g.id)!;
+    expect(riaperto.continuations).toBe(0);
+    expect(riaperto.idleTurns).toBe(0);
+    expect(riaperto.loopState).toBe("running");
   });
 });
 

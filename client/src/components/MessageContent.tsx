@@ -1080,6 +1080,10 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
       // Nemmeno `ripreso`: dice da dove viene il turno, non cosa è successo
       // dentro. Si rende in cima, come gli altri due cartelli.
       if (b.kind === 'ripreso') continue;
+      // Nor the two blocks of the goal loop: they say WHY this row exists, not
+      // what happened inside the turn, and the one that draws them is
+      // `MessageBubble` (one compact system line instead of a bubble).
+      if (b.kind === 'goal-nudge' || b.kind === 'goal-stop') continue;
       if (b.kind === 'tool') {
         const last = out[out.length - 1];
         if (last && last.kind === 'tools') last.tools.push(b.toolCall);
