@@ -28,7 +28,7 @@ import { createWorktreeStore } from "./services/worktree-store";
 import { createWorktreeManager, type WorktreeManagerGcDeps } from "./services/worktree-manager";
 import { createMachineStore } from "./services/machine-store";
 import { parseToolCallDetail, knownDetailTypes } from "../shared/tool-call-detail";
-import { blocksForDisk, toolCallsForDisk } from "../shared/lean-tool-call";
+import { blocksForDisk, toolCallsColumnForRow, toolCallsForDisk } from "../shared/lean-tool-call";
 import { shouldCompressFrame } from "./lib/ws-compression";
 import { isEmptyAssistantTurn } from "../shared/empty-turn";
 import { validateOutbound } from "../shared/ws-outbound";
@@ -290,7 +290,12 @@ export function createAppContext(baseDir: string): AppContext {
      * immediatamente scartati. Le colonne qui sono esattamente quelle che quei due
      * mutatori leggono o riscrivono.
      */
-    getLastMessageForToolUpdate: db.prepare(`SELECT id, session_key, role, content, thinking, tool_calls, media, partial, streamed_at, plan_status, timestamp FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`),
+    getLastMessageForToolUpdate: db.prepare(
+      `SELECT id, session_key, role, content, thinking, tool_calls, media, partial, streamed_at, plan_status, timestamp,
+              CASE WHEN blocks IS NULL OR blocks IN ('', '[]', 'null') THEN 0 ELSE 1 END AS has_blocks,
+              CASE WHEN tool_calls IS NULL OR tool_calls IN ('', '[]', 'null') THEN 0 ELSE 1 END AS has_tool_calls
+       FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`,
+    ),
     /**
      * La variante CON `blocks`, per il solo `updateToolCallFields`.
      *
@@ -637,6 +642,20 @@ export function createAppContext(baseDir: string): AppContext {
         // Corrupt blocks JSON → message hydrates without its rich blocks.
         warnThrottled("rowToMessage:blocks", `[Store] Failed to parse blocks for message ${row.id}:`, err);
       }
+    }
+    // The `tool_calls` column is not written when the row has `blocks`
+    // (`toolCallsColumnForRow`, shared/lean-tool-call.ts): the tool calls live
+    // inside the timeline, and this is where they come back out. One single
+    // point, so every reader keeps seeing them: `loadActiveThread`,
+    // `/api/history`, `getMessageById`, and Regenerate, which reads
+    // `msg.toolCalls` as the evidence of the turn it is replacing
+    // (routes/edit.ts). No copy: the toolCall objects are the ones already
+    // hydrated in the blocks, so the array costs one reference per tool.
+    if (!msg.toolCalls?.length && msg.blocks?.length) {
+      const fromBlocks = msg.blocks
+        .filter((b: any) => b && b.kind === 'tool' && b.toolCall)
+        .map((b: any) => b.toolCall);
+      if (fromBlocks.length > 0) msg.toolCalls = fromBlocks;
     }
     if (row.media) {
       try { msg.media = JSON.parse(row.media); } catch (err) {
@@ -1268,7 +1287,7 @@ export function createAppContext(baseDir: string): AppContext {
           $role: msg.role,
           $content: msg.content || '',
           $thinking: msg.thinking || null,
-          $tool_calls: toolCallsForDisk(msg.toolCalls),
+          $tool_calls: toolCallsColumnForRow(msg.toolCalls, msg.blocks),
           $media: msg.media ? JSON.stringify(msg.media) : null,
           $partial: msg.partial ? 1 : 0,
           $streamed_at: msg.streamedAt || null,
@@ -1356,7 +1375,7 @@ export function createAppContext(baseDir: string): AppContext {
           $role: msg.role,
           $content: msg.content || '',
           $thinking: msg.thinking || null,
-          $tool_calls: toolCallsForDisk(msg.toolCalls),
+          $tool_calls: toolCallsColumnForRow(msg.toolCalls, msg.blocks),
           $media: msg.media ? JSON.stringify(msg.media) : null,
           $partial: 0,
           $streamed_at: null,
@@ -1510,7 +1529,7 @@ export function createAppContext(baseDir: string): AppContext {
       $id: msg.id,
       $content: 'content' in updates ? (msg.content || '') : null,
       $thinking: 'thinking' in updates ? (msg.thinking || null) : null,
-      $tool_calls: 'toolCalls' in updates ? toolCallsForDisk(msg.toolCalls) : null,
+      $tool_calls: 'toolCalls' in updates ? toolCallsColumnForRow(msg.toolCalls, updates.blocks) : null,
       $media: msg.media ? JSON.stringify(msg.media) : null,
       $partial: msg.partial ? 1 : 0,
       $streamed_at: msg.streamedAt || null,
@@ -1567,7 +1586,39 @@ export function createAppContext(baseDir: string): AppContext {
     return msg;
   }
 
-  function addToolCallToLastMessage(sessionKey: string, toolCall: ToolCall): StoredMessage | null {
+  /**
+   * THE ROW HAS `blocks`: the tool call is already persisted there, so this
+   * column has nothing to add and the UPDATE has nothing to do.
+   *
+   * Skipping it is not a micro optimisation. `updateMessage` rewrites the
+   * ROW, and COALESCE keeping a column does not make it free: SQLite copies
+   * the whole record, overflow pages included, so a write here re-copies the
+   * `blocks` blob too. On the live database one message reached 3.65 MB of
+   * blocks and 3.65 MB of tool_calls over 127 blocks: ~250 rewrites of ~1.8 MB
+   * average, hundreds of MB of JSON and of WAL pages, for ONE message, on the
+   * event loop, while the turn is alive and needs it for tokens, WS frames and
+   * PTY.
+   *
+   * `has_tool_calls` is the one exception: a row that already carries the copy
+   * (an older row, or the first tool of a turn announced before the first
+   * block was persisted) gets ONE write to clear it, and then no more.
+   *
+   * `mirroredInBlocks` is DECLARED by the caller, not guessed from the row:
+   * only whoever writes the block knows that the block carries this same tool
+   * call (`routes/chat.ts` does, right after). The paths that write no
+   * timeline at all (the gateway SSE consumer, an import) say nothing and keep
+   * the column, which for them is the only source there is. Reading the blocks
+   * here to check would cost the very parse this exists to avoid.
+   */
+  function toolColumnWriteMode(
+    row: { has_blocks?: number; has_tool_calls?: number },
+    mirroredInBlocks: boolean,
+  ): 'skip' | 'clear' | 'write' {
+    if (!mirroredInBlocks || row.has_blocks !== 1) return 'write';
+    return row.has_tool_calls === 1 ? 'clear' : 'skip';
+  }
+
+  function addToolCallToLastMessage(sessionKey: string, toolCall: ToolCall, opts?: { mirroredInBlocks?: boolean }): StoredMessage | null {
     const row = stmts.getLastMessageForToolUpdate.get(sessionKey) as any;
     if (!row) return null;
     const msg = rowToMessage(row, { withBlocks: false });
@@ -1586,12 +1637,14 @@ export function createAppContext(baseDir: string): AppContext {
     } else {
       msg.toolCalls.push(toolCall);
     }
+    const mode = toolColumnWriteMode(row, opts?.mirroredInBlocks === true);
+    if (mode === 'skip') return msg;
     stmts.updateMessage.run({
       $id: msg.id,
       // Owns tool_calls only — see updateToolCallResult.
       $content: null,
       $thinking: null,
-      $tool_calls: toolCallsForDisk(msg.toolCalls),
+      $tool_calls: mode === 'clear' ? '[]' : toolCallsForDisk(msg.toolCalls),
       $media: msg.media ? JSON.stringify(msg.media) : null,
       $partial: msg.partial ? 1 : 0,
       $streamed_at: msg.streamedAt || null,
@@ -1601,10 +1654,29 @@ export function createAppContext(baseDir: string): AppContext {
     return msg;
   }
 
-  function updateToolCallResult(sessionKey: string, toolCallId: string, result: string, error?: string, extra?: Partial<ToolCall>): StoredMessage | null {
+  function updateToolCallResult(sessionKey: string, toolCallId: string, result: string, error?: string, extra?: Partial<ToolCall>, opts?: { mirroredInBlocks?: boolean }): StoredMessage | null {
     const row = stmts.getLastMessageForToolUpdate.get(sessionKey) as any;
     if (!row) return null;
     const msg = rowToMessage(row, { withBlocks: false });
+    const mode = toolColumnWriteMode(row, opts?.mirroredInBlocks === true);
+    // Same rule as `addToolCallToLastMessage`: with blocks on the row the
+    // result is written there (routes/chat.ts `updateBlockTool`), and this
+    // column is either already empty or cleared once.
+    if (mode === 'skip') return msg;
+    if (mode === 'clear') {
+      stmts.updateMessage.run({
+        $id: msg.id,
+        $content: null,
+        $thinking: null,
+        $tool_calls: '[]',
+        $media: msg.media ? JSON.stringify(msg.media) : null,
+        $partial: msg.partial ? 1 : 0,
+        $streamed_at: msg.streamedAt || null,
+        $plan_status: msg.planStatus || null,
+        ...metaParams({}),
+      });
+      return msg;
+    }
     const tc = msg.toolCalls?.find(t => t.id === toolCallId);
     if (tc) {
       tc.result = result;
@@ -1675,7 +1747,7 @@ export function createAppContext(baseDir: string): AppContext {
       $id: msg.id,
       $content: null,
       $thinking: null,
-      $tool_calls: toolCallsForDisk(msg.toolCalls),
+      $tool_calls: toolCallsColumnForRow(msg.toolCalls, nextBlocks ?? msg.blocks),
       $media: msg.media ? JSON.stringify(msg.media) : null,
       $partial: msg.partial ? 1 : 0,
       $streamed_at: msg.streamedAt || null,
@@ -1797,6 +1869,10 @@ export function createAppContext(baseDir: string): AppContext {
           for (const b of bl) if (b?.kind === 'tool' && fix(b.toolCall)) c = true;
           if (c) { blStr = encodeCol(blocksForDisk(bl) ?? "null") ?? null; changed = true; }
         }
+        // The row carries both copies: this write is the last one of the turn,
+        // so it is also where the duplicate goes. What the column held is
+        // inside `blocks`, and `rowToMessage` reads it back from there.
+        if (row?.blocks && row?.tool_calls) { tcStr = '[]'; changed = true; }
         if (changed) {
           db.prepare(`UPDATE messages SET tool_calls = ?, blocks = ? WHERE id = ?`).run(tcStr, blStr, stream.messageId);
         }
