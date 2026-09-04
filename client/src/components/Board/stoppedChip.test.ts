@@ -1,4 +1,6 @@
 /**
+ * @covers STOPCHIP-01
+ *
  * The rose 'stopped' badge, and the one column it must never appear in.
  *
  * `dispatchError` outlives the turn that wrote it. With no live chip on the row

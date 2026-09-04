@@ -92,9 +92,9 @@ export async function touchDrag(
   page: Page,
   from: { x: number; y: number },
   to: { x: number; y: number },
-  opts: { holdMs?: number; steps?: number } = {},
+  opts: { armedSelector?: string; steps?: number } = {},
 ): Promise<void> {
-  const { holdMs = 250, steps = 6 } = opts;
+  const { armedSelector = "[data-drag-preview]", steps = 6 } = opts;
   await page.evaluate(({ from }) => {
     const el = document.elementFromPoint(from.x, from.y);
     if (!el) throw new Error(`no element at ${from.x},${from.y}`);
@@ -105,9 +105,13 @@ export async function touchDrag(
     }));
   }, { from });
 
-  // The sensor's activation delay is 200ms and it runs on the SAME main thread
-  // as the board's render: this waits it out rather than racing it.
-  await page.waitForTimeout(holdMs);
+  // The hold used to be a 250ms sleep on the sensor's 200ms activation delay:
+  // a bet on two clocks at once, since the delay runs on the SAME main thread
+  // as the board's render and a slow frame pushes the activation past it. The
+  // real condition is that the sensor has ARMED, and the drag preview appearing
+  // is how the app says so. A gesture that starts moving before that is a swipe,
+  // not a drag, so waiting for it is also what keeps the gesture honest.
+  await page.waitForSelector(armedSelector, { state: "attached", timeout: 10000 });
 
   await page.evaluate(({ from, to, steps }) => {
     const held = (window as unknown as { __drag?: { el: Element } }).__drag;

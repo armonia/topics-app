@@ -1,4 +1,6 @@
 /**
+ * @covers DISPENV-01
+ *
  * THE BOARD'S ENVELOPE IS NOT A BUBBLE YOU WROTE.
  *
  * The kickoff, the resume and the nudge reach the transcript as `user` rows
