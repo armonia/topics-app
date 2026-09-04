@@ -206,15 +206,25 @@ function QueuedBubble({
         <p className="mt-0.5 text-right text-[11px] text-app-text-muted">{t('chat.queue.waiting')}</p>
         {onRemove && !editing && (
           // Fuori dalla bolla, sul suo fianco: dentro dovrebbe rubare spazio al
-          // testo o coprirlo. Appare al passaggio del mouse — e sempre, dove il
-          // mouse non c'è (`group-focus-within` copre la tastiera).
+          // testo o coprirlo. Appare al passaggio del mouse, e SEMPRE dove il
+          // mouse non c'e'.
+          //
+          // `coarse:opacity-100` is the half that was promised and missing: with
+          // a finger there is no hover state to enter, so the only way out of a
+          // queued line was a command gated on `turns.length > 1` (the clear
+          // one). With a single line queued, from a phone, nothing removed it.
+          // `group-focus-within` covers the keyboard, which the comment
+          // announced and the code did not have either.
+          // `tap-expand` grows the sensitive area to the 44px of the guidelines
+          // without touching the 20px box, which has to stay small next to the
+          // bubble (index.css).
           <button
             type="button"
             data-testid="queued-bubble-remove"
             onClick={() => onRemove(turn.id)}
             title={t('chat.queue.removeTitle')}
             aria-label={t('chat.queue.removeTitle')}
-            className="absolute -left-6 top-1/2 -translate-y-1/2 p-1 rounded text-app-text-muted opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-red-500 transition-opacity"
+            className="tap-expand absolute -left-6 top-1/2 -translate-y-1/2 p-1 rounded text-app-text-muted opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 coarse:opacity-100 hover:text-red-500 transition-opacity"
           >
             <X size={12} />
           </button>
