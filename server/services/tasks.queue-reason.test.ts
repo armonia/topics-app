@@ -17,6 +17,7 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createTaskService, type TaskService } from "./tasks";
+import { setDispatchBlock } from "./dispatch-block-signal";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 import { freshDb as schemaDb } from "./tasks-test-db";
 
@@ -67,6 +68,38 @@ describe("la ragione della coda arriva dal server, con la card", () => {
     const r = s.get(terzo.id)!.task.queueReason!;
     expect(r).toMatchObject({ kind: "slot", tone: "queued", key: "board.queue.slot.ahead", params: { ahead: 2 } });
     expect(s.get(primo.id)!.task.queueReason!.key).toBe("board.queue.slot.first");
+  });
+
+  /**
+   * IL FRENO INVISIBILE arriva sulla card come tutti gli altri.
+   *
+   * Il pavimento di RAM/disco e il tetto di spesa 24h li legge il tick, una
+   * volta per giro, e poi salta OGNI card: non c'è nessun campo sulla riga da
+   * cui dedurli, quindi la ragione cadeva sul ramo della fila e diceva «in
+   * coda, la prossima» su una board immobile da ore. Il dispatcher li pubblica
+   * (`dispatch-block-signal.ts`) e il mappatore li legge qui.
+   */
+  test("pavimento e tetto di spesa: la card lo dice, senza cambiare un campo suo", () => {
+    const t = s.create({ projectId: PID, text: "Ferma per la macchina" });
+    mv(s, t.id, "todo");
+    expect(s.get(t.id)!.task.queueReason!.kind).toBe("slot");
+
+    setDispatchBlock({ kind: "resources", reason: "Disco quasi pieno: 2,4 GB liberi." });
+    const bloccata = s.get(t.id)!.task.queueReason!;
+    expect(bloccata).toMatchObject({ kind: "resource_floor", tone: "stalled" });
+    expect(bloccata.params?.reason).toContain("2,4 GB");
+
+    setDispatchBlock({ kind: "spend", reason: "Tetto di spesa giornaliero raggiunto." });
+    expect(s.get(t.id)!.task.queueReason!.kind).toBe("spend_cap");
+
+    // Fuori dalla coda il blocco non è ciò che quella card aspetta: uno step
+    // ha la ragione del padre, e una card in backlog è parcheggiata.
+    const passo = s.create({ projectId: PID, text: "Uno step", parentTaskId: t.id });
+    mv(s, passo.id, "todo");
+    expect(s.get(passo.id)!.task.queueReason!.kind).not.toBe("spend_cap");
+
+    setDispatchBlock(null);
+    expect(s.get(t.id)!.task.queueReason!.kind).toBe("slot");
   });
 
   test("la fila si conta su TUTTE le board: il tetto agenti è machine-wide", () => {

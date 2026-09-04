@@ -34,6 +34,7 @@ import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
 import { CODE_GATES_RULE, DISPATCH_CHIP_QUEUED, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap } from "./dispatch-capacity";
+import { setDispatchBlock } from "./dispatch-block-signal";
 import {
   bookSessionCost,
   createSpendBrake,
@@ -1160,6 +1161,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // forgotten only when the card really starts again, and in the meantime it is
   // not repeated at every poll.
   const spendHeldNoted = new Set<string>();
+  // Tasks already told "the machine is under the floor" / "the daily spend cap
+  // is reached". Same discipline as the sets above: one line per EPISODE, not
+  // one per 10s poll - a full disk would otherwise write a thousand rows in the
+  // thread. Emptied in the round the block lifts, so the next one speaks again.
+  const floorHeldNoted = new Set<string>();
   // Da QUANDO un task pesante è trattenuto dal carico (ms). Serve al tetto
   // dell'attesa (`HEAVY_HOLD_MAX_MS`): senza un istante di inizio «trattenuto da
   // troppo» non è una condizione misurabile, è un'impressione. Si azzera appena
@@ -3546,7 +3552,30 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // nuovo ad aprire una worktree, cioè a consumare esattamente la risorsa che
     // sta finendo. Letto una volta per tick: la domanda è sulla macchina, non
     // sulla card, e chiederlo per ogni todo sarebbe una statfs per riga.
-    const floorBlock = admissionBlock() ?? spendBrake.dayBlock();
+    const resourceFloor = admissionBlock();
+    const daySpendBlock = resourceFloor ? null : spendBrake.dayBlock();
+    const floorBlock = resourceFloor ?? daySpendBlock;
+    // WHAT HOLDS THE WHOLE QUEUE, where the card can read it. Both blocks are
+    // about the machine, so no row records them: without this the mapper fell
+    // through to the queue branch and every card said "queued, next up" while
+    // nothing had moved for hours. Set every tick, `null` included, so it never
+    // outlives the block it describes (`dispatch-block-signal.ts`).
+    //
+    // The spend one is re-composed into a sentence: `dayBlock` returns the
+    // FRAGMENT the log line embeds ("spesa: $12 negli ultimi 24h ...") and a
+    // fragment dropped alone on a card reads like a truncated string.
+    const spendSentence = daySpendBlock
+      ? `Tetto di spesa giornaliero raggiunto (${daySpendBlock.replace(/^spesa:\s*/, "")}). `
+        + "Non parte niente su nessuna board finché la finestra delle 24 ore non scorre, "
+        + "oppure finché non alzi il tetto dalle impostazioni della board."
+      : null;
+    setDispatchBlock(
+      resourceFloor ? { kind: "resources", reason: resourceFloor }
+        : spendSentence ? { kind: "spend", reason: spendSentence }
+          : null,
+    );
+    /** The same block, as the line that goes in the thread once per episode. */
+    const floorNote = resourceFloor ?? spendSentence;
     // The spend caps, read ONCE per tick from the same '*' row that carries the
     // concurrency cap. With the caps off (zero = unlimited, the state of a fresh
     // install) this is the only extra read of the loop: no sum over the spend
@@ -3558,6 +3587,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // (in volo o dentro la grazia): un task ancora in coda sta ancora aspettando
     // lo stesso tetto, e ripetergli la stessa riga a ogni poll sarebbe rumore.
     for (const t of todos) { if (inFlight.has(t.id) || graceTimers.has(t.id)) capHeldNoted.delete(t.id); }
+    // The block has lifted: forget the episode, so the next full disk says it
+    // again instead of staying mute forever. It looks at the block and not at
+    // the single card, because the block is one per machine.
+    if (!floorBlock) floorHeldNoted.clear();
     // Agenti vivi ADESSO, e SOLO per spiegare: la decisione resta del CAS dentro
     // `claim`, che è l'unico punto atomico. Non si memoizza per tick — dentro il
     // ciclo i claim che riescono cambiano il numero, e una nota che cita un
@@ -3619,10 +3652,24 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         continue;
       }
       if (floorBlock) {
-        // Il chip, non un commento: qui si passa a ogni tick, e un commento per
-        // tick trasformerebbe un disco pieno in mille righe nel thread. La card
-        // dice «in coda», che è vero, e il perché sta nel log del server.
+        // THE REASON GOES ON THE CARD, not only into the server log. This
+        // branch used to write the bare `queued` chip and leave the
+        // explanation in a file nobody watching the board opens: the card fell
+        // through to the queue branch and said "in coda, la prossima" while
+        // nothing started, on any board, for hours.
+        //
+        // Two channels, two different things: the chip is fed by
+        // `setDispatchBlock` above (it lives exactly as long as the block), the
+        // thread line stays as the trace of what happened. One per EPISODE,
+        // like the twin path of the resume already does - that discipline was
+        // missing here entirely.
         try { emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED })); } catch { /* best-effort */ }
+        if (floorNote && !floorHeldNoted.has(t.id)) {
+          floorHeldNoted.add(t.id);
+          try {
+            deps.svc.addComment({ taskId: t.id, author: "system", kind: "service", content: floorNote });
+          } catch { /* il task può essersi mosso sotto i piedi */ }
+        }
         continue;
       }
       // Respect the grace debounce: a task still inside its window is claimed by

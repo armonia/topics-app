@@ -1,0 +1,24 @@
+-- 20260904101008-done-cards-keep-no-dispatch-error.sql
+--
+-- A CLOSED CARD DOES NOT WEAR A FAILURE.
+--
+-- `dispatch_error` records why the LAST turn did not get there ("the turn ended
+-- without reaching review after 2 attempts"). It is true while the card is
+-- still trying and a lie the moment it is done, because the work landed. No
+-- line ever cleared it on the way to done: the `put(dispatch_error, null)`
+-- calls all sit on the todo/backlog branches.
+--
+-- The chip that reads it (`!dispatchState && dispatchError`) never looked at
+-- the status either, so the field was rendered as a rose 'stopped' badge on
+-- closed cards: 44 non-archived done rows carried one on the live DB, some for
+-- turns that ended weeks before a human finished the work by hand.
+--
+-- Two halves, and this is the second one. `tasks.ts` now clears the column on
+-- the transition to done (so no new row can acquire one) and the client guards
+-- the chip on the status (so an old row cannot draw one). This clears the rows
+-- already written, which neither of the two would ever reach.
+--
+-- Only `status = 'done'`: a card in any other column that carries an error is
+-- describing something real, and it is not this migration's business.
+
+UPDATE tasks SET dispatch_error = NULL WHERE status = 'done' AND dispatch_error IS NOT NULL;

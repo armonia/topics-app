@@ -433,10 +433,21 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         const goalNudgeAttempt = typeof body.goalNudge === "number" && body.goalNudge > 0
           ? Math.floor(body.goalNudge)
           : null;
+        // AND THE DISPATCHER'S ENVELOPE IS MARKED THE SAME WAY.
+        //
+        // A board turn arrives here as a `user` row carrying a text the
+        // dispatcher generated (kickoff, resume, nudge). `dispatched` used to
+        // stop at the push trigger and never reach the table, so the transcript
+        // showed those envelopes as the person's own bubbles, editable: 411
+        // kickoffs and 1,033 resumes on the live DB, all with a NULL author.
+        // The block is what lets the client draw a service line instead.
+        const blocks: ContentBlock[] = [];
+        if (goalNudgeAttempt) blocks.push({ kind: "goal-nudge", attempt: goalNudgeAttempt });
+        if (dispatched) blocks.push({ kind: "dispatched-envelope" });
         const storedUserMsg = appendLocalMessage(
           sessionKey, "user", lastUserMsg.content,
           autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null),
-          goalNudgeAttempt ? [{ kind: "goal-nudge", attempt: goalNudgeAttempt }] : undefined,
+          blocks.length ? blocks : undefined,
         );
         // ADESSO il messaggio esiste, e da adesso una ripetizione è un doppione.
         // Non un istante prima: la riga è la prova, e finché non c'è, ripetere è

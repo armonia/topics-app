@@ -940,7 +940,24 @@ export type ContentBlock =
    * is rendered translated by the client; `content` carries the English text,
    * which is what the model reads on the next turn.
    */
-  | { kind: 'goal-stop'; reason: 'capped' | 'stalled' };
+  | { kind: 'goal-stop'; reason: 'capped' | 'stalled' }
+  /**
+   * THIS ROW IS AN ENVELOPE THE DISPATCHER WROTE, not something a person typed.
+   *
+   * A board turn starts by POSTing a generated text to the chat as a `user`
+   * message: the kickoff ("You are the exclusive owner of task ..."), the
+   * resume, the nudge that follows an interrupted turn. `user` is the only role
+   * a provider answers, so the row has to look like that on the wire, and until
+   * this block existed nothing on it said otherwise: 411 kickoffs and 1,033
+   * resumes sat in the transcript as right-hand bubbles with an "edit" button
+   * on hover, words nobody wrote and everybody could rewrite.
+   *
+   * `dispatched: true` already travelled with the request, but only far enough
+   * to silence a push notification. This is the same fact, persisted on the
+   * row, so the client can draw one collapsed service line - openable, because
+   * a resume envelope carries the human's own message inside it.
+   */
+  | { kind: 'dispatched-envelope' };
 
 // ─── Entità di dominio (payload REST + broadcast WS) ────────────────────
 //

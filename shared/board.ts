@@ -813,6 +813,8 @@ export type QueueReasonKind =
   | 'parent_idle'    // è uno step e il padre non è al lavoro: non lo lavora nessuno
   | 'heavy_hold'     // è PESANTE, aspetta margine, e intanto tiene ferma la coda
   | 'heavy_busy'     // un ALTRO task pesante è al lavoro e si prende la macchina da solo
+  | 'resource_floor' // the machine is under the RAM/disk floor: no agent is admitted at all
+  | 'spend_cap'      // the 24h spend cap is reached: the queue holds until it scrolls or you raise it
   | 'checklist_frozen' // in review senza domande aperte, ma con la checklist aperta: approvarla non la chiude
   | 'children_parked' // sta CHIEDENDO cosa fare dei suoi step fermi: il chip ne porta il numero
   | 'parked'         // in backlog: il dispatcher non guarda questa colonna
@@ -871,6 +873,7 @@ export interface QueueReason {
 export const QUEUE_REASON_KINDS: QueueReasonKind[] = [
   'slot', 'blocked', 'deferred', 'attempts', 'dispatch_off', 'no_project',
   'parent_review', 'parent_turn', 'parent_idle', 'heavy_hold', 'heavy_busy',
+  'resource_floor', 'spend_cap',
   'checklist_frozen', 'children_parked', 'parked', 'no_agent', 'unknown',
 ];
 
@@ -894,6 +897,8 @@ export const QUEUE_REASON_MESSAGE_KEYS: Record<QueueReasonKind, string[]> = {
   parent_idle: ['board.queue.parentIdle'],
   heavy_hold: ['board.queue.heavyHold.alone', 'board.queue.heavyHold.blocking'],
   heavy_busy: ['board.queue.heavyBusy'],
+  resource_floor: ['board.queue.resourceFloor'],
+  spend_cap: ['board.queue.spendCap'],
   checklist_frozen: ['board.queue.checklistFrozen.one', 'board.queue.checklistFrozen.many'],
   children_parked: ['board.queue.childrenParked.one', 'board.queue.childrenParked.many'],
   parked: [
@@ -950,6 +955,21 @@ export interface QueueContext {
   heavyInFlight?: boolean;
   /** Quanti task idonei stanno DIETRO: quelli che il `break` sta fermando. */
   behind?: number;
+  /**
+   * THE FLOOR AND THE CEILING, the two blocks that stop the WHOLE machine.
+   *
+   * The tick reads them once per round (`admissionBlock() ?? dayBlock()`) and
+   * skips every card of every board: not one slot is missing, no slot is going
+   * to free up, and nothing moves until the disk, the RAM or the 24h spend
+   * window says otherwise. Without this the card fell through to `slot` and
+   * said "queued · next up" for hours, which is the opposite of what happens.
+   *
+   * `reason` is the sentence the block itself composed, with its numbers: it
+   * travels because those numbers are the answer ("2.1 GB free against a floor
+   * of 3"), and recomputing them on the client would mean measuring another
+   * machine.
+   */
+  dispatchBlock?: { kind: 'resources' | 'spend'; reason: string } | null;
   /** Lo stato del padre, per uno step. `null` = non è uno step, o padre sparito. */
   parentStatus: TaskStatus | string | null;
   /** Vero quando il task non ha una board con una directory (`_none`). */
@@ -1289,6 +1309,26 @@ export function deriveQueueReason(
   // fatto e la mossa: non c'è mossa, riparte da sé.
   if (ctx.heavyInFlight) {
     return { kind: 'heavy_busy', tone: 'waiting', key: 'board.queue.heavyBusy' };
+  }
+
+  // THE INVISIBLE BRAKE. Under the RAM/disk floor, or over the 24h spend cap,
+  // the tick skips EVERY card and puts the same `queued` chip on all of them.
+  // Falling through to the queue branch, the card said "in coda, la prossima"
+  // with the tooltip "it starts as soon as an agent slot frees up": no slot is
+  // missing, none is going to free up, and the board sits still for hours while
+  // every card claims the opposite.
+  //
+  // Tone `stalled` for both: a disk does not empty itself and a cap is raised
+  // by a person. The spend one is second because the tick reads it second
+  // (`admissionBlock() ?? dayBlock()`), and a machine out of RAM does not start
+  // anything even with the ledger at zero.
+  if (ctx.dispatchBlock) {
+    return {
+      kind: ctx.dispatchBlock.kind === 'spend' ? 'spend_cap' : 'resource_floor',
+      tone: 'stalled',
+      key: ctx.dispatchBlock.kind === 'spend' ? 'board.queue.spendCap' : 'board.queue.resourceFloor',
+      params: { reason: ctx.dispatchBlock.reason },
+    };
   }
 
   return {
