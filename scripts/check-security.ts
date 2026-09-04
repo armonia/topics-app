@@ -369,13 +369,33 @@ interface Baseline {
 /** Le cartelle con un lockfile proprio. `bun audit` guarda una cartella sola. */
 const LOCKFILE_DIRS = [".", "client", "landing"];
 
+/** How long one `bun audit` may take before the measure is declared mute. */
+const AUDIT_TIMEOUT_MS = 60_000;
+
 const BASELINE_REL = "scripts/security-baseline.json";
 
 function auditDir(root: string, dir: string): { advisories: Advisory[]; error: string | null } {
   const cwd = dir === "." ? root : join(root, dir);
   if (!existsSync(join(cwd, "bun.lock"))) return { advisories: [], error: null };
-  const res = spawnSync("bun", ["audit", "--json"], { cwd, encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
-  if (res.error) return { advisories: [], error: `bun audit non e' partito in ${dir}: ${String(res.error)}` };
+  // BOUNDED. `bun audit` hangs on the registry's bulk-advisory endpoint for
+  // ~4 minutes per directory before giving up on its own (measured on
+  // 2026-09-04 with `registry.npmjs.org/-/ping` answering in 0.36 s), and this
+  // runs for THREE directories, inside every `test:unit` of every board card.
+  // A mute measure is already a verdict this gate knows how to give (exit 2,
+  // the measure-not-taken line); it must arrive in seconds, not in twelve
+  // minutes.
+  const res = spawnSync("bun", ["audit", "--json"], {
+    cwd, encoding: "utf8", maxBuffer: 32 * 1024 * 1024, timeout: AUDIT_TIMEOUT_MS,
+  });
+  if (res.error) {
+    const timedOut = (res.error as NodeJS.ErrnoException).code === "ETIMEDOUT";
+    return {
+      advisories: [],
+      error: timedOut
+        ? `bun audit in ${dir} non ha risposto entro ${Math.round(AUDIT_TIMEOUT_MS / 1000)} s: il registro non risponde alla richiesta degli avvisi`
+        : `bun audit non e' partito in ${dir}: ${String(res.error)}`,
+    };
+  }
   const raw = (res.stdout ?? "").trim();
   if (raw.length === 0) {
     // Nessun avviso: bun stampa il banner su stderr e niente su stdout.

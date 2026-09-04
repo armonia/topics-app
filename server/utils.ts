@@ -9,7 +9,7 @@ import { warnThrottled } from "./lib/warn-throttled";
 import { isReusableHeadstone } from "./lib/empty-turn-headstone";
 import type {
   WSData, GuestBroadcastFilter, StoredMessage, ReattachedPartial, ToolCall, Topic, TopicsData, UnreadData,
-  ActiveStream, ErrorResponseOptions, AppContext, Project, ThreadLoadOpts,
+  ActiveStream, ErrorResponseOptions, AppContext, Project, ThreadLoadOpts, ContentBlock,
 } from "./types";
 import { initDatabase } from "./db";
 import { isGuestSocketData } from "./lib/grants";
@@ -1290,6 +1290,13 @@ export function createAppContext(baseDir: string): AppContext {
     /** Chi l'ha scritto (migration 095). Assente = non lo sappiamo, e resta NULL:
      *  è il caso dei turni importati da un transcript e di ogni risposta. */
     autore?: { authorPersonId?: string | null; authorDeviceId?: string | null },
+    /**
+     * Blocks to write ON the row, for the rare rows that are not just text.
+     * Today one caller: the goal auto-continuation, whose `user` row carries a
+     * `goal-nudge` block so the client draws a system line instead of a bubble
+     * the human never typed (`services/goal-loop.ts`).
+     */
+    blocks?: ContentBlock[],
   ): StoredMessage {
     const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as any).max_order;
     // Find the last message in the active thread to set as parent.
@@ -1304,6 +1311,7 @@ export function createAppContext(baseDir: string): AppContext {
       id: crypto.randomUUID(), role, content, timestamp: new Date().toISOString(), parentId, branchIndex: 0,
       authorPersonId: autore?.authorPersonId ?? null,
       authorDeviceId: autore?.authorDeviceId ?? null,
+      ...(blocks && blocks.length ? { blocks } : {}),
     };
     stmts.insertMessage.run({
       $id: stored.id,

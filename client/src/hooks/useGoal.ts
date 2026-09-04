@@ -103,5 +103,11 @@ export function useGoal(
     [topicId],
   );
 
-  return { goal, declare, close, reload };
+  /** Stop the auto-continuation loop, leaving the objective alive. */
+  const stopLoop = useCallback(async () => {
+    if (!topicId) return;
+    await goalApi.setLoop(topicId, 'stopped');
+  }, [topicId]);
+
+  return { goal, declare, close, reload, stopLoop };
 }

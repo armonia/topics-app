@@ -19,6 +19,7 @@ import {
   reopenGoal,
   replaceSteps,
   setGoal,
+  setGoalLoop,
 } from "../services/goals";
 
 export function createGoalsRouter(ctx: AppContext): RouteHandler {
@@ -64,6 +65,31 @@ export function createGoalsRouter(ctx: AppContext): RouteHandler {
         const body = await readJSON(req).catch(() => null);
         const status = body?.status === "achieved" ? "achieved" : "abandoned";
         const goal = closeGoal(db, active.id, status);
+        announce(params.id);
+        return json({ goal });
+      }
+    }
+
+    // POST /api/topics/:id/goal/loop -> stop (or restart) the auto-continuation.
+    //
+    // A DIFFERENT thing from closing the goal, which is why it has a route of
+    // its own: "stop chasing it by yourself" is not "drop the objective". The
+    // objective stays in the context of every turn, nobody just buys turns for
+    // it any more. That is what somebody pressing Stop on the bar is asking
+    // for while they carry on working on it by hand.
+    {
+      const params = matchRoute(pathname, "/api/topics/:id/goal/loop");
+      if (params && method === "POST") {
+        const active = getActiveGoal(db, params.id);
+        if (!active) return errorResponse(404, "no active goal");
+        const body = await readJSON(req).catch(() => null);
+        const state = body?.state === "running" ? "running" : "stopped";
+        // Restarting zeroes the counters: whoever puts the loop back in motion
+        // expects the whole ceiling, not what was left of the previous run.
+        const goal = setGoalLoop(db, active.id, {
+          state,
+          ...(state === "running" ? { continuations: 0, idleTurns: 0 } : {}),
+        });
         announce(params.id);
         return json({ goal });
       }

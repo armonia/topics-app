@@ -16,7 +16,7 @@
 
 import { useState } from 'react';
 import { useT } from '../../hooks/useT';
-import { Check, ChevronRight, Pencil, Target, X } from 'lucide-react';
+import { Check, ChevronRight, Pencil, Square, Target, X } from 'lucide-react';
 import type { TopicGoal } from '../../types';
 import type { TodoSnapshot } from './selectLatestTodo';
 import { CHAT_STRIP_NEUTRAL } from '../../lib/chatStripStyles';
@@ -27,11 +27,13 @@ interface Props {
   fallback?: TodoSnapshot;
   onClose: (status: 'achieved' | 'abandoned') => void;
   onEdit: (content: string) => void;
+  /** Stop the auto-continuation, leaving the objective alive. */
+  onStopLoop?: () => void;
 }
 
 type Row = { content: string; status: 'pending' | 'in_progress' | 'completed' };
 
-export function GoalBar({ goal, fallback, onClose, onEdit }: Props) {
+export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop }: Props) {
   const tr = useT();
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -46,6 +48,16 @@ export function GoalBar({ goal, fallback, onClose, onEdit }: Props) {
       }));
   const done = rows.filter((r) => r.status === 'completed').length;
   const active = rows.find((r) => r.status === 'in_progress');
+
+  // THE STATE OF THE LOOP, which is not the state of the objective.
+  //
+  // An active goal may or may not be chased on its own at the end of a turn
+  // (server/services/goal-loop.ts), and the difference shows up only here:
+  // without it, the only way to know the chat was carrying on by itself was to
+  // watch it start again. `chasing` is a live loop that has already spent
+  // something, `waiting` is a loop stopped because it is the reader's turn.
+  const chasing = goal.loopState === 'running' && goal.continuations > 0;
+  const waiting = goal.loopState === 'blocked';
 
   function commit() {
     const next = draft.trim();
@@ -112,6 +124,25 @@ export function GoalBar({ goal, fallback, onClose, onEdit }: Props) {
             </span>
           )}
         </button>
+        {(chasing || waiting) && (
+          <span
+            data-testid="goal-loop-state"
+            className={`flex-shrink-0 text-[11px] tabular-nums ${waiting ? 'text-amber-500' : 'text-app-text-secondary'}`}
+          >
+            {waiting ? tr('goal.loop.waitingYou') : tr('goal.loop.continuing', { n: String(goal.continuations) })}
+          </span>
+        )}
+        {chasing && onStopLoop && (
+          <button
+            type="button"
+            data-testid="goal-loop-stop"
+            onClick={onStopLoop}
+            title={tr('goal.loop.stop')}
+            className="flex-shrink-0 p-0.5 text-app-text-muted hover:text-app-text"
+          >
+            <Square size={11} />
+          </button>
+        )}
         <button
           type="button"
           onClick={() => {

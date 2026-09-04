@@ -885,7 +885,30 @@ export type ContentBlock =
    * resend cut by the next restart is a new row starting from zero. Rows
    * written before this field carry no number: they count as 1.
    */
-  | { kind: 'ripreso'; attempt?: number };
+  | { kind: 'ripreso'; attempt?: number }
+  /**
+   * THIS TURN WAS ASKED FOR BY THE GOAL, not by the human.
+   *
+   * A goal that stays `active` at the end of a turn gets one continuation: the
+   * server sends the chat a short "carry on" message (`goal-loop.ts`). The row
+   * has to be a `user` one, because that is the only role a provider answers,
+   * and this block is what stops the transcript from showing the human saying
+   * something they never typed: the client draws one compact system line with
+   * the attempt number instead of a bubble.
+   *
+   * `attempt` is the consecutive continuation number for this goal (1 = the
+   * first one), the same number the ceiling counts.
+   */
+  | { kind: 'goal-nudge'; attempt: number }
+  /**
+   * The auto-continuation stopped on its own, and says why.
+   *
+   * `capped` = the ceiling of consecutive continuations; `stalled` = two turns
+   * in a row that ran no tool. The reason travels in the block and the sentence
+   * is rendered translated by the client; `content` carries the English text,
+   * which is what the model reads on the next turn.
+   */
+  | { kind: 'goal-stop'; reason: 'capped' | 'stalled' };
 
 // ─── Entità di dominio (payload REST + broadcast WS) ────────────────────
 //
@@ -1260,6 +1283,17 @@ export type GoalStatus = (typeof GOAL_STATUSES)[number];
 export const GOAL_STEP_STATUSES = ['pending', 'in_progress', 'completed'] as const;
 export type GoalStepStatus = (typeof GOAL_STEP_STATUSES)[number];
 
+/**
+ * The state of the AUTO-CONTINUATION loop, which is not the state of the goal.
+ *
+ * A goal can be `active` with its loop `stopped`: the objective stays in the
+ * context of every turn, nobody chases it on its own any more. Keeping the two
+ * apart is what lets the human press Stop without abandoning the goal, and lets
+ * the ceiling fire without pretending the goal is over.
+ */
+export const GOAL_LOOP_STATES = ['running', 'blocked', 'stopped'] as const;
+export type GoalLoopState = (typeof GOAL_LOOP_STATES)[number];
+
 /** Un passo del piano dichiarato dall'agente, nell'ordine in cui l'ha scritto. */
 export interface GoalStep {
   id: string;
@@ -1289,6 +1323,12 @@ export interface TopicGoal {
   /** Quando è passato a uno stato finale; null finché è `active`. */
   closedAt: string | null;
   steps: GoalStep[];
+  /** Auto-continuations already spent on this goal, consecutive. */
+  continuations: number;
+  /** Turns in a row that ran no tool. Two of them stop the loop. */
+  idleTurns: number;
+  /** Whether the end-of-turn loop still chases this goal. */
+  loopState: GoalLoopState;
 }
 
 /**
