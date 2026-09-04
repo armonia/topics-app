@@ -4,6 +4,8 @@ import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
 import { bonificaTurniMuti } from "./server/lib/verdetto-turno-interrotto";
 import { riprendiTurniInterrotti } from "./server/lib/ripresa-boot";
 import { providerHold, holdUntilLabel, onProviderHold } from "./server/lib/provider-hold";
+import { getAccessToken } from "./server/providers/native/auth";
+import { releaseHoldIfFreed } from "./server/providers/native/usage-window";
 import { spiegaTurnoTroncato } from "./server/lib/turno-troncato";
 import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, rmSync, readlinkSync, realpathSync } from "fs";
 import { timingSafeEqual } from "crypto";
@@ -872,6 +874,94 @@ async function stallJudgeComplete(prompt: string): Promise<string> {
   return res.content ?? "";
 }
 
+/**
+ * ONE WATCHER FOR BOTH HEADLESS ENTRIES (fresh turn and reattach): the stall
+ * judge, the drain, the end-deposit race. It used to live twice, and the two
+ * copies drifted by a word each; `tag` is the only thing that differed.
+ *
+ * The turn self-drives server-side (consumeGateway) whether or not we read the
+ * SSE mirror; we drain it only to learn when the turn ENDS (the reconciliation
+ * signal). No wall-clock kill: a PASSIVE stall detector watches for silence
+ * past `idleMs` and asks a cheap judge before ever touching the turn.
+ *
+ * EVERY CHUNK THAT ARRIVES IS A SIGN OF LIFE, and the cap has to know it. This
+ * drain existed only to learn WHEN the turn ends; it also says THAT it is still
+ * going, and nobody was looking. Without it the cap was a wall clock and it cut
+ * healthy turns: 60 times, the last on 2026-08-21 at 00:37.
+ *
+ * THE END IS THE DEPOSIT, NOT THE CLOSE OF THE BODY. On 2026-09-04 (c8039b35)
+ * the route finalized the turn - row written, end deposited, `[Media]` line
+ * out - and this reader kept waiting on a body that never closed: the run
+ * stayed "in flight", the card's continuation parked behind it, and
+ * `restart-when-idle` waited an hour for a turn that did not exist. Once the
+ * end is deposited and the body has been silent for the grace, the turn is
+ * over for us too.
+ */
+async function watchHeadlessBody(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  sessionKey: string,
+  opts: { timeoutMs: number; idleMs?: number },
+  tag: "" | " (reattach)",
+): Promise<TurnEndInfo> {
+  let stalled = false;
+  const t0 = Date.now();
+  const detector = armStallDetector({
+    idleMs: opts.idleMs ?? DEFAULT_STALL_IDLE_MS,
+    isWaitingForHuman: () => isHumanHold(sessionKey),
+    isWaitingForChecks: () => isChecksHold(sessionKey),
+    getTail: () => stallTranscriptTail(sessionKey),
+    judge: (tail) => judgeStall({ complete: stallJudgeComplete }, tail),
+    onRearm: (reason) => console.log(
+      reason === "human"
+        ? `[turn] stall watch rearmed on ${sessionKey}: a person is in the loop (question or permission), their time doesn't count`
+        : reason === "checks"
+          ? `[turn] stall watch rearmed on ${sessionKey}: our pre-review checks are running for its card, that wait is ours`
+          : `[turn] stall watch rearmed on ${sessionKey}: judge says alive, still watching`,
+    ),
+    onStuck: () => {
+      stalled = true;
+      console.warn(`[turn] stall detector recycling ${sessionKey}${tag}: judge found it stuck`);
+      abortHeadlessTurn(sessionKey).catch(() => {});
+      reader.cancel().catch(() => {});
+    },
+  });
+  try {
+    while (true) {
+      const { done } = await Promise.race([
+        reader.read(),
+        (async () => {
+          while (true) {
+            await Bun.sleep(HEADLESS_END_GRACE_MS);
+            if (peekTurnEnd(sessionKey)) return { done: true as const };
+          }
+        })(),
+      ]);
+      if (done) {
+        if (peekTurnEnd(sessionKey)) reader.cancel().catch(() => {});
+        break;
+      }
+      detector.noteActivity();
+    }
+  }
+  finally {
+    detector.clear();
+    try { reader.releaseLock(); } catch { /* already released */ }
+    // `dispatchTimeoutMin` DECLASSED TO REPORTING ONLY: no cut, just a log.
+    if (opts.timeoutMs && Date.now() - t0 > opts.timeoutMs) {
+      console.warn(`[turn] ${sessionKey}${tag}: over dispatchTimeoutMin (${Math.round(opts.timeoutMs / 60_000)}min) - reporting only, no cut (${Math.round((Date.now() - t0) / 60_000)}min elapsed)`);
+    }
+  }
+  // The stall verdict is OURS: it outranks whatever end the route deposited in
+  // the meantime (the abort we sent lands after it).
+  if (stalled) {
+    takeTurnEnd(sessionKey);
+    return cancelled("stall", `idle stall detector${tag}: judge found the session stuck (idle ${opts.idleMs ?? DEFAULT_STALL_IDLE_MS}ms)`);
+  }
+  // The route deposited the WHY while finalizing; the drain ends on `[DONE]`,
+  // which finalization writes afterwards. If it is missing, the turn is over anyway.
+  return takeTurnEnd(sessionKey) ?? { end: "end_turn" };
+}
+
 async function runHeadlessTurn(
   sessionKey: string,
   content: string,
@@ -903,81 +993,7 @@ async function runHeadlessTurn(
   if (!resp || !resp.body) return { end: "error", cause: "provider-error", detail: "no stream from /api/chat" };
   const rejected = rejectedTurn(resp, "/api/chat");
   if (rejected) return rejected;
-  // The turn self-drives server-side (consumeGateway) whether or not we read the
-  // SSE mirror; we drain it only to learn when the turn ENDS (the reconciliation
-  // signal). No wall-clock kill anymore: a PASSIVE stall detector watches for
-  // silence past `idleMs` and asks a cheap judge before ever touching the turn.
-  const reader = resp.body.getReader();
-  let stalled = false;
-  const t0 = Date.now();
-  const detector = armStallDetector({
-    idleMs: opts.idleMs ?? DEFAULT_STALL_IDLE_MS,
-    isWaitingForHuman: () => isHumanHold(sessionKey),
-    isWaitingForChecks: () => isChecksHold(sessionKey),
-    getTail: () => stallTranscriptTail(sessionKey),
-    judge: (tail) => judgeStall({ complete: stallJudgeComplete }, tail),
-    onRearm: (reason) => console.log(
-      reason === "human"
-        ? `[turn] stall watch rearmed on ${sessionKey}: a person is in the loop (question or permission), their time doesn't count`
-        : reason === "checks"
-          ? `[turn] stall watch rearmed on ${sessionKey}: our pre-review checks are running for its card, that wait is ours`
-          : `[turn] stall watch rearmed on ${sessionKey}: judge says alive, still watching`,
-    ),
-    onStuck: () => {
-      stalled = true;
-      console.warn(`[turn] stall detector recycling ${sessionKey}: judge found it stuck`);
-      abortHeadlessTurn(sessionKey).catch(() => {});
-      reader.cancel().catch(() => {});
-    },
-  });
-  /* EVERY CHUNK THAT ARRIVES IS A SIGN OF LIFE, and the cap has to know it.
-   *
-   * This drain existed only to learn WHEN the turn ends; it also says THAT it is
-   * still going, and nobody was looking. Without it the cap was a wall clock and
-   * it cut healthy turns: 60 times, the last on 2026-08-21 at 00:37. It costs one
-   * assignment per chunk. */
-  // THE END IS THE DEPOSIT, NOT THE CLOSE OF THE BODY. On 2026-09-04 (c8039b35)
-  // the route finalized the turn - row written, end deposited, `[Media]` line
-  // out - and this reader kept waiting on a body that never closed: the run
-  // stayed "in flight", the card's continuation parked behind it, and
-  // `restart-when-idle` waited an hour for a turn that did not exist. Once the
-  // end is deposited and the body has been silent for the grace, the turn is
-  // over for us too.
-  try {
-    while (true) {
-      const { done } = await Promise.race([
-        reader.read(),
-        (async () => {
-          while (true) {
-            await Bun.sleep(HEADLESS_END_GRACE_MS);
-            if (peekTurnEnd(sessionKey)) return { done: true as const };
-          }
-        })(),
-      ]);
-      if (done) {
-        if (peekTurnEnd(sessionKey)) reader.cancel().catch(() => {});
-        break;
-      }
-      detector.noteActivity();
-    }
-  }
-  finally {
-    detector.clear();
-    try { reader.releaseLock(); } catch { /* already released */ }
-    // `dispatchTimeoutMin` DECLASSED TO REPORTING ONLY: no cut, just a log.
-    if (opts.timeoutMs && Date.now() - t0 > opts.timeoutMs) {
-      console.warn(`[turn] ${sessionKey}: over dispatchTimeoutMin (${Math.round(opts.timeoutMs / 60_000)}min) — reporting only, no cut (${Math.round((Date.now() - t0) / 60_000)}min elapsed)`);
-    }
-  }
-  // Il rilievo di questo modulo è NOSTRO: vince su qualunque fine la route
-  // abbia depositato nel frattempo (l'abort che manda arriva dopo).
-  if (stalled) {
-    takeTurnEnd(sessionKey);
-    return cancelled("stall", `idle stall detector: judge found the session stuck (idle ${opts.idleMs ?? DEFAULT_STALL_IDLE_MS}ms)`);
-  }
-  // La route ha depositato il PERCHÉ finalizzando; il drain finisce con `[DONE]`,
-  // che la finalizzazione scrive dopo. Se manca, il turno è comunque finito.
-  return takeTurnEnd(sessionKey) ?? { end: "end_turn" };
+  return watchHeadlessBody(resp.body.getReader(), sessionKey, opts, "");
 }
 
 // Reattach variant: POST /api/chat with mode:"reattach" and NO user message —
@@ -1014,73 +1030,7 @@ async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number
   if (!resp || !resp.body) return { end: "error", cause: "provider-error", detail: "no stream from /api/chat (reattach)" };
   const rejected = rejectedTurn(resp, "/api/chat (reattach)");
   if (rejected) return rejected;
-  const reader = resp.body.getReader();
-  let stalled = false;
-  const t0 = Date.now();
-  const detector = armStallDetector({
-    idleMs: opts.idleMs ?? DEFAULT_STALL_IDLE_MS,
-    isWaitingForHuman: () => isHumanHold(sessionKey),
-    isWaitingForChecks: () => isChecksHold(sessionKey),
-    getTail: () => stallTranscriptTail(sessionKey),
-    judge: (tail) => judgeStall({ complete: stallJudgeComplete }, tail),
-    onRearm: (reason) => console.log(
-      reason === "human"
-        ? `[turn] stall watch rearmed on ${sessionKey}: a person is in the loop (question or permission), their time doesn't count`
-        : reason === "checks"
-          ? `[turn] stall watch rearmed on ${sessionKey}: our pre-review checks are running for its card, that wait is ours`
-          : `[turn] stall watch rearmed on ${sessionKey}: judge says alive, still watching`,
-    ),
-    onStuck: () => {
-      stalled = true;
-      console.warn(`[turn] stall detector recycling ${sessionKey} (reattach): judge found it stuck`);
-      abortHeadlessTurn(sessionKey).catch(() => {});
-      reader.cancel().catch(() => {});
-    },
-  });
-  /* EVERY CHUNK THAT ARRIVES IS A SIGN OF LIFE, and the cap has to know it.
-   *
-   * This drain existed only to learn WHEN the turn ends; it also says THAT it is
-   * still going, and nobody was looking. Without it the cap was a wall clock and
-   * it cut healthy turns: 60 times, the last on 2026-08-21 at 00:37. It costs one
-   * assignment per chunk. */
-  // THE END IS THE DEPOSIT, NOT THE CLOSE OF THE BODY. On 2026-09-04 (c8039b35)
-  // the route finalized the turn - row written, end deposited, `[Media]` line
-  // out - and this reader kept waiting on a body that never closed: the run
-  // stayed "in flight", the card's continuation parked behind it, and
-  // `restart-when-idle` waited an hour for a turn that did not exist. Once the
-  // end is deposited and the body has been silent for the grace, the turn is
-  // over for us too.
-  try {
-    while (true) {
-      const { done } = await Promise.race([
-        reader.read(),
-        (async () => {
-          while (true) {
-            await Bun.sleep(HEADLESS_END_GRACE_MS);
-            if (peekTurnEnd(sessionKey)) return { done: true as const };
-          }
-        })(),
-      ]);
-      if (done) {
-        if (peekTurnEnd(sessionKey)) reader.cancel().catch(() => {});
-        break;
-      }
-      detector.noteActivity();
-    }
-  }
-  finally {
-    detector.clear();
-    try { reader.releaseLock(); } catch { /* already released */ }
-    // `dispatchTimeoutMin` DECLASSED TO REPORTING ONLY: no cut, just a log.
-    if (opts.timeoutMs && Date.now() - t0 > opts.timeoutMs) {
-      console.warn(`[turn] ${sessionKey} (reattach): over dispatchTimeoutMin (${Math.round(opts.timeoutMs / 60_000)}min) — reporting only, no cut (${Math.round((Date.now() - t0) / 60_000)}min elapsed)`);
-    }
-  }
-  if (stalled) {
-    takeTurnEnd(sessionKey);
-    return cancelled("stall", `idle stall detector (reattach): judge found the session stuck (idle ${opts.idleMs ?? DEFAULT_STALL_IDLE_MS}ms)`);
-  }
-  return takeTurnEnd(sessionKey) ?? { end: "end_turn" };
+  return watchHeadlessBody(resp.body.getReader(), sessionKey, opts, " (reattach)");
 }
 
 /**
@@ -5026,6 +4976,40 @@ onProviderHold((hold) => {
     ? { type: "provider:hold", untilMs: hold.untilMs, window: hold.window, reason: hold.reason, sinceMs: hold.sinceMs }
     : { type: "provider:hold", untilMs: null, window: null, reason: null, sinceMs: null });
 });
+
+// A HOLD MUST BE ABLE TO END ON ITS OWN. The memo is cleared by a successful
+// NATIVE turn (`agent-loop.ts` calls `releaseHoldIfFreed`), and by nothing else.
+// But the dispatcher and the resume sweep both WAIT on the hold, so while it is
+// in force no card turn starts, and on a machine whose board runs claude-code a
+// native turn may never run at all. And when the person switches account
+// (`claude /login` → a fresh, unspent window) the old hold has no reason left.
+// Measured 2026-09-04: a hold set from the OLD account's spent week (reset
+// 2026-09-09) froze the whole board for days while the NEW account sat at 73%,
+// because the only release path could not fire behind the wall it created. So
+// while a hold is in force we re-read the usage endpoint with the CURRENT
+// credential on a short timer and lift it the instant no window is spent — an
+// account switch or a silent free heals within one tick, not on the next boot.
+const HOLD_RECHECK_MS = 90_000;
+function scheduleHoldRecheck(): void {
+  const t = setTimeout(() => {
+    void (async () => {
+      try {
+        if (providerHold()) {
+          const token = await getAccessToken();
+          if (token && await releaseHoldIfFreed(token)) {
+            console.log("[provider-hold] lifted: the usage endpoint no longer marks any window spent (current credential)");
+          }
+        }
+      } catch (err) {
+        console.error("[provider-hold] recheck failed", err);
+      } finally {
+        scheduleHoldRecheck();
+      }
+    })();
+  }, HOLD_RECHECK_MS);
+  t.unref?.();
+}
+scheduleHoldRecheck();
 
 // ── Worktree GC — origin fix for worktree pile-up ──────────────────────────
 // La decisione sta in `server/services/worktree-gc.ts` (`sweepWorktrees`), il
