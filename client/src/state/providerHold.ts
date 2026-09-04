@@ -75,6 +75,3 @@ function subscribe(cb: () => void): () => void {
 export function useProviderHold(): ProviderHold | null {
   return useSyncExternalStore(subscribe, () => current, () => current);
 }
-
-/** Test seam: feed a frame as the socket would. */
-export const _adoptForTests = adopt;
