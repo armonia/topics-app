@@ -5,6 +5,8 @@
  * both the card and the drawer drew a failure badge out of it, status unread:
  * 44 cards sat in Done wearing one. The work had landed - somebody approved it
  * - and the card said it had stopped.
+ *
+ * @covers KANBAN-07
  */
 import { describe, expect, test } from 'bun:test';
 import { showsStoppedChip } from './stoppedChip';

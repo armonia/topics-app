@@ -7,56 +7,61 @@
  * connect, so a reload lands on the same banner. Nulls lift it.
  */
 import { useSyncExternalStore } from 'react';
-import { subscribeFrames } from '@/lib/wsFrameBus';
+import { subscribeFrames } from '../lib/wsFrameBus';
 
-export interface ProviderHold {
-  untilMs: number;
-  window: 'five_hour' | 'seven_day';
-  sinceMs: number;
-}
+import type { ProviderHold } from '../../../shared/provider-hold';
+export type { ProviderHold };
 
 let current: ProviderHold | null = null;
 const listeners = new Set<() => void>();
 let wired = false;
-let expiryTimer: ReturnType<typeof setTimeout> | null = null;
+let expiry: ReturnType<typeof setTimeout> | null = null;
+
+function announce(): void {
+  for (const cb of listeners) cb();
+}
 
 /**
- * The hold lifts by itself at `untilMs`.
+ * Expiry is an EVENT, not something read while rendering.
  *
- * Reading the clock while rendering would be two bugs in one: it is impure,
- * and nothing re-renders when the deadline passes, so a spent hold would stay
- * on screen until the next frame happened to arrive. The store owns the
- * expiry instead and tells the listeners, exactly as a frame would.
+ * The deadline passing is a change of state that nothing else announces: the
+ * server sends no frame for it. Reading the clock during render looked like it
+ * covered that, but it only answered correctly on the renders that happened to
+ * occur after `untilMs` - so the banner outlived its own deadline until some
+ * unrelated re-render knocked it down. Arming a timer makes the store drop the
+ * hold when it actually expires and tell its listeners, which keeps the read
+ * pure and the banner honest.
  */
 function armExpiry(): void {
-  if (expiryTimer !== null) {
-    clearTimeout(expiryTimer);
-    expiryTimer = null;
+  if (expiry !== null) {
+    clearTimeout(expiry);
+    expiry = null;
   }
   if (!current) return;
-  const delay = current.untilMs - Date.now();
-  if (delay <= 0) {
+  const left = current.untilMs - Date.now();
+  if (left <= 0) {
     current = null;
     return;
   }
-  expiryTimer = setTimeout(() => {
-    expiryTimer = null;
+  expiry = setTimeout(() => {
+    expiry = null;
     current = null;
-    for (const cb of listeners) cb();
-  }, delay);
+    announce();
+  }, left);
 }
 
 function adopt(frame: unknown): void {
-  const f = frame as { type?: string; untilMs?: number | null; window?: string | null; sinceMs?: number | null } | null;
+  const f = frame as { type?: string; untilMs?: number | null; window?: string | null; reason?: string | null; sinceMs?: number | null } | null;
   if (!f || f.type !== 'provider:hold') return;
   const next: ProviderHold | null =
     typeof f.untilMs === 'number' && (f.window === 'five_hour' || f.window === 'seven_day')
-      ? { untilMs: f.untilMs, window: f.window, sinceMs: typeof f.sinceMs === 'number' ? f.sinceMs : Date.now() }
+      ? { untilMs: f.untilMs, window: f.window, reason: f.reason ?? '', sinceMs: typeof f.sinceMs === 'number' ? f.sinceMs : Date.now() }
       : null;
   if ((current?.untilMs ?? null) === (next?.untilMs ?? null) && current?.window === next?.window) return;
   current = next;
+  // A hold that arrives already past its deadline is adopted as nothing at all.
   armExpiry();
-  for (const cb of listeners) cb();
+  announce();
 }
 
 function wire(): void {
@@ -74,4 +79,27 @@ function subscribe(cb: () => void): () => void {
 /** The hold in force, or null. Expired holds read as null without a frame. */
 export function useProviderHold(): ProviderHold | null {
   return useSyncExternalStore(subscribe, () => current, () => current);
+}
+
+/** Test seam: feed a frame as the socket would. */
+export const _adoptForTests = adopt;
+
+/**
+ * Test seam: the snapshot a mounted component would read, without React.
+ *
+ * `useProviderHold` is `useSyncExternalStore` over `subscribe` and this value
+ * and nothing else, so reading it here is reading exactly what the banner sees.
+ */
+export const _readForTests = (): ProviderHold | null => current;
+
+/** Test seam: subscribe as the hook does, to watch the store announce a change. */
+export const _subscribeForTests = subscribe;
+
+/** Test seam: drop any hold and its timer, so one test cannot leak into the next. */
+export function _resetForTests(): void {
+  if (expiry !== null) {
+    clearTimeout(expiry);
+    expiry = null;
+  }
+  current = null;
 }

@@ -33,7 +33,7 @@ beforeAll(() => setupTestDataDir(TEST_DATA));
 const BLOCKS_FILLER = "x".repeat(2_000_000);
 const TOOL_FILLER = "y".repeat(120_000);
 
-/** Cio' che dichiara chi scrive anche la timeline: vedi `toolColumnWriteMode` in server/utils.ts. */
+/** What a writer who also writes the timeline declares: see `toolColumnWriteMode` in server/utils.ts. */
 const MIRRORED = { mirroredInBlocks: true } as const;
 
 function seedFatRow(ctx: AppContext, sessionKey: string): StoredMessage {
@@ -103,12 +103,12 @@ describe("scrivere sulla riga di un turno non idrata le due colonne grosse", () 
   });
 
   test("addToolCallToLastMessage su una riga CON i blocchi non scrive e non parsa niente", async () => {
-    // La riga porta i blocchi, e chi chiama dichiara che il blocco porta questa
-    // stessa tool call (`mirroredInBlocks`, come fa routes/chat.ts): la colonna
-    // `tool_calls` sarebbe una seconda copia, e infatti non si tocca. Non e' un
-    // risparmio di byte in colonna: `updateMessage` riscrive la RIGA, e il
-    // COALESCE che tiene ferma una colonna non la rende gratis, quindi la
-    // scrittura saltata sono anche i 2 MB di blocchi non ricopiati.
+    // The row carries the blocks, and the caller declares that a block carries
+    // this same tool call (`mirroredInBlocks`, as routes/chat.ts does): the
+    // `tool_calls` column would be a second copy, and indeed it is left alone.
+    // Not a saving of column bytes: `updateMessage` rewrites the ROW, and a
+    // COALESCE that keeps a column still does not make it free, so the write
+    // skipped is also the 2 MB of blocks not copied again.
     const ctx = await createTestAppContext();
     const sk = "topic:write-lean-add";
     const msg = seedFatRow(ctx, sk);
@@ -124,13 +124,13 @@ describe("scrivere sulla riga di un turno non idrata le due colonne grosse", () 
     const dopo = rawFatColumns(ctx, msg.id);
     expect(dopo.blocks).toBe(prima.blocks);
     expect(dopo.toolCalls).toBe(prima.toolCalls);
-    // E la riga risponde lo stesso con le sue tool call: le rilegge dai blocchi.
+    // And the row still answers with its tool calls: it reads them back from the blocks.
     expect(ctx.getMessageById(msg.id)?.toolCalls?.[0]?.result).toBe(TOOL_FILLER);
   });
 
   test("updateToolCallResult su una riga SENZA blocchi parsa solo le tool call", async () => {
-    // Qui la colonna e' l'unica fonte che c'e' (4,8 MB su 5.332 righe del
-    // database vero): si scrive, e si parsa quella e solo quella.
+    // Here the column is the only source there is (4.8 MB over 5,332 rows of
+    // the real database): it is written, and it alone is parsed.
     const ctx = await createTestAppContext();
     const sk = "topic:write-lean-result";
     const tc: ToolCall = {

@@ -11,6 +11,8 @@
  *
  * `renderToStaticMarkup` (no DOM in this repo): the assertion is on the markup,
  * which is what the E2E locators read.
+ *
+ * @covers CHAT-USERROW-01
  */
 import { describe, expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
