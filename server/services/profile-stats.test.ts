@@ -17,7 +17,10 @@ import { tmpdir } from "os";
 import { join } from "path";
 import type { Database } from "bun:sqlite";
 import { initDatabase, closeDatabase, getDatabase } from "../db";
-import { computeProfileStats, computePresenceCounts, streak } from "./profile-stats";
+import {
+  computeProfileStats, computePresenceCounts, streak,
+  profileStatsCached, resetProfileStatsCache, PROFILE_STATS_TTL_MS,
+} from "./profile-stats";
 import { projectIdForPath } from "../../shared/board";
 
 let tmpRoot: string;
@@ -267,5 +270,57 @@ describe("computePresenceCounts", () => {
   test("niente progetti ⇒ null, che il livello `detailed` sa degradare", () => {
     topic("a");
     expect(computePresenceCounts(db, 1).focusProject).toBeNull();
+  });
+});
+
+/**
+ * THE SCANS ARE PAID FOR ONCE EVERY FIFTEEN SECONDS.
+ *
+ * `computeProfileStats` is not "nine queries on indexed tables", as the comment
+ * that refused a cache claimed: the `COUNT(*) WHERE role='assistant'`, the two
+ * SUMs over the token columns and the `GROUP BY date(timestamp)` all come out
+ * as `SCAN messages`, on a 350 MB table. Three routes called it uncached, and
+ * one of them - `/api/public-profile` - is reachable by anyone holding the
+ * token, with no throttle: a reload loop on that URL held the server's single
+ * event loop for as long as it liked.
+ *
+ * The measure is NOT a stopwatch (a loaded machine is not a proof): the
+ * database is changed underneath and the answer is asked again. If it does not
+ * change, the queries did not run.
+ */
+describe("profileStatsCached", () => {
+  test("inside the window the queries stop running", () => {
+    resetProfileStatsCache();
+    messaggio({ id: "m1" });
+    const first = profileStatsCached(db, ORA);
+    expect(first.messages.total).toBe(1);
+
+    messaggio({ id: "m2" });
+    expect(profileStatsCached(db, ORA + 1_000).messages.total,
+      "one more row inside the window: the answer is the same").toBe(1);
+    // And the bare function, the one every other test in this file uses, sees
+    // the real database straight away.
+    expect(computeProfileStats(db, ORA).messages.total).toBe(2);
+  });
+
+  test("past the window it recomputes", () => {
+    resetProfileStatsCache();
+    messaggio({ id: "m1" });
+    expect(profileStatsCached(db, ORA).messages.total).toBe(1);
+    messaggio({ id: "m2" });
+    expect(profileStatsCached(db, ORA + PROFILE_STATS_TTL_MS).messages.total).toBe(2);
+  });
+
+  test("another database does not inherit the first one's numbers", () => {
+    resetProfileStatsCache();
+    messaggio({ id: "m1" });
+    expect(profileStatsCached(db, ORA).messages.total).toBe(1);
+    const otherDb = new (db.constructor as new (path: string) => Database)(":memory:");
+    otherDb.run("CREATE TABLE topics (id TEXT)");
+    // On a DB without the expected tables the function degrades to zeros: what
+    // matters is that it does NOT answer with the other one's cache.
+    expect(profileStatsCached(otherDb, ORA).messages.total).toBe(0);
+    otherDb.close();
+    resetProfileStatsCache();
   });
 });

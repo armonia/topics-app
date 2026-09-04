@@ -108,6 +108,16 @@ export const topicsApi = {
     return request<TopicsData>('/topics', { signal });
   },
 
+  /**
+   * ONE topic, whole: the only place the system prompt and the browser state
+   * come from. `getAll` stopped carrying them - a quarter of the boot payload
+   * for fields the list does not draw (see shared/types.ts).
+   */
+  async get(id: string, signal?: AbortSignal): Promise<Topic> {
+    const r = await request<{ topic: Topic }>(`/topics/${encodeURIComponent(id)}`, { signal });
+    return r.topic;
+  },
+
   async create(data: CreateTopicRequest): Promise<Topic> {
     return request<Topic>('/topics', {
       method: 'POST',

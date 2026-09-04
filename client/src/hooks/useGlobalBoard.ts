@@ -55,10 +55,21 @@ export interface GlobalBoard {
   byStatus: Record<TaskStatus, BoardTask[]>;
 }
 
+/** A window nobody is looking at. `document.hidden` and not the focus test of
+ *  `isWindowAwake`: an app merely BEHIND another still shows its board on
+ *  screen, and a board that stopped updating while you can read it is a lie. */
+function windowHidden(): boolean {
+  return typeof document !== 'undefined' && document.hidden === true;
+}
+
 export function useGlobalBoard(
   onMessage?: (handler: (msg: WSMessage) => void) => () => void,
 ): GlobalBoard {
   const tasks = useBoardTasks();
+  // A refresh that came due while the window was hidden. It is remembered, not
+  // dropped: the moment somebody looks again, ONE read brings back whatever the
+  // agents did in the meantime.
+  const missedWhileHidden = useRef(false);
 
   // One coalescer per mount: `useRef` and not `useMemo`, because React is free
   // to discard a `useMemo` value whenever it likes and this one owns a timer
@@ -101,9 +112,29 @@ export function useGlobalBoard(
     if (!onMessage) return;
     return onMessage((msg) => {
       const t = (msg as { type?: string })?.type;
-      if (t === 'task:created' || t === 'task:updated' || t === 'task:deleted') ensure().trigger();
+      if (t !== 'task:created' && t !== 'task:updated' && t !== 'task:deleted') return;
+      // AN INVISIBLE WINDOW STILL PAID FOR EVERY MOVE. The board moves because
+      // agents move it: a night of eight cards is hundreds of `task:*` frames,
+      // and each one had every open window re-read the global feed - a
+      // synchronous SQLite read plus over a megabyte of JSON - to repaint
+      // pixels nobody was looking at. With bun:sqlite on Bun's single event
+      // loop that read is streaming, WS, PTY and browser panes standing still.
+      if (windowHidden()) { missedWhileHidden.current = true; return; }
+      ensure().trigger();
     });
   }, [onMessage, ensure]);
+
+  // Back in view: pay the ONE read that was owed, whatever the burst was.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const onVisibility = () => {
+      if (windowHidden() || !missedWhileHidden.current) return;
+      missedWhileHidden.current = false;
+      ensure().trigger();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [ensure]);
 
   // A RECONNECT IS A HOLE, NOT A PAUSE. Every `task:*` broadcast sent while the
   // socket was down (a server reload takes seconds and the agents keep moving
@@ -112,7 +143,11 @@ export function useGlobalBoard(
   // happens to move. Same subscription as `state/pane/middleware/syncWS.ts` and
   // `useTerminalLifecycle`. With the coalescer it costs one read per reconnect.
   useEffect(() => subscribeLifecycle((event) => {
-    if (event === 'open') ensure().trigger();
+    if (event !== 'open') return;
+    // Same gate, same debt: a hidden window records the hole and fills it when
+    // it is looked at again.
+    if (windowHidden()) { missedWhileHidden.current = true; return; }
+    ensure().trigger();
   }), [ensure]);
 
   return useMemo(() => {

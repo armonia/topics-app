@@ -468,6 +468,18 @@ export interface ListTasksInput {
    */
   ids?: readonly string[];
   /**
+   * Cap on the `done` rows: keep the N most recently closed, drop the rest.
+   * The other statuses are never touched.
+   *
+   * The global feed is re-read on every `task:*` event and on every reconnect,
+   * by every open window, and it grows forever because nothing ever leaves
+   * `done`: 777 rows for 1.6 MB in September, of which 754 were done, against
+   * 467 rows and 1.44 MB in August. A closed card past the last few dozen is
+   * read by nobody - the columns show recent work, the archive is a different
+   * view with its own query - so what the cap removes is bytes, not answers.
+   */
+  doneLimit?: number;
+  /**
    * WITH the whole `description`. Off by default: the list carries
    * `descriptionPreview` and nothing else, because that is what the card draws
    * (the box clips it to two lines) — it was 470 KB out of the feed's 1.4 MB.

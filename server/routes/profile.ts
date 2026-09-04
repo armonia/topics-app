@@ -1,5 +1,5 @@
 import type { AppContext, RouteHandler } from "../types";
-import { computeProfileStats } from "../services/profile-stats";
+import { profileStatsCached } from "../services/profile-stats";
 import { renderBanner } from "../services/profile-banner";
 import { getDiscordPresence } from "../services/discord-presence";
 import {
@@ -74,7 +74,7 @@ export function createProfileRouter(ctx: AppContext): RouteHandler {
     // ── Le statistiche ────────────────────────────────────────────────────
     if (method === "GET" && pathname === "/api/profile/stats") {
       try {
-        return json({ stats: computeProfileStats(db), name: nameOwner() });
+        return json({ stats: profileStatsCached(db), name: nameOwner() });
       } catch (err) {
         console.error("[Profile] stats:", err);
         return errorResponse(500, (err as Error)?.message || "Failed to compute profile stats");
@@ -116,7 +116,7 @@ export function createProfileRouter(ctx: AppContext): RouteHandler {
       try {
         const theme = url.searchParams.get("theme") === "light" ? "light" : "dark";
         const name = url.searchParams.get("name") ?? nameOwner();
-        const svg = renderBanner(computeProfileStats(db), {
+        const svg = renderBanner(profileStatsCached(db), {
           name,
           theme,
           subtitle: url.searchParams.get("subtitle"),

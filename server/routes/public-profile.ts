@@ -21,7 +21,7 @@
  */
 
 import type { AppContext } from "../types";
-import { computeProfileStats } from "../services/profile-stats";
+import { profileStatsCached } from "../services/profile-stats";
 import { getAppSettings } from "../services/app-settings";
 
 function compatto(n: number): string {
@@ -69,7 +69,7 @@ function cifra(valore: string, etichetta: string, nota?: string): string {
 }
 
 export function buildPublicProfilePage(ctx: AppContext): string {
-  const stats = computeProfileStats(ctx.db);
+  const stats = profileStatsCached(ctx.db);
   const settings = getAppSettings();
   // La spesa compare SOLO se l'utente ha scelto di mostrarla.
   const mostraCosto = settings.profilePublishCost === true;

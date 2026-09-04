@@ -3208,6 +3208,24 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         );
         params.push(...wantedLabels, wantedLabels.length);
       }
+      // The cap on `done` (see ListTasksInput.doneLimit) is a subselect and not
+      // a slice in JS: rows dropped here are rows SQLite never hydrates and the
+      // wire never carries. The subselect repeats the archived/project cut so it
+      // picks the N most recent among the ones this same list would return.
+      if (input.doneLimit !== undefined && input.doneLimit >= 0) {
+        const doneClauses = [input.archived === true ? "archived = 1" : "archived = 0", "status = 'done'"];
+        const doneParams: unknown[] = [];
+        if (input.scope === "project" && input.projectId) {
+          doneClauses.push("project_id = ?");
+          doneParams.push(input.projectId);
+        }
+        clauses.push(
+          `(status != 'done' OR id IN (
+              SELECT id FROM tasks WHERE ${doneClauses.join(" AND ")}
+               ORDER BY COALESCE(completed_at, updated_at) DESC LIMIT ?))`,
+        );
+        params.push(...doneParams, input.doneLimit);
+      }
       const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
       // project scope → board order (status then kanban_order); global feed → recency.
       const order = input.scope === "all" ? "updated_at DESC" : "kanban_order ASC";
