@@ -10,7 +10,7 @@
  * decision: next to the button pressed, not in the bar on top of the board.
  */
 
-export type Translate = (key: string, vars?: Record<string, string | number>) => string;
+type Translate = (key: string, vars?: Record<string, string | number>) => string;
 
 /**
  * @param raw the raw error (usually the API's `Error.message`).
