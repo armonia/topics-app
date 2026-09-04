@@ -201,7 +201,7 @@ function lex(src: string): Lexed {
       // Never closed on this line: it was a division after all.
     }
 
-    // An apostrophe INSIDE a word is not a quote: `c'è`, `l'agente`, `don't`.
+    // An apostrophe INSIDE a word is not a quote: `c'è`, `l'agente`, `don't`. allow-italian: the quoted words ARE the case being handled
     // Read as a string opener it blanks the rest of the line, and with it the
     // `<` that closes the JSX text node, so the whole sentence goes unseen.
     // The test is the character immediately before, with no space: JavaScript
@@ -282,7 +282,7 @@ function lineOf(starts: number[], offset: number): number {
  * The hyphen is part of a token, not a separator, and that is the whole of the
  * "whole token" rule in practice: English writes "non-empty", "non-null",
  * "non-zero" all over the server's validation errors, and splitting on the
- * hyphen would hand back "non", the commonest Italian word there is. Italian
+ * hyphen would hand back "non", the commonest Italian word there is. allow-italian: the quoted token IS the false positive. Italian
  * copy in this repo does not hyphenate, so nothing real is lost.
  */
 function italianWords(text: string): string[] {
