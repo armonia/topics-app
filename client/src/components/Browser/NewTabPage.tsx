@@ -8,7 +8,7 @@
  * né un modo per ripartire senza rileggere l'indirizzo a memoria.
  *
  * Cosa c'è adesso, e nient'altro: un campo grande al centro (indirizzo o
- * ricerca, stessa regola della barra in alto, `normalizeUrl`) e la griglia dei
+ * ricerca, stessa regola della barra in alto, `toNavigableUrl`) e la griglia dei
  * siti più visitati, che viene dallo storico globale — vedi
  * `state/browserSiteHistory`. Niente meteo, niente notizie, niente sfondo del
  * giorno: il fondo è quello dell'app, i riquadri sono quelli dell'app.
@@ -21,7 +21,7 @@
 import { useMemo, useState, useSyncExternalStore } from 'react';
 import { Search, X, Compass } from 'lucide-react';
 import { BrowserFavicon } from './BrowserFavicon';
-import { normalizeUrl } from '../../lib/browserNavUrl';
+import { toNavigableUrl } from '../../lib/browserNavUrl';
 import { forgetSite, rankSites, sitesSnapshot, subscribeSites } from '../../state/browserSiteHistory';
 import { useT } from '../../hooks/useT';
 
@@ -42,7 +42,11 @@ export function NewTabPage({ onNavigate }: { onNavigate: (url: string) => void }
     const target = query.trim();
     if (!target) return;
     setQuery('');
-    onNavigate(normalizeUrl(target));
+    // `toNavigableUrl` and not `normalizeUrl`: the same door as the bar above,
+    // which is what the header claims. With `normalizeUrl` a path typed here
+    // (`/Users/x/doc.pdf`) became a 404 on our own origin and `file://…` hit
+    // the scheme refusal, two centimetres from a bar that opens both.
+    onNavigate(toNavigableUrl(target));
   };
 
   return (

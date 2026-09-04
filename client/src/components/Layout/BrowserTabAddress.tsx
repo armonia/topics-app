@@ -12,7 +12,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { useBrowserPaneChrome } from '../../state/browserPaneChrome';
-import { toNavigableUrl } from '../../lib/browserNavUrl';
+import { displayUrl, toNavigableUrl } from '../../lib/browserNavUrl';
 
 export function BrowserTabAddress({ paneId, label }: { paneId: string; label: string }) {
   const chrome = useBrowserPaneChrome(paneId);
@@ -23,7 +23,13 @@ export function BrowserTabAddress({ paneId, label }: { paneId: string; label: st
   const [draft, setDraft] = useState<string | null>(null);
   if (request !== seen) {
     setSeen(request);
-    if (request > seen) setDraft(chrome?.url ?? '');
+    // THE EDITOR IS SEEDED WITH THE DOCUMENT, NOT WITH THE TRANSPORT. A local
+    // file travels as `…/api/media?path=%2FUsers%2F…`, so seeding the raw url
+    // put `tauri://localhost/api/media?path=%2FUsers%2F…` under the caret: an
+    // address nobody can read, edit or recognise. `displayUrl` gives back the
+    // document (`file:///Users/…/b.pdf`), and `toNavigableUrl` on submit turns
+    // it into the transport again - the two are the same pair, both ways.
+    if (request > seen) setDraft(displayUrl(chrome?.url ?? ''));
   }
   const editing = draft !== null;
   const inputRef = useRef<HTMLInputElement>(null);

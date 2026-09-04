@@ -18,6 +18,10 @@
  *    tutt'altro codice dal click in-app e non aveva copertura: la SPA servita
  *    su quel path, la tab che nasce e resta ATTIVA attraverso l'onda di
  *    idratazione, e un kind che non passa dall'ascoltatore delle chat;
+ *  · TABLINK-12 the permalink answers a PAGE to a client declaring the wildcard
+ *    type too, and never an attachment: the OS link handler and embedded views
+ *    do not send `text/html`, and the text 404 they got turned, inside the
+ *    shell, into an offer to DOWNLOAD the link;
  *  · TABLINK-08 la clipboard VERA, non lo stub;
  *  · TABLINK-09/10 il RIFIUTO non è mai muto. Sono due canali diversi perché il
  *    toast non è disponibile ovunque: in chat si ricade sul browser esterno
@@ -316,6 +320,26 @@ test.describe("Permalink di una tab — il consumatore a freddo", () => {
     // La rotta si CONSUMA: il pane-store è già la persistenza della tab, e una
     // `/tab/…` che resta nella URL la riaprirebbe a ogni reload per sempre.
     await expect.poll(() => new URL(page.url()).pathname, { timeout: 10000 }).toBe("/");
+  });
+
+  // The defect measured on 2026-09-04 (board card cbfd6248): opening the
+  // permalink made the browser offer to DOWNLOAD a file instead of opening the
+  // chat. Underneath, the server answered `404 Not Found` in `text/plain` to
+  // anyone not declaring `text/html`, and what opens a link is often not the
+  // rendering engine but the OS link handler or an embedded view, which send
+  // the wildcard type. An address of the app cannot exist or not depending on
+  // WHO knocks, and it can NEVER turn into an attachment.
+  test("TABLINK-12: il permalink chiesto col tipo jolly è una PAGINA, mai un file da scaricare", async ({ request }) => {
+    for (const accept of ["*/*", "text/html,application/xhtml+xml"]) {
+      const res = await request.get(`/tab/chat/${targetId}`, { headers: { accept } });
+      expect(res.status(), `accept: ${accept}`).toBe(200);
+      const type = (res.headers()["content-type"] || "").toLowerCase();
+      expect(type, `accept: ${accept}`).toContain("text/html");
+      expect(type).not.toContain("application/octet-stream");
+      // No disposition: `attachment` literally means "download me".
+      expect(res.headers()["content-disposition"] || "").not.toContain("attachment");
+      expect(await res.text()).toContain("<!doctype html>");
+    }
   });
 
   test("TABLINK-06: la tab già aperta ma non a fuoco: il permalink glielo porta, e l'idratazione non glielo ruba", async ({ page, request }) => {
