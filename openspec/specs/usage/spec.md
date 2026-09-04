@@ -663,3 +663,33 @@ propagare lo sporco. Una coppia di valori legittimi NON SHALL essere toccata.
 #### Scenario: una somma mista
 - **GIVEN** un valore valido e uno sporco
 - **THEN** SHALL restare il valido
+
+### Requirement: USAGE-20 — Il cartello del limite di piano scade da sé, e la scadenza è un EVENTO
+
+Quando la finestra d'uso del piano è esaurita il server smette di avviare turni
+fino al reset pubblicato, e lo annuncia col frame `provider:hold` — a ogni
+cambio e di nuovo a ogni connessione, così un ricarico ritrova lo stesso
+cartello. Un frame senza scadenza SHALL togliere il cartello.
+
+La scadenza NON SHALL essere letta mentre si disegna. Il passare di `untilMs`
+non lo annuncia nessuno: il server per quel momento non manda nulla. Chiedere
+l'ora durante il rendering sembra coprirlo, ma risponde bene solo sui rendering
+che capitano DOPO la scadenza, e quindi il cartello sopravvive al proprio
+termine finché un rendering estraneo non lo butta giù.
+
+Lo stato tenuto SHALL scadere da sé e dirlo a chi ascolta, così la lettura resta
+pura. Un cartello che arriva già scaduto SHALL essere adottato come niente.
+
+#### Scenario: il cartello scade senza che arrivi un frame
+- **GIVEN** un hold in corso
+- **WHEN** passa `untilMs`
+- **THEN** lo stato SHALL leggersi come assente, senza nessun frame nuovo
+
+#### Scenario: un hold già scaduto all'arrivo
+- **GIVEN** un frame con `untilMs` nel passato
+- **THEN** lo stato SHALL restare assente
+
+#### Scenario: un frame senza scadenza scioglie il cartello
+- **GIVEN** un hold in corso
+- **WHEN** arriva un frame senza `untilMs`
+- **THEN** lo stato SHALL leggersi come assente
