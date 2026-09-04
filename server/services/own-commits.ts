@@ -63,6 +63,16 @@ export interface OwnCommitsOptions {
    * una lista vuota vale «nessun altro branch», non «non lo so».
    */
   others?: readonly string[];
+  /**
+   * Branches that are THIS card's own history and must not be subtracted: the
+   * previous attempts' branches. A card re-dispatched onto a new worktree
+   * continues the old branch, which stays in `refs/heads/` with no worktree;
+   * subtracting it counted the card's own commits as foreign and the land tried
+   * to cherry-pick "what remained" into the conflicts the merges had already
+   * resolved (1929291c, 2026-09-04: three lands refused on a branch that
+   * merged clean). Names as `refs/heads/...` or short: both are accepted.
+   */
+  ownRefs?: readonly string[];
 }
 
 /**
@@ -156,7 +166,7 @@ export async function otherLocalBranches(
   const run = opts.runGit ?? defaultRunGit;
   const res = await run(repoPath, ["for-each-ref", "--format=%(refname)", "refs/heads/"]);
   if (res.code !== 0) return null;
-  const excluded = new Set([refName(branch), refName(opts.mainRef ?? "main")]);
+  const excluded = new Set([refName(branch), refName(opts.mainRef ?? "main"), ...(opts.ownRefs ?? []).map(refName)]);
   return lines(res.stdout).filter((r) => !excluded.has(r));
 }
 
