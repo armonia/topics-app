@@ -69,17 +69,17 @@ export function openTopicInApp(target: TopicTarget, opts?: OpenTabOptions): void
 }
 
 /**
- * Apri IN-APP la destinazione di una notifica. UNA regola per tutte le
- * superfici che hanno un click da portare da qualche parte: la web-push (via
- * service worker), il banner nativo, e la CRONOLOGIA delle notifiche — che
- * altrimenti sarebbe la terza copia dello stesso `if`.
+ * Open the destination of a notification IN-APP. ONE rule for every surface
+ * that has a click to take somewhere: the web-push (through the service
+ * worker), the native banner, and the notification HISTORY, which would
+ * otherwise be the third copy of the same `if`.
  *
- * Accetta sia una URL assoluta (quella che arriva dal service worker) sia il
- * path relativo che il registro salva (`/task/<id>`, `/topic/<id>`): `new URL`
- * risolve il secondo contro l'origine della pagina, che è già la nostra.
+ * Takes both an absolute URL (what the service worker hands over) and the
+ * relative path the log stores (`/task/<id>`, `/topic/<id>`): `new URL`
+ * resolves the second against the page origin, which is already ours.
  *
- * Torna `false` quando non c'è niente da aprire — così una riga di cronologia
- * senza bersaglio può dirlo invece di fingere un click che non fa niente.
+ * Returns `false` when there is nothing to open, so a history row with no
+ * target can say so instead of faking a click that does nothing.
  *
  * THE DETACHED-WINDOW GUARD lives here and not in the three callers, because
  * this is the common gate: the native banner (`openNotifyToken`), the bell
@@ -115,27 +115,28 @@ function forwardDeepLinkOutOfDetachedWindow(url: string): void {
 }
 
 
-// ── Service worker → app (click su una web-push) ─────────────────────────────
+// ── Service worker → app (a click on a web-push) ──────────────────────
 
-/** Il canale con `public/sw.js`: il click su una notifica non può navigare la
- *  finestra (ricaricherebbe la SPA), quindi il SW manda la destinazione qui. */
+/** The channel with `public/sw.js`: a click on a notification cannot navigate
+ *  the window (it would reload the SPA), so the SW sends the destination here. */
 export const SW_OPEN_URL_MESSAGE = 'topics:open-url';
 
-/** Il click su una web-push arriva come postMessage dal service worker, perché
- *  con una finestra già aperta il SW la mette a fuoco ma NON può portarcela
- *  senza ricaricarla. Qui la URL torna a essere un deep-link normale e apre il
- *  drawer in-app — la stessa via dei link `/task/<id>` copiati a mano.
+/** A click on a web-push arrives as a postMessage from the service worker,
+ *  because with a window already open the SW focuses it but can NOT carry it
+ *  there without reloading. Here the URL goes back to being an ordinary
+ *  deep-link and opens the drawer in-app, the same road as a `/task/<id>` link
+ *  copied by hand.
  *
- *  Silenzioso su tutto il resto: una URL che non è un deep-link significa solo
- *  "porta l'utente in cima", e la finestra è già a fuoco. */
+ *  Silent about everything else: a URL that is not a deep-link only means
+ *  "bring the user to the top", and the window is already focused. */
 export function subscribeServiceWorkerTaskOpen(): () => void {
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return () => {};
   const handler = (ev: MessageEvent) => {
     const data = ev.data as { type?: string; url?: string } | null;
     if (!data || data.type !== SW_OPEN_URL_MESSAGE || typeof data.url !== 'string') return;
-    // La regola («task, poi topic, poi niente») sta in `openDeepLinkInApp`: la
-    // cronologia delle notifiche deve atterrare ESATTAMENTE dove atterra la
-    // notifica che l'ha generata, e due copie dello stesso `if` divergono.
+    // The rule ("task, then topic, then nothing") lives in `openDeepLinkInApp`:
+    // the notification history must land EXACTLY where the notification that
+    // produced it lands, and two copies of the same `if` drift apart.
     openDeepLinkInApp(data.url);
   };
   navigator.serviceWorker.addEventListener('message', handler);
@@ -156,8 +157,8 @@ export function subscribeServiceWorkerTaskOpen(): () => void {
 export function openTaskFromUrl(): void {
   const target = currentTaskTarget();
   if (target) { openTaskInApp(target); return; }
-  // Da finestra CHIUSA il service worker apre l'app direttamente su `/topic/<id>`
-  // (la push di fine chat): al boot riconosciamo anche quel deep-link.
+  // From a CLOSED window the service worker opens the app straight on
+  // `/topic/<id>` (the end-of-chat push): at boot we read that deep-link too.
   const topic = parseTopicLocation(window.location.pathname);
   if (topic) openTopicInApp(topic);
 }
