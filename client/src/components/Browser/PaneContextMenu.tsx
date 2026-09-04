@@ -31,6 +31,7 @@ import {
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { POPOVER_ITEM, POPOVER_DIVIDER } from '../../lib/popoverStyles';
 import { useToast } from '../Shared/Toast';
+import { useT } from '../../hooks/useT';
 import { copyText, copyImagePng } from '../../lib/clipboard';
 import { paneContextItems, type PaneMenuItemKey } from './paneContextModel';
 import type { NativeBrowserHandle } from './browserDevTypes';
@@ -44,6 +45,7 @@ export interface PaneContextMenuProps {
 
 export function PaneContextMenu({ browser, onOpenInNewTab }: PaneContextMenuProps) {
   const target = browser.paneContext ?? null;
+  const tr = useT();
   const toast = useToast();
   const close = browser.clearPaneContext;
 
@@ -52,8 +54,8 @@ export function PaneContextMenu({ browser, onOpenInNewTab }: PaneContextMenuProp
     // caratteri e serviva solo a decidere se questa voce esisteva.
     const full = (await browser.readSelection?.()) || target?.selection || '';
     if (!full) return;
-    if (!(await copyText(full))) toast.error('Non è stato possibile copiare');
-  }, [browser, target?.selection, toast]);
+    if (!(await copyText(full))) toast.error(tr('browser.menu.copyFailed'));
+  }, [browser, target?.selection, toast, tr]);
 
   const copyImage = useCallback(async (src: string) => {
     // La promessa entra DENTRO ClipboardItem invece di essere attesa prima: in
@@ -63,12 +65,12 @@ export function PaneContextMenu({ browser, onOpenInNewTab }: PaneContextMenuProp
     if (!ok) {
       // Senza CORS il canvas resta contaminato e i byte non si possono leggere:
       // lo si dice, e si offre la cosa che invece riesce sempre.
-      toast.error("Immagine non copiabile (il sito non lo consente). L'indirizzo sì.", 6000, {
-        label: 'Copia indirizzo',
+      toast.error(tr('browser.menu.imageNotCopyable'), 6000, {
+        label: tr('browser.menu.copyAddress'),
         onClick: () => { void copyText(src); },
       });
     }
-  }, [browser, toast]);
+  }, [browser, toast, tr]);
 
   if (!target || !close) return null;
 
@@ -77,15 +79,15 @@ export function PaneContextMenu({ browser, onOpenInNewTab }: PaneContextMenuProp
   const run = (fn: () => void | Promise<unknown>) => () => { close(); void fn(); };
 
   const rows: Record<PaneMenuItemKey, { icon: LucideIcon; label: string; onClick: () => void; disabled?: boolean }> = {
-    back: { icon: ArrowLeft, label: 'Indietro', onClick: run(() => browser.goBack()), disabled: browser.canGoBack === false },
-    forward: { icon: ArrowRight, label: 'Avanti', onClick: run(() => browser.goForward()), disabled: browser.canGoForward === false },
-    reload: { icon: RotateCw, label: 'Ricarica', onClick: run(() => browser.reload()) },
-    copy: { icon: Copy, label: 'Copia', onClick: run(copySelection) },
-    copyLink: { icon: Link2, label: 'Copia link', onClick: run(() => copyText(target.linkUrl)) },
-    openLink: { icon: ExternalLink, label: 'Apri il link in una nuova scheda', onClick: run(() => onOpenInNewTab(target.linkUrl)) },
-    copyImage: { icon: ImageIcon, label: 'Copia immagine', onClick: run(() => copyImage(target.imageUrl)) },
-    copyImageAddress: { icon: Link, label: 'Copia indirizzo immagine', onClick: run(() => copyText(target.imageUrl)) },
-    inspect: { icon: Code2, label: 'Ispeziona', onClick: run(() => browser.toggleDevTools()) },
+    back: { icon: ArrowLeft, label: tr('browser.menu.back'), onClick: run(() => browser.goBack()), disabled: browser.canGoBack === false },
+    forward: { icon: ArrowRight, label: tr('browser.menu.forward'), onClick: run(() => browser.goForward()), disabled: browser.canGoForward === false },
+    reload: { icon: RotateCw, label: tr('browser.menu.reload'), onClick: run(() => browser.reload()) },
+    copy: { icon: Copy, label: tr('browser.menu.copy'), onClick: run(copySelection) },
+    copyLink: { icon: Link2, label: tr('browser.menu.copyLink'), onClick: run(() => copyText(target.linkUrl)) },
+    openLink: { icon: ExternalLink, label: tr('browser.menu.openLink'), onClick: run(() => onOpenInNewTab(target.linkUrl)) },
+    copyImage: { icon: ImageIcon, label: tr('browser.menu.copyImage'), onClick: run(() => copyImage(target.imageUrl)) },
+    copyImageAddress: { icon: Link, label: tr('browser.menu.copyImageAddress'), onClick: run(() => copyText(target.imageUrl)) },
+    inspect: { icon: Code2, label: tr('browser.menu.inspect'), onClick: run(() => browser.toggleDevTools()) },
   };
 
   return (

@@ -115,3 +115,30 @@ export const STOPWORDS = new Set<string>([
   "tentativo", "tentativi", "dettaglio", "dettagli",
   "livello", "livelli", "passaggio", "passaggi",
 ]);
+
+/**
+ * The words the BUTTONS of this app are made of, read only by the UI gate.
+ *
+ * They belong in the list above by every argument except one: `STOPWORDS` is
+ * also the detector of `check-comment-language.ts`, whose baseline is a frozen
+ * per-file COUNT. Adding these forty words there makes that gate see 292 more
+ * comment lines in 189 files it never touched, and re-freezing to absorb them
+ * would swallow, in the same move, any genuinely new Italian comment that
+ * landed since. Changing what a ratchet measures is not a side effect a card
+ * about UI strings gets to have; merging the two lists is its own decision,
+ * with its own re-freeze.
+ *
+ * The rule is the one above: a word that exists in English stays out. None of
+ * these does, and each one was on a button the gate could not read.
+ */
+export const UI_COPY_WORDS = new Set<string>([
+  "consenti", "consentire", "consentito", "consentita", "nega", "negare", "negato", "negata",
+  "indietro", "avanti", "chiudi", "chiudere", "chiuso", "chiusa", "apri", "aprire",
+  "ricarica", "ricaricare", "dimentica", "dimenticare",
+  "scarta", "scartare", "scartato", "scartata", "cestino",
+  "rifiuta", "rifiutare", "rifiutato", "accetta", "accettare", "accettato",
+  "proponi", "proposto", "proposta", "abbandonato", "abbandonata", "abbandona",
+  "riapri", "riaperta", "riaperto",
+  "ferme", "fermi", "fermo", "rinviata", "rinviato", "coda",
+  "piano", "obiettivo", "obiettivi", "permesso", "permessi", "decisione", "decisioni",
+]);

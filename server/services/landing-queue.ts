@@ -81,6 +81,8 @@ export interface LandingQueue {
   whenSettled(taskId: string): Promise<LandingTicket> | null;
   /** Quanti land sono in fila (compreso quello in corso) su `key`. */
   pending(key: string): number;
+  /** Lands queued or running across ALL lanes: what a restart must wait for. */
+  inFlight(): number;
 }
 
 export function createLandingQueue(deps: LandingQueueDeps = {}): LandingQueue {
@@ -188,6 +190,12 @@ export function createLandingQueue(deps: LandingQueueDeps = {}): LandingQueue {
 
     pending(key) {
       return lanes.get(key)?.length ?? 0;
+    },
+
+    inFlight() {
+      let n = 0;
+      for (const e of entries.values()) if (isOpen(e.ticket)) n++;
+      return n;
     },
   };
 }

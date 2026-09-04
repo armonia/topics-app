@@ -16,7 +16,7 @@ import {
 } from '../lib/stt';
 import { ascoltaLivello, messaggioTrascrittoVuoto, type SondaLivello } from '../lib/livello-audio';
 import { useSpeechToText } from './useSpeech';
-import { useLocale } from './useT';
+import { useLocale, useT } from './useT';
 
 export type DictationEngine = 'server' | 'webspeech' | null;
 
@@ -50,6 +50,11 @@ export function useDictation(opts: {
   const { onText, onError, onNotice, language } = opts;
   const locale = useLocale();
   const languageHint = language ?? locale;
+  // The recorder callbacks live outside the render, so the translator reaches
+  // them through a ref: same shape as `onTextRef` and friends below.
+  const tr = useT();
+  const trRef = useRef(tr);
+  trRef.current = tr;
   const [capabilities, setCapabilities] = useState<SttCapabilities | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -152,7 +157,7 @@ export function useDictation(opts: {
         // dire che ha aperto e ha prodotto la sola intestazione del contenitore.
         // Sono due guasti diversi e si riparano in due posti diversi.
         if (blob.size < MIN_VOICE_BLOB_BYTES) {
-          onErrorRef.current?.(messaggioNotaVuota(spezzoni, blob.size, type));
+          onErrorRef.current?.(messaggioNotaVuota(spezzoni, blob.size, type, trRef.current));
           segnalaNotaVuota(spezzoni, blob.size, type, 'dettatura');
           return;
         }
@@ -164,7 +169,7 @@ export function useDictation(opts: {
           // server filtra): niente da incollare, e niente errore da mostrare.
           const testo = result.transcript.trim();
           if (testo) onTextRef.current(testo);
-          const notice = fallbackNotice(result);
+          const notice = fallbackNotice(result, trRef.current);
           if (notice) onNoticeRef.current?.(notice);
           // SILENZIO NON E' NIENTE DA DIRE: e' una notizia.
           //
@@ -186,7 +191,7 @@ export function useDictation(opts: {
             durataMs: result.durationMs,
           }));
         } catch (err) {
-          onErrorRef.current?.(`Dettatura non trascritta: ${err instanceof Error ? err.message : 'errore sconosciuto'}`);
+          onErrorRef.current?.(trRef.current('stt.dictationFailed', { reason: err instanceof Error ? err.message : trRef.current('stt.unknownError') }));
         } finally {
           setIsTranscribing(false);
         }
@@ -204,7 +209,7 @@ export function useDictation(opts: {
     } catch (err) {
       releaseMic();
       setIsListening(false);
-      onErrorRef.current?.(micErrorMessage(err));
+      onErrorRef.current?.(micErrorMessage(err, trRef.current));
     }
   }, [languageHint, releaseMic]);
 
@@ -218,7 +223,7 @@ export function useDictation(opts: {
     if (isListening || isTranscribing) return;
     if (engine === 'server') void startServer();
     else if (engine === 'webspeech') { webSpeech.startListening(); setIsListening(true); }
-    else onErrorRef.current?.('Dettatura non disponibile: nessun motore di trascrizione configurato.');
+    else onErrorRef.current?.(trRef.current('stt.noEngine'));
   }, [engine, isListening, isTranscribing, startServer, webSpeech]);
 
   const stop = useCallback(() => {

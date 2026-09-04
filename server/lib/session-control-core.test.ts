@@ -64,6 +64,14 @@ describe("createDetachedTopic — l'autonomia con cui nasce un agente", () => {
     expect(persisted.autonomyLevel).toBe("yolo");
   });
 
+  test("carries the provider the board asked for: a card on codex runs on the OpenAI CLI", () => {
+    const deps = makeDeps();
+    const { topic } = createDetachedTopic({ name: "codex card", projectPath: "/tmp/x", systemPrompt: "", provider: "codex" }, deps);
+    expect((topic as { provider?: string | null }).provider).toBe("codex");
+    const { topic: plain } = createDetachedTopic({ name: "claude card", projectPath: "/tmp/x", systemPrompt: "" }, deps);
+    expect((plain as { provider?: string | null }).provider ?? null).toBeNull();
+  });
+
   test("mai in plan mode: `ask` è il valore che rompeva gli agenti", () => {
     const deps = makeDeps();
     const { topic } = createDetachedTopic({ name: "t", projectPath: "/tmp/x", systemPrompt: "" }, deps);

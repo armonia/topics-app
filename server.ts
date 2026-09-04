@@ -1,3 +1,4 @@
+import { createLandingQueue } from "./server/services/landing-queue";
 import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
 import { bonificaTurniMuti } from "./server/lib/verdetto-turno-interrotto";
@@ -764,19 +765,22 @@ ctx.worktreeGcDeps.listOwnedScripts = listOwnedScripts;
 // worktree creation, project-path resolution — is assembled here and injected,
 // keeping server/services/task-dispatcher.ts host-agnostic and unit-tested.
 const DISPATCH_WORKSPACE_DIR = join(ctx.OPENCLAW_DIR, "workspace");
-const dispatcherSvc = createTaskService(ctx.db, {
-  writeDeliverySheet: makeSheetWriter(ctx.OPENCLAW_DIR),
-  // The repository a delivery report is checked against: the agent's worktree
-  // (a cited file may exist only on the delivery branch), else the board's
-  // project. Until 2026-09-04 every report was checked against THIS checkout,
-  // so a dancerooms commit was "in no ref" and a new file on a branch "not
-  // tracked": four true deliveries accused in one morning.
-  repoRootFor: ({ projectId, assignedTopicId }) => {
+// The repository a delivery report is checked against: the agent's worktree
+// (a cited file may exist only on the delivery branch), else the repository
+// the topic worked in, else the board's project. Until 2026-09-04 every report
+// was checked against THIS checkout, so a dancerooms commit was "in no ref"
+// and a new file on a branch "not tracked". One resolver, handed to BOTH task
+// services: the dispatcher's and the router's, which is the one an agent's
+// update_task(status="review") actually reaches.
+const repoRootForCard = ({ projectId, assignedTopicId }: { taskId: string; projectId: string | undefined; assignedTopicId: string | null }): string | null => {
     try {
       if (assignedTopicId) {
-        const row = ctx.db.prepare("SELECT worktree_id FROM topics WHERE id = ?").get(assignedTopicId) as { worktree_id?: string | null } | undefined;
+        const row = ctx.db.prepare("SELECT worktree_id, project_path FROM topics WHERE id = ?").get(assignedTopicId) as { worktree_id?: string | null; project_path?: string | null } | undefined;
         const wt = row?.worktree_id ? ctx.worktreeStore.get(row.worktree_id) : null;
         if (wt?.absPath && existsSync(wt.absPath)) return wt.absPath;
+        // The worktree may already be reaped (a land, a restart): the topic
+        // still knows which repository it worked in.
+        if (row?.project_path && existsSync(row.project_path)) return row.project_path;
       }
     } catch { /* fall through to the project */ }
     if (!projectId) return null;
@@ -784,7 +788,10 @@ const dispatcherSvc = createTaskService(ctx.db, {
       const c = resolveProjectPath(projectId, buildProjectCandidates({ projectStore: ctx.projectStore, workspaceDir: DISPATCH_WORKSPACE_DIR, extraPaths: dispatchExtraPaths }));
       return c?.path && existsSync(c.path) ? c.path : null;
     } catch { return null; }
-  },
+  };
+const dispatcherSvc = createTaskService(ctx.db, {
+  writeDeliverySheet: makeSheetWriter(ctx.OPENCLAW_DIR),
+  repoRootFor: repoRootForCard,
 });
 
 async function abortHeadlessTurn(sessionKey: string): Promise<void> {
@@ -1372,10 +1379,17 @@ const taskDispatcher = createTaskDispatcher({
     return { path: c.path, projectStoreId: storeId };
   },
   createTopic: (o) => {
+    // A card whose model is "codex" (or "codex:<model>", or a gpt-* id) runs
+    // on the OpenAI CLI provider: the board can spread mechanical work over a
+    // second quota. Plain "codex" passes no --model (ChatGPT-account auth
+    // rejects a forced model, see server/providers/codex.ts).
+    const codexModel = o.model === "codex" ? "" : o.model?.startsWith("codex:") ? o.model.slice("codex:".length) : o.model?.startsWith("gpt-") ? o.model : null;
+    const provider = codexModel !== null ? "codex" : undefined;
+    const model = codexModel !== null ? (codexModel || undefined) : o.model;
     const { topic } = createDetachedTopic(
       // background: an agent session never pops a tab — it lives in the
       // sidebar; the task drawer's "apri tab" un-archives it on demand.
-      { name: o.name, projectPath: o.projectPath, worktreeId: o.worktreeId, systemPrompt: o.systemPrompt, effort: o.effort, model: o.model, background: true, standalone: o.standalone, mcpPolicy: o.mcpPolicy, autonomyLevel: o.autonomyLevel ?? DISPATCH_AUTONOMY },
+      { name: o.name, projectPath: o.projectPath, worktreeId: o.worktreeId, systemPrompt: o.systemPrompt, effort: o.effort, model, provider, background: true, standalone: o.standalone, mcpPolicy: o.mcpPolicy, autonomyLevel: o.autonomyLevel ?? DISPATCH_AUTONOMY },
       {
         getTopicById: ctx.getTopicById,
         loadTopics: ctx.loadTopics,
@@ -2021,7 +2035,11 @@ sondaLavoroNonCommittato = async (taskId: string) => {
   try { return await worktreeRealDirt(wt.absPath); } catch { return null; }
 };
 
+// Owned here so the quiescence wait can see lands still queued or running.
+const landingQueue = createLandingQueue({ log: (m) => console.warn(m) });
 const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
+  landings: landingQueue,
+  repoRootFor: repoRootForCard,
   workspaceDir: DISPATCH_WORKSPACE_DIR,
   // Il titolo leggibile di una card dettata (`services/task-title.ts`). Si
   // risolve al momento della chiamata e non all'avvio: il default della
@@ -5324,7 +5342,9 @@ let askProbeCache: { at: number; parked: string[] } = { at: 0, parked: [] };
  * ogni giro; la terza si paga, e si guarda ogni QUIESCENCE_BROKER_PROBE_MS.
  */
 async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; parkedAsks: number; holder: string | null }> {
-  const cards = taskDispatcher.busyCount();
+  // A land in flight is a card turn for this purpose: it rewrites main and
+  // the card, and a restart in the middle of it forgets the delivery branch.
+  const cards = taskDispatcher.busyCount() + landingQueue.inFlight();
   const streamKeys = [...activeStreams.keys()];
   // La sonda del broker si paga, e si paga solo quando serve: se una fonte più
   // economica ha già detto «occupato», la risposta non cambia.

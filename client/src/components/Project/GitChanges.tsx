@@ -852,7 +852,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             <div className={POPOVER_DIVIDER} />
             <button onClick={handleBatchDiscard} className={POPOVER_ITEM_DANGER}>
               <Undo2 size={13} className="flex-shrink-0" />
-              Discard {count > 1 ? `${count} Changes` : 'Changes'}
+              {count > 1 ? tr('git.discardMany', { count }) : tr('git.discardOne')}
             </button>
           </>
         )}
@@ -1127,7 +1127,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                           <button
                             onClick={(e) => handleDiscard(file.path, e)}
                             className="p-0.5 rounded hover:bg-app-hover"
-                            title="Discard changes"
+                            title={tr('git.discardFileTitle')}
                           >
                             <Undo2 size={10} className="text-app-text-muted" />
                           </button>
@@ -1398,7 +1398,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               <button
                 onClick={(e) => handleDiscard(file.path, e)}
                 className="p-0.5 rounded hover:bg-app-hover"
-                title="Discard changes"
+                title={tr('git.discardFileTitle')}
               >
                 <Undo2 size={12} className="text-app-text-muted" />
               </button>
@@ -1805,8 +1805,8 @@ function DiscardConfirmDialog({ files, untracked, onConfirm, onCancel }: { files
 
   return (
     <ConfirmDialog
-      title="Discard Changes"
-      confirmLabel="Discard"
+      title={tr('git.discardTitle')}
+      confirmLabel={tr('git.discardAction')}
       onConfirm={onConfirm}
       onCancel={onCancel}
     >

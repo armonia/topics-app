@@ -213,6 +213,29 @@ describe("tasks router (session-scoped)", () => {
     expect((await resp.json()).status).toBe("done");
   });
 
+  test("an agent's delivery is verified against the card's repository, through the router's own service", async () => {
+    // The dispatcher's service had the resolver, the router's did not, and the
+    // router's is the one update_task(status="review") reaches: a dancerooms
+    // commit stayed "in no ref" with the fix live (2026-09-04).
+    const roots: string[] = [];
+    const cited: string[] = [];
+    const r = createTasksRouter(makeCtx(db, broadcasts), undefined, {
+      repoRootFor: ({ projectId }) => `/repos/${projectId}`,
+      probeFor: (root) => {
+        roots.push(root);
+        return {
+          shaExists: () => true, migrations: () => [], readMigration: () => "",
+          fileMatches: (c) => { cited.push(c); return true; }, readLine: () => null, symbolInHistory: () => true,
+        };
+      },
+    });
+    const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
+    const rev = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "Fatto in `client/src/pose/worker/person.ts`." }))!;
+    expect(rev.status).toBe(200);
+    expect(roots).toEqual([`/repos/${t.projectId}`]);
+    expect(cited).toContain("client/src/pose/worker/person.ts");
+  });
+
   test("PATCH agent → review opens approval; agent → done is 409", async () => {
     const t = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
     // A mute delivery bounces with coaching (409 review_needs_summary)…

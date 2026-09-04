@@ -394,6 +394,7 @@ const MermaidBlock = memo(function MermaidBlock({ code }: { code: string }) {
 
 // Code block with copy button, language badge, line numbers, collapsible, word wrap
 const CodeBlock = memo(function CodeBlock({ children, className }: { children: React.ReactNode; className?: string }) {
+  const tr = useT();
   const [copied, setCopied] = useState(false);
   const [collapsed, setCollapsed] = useState(true); // collapsed by default if >20 lines
   const [showLineNumbers, setShowLineNumbers] = useState(false);
@@ -456,20 +457,24 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
       <div className="flex items-center justify-between bg-app-code-bg rounded-t-md px-2.5 py-1 border-b border-white/5">
         <div className="flex items-center gap-2">
           {language && <span className="text-[11px] uppercase tracking-wider text-indigo-300/70 font-medium">{language}</span>}
-          <span className="text-[11px] text-gray-400">{lineCount} lines</span>
+          {/* One line and many lines are two sentences, not one with a hole:
+              the singular does not agree between the two languages. */}
+          <span className="text-[11px] text-gray-400">
+            {lineCount === 1 ? tr('code.lineCount.one') : tr('code.lineCount.many', { n: lineCount })}
+          </span>
         </div>
         <div className="flex items-center gap-1">
           <button
             onClick={() => setShowLineNumbers(p => !p)}
             className={`text-[11px] px-1.5 py-0.5 rounded transition-colors inline-flex items-center justify-center min-w-6 min-h-6 ${showLineNumbers ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:text-gray-200'}`}
-            title="Toggle line numbers"
+            title={tr('code.toggleLineNumbers')}
           >
             #
           </button>
           <button
             onClick={() => setWordWrap(p => !p)}
             className={`text-[11px] px-1.5 py-0.5 rounded transition-colors inline-flex items-center justify-center min-w-6 min-h-6 ${wordWrap ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:text-gray-200'}`}
-            title="Toggle word wrap"
+            title={tr('code.toggleWordWrap')}
           >
             ↩
           </button>
@@ -477,7 +482,7 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
             onClick={handleCopy}
             className="text-gray-400 hover:text-gray-200 rounded px-1.5 py-0.5 text-[11px] flex items-center justify-center gap-1 min-h-6 transition-colors"
           >
-            {copied ? <><Check size={10} /> Copied</> : <><Copy size={10} /> Copy</>}
+            {copied ? <><Check size={10} /> {tr('code.copied')}</> : <><Copy size={10} /> {tr('code.copy')}</>}
           </button>
         </div>
       </div>
@@ -517,7 +522,7 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
           onClick={() => setCollapsed(p => !p)}
           className="w-full bg-app-code-bg hover:bg-app-code-bg text-indigo-300/70 hover:text-indigo-300 text-[11px] py-1.5 rounded-b-md border-t border-white/5 transition-colors"
         >
-          {collapsed ? `Show all ${lineCount} lines ↓` : 'Show less ↑'}
+          {collapsed ? tr('code.showAll', { n: lineCount }) : tr('code.showLess')}
         </button>
       )}
     </div>

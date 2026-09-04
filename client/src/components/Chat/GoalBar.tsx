@@ -178,7 +178,7 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote
             setDraft(goal.content);
             setEditing(true);
           }}
-          title="Cambia obiettivo"
+          title={tr('goal.edit')}
           className="flex-shrink-0 p-0.5 text-app-text-muted hover:text-app-text"
         >
           <Pencil size={12} />
@@ -186,7 +186,7 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote
         <button
           type="button"
           onClick={() => onClose('achieved')}
-          title="Obiettivo raggiunto"
+          title={tr('goal.achieved')}
           className="flex-shrink-0 p-0.5 text-app-text-muted hover:text-green-500"
         >
           <Check size={13} />

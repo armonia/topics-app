@@ -75,8 +75,8 @@ export function ForgetSiteDialog({ contextId, url, backend, onClose, onForgotten
   return (
     <ConfirmDialog
       title={plan ? tr('forget.titleHost', { host: plan.host }) : tr('forget.title')}
-      confirmLabel={busy ? 'Cancello…' : 'Dimentica'}
-      cancelLabel={nothing || unsupported ? 'Chiudi' : 'Annulla'}
+      confirmLabel={busy ? tr('forget.working') : tr('forget.action')}
+      cancelLabel={nothing || unsupported ? tr('common.close') : tr('common.cancel')}
       confirmDisabled={blocked}
       onConfirm={confirm}
       onCancel={busy ? () => {} : onClose}

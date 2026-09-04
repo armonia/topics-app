@@ -277,7 +277,8 @@ describe("freno del peso — l'attesa ha una fine", () => {
 
     const r = h.task("heavy")!.queueReason!;
     expect(r.kind).toBe("heavy_hold");
-    expect(r.detail).toContain("2 dietro");
+    expect(r.key).toBe("board.queue.heavyHold.blocking");
+    expect(r.params).toMatchObject({ behind: 2 });
     // I leggeri dietro NON sono il tappo: la loro ragione resta la fila.
     expect(h.task("l1")!.queueReason!.kind).toBe("slot");
   });
@@ -376,8 +377,10 @@ describe("freno del peso — l'attesa ha una fine", () => {
     // Ma la CARD non deve accusare questa riga di tenere ferma la coda.
     const r = h.task("heavy")!.queueReason!;
     expect(r.kind).not.toBe("heavy_hold");
-    expect(r.title).not.toContain("tetto");
-    expect(r.title).not.toContain("priorità");
+    // The two things the someone-else-is-running sentence must not say now
+    // live in the catalogue under another key: here it is enough that the key
+    // is not that one.
+    expect(r.key).not.toContain("heavyHold");
     // La riparazione si fermava qui: tolta la bugia, la card restava MUTA —
     // ricadeva su «in coda, N davanti», cioè la parola vaga da cui si era
     // partiti. Ed era vaga anche per i leggeri dietro: uno slot agente c'è
@@ -386,6 +389,6 @@ describe("freno del peso — l'attesa ha una fine", () => {
     // dice il fatto giusto.
     expect(r.kind).toBe("heavy_busy");
     expect(h.task("l1")!.queueReason!.kind).toBe("heavy_busy");
-    expect(h.task("l1")!.queueReason!.detail).not.toContain("davanti");
+    expect(h.task("l1")!.queueReason!.key).not.toContain("slot");
   });
 });

@@ -44,6 +44,28 @@ let enPending: Promise<void> | null = null;
 const catalogueListeners = new Set<() => void>();
 
 /**
+ * The languages whose catalogue asked to be loaded and did not arrive.
+ *
+ * It exists because the failure used to be a `console.warn` and nothing else:
+ * the selector said "English", the app stayed in Italian, and the only place
+ * that knew was a console nobody has open. The `try/catch` even hid the 404
+ * from `ErrorBoundary`, so the app could not crash into an error it could
+ * report either. A degraded state that nobody can see is indistinguishable
+ * from a working one, which is the worst of the three.
+ */
+const failedLocalesSet = new Set<Locale>();
+let failedSnapshot = '';
+
+/**
+ * The failed languages as a stable string, for `useSyncExternalStore`: it
+ * compares snapshots by identity, so a fresh array every read would be an
+ * infinite render loop and a string equal to itself is not.
+ */
+export function failedLocales(): string {
+  return failedSnapshot;
+}
+
+/**
  * Le lingue gia' in memoria, come stringa stabile ("it" oppure "it,en").
  *
  * E' una STRINGA e non un array perche' `useSyncExternalStore` confronta gli
@@ -82,10 +104,18 @@ export function ensureLocaleLoaded(locale: Locale): Promise<void> {
       try {
         const { default: EN } = await import('./i18n-en');
         DICTS.en = EN;
+        failedLocalesSet.delete('en');
+        failedSnapshot = [...failedLocalesSet].sort().join(',');
         catalogueListeners.forEach((cb) => cb());
       } catch (err) {
         enPending = null;
+        failedLocalesSet.add('en');
+        failedSnapshot = [...failedLocalesSet].sort().join(',');
+        // Not cached as a permanent failure: the next attempt may well be
+        // online. What IS remembered is that this one failed, so the selector
+        // can say so instead of showing a language the app is not speaking.
         console.warn('[i18n] English catalogue failed to load, staying in Italian:', err);
+        catalogueListeners.forEach((cb) => cb());
       }
     })();
   }

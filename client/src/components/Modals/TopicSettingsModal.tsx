@@ -17,6 +17,7 @@ import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import { worktreesApi } from '../../lib/api';
 import { useToast } from '../Shared/Toast';
+import { useT } from '../../hooks/useT';
 import { SwitchTrack } from '../Shared/Switch';
 import { useConfirm } from '../../hooks/useConfirm';
 
@@ -80,6 +81,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [saved, setSaved] = useState(false);
   const toast = useToast();
+  const tr = useT();
   // Phase A · TOPIC-WT-03: read-only worktree info when topic is bound.
   const [worktree, setWorktree] = useState<Worktree | null>(null);
 
@@ -138,7 +140,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
     muted !== !!topic.muted;
 
   const handleClose = async () => {
-    if (isDirty && !await confirm({ title: 'You have unsaved changes.', body: 'Close without saving?', confirmLabel: 'Discard' })) {
+    if (isDirty && !await confirm({ title: tr('topic.unsaved.title'), body: tr('topic.unsaved.body'), confirmLabel: tr('topic.unsaved.confirm') })) {
       return;
     }
     onClose();

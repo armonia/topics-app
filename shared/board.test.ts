@@ -27,6 +27,20 @@ import {
   type BlockerRef,
   type QueueReason,
 } from "./board";
+import { queueReasonText } from "./queue-reason-text";
+import { queueReasonKeys } from "./board";
+import EN from "../client/src/lib/i18n-en";
+import IT from "../client/src/lib/i18n-it";
+import { interpolate } from "../client/src/lib/i18n";
+
+/**
+ * The catalogue lookup a person's screen does, minus React. The Italian one
+ * because these assertions were written against the Italian wording, and a
+ * missing key must read as an empty string here rather than as the key itself:
+ * `expect(detail).toContain("2")` would pass on the key `...detail`.
+ */
+const sayItalian = (key: string, vars?: Record<string, string | number>): string =>
+  interpolate(IT[key] ?? "", vars);
 
 /**
  * L'identita' della board: unica copia, tre lati del filo.
@@ -216,8 +230,20 @@ describe("perché questa card è ferma", () => {
     parentStatus: null as string | null, projectless: false, openSubtasks: 0,
     formatTime: () => "06:40",
   };
-  const reason = (t: Partial<typeof base>, c: Partial<typeof ctx> = {}) =>
-    deriveQueueReason({ ...base, ...t }, { ...ctx, ...c })!;
+  /**
+   * The reason WITH its three sentences, read out of the Italian catalogue.
+   *
+   * `deriveQueueReason` returns a key and its parameters now, not prose: the
+   * words moved to `i18n-it.ts` / `i18n-en.ts` so the chip can follow the
+   * language selector. Every assertion below is about what a person READS, so
+   * the helper renders it here rather than each test learning to. The Italian
+   * is the right catalogue to render with: these tests were written against
+   * the Italian wording and none of them changed.
+   */
+  const reason = (t: Partial<typeof base>, c: Partial<typeof ctx> = {}) => {
+    const r = deriveQueueReason({ ...base, ...t }, { ...ctx, ...c })!;
+    return { ...r, ...queueReasonText(r, sayItalian) };
+  };
 
   /**
    * IL VICOLO CIECO CHE LA CARD NON DICEVA — otto card nella notte del 12/08.
@@ -614,10 +640,11 @@ describe("perché questa card è ferma", () => {
   test("il buco si dichiara: quando la ragione non si sa, non si scrive «in coda»", () => {
     // Un ripiego su una parola generica sarebbe la stessa bugia di prima, con
     // l'aggravante di sembrare una risposta.
-    expect(QUEUE_REASON_UNKNOWN.detail).toBe("motivo non registrato");
+    const hole = queueReasonText(QUEUE_REASON_UNKNOWN, sayItalian);
+    expect(hole.detail).toBe("motivo non registrato");
     expect(QUEUE_REASON_UNKNOWN.tone).toBe("stalled");
-    expect(QUEUE_REASON_UNKNOWN.detail).not.toContain("in coda");
-    expect(QUEUE_REASON_UNKNOWN.detail).not.toContain("in attesa");
+    expect(hole.detail).not.toContain("in coda");
+    expect(hole.detail).not.toContain("in attesa");
   });
 
   test("nessuna frase usa «in attesa», che sulla card significa il CONTRARIO", () => {
@@ -644,7 +671,7 @@ describe("perché questa card è ferma", () => {
   test("ogni motivo ha una frase, e la frase dice cosa succede dopo", () => {
     // Il cricchetto: un ramo nuovo senza `title` (o con un `title` che è solo
     // l'etichetta ripetuta) passerebbe inosservato finché non lo legge un umano.
-    const tutti: QueueReason[] = [
+    const tutti: ReturnType<typeof reason>[] = [
       reason({}, { ahead: 3 }),
       reason({ dispatchAttempts: 2 }),
       reason({ dispatchDeferredUntil: "2026-08-12T10:12:00.000Z" }),
@@ -662,6 +689,13 @@ describe("perché questa card è ferma", () => {
       expect(r.detail.length, `${r.kind} senza detail`).toBeGreaterThan(3);
       expect(r.title.length, `${r.kind}: il tooltip deve dire cosa succede dopo`).toBeGreaterThan(60);
       expect(r.title).not.toBe(r.detail);
+    }
+    // Same list, same sentences, in the OTHER language: a branch that only
+    // exists in Italian is a card an English reader cannot read at all.
+    for (const r of tutti) {
+      for (const key of queueReasonKeys(r.kind)) {
+        expect((EN as Record<string, string>)[key], `${key} manca dal catalogo inglese`).toBeTruthy();
+      }
     }
   });
 });

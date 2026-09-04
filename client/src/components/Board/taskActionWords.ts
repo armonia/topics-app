@@ -59,7 +59,8 @@ export interface TaskActionWord {
 }
 
 /** The shape of `useT()` — passed in so this module needs no React. */
-export type Translate = (key: string, vars?: Record<string, string | number>) => string;
+export type { Translate } from '../../../../shared/queue-reason-text';
+import type { Translate } from '../../../../shared/queue-reason-text';
 
 /** For callers outside a component (pure modules, unit tests). */
 export const fallbackTranslate: Translate = (key, vars) => translate(key, FALLBACK_LOCALE, vars);

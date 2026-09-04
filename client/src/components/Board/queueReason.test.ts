@@ -22,6 +22,9 @@ import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { deriveQueueReason } from '../../../../shared/board';
+import { queueReasonText } from '../../../../shared/queue-reason-text';
+import IT from '../../lib/i18n-it';
+import { interpolate } from '../../lib/i18n';
 
 const SRC = resolve(import.meta.dir, '../..');
 
@@ -43,6 +46,15 @@ function walk(dir: string, out: string[] = []): string[] {
  * falsi positivi trasformano un cricchetto in rumore che si disattiva.
  */
 const FILES = [...walk(join(SRC, 'components/Board')), join(SRC, 'lib/board.ts')];
+
+/**
+ * The chip as a person reads it. `deriveQueueReason` hands over a key and its
+ * parameters now, and the words live in the catalogues, so the phrase the
+ * guard below hunts for has to be rendered before it can be hunted.
+ */
+const sayItalian = (key: string, vars?: Record<string, string | number>): string =>
+  interpolate(IT[key] ?? '', vars);
+
 
 /**
  * Il sorgente senza i suoi commenti.
@@ -96,7 +108,7 @@ describe('la ragione della coda non ha una copia nel client', () => {
   test('nessun file di `client/src` scrive una delle frasi', () => {
     const colpevoli: string[] = [];
     for (const [kind, t, c] of FRASI) {
-      const r = deriveQueueReason({ ...base, ...t }, { ...ctx, ...c })!;
+      const r = queueReasonText(deriveQueueReason({ ...base, ...t }, { ...ctx, ...c })!, sayItalian);
       for (const file of FILES) {
         const src = senzaCommenti(readFileSync(file, 'utf8'));
         // `detail` è la parte che si vede sulla card: se una di queste stringhe
@@ -117,7 +129,10 @@ describe('la ragione della coda non ha una copia nel client', () => {
   test('IL PREDICATO MORDE: nel codice si prende, nel commento no', () => {
     // Senza questo caso, `senzaCommenti` potrebbe cancellare troppo (o tutto) e
     // il controllo sopra resterebbe verde per sempre senza guardare niente.
-    const frase = deriveQueueReason({ ...base, parentTaskId: 'p' }, { ...ctx, parentStatus: 'in_progress' })!.detail;
+    const frase = queueReasonText(
+      deriveQueueReason({ ...base, parentTaskId: 'p' }, { ...ctx, parentStatus: 'in_progress' })!,
+      sayItalian,
+    ).detail;
     const inCode = `const x = '${frase}';`;
     const inComment = `// vita normale di uno step (${frase})\n * e anche cosi' (${frase})`;
     expect(senzaCommenti(inCode).includes(frase), 'una copia vera deve restare presa').toBe(true);
@@ -128,9 +143,11 @@ describe('la ragione della coda non ha una copia nel client', () => {
     const atoms = readFileSync(join(SRC, 'components/Board/atoms.tsx'), 'utf8');
     const chip = atoms.slice(atoms.indexOf('export function QueueReasonChip'));
     const corpo = chip.slice(0, chip.indexOf('\n}\n') + 1);
-    expect(corpo).toContain('{reason.head}');
-    expect(corpo).toContain('{reason.detail}');
-    expect(corpo).toContain('title={reason.title}');
+    // The chip renders the key the server chose, through the catalogue: it
+    // reads `reason.key` and `reason.params` and nothing else of the task.
+    expect(corpo).toContain('queueReasonText(reason, tr)');
+    expect(corpo).toContain('{head} · {detail}');
+    expect(corpo).toContain('title={title}');
     // Il tono viene dal server: il colore è la distinzione «aspetta uno slot»
     // contro «non partirà mai», e dedurlo qui la rimetterebbe in mano al client.
     expect(corpo).toContain('QUEUE_TONE_CLS[reason.tone]');
