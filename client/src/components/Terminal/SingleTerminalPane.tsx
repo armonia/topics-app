@@ -18,6 +18,7 @@ import { isWindowAwake } from '../../state/windowAwake';
 import { useT } from '../../hooks/useT';
 import { restartTerminalSession } from '../../lib/terminalReload';
 import { useToast } from '../Shared/Toast';
+import { readTerminalScrollback, writeTerminalScrollback } from '../../lib/terminalScrollbackCache';
 import { TERMINAL_INPUT_DROPPED } from '../../../../shared/terminal-messages';
 
 const TOUCH_KEYS: { label: string; data: string; wide?: boolean }[] = [
@@ -115,6 +116,16 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<{ term: Terminal; fit: FitAddon; ws: WebSocket } | null>(null);
   const [stale, setStale] = useState(false);
+
+  // THE LAST SCREEN, drawn before xterm exists.
+  //
+  // Mounting the terminal, building xterm, opening the socket and receiving the
+  // backlog take a third of a second, and for that third the pane is black. The
+  // seed is the text the reader left there, read synchronously from the local
+  // copy and painted on the first frame; it is removed as soon as the server's
+  // replay lands, which is the moment it stops being what is on screen.
+  const [scrollbackSeed] = useState(() => readTerminalScrollback(sessionId));
+  const [seedShown, setSeedShown] = useState(scrollbackSeed !== null);
 
   // ── Cadenza di redraw ──────────────────────────────────────────────────
   // Scrivere su xterm schedula un redraw DOM: un TUI vivo (lo spinner di
@@ -306,6 +317,38 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     return () => obs.disconnect();
   }, []);
+
+  /**
+   * Writes down what is on screen, so the next mount has something to draw.
+   *
+   * The VISIBLE rows only, as plain text: what the seed replaces is the black
+   * rectangle of the first frames, not the history (the history is the
+   * server's, and it arrives over the socket a moment later). Called after the
+   * replay has landed, and again when the pane goes away.
+   */
+  const captureScrollback = useCallback(() => {
+    const term = termRef.current?.term;
+    if (!term) return;
+    const buf = term.buffer.active;
+    const lines: string[] = [];
+    const first = Math.max(0, buf.baseY + buf.cursorY - term.rows + 1);
+    for (let i = first; i <= buf.baseY + buf.cursorY; i++) {
+      lines.push(buf.getLine(i)?.translateToString(true) ?? '');
+    }
+    writeTerminalScrollback(sessionId, lines.join('\n'));
+  }, [sessionId]);
+  const captureRef = useRef(captureScrollback);
+  useEffect(() => { captureRef.current = captureScrollback; }, [captureScrollback]);
+
+  // The seed leaves on the replay, and failing that it leaves anyway. A server
+  // that never sends `replay-end` (older build, socket that never opens) would
+  // otherwise leave a frozen screenful of yesterday's text over a live pane,
+  // which is worse than the black rectangle it was there to remove.
+  useEffect(() => {
+    if (!seedShown) return;
+    const timer = setTimeout(() => setSeedShown(false), 5000);
+    return () => clearTimeout(timer);
+  }, [seedShown]);
 
   // Mount terminal
   useEffect(() => {
@@ -523,6 +566,14 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               return;
             }
             if (msg && msg.type === 'replay-end') {
+              // The screen the reader was looking at is on screen again, for
+              // real this time: the seed has done its job and steps aside, and
+              // what it will show NEXT time is written down here.
+              setSeedShown(false);
+              // A tick later: the bytes of the replay are in the coalescer, not
+              // yet in the buffer, and capturing now would write down an empty
+              // screen on top of a good one.
+              setTimeout(() => captureRef.current(), 300);
               // Zero output bytes at replay-end on a resumable (claude/codex)
               // session ⇒ its PTY is almost certainly gone (a live claude TUI
               // always replays its drawn full-screen frame). Arm a short grace;
@@ -652,6 +703,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
 
     return () => {
       intentionalClose = true;
+      captureRef.current();
       clearTimeout(retryTimer);
       if (dormantTimerRef.current) { clearTimeout(dormantTimerRef.current); dormantTimerRef.current = null; }
       reconnectRef.current = null;
@@ -966,6 +1018,17 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           className="absolute inset-0"
           onClick={() => termRef.current?.term.focus()}
         />
+        {/* The last screen, until the real one is back. Same metrics as xterm's
+            DOM renderer and pinned to the bottom, the way a terminal reads: the
+            replay lands on top of it without anything moving. */}
+        {seedShown && scrollbackSeed && (
+          <pre
+            data-testid="terminal-text"
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 bottom-0 px-[1px] overflow-hidden whitespace-pre text-[13px] leading-[17px] text-app-text-muted"
+            style={{ fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, monospace" }}
+          >{scrollbackSeed}</pre>
+        )}
         {/* Copy button for non-touch */}
         {!isTouchDevice && !stale && (
           <button

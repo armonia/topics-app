@@ -19,9 +19,18 @@
  */
 import { useSyncExternalStore } from 'react';
 import type { BoardTask } from './board';
+import { readBoardRowsCache, writeBoardRowsCache } from './boardRowsCache';
 
-let tasks: readonly BoardTask[] = [];
-let loaded = false;
+/** The scope of the cross-project feed inside the rows cache. */
+export const ALL_BOARDS_SCOPE = 'all';
+
+// THE SEED. Read at module load, so the first render of a board already has
+// rows in its hands instead of empty columns waiting for a fetch. `loaded` goes
+// with them: a seeded list is a list, and the waiting state is for a board that
+// has never seen anything. The fetch leaves anyway and overwrites this.
+const seeded = typeof localStorage === 'undefined' ? null : readBoardRowsCache(ALL_BOARDS_SCOPE);
+let tasks: readonly BoardTask[] = seeded ?? [];
+let loaded = seeded !== null;
 const listeners = new Set<() => void>();
 
 /** La lista, o quella vuota finché la prima lettura non è tornata. */
@@ -49,6 +58,7 @@ export function hasLoadedBoardTasks(): boolean {
 export function setBoardTasks(next: readonly BoardTask[]): void {
   tasks = next;
   loaded = true;
+  writeBoardRowsCache(ALL_BOARDS_SCOPE, next);
   listeners.forEach((cb) => cb());
 }
 

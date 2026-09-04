@@ -11,6 +11,7 @@ import { BreadcrumbNav } from './BreadcrumbNav';
 import { getMediaType, isHtmlFile, MediaViewer, HtmlPreview } from './fileMedia';
 import { createPaneId } from '../../state/pane/adapters';
 import { Spinner, SpinnerFallback } from '../Shared/Spinner';
+import { readFileContentCache, writeFileContentCache } from '../../lib/fileContentCache';
 
 const CodeEditor = lazy(() => import('./CodeEditor').then(m => ({ default: m.CodeEditor })));
 const DiffViewer = lazy(() => import('./DiffViewer').then(m => ({ default: m.DiffViewer })));
@@ -28,13 +29,19 @@ interface FilePaneProps {
 }
 
 export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }: FilePaneProps) {
-  const [content, setContent] = useState('');
+  // THE SEED: the text of this file as it was the last time it was open, read
+  // synchronously so the first frame draws the editor instead of a spinner in
+  // an empty pane. The fetch below leaves anyway and replaces it; what the seed
+  // removes is the flash between the two (a spinner is centred, text is not, so
+  // on a reload the swap was also a layout shift).
+  const [content, setContent] = useState(() => readFileContentCache(filePath) ?? '');
   const [, setOriginalContent] = useState('');
   const [diffOriginal, setDiffOriginal] = useState('');
   // Sale quando si mette in stage (o si scarta) un blocco: il diff mostrato
   // non e' piu' quello vero, e va riletto.
   const [diffTick, setDiffTick] = useState(0);
-  const [loading, setLoading] = useState(true);
+  // A pane with a cached copy in hand is not loading: it has something to draw.
+  const [loading, setLoading] = useState(() => readFileContentCache(filePath) === null);
   const [error, setError] = useState<string | null>(null);
   const [, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
   const [darkMode, setDarkMode] = useState(false);
@@ -91,7 +98,14 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
     }
 
     let cancelled = false;
-    setLoading(true);
+    // Only when there is nothing to show: raising the curtain over a cached
+    // copy would put the spinner back exactly where the seed removed it. And
+    // when the pane switches to ANOTHER file, the seed has to be re-read here:
+    // the initial state only runs on mount, so without this line switching tab
+    // would keep the previous file's text on screen until the fetch answers.
+    const cached = readFileContentCache(filePath);
+    if (cached === null) setLoading(true);
+    else { setContent(cached); setLoading(false); }
     setError(null);
 
     // HTML source view: fetch via /preview/ (no 100KB limit, unlike /api/files/content)
@@ -133,6 +147,7 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
         if (cancelled) return;
         setContent(text);
         setOriginalContent(text);
+        writeFileContentCache(filePath, text);
         setLoading(false);
       }).catch((err: unknown) => {
         if (cancelled) return;
@@ -188,7 +203,7 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full" data-testid="file-pane">
       {/* Breadcrumb path bar */}
       <BreadcrumbNav filePath={filePath} projectPath={projectPath} openFile={handleBreadcrumbOpen} actions={
         <>
