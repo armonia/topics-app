@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { encodeNotifyTarget, decodeNotifyTarget, openNotifyToken } from './notifyTarget';
 import { __resetTabLinkStateForTests, __setTabLinkRetryDelayForTests } from '../tabLink';
 
@@ -20,6 +20,8 @@ type StubWindow = {
   history: { pushState: (state: unknown, title: unknown, url: string) => void };
 };
 const g = globalThis as unknown as { window: StubWindow; CustomEvent: unknown };
+/** The real `fetch`, captured before any stub replaces it. */
+const realFetch = (globalThis as unknown as { fetch: unknown }).fetch;
 
 const origin = 'https://localhost:3333';
 
@@ -93,6 +95,12 @@ describe('openNotifyToken: il click che torna dal guscio', () => {
     // gate opens anyway, but only after its one retry.
     (globalThis as unknown as { fetch: unknown }).fetch = () =>
       Promise.resolve({ ok: true, json: () => Promise.resolve({ state: 'closed' }) });
+  });
+
+  // Give the real `fetch` back: the unit suite is one process, and a stub left
+  // here would answer for every file that runs after this one.
+  afterEach(() => {
+    (globalThis as unknown as { fetch: unknown }).fetch = realFetch;
   });
 
   test('token di TOPIC: apre la tab della conversazione', async () => {

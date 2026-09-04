@@ -1,7 +1,7 @@
 /**
  * @covers TASKLINK-01
  */
-import { describe, test, expect, beforeEach } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import {
   buildTaskLink,
   parseTaskLocation,
@@ -129,6 +129,10 @@ function stubServiceWorker() {
   return { post: (data: unknown) => listeners.forEach((cb) => cb({ data })), listeners };
 }
 
+/** The real globals, captured BEFORE anything here replaces them. */
+const realFetch = (globalThis as unknown as { fetch: unknown }).fetch;
+const realNavigator = (globalThis as unknown as { navigator: unknown }).navigator;
+
 beforeEach(() => {
   stubWindow(`${origin}/`);
   resolveState = 'closed';
@@ -139,6 +143,17 @@ beforeEach(() => {
       ok: true,
       json: () => Promise.resolve(resolveState === null ? {} : { state: resolveState }),
     });
+});
+
+// PUT THE GLOBALS BACK, and this is load-bearing far from here. The whole unit
+// suite runs in ONE process, so a `fetch` left stubbed by this file becomes the
+// `fetch` of every file that runs after it: the suites that really do speak
+// over the network (the MCP fleet, the OAuth sign-in, web_fetch) then answer
+// `{ state: 'closed' }` to everything and fail instantly, with a message that
+// points nowhere near the file that caused it.
+afterEach(() => {
+  (globalThis as unknown as { fetch: unknown }).fetch = realFetch;
+  (globalThis as unknown as { navigator: unknown }).navigator = realNavigator;
 });
 
 describe('buildTaskLink / parseTaskLocation (path-based)', () => {
