@@ -31,5 +31,15 @@ export function taskActionErrorMessage(raw: unknown, fallback = 'azione non rius
   if (/no active agent/i.test(text)) {
     return "Non c'è nessun agente al lavoro su questa card: non c'è niente da fermare. Per rimetterla in moto portala in Todo.";
   }
+  // The pre-review checks gate. The server's sentence names the remedy an API
+  // CALLER has (`force: true`) and prints it at a person looking at a card,
+  // where that field does not exist. Here it names the remedy that is actually
+  // under the thumb: the button that says «comunque». The red check's name is
+  // kept, because it is the only part that says what to look at.
+  if (/checks pre-review sono ROSSI/i.test(text)) {
+    const red = /`([^`]+)`/.exec(text)?.[1];
+    return `I checks pre-review sono rossi${red ? ` (${red})` : ''}: la strada normale è rimandarlo all'agent. `
+      + 'Per farlo lo stesso, usa il bottone che dice «comunque» tra le scelte qui sopra.';
+  }
   return text;
 }

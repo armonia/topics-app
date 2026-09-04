@@ -1692,6 +1692,42 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * Zero effetto sul dispatch normale: righe in `task_attempts` esistono solo per
    * un fan-out (`launch()` non ne crea nessuna).
    */
+  /**
+   * THE PRE-REVIEW CHECKS GATE, for the gestures that close a card.
+   *
+   * Not a ban: `force` overrides it, and it is there for the cases where you
+   * know the red is harmless (a command that is beside the point, a known
+   * failing test). Its job is to make the exception a CHOICE instead of the
+   * silent default.
+   *
+   * It is one function because the gestures are TWO and for months it guarded
+   * one: the gate lived inside the `approve` branch while `POST …/land` queued
+   * the merge without looking at anything. Landing CONTAINS the acceptance and
+   * puts the branch on main on top of it, so the less reversible of the two was
+   * the only one with no gate. On a review card with a branch it was the green
+   * button, too.
+   *
+   * The sentence is written for whoever reads it from the board: it names the
+   * normal road, not a field of the JSON body. `force: true` stays in the code
+   * comment (where it serves an API caller) and out of the message (where the
+   * reader has no way to pass it).
+   */
+  function checksRedGate(projectId: string, taskId: string, force: unknown): Response | null {
+    if (force === true) return null;
+    let cur: { checksState?: string | null; checks?: Array<{ ok: boolean; name: string }> | null } | undefined;
+    // The watchdog must never be able to block an acceptance: if the read
+    // throws, the gesture goes through.
+    try { cur = svc.get(taskId, { projectId })?.task; } catch { return null; }
+    if (cur?.checksState !== "fail") return null;
+    const red = (cur.checks ?? []).find((r) => !r.ok);
+    return json({
+      error:
+        `i checks pre-review sono ROSSI${red ? ` (\`${red.name}\`)` : ""}. ` +
+        "La strada normale e' rimandarlo all'agent; per accettarlo comunque usa il bottone «comunque» della card.",
+      code: "checks_failed",
+    }, 409);
+  }
+
   function fanOutGate(taskId: string, forbidden: string): Response | null {
     let running = 0;
     try { running = attempts.runningCount(taskId); } catch { return null; }
@@ -2649,25 +2685,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const body = (await readJSON(req)) as any;
         const decision = body?.decision === "approve" ? "approve" : body?.decision === "reject" ? "reject" : null;
         if (!decision) return json({ error: "decision must be 'approve' or 'reject'", code: "invalid_input" }, 400);
-        // Un task con i checks rossi non si accetta per distrazione. Non è un
-        // divieto: `force` lo scavalca, ed è per i casi in cui il rosso sei tu a
-        // saperlo innocuo (un comando che non c'entra, un test già noto). Serve a
-        // rendere l'eccezione una SCELTA, non il default silenzioso — la strada
-        // normale resta rimandarlo all'agente.
-        if (decision === "approve" && body?.force !== true) {
-          try {
-            const cur = svc.get(bReview.taskId, { projectId: bReview.projectId })?.task;
-            if (cur?.checksState === "fail") {
-              const red = (cur.checks ?? []).find((r) => !r.ok);
-              return json({
-                error:
-                  `i checks pre-review sono ROSSI${red ? ` (\`${red.name}\`)` : ""}` +
-                  `${cur.checksAt ? `, ultimo giro ${cur.checksAt}` : ""}. ` +
-                  "Rimandalo all'agente, oppure approva comunque con force: true se il rosso non c'entra con questa consegna.",
-                code: "checks_failed",
-              }, 409);
-            }
-          } catch { /* la spia non deve poter bloccare un'accettazione */ }
+        // A task with red checks is not accepted by inattention: see
+        // `checksRedGate`, which is the land's gate too.
+        if (decision === "approve") {
+          const gate = checksRedGate(bReview.projectId, bReview.taskId, body?.force);
+          if (gate) return gate;
         }
         try {
           const comment = typeof body?.comment === "string" ? body.comment : undefined;
@@ -2677,6 +2699,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // never pushes. Check BEFORE the land label (this is the superset action).
           if (isPublishActionLabel(comment)) {
             const { projectId, taskId } = bReview;
+            // Publishing is landing plus the push: same gate, all the more so
+            // (this is where the work leaves the machine).
+            const gate = checksRedGate(projectId, taskId, body?.force);
+            if (gate) return gate;
             // NIENTE approvazione qui: pubblicare è landare + spingere, e la
             // card la chiude il land quando main lo conferma (`settleLanded`).
             // Approvare adesso sarebbe di nuovo dire l'esito prima dei fatti.
@@ -2773,6 +2799,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             return json(esito.task);
           }
           if (isLandActionLabel(comment)) {
+            // The «Landa su main» quick reply arrives here as a `reject`
+            // carrying the button's text: without this line it was the gate's
+            // service door, the same merge with nobody reading the checks.
+            const gate = checksRedGate(bReview.projectId, bReview.taskId, body?.force);
+            if (gate) return gate;
             const before = svc.get(bReview.taskId, { projectId: bReview.projectId })?.task;
             if (!before) return json({ error: "task not found", code: "not_found" }, 404);
             const ticket = enqueueLand(bReview.projectId, bReview.taskId);
@@ -2872,6 +2903,14 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         try {
           const task = svc.get(bLand.taskId, { projectId: bLand.projectId })?.task;
           if (!task) return json({ error: "task not found", code: "not_found" }, 404);
+          // The body may be absent (a bare `POST` stays valid): it only
+          // carries `force`.
+          const landBody = (await readJSON(req)) as { force?: unknown } | null;
+          // Same gate as `approve`, for the same reason said backwards:
+          // landing is not a weaker acceptance, it is a stronger one. See
+          // `checksRedGate`.
+          const gate = checksRedGate(bLand.projectId, bLand.taskId, landBody?.force);
+          if (gate) return gate;
           // ── L'ORDINE È IL DIFETTO ──────────────────────────────────────────
           //
           // Qui una card in `review` veniva APPROVATA — cioè portata a `done`,

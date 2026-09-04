@@ -952,9 +952,12 @@ export const boardApi = {
   /** Land the task's branch on main (accept if still in review, then merge locally
    *  + rebuild). Explicit, decoupled from approve — never pushes online.
    *  Risponde `202`: il land è ACCODATO, non ancora avvenuto — `landing` dice in
-   *  quanti ha davanti, e `landStatus` com'è finito. */
-  land: (projectId: string, taskId: string) =>
-    req<BoardTask & { landing: LandingTicket }>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/land`, { method: 'POST', body: JSON.stringify({}) }),
+   *  quanti ha davanti, e `landStatus` com'è finito.
+   *  `force` overrides the same red-checks gate `review` has: landing contains
+   *  the acceptance and merges onto main on top of it, so it could not stay the
+   *  one gesture with no gate. */
+  land: (projectId: string, taskId: string, opts?: { force?: boolean }) =>
+    req<BoardTask & { landing: LandingTicket }>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/land`, { method: 'POST', body: JSON.stringify({ force: opts?.force }) }),
   /** L'esito del land richiesto per questo task (404 se non ne è mai stato chiesto uno). */
   landStatus: (projectId: string, taskId: string) =>
     req<{ landing: LandingTicket; pending: number }>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/land`),

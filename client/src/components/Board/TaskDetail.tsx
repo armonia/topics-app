@@ -35,7 +35,10 @@ import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import { DictationButton } from '../Shared/DictationButton';
 import { emptyThreadKey } from './emptyThread';
-import { boardApi, commentAuthorLabel, diffTotals, hasCodeQuestion, showsLandingDebt, showsDeployProposal, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, subtaskQueueChip, subtaskOpenable, reopenedChip, attemptHasWork, priorityAwaitingAgent, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef, type DiffBundle, type DiffNote, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
+import { LandingNotice } from './LandingNotice';
+import { landingBand } from './landingBand';
+import { useLandingTicket } from './useLandingTicket';
+import { boardApi, commentAuthorLabel, diffTotals, hasCodeQuestion, showsLandingDebt, showsDeployProposal, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, subtaskQueueChip, subtaskOpenable, reopenedChip, attemptHasWork, priorityAwaitingAgent, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef, type DiffBundle, type DiffNote, type CheckRun, type TaskAttempt } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
 import { ZoomableImage } from '../Shared/ImageLightbox';
 import { UnifiedDiff } from './UnifiedDiff';
@@ -784,8 +787,6 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
    * same one the column drag shows, from the same key.
    */
   const [notice, setNotice] = useState<string | null>(null);
-  /** La ricevuta del land chiesto da QUESTO client, finché non si chiude. */
-  const [landing, setLanding] = useState<LandingTicket | null>(null);
   const showError = (e: unknown) => setError(taskActionErrorMessage(e));
   // Narrow (default) keeps the board visible behind the drawer; wide grows the
   // drawer so the task's tab group can live in a side panel (Thread on the left,
@@ -877,6 +878,15 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   }, [projectId, taskId]);
   // fetch-on-mount: setState lands after the await, not synchronously
   useEffect(() => { load(); }, [load, bump]);
+  /**
+   * La ricevuta del land chiesto da QUESTO client, seguita finché non si
+   * chiude. Il come sta in `useLandingTicket`, che è lo stesso della card: due
+   * superfici che seguono lo stesso ticket in due modi diversi è esattamente
+   * come la card è finita per non seguirlo affatto.
+   */
+  const afterLanding = useCallback(() => { void load(); onChanged(); }, [load, onChanged]);
+  const { landing, setLanding } = useLandingTicket(projectId, taskId, afterLanding);
+  const landingBanda = landingBand(landing);
   // Wake-up refresh (same rationale as the board's): an open drawer coming back
   // from sleep would keep yesterday's chip/ticker until some WS event lands.
   //
@@ -1134,29 +1144,6 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     finally { setDeploying(false); }
   };
 
-  // Il ticket si SEGUE finché non si chiude. Senza qualcuno che chieda «e poi?»,
-  // il 202 sarebbe l'onestà del server sprecata: la richiesta è andata a buon
-  // fine e l'esito non arriva comunque mai a chi l'ha chiesto.
-  useEffect(() => {
-    if (!landing || (landing.phase !== 'queued' && landing.phase !== 'running')) return;
-    let alive = true;
-    const id = setInterval(async () => {
-      try {
-        const res = await boardApi.landStatus(projectId, taskId);
-        if (!alive) return;
-        // Stesso oggetto quando niente è cambiato: altrimenti ogni giro
-        // rimonterebbe questo effetto e riazzererebbe l'intervallo.
-        setLanding((prev) =>
-          prev && prev.phase === res.landing.phase && prev.ahead === res.landing.ahead ? prev : res.landing);
-        if (res.landing.phase === 'settled' || res.landing.phase === 'failed') { await load(); onChanged(); }
-      } catch {
-        // Il ticket è caduto fuori dalla finestra interrogabile (o la board non
-        // risponde): la banda sparisce invece di mentire.
-        if (alive) setLanding(null);
-      }
-    }, 2000);
-    return () => { alive = false; clearInterval(id); };
-  }, [landing, projectId, taskId, load, onChanged]);
 
   // Ricattura evidenza: rifà l'anteprima di QUESTA card senza svegliare l'agent
   // (il server risponde sul canale review-note, non su quello dei commenti) e
@@ -2476,19 +2463,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       )}
       {/* Land ACCODATO, non ancora avvenuto. Sta sopra la banda «non su main»
           perché in questa finestra quella banda dice il vero ma non dice tutto:
-          il codice non è su main E qualcuno ci sta già lavorando. */}
-      {landing && (landing.phase === 'queued' || landing.phase === 'running') && (
-        <div className="shrink-0 border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-300">
-          {landing.ahead > 0
-            ? <>{tr('board.task.land')} <strong>{tr('board.task.landQueued')}</strong>{tr(landing.ahead === 1 ? 'board.task.landQueuedRestOne' : 'board.task.landQueuedRestMany', { n: landing.ahead })}</>
-            : <>{tr('board.task.land')} <strong>{tr('board.task.landRunning')}</strong>{tr('board.task.landRunningRest')}</>}
-        </div>
-      )}
-      {landing?.phase === 'failed' && (
-        <div className="shrink-0 border-b border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-300">
-          ⚠️ {tr('board.task.land')} <strong>{tr('board.task.landFailed')}</strong>: {landing.error ?? tr('board.task.landUnknownError')}
-        </div>
-      )}
+          il codice non è su main E qualcuno ci sta già lavorando.
+          La frase (e il caso che qui mancava: un `settled` RESPINTO, che senza
+          leggere `outcome` era identico a un successo) sta in `LandingNotice`,
+          insieme a quella della card. */}
+      {landingBanda && <LandingNotice band={landingBanda} testId="task-detail-landing" />}
       {/* Verdetto dell'audit di landing: un task chiuso il cui lavoro non è su
           main. Sta QUI, in cima al drawer, e non solo come commento nel thread —
           il commento si perde, la banda no.
