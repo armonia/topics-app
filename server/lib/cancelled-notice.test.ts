@@ -296,3 +296,31 @@ describe("a turn cut by the output cap is not a finished turn", () => {
     expect(avvisoPerTurno({ end: "end_turn" }, { haProdotto: true })).toBeNull();
   });
 });
+
+/**
+ * The plan's limit is an interruption of OURS: the notice says so, names the
+ * hour when there is one, and the resume recognises it.
+ *
+ * @covers RESUME-04, INTERRUPT-03
+ */
+describe("il limite dell'API", () => {
+  test("il cartello sostituisce il testo grezzo ed e' riconosciuto come nostro", () => {
+    const testo = avvisoPerTurno({ end: "error", cause: "rate-limit", detail: "API 429: {...} (retried 27 times over 1655s without success)" }, { haProdotto: true });
+    expect(testo).not.toBeNull();
+    expect(testo!.startsWith("⚠️")).toBe(true);
+    expect(testo).not.toMatch(/Riprova/);
+    expect(eCartelloDiInterruzione(testo)).toBe(true);
+  });
+
+  test("con l'ora del reset, il cartello la dice", () => {
+    const testo = avvisoPerTurno({ end: "error", cause: "rate-limit", detail: "API 429: usage window exhausted, resets at 2026-09-04T20:49:59.852Z" }, { haProdotto: false });
+    expect(testo).toMatch(/fino alle \d{2}:\d{2}/);
+    expect(eCartelloDiInterruzione(testo)).toBe(true);
+  });
+
+  test("un errore vero del provider resta muto qui: la sua riga e' il testo dell'errore", () => {
+    expect(avvisoPerTurno({ end: "error", cause: "provider-error", detail: "API 400" }, { haProdotto: true })).toBeNull();
+    // And the raw API text is NOT an interruption of ours: never resumed by itself.
+    expect(eCartelloDiInterruzione('API 429: {"type":"error"} (retried 27 times over 1655s without success)')).toBe(false);
+  });
+});

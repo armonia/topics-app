@@ -120,6 +120,12 @@ export function avvisoPerTurno(
   info: TurnEndInfo,
   opts: { haProdotto: boolean; riprendeDaSolo?: boolean },
 ): string | null {
+  // THE API STAYED SATURATED. Not a verdict on the message and not the
+  // agent's doing: the same turn goes through once the account's limit frees,
+  // so the notice is one of ours and the resume (`ripresa-boot.ts` for a chat,
+  // the dispatcher for a card) picks it up. One sentence for both cases: what
+  // was produced stays, nobody is asked to press anything.
+  if (info.end === "error" && info.cause === "rate-limit") return rateLimitNotice(info.detail);
   // A TURN CUT BY THE OUTPUT CAP IS NOT A FINISHED TURN.
   //
   // Measured on 2026-08-28 on topic:4c935add, three times out of three. The model
@@ -183,6 +189,29 @@ export function eCartelloDiInterruzione(testo: string | null | undefined): boole
 export const CAUSE_NOSTRE = ["server-shutdown", "watchdog", "wall-clock"] as const;
 
 /**
+ * The notice for a turn that died with the API's limit still saturated after
+ * every retry. Written by `avvisoPerTurno` in place of the raw "API 429 ..."
+ * text (which stays in the server log), and recognised below so the resume
+ * resends the message once the limit frees.
+ */
+export const RATE_LIMIT_NOTICE =
+  "⚠️ Turno interrotto: il limite di richieste dell'API è rimasto saturo per tutti i tentativi. Riprende da solo appena si libera.";
+
+/**
+ * The same notice with the HOUR on it, when the runtime knew one: a spent
+ * usage window ends at a published time (`usage-window.ts`), and the hour is
+ * the one thing the reader wants to know. The opening is the same prefix, so
+ * the resume recognises both.
+ */
+export function rateLimitNotice(detail: string | undefined): string {
+  const m = /resets at (\S+)/.exec(detail ?? "");
+  const at = m ? Date.parse(m[1]) : NaN;
+  if (!Number.isFinite(at)) return RATE_LIMIT_NOTICE;
+  const ora = new Date(at).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+  return `⚠️ Turno interrotto: il limite di richieste dell'API è esaurito fino alle ${ora} (finestra di utilizzo del piano). Riprende da solo dopo quell'ora.`;
+}
+
+/**
  * The recognised openings. An EXPLICIT list, and it has to be.
  *
  * Deriving it from `cancelledNotice` looks cleaner and is wrong: rows already in
@@ -213,4 +242,7 @@ const CARTELLI_RIPRENDIBILI = [
   // boot wrote was the one notice the resume could not act on - which is the
   // exact case the resume exists for.
   "Turno interrotto da un riavvio del server",
+  // From 2026-09-04: the API's rate limit exhausted every retry. The turn is
+  // resumable BECAUSE the failure is not deterministic - see `RATE_LIMIT_NOTICE`.
+  "Turno interrotto: il limite di richieste dell'API",
 ] as const;

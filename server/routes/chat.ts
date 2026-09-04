@@ -1699,10 +1699,15 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // `fullContent` è ancora vuoto (il replay è muto) e lo diventa solo
               // dopo la rifusione dello snapshot, più in basso. Deciderlo adesso
               // vorrebbe dire scrivere il cartello su un turno che c'è.
-              blocks.push({ kind: "error", text: errorMsg });
-              turnError = errorMsg;
+              // A saturated API (`rate-limit`) gets the notice the resume
+              // recognises instead of the raw "API 429 ..." text: that text
+              // is in the server log, and in the chat it was the one error
+              // nobody ever resumed (2026-09-04, two chats stuck for hours).
+              const shown = avvisoPerTurno(endInfo, { haProdotto: true, riprendeDaSolo: true }) ?? errorMsg;
+              blocks.push({ kind: "error", text: shown.replace(/^⚠️\s*/, "") });
+              turnError = shown;
               if (matchedTopic) {
-                broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: errorMsg });
+                broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: shown });
               }
             }
 

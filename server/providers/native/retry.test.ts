@@ -19,6 +19,7 @@ import {
   exhaustedMessage,
   isTransientStatus,
   parseRetryAfter,
+  retryRound,
   sleepUnlessAborted,
   type RetryPolicy,
 } from "./retry";
@@ -150,5 +151,41 @@ describe("the sentence when attempts run out", () => {
       "API 529: overloaded (retried 9 times over 121s without success)",
     );
     expect(exhaustedMessage("x", 2, 500)).toContain("retried 1 time over");
+  });
+});
+
+/**
+ * A 429 with a spent usage window has an END, not a backoff: the loop asks
+ * once and gives up with the hour in the message.
+ *
+ * @covers RESUME-04
+ */
+describe("a 429 with a spent usage window", () => {
+  const policy: RetryPolicy = { maxAttempts: 5, baseMs: 1, capMs: 5, jitter: () => 1 };
+  const ctxBase = { auth: { token: "t" }, policy, renewToken: async () => null };
+
+  test("gives up at once with the reset in the message, instead of spending the attempts", async () => {
+    let calls = 0;
+    const untilMs = Date.now() + 3 * 60 * 60_000;
+    const asked: (number | null)[] = [];
+    const run = async () => { calls++; throw new ApiHttpError("API 429: rate limit", 429, 7_000); };
+    await expect(retryRound(run, { ...ctxBase, onSaturated: async (ra) => { asked.push(ra); return untilMs; } }))
+      .rejects.toThrow(/API 429: usage window exhausted, resets at \d{4}-/);
+    expect(calls).toBe(1);
+    expect(asked).toEqual([7_000]);
+  });
+
+  test("no spent window: the ordinary backoff, as before", async () => {
+    let calls = 0;
+    const run = async () => { calls++; if (calls < 3) throw new ApiHttpError("API 429: rate limit", 429, null); return "ok"; };
+    expect(await retryRound(run, { ...ctxBase, onSaturated: async () => null })).toBe("ok");
+    expect(calls).toBe(3);
+  });
+
+  test("a reset closer than the backoff cap is left to the backoff", async () => {
+    let calls = 0;
+    const run = async () => { calls++; if (calls < 2) throw new ApiHttpError("API 429: rate limit", 429, null); return "ok"; };
+    expect(await retryRound(run, { ...ctxBase, onSaturated: async () => Date.now() + 2 })).toBe("ok");
+    expect(calls).toBe(2);
   });
 });

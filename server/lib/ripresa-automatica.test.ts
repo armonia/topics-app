@@ -62,3 +62,15 @@ describe("chi riprende da solo", () => {
     expect(meritaRipresaAutomatica({ ...sano, giaRipreso: true })).toBe(false);
   });
 });
+
+/**
+ * @covers RESUME-04
+ */
+describe("il limite dell'API", () => {
+  test("esaurito per tutti i tentativi: e' della macchina, riprende", () => {
+    expect(meritaRipresaAutomatica({ ...sano, fine: { end: "error", cause: "rate-limit" } })).toBe(true);
+  });
+  test("un altro errore del provider: no", () => {
+    expect(meritaRipresaAutomatica({ ...sano, fine: { end: "error", cause: "provider-error" } })).toBe(false);
+  });
+});
