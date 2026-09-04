@@ -9,7 +9,7 @@
  * desktop — where the WebContentsView runs on the SAME machine as the server —
  * that turned a reachable `http://localhost:3000` into an unreachable
  * `https://127.0.0.1:3000`, so Chromium showed `chrome-error://…` (a blank
- * white page). That is exactly the "apre il browser e si apre bianco" report.
+ * white page). That is exactly the "apre il browser e si apre bianco" report. allow-italian: quoted report, the reporter's own words
  *
  * The rewrite only makes sense for a REMOTE web client (Tailscale / LAN): there
  * the client's browser genuinely cannot reach the server's localhost, so local
