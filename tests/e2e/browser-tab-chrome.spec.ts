@@ -27,7 +27,7 @@ import { createServer, type Server } from "http";
 import type { AddressInfo } from "net";
 import type { Page } from "@playwright/test";
 import { goToApp } from "./helpers";
-import { E2E_BASE } from "./helpers/test-server";
+import { E2E_BASE, E2E_DATA_DIR } from "./helpers/test-server";
 import {
   createTopic,
   deleteTopic,
@@ -397,5 +397,58 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     await expect(tabDelBrowser(page), "the tab writes the new address").toContainText(/seconda-pagina/, { timeout: 60_000 });
     await expect(page.getByTestId("browser-tab-address-input")).toHaveCount(0);
     await expect(page.getByTestId("browser-url-input")).toHaveCount(0);
+  });
+
+  /**
+   * IT SHOWS ONE THING AND COPIES ANOTHER, which is the whole defect.
+   *
+   * The tab menu wrote the address through `prettyUrl` and eleven lines above
+   * copied a different one, the raw transport: the line read
+   * `file:///…/documento.html` while the paste gave
+   * `http://127.0.0.1:PORT/api/media?path=%2F…`. A LOCAL FILE is the scene that
+   * shows it, because that is the one case where the two strings differ; on an
+   * http site they coincide and the test would pass over the defect.
+   *
+   * The clipboard is replaced by a recorder because the real one needs a
+   * permission headless does not grant: what is measured is the string the
+   * component hands over, not the browser's permission.
+   */
+  test("«Copia indirizzo» copia esattamente l'indirizzo che il menu mostra", async ({ page, request }) => {
+    await resetPaneStore(request, []);
+    const topic = await createTopic(request, `E2E-TABCHROME-COPY-${Date.now()}`);
+    topicId = topic.id;
+
+    // `/api/media` serves an allowlist, and `${OPENCLAW_DIR}/media/` is in it
+    // (helpers/test-server.ts holds the data dir of the test server).
+    const mediaDir = join(E2E_DATA_DIR, ".openclaw", "media", "tab-chrome-copy");
+    mkdirSync(mediaDir, { recursive: true });
+    const file = join(realpathSync(mediaDir), `documento-${Date.now()}.html`);
+    writeFileSync(file, "<!doctype html><html lang=\"en\"><title>Documento</title><p>ok</p>");
+    const transport = `${E2E_BASE}/api/media?path=${encodeURIComponent(file)}`;
+
+    await page.addInitScript(() => {
+      const store: string[] = [];
+      (window as unknown as { __copied: string[] }).__copied = store;
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText: async (t: string) => { store.push(t); } },
+      });
+    });
+
+    await goToApp(page);
+    await waitForTopicVisible(page, topic.id);
+    await mountPane(page, topic.id, transport);
+
+    await tabDelBrowser(page).hover();
+    await page.getByTestId("browser-tab-menu").click();
+    const address = page.getByTestId("browser-tab-menu-address");
+    await expect(address).toHaveText(`file://${file}`, { timeout: 60_000 });
+
+    await page.getByTestId("browser-tab-copy-url").click();
+    await expect
+      .poll(() => page.evaluate(() => (window as unknown as { __copied: string[] }).__copied))
+      .toEqual([`file://${file}`]);
+
+    rmSync(mediaDir, { recursive: true, force: true });
   });
 });

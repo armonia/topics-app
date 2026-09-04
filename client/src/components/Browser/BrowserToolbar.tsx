@@ -6,7 +6,7 @@ import { ZoomControl, DeviceSwitcher, ConsoleBadge } from './BrowserDevControls'
 import { DownloadsMenu, type DownloadsMenuProps } from './DownloadsMenu';
 import type { DeviceMode, BrowserConsoleEntry, NavHistoryEntry } from './browserDevTypes';
 import { POPOVER_ITEM, POPOVER_ITEM_DANGER, POPOVER_DIVIDER } from '../../lib/popoverStyles';
-import { toNavigableUrl, displayUrl } from '../../lib/browserNavUrl';
+import { toNavigableUrl, displayUrl, prettyUrl } from '../../lib/browserNavUrl';
 import type { ShareMode } from '../../lib/sharedAuto';
 import { DropdownPortal } from '../Shared/DropdownPortal';
 import { Menu } from '../Shared/Menu';
@@ -545,16 +545,19 @@ export function BrowserToolbar({
               <>
                 {history && history.length > 0 && (
                   <>
+                    {/* Shown short, navigated raw: the history keeps the
+                        transport url because that is what reopens the page,
+                        while a row of a menu is 200px and reads like the tab. */}
                     {history.slice(0, 8).map((entry) => (
                       <button
                         key={entry}
                         type="button"
                         onClick={() => { onUrlChange(entry); setOverflowOpen(false); }}
                         className={POPOVER_ITEM}
-                        title={entry}
+                        title={displayUrl(entry)}
                       >
                         <Clock size={13} className="shrink-0 text-app-text-tertiary" />
-                        <span className="truncate">{entry}</span>
+                        <span className="truncate">{prettyUrl(entry)}</span>
                       </button>
                     ))}
                     <div className={POPOVER_DIVIDER} />
@@ -633,9 +636,9 @@ export function BrowserToolbar({
                       type="button"
                       onClick={() => { onUrlChange(entry); setHistoryOpen(false); }}
                       className="w-full px-3 py-1.5 text-left text-[11px] text-app-text hover:bg-app-hover truncate"
-                      title={entry}
+                      title={displayUrl(entry)}
                     >
-                      {entry}
+                      {prettyUrl(entry)}
                     </button>
                   ))}
                 </div>
