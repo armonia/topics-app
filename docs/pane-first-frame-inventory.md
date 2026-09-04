@@ -40,6 +40,32 @@ Every fetch that decides a height, a width or the presence of a row is a layout
 shift already made. What the first frame draws must come from the local copy,
 and the fresh data must land in the same geometry.
 
+## Measured, before and after
+
+Milliseconds from the app's FIRST PAINT to the pane having content, and the CLS
+of the reload. Same machine, same seeded project, idle both times.
+
+| Surface | Empty for (before) | Empty for (after) | CLS after |
+|---|---|---|---|
+| Board 390 px | 408 ms | 24 ms | 0.0000 |
+| Board 1440 px | 512 ms | 29 ms | 0.0000 |
+| File tree | 331 ms | 2 ms | 0.0000 |
+| Open file (text) | spinner, then the text | 30 ms | 0.0001 |
+| Terminal | 365 ms | 41 ms | 0.0001 |
+| Opening a file already seen | - | 7-29 ms from the click | 0.0001 |
+
+The "before" column is the same figure on four unrelated surfaces, which is
+what pointed at the cause: it was not their data (that was already local), it
+was their CODE. Every pane body is a `React.lazy` chunk, so the request for it
+only left after React had mounted and hit the suspense boundary. See
+`client/src/state/pane/panePreload.ts`.
+
+Reproduce: `E2E_CLS_LABEL=<label> npx playwright test pane-return-cls`, which
+writes one JSON per surface under `test-results/cls/` so two runs compare line
+by line. The spec is nightly-tier: the CLS half is stable anywhere, the
+milliseconds half counts real frames on a real CPU, and on a loaded machine the
+same case reads 365 ms instead of 24.
+
 ## What was NOT covered, and why
 
 - **Phone (390 px) on project panes.** At 390 a project shows one pane at a
