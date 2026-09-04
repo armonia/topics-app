@@ -18,6 +18,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import type { AppContext, ContentBlock, RouteHandler, ToolCall, Topic } from "../types";
+import { userRowMarks } from "../lib/user-row-marks";
 import { getProvider, type AIProvider, type ChatMessage, type ProviderDoneMessage, type ProviderUsage, type StreamHandler } from "../providers";
 import { deriveToolDetail } from "../providers/claude/tool-detail";
 import { cartelloRisveglio } from "../providers/claude/woken-turn";
@@ -423,20 +424,15 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         // chiamante (import di transcript, sotto-agenti) non ha un'identità di
         // richiesta da cui ricavarlo, e quelle righe restano senza autore —
         // che è la risposta giusta, non una mancanza.
-        // THE CONTINUATION IS MARKED ON THE ROW, not disguised as the human.
-        //
-        // A goal still open at the end of a turn buys the next one
-        // (`services/goal-loop.ts`), and the message has to be a `user` row
-        // because that is the only role a provider answers. The block is what
-        // keeps the transcript honest: the client draws one compact system line
-        // with the attempt number instead of a bubble nobody typed.
-        const goalNudgeAttempt = typeof body.goalNudge === "number" && body.goalNudge > 0
-          ? Math.floor(body.goalNudge)
-          : null;
+        // A ROW NOBODY TYPED SAYS SO, and which rows those are is decided in
+        // `lib/user-row-marks.ts`: the goal continuation and the dispatcher's
+        // envelope are `user` rows because that is the only role a provider
+        // answers, and the mark is what stops the transcript from showing the
+        // person saying words they never wrote.
         const storedUserMsg = appendLocalMessage(
           sessionKey, "user", lastUserMsg.content,
           autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null),
-          goalNudgeAttempt ? [{ kind: "goal-nudge", attempt: goalNudgeAttempt }] : undefined,
+          userRowMarks({ goalNudge: body.goalNudge, dispatched }),
         );
         // ADESSO il messaggio esiste, e da adesso una ripetizione è un doppione.
         // Non un istante prima: la riga è la prova, e finché non c'è, ripetere è

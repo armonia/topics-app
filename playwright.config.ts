@@ -340,6 +340,10 @@ export default defineConfig({
         // in DUE posti: il `testMatch` del suo progetto e questa lista.
         "**/sidebar-pin-drag-touch.spec.ts",
         "**/tab-close-ring-touch.spec.ts",
+        // Il drag della board col dito: gira solo in `chromium-touch-wide`.
+        // Qui `hasTouch` e' falso, quindi `new Touch(...)` non esiste e il
+        // gesto non si puo' nemmeno costruire.
+        "**/board-touch-drag.spec.ts",
         ...(IS_PR ? NIGHTLY_ONLY_SPECS : []),
       ],
     },
@@ -436,6 +440,9 @@ export default defineConfig({
         // La spunta della tab: il contratto e' «col dito», non «sul telefono»,
         // e a 390px la striscia non si disegna piu'. Qui c'e' e il dito e' vero.
         "**/tab-close-ring-touch.spec.ts",
+        // Il drag della board col dito. Serve lo schermo LARGO: a 390px la
+        // board e' appiattita e non ci sono due colonne fra cui trascinare.
+        "**/board-touch-drag.spec.ts",
       ],
       use: {
         browserName: "chromium",

@@ -59,9 +59,9 @@ test.describe.serial("Rinomina di una tab terminale · il rifiuto si vede", () =
     });
 
     await tab.click({ button: "right" });
-    const rinomina = page.getByTitle("Rinomina questa scheda");
-    await expect(rinomina).toBeVisible({ timeout: 3_000 });
-    await rinomina.click();
+    const renameItem = page.getByTitle("Rinomina questa scheda");
+    await expect(renameItem).toBeVisible({ timeout: 3_000 });
+    await renameItem.click();
 
     const editor = page.locator('input[placeholder="Nuovo nome"]');
     await expect(editor).toBeVisible({ timeout: 2_000 });

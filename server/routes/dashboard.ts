@@ -51,15 +51,23 @@ export function createDashboardRouter(ctx: AppContext): RouteHandler {
     `),
     // Il tasso d'errore e' quello dei DISPATCH: `agent_sessions` non ha un solo
     // insert in tutto il server, quindi la vecchia coppia dava 0/0 per sempre.
-    // Il denominatore sono i task che sono stati effettivamente dispatchati
-    // (`dispatch_state` non nullo), non tutti i task: includere backlog e todo
-    // diluirebbe il tasso con lavoro mai partito.
+    //
+    // THE TWO COUNTS MUST DESCRIBE THE SAME POPULATION, and until 2026-09-05
+    // they did not: the numerator kept every row carrying a `dispatch_error`,
+    // the denominator only the rows with a LIVE `dispatch_state`. A dispatch
+    // that ends clears the state and leaves the error on the row (it is the
+    // tooltip's source), so a finished failure left the numerator and not the
+    // denominator: 59 over 31 on the production DB, a rate of 190.3% printed
+    // as a percentage on a card. `dispatch_attempts > 0` is the honest
+    // denominator - "this task was actually dispatched at least once" - it
+    // survives the state being cleared, and it is on the same table.
     errorSessionCount: db.prepare(`
       SELECT COUNT(*) as count FROM tasks
-      WHERE dispatch_state = 'failed' OR dispatch_error IS NOT NULL
+      WHERE dispatch_attempts > 0
+        AND (dispatch_state = 'failed' OR dispatch_error IS NOT NULL)
     `),
     totalSessionCount: db.prepare(`
-      SELECT COUNT(*) as count FROM tasks WHERE dispatch_state IS NOT NULL
+      SELECT COUNT(*) as count FROM tasks WHERE dispatch_attempts > 0
     `),
     // `messages.timestamp` e' ISO-8601 UTC in TEXT ('2026-07-30T09:12:00.000Z'),
     // quindi il confronto con `date('now', ...)` — che rende 'YYYY-MM-DD', anche
@@ -104,8 +112,18 @@ export function createDashboardRouter(ctx: AppContext): RouteHandler {
       FROM approvals
       WHERE status IN ('approved', 'rejected') AND reviewed_at IS NOT NULL
     `),
+    // AN APPROVAL IS PENDING ONLY IF ITS TASK IS STILL WAITING FOR ONE. The
+    // count used to read the `approvals` table alone, and the card showed it as
+    // a red signal you cannot act on: there is no approvals UI in the client,
+    // the only way to close a row is to move its task. On the production DB, 21
+    // pending of which 14 on `done` tasks and 7 on archived ones, the oldest
+    // from 2026-07-12 - a permanent red mark with nothing behind it. The task
+    // is the truth: in review, not archived.
     pendingApprovals: db.prepare(`
-      SELECT COUNT(*) as count FROM approvals WHERE status = 'pending'
+      SELECT COUNT(*) as count
+        FROM approvals a
+        JOIN tasks t ON t.id = a.task_id
+       WHERE a.status = 'pending' AND t.status = 'review' AND t.archived = 0
     `),
 
     // ── Time series ────────────────────────────────────────────────────
@@ -162,10 +180,13 @@ export function createDashboardRouter(ctx: AppContext): RouteHandler {
       GROUP BY date(timestamp)
       ORDER BY date
     `),
+    // Same population as the KPI above: a row without an attempt never
+    // dispatched, so it cannot be a dispatch error.
     errorsSeries: db.prepare(`
       SELECT date(updated_at) as date, COUNT(*) as value
       FROM tasks
-      WHERE (dispatch_state = 'failed' OR dispatch_error IS NOT NULL)
+      WHERE dispatch_attempts > 0
+        AND (dispatch_state = 'failed' OR dispatch_error IS NOT NULL)
         AND updated_at >= date('now', ? || ' days')
       GROUP BY date(updated_at)
       ORDER BY date(updated_at)

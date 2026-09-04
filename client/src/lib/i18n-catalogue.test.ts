@@ -18,6 +18,8 @@
  * The Italian catalogue is imported eagerly, the English one through the same
  * `await import` the app uses, so this test also proves the lazy chunk still
  * resolves.
+ *
+ * @covers I18N-05
  */
 import { describe, expect, it } from 'bun:test';
 import IT from './i18n-it';

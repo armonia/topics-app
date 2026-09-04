@@ -60,6 +60,8 @@ function harness(opts?: {
    * case where doubt must not kill.
    */
   toolRunningForMs?: number;
+  /** The board is running (or queuing) OUR pre-review checks for this turn's card. */
+  waitingOnOurChecks?: boolean;
 }): Harness {
   const clock = { t: Date.UTC(2026, 7, 15, 12, 0, 0) };
   const silent = opts?.silentMs ?? 7 * MIN;
@@ -112,6 +114,7 @@ function harness(opts?: {
     getMessageById: (id) => rows.get(id),
     humanHoldAgeMs: () => opts?.humanHoldAgeMs ?? null,
     childAlive: () => opts?.alive ?? true,
+    waitingOnOurChecks: () => opts?.waitingOnOurChecks ?? false,
     resyncStream: (sk) => resyncs.push(sk),
     cancelAsk: () => {},
     // La proroga vera: sposta l'orologio dello stream ad ADESSO. È esattamente
@@ -221,13 +224,13 @@ describe("un figlio VIVO non viene chiuso dall'orologio", () => {
     expect(row?.content).toBe("mezza risposta");
     const blocks = row?.blocks as ContentBlock[];
     expect(blocks).toHaveLength(2);
-    const verdetto = blocks[1] as { kind: string; cause?: string; text: string; at?: string };
-    expect(verdetto.kind).toBe("error");
+    const verdict = blocks[1] as { kind: string; cause?: string; text: string; at?: string };
+    expect(verdict.kind).toBe("error");
     // The CAUSE as a code: it is what the banner decides on, not the sentence.
-    expect(verdetto.cause).toBe("watchdog");
-    expect(verdetto.at).toBeTruthy();
+    expect(verdict.cause).toBe("watchdog");
+    expect(verdict.at).toBeTruthy();
     // And the warning sign stays in the old format only.
-    expect(verdetto.text.startsWith("\u26a0")).toBe(false);
+    expect(verdict.text.startsWith("\u26a0")).toBe(false);
   });
 
   test("due giri di seguito non impilano due verdetti", () => {
@@ -417,6 +420,20 @@ describe("the sweeper stops the provider's turn, not only the row", () => {
     const h = harness({ alive: true, silentMs: 7 * MIN, toolRunning: true, toolRunningForMs: 210 * MIN });
     expect(sweepStaleStreams(h.deps).get(SK)).toBe("finalized");
     expect(h.providerAborts).toEqual([SK]);
+  });
+
+  /**
+   * 2026-09-04, 11:53-11:59: three deliveries closed as "a promise that never
+   * returns" at 31-32 minutes of `update_task(status='review')`, while the
+   * board was still grinding their pre-review checks behind a slot queue. The
+   * wait was ours; the stall detector already knew it, the sweeper did not.
+   */
+  test("a tool held open by OUR pre-review checks is extended past the hung cap, provider untouched", () => {
+    const h = harness({ alive: true, silentMs: 7 * MIN, toolRunning: true, toolRunningForMs: 40 * MIN, waitingOnOurChecks: true });
+    h.deps.rescued.add(SK);
+    expect(sweepStaleStreams(h.deps).get(SK)).toBe("extended");
+    expect(h.providerAborts).toEqual([]);
+    expect(h.warnings.some((w) => w.includes("waiting on OUR pre-review checks"))).toBe(true);
   });
 
   test("frozen (alive, nothing in flight, past the cap): the provider is aborted", () => {

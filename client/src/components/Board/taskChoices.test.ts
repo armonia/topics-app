@@ -418,8 +418,8 @@ describe('review portata dal sistema: le scelte non sono quelle di una consegna'
     // from, so `acceptOverride` always answered "no exception". The button said
     // «Approva», the drawer on the SAME task said «Approva comunque», and the
     // click took a 409 naming `force: true` at someone who cannot pass it.
-    const rossa = task({ ...consegnata, checksState: 'fail' });
-    const scelte = byId(rossa);
+    const redChecks = task({ ...consegnata, checksState: 'fail' });
+    const scelte = byId(redChecks);
     expect(scelte.get('accept')!.label).toBe(acceptWord('checks-red').label);
     expect(scelte.get('accept')!.label).not.toBe(taskActionWord('accept').label);
     // Landing CONTAINS the acceptance and merges onto main on top: if
@@ -428,9 +428,9 @@ describe('review portata dal sistema: le scelte non sono quelle di una consegna'
     expect(scelte.get('land')!.label).not.toBe(taskActionWord('land').label);
     // And the green one is no longer the land: with red checks the normal road
     // is sending the output back. No exit disappears.
-    expect(taskChoices(rossa)[0]).toMatchObject({ id: 'send-back', tone: 'primary' });
-    expect(taskChoices(rossa).filter((c) => c.tone === 'primary')).toHaveLength(1);
-    expect(taskChoices(rossa).map((c) => c.id).sort()).toEqual(taskChoices(consegnata).map((c) => c.id).sort());
+    expect(taskChoices(redChecks)[0]).toMatchObject({ id: 'send-back', tone: 'primary' });
+    expect(taskChoices(redChecks).filter((c) => c.tone === 'primary')).toHaveLength(1);
+    expect(taskChoices(redChecks).map((c) => c.id).sort()).toEqual(taskChoices(consegnata).map((c) => c.id).sort());
   });
 
   it('coi checks verdi non cambia niente: l\'eccezione è l\'eccezione', () => {

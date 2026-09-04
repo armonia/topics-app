@@ -50,6 +50,13 @@ async function banco(): Promise<Router> {
   return createDashboardRouter(await createTestAppContext());
 }
 
+/** The same bench, with the database in hand: the seeded KPIs need to write. */
+async function benchWithDb(): Promise<{ router: Router; db: import("bun:sqlite").Database }> {
+  const { createDashboardRouter } = await import("../../server/routes/dashboard");
+  const ctx = await createTestAppContext();
+  return { router: createDashboardRouter(ctx), db: ctx.db };
+}
+
 /** The keys the dashboard's five components are wired to. */
 const KPI_KEYS = [
   "throughputDay",
@@ -89,6 +96,64 @@ describe("i numeri del cruscotto", () => {
     const router = await banco();
     const kpi = (await (await call(router, "/api/dashboard/kpis")).json()) as { errorRate: number };
     expect(Number.isFinite(kpi.errorRate)).toBe(true);
+  });
+});
+
+describe("i due KPI che descrivevano una popolazione che non esiste", () => {
+  test("l'error rate non puo' superare il 100%: numeratore e denominatore sono la stessa popolazione", async () => {
+    // The failure this test names: a finished dispatch clears `dispatch_state`
+    // and LEAVES `dispatch_error` on the row (it is the tooltip's source). With
+    // the old pair those rows stayed in the numerator and left the denominator:
+    // 59 over 31 on the production DB, printed on the card as «190.3%».
+    const { router, db } = await benchWithDb();
+    const seed = (id: string, state: string | null, error: string | null) =>
+      db.run(
+        `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at,
+                            dispatch_attempts, dispatch_state, dispatch_error)
+         VALUES (?, 'proj-x', ?, 'in_progress', '2026-09-01', '2026-09-01', 1, ?, ?)`,
+        [id, id, state, error],
+      );
+    seed("kpi-working", "working", null);
+    seed("kpi-done-1", null, "x");
+    seed("kpi-done-2", null, "x");
+
+    const kpi = (await (await call(router, "/api/dashboard/kpis")).json()) as { errorRate: number };
+    expect(kpi.errorRate).toBeLessThanOrEqual(1);
+    expect(kpi.errorRate).toBeCloseTo(2 / 3, 3); // the route rounds to 4 decimals
+
+    db.run("DELETE FROM tasks WHERE id LIKE 'kpi-%'");
+  });
+
+  test("le approvazioni in attesa sono quelle di un task ancora in review", async () => {
+    // Without the join on the task the card counted the whole `approvals`
+    // table: 21 pending on the production DB, of which 14 on `done` tasks and 7
+    // on archived ones. A red mark nobody can act on - there is no approvals UI
+    // in the client, the only way to close a row is to move its task.
+    const { router, db } = await benchWithDb();
+    const task = (id: string, status: string, archived = 0) =>
+      db.run(
+        `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, archived)
+         VALUES (?, 'proj-x', ?, ?, '2026-09-01', '2026-09-01', ?)`,
+        [id, id, status, archived],
+      );
+    const approval = (id: string, taskId: string) =>
+      db.run(
+        `INSERT INTO approvals (id, task_id, requested_by, approval_type, status, created_at)
+         VALUES (?, ?, 'agent', 'review', 'pending', '2026-09-01')`,
+        [id, taskId],
+      );
+    task("ap-done", "done");
+    task("ap-review", "review");
+    task("ap-archived", "review", 1);
+    approval("a-done", "ap-done");
+    approval("a-review", "ap-review");
+    approval("a-archived", "ap-archived");
+
+    const kpi = (await (await call(router, "/api/dashboard/kpis")).json()) as { pendingApprovals: number };
+    expect(kpi.pendingApprovals).toBe(1);
+
+    db.run("DELETE FROM approvals WHERE id LIKE 'a-%'");
+    db.run("DELETE FROM tasks WHERE id LIKE 'ap-%'");
   });
 });
 
