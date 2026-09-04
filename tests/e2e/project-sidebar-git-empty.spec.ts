@@ -1,14 +1,14 @@
 /**
- * ZERO MODIFICHE, ZERO SEZIONE.
+ * NO CHANGES, NO SECTION.
  *
- * La sidebar mostrava «Modifiche git» anche su un repository pulito, con un
- * titolo che diceva zero file: una riga spesa per dire che non e' successo
- * niente, piu' il suo bottone nella striscia compatta. Qui si misurano i due
- * stati che una schermata sola non puo' provare: il progetto pulito NON ha la
- * sezione, e la prima modifica sul disco la fa tornare col conteggio.
+ * The sidebar used to show its git section on a clean repository too, with a
+ * title reading zero files: a row spent saying nothing happened, plus its
+ * button in the collapsed strip. What is measured here are the two states a
+ * single screenshot cannot prove: a clean project has NO section, and the
+ * first change on disk brings it back with its count.
  *
- * Il repo di prova e' vero (`initGitRepo`), non un mock: e' l'unico modo per
- * cui «pulito» qui voglia dire quello che vuol dire per git.
+ * The fixture repository is a real one (`initGitRepo`), not a mock: it is the
+ * only way "clean" here means what git means by it.
  *
  * @covers PROJECT-12
  */
@@ -27,8 +27,8 @@ test.describe("sidebar progetto: la sezione git quando non c'e' niente", () => {
   test.beforeAll(() => {
     mkdirSync(PROJECT_DIR, { recursive: true });
     writeFileSync(`${PROJECT_DIR}/README.md`, "uno\n");
-    // Tutto committato: nessun file modificato e nessun remoto, quindi nemmeno
-    // avanti/indietro. E' lo stato in cui la sezione non deve esistere.
+    // Everything committed, and no remote, so no ahead/behind either. This is
+    // the state in which the section must not exist.
     initGitRepo(PROJECT_DIR, "primo");
   });
   test.afterAll(() => {
@@ -47,38 +47,38 @@ test.describe("sidebar progetto: la sezione git quando non c'e' niente", () => {
     const win = page.locator(`[data-testid="project-window"][data-project-path="${PROJECT_DIR}"]`);
     await expect(win).toHaveCount(1, { timeout: 15000 });
 
-    // La sezione File c'e' sempre: e' l'ancora che dice che la sidebar e'
-    // montata e ha finito di caricare. Senza, l'assenza della sezione git
-    // sarebbe vera anche su una sidebar che non c'e'.
+    // The Files section is always there: it is the anchor saying the sidebar
+    // is mounted and done loading. Without it, the absence of the git section
+    // would hold on a sidebar that simply is not there.
     await expect(win.getByTestId("project-sidebar-files")).toBeVisible({ timeout: 15000 });
 
     const section = win.getByTestId("project-sidebar-git-section");
-    // 1. PULITO: niente sezione. Si aspetta che lo stato git sia ARRIVATO
-    //    (il pannello dei file e' visibile e la finestra e' viva) e si tiene
-    //    l'assenza per un intervallo, perche' un'assenza immediata sarebbe
-    //    vera anche solo perche' il render non e' ancora passato di li'.
+    // 1. CLEAN: no section. The git status has ARRIVED by now (the file panel
+    //    is visible and the window is alive) and the absence is held for a
+    //    while, because an immediate absence would also be true of a render
+    //    that has simply not reached that branch yet.
     await expect(section).toHaveCount(0);
     await expect.poll(async () => section.count(), {
-      // Il poll dello stato git e' 15s: se la sezione dovesse comparire per
-      // uno zero, comparirebbe entro questa finestra.
+      // The git status poll is 15s: were the section to appear for a zero, it
+      // would appear inside this window.
       timeout: 18000,
       intervals: [1000],
-      message: "la sezione git non deve comparire su un repo pulito",
+      message: "the git section must not appear on a clean repository",
     }).toBe(0);
 
-    // 2. E LA STRISCIA COMPATTA nemmeno: il bottone che apre una sezione che
-    //    non c'e' sarebbe un comando che non fa niente.
+    // 2. AND NEITHER DOES THE COLLAPSED STRIP: a button opening a section
+    //    that does not exist is a command that does nothing.
     await win.getByRole("button", { name: "Nascondi la barra" }).click();
     const strip = win.locator('[data-testid="project-rail-inline"]');
     await expect(strip).toBeVisible({ timeout: 5000 });
     await expect(strip.getByRole("button", { name: /Modifiche git/ })).toHaveCount(0);
 
-    // 3. LA PRIMA MODIFICA LA RIPORTA. La condizione e' viva: nessuno riapre
-    //    il progetto, cambia solo il disco.
+    // 3. THE FIRST CHANGE BRINGS IT BACK. The condition is live: nobody
+    //    reopens the project, only the disk changes.
     writeFileSync(`${PROJECT_DIR}/README.md`, "uno\ndue\n");
     await expect(strip.getByRole("button", { name: /Modifiche git/ })).toHaveCount(1, { timeout: 25000 });
 
-    // E riaperta, la sezione c'e' col suo conteggio: quello non e' cambiato.
+    // Reopened, the section is there with its count: that part is unchanged.
     await win.getByRole("button", { name: "Espandi la barra" }).click();
     await expect(win.getByTestId("project-sidebar-git-section")).toBeVisible({ timeout: 15000 });
   });
