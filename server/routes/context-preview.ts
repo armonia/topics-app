@@ -30,6 +30,7 @@
 import type { AppContext, RouteHandler } from "../types";
 import { adaptEnvelope, assembleTopicContext, clearSnapshots, getProviderStrategy, getSnapshots } from "../context";
 import { getDefaultProvider, getProvider } from "../providers";
+import { isGlobalOrchestratorTopic } from "../services/global-orchestrator-session";
 
 export function createContextPreviewRouter(ctx: AppContext): RouteHandler {
   const { json, matchRoute } = ctx;
@@ -46,6 +47,12 @@ export function createContextPreviewRouter(ctx: AppContext): RouteHandler {
       if (params && method === "GET") {
         const topic = ctx.getTopicById(params.id);
         if (!topic) return json({ error: "Topic not found" }, 404);
+        if (isGlobalOrchestratorTopic(ctx.db, topic.id)) {
+          return json({
+            error: "context preview is unavailable for the global coordinator",
+            code: "orchestrator_topic_invariant",
+          }, 403);
+        }
 
         const requestedProvider = url.searchParams.get("provider")?.trim() || topic.provider || null;
         let providerName = requestedProvider ?? "(default)";
@@ -92,12 +99,27 @@ export function createContextPreviewRouter(ctx: AppContext): RouteHandler {
       if (params && method === "GET") {
         const topic = ctx.getTopicById(params.id);
         if (!topic) return json({ error: "Topic not found" }, 404);
+        // Snapshots retain the canonical envelope that was sent to the model.
+        // A raw registry row must not use this debug surface to recover board
+        // context after its backing Topic has become corrupt/ineligible.
+        if (isGlobalOrchestratorTopic(ctx.db, topic.id)) {
+          return json({
+            error: "context snapshots are unavailable for the global coordinator",
+            code: "orchestrator_topic_invariant",
+          }, 403);
+        }
         const snapshots = getSnapshots(params.id);
         return json({ snapshots });
       }
       if (params && method === "DELETE") {
         const topic = ctx.getTopicById(params.id);
         if (!topic) return json({ error: "Topic not found" }, 404);
+        if (isGlobalOrchestratorTopic(ctx.db, topic.id)) {
+          return json({
+            error: "context snapshots are unavailable for the global coordinator",
+            code: "orchestrator_topic_invariant",
+          }, 403);
+        }
         const removed = clearSnapshots(params.id);
         return json({ ok: true, removed });
       }

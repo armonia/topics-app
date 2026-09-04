@@ -43,6 +43,7 @@ import { resolveAgentRuntime } from "../services/app-settings";
 import { deriveClaudeSessionTitle } from "../lib/claude-transcript-title";
 import { parseJsonlLine, splitJsonlChunk } from "../lib/claude-session-state";
 import { topicsAgentSystemPrompt, resolveClaudeEffort, resolveCodexReasoningEffort, topicEffortFor } from "../lib/topics-agent-prompt";
+import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 import type { SubAgentExitInfo } from "./subagent-exit";
 export type { SubAgentExitInfo } from "./subagent-exit";
 
@@ -3022,6 +3023,18 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       const sendM = matchRoute(pathname, "/api/sessions/:sessionKey/agents/:agentId/send");
       const readM = matchRoute(pathname, "/api/sessions/:sessionKey/agents/:agentId/read");
       const stopM = matchRoute(pathname, "/api/sessions/:sessionKey/agents/:agentId/stop");
+
+      const agentRoute = spawnM ?? listM ?? sendM ?? readM ?? stopM;
+      if (agentRoute) {
+        const parentKey = decodeURIComponent(agentRoute.sessionKey);
+        // Profile filtering keeps these tools out of the model context; this
+        // route check makes direct HTTP calls fail too. The global coordinator
+        // coordinates only through durable board operations, never a hidden
+        // fan-out of agent processes.
+        if (isGlobalOrchestratorSession(ctx.db, parentKey)) {
+          return errorResponse(403, "global coordinator sessions cannot spawn, send to, read, or stop sub-agents");
+        }
+      }
 
       if (spawnM && method === "POST") {
         if (!agentAuthOk(req)) return errorResponse(401, "unauthorized");

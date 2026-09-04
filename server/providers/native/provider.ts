@@ -47,6 +47,10 @@ import type {
 import { recordTurnEnd } from "../turn-end-registry";
 import { resolveClaudeEffort } from "../../lib/topics-agent-prompt";
 import { resolveClaudeModel, resolveClaudeMaxTokens } from "../../services/app-settings";
+import {
+  isEligibleGlobalOrchestratorSession,
+  isGlobalOrchestratorSession,
+} from "../../services/global-orchestrator-session";
 import { clampMaxTokens } from "../../lib/native-parity";
 import { cancelled, stopCauseFromSignal, type StopCause, type TurnEndInfo } from "../stop-reason";
 
@@ -308,22 +312,51 @@ export class NativeProvider implements AIProvider {
   private topicsContext(sessionKey: string): TopicsToolContext | null {
     try {
       const { getDatabase } = require("../../db");
-      const row = getDatabase()
+      const db = getDatabase();
+      const row = db
         .prepare("SELECT mcp_policy FROM topics WHERE session_key = ? LIMIT 1")
         .get(sessionKey) as { mcp_policy?: string | null } | undefined;
       // Nessuna riga = nessuna topic: e' il caso di `complete` e dei test, dove
       // i mestieri di Topics non c'entrano niente.
       if (!row) return null;
+      const rawGlobalOrchestrator = isGlobalOrchestratorSession(db, sessionKey);
+      const eligibleGlobalOrchestrator = rawGlobalOrchestrator
+        && isEligibleGlobalOrchestratorSession(db, sessionKey);
+      // A mapped-but-corrupt coordinator is never an ordinary dispatch chat.
+      // The HTTP front door rejects it too, but this closes direct provider
+      // entry points before a mutable mcp_policy can grant local board tools.
+      if (rawGlobalOrchestrator && !eligibleGlobalOrchestrator) return null;
       return {
         baseUrl: topicsAppBaseUrl(),
         sessionKey,
         gatewayToken: process.env.GATEWAY_TOKEN,
-        profile: row.mcp_policy === "bridge-only" ? "dispatch" : undefined,
+        // The mapping, not mcp_policy, owns the global coordinator role.
+        // mcp_policy remains an ordinary session's fleet-scoping preference.
+        profile: eligibleGlobalOrchestrator
+          ? "global-orchestrator"
+          : row.mcp_policy === "bridge-only" ? "dispatch" : undefined,
       };
     } catch {
       // Senza database si resta un agente che sa programmare e basta: meglio
       // meno strumenti che un turno che non parte.
       return null;
+    }
+  }
+
+  /**
+   * The provider boundary repeats the raw-registry fence from HTTP routes.
+   * The coordinator is Codex-only, so neither a healthy nor a damaged
+   * registry-mapped Topic may become a native run by bypassing `/api/chat`.
+   */
+  private hasGlobalCoordinatorRole(sessionKey: string): boolean {
+    try {
+      const { getDatabase } = require("../../db");
+      const db = getDatabase();
+      return isGlobalOrchestratorSession(db, sessionKey);
+    } catch {
+      // No DB means no durable role can be established; retain the normal
+      // provider behavior for standalone completions and unit tests.
+      return false;
     }
   }
 
@@ -407,6 +440,10 @@ export class NativeProvider implements AIProvider {
     handler: StreamHandler,
     options?: { model?: string; history?: ChatMessage[]; systemPrompt?: string },
   ): Promise<{ runId?: string }> {
+    if (this.hasGlobalCoordinatorRole(sessionKey)) {
+      handler.onError("the global coordinator is Codex-only; reopen it from the Kanban");
+      return {};
+    }
     const session = this.sessionFor(sessionKey);
     await this.supersedeLiveTurn(sessionKey, session);
 
@@ -528,6 +565,7 @@ export class NativeProvider implements AIProvider {
       // muovere la card che sta lavorando e' meta' agente, ed e' esattamente
       // com'era prima di questa riga.
       const topics = this.topicsContext(sessionKey);
+      const globalOrchestrator = topics?.profile === "global-orchestrator";
       // ── THE GLOBAL MCP FLEET, AND THE LEVER THAT TURNS IT OFF ───────────
       //
       // The servers configured on the machine (`~/.claude.json`) are mounted by
@@ -536,19 +574,31 @@ export class NativeProvider implements AIProvider {
       // the same lever the CLI has: the tool schemas travel in the context of
       // EVERY call of every round, so a dispatched agent working one task would
       // pay the whole fleet on every turn for tools it never calls.
-      const fleetAllowed = readMcpPolicy(sessionKey) !== "bridge-only";
+      // A global coordinator must not inherit an arbitrary MCP fleet. Its
+      // registry-gated Topics tools are the whole model-visible capability set.
+      const fleetAllowed = !globalOrchestrator
+        && readMcpPolicy(sessionKey) !== "bridge-only";
       if (fleetAllowed) await ensureMcpFleet();
       // Composed at every round, not once: `mcpToolSpecs()` is the live fleet,
       // and a child mounted by this very turn must be callable by the next
       // round. `fleetAllowed` and `workspace` stay captured, read once per turn
       // as before: the per-session policy is not the thing that changes.
-      const tools = () => [
-        // No workspace does not mean no tools: the two that resolve no path
-        // (the turn's plan, and reading a URL) stay. See `WORKSPACE_FREE_TOOLS`.
-        ...(workspace ? CODING_TOOLS : WORKSPACE_FREE_TOOLS),
-        ...(topics ? topicsToolSpecs(topics.profile) : []),
-        ...(fleetAllowed ? mcpToolSpecs() : []),
-      ];
+      const tools = () => {
+        // This is an ordinary unbound Topic with a special, registry-backed
+        // capability profile—not an unbound coding/chat session. Do not append
+        // even workspace-free coding tools or the MCP fleet: the five scoped
+        // board tools are intentionally its entire model-visible surface.
+        if (globalOrchestrator) {
+          return topicsToolSpecs("global-orchestrator");
+        }
+        return [
+          // No workspace does not mean no tools: the two that resolve no path
+          // (the turn's plan, and reading a URL) stay. See `WORKSPACE_FREE_TOOLS`.
+          ...(workspace ? CODING_TOOLS : WORKSPACE_FREE_TOOLS),
+          ...(topics ? topicsToolSpecs(topics.profile) : []),
+          ...(fleetAllowed ? mcpToolSpecs() : []),
+        ];
+      };
       // `resolveClaudeModel()` si rilegge A OGNI TURNO, non solo alla costruzione:
       // altrimenti cambiare il modello in Impostazioni non ha effetto finche' il
       // server non riparte — che e' esattamente il difetto che `resolveClaudeCodeModel`
@@ -567,9 +617,15 @@ export class NativeProvider implements AIProvider {
           model: turnModel,
           effort: turnEffort,
           maxTokens: turnMaxTokens,
-          system: workspace
+          // An unbound normal chat gets the truthful no-workspace note. The
+          // registry-backed coordinator is different: it intentionally has no
+          // workspace and only its five board tools, so adding that ordinary
+          // note would falsely advertise web/file capabilities.
+          system: globalOrchestrator
             ? options?.systemPrompt
-            : [options?.systemPrompt, NO_WORKSPACE_NOTE].filter(Boolean).join("\n\n"),
+            : (workspace
+              ? options?.systemPrompt
+              : [options?.systemPrompt, NO_WORKSPACE_NOTE].filter(Boolean).join("\n\n")),
           history: session.history,
           // Passed by REFERENCE: every turn restarts from what the previous
           // one measured, instead of from the assumed 4 chars per token.
