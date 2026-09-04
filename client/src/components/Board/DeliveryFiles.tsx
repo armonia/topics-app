@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo } from 'react';
 import { ChevronDown, FileDiff } from 'lucide-react';
 import { boardApi } from '../../lib/board';
 import { useT } from '../../hooks/useT';
+import { showsGitChangesChip } from '../../lib/gitVisibility';
 
 /**
  * THE CARD'S GIT CHANGES, as a chip that opens.
@@ -98,6 +99,12 @@ export function DeliveryFiles({ projectId, taskId, files, insertions, deletions,
       deletions: stat.reduce((n, f) => n + Math.max(0, f.deletions), 0),
     };
   }, [files, insertions, deletions, stat]);
+
+  // A COUNTED ZERO IS NO CHIP. Once the read comes back empty the turn touched
+  // nothing, and "0 files +0 -0" is a control that opens on an empty list.
+  // Before any count exists the chip stays: "not measured yet" is a different
+  // statement from "nothing changed", and it is the one the live label makes.
+  if (!showsGitChangesChip(misura)) return null;
 
   return (
     <div className="relative" data-testid="card-delivery-files">
