@@ -15,18 +15,8 @@
 // the resume sweep read it and wait; a successful round clears it early. It is
 // process-local on purpose: the account is one, the server is one.
 
-export type UsageWindowKind = "five_hour" | "seven_day";
-
-export interface ProviderHold {
-  /** When the provider is expected to accept requests again (ms epoch). */
-  untilMs: number;
-  /** Which of the plan's windows is spent: the client translates this. */
-  window: UsageWindowKind;
-  /** One line for logs and the chat, e.g. "finestra di 5 ore esaurita". */
-  reason: string;
-  /** When the hold was recorded (ms epoch). */
-  sinceMs: number;
-}
+import type { ProviderHold, UsageWindowKind } from "../../shared/provider-hold";
+export type { ProviderHold, UsageWindowKind };
 
 let current: ProviderHold | null = null;
 const listeners = new Set<(hold: ProviderHold | null) => void>();
@@ -63,7 +53,7 @@ export function onProviderHold(cb: (hold: ProviderHold | null) => void): () => v
   return () => { listeners.delete(cb); };
 }
 
-/** "fino alle 22:49" for a hold, in the machine's local time. */
+/** The hour a hold ends, as HH:MM in the machine's local time, for logs and notices. */
 export function holdUntilLabel(hold: Pick<ProviderHold, "untilMs">): string {
   return new Date(hold.untilMs).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
 }

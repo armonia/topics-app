@@ -3187,6 +3187,46 @@ turno, semplicemente nessuno compra più turni per perseguirlo.
 - **THEN** l'obiettivo è ancora attivo
 - **AND** alla fine del turno successivo nessuna continuazione parte
 
+### Requirement: CHAT-USERROW-01 — Una riga `user` scritta dalla macchina non è una bolla della persona
+
+Le righe `user` che il dispatcher scrive per far partire o continuare un turno
+(kickoff, ripresa, sollecito, continuazione dopo un'interruzione) SHALL essere
+marcate ALLA FONTE come righe della macchina, e una riga `user` scritta dalla
+persona NON SHALL portare nessun marchio: un marchio su ogni riga non direbbe
+niente.
+
+Il client SHALL rendere una riga marcata come cartiglio di sistema (piegato,
+con il nome di chi l'ha scritta), NON come bolla della persona a destra con il
+bottone di modifica: trecento righe di istruzioni della board in bocca alla
+persona sono una bugia a schermo.
+
+#### Scenario: la busta del dispatcher
+- **GIVEN** un turno avviato dalla board con la sua busta
+- **THEN** la riga `user` SHALL portare il marchio della macchina e SHALL comparire come cartiglio, non come bolla
+
+#### Scenario: il messaggio della persona
+- **GIVEN** una riga `user` scritta dalla persona nel composer
+- **THEN** NON SHALL portare nessun marchio e SHALL restare una bolla
+
+### Requirement: CHAT-PERSIST-01 — La riga di un turno non si riscrive per intero a ogni evento
+
+Un turno in corso SHALL riscrivere la propria colonna `blocks` a intervalli
+(ogni N eventi e a fine turno), non a ogni delta o evento di tool: il costo di
+un turno in byte scritti SHALL crescere in modo lineare con i suoi eventi, non
+quadratico.
+
+Con `blocks` sulla riga, la colonna `tool_calls` NON SHALL essere scritta una
+seconda volta: le chiamate di tool si leggono dalla timeline. Chi scrive la
+timeline lo dichiara (`mirroredInBlocks`), invece di farlo indovinare alla riga.
+
+#### Scenario: quindici eventi, poche scritture
+- **GIVEN** un turno che riceve quindici eventi di tool
+- **THEN** la colonna `blocks` SHALL essere riscritta un numero di volte limitato dall'intervallo, e per intero solo a fine turno
+
+#### Scenario: nessuna seconda copia
+- **GIVEN** una riga che porta `blocks`
+- **THEN** `tool_calls` SHALL restare vuota e i tool SHALL essere letti dalla timeline
+
 ### Requirement: CHAT-INT-01 — Un turno interrotto dice perché, e offre una via d'uscita
 
 Quando il sistema chiude un turno che non è arrivato in fondo, il messaggio SHALL

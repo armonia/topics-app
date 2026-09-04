@@ -21,6 +21,8 @@
  * The gate is on the second: under 4x the final size of the row. The first is
  * there so the gate is known to be able to fail, and to keep the number that
  * justifies the change visible.
+ *
+ * @covers CHAT-PERSIST-01
  */
 
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";

@@ -53,8 +53,8 @@ export function holdFromUsage(usage: Usage, nowMs: number): { untilMs: number; w
     { w: usage.fiveHour, window: "five_hour" as const, reason: "finestra di 5 ore del piano esaurita" },
   ].filter((c) => c.w && c.w.utilization >= EXHAUSTED_AT && c.w.resetsAtMs != null && c.w.resetsAtMs > nowMs);
   if (spent.length === 0) return null;
-  const longest = spent.reduce((a, b) => (a.w!.resetsAtMs! >= b.w!.resetsAtMs! ? a : b));
-  return { untilMs: longest.w!.resetsAtMs!, window: longest.window, reason: longest.reason };
+  const latest = spent.reduce((a, b) => (a.w!.resetsAtMs! >= b.w!.resetsAtMs! ? a : b));
+  return { untilMs: latest.w!.resetsAtMs!, window: latest.window, reason: latest.reason };
 }
 
 /** Read the windows with the session's OAuth token. Never throws: a usage

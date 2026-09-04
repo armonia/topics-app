@@ -65,8 +65,8 @@ describe("the usage windows", () => {
   test("an endpoint that is down decides nothing", async () => {
     const down = (async () => { throw new Error("ECONNRESET"); }) as unknown as typeof fetch;
     expect(await fetchUsage("tok", down)).toBeNull();
-    const denied = (async () => new Response("nope", { status: 403 })) as unknown as typeof fetch;
-    expect(await saturationHold("tok", NOW, denied)).toBeNull();
+    const refusal = (async () => new Response("nope", { status: 403 })) as unknown as typeof fetch;
+    expect(await saturationHold("tok", NOW, refusal)).toBeNull();
     expect(providerHold(NOW)).toBeNull();
   });
 

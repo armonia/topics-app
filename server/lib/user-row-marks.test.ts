@@ -4,6 +4,8 @@
  * The second half is the one that gives the first any meaning: a mark on every
  * row would say nothing at all. See `user-row-marks.ts` for the two turns that
  * wear the person's role without being the person.
+ *
+ * @covers CHAT-USERROW-01
  */
 import { describe, expect, test } from "bun:test";
 import { userRowMarks } from "./user-row-marks";
