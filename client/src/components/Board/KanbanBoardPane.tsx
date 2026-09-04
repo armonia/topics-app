@@ -65,6 +65,12 @@ interface Props {
   /** Global cross-project board: locks to 'all' mode, no project column, no add. */
   global?: boolean;
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
+  /**
+   * Reads a session's history into the chat store. The drawer needs it for the
+   * three moments the live wire cannot cover on its own: mount, waking up, and
+   * the end of a turn (persisted blocks and tool rows only come from history).
+   */
+  loadHistory?: (sessionKey: string) => Promise<boolean>;
   /** Deep-link a task's bound agent tab into focus (wired to handleTopicClick). */
   onOpenTopic?: (topicId: string) => void;
   /**
@@ -573,7 +579,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
   );
 }
 
-export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpenTopic, onStartMission }: Props) {
+export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHistory, onOpenTopic, onStartMission }: Props) {
   const tr = useT();
   // A dead `/task/<id>` has to SAY SO, with the same words a dead `/tab/…`
   // permalink uses: two roads to one destination cannot answer differently. The
@@ -1934,6 +1940,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
             onChanged={refetch}
             onOpenTask={openTask}
             onOpenTopic={onOpenTopic}
+            onMessage={onMessage}
+            loadHistory={loadHistory}
             sessionState={resolveSession(selected.assignedTopicId)}
             focusPaneId={pendingPaneId ?? undefined}
             /* Apertura automatica nel workspace: SOLO dalla board globale, che

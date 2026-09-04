@@ -665,6 +665,8 @@ export function ChatInput({
     modelLabel: dictationModel,
     since: dictationSince,
     level: dictationLevel,
+    partial: dictationPartial,
+    isLive: dictationLive,
     toggle: toggleListening,
     cancel: cancelDictation,
   } = useDictation({ onText: insertDictated, onError: onDictationError, onNotice: onDictationNotice });
@@ -994,6 +996,8 @@ export function ChatInput({
           level={dictationLevel}
           engine={dictationModel}
           hint={tr('chat.dictation.hint')}
+          partial={dictationPartial}
+          live={dictationLive}
           onStop={toggleListening}
         />
       )}

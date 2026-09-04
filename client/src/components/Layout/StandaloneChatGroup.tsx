@@ -736,7 +736,7 @@ export function StandaloneChatGroup({
         <LazyPane>
           {utilityType === 'dashboard' && <DashboardPane onMessage={onWSMessage} />}
           {utilityType === 'cron' && <CronJobsPanel />}
-          {utilityType === 'board' && <KanbanBoardPane global onMessage={onWSMessage} onOpenTopic={openTopicFromBoard} />}
+          {utilityType === 'board' && <KanbanBoardPane global onMessage={onWSMessage} loadHistory={loadHistory} onOpenTopic={openTopicFromBoard} />}
           {utilityType === 'profile' && <ProfilePane />}
         </LazyPane>
       );

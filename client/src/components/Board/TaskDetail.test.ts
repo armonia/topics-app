@@ -1,24 +1,31 @@
 /**
- * IL DRAWER NON LEGGE LA CRONOLOGIA QUANDO NESSUNO LO GUARDA.
+ * THE DRAWER DOES NOT READ THE HISTORY TO FOLLOW A TURN, AND IT DOES NOT READ
+ * IT AT ALL WHEN NOBODY IS LOOKING.
  *
- * `TaskDetail` interroga `/api/history?limit=200` ogni 3 secondi finché un turno
- * gira. Il tick nasceva senza cancelli, e i due che servono sono DIVERSI, per
- * cui nessuno dei due bastava da solo:
+ * `TaskDetail` used to ask for 200 rows of history every 3 seconds while an
+ * agent worked. The tick is gone: the session arrives from the same store the
+ * chat reduces every frame into (`state/messageStore.ts`), and the drawer
+ * DECLARES its topic on the wire (`state/topicSubscriptions.ts`) because a
+ * drawer is not a pane and per-token deltas are routed on the declared set.
+ * Three reads survive, and only three: mount, waking up, and the `stream:end`
+ * of its own session — the persisted blocks and tool rows exist nowhere else.
  *
- *  · `PaneKeepAlive` congela i RENDER di una pane nascosta, non gli effetti di
- *    un sottoalbero già montato: un drawer parcheggiato dietro un'altra pane
- *    continuava a leggere. Lo dice il contesto (`state/paneLiveness.ts`);
- *  · la pane VISIBILE, con la finestra in secondo piano, legge lo stesso. Lo
- *    chiudono i due fratelli in questo stesso file (il risveglio del drawer) e
- *    in `KanbanBoardPane` (quello della board), che guardano
- *    `document.visibilityState`.
+ * Both the hold and the subscription are gated on the pane having a box in the
+ * layout, and the two gates that were needed for the poll are still needed
+ * here, for the same reasons:
  *
- * La lettura si controlla sul SORGENTE, stesso metodo e stesso motivo di
- * `Card.test.ts`: `TaskDetail.tsx` importa `@/lib/popoverStyles` e `bun test`
- * non risolve l'alias `@/`, quindi il drawer qui non si monta. Il taglio della
- * sessione fra i commenti, che è l'altra metà di questo giro, è puro e provato
- * per davvero in `sessionBuckets.test.ts`.
-  * @covers KANBAN-52
+ *  · `PaneKeepAlive` freezes the RENDERS of a hidden pane, not the effects of a
+ *    a subtree that is already mounted: a drawer parked behind another pane
+ *    would keep holding a topic open on the wire. That is `paneLiveness.ts`;
+ *  · the window in the background is the wake-up listener's business, and there
+ *    is exactly ONE of it in this file, shared with the task refresh, so the
+ *    two land together.
+ *
+ * The reading is checked on the SOURCE, same method and same reason as
+ * `Card.test.ts`: `TaskDetail.tsx` imports `@/lib/popoverStyles` and `bun test`
+ * does not resolve the `@/` alias, so the drawer does not mount here. What
+ * happens on the wire during a live turn is E2E's job (DRAWER-05a).
+ * @covers KANBAN-52
  */
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
@@ -28,40 +35,60 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(here, 'TaskDetail.tsx'), 'utf8');
 
-/** Il corpo del `useEffect` che monta il poll da 3s. */
-const pollEffect = (() => {
-  const i = src.indexOf('}, 3000);');
-  const start = src.lastIndexOf('useEffect(', i);
-  return src.slice(start, src.indexOf('\n', i));
+/** The body of the effect that listens to the live wire. */
+const wireEffect = (() => {
+  const i = src.indexOf("m.type === 'stream:end'");
+  return src.slice(src.lastIndexOf('useEffect(', i), src.indexOf('\n', i));
 })();
 
-describe('il poll della sessione', () => {
-  test('non parte se la pane non ha un box nel layout', () => {
-    expect(src).toContain('usePaneAlive()');
-    expect(pollEffect).toContain('!paneAlive');
+describe('la lettura della cronologia', () => {
+  test('non c\'è più un poll: nessun tick, nessuna lettura per seguire il turno', () => {
+    expect(src.includes('}, 3000);')).toBe(false);
+    // Not even the URL: the three surviving reads go through `loadHistory`,
+    // which is the chat's own reader (dedup + in-flight collapse).
+    expect(src.includes('/api/history')).toBe(false);
+    expect(src).toContain('loadHistory(sessionKey)');
   });
 
-  test('salta il giro con la finestra nascosta, senza smontare il timer', () => {
-    // Dentro il timer, non nelle dipendenze: spegnere un `setInterval` non
-    // richiede un render (`state/paneLiveness.ts`, nota in coda).
-    expect(pollEffect).toContain("document.visibilityState !== 'visible'");
+  test('recupera alla fine del turno, e solo per la PROPRIA sessione', () => {
+    // A `stream:end` of another topic must not make this drawer read anything:
+    // on a busy board that is one history fetch per card open, per turn ended.
+    expect(wireEffect).toContain("m.type === 'stream:end'");
+    expect(wireEffect).toContain('m.sessionKey === sessionKey');
   });
 
   test('al ritorno in vista recupera, sullo STESSO ascoltatore del drawer', () => {
-    // Senza il recupero, il drawer resterebbe al giro che è riuscito a fare
-    // prima di nascondersi finché non scade il tick: una riga di task di adesso
-    // accanto a una coda di sessione di tre tick fa si legge come un agente che
-    // ha smesso di parlare.
+    // Without the catch-up the drawer would sit on whatever the socket managed
+    // to deliver before the tab slept; with a second listener the two refreshes
+    // would land apart, and a task row from now next to an old session tail
+    // reads as an agent that stopped talking.
     expect(src).toContain('sessionCatchUp.current?.()');
     expect(src.match(/addEventListener\('visibilitychange'/g) ?? []).toHaveLength(1);
+  });
+});
+
+describe('la vivezza della pane', () => {
+  test('la sottoscrizione allo store è gated: niente box nel layout, niente ascolto', () => {
+    expect(src).toContain('usePaneAlive()');
+    expect(src).toContain('paneAlive && sessionKey ? subscribeSession(sessionKey, cb)');
+  });
+
+  test('il drawer DICHIARA il topic della sessione, e solo mentre è vivo', () => {
+    expect(src).toContain('holdTopic(');
+    expect(src).toContain('paneAlive && assignedTopicId ? holdTopic(assignedTopicId) : undefined');
+  });
+
+  test('anche la lettura di recupero passa dal cancello', () => {
+    const refresh = src.slice(src.indexOf('const refreshSession'));
+    expect(refresh.slice(0, refresh.indexOf('}, ['))).toContain('!paneAlive');
   });
 });
 
 describe('il taglio della sessione fra i commenti', () => {
   test('è UNA passata, non un filtro per riga', () => {
     expect(src).toContain('bucketSessionMsgs(');
-    // `sliceBetween` era il filtro per riga: 200 messaggi per ogni commento, a
-    // ogni giro del poll.
+    // `sliceBetween` was the per-row filter: 200 messages for every comment,
+    // on every update.
     expect(src.includes('sliceBetween')).toBe(false);
   });
 

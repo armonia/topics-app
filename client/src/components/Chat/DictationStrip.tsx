@@ -17,6 +17,12 @@ import { CHAT_STRIP } from '../../lib/chatStripStyles';
  *  · THE ENGINE THAT WILL ANSWER. The label comes from capabilities that are
  *    verified, not guessed from the presence of a key: a dead cloud key names
  *    the local model here, and the seconds it costs are attributed to it.
+ *
+ * And, since the live engine landed, THE WORDS THEMSELVES: `partial` is the
+ * text Scribe is still revising, drawn in grey where the hint would be. Grey is
+ * the whole point of the distinction: a committed segment is already in the
+ * composer, black, editable; what is here is a guess the next packet may
+ * rewrite, and pasting it would make the field flicker under the cursor.
  */
 export function DictationStrip({
   state,
@@ -24,6 +30,8 @@ export function DictationStrip({
   level,
   engine,
   hint,
+  partial = '',
+  live = false,
   onStop,
 }: {
   state: 'listening' | 'transcribing';
@@ -34,6 +42,10 @@ export function DictationStrip({
   /** Who transcribes, e.g. «ElevenLabs scribe_v2»; null while unverified. */
   engine: string | null;
   hint: string;
+  /** The words the live engine has not settled yet. Empty on the batch flow. */
+  partial?: string;
+  /** The engine streams: the strip says so before a single word arrives. */
+  live?: boolean;
   onStop: () => void;
 }) {
   const tr = useT();
@@ -46,13 +58,23 @@ export function DictationStrip({
     >
       <span className={`w-2 h-2 rounded-full flex-shrink-0 ${listening ? 'bg-green-500' : 'bg-amber-500'} animate-pulse`} />
       <span className="text-[12px] font-medium text-app-text">
-        {listening ? tr('chat.dictation.listening') : tr('chat.dictation.transcribing')}
+        {listening
+          ? tr(live ? 'chat.dictation.live' : 'chat.dictation.listening')
+          : tr('chat.dictation.transcribing')}
       </span>
       <Elapsed since={since} />
       {listening && <LevelMeter level={level} />}
-      <span className="text-[11px] text-app-text-secondary truncate min-w-0">
-        {listening ? `${hint} · ` : ''}{engine ?? tr('chat.dictation.engineUnknown')}
-      </span>
+      {/* The live text takes the place of the hint, not a line of its own: a
+          strip that grows while you speak pushes the composer down mid-sentence. */}
+      {listening && partial ? (
+        <span data-testid="dictation-partial" className="text-[11px] italic text-app-text-tertiary truncate min-w-0">
+          {partial}
+        </span>
+      ) : (
+        <span className="text-[11px] text-app-text-secondary truncate min-w-0">
+          {listening ? `${hint} · ` : ''}{engine ?? tr('chat.dictation.engineUnknown')}
+        </span>
+      )}
       {listening && (
         <button
           type="button"
