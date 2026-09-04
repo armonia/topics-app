@@ -21,7 +21,7 @@
  * Both chip flavours are covered, because they are two components: the
  * paperclip chip (ChatInput) and the image thumbnail (ImageThumbnail).
  *
- * @covers CHAT-COMPOSER-XBTN
+ * @covers CHAT-COMPOSER-01
  */
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
