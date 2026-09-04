@@ -1,6 +1,6 @@
 import { pickPlanComment } from './planPanel';
 import { isAutoCapturedPreview } from '../../../../shared/media-kind';
-import { useState, useEffect, useMemo, useRef, useCallback, type TouchEvent as ReactTouchEvent } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, useSyncExternalStore, type TouchEvent as ReactTouchEvent } from 'react';
 import { useT, useLocale } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useOwnerName } from '../../hooks/useOwnerName';
@@ -55,6 +55,12 @@ import { COMPACT_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_
 import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtTok, fmtUpdatedAt, autoGrow, attemptStat, taskCopyText, descSummary, fmtCount } from './format';
 import { StatusIcon, DispatchChip, QueueReasonChip } from './atoms';
 import { bucketSessionMsgs, EMPTY_SESSION_BUCKETS, type SessionBuckets, type SessionMsg } from './sessionBuckets';
+import { getSessionMessagesFromStore, subscribeSession } from '../../state/messageStore';
+import type { ChatMessage } from '../../types';
+import { holdTopic } from '../../state/topicSubscriptions';
+
+/** One shared empty array: a new one per read would loop `useSyncExternalStore`. */
+const EMPTY_CHAT_MESSAGES: ChatMessage[] = [];
 import { SessionPane, SessionLiveRow } from './SessionPane';
 import { usePaneAlive } from '../../state/paneLiveness';
 import { ProjectPickerBody } from './ProjectPicker';
@@ -679,7 +685,7 @@ function AttemptDiff({ projectId, taskId, attemptId }: { projectId: string; task
 
 // ── Detail: drawer by default, expandable review surface ────────────────────
 
-export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, onOpenTopic, sessionState = 'unknown', focusPaneId, autoOpenInWorkspace = false }: {
+export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, onOpenTopic, onMessage, loadHistory, sessionState = 'unknown', focusPaneId, autoOpenInWorkspace = false }: {
   projectId: string; taskId: string; onClose: () => void; onChanged: () => void;
   /**
    * Change signal (the task's updatedAt from the board's live list): any WS
@@ -691,6 +697,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   onOpenTask?: (taskId: string) => void;
   /** Apre la SESSIONE dell'agente (la sua chat), che non è questa scheda. */
   onOpenTopic?: (topicId: string) => void;
+  /**
+   * The live wire, as the host window hands it out. The drawer listens for one
+   * frame only: the `stream:end` of its own session, which is when the stored
+   * blocks and tool rows become readable.
+   */
+  onMessage?: (handler: (msg: unknown) => void) => () => void;
+  /** Reads a session's history into the chat store (`hooks/useChat.ts`). */
+  loadHistory?: (sessionKey: string) => Promise<boolean>;
   /**
    * La sessione dell'agente esiste ancora? Il drawer è la SCHEDA e vive per
    * conto suo; il gesto verso la sessione va offerto solo se c'è qualcosa da
@@ -914,10 +928,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // Wake-up refresh (same rationale as the board's): an open drawer coming back
   // from sleep would keep yesterday's chip/ticker until some WS event lands.
   //
-  // It also catches the session poll up. That poll is gated on visibility (see
-  // `sessionCatchUp` further down, where `loadSession` exists), and the two
-  // refreshes have to land TOGETHER: a task row from now next to a session tail
-  // from three ticks ago reads as an agent that stopped talking.
+  // It also catches the session up (see `sessionCatchUp` further down, where
+  // the session reader exists): the two refreshes have to land TOGETHER, or a
+  // task row from now next to a session tail from before the sleep reads as an
+  // agent that stopped talking.
   const sessionCatchUp = useRef<(() => void) | null>(null);
   useEffect(() => {
     const onWake = () => {
@@ -1587,75 +1601,109 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     finally { setBusy(false); }
   };
 
-  // The agent's session (same thread the chat tab shows, read-only), sliced
-  // BETWEEN the comments: each reply gets, right above it, the piece of
-  // reasoning that produced it. Loaded whenever the task has an agent bound
-  // (the slices need timestamps to place themselves); reloads on live bump.
-  const [sessionMsgs, setSessionMsgs] = useState<SessionMsg[] | null>(null);
+  /**
+   * THE AGENT'S SESSION, FROM THE SAME STORE THE CHAT READS.
+   *
+   * It used to be a history read of 200 rows every 3 seconds while a turn ran:
+   * two hundred rows over the wire, ten times a minute, to notice a token. Now
+   * the drawer reads `state/messageStore.ts` — the very array `useChat` reduces
+   * every frame into — and wakes up only for its own session.
+   *
+   * THE CATCH the first draft missed: the store is not fed for free. Per-token
+   * deltas are routed on the topics this window DECLARED (`subscribe`, see
+   * `state/topicSubscriptions.ts`), and a drawer is not a pane, so without
+   * asking it would receive `stream:start` / `message:new` / `stream:end` and
+   * nothing in between. Hence the hold.
+   *
+   * Both the hold and the subscription are gated on `usePaneAlive()`: a drawer
+   * parked behind another pane keeps its effects mounted (`PaneKeepAlive`
+   * freezes RENDERS, not effects), and it has no business holding a topic open
+   * on the wire while nobody can see it.
+   */
   const sessionKey = task?.assignedTopicId ? `topic:${task.assignedTopicId.slice(0, 8)}` : null;
-  const loadSession = useCallback(async () => {
-    if (!sessionKey) return;
-    try {
-      const r = await fetch(`/api/history/${encodeURIComponent(sessionKey)}?limit=200`);
-      const d = await r.json().catch(() => null) as { messages?: Array<{ role?: string; content?: string; timestamp?: string; thinking?: string }> } | null;
-      const msgs = (Array.isArray(d?.messages) ? d.messages : [])
-        // Keep thinking-only partials too: mid-stream the newest message may
-        // have reasoning but no prose yet — that IS the live preview.
-        .filter((m) => (typeof m?.content === 'string' && m.content.trim()) || (typeof m?.thinking === 'string' && m.thinking.trim()))
-        .map((m) => ({ role: m.role ?? 'assistant', content: m.content ?? '', timestamp: m.timestamp ?? '', thinking: m.thinking }));
-      setSessionMsgs(msgs);
-    } catch { setSessionMsgs([]); }
-  }, [sessionKey]);
-  useEffect(() => { if (sessionKey) void loadSession(); }, [sessionKey, loadSession, bump]);
+  const paneAlive = usePaneAlive();
+  const assignedTopicId = task?.assignedTopicId ?? null;
+  useEffect(
+    () => (paneAlive && assignedTopicId ? holdTopic(assignedTopicId) : undefined),
+    [paneAlive, assignedTopicId],
+  );
+  const storeMessages = useSyncExternalStore(
+    useCallback(
+      (cb: () => void) => (paneAlive && sessionKey ? subscribeSession(sessionKey, cb) : () => {}),
+      [paneAlive, sessionKey],
+    ),
+    useCallback(
+      () => (paneAlive && sessionKey ? getSessionMessagesFromStore(sessionKey) : EMPTY_CHAT_MESSAGES),
+      [paneAlive, sessionKey],
+    ),
+  );
+
+  /**
+   * The three moments the wire cannot cover, and only those: mount (or a
+   * change of session), waking up, and the end of a turn. The last one is not
+   * belt-and-braces — `message:new` carries the text, while the persisted
+   * `blocks` and tool rows exist only in the stored history.
+   */
+  const refreshSession = useCallback(() => {
+    if (!paneAlive || !sessionKey || !loadHistory) return;
+    void loadHistory(sessionKey);
+  }, [paneAlive, sessionKey, loadHistory]);
+  useEffect(() => { refreshSession(); }, [refreshSession]);
+  useEffect(() => {
+    if (!onMessage || !sessionKey) return;
+    return onMessage((msg) => {
+      const m = msg as { type?: string; sessionKey?: string };
+      if (m.type === 'stream:end' && m.sessionKey === sessionKey) refreshSession();
+    });
+  }, [onMessage, sessionKey, refreshSession]);
 
   // Live agent state (needed below): typing indicator + stream preview + stop.
   const agentBusy = !!task && isAgentWorking(task.dispatchState);
 
-  // While a turn runs, poll the history (it overlays the LIVE stream content)
-  // so the drawer shows what the agent is thinking/writing right now.
-  //
-  // GATED, on both axes, because neither one alone stops it. `PaneKeepAlive`
-  // freezes RENDERS, not the effects of a subtree that is already mounted, so a
-  // drawer parked behind another pane kept fetching 200 messages every 3s;
-  // and a pane that IS the visible one keeps fetching with the window in the
-  // background. The tick therefore asks both: the pane has a box (`paneAlive`,
-  // the context), and the document is on screen (checked INSIDE the timer, like
-  // the two siblings above, so no re-render is needed to park the cycle).
-  const paneAlive = usePaneAlive();
+  // Coming back from hidden, the store may have missed frames the socket
+  // dropped while the tab slept. The wake-up listener up at `onWake` calls this
+  // through the ref, so there is ONE `visibilitychange` listener for both
+  // refreshes and the two land together: a task row from now next to a session
+  // tail from before the sleep reads as an agent that stopped talking.
   useEffect(() => {
-    if (!agentBusy || !sessionKey || !paneAlive) return;
-    const t = setInterval(() => {
-      if (document.visibilityState !== 'visible') return;
-      void loadSession();
-    }, 3000);
-    return () => clearInterval(t);
-  }, [agentBusy, sessionKey, loadSession, paneAlive]);
-
-  // Coming back from hidden, the drawer would sit on the last tick it managed
-  // to run until the next one fires. The wake-up listener up at `onWake` calls
-  // this through the ref (it is declared above `loadSession`, and one listener
-  // for both refreshes keeps the two in step).
-  useEffect(() => {
-    sessionCatchUp.current = agentBusy && sessionKey ? () => { void loadSession(); } : null;
+    sessionCatchUp.current = refreshSession;
     return () => { sessionCatchUp.current = null; };
-  }, [agentBusy, sessionKey, loadSession]);
-
-  // Tail of the newest agent message (reasoning first): the "how is it going"
-  // glance without opening anything. Walked backwards rather than
-  // `[...msgs].reverse().find()`: that copied all 200 rows on every poll.
-  const streamPreview = useMemo(() => {
-    if (!agentBusy || !sessionMsgs?.length) return null;
-    let last: SessionMsg | undefined;
-    for (let i = sessionMsgs.length - 1; i >= 0; i--) {
-      if (sessionMsgs[i].role !== 'user') { last = sessionMsgs[i]; break; }
-    }
-    if (!last) return null;
-    const text = (last.thinking?.trim() || last.content.trim()).replace(/\s+/g, ' ');
-    return text ? text.slice(-280) : null;
-  }, [agentBusy, sessionMsgs]);
+  }, [refreshSession]);
 
   /**
-   * The session cut at the comment boundaries, ONE pass per poll.
+   * The temporary bridge to `SessionPane`, which still speaks `SessionMsg`.
+   * T3 of this change deletes both this map and the pane; until then the
+   * drawer draws exactly what it drew before, from a different source.
+   */
+  const sessionMsgs = useMemo<SessionMsg[] | null>(() => {
+    if (!sessionKey) return null;
+    return storeMessages
+      // Thinking-only rows count: mid-stream the newest message may have
+      // reasoning and no prose yet, and that IS the live preview.
+      .filter((m) => (m.content ?? '').trim() || (m.thinking ?? '').trim())
+      .map((m) => ({ role: m.role ?? 'assistant', content: m.content ?? '', timestamp: m.timestamp ?? '', thinking: m.thinking }));
+  }, [sessionKey, storeMessages]);
+
+  /**
+   * Tail of the live turn: the "how is it going" glance without opening
+   * anything. It is the last assistant row still `partial` — the streaming one
+   * — and nothing else: a finished turn has no preview to show. T3 removes it
+   * along with the pane that draws it.
+   */
+  const streamPreview = useMemo(() => {
+    if (!agentBusy) return null;
+    let last: ChatMessage | undefined;
+    for (let i = storeMessages.length - 1; i >= 0; i--) {
+      const m = storeMessages[i];
+      if (m.role !== 'user') { last = m; break; }
+    }
+    if (!last?.partial) return null;
+    const text = (last.thinking?.trim() || (last.content ?? '').trim()).replace(/\s+/g, ' ');
+    return text ? text.slice(-280) : null;
+  }, [agentBusy, storeMessages]);
+
+  /**
+   * The session cut at the comment boundaries, ONE pass per update.
    *
    * The cut no longer decides WHERE the steps are drawn (the session pane draws
    * them whole); it decides where the pane puts a "replied here" mark, which is

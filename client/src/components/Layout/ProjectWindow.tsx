@@ -504,6 +504,7 @@ export function ProjectWindowPane({
             <KanbanBoardPane
               projectPath={projectPath}
               onMessage={onWSMessage}
+              loadHistory={loadHistory}
               onOpenTopic={chatSync.reopenTopic}
               onStartMission={startMission}
             />
