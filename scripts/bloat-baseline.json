@@ -72,6 +72,7 @@
     "client/src/components/Layout/PanelGrid.tsx": 2891,
     "client/src/components/Sidebar/TopicTree.tsx": 2805,
     "server/routes/topics.ts": 2717,
+    "server/providers/native/agent-loop.ts": 807,
     "server/services/tasks.test.ts": 2704,
     "tests/e2e/sidebar-pinned-tiles.spec.ts": 2672,
     "client/src/hooks/usePanelLifecycle.ts": 2615,

@@ -1866,7 +1866,24 @@ export function createAppContext(baseDir: string): AppContext {
           const blocksDecoded = decodeCol(row.blocks);
           const bl = JSON.parse(blocksDecoded ?? "null") as any[];
           let c = false;
-          for (const b of bl) if (b?.kind === 'tool' && fix(b.toolCall)) c = true;
+          // A tool repaired HERE has to be announced too, not just written.
+          // `interrupted` is what the caller broadcasts `stream:tool_result`
+          // off, and it used to be filled from the `tool_calls` column alone:
+          // on a row whose tools live only in the timeline - which is every row
+          // this same function then collapses to `[]` - the block was fixed on
+          // disk and the screens were told nothing, so the panel already drawn
+          // kept its spinner until a reload. Same id from both copies counts
+          // once: the two are the same tool call.
+          const announced = new Set(interrupted.map((tc) => tc.id));
+          for (const b of bl) {
+            if (b?.kind !== 'tool') continue;
+            if (!fix(b.toolCall)) continue;
+            c = true;
+            if (b.toolCall && !announced.has(b.toolCall.id)) {
+              announced.add(b.toolCall.id);
+              interrupted.push(b.toolCall as ToolCall);
+            }
+          }
           if (c) { blStr = encodeCol(blocksForDisk(bl) ?? "null") ?? null; changed = true; }
         }
         // The row carries both copies: this write is the last one of the turn,
