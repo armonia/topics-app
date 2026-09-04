@@ -2083,6 +2083,39 @@ const IT: Dict = {
   'board.queue.unknown.detail': 'motivo non registrato',
   'board.queue.unknown.title': 'Ferma, e il motivo non risulta: il server non è riuscito a calcolarlo. Non è «in coda». Apri il task e guarda il thread.',
 
+
+  // The language selector, and what it says when the pack does not arrive.
+  'appearance.language.support.none': 'Nessuna direttiva: il modello risponde nella lingua in cui gli scrivi.',
+  'appearance.language.support.unverified': 'Supporto non verificato: nessun motore ha dichiarato le lingue che sostiene.',
+  'appearance.language.support.confirmed': 'Confermato da {engine}.',
+  'appearance.language.support.confirmedAnon': 'Confermato dal motore.',
+  'appearance.language.support.missing': "{engine} non dichiara questa lingua fra quelle che sostiene: la risposta potrebbe arrivare in un'altra.",
+  'appearance.language.support.missingAnon': "Il motore non dichiara questa lingua fra quelle che sostiene: la risposta potrebbe arrivare in un'altra.",
+  'appearance.language.catalogueMissing': "Il dizionario di questa lingua non e' arrivato: l'interfaccia resta in italiano finche' non torna la rete. La scelta e' salvata.",
+
+  'common.confirm': 'Conferma',
+  'git.discardTitle': 'Scarta le modifiche',
+  'git.discardAction': 'Scarta',
+  'forget.action': 'Dimentica',
+  'forget.working': 'Cancello...',
+
+  'git.discardMany': 'Scarta {count} modifiche',
+  'git.discardOne': 'Scarta le modifiche',
+  'git.discardFileTitle': 'Scarta le modifiche a questo file',
+
+  'crash.generic.title': 'Qualcosa è andato storto',
+  'crash.generic.body': "Un errore imprevisto ha fermato questa parte dell'app.",
+  'crash.generic.detail': 'Errore:',
+  'crash.generic.action': 'Riprova',
+  'crash.staleBundle.title': 'Nuova versione disponibile',
+  'crash.staleBundle.body': "L'app è stata aggiornata mentre era aperta. Ricarica per continuare.",
+  'crash.staleBundle.action': 'Ricarica',
+  'crash.sidebar': 'La barra laterale si è rotta',
+  'crash.identityBand': 'La banda di identità si è rotta',
+  'crash.panel': 'Questo pannello si è rotto',
+  'crash.settings': 'Le impostazioni si sono rotte',
+  'crash.pane': 'Questa pane si è rotta',
+
 };
 
 

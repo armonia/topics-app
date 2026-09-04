@@ -1778,6 +1778,39 @@ const EN = {
   'board.queue.unknown.detail': 'reason not recorded',
   'board.queue.unknown.title': 'Stopped, and the reason is not on record: the server could not work it out. This is not "queued". Open the task and read the thread.',
 
+
+  // The language selector, and what it says when the pack does not arrive.
+  'appearance.language.support.none': 'No directive: the model answers in the language you write in.',
+  'appearance.language.support.unverified': 'Support not verified: no engine has declared the languages it covers.',
+  'appearance.language.support.confirmed': 'Confirmed by {engine}.',
+  'appearance.language.support.confirmedAnon': 'Confirmed by the engine.',
+  'appearance.language.support.missing': '{engine} does not list this language among the ones it covers: the answer may come back in another one.',
+  'appearance.language.support.missingAnon': 'The engine does not list this language among the ones it covers: the answer may come back in another one.',
+  'appearance.language.catalogueMissing': 'This language pack did not arrive: the interface stays in Italian until the network is back. Your choice is saved.',
+
+  'common.confirm': 'Confirm',
+  'git.discardTitle': 'Discard changes',
+  'git.discardAction': 'Discard',
+  'forget.action': 'Forget',
+  'forget.working': 'Clearing...',
+
+  'git.discardMany': 'Discard {count} changes',
+  'git.discardOne': 'Discard changes',
+  'git.discardFileTitle': 'Discard the changes to this file',
+
+  'crash.generic.title': 'Something went wrong',
+  'crash.generic.body': 'An unexpected error stopped this part of the app.',
+  'crash.generic.detail': 'Error:',
+  'crash.generic.action': 'Try again',
+  'crash.staleBundle.title': 'A new version is available',
+  'crash.staleBundle.body': 'The app was updated while it was open. Reload to carry on.',
+  'crash.staleBundle.action': 'Reload',
+  'crash.sidebar': 'The sidebar broke',
+  'crash.identityBand': 'The identity band broke',
+  'crash.panel': 'This panel broke',
+  'crash.settings': 'Settings broke',
+  'crash.pane': 'This pane broke',
+
 } satisfies Dict;
 
 export default EN;

@@ -1,30 +1,31 @@
 import { useRef, type ReactNode } from 'react';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { useModalDialog } from '../../hooks/useModalDialog';
+import { useT } from '../../hooks/useT';
 
 /**
- * ConfirmDialog — UN dialogo di conferma per le azioni distruttive.
+ * ONE confirmation dialog for the destructive actions.
  *
- * Ne esistevano TRE copie identiche riga per riga (cancella file in
- * FileExplorer, cancella branch in BranchList, scarta modifiche in GitChanges):
- * stesso markup, stesso velo, stesso `useEffect` con Escape su `document`. Tre
- * copie vogliono dire tre posti dove correggere lo stesso difetto, ed erano
- * infatti difettose tutte e tre allo stesso modo:
+ * There used to be THREE copies of it, identical line by line (delete a file
+ * in FileExplorer, delete a branch in BranchList, discard changes in
+ * GitChanges): same markup, same veil, same `useEffect` with Escape bound to
+ * `document`. Three copies mean three places to fix the same defect, and all
+ * three were defective in the same three ways:
  *
- *   • niente `role="dialog"`: il gate `hasOpenModalSurface` non le vedeva, e
- *     Escape — mentre chiudeva la conferma — ammazzava anche il turno dell'AI
- *     che stava girando dietro;
- *   • niente trappola del focus e niente focus iniziale: da tastiera il primo
- *     Tab usciva nella pagina coperta, e su un dialogo che chiede «cancello?»
- *     non si sapeva nemmeno su quale bottone si era;
- *   • Escape su `document` invece che in capture su `window`: con due dialoghi
- *     annidati rispondevano entrambi.
+ *   - no `role="dialog"`, so the `hasOpenModalSurface` gate could not see
+ *     them and Escape, while closing the confirmation, also killed the AI
+ *     turn running behind it;
+ *   - no focus trap and no initial focus: from the keyboard the first Tab
+ *     left into the covered page, and on a dialog asking "shall I delete
+ *     this?" you could not even tell which button you were on;
+ *   - Escape on `document` instead of in capture on `window`: with two nested
+ *     dialogs both answered.
  *
- * Tutto questo ora sta in `useModalDialog`, e sta in un posto solo.
+ * All of that now lives in `useModalDialog`, and lives in one place.
  *
- * Il focus iniziale va su ANNULLA di proposito: è un dialogo distruttivo, il
- * tasto pericoloso non deve essere quello che si attiva premendo Invio per
- * riflesso.
+ * Initial focus goes on CANCEL on purpose: this is a destructive dialog, and
+ * the dangerous button must not be the one that fires when somebody presses
+ * Enter out of reflex.
  */
 export interface ConfirmDialogProps {
   title: string;
@@ -46,13 +47,20 @@ export interface ConfirmDialogProps {
 export function ConfirmDialog({
   title,
   children,
-  confirmLabel = 'Confirm',
-  cancelLabel = 'Cancel',
+  confirmLabel,
+  cancelLabel,
   tone = 'danger',
   confirmDisabled = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  const tr = useT();
+  // The two buttons of a destructive dialog were `'Confirm'` and `'Cancel'`,
+  // hard-coded as defaults. A caller that translated its own title therefore
+  // shipped "Sposta nel cestino" next to an English "Cancel": the mixed
+  // language showed up exactly where a person is about to lose something.
+  const confirmWord = confirmLabel ?? tr('common.confirm');
+  const cancelWord = cancelLabel ?? tr('common.cancel');
   const panelRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   useModalDialog({ onClose: onCancel, panelRef, initialFocusRef: cancelRef });
@@ -86,7 +94,7 @@ export function ConfirmDialog({
             onClick={onCancel}
             className="px-3 py-1.5 text-xs rounded border border-app-border text-app-text-body hover:bg-app-hover transition-colors"
           >
-            {cancelLabel}
+            {cancelWord}
           </button>
           <button
             onClick={onConfirm}
@@ -97,7 +105,7 @@ export function ConfirmDialog({
                 : 'px-3 py-1.5 text-xs rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 disabled:hover:bg-primary transition-colors'
             }
           >
-            {confirmLabel}
+            {confirmWord}
           </button>
         </div>
       </div>

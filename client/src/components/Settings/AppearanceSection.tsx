@@ -1,9 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { Type, AlignJustify, Rows3, Sun, Moon, Monitor, LayoutGrid, Kanban, Keyboard, ChevronRight } from 'lucide-react';
 import type { AppSettings, ThemeMode } from '../../types';
 import { isDesktop } from '../../lib/shell';
 import { ToggleRow } from './ToggleRow';
-import { fetchOutputLanguage, pushOutputLanguage, type LocalePreference } from '../../lib/i18n';
+import { fetchOutputLanguage, pushOutputLanguage, failedLocales, subscribeCatalogues, type LocalePreference } from '../../lib/i18n';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { Select, type SelectOption } from '../Shared/Select';
 import { useT } from '@/hooks/useT';
@@ -333,6 +333,11 @@ function LanguageSetting({
   };
 
   const support = languageSupport(snapshot, value);
+  // WHICH catalogue did not arrive, if any. Without this line, picking English
+  // when the lazy chunk is unreachable does nothing at all and says nothing at
+  // all: the selector reads "English" and every word on screen stays Italian.
+  const failed = useSyncExternalStore(subscribeCatalogues, failedLocales, failedLocales);
+  const catalogueMissing = value !== 'auto' && failed.split(',').includes(value);
 
   return (
     <div className="mt-6">
@@ -354,8 +359,13 @@ function LanguageSetting({
         options={LANGUAGE_OPTIONS}
       />
       <p className={`mt-2 text-[11px] ${support.tone}`} data-testid="settings-language-support">
-        {support.text}
+        {tr(support.key, support.params)}
       </p>
+      {catalogueMissing && (
+        <p className="mt-1 text-[11px] text-amber-400" data-testid="settings-language-catalogue-missing">
+          {tr('appearance.language.catalogueMissing')}
+        </p>
+      )}
     </div>
   );
 }
@@ -375,24 +385,26 @@ function LanguageSetting({
 function languageSupport(
   snapshot: { providers: Array<{ name: string; label?: string; languages?: { supported: string[] | null; source: string } }>; defaultProvider: string | null } | null,
   value: LocalePreference,
-): { text: string; tone: string } {
+): { key: string; params?: Record<string, string | number>; tone: string } {
   const GREY = 'text-app-text-muted';
   if (value === 'auto') {
-    return { text: 'Nessuna direttiva: il modello risponde nella lingua in cui gli scrivi.', tone: GREY };
+    return { key: 'appearance.language.support.none', tone: GREY };
   }
   const entry = snapshot?.providers.find((p) => p.name === snapshot.defaultProvider);
   const declared = entry?.languages;
   if (!declared || declared.source === 'unknown') {
-    return { text: 'Supporto non verificato: nessun motore ha dichiarato le lingue che sostiene.', tone: GREY };
+    return { key: 'appearance.language.support.unverified', tone: GREY };
   }
-  const name = entry?.label ?? entry?.name ?? 'il motore';
-  // `supported: null` con una fonte vera = «tutte»: è una dichiarazione, non
-  // un'assenza, e va letta come un sì.
-  if (declared.supported === null || declared.supported.includes(value)) {
-    return { text: `Confermato da ${name}.`, tone: 'text-emerald-400' };
+  const named = entry?.label ?? entry?.name ?? null;
+  // `supported: null` with a real source means "all of them": it is a
+  // declaration, not an absence, and it reads as a yes.
+  const ok = declared.supported === null || declared.supported.includes(value);
+  if (named === null) {
+    return ok
+      ? { key: 'appearance.language.support.confirmedAnon', tone: 'text-emerald-400' }
+      : { key: 'appearance.language.support.missingAnon', tone: 'text-amber-400' };
   }
-  return {
-    text: `${name} non dichiara questa lingua fra quelle che sostiene: la risposta potrebbe arrivare in un'altra.`,
-    tone: 'text-amber-400',
-  };
+  return ok
+    ? { key: 'appearance.language.support.confirmed', params: { engine: named }, tone: 'text-emerald-400' }
+    : { key: 'appearance.language.support.missing', params: { engine: named }, tone: 'text-amber-400' };
 }
