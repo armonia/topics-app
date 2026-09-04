@@ -24,6 +24,7 @@ hermetic(test);
  * renderebbe il secondo rosso solo perché è rosso il primo.
  *
  * @covers CTX-GOAL-01
+ * @covers CTX-GOAL-03
  */
 test.describe("Obiettivo della chat", () => {
   let topicId: string;
@@ -126,6 +127,55 @@ test.describe("Obiettivo della chat", () => {
     const block = (await systemBlocks(request)).find((b) => b.id === "synthetic:goal");
     expect(block!.content).toContain("[x] Leggere il router");
     expect(block!.content).toContain("[~] Scrivere il test");
+  });
+
+  test("il goal dell'agente: etichetta, passi in linea, progresso, e l'umano se lo prende", async ({ page, request, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "CTX-GOAL-03" });
+    // The same write the `set_goal` tool does: an AGENT goal.
+    const created = await (
+      await request.put(`/api/topics/${topicId}/goal`, {
+        data: { content: "Portare a verde la suite", createdBy: "agent" },
+      })
+    ).json();
+    const goalId = created.goal.id as string;
+    // And the same one `update_goal_steps` does.
+    await request.put(`/api/goals/${goalId}/steps`, {
+      data: {
+        steps: [
+          { content: "Leggere il router dei goal", status: "completed" },
+          { content: "Scrivere le rotte per session key", status: "completed" },
+          { content: "Cablare i due tool MCP", status: "in_progress" },
+          { content: "Passare i sei cancelli", status: "pending" },
+        ],
+      },
+    });
+
+    await openChat(page, chatPage);
+    const bar = page.getByTestId("goal-bar");
+    await expect(bar).toContainText("Portare a verde la suite", { timeout: 10_000 });
+    // WHO it comes from is visible: a proposal, not the person's decision.
+    await expect(bar.getByTestId("goal-by-agent")).toBeVisible();
+    // The steps of an agent goal open by themselves: nobody asked for that
+    // goal, and what there is to read is what it is doing.
+    await expect(bar).toContainText("2/4");
+    await expect(bar).toContainText("Cablare i due tool MCP");
+    await expect(bar).toContainText("Passare i sei cancelli");
+
+    if (process.env.E2E_EVIDENCE) {
+      // Narrow on purpose: the evidence must stay readable once the board card
+      // shrinks it to 268px, and a bar 800px wide gets there with 4px text.
+      await page.setViewportSize({ width: 520, height: 720 });
+      await expect(bar).toContainText("2/4");
+      await bar.screenshot({ path: test.info().outputPath("goal-bar-agent.png") });
+    }
+
+    // The person adopts it: same goal, same steps, now theirs.
+    await bar.getByTestId("goal-promote").click();
+    await expect(bar.getByTestId("goal-by-agent")).toHaveCount(0, { timeout: 10_000 });
+    const after = await (await request.get(`/api/topics/${topicId}/goal`)).json();
+    expect(after.goal.id).toBe(goalId);
+    expect(after.goal.createdBy).toBe("human");
+    expect(after.goal.steps.length).toBe(4);
   });
 
   test("/goal fatto chiude: via la barra, via il blocco dal contesto", async ({ page, request, chatPage }) => {

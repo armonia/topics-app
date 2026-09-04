@@ -1,21 +1,21 @@
 /**
- * Contratto della board: UNA dichiarazione, letta dai due lati del filo.
+ * The board contract: ONE declaration, read from both ends of the wire.
  *
- * Fino al 29/07 questi tipi esistevano due volte — `server/services/tasks.ts`
- * + `server/services/review-checks.ts` + `server/services/dispatch-capacity.ts`
- * da una parte, `client/src/lib/board.ts` dall'altra — e la copia del client
- * era già indietro: `BoardSettings` non conosceva `dispatchRetryCap` né
- * `dispatchRetryBackoffS`, campi che il server SCRIVE nella riga
- * `board_settings` e RIMANDA in ogni GET. Il client li riceveva e li buttava,
- * e una PATCH costruita dal suo tipo li avrebbe silenziosamente azzerati.
+ * Until 29/07 these types existed twice (`server/services/tasks.ts` +
+ * `server/services/review-checks.ts` + `server/services/dispatch-capacity.ts`
+ * on one side, `client/src/lib/board.ts` on the other) and the client copy was
+ * already behind: `BoardSettings` did not know `dispatchRetryCap` nor
+ * `dispatchRetryBackoffS`, fields the server WRITES in the `board_settings`
+ * row and sends back on every GET. The client received them and threw them
+ * away, and a PATCH built from its type would have silently zeroed them.
  *
- * Anche l'elenco degli stati era scritto tre volte (il tipo lato client, il
- * suo `TASK_STATUSES`, e la `const STATUSES` privata del server). Qui è UNO:
- * il tipo DERIVA dal valore, quindi aggiungere una colonna alla kanban senza
- * aggiornare la validazione non compila più.
+ * The list of statuses was written three times too (the client-side type, its
+ * `TASK_STATUSES`, and the server's private `const STATUSES`). Here it is ONE:
+ * the type DERIVES from the value, so adding a kanban column without updating
+ * the validation no longer compiles.
  *
- * `shared/` è l'unica cartella che entrambi i progetti TS possono includere
- * senza violare il confine composite (TS6307) — vedi `shared/ws-outbound.ts`.
+ * `shared/` is the only folder both TS projects can include without breaking
+ * the composite boundary (TS6307): see `shared/ws-outbound.ts`.
  */
 
 /** L'elenco degli stati. Il tipo lo segue: una sola verità, non due gemelle. */

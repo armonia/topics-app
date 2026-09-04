@@ -29,6 +29,8 @@ import {
   callGetTask,
   callGetGoal,
   callCloseGoal,
+  callSetGoal,
+  callUpdateGoalSteps,
   callUpdateTask,
   callCommentTask,
   callWaitForCondition,
@@ -540,6 +542,8 @@ describe("handleMessage", () => {
       "get_task",
       "get_goal",
       "close_goal",
+      "set_goal",
+      "update_goal_steps",
       "update_task",
       "wait_for_condition",
       "label_task",
@@ -624,7 +628,8 @@ describe("handleMessage", () => {
       "browser_act", "browser_eval", "browser_save_state", "browser_load_state",
       "browser_upload",
       "run_script", "stop_process",
-      "create_task", "update_task", "close_goal", "comment_task", "label_task", "wait_for_condition",
+      "create_task", "update_task", "close_goal", "set_goal", "update_goal_steps",
+      "comment_task", "label_task", "wait_for_condition",
       "move_session_to_project", "spawn_agent", "send_to_agent", "stop_agent",
       "switch_topic", "new_topic", "create_project", "open_project",
       "send_chat_message",
@@ -1536,6 +1541,81 @@ describe("callCloseGoal", () => {
   test("no active goal (404 from the server) surfaces as the server's sentence", async () => {
     const fetchImpl = stubFetch(async () => new Response(JSON.stringify({ error: "no active goal" }), { status: 404 }));
     await expect(callCloseGoal({ baseUrl: "http://x", sessionKey: "s" }, { status: "abandoned", summary: "n/a" }, fetchImpl))
+      .rejects.toThrow("no active goal");
+  });
+});
+
+/**
+ * The agent declares its own objective and keeps the plan visible (card
+ * d2a4a907). What matters at this level is the shape of the call and the
+ * sentence that comes back to the model: the refusal on the person's goal is
+ * decided by the route, and it is tested there.
+ */
+describe("callSetGoal", () => {
+  test("PUTs the objective on the session's goal and answers with what to do next", async () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (url, init) => {
+      seen.url = String(url); seen.init = init;
+      return new Response(JSON.stringify({ goal: { id: "g1", content: "Portare a verde la suite", status: "active" } }), { status: 201 });
+    });
+    const text = await callSetGoal({ baseUrl: "http://x", sessionKey: "topic:abc" }, { content: "  Portare a verde la suite  " }, fetchImpl);
+    expect(seen.url).toBe("http://x/api/sessions/topic%3Aabc/goal");
+    expect(seen.init?.method).toBe("PUT");
+    expect(JSON.parse(String(seen.init?.body))).toEqual({ content: "Portare a verde la suite" });
+    expect(text).toContain("Goal set (id=g1): Portare a verde la suite");
+    expect(text).toContain("update_goal_steps");
+  });
+
+  test("an empty objective never leaves, and the 409 reaches the model whole", async () => {
+    const never = stubFetch(async () => { throw new Error("must not be called"); });
+    await expect(callSetGoal({ baseUrl: "http://x", sessionKey: "s" }, { content: "   " }, never))
+      .rejects.toThrow("'content'");
+    // The refusal is the whole point: the model must READ why, or it retries.
+    const refused = stubFetch(async () => new Response(JSON.stringify({
+      error: "a goal declared by the person is active («Sistemare il login»): only they can replace it.",
+    }), { status: 409 }));
+    await expect(callSetGoal({ baseUrl: "http://x", sessionKey: "s" }, { content: "altro" }, refused))
+      .rejects.toThrow("Sistemare il login");
+  });
+});
+
+describe("callUpdateGoalSteps", () => {
+  test("PUTs the WHOLE list and answers with the progress the person is looking at", async () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (url, init) => {
+      seen.url = String(url); seen.init = init;
+      return new Response(JSON.stringify({ goal: { id: "g1", content: "A", status: "active", steps: [
+        { content: "leggere il router", status: "completed" },
+        { content: "scrivere il test", status: "in_progress" },
+        { content: "passare i cancelli", status: "pending" },
+      ] } }), { status: 200 });
+    });
+    const text = await callUpdateGoalSteps({ baseUrl: "http://x", sessionKey: "topic:abc" }, {
+      steps: [
+        { content: "leggere il router", status: "completed" },
+        { content: "scrivere il test", status: "in_progress" },
+        { content: "passare i cancelli" },
+      ],
+    }, fetchImpl);
+    expect(seen.url).toBe("http://x/api/sessions/topic%3Aabc/goal/steps");
+    expect(seen.init?.method).toBe("PUT");
+    // A step with no status is `pending`, not a refusal: the model sends the
+    // list, the default is the obvious one.
+    expect(JSON.parse(String(seen.init?.body)).steps[2]).toEqual({ content: "passare i cancelli", status: "pending" });
+    expect(text).toBe("Plan updated: 1/3 done, now: scrivere il test.");
+  });
+
+  test("an empty list, or a status nobody knows, is refused before the call", async () => {
+    const never = stubFetch(async () => { throw new Error("must not be called"); });
+    await expect(callUpdateGoalSteps({ baseUrl: "http://x", sessionKey: "s" }, { steps: [] }, never))
+      .rejects.toThrow("'steps'");
+    await expect(callUpdateGoalSteps({ baseUrl: "http://x", sessionKey: "s" }, { steps: [{ content: "a", status: "doing" }] }, never))
+      .rejects.toThrow("unknown status");
+  });
+
+  test("with no active goal the server's 404 reaches the model", async () => {
+    const fetchImpl = stubFetch(async () => new Response(JSON.stringify({ error: "no active goal" }), { status: 404 }));
+    await expect(callUpdateGoalSteps({ baseUrl: "http://x", sessionKey: "s" }, { steps: [{ content: "a" }] }, fetchImpl))
       .rejects.toThrow("no active goal");
   });
 });

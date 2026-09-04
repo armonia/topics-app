@@ -980,6 +980,12 @@ export const goalApi = {
     });
   },
 
+  /** The person adopts a goal the agent proposed: same row, same steps, it just
+   *  stops being a proposal (and the agent can no longer replace it). */
+  async promote(goalId: string): Promise<{ goal: TopicGoal | null }> {
+    return request(`/goals/${goalId}/promote`, { method: 'POST' });
+  },
+
   /** Chiude quello attivo. `achieved` e `abandoned` non sono la stessa cosa per
    *  chi rilegge lo storico, quindi la distinzione la fa chi chiude. */
   async close(topicId: string, status: 'achieved' | 'abandoned'): Promise<{ goal: TopicGoal | null }> {

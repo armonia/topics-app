@@ -430,7 +430,13 @@ function ChatPaneComponent({
   const latestTodo = useMemo(() => selectLatestTodo(currentMessages), [currentMessages]);
   // 3.4 — l'obiettivo della topic. Quando c'è, è LUI la superficie del piano:
   // vedi l'intestazione di GoalBar per il perché non convivono.
-  const { goal, declare: declareGoal, close: closeGoal, stopLoop: stopGoalLoop } = useGoal(topic.id, onWSMessage);
+  const {
+    goal,
+    declare: declareGoal,
+    close: closeGoal,
+    promote: promoteGoal,
+    stopLoop: stopGoalLoop,
+  } = useGoal(topic.id, onWSMessage);
   const currentMarkers = getCompactionMarkers?.(topic.sessionKey);
 
   // Chiude il banner della compattazione con l'esito VERO, quando il marcatore
@@ -1531,6 +1537,7 @@ function ChatPaneComponent({
             onClose={(status) => { void closeGoal(status); }}
             onEdit={(content) => { void declareGoal(content); }}
             onStopLoop={() => { void stopGoalLoop(); }}
+            onPromote={() => { void promoteGoal(); }}
           />
         ) : (
           latestTodo && <TodoStrip snapshot={latestTodo} />
