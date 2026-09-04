@@ -2050,10 +2050,10 @@ describe("le due risposte allo stallo dei sottotask parcheggiati", () => {
   });
 
   test("un rifiuto su una card SENZA sessione la rimette in coda, non la lascia in lavorazione senza nessuno", async () => {
-    // 2026-09-04: quattro card rifiutate dopo che un riavvio a dispatch spento
-    // aveva sciolto il binding: `resume` torna sul topic mancante e il
-    // reconcile salta chi non ha un chip, quindi restavano in_progress per
-    // sempre. Il rifiuto ora le rimanda in todo, con il thread.
+    // 2026-09-04: four cards rejected after a restart with dispatch off had
+    // released their binding: `resume` returns on the missing topic and the
+    // reconcile skips a card with no chip, so they stayed in_progress for
+    // good. The reject now sends them back to todo, thread included.
     const p = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "orfana in review" }))!.json();
     db.prepare("UPDATE tasks SET status = 'review', assigned_topic_id = NULL, dispatch_state = NULL WHERE id = ?").run(p.id);
     const t = await (await call(router, "POST", `/api/boards/pX/tasks/${p.id}/review`, {
