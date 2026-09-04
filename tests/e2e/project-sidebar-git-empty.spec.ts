@@ -21,30 +21,30 @@ import { mkdirSync, rmSync, writeFileSync } from "fs";
 
 hermetic(test);
 
-const PROJ = `/tmp/e2e-git-empty-${Date.now()}`;
+const PROJECT_DIR = `/tmp/e2e-git-empty-${Date.now()}`;
 
 test.describe("sidebar progetto: la sezione git quando non c'e' niente", () => {
   test.beforeAll(() => {
-    mkdirSync(PROJ, { recursive: true });
-    writeFileSync(`${PROJ}/README.md`, "uno\n");
+    mkdirSync(PROJECT_DIR, { recursive: true });
+    writeFileSync(`${PROJECT_DIR}/README.md`, "uno\n");
     // Tutto committato: nessun file modificato e nessun remoto, quindi nemmeno
     // avanti/indietro. E' lo stato in cui la sezione non deve esistere.
-    initGitRepo(PROJ, "primo");
+    initGitRepo(PROJECT_DIR, "primo");
   });
   test.afterAll(() => {
-    rmSync(PROJ, { recursive: true, force: true });
+    rmSync(PROJECT_DIR, { recursive: true, force: true });
   });
 
   test("pulito non ha sezione ne' bottone, e la prima modifica la riporta", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "PROJECT-12" });
     await resetPaneStore(request, []);
-    await seedProjectPane(request, PROJ);
+    await seedProjectPane(request, PROJECT_DIR);
     await waitForPaneStoreQuiet(request);
 
     await goToApp(page);
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
 
-    const win = page.locator(`[data-testid="project-window"][data-project-path="${PROJ}"]`);
+    const win = page.locator(`[data-testid="project-window"][data-project-path="${PROJECT_DIR}"]`);
     await expect(win).toHaveCount(1, { timeout: 15000 });
 
     // La sezione File c'e' sempre: e' l'ancora che dice che la sidebar e'
@@ -52,13 +52,13 @@ test.describe("sidebar progetto: la sezione git quando non c'e' niente", () => {
     // sarebbe vera anche su una sidebar che non c'e'.
     await expect(win.getByTestId("project-sidebar-files")).toBeVisible({ timeout: 15000 });
 
-    const sezione = win.getByTestId("project-sidebar-git-section");
+    const section = win.getByTestId("project-sidebar-git-section");
     // 1. PULITO: niente sezione. Si aspetta che lo stato git sia ARRIVATO
     //    (il pannello dei file e' visibile e la finestra e' viva) e si tiene
     //    l'assenza per un intervallo, perche' un'assenza immediata sarebbe
     //    vera anche solo perche' il render non e' ancora passato di li'.
-    await expect(sezione).toHaveCount(0);
-    await expect.poll(async () => sezione.count(), {
+    await expect(section).toHaveCount(0);
+    await expect.poll(async () => section.count(), {
       // Il poll dello stato git e' 15s: se la sezione dovesse comparire per
       // uno zero, comparirebbe entro questa finestra.
       timeout: 18000,
@@ -75,7 +75,7 @@ test.describe("sidebar progetto: la sezione git quando non c'e' niente", () => {
 
     // 3. LA PRIMA MODIFICA LA RIPORTA. La condizione e' viva: nessuno riapre
     //    il progetto, cambia solo il disco.
-    writeFileSync(`${PROJ}/README.md`, "uno\ndue\n");
+    writeFileSync(`${PROJECT_DIR}/README.md`, "uno\ndue\n");
     await expect(strip.getByRole("button", { name: /Modifiche git/ })).toHaveCount(1, { timeout: 25000 });
 
     // E riaperta, la sezione c'e' col suo conteggio: quello non e' cambiato.
