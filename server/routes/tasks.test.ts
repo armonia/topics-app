@@ -1147,6 +1147,37 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     expect(got.task.checks.map((c: any) => c.name)).toEqual(["realign"]);
   });
 
+  /**
+   * 2026-09-04, 12:37: three cards delivered together, sat in the gate's queue
+   * past the client's 50-minute cap, and the green verdicts that followed were
+   * applied by nobody. The route now re-issues the remembered PATCH itself.
+   */
+  test("il client smette di richiamare: la consegna verde si completa da sola, in review", async () => {
+    const r = mk();
+    const t = await delivered(r);
+    await declare(r, t.projectId, ["sleep 0.6"]);
+    const first = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "riassunto della consegna", legMs: 100 }))!;
+    expect(first.status).toBe(202);
+    // Nobody polls. The run ends on its own and the verdict lands anyway.
+    await Bun.sleep(1_500);
+    const after = await (await call(r, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
+    expect(after.task.status).toBe("review");
+    expect(after.task.checksState).toBe("pass");
+  });
+
+  test("il client smette di richiamare: la consegna rossa resta in lavorazione, col rosso nel filo", async () => {
+    const r = mk();
+    const t = await delivered(r);
+    await declare(r, t.projectId, ["sleep 0.6; echo riga-rossa >&2; exit 3"]);
+    const opened = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "riassunto della consegna", legMs: 100 }))!;
+    expect(opened.status).toBe(202);
+    await Bun.sleep(1_500);
+    const still = await (await call(r, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
+    expect(still.task.status).not.toBe("review");
+    expect(still.task.checksState).toBe("fail");
+    expect(still.comments.some((c: any) => c.author === "system" && c.content.includes("riga-rossa"))).toBe(true);
+  });
+
   test("la board sa che stanno girando: broadcast 'running' PRIMA dell'esito", async () => {
     const r = mk();
     const t = await delivered(r);

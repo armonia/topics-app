@@ -373,6 +373,11 @@ sintesi di 1-2 frasi e riprovare. Unica eccezione al gate `done`: gli **step pro
 - **THEN** `main` SHALL essere riportato dentro il ramo PRIMA di misurare, una volta per consegna, e la nota SHALL restare nel filo
 - **AND** se il riallineamento non è possibile (conflitto, albero sporco) quello SHALL essere il verdetto: 409 con i file, nessun comando eseguito
 
+#### Scenario: il client smette di aspettare i check
+- **GIVEN** una consegna a cui il cancello ha risposto 202 e un client che non richiama più
+- **WHEN** i check finiscono
+- **THEN** il server SHALL applicare da sé l'esito: verdi, la card passa in review con la stessa consegna; rossi, resta in lavorazione con il rosso nel filo
+
 #### Scenario: la consegna muta è rifiutata
 - **GIVEN** un task lavorato da un agent senza alcun suo commento nel thread
 - **WHEN** l'agent chiama `update_task(status='review')`

@@ -872,6 +872,46 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * in review mentre i comandi girano (il reviewer vedrebbe una consegna
    * guardabile a verdetto ignoto), e un rosso torna all'agente con l'output.
    */
+  /**
+   * A DELIVERY WHOSE CLIENT GAVE UP STILL LANDS ITS VERDICT.
+   *
+   * The checks run in the registry and the status moves only when a leg comes
+   * back with the verdict - and the leg is the MCP client polling every 25 s,
+   * for at most 50 minutes (`CHECKS_MAX_LEGS`). On 2026-09-04 at 12:37 three
+   * cards resumed together, delivered at once, and sat in the gate's slot
+   * queue past that cap: `update_task` threw, each agent ended its turn saying
+   * "consegnato", the checks finished green minutes later and NOBODY applied
+   * them. The cards stayed in_progress, the dispatcher read the turns as
+   * "closed without review" and spent an attempt each.
+   *
+   * So the route remembers the delivery it answered 202 to, and when the run
+   * ends it re-issues that same PATCH to itself: green moves the card to
+   * review exactly as a client leg would, red leaves the comment the run
+   * already wrote. The client's polling becomes a courtesy, not a condition.
+   */
+  const pendingDeliveries = new Map<string, { pathname: string; body: Record<string, unknown> }>();
+  function settleDelivery(taskId: string, attempt = 0): void {
+    const pending = pendingDeliveries.get(taskId);
+    if (!pending) return;
+    // The run's promise settles a microtask after `run` returns; a timer is
+    // enough to land after it, and a run still marked live simply waits.
+    setTimeout(() => {
+      if (checksGate.isRunning(taskId)) {
+        if (attempt < 20) settleDelivery(taskId, attempt + 1);
+        return;
+      }
+      if (!pendingDeliveries.delete(taskId)) return;
+      const url = new URL(`http://localhost${pending.pathname}`);
+      const req = new Request(url, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...pending.body, legMs: 1_000 }),
+      });
+      tasksRouter(req, url, pending.pathname, "PATCH")
+        .then((resp) => console.log(`[Tasks] consegna di ${taskId.slice(0, 8)} completata dal server a client andato: HTTP ${resp?.status ?? "nessuna risposta"}`))
+        .catch((err) => console.warn(`[Tasks] consegna di ${taskId.slice(0, 8)}: il PATCH riemesso dal server è fallito:`, err));
+    }, attempt === 0 ? 0 : 250);
+  }
+
   async function runChecksGate(
     taskId: string,
     projectId: string,
@@ -975,6 +1015,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           const t = svc.get(taskId, { projectId })?.task;
           if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
         } catch { /* l'esito conta più della sua registrazione */ }
+        settleDelivery(taskId);
         return { ok, comment };
       },
     });
@@ -1816,7 +1857,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     }, 409);
   }
 
-  return async function tasksRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
+  const tasksRouter = async function tasksRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
     // Fast reject: only task paths — agent (session-scoped) or human (board-scoped),
     // plus the machine-wide dispatch-capacity probe (a /api/system/ path that this
     // router owns because it reads the same dispatch config).
@@ -3620,6 +3661,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           if (isDelivery) {
             const outcome = await runChecksGate(item.taskId, sess.projectId, legMs).catch(() => null);
             if (outcome && "pending" in outcome) {
+              // Remembered with the body as sent: the server re-issues THIS
+              // request when the run ends, should the client stop polling.
+              if (body && typeof body === "object") pendingDeliveries.set(item.taskId, { pathname, body: body as Record<string, unknown> });
               const t = svc.get(item.taskId, { projectId: sess.projectId })?.task;
               return json({
                 pending: true,
@@ -3629,6 +3673,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                 checksState: t?.checksState ?? "running",
               }, 202);
             }
+            pendingDeliveries.delete(item.taskId);
             if (outcome && !outcome.ok) {
               return json({ error: outcome.comment, code: "review_needs_green_checks" }, 409);
             }
@@ -3674,4 +3719,5 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
 
     return null;
   };
+  return tasksRouter;
 }
