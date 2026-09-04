@@ -138,6 +138,7 @@ function MediaImage({ path }: { path: string }) {
 }
 
 function VoiceMessagePlayer({ path, isUserMessage }: { path: string; isUserMessage?: boolean }) {
+  const tr = useT();
   const src = getMediaUrl(path);
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
@@ -195,13 +196,35 @@ function VoiceMessagePlayer({ path, isUserMessage }: { path: string; isUserMessa
     else { audio.play(); setPlaying(true); }
   };
 
-  const seek = (e: React.MouseEvent<HTMLDivElement>) => {
+  /** The one place the position is written, so the pointer and the keyboard
+   *  cannot drift apart. Seconds, clamped to the track. */
+  const seekTo = (seconds: number) => {
     const audio = audioRef.current;
     if (!audio || !duration) return;
+    audio.currentTime = Math.max(0, Math.min(seconds, duration));
+    setCurrentTime(audio.currentTime);
+  };
+
+  const seek = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!duration) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    audio.currentTime = pct * duration;
-    setCurrentTime(audio.currentTime);
+    seekTo(pct * duration);
+  };
+
+  /* THE BAR WAS A `div` WITH AN `onClick`: no role, no tab stop, no key. To
+   * anyone not holding a mouse the position of a voice message was not just
+   * hard to change, it was not announced at all -- and the element still looked
+   * clickable, so it read as broken rather than absent. `role="slider"` plus
+   * these keys is the contract that name implies: five seconds per arrow, the
+   * ends on Home/End. */
+  const onBarKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!duration) return;
+    const step = 5;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowUp') { e.preventDefault(); seekTo(currentTime + step); }
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { e.preventDefault(); seekTo(currentTime - step); }
+    else if (e.key === 'Home') { e.preventDefault(); seekTo(0); }
+    else if (e.key === 'End') { e.preventDefault(); seekTo(duration); }
   };
 
   const fmt = (s: number) => {
@@ -216,8 +239,13 @@ function VoiceMessagePlayer({ path, isUserMessage }: { path: string; isUserMessa
   return (
     <div data-testid="voice-player" className="flex items-center gap-2.5 py-1 min-w-[180px] max-w-[260px]">
       <audio ref={audioRef} src={src} preload="auto" />
+      {/* The button was an icon and nothing else: `toHaveAccessibleName` had
+          nothing to read, and a screen reader announced «button». The name
+          follows the STATE, because that is what pressing it will do. */}
       <button
         onClick={toggle}
+        aria-label={tr(playing ? 'chat.voice.pause' : 'chat.voice.play')}
+        data-testid="voice-player-toggle"
         className={`w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-full transition-colors ${
           // Bolla utente = bg-primary (blu saturo) in ENTRAMBI i temi: qui
           // `bg-white/N` è il rialzo corretto sopra fondo scuro garantito,
@@ -235,10 +263,22 @@ function VoiceMessagePlayer({ path, isUserMessage }: { path: string; isUserMessa
         )}
       </button>
       <div className="flex-1 flex flex-col gap-1 min-w-0">
+        {/* `tap-expand-y`: the bar is 6px tall and spans the bubble's width, so
+            the axis that is missing is the vertical one -- and it has room,
+            since nothing else is stacked against it inside the player. */}
         <div
-          className="h-1.5 rounded-full cursor-pointer relative overflow-hidden"
+          className="tap-expand-y h-1.5 rounded-full cursor-pointer relative overflow-hidden"
           style={{ backgroundColor: isUserMessage ? 'rgba(255,255,255,0.2)' : 'rgba(var(--primary-rgb, 59,130,246),0.15)' }}
           onClick={seek}
+          onKeyDown={onBarKey}
+          role="slider"
+          tabIndex={0}
+          aria-label={tr('chat.voice.progress')}
+          aria-valuemin={0}
+          aria-valuemax={Math.round(duration)}
+          aria-valuenow={Math.round(currentTime)}
+          aria-valuetext={`${fmt(currentTime)} / ${fmt(duration)}`}
+          data-testid="voice-player-progress"
         >
           <div
             className="absolute inset-y-0 left-0 rounded-full transition-all"
