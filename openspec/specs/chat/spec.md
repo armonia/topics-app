@@ -349,6 +349,48 @@ The system SHALL support creating conversation checkpoints as snapshots, display
 - **AND** only the compact bar with count and dots remains visible
 
 
+### Requirement: CHAT-CHANGES-01 - Cosa ha toccato questa conversazione
+
+Il sistema SHALL ricavare dalle tool call di scrittura di un topic (`detail.type` `write`
+o `edit`) l'elenco dei file che quella conversazione ha creato, modificato o cancellato, e
+SHALL esporlo su `GET /api/topics/:id/changes` come `{ files: [{ path, kind, turns, lastAt,
+added?, removed? }], git: { root, branch, dirty } | null }`.
+
+Quando il topic lavora dentro un repository git, il sistema SHALL incrociare quei path con
+`git status --porcelain` e `git diff --numstat` LIMITATI a quei path: i conteggi e lo stato
+descrivono il lavoro di QUESTA conversazione, non lo sporco dell'intero repository. Fuori da
+un repository la risposta SHALL restare utile (i path e il tipo dedotto dalle tool call) con
+`git: null`.
+
+Nell'intestazione della chat il sistema SHALL mostrare un chip con il numero dei file; il
+chip SHALL essere assente quando la conversazione non ha scritto nulla. L'elenco SHALL
+aggiornarsi a fine turno (`stream:end`), non a ogni token.
+
+#### Scenario: il chip compare dopo un turno che ha scritto
+- **GIVEN** un topic la cui conversazione contiene una tool call `write` su un file
+- **WHEN** l'utente guarda l'intestazione della chat
+- **THEN** vede un chip con il conteggio dei file toccati
+- **AND** cliccandolo si apre l'elenco con il path relativo e lo stato del file
+
+#### Scenario: una conversazione che non ha scritto niente non mostra il chip
+- **GIVEN** un topic le cui tool call sono solo letture, ricerche e comandi
+- **WHEN** l'utente guarda l'intestazione della chat
+- **THEN** non c'e' nessun chip dei file modificati
+
+#### Scenario: i conteggi vengono da git e riguardano solo i file del topic
+- **GIVEN** un topic dentro un repository con due `write` su file nuovi e un `edit` su un file gia' committato
+- **AND** un altro file del repository sporco, che la conversazione non ha mai nominato
+- **WHEN** si legge `GET /api/topics/:id/changes`
+- **THEN** l'elenco contiene i tre file della conversazione, due come `created` e uno come `modified`
+- **AND** ogni riga porta le righe aggiunte e tolte da `git diff --numstat`
+- **AND** il file sporco che la conversazione non ha toccato non compare
+
+#### Scenario: dalla riga al diff
+- **GIVEN** l'elenco dei file modificati e' aperto
+- **WHEN** l'utente clicca su una riga
+- **THEN** il diff di quel file si apre nella pane editor
+- **AND** un'azione dell'intestazione apre un terminale nella cartella del topic
+
 ### Requirement: CHAT-TOOL-01 — Lo stato "running" copre l'utilizzo reale del tool
 
 Il sistema SHALL mostrare una tool call come attiva (`running`) per tutta la finestra di
@@ -2668,6 +2710,49 @@ espandersi al gesto.
 #### Scenario: un messaggio con prosa e riepilogo
 - **GIVEN** un turno che porta entrambi
 - **THEN** la prosa SHALL restare visibile e il riepilogo SHALL essere richiuso
+
+### Requirement: CHAT-COMPACT-04 — Il contesto pieno non uccide la chat
+
+Una conversazione che riempie la finestra del modello SHALL continuare a
+rispondere. Il rifiuto «prompt is too long» NON SHALL essere trattato come un
+guasto del provider: porta con sé il conteggio ESATTO dei token di una
+richiesta che abbiamo mandato noi, e quel numero SHALL essere usato per
+correggere la stima e rifare il turno da solo.
+
+La stima dei token NON SHALL restare un'assunzione. Il rapporto fra caratteri e
+token SHALL essere CALIBRATO su quanto l'interfaccia del modello dichiara di
+aver contato, e un rapporto misurato NON SHALL mai essere più generoso di
+quello assunto: dichiarare più spazio di quanto ce ne sia è l'errore che uccide
+la conversazione, mentre dichiararne di meno costa solo una compattazione
+anticipata.
+
+La compattazione SHALL alleggerire anche gli ARGOMENTI delle chiamate vecchie,
+non i soli risultati: il risultato di una scrittura è una riga, il suo
+argomento è il file intero.
+
+Quando alleggerire non basta a raggiungere il bersaglio, i turni PIÙ VECCHI
+SHALL essere tagliati, così che una compattazione non possa dichiararsi
+riuscita lasciando una richiesta che l'interfaccia rifiuta. La richiesta
+iniziale SHALL sopravvivere, con l'indicazione di quanto è stato tolto.
+
+Mentre tutto questo accade la chat SHALL dirlo con una frase leggibile, e la
+resa — se dopo un numero limitato di tentativi la conversazione ancora non
+entra — SHALL spiegare cosa fare, non mostrare il corpo dell'errore.
+
+#### Scenario: il contesto pieno non uccide la chat
+- **GIVEN** una conversazione che sfora il tetto della finestra
+- **WHEN** l'interfaccia del modello rifiuta la richiesta perché troppo lunga
+- **THEN** la conversazione SHALL essere compattata sul conteggio dichiarato
+- **AND** il turno SHALL ripartire da solo e ricevere una risposta
+- **AND** in chat SHALL comparire una frase leggibile, non un errore di rete
+
+#### Scenario: la stima si corregge da sola
+- **GIVEN** un giro concluso di cui si conosce il prompt contato
+- **THEN** la soglia SHALL essere valutata su quel rapporto misurato
+
+#### Scenario: quando non si sblocca
+- **GIVEN** una conversazione che non entra nemmeno dopo le ricompattazioni
+- **THEN** SHALL essere detto cosa fare, e NON SHALL essere ritentato all'infinito
 
 ### Requirement: DURAB-CHAT-01 — Cosa sopravvive a un ricaricamento, e cosa DEVE non sopravvivere
 

@@ -204,6 +204,21 @@ export function setGoalLoop(
   return getGoal(db, goalId);
 }
 
+/**
+ * The person adopts a goal the agent proposed: `created_by` becomes `human`,
+ * everything else stays. From then on `set_goal` refuses to replace it, which
+ * is what adopting means here: the objective stops being a proposal.
+ *
+ * Idempotent, and a no-op on a goal that was already the person's.
+ */
+export function promoteGoal(db: Database, goalId: string): TopicGoal | null {
+  const existing = getGoal(db, goalId);
+  if (!existing) return null;
+  if (existing.createdBy === "human") return existing;
+  db.prepare(`UPDATE topic_goals SET created_by = 'human' WHERE id = ?`).run(goalId);
+  return getGoal(db, goalId);
+}
+
 /** Riapre un goal chiuso, abbandonando quello attivo se c'è. */
 export function reopenGoal(db: Database, goalId: string): TopicGoal | null {
   const existing = getGoal(db, goalId);
@@ -277,6 +292,21 @@ export function goalContextContent(goal: TopicGoal | null): string | null {
   lines.push(
     "",
     "Resta su questo obiettivo. Se l'utente lo cambia, dillo esplicitamente invece di seguirlo in silenzio.",
+    "Tieni i passi aggiornati con update_goal_steps a ogni passo che finisci: è ciò che l'utente vede sopra la chat.",
   );
   return lines.join("\n");
+}
+
+/**
+ * What the envelope says when there is NO active goal, and the reason this
+ * block exists at all: without it a twenty-step job runs with an empty bar,
+ * because nothing ever tells the model that declaring the objective is
+ * something it can do. Codex has `update_plan` and calls it by itself; here
+ * the tool existed and the instruction did not.
+ *
+ * One sentence: the tools carry their own schema, and a longer block would buy
+ * commentary about the plan instead of a plan.
+ */
+export function goalToolsHintContent(): string {
+  return "Per un lavoro a più passi dichiara l'obiettivo con set_goal e tieni i passi aggiornati con update_goal_steps: è ciò che l'utente vede sopra la chat.";
 }

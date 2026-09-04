@@ -25,6 +25,28 @@
  * si sta finendo il budget, e introduce un punto in cui il riassunto può
  * mentire. Buttare i risultati dei tool è deterministico, istantaneo e non
  * inventa niente. Se un domani servisse il riassunto, questo file è il posto.
+ *
+ * ── WHAT THIS FILE GOT WRONG, measured on the live database (card 18bdf214) ──
+ * Two topics stopped answering for good: every send came back
+ * `prompt is too long: 1000176 tokens > 1000000 maximum`. The compaction had
+ * NOT been skipped: `compaction_markers` holds its own receipt for one of
+ * them, `pre=1115713 → post=480494`. It ran, it reported success, and the
+ * request it produced was still twice the ceiling. Two defects, and both of
+ * them are in here:
+ *
+ *   1. ONLY THE RESULTS WERE LIGHTENED. After compacting, 77% of what was left
+ *      sat in the `tool_use` INPUTS: the arguments of a write, the body of an
+ *      edit. 1.53 MB of the 1.98 MB payload, untouched, because nobody had
+ *      looked at what was heavy AFTER the results were gone.
+ *   2. FOUR CHARACTERS PER TOKEN IS AN ASSUMPTION, and on this content it was
+ *      out by a factor of two. The threshold was being read off a number that
+ *      was not the real one, so "we fit" meant nothing.
+ *
+ * The answers are below: the arguments are lightened like the results; what is
+ * left over is CUT, so a compaction can no longer end with "still too big";
+ * and the characters-per-token ratio stops being assumed and gets CALIBRATED
+ * on what the API says it counted — a successful round reports its own prompt
+ * size, and even the 400 carries the exact number.
  */
 
 import type { Block, AgentMessage } from "./agent-loop";
@@ -42,28 +64,85 @@ const COMPACT_AT = 0.75;
 const KEEP_RECENT = 6;
 
 /** Il testo che prende il posto di un risultato buttato. */
-const DROPPED = "[risultato rimosso per fare spazio: la conversazione era troppo lunga]";
+const DROPPED = "[risultato rimosso per fare spazio: la conversazione era troppo lunga]"; // allow-italian: testo che legge il modello, non UI
 
 /**
- * Una stima dei token, non un conteggio.
+ * How many characters we assume make a token until the API tells us better.
  *
- * Il conteggio vero richiede il tokenizer di Anthropic, che qui non abbiamo, o
- * una chiamata di rete per ogni controllo — inaccettabile a ogni giro del loop.
- * Quattro caratteri per token è l'approssimazione d'uso comune sull'inglese e
- * sbaglia in eccesso sul codice, che è il verso giusto: si compatta un po'
- * prima del necessario invece di scoprire il tetto sbattendoci contro.
+ * Four is the usual rule of thumb on English prose. On what an agent actually
+ * sends (JSON arguments, diffs, source, base64) it is out by up to a factor of
+ * two, always in the dangerous direction: it says the conversation is half the
+ * size it is. It stays as the STARTING value because it is right often enough,
+ * and because the very first round of a session has nothing measured yet.
  */
-export function estimateTokens(messages: AgentMessage[], overheadChars = 0): number {
+export const DEFAULT_CHARS_PER_TOKEN = 4;
+
+/**
+ * The measured ratio never goes above the assumed one.
+ *
+ * Prose that really is 4.6 chars per token would let the estimate claim more
+ * room than the assumption does, and being generous about the room left is the
+ * exact mistake that killed those two chats. Below, on the other hand, we
+ * follow the measurement all the way down: dense JSON at 1.9 is a fact.
+ */
+const MIN_CHARS_PER_TOKEN = 1;
+
+/**
+ * The ratio the API's own count implies, ready to hand to `estimateTokens`.
+ *
+ * `chars` must be the SAME number `estimateChars` produced for the payload
+ * that was sent: it is a ratio between two measures of one request, so mixing
+ * a char count from one place with a token count from another gives a number
+ * that means nothing.
+ */
+export function charsPerTokenFrom(chars: number, realTokens: number): number {
+  if (!Number.isFinite(chars) || !Number.isFinite(realTokens) || chars <= 0 || realTokens <= 0) {
+    return DEFAULT_CHARS_PER_TOKEN;
+  }
+  return Math.min(DEFAULT_CHARS_PER_TOKEN, Math.max(MIN_CHARS_PER_TOKEN, chars / realTokens));
+}
+
+/**
+ * The characters that reach the API, `overheadChars` (system + tool schemas)
+ * included.
+ *
+ * COUNTED PER BLOCK, and one branch here is a bug that was paid for: a
+ * `tool_result` whose content is an ARRAY of blocks (a browser screenshot, a
+ * structured result) used to weigh ZERO, because only the string form was
+ * counted. Whatever we do not count, the API counts anyway.
+ */
+export function estimateChars(messages: AgentMessage[], overheadChars = 0): number {
   let chars = overheadChars;
   for (const m of messages) {
     if (typeof m.content === "string") { chars += m.content.length; continue; }
     for (const b of m.content) {
       chars += (b.text?.length ?? 0) + (b.thinking?.length ?? 0);
       if (typeof b.content === "string") chars += b.content.length;
+      else if (b.content != null) chars += JSON.stringify(b.content).length;
       if (b.input) chars += JSON.stringify(b.input).length;
     }
   }
-  return Math.ceil(chars / 4);
+  return chars;
+}
+
+/**
+ * Una stima dei token, non un conteggio.
+ *
+ * Il conteggio vero richiede il tokenizer di Anthropic, che qui non abbiamo, o
+ * una chiamata di rete per ogni controllo — inaccettabile a ogni giro del loop.
+ *
+ * `charsPerToken` IS THE CALIBRATION, and it is the difference between a
+ * threshold and a guess: the caller passes back the ratio measured on the last
+ * round (`charsPerTokenFrom`), so from the second round on this function is
+ * reporting what the API counts rather than what we hoped.
+ */
+export function estimateTokens(
+  messages: AgentMessage[],
+  overheadChars = 0,
+  charsPerToken: number = DEFAULT_CHARS_PER_TOKEN,
+): number {
+  const ratio = charsPerToken > 0 ? charsPerToken : DEFAULT_CHARS_PER_TOKEN;
+  return Math.ceil(estimateChars(messages, overheadChars) / ratio);
 }
 
 /**
@@ -74,8 +153,28 @@ export function estimateTokens(messages: AgentMessage[], overheadChars = 0): num
  * window. Left out, the estimate said "you fit" to a request the API refused:
  * with the MCP fleet mounted the schemas alone are tens of thousands of tokens.
  */
-export function needsCompaction(messages: AgentMessage[], windowTokens: number, overheadChars = 0): boolean {
-  return estimateTokens(messages, overheadChars) > windowTokens * COMPACT_AT;
+export function needsCompaction(
+  messages: AgentMessage[],
+  windowTokens: number,
+  overheadChars = 0,
+  charsPerToken: number = DEFAULT_CHARS_PER_TOKEN,
+): boolean {
+  return estimateTokens(messages, overheadChars, charsPerToken) > windowTokens * COMPACT_AT;
+}
+
+/**
+ * The token count the API reports when it refuses a prompt for being too long,
+ * and the ceiling it measured it against. `null` when the error is anything
+ * else.
+ *
+ * IT IS THE ONLY EXACT MEASUREMENT WE EVER GET of a payload we sent, and it
+ * arrives precisely when we need it: the estimate that let this request through
+ * can be corrected with it, on the spot, instead of being tuned by hand.
+ */
+export function promptTooLong(message: string): { tokens: number; max: number } | null {
+  const m = /prompt is too long:\s*(\d+)\s*tokens?\s*>\s*(\d+)\s*maximum/i.exec(message);
+  if (!m) return null;
+  return { tokens: Number(m[1]), max: Number(m[2]) };
 }
 
 /**
@@ -118,10 +217,11 @@ export function clipToolResult(text: string, head: number, tail: number): string
  */
 export function compact(
   messages: AgentMessage[],
-  opts?: { windowTokens?: number; overheadChars?: number },
-): { messages: AgentMessage[]; before: number; after: number } {
+  opts?: { windowTokens?: number; overheadChars?: number; charsPerToken?: number },
+): { messages: AgentMessage[]; before: number; after: number; droppedMessages: number } {
   const overhead = opts?.overheadChars ?? 0;
-  const before = estimateTokens(messages, overhead);
+  const ratio = opts?.charsPerToken ?? DEFAULT_CHARS_PER_TOKEN;
+  const before = estimateTokens(messages, overhead, ratio);
   // The target the history has to get back under, when the caller says so.
   // Without one, the only signal left is "it freed nothing".
   const target = opts?.windowTokens != null ? opts.windowTokens * COMPACT_AT : null;
@@ -130,7 +230,7 @@ export function compact(
   if (messages.length > KEEP_RECENT + 1) {
     next = lightenMiddle(messages);
   }
-  let after = estimateTokens(next, overhead);
+  let after = estimateTokens(next, overhead, ratio);
 
   // THE TAIL IS THE WEIGHT, and lightening the middle did not help.
   //
@@ -149,9 +249,88 @@ export function compact(
   const stillOver = target != null ? after > target : after >= before;
   if (stillOver) {
     next = clipTailResults(next);
-    after = estimateTokens(next, overhead);
+    after = estimateTokens(next, overhead, ratio);
   }
-  return { messages: next, before, after };
+
+  // AND IF IT STILL DOES NOT FIT, THE OLDEST TURNS GO.
+  //
+  // Everything above LIGHTENS: it keeps every message and empties what is
+  // inside them. That has a floor, and the floor can sit above the ceiling —
+  // measured on the live database (card 18bdf214): a compaction that reported
+  // 480k estimated tokens produced a request the API counted at 1,000,176 and
+  // refused. Reporting success on a request that cannot be sent is worse than
+  // failing, because nobody goes looking.
+  //
+  // So when a target exists and the lightening did not reach it, the oldest
+  // turns are CUT. It is the one operation that always converges, and it is
+  // last because it is the only one that loses something the model could still
+  // have used.
+  let droppedMessages = 0;
+  if (target != null && after > target) {
+    const cut = dropOldest(next, target, overhead, ratio);
+    droppedMessages = cut.dropped;
+    if (cut.dropped > 0) {
+      next = cut.messages;
+      after = estimateTokens(next, overhead, ratio);
+    }
+  }
+  return { messages: next, before, after, droppedMessages };
+}
+
+/** The notice left on the initial request when turns have been cut away. */
+function droppedNotice(n: number): string {
+  return `\n\n[${n} earlier messages of this conversation were removed to fit the context window. `
+    + `What came before is gone: ask again for anything you need from it.]`;
+}
+
+/**
+ * Drops the oldest turns until the conversation fits the target.
+ *
+ * THREE INVARIANTS, and each one is a way of breaking the very turn we were
+ * trying to save:
+ *
+ *  · the INITIAL REQUEST stays, with a notice saying how much is gone: an
+ *    agent that no longer knows what it was asked keeps working, which is
+ *    worse than stopping;
+ *  · the cut lands only on an `assistant` boundary, so what is left does not
+ *    open with orphan `tool_result` blocks: the API refuses a result without
+ *    its request exactly as it refuses the opposite;
+ *  · after the initial request (which is `user`) the first kept message is an
+ *    `assistant`, so the role alternation the API demands still holds.
+ *
+ * If cutting everything cuttable is still not enough, the deepest possible cut
+ * is kept: it is the smallest request this conversation can produce anyway,
+ * and the caller learns from `after` that it did not get there.
+ */
+function dropOldest(
+  messages: AgentMessage[],
+  target: number,
+  overhead: number,
+  ratio: number,
+): { messages: AgentMessage[]; dropped: number } {
+  const head = messages[0];
+  if (!head || messages.length <= KEEP_RECENT + 1) return { messages, dropped: 0 };
+
+  // The possible boundaries: the indices of an `assistant`, stopping before
+  // the recent tail, which stays intact by contract.
+  const lastCut = messages.length - KEEP_RECENT;
+  let best: { messages: AgentMessage[]; dropped: number } | null = null;
+  for (let i = 1; i < lastCut; i++) {
+    if (messages[i]!.role !== "assistant") continue;
+    const dropped = i - 1;
+    if (dropped <= 0) continue;
+    const kept: AgentMessage[] = [withNotice(head, dropped), ...messages.slice(i)];
+    best = { messages: kept, dropped };
+    if (estimateTokens(kept, overhead, ratio) <= target) return best;
+  }
+  return best ?? { messages, dropped: 0 };
+}
+
+/** The initial request with the notice appended. Does not mutate the original. */
+function withNotice(head: AgentMessage, dropped: number): AgentMessage {
+  const notice = droppedNotice(dropped);
+  if (typeof head.content === "string") return { ...head, content: head.content + notice };
+  return { ...head, content: [...head.content, { type: "text", text: notice }] };
 }
 
 function clipTailResults(messages: AgentMessage[]): AgentMessage[] {
@@ -188,12 +367,69 @@ function lightenMiddle(messages: AgentMessage[]): AgentMessage[] {
       if (b.type === "tool_result" && typeof b.content === "string" && b.content.length > DROPPED.length) {
         return { ...b, content: DROPPED };
       }
+      // THE ARGUMENTS WEIGH MORE THAN THE RESULTS, and this file never acted
+      // like it until now.
+      //
+      // The result of a `write_file` is "ok, written"; its ARGUMENT is the
+      // whole file. Same for an `edit_file` (the old text plus the new one)
+      // and for a task created with a long description. Measured on the two
+      // dead topics (card 18bdf214): after every result had been emptied, 77%
+      // of what was left were `tool_use.input`, 1.53 MB out of 1.98 MB. We
+      // were compacting the light part and leaving the heavy one untouched.
+      if (b.type === "tool_use" && b.input) {
+        const light = lightenInput(b.input as Record<string, unknown>);
+        if (light) return { ...b, input: light };
+      }
       return b;
     });
     return { ...m, content: blocks };
   });
 
   return [head, ...lightened, ...tail];
+}
+
+/**
+ * How long an argument may stay before it is emptied. Under this threshold a
+ * value is a path, an id, a flag: things that do not weigh anything and that
+ * still say what the agent was doing.
+ */
+const ARG_KEEP_CHARS = 200;
+
+/**
+ * The arguments of an old call, lightened.
+ *
+ * THE SHAPE STAYS AND THE BULK GOES: every key survives, and so does the
+ * beginning of each long value. A `write_file` still says which file it wrote
+ * (the `path` is short and survives whole) and loses the content, which is
+ * what weighs and which the model already watched go by twenty rounds ago.
+ *
+ * The structure is left alone: a value that is not a long string (a number, a
+ * boolean, a small object) passes as it is. Returns `null` when there was
+ * nothing to lighten, so the caller does not rebuild the block for nothing.
+ */
+function lightenInput(input: Record<string, unknown>): Record<string, unknown> | null {
+  let touched = false;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(input)) {
+    if (typeof v === "string" && v.length > ARG_KEEP_CHARS) {
+      touched = true;
+      out[k] = `${v.slice(0, ARG_KEEP_CHARS)}… [${v.length - ARG_KEEP_CHARS} chars dropped to fit the context window]`;
+      continue;
+    }
+    // A big object or array (a todo list, a nested payload) weighs as much as
+    // a long string and gets the same treatment, without pretending the result
+    // is still that structure: it becomes a note.
+    if (v !== null && typeof v === "object") {
+      const json = JSON.stringify(v);
+      if (json.length > ARG_KEEP_CHARS) {
+        touched = true;
+        out[k] = `[${json.length} chars dropped to fit the context window]`;
+        continue;
+      }
+    }
+    out[k] = v;
+  }
+  return touched ? out : null;
 }
 
 /**

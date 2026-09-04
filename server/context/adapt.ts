@@ -389,7 +389,14 @@ export function composeSystemSlots(blocks: SystemBlock[]): SystemSlot[] {
   // e lo conta nel budget — ma fino a questa change nessuno degli slot lo
   // raccoglieva, quindi veniva scartato in silenzio e il modello non vedeva MAI
   // l'obiettivo del topic. Bug preesistente, non introdotto dalla dedup.
-  const goal = enabled.find((b) => b.id === "synthetic:goal");
+  //
+  // ONE slot for two blocks that never coexist: with an active goal the goal
+  // goes, without one the line that tells the agent how to declare it
+  // (`synthetic:goal-hint`). A second slot would exist only never to be filled
+  // alongside the first, and the dedup treats them the same anyway: the content
+  // changes the moment a goal appears, so the slot re-sends itself.
+  const goal = enabled.find((b) => b.id === "synthetic:goal")
+    ?? enabled.find((b) => b.id === "synthetic:goal-hint");
   if (goal) push("goal", goal.content);
 
   // ── 10. Plan mode ──

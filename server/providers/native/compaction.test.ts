@@ -12,7 +12,10 @@
   * @covers RT-03
  */
 import { describe, expect, test } from "bun:test";
-import { estimateTokens, needsCompaction, compact, windowFor, clipToolResult } from "./compaction";
+import {
+  estimateTokens, needsCompaction, compact, windowFor, clipToolResult,
+  estimateChars, charsPerTokenFrom, promptTooLong,
+} from "./compaction";
 import type { AgentMessage, Block } from "./agent-loop";
 
 /** Una conversazione lunga come quella di un agente che ha lavorato sul serio. */
@@ -215,5 +218,156 @@ describe("la finestra dei modelli", () => {
   test("uno sconosciuto prende il valore PRUDENTE, non il più generoso", () => {
     // Sbagliare per eccesso qui significa non compattare in tempo.
     expect(windowFor("modello-mai-visto")).toBe(200_000);
+  });
+});
+
+/**
+ * ── A FULL CONTEXT DOES NOT KILL THE CHAT (card 18bdf214) ────────────────────
+ *
+ * Two topics on the native runtime went mute for hours: every send came back
+ * `prompt is too long: 1000176 tokens > 1000000 maximum`. The compaction had
+ * NOT been skipped: `compaction_markers` keeps its receipt, `pre=1115713 →
+ * post=480494`. The request it produced was still twice the ceiling. Two
+ * defects, and these tests hold both of them still.
+ */
+describe("il contesto pieno non uccide la chat", () => {
+  /** A round with a heavy argument: a `write_file` with the file inside. */
+  function scritture(rounds: number, argSize: number): AgentMessage[] {
+    const msgs: AgentMessage[] = [{ role: "user", content: "Scrivi i file." }];
+    for (let i = 0; i < rounds; i++) {
+      msgs.push({
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: `w${i}`, name: "write_file", input: { path: `f${i}.ts`, content: "x".repeat(argSize) } },
+        ],
+      });
+      msgs.push({ role: "user", content: [{ type: "tool_result", tool_use_id: `w${i}`, content: "ok" }] });
+    }
+    return msgs;
+  }
+
+  test("gli ARGOMENTI dei tool vecchi si alleggeriscono, non solo i risultati", () => {
+    // RED BEFORE: only `tool_result` blocks were emptied. Here the results
+    // weigh two characters and all the weight is in the arguments, which used
+    // to stay whole: on the two dead topics they were 77% of what was left
+    // AFTER compaction.
+    const h = scritture(40, 20_000);
+    const c = compact(h, { windowTokens: 200_000, overheadChars: 0 });
+    expect(c.after).toBeLessThan(c.before / 4);
+  });
+
+  test("l'argomento alleggerito dice ancora QUALE file era, e quanto manca", () => {
+    const c = compact(scritture(40, 20_000), { windowTokens: 200_000 });
+    const blocco = c.messages
+      .flatMap((m) => (Array.isArray(m.content) ? m.content : []))
+      .find((b) => b.type === "tool_use" && (b.input as Record<string, unknown>)?.path === "f0.ts");
+    const input = blocco?.input as Record<string, string>;
+    expect(input.path).toBe("f0.ts");            // the path is short: it survives whole
+    expect(input.content.length).toBeLessThan(400); // the content does not
+    expect(input.content).toContain("dropped to fit the context window");
+  });
+
+  test("con un bersaglio, la compattazione ci ARRIVA: i turni più vecchi si tagliano", () => {
+    // RED BEFORE: lightening has a floor, and the floor can sit above the
+    // ceiling. Exactly the measured case: `post=480494` declared, 1,000,176
+    // counted by the API, and the chat dead for good. Now the recent tail
+    // stays and the rest is cut until it fits.
+    // Many rounds, each one light: lightening cannot help because the weight
+    // is not INSIDE the messages, it is in their NUMBER. That is the floor.
+    const h = scritture(2_000, 500);
+    const c = compact(h, { windowTokens: 40_000, overheadChars: 0 });
+    expect(c.after).toBeLessThanOrEqual(40_000 * 0.75);
+    expect(c.droppedMessages).toBeGreaterThan(0);
+  });
+
+  test("anche tagliando, la richiesta iniziale resta e dice cosa è sparito", () => {
+    const h = scritture(2_000, 500);
+    const c = compact(h, { windowTokens: 10_000, overheadChars: 0 });
+    const testa = c.messages[0]!;
+    expect(testa.role).toBe("user");
+    expect(String(testa.content)).toContain("Scrivi i file.");
+    expect(String(testa.content)).toContain("were removed to fit the context window");
+  });
+
+  test("dopo il taglio ogni richiesta di strumento ha ancora la sua risposta", () => {
+    // The invariant that would turn the cure into a fault: a `tool_use`
+    // without its `tool_result` gets the WHOLE request refused.
+    const c = compact(scritture(2_000, 500), { windowTokens: 10_000 });
+    const chiesti = new Set<string>();
+    const risposti = new Set<string>();
+    for (const m of c.messages) {
+      if (!Array.isArray(m.content)) continue;
+      for (const b of m.content) {
+        if (b.type === "tool_use" && b.id) chiesti.add(b.id);
+        if (b.type === "tool_result" && b.tool_use_id) risposti.add(b.tool_use_id);
+      }
+    }
+    expect([...chiesti].filter((id) => !risposti.has(id))).toEqual([]);
+    // And the alternation holds: after the initial request comes an assistant.
+    expect(c.messages[1]!.role).toBe("assistant");
+  });
+});
+
+describe("la stima si CALIBRA, non si assume", () => {
+  test("quattro caratteri per token è un'assunzione, e sbagliava di 2x", () => {
+    // The number measured on the real case: 1,921,976 characters counted by
+    // us, 1,000,176 tokens counted by the API. With the assumed 4 the same
+    // history looked like it sat comfortably inside a million.
+    const misurato = charsPerTokenFrom(1_921_976, 1_000_176);
+    expect(misurato).toBeCloseTo(1.92, 1);
+    const h = longHistory(40, 10_000);
+    expect(estimateTokens(h, 0, misurato)).toBeGreaterThan(estimateTokens(h) * 1.9);
+  });
+
+  test("la calibrazione non è mai più generosa dell'assunzione", () => {
+    // Sparse prose would give 5 characters per token, that is "there is more
+    // room than I thought": being generous about the room left is EXACTLY the
+    // mistake that killed those two chats. It goes down, never up.
+    expect(charsPerTokenFrom(5_000, 1_000)).toBe(4);
+    expect(charsPerTokenFrom(1_900, 1_000)).toBeCloseTo(1.9, 5);
+  });
+
+  test("numeri assurdi non rompono la stima", () => {
+    expect(charsPerTokenFrom(0, 100)).toBe(4);
+    expect(charsPerTokenFrom(100, 0)).toBe(4);
+    expect(charsPerTokenFrom(NaN, 10)).toBe(4);
+  });
+
+  test("la soglia scatta con la stima calibrata dove col 4 assunto taceva", () => {
+    // RED BEFORE: the defect in one line. The same history, the same window:
+    // with the assumed ratio "it fits", with the measured one it does not.
+    const h = longHistory(60, 10_000);
+    expect(needsCompaction(h, 400_000)).toBe(false);
+    expect(needsCompaction(h, 400_000, 0, 1.92)).toBe(true);
+  });
+
+  test("un risultato fatto di BLOCCHI pesa: prima contava zero", () => {
+    // A `tool_result` with structured content (a screenshot, a block result)
+    // was not a string, so it was not counted at all. What we do not count the
+    // API counts anyway.
+    const h: AgentMessage[] = [{
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: "t", content: [{ type: "text", text: "z".repeat(8_000) }] as never }],
+    }];
+    expect(estimateChars(h)).toBeGreaterThan(8_000);
+  });
+});
+
+describe("il 400 dell'API porta con sé la misura", () => {
+  test("si legge il conteggio vero dal messaggio d'errore", () => {
+    // The exact line that came from the two dead topics.
+    expect(promptTooLong('prompt is too long: 1000176 tokens > 1000000 maximum'))
+      .toEqual({ tokens: 1_000_176, max: 1_000_000 });
+  });
+
+  test("dentro il JSON completo dell'errore, come arriva davvero", () => {
+    const vero = 'API 400: {"type":"error","error":{"type":"invalid_request_error",'
+      + '"message":"prompt is too long: 1073758 tokens > 1000000 maximum"}}';
+    expect(promptTooLong(vero)).toEqual({ tokens: 1_073_758, max: 1_000_000 });
+  });
+
+  test("un altro 400 non viene scambiato per contesto pieno", () => {
+    expect(promptTooLong("API 400: `tool_use` ids were found without `tool_result` blocks")).toBeNull();
+    expect(promptTooLong("API 529: overloaded")).toBeNull();
   });
 });
