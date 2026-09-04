@@ -146,6 +146,17 @@ export const PROJECT_WORDS = new Set([
   // `onToolExecStart`, the signal that tells a tool ANNOUNCED apart from a
   // tool RUNNING.
   "exec", "executing",
+  // The vocabulary of git and POSIX, read straight off the commands this
+  // repository runs: `git diff --numstat` is parsed in `git-numstat.ts`,
+  // `pathspec` is git's own name for the path filter passed to it, and `stat`
+  // is the system call every file-size read goes through. Renaming any of them
+  // would make the code stop naming the thing it calls.
+  "numstat", "pathspec", "stat",
+  // `dialog` is the ARIA role (`getByRole("dialog")`) and the DOM element
+  // (`<dialog>`), so the name has to match the platform it queries, and
+  // `lifecycle` is the standard word for the mount/unmount arc - it already
+  // names `useTerminalLifecycle.ts`. Neither is in the 1934 list.
+  "dialog", "lifecycle",
 
   // the product and its parts. "org" is the schema's own word, not an
   // abbreviation someone chose in passing: the tables are `orgs` and

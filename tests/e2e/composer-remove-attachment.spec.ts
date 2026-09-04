@@ -47,8 +47,8 @@ const BLUE_PNG_1x1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nG
 test.describe("the x on an attachment", () => {
   let topicId: string;
   let topicName: string;
-  let firstTxt: string;
-  let secondTxt: string;
+  let firstTextFile: string;
+  let secondTextFile: string;
   let firstPng: string;
   let secondPng: string;
 
@@ -58,10 +58,10 @@ test.describe("the x on an attachment", () => {
     topicId = t.id;
     const dir = join(tmpdir(), `e2e-composer-x-${Date.now()}`);
     mkdirSync(dir, { recursive: true });
-    firstTxt = join(dir, "first-note.txt");
-    secondTxt = join(dir, "second-note.txt");
-    writeFileSync(firstTxt, "first attachment");
-    writeFileSync(secondTxt, "second attachment");
+    firstTextFile = join(dir, "first-note.txt");
+    secondTextFile = join(dir, "second-note.txt");
+    writeFileSync(firstTextFile, "first attachment");
+    writeFileSync(secondTextFile, "second attachment");
     firstPng = join(dir, "first.png");
     secondPng = join(dir, "second.png");
     writeFileSync(firstPng, PNG_1x1);
@@ -115,7 +115,7 @@ test.describe("the x on an attachment", () => {
 
   test("paperclip chip: removes the first of two files and sends nothing", async ({ page, request }) => {
     const textarea = await openComposer(page, request);
-    await removeFirstOfTwo(page, textarea, [firstTxt, secondTxt]);
+    await removeFirstOfTwo(page, textarea, [firstTextFile, secondTextFile]);
     await expect(page.getByTestId("composer-attachment")).toContainText("second-note.txt");
   });
 
