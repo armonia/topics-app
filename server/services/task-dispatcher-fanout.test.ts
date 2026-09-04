@@ -437,7 +437,11 @@ describe("task-dispatcher fan-out", () => {
     expect(h.comments("t1").join("\n")).toContain("Il server è ripartito mentre 2");
   });
 
-  it("riavvio a metà giro senza niente di committato: rimesso in coda SENZA bruciare un tentativo", async () => {
+  it("riavvio con UN solo tentativo vivo, sul topic della card: e' una sessione singola e riprende, niente worktree buttato", async () => {
+    // Before 2026-09-04 this was read as an orphaned round and closed "without
+    // a commit": card requeued, worktree reaped, uncommitted work gone. A lone
+    // running row on the task's own topic is exactly what a single launch
+    // leaves behind (its history row), so it resumes like one.
     const h = harness();
     boardWithFanOut(h, 2);
     const id = seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-1", dispatchState: "working", attempts: 1 });
@@ -449,9 +453,10 @@ describe("task-dispatcher fan-out", () => {
     await flush();
 
     const t = h.task("t1")!;
-    expect(t.status).toBe("todo");
-    expect(t.dispatchAttempts).toBe(0);               // il riavvio non è colpa dell'agent
-    expect(h.worktreesDeleted).toEqual(["wt-1"]);
+    expect(t.status).toBe("in_progress");
+    expect(t.assignedTopicId).toBe("topic-1");
+    expect(t.dispatchAttempts).toBe(1);
+    expect(h.worktreesDeleted).toEqual([]);
   });
 
   it("un giro nuovo pota i worktree del giro precedente prima di aprirne altri", async () => {

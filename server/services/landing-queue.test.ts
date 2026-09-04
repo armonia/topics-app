@@ -30,6 +30,27 @@ describe("landing-queue", () => {
     expect(maxLive).toBe(1);
   });
 
+  it("inFlight() counts the lands queued or running across every lane: what a restart waits for", async () => {
+    // 2026-09-04: a restart landed in the middle of a land (merge done, card
+    // bounced back, delivery branch forgotten) because quiescence counted
+    // dispatcher turns only. The queue now says how many lands are open.
+    const q = createLandingQueue();
+    const a = gate();
+    const b = gate();
+    expect(q.inFlight()).toBe(0);
+    q.enqueue("repo-1", "t1", () => a.p);
+    q.enqueue("repo-1", "t2", () => b.p);
+    q.enqueue("repo-2", "t3", () => b.p);
+    await tick();
+    expect(q.inFlight()).toBe(3); // one running per lane, one queued behind it
+    a.open();
+    await q.whenSettled("t1");
+    expect(q.inFlight()).toBe(2);
+    b.open();
+    await Promise.all([q.whenSettled("t2"), q.whenSettled("t3")]);
+    expect(q.inFlight()).toBe(0);
+  });
+
   it("la raffica non perde nessuno: N accodati ⇒ N esiti", async () => {
     const q = createLandingQueue();
     const done: string[] = [];

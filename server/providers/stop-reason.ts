@@ -292,6 +292,12 @@ export function consumesAttempt(info: TurnEndInfo): boolean {
   return (
     info.cause !== "user" &&
     info.cause !== "session-reset" &&
+    // `server-shutdown`: a planned restart cut the turn. The agent did nothing
+    // wrong and the boot resumes the same session, yet each restart moved the
+    // counter (three restarts on 2026-09-04 took three cards to 2/4 with the
+    // note "nessun tentativo consumato" right under it). A restart is not a
+    // failure: it does not count.
+    info.cause !== "server-shutdown" &&
     // `turn-in-flight`: la front-door ci ha respinti perché la sessione stava
     // già rispondendo. Non abbiamo guidato nessun turno, quindi non c'è nessun
     // tentativo da consumare — contarlo significherebbe parcheggiare FAILED un

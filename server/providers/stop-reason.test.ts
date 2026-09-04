@@ -200,3 +200,8 @@ describe("describeTurnEnd — la riga che sostituisce «probabile timeout»", ()
     expect(stallText).not.toBe(describeTurnEnd(cancelled("wall-clock")));
   });
 });
+
+it("a turn cut by a server restart does not consume an attempt: the boot resumes the same session", () => {
+  expect(consumesAttempt({ end: "cancelled", cause: "server-shutdown" } as const)).toBe(false);
+  expect(consumesAttempt({ end: "cancelled", cause: "watchdog" } as const)).toBe(true);
+});

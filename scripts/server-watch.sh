@@ -311,8 +311,17 @@ echo "[start-prod] server hot-reload watch ON (graceful, debounce 2s, impronta $
               # Stesso ramo paziente: il server si mandera' il SIGTERM da solo
               # quando i turni finiscono. Si aspetta la sua finestra (5 min + margine).
               echo "[start-prod]   aspetto che il server $SP si chiuda da solo (cap suo: 5 min)"
+              # Same patience as the first branch: while the server says it is
+              # protecting work that would not come back (the defer file is
+              # fresh), the clock does not count. This branch had a flat 330 s
+              # and on 2026-09-04 it SIGTERMed a server in the middle of a land.
               FWAIT=0
-              while kill -0 "$SP" 2>/dev/null && [ "$FWAIT" -lt 330 ]; do
+              while kill -0 "$SP" 2>/dev/null; do
+                if deferring 2>/dev/null; then
+                  :
+                elif [ "$FWAIT" -ge 330 ]; then
+                  break
+                fi
                 sleep 2
                 FWAIT=$((FWAIT + 2))
               done
