@@ -31,29 +31,29 @@ import { useT } from '@/hooks/useT';
  * una cura.
  */
 /**
- * GLI ALLARMI DEL TRASPORTO, DA SOLI: il websocket che non e' connesso, l'avviso
- * «dati dalla cache», l'avvio degradato del guscio con la sua via d'uscita.
+ * THE TRANSPORT ALARMS, ON THEIR OWN: the websocket that is not connected, the
+ * «cached data» notice, the shell's degraded boot with its way out.
  *
- * Stanno in un componente PROPRIO, staccati dalla fascia dell'identita', perche'
- * le due meta' di questa barra hanno pubblico diverso. `App` montava tutto
- * dentro `{!isMobile && (…)}`, e queste righe erano le UNICHE superfici in tutto
- * `client/src` che nominano lo stato della connessione: sul TELEFONO — cioe' sul
- * dispositivo che la rete la perde davvero, in ascensore o in metropolitana —
- * non esisteva nessun elemento che dicesse «Offline» o «Reconnecting…». Restava
- * il pallino nell'header del cassetto, che a cassetto chiuso e' largo zero e
- * fuori schermo: un allarme che per vedersi chiede un gesto non e' un allarme.
- * Lo spec SIDEBAR-STATUS-01 dice «un ALLARME non e' una statistica», e i suoi
- * scenari cominciano tutti con «GIVEN un desktop».
+ * They live in a component of THEIR OWN, split from the identity band, because
+ * the two halves of this bar have different audiences. `App` used to mount the
+ * whole thing inside `{!isMobile && (…)}`, and these rows were the ONLY
+ * surfaces in all of `client/src` that name the connection state: on the PHONE
+ * — the device that actually loses the network, in a lift or underground —
+ * there was no element saying «Offline» or «Reconnecting…» at all. What was
+ * left was the dot in the drawer header, which with the drawer closed is zero
+ * wide and off screen: an alarm that needs a gesture to be seen is not an
+ * alarm. Spec SIDEBAR-STATUS-01 says «an ALARM is not a statistic», and every
+ * one of its scenarios used to start with «GIVEN a desktop».
  *
- * L'identita' invece resta desktop-only e non e' una svista: e' una fascia con
- * un contratto RESPONSIVE sulle larghezze della colonna, e sul telefono la
- * stessa risposta ce l'ha gia' la quarta porta della fila in fondo.
+ * The identity stays desktop-only, and that is not an oversight: it is a band
+ * with a RESPONSIVE contract on the column widths, and on the phone the same
+ * question is already answered by the fourth door of the bottom row.
  */
 export function TransportAlarms({ wsStatus, dataNotice, inset }: {
   wsStatus?: ConnectionStatus;
   dataNotice?: string | null;
-  /** Il rientro laterale delle righe. Nella colonna e' quello delle righe di
-   *  sidebar; nella banda del telefono lo detta la fascia di sicurezza. */
+  /** The side inset of the rows. In the column it is the sidebar row inset; in
+   *  the phone band it is dictated by the safe area. */
   inset?: { left: string; right: string };
 }) {
   const tr = useT();
@@ -179,8 +179,8 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
 } = {}) {
   return (
     <>
-      {/* Le stesse righe che sul telefono vivono nella banda in fondo
-          (`MobileTransportBand`): un componente solo, montato in due posti. */}
+      {/* The very same rows that on the phone live in the bottom band
+          (`MobileTransportBand`): one component, mounted in two places. */}
       <TransportAlarms wsStatus={wsStatus} dataNotice={dataNotice} />
 
       {/* ONLY THE HOME INDICATOR IS LEFT ON THIS WRAPPER. The bottom breathing
@@ -197,19 +197,19 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices }: {
 }
 
 /**
- * LA BANDA DEL TELEFONO: la stessa frase, dove il telefono la puo' vedere.
+ * THE PHONE BAND: the same sentence, where the phone can actually see it.
  *
- * Sta SOPRA la fila in fondo e non dentro la colonna, per la stessa ragione per
- * cui ci sta la fila (`MobileChromeBar`): la colonna sul telefono e' un cassetto,
- * e un allarme che si vede solo aprendo il cassetto e' un allarme che non si
- * vede. Fissa in fondo, alzata di `--mobile-chrome-h` — la stessa variabile che
- * la fila pubblica, quindi la banda la segue da se' quando la fila sparisce con
- * la tastiera aperta, senza un secondo conto della stessa altezza.
+ * It sits ABOVE the bottom row and not inside the column, for the same reason
+ * the row itself does (`MobileChromeBar`): on the phone the column is a drawer,
+ * and an alarm you only see by opening the drawer is an alarm you do not see.
+ * Fixed to the bottom, lifted by `--mobile-chrome-h` — the very variable the
+ * row publishes, so the band follows it by itself when the row disappears with
+ * the keyboard open, without a second computation of the same height.
  *
- * ESISTE SOLO QUANDO C'E' QUALCOSA DA DIRE: connessa e senza avvisi, qui non
- * c'e' nessun elemento. Non e' una barra di stato permanente, e' un allarme, e
- * per questo non riserva nessuna banda alla radice — se la riservasse, il caso
- * normale (tutto a posto) pagherebbe lo spazio del caso eccezionale.
+ * IT ONLY EXISTS WHEN THERE IS SOMETHING TO SAY: connected and with no notice,
+ * there is no element here at all. This is not a permanent status bar, it is an
+ * alarm, which is why it reserves no band on the root: reserving one would make
+ * the normal case (all well) pay the space of the exceptional one.
  */
 export function MobileTransportBand({ wsStatus, dataNotice }: {
   wsStatus?: ConnectionStatus;
@@ -220,8 +220,8 @@ export function MobileTransportBand({ wsStatus, dataNotice }: {
   return (
     <div
       data-testid="mobile-transport-band"
-      // Sotto la fila (`zIndex: 60`) di proposito: la fila e' come si esce da
-      // qui, e nessun avviso deve poterla coprire.
+      // Below the row (`zIndex: 60`) on purpose: the row is how you get out of
+      // here, and no notice may be allowed to cover it.
       className="fixed left-0 right-0 py-1 bg-app-chrome border-t border-app-border"
       style={{ zIndex: 59, bottom: 'var(--mobile-chrome-h, 0px)' }}
     >

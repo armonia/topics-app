@@ -100,30 +100,30 @@ export interface MobileChromeBarProps {
    *  modale. Chi passa la callback la instrada su `topics:open-utility`. */
   onOpenProfile: () => void;
   /**
-   * «Questo schermo è una colonna sola?» — LO DECIDE CHI STA SOPRA, come per la
-   * riga di `StandaloneChatGroup`, e per la stessa ragione.
+   * «Is this screen a single column?» — DECIDED BY WHOEVER MOUNTS THIS, exactly
+   * like the row of `StandaloneChatGroup`, and for the same reason.
    *
-   * Questa fila leggeva `useMobile().isMobile`, cioè `<768 || (touch && <1024)`,
-   * mentre la shell si piega a una colonna a 768 secchi. Su un iPhone in
-   * orizzontale (844x390) i due si contraddicevano: la fila da ~60px compariva
-   * SOPRA il layout desktop con la sidebar a colonna fissa, la radice riservava
-   * comunque `--mobile-chrome-h` (il 15% di un viewport alto 390) e soprattutto
-   * `boardInFront` — che si calcola con l'isMobile di LAYOUT — restava sempre
-   * falso: il tasto centrale prendeva sempre il ramo «apri la board e chiudi la
-   * sidebar», quindi non tornava mai indietro e ogni pressione chiudeva il
-   * cassetto. L'interruttore era di sola andata perché i due capi guardavano
-   * due schermi diversi.
+   * This row used to read `useMobile().isMobile`, i.e. `<768 || (touch &&
+   * <1024)`, while the shell folds into one column at 768 flat. On an iPhone
+   * held sideways (844x390) the two contradicted each other: the ~60px row
+   * appeared ON TOP of the desktop layout with its fixed sidebar column, the
+   * app root reserved `--mobile-chrome-h` anyway (15% of a 390-tall viewport),
+   * and above all `boardInFront` — which is computed from the LAYOUT predicate
+   * and is therefore false there — stayed false forever: the middle button
+   * always took the «open the board AND collapse the sidebar» branch, so it
+   * never came back and every press closed the drawer. The switch was one-way
+   * because its two ends were looking at two different screens.
    *
-   * Adesso il predicato è uno: quello che App calcola (`useLayoutMobile`) e con
-   * cui calcola anche `boardInFront`. Il docstring qui sotto dice «esiste solo
-   * sotto i 768px» ed è finalmente vero.
+   * Now there is one predicate: the one App computes (`useLayoutMobile`), the
+   * same one it computes `boardInFront` with. The docstring below claims «it
+   * only exists under 768px», and that is finally true.
    */
   mobile: boolean;
 }
 
 export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard, onOpenProfile, mobile }: MobileChromeBarProps) {
-  // `keyboardVisible` e le fasce di sicurezza restano domande da DEVICE, non da
-  // larghezza: le legge ancora `useMobile`. La larghezza no, arriva da sopra.
+  // `keyboardVisible` and the safe-area insets stay DEVICE questions, not width
+  // ones: `useMobile` still answers those. The width does not: it comes in.
   const { keyboardVisible, safeAreaInsets } = useMobile();
   const isMobile = mobile;
   const barraRef = useRef<HTMLDivElement>(null);
@@ -212,8 +212,8 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
       // `bg-app-chrome` si può dipingere QUI e non dentro la sidebar: questa
       // barra è un fratello della colonna, non un suo figlio, quindi non
       // compone la sua trasparenza con quella del vetro (la trappola descritta
-      // su `--chrome-bg`). E comunque esiste solo sotto i 768px — la soglia di
-      // LAYOUT, che arriva dalla prop `mobile` — dove la shell mac non arriva.
+      // su `--chrome-bg`). E comunque esiste solo sotto i 768px, dove la shell
+      // mac non arriva: la soglia di LAYOUT, che arriva dalla prop `mobile`.
       className="fixed bottom-0 left-0 right-0 flex items-end bg-app-chrome border-t border-app-border"
       style={{
         zIndex: 60,

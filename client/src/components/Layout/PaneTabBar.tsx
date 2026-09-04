@@ -2168,12 +2168,13 @@ function PaneCloseButton({
 }: {
   paneId: string;
   /**
-   * IL NOME UMANO DELLA TAB, quello scritto sulla tab stessa (`etichettaTab`).
+   * THE HUMAN NAME OF THE TAB, the one written on the tab itself
+   * (`etichettaTab`).
    *
-   * Serve al nome accessibile della X, che portava l'ID INTERNO: con VoiceOver
-   * un'azione distruttiva si annunciava «Chiudi tab 7f3a1c22-4b9e-...», cioè
-   * chiedeva di distruggere qualcosa che non si può riconoscere. I gemelli
-   * nella sidebar (TopicItem, TopicTree) dicono da sempre il nome della chat.
+   * It feeds the accessible name of the X, which used to carry the INTERNAL ID:
+   * VoiceOver announced a destructive action as «Chiudi tab 7f3a1c22-4b9e-...», allow-italian: the exact string a screen reader used to speak
+   * i.e. it asked to destroy something that cannot be recognised. The twins in
+   * the sidebar (TopicItem, TopicTree) have always said the chat name.
    */
   label: string;
   onClose: (id: string) => void;
@@ -2299,10 +2300,9 @@ function PaneCloseButton({
         testId="pane-tab-close"
         onIdleClick={() => onClose(paneId)}
         idleTitle="Chiudi tab"
-        // Il NOME, non l'id: vedi la prop `label`. Il prefisso «Chiudi tab»
-        // resta primo perche' i locator dei test ci si agganciano
-        // (`[aria-label^="Chiudi tab"]`) e perche' e' l'azione a dover venire
-        // prima del soggetto in un annuncio vocale.
+        // The NAME, not the id: see the `label` prop. The prefix below stays
+        // first because test locators hook onto it and because in a spoken
+        // announcement the action has to come before its subject.
         idleAriaLabel={`Chiudi tab ${label}`}
         pendingTitle="Annulla chiusura"
         pendingAriaLabel="Annulla chiusura"
