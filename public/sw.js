@@ -300,19 +300,41 @@ self.addEventListener('notificationclick', (event) => {
   const targetUrl = event.notification.data?.url || '/';
   const actionId = event.action;
 
+  // A DETACHED window (`?topics=` / the historical `?topic=`) is a pop-out of
+  // one or more chats, and it is the WRONG client to hand a deep-link to: over
+  // there pane-store persistence is switched off on purpose, and the URL
+  // reflection would wipe the very query that IS the window's identity, so on
+  // the next reload the pop-out would reopen the whole workspace. The rule is
+  // copied from `client/src/lib/windowRole.ts` instead of imported because a
+  // service worker cannot import the client's modules.
+  const isDetachedClient = (client) => {
+    try {
+      const params = new URL(client.url).searchParams;
+      return ['topics', 'topic'].some((name) => (params.get(name) || '').trim().length > 0);
+    } catch {
+      return false;
+    }
+  };
+
   const openTarget = () =>
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
-      for (const client of windowClients) {
-        if (new URL(client.url).origin === self.location.origin && 'focus' in client) {
-          return Promise.resolve(client.focus())
-            .then((focused) => focused || client)
-            .catch(() => client)
-            .then((target) => {
-              // best-effort: su un client non controllato il postMessage può
-              // fallire, ma la finestra resta comunque a fuoco.
-              try { target.postMessage({ type: 'topics:open-url', url: targetUrl }); } catch { /* ignore */ }
-            });
-        }
+      const sameOrigin = windowClients.filter((client) => {
+        try { return new URL(client.url).origin === self.location.origin && 'focus' in client; }
+        catch { return false; }
+      });
+      // The MAIN window first. Falling back to a detached one is still better
+      // than silence: there the client-side guard forwards the link outside
+      // instead of routing it (`openDeepLinkInApp`).
+      const client = sameOrigin.find((c) => !isDetachedClient(c)) || sameOrigin[0];
+      if (client) {
+        return Promise.resolve(client.focus())
+          .then((focused) => focused || client)
+          .catch(() => client)
+          .then((target) => {
+            // best-effort: su un client non controllato il postMessage può
+            // fallire, ma la finestra resta comunque a fuoco.
+            try { target.postMessage({ type: 'topics:open-url', url: targetUrl }); } catch { /* ignore */ }
+          });
       }
       return clients.openWindow(targetUrl);
     });

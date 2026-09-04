@@ -9,7 +9,7 @@ import {
   mergeNotificationRow,
   type NotificationHistoryPage,
 } from '../lib/notify/history';
-import { openDeepLinkInApp } from '../lib/openTaskLink';
+import { openDeepLinkInApp } from '../lib/deepLinkEntry';
 
 export interface NotificationHistoryState {
   rows: NotificationRow[];

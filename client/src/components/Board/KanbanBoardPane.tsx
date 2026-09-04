@@ -19,6 +19,8 @@ import { Menu } from '../Shared/Menu';
 import { Spinner } from '../Shared/Spinner';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { currentTaskTarget, reflectTaskOpen, reflectTaskClose, reflectTaskFocus, subscribePopstateTask } from '../../lib/openTaskLink';
+import { DEAD_TAB_MESSAGE } from '../../lib/tabLink';
+import { useToast } from '../Shared/Toast';
 import { usePaneStore } from '../../state/pane/store';
 import { parseUtilityPanelType } from '../Layout/UtilityPanel';
 import { useTaskSessionResolver } from '../../hooks/useTaskSession';
@@ -579,6 +581,12 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
 
 export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHistory, onOpenTopic, onStartMission }: Props) {
   const tr = useT();
+  // A dead `/task/<id>` has to SAY SO, with the same words a dead `/tab/…`
+  // permalink uses: two roads to one destination cannot answer differently. The
+  // API of the provider is stable after mount (Toast.tsx keeps senders in their
+  // own context), so it can sit in an effect's dependencies without re-running
+  // the deep-link race on every toast shown.
+  const toast = useToast();
   const projectId = useMemo(() => (projectPath ? boardIdForPath(projectPath) : ''), [projectPath]);
   // The project/all toggle only makes sense inside a project window. The global
   // pane has no project, so it locks to 'all'.
@@ -1584,6 +1592,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
         if (deepLink) {
           setPendingSelect(null);
           window.dispatchEvent(new CustomEvent('topics:task-opened'));
+          // AND IT IS SAID. Until this card the dead end was mute: the drawer
+          // did not open, `reflectTaskClose` wiped the path a heartbeat later,
+          // and what had been asked for left no trace at all. `notify` was
+          // wired for every other kind of permalink and never reached this
+          // branch, because `case 'task'` of `openTabInApp` hands the route to
+          // the board instead of resolving it itself.
+          toast.warning(DEAD_TAB_MESSAGE);
         }
         setSelectedId((s) => (s === wantId ? null : s));
       })
@@ -1596,7 +1611,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       });
     return () => { alive = false; };
     // `outsider` fuori dalle dipendenze di proposito: lo SCRIVE questo effetto.
-  }, [wantId, inFeed, tasks, pendingSelect]);
+  }, [wantId, inFeed, tasks, pendingSelect, toast]);
 
   // URL ⇄ drawer reflection (GLOBAL board only — `/task/<id>` points at the
   // global board, matching buildTaskLink). Opening a drawer pushes `/task/<id>`;

@@ -1,6 +1,6 @@
 // Canonical "open a URL outside the app" helper.
 //
-// Delegates to the shell bridge (`openExternal` in lib/shell/app.ts): the Tauri
+// Delegates to the shell bridge (`openExternal` in lib/shell/external.ts): the Tauri
 // opener plugin on the desktop shell, or window.open on the web. Both renderer
 // link surfaces — chat markdown links (MessageContent) and terminal links
 // (wrappedLinkProvider) — route through here so there is ONE place that decides
@@ -13,7 +13,7 @@
 // click. The window is just above the OS double-click threshold (~500ms);
 // genuinely re-opening the same URL is still possible after it elapses.
 
-import { openExternal } from './shell/app';
+import { openExternal } from './shell/external';
 
 const DEDUPE_MS = 600;
 

@@ -35,6 +35,10 @@
 
 import { isAppLoopbackOrigin, serverHttpBase } from './shell/net';
 import { taskIdFromSegment, taskLinkSegment } from '../../../shared/task-slug';
+// The deep-link FRONT DOOR (`openDeepLinkInApp`, `openTopicInApp`, the
+// service-worker listener) lives in ./deepLinkEntry, one layer ABOVE this file:
+// it needs the single gate in `tabLink`, and `tabLink` already imports this
+// module. Keeping it here made the two import each other.
 
 // Legacy query form (`?task=<projectId>~<taskId>`), kept for read back-compat.
 const LEGACY_PARAM = 'task';
@@ -283,78 +287,3 @@ export function openTaskInApp(target: TaskTarget): void {
   window.dispatchEvent(new CustomEvent('topics:open-task', { detail: target }));
 }
 
-/** Apri (o disarchivia + apri) la tab del TOPIC, IN-APP. Stesso bus di
- *  `usePanelLifecycle` usato dal drawer del task per "apri la sessione". La push
- *  di fine risposta arriva a finestra aperta come deep-link `/topic/<id>`:
- *  `mode: 'permanent'` perché è una destinazione voluta, non un'anteprima. */
-export function openTopicInApp(target: TopicTarget): void {
-  window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId: target.topicId, mode: 'permanent' } }));
-}
-
-/**
- * Apri IN-APP la destinazione di una notifica. UNA regola per tutte le
- * superfici che hanno un click da portare da qualche parte: la web-push (via
- * service worker), il banner nativo, e la CRONOLOGIA delle notifiche — che
- * altrimenti sarebbe la terza copia dello stesso `if`.
- *
- * Accetta sia una URL assoluta (quella che arriva dal service worker) sia il
- * path relativo che il registro salva (`/task/<id>`, `/topic/<id>`): `new URL`
- * risolve il secondo contro l'origine della pagina, che è già la nostra.
- *
- * Torna `false` quando non c'è niente da aprire — così una riga di cronologia
- * senza bersaglio può dirlo invece di fingere un click che non fa niente.
- */
-export function openDeepLinkInApp(url: string): boolean {
-  const task = selfTaskLinkTarget(url);
-  if (task) { openTaskInApp(task); return true; }
-  const topic = selfTopicLinkTarget(url);
-  if (topic) { openTopicInApp(topic); return true; }
-  return false;
-}
-
-// ── Service worker → app (click su una web-push) ─────────────────────────────
-
-/** Il canale con `public/sw.js`: il click su una notifica non può navigare la
- *  finestra (ricaricherebbe la SPA), quindi il SW manda la destinazione qui. */
-export const SW_OPEN_URL_MESSAGE = 'topics:open-url';
-
-/** Il click su una web-push arriva come postMessage dal service worker, perché
- *  con una finestra già aperta il SW la mette a fuoco ma NON può portarcela
- *  senza ricaricarla. Qui la URL torna a essere un deep-link normale e apre il
- *  drawer in-app — la stessa via dei link `/task/<id>` copiati a mano.
- *
- *  Silenzioso su tutto il resto: una URL che non è un deep-link significa solo
- *  "porta l'utente in cima", e la finestra è già a fuoco. */
-export function subscribeServiceWorkerTaskOpen(): () => void {
-  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return () => {};
-  const handler = (ev: MessageEvent) => {
-    const data = ev.data as { type?: string; url?: string } | null;
-    if (!data || data.type !== SW_OPEN_URL_MESSAGE || typeof data.url !== 'string') return;
-    // La regola («task, poi topic, poi niente») sta in `openDeepLinkInApp`: la
-    // cronologia delle notifiche deve atterrare ESATTAMENTE dove atterra la
-    // notifica che l'ha generata, e due copie dello stesso `if` divergono.
-    openDeepLinkInApp(data.url);
-  };
-  navigator.serviceWorker.addEventListener('message', handler);
-  return () => navigator.serviceWorker.removeEventListener('message', handler);
-}
-
-// ── Boot ─────────────────────────────────────────────────────────────────────
-
-/** Called once at boot (App). If the URL carries a deep-link (new `/task/<id>`
- *  path or legacy `?task=`), ACTIVATE the global board and hand it the target.
- *  The location is NOT stripped: the URL stays the source of truth (a refresh
- *  recovers the drawer; the board reads `currentTaskTarget()` on mount whenever
- *  it activates), cleared only when the drawer closes.
- *
- *  Emits a live `topics:open-task` for a board already open, and
- *  `topics:open-utility` (board) which usePanelLifecycle turns into a
- *  hydrate-surviving deep-link intent so the board actually becomes active. */
-export function openTaskFromUrl(): void {
-  const target = currentTaskTarget();
-  if (target) { openTaskInApp(target); return; }
-  // Da finestra CHIUSA il service worker apre l'app direttamente su `/topic/<id>`
-  // (la push di fine chat): al boot riconosciamo anche quel deep-link.
-  const topic = parseTopicLocation(window.location.pathname);
-  if (topic) openTopicInApp(topic);
-}

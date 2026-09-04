@@ -105,6 +105,10 @@ function ToastItem({ toast: t, onRemove }: { toast: Toast; onRemove: (id: string
 
   return (
     <div
+      // The handle every E2E uses to read a toast without guessing at its text
+      // in a second language. `toast-action` was already here; the container was
+      // not, so a test could only reach it through `getByText`.
+      data-testid="toast"
       // `items-start` and not `items-center`: a message on two lines keeps the
       // icon and the close button on the FIRST line, where they belong.
       className={`flex items-start gap-2 px-3 py-2 rounded-lg shadow-lg text-[11px] font-medium text-white transition-all duration-300 ${bg} ${

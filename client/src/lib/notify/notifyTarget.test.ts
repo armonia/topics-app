@@ -1,5 +1,6 @@
-import { describe, test, expect, beforeEach } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { encodeNotifyTarget, decodeNotifyTarget, openNotifyToken } from './notifyTarget';
+import { __resetTabLinkStateForTests, __setTabLinkRetryDelayForTests } from '../tabLink';
 
 /**
  * Il difetto che questi test fissano: il banner partiva con il solo `taskId`,
@@ -19,6 +20,8 @@ type StubWindow = {
   history: { pushState: (state: unknown, title: unknown, url: string) => void };
 };
 const g = globalThis as unknown as { window: StubWindow; CustomEvent: unknown };
+/** The real `fetch`, captured before any stub replaces it. */
+const realFetch = (globalThis as unknown as { fetch: unknown }).fetch;
 
 const origin = 'https://localhost:3333';
 
@@ -83,12 +86,31 @@ describe('encodeNotifyTarget / decodeNotifyTarget', () => {
 
 describe('openNotifyToken: il click che torna dal guscio', () => {
   let events: Array<{ type: string; detail: unknown }>;
-  beforeEach(() => { events = stubWindow(); });
+  beforeEach(() => {
+    events = stubWindow();
+    __resetTabLinkStateForTests();
+    __setTabLinkRetryDelayForTests(1);
+    // A TOPIC token now goes through the single gate, which asks the server
+    // whether that topic still exists before routing: without an answer the
+    // gate opens anyway, but only after its one retry.
+    (globalThis as unknown as { fetch: unknown }).fetch = () =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({ state: 'closed' }) });
+  });
 
-  test('token di TOPIC: apre la tab della conversazione', () => {
+  // Give the real `fetch` back: the unit suite is one process, and a stub left
+  // here would answer for every file that runs after this one.
+  afterEach(() => {
+    (globalThis as unknown as { fetch: unknown }).fetch = realFetch;
+  });
+
+  test('token di TOPIC: apre la tab della conversazione', async () => {
     expect(openNotifyToken(`topic_${TOPIC_ID}`)).toBe(true);
-    expect(events.map((e) => e.type)).toEqual(['topics:open-topic']);
-    expect(events[0]?.detail).toEqual({ topicId: TOPIC_ID, mode: 'permanent' });
+    for (let i = 0; i < 200 && !events.some((e) => e.type === 'topics:open-topic'); i++) {
+      await new Promise((r) => setTimeout(r, 2));
+    }
+    // `topics:open-tab` is the focus intent the gate arms before routing.
+    expect(events.map((e) => e.type)).toEqual(['topics:open-tab', 'topics:open-topic']);
+    expect(events[1]?.detail).toEqual({ topicId: TOPIC_ID, mode: 'permanent' });
   });
 
   test('token di TASK: apre la board e il drawer del task', () => {
