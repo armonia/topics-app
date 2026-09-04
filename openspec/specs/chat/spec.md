@@ -2669,6 +2669,49 @@ espandersi al gesto.
 - **GIVEN** un turno che porta entrambi
 - **THEN** la prosa SHALL restare visibile e il riepilogo SHALL essere richiuso
 
+### Requirement: CHAT-COMPACT-04 — Il contesto pieno non uccide la chat
+
+Una conversazione che riempie la finestra del modello SHALL continuare a
+rispondere. Il rifiuto «prompt is too long» NON SHALL essere trattato come un
+guasto del provider: porta con sé il conteggio ESATTO dei token di una
+richiesta che abbiamo mandato noi, e quel numero SHALL essere usato per
+correggere la stima e rifare il turno da solo.
+
+La stima dei token NON SHALL restare un'assunzione. Il rapporto fra caratteri e
+token SHALL essere CALIBRATO su quanto l'interfaccia del modello dichiara di
+aver contato, e un rapporto misurato NON SHALL mai essere più generoso di
+quello assunto: dichiarare più spazio di quanto ce ne sia è l'errore che uccide
+la conversazione, mentre dichiararne di meno costa solo una compattazione
+anticipata.
+
+La compattazione SHALL alleggerire anche gli ARGOMENTI delle chiamate vecchie,
+non i soli risultati: il risultato di una scrittura è una riga, il suo
+argomento è il file intero.
+
+Quando alleggerire non basta a raggiungere il bersaglio, i turni PIÙ VECCHI
+SHALL essere tagliati, così che una compattazione non possa dichiararsi
+riuscita lasciando una richiesta che l'interfaccia rifiuta. La richiesta
+iniziale SHALL sopravvivere, con l'indicazione di quanto è stato tolto.
+
+Mentre tutto questo accade la chat SHALL dirlo con una frase leggibile, e la
+resa — se dopo un numero limitato di tentativi la conversazione ancora non
+entra — SHALL spiegare cosa fare, non mostrare il corpo dell'errore.
+
+#### Scenario: il contesto pieno non uccide la chat
+- **GIVEN** una conversazione che sfora il tetto della finestra
+- **WHEN** l'interfaccia del modello rifiuta la richiesta perché troppo lunga
+- **THEN** la conversazione SHALL essere compattata sul conteggio dichiarato
+- **AND** il turno SHALL ripartire da solo e ricevere una risposta
+- **AND** in chat SHALL comparire una frase leggibile, non un errore di rete
+
+#### Scenario: la stima si corregge da sola
+- **GIVEN** un giro concluso di cui si conosce il prompt contato
+- **THEN** la soglia SHALL essere valutata su quel rapporto misurato
+
+#### Scenario: quando non si sblocca
+- **GIVEN** una conversazione che non entra nemmeno dopo le ricompattazioni
+- **THEN** SHALL essere detto cosa fare, e NON SHALL essere ritentato all'infinito
+
 ### Requirement: DURAB-CHAT-01 — Cosa sopravvive a un ricaricamento, e cosa DEVE non sopravvivere
 
 Questo repo misura il peso del pacchetto, la latenza delle rotte, i fotogrammi
