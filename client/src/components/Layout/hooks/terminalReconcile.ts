@@ -52,7 +52,24 @@
  * dormant ids are passed in, and a dormant session is KEPT — it is parked, not
  * gone. The pane revives it lazily, only when it becomes active
  * (SingleTerminalPane, gated on `isActive`).
+ *
+ * AND THE DORMANT LIST GOES STALE THE MOMENT AFTER IT IS READ. It is fetched
+ * once, at mount; a session that exits LATER (the user types `/exit` in a live
+ * claude tab) is parked by the server right then, and the broadcast that
+ * follows is built from the in-memory map alone. To a set captured minutes ago
+ * that id is simply seen-then-gone, so the tab was deleted a second after the
+ * exit and the persisted layout was rewritten before anyone could look at it:
+ * the resumable row survived with nobody left to offer it.
+ *
+ * Hence the third verdict, `verify`: a disappearance is not evidence of death
+ * until the dormant list has been re-read AFTER it. The caller keeps the pane,
+ * asks the server again, and only an id the fresh answer does NOT list (it
+ * lands in `confirmedGoneIds`) is finally pruned. That is also what terminates
+ * the loop: without it a re-read would return `verify` forever.
  */
+
+/** Keep the pane · re-read the dormant list before deciding · prune it. */
+export type RestoredTerminalPaneVerdict = 'keep' | 'verify' | 'prune';
 
 /**
  * @param sessionId            the terminal pane's pty session id.
@@ -67,26 +84,31 @@
  *                             from the roster by construction, but alive as a
  *                             resumable row. Defaults to empty so existing
  *                             callers are unaffected.
- * @returns true to keep the pane, false to prune it.
+ * @param confirmedGoneIds     session ids a dormant list read AFTER their
+ *                             disappearance did not list: neither live nor
+ *                             parked, so they are really gone.
  */
 const NO_IDS: ReadonlySet<string> = new Set<string>();
 
-export function shouldKeepRestoredTerminalPane(
+export function decideRestoredTerminalPane(
   sessionId: string,
   rosterIds: ReadonlySet<string>,
   seenIds: ReadonlySet<string>,
   rosterAuthoritative = false,
   dormantIds: ReadonlySet<string> = NO_IDS,
-): boolean {
+  confirmedGoneIds: ReadonlySet<string> = NO_IDS,
+): RestoredTerminalPaneVerdict {
   // Present now → keep.
-  if (rosterIds.has(sessionId)) return true;
+  if (rosterIds.has(sessionId)) return 'keep';
   // Parked → keep. Must come BEFORE the seen-then-gone rule: to that rule a
   // parked session is indistinguishable from one closed elsewhere, and pruning
   // it would make the idle-park mechanism delete the tabs it is parking.
-  if (dormantIds.has(sessionId)) return true;
-  // Seen-then-gone → prune (genuinely closed in another window).
-  if (seenIds.has(sessionId)) return false;
+  if (dormantIds.has(sessionId)) return 'keep';
+  // Seen-then-gone: closed in another window, or parked one second ago. The
+  // dormant set in hand cannot tell them apart, because it was read before the
+  // disappearance. Ask again; prune only once the fresh answer has ruled.
+  if (seenIds.has(sessionId)) return confirmedGoneIds.has(sessionId) ? 'prune' : 'verify';
   // Never seen: keep while the roster is unproven (server mid-restart / partial
   // reconnect); prune once an authoritative, populated roster shows it's gone.
-  return !rosterAuthoritative;
+  return rosterAuthoritative ? 'prune' : 'keep';
 }
