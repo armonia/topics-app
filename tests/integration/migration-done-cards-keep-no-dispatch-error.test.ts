@@ -32,9 +32,9 @@ const MIGRATION_SQL = read("20260904101008-done-cards-keep-no-dispatch-error.sql
 
 function dbBefore(): Database {
   const db = new Database(":memory:");
-  for (const stmt of read("001-initial.sql").split(/;\s*\n/)) {
-    if (!/create\s+table/i.test(stmt)) continue;
-    try { db.run(stmt); } catch { /* FKs to tables not created yet: irrelevant here */ }
+  for (const statement of read("001-initial.sql").split(/;\s*\n/)) {
+    if (!/create\s+table/i.test(statement)) continue;
+    try { db.run(statement); } catch { /* FKs to tables not created yet: irrelevant here */ }
   }
   if (!db.query("SELECT name FROM sqlite_master WHERE name = 'tasks'").get()) {
     throw new Error("tasks was not created: the schema moved, update this test");

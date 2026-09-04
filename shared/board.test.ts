@@ -511,60 +511,62 @@ describe("perché questa card è ferma", () => {
   });
 
   /**
-   * IL FRENO INVISIBILE - il pavimento di RAM/disco e il tetto di spesa 24h.
+   * THE INVISIBLE BRAKE - the RAM/disk floor and the 24h spend cap.
    *
-   * Il tick li legge una volta per giro (`admissionBlock() ?? dayBlock()`) e
-   * salta OGNI card di OGNI board, scrivendo il solo chip `queued`. La ragione
-   * cadeva quindi sul ramo finale della fila e la card diceva «in coda, la
-   * prossima» col tooltip «parte appena si libera uno slot agente»: non manca
-   * nessuno slot, nessuno si libererà, e la board resta ferma per ore mentre
-   * ogni card afferma il contrario.
+   * The tick reads them once per round (`admissionBlock() ?? dayBlock()`) and
+   * skips EVERY card of EVERY board, writing the bare `queued` chip. The reason
+   * therefore fell through to the final queue branch and the card said "in
+   * coda, la prossima" with the tooltip "it starts as soon as an agent slot
+   * frees up": no slot is missing, none is going to free up, and the board sits
+   * still for hours while every card claims the opposite.
    */
   test("pavimento di risorse: kind suo, tono `stalled`, mai la frase della fila", () => {
-    const bloccata = reason({ dispatchState: "queued" }, {
+    const held = reason({ dispatchState: "queued" }, {
       ahead: 0,
       dispatchBlock: { kind: "resources", reason: "Disco quasi pieno: 2,4 GB liberi, sotto il pavimento di 3 GB." },
     });
-    expect(bloccata.kind).toBe("resource_floor");
-    // Non riparte da sé: il disco non si svuota da solo.
-    expect(bloccata.tone).toBe("stalled");
-    // LA BUGIA NOMINATA: la promessa che basti aspettare un posto. Il tooltip
-    // può NEGARE lo slot («non manca uno slot»), non può prometterlo.
-    const tutto = `${bloccata.head} ${bloccata.detail} ${bloccata.title}`;
-    expect(tutto).not.toContain("la prossima");
-    expect(tutto).not.toContain("appena si libera uno slot");
-    // I numeri del blocco viaggiano con la ragione: sono la risposta, e chi
-    // legge la card non può rimisurare questa macchina.
-    expect(bloccata.title).toContain("2,4 GB");
+    expect(held.kind).toBe("resource_floor");
+    // It does not restart by itself: a disk does not empty on its own.
+    expect(held.tone).toBe("stalled");
+    // THE LIE, NAMED: the promise that waiting for a seat is enough. The
+    // tooltip may DENY the slot; it may not promise one.
+    const whole = `${held.head} ${held.detail} ${held.title}`;
+    expect(whole).not.toContain("la prossima");
+    expect(whole).not.toContain("appena si libera uno slot");
+    // The numbers travel with the reason: they are the answer, and whoever
+    // reads the card cannot measure this machine again.
+    expect(held.title).toContain("2,4 GB");
   });
 
   test("tetto di spesa: un'altra frase, perché è un'altra mossa", () => {
-    const spesa = reason({ dispatchState: "queued" }, {
+    const capped = reason({ dispatchState: "queued" }, {
       ahead: 3,
       dispatchBlock: { kind: "spend", reason: "Tetto di spesa giornaliero raggiunto ($42 negli ultimi 24h su un tetto di $40)." },
     });
-    expect(spesa.kind).toBe("spend_cap");
-    expect(spesa.tone).toBe("stalled");
-    expect(spesa.detail).not.toBe("3 davanti");
-    // I due blocchi non si confondono: il disco si libera, il tetto lo alzi tu.
-    const pavimento = reason({ dispatchState: "queued" }, {
+    expect(capped.kind).toBe("spend_cap");
+    expect(capped.tone).toBe("stalled");
+    expect(capped.detail).not.toBe("3 davanti");
+    // The two blocks do not blur into one: a disk frees up, a cap is raised by
+    // a person.
+    const floor = reason({ dispatchState: "queued" }, {
       dispatchBlock: { kind: "resources", reason: "Memoria quasi finita: 1,8 GB disponibili." },
     });
-    expect(spesa.detail).not.toBe(pavimento.detail);
-    expect(spesa.title).not.toBe(pavimento.title);
+    expect(capped.detail).not.toBe(floor.detail);
+    expect(capped.title).not.toBe(floor.title);
   });
 
   test("il blocco della macchina non copre le ragioni della card", () => {
-    // Stessa precedenza dei due rami del peso: chi è fermo per conto suo resta
-    // fermo per conto suo, e a dispatch spento non c'è nessuna coda da bloccare.
-    const bloccata = { dispatchBlock: { kind: "resources" as const, reason: "Disco quasi pieno." } };
-    expect(reason({ dispatchAttempts: 2 }, bloccata).kind).toBe("attempts");
-    expect(reason({}, { ...bloccata, autoDispatch: false }).kind).toBe("dispatch_off");
-    expect(reason({ blockedByTaskId: "x" }, bloccata).kind).toBe("blocked");
-    expect(reason({ parentTaskId: "p" }, { ...bloccata, parentStatus: "in_progress" }).kind).toBe("parent_turn");
-    // E il pesante in volo viene prima: il tick esce da lì senza nemmeno
-    // leggere il pavimento.
-    expect(reason({ dispatchState: "queued" }, { ...bloccata, heavyInFlight: true }).kind).toBe("heavy_busy");
+    // Same precedence as the two branches of weight: whatever is stopped on its
+    // own account stays stopped on its own account, and with dispatch off there
+    // is no queue to block.
+    const held = { dispatchBlock: { kind: "resources" as const, reason: "Disco quasi pieno." } };
+    expect(reason({ dispatchAttempts: 2 }, held).kind).toBe("attempts");
+    expect(reason({}, { ...held, autoDispatch: false }).kind).toBe("dispatch_off");
+    expect(reason({ blockedByTaskId: "x" }, held).kind).toBe("blocked");
+    expect(reason({ parentTaskId: "p" }, { ...held, parentStatus: "in_progress" }).kind).toBe("parent_turn");
+    // And a heavy turn in flight comes first: the tick leaves there without
+    // even reading the floor.
+    expect(reason({ dispatchState: "queued" }, { ...held, heavyInFlight: true }).kind).toBe("heavy_busy");
   });
 
   test("il pesante in volo ferma OGNI card, non solo le pesanti", () => {

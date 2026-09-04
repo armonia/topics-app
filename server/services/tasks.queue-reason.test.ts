@@ -71,13 +71,13 @@ describe("la ragione della coda arriva dal server, con la card", () => {
   });
 
   /**
-   * IL FRENO INVISIBILE arriva sulla card come tutti gli altri.
+   * THE INVISIBLE BRAKE reaches the card like every other reason.
    *
-   * Il pavimento di RAM/disco e il tetto di spesa 24h li legge il tick, una
-   * volta per giro, e poi salta OGNI card: non c'è nessun campo sulla riga da
-   * cui dedurli, quindi la ragione cadeva sul ramo della fila e diceva «in
-   * coda, la prossima» su una board immobile da ore. Il dispatcher li pubblica
-   * (`dispatch-block-signal.ts`) e il mappatore li legge qui.
+   * The RAM/disk floor and the 24h spend cap are read by the tick, once per
+   * round, and then it skips EVERY card: no field on the row can be used to
+   * infer them, so the reason fell through to the queue branch and said "in
+   * coda, la prossima" on a board that had not moved in hours. The dispatcher
+   * publishes them (`dispatch-block-signal.ts`) and the mapper reads them here.
    */
   test("pavimento e tetto di spesa: la card lo dice, senza cambiare un campo suo", () => {
     const t = s.create({ projectId: PID, text: "Ferma per la macchina" });
@@ -85,18 +85,18 @@ describe("la ragione della coda arriva dal server, con la card", () => {
     expect(s.get(t.id)!.task.queueReason!.kind).toBe("slot");
 
     setDispatchBlock({ kind: "resources", reason: "Disco quasi pieno: 2,4 GB liberi." });
-    const bloccata = s.get(t.id)!.task.queueReason!;
-    expect(bloccata).toMatchObject({ kind: "resource_floor", tone: "stalled" });
-    expect(bloccata.params?.reason).toContain("2,4 GB");
+    const held = s.get(t.id)!.task.queueReason!;
+    expect(held).toMatchObject({ kind: "resource_floor", tone: "stalled" });
+    expect(held.params?.reason).toContain("2,4 GB");
 
     setDispatchBlock({ kind: "spend", reason: "Tetto di spesa giornaliero raggiunto." });
     expect(s.get(t.id)!.task.queueReason!.kind).toBe("spend_cap");
 
-    // Fuori dalla coda il blocco non è ciò che quella card aspetta: uno step
-    // ha la ragione del padre, e una card in backlog è parcheggiata.
-    const passo = s.create({ projectId: PID, text: "Uno step", parentTaskId: t.id });
-    mv(s, passo.id, "todo");
-    expect(s.get(passo.id)!.task.queueReason!.kind).not.toBe("spend_cap");
+    // Outside the queue the block is not what that card is waiting on: a step
+    // has its parent's reason, and a backlog card is parked.
+    const step = s.create({ projectId: PID, text: "Uno step", parentTaskId: t.id });
+    mv(s, step.id, "todo");
+    expect(s.get(step.id)!.task.queueReason!.kind).not.toBe("spend_cap");
 
     setDispatchBlock(null);
     expect(s.get(t.id)!.task.queueReason!.kind).toBe("slot");

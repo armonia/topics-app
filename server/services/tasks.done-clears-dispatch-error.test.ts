@@ -51,8 +51,8 @@ describe("una card chiusa non conserva il motivo per cui si era fermata", () => 
 
     // In the task the write RETURNS, not "at the next reconcile": that is what
     // the board draws the instant the card is approved.
-    const chiusa = mv(s, t.id, "done");
-    expect(chiusa.dispatchError).toBeNull();
+    const closed = mv(s, t.id, "done");
+    expect(closed.dispatchError).toBeNull();
     expect(s.get(t.id)!.task.dispatchError).toBeNull();
   });
 
