@@ -39,6 +39,7 @@ import { buildContextUpdate } from "../usage/usage-update";
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { cancelled, classifyTurnError, isAcpStopReason, type TurnEndInfo } from "../providers/stop-reason";
 import { recordTurnEnd } from "../providers/turn-end-registry";
+import { resumeAttemptOf } from "../lib/ripresa-boot";
 import { appendUsageRecord } from "../usage/store";
 import { autoreDaIdentita } from "../lib/message-author";
 import { makeGatewaySseProcessor } from "../lib/gateway-sse-consumer";
@@ -283,6 +284,16 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       const body = await readJSON(req);
       if (!body) return json({ error: "body required" }, 400);
       const sessionKey = body.sessionKey;
+      /**
+       * IS THIS TURN THE BOOT RESUMING ITSELF, and for the how-manieth time?
+       *
+       * Read once, here, because two very different things need it: the
+       * `ripreso` block on the row (which is how the next boot counts the
+       * chain) and the `resumedBy` marker on `stream:start` (which is how the
+       * chat on screen stops advising Retry while the resend is already
+       * running). Read twice, they could disagree.
+       */
+      const resumeAttempt = resumeAttemptOf(body);
 
       /**
        * LO STESSO MESSAGGIO NON SI PRENDE DUE VOLTE.
@@ -980,8 +991,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // It carries the resend number in the chain: if this turn too dies
           // under a restart, the next boot knows how many it has already spent.
           // Counting on the single row let the same message resume at every boot.
-          const attempt = typeof body.ripresa === "number" ? body.ripresa : body.ripresa === true ? 1 : 0;
-          if (attempt > 0) blocks.push({ kind: "ripreso", attempt });
+          if (resumeAttempt > 0) blocks.push({ kind: "ripreso", attempt: resumeAttempt });
           // What the timeline is worth in bytes, near enough: it decides WHEN
           // the row is rewritten, never what goes into it (see
           // `createBlockPersistThrottle`). Each event adds only what IT brings.
@@ -1161,6 +1171,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           broadcastToAll({
             type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id,
             ...(isReattach && "reusedBody" in partialMsg && partialMsg.reusedBody ? { reattached: true as const } : {}),
+            ...(resumeAttempt > 0 ? { resumedBy: "server" as const } : {}),
           });
 
           // Create SSE response for the HTTP client
@@ -3390,7 +3401,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           const SAVE_INTERVAL = 10;
           const partialMsg = createPartialMessage(sessionKey, "assistant");
           startStream(sessionKey, partialMsg.id, abortController, providerSurvivesRestart(topicProvider));
-          broadcastToAll({ type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
+          broadcastToAll({
+            type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id,
+            ...(resumeAttempt > 0 ? { resumedBy: "server" as const } : {}),
+          });
 
           // Mutable state via refs so that both the WS onToolStart callback and
           // the shared SSE processor read from the same up-to-date value.
