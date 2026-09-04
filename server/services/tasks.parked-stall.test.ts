@@ -207,6 +207,25 @@ describe("un padre fermo solo su figli parcheggiati fa una DOMANDA", () => {
     expect(domande).toHaveLength(1);
   });
 
+  test("un figlio che torna in todo sotto un padre IN CODA non alza la domanda: il padre sta per essere lavorato", () => {
+    // 2026-09-04 10:09: three sub-cards put back to todo after a restart had
+    // reaped their worktree; their parents sat in todo, chip queued, waiting
+    // for a slot. Each parent went to review with "Fermo su N sottotask che
+    // non lavorera' nessuno" on top. The dispatcher was about to hand them to
+    // an agent whose kickoff lists exactly those open subtasks.
+    const padre = s.create({ projectId: PID, text: "Il padre in coda", status: "todo" }).id;
+    s.setDispatchState({ taskId: padre, state: "queued" });
+    const figlio = s.create({ projectId: PID, text: "Un passo", parentTaskId: padre }).id;
+    s.update({ taskId: figlio, actor: "agent", by: "agent", patch: { status: "in_progress" } });
+
+    s.update({ taskId: figlio, actor: "human", by: "attilio", patch: { status: "todo" } });
+
+    const t = s.get(padre)!.task;
+    expect(t.status).toBe("todo");
+    expect(t.dispatchState).toBe("queued");
+    expect(s.get(padre)!.comments.some((c) => c.content.includes("```question"))).toBe(false);
+  });
+
   test("parcheggiare il figlio alza la domanda SUBITO, senza aspettare un turno", () => {
     // Il caso misurato: padre già fermo in backlog, figlio che ci finisce dopo.
     const padre = s.create({ projectId: PID, text: "Il padre fermo" }).id;

@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import { Copy, Check, RotateCw, Clock } from 'lucide-react';
+import { Copy, Check, RotateCw, Clock, AlertTriangle } from 'lucide-react';
 import { attachTerminalTouchScroll } from './touchScroll';
 import { createWriteCoalescer, BACKGROUND_FLUSH_MS, VISIBLE_FLUSH_MS, type WriteCoalescer } from './writeCoalescer';
 import { enqueueFit, cancelFit } from '../../lib/staggeredFit';
@@ -18,6 +18,7 @@ import { isWindowAwake } from '../../state/windowAwake';
 import { useT } from '../../hooks/useT';
 import { restartTerminalSession } from '../../lib/terminalReload';
 import { useToast } from '../Shared/Toast';
+import { TERMINAL_INPUT_DROPPED } from '../../../../shared/terminal-messages';
 
 const TOUCH_KEYS: { label: string; data: string; wide?: boolean }[] = [
   { label: 'Esc',    data: '\x1b' },
@@ -210,6 +211,20 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   const [dormantEmpty, setDormantEmpty] = useState(false);
   const dormantEmptyRef = useRef(dormantEmpty);
   useEffect(() => { dormantEmptyRef.current = dormantEmpty; }, [dormantEmpty]);
+
+  // THE FOURTH SILENCE: the keys that went nowhere.
+  // When the PTY bridge is down the server drops the keystroke on purpose (see
+  // the comment on the WS message handler in server/routes/terminal.ts) and
+  // says so only in its own log. Here the socket stays open, the cursor keeps
+  // blinking and xterm does no local echo, so typing into a dead terminal looks
+  // exactly like typing into a live one. The server now sends a control frame;
+  // this is the band, and it goes away at the first real byte of output.
+  const [inputDropped, setInputDropped] = useState(false);
+  const inputDroppedRef = useRef(inputDropped);
+  useEffect(() => { inputDroppedRef.current = inputDropped; }, [inputDropped]);
+  const clearInputDropped = useCallback(() => {
+    if (inputDroppedRef.current) setInputDropped(false);
+  }, []);
 
   // Viewing a claude-code session = its "finished a turn" notification is seen,
   // so clear it. Depending on `finished` (not just isActive) is what makes this
@@ -464,6 +479,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
         // any pending dormant grace so a reconnect (server reload, resume) can
         // clear a previously-shown empty overlay once real output flows again.
         setDormantEmpty(false);
+        clearInputDropped();
         outputBytesRef.current = 0;
         if (dormantTimerRef.current) { clearTimeout(dormantTimerRef.current); dormantTimerRef.current = null; }
         // A "Ricarica" reload reconnects here — drop the "Riavvio…" overlay.
@@ -484,6 +500,10 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           // JSON. Anything else is treated as plain output for forward compat.
           try {
             const msg = JSON.parse(data);
+            if (msg && msg.type === TERMINAL_INPUT_DROPPED) {
+              setInputDropped(true);
+              return;
+            }
             if (msg && msg.type === 'replay-end') {
               // Zero output bytes at replay-end on a resumable (claude/codex)
               // session ⇒ its PTY is almost certainly gone (a live claude TUI
@@ -518,11 +538,13 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           } catch { /* not JSON — write as-is */ }
           coalescer.push(data);
           outputBytesRef.current += data.length;
+          clearInputDropped();
           if (dormantEmptyRef.current) setDormantEmpty(false);
           if (dormantTimerRef.current) { clearTimeout(dormantTimerRef.current); dormantTimerRef.current = null; }
         } else if (data instanceof ArrayBuffer) {
           coalescer.push(new Uint8Array(data));
           outputBytesRef.current += data.byteLength;
+          clearInputDropped();
           if (dormantEmptyRef.current) setDormantEmpty(false);
           if (dormantTimerRef.current) { clearTimeout(dormantTimerRef.current); dormantTimerRef.current = null; }
         }
@@ -1051,6 +1073,20 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               <RotateCw size={13} className={reloading ? 'animate-spin' : ''} />
               <span>{reloading ? t('terminal.restarting') : t('terminal.resume')}</span>
             </button>
+          </div>
+        )}
+        {/* The keyboard is going nowhere. A BAND, not an overlay: the pane stays
+            readable and clickable underneath (the scrollback is exactly what
+            you want to read while the bridge is down), and it leaves on its own
+            at the first byte the bridge delivers. No button: there is nothing
+            to retry here, the reconnection is the server's own loop. */}
+        {inputDropped && !stale && (
+          <div
+            data-testid="terminal-input-dropped"
+            className="absolute top-0 left-0 right-0 z-20 pointer-events-none flex items-center justify-center gap-2 px-3 py-1.5 bg-amber-500 text-white text-[11px] font-medium"
+          >
+            <AlertTriangle size={12} />
+            <span>{t('terminal.inputDropped')}</span>
           </div>
         )}
         {/* "Ricarica" restart in progress — a clear overlay instead of the bare

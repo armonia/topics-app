@@ -1621,6 +1621,13 @@ codificati; uno scritto A MANO che contiene un PUNTO SHALL ricevere comunque il
 guscio — è un permalink, non un artefatto; e gli alias storici SHALL restare
 navigazioni.
 
+Su un PERMALINK il cliente che accetta QUALUNQUE tipo SHALL ricevere il guscio:
+un indirizzo della app non può rispondere «non esiste» a seconda di chi bussa, e
+chi apre un permalink è spesso il gestore dei collegamenti del sistema o una
+vista incorporata, che dichiarano il tipo jolly e non una pagina. Chi chiede
+esplicitamente ALTRO, e nulla che possa essere una pagina, SHALL continuare a
+ricevere il «non trovato».
+
 #### Scenario: una rotta di interfaccia sconosciuta
 - **GIVEN** un percorso di interfaccia inesistente
 - **THEN** SHALL restare «non trovato»
@@ -1628,6 +1635,10 @@ navigazioni.
 #### Scenario: un permalink con un punto nella chiave
 - **GIVEN** un permalink scritto a mano
 - **THEN** SHALL ricevere il guscio
+
+#### Scenario: un permalink aperto da chi accetta qualunque tipo
+- **GIVEN** un permalink chiesto con il tipo jolly
+- **THEN** SHALL ricevere il guscio, non un «non trovato» di testo
 
 ### Requirement: STATIC-01 — Gli artefatti si classificano per FORMA, non per un elenco scritto a mano
 

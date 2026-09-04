@@ -1,5 +1,6 @@
 import type { AppContext, RouteHandler } from "../types";
 import type { TerminalSessionType } from "../../shared/terminal-session-types";
+import { STANDALONE_NO_PTY_CODE, TERMINAL_INPUT_DROPPED } from "../../shared/terminal-messages";
 import { spawn } from "child_process";
 import { resolve, basename, dirname, join } from "path";
 import { createInterface } from "readline";
@@ -706,10 +707,18 @@ export function isPtyBridgeDisabled(): boolean {
   return process.env.TOPICS_DISABLE_PTY_BRIDGE === "1" || process.env.TOPICS_EMBEDDED === "1";
 }
 
-/** 503 body for terminal endpoints when the PTY bridge is disabled (standalone). */
+/**
+ * 503 body for terminal endpoints when the PTY bridge is disabled (standalone).
+ *
+ * It carries a `code` because 503 is ambiguous on these very routes: the reload
+ * endpoint answers 503 too when a session refuses to stop in time, and that one
+ * IS worth retrying while this one never is (a standalone shell, a sidecar, and
+ * every Windows build have no bridge at all). The client reads the code to pick
+ * between "not available in this installation" and "try again".
+ */
 function ptyBridgeUnavailable(): Response {
   return new Response(
-    JSON.stringify({ error: "terminals not available in standalone mode" }),
+    JSON.stringify({ error: "terminals not available in standalone mode", code: STANDALONE_NO_PTY_CODE }),
     { status: 503, headers: { "content-type": "application/json" } },
   );
 }
@@ -3192,6 +3201,13 @@ export function handleTerminalWebSocket(ws: any, sessionId: string) {
         sendToBridge({ type: "write", id: sessionId, data: input });
       } catch (err) {
         noteDroppedInput(sessionId, err);
+        // AND TELL THE PERSON TYPING. The `console.warn` above is on the SERVER:
+        // on the other end the socket is still open, the cursor still blinks and
+        // xterm does no local echo, so a keyboard going nowhere looked exactly
+        // like a keyboard working. This control frame is what the pane turns
+        // into a band; it disappears at the first real output, i.e. when the
+        // bridge answers again.
+        try { ws.send(JSON.stringify({ type: TERMINAL_INPUT_DROPPED })); } catch { /* socket already gone */ }
       }
     },
     close() {
