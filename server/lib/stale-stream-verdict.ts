@@ -93,6 +93,12 @@ export function staleStreamVerdict(opts: {
   toolRunningMs?: number;
   /** Past this, a tool that is still "running" no longer counts as working. */
   toolStuckMs?: number;
+  /**
+   * OUR pre-review checks are running (or queued) for the card this turn works
+   * on: the running tool is `update_task(status='review')`, and it is waiting
+   * on us. The same fact the stall detector reads as `isWaitingForChecks`.
+   */
+  waitingOnOurChecks?: boolean;
 }): "ok" | "rescue" | "extend" | "finalize" | "frozen" | "hung" {
   if (opts.silentMs <= opts.timeoutMs) return "ok";
   if (opts.childAlive !== true) return "finalize";
@@ -111,6 +117,18 @@ export function staleStreamVerdict(opts: {
   // stamp and drops the silence mark — the same trap the comment on `trueSilenceMs`
   // above already describes.
   if (opts.toolRunning) {
+    // THE WAIT IS OURS. `update_task(status='review')` holds its tool call open
+    // while the pre-review checks grind in the worktree: legs of 25 s, up to 50
+    // minutes by design (`CHECKS_MAX_LEGS`), and under load the slot queue alone
+    // gets past the cap below. On 2026-09-04, 11:53-11:59, three deliveries were
+    // closed here at 31-32 minutes of `update_task` as "a promise that never
+    // returns": the promise was ours, the checks were still running, and every
+    // cut burnt an attempt and re-posted the delivery. The stall detector had
+    // already been taught this hold (`isWaitingForChecks`); the sweeper reads
+    // the same fact. The checks carry their own wall-clock cap (`scripts/slot.ts`),
+    // so this wait is bounded by construction, which the cap below is not able
+    // to see from the tool's clock alone.
+    if (opts.waitingOnOurChecks) return opts.alreadyResynced ? "extend" : "rescue";
     if ((opts.toolRunningMs ?? 0) < (opts.toolStuckMs ?? 30 * 60 * 1000)) {
       return opts.alreadyResynced ? "extend" : "rescue";
     }
