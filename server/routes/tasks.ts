@@ -40,7 +40,7 @@ import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import { resolveAgentRuntime } from "../services/app-settings";
 import { newProjectParentDir } from "../services/project-path-resolver";
 import { parkedEdgeEvent, type TaskDispatcher } from "../services/task-dispatcher";
-import { landFallout, type TaskAutoMerge } from "../services/task-automerge";
+import { type RealignOutcome, landFallout, type TaskAutoMerge } from "../services/task-automerge";
 import type { LandingState } from "../services/landing-audit";
 import type { RepoProbe } from "../services/deliveryReportChecks";
 import { createLandingQueue, type LandingQueue, type LandingTicket, type LandOutcomeResult } from "../services/landing-queue";
@@ -249,6 +249,12 @@ export interface TasksRouterOpts {
    * "verde" vale per QUEL codice, non per il branch a vita.
    */
   taskCheckoutRef?: (taskId: string) => Promise<{ cwd: string; commit: string | null } | null>;
+  /**
+   * Brings main into the card's branch BEFORE the pre-review checks run, the
+   * way the land does before merging (`taskAutoMerge.realign`). `ok:false` is
+   * the verdict itself: the checks do not start.
+   */
+  realignForChecks?: (taskId: string) => Promise<RealignOutcome>;
   /**
    * Il provider con cui ricavare un titolo leggibile da una card dettata.
    *
@@ -875,6 +881,37 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     let checks: ReviewCheck[] = [];
     try { checks = svc.getBoardSettings(projectId).reviewChecks; } catch { return null; }
     if (!checks.length) return null;
+    // THE CHECKS MEASURE THE TREE THAT LANDS. On 2026-09-04 three cards
+    // (4c4ac437, 882f81b9, c8039b35) burnt a turn each on an "inherited" red:
+    // a bloat baseline main had already moved while their branch sat on an
+    // older base. The land realigns before merging; the checks now do the
+    // same before measuring, once per delivery (a key the gate already knows
+    // is a run in flight or a retained verdict, not a new delivery). A realign
+    // that cannot happen - conflict, dirty tree - IS the verdict: not a single
+    // command runs, and the agent gets the file list instead of a timeout.
+    if (opts.realignForChecks && !checksGate.known(taskId)) {
+      const re = await opts.realignForChecks(taskId)
+        .catch((err): RealignOutcome => ({ ok: false, reason: `riallineamento fallito: ${err instanceof Error ? err.message : String(err)}` }));
+      if (!re.ok) {
+        const comment =
+          `**Riallineamento su main fallito, check non partiti**: ${re.reason}. ` +
+          "Nel worktree fai `git merge main`, risolvi, committa, poi rimetti in review con update_task(status=\"review\").";
+        try {
+          svc.recordChecks({
+            taskId, state: "fail", commit: null,
+            runs: [{ name: "realign", cmd: "git merge main", ok: false, code: 1, ms: 0, timedOut: false, tail: re.reason }],
+          });
+          svc.addComment({ taskId, author: "system", kind: "comment", content: comment });
+          const t = svc.get(taskId, { projectId })?.task;
+          if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
+        } catch { /* the verdict counts more than its record */ }
+        return { ok: false, comment };
+      }
+      if (re.note) {
+        try { svc.addComment({ taskId, author: "system", kind: "service", content: `Riallineato su main prima dei check: ${re.note}` }); }
+        catch { /* a trace, not the gate */ }
+      }
+    }
     const ref = await opts.taskCheckoutRef(taskId).catch(() => null);
     if (!ref) return null;
 

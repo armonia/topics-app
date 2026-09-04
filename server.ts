@@ -2114,6 +2114,9 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // commit su cui sta. Solo worktree di branch — un task in-place girerebbe i
   // comandi nel checkout principale, cioè su codice che non è il suo.
   taskCheckoutRef,
+  // Main dentro il ramo PRIMA dei check, come fa il land prima di fondere: il
+  // cancello misura l'albero che atterra, non una base invecchiata.
+  realignForChecks: (taskId) => taskAutoMerge.realign(taskId),
   // L'esito di atterraggio della card, timbrato SUBITO dopo un land: un verdetto
   // concreto è ciò che il land ha visto e vale come fatto (`witnessed`), `"ask"`
   // è il caso in cui non sa e si chiede al repo (`auditOneLanding`, più in basso).

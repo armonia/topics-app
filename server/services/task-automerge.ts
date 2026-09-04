@@ -267,6 +267,12 @@ export function chooseMergeTarget(
   return { target: { repoPath, branch, defaultBranch }, via: "delivery" };
 }
 
+/** What `realign(taskId)` answers: done (with the note for the thread when a
+ *  merge happened), or why it could not, in the agent's words. */
+export type RealignOutcome =
+  | { ok: true; note: string | null }
+  | { ok: false; reason: string; files?: string[] };
+
 export interface AutoMergeDeps {
   /**
    * Resolve a task to its merge target. `null` ⇒ nothing to merge (the task ran
@@ -458,6 +464,184 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     return { branch, drift: notes.length > 0 ? notes.join("; ") : null };
   }
 
+  /**
+   * The realign of a card's branch on `defaultBranch`, on its own. Used by the
+   * land (before merging) and by the pre-review checks (before measuring): the
+   * gate must see the tree that will land, or a baseline main has already
+   * moved shows up as an "inherited" red on the card. `target.branch` is read
+   * at call time: the land may still swap the branch it publishes after
+   * building this.
+   */
+  function realignmentFor(
+    target: { repoPath: string; defaultBranch: string; readonly branch: string },
+    onRealigned: (note: string) => void,
+  ) {
+    const { repoPath, defaultBranch } = target;
+    async function branchWorktree(): Promise<string | null> {
+      const r = await runGit(repoPath, ["worktree", "list", "--porcelain"]);
+      if (r.code !== 0) return null;
+      let path: string | null = null;
+      for (const raw of r.stdout.split("\n")) {
+        const line = raw.trim();
+        if (line.startsWith("worktree ")) path = line.slice("worktree ".length).trim() || null;
+        else if (line === `branch refs/heads/${target.branch}`) return path;
+      }
+      return null;
+    }
+
+    /**
+     * Riporta `main` DENTRO il ramo, quando il ramo è indietro.
+     *
+     * Il perché: con N agenti in parallelo main avanza mentre la card aspetta la
+     * review, e un ramo che invecchia comincia a non essere più valutabile —
+     * misurato la notte del 12/08 su `ddf66270`, dove il rimedio (un merge
+     * pulito, zero conflitti) l'ha dovuto fare un umano a mano nel checkout
+     * perché dalla card non c'era nessun modo di dirlo. Nessuno dovrebbe fare a
+     * mano una fusione che non ha conflitti.
+     *
+     * Le stesse cautele del land, dall'altro verso:
+     *   • si fonde solo su un albero PULITO (i rifiuti degli agenti non contano,
+     *     `worktreeRealDirt` li conosce): mai inglobare la WIP di qualcuno;
+     *   • su conflitto `merge --abort` e si NOMINANO i file, così l'agente sa
+     *     dove guardare invece di sentirsi dire «conflitto»;
+     *   • niente push, niente rebase: la storia del ramo non si riscrive sotto
+     *     chi la sta guardando, ci si aggiunge un merge.
+     */
+    /**
+     * Inside a conflicted merge of `defaultBranch` into the target.branch: take main's
+     * copy of each generated baseline, let its script re-record the tree it
+     * now sits in, stage, and complete the merge. `false` = something did not
+     * go (a temp worktree without `node_modules`, a script that fails, a path
+     * still unmerged): the caller aborts the merge, and the tree is as it was.
+     */
+    async function settleGeneratedBaselines(cwd: string, files: string[]): Promise<boolean> {
+      for (const file of files) {
+        const take = await runGit(cwd, ["checkout", defaultBranch, "--", file]);
+        if (take.code !== 0) return false;
+        const rewrite = await regenerateBaseline(cwd, file);
+        if (rewrite.code !== 0) {
+          log(`[automerge] ${file}: rigenerazione fallita nel worktree ${cwd}: ${(rewrite.stderr || rewrite.stdout).trim().slice(-300)}`);
+          return false;
+        }
+      }
+      const add = await runGit(cwd, ["add", "--", ...files]);
+      if (add.code !== 0) return false;
+      const left = await runGit(cwd, ["diff", "--diff-filter=U", "--name-only"]);
+      if (left.code !== 0 || left.stdout.trim() !== "") return false;
+      // `--no-edit`: the message the merge was started with (MERGE_MSG) stays.
+      const commit = await runGit(cwd, ["commit", "--no-edit"]);
+      return commit.code === 0;
+    }
+
+    async function realignOnMain(): Promise<AutoMergeResult | null> {
+      // `merge-base --is-ancestor` invece di contare: una domanda sola, e la
+      // risposta «main è già dentro» è quella del caso normale.
+      const ancestor = await runGit(repoPath, ["merge-base", "--is-ancestor", defaultBranch, target.branch]);
+      if (ancestor.code === 0) return null;
+      const cnt = await runGit(repoPath, ["rev-list", "--count", `${target.branch}..${defaultBranch}`]);
+      const behind = Number.parseInt(cnt.stdout.trim(), 10);
+      // Non un numero = git non ha risposto (e non che il ramo sia a posto): si
+      // lascia fare al land di prima, che ha già i suoi cancelli per dirlo.
+      if (!Number.isFinite(behind) || behind <= 0) return null;
+
+      const live = await branchWorktree();
+      const wtPath = live ?? join(tmpdir(), "topics-realign", createHash("sha1").update(`${repoPath}\n${target.branch}`).digest("hex").slice(0, 16));
+      if (live) {
+        const dirt = await worktreeRealDirt(live, runGit);
+        if (dirt.length > 0) {
+          return {
+            status: "skipped", code: "realign-blocked",
+            reason:
+              `il ramo '${target.branch}' è indietro di ${behind} commit su '${defaultBranch}' e va riallineato, ma il suo ` +
+              `worktree (${live}) ha ${dirt.length} file non committati (${dirt.slice(0, 3).join(", ")}): ` +
+              "riportare main dentro il ramo li ingloberebbe nella fusione. Committa o scarta quel lavoro, poi rilancia il land",
+          };
+        }
+      } else {
+        await runGit(repoPath, ["worktree", "remove", "--force", wtPath]).catch(() => undefined);
+        await runGit(repoPath, ["worktree", "prune"]).catch(() => undefined);
+        const add = await runGit(repoPath, ["worktree", "add", wtPath, target.branch]);
+        if (add.code !== 0) {
+          return {
+            status: "skipped", code: "realign-blocked",
+            reason:
+              `il ramo '${target.branch}' è indietro di ${behind} commit su '${defaultBranch}' e va riallineato, ma non si è ` +
+              `potuto creare un worktree su cui fonderlo: ${(add.stderr || add.stdout).trim().slice(-200) || "git worktree add fallito"}`,
+          };
+        }
+      }
+
+      try {
+        const msg = `Riporta ${defaultBranch} nel ramo prima del land`;
+        const merge = await runGit(wtPath, ["merge", "--no-edit", "-m", msg, defaultBranch]);
+        if (merge.code !== 0) {
+          const unmerged = await runGit(wtPath, ["diff", "--diff-filter=U", "--name-only"]);
+          const files = unmerged.code === 0 ? unmerged.stdout.split("\n").map((f) => f.trim()).filter(Boolean) : [];
+          // GENERATED BASELINES SETTLE THEMSELVES (see `GENERATED_BASELINES`).
+          // Only when EVERY conflicting path is one of them: a code conflict
+          // next to a baseline still goes back to the agent, whole.
+          if (files.length > 0 && files.every((f) => Object.hasOwn(GENERATED_BASELINES, f))
+            && await settleGeneratedBaselines(wtPath, files)) {
+            const which = files.length === 1 ? "una baseline generata" : `${files.length} baseline generate`;
+            onRealigned(
+              `il ramo era indietro di ${behind} commit su '${defaultBranch}': ci ho riportato main dentro; ` +
+              `l'unico conflitto era su ${which} (${files.join(", ")}), che ho rigenerato dallo script che la scrive ` +
+              "prima di valutare i cancelli");
+            return null;
+          }
+          await runGit(wtPath, ["merge", "--abort"]).catch(() => undefined);
+          // Un merge può fallire SENZA conflitti: git si rifiuta di partire
+          // perché sovrascriverebbe un file non tracciato, o l'albero non è
+          // pronto. Non c'è niente da riconciliare e mandarlo all'agente come
+          // «conflitto» gli farebbe cercare marcatori che non esistono: si dice
+          // quello che git ha detto, e la card torna all'umano.
+          if (files.length === 0) {
+            return {
+              status: "skipped", code: "realign-blocked",
+              reason:
+                `il ramo '${target.branch}' è indietro di ${behind} commit su '${defaultBranch}' e riportare main dentro il ramo ` +
+                `non è nemmeno partito (nessun file in conflitto): ${(merge.stderr || merge.stdout).trim().slice(-300) || "git merge fallito"}`,
+            };
+          }
+          return { status: "conflict", branch: target.branch, realignConflict: { behind, files } };
+        }
+        onRealigned(`il ramo era indietro di ${behind} commit su '${defaultBranch}': ci ho riportato main dentro (fusione pulita, nessun conflitto) prima di valutare i cancelli`);
+        return null;
+      } finally {
+        if (!live) {
+          await runGit(repoPath, ["worktree", "remove", "--force", wtPath]).catch(() => undefined);
+          await runGit(repoPath, ["worktree", "prune"]).catch(() => undefined);
+        }
+      }
+    }
+
+    return { realignOnMain };
+  }
+
+  /**
+   * What the pre-review checks ask before running: bring main into the card's
+   * branch. `ok:false` is a verdict, not a hiccup: the merge conflicted or the
+   * tree was dirty, and the checks must not measure a stale base.
+   */
+  async function realign(taskId: string): Promise<RealignOutcome> {
+    const target = deps.resolveTaskMerge(taskId);
+    if (!target) return { ok: true, note: null };
+    return chain(target.repoPath, async () => {
+      let note: string | null = null;
+      const blocked = await realignmentFor(target, (n) => { note = n; }).realignOnMain();
+      if (!blocked) return { ok: true, note };
+      if (blocked.status === "conflict") {
+        const files = blocked.realignConflict?.files ?? [];
+        return {
+          ok: false, files,
+          reason: `riportare main nel ramo ha fatto conflitto su ${files.length} file: ${files.slice(0, 20).join(", ") || "nessun file elencabile"}`,
+        };
+      }
+      if (blocked.status === "skipped") return { ok: false, reason: blocked.reason };
+      return { ok: true, note };
+    });
+  }
+
   async function tryMerge(taskId: string, title: string, delivery?: DeliverySnapshot): Promise<AutoMergeResult> {
     const choice = chooseMergeTarget(
       deps.resolveTaskMerge(taskId),
@@ -538,143 +722,10 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
      * checkoutato altrove: la scelta fra «fondo dove il ramo vive» e «me ne
      * creo uno» non è un'ottimizzazione, è l'unico modo di non fallire.
      */
-    async function branchWorktree(): Promise<string | null> {
-      const r = await runGit(repoPath, ["worktree", "list", "--porcelain"]);
-      if (r.code !== 0) return null;
-      let path: string | null = null;
-      for (const raw of r.stdout.split("\n")) {
-        const line = raw.trim();
-        if (line.startsWith("worktree ")) path = line.slice("worktree ".length).trim() || null;
-        else if (line === `branch refs/heads/${branch}`) return path;
-      }
-      return null;
-    }
-
-    /**
-     * Riporta `main` DENTRO il ramo, quando il ramo è indietro.
-     *
-     * Il perché: con N agenti in parallelo main avanza mentre la card aspetta la
-     * review, e un ramo che invecchia comincia a non essere più valutabile —
-     * misurato la notte del 12/08 su `ddf66270`, dove il rimedio (un merge
-     * pulito, zero conflitti) l'ha dovuto fare un umano a mano nel checkout
-     * perché dalla card non c'era nessun modo di dirlo. Nessuno dovrebbe fare a
-     * mano una fusione che non ha conflitti.
-     *
-     * Le stesse cautele del land, dall'altro verso:
-     *   • si fonde solo su un albero PULITO (i rifiuti degli agenti non contano,
-     *     `worktreeRealDirt` li conosce): mai inglobare la WIP di qualcuno;
-     *   • su conflitto `merge --abort` e si NOMINANO i file, così l'agente sa
-     *     dove guardare invece di sentirsi dire «conflitto»;
-     *   • niente push, niente rebase: la storia del ramo non si riscrive sotto
-     *     chi la sta guardando, ci si aggiunge un merge.
-     */
-    /**
-     * Inside a conflicted merge of `defaultBranch` into the branch: take main's
-     * copy of each generated baseline, let its script re-record the tree it
-     * now sits in, stage, and complete the merge. `false` = something did not
-     * go (a temp worktree without `node_modules`, a script that fails, a path
-     * still unmerged): the caller aborts the merge, and the tree is as it was.
-     */
-    async function settleGeneratedBaselines(cwd: string, files: string[]): Promise<boolean> {
-      for (const file of files) {
-        const take = await runGit(cwd, ["checkout", defaultBranch, "--", file]);
-        if (take.code !== 0) return false;
-        const rewrite = await regenerateBaseline(cwd, file);
-        if (rewrite.code !== 0) {
-          log(`[automerge] ${file}: rigenerazione fallita nel worktree ${cwd}: ${(rewrite.stderr || rewrite.stdout).trim().slice(-300)}`);
-          return false;
-        }
-      }
-      const add = await runGit(cwd, ["add", "--", ...files]);
-      if (add.code !== 0) return false;
-      const left = await runGit(cwd, ["diff", "--diff-filter=U", "--name-only"]);
-      if (left.code !== 0 || left.stdout.trim() !== "") return false;
-      // `--no-edit`: the message the merge was started with (MERGE_MSG) stays.
-      const commit = await runGit(cwd, ["commit", "--no-edit"]);
-      return commit.code === 0;
-    }
-
-    async function realignOnMain(): Promise<AutoMergeResult | null> {
-      // `merge-base --is-ancestor` invece di contare: una domanda sola, e la
-      // risposta «main è già dentro» è quella del caso normale.
-      const ancestor = await runGit(repoPath, ["merge-base", "--is-ancestor", defaultBranch, branch]);
-      if (ancestor.code === 0) return null;
-      const cnt = await runGit(repoPath, ["rev-list", "--count", `${branch}..${defaultBranch}`]);
-      const behind = Number.parseInt(cnt.stdout.trim(), 10);
-      // Non un numero = git non ha risposto (e non che il ramo sia a posto): si
-      // lascia fare al land di prima, che ha già i suoi cancelli per dirlo.
-      if (!Number.isFinite(behind) || behind <= 0) return null;
-
-      const live = await branchWorktree();
-      const wtPath = live ?? join(tmpdir(), "topics-realign", createHash("sha1").update(`${repoPath}\n${branch}`).digest("hex").slice(0, 16));
-      if (live) {
-        const dirt = await worktreeRealDirt(live, runGit);
-        if (dirt.length > 0) {
-          return {
-            status: "skipped", code: "realign-blocked",
-            reason:
-              `il ramo '${branch}' è indietro di ${behind} commit su '${defaultBranch}' e va riallineato, ma il suo ` +
-              `worktree (${live}) ha ${dirt.length} file non committati (${dirt.slice(0, 3).join(", ")}): ` +
-              "riportare main dentro il ramo li ingloberebbe nella fusione. Committa o scarta quel lavoro, poi rilancia il land",
-          };
-        }
-      } else {
-        await runGit(repoPath, ["worktree", "remove", "--force", wtPath]).catch(() => undefined);
-        await runGit(repoPath, ["worktree", "prune"]).catch(() => undefined);
-        const add = await runGit(repoPath, ["worktree", "add", wtPath, branch]);
-        if (add.code !== 0) {
-          return {
-            status: "skipped", code: "realign-blocked",
-            reason:
-              `il ramo '${branch}' è indietro di ${behind} commit su '${defaultBranch}' e va riallineato, ma non si è ` +
-              `potuto creare un worktree su cui fonderlo: ${(add.stderr || add.stdout).trim().slice(-200) || "git worktree add fallito"}`,
-          };
-        }
-      }
-
-      try {
-        const msg = `Riporta ${defaultBranch} nel ramo prima del land`;
-        const merge = await runGit(wtPath, ["merge", "--no-edit", "-m", msg, defaultBranch]);
-        if (merge.code !== 0) {
-          const unmerged = await runGit(wtPath, ["diff", "--diff-filter=U", "--name-only"]);
-          const files = unmerged.code === 0 ? unmerged.stdout.split("\n").map((f) => f.trim()).filter(Boolean) : [];
-          // GENERATED BASELINES SETTLE THEMSELVES (see `GENERATED_BASELINES`).
-          // Only when EVERY conflicting path is one of them: a code conflict
-          // next to a baseline still goes back to the agent, whole.
-          if (files.length > 0 && files.every((f) => Object.hasOwn(GENERATED_BASELINES, f))
-            && await settleGeneratedBaselines(wtPath, files)) {
-            const which = files.length === 1 ? "una baseline generata" : `${files.length} baseline generate`;
-            realigned =
-              `il ramo era indietro di ${behind} commit su '${defaultBranch}': ci ho riportato main dentro; ` +
-              `l'unico conflitto era su ${which} (${files.join(", ")}), che ho rigenerato dallo script che la scrive ` +
-              "prima di valutare i cancelli";
-            return null;
-          }
-          await runGit(wtPath, ["merge", "--abort"]).catch(() => undefined);
-          // Un merge può fallire SENZA conflitti: git si rifiuta di partire
-          // perché sovrascriverebbe un file non tracciato, o l'albero non è
-          // pronto. Non c'è niente da riconciliare e mandarlo all'agente come
-          // «conflitto» gli farebbe cercare marcatori che non esistono: si dice
-          // quello che git ha detto, e la card torna all'umano.
-          if (files.length === 0) {
-            return {
-              status: "skipped", code: "realign-blocked",
-              reason:
-                `il ramo '${branch}' è indietro di ${behind} commit su '${defaultBranch}' e riportare main dentro il ramo ` +
-                `non è nemmeno partito (nessun file in conflitto): ${(merge.stderr || merge.stdout).trim().slice(-300) || "git merge fallito"}`,
-            };
-          }
-          return { status: "conflict", branch, realignConflict: { behind, files } };
-        }
-        realigned = `il ramo era indietro di ${behind} commit su '${defaultBranch}': ci ho riportato main dentro (fusione pulita, nessun conflitto) prima di valutare i cancelli`;
-        return null;
-      } finally {
-        if (!live) {
-          await runGit(repoPath, ["worktree", "remove", "--force", wtPath]).catch(() => undefined);
-          await runGit(repoPath, ["worktree", "prune"]).catch(() => undefined);
-        }
-      }
-    }
+    const realignOnMain = () => realignmentFor(
+      { repoPath, defaultBranch, get branch() { return branch; } },
+      (note) => { realigned = note; },
+    ).realignOnMain();
 
     /**
      * Un NUMERO di migration rivendicato da due nomi diversi. Torna la ragione
@@ -1185,7 +1236,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     void chain(repoPath, async () => { fn(); });
   }
 
-  return { tryMerge, buildClient, whenIdle };
+  return { tryMerge, buildClient, whenIdle, realign };
 }
 
 export type TaskAutoMerge = ReturnType<typeof createTaskAutoMerge>;

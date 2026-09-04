@@ -199,6 +199,36 @@ describe("il land riallinea il ramo su main da sé", () => {
     expect(git(repo, "worktree", "list")).not.toContain("topics-realign");
   }, WITH_REAL_GIT);
 
+  /**
+   * The same realign, on its own, for the pre-review checks: the gate must
+   * measure the tree that lands. Three cards on 2026-09-04 burnt a turn each on
+   * a bloat baseline main had already moved while their branch sat behind.
+   */
+  test("realign() da solo: porta main nel ramo e lo dice; su conflitto risponde con i file, main fermo", async () => {
+    const repo = repoWithOldBranch({
+      avanzamentoMain: [["main-uno.txt", "uno\n"], ["main-due.txt", "due\n"]],
+      lavoroDelRamo: [["ramo.txt", "x\n"]],
+    });
+    const mainPrima = git(repo, "rev-parse", "main").trim();
+    const done = await landOn(repo).realign("t1");
+    expect(done).toEqual({ ok: true, note: expect.stringContaining("2 commit") });
+    expect(log(repo, BRANCH)).toContain("Riporta main nel ramo prima del land");
+    expect(git(repo, "rev-parse", "main").trim()).toBe(mainPrima);
+    // Already inside: nothing to do, nothing to say.
+    expect(await landOn(repo).realign("t1")).toEqual({ ok: true, note: null });
+
+    const contested = repoWithOldBranch({
+      avanzamentoMain: [["contesa.txt", "main\n"]],
+      lavoroDelRamo: [["contesa.txt", "ramo\n"]],
+    });
+    const refused = await landOn(contested).realign("t1");
+    expect(refused.ok).toBe(false);
+    if (refused.ok) return;
+    expect(refused.files).toEqual(["contesa.txt"]);
+    expect(refused.reason).toContain("contesa.txt");
+    expect(git(contested, "status", "--porcelain")).toBe("");
+  }, WITH_REAL_GIT);
+
   test("conflitto VERO nel riallineamento: si ferma, nomina i file, e main non si muove", async () => {
     const repo = repoWithOldBranch({
       avanzamentoMain: [["contesa.txt", "la versione di main\n"]],
