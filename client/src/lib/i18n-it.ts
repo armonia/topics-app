@@ -916,16 +916,7 @@ const IT: Dict = {
   //    part of a suggestion anybody actually reads.
   'settings.org.projects.title': "Progetti dell'organizzazione",
   'settings.org.projects.empty': 'Nessun progetto ancora associato.',
-  'settings.org.projects.suggestedTitle': 'Spazi consigliati per Armonia',
-  'settings.org.projects.suggestedBadge': 'suggerito',
-  'settings.org.projects.alreadyThere': "gia' presente",
   'settings.org.projects.hint': "Crea il progetto dalla sidebar (tasto destro) e assegnalo all'org.",
-  'settings.org.projects.blurb.danceroom': 'Spazio per la danza: coreografie, musica, sessioni live',
-  'settings.org.projects.blurb.topicsApp': 'Il prodotto principale: workspace per agenti',
-  'settings.org.projects.blurb.finance': 'Conti, budget e reportistica finanziaria',
-  'settings.org.projects.blurb.marketing': 'Campagne, contenuti e presenza online',
-  'settings.org.projects.blurb.dev': 'Progetti tecnici trasversali',
-  'settings.org.projects.blurb.ops': 'Operazioni, infrastruttura e processi interni',
   // COSA C'E' DA RIVEDERE, quando una misura non puo' esistere. Vedi
   // `lib/reviewEvidence.ts`: il silenzio e' onesto, ma va detto.
   'board.filter.projectUnknown': "Non è tra i progetti aperti: resta filtrabile, ma non si sa dove stia.",
@@ -1478,6 +1469,7 @@ const IT: Dict = {
   'profile.public.showCost': 'Mostra anche la spesa in dollari',
   'profile.public.showCostHint': "La spesa \u00e8 un dato personale. Di default non compare sulla pagina pubblica.",
   'profile.public.hintLanOnly': 'Raggiungibile solo sulla rete locale. Per un URL pubblico, attiva il relay nelle impostazioni.',
+  'profile.public.hintThisComputer': 'Questo indirizzo lo raggiunge solo questo computer. Per un link che altri possono aprire, attiva il relay nelle impostazioni.',
   // ── Discord: cosa dice di te questa app, e con quanto dettaglio.
   'discord.title': 'Stato su Discord',
   'discord.blurb': 'Topics può mostrare sul tuo profilo Discord cosa sta lavorando. I numeri sono quelli esatti di questa installazione, non una stima sui processi.',
