@@ -396,6 +396,26 @@ describe("maybeSendPush — turno morto (chat-error)", () => {
     expect(pushCalls[0].tag).toBe("chat-error-tp1");
   });
 
+  /**
+   * THE TURN CUT BY THE OUTPUT CAP IS A DEATH TOO.
+   *
+   * The `max_tokens` branch in routes/chat.ts wrote the amber band and the
+   * error block but left `turnError` unset, so `stream:end` went out without
+   * `reason: "error"` and this trigger returned at its gate: no push of any
+   * kind, on the very turn that stopped half way through a document (card
+   * 6c2dc14c).
+   */
+  test("tagliato dal tetto dei token: stopReason max_tokens + testo -> push chat-error", () => {
+    maybeSendPush({
+      ...DEAD,
+      stopReason: "max_tokens",
+      error: "⚠️ Risposta tagliata dal tetto dei token: chiedi la parte che manca.",
+    });
+    expect(pushCalls).toHaveLength(1);
+    expect(pushCalls[0].tag).toBe("chat-error-tp1");
+    expect(sent[0].kind).toBe("chat-error");
+  });
+
   test("un turno FINITO manda ancora la push di risposta, e nessun errore", () => {
     maybeSendPush({ type: "stream:end", sessionKey: "topic:tp1", topicId: "tp1", messageId: "m1", completed: true });
     expect(pushCalls).toHaveLength(1);

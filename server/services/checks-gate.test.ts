@@ -61,6 +61,19 @@ describe("createChecksGate", () => {
     expect(giri).toBe(2);
   });
 
+  test("verdictFor: la stessa consegna e' un verdetto per QUESTO commit, non una chiave nota", async () => {
+    const gate = createChecksGate();
+    const run = async () => verde;
+    expect(gate.verdictFor("t1", "aa")).toBe(false);
+    const p = gate.leg("t1", { commit: "aa", legMs: 500, run });
+    expect(gate.isRunning("t1") || gate.verdictFor("t1", "aa")).toBe(true);
+    await p;
+    expect(gate.verdictFor("t1", "aa")).toBe(true);
+    // The known key is not enough: a new commit is a new delivery.
+    expect(gate.known("t1")).toBe(true);
+    expect(gate.verdictFor("t1", "bb")).toBe(false);
+  });
+
   test("il verdetto invecchia: oltre la ritenzione si rimisura", async () => {
     let ora = 1_000;
     const gate = createChecksGate({ retainMs: 100, now: () => ora });

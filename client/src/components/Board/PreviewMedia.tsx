@@ -319,7 +319,7 @@ export function PreviewMedia({ path, paths, variant, onOpenTab }: {
       e.preventDefault();
       e.stopPropagation();
       claimed = true;
-      setI((n) => Math.max(0, Math.min(dx < 0 ? n + 1 : n - 1, slides.length - 1)));
+      setI((n) => Math.max(0, Math.min(dx < 0 ? n + 1 : n - 1, slides.length - 1))); // allow-italian: code, not copy: the gate reads the comparison as JSX text
     };
     el.addEventListener('touchstart', onStart, { passive: true });
     el.addEventListener('touchmove', onMove, { passive: false });

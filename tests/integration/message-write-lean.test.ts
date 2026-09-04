@@ -33,6 +33,9 @@ beforeAll(() => setupTestDataDir(TEST_DATA));
 const BLOCKS_FILLER = "x".repeat(2_000_000);
 const TOOL_FILLER = "y".repeat(120_000);
 
+/** What a writer who also writes the timeline declares: see `toolColumnWriteMode` in server/utils.ts. */
+const MIRRORED = { mirroredInBlocks: true } as const;
+
 function seedFatRow(ctx: AppContext, sessionKey: string): StoredMessage {
   const tc: ToolCall = {
     id: "tc-fat", name: "Bash", args: { command: "echo" }, status: "success",
@@ -99,7 +102,13 @@ describe("scrivere sulla riga di un turno non idrata le due colonne grosse", () 
     expect(riga?.media).toEqual(["/tmp/allegato.png"]);
   });
 
-  test("addToolCallToLastMessage parsa SOLO le tool call, e lascia i blocchi intatti", async () => {
+  test("addToolCallToLastMessage su una riga CON i blocchi non scrive e non parsa niente", async () => {
+    // The row carries the blocks, and the caller declares that a block carries
+    // this same tool call (`mirroredInBlocks`, as routes/chat.ts does): the
+    // `tool_calls` column would be a second copy, and indeed it is left alone.
+    // Not a saving of column bytes: `updateMessage` rewrites the ROW, and a
+    // COALESCE that keeps a column still does not make it free, so the write
+    // skipped is also the 2 MB of blocks not copied again.
     const ctx = await createTestAppContext();
     const sk = "topic:write-lean-add";
     const msg = seedFatRow(ctx, sk);
@@ -109,37 +118,39 @@ describe("scrivere sulla riga di un turno non idrata le due colonne grosse", () 
       id: "tc-nuovo", name: "Read", args: { file_path: "/x" }, status: "running",
       detail: { type: "read", filePath: "/x" }, startedAt: 3,
     };
-    const bytes = bytesParsedDuring(() => { ctx.addToolCallToLastMessage(sk, nuovo); });
+    const bytes = bytesParsedDuring(() => { ctx.addToolCallToLastMessage(sk, nuovo, MIRRORED); });
 
-    // Le tool call le DEVE parsare: le riscrive. I 2 MB di blocchi no — ed è
-    // quello il grosso, su ogni singolo evento di tool.
     expect(bytes).toBeLessThan(BLOCKS_FILLER.length / 4);
-    expect(bytes).toBeGreaterThan(0);
-
     const dopo = rawFatColumns(ctx, msg.id);
-    // La colonna che questo mutatore NON possiede non si muove di un byte.
     expect(dopo.blocks).toBe(prima.blocks);
-    // Quella che possiede sì, e senza perdere la vecchia.
-    const toolCalls = ctx.getMessageById(msg.id)?.toolCalls ?? [];
-    expect(toolCalls.map((t) => t.id)).toEqual(["tc-fat", "tc-nuovo"]);
-    expect(toolCalls[0]?.result).toBe(TOOL_FILLER);
+    expect(dopo.toolCalls).toBe(prima.toolCalls);
+    // And the row still answers with its tool calls: it reads them back from the blocks.
+    expect(ctx.getMessageById(msg.id)?.toolCalls?.[0]?.result).toBe(TOOL_FILLER);
   });
 
-  test("updateToolCallResult: stessa regola, i blocchi restano dov'erano", async () => {
+  test("updateToolCallResult su una riga SENZA blocchi parsa solo le tool call", async () => {
+    // Here the column is the only source there is (4.8 MB over 5,332 rows of
+    // the real database): it is written, and it alone is parsed.
     const ctx = await createTestAppContext();
     const sk = "topic:write-lean-result";
-    const msg = seedFatRow(ctx, sk);
-    const prima = rawFatColumns(ctx, msg.id);
+    const tc: ToolCall = {
+      id: "tc-solo", name: "Bash", args: { command: "echo" }, status: "running",
+      detail: { type: "shell", command: "echo", output: "ok" }, startedAt: 1,
+    };
+    ctx.saveLocalMessages(sk, [
+      { id: `${sk}-a`, role: "assistant", content: "risposta", timestamp: new Date(2).toISOString(), toolCalls: [tc], partial: true },
+    ]);
+    const msg = ctx.loadLocalMessages(sk)[0]!;
 
     const bytes = bytesParsedDuring(() => {
-      ctx.updateToolCallResult(sk, "tc-fat", "finito", undefined, { endedAt: 9 });
+      ctx.updateToolCallResult(sk, "tc-solo", "finito", undefined, { endedAt: 9 });
     });
+    expect(bytes).toBeGreaterThan(0);
     expect(bytes).toBeLessThan(BLOCKS_FILLER.length / 4);
 
-    expect(rawFatColumns(ctx, msg.id).blocks).toBe(prima.blocks);
-    const tc = ctx.getMessageById(msg.id)?.toolCalls?.[0];
-    expect(tc?.result).toBe("finito");
-    expect(tc?.endedAt).toBe(9);
+    const patched = ctx.getMessageById(msg.id)?.toolCalls?.[0];
+    expect(patched?.result).toBe("finito");
+    expect(patched?.endedAt).toBe(9);
   });
 
   test("updateToolCallFields resta l'UNICO a leggere i blocchi, e li patcha davvero", async () => {

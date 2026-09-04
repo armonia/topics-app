@@ -120,6 +120,37 @@ Una sessione senza nessun turno a metà NON SHALL subire nessun cambiamento.
 - **GIVEN** un turno interrotto seguito da un messaggio della persona
 - **THEN** NON SHALL essere ripreso
 
+### Requirement: RESUME-04 — Il limite del piano è un'interruzione della MACCHINA, e ha un'ora
+
+Un turno finito perché il limite di richieste dell'API è rimasto saturo per
+tutti i tentativi (429 / sovraccarico, dopo i ritentativi del runtime) SHALL
+contare come interruzione della MACCHINA: in chat SHALL restare un cartello
+riconosciuto dalla ripresa, non il testo grezzo dell'errore, e il turno SHALL
+essere ripreso con la stessa finestra e lo stesso tetto delle altre
+interruzioni. Su una card della board quel turno NON SHALL consumare un
+tentativo.
+
+Quando il 429 coincide con una finestra di utilizzo del piano ESAURITA (5 ore
+o settimanale, letta dall'endpoint di utilizzo), il runtime NON SHALL spendere
+i ritentativi: SHALL chiudere il turno subito, con l'ora del reset nel
+cartello, e SHALL registrare un «hold» per tutto il server fino a quell'ora.
+Finché l'hold è in forza, il dispatcher NON SHALL avviare turni nuovi, lo
+sweep di ripresa NON SHALL rimandare niente, e ogni client SHALL vederlo (anche
+chi si connette dopo). Una richiesta accettata dal provider SHALL sciogliere
+l'hold prima dell'ora.
+
+#### Scenario: 429 per tutti i tentativi, finestra non esaurita
+- **GIVEN** un turno che finisce con il testo del rate limit dell'API dopo i ritentativi
+- **THEN** in chat SHALL comparire il cartello ⚠️ riconosciuto dalla ripresa, e il turno SHALL essere ripreso
+
+#### Scenario: finestra di 5 ore esaurita
+- **GIVEN** un 429 mentre l'endpoint di utilizzo dice che la finestra di 5 ore è al 100% con reset alle 20:49
+- **THEN** il turno SHALL chiudersi al primo tentativo con «fino alle 20:49» nel cartello, il dispatcher NON SHALL avviare card e lo sweep SHALL rinviarsi fino a quell'ora
+
+#### Scenario: un turno passa prima dell'ora
+- **GIVEN** un hold in forza e una richiesta che il provider accetta
+- **THEN** l'hold SHALL essere sciolto e il dispatch SHALL riprendere
+
 ### Requirement: BOOTSCAN-01 — Il setaccio dell'avvio non si carica il database per trovare quattro righe
 
 La ricerca degli strumenti rimasti «in corso» dopo un riavvio SHALL SCORRERE le

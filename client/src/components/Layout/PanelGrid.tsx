@@ -14,6 +14,7 @@ import { usePanelGridPersistence } from './usePanelGridPersistence';
 import { startDragPreview } from '../../lib/dragPreview';
 import { getProjectLabel } from '../../lib/buildSidebarItems';
 import { detachPaneToNewSpace } from '../../lib/popOutSpace';
+import { UnsentBanner } from './UnsentBanner';
 import { DetachedWindowMarker } from './DetachedWindowMarker';
 import { usePaneStore } from '../../state/pane/store';
 import { useServerHydrated } from '../../hooks/useServerHydrated';
@@ -232,6 +233,8 @@ interface PanelGridProps {
   expiredMessages?: { sessionKey: string; content: string; timestamp: string; options?: SendMessageOptions }[];
   retryExpired?: (item: { sessionKey: string; content: string; timestamp: string; options?: SendMessageOptions }) => void;
   clearExpired?: () => void;
+  /** Discard the expired messages of ONE chat (the banner is per chat). */
+  dismissExpiredSession?: (sessionKey: string) => void;
   sendWS: (msg: WSMessage) => void;
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
   onUpdateTopic: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
@@ -308,6 +311,7 @@ export function PanelGrid({
   expiredMessages,
   retryExpired,
   clearExpired,
+  dismissExpiredSession,
   sendWS,
   onWSMessage,
   onUpdateTopic,
@@ -2863,27 +2867,29 @@ export function PanelGrid({
           dies. Click focuses the window or reopens its topics here on false. */}
       <DetachedWindowMarker topics={topics} onReopenTopic={(id) => onOpenPanelAt(id, openPanels.length)} />
 
-      {/* Expired messages banner */}
+      {/* Unsent messages: one row per chat, click opens that chat. */}
       {expiredMessages && expiredMessages.length > 0 && (
-        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-[12px] shadow-lg backdrop-blur-sm">
-          <span>{expiredMessages.length} message{expiredMessages.length > 1 ? 's' : ''} not sent</span>
-          {retryExpired && (
-            <button
-              onClick={() => expiredMessages.forEach(m => retryExpired(m))}
-              className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 font-medium transition-colors"
-            >
-              Retry
-            </button>
-          )}
-          {clearExpired && (
-            <button
-              onClick={clearExpired}
-              className="px-1.5 py-0.5 rounded hover:bg-amber-500/20 transition-colors"
-            >
-              Dismiss
-            </button>
-          )}
-        </div>
+        <UnsentBanner
+          messages={expiredMessages}
+          topics={topics}
+          mobile={isMobile}
+          onRetrySession={(sessionKey) => {
+            expiredMessages
+              .filter((m) => m.sessionKey === sessionKey)
+              .forEach((m) => retryExpired?.(m));
+          }}
+          onDismissSession={dismissExpiredSession}
+          onDismissAll={clearExpired}
+          onOpenChat={(topicId) => {
+            // Same funnel as a notification click: usePanelLifecycle's
+            // `topics:open-topic` listener opens the topic through openPanel,
+            // which routes a project topic to its project pane (switching
+            // project) instead of leaving a ghost tab behind.
+            window.dispatchEvent(
+              new CustomEvent('topics:open-topic', { detail: { topicId, mode: 'permanent' } }),
+            );
+          }}
+        />
       )}
     </div>
     </div>

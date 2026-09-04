@@ -3,6 +3,7 @@ import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
 import { bonificaTurniMuti } from "./server/lib/verdetto-turno-interrotto";
 import { riprendiTurniInterrotti } from "./server/lib/ripresa-boot";
+import { providerHold, holdUntilLabel, onProviderHold } from "./server/lib/provider-hold";
 import { spiegaTurnoTroncato } from "./server/lib/turno-troncato";
 import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, rmSync, readlinkSync, realpathSync } from "fs";
 import { timingSafeEqual } from "crypto";
@@ -3513,6 +3514,12 @@ const opzioniServer = {
       };
 
       inviaIniziale({ type: "connected", clientId: ws.data.id });
+      // A hold in force is the first thing a reconnecting client must know:
+      // without it the banner would appear only at the NEXT change.
+      const holdInForce = providerHold();
+      if (holdInForce) {
+        inviaIniziale({ type: "provider:hold", untilMs: holdInForce.untilMs, window: holdInForce.window, reason: holdInForce.reason, sinceMs: holdInForce.sinceMs });
+      }
       // v3 foundations WS-02 — handshake welcome (additive; old clients ignore unknown types).
       inviaIniziale({
         type: "welcome",
@@ -4935,12 +4942,29 @@ reattachSurvivingChatTurns()
 const RESUME_SWEEP_MS = 5 * 60_000;
 function scheduleResumeSweep(): void {
   const t = setTimeout(() => {
+    // The plan's usage window is spent: a resend now would end on the same
+    // 429 and spend one of the chain's attempts for nothing. The sweep after
+    // the reset picks the same rows up.
+    const hold = providerHold();
+    if (hold) {
+      console.log(`[ripresa] sweep rinviato: ${hold.reason}, riparte alle ${holdUntilLabel(hold)}`);
+      scheduleResumeSweep();
+      return;
+    }
     riprendiTurniInterrotti(ctx, topicsRouter)
       .catch((err) => console.error("[ripresa] periodic sweep failed", err))
       .finally(() => scheduleResumeSweep());
   }, RESUME_SWEEP_MS);
   t.unref?.();
 }
+
+// The hold is news for every open chat: the banner says why nothing moves and
+// until when, instead of a spinner and 27 silent retries.
+onProviderHold((hold) => {
+  broadcastToAll(hold
+    ? { type: "provider:hold", untilMs: hold.untilMs, window: hold.window, reason: hold.reason, sinceMs: hold.sinceMs }
+    : { type: "provider:hold", untilMs: null, window: null, reason: null, sinceMs: null });
+});
 
 // ── Worktree GC — origin fix for worktree pile-up ──────────────────────────
 // La decisione sta in `server/services/worktree-gc.ts` (`sweepWorktrees`), il
@@ -5364,7 +5388,7 @@ let askProbeCache: { at: number; parked: string[] } = { at: 0, parked: [] };
  * adottati che vivono solo nel broker. Le prime due sono gratis e si guardano a
  * ogni giro; la terza si paga, e si guarda ogni QUIESCENCE_BROKER_PROBE_MS.
  */
-async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; parkedAsks: number; holder: string | null }> {
+async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; parkedAsks: number; holder: string | null; holderKind: "turn" | "question" }> {
   // A land in flight is a card turn for this purpose: it rewrites main and
   // the card, and a restart in the middle of it forgets the delivery branch.
   const cards = taskDispatcher.busyCount() + landingQueue.inFlight();
@@ -5422,6 +5446,13 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
     // ripiego su `busy` che il nome della prima chat che passa. Fra gli stream
     // vince la NON riadottabile: e' quella il cui lavoro non torna.
     holder: cards > 0 ? null : (unadoptableKeys[0] ?? streamKeys[0] ?? brokerOpen[0] ?? parked[0] ?? null),
+    // WHICH GESTURE UNBLOCKS IT. The holder falls through to the parked list
+    // only when the three "working" sources are empty, and that holder is a
+    // chat waiting for a PERSON: the notice must ask for an answer, not for a
+    // stop, or whoever reads it kills the turn the gate was protecting.
+    holderKind: (cards === 0 && unadoptableKeys.length === 0 && streamKeys.length === 0 && brokerOpen.length === 0 && parked.length > 0)
+      ? "question"
+      : "turn",
   };
 }
 
@@ -5471,7 +5502,7 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
   // rumore, e il log gia' lo fa per chi lo legge.
   let avvisato = false;
   for (;;) {
-    const { busy, cards, unadoptable, parkedAsks, holder } = await whatIsStillWorking();
+    const { busy, cards, unadoptable, parkedAsks, holder, holderKind } = await whatIsStillWorking();
     if (!busy) break;
     // La REGOLA sta in `lib/quiescence.ts`, pura e provata: qui si applica.
     // Viveva dentro questo loop, e li' dentro nessun test poteva raggiungerla
@@ -5561,6 +5592,7 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
           capMs,
           busy,
           holderName: holder ? (ctx.getTopicBySessionKey(holder)?.name ?? null) : null,
+          holderKind,
           waitId: `${label}:${inizio}`,
         });
         if (avviso) {

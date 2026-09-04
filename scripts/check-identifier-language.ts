@@ -113,7 +113,7 @@ export const PROJECT_WORDS = new Set([
   // `server/lib/topic-changes.ts`: `numstat` is `git diff --numstat`, `pathspec`
   // is git's own word for the path filter, `stat` is `--stat`. Renaming them
   // would put a gap between the code and the command it parses.
-  "numstat", "pathspec", "stat",
+  "numstat", "pathspec", "stat", "wal",
   // `affordance` is design vocabulary this repository already speaks - the
   // file `tests/e2e/chat-affordances-audit.spec.ts` predates the gate - and no
   // 1934 word list carries it. There is no English word to rename it to that

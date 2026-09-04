@@ -213,6 +213,7 @@ describe('outbound registry contract', () => {
       'project:deleted',
       'project:new',
       'project:updated',
+      'provider:hold',
       'providers:snapshot',
       'scripts:output',
       'scripts:updated',
@@ -363,8 +364,10 @@ describe('outbound registry contract', () => {
   // spegnere il pallino sulle altre — senza un fronte ognuna resterebbe col suo
   // numero fino al ricaricamento. Mittente `server/routes/notifications.ts`,
   // ascoltatore `useNotificationHistory`.
-  test('all 96 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(96);
+  // 96 → 97: `provider:hold`, the plan's usage window spent (server/lib/provider-hold.ts):
+  // sent on every change and on connect, so the status bar says until when.
+  test('all 97 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(97);
   });
 });
 
