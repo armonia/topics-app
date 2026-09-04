@@ -1688,7 +1688,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // l'ultima cosa FATTA, non resuscitare un foglio bianco.
     if (opts?.silent) return;
     pushUndo({
-      description: `Close panel`,
+      description: tr('chat.panel.close'),
       undo: () => {
         // Unarchive FIRST (optimistic archived:false this render) so the
         // re-added pane isn't immediately evicted by the validPanels effect.

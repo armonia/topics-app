@@ -10,7 +10,7 @@ export interface ProviderHold {
   untilMs: number;
   /** Which of the plan's windows is spent: the client translates this. */
   window: UsageWindowKind;
-  /** One line for logs and the chat, e.g. "finestra di 5 ore del piano esaurita". */
+  /** One line for logs and the chat, naming the spent window. */
   reason: string;
   /** When the hold was recorded (ms epoch). */
   sinceMs: number;

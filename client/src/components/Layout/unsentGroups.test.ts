@@ -2,6 +2,8 @@
  * The banner's two pure decisions: which rows exist (one per chat, named after
  * the topic) and what the preview line says. Both used to be absent: the pill
  * only knew a global count.
+ *
+ * @covers CHAT-QUEUE-05
  */
 import { describe, expect, it } from 'bun:test';
 import { groupUnsentBySession, previewLine, type UnsentMessage } from './unsentGroups';

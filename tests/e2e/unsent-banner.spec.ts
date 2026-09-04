@@ -104,6 +104,7 @@ test.describe.serial("Unsent messages banner", () => {
   const rows = (page: import("@playwright/test").Page) => page.getByTestId("unsent-row");
 
   test("names the chat, opens it, and retries only that chat", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-QUEUE-05" });
     const sent = await failEverySend(page);
     await seedExpiredQueue(page, [
       { sessionKey: firstSession, content: "primo messaggio non inviato" },
@@ -141,6 +142,7 @@ test.describe.serial("Unsent messages banner", () => {
   });
 
   test("per-row discard drops one chat and leaves the other", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-QUEUE-05" });
     await failEverySend(page);
     await seedExpiredQueue(page, [
       { sessionKey: firstSession, content: "primo messaggio non inviato" },
@@ -160,6 +162,7 @@ test.describe.serial("Unsent messages banner", () => {
   });
 
   test("on a phone the banner sits above the bottom bar, not on the composer", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-QUEUE-05" });
     await failEverySend(page);
     await seedExpiredQueue(page, [
       { sessionKey: firstSession, content: "primo messaggio non inviato" },

@@ -2157,6 +2157,26 @@ empty queue SHALL render nothing at all.
 - **GIVEN** an empty queue
 - **THEN** the queue renders nothing, and no send-now control
 
+### Requirement: CHAT-QUEUE-05 — Il banner dei messaggi non inviati dice QUALE chat, e ci porta
+
+Quando uno o più messaggi non sono partiti, il banner SHALL mostrare una riga
+per chat, con il nome del topic, il conteggio e un'anteprima del testo: un
+conteggio globale senza nome manda la persona a cercare la chat a mano.
+
+Il click su una riga SHALL aprire o mettere a fuoco quella chat; «Riprova» e
+«Scarta» SHALL agire per riga, non su tutte le chat insieme. Le stringhe SHALL
+passare dai cataloghi i18n. Su un telefono il banner SHALL stare sopra la barra
+in basso, non sopra il composer.
+
+#### Scenario: due chat con messaggi fermi
+- **GIVEN** un messaggio non inviato in due chat diverse
+- **THEN** il banner SHALL mostrare due righe con i due nomi, e il click sulla prima SHALL portare a quella chat
+
+#### Scenario: scarta una riga
+- **GIVEN** due righe nel banner
+- **WHEN** la persona scarta la prima
+- **THEN** la seconda SHALL restare
+
 ### Requirement: CHAT-BUBBLE-01 — La bolla porta l'id del SERVER, e una riadozione non la raddoppia
 
 Il segnaposto disegnato quando parte un turno SHALL portare l'IDENTIFICATIVO che

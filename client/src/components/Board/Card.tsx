@@ -439,7 +439,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // L'esito di un'azione della card torna SULLA card: si pulisce l'errore
   // precedente quando se ne tenta una nuova, altrimenti il messaggio del click
   // di prima resterebbe lì a raccontare un fallimento già superato.
-  const fail = (e: unknown, fallback: string) => onError(task.id, taskActionErrorMessage(e, fallback));
+  const fail = (e: unknown, fallback: string) => onError(task.id, taskActionErrorMessage(e, tr, fallback));
   // Il ripiego, quando il server non manda una frase, nomina l'azione con la
   // PAROLA della tabella condivisa: dire «Approva non è riuscito» sotto un
   // bottone che si chiama «Va bene» rimetterebbe due nomi sulla stessa porta.
@@ -448,7 +448,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // Le scelte (`TaskChoiceRow`) passano di qui per la stessa ragione: il loro
   // messaggio arriva già con l'etichetta della voce premuta, e va tradotto e
   // appoggiato su QUESTA card. Un esito buono la ripulisce.
-  const choiceFailed = (message: string) => onError(task.id, taskActionErrorMessage(message));
+  const choiceFailed = (message: string) => onError(task.id, taskActionErrorMessage(message, tr));
   // Il campo si svuota anche qui: da quando «Rimanda indietro» porta con sé il
   // testo, lasciarlo nella casella dopo un esito buono lo farebbe sembrare mai
   // partito — e al secondo click ripartirebbe due volte.
