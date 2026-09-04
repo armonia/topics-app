@@ -18,6 +18,7 @@ import { createUiStateRouter, PANE_STORE_KEY } from "./ui-state";
 import { createOpenRouter } from "./open";
 import { computeCascade } from "../services/pane-retirement-cascade";
 import { applyPaneCascade, isRetired, listOpen, reconcile, retiredIds } from "../services/retirement";
+import { isGlobalOrchestratorTopic } from "../services/global-orchestrator-session";
 import type { AppContext } from "../types";
 
 let db: Database;
@@ -33,6 +34,8 @@ const json = (body: unknown, status = 200) =>
 function consequences() {
   return {
     archiveTopic: (id: string) => { archived.push(id); db.run("UPDATE topics SET archived = 1 WHERE id = ?", [id]); },
+    shouldRetireTopic: (id: string) => !isGlobalOrchestratorTopic(db, id),
+    restoreTopic: (id: string) => { db.run("UPDATE topics SET archived = 0 WHERE id = ?", [id]); },
     retireTerminal: (id: string) => { retiredTerminals.push(id); db.run("DELETE FROM terminal_sessions WHERE id = ?", [id]); },
   };
 }
@@ -76,6 +79,12 @@ beforeEach(() => {
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`);
   db.run(`CREATE TABLE terminal_sessions (id TEXT PRIMARY KEY, name TEXT NOT NULL, cwd TEXT NOT NULL,
     type TEXT NOT NULL DEFAULT 'shell', topic_id TEXT, status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL)`);
+  db.run(`CREATE TABLE global_orchestrator_sessions (
+    scope TEXT PRIMARY KEY CHECK (scope = 'global'),
+    topic_id TEXT NOT NULL UNIQUE REFERENCES topics(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`);
   db.run(readFileSync(join(import.meta.dir, "..", "db", "migrations", "089-retirements.sql"), "utf-8"));
   db.run("INSERT INTO topics (id, name, slug, session_key, archived, created_at, updated_at) VALUES ('chat-1','Chat','c','sk1',0,'t','t')");
   db.run("INSERT INTO terminal_sessions (id, name, cwd, created_at) VALUES ('sess-1','bash','/w','t')");
@@ -103,6 +112,23 @@ describe("chiudere una tab è il ritiro di ciò che contiene", () => {
     const open = await getOpen();
     expect(open.topics).toEqual([]);
     expect(open.divergences).toEqual([]);
+  });
+
+  test("il coordinatore registrato sopravvive alla chiusura e riapertura della sua normale pane", async () => {
+    db.run(
+      `INSERT INTO global_orchestrator_sessions (scope, topic_id, created_at, updated_at)
+       VALUES ('global', 'chat-1', '2026-09-04T00:00:00Z', '2026-09-04T00:00:00Z')`,
+    );
+    await put(snap({ panes: { "chat-1": { id: "chat-1", topicId: "chat-1" } } }));
+    await put(snap({ tombstones: { "chat-1": { at: 1000, seq: 2 } } }));
+
+    expect(archived).toEqual([]);
+    expect(isRetired(db, "topic", "chat-1")).toBe(false);
+    expect((await getOpen()).topics.map((topic: any) => topic.id)).toEqual(["chat-1"]);
+
+    await put(snap({ panes: { "chat-1": { id: "chat-1", topicId: "chat-1" } } }));
+    expect(isRetired(db, "pane", "chat-1")).toBe(false);
+    expect((await getOpen()).topics.map((topic: any) => topic.id)).toEqual(["chat-1"]);
   });
 
   test("un terminale: la sessione si ritira, e nessun processo resta", async () => {
@@ -172,6 +198,20 @@ describe("riavvia il server, riapri il progetto", () => {
     expect(db.query("SELECT archived FROM topics WHERE id = 'chat-1'").get()).toEqual({ archived: 1 });
     expect(isRetired(db, "topic", "chat-1")).toBe(true);
     expect((await getOpen()).divergences).toEqual([]);
+  });
+
+  test("il riconcilio ritratta un vecchio ritiro del coordinatore invece di archiviarlo", async () => {
+    db.run(
+      `INSERT INTO global_orchestrator_sessions (scope, topic_id, created_at, updated_at)
+       VALUES ('global', 'chat-1', '2026-09-04T00:00:00Z', '2026-09-04T00:00:00Z')`,
+    );
+    db.run("INSERT INTO retirements (kind, ref_id, retired_at, reason) VALUES ('topic','chat-1','2026-07-20','tab-close')");
+
+    reconcile(db, consequences());
+
+    expect(archived).toEqual([]);
+    expect(isRetired(db, "topic", "chat-1")).toBe(false);
+    expect((await getOpen()).topics.map((topic: any) => topic.id)).toEqual(["chat-1"]);
   });
 
   test("chiudi, riavvia, e la query concorda ancora con lo schermo", async () => {

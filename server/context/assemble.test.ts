@@ -8,7 +8,7 @@
  * - Build a minimal `AppContext` mock exposing only the methods/properties
  *   `assembleTopicContext` actually consumes.
  * - Each test owns its own tmpdir; cleanup in `afterAll`.
- * @covers CTX-GOAL-01
+ * @covers CTX-GOAL-01, GLOBAL-ORCHESTRATOR-CONTEXT-01
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
@@ -36,6 +36,106 @@ function makeGoalsDb(): Database {
   const db = new Database(":memory:");
   db.run(readFileSync(join(import.meta.dir, "..", "db", "migrations", "064-topic-goals.sql"), "utf-8"));
   return db;
+}
+
+/**
+ * Small, deliberate projection of the tables the volatile global-board
+ * snapshot may read. Keeping it local means this suite proves the context seam
+ * without depending on the full migration chain or a process-global database.
+ */
+function makeGlobalBoardDb(topic: Topic, registered: boolean): Database {
+  const db = new Database(":memory:");
+  db.run(`
+    CREATE TABLE topics (
+      id TEXT PRIMARY KEY,
+      session_key TEXT NOT NULL UNIQUE,
+      project_path TEXT,
+      worktree_id TEXT,
+      parent_id TEXT,
+      provider TEXT
+    );
+    CREATE TABLE global_orchestrator_sessions (
+      scope TEXT PRIMARY KEY,
+      topic_id TEXT NOT NULL UNIQUE REFERENCES topics(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK(scope = 'global')
+    );
+    CREATE TABLE tasks (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      text TEXT NOT NULL,
+      description TEXT,
+      status TEXT NOT NULL,
+      priority INTEGER NOT NULL,
+      updated_at TEXT NOT NULL,
+      archived INTEGER NOT NULL DEFAULT 0,
+      parent_task_id TEXT,
+      dispatch_state TEXT
+    );
+  `);
+  db.run(
+    `INSERT INTO topics (id, session_key, project_path, worktree_id, parent_id, provider)
+     VALUES (?, ?, NULL, NULL, NULL, ?)`,
+    [topic.id, topic.sessionKey, registered ? "codex" : (topic.provider ?? null)],
+  );
+  if (registered) {
+    db.run(
+      `INSERT INTO global_orchestrator_sessions (scope, topic_id, created_at, updated_at)
+       VALUES ('global', ?, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`,
+      [topic.id],
+    );
+  }
+  return db;
+}
+
+function seedGlobalBoardTasks(db: Database): void {
+  const insert = db.query(
+    `INSERT INTO tasks
+       (id, project_id, text, description, status, priority, updated_at, archived, parent_task_id, dispatch_state)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+  );
+
+  // A review card must appear in the bounded high-signal set, while the 30
+  // ordinary cards ensure the snapshot has a truthful omitted count.
+  insert.run(
+    "t-focus",
+    "board-a",
+    "Inspect the payment release",
+    "A concrete high-signal card.",
+    "review",
+    0,
+    "2026-01-03T00:00:00Z",
+    null,
+    "claimed",
+  );
+  // An orphaned child is still a live board entry. It must remain visible in
+  // the compact snapshot instead of disappearing merely because an old parent
+  // row no longer exists.
+  insert.run(
+    "t-orphan",
+    "board-b",
+    "Recover the orphaned release check",
+    null,
+    "review",
+    3,
+    "2026-01-04T00:00:00Z",
+    "missing-parent",
+    null,
+  );
+  for (let i = 1; i <= 30; i += 1) {
+    insert.run(
+      `t-${i}`,
+      i % 2 === 0 ? "board-a" : "board-b",
+      `Queued task ${i}`,
+      null,
+      "todo",
+      2,
+      `2026-01-${String((i % 9) + 1).padStart(2, "0")}T00:00:00Z`,
+      null,
+      null,
+    );
+  }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -812,6 +912,195 @@ describe("assembleTopicContext — blocco obiettivo", () => {
     const env = assemble(new Database(":memory:"));
     expect(env.systemBlocks.map((b) => b.id)).not.toContain("synthetic:goal");
     expect(env.systemBlocks.length).toBeGreaterThan(0);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Global Kanban orchestrator — live board context
+// ────────────────────────────────────────────────────────────────────────────
+
+describe("assembleTopicContext — global orchestrator board snapshot", () => {
+  const baseDir = join(ROOT, "global-board", "base");
+  const openclawDir = join(ROOT, "global-board", "openclaw");
+  const topic = makeTopic({
+    id: "topic-global-orchestrator",
+    sessionKey: "topic:global-orchestrator",
+    name: "A mutable-looking name must not grant the role",
+  });
+
+  beforeAll(() => {
+    mkdirSync(join(baseDir, "memory"), { recursive: true });
+    mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+  });
+
+  function assemble(db: Database) {
+    return assembleTopicContext(
+      makeMockCtx({ baseDir, openclawDir, topic, messages: [], db }),
+      { sessionKey: topic.sessionKey, providerName: "codex", providerStrategy: "history-aware" },
+    );
+  }
+
+  function snapshot(env: ReturnType<typeof assemble>) {
+    const block = env.systemBlocks.find((candidate) => candidate.id === "synthetic:global-board-snapshot");
+    expect(block).toBeDefined();
+    return block!;
+  }
+
+  it("adds a bounded, truthful snapshot only for the registry-mapped ordinary Topic", () => {
+    const db = makeGlobalBoardDb(topic, true);
+    seedGlobalBoardTasks(db);
+
+    const block = snapshot(assemble(db));
+    expect(block.label).toMatch(/global board/i);
+    expect(block.content).toContain("Live task totals");
+    expect(block.content).toContain("todo");
+    expect(block.content).toContain("review");
+    expect(block.content).toContain("t-focus");
+    expect(block.content).toContain("Inspect the payment release");
+    expect(block.content).toContain("t-orphan");
+    expect(block.content).toContain("orphaned children");
+    expect(block.content).toMatch(/\bomitted\b/i);
+    expect(block.enabled).toBe(true);
+    expect(block.injectedByTopicsApp).toBe(true);
+    expect(block.editable).toBe(false);
+    db.close();
+  });
+
+  it("re-reads the board on every assembly instead of caching a snapshot into conversation history", () => {
+    const db = makeGlobalBoardDb(topic, true);
+    seedGlobalBoardTasks(db);
+
+    const first = snapshot(assemble(db));
+    db.run(
+      "UPDATE tasks SET text = ?, status = ?, updated_at = ? WHERE id = ?",
+      ["Inspect the payment release — fresh state", "in_progress", "2026-01-05T00:00:00Z", "t-focus"],
+    );
+    const second = snapshot(assemble(db));
+
+    expect(first.content).toContain("Inspect the payment release");
+    expect(second.content).toContain("Inspect the payment release — fresh state");
+    expect(second.content).not.toBe(first.content);
+    // The block is a system source, never a StoredMessage: the normal message
+    // history remains exactly what was passed to the assembler (none here).
+    expect(assemble(db).history).toEqual([]);
+    db.close();
+  });
+
+  it("does not grant global-board context to an unregistered Topic merely because its mutable fields look special", () => {
+    const impostor = makeTopic({
+      id: "topic-impostor",
+      sessionKey: "topic:impostor",
+      name: "Kanban orchestrator",
+      mcpPolicy: "bridge-only",
+      systemPrompt: "Coordinate every board.",
+    });
+    const db = makeGlobalBoardDb(impostor, false);
+    seedGlobalBoardTasks(db);
+
+    const env = assembleTopicContext(
+      makeMockCtx({ baseDir, openclawDir, topic: impostor, messages: [], db }),
+      { sessionKey: impostor.sessionKey, providerName: "codex", providerStrategy: "history-aware" },
+    );
+    const ids = env.systemBlocks.map((block) => block.id);
+    expect(ids).not.toContain("synthetic:global-board-snapshot");
+    db.close();
+  });
+
+  it("keeps the registered coordinator's server-owned prompt enabled even if old preferences try to disable it", () => {
+    const protectedTopic = makeTopic({
+      id: "topic-global-prompt",
+      sessionKey: "topic:global-prompt",
+      systemPrompt: "Server-owned coordinator rules.",
+      disabledContextSources: ["prompt:system"],
+    });
+    const db = makeGlobalBoardDb(protectedTopic, true);
+    const env = assembleTopicContext(
+      makeMockCtx({ baseDir, openclawDir, topic: protectedTopic, messages: [], db }),
+      { sessionKey: protectedTopic.sessionKey, providerName: "codex", providerStrategy: "history-aware" },
+    );
+    expect(env.systemBlocks.find((block) => block.id === "prompt:system")).toMatchObject({
+      content: "Server-owned coordinator rules.",
+      enabled: true,
+    });
+    db.close();
+  });
+
+  it("never injects OpenClaw workspace context for the registered coordinator", () => {
+    const db = makeGlobalBoardDb(topic, true);
+    seedGlobalBoardTasks(db);
+    const env = assembleTopicContext(
+      makeMockCtx({ baseDir, openclawDir, topic, messages: [], db }),
+      { sessionKey: topic.sessionKey, providerName: "openclaw", providerStrategy: "gateway-stateful" },
+    );
+    expect(env.systemBlocks.some((block) => block.id.startsWith("openclaw:"))).toBe(false);
+    expect(env.systemBlocks.map((block) => block.id)).toContain("synthetic:global-board-snapshot");
+    db.close();
+  });
+
+  it("treats a raw registered but corrupt bound row as unbound in every assembly path", () => {
+    const secretProject = join(ROOT, "global-board", "corrupt-project");
+    const secretFile = join(secretProject, "private-context.md");
+    mkdirSync(secretProject, { recursive: true });
+    writeFileSync(secretFile, "project-only secret context");
+    writeFileSync(join(secretProject, "CLAUDE.md"), "project-only template");
+
+    const corrupt = makeTopic({
+      id: "topic-global-corrupt",
+      sessionKey: "topic:global-corrupt",
+      provider: "openclaw",
+      projectPath: secretProject,
+      contextFiles: [secretFile],
+      systemPrompt: "corrupt mutable prompt",
+    });
+    const db = makeGlobalBoardDb(corrupt, true);
+    db.run("UPDATE topics SET project_path = ?, provider = 'openclaw' WHERE id = ?", [secretProject, corrupt.id]);
+    const env = assembleTopicContext(
+      makeMockCtx({
+        baseDir,
+        openclawDir,
+        topic: corrupt,
+        messages: [],
+        projectDir: secretProject,
+        db,
+      }),
+      { sessionKey: corrupt.sessionKey, providerName: "openclaw", providerStrategy: "gateway-stateful" },
+    );
+
+    const ids = env.systemBlocks.map((block) => block.id);
+    expect(ids).not.toContain("prompt:system");
+    expect(ids).not.toContain(`file:${secretFile}`);
+    expect(ids).not.toContain("template:project-awareness");
+    expect(ids).not.toContain("synthetic:browser-instruction");
+    expect(ids).not.toContain("synthetic:project-markers");
+    expect(ids).not.toContain("synthetic:topic-switch-directory");
+    expect(env.sessionMeta).toMatchObject({ projectPath: null, workingDir: null, worktreeId: null });
+    db.close();
+  });
+
+  it("never advertises set_goal / update_goal_steps to the coordinator, whose profile lacks them", () => {
+    // The goals table is what lets the hint fire at all: without it the hint
+    // says nothing for everyone and this test would prove nothing.
+    const withGoals = (registeredTopic: Topic, registered: boolean) => {
+      const db = makeGlobalBoardDb(registeredTopic, registered);
+      db.run(readFileSync(join(import.meta.dir, "..", "db", "migrations", "064-topic-goals.sql"), "utf-8"));
+      return db;
+    };
+    // Positive control: an ordinary topic on the same harness hears about the tools.
+    const ordinary = makeTopic({ id: "topic-ordinary", sessionKey: "topic:ordinary" });
+    const ordinaryDb = withGoals(ordinary, false);
+    const ordinaryEnv = assembleTopicContext(
+      makeMockCtx({ baseDir, openclawDir, topic: ordinary, messages: [], db: ordinaryDb }),
+      { sessionKey: ordinary.sessionKey, providerName: "codex", providerStrategy: "history-aware" },
+    );
+    expect(ordinaryEnv.systemBlocks.some((b) => b.id === "synthetic:goal-hint")).toBe(true);
+    ordinaryDb.close();
+
+    const db = withGoals(topic, true);
+    seedGlobalBoardTasks(db);
+    const env = assemble(db);
+    snapshot(env);
+    expect(env.systemBlocks.some((b) => b.id === "synthetic:goal-hint")).toBe(false);
+    db.close();
   });
 });
 

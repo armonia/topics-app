@@ -7,7 +7,7 @@
  * solo ciò che è cambiato — e, altrettanto importante, che ciò che è cambiato
  * parta davvero.
  *
- * @covers CTX-DEDUP-01, CTX-DEDUP-03, CTX-GOAL-01
+ * @covers CTX-DEDUP-01, CTX-DEDUP-03, CTX-GOAL-01, GLOBAL-ORCHESTRATOR-CONTEXT-01
  *
  * CTX-DEDUP-01 is partial: the inline preamble carries only what changed.
  * CTX-DEDUP-03 (a retired slot is declared) and CTX-GOAL-01 (the topic goal
@@ -62,6 +62,11 @@ const AWARE = block({
 });
 const README = block({ id: "template:README.md", category: "template", label: "README.md", content: "# Quadra\nHRIS demo." });
 const PLAN = block({ id: "synthetic:plan-mode", content: "PLAN MODE attivo." });
+const GLOBAL_BOARD = block({
+  id: "synthetic:global-board-snapshot",
+  label: "Global board snapshot",
+  content: "Live task totals: todo=2, review=1. Priority snapshot: t-1 Ship login (todo). 4 omitted.",
+});
 
 /** Lo stato che il chiamante avrebbe registrato dopo un turno. */
 function sentFrom(blocks: SystemBlock[]): Map<string, string> {
@@ -151,6 +156,19 @@ describe("plan-mode è uno stato, non un documento", () => {
     const payload = adaptEnvelope(inlineEnvelope(blocks), { alreadySent: sentFrom(blocks) });
     expect(payload.userContent).toContain("PLAN MODE attivo.");
     expect(payload.userContent).not.toContain("# Quadra");
+  });
+});
+
+describe("global board snapshot is volatile state", () => {
+  it("is composed into its own slot and re-emitted even when the CLI already has that exact snapshot", () => {
+    const blocks = [AWARE, GLOBAL_BOARD];
+    const payload = adaptEnvelope(inlineEnvelope(blocks), { alreadySent: sentFrom(blocks) });
+
+    // This is a live board read, not a document the CLI may safely keep from a
+    // previous turn. A same-hash snapshot must therefore still travel on every
+    // inline-system turn.
+    expect(payload.userContent).toContain("Live task totals: todo=2, review=1");
+    expect(payload.inlineSlots?.map((s) => s.slot)).toEqual(["template", "global-board"]);
   });
 });
 

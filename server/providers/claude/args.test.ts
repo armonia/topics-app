@@ -388,6 +388,19 @@ describe("buildCodexArgs — la fotografia", () => {
     expect(buildCodexArgs({})).toEqual(["exec", "--json", "--skip-git-repo-check", "--sandbox", "workspace-write"]);
   });
 
+  test("una sessione stretta puo' imporre read-only senza ereditare il bypass", () => {
+    const args = buildCodexArgs({ approvalMode: null, sandbox: "read-only" });
+    expect(args).toContain("--sandbox");
+    expect(args[args.indexOf("--sandbox") + 1]).toBe("read-only");
+    expect(args).not.toContain("--dangerously-bypass-approvals-and-sandbox");
+  });
+
+  test("un profilo stretto ignora config e regole utente, ma conserva il bridge esplicito", () => {
+    const args = buildCodexArgs({ isolated: true, sandbox: "read-only", bridge: BRIDGE });
+    expect(args).toEqual(expect.arrayContaining(["--ignore-user-config", "--ignore-rules", "--sandbox", "read-only"]));
+    expect(args.join(" ")).toContain("mcp_servers.topics.command");
+  });
+
   test("senza modello NON si passa `--model`: la CLI pesca da config.toml", () => {
     // È l'unico modo perché funzionino gli account ChatGPT.
     expect(buildCodexArgs({ model: null })).not.toContain("--model");
