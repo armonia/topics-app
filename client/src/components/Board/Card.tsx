@@ -1735,10 +1735,13 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
         >
           <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
           <span className="min-w-0 flex-1 break-words">{error}</span>
+          {/* 16x16 (p-0.5 + h-3): under the 24px the repo gives itself, and
+              the bounding box IS the target. `tap-expand` is safe here because
+              the only thing to its left is the error text, not a command. */}
           <button
             aria-label={tr('board.task.closeError')}
             onClick={clearError}
-            className="shrink-0 rounded p-0.5 hover:bg-white/10"
+            className="tap-expand shrink-0 rounded p-0.5 hover:bg-white/10 coarse:p-1.5"
           ><X className="h-3 w-3" /></button>
         </div>
       )}

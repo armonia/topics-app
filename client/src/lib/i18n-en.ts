@@ -648,6 +648,8 @@ const EN = {
   'chat.queue.removeTitle': 'Do not send it',
   'chat.queue.clear': 'Clear',
   'chat.queue.clearTitle': 'Discard every message still waiting to go out',
+  'chat.attachments.removeImage': 'Remove this image',
+  'chat.attachments.removeFile': 'Remove {name}',
   'board.task.pdfPreviewTitle': 'PDF preview',
   'board.task.serviceNotes': 'service notes',
   'board.task.serviceNotesTitle': 'Dispatcher bookkeeping (restarts, queue holds, retries). Open to read them all, in order.',

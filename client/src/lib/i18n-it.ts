@@ -717,6 +717,8 @@ const IT: Dict = {
   'chat.queue.removeTitle': 'Non mandarlo',
   'chat.queue.clear': 'Svuota',
   'chat.queue.clearTitle': 'Butta tutti i messaggi ancora da inviare',
+  'chat.attachments.removeImage': 'Togli questa immagine',
+  'chat.attachments.removeFile': 'Togli {name}',
   'board.task.pdfPreviewTitle': 'anteprima PDF',
   'board.task.serviceNotes': 'righe di servizio',
   'board.task.serviceNotesTitle': 'Contabilità del dispatcher (riavvii, attese in coda, tentativi). Apri per leggerle tutte, in ordine.',
