@@ -1379,10 +1379,17 @@ const taskDispatcher = createTaskDispatcher({
     return { path: c.path, projectStoreId: storeId };
   },
   createTopic: (o) => {
+    // A card whose model is "codex" (or "codex:<model>", or a gpt-* id) runs
+    // on the OpenAI CLI provider: the board can spread mechanical work over a
+    // second quota. Plain "codex" passes no --model (ChatGPT-account auth
+    // rejects a forced model, see server/providers/codex.ts).
+    const codexModel = o.model === "codex" ? "" : o.model?.startsWith("codex:") ? o.model.slice("codex:".length) : o.model?.startsWith("gpt-") ? o.model : null;
+    const provider = codexModel !== null ? "codex" : undefined;
+    const model = codexModel !== null ? (codexModel || undefined) : o.model;
     const { topic } = createDetachedTopic(
       // background: an agent session never pops a tab — it lives in the
       // sidebar; the task drawer's "apri tab" un-archives it on demand.
-      { name: o.name, projectPath: o.projectPath, worktreeId: o.worktreeId, systemPrompt: o.systemPrompt, effort: o.effort, model: o.model, background: true, standalone: o.standalone, mcpPolicy: o.mcpPolicy, autonomyLevel: o.autonomyLevel ?? DISPATCH_AUTONOMY },
+      { name: o.name, projectPath: o.projectPath, worktreeId: o.worktreeId, systemPrompt: o.systemPrompt, effort: o.effort, model, provider, background: true, standalone: o.standalone, mcpPolicy: o.mcpPolicy, autonomyLevel: o.autonomyLevel ?? DISPATCH_AUTONOMY },
       {
         getTopicById: ctx.getTopicById,
         loadTopics: ctx.loadTopics,
