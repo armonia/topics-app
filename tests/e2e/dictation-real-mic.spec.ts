@@ -448,4 +448,64 @@ test.describe.serial("Dettatura e nota vocale · col microfono @nightly", () => 
     await didascalia(page, "In chat: il TESTO detto + il lettore audio");
     await beat(page, 2400);
   });
+
+  /**
+   * THE REAL SOCKET, with a real voice going into it.
+   *
+   * The hermetic twin (`dictation-realtime.spec.ts`) scripts the protocol: it
+   * knows a partial belongs in the strip and not in the field, but the service
+   * sending it is written by us. Here nothing is scripted: the fake microphone
+   * speaks, the socket is the ElevenLabs one, and what is measured is the one
+   * thing the hermetic test cannot measure, that a partial REALLY arrives, and
+   * how long it took.
+   *
+   * It skips without a key that answers: `capabilities.realtime` is false when
+   * the head of the chain is not ElevenLabs or its key was refused, and that is
+   * the right gate because it is the same predicate the product decides on.
+   *
+   * @covers STT-06
+   */
+  test("a partial arrives while speaking, from the real service @nightly", async ({ page, chatPage, request }) => {
+    await installMicProbe(page);
+    const caps = await readSttCapabilities(request);
+    test.skip(
+      caps.realtime !== true,
+      `no live engine on the test server: the head of the chain is ${caps.provider ?? "nobody"}`,
+    );
+
+    await goToApp(page);
+    await openTopic(page, topicName);
+
+    const composer = chatPage.messageInput;
+    await composer.waitFor({ state: "visible", timeout: 10_000 });
+    await composer.click();
+    await page.keyboard.press("Meta+Shift+D");
+
+    const banner = page.locator('[data-testid="dictation-banner"]');
+    await expect(banner).toBeVisible({ timeout: 15_000 });
+    const micOpenAt = Date.now();
+    await didascalia(page, "Microfono aperto · Scribe v2 in diretta");
+
+    // THE MEASURE: the first partial while the sentence is still being said.
+    // The ceiling sits well above the second that was promised because the
+    // token, the TLS handshake and somebody's network are inside it; the real
+    // number goes into the failure message, where it can be read.
+    const partial = page.locator('[data-testid="dictation-partial"]');
+    await expect(partial).not.toBeEmpty({ timeout: 30_000 });
+    const firstPartialMs = Date.now() - micOpenAt;
+    expect(firstPartialMs, `primo parziale dopo ${firstPartialMs} ms`).toBeLessThan(8_000);
+
+    // A partial is not pasted: the field is still empty while the strip talks.
+    expect(await composer.inputValue()).toBe("");
+
+    await attendiFraseDetta(page);
+    await page.keyboard.press("Meta+Shift+D");
+    await expect(banner).toBeHidden({ timeout: 30_000 });
+
+    // And the committed text IS the text: the exact sentence is not asserted
+    // (it depends on a model we do not control), only that it arrived.
+    await expect(composer).not.toHaveValue("", { timeout: 60_000 });
+    await didascalia(page, `Parziale a ${firstPartialMs} ms · confermato nel composer`);
+    await beat(page, 2200);
+  });
 });

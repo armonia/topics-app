@@ -166,3 +166,46 @@ Un cursore FUORI SCALA SHALL essere ristretto, non SHALL tagliare il testo.
 #### Scenario: un cursore fuori scala
 - **GIVEN** una posizione oltre la fine del testo
 - **THEN** SHALL essere ristretta, senza tagliare niente
+
+### Requirement: STT-06 — Le parole si vedono MENTRE si parla, e quando il filo cade non si perde niente
+
+Lo standard di una app di dettatura è vedere il testo comparire mentre lo si
+dice. La trascrizione a lotti resta la rete di sicurezza, non l'esperienza
+normale: anche a 650-800 ms per una clip da cinque secondi, chi detta una frase
+lunga non ha modo di accorgersi che il microfono ha sentito un'altra parola
+finché non ha finito di parlare.
+
+Il motore in diretta SHALL essere offerto SOLO quando chi trascriverebbe davvero
+— la testa della catena, con la chiave verificata — sa anche farlo in streaming.
+Annunciarlo e poi cadere a microfono aperto è il difetto che le capabilities
+verificate esistono per togliere.
+
+LA CHIAVE NON SHALL MAI raggiungere il client. Il socket lo apre il client, che
+è il lato con il microfono, ma il permesso di connettersi SHALL essere un token
+monouso emesso dal server, che SHALL rifiutare la richiesta PRIMA di spenderla
+quando la chiave non è verificata.
+
+Il testo provvisorio SHALL essere mostrato come provvisorio e NON SHALL essere
+incollato nel campo: solo un segmento confermato entra nel composer, perché un
+parziale è un'ipotesi che il pacchetto successivo può riscrivere.
+
+L'AUDIO SHALL essere registrato in parallelo per tutta la durata: se il socket
+non si apre, cade, o la quota è esaurita, la dettatura SHALL finire comunque nel
+campo attraverso il flusso a lotti. Quando invece il motore in diretta ha
+confermato almeno un segmento, quell'audio NON SHALL essere trascritto una
+seconda volta a lotti: incollerebbe l'intera dettatura sotto sé stessa.
+
+#### Scenario: il parziale mentre si parla
+- **GIVEN** un motore in diretta disponibile e il microfono aperto
+- **THEN** il testo provvisorio SHALL essere visibile senza entrare nel campo
+- **AND** il segmento confermato SHALL entrare nel composer
+
+#### Scenario: il socket rifiuta
+- **GIVEN** un socket che non si apre (chiave, quota, rete)
+- **THEN** la dettatura SHALL essere trascritta dal flusso a lotti
+- **AND** l'audio registrato NON SHALL andare perso
+
+#### Scenario: la chiave non verificata
+- **GIVEN** una chiave che il servizio ha rifiutato
+- **THEN** il token monouso NON SHALL essere richiesto
+- **AND** la risposta SHALL dire che il motore in diretta non è in offerta

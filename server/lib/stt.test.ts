@@ -7,16 +7,23 @@
  * si verifica che la cascata scenda davvero il gradino successivo, che dica CHI
  * ha trascritto, e che quando cadono tutti l'errore contenga il perché di
  * ciascuno invece di «STT failed».
-  * @covers STT-01 @covers STT-02 @covers STT-03
+  * @covers STT-01 @covers STT-02 @covers STT-03 @covers STT-06
  */
 import { beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  realtimeSttToken,
+  SttRealtimeError,
+  REALTIME_MODEL,
+  REALTIME_SAMPLE_RATE,
+} from "./stt-realtime-token";
+import {
   transcribe,
   resolveSttChain,
   sttCapabilities,
+  realtimeSttReason,
   isSilenceArtifact,
   localConfig,
   SttError,
@@ -399,5 +406,93 @@ describe("una chiave presente non e' una chiave: il servizio deve accettarla", (
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+/**
+ * The single-use token, which is the ONLY thing the server does for live
+ * dictation: the socket belongs to the client, the key never leaves here.
+ *
+ * The defect being held shut is not «the token endpoint answers badly», it is
+ * that a key nobody verified would let the client open a microphone, stream to
+ * a socket that refuses it, and discover on the stop that it has nothing. The
+ * refusal has to arrive BEFORE the microphone opens, and it has to be a refusal
+ * (503, stay on batch) and not a crash.
+ *
+ * @covers STT-06
+ */
+describe("realtimeSttToken", () => {
+  const TOKEN_ROUTE = "api.elevenlabs.io/v1/single-use-token/realtime_scribe";
+
+  it("con la chiave verificata restituisce il token e il formato che il client deve produrre", async () => {
+    __resetKeyVerdictsForTests();
+    const { impl, chiamate } = fakeFetch([
+      { match: "api.elevenlabs.io/v1/user", body: {} },
+      { match: TOKEN_ROUTE, body: { token: "sutkn_1234567890" } },
+    ]);
+    const grant = await realtimeSttToken(emptyEnv({ ELEVENLABS_API_KEY: "sk_live" }), { fetchImpl: impl });
+    expect(grant.token).toBe("sutkn_1234567890");
+    expect(grant.model).toBe(REALTIME_MODEL);
+    expect(grant.sampleRate).toBe(REALTIME_SAMPLE_RATE);
+    expect(grant.audioFormat).toBe("pcm_16000");
+    // The key travels in the header and NOWHERE else: not in the URL, which
+    // ends up in logs and in a browser history.
+    const asked = chiamate.find(c => c.url.includes(TOKEN_ROUTE))!;
+    expect(asked.headers["xi-api-key"]).toBe("sk_live");
+    expect(asked.url).not.toContain("sk_live");
+  });
+
+  it("una chiave rifiutata dal servizio non arriva nemmeno a chiedere il token", async () => {
+    __resetKeyVerdictsForTests();
+    const { impl, chiamate } = fakeFetch([
+      { match: "api.elevenlabs.io/v1/user", status: 401, body: { detail: { status: "invalid_api_key" } } },
+      { match: TOKEN_ROUTE, body: { token: "mai-chiesto" } },
+    ]);
+    const err = await errorOf(realtimeSttToken(emptyEnv({ ELEVENLABS_API_KEY: "sk_dead" }), { fetchImpl: impl }));
+    expect(err).toBeInstanceOf(SttRealtimeError);
+    expect((err as SttRealtimeError).status).toBe(503);
+    expect(chiamate.some(c => c.url.includes(TOKEN_ROUTE))).toBe(false);
+  });
+
+  it("un altro motore in testa alla catena: 503, non un token che poi trascriverebbe con chi non c'e'", async () => {
+    __resetKeyVerdictsForTests();
+    const { impl } = fakeFetch([{ match: "api.openai.com/v1/models", body: { data: [] } }]);
+    const env = emptyEnv({ OPENAI_API_KEY: "k" });
+    expect(realtimeSttReason(env)).toContain("openai");
+    const err = await errorOf(realtimeSttToken(env, { fetchImpl: impl }));
+    expect((err as SttRealtimeError).status).toBe(503);
+  });
+
+  it("il servizio irraggiungibile e' un 502: «ci ho provato e si e' rotto» non e' «non e' in offerta»", async () => {
+    __resetKeyVerdictsForTests();
+    const { impl } = fakeFetch([
+      { match: "api.elevenlabs.io/v1/user", body: {} },
+      { match: TOKEN_ROUTE, throws: "socket hang up" },
+    ]);
+    const err = await errorOf(realtimeSttToken(emptyEnv({ ELEVENLABS_API_KEY: "sk_live" }), { fetchImpl: impl }));
+    expect((err as SttRealtimeError).status).toBe(502);
+    expect(err.message).toContain("socket hang up");
+  });
+
+  it("una risposta 200 senza token non passa per buona: il client aprirebbe un socket senza credenziale", async () => {
+    __resetKeyVerdictsForTests();
+    const { impl } = fakeFetch([
+      { match: "api.elevenlabs.io/v1/user", body: {} },
+      { match: TOKEN_ROUTE, body: { detail: "ok" } },
+    ]);
+    const err = await errorOf(realtimeSttToken(emptyEnv({ ELEVENLABS_API_KEY: "sk_live" }), { fetchImpl: impl }));
+    expect((err as SttRealtimeError).status).toBe(502);
+  });
+
+  it("le capabilities annunciano il realtime solo quando ElevenLabs risponde davvero", async () => {
+    __resetKeyVerdictsForTests();
+    const alive = fakeFetch([{ match: "api.elevenlabs.io/v1/user", body: {} }]);
+    const caps = await sttCapabilities(emptyEnv({ ELEVENLABS_API_KEY: "sk_live" }), { fetchImpl: alive.impl });
+    expect(caps.realtime).toBe(true);
+
+    __resetKeyVerdictsForTests();
+    const refused = fakeFetch([{ match: "api.elevenlabs.io/v1/user", status: 401, body: {} }]);
+    const without = await sttCapabilities(emptyEnv({ ELEVENLABS_API_KEY: "sk_dead" }), { fetchImpl: refused.impl });
+    expect(without.realtime).toBe(false);
   });
 });

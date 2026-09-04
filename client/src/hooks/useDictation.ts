@@ -15,10 +15,25 @@ import {
   type SttCapabilities,
 } from '../lib/stt';
 import { ascoltaLivello, messaggioTrascrittoVuoto, type SondaLivello } from '../lib/livello-audio';
+import { startRealtimeDictation, type RealtimeSession } from '../lib/stt-realtime';
 import { useSpeechToText } from './useSpeech';
 import { useLocale, useT } from './useT';
 
 export type DictationEngine = 'server' | 'webspeech' | null;
+
+/** The rate Scribe v2 Realtime wants, and the one the probe asks the context for. */
+const REALTIME_SAMPLE_RATE = 16_000;
+
+/**
+ * How much audio is kept while the socket is still being negotiated.
+ *
+ * Asking for the token, opening the WebSocket and waiting for `session_started`
+ * costs a few hundred milliseconds, and the microphone is already open: without
+ * this buffer the first words would be captured and thrown away, which is the
+ * one part of a dictation nobody forgives. Sixteen thousand samples a second
+ * over four seconds is the ceiling; past that the socket is not coming.
+ */
+const PREROLL_MAX_SAMPLES = REALTIME_SAMPLE_RATE * 4;
 
 /**
  * Dettatura: parli, e le parole finiscono nel composer.
@@ -67,6 +82,18 @@ export function useDictation(opts: {
   const maxDurationRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Misura il segnale mentre si registra: serve solo se il trascritto torna vuoto. */
   const sondaRef = useRef<SondaLivello | null>(null);
+  /** The live socket, while it lives. Null means the batch flow owns the stop. */
+  const realtimeRef = useRef<RealtimeSession | null>(null);
+  /** Samples captured before the socket was ready, replayed as soon as it is. */
+  const prerollRef = useRef<Float32Array[]>([]);
+  const prerollSamplesRef = useRef(0);
+  /** How many segments the live engine settled: zero is what hands the stop back to batch. */
+  const committedRef = useRef(0);
+  /**
+   * The text the live engine is still revising. It is shown in grey and it is
+   * NOT pasted: a partial is a guess that the next packet is allowed to rewrite.
+   */
+  const [partial, setPartial] = useState('');
 
   // I callback arrivano dal componente e cambiano a ogni render: tenerli in un
   // ref evita che `stop`/`start` cambino identità (e con loro le dipendenze
@@ -100,6 +127,10 @@ export function useDictation(opts: {
     return () => { alive = false; window.removeEventListener('topics:auth-pair-resolved', riprova); };
   }, []);
 
+  // Read inside the recorder callbacks, which live outside the render.
+  const capabilitiesRef = useRef<SttCapabilities | null>(null);
+  capabilitiesRef.current = capabilities;
+
   const engine: DictationEngine =
     capabilities?.available && micAvailable ? 'server'
     : webSpeech.isSupported ? 'webspeech'
@@ -125,7 +156,27 @@ export function useDictation(opts: {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: SPEECH_AUDIO_CONSTRAINTS });
       streamRef.current = stream;
-      sondaRef.current = ascoltaLivello(stream);
+      // THE WORDS WHILE YOU SPEAK, when the engine at the head of the chain can
+      // stream them. The probe is the one that captures the samples, because it
+      // already owns an AudioContext over this microphone: a second one would
+      // mean a second resampler and, in WebKit, a second object outliving the
+      // dictation. The recorder keeps running in parallel either way, so the
+      // audio for the batch flow is there whole if the socket never opens.
+      const wantsRealtime = capabilitiesRef.current?.realtime === true;
+      committedRef.current = 0;
+      prerollRef.current = [];
+      prerollSamplesRef.current = 0;
+      setPartial('');
+      sondaRef.current = ascoltaLivello(stream, wantsRealtime ? {
+        sampleRate: REALTIME_SAMPLE_RATE,
+        onPcm: (frame) => {
+          const live = realtimeRef.current;
+          if (live) { live.send(frame); return; }
+          if (prerollSamplesRef.current >= PREROLL_MAX_SAMPLES) return;
+          prerollRef.current.push(frame);
+          prerollSamplesRef.current += frame.length;
+        },
+      } : {});
       const mimeType = pickRecorderMimeType();
       const recorder = new MediaRecorder(stream, {
         ...(mimeType ? { mimeType } : {}),
@@ -137,6 +188,8 @@ export function useDictation(opts: {
 
       recorder.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       recorder.onstop = async () => {
+        const live = realtimeRef.current;
+        realtimeRef.current = null;
         releaseMic();
         const type = recorder.mimeType || mimeType || 'audio/webm';
         const spezzoni = chunksRef.current.length;
@@ -144,7 +197,22 @@ export function useDictation(opts: {
         chunksRef.current = [];
         setIsListening(false);
         // ANNULLATO A MANO: nessun messaggio, e' una scelta di chi usa la app.
-        if (discardRef.current) return;
+        if (discardRef.current) { live?.abort(); setPartial(''); return; }
+        // The last segment is asked for and waited: a commit that arrives after
+        // the socket closed is a sentence the person said and never sees.
+        if (live) {
+          setIsTranscribing(true);
+          setSince(performance.now());
+          await live.finish();
+          setIsTranscribing(false);
+          setPartial('');
+        }
+        // THE LIVE ENGINE ALREADY PASTED WHAT IT HEARD. Transcribing the same
+        // audio again in batch would not add a safety net, it would paste the
+        // whole dictation a second time under the first. Batch takes over only
+        // when nothing at all was committed, which is exactly the case the
+        // fallback exists for: token refused, socket dead, quota spent.
+        if (committedRef.current > 0) return;
         // VUOTA: e questo ramo era MUTO, come lo era il gemello della chat prima
         // di `fe635287` che pero' ha fatto parlare solo quello. Qui premevi il
         // microfono nel campo task, parlavi, mollavi, e non compariva niente:
@@ -201,6 +269,39 @@ export function useDictation(opts: {
       recorder.start(100);
       setIsListening(true);
       setSince(performance.now());
+      // The socket is negotiated AFTER the recorder is running, and nothing
+      // waits for it: a token that takes 300 ms must not delay the recording,
+      // and one that never arrives must not stop it either.
+      const probe = sondaRef.current;
+      if (wantsRealtime && probe) {
+        void startRealtimeDictation({
+          sampleRate: probe.sampleRate(),
+          language: languageHint,
+          onPartial: setPartial,
+          onCommitted: (text) => {
+            committedRef.current += 1;
+            setPartial('');
+            onTextRef.current(text);
+          },
+          // Lost mid-sentence: what was committed stays in the field, the rest
+          // is worth a line, because the person is still speaking into a
+          // microphone that no longer shows anything.
+          onFail: (reason) => {
+            realtimeRef.current = null;
+            setPartial('');
+            onNoticeRef.current?.(trRef.current('stt.realtimeFellBack', { reason }));
+          },
+        }).then((session) => {
+          if (!session) return;
+          // Stopped or cancelled while the token was in flight: a session opened
+          // over a closed microphone would transcribe silence and bill for it.
+          if (!streamRef.current || discardRef.current) { session.abort(); return; }
+          realtimeRef.current = session;
+          for (const frame of prerollRef.current) session.send(frame);
+          prerollRef.current = [];
+          prerollSamplesRef.current = 0;
+        });
+      }
       // Rete di sicurezza contro il microfono lasciato acceso: cinque minuti sono
       // molto oltre qualunque dettatura, e sotto il tetto di 25 MB del server.
       maxDurationRef.current = setTimeout(() => {
@@ -264,6 +365,8 @@ export function useDictation(opts: {
       discardRef.current = true;
       if (maxDurationRef.current) clearTimeout(maxDurationRef.current);
       if (recorderRef.current && recorderRef.current.state !== 'inactive') recorderRef.current.stop();
+      realtimeRef.current?.abort();
+      realtimeRef.current = null;
       sondaRef.current?.chiudi();
       if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
     };
@@ -279,6 +382,10 @@ export function useDictation(opts: {
     engine,
     since,
     level,
+    /** The live text still being revised: grey, and never pasted as is. */
+    partial,
+    /** True while the words appear as they are spoken, not after the stop. */
+    isLive: capabilities?.realtime === true,
     /** Es. «ElevenLabs scribe_v2» — da mostrare nel tooltip così l'umano sa chi lo sta ascoltando. */
     modelLabel: capabilities?.available ? `${capabilities.provider} ${capabilities.model}` : null,
     capabilities,

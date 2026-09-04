@@ -2,12 +2,11 @@ import type { AppContext, RouteHandler } from "../types";
 import {
   transcribe,
   sttCapabilities,
-  realtimeSttToken,
   SttError,
-  SttRealtimeError,
   MAX_STT_BYTES,
   type SttDeps,
 } from "../lib/stt";
+import { realtimeSttToken, SttRealtimeError } from "../lib/stt-realtime-token";
 import { classifyIntent } from "../lib/intent-classifier";
 
 const MAX_INTENT_CHARS = 2000;
@@ -46,19 +45,19 @@ export function createVoiceRouter(ctx: AppContext, deps: Partial<SttDeps> = {}):
       return json(await sttCapabilities(env, { fetchImpl: doFetch }));
     }
 
-    // --- Il permesso di ascoltare in diretta, senza la chiave ---
+    // --- The permission to listen live, without the key ---
     //
-    // Il client apre da solo il WebSocket di Scribe v2 Realtime: ha lui il
-    // microfono, e far transitare l'audio dal server aggiungerebbe un salto a
-    // ogni pacchetto da 250 ms. Ma `ELEVENLABS_API_KEY` non deve MAI arrivare
-    // nel browser — in una app che gira anche sul telefono di casa, una chiave
-    // nel bundle è una chiave pubblicata. Quindi il server resta nel giro per
-    // una riga sola: un token monouso, 15 minuti, consumato alla connessione.
+    // The client opens the Scribe v2 Realtime WebSocket itself: it holds the
+    // microphone, and routing the audio through the server would add a hop to
+    // every 250 ms packet. But `ELEVENLABS_API_KEY` must NEVER reach the
+    // browser: in an app that also runs on the phone at home, a key in the
+    // bundle is a published key. So the server stays in the loop for one line
+    // only: a single-use token, 15 minutes, consumed on connect.
     //
-    // 503 e 502 dicono due cose diverse al client: «non è in offerta» (chiave
-    // non verificata, motore diverso in testa alla catena) contro «ci ho
-    // provato e si è rotto». Da entrambe si scende sul flusso batch, ma solo la
-    // seconda merita una riga a schermo.
+    // 503 and 502 say two different things to the client: «not on offer» (key
+    // not verified, a different engine at the head of the chain) against «I
+    // tried and it broke». Both go down to the batch flow, but only the second
+    // deserves a line on screen.
     if (method === "POST" && pathname === "/api/stt/realtime-token") {
       try {
         return json(await realtimeSttToken(env, { fetchImpl: doFetch }));

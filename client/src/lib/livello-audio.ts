@@ -94,9 +94,9 @@ export function ascoltaLivello(stream: MediaStream, opts: LevelProbeOptions = {}
   try {
     ctx = opts.sampleRate ? new Ctx({ sampleRate: opts.sampleRate }) : new Ctx();
   } catch {
-    // Una frequenza rifiutata non deve costare la sonda: senza vincolo il
-    // contesto nasce comunque, e la dettatura in tempo reale si arrende da
-    // sola quando legge una frequenza che il servizio non accetta.
+    // A refused rate must not cost us the probe: with no constraint the
+    // context is born anyway, and live dictation gives up by itself when it
+    // reads a rate the service does not accept.
     try { ctx = new Ctx(); } catch { return null; }
   }
 
@@ -152,15 +152,15 @@ export function ascoltaLivello(stream: MediaStream, opts: LevelProbeOptions = {}
 }
 
 /**
- * Il codice del worklet, come sorgente.
+ * The worklet code, as source.
  *
- * Un AudioWorklet si carica da un URL, e un file a parte dovrebbe attraversare
- * la pipeline di build per finire in `public/` con un percorso stabile: un
- * blob URL costruito qui evita quel giro, e tiene le dodici righe che contano
- * accanto a chi le usa. Il processore non scrive niente sull'uscita, quindi il
- * suo collegamento alla destinazione trasporta silenzio: serve solo perche' il
- * grafo venga TIRATO: un nodo che non arriva alla destinazione, in Chromium,
- * puo' non essere elaborato affatto.
+ * An AudioWorklet is loaded from a URL, and a separate file would have to cross
+ * the build pipeline to land in `public/` under a stable path: a blob URL built
+ * here avoids that trip and keeps the twelve lines that matter next to the code
+ * that uses them. The processor writes nothing to its output, so its link to
+ * the destination carries silence: it is there only so that the graph gets
+ * PULLED, because in Chromium a node that does not reach the destination may
+ * not be processed at all.
  */
 const PCM_TAP_SOURCE = `
 class PcmTap extends AudioWorkletProcessor {
@@ -174,9 +174,9 @@ registerProcessor('pcm-tap', PcmTap);
 `;
 
 /**
- * Attacca la presa dei campioni. Fallisce in silenzio: senza AudioWorklet (o
- * se il modulo non si carica) la sonda continua a misurare il livello e la
- * dettatura resta quella batch, che e' esattamente il ripiego previsto.
+ * Attaches the sample tap. It fails silently: with no AudioWorklet (or if the
+ * module does not load) the probe keeps measuring the level and dictation stays
+ * the batch one, which is exactly the intended fallback.
  */
 function attachPcmTap(ctx: AudioContext, sorgente: AudioNode, onPcm: (frame: Float32Array) => void): void {
   if (!ctx.audioWorklet) return;
@@ -190,7 +190,7 @@ function attachPcmTap(ctx: AudioContext, sorgente: AudioNode, onPcm: (frame: Flo
       sorgente.connect(node);
       node.connect(ctx.destination);
     })
-    .catch(() => { /* niente presa: la dettatura resta batch */ })
+    .catch(() => { /* no tap: dictation stays batch */ })
     .finally(() => URL.revokeObjectURL(url));
 }
 

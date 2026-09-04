@@ -175,6 +175,19 @@ export const PROJECT_WORDS = new Set([
   // tech and tooling
   "ts", "tsx", "js", "jsx", "api", "apis", "url", "urls", "uri", "uuid", "id", "ids",
   "http", "https", "ws", "wss", "sql", "sqlite", "db", "json", "jsonl", "yaml", "css",
+  // `preroll` is the audio captured before a socket is ready (a term from live
+  // broadcasting), and `capabilities` is the name of the endpoint the client
+  // asks: both are English the 1934 word list does not carry.
+  "preroll", "capabilities",
+  // `stt` is speech-to-text everywhere in this repo (`/api/stt`, `sttCapabilities`)
+  // and `committed` is the name Scribe gives to a settled transcript segment:
+  // a regular past participle the 1934 word list simply does not carry.
+  "stt", "committed",
+  // `realtime` is how ElevenLabs names the streaming model, the WebSocket route
+  // and the token type (`scribe_v2_realtime`, `realtime_scribe`): writing it as
+  // two words here would stop the code matching the protocol it speaks. `pcm`
+  // is the audio encoding those sockets carry.
+  "realtime", "pcm",
   "html", "dom", "ui", "ux", "cli", "cwd", "env", "pid", "cpu", "ram", "os", "io",
   "utf", "ascii", "regex", "regexp", "async", "await", "iife", "impl", "init",
   "dict", "dicts", "payload", "payloads", "pixel", "pixels", "png", "jpeg", "byte", "bytes", "svg", "webp", "baseline", "baselines", "ratchet", "camelcase", "snake",

@@ -15,7 +15,13 @@ import { join } from "node:path";
 import { SOGLIA_TRACCIA_MUTA, messaggioTrascrittoVuoto, type SondaLivello } from "./livello-audio";
 
 function sonda(picco: number): SondaLivello {
-  return { picco: () => picco, muta: () => picco < SOGLIA_TRACCIA_MUTA, livello: () => picco, chiudi: () => {} };
+  return {
+    picco: () => picco,
+    muta: () => picco < SOGLIA_TRACCIA_MUTA,
+    livello: () => picco,
+    sampleRate: () => 16_000,
+    chiudi: () => {},
+  };
 }
 
 describe("quale delle due diagnosi", () => {
@@ -71,7 +77,10 @@ describe("le due superfici chiedono la frase allo stesso posto", () => {
     test(`${file} usa messaggioTrascrittoVuoto e apre la sonda`, () => {
       const src = sorgente(file);
       expect(src).toContain("messaggioTrascrittoVuoto");
-      expect(src).toContain("ascoltaLivello(stream)");
+      // The call, not its exact arguments: live dictation passes the probe a
+      // second one (the 16 kHz sample tap) and the twin surfaces do not. What
+      // has to stay identical is that BOTH open the probe on the stream.
+      expect(src).toContain("ascoltaLivello(stream");
       // Un AudioContext non chiuso resta vivo in WebKit a ogni registrazione.
       expect(src).toContain("chiudi()");
     });

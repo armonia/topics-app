@@ -31,8 +31,8 @@ import { join } from "node:path";
 
 // Le forme che attraversano il filo stanno in shared/: dichiararle qui e
 // ricopiarle nel client è come i due lati smettono di essere lo stesso contratto.
-import type { SttProviderId, SttProviderStatus, SttResult, SttCapabilities, SttRealtimeToken } from "../../shared/stt";
-export type { SttProviderId, SttProviderStatus, SttResult, SttCapabilities, SttRealtimeToken } from "../../shared/stt";
+import type { SttProviderId, SttProviderStatus, SttResult, SttCapabilities } from "../../shared/stt";
+export type { SttProviderId, SttProviderStatus, SttResult, SttCapabilities } from "../../shared/stt";
 
 /** Ordine della cascata quando `STT_PROVIDER` è assente o vale `auto`. */
 export const STT_AUTO_ORDER: readonly SttProviderId[] = ["elevenlabs", "openai", "deepgram", "groq", "local"] as const;
@@ -102,7 +102,7 @@ function modelFor(id: SttProviderId, env: SttDeps["env"]): string {
 }
 
 /** Lingua attesa. Vuoto = auto-detect, che su Scribe/gpt-transcribe è la scelta giusta. */
-function languageHint(env: SttDeps["env"]): string | null {
+export function languageHint(env: SttDeps["env"]): string | null {
   const raw = (env.STT_LANGUAGE || "").trim().toLowerCase();
   if (!raw || raw === "auto") return null;
   return raw;
@@ -709,98 +709,29 @@ export async function sttCapabilities(env: SttDeps["env"], deps: Pick<SttDeps, "
   };
 }
 
-// ─── Dettatura mentre parli ───────────────────────────────────────────────────
+// ─── Dictating while you speak ────────────────────────────────────────────────
 //
-// La cascata qui sopra è BATCH: si registra, si ferma, si aspetta. Va bene per
-// una nota vocale, non per dettare — lo standard di una app di dettatura è
-// vedere le parole comparire mentre le dici.
+// The cascade above is BATCH: record, stop, wait. That is fine for a voice
+// note, not for dictating, so ElevenLabs Scribe v2 Realtime streams the words
+// over a WebSocket the CLIENT opens. The token that lets it do so without ever
+// seeing the key is minted in `stt-realtime-token.ts`; what stays here is the
+// one question that has to be answered from the cascade itself.
 //
-// ElevenLabs Scribe v2 Realtime lo fa su un WebSocket, e il socket lo apre il
-// CLIENT: è lui che ha il microfono, e passare l'audio dal server sarebbe un
-// giro in più su ogni pacchetto da 250 ms. Ma la chiave non deve mai arrivare
-// al browser, quindi il server resta nel giro per una cosa sola: chiedere un
-// token monouso, che vale 15 minuti e si consuma alla connessione.
-//
-// UNA SOLA CONDIZIONE PER OFFRIRLO: che ElevenLabs sia il motore che
-// trascriverebbe davvero (testa della catena, chiave verificata). Se una chiave
-// morta lo ha fatto scendere, o se la configurazione ne fissa un altro, il
-// realtime non si annuncia: annunciarlo e poi cadere su batch a microfono
-// aperto è il difetto che le capabilities verificate esistono per togliere.
-
-/** Il modello di streaming: un id diverso da `scribe_v2`, non una sua opzione. */
-export const REALTIME_MODEL = "scribe_v2_realtime";
-/** PCM mono a 16 kHz: il formato che il socket accetta e che il client produce. */
-export const REALTIME_SAMPLE_RATE = 16_000;
-export const REALTIME_AUDIO_FORMAT = "pcm_16000";
-
-const REALTIME_TOKEN_URL = "https://api.elevenlabs.io/v1/single-use-token/realtime_scribe";
-const REALTIME_TOKEN_TIMEOUT_MS = 10_000;
+// ONE CONDITION TO OFFER IT: that ElevenLabs is the engine that would really
+// transcribe (head of the chain, key verified). If a dead key pushed it down,
+// or the configuration pins another one, realtime is not announced: announcing
+// it and then falling back to batch with the microphone open is the very defect
+// verified capabilities exist to remove.
 
 /**
- * An HTTP status travels with the message: the client tells «not on offer»
- * (503, stay on batch, say nothing) apart from «it broke» (502, worth a line
- * in the notice), and neither of the two is an error the person has to read.
- */
-export class SttRealtimeError extends Error {
-  constructor(message: string, readonly status: number) {
-    super(message);
-    this.name = "SttRealtimeError";
-  }
-}
-
-/**
- * Perché il realtime NON è disponibile, oppure `null` quando lo è. Legge la
- * catena già risolta: nessuna regola nuova su chi trascrive, solo la domanda
- * «chi trascriverebbe adesso sa anche farlo in streaming?».
+ * Why realtime is NOT available, or `null` when it is. It reads the chain that
+ * is already resolved: no new rule about who transcribes, only the question
+ * «can whoever would transcribe right now also do it streaming?».
  */
 export function realtimeSttReason(env: SttDeps["env"]): string | null {
   const { chain } = resolveSttChain(env);
   const head = chain[0];
-  if (!head) return "nessun motore di trascrizione disponibile";
-  if (head.id !== "elevenlabs") return `in tempo reale trascrive solo ElevenLabs, qui trascrive ${head.id}`;
+  if (!head) return "no transcription engine available";
+  if (head.id !== "elevenlabs") return `only ElevenLabs transcribes live, here ${head.id} does`;
   return null;
-}
-
-/**
- * Il token monouso per il client. Chiede prima la verifica delle chiavi: una
- * chiave rifiutata deve far rispondere «non disponibile» PRIMA di spendere una
- * chiamata, e un 401 incontrato qui la marca per tutti gli altri callsite.
- */
-export async function realtimeSttToken(
-  env: SttDeps["env"],
-  deps: Pick<SttDeps, "fetchImpl"> = {},
-): Promise<SttRealtimeToken> {
-  const doFetch = deps.fetchImpl ?? fetch;
-  await verifyProviderKeys(env, doFetch);
-  const reason = realtimeSttReason(env);
-  if (reason) throw new SttRealtimeError(reason, 503);
-
-  const key = env.ELEVENLABS_API_KEY!.trim();
-  let resp: Response;
-  try {
-    resp = await doFetch(REALTIME_TOKEN_URL, {
-      method: "POST",
-      headers: { "xi-api-key": key },
-      signal: AbortSignal.timeout(REALTIME_TOKEN_TIMEOUT_MS),
-    });
-  } catch (err) {
-    throw new SttRealtimeError(`ElevenLabs irraggiungibile: ${err instanceof Error ? err.message : String(err)}`, 502);
-  }
-  if (resp.status === 401 || resp.status === 403) {
-    markKeyRejected("elevenlabs", env, resp.status);
-    throw new SttRealtimeError(keyRejectedReason(resp.status), 503);
-  }
-  if (!resp.ok) throw new SttRealtimeError(`token realtime rifiutato (HTTP ${resp.status})`, 502);
-
-  const body = (await resp.json().catch(() => null)) as { token?: unknown } | null;
-  if (typeof body?.token !== "string" || !body.token) {
-    throw new SttRealtimeError("ElevenLabs ha risposto senza token", 502);
-  }
-  return {
-    token: body.token,
-    model: REALTIME_MODEL,
-    sampleRate: REALTIME_SAMPLE_RATE,
-    audioFormat: REALTIME_AUDIO_FORMAT,
-    language: languageHint(env),
-  };
 }
