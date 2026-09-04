@@ -2995,3 +2995,86 @@ In particolare, e finché le condizioni qui sotto non cambiano:
 - **THEN** non lo trova
 - **AND** il turno prosegue con gli strumenti che ci sono, invece di aprire un
   annidamento senza fondo, senza budget e invisibile in chat
+
+### Requirement: CHAT-GOALLOOP-01 — `/goal` tiene la chat sull'obiettivo
+
+Alla fine di un turno NON dispatchato, chiuso dal modello di sua iniziativa
+(`end_turn`), se il topic ha un obiettivo `active` il sistema SHALL chiedere a un
+giudice economico se l'obiettivo regge, e SHALL agire di conseguenza:
+
+- `continue` → il server SHALL rimandare da solo un messaggio di continuazione
+  allo stesso topic, per la STESSA via di una ripresa (`POST /api/chat`);
+- `met` → il goal SHALL chiudersi `achieved` e i client SHALL riceverlo con
+  `goal:updated`;
+- `blocked_on_user` → il ciclo SHALL fermarsi lasciando l'obiettivo attivo: a
+  farlo ripartire è il prossimo messaggio umano;
+- risposta illeggibile → NON SHALL succedere niente, in silenzio.
+
+Il ciclo SHALL avere questi freni, e ognuno SHALL essere verificabile da solo:
+un tetto di continuazioni consecutive per goal; uno stop dopo due turni di fila
+che non eseguono nessun tool; nessuna continuazione su un turno fermo su una
+domanda all'utente o su un piano in attesa; nessuna continuazione sui turni
+dispatchati dalla board, che hanno già il ciclo del dispatcher. Chiudere il goal
+o fermare il ciclo dalla barra SHALL bastare a fermarlo.
+
+I contatori del ciclo SHALL vivere sul goal nel database, non in memoria: un
+tetto che si azzera al riavvio non è un tetto.
+
+> **Perché.** Fino al 2026-09-03 `/goal` salvava l'obiettivo e lo re-iniettava a
+> ogni turno, ma quando il turno finiva con l'obiettivo ancora aperto non
+> succedeva niente: la chat si fermava, l'obiettivo restava sulla barra e nessuno
+> lo perseguiva. Un lavoro lungo si interrompeva a metà senza prosieguo.
+
+#### Scenario: Lavoro a metà, la chat prosegue da sola
+- **GIVEN** un topic con un obiettivo attivo
+- **WHEN** un turno finisce `end_turn` dicendo di aver fatto metà del lavoro
+- **AND** il giudice risponde `continue`
+- **THEN** parte un nuovo turno sullo stesso topic senza che nessuno scriva
+
+#### Scenario: La continuazione non si spaccia per l'utente
+- **GIVEN** una continuazione mandata dal server
+- **THEN** la riga che apre il turno porta il marcatore della continuazione con
+  il numero del tentativo
+- **AND** in chat si vede come una riga di sistema compatta, non come una bolla
+  dell'utente
+
+#### Scenario: Obiettivo raggiunto
+- **GIVEN** un topic con un obiettivo attivo
+- **WHEN** un turno finisce e il giudice risponde `met`
+- **THEN** il goal non è più attivo, il suo stato è `achieved`, e nessun turno
+  nuovo parte
+
+#### Scenario: C'è una domanda per l'utente
+- **GIVEN** un topic con un obiettivo attivo
+- **WHEN** il turno finisce con una domanda all'utente
+- **THEN** nessun turno nuovo parte
+- **AND** l'obiettivo resta attivo, in attesa
+
+#### Scenario: Il tetto si ferma e lo scrive
+- **GIVEN** un goal che ha già speso tutte le continuazioni consecutive previste
+- **WHEN** un turno finisce e il giudice risponde `continue`
+- **THEN** nessun turno nuovo parte
+- **AND** in chat compare una riga che dice che l'auto-continuazione si è fermata
+
+#### Scenario: Nessun progresso
+- **GIVEN** un goal attivo con il ciclo in corso
+- **WHEN** due turni di fila finiscono senza eseguire nessun tool
+- **THEN** il ciclo si ferma e in chat lo si legge
+
+### Requirement: CHAT-GOALLOOP-02 — La barra dell'obiettivo mostra il ciclo
+
+La barra dell'obiettivo SHALL mostrare lo stato del ciclo di auto-continuazione:
+il numero di continuazioni spese quando ne ha spesa almeno una, «in attesa di te»
+quando il ciclo si è fermato su una domanda, e un comando per fermarlo. Fermare
+il ciclo NON SHALL chiudere l'obiettivo: l'obiettivo resta nel contesto di ogni
+turno, semplicemente nessuno compra più turni per perseguirlo.
+
+#### Scenario: Il conteggio si vede
+- **GIVEN** un obiettivo attivo con due continuazioni spese
+- **THEN** la barra mostra il numero delle continuazioni
+
+#### Scenario: Fermare il ciclo non chiude l'obiettivo
+- **GIVEN** un obiettivo attivo con il ciclo in corso
+- **WHEN** si preme Ferma sulla barra
+- **THEN** l'obiettivo è ancora attivo
+- **AND** alla fine del turno successivo nessuna continuazione parte

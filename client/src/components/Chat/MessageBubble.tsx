@@ -1,11 +1,12 @@
 import { memo, useState, useCallback, useEffect, useRef } from 'react';
 import { useT } from '../../hooks/useT';
-import { Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight, RotateCw, Trash2 } from 'lucide-react';
+import { Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight, RotateCw, Target, Trash2 } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage } from '../../types';
 import { MessageMetaFooter } from './MessageMetaFooter';
 import { isWorkOnlyAssistant } from './coalesceToolRun';
 import { MessageContent } from '../MessageContent';
 import { turnIsOnlyError } from './turnError';
+import { goalLoopRowOf } from './goalLoopRow';
 import { useMobile } from '../../hooks/useMobile';
 import { hoverRevealClass } from '../../lib/hoverReveal';
 import { useLongPress } from '../../hooks/useLongPress';
@@ -206,6 +207,34 @@ export const MessageBubble = memo(function MessageBubble({
   const actionsVisibility = showActions ? 'opacity-100' : hoverRevealClass(hasHover);
 
   const actionBtnClass = "w-7 h-7 flex items-center justify-center text-app-text-muted hover:text-primary rounded";
+
+  // THE GOAL LOOP TALKS, IT DOES NOT IMPERSONATE.
+  //
+  // A continuation the server sent to keep an objective alive is a `user` row
+  // (the only role a provider answers), so without this branch the transcript
+  // would show the person saying "Objective still open: ... continue". One
+  // compact line, no bubble, no hover toolbar: it is machinery, and it reads as
+  // machinery. Same for the line that says the loop stopped by itself.
+  // See `goalLoopRow.ts` and server/services/goal-loop.ts.
+  const goalRow = goalLoopRowOf(msg.blocks);
+  if (goalRow) {
+    return (
+      <div
+        data-testid="goal-loop-row"
+        data-goal-loop={goalRow.kind === 'nudge' ? `nudge:${goalRow.attempt}` : `stop:${goalRow.reason}`}
+        className="my-1 flex items-center justify-center gap-1.5 px-2 text-[11px] text-app-text-muted"
+      >
+        <Target size={11} className="flex-shrink-0" />
+        <span className="truncate">
+          {goalRow.kind === 'nudge'
+            ? tr('goal.loop.continuing', { n: String(goalRow.attempt) })
+            : goalRow.reason === 'capped'
+              ? tr('goal.loop.capped')
+              : tr('goal.loop.stalled')}
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div

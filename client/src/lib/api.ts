@@ -989,6 +989,15 @@ export const goalApi = {
     });
   },
 
+  /** Stop (or restart) the auto-continuation WITHOUT closing the goal: "stop
+   *  chasing it by yourself" is not "drop the objective". */
+  async setLoop(topicId: string, state: 'running' | 'stopped'): Promise<{ goal: TopicGoal | null }> {
+    return request(`/topics/${topicId}/goal/loop`, {
+      method: 'POST',
+      body: JSON.stringify({ state }),
+    });
+  },
+
   async reopen(goalId: string): Promise<{ goal: TopicGoal | null }> {
     return request(`/goals/${goalId}/reopen`, { method: 'POST' });
   },
