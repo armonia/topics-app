@@ -15,11 +15,8 @@
 // the resume sweep read it and wait; a successful round clears it early. It is
 // process-local on purpose: the account is one, the server is one.
 
-// The shape is declared once, in shared/, because the client holds the same
-// hold to draw the banner. Re-exported here so this module stays the door
-// everything on the server already comes through.
-export type { ProviderHold, UsageWindowKind } from "../../shared/provider-hold-types";
-import type { ProviderHold, UsageWindowKind } from "../../shared/provider-hold-types";
+import type { ProviderHold, UsageWindowKind } from "../../shared/provider-hold";
+export type { ProviderHold, UsageWindowKind };
 
 let current: ProviderHold | null = null;
 const listeners = new Set<(hold: ProviderHold | null) => void>();
@@ -56,7 +53,7 @@ export function onProviderHold(cb: (hold: ProviderHold | null) => void): () => v
   return () => { listeners.delete(cb); };
 }
 
-/** "fino alle 22:49" for a hold, in the machine's local time. */
+/** The hour a hold ends, as HH:MM in the machine's local time, for logs and notices. */
 export function holdUntilLabel(hold: Pick<ProviderHold, "untilMs">): string {
   return new Date(hold.untilMs).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
 }

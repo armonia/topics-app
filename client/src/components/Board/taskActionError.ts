@@ -1,45 +1,41 @@
 /**
- * Il messaggio di un'azione FALLITA su una card, detto in italiano.
+ * The message of a FAILED action on a card, in the reader's language.
  *
- * Il server risponde 409 con una frase inglese pensata per un agente («task has
- * open subtasks…»): sulla board la legge una persona, e la legge nel momento in
- * cui il suo click non ha fatto niente. Qui si traduce nella frase che dice
- * anche COSA fare, una volta sola per tutte le superfici (card e drawer usano
- * questa, non ognuna la sua).
- *
- * Modulo PURO: nessuna chiamata, nessun React. Dove si DISEGNA l'errore lo
- * decide il chiamante, ed è la parte che questo task ha cambiato: accanto al
- * bottone premuto, non nella barra in cima al board.
+ * The server answers 409 with an English sentence written for an agent ("task
+ * has open subtasks..."): on the board a person reads it, at the moment their
+ * click did nothing. Here it becomes the sentence that also says WHAT TO DO,
+ * once for every surface (card and drawer use this, not each its own), through
+ * the i18n catalogues: the caller passes its `tr`, because this module is PURE
+ * (no React, no locale of its own). Where the error is DRAWN is the caller's
+ * decision: next to the button pressed, not in the bar on top of the board.
  */
 
+type Translate = (key: string, vars?: Record<string, string | number>) => string;
+
 /**
- * @param raw messaggio grezzo dell'errore (di solito `Error.message` dell'API).
- * @param fallback cosa dire quando `raw` è vuoto (es. «Approva non è riuscito»).
+ * @param raw the raw error (usually the API's `Error.message`).
+ * @param tr the caller's translate function.
+ * @param fallback what to say when `raw` is empty (defaults to "action failed").
  */
-export function taskActionErrorMessage(raw: unknown, fallback = 'azione non riuscita'): string {
+export function taskActionErrorMessage(raw: unknown, tr: Translate, fallback?: string): string {
   const text = (raw instanceof Error ? raw.message : String(raw ?? '')).trim();
-  if (!text) return fallback;
-  // Il gate che sorprende chi approva: il padre non si chiude finché un figlio
-  // è aperto, e il figlio si vede sulla card (la checklist si espande in review).
-  if (/open subtasks/i.test(text)) {
-    return 'Ci sono sottotask aperti: completali o archiviali prima di chiudere il task.';
-  }
-  // «Ferma» su una card senza nessun turno in volo. Il 409 c'era già, ma la sua
-  // frase è scritta per un agente: chi la legge è una persona che ha appena
-  // premuto un bottone e non ha visto succedere niente. Qui dice anche la mossa
-  // che rimette la card in moto, che è l'unica cosa da fare da Backlog.
-  if (/no active agent/i.test(text)) {
-    return "Non c'è nessun agente al lavoro su questa card: non c'è niente da fermare. Per rimetterla in moto portala in Todo.";
-  }
+  if (!text) return fallback ?? tr('board.actionError.failed');
+  // The gate that surprises whoever approves: the parent does not close while a
+  // child is open, and the child is visible on the card (the checklist expands in review).
+  if (/open subtasks/i.test(text)) return tr('board.actionError.openSubtasks');
+  // "Stop" on a card with no turn in flight. The 409 was already there, but its
+  // sentence is written for an agent: the reader is a person who just pressed a
+  // button and saw nothing happen. This one also names the move that sets the
+  // card in motion again, the only one available from Backlog.
+  if (/no active agent/i.test(text)) return tr('board.actionError.noActiveAgent');
   // The pre-review checks gate. The server's sentence names the remedy an API
   // CALLER has (`force: true`) and prints it at a person looking at a card,
   // where that field does not exist. Here it names the remedy that is actually
-  // under the thumb: the button that says «comunque». The red check's name is
+  // under the thumb: the button that says "anyway". The red check's name is
   // kept, because it is the only part that says what to look at.
   if (/checks pre-review sono ROSSI/i.test(text)) {
     const red = /`([^`]+)`/.exec(text)?.[1];
-    return `I checks pre-review sono rossi${red ? ` (${red})` : ''}: la strada normale è rimandarlo all'agent. `
-      + 'Per farlo lo stesso, usa il bottone che dice «comunque» tra le scelte qui sopra.';
+    return tr('board.actionError.checksRed', { red: red ? ` (${red})` : '' });
   }
   return text;
 }

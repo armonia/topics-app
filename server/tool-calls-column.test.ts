@@ -14,6 +14,8 @@
  *   - Regenerate, the only server reader of `msg.toolCalls`, still sees the
  *     evidence of the turn it is replacing;
  *   - the migration cleans the rows already on disk, and only those.
+ *
+ * @covers CHAT-PERSIST-01
  */
 
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";

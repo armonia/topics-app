@@ -138,19 +138,19 @@ describe("il watchdog chiude il turno: cosa arriva a chi sta guardando", () => {
     const h = await harness("topic:watchdog-announce");
     const handler = await h.startTurn();
 
-    let cumulato = "";
-    for (const d of DELTAS) { cumulato += d; handler.onTextDelta(d, cumulato); }
+    let total = "";
+    for (const d of DELTAS) { total += d; handler.onTextDelta(d, total); }
     handler.onToolStart("toolu_open", "Bash", { command: "sleep 999" } as never);
 
-    // Soft (60 ms) + grace (60 ms), con margine: il figlio non parla piu' e
-    // nessuno dichiara il processo vivo, quindi il watchdog finalizza.
+    // Soft (60 ms) + grace (60 ms), with margin: the child says nothing more
+    // and nobody declares the process alive, so the watchdog finalizes.
     await sleep(400);
 
     const results = h.sent.filter((m) => m.type === "stream:tool_result");
     expect(results.length).toBeGreaterThanOrEqual(1);
     expect(results.some((m) => m.toolCallId === "toolu_open" && m.status === "error")).toBe(true);
 
-    // E la riga concorda con l'annuncio: un solo verdetto, non due.
+    // And the row agrees with the announcement: one verdict, not two.
     expect(h.row().toolStatuses).toContain("error");
   });
 
@@ -158,8 +158,8 @@ describe("il watchdog chiude il turno: cosa arriva a chi sta guardando", () => {
     const h = await harness("topic:watchdog-tail");
     const handler = await h.startTurn();
 
-    let cumulato = "";
-    for (const d of DELTAS) { cumulato += d; handler.onTextDelta(d, cumulato); }
+    let total = "";
+    for (const d of DELTAS) { total += d; handler.onTextDelta(d, total); }
     handler.onToolStart("toolu_open", "Bash", { command: "sleep 999" } as never);
 
     await sleep(400);

@@ -788,7 +788,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
    * same one the column drag shows, from the same key.
    */
   const [notice, setNotice] = useState<string | null>(null);
-  const showError = (e: unknown) => setError(taskActionErrorMessage(e));
+  const showError = (e: unknown) => setError(taskActionErrorMessage(e, tr));
   // Narrow (default) keeps the board visible behind the drawer; wide grows the
   // drawer so the task's tab group can live in a side panel (Thread on the left,
   // the selected surface on the right) instead of folding inline into the body.
@@ -897,7 +897,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     }
   }, [projectId, taskId]);
   const loadFailedMessage = useMemo(
-    () => (loadFailed === null ? null : taskActionErrorMessage(loadFailed, tr('board.task.loadFailedReason'))),
+    () => (loadFailed === null ? null : taskActionErrorMessage(loadFailed, tr, tr('board.task.loadFailedReason'))),
     [loadFailed, tr],
   );
   // fetch-on-mount: setState lands after the await, not synchronously

@@ -9,10 +9,8 @@
 import { useSyncExternalStore } from 'react';
 import { subscribeFrames } from '../lib/wsFrameBus';
 
-// One declaration for the two sides: the server records this hold, the client
-// draws it. The two used to be separate copies and had already drifted.
-export type { ProviderHold } from '../../../shared/provider-hold-types';
-import type { ProviderHold } from '../../../shared/provider-hold-types';
+import type { ProviderHold } from '../../../shared/provider-hold';
+export type { ProviderHold };
 
 let current: ProviderHold | null = null;
 const listeners = new Set<() => void>();
@@ -53,22 +51,11 @@ function armExpiry(): void {
 }
 
 function adopt(frame: unknown): void {
-  const f = frame as {
-    type?: string;
-    untilMs?: number | null;
-    window?: string | null;
-    reason?: string | null;
-    sinceMs?: number | null;
-  } | null;
+  const f = frame as { type?: string; untilMs?: number | null; window?: string | null; reason?: string | null; sinceMs?: number | null } | null;
   if (!f || f.type !== 'provider:hold') return;
   const next: ProviderHold | null =
     typeof f.untilMs === 'number' && (f.window === 'five_hour' || f.window === 'seven_day')
-      ? {
-          untilMs: f.untilMs,
-          window: f.window,
-          reason: typeof f.reason === 'string' ? f.reason : '',
-          sinceMs: typeof f.sinceMs === 'number' ? f.sinceMs : Date.now(),
-        }
+      ? { untilMs: f.untilMs, window: f.window, reason: f.reason ?? '', sinceMs: typeof f.sinceMs === 'number' ? f.sinceMs : Date.now() }
       : null;
   if ((current?.untilMs ?? null) === (next?.untilMs ?? null) && current?.window === next?.window) return;
   current = next;

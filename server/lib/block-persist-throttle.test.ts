@@ -2,6 +2,8 @@
  * The rule the throttle applies, stated as tests: WHEN the turn is allowed to
  * rewrite its `blocks` column. What that write costs is measured elsewhere,
  * against a real database (server/turn-write-cost.test.ts).
+ *
+ * @covers CHAT-PERSIST-01
  */
 
 import { describe, expect, test } from "bun:test";

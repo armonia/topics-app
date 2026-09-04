@@ -1130,6 +1130,36 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     expect(asked).toBe(1);
   });
 
+  /**
+   * "Once per delivery" is read off the gate, not off a known key. On
+   * 2026-09-04 (8db353ac) a redelivery skipped the realign because the gate
+   * still held the previous delivery's verdict: its checks ran on a base ten
+   * commits behind main. A new commit is a new delivery and realigns again; a
+   * leg for the same commit does not.
+   */
+  test("una riconsegna con un commit nuovo si riallinea di nuovo; una gamba sullo stesso commit no", async () => {
+    let asked = 0;
+    let commit = "abc1234";
+    const r = mk({
+      taskCheckoutRef: async () => ({ cwd, commit }),
+      realignForChecks: async () => { asked += 1; return { ok: true, note: null }; },
+    });
+    const t = await delivered(r);
+    await declare(r, t.projectId, ["exit 3"]);
+    const first = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "riassunto della consegna" }))!;
+    expect(first.status).toBe(409);
+    expect(asked).toBe(1);
+    // Same commit asked again: the retained verdict answers, no realign.
+    const again = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "riassunto della consegna" }))!;
+    expect(again.status).toBe(409);
+    expect(asked).toBe(1);
+    // The agent fixed and committed: a new delivery, main goes in first.
+    commit = "def5678";
+    const redelivery = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "riassunto della consegna" }))!;
+    expect(redelivery.status).toBe(409);
+    expect(asked).toBe(2);
+  });
+
   test("main non entra nel ramo (conflitto): quello e' il verdetto, 409 con i file e nessun comando parte", async () => {
     const marker = join(cwd, "ran-anyway");
     const r = mk({ realignForChecks: async () => ({ ok: false, reason: "riportare main nel ramo ha fatto conflitto su 1 file: contesa.txt", files: ["contesa.txt"] }) });
