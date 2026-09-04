@@ -3526,6 +3526,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           questionOptions: Array.isArray(body?.options)
             ? body.options.filter((o: unknown) => typeof o === "string")
             : undefined,
+          // WHERE THE AGENT WAS WHEN IT SAID THIS: the assistant row being
+          // streamed right now, the same reading the chat route makes for its
+          // `stream_in_flight` 409. Absent outside a turn, which is honest.
+          messageId: ctx.isStreaming?.(sk)?.messageId ?? null,
         });
         const task = svc.get(commentsRoute.taskId, { projectId: sess.projectId })?.task;
         broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
@@ -3759,6 +3763,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             projectId: sess.projectId,
             agentTopicId: sess.topicId,
             patch: parsed.patch,
+            // The delivery line is said DURING a turn, and this is the row it
+            // was said in: same anchor as `comment_task`, so the reviewer's
+            // thread can put the summary under the step that produced it.
+            messageId: ctx.isStreaming?.(decodeURIComponent(item.sessionKey))?.messageId ?? null,
           });
           task = await captureDelivery(task, prevStatus);
           broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });

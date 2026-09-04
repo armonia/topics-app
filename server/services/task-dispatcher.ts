@@ -325,7 +325,7 @@ export interface DispatcherDeps {
    * bare system note (or losing a worked task to `failed`). Synchronous (reads
    * the local message store). Absent (tests/degraded) ⇒ no mirror, old behaviour.
    */
-  getLastAgentText?: (sessionKey: string) => string | null;
+  getLastAgentText?: (sessionKey: string) => { text: string; id: string } | null;
   /**
    * A task just reached `review` (self-delivered or system-delivered): boot a
    * live preview server from its worktree, point output_url at the LOCAL
@@ -2238,7 +2238,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /** L'ultima prosa dell'agent, senza far esplodere niente se il host non la sa. */
   function lastAgentWords(sessionKey: string): string | null {
     if (!sessionKey || !deps.getLastAgentText) return null;
-    try { return deps.getLastAgentText(sessionKey)?.trim() || null; } catch { return null; }
+    try { return deps.getLastAgentText(sessionKey)?.text.trim() || null; } catch { return null; }
   }
 
   /**
@@ -2650,10 +2650,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * and it can't comment — we surface its last words inside the system note
    * (honest attribution), NEVER as a faked agent comment. null when unavailable.
    */
-  function recoverAgentWords(task: Task): string | null {
+  function recoverAgentWords(task: Task): { text: string; id: string } | null {
     const topicId = task.assignedTopicId;
     if (!topicId || !deps.getLastAgentText) return null;
-    try { return deps.getLastAgentText("topic:" + topicId.slice(0, 8))?.trim() || null; }
+    try {
+      const last = deps.getLastAgentText("topic:" + topicId.slice(0, 8));
+      const text = last?.text.trim();
+      return text && last ? { text, id: last.id } : null;
+    }
     catch { return null; }
   }
 
@@ -2967,7 +2971,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
                 ? "Non c'e' un diff da guardare: rimandalo avanti e riparte sulla stessa sessione, oppure prendilo in mano tu."
                 : "L'ho portato io in review: valuta cosa ha prodotto, oppure rimandalo indietro (un rifiuto lo fa ripartire sulla stessa sessione).";
           const reason = recovered
-            ? `${base}\n\nUltime parole dell'agent (recuperate dalla sessione): ${recovered}`
+            ? `${base}\n\nUltime parole dell'agent (recuperate dalla sessione): ${recovered.text}`
             : base;
           try {
             const delivered = deps.svc.deliverToReviewBySystem({
@@ -2983,6 +2987,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
               // is zero, "not measurable" stays null, and the sheet says two
               // different sentences instead of passing one off as the other.
               uncommittedFiles: sporchi ? sporchi.length : null,
+              // The note QUOTES an assistant row, so it is anchored to it: the
+              // reader draws the recovered words under the step they were said
+              // in instead of at the bottom, hours away from it.
+              messageId: recovered?.id ?? null,
             });
             emit(delivered);
             // System-delivery bypasses the route PATCH, so the review-edge

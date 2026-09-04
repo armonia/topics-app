@@ -68,7 +68,9 @@ function freshDb(): Database {
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
     content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,
-    kind TEXT NOT NULL DEFAULT 'comment'
+    kind TEXT NOT NULL DEFAULT 'comment',
+    -- migration 20260904190855: the assistant row an agent said this in.
+    message_id TEXT
   )`);
   db.run(`CREATE TABLE approvals (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, requested_by TEXT NOT NULL,
@@ -1201,7 +1203,7 @@ describe("task-dispatcher", () => {
     // turns before reaching review. Its turn is over — it can't comment itself —
     // so its words are recovered into the SYSTEM delivery note (honest, never a
     // faked agent comment) and the task is handed to review instead of parked.
-    const h = harness({ getLastAgentText: () => "Ho implementato login e i test. Guarda /demo." });
+    const h = harness({ getLastAgentText: () => ({ text: "Ho implementato login e i test. Guarda /demo.", id: "m-login" }) });
     h.svc.updateBoardSettings(PID, { autoDispatch: true }); // default cap 2
     seedTask(h.db, { id: "t1", status: "todo" });
     await h.dispatcher.tick(PID);
@@ -1241,7 +1243,7 @@ describe("task-dispatcher", () => {
     // suffisso (`…in_progress`), la riga con la ragione non viene vista, il
     // confine resta indietro e la consegna vecchia passa per fresca — cioè
     // l'ultima parola dell'agent di QUESTO turno non viene recuperata.
-    const h = harness({ getLastAgentText: () => "Ho risolto i conflitti col main." });
+    const h = harness({ getLastAgentText: () => ({ text: "Ho risolto i conflitti col main.", id: "m-conflitti" }) });
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     seedTask(h.db, { id: "t1", status: "todo" });
     await h.dispatcher.tick(PID);
@@ -1265,7 +1267,7 @@ describe("task-dispatcher", () => {
   it("does NOT recover into the note when the agent already left a fresh comment", async () => {
     // Recovery is a fallback for the system-delivery path only: an agent that DID
     // leave a fresh comment must not get its last session message duplicated.
-    const h = harness({ getLastAgentText: () => "Questo NON deve comparire." });
+    const h = harness({ getLastAgentText: () => ({ text: "Questo NON deve comparire.", id: "m-cartello" }) });
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     seedTask(h.db, { id: "t1", status: "todo" });
     await h.dispatcher.tick(PID);

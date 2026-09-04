@@ -36,12 +36,12 @@ let seq = 0;
 
 /** Raw rows: the shapes under test are ones the API would not produce today. */
 function insert(ctx: AppContext, sessionKey: string, rows: Row[]): void {
-  const stmt = ctx.db.prepare(
+  const insertRow = ctx.db.prepare(
     `INSERT INTO messages (id, session_key, role, content, blocks, timestamp, sort_order)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
   );
   for (const r of rows) {
-    stmt.run(
+    insertRow.run(
       r.id,
       sessionKey,
       r.role ?? "user",

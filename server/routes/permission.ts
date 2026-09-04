@@ -52,7 +52,7 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
   // la stessa vista.
   const askRouting = {
     db: ctx.db,
-    comment: (a: { taskId: string; projectId: string; content: string; options: string[] }) => {
+    comment: (a: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string }) => {
       try {
         const svc = createTaskService(ctx.db);
         svc.addComment({
@@ -61,6 +61,10 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
           content: a.content,
           projectId: a.projectId,
           questionOptions: a.options,
+          // The question is asked DURING a turn: anchor it to the row it was
+          // asked in, so the thread can draw it under that step instead of
+          // beside the tool call that produced it.
+          messageId: a.sessionKey ? ctx.isStreaming?.(a.sessionKey)?.messageId ?? null : null,
         });
         const task = svc.get(a.taskId, { projectId: a.projectId })?.task;
         if (task) broadcastToAll({ type: "task:updated", projectId: a.projectId, task });

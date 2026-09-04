@@ -332,7 +332,7 @@ export interface TaskService {
    * macchina (il land in conflitto che la ritira da `done`): senza, la riga
    * dice solo chi e quando, e chi rivede legge un ritiro senza causa.
    */
-  update(args: { taskId: string; actor: Actor; by: string; patch: UpdateTaskPatch; projectId?: string; agentTopicId?: string | null; statusReason?: string | null }): Task;
+  update(args: { taskId: string; actor: Actor; by: string; patch: UpdateTaskPatch; projectId?: string; agentTopicId?: string | null; statusReason?: string | null; messageId?: string | null }): Task;
   /**
    * `questionOptions` turns the comment into a human-decision request: the
    * SERVER composes the canonical ```question``` block (question = content,
@@ -365,7 +365,7 @@ export interface TaskService {
    * problem (the identical text repeated); here the text changes on every run,
    * which is exactly why they piled up.
    */
-  addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; media?: string[]; projectId?: string; questionOptions?: string[]; kind?: "comment" | "review-note" | "service" | "delivery"; once?: boolean; replaces?: string | string[] }): TaskComment;
+  addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; media?: string[]; projectId?: string; questionOptions?: string[]; kind?: "comment" | "review-note" | "service" | "delivery"; once?: boolean; replaces?: string | string[]; messageId?: string | null }): TaskComment;
   /**
    * Una interruzione, una riga.
    *
@@ -473,6 +473,11 @@ export interface TaskService {
      * not know". The caller (the dispatcher) already owns the probe.
      */
     uncommittedFiles?: number | null;
+    /**
+     * The assistant row the recovered words come from, when the note carries
+     * any. Absent on a note that quotes nothing, which is most of them.
+     */
+    messageId?: string | null;
   }): Task;
   /**
    * Alza la DOMANDA dello stallo: il task va in review con chip `needs_input` e
@@ -2721,7 +2726,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           : r.kind === "service" ? "service"
             : r.kind === "delivery" ? "delivery"
               : "comment";
-    return { id: r.id, taskId: r.task_id, author: r.author, content: r.content, mentions, media, createdAt: r.created_at, kind };
+    return { id: r.id, taskId: r.task_id, author: r.author, content: r.content, mentions, media, createdAt: r.created_at, kind, messageId: r.message_id ?? null };
   }
 
   /**
@@ -3235,7 +3240,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return withSubtaskCounts(rowsToTasks(rows));
     },
 
-    update({ taskId, actor, by, patch, projectId, agentTopicId, statusReason }): Task {
+    update({ taskId, actor, by, patch, projectId, agentTopicId, statusReason, messageId }): Task {
       const row = getTaskRow(taskId);
       // projectId guard: a session may only touch tasks on its own project.
       // A mismatch is reported as not_found (not 403) so cross-project ids stay
@@ -3360,7 +3365,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           }
           // The summary enters the thread BEFORE the status moves: a card must
           // never be able to sit in review without the line that explains it.
-          this.addComment({ taskId, author: by, content: summary, projectId: projectId ?? row.project_id, kind: "delivery" });
+          this.addComment({ taskId, author: by, content: summary, projectId: projectId ?? row.project_id, kind: "delivery", messageId: messageId ?? null });
           // The report is there. Now we look at whether what it says holds up.
           annotateDeliveryClaims(taskId, projectId ?? row.project_id, (a) => this.addComment(a));
           db.prepare(
@@ -3684,7 +3689,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    addComment({ taskId, author, content, mentions, media, projectId, questionOptions, kind, once, replaces }): TaskComment {
+    addComment({ taskId, author, content, mentions, media, projectId, questionOptions, kind, once, replaces, messageId }): TaskComment {
       // The kind is whitelisted, never passed through: an unknown value reads
       // as a plain comment, so a typo at a call site costs a visible row rather
       // than a hidden one. 'service' = the dispatcher's own bookkeeping, marked
@@ -3761,8 +3766,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const id = uuid();
       const ts = now();
       db.prepare(
-        "INSERT INTO task_comments (id, task_id, author, content, mentions, media, kind, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      ).run(id, taskId, author, body, mentions && mentions.length ? JSON.stringify(mentions) : null, files.length ? JSON.stringify(files) : null, commentKind, ts);
+        "INSERT INTO task_comments (id, task_id, author, content, mentions, media, kind, created_at, message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      ).run(id, taskId, author, body, mentions && mentions.length ? JSON.stringify(mentions) : null, files.length ? JSON.stringify(files) : null, commentKind, ts, messageId ?? null);
       // The thread is part of the task: touch updated_at so live clients (open
       // drawer, review card) see a change signal and refetch — without this, a
       // new comment broadcasts task:updated but the payload looks identical.
@@ -4446,7 +4451,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    deliverToReviewBySystem({ taskId, reason, cause, nextMove, uncommittedFiles }): Task {
+    deliverToReviewBySystem({ taskId, reason, cause, nextMove, uncommittedFiles, messageId }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       const ts = now();
@@ -4516,7 +4521,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // perché su una card in coda è contabilità: chi la riprende è il
         // dispatcher, non un umano.
         if (reason && reason.trim()) {
-          try { this.addComment({ taskId, author: "system", kind: "service", content: `${reason}\n\n${note}` }); }
+          try { this.addComment({ taskId, author: "system", kind: "service", content: `${reason}\n\n${note}`, messageId: messageId ?? null }); }
           catch { /* best-effort */ }
         }
         return rowToTask(getTaskRow(taskId));
@@ -4540,7 +4545,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // sta scritto sul blocco stesso piu' sotto.
       if (reason && reason.trim()) {
         const testo = nextMove && nextMove.trim() ? `${reason}\n\n${nextMove.trim()}` : reason;
-        try { this.addComment({ taskId, author: "system", content: testo }); } catch { /* best-effort */ }
+        try { this.addComment({ taskId, author: "system", content: testo, messageId: messageId ?? null }); } catch { /* best-effort */ }
       }
       // QUESTA NOTA VA SCRITTA PER ULTIMA, ed è il motivo per cui sta sotto
       // `reason` e non sopra.

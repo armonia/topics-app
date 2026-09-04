@@ -1643,7 +1643,10 @@ const taskDispatcher = createTaskDispatcher({
         // (`turnError.ts`): li si SALTA e si continua a scendere, perche' sotto
         // c'e' quasi sempre la prosa che stiamo cercando.
         if (testo.startsWith(TURN_ERROR_PREFIX)) continue;
-        return m.content;
+        // The ID comes back with the words: the note that mirrors them is a
+        // card comment, and its anchor has to be the row it quotes, not the
+        // last row of the session.
+        return { text: m.content, id: m.id };
       }
     } catch { /* best-effort — no mirror on failure */ }
     return null;
