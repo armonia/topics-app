@@ -1796,7 +1796,28 @@ test.describe("Sidebar — quando una tessera è accesa", () => {
     // La cornice si dissolve in 200ms, e a meta' dissolvenza QUALUNQUE valore
     // sarebbe «smorzato»: si guarda di nuovo a transizione finita, o questo
     // test passerebbe anche su una cornice che si sta semplicemente spegnendo.
-    await page.waitForTimeout(400);
+    // "Finished" is a condition, not a duration: the opacity has stopped
+    // changing. A frame that is merely going out reaches 0, the grade reads
+    // "spenta", and that is the red this test is supposed to give.
+    await rim.evaluate(
+      (el) =>
+        new Promise<void>((done) => {
+          let last = getComputedStyle(el).opacity;
+          let stillSince = performance.now();
+          const loop = () => {
+            const now = getComputedStyle(el).opacity;
+            if (now !== last) {
+              last = now;
+              stillSince = performance.now();
+            } else if (performance.now() - stillSince >= 250) {
+              done();
+              return;
+            }
+            requestAnimationFrame(loop);
+          };
+          requestAnimationFrame(loop);
+        }),
+    );
     expect(await grado(), "aperta ma non a fuoco: smorzata, non spenta").toBe("smorzata");
 
     // Ora la fascia si svuota. La chat sta lì perché è FISSATA (una chat a tab
@@ -2491,8 +2512,10 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     const tessera = tileNamed(page, "e2e-tile-lampo");
     await expect(tessera).toBeVisible({ timeout: 15000 });
     await expect(tessera.locator("img"), "la favicon e' arrivata").toHaveCount(1, { timeout: 15000 });
-    // Qualche frame in piu' dopo che l'icona e' apparsa: il salto, se c'e',
-    // cade proprio li'.
+    // DELIBERATE FIXED WAIT: the assertion below is a NEGATIVE one - the title
+    // must not change state. The jump, when there is one, falls in the frames
+    // right after the favicon shows up: with no window the states would be
+    // counted an instant before the very defect we are looking for.
     await page.waitForTimeout(500);
 
     const stati = await page.evaluate(() =>
@@ -2524,8 +2547,31 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
 
     await gotoSidebar(page);
     await expect(tileNamed(page, "e2e-tile-senza-icona")).toBeVisible({ timeout: 15000 });
-    // Enough for the probe to be answered and remembered before the return.
-    await page.waitForTimeout(1500);
+    // What the sleep was really waiting for: the FIRST visit having finished
+    // learning, that is the probe answered and the icon's slot given up. The
+    // page says it out loud - the name stops moving. Still for half a second =
+    // the answer arrived and was applied; and when it never arrives this reads
+    // as an expired wait here, instead of a mysterious jump on the next visit.
+    await page.evaluate(
+      () =>
+        new Promise<void>((done) => {
+          let last = -1;
+          let stillSince = performance.now();
+          const loop = () => {
+            const name = document.querySelector('[data-pinned-tile^="project:"] [data-testid="pinned-tile-name"]');
+            const x = name ? Math.round(name.getBoundingClientRect().x) : -1;
+            if (x !== last) {
+              last = x;
+              stillSince = performance.now();
+            } else if (x >= 0 && performance.now() - stillSince >= 500) {
+              done();
+              return;
+            }
+            requestAnimationFrame(loop);
+          };
+          requestAnimationFrame(loop);
+        }),
+    );
 
     await page.addInitScript(() => {
       const visti = new Set<number>();
@@ -2544,6 +2590,10 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
 
     await gotoSidebar(page);
     await expect(tileNamed(page, "e2e-tile-senza-icona")).toBeVisible({ timeout: 15000 });
+    // DELIBERATE FIXED WAIT: the assertion below is a NEGATIVE one - the name
+    // must STAY PUT, seen at one single x for the whole window. There is no
+    // condition for an event that must not happen: without the window the test
+    // would pass on a name that slides one frame later.
     await page.waitForTimeout(2500);
 
     const posizioni = await page.evaluate(() =>

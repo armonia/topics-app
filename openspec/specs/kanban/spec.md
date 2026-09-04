@@ -2989,3 +2989,31 @@ si vedeva.
 - **WHEN** si apre la tab Piano della scheda
 - **THEN** il recinto NON SHALL comparire come testo, e i marcatori markdown SHALL essere resi
 - **AND** nessuna parola SHALL essere tagliata da uno scorrimento laterale
+
+### Requirement: STOPCHIP-01 — A closed card wears no failure badge
+
+`dispatchError` is the reason the LAST turn did not reach review, and nothing
+clears it when the work is later finished by hand and approved. Measured on the
+live board: 44 cards sat in Done wearing a rose "stopped" badge for a turn that
+had ended weeks earlier.
+
+A card in `done` NOT SHALL show the stopped badge, whatever `dispatchError` it
+still carries. Everywhere else the reason is still true and it SHALL be said.
+
+A LIVE dispatch chip SHALL win over the leftover error: the live chip is the
+state of now, the error is the state of a turn that is over.
+
+The rule SHALL live in ONE place: it was written twice, once on the card and
+once in the drawer, and two copies of a rule are two rules the day one is fixed.
+
+#### Scenario: an approved card that still carries an error
+- **GIVEN** a task in `done` with a non-empty `dispatchError`
+- **THEN** the stopped badge NOT SHALL be drawn, on the card or in the drawer
+
+#### Scenario: the same error on an open card
+- **GIVEN** the same task in `todo`, `backlog`, `in_progress` or `review`
+- **THEN** the stopped badge SHALL be drawn
+
+#### Scenario: a dispatch that is running now
+- **GIVEN** a task with a live `dispatchState` and an old `dispatchError`
+- **THEN** the live chip SHALL be shown and the stopped badge NOT SHALL be

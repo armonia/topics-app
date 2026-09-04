@@ -1018,26 +1018,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             blocksBytes += JSON.stringify(tc).length;
             persistBlocks();
           };
-          /**
-           * THE OPEN TOOL IS ANNOUNCED, NOT ONLY REPAIRED. When the watchdog
-           * closes a turn, the tools still `running` on the row were sealed on
-           * the row alone: whoever was watching kept a spinner on a tool that
-           * had already died (tests/integration/chat-watchdog-finalize.test.ts).
-           * The same three writes the ordinary finalize does per tool, so the
-           * row and the announcement carry ONE verdict.
-           */
-          const sealOpenToolsByWatchdog = (reason: string): void => {
-            const endedAt = Date.now();
-            for (const tcId of trackedToolCallIds) {
-              const open = blocks.some((b) => b.kind === "tool" && b.toolCall.id === tcId && b.toolCall.status === "running");
-              if (!open) continue;
-              updateToolCallResult(sessionKey, tcId, "", reason, { endedAt }, MIRRORED);
-              updateBlockTool(tcId, { status: "error", error: reason, endedAt });
-              broadcastStreamToTopic({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId: tcId, status: "error", result: "", error: reason, endedAt }, matchedTopic?.id);
-              writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: tcId, status: "error", error: reason } } }] }))
-                .catch(() => { /* the client may already be gone: the row and the broadcast carry the verdict */ });
-            }
-          };
           const updateBlockTool = (id: string, patch: Partial<ToolCall>) => {
             for (let i = 0; i < blocks.length; i++) {
               const b = blocks[i];
@@ -1391,7 +1371,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // The marker above is the fallback for old clients, and it is a
             // footnote. The EVENT is the block: the cause in code, which is
             // what the client draws the banner off (`interrupted-turn-block`).
-            sealOpenToolsByWatchdog("Tool cut by the watchdog: no sign of life from the stream.");
             const graceBlocks = appendInterruptedVerdict(blocks, { text: timeoutMsg, cause: "watchdog" });
             updateLastMessage(sessionKey, { content: fullContent, blocks: graceBlocks, partial: undefined, streamedAt: undefined });
             endStreamAndAnnounce();
@@ -1448,7 +1427,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // `watchdog` and not `wall-clock`: the cause written on the row is
             // the one this path broadcasts on `stream:end` below, and two
             // witnesses of the same turn must not disagree.
-            sealOpenToolsByWatchdog("Tool cut by the watchdog: the provider stopped responding.");
             const hardBlocks = appendInterruptedVerdict(blocks, { text: msg, cause: "watchdog" });
             updateLastMessage(sessionKey, { content: fullContent, blocks: hardBlocks, partial: undefined, streamedAt: undefined });
             endStreamAndAnnounce();
