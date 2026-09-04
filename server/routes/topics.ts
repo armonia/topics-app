@@ -32,6 +32,7 @@ import { switchTopicCore, createTopicCore } from "../lib/session-control-core";
 import { moveTerminalPaneToProject as relocateTerminalPaneToProject, moveTopicToProject } from "../lib/relocate-pane";
 import { bumpUnreadCount } from "../lib/unread-count";
 import { createSubagentWatcher } from "../lib/subagent-watch";
+import { computeTopicChanges } from "../lib/topic-changes";
 import { archiveTopicFully } from "../services/archive-topic";
 import { dropTurnCheckpoints } from "../services/turn-checkpoints";
 import { clearRetirement, recordRetirement } from "../services/retirement";
@@ -2016,6 +2017,25 @@ export function createTopicsRouter(
         const result = leanMessagesForWire(sliced.slice(-limit));
 
         return json({ messages: result, total, topicName: topic.name });
+      }
+    }
+
+    // GET /api/topics/:id/changes - the files THIS conversation wrote, crossed
+    // with git limited to those paths (server/lib/topic-changes.ts). The chat
+    // knew it all along, in its write tool calls: nothing was reading them back,
+    // so the only way to see what an agent touched was to scroll the transcript
+    // or open a terminal on the whole repo.
+    {
+      const params = matchRoute(pathname, "/api/topics/:id/changes");
+      if (params && method === "GET") {
+        const topic = getTopicById(params.id);
+        if (!topic) return json({ error: "Topic not found" }, 404);
+        // The worktree wins over the project folder: a topic bound to one has
+        // its own checkout, and the project path would answer for another tree.
+        const worktree = topic.worktreeId ? worktreeStore.get(topic.worktreeId) : null;
+        const cwd = worktree?.absPath || topic.projectPath || null;
+        const messages = loadLocalMessages(topic.sessionKey);
+        return json(await computeTopicChanges(cwd, messages));
       }
     }
 

@@ -27,6 +27,7 @@ import { PlanApprovalBar } from './PlanApprovalBar';
 import { useGoal } from '@/hooks/useGoal';
 import { SubAgentsStrip } from './SubAgentsStrip';
 import { TaskCardStrip } from './TaskCardStrip';
+import { ChangedFilesStrip } from './ChangedFilesStrip';
 import { selectLatestTodo } from './selectLatestTodo';
 import { useVoiceRecording } from './useVoiceRecording';
 import { usePaneStore } from '../../state/pane/store';
@@ -1489,6 +1490,9 @@ function ChatPaneComponent({
           qui si torna alla sua SCHEDA, che è dove si decide. Muta in ogni
           altra chat. */}
       <TaskCardStrip topicId={topic.id} />
+      {/* What the agent touched in the project, counted from its own write
+          tool calls: silent in a chat that wrote nothing. */}
+      <ChangedFilesStrip key={topic.id} topicId={topic.id} projectPath={topic.projectPath} onWSMessage={onWSMessage} />
       <PinnedMessages show={showPinned} pinnedMessages={pinnedMessages} />
       <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} onPlanDecision={handlePlanDecision} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onRegenerate={regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onDeleteMessage={deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} composerCentered={composerCentered} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} queuedTurns={messageQueue} onUpdateQueued={handleUpdateQueueItem} onRemoveQueued={handleRemoveQueueItem} onClearQueue={handleClearQueue} onSendQueueNow={handleSendQueueNow} queueBusy={currentStreaming} />
       {/* The composer docks at the bottom with only its natural margin — no
