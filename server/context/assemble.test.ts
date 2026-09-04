@@ -703,17 +703,22 @@ describe("assembleTopicContext — blocco obiettivo", () => {
 
   const topic = makeTopic({ id: "topic-goal", sessionKey: "topic:goal" });
 
-  function assemble(db: Database, opts: { leanContext?: boolean } = {}) {
-    const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages: [], db });
+  function assemble(
+    db: Database,
+    opts: { leanContext?: boolean; providerName?: string; topic?: Topic } = {},
+  ) {
+    const t = opts.topic ?? topic;
+    const ctx = makeMockCtx({ baseDir, openclawDir, topic: t, messages: [], db });
     return assembleTopicContext(ctx, {
-      sessionKey: topic.sessionKey,
+      sessionKey: t.sessionKey,
       providerName: "claude",
       providerStrategy: "history-aware",
       ...opts,
-    });
+      topic: undefined,
+    } as Parameters<typeof assembleTopicContext>[1]);
   }
 
-  it("senza goal attivo non c'è nessun blocco", () => {
+  it("senza goal attivo non c'è il blocco del goal", () => {
     const env = assemble(makeGoalsDb());
     expect(env.systemBlocks.map((b) => b.id)).not.toContain("synthetic:goal");
   });
@@ -760,6 +765,44 @@ describe("assembleTopicContext — blocco obiettivo", () => {
     setGoal(db, { topicId: topic.id, content: "Fatto" });
     db.run("UPDATE topic_goals SET status = 'achieved' WHERE topic_id = ?", [topic.id]);
     expect(assemble(db).systemBlocks.map((b) => b.id)).not.toContain("synthetic:goal");
+  });
+
+  it("SENZA goal c'è la riga che dice all'agente come dichiararlo", () => {
+    // The hole this change closes: `set_goal` existed and nothing ever named
+    // it, so a twenty-step job ran with an empty bar.
+    const block = assemble(makeGoalsDb()).systemBlocks.find((b) => b.id === "synthetic:goal-hint")!;
+    expect(block).toBeDefined();
+    expect(block.content).toContain("set_goal");
+    expect(block.content).toContain("update_goal_steps");
+    expect(block.countInBudget).toBe(true);
+  });
+
+  it("col goal attivo la riga sparisce: il blocco del goal la porta già", () => {
+    const db = makeGoalsDb();
+    setGoal(db, { topicId: topic.id, content: "Sistemare il login" });
+    const env = assemble(db);
+    expect(env.systemBlocks.map((b) => b.id)).not.toContain("synthetic:goal-hint");
+    expect(env.systemBlocks.find((b) => b.id === "synthetic:goal")!.content)
+      .toContain("update_goal_steps");
+  });
+
+  it("nel turno lean la riga NON si ripaga: la sessione l'ha già sentita", () => {
+    const ids = assemble(makeGoalsDb(), { leanContext: true }).systemBlocks.map((b) => b.id);
+    expect(ids).not.toContain("synthetic:goal-hint");
+  });
+
+  it("l'agente di board non la riceve: quei tool sono fuori dal suo profilo", () => {
+    // `bridge-only` is the session the board dispatched: `set_goal` and
+    // `update_goal_steps` are not published to it, and its plan is the card's
+    // subtasks. Telling it to call them would send it into a wall.
+    const dispatched = makeTopic({ id: "topic-1", sessionKey: "topic:abc123", mcpPolicy: "bridge-only" });
+    const ids = assemble(makeGoalsDb(), { topic: dispatched }).systemBlocks.map((b) => b.id);
+    expect(ids).not.toContain("synthetic:goal-hint");
+  });
+
+  it("a openclaw non si dice di chiamare un tool che non ha", () => {
+    const ids = assemble(makeGoalsDb(), { providerName: "openclaw" }).systemBlocks.map((b) => b.id);
+    expect(ids).not.toContain("synthetic:goal-hint");
   });
 
   it("un DB senza la tabella non fa saltare l'assemblaggio", () => {

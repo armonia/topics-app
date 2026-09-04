@@ -109,5 +109,11 @@ export function useGoal(
     await goalApi.setLoop(topicId, 'stopped');
   }, [topicId]);
 
-  return { goal, declare, close, reload, stopLoop };
+  /** The person adopts the goal the agent proposed. */
+  const promote = useCallback(async () => {
+    if (!goal) return;
+    await goalApi.promote(goal.id);
+  }, [goal]);
+
+  return { goal, declare, close, promote, reload, stopLoop };
 }
