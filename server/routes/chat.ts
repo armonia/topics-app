@@ -49,6 +49,8 @@ import { browserTools } from "../browser-tools";
 import { isPassthroughProvider } from "../browser-tools-adapters";
 import { dispatchBrowserToolCall, resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import { decodeCol } from "../../shared/message-blob";
+import { isAwaitingHuman } from "../../shared/types";
+import { createBlockPersistThrottle } from "../lib/block-persist-throttle";
 import {
   controlTools,
   isControlTool,
@@ -981,14 +983,27 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // Counting on the single row let the same message resume at every boot.
           const attempt = typeof body.ripresa === "number" ? body.ripresa : body.ripresa === true ? 1 : 0;
           if (attempt > 0) blocks.push({ kind: "ripreso", attempt });
+          /**
+           * How many bytes the timeline is worth, more or less.
+           *
+           * It decides WHEN the row gets rewritten (`createBlockPersistThrottle`),
+           * never what goes into it, so an estimate is enough and an exact
+           * measure would be self defeating: serializing the whole array to
+           * find out whether it is worth serializing is the very cost being
+           * avoided. Each event adds only what IT brings, which is O(one
+           * block) instead of O(the turn).
+           */
+          let blocksBytes = 0;
           const appendTextBlock = (delta: string) => {
             if (!delta) return;
+            blocksBytes += delta.length;
             const last = blocks[blocks.length - 1];
             if (last && last.kind === "text") last.text += delta;
             else blocks.push({ kind: "text", text: delta });
           };
           const appendThinkingBlock = (delta: string) => {
             if (!delta) return;
+            blocksBytes += delta.length;
             const last = blocks[blocks.length - 1];
             if (last && last.kind === "thinking") last.text += delta;
             else blocks.push({ kind: "thinking", text: delta });
@@ -1008,7 +1023,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
            * `withText` distingue le due chiamate: il salvataggio periodico
            * porta testo + blocchi, quello dopo un evento di tool solo i blocchi.
            */
-          const persistTurnBody = (withText: boolean) => {
+          const persistTurnBodyNow = (withText: boolean) => {
             const blocchi = blocks.length > 0 ? blocks : undefined;
             if (!isReattach || !reattachSnapshot) {
               updateLastMessage(sessionKey, withText
@@ -1036,9 +1051,32 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // reload between text saves shows stale rows. This helper closes
           // that race — the cost is one extra UPDATE per tool event, which is
           // small relative to the model's tool-call cadence.
-          const persistBlocks = () => persistTurnBody(false);
+          /**
+           * Whether the write still owed to the throttle has to carry the text
+           * too. It is sticky on purpose: a periodic save that gets deferred
+           * and then rides a later tool event must not lose its `content`.
+           */
+          let persistOwesText = false;
+          /**
+           * The throttle: it decides WHEN, `persistTurnBodyNow` decides WHAT.
+           * A deferred write serializes the LIVE array, so postponing never
+           * writes something older, only something fresher.
+           */
+          const blockPersist = createBlockPersistThrottle({
+            write: () => {
+              const withText = persistOwesText;
+              persistOwesText = false;
+              persistTurnBodyNow(withText);
+            },
+          });
+          const persistTurnBody = (withText: boolean, force = false) => {
+            if (withText) persistOwesText = true;
+            blockPersist.persist(blocksBytes, force);
+          };
+          const persistBlocks = (force = false) => persistTurnBody(false, force);
           const appendToolBlock = (tc: ToolCall) => {
             blocks.push({ kind: "tool", toolCall: tc });
+            blocksBytes += JSON.stringify(tc).length;
             persistBlocks();
           };
           const updateBlockTool = (id: string, patch: Partial<ToolCall>) => {
@@ -1054,7 +1092,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   kind: "tool",
                   toolCall: { ...b.toolCall, ...patch },
                 };
-                persistBlocks();
+                blocksBytes += JSON.stringify(patch).length;
+                // A tool that stops to ask something is written NOW: from here
+                // on a person is looking at that row, and a panel that exists
+                // only in memory is a question nobody can answer after a
+                // reload.
+                persistBlocks(isAwaitingHuman(patch.status));
                 return;
               }
             }
@@ -1243,6 +1286,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           let softTimedOutAtMs: number | null = null;
 
           const clearAllTimers = () => {
+            // The deferred block write goes with them: every path that gets
+            // here writes the row itself, whole, right after.
+            blockPersist.dispose();
             if (softTimer) { clearTimeout(softTimer); softTimer = null; }
             if (graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
             if (hardTimer) { clearTimeout(hardTimer); hardTimer = null; }
@@ -1618,7 +1664,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // `content`, e riscriverci sopra cancellerebbe la spiegazione. E i
             // flag di controllo non si toccano — `persistTurnBody` non passa
             // `partial`, quindi resta quello della riga.
-            try { persistBlocks(); }
+            try { persistBlocks(true); }
             catch (err) { console.warn(`[StreamWS] salvataggio dei blocchi su abort esterno fallito:`, err); }
             streamState = "finalized";
             clearAllTimers();
