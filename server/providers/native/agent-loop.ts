@@ -464,12 +464,12 @@ async function streamOnce(
  * one useful thing: that the conversation has run out of room, and that they
  * can open a new one or pick a model with a wider window.
  */
-function contestoPieno(misura: { tokens: number; max: number }, tentativi: number): string {
+function contextFullMessage(measured: { tokens: number; max: number }, attempts: number): string {
   return (
-    `Contesto pieno: la conversazione non entra nella finestra del modello ` // allow-italian: testo mostrato in chat, la UI è in italiano
-    + `(${misura.tokens} token contro un tetto di ${misura.max}) nemmeno dopo ` // allow-italian: testo mostrato in chat, la UI è in italiano
-    + `${tentativi} compattazione/i. Apri una chat nuova per ripartire leggero, ` // allow-italian: testo mostrato in chat, la UI è in italiano
-    + `oppure scegli un modello con la finestra lunga.` // allow-italian: testo mostrato in chat, la UI è in italiano
+    `Contesto pieno: la conversazione non entra nella finestra del modello ` // allow-italian: user-facing chat text, the UI is in Italian
+    + `(${measured.tokens} token contro un tetto di ${measured.max}) nemmeno dopo ` // allow-italian: user-facing chat text, the UI is in Italian
+    + `${attempts} compattazione/i. Apri una chat nuova per ripartire leggero, ` // allow-italian: user-facing chat text, the UI is in Italian
+    + `oppure scegli un modello con la finestra lunga.` // allow-italian: user-facing chat text, the UI is in Italian
   );
 }
 
@@ -726,7 +726,7 @@ export async function runAgentTurn(
       const detail = err instanceof Error ? err.message : String(err);
       const tooLong = promptTooLong(detail);
       if (!tooLong || opts.signal?.aborted) throw err;
-      if (compactRecoveries >= MAX_COMPACT_RECOVERIES) throw new Error(contestoPieno(tooLong, compactRecoveries));
+      if (compactRecoveries >= MAX_COMPACT_RECOVERIES) throw new Error(contextFullMessage(tooLong, compactRecoveries));
       compactRecoveries++;
 
       calibration.charsPerToken = charsPerTokenFrom(sentChars, tooLong.tokens);
@@ -737,13 +737,13 @@ export async function runAgentTurn(
       });
       // Nothing was freed: insisting is spinning, and whoever is reading has a
       // right to know the road has ended and what they can do about it.
-      if (c.after >= c.before) throw new Error(contestoPieno(tooLong, compactRecoveries));
+      if (c.after >= c.before) throw new Error(contextFullMessage(tooLong, compactRecoveries));
       opts.history.length = 0;
       opts.history.push(...c.messages);
       console.log(
-        `[native] prompt troppo lungo (${tooLong.tokens} > ${tooLong.max}): ` // allow-italian: log del server, non UI
-        + `ricalibrato a ${calibration.charsPerToken.toFixed(2)} char/token, ` // allow-italian: log del server, non UI
-        + `compattato ~${c.before} → ~${c.after}, rifaccio il giro`, // allow-italian: log del server, non UI
+        `[native] prompt troppo lungo (${tooLong.tokens} > ${tooLong.max}): ` // allow-italian: server log, not UI
+        + `ricalibrato a ${calibration.charsPerToken.toFixed(2)} char/token, ` // allow-italian: server log, not UI
+        + `compattato ~${c.before} → ~${c.after}, rifaccio il giro`, // allow-italian: server log, not UI
       );
       // TWO NOTICES, because they are two different things: `onCompaction`
       // leaves the permanent divider in the transcript, `onRetry` is the live
@@ -754,7 +754,7 @@ export async function runAgentTurn(
         attempt: compactRecoveries,
         maxAttempts: MAX_COMPACT_RECOVERIES,
         delayMs: 0,
-        reason: "contesto pieno: compatto e riprovo", // allow-italian: testo mostrato in chat, la UI è in italiano
+        reason: "contesto pieno: compatto e riprovo", // allow-italian: user-facing chat text, the UI is in Italian
       });
       i--; // the same round, with a lightened history
       continue;

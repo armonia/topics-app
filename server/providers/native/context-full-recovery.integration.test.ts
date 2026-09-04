@@ -1,32 +1,31 @@
 /**
- * IL CONTESTO PIENO NON UCCIDE LA CHAT.
+ * A FULL CONTEXT MUST NOT KILL THE CHAT.
  *
- * ── Il difetto (card 18bdf214, misurato sul database vivo) ──────────────────
- * Due topic col runtime nativo hanno smesso di rispondere, e non hanno più
- * ripreso. Ogni invio finiva in:
+ * -- The defect (card 18bdf214, measured on the live database) ---------------
+ * Two topics on the native runtime stopped answering and never recovered.
+ * Every send ended in:
  *
  *   [StreamWS] Error for topic:6b9605e5: API 400
  *   {"type":"invalid_request_error","message":"prompt is too long:
  *    1000176 tokens > 1000000 maximum"}
  *
- * Non era la compattazione che non partiva: `compaction_markers` conserva la
- * sua ricevuta per quel topic, `pre=1115713 → post=480494`. Era la
- * compattazione che DICHIARAVA di aver funzionato mentre produceva una
- * richiesta ancora doppia del tetto — perché stimava a 4 caratteri per token
- * un contenuto che ne fa 1,9, e perché svuotava i risultati dei tool lasciando
- * interi i loro ARGOMENTI, che erano il 77% del peso rimasto.
+ * Compaction was not being skipped: `compaction_markers` still holds its
+ * receipt for that topic, `pre=1115713 -> post=480494`. Compaction REPORTED
+ * success while producing a request still twice the ceiling, because it
+ * assumed 4 characters per token on content that makes 1.9, and because it
+ * emptied tool results while leaving their ARGUMENTS whole, and those were 77%
+ * of the remaining weight.
  *
- * Da lì in poi la chat era morta per sempre: un 400 non è ritentabile
- * (`classifyFailure` lo classifica «give-up», e fa bene: la stessa richiesta
- * darebbe lo stesso errore), la storia in memoria restava identica, e ogni
- * messaggio successivo ripeteva lo stesso errore. In chat: «Errore del
- * provider».
+ * From there the chat was dead for good: a 400 is not retryable
+ * (`classifyFailure` rules it "give-up", and rightly so, since the same request
+ * earns the same error), the in-memory history stayed identical, and every
+ * later message repeated that same error. In the chat: "provider error".
  *
- * Questo test guida il turno contro un `fetch` finto che risponde ESATTAMENTE
- * come l'API vera: prima il 400 col conteggio dentro, poi un giro sano. Quello
- * che deve succedere in mezzo — ricalibrare la stima sul numero vero,
- * ricompattare, avvisare in chat e rifare il giro da solo — è tutto il punto
- * della card.
+ * This test drives the turn against a fake `fetch` that answers EXACTLY like
+ * the real API: first the 400 with the count inside, then a healthy round.
+ * What has to happen in between (recalibrate the estimate on the real number,
+ * recompact, say so in the chat, redo the round by itself) is the whole point
+ * of the card.
  * @covers CHAT-COMPACT-04
  */
 import { describe, expect, test, beforeAll, afterAll, beforeEach } from "bun:test";
@@ -38,7 +37,7 @@ import { estimateTokens, DEFAULT_CHARS_PER_TOKEN } from "./compaction";
 import type { StreamHandler } from "../types";
 import type { RetryPolicy } from "./retry";
 
-const HOME_VERA = process.env.HOME;
+const REAL_HOME = process.env.HOME;
 let homeDir: string;
 let ws: string;
 let credentialsPath: string;
@@ -51,11 +50,11 @@ function sse(events: unknown[]): string {
 }
 
 /**
- * Un giro sano che dichiara un prompt ENORME ma reale: è da qui che il ciclo
- * impara quanti caratteri fa un token su questa conversazione, senza aspettare
- * di sbatterci contro.
+ * A healthy round that declares a HUGE but real prompt: this is where the loop
+ * learns how many characters make a token in this conversation, without
+ * waiting to crash into the ceiling first.
  */
-function giroSano(promptTokens: number): string {
+function healthyRound(promptTokens: number): string {
   return sse([
     { type: "message_start", message: { usage: { input_tokens: promptTokens } } },
     { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
@@ -66,24 +65,24 @@ function giroSano(promptTokens: number): string {
 }
 
 /**
- * Il rapporto VERO fra caratteri e token sul contenuto di un agente, misurato
- * sul caso reale: 1.921.976 caratteri per 1.000.176 token. È il numero che il
- * codice assumeva essere 4, ed è tutta la differenza.
+ * The REAL characters-per-token ratio on agent content, measured on the live
+ * case: 1,921,976 characters for 1,000,176 tokens. It is the number the code
+ * assumed to be 4, and that gap is the whole defect.
  */
-const RAPPORTO_VERO = 1.92;
+const REAL_RATIO = 1.92;
 
 /**
- * L'API finta, e il motivo per cui NON è un copione.
+ * The fake API, and why it is NOT a script.
  *
- * Un copione («al primo colpo rispondi 400, al secondo 200») dimostrerebbe
- * solo che il ciclo sa contare fino a due: passerebbe anche se la
- * ricompattazione non togliesse un byte. Qui il tetto è VERO — la richiesta
- * viene pesata come la peserebbe Anthropic, e viene rifiutata finché è troppo
- * grande. Il turno passa solo se la compattazione lo fa entrare davvero.
+ * A script ("answer 400 the first time, 200 the second") would only prove the
+ * loop can count to two: it would pass even if recompaction freed nothing.
+ * Here the ceiling is REAL. The request is weighed the way the vendor weighs
+ * it and refused while it is too big, so the turn only passes if compaction
+ * genuinely made it fit.
  */
-function apiConTetto(maxTokens: number) {
+function apiWithCeiling(maxTokens: number) {
   return (body: string): Response => {
-    const tokens = Math.ceil(body.length / RAPPORTO_VERO);
+    const tokens = Math.ceil(body.length / REAL_RATIO);
     if (tokens > maxTokens) {
       return new Response(
         JSON.stringify({
@@ -96,7 +95,7 @@ function apiConTetto(maxTokens: number) {
         { status: 400 },
       );
     }
-    return new Response(giroSano(tokens), { status: 200 });
+    return new Response(healthyRound(tokens), { status: 200 });
   };
 }
 
@@ -125,11 +124,11 @@ function handler(reg: Ledger): StreamHandler {
 }
 
 /**
- * Una storia sintetica sopra il tetto, fatta come quella vera: il peso sta
- * negli ARGOMENTI delle chiamate (il corpo dei file scritti), non nei
- * risultati. È la forma che la vecchia compattazione non sapeva alleggerire.
+ * A synthetic history over the ceiling, shaped like the real one: the weight
+ * sits in the call ARGUMENTS (the body of the files written), not in the
+ * results. It is the shape the old compaction could not lighten.
  */
-function storiaOltreIlTetto(rounds: number, argSize: number): AgentMessage[] {
+function historyOverCeiling(rounds: number, argSize: number): AgentMessage[] {
   const h: AgentMessage[] = [{ role: "user", content: "Rifammi il parser da capo." }];
   for (let i = 0; i < rounds; i++) {
     h.push({
@@ -144,16 +143,16 @@ function storiaOltreIlTetto(rounds: number, argSize: number): AgentMessage[] {
   return h;
 }
 
-function montaApi(api: (body: string) => Response) {
+function mountApi(api: (body: string) => Response) {
   let n = 0;
-  const corpi: string[] = [];
+  const bodies: string[] = [];
   globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
     const body = String(init?.body ?? "");
-    corpi.push(body);
+    bodies.push(body);
     n++;
     return api(body);
   }) as unknown as typeof fetch;
-  return { calls: () => n, corpi };
+  return { calls: () => n, bodies };
 }
 
 describe("una chat col contesto pieno si rimette in moto da sola", () => {
@@ -174,95 +173,95 @@ describe("una chat col contesto pieno si rimette in moto da sola", () => {
 
   afterAll(() => {
     globalThis.fetch = realFetch;
-    if (HOME_VERA === undefined) delete process.env.HOME; else process.env.HOME = HOME_VERA;
+    if (REAL_HOME === undefined) delete process.env.HOME; else process.env.HOME = REAL_HOME;
     for (const d of [homeDir, ws]) { try { rmSync(d, { recursive: true, force: true }); } catch { /* scratch */ } }
   });
 
   test("il 400 «prompt is too long» non chiude il turno: si compatta e si risponde", async () => {
     const reg = fresh();
-    // Il tetto è quello di haiku (200k), pesato come lo pesa l'API vera.
-    const s = montaApi(apiConTetto(200_000));
-    // TANTI giri leggeri, di proposito: dopo aver alleggerito gli argomenti la
-    // stima a 4 caratteri per token dice «ci stiamo» (≈120k token) mentre
-    // l'API, che conta sul serio, ne trova ≈250k. È il difetto in provetta.
-    const history = storiaOltreIlTetto(1_200, 3_000);
-    const prima = estimateTokens(history);
+    // The haiku ceiling (200k), weighed the way the real API weighs it.
+    const s = mountApi(apiWithCeiling(200_000));
+    // MANY light rounds, on purpose: once the arguments are lightened, the
+    // 4-chars-per-token estimate says "we fit" (~120k tokens) while the API,
+    // which counts for real, finds ~250k. The defect in a test tube.
+    const history = historyOverCeiling(1_200, 3_000);
+    const before = estimateTokens(history);
 
     const out = await runAgentTurn(
       { model: "claude-haiku-4-5-20251001", history, toolContext: { workspace: ws }, autonomy: "auto-apply", retryPolicy: FAST },
       handler(reg),
     );
 
-    // PRIMA: il turno moriva qui, e ogni turno successivo pure.
+    // BEFORE: the turn died here, and so did every later turn.
     expect(reg.errors).toEqual([]);
     expect(out.turnEnd.end).toBe("end_turn");
     expect(reg.text).toBe("eccomi");
     expect(reg.done).toBe(1);
-    // La prima richiesta è stata rifiutata dal tetto vero, la seconda è
-    // passata: la compattazione ha fatto entrare la conversazione davvero.
+    // The first request was refused by the real ceiling, the second went
+    // through: compaction actually made the conversation fit.
     expect(s.calls()).toBe(2);
-    expect(Math.ceil(s.corpi[0]!.length / RAPPORTO_VERO)).toBeGreaterThan(200_000);
-    expect(Math.ceil(s.corpi[1]!.length / RAPPORTO_VERO)).toBeLessThanOrEqual(200_000);
-    // La storia in memoria è stata sostituita, quindi il turno DOPO riparte
-    // leggero: è questo che toglie la chat dal loop di errore.
-    expect(estimateTokens(history)).toBeLessThan(prima / 2);
+    expect(Math.ceil(s.bodies[0]!.length / REAL_RATIO)).toBeGreaterThan(200_000);
+    expect(Math.ceil(s.bodies[1]!.length / REAL_RATIO)).toBeLessThanOrEqual(200_000);
+    // The in-memory history was replaced, so the NEXT turn starts light:
+    // that is what takes the chat out of the error loop.
+    expect(estimateTokens(history)).toBeLessThan(before / 2);
   });
 
-  test("in chat arriva una frase leggibile, non un errore di rete", async () => {
+  test("in chat arriva una frase leggibile, non un failure di rete", async () => {
     const reg = fresh();
-    montaApi(apiConTetto(200_000));
+    mountApi(apiWithCeiling(200_000));
     await runAgentTurn(
-      { model: "claude-haiku-4-5-20251001", history: storiaOltreIlTetto(1_200, 3_000), toolContext: { workspace: ws }, autonomy: "auto-apply", retryPolicy: FAST },
+      { model: "claude-haiku-4-5-20251001", history: historyOverCeiling(1_200, 3_000), toolContext: { workspace: ws }, autonomy: "auto-apply", retryPolicy: FAST },
       handler(reg),
     );
-    // Il cartello vivo che dice PERCHÉ non si muove niente...
+    // The live notice that says WHY nothing is moving...
     expect(reg.retries.map((r) => r.reason)).toContain("contesto pieno: compatto e riprovo");
-    // ...e il divisore permanente nel trascritto, col peso prima e dopo.
+    // ...and the permanent divider in the transcript, with weight before and after.
     expect(reg.compactions.length).toBeGreaterThan(0);
     const m = reg.compactions[reg.compactions.length - 1]!;
     expect(m.postTokens!).toBeLessThan(m.preTokens!);
   });
 
   test("se il contesto pieno non si sblocca, la resa è leggibile e non si gira a vuoto", async () => {
-    // Un tetto che nessuna compattazione può raggiungere: il turno deve
-    // ARRENDERSI dopo due tentativi, non ritentare per sempre.
+    // A ceiling no compaction can reach: the turn must GIVE UP after two
+    // attempts rather than retry forever.
     const reg = fresh();
-    const s = montaApi(apiConTetto(500));
-    const errore = await runAgentTurn(
-      { model: "claude-haiku-4-5-20251001", history: storiaOltreIlTetto(1_200, 3_000), toolContext: { workspace: ws }, autonomy: "auto-apply", retryPolicy: FAST },
+    const s = mountApi(apiWithCeiling(500));
+    const failure = await runAgentTurn(
+      { model: "claude-haiku-4-5-20251001", history: historyOverCeiling(1_200, 3_000), toolContext: { workspace: ws }, autonomy: "auto-apply", retryPolicy: FAST },
       handler(reg),
     ).catch((e: Error) => e);
 
-    // Ci si ferma al più dopo due ricompattazioni, e prima ancora se una di
-    // esse non libera niente: il tetto non è il solo freno, l'altro è
-    // «compattare non sta più servendo».
+    // It stops after two recompactions at most, and sooner if one of them
+    // frees nothing: the ceiling is not the only brake, the other one is
+    // "compacting has stopped helping".
     expect(s.calls()).toBeGreaterThanOrEqual(2);
     expect(s.calls()).toBeLessThanOrEqual(1 + 2);
-    const detail = errore instanceof Error ? errore.message : String(errore);
-    // Non «API 400: {json}»: una frase che dice cos'è successo e cosa fare.
+    const detail = failure instanceof Error ? failure.message : String(failure);
+    // Not "API 400: {json}": a sentence saying what happened and what to do.
     expect(detail).toContain("Contesto pieno");
     expect(detail).toContain("Apri una chat nuova");
   });
 
   test("un giro andato bene calibra la stima, così il 400 non arriva nemmeno", async () => {
-    // La parte che PREVIENE invece di riparare: dal prompt che l'API dichiara
-    // di aver contato si ricava il rapporto vero, e da lì in poi la soglia si
-    // valuta su un numero misurato invece che sui 4 caratteri assunti.
+    // The part that PREVENTS instead of repairing: the prompt the API says it
+    // counted gives the real ratio, and from there on the threshold is judged
+    // on a measured number instead of the assumed 4 characters.
     const reg = fresh();
-    montaApi(apiConTetto(200_000));
-    const history = storiaOltreIlTetto(20, 1_000);
+    mountApi(apiWithCeiling(200_000));
+    const history = historyOverCeiling(20, 1_000);
     const calibration = { charsPerToken: DEFAULT_CHARS_PER_TOKEN };
     await runAgentTurn(
       { model: "claude-haiku-4-5-20251001", history, calibration, toolContext: { workspace: ws }, autonomy: "auto-apply", retryPolicy: FAST },
       handler(reg),
     );
     expect(reg.errors).toEqual([]);
-    // Più PRUDENTE del rapporto vero, e va bene così: noi contiamo i caratteri
-    // del contenuto, l'API pesa anche l'impalcatura JSON che li avvolge. Un
-    // rapporto più basso significa «stimo di pesare di più», che è l'errore
-    // dalla parte giusta.
+    // MORE CAUTIOUS than the real ratio, and that is fine: we count the
+    // characters of the content, the API also weighs the JSON scaffolding
+    // around them. A lower ratio means "I estimate myself heavier", which is
+    // the error on the safe side.
     expect(calibration.charsPerToken).toBeLessThan(DEFAULT_CHARS_PER_TOKEN);
-    expect(calibration.charsPerToken).toBeLessThanOrEqual(RAPPORTO_VERO);
+    expect(calibration.charsPerToken).toBeLessThanOrEqual(REAL_RATIO);
     expect(calibration.charsPerToken).toBeGreaterThan(1);
   });
 });
