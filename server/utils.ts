@@ -27,7 +27,7 @@ import { createProjectStore } from "./services/project-store";
 import { createWorktreeStore } from "./services/worktree-store";
 import { createWorktreeManager, type WorktreeManagerGcDeps } from "./services/worktree-manager";
 import { createMachineStore } from "./services/machine-store";
-import { parseToolCallDetail } from "../shared/tool-call-detail";
+import { parseToolCallDetail, knownDetailTypes } from "../shared/tool-call-detail";
 import { blocksForDisk, toolCallsForDisk } from "../shared/lean-tool-call";
 import { shouldCompressFrame } from "./lib/ws-compression";
 import { isEmptyAssistantTurn } from "../shared/empty-turn";
@@ -65,18 +65,42 @@ function devValidateOutbound(message: object): void {
  * field against the canonical Zod schema. If the detail is missing,
  * returns the toolCall unchanged. If the detail is present and parses,
  * the validated copy is substituted. If the detail is present but
- * malformed (drifted schema, corrupt JSON, etc.), the detail field is
- * dropped — the renderer falls back to client-side derivation. Logs a
- * one-line warning at NORM-DB level so drift is observable without
- * spamming production.
+ * malformed, there are two different failures behind that word and they get
+ * two different answers.
+ *
+ * A detail whose `type` the schema has never heard of is the CLI growing a
+ * tool kind: the shape is intact, only the taxonomy is behind. Dropping it
+ * threw away the only copy of the payload, because persistence removes
+ * `result` once the same text lives inside `detail` (shared/lean-tool-call.ts)
+ * -- that is how 2736 questions to the human reached the chat mute. Those are
+ * kept as `{ type: 'unknown', raw }`: the row degrades to a generic JSON card
+ * instead of disappearing.
+ *
+ * A detail with a KNOWN type and a broken shape is a corrupt row. That one is
+ * still dropped, because the renderer re-derives a proper card from `args`,
+ * which beats showing the broken object.
+ *
+ * Both log one throttled line at NORM-DB level so drift stays observable
+ * without the 3653 identical lines the untrottled warn used to write.
  */
-function sanitizeToolCallDetail(tc: any): any {
+export function sanitizeToolCallDetail(tc: any): any {
   if (!tc || typeof tc !== 'object' || !tc.detail) return tc;
   const result = parseToolCallDetail(tc.detail);
   if (result.ok) {
     return tc.detail === result.data ? tc : { ...tc, detail: result.data };
   }
-  console.warn(`[NORM-DB] Dropping malformed detail for tool call ${tc.id ?? '?'} (${tc.name ?? '?'}): ${result.error}`);
+  const declaredType = typeof tc.detail?.type === 'string' ? tc.detail.type : undefined;
+  if (declaredType && !knownDetailTypes.has(declaredType)) {
+    warnThrottled(
+      `NORM-DB:unknown-type:${declaredType}`,
+      `[NORM-DB] Unknown detail type '${declaredType}' (${tc.name ?? '?'}): kept as raw`,
+    );
+    return { ...tc, detail: { type: 'unknown', raw: { args: tc.detail } } };
+  }
+  warnThrottled(
+    `NORM-DB:malformed:${declaredType ?? '?'}`,
+    `[NORM-DB] Dropping malformed detail for tool call ${tc.id ?? '?'} (${tc.name ?? '?'}): ${result.error}`,
+  );
   // `_drop` non si usa PER COSTRUZIONE: destrutturare-e-scartare è il modo di
   // togliere una chiave da un oggetto senza mutarlo. Il valore che conta è `rest`.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
