@@ -84,4 +84,23 @@ describe("a comment's kind survives the round-trip", () => {
     const stray = (s.get(taskId)?.comments ?? []).find((c) => c.id === "stray-1");
     expect(stray?.kind).toBe("comment");
   });
+
+  /**
+   * The anchor is a mark like the kind, and it dies in the same one place: a
+   * mapper that forgets it satisfies its return type by saying "no anchor",
+   * which is exactly what a row written before the column says. Nothing would
+   * fail; the thread would simply stop relating a comment to the step that
+   * produced it.
+   */
+  test("the message anchor round-trips through both readers", () => {
+    const anchored = s.addComment({ taskId, author: "agent", content: "Fatto, guarda /demo.", messageId: "m1" }); // allow-italian: comment body a card really carries
+    expect(anchored.messageId).toBe("m1");
+    const fromGet = (s.get(taskId)?.comments ?? []).find((c) => c.id === anchored.id);
+    expect(fromGet?.messageId).toBe("m1");
+  });
+
+  test("a comment nobody anchored reads as no anchor, never as an error", () => {
+    const plain = s.addComment({ taskId, author: "user", content: "Guardo io domani." }); // allow-italian: comment body a card really carries
+    expect(plain.messageId).toBeNull();
+  });
 });

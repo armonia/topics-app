@@ -3017,3 +3017,70 @@ once in the drawer, and two copies of a rule are two rules the day one is fixed.
 #### Scenario: a dispatch that is running now
 - **GIVEN** a task with a live `dispatchState` and an old `dispatchError`
 - **THEN** the live chip SHALL be shown and the stopped badge NOT SHALL be
+
+### Requirement: KANBAN-72 — Un fatto specchiato porta un'ANCORA, una per verso
+
+Una riga del filo scritta da una sessione SHALL poter portare l'ancora del
+messaggio che l'ha prodotta: `task_comments.message_id TEXT NULL`, aggiunta con
+una migration che fa SOLO `ADD COLUMN` — nessun backfill, nessun indice, nessuna
+riga di `task_comments` riscritta. Il DB vivo (`data/topics.db` + `-wal`) SHALL
+essere salvato PRIMA che il file di migration esista, come per CHAT-ENV-01. Il
+valore SHALL essere l'id del messaggio in streaming al momento della chiamata
+(`ctx.isStreaming(sk)?.messageId`), e SHALL
+essere scritto da tutti e quattro gli scrittori di sessione: il commento
+dell'agent (`comment_task`), la riga `delivery` della consegna
+(`update({status:'review', summary})`), la domanda instradata a metà turno e la
+nota di sistema che porta le «Ultime parole dell'agent». `addComment` SHALL
+accettare `messageId`, `rowToComment` SHALL esporlo come `TaskComment.messageId`,
+e l'ancora SHALL arrivare al client SENZA frame nuovi: `task:updated` porta solo
+il task, e il pannello rilegge GET /api/boards/:p/tasks/:t (`rowToComment`) a
+ogni `bump`, che espone `comments[].messageId`.
+
+Nel verso opposto, la busta di ripresa SHALL portare gli id dei commenti umani che
+consegna: `{ kind: 'dispatched-envelope', commentIds?: string[] }`. Gli id SHALL
+essere scritti solo su una riga marcata `dispatched` e solo se l'elenco non è
+vuoto, e SHALL sopravvivere a ogni passaggio del dispatcher: buffer a turno vivo,
+flush a fine turno, attesa di slot. Il TESTO della busta NON SHALL cambiare.
+
+Un'ancora assente NON SHALL essere un errore: il lettore SHALL trattarla come
+«nessuna ancora» e disegnare entrambe le righe (KANBAN-73).
+
+MISURA: `bun test server/lib/user-row-marks.test.ts server/services/task-dispatcher.test.ts
+server/services/tasks.comment-kind.test.ts server/services/tasks.delivery.test.ts
+server/services/tasks.system-delivery.test.ts tests/integration/ultima-prosa-agente.test.ts`
+verde con i test nuovi: `userRowMarks` scrive `commentIds` solo con `dispatched`;
+`resume` con `commentIds` produce un turno il cui body porta `dispatchedFor`; il
+flush di `onTurnEnd` conserva gli id; `addComment({messageId})` fa round-trip in
+`rowToComment`; `getLastAgentText` torna l'id della riga giusta saltando i cartelli
+⚠️. Il test di task-dispatcher.test.ts:3799 (`Human update on task`) resta
+invariato e verde.
+
+#### Scenario: il commento dell'agent porta l'id del suo messaggio
+- **GIVEN** una sessione con un turno in streaming il cui messaggio ha id `m1`
+- **WHEN** l'agent chiama `comment_task`
+- **THEN** la riga di `task_comments` ha `message_id = 'm1'`
+- **AND** GET /api/boards/:p/tasks/:t risponde con `comments[].messageId = 'm1'` alla rilettura del pannello
+
+#### Scenario: la busta porta gli id dei commenti che consegna
+- **GIVEN** un commento umano `c1` su una card `in_progress` senza turno vivo
+- **WHEN** il dispatcher riprende l'agent
+- **THEN** la riga `user` scritta in `messages` ha il blocco
+  `{kind:'dispatched-envelope', commentIds:['c1']}`
+- **AND** il testo della busta è identico a quello di prima
+
+#### Scenario: due commenti bufferizzati a turno vivo escono in UNA busta con due id
+- **GIVEN** un turno vivo e due commenti umani `c1`, `c2` arrivati durante il turno
+- **WHEN** il turno finisce e la card è `in_progress`
+- **THEN** la busta di ripresa porta `commentIds: ['c1','c2']`
+
+#### Scenario: nessun id senza marchio
+- **GIVEN** una riga `user` non dispatchata
+- **WHEN** `userRowMarks` riceve `commentIds` non vuoto e `dispatched: false`
+- **THEN** nessun blocco `dispatched-envelope` viene scritto
+
+#### Scenario: il reject con testo scrive UNA riga e la ancora
+- **GIVEN** una card in review con agent
+- **WHEN** la persona rimanda indietro con un testo
+- **THEN** `task_comments` contiene UNA sola riga con quel testo (dedupe autore+testo)
+- **AND** `review_comment` è conservato
+- **AND** la busta di ripresa porta l'id di quella riga
