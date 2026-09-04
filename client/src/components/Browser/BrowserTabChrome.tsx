@@ -38,6 +38,7 @@ import { shortcut } from '../../lib/shortcutLabel';
 import type { DeviceMode } from './browserDevTypes';
 import { POPOVER_ITEM, POPOVER_ITEM_DANGER, POPOVER_DIVIDER, DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { prettyUrl } from '../../lib/browserNavUrl';
+import { copyText } from '../../lib/clipboard';
 import { useT } from '../../hooks/useT';
 
 /** Stop the tab underneath from also handling the gesture. A click on the
@@ -181,21 +182,28 @@ export function BrowserTabMenuButton({ paneId }: { paneId: string }) {
 
   const run = useCallback((fn?: () => void) => () => { setOpen(false); fn?.(); }, []);
 
+  // COPY WHAT THE MENU SHOWS, and say so only when it happened.
+  //
+  // Two defects in four lines, and they were both invisible from here. The
+  // clipboard got the RAW url while the line eleven pixels above showed
+  // `prettyUrl` of it: on a local file that meant the menu read
+  // `file:///Users/…/b.pdf` and the paste read
+  // `tauri://localhost/api/media?path=%2FUsers%2F…`. And the failure branch was
+  // an empty function, so outside a secure context (LAN over http, some
+  // webviews) nothing was copied and nothing was said either - `copyText` is
+  // the one door that answers with a boolean instead of throwing.
+  const address = chrome ? prettyUrl(chrome.url) : '';
   const copyAddress = useCallback(() => {
-    const url = chrome?.url;
-    if (!url) return;
-    void navigator.clipboard?.writeText(url).then(
-      () => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1200);
-      },
-      () => {},
-    );
-  }, [chrome?.url]);
+    if (!address) return;
+    void copyText(address).then((ok) => {
+      if (!ok) return;
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    });
+  }, [address]);
 
   if (!chrome) return null;
 
-  const address = prettyUrl(chrome.url);
   const DeviceGlyph = DEVICE_GLYPH[chrome.deviceMode] ?? Monitor;
 
   return (

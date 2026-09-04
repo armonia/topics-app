@@ -349,6 +349,48 @@ The system SHALL support creating conversation checkpoints as snapshots, display
 - **AND** only the compact bar with count and dots remains visible
 
 
+### Requirement: CHAT-CHANGES-01 - Cosa ha toccato questa conversazione
+
+Il sistema SHALL ricavare dalle tool call di scrittura di un topic (`detail.type` `write`
+o `edit`) l'elenco dei file che quella conversazione ha creato, modificato o cancellato, e
+SHALL esporlo su `GET /api/topics/:id/changes` come `{ files: [{ path, kind, turns, lastAt,
+added?, removed? }], git: { root, branch, dirty } | null }`.
+
+Quando il topic lavora dentro un repository git, il sistema SHALL incrociare quei path con
+`git status --porcelain` e `git diff --numstat` LIMITATI a quei path: i conteggi e lo stato
+descrivono il lavoro di QUESTA conversazione, non lo sporco dell'intero repository. Fuori da
+un repository la risposta SHALL restare utile (i path e il tipo dedotto dalle tool call) con
+`git: null`.
+
+Nell'intestazione della chat il sistema SHALL mostrare un chip con il numero dei file; il
+chip SHALL essere assente quando la conversazione non ha scritto nulla. L'elenco SHALL
+aggiornarsi a fine turno (`stream:end`), non a ogni token.
+
+#### Scenario: il chip compare dopo un turno che ha scritto
+- **GIVEN** un topic la cui conversazione contiene una tool call `write` su un file
+- **WHEN** l'utente guarda l'intestazione della chat
+- **THEN** vede un chip con il conteggio dei file toccati
+- **AND** cliccandolo si apre l'elenco con il path relativo e lo stato del file
+
+#### Scenario: una conversazione che non ha scritto niente non mostra il chip
+- **GIVEN** un topic le cui tool call sono solo letture, ricerche e comandi
+- **WHEN** l'utente guarda l'intestazione della chat
+- **THEN** non c'e' nessun chip dei file modificati
+
+#### Scenario: i conteggi vengono da git e riguardano solo i file del topic
+- **GIVEN** un topic dentro un repository con due `write` su file nuovi e un `edit` su un file gia' committato
+- **AND** un altro file del repository sporco, che la conversazione non ha mai nominato
+- **WHEN** si legge `GET /api/topics/:id/changes`
+- **THEN** l'elenco contiene i tre file della conversazione, due come `created` e uno come `modified`
+- **AND** ogni riga porta le righe aggiunte e tolte da `git diff --numstat`
+- **AND** il file sporco che la conversazione non ha toccato non compare
+
+#### Scenario: dalla riga al diff
+- **GIVEN** l'elenco dei file modificati e' aperto
+- **WHEN** l'utente clicca su una riga
+- **THEN** il diff di quel file si apre nella pane editor
+- **AND** un'azione dell'intestazione apre un terminale nella cartella del topic
+
 ### Requirement: CHAT-TOOL-01 — Lo stato "running" copre l'utilizzo reale del tool
 
 Il sistema SHALL mostrare una tool call come attiva (`running`) per tutta la finestra di
@@ -3121,3 +3163,62 @@ turno, semplicemente nessuno compra più turni per perseguirlo.
 - **WHEN** si preme Ferma sulla barra
 - **THEN** l'obiettivo è ancora attivo
 - **AND** alla fine del turno successivo nessuna continuazione parte
+
+### Requirement: CHAT-INT-01 — Un turno interrotto dice perché, e offre una via d'uscita
+
+Quando il sistema chiude un turno che non è arrivato in fondo, il messaggio SHALL
+portare la CAUSA in forma strutturata (il blocco `error` con `cause`, lo stesso
+vocabolario di `stream:end`, e l'istante `at`), non solo un testo appeso in
+fondo alla prosa. Il client SHALL mostrare sopra il composer un banner
+«Risposta interrotta», con la causa scritta nella lingua dell'interfaccia e un
+comando che rimanda l'ultimo messaggio dell'utente. Il marcatore testuale in
+`content` SHALL restare, come fallback per i client che non sanno leggere la
+causa.
+
+Il banner NON SHALL comparire quando il turno lo ha fermato la persona (`cause`
+`user`: quel caso ha già il suo banner), quando il turno sta ancora rispondendo,
+e su una riga senza `cause` (scritta prima che questo campo esistesse: assente
+vuol dire «non attribuito», non «watchdog»).
+
+#### Scenario: Il watchdog chiude un turno e il banner lo dice
+- **GIVEN** un turno in corso che ha già scritto della prosa
+- **WHEN** il watchdog lo chiude perché il processo del fornitore è morto
+- **THEN** il messaggio porta un blocco `error` con `cause: "watchdog"` e l'istante
+- **AND** sopra il composer compare il banner «Risposta interrotta» con la causa in chiaro
+
+#### Scenario: Il turno si interrompe mentre lo si sta guardando
+- **GIVEN** una chat aperta con un turno che sta rispondendo
+- **WHEN** arriva la fine del turno con la causa (`stopCause`) e nessuno ricarica la pagina
+- **THEN** il banner compare da sé, con la causa in chiaro
+- **AND** la prosa già scritta resta al suo posto
+
+#### Scenario: Una fine pulita non accende nessun banner
+- **GIVEN** una chat aperta con un turno che sta rispondendo
+- **WHEN** il turno finisce normalmente, senza causa di interruzione
+- **THEN** nessun banner compare
+
+#### Scenario: Il reaper d'inattività chiude un turno tagliato a metà risposta
+- **GIVEN** un turno che ha già scritto una risposta lunga
+- **WHEN** il reaper d'inattività lo chiude perché il processo figlio è morto
+- **THEN** la prosa già scritta resta al suo posto
+- **AND** in fondo alla sua timeline compare il verdetto con `cause: "watchdog"` e l'istante
+- **AND** una seconda passata del reaper non aggiunge un secondo verdetto
+
+#### Scenario: Una riga senza timeline non si riscrive
+- **GIVEN** un turno chiuso dal reaper la cui timeline è vuota
+- **THEN** il verdetto NON viene scritto nei blocchi
+- **AND** la spiegazione resta quella che il reaper mette in `content`, che è ciò che quella riga disegna
+
+#### Scenario: Riprova rimanda l'ultimo messaggio dell'utente
+- **GIVEN** il banner di turno interrotto a schermo
+- **WHEN** si preme «Riprova»
+- **THEN** l'ultimo messaggio dell'utente riparte come turno nuovo
+
+#### Scenario: Il banner sparisce quando la risposta arriva
+- **GIVEN** il banner di turno interrotto a schermo
+- **WHEN** un turno nuovo risponde sulla stessa chat
+- **THEN** il banner non c'è più
+
+#### Scenario: Uno stop della persona non accende il banner
+- **GIVEN** un turno chiuso con causa `user`
+- **THEN** il banner «Risposta interrotta» non compare

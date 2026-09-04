@@ -14,7 +14,10 @@
  *       - a pane with no real page yet (a new tab: you are here to type),
  *       - Cmd+L, or "Edit address" in the tab menu,
  *       - the tab menu asking for the console or the downloads list, because
- *         those two panels are anchored to buttons that live in that row.
+ *         those two panels are anchored to buttons that live in that row,
+ *       - a download that STARTS: the only event allowed to bring the row up
+ *         without being asked, because it is the only one that happens while
+ *         you are looking elsewhere.
  *     And it goes away again on the next navigation, which is the gesture that
  *     says you are done typing.
  *
@@ -125,9 +128,29 @@ export function useBrowserChromeBridge(
     if (isRealUrl(url) && revealed) setRevealed(false);
   }
 
-  // A download that starts used to bring the row back (its list is anchored
-  // there). Since 2026-09-03 the tab menu carries the downloads entry and its
-  // count: nothing brings the row back on its own any more.
+  // A DOWNLOAD IS THE ONE EVENT THAT SPEAKS FIRST.
+  //
+  // Between 2026-09-03 and this card nothing did: `downloadsStarted` arrived
+  // here and was dropped, the row only came up when asked, and the tab menu
+  // entry it was supposed to be replaced by is behind three dots that stay
+  // invisible until you hover them. A file landed on the disk and the app said
+  // nothing at all - no bubble, no badge, no toast.
+  //
+  // So the bump brings the row back and opens the list anchored to it, which is
+  // what the spec (remote-browser, "A download announces itself in the toolbar")
+  // and its E2E have kept asserting all along. It is not the focus behaviour
+  // that was removed: that one appeared because you clicked, this one appears
+  // because something happened while you were not looking. And the next
+  // navigation takes it away again, like any other reveal.
+  const started = input.downloadsStarted;
+  const [seenStarted, setSeenStarted] = useState(started);
+  if (started !== seenStarted) {
+    setSeenStarted(started);
+    if (started > seenStarted) {
+      setRevealed(true);
+      setDownloadsRequestOpen((n) => n + 1);
+    }
+  }
 
   /**
    * THE ROW SHOWS WHEN YOU ASKED FOR IT, OR WHEN THERE IS NOWHERE TO GO.
