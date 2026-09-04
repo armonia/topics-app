@@ -419,3 +419,42 @@ non perde i propri pannelli.
 - **GIVEN** un pannello su un percorso che non esiste e non ha un gemello in `~/Projects`
 - **WHEN** il client scrive `pane-store-v2`
 - **THEN** il pannello resta com'è
+
+### Requirement: PROJECT-12 — Zero modifiche git non è un numero da mostrare: è una sezione che non c'è
+
+Le superfici che raccontano le modifiche git NON SHALL comparire quando le modifiche
+sono zero. Un riquadro intitolato «modifiche git» con scritto «0 file» spende una riga
+per dire che non è successo niente, e la riga vale più di quell'informazione.
+
+Nella sidebar del progetto la sezione git (e il suo bottone nella striscia compatta)
+SHALL comparire solo quando il repository ha qualcosa da dire: file non committati,
+oppure commit avanti o indietro rispetto al remoto. I commit non spinti restano dentro
+perché sono lavoro in volo, non pulizia.
+
+La condizione SHALL essere VIVA: la sezione torna da sola alla prima modifica, senza
+riaprire il progetto.
+
+Sulla card della board la pastiglia delle modifiche git SHALL sparire quando il
+conteggio letto è zero. Un conteggio ANCORA NON MISURATO non è uno zero: durante un
+turno in corso la pastiglia resta, senza numero, perché «non l'ho ancora contato» e
+«non è cambiato niente» sono due frasi diverse.
+
+Quando invece le modifiche ci sono, conteggi e pastiglie SHALL restare esattamente
+com'erano.
+
+#### Scenario: un progetto pulito
+- **GIVEN** un repository senza modifiche e allineato al remoto
+- **THEN** nella sidebar non c'è nessuna sezione «modifiche git», né il suo bottone
+
+#### Scenario: la prima modifica la fa tornare
+- **GIVEN** lo stesso progetto pulito
+- **WHEN** un file cambia sul disco
+- **THEN** la sezione compare, col conteggio di sempre
+
+#### Scenario: commit non spinti
+- **GIVEN** un repository senza modifiche ma con un commit avanti al remoto
+- **THEN** la sezione resta visibile
+
+#### Scenario: la card di un turno in corso
+- **GIVEN** una consegna che non ha ancora un conteggio
+- **THEN** la pastiglia resta, e sparisce solo se il conteggio letto è zero

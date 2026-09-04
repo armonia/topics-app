@@ -138,6 +138,35 @@ function stripComments(src: string): string {
   let prev = "";
 
   const blank = (s: string) => s.replace(/[^\n]/g, " ");
+
+  /**
+   * Walk the body of a template literal from `at` and answer where the copy
+   * stops: after its closing backtick, or at the `${` that hands control back
+   * to code (which is why it may raise `templateDepth`). Both the opening
+   * backtick and the `}` that closes an expression continue into the same
+   * body, and writing that walk twice is how the two halves drift.
+   */
+  const scanTemplateBody = (at: number): number => {
+    let j = at;
+    while (j < src.length) {
+      if (src[j] === "\\") {
+        j += 2;
+        continue;
+      }
+      if (src[j] === "`") {
+        j++;
+        break;
+      }
+      if (src[j] === "$" && src[j + 1] === "{") {
+        j += 2;
+        templateDepth++;
+        break;
+      }
+      j++;
+    }
+    return j;
+  };
+
   const REGEX_CAN_FOLLOW = new Set(["", "(", ",", "=", ":", "[", "!", "&", "|", "?", "{", "}", ";", "+", "-", "*", "%", "~", "^", "<", ">", "\n"]);
 
   while (i < src.length) {
@@ -203,23 +232,7 @@ function stripComments(src: string): string {
     if (c === "`") {
       // Template literal: copy through, but stop at `${` so the expression
       // inside is scanned as code again (it may hold a comment).
-      let j = i + 1;
-      while (j < src.length) {
-        if (src[j] === "\\") {
-          j += 2;
-          continue;
-        }
-        if (src[j] === "`") {
-          j++;
-          break;
-        }
-        if (src[j] === "$" && src[j + 1] === "{") {
-          j += 2;
-          templateDepth++;
-          break;
-        }
-        j++;
-      }
+      const j = scanTemplateBody(i + 1);
       out.push(src.slice(i, j));
       i = j;
       continue;
@@ -230,23 +243,7 @@ function stripComments(src: string): string {
       templateDepth--;
       out.push(c);
       i++;
-      let j = i;
-      while (j < src.length) {
-        if (src[j] === "\\") {
-          j += 2;
-          continue;
-        }
-        if (src[j] === "`") {
-          j++;
-          break;
-        }
-        if (src[j] === "$" && src[j + 1] === "{") {
-          j += 2;
-          templateDepth++;
-          break;
-        }
-        j++;
-      }
+      const j = scanTemplateBody(i);
       out.push(src.slice(i, j));
       i = j;
       continue;
