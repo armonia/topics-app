@@ -144,6 +144,7 @@ import m20260829173000_notifiche_il_cui_soggetto_e_andato_avanti from "./migrati
 import m20260830225759_amicizie from "./migrations/20260830225759-amicizie.sql" with { type: "text" };
 import m20260903092935_delivery_uncommitted_files from "./migrations/20260903092935-delivery-uncommitted-files.sql" with { type: "text" };
 import m20260903232650_goal_continuazione from "./migrations/20260903232650-goal-continuazione.sql" with { type: "text" };
+import m20260904101008_done_cards_keep_no_dispatch_error from "./migrations/20260904101008-done-cards-keep-no-dispatch-error.sql" with { type: "text" };
 import m20260904100239_approvals_whose_task_left_review from "./migrations/20260904100239-approvals-whose-task-left-review.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
@@ -293,5 +294,6 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260830225759, name: "20260830225759-amicizie.sql", sql: m20260830225759_amicizie },
   { version: 20260903092935, name: "20260903092935-delivery-uncommitted-files.sql", sql: m20260903092935_delivery_uncommitted_files },
   { version: 20260903232650, name: "20260903232650-goal-continuazione.sql", sql: m20260903232650_goal_continuazione },
+  { version: 20260904101008, name: "20260904101008-done-cards-keep-no-dispatch-error.sql", sql: m20260904101008_done_cards_keep_no_dispatch_error },
   { version: 20260904100239, name: "20260904100239-approvals-whose-task-left-review.sql", sql: m20260904100239_approvals_whose_task_left_review },
 ];

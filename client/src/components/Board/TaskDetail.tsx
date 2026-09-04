@@ -46,6 +46,7 @@ import { collectTaskMediaPaths } from './taskMedia';
 import { TaskChoiceRow } from './TaskChoiceRow';
 import { taskActionErrorMessage } from './taskActionError';
 import { usableQuestionOptions } from './taskChoices';
+import { showsStoppedChip } from './stoppedChip';
 import { drawerSurfaceLabels, reviewDecisionButtons, taskActionWord } from './taskActionWords';
 import { TASK_ACTION_ICON } from './taskActionIcons';
 import { manualStatusTarget } from '../../lib/boardOrder';
@@ -1893,8 +1894,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               <QueueReasonChip reason={task.queueReason} />
             ) : (task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
               <DispatchChip state={task.dispatchState} error={task.dispatchError} deliveredBy={task.deliveredBy} />
-            ) : (!task.dispatchState && task.dispatchError) ? (
-              <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] text-rose-300" title={task.dispatchError}>{tr('board.task.stopped')}</span>
+            ) : showsStoppedChip(task) ? (
+              // Same rule as the card, one module: `stoppedChip.ts`.
+              <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] text-rose-300" title={task.dispatchError ?? undefined}>{tr('board.task.stopped')}</span>
             ) : null}
           </div>
         )}

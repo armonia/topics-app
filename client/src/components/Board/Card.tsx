@@ -29,6 +29,7 @@ import { useLandingTicket } from './useLandingTicket';
 import { taskActionErrorMessage } from './taskActionError';
 import { choiceForText, taskChoices, usableQuestionOptions } from './taskChoices';
 import { taskChoiceState } from './taskChoices';
+import { showsStoppedChip } from './stoppedChip';
 import { sendBackDest, sendBackWord, taskActionWord } from './taskActionWords';
 import { useT, useLocale } from '../../hooks/useT';
 import { stripMarkdown } from '../../lib/stripMarkdown';
@@ -1486,8 +1487,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           <QueueReasonChip reason={task.queueReason} />
         ) : (task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
           <DispatchChip state={task.dispatchState} error={task.dispatchError} deliveredBy={task.deliveredBy} hasWork={taskHasWork(task)} />
-        ) : (!task.dispatchState && task.dispatchError) ? (
-          <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-rose-300" title={task.dispatchError}>{tr('board.task.stopped')}</span>
+        ) : showsStoppedChip(task) ? (
+          // Not on a done card: see `stoppedChip.ts`.
+          <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-rose-300" title={task.dispatchError ?? undefined}>{tr('board.task.stopped')}</span>
         ) : null}
         {/* Il primo tratto del turno, quello in cui la card sembra ferma:
             l'agente sta leggendo e inquadrando, e il titolo che si sta per
