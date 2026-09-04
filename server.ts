@@ -4,6 +4,8 @@ import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
 import { bonificaTurniMuti } from "./server/lib/verdetto-turno-interrotto";
 import { riprendiTurniInterrotti } from "./server/lib/ripresa-boot";
 import { providerHold, holdUntilLabel, onProviderHold } from "./server/lib/provider-hold";
+import { getAccessToken } from "./server/providers/native/auth";
+import { releaseHoldIfFreed } from "./server/providers/native/usage-window";
 import { spiegaTurnoTroncato } from "./server/lib/turno-troncato";
 import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, rmSync, readlinkSync, realpathSync } from "fs";
 import { timingSafeEqual } from "crypto";
@@ -4965,6 +4967,40 @@ onProviderHold((hold) => {
     ? { type: "provider:hold", untilMs: hold.untilMs, window: hold.window, reason: hold.reason, sinceMs: hold.sinceMs }
     : { type: "provider:hold", untilMs: null, window: null, reason: null, sinceMs: null });
 });
+
+// A HOLD MUST BE ABLE TO END ON ITS OWN. The memo is cleared by a successful
+// NATIVE turn (`agent-loop.ts` calls `releaseHoldIfFreed`), and by nothing else.
+// But the dispatcher and the resume sweep both WAIT on the hold, so while it is
+// in force no card turn starts, and on a machine whose board runs claude-code a
+// native turn may never run at all. And when the person switches account
+// (`claude /login` → a fresh, unspent window) the old hold has no reason left.
+// Measured 2026-09-04: a hold set from the OLD account's spent week (reset
+// 2026-09-09) froze the whole board for days while the NEW account sat at 73%,
+// because the only release path could not fire behind the wall it created. So
+// while a hold is in force we re-read the usage endpoint with the CURRENT
+// credential on a short timer and lift it the instant no window is spent — an
+// account switch or a silent free heals within one tick, not on the next boot.
+const HOLD_RECHECK_MS = 90_000;
+function scheduleHoldRecheck(): void {
+  const t = setTimeout(() => {
+    void (async () => {
+      try {
+        if (providerHold()) {
+          const token = await getAccessToken();
+          if (token && await releaseHoldIfFreed(token)) {
+            console.log("[provider-hold] lifted: the usage endpoint no longer marks any window spent (current credential)");
+          }
+        }
+      } catch (err) {
+        console.error("[provider-hold] recheck failed", err);
+      } finally {
+        scheduleHoldRecheck();
+      }
+    })();
+  }, HOLD_RECHECK_MS);
+  t.unref?.();
+}
+scheduleHoldRecheck();
 
 // ── Worktree GC — origin fix for worktree pile-up ──────────────────────────
 // La decisione sta in `server/services/worktree-gc.ts` (`sweepWorktrees`), il
