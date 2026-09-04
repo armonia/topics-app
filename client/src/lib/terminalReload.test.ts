@@ -4,7 +4,7 @@
  * THE TOAST WITH THE BRACES IN IT.
  *
  * The «Ricarica» gesture was cured once already: it checks `res.ok` and drops   allow-italian: quoted UI string
- * the "Riavvio…" overlay on a refusal. What it then showed was the response
+ * the restart overlay on a refusal. What it then showed was the response
  * body RAW — and `errorResponse` on the server always serialises
  * `{"error": "..."}`. So the cure delivered, literally,
  * `{"error":"Reload already in progress for this session"}`: braces, English,

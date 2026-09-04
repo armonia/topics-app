@@ -26,9 +26,42 @@ import {
   resetProjectPanes,
 } from "./api-fixtures";
 import { goToApp } from "../helpers";
+import { realpathSync } from "node:fs";
 
 /** Il progetto su cui girano i test dei terminali: /tmp esiste sempre (su macOS è un symlink a /private/tmp). */
 export const TERMINAL_PROJECT_PATH = "/tmp";
+
+/**
+ * THE ROW IS LABELLED WITH THE RESOLVED PATH, and on macOS that is not `/tmp`.
+ *
+ * The project row carries the path the SERVER registered, and creating a topic
+ * on `/tmp` registers it through a realpath: on macOS `/tmp` is a symlink, so
+ * the button reads `/private/tmp`. Measured on a fresh e2e database: every
+ * terminal spec died on `button[title="/tmp"]` after ten seconds, blaming the
+ * sidebar for a name it never had. Matching both spellings costs one selector
+ * and removes a whole family of false reds.
+ */
+const PROJECT_PATH_SPELLINGS = [...new Set([
+  TERMINAL_PROJECT_PATH,
+  (() => { try { return realpathSync(TERMINAL_PROJECT_PATH); } catch { return TERMINAL_PROJECT_PATH; } })(),
+])];
+
+/**
+ * CSS for a button carrying `text` as its label, in both places it can live.
+ *
+ * `TooltipDelegate` moves the value of `title` onto `data-tip` on `mouseover`
+ * and puts it back on `mouseout`, and Playwright leaves the pointer where it
+ * was: from the second call on, a `title`-only selector looks for an attribute
+ * the previous hover already stripped.
+ */
+function labelledButton(text: string): string {
+  return `button[title="${text}"], button[data-tip="${text}"]`;
+}
+
+/** The project row, whichever spelling of its path the server registered. */
+export function projectRowSelector(): string {
+  return PROJECT_PATH_SPELLINGS.map(labelledButton).join(", ");
+}
 
 /**
  * Stato di partenza noto per OGNI test (retry-safe: gira a ogni tentativo).
@@ -106,7 +139,7 @@ export async function gotoTerminalProject(page: Page, topicName: string): Promis
     }
   }
 
-  const projectHeader = page.locator(`button[title="${TERMINAL_PROJECT_PATH}"]`);
+  const projectHeader = page.locator(projectRowSelector()).first();
   await projectHeader.waitFor({ state: "visible", timeout: 10000 });
   await projectHeader.click();
 
@@ -160,11 +193,10 @@ export async function clickAddShell(page: Page): Promise<void> {
    * Matching both forms is not a patch: `data-tip` IS where the title lives
    * while the mouse is over the row, which is exactly the state this helper
    * works in. */
-  const sel = (t: string) => `button[title="${t}"], button[data-tip="${t}"]`;
-  const projectHeader = page.locator(sel(TERMINAL_PROJECT_PATH)).first();
+  const projectHeader = page.locator(projectRowSelector()).first();
   // The "+" is `opacity-0` until the row is hovered.
   await projectHeader.hover();
-  const addBtn = projectHeader.locator("..").locator(sel("Add to project")).first();
+  const addBtn = projectHeader.locator("..").locator(labelledButton("Add to project")).first();
   await addBtn.waitFor({ state: "visible", timeout: 5000 });
   await addBtn.click();
 
