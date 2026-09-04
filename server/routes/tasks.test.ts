@@ -2049,6 +2049,26 @@ describe("le due risposte allo stallo dei sottotask parcheggiati", () => {
     expect(broadcasts.filter((b) => b.type === "task:updated" && b.task?.id === figlio)).toHaveLength(1);
   });
 
+  test("un rifiuto su una card SENZA sessione la rimette in coda, non la lascia in lavorazione senza nessuno", async () => {
+    // 2026-09-04: quattro card rifiutate dopo che un riavvio a dispatch spento
+    // aveva sciolto il binding: `resume` torna sul topic mancante e il
+    // reconcile salta chi non ha un chip, quindi restavano in_progress per
+    // sempre. Il rifiuto ora le rimanda in todo, con il thread.
+    const p = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "orfana in review" }))!.json();
+    db.prepare("UPDATE tasks SET status = 'review', assigned_topic_id = NULL, dispatch_state = NULL WHERE id = ?").run(p.id);
+    const t = await (await call(router, "POST", `/api/boards/pX/tasks/${p.id}/review`, {
+      decision: "reject", comment: "manca il test rosso prima",
+    }))!.json();
+
+    expect(t.status).toBe("todo");
+    expect(resumed).toEqual([]);
+    expect(todos).toEqual([p.id]);
+    const note = db.prepare(
+      "SELECT content FROM task_comments WHERE task_id = ? AND author = 'system' AND content LIKE 'Rifiutata senza una sessione%'",
+    ).get(p.id) as { content: string } | null;
+    expect(note).not.toBeNull();
+  });
+
   test("«archivia»: il figlio sparisce e il padre torna in coda", async () => {
     const { padre, figlio } = await padreCheChiede();
     const t = await (await call(router, "POST", `/api/boards/pX/tasks/${padre}/review`, {

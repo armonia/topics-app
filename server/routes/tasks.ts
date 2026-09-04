@@ -2791,6 +2791,31 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           if (dispatcher && decision === "reject" && task.assignedTopicId) {
             dispatcher.resume(bReview.taskId, comment ?? "")
               .catch((err) => console.warn(`[Tasks] resume after reject failed for ${bReview.taskId}:`, err));
+          } else if (dispatcher && decision === "reject") {
+            // No session to resume: the binding was released (a restart with
+            // dispatch off, a requeue) before the human rejected. Left here the
+            // card sits in_progress with nobody on it and nothing that will ever
+            // claim it: `resume` returns on a missing topic, and the reconcile
+            // skips a card with no dispatch chip. Read on 2026-09-04, four cards
+            // at once, 40 minutes each before anyone noticed. Back to todo, where
+            // the dispatcher claims it fresh with the thread (feedback included).
+            try {
+              const requeued = svc.update({
+                taskId: bReview.taskId, actor: "human", by: HUMAN, projectId: bReview.projectId,
+                patch: { status: "todo" },
+              });
+              try {
+                svc.addComment({
+                  taskId: bReview.taskId, author: "system", kind: "service",
+                  content: "Rifiutata senza una sessione da riprendere (il binding all'agente era sciolto): torna in coda e riparte con il thread, invece di restare in lavorazione senza nessuno.",
+                });
+              } catch { /* the requeue is what matters */ }
+              broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task: requeued });
+              if (requeued.status === "todo") dispatcher.onEnterTodo(bReview.projectId, bReview.taskId);
+              return json(requeued);
+            } catch (err) {
+              console.warn(`[Tasks] requeue after unbound reject failed for ${bReview.taskId}:`, err);
+            }
           }
           // Approve = ACCEPT the task only (→ done, dependents claimable). It no
           // longer merges/builds/reaps "da sotto": landing is now an EXPLICIT step
