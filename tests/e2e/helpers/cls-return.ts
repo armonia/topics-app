@@ -15,7 +15,7 @@
  * one go, and that is not the gesture the card asks for. The two numbers are a
  * pair: zero movement AND content on the first frame.
  */
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "fs";
 import { resolve } from "path";
 
@@ -121,7 +121,62 @@ export async function armObserver(page: Page): Promise<void> {
         });
       }
     }).observe({ type: "layout-shift", buffered: true });
+
+    // WHEN THE PAGE STOPPED DOING THINGS, so the observation can end on a
+    // condition instead of on a stopwatch. Every request the reload fires
+    // stamps its departure and its answer here; `settledUntilQuiet` then asks
+    // for a stretch with no request and no shift in it. Only the START of a
+    // stream is stamped, never its chunks: an SSE connection stays open for the
+    // life of the page and would otherwise mean "never quiet".
+    const marks = window as unknown as { __lastNetAt: number };
+    marks.__lastNetAt = 0;
+    const stamp = () => { marks.__lastNetAt = performance.now(); };
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = ((...args: Parameters<typeof fetch>) => {
+      stamp();
+      return originalFetch(...args).then(
+        (r) => { stamp(); return r; },
+        (e) => { stamp(); throw e; },
+      );
+    }) as typeof fetch;
+    const openXhr = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function (this: XMLHttpRequest, ...args: unknown[]) {
+      stamp();
+      this.addEventListener("loadend", stamp);
+      return (openXhr as unknown as (...a: unknown[]) => unknown).apply(this, args);
+    } as typeof XMLHttpRequest.prototype.open;
   });
+}
+
+/**
+ * THE END OF THE OBSERVATION IS A CONDITION, not a clock.
+ *
+ * This used to be `waitForTimeout(6000)`, and six seconds is a bet: too short
+ * and a late fetch moves the page after nobody is looking, too long and every
+ * pane pays for the worst case. The claim being tested is "everything this
+ * reload asked for has arrived AND nothing moved because of it", so the wait
+ * ends when both halves are true: the document is complete, no request has left
+ * or landed for `quietMs`, and no layout shift has been recorded for `quietMs`.
+ * A page that keeps answering keeps the window open by itself; a page that is
+ * done is not watched for five more seconds out of superstition.
+ */
+export async function settledUntilQuiet(
+  page: Page,
+  opts?: { quietMs?: number; timeout?: number },
+): Promise<void> {
+  const quietMs = opts?.quietMs ?? 2000;
+  await page.waitForFunction(
+    (ms: number) => {
+      if (document.readyState !== "complete") return false;
+      const w = window as unknown as { __clsShifts?: Array<{ at: number }>; __lastNetAt?: number };
+      const shifts = w.__clsShifts ?? [];
+      const lastShift = shifts.length ? shifts[shifts.length - 1]!.at : 0;
+      const last = Math.max(lastShift, w.__lastNetAt ?? 0);
+      return performance.now() - last >= ms;
+    },
+    quietMs,
+    { timeout: opts?.timeout ?? 20000, polling: 100 },
+  );
 }
 
 /**
@@ -181,6 +236,40 @@ export function sessionCls(shifts: Shift[]): number {
     if (sum > best) best = sum;
   }
   return best;
+}
+
+/**
+ * WAIT FOR THE LOCAL COPY, not for a clock.
+ *
+ * Every one of these measurements is about the frame drawn BEFORE any answer
+ * arrives, so the state that decides the verdict is the snapshot in
+ * `localStorage`. Reloading before it is written measures a first visit and
+ * calls it a return. The condition is therefore the key itself: it is there, and
+ * (when a needle is given) it carries the content the next frame has to draw.
+ */
+export async function waitForLocalCopy(page: Page, keyPrefix: string, needle?: string): Promise<void> {
+  await expect
+    .poll(
+      async () =>
+        await page.evaluate(
+          ({ prefix, text }: { prefix: string; text?: string }) => {
+            for (let i = 0; i < localStorage.length; i++) {
+              const key = localStorage.key(i);
+              if (!key || !key.startsWith(prefix)) continue;
+              const value = localStorage.getItem(key) || "";
+              if (value.length <= 2) continue;
+              if (!text || value.includes(text)) return true;
+            }
+            return false;
+          },
+          { prefix: keyPrefix, text: needle },
+        ),
+      {
+        timeout: 20000,
+        message: `the local copy under "${keyPrefix}"${needle ? ` carrying "${needle}"` : ""} was never written`,
+      },
+    )
+    .toBe(true);
 }
 
 export async function collectShifts(page: Page): Promise<Shift[]> {

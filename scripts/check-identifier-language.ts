@@ -321,6 +321,14 @@ export const PROJECT_WORDS = new Set([
   // that reads `st.mtimeMs` would make the code harder to follow, not more
   // English.
   "mtime",
+  // Two words the terminal and the bundler own. `scrollback` is what a terminal
+  // emulator calls the lines that scrolled past (xterm.js exposes it as the
+  // `scrollback` option, and this product's own pitch is that it survives a
+  // restart), and `preload` is the platform's verb for asking for a resource
+  // before it is needed (`<link rel="preload">`, Vite's `__vitePreload`). A
+  // helper that reads one and calls the other cannot be named after anything
+  // else without describing a different thing.
+  "scrollback", "preload",
 ]);
 
 function trackedFiles(): string[] {

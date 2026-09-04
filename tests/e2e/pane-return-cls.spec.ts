@@ -6,7 +6,7 @@ import { hermetic } from "./fixtures/hermetic";
 import { FileExplorerPage } from "./fixtures/file-explorer.fixture";
 import { E2E_BASE } from "./helpers/test-server";
 import { projectIdForPath } from "../../shared/board";
-import { resetPaneStore, seedProjectPane } from "./helpers/api-fixtures";
+import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
 import {
   seedFileProject,
   cleanupFileProject,
@@ -25,7 +25,9 @@ import {
   buildReport,
   collectFullness,
   collectShifts,
+  settledUntilQuiet,
   summarize,
+  waitForLocalCopy,
   writeReport,
   type ClsReport,
 } from "./helpers/cls-return";
@@ -42,8 +44,9 @@ hermetic(test);
  *
  * The method is the one declared in `refresh-cls.spec.ts` and implemented once
  * in `helpers/cls-return.ts`: observer armed before any line of the app, second
- * load (the first only warms what the client keeps locally), six seconds of
- * observation without a single interaction, web-vitals session windows.
+ * load (the first only warms what the client keeps locally), observation without
+ * a single interaction until the page is quiet (no request, no shift),
+ * web-vitals session windows.
  *
  * TWO numbers per surface, because one alone can be gamed:
  *   CLS       nothing moved  (budget 0.01, the noise of a presence dot)
@@ -89,7 +92,7 @@ async function measureReturn(page: Page, selector: string, name: string): Promis
   await armObserver(page);
   await armFullness(page, selector);
   await page.reload({ waitUntil: "commit" });
-  await page.waitForTimeout(6000);
+  await settledUntilQuiet(page);
   const report = buildReport(await collectShifts(page), {
     fullness: await collectFullness(page, selector),
   });
@@ -136,7 +139,8 @@ test.describe("BOARD - the kanban returns without moving", () => {
         await page.getByTestId("pane-add-menu-trigger").first().click();
         await page.getByTestId("pane-add-menu-board").click();
         await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15000 });
-        await page.waitForTimeout(3000);
+        await waitForLocalCopy(page, "board-rows-cache:");
+        await waitForPaneStoreQuiet(request);
         expectQuietAndFull(await measureReturn(page, '[data-testid="kanban-board"]', `board-${vp.name}`));
       });
     });
@@ -157,22 +161,23 @@ test.describe("FILES - the tree and the open file return without moving", () => 
     test.describe(`viewport ${vp.name}`, () => {
       test.use({ viewport: { width: vp.width, height: vp.height } });
 
-      test(`a return does not move the file tree (${vp.name})`, async ({ page }) => {
+      test(`a return does not move the file tree (${vp.name})`, async ({ page, request }) => {
         test.info().annotations.push({ type: "spec", description: "PERF-01" });
         const explorer = new FileExplorerPage(page);
         await explorer.gotoProject(project!.tmpDir, project!.topicName);
-        await page.waitForTimeout(3000);
+        await waitForPaneStoreQuiet(request);
         expectQuietAndFull(await measureReturn(page, '[data-testid="file-tree"]', `files-${vp.name}`));
       });
 
-      test(`a return does not move an open file (${vp.name})`, async ({ page }) => {
+      test(`a return does not move an open file (${vp.name})`, async ({ page, request }) => {
         test.info().annotations.push({ type: "spec", description: "PERF-01" });
         const explorer = new FileExplorerPage(page);
         await explorer.gotoProject(project!.tmpDir, project!.topicName);
         const item = explorer.fileTree.getByRole("treeitem", { name: /package\.json/ }).first();
         await item.click();
         await expect(page.getByTestId("file-pane").first()).toBeVisible({ timeout: 15000 });
-        await page.waitForTimeout(3000);
+        await waitForLocalCopy(page, "file-content-cache");
+        await waitForPaneStoreQuiet(request);
         expectQuietAndFull(await measureReturn(page, '[data-testid="file-pane"]', `editor-${vp.name}`));
       });
     });
@@ -242,7 +247,7 @@ test.describe("OPEN - a file already seen opens on the click", () => {
   });
 
   test.use({ viewport: { width: WIDE.width, height: WIDE.height } });
-  test("the text is on screen within a frame of the click", async ({ page }) => {
+  test("the text is on screen within a frame of the click", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "PERF-01" });
     const explorer = new FileExplorerPage(page);
     await explorer.gotoProject(project!.tmpDir, project!.topicName);
@@ -257,7 +262,11 @@ test.describe("OPEN - a file already seen opens on the click", () => {
     await expect(pane).toContainText("e2e-test-project", { timeout: 15000 });
     await explorer.fileTree.getByRole("treeitem", { name: /newfile\.txt/ }).first().click();
     await expect(pane).toContainText("new content", { timeout: 15000 });
-    await page.waitForTimeout(1500);
+    // Both files have to be IN the local copy before the reload: the measured
+    // gesture is opening the one that is not on screen, and it can only be
+    // instant if its text is already there.
+    await waitForLocalCopy(page, "file-content-cache", "e2e-test-project");
+    await waitForLocalCopy(page, "file-content-cache", "new content");
 
     // Back to a page showing newfile.txt, with package.json's text in the local
     // copy but nowhere on screen.
@@ -265,7 +274,7 @@ test.describe("OPEN - a file already seen opens on the click", () => {
     await page.reload({ waitUntil: "commit" });
     await expect(explorer.fileTree.first()).toBeVisible({ timeout: 20000 });
     await expect(pane).toContainText("new content", { timeout: 20000 });
-    await page.waitForTimeout(2000);
+    await waitForPaneStoreQuiet(request);
 
     await armOpenClock(page, "e2e-test-project");
     await explorer.fileTree.getByRole("treeitem", { name: /package\.json/ }).first().click();
@@ -298,7 +307,8 @@ test.describe("TERMINAL - the shell returns without moving", () => {
         await gotoTerminalProject(page, topic!.topicName);
         await clickAddShell(page);
         await expect(page.locator(".xterm-rows").first()).toBeVisible({ timeout: 20000 });
-        await page.waitForTimeout(3000);
+        await waitForLocalCopy(page, "terminal-scrollback-cache");
+        await waitForPaneStoreQuiet(request);
         // Either is terminal TEXT on screen: the seed drawn from the local copy
         // on the first frame, or xterm's own rows once the replay has landed.
         expectQuietAndFull(
