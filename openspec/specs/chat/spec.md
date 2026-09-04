@@ -3101,6 +3101,17 @@ vuol dire «non attribuito», non «watchdog»).
 - **THEN** il messaggio porta un blocco `error` con `cause: "watchdog"` e l'istante
 - **AND** sopra il composer compare il banner «Risposta interrotta» con la causa in chiaro
 
+#### Scenario: Il turno si interrompe mentre lo si sta guardando
+- **GIVEN** una chat aperta con un turno che sta rispondendo
+- **WHEN** arriva la fine del turno con la causa (`stopCause`) e nessuno ricarica la pagina
+- **THEN** il banner compare da sé, con la causa in chiaro
+- **AND** la prosa già scritta resta al suo posto
+
+#### Scenario: Una fine pulita non accende nessun banner
+- **GIVEN** una chat aperta con un turno che sta rispondendo
+- **WHEN** il turno finisce normalmente, senza causa di interruzione
+- **THEN** nessun banner compare
+
 #### Scenario: Il reaper d'inattività chiude un turno tagliato a metà risposta
 - **GIVEN** un turno che ha già scritto una risposta lunga
 - **WHEN** il reaper d'inattività lo chiude perché il processo figlio è morto

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { turnErrorOf, turnIsOnlyError, turnLooksUnanswered, interruptedTurnOf, TURN_CAUSE_KEY } from './turnError';
+import { turnErrorOf, turnIsOnlyError, turnLooksUnanswered, interruptedTurnOf, liveInterruptionBlock, TURN_CAUSE_KEY } from './turnError';
 import { STOP_CAUSES } from '../../../../shared/ws-outbound';
-import type { TurnEndCause } from '../../types';
+import type { ContentBlock, TurnEndCause } from '../../types';
 import it from '../../lib/i18n-it';
 import en from '../../lib/i18n-en';
 
@@ -159,5 +159,50 @@ describe('interruptedTurnOf — chi accende il banner', () => {
       expect(it[key as keyof typeof it]).toBeString();
       expect(en[key as keyof typeof en]).toBeString();
     }
+  });
+});
+
+/**
+ * THE LIVE PATH: the watchdog fires while somebody is watching.
+ *
+ * The row in the DB gets its verdict from the server, but the page holds that
+ * message in memory and `stream:end` used to leave the bubble untouched: the
+ * banner appeared on the next reload, that is, not to the person who was there.
+ */
+describe('liveInterruptionBlock - the verdict built from stream:end', () => {
+  test('a watchdog end becomes the same block the server persisted', () => {
+    const block = liveInterruptionBlock({ stopCause: 'watchdog', error: '⚠️ Response timed out.' });
+    expect(block?.kind).toBe('error');
+    expect(block).toMatchObject({ cause: 'watchdog', text: 'Response timed out.' });
+    expect((block as { at?: string }).at).toBeTruthy();
+  });
+
+  test('an end with only the cause still explains itself: the banner renders the cause', () => {
+    // The reaper's `stream:end` carries no sentence at all.
+    expect(liveInterruptionBlock({ stopCause: 'watchdog' })).toMatchObject({ cause: 'watchdog', text: '' });
+  });
+
+  test('a clean end writes nothing', () => {
+    expect(liveInterruptionBlock({})).toBeNull();
+    expect(liveInterruptionBlock({ stopCause: undefined })).toBeNull();
+  });
+
+  test('a stop by hand writes nothing: it has its own banner', () => {
+    expect(liveInterruptionBlock({ stopCause: 'user' })).toBeNull();
+  });
+
+  test('a cause we cannot render is not printed as a code name', () => {
+    expect(liveInterruptionBlock({ stopCause: 'something-new-nobody-translated' })).toBeNull();
+  });
+
+  test('a row already explained keeps its explanation, not two verdicts', () => {
+    expect(liveInterruptionBlock({ stopCause: 'watchdog', blocks: [errore('già spiegato')] })).toBeNull();
+  });
+
+  test('what it builds is what the banner reads back', () => {
+    // The round trip is the point: live and after a reload must agree.
+    const block = liveInterruptionBlock({ stopCause: 'process-died', error: 'morto' });
+    expect(interruptedTurnOf({ blocks: [testo('a metà'), block as ContentBlock] }))
+      .toMatchObject({ cause: 'process-died' });
   });
 });

@@ -437,6 +437,10 @@ export interface WSStreamEndMessage {
    *  fermato (`watchdog`, `user`, …). Presenti solo su una fine non pulita. */
   stopReason?: string;
   stopCause?: string;
+  /** The server's sentence about the failure, when the end carried one. It is
+   *  the FALLBACK text of the verdict block: the banner renders the translated
+   *  cause, so an end that carries only `stopCause` still explains itself. */
+  error?: string;
   /** Marcatore POSITIVo di fine PULITA (`end_turn`): il modello ha chiuso da
    *  solo. Assente su annullo/limite/errore. Lo legge la push di fine risposta
    *  (server/push-triggers.ts) per non annunciare "risposta pronta" a vuoto. */
