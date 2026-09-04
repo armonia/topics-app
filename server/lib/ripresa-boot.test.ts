@@ -387,24 +387,21 @@ describe("la catena dei riavvii ha un tetto", () => {
     try { await work(); } finally { console.log = log; console.warn = warn; }
   };
 
-  test("tre boot di fila: ripreso, ripreso una seconda volta, poi fermo e detto in chat", async () => {
+  test("boot di fila: ripreso fino al tetto, poi fermo e detto in chat", async () => {
     const db = freshDb();
     const calls: Array<Record<string, unknown>> = [];
     const route = chatRoute(db, calls);
 
-    // Boot 1: the turn died with the server, the notice is written, the resume fires.
-    serverDiedUnderTheTurn(db);
-    await quietly(() => riprendiTurniInterrotti(ctxOf(db), route, { responseMs: 500, streamMs: 500 }));
-    expect(calls.length).toBe(1);
-    expect(calls[0].ripresa).toBe(1);
+    // Boot 1..N: the turn (or its resume) died with the server each time; the
+    // notice is written and the resume fires, attempt numbered along the chain.
+    for (let boot = 1; boot <= MAX_RESUME_ATTEMPTS; boot++) {
+      serverDiedUnderTheTurn(db);
+      await quietly(() => riprendiTurniInterrotti(ctxOf(db), route, { responseMs: 500, streamMs: 500 }));
+      expect(calls.length).toBe(boot);
+      expect(calls[boot - 1].ripresa).toBe(boot);
+    }
 
-    // Boot 2: the RESUMED turn died with the server. One automatic retry.
-    serverDiedUnderTheTurn(db);
-    await quietly(() => riprendiTurniInterrotti(ctxOf(db), route, { responseMs: 500, streamMs: 500 }));
-    expect(calls.length).toBe(2);
-    expect(calls[1].ripresa).toBe(2);
-
-    // Boot 3: cut again. The chain has spent MAX_RESUME_ATTEMPTS: no resend...
+    // Boot N+1: cut again. The chain has spent MAX_RESUME_ATTEMPTS: no resend...
     serverDiedUnderTheTurn(db);
     await quietly(() => riprendiTurniInterrotti(ctxOf(db), route, { responseMs: 500, streamMs: 500 }));
     expect(calls.length).toBe(MAX_RESUME_ATTEMPTS);
@@ -418,7 +415,7 @@ describe("la catena dei riavvii ha un tetto", () => {
     expect(capBlocks.length).toBe(1);
     expect(capBlocks[0].kind).toBe("error");
 
-    // Boot 4: the cap notice is the last row. Nothing resumes, nothing is
+    // Boot N+2: the cap notice is the last row. Nothing resumes, nothing is
     // written twice.
     const rowsBefore = (db.query("SELECT COUNT(*) AS n FROM messages").get() as { n: number }).n;
     await quietly(() => riprendiTurniInterrotti(ctxOf(db), route, { responseMs: 500, streamMs: 500 }));
@@ -426,8 +423,8 @@ describe("la catena dei riavvii ha un tetto", () => {
     expect((db.query("SELECT COUNT(*) AS n FROM messages").get() as { n: number }).n).toBe(rowsBefore);
   });
 
-  test("il tetto e' due: una ripresa e un solo tentativo in piu'", () => {
-    expect(MAX_RESUME_ATTEMPTS).toBe(2);
+  test("il tetto e' quattro: tre riavvii pianificati in quaranta minuti non devono lasciare «premi Riprova» su una chat che nessuno ha toccato", () => {
+    expect(MAX_RESUME_ATTEMPTS).toBe(4);
   });
 
   /**
