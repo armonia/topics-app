@@ -49,7 +49,7 @@ const routed = new Map<string, RoutedAsk>();
 export interface AskRoutingDeps {
   db: Database;
   /** Scrive il commento nel thread. Restituisce false se non ci è riuscito. */
-  comment: (args: { taskId: string; projectId: string; content: string; options: string[] }) => boolean;
+  comment: (args: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string }) => boolean;
   /** Consegna la risposta al rendez-vous della sessione che aspetta. */
   deliver: (sessionKey: string, answers: Record<string, string>) => boolean;
 }
@@ -110,6 +110,9 @@ export function routeAskToTaskThread(
     projectId: owner.projectId,
     content: `${intro}\n\n${q.text}`,
     options: q.options,
+    // The session the question came from: the writer turns it into the anchor
+    // of the assistant row that asked.
+    sessionKey: args.sessionKey,
   });
   if (!ok) return null;
   routed.set(owner.taskId, {

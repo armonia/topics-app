@@ -1378,6 +1378,20 @@ export interface TaskComment {
    * summary the agent hands over. Nothing else may set it.
    */
   kind: 'comment' | 'status' | 'review-note' | 'service' | 'delivery';
+  /**
+   * THE ASSISTANT MESSAGE THIS ROW WAS SAID IN, when a session said it.
+   *
+   * A comment an agent writes (`comment_task`, a delivery summary, a routed
+   * question) happens DURING a message of its own transcript, and the id of
+   * that message is what lets a reader draw the words once instead of twice:
+   * the card thread and the session are two lists of the same turn, and
+   * without the anchor the only thing relating them is the clock.
+   *
+   * Absent is not an error and never was one: everything written before the
+   * column existed, and everything a person writes, carries nothing here. A
+   * reader treats it as "no anchor" and draws both rows.
+   */
+  messageId?: string | null;
 }
 
 /**
