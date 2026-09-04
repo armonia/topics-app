@@ -39,6 +39,12 @@ export interface SondaLivello {
   /** The level of the LAST window, 0-1: what a meter draws while you speak. */
   livello(): number;
   /**
+   * The context's REAL sample rate, which is not always the one that was
+   * asked for: a browser may hand back its native 48 kHz instead. Whoever
+   * streams those samples has to declare this number, not the wish.
+   */
+  sampleRate(): number;
+  /**
    * Chiude il contesto audio.
    *
    * NON e' facoltativo: un `AudioContext` non chiuso resta vivo in WebKit
@@ -50,6 +56,25 @@ export interface SondaLivello {
 /** Intervallo di campionamento: la finestra dell'analizzatore e' ~46 ms, quindi 50 ms copre la registrazione senza buchi utili. */
 const PASSO_MS = 50;
 
+export interface LevelProbeOptions {
+  /**
+   * The rate to ASK the audio context for. Live dictation needs 16 kHz mono,
+   * and asking the context resamples for free; check `sampleRate()` afterwards,
+   * because a browser is allowed to answer with its own.
+   */
+  sampleRate?: number;
+  /**
+   * Receives every block of mono samples, as they are captured.
+   *
+   * WHY IT LIVES IN THE PROBE and not in a module of its own: it is the SAME
+   * AudioContext. Opening a second one over the same microphone means a second
+   * resampler, a second graph and, in WebKit, a second object that survives the
+   * dictation. The probe already holds one, already closes it, and the samples
+   * it is measuring are exactly the ones the socket has to send.
+   */
+  onPcm?: (frame: Float32Array) => void;
+}
+
 /**
  * Attacca una sonda a uno stream gia' aperto.
  *
@@ -57,7 +82,7 @@ const PASSO_MS = 50;
  * diagnosi in piu', non un requisito. Se manca, la dettatura funziona come
  * prima e il messaggio resta quello generico.
  */
-export function ascoltaLivello(stream: MediaStream): SondaLivello | null {
+export function ascoltaLivello(stream: MediaStream, opts: LevelProbeOptions = {}): SondaLivello | null {
   const Ctx: typeof AudioContext | undefined =
     typeof window === 'undefined'
       ? undefined
@@ -67,9 +92,12 @@ export function ascoltaLivello(stream: MediaStream): SondaLivello | null {
 
   let ctx: AudioContext;
   try {
-    ctx = new Ctx();
+    ctx = opts.sampleRate ? new Ctx({ sampleRate: opts.sampleRate }) : new Ctx();
   } catch {
-    return null;
+    // Una frequenza rifiutata non deve costare la sonda: senza vincolo il
+    // contesto nasce comunque, e la dettatura in tempo reale si arrende da
+    // sola quando legge una frequenza che il servizio non accetta.
+    try { ctx = new Ctx(); } catch { return null; }
   }
 
   let massimo = 0;
@@ -91,6 +119,8 @@ export function ascoltaLivello(stream: MediaStream): SondaLivello | null {
     // accusa sempre.
     if (ctx.state === 'suspended') void ctx.resume().catch(() => {});
 
+    if (opts.onPcm) attachPcmTap(ctx, sorgente, opts.onPcm);
+
     timer = setInterval(() => {
       analizzatore.getByteTimeDomainData(finestra);
       let windowPeak = 0;
@@ -110,6 +140,7 @@ export function ascoltaLivello(stream: MediaStream): SondaLivello | null {
     picco: () => massimo,
     muta: () => massimo < SOGLIA_TRACCIA_MUTA,
     livello: () => (chiuso ? 0 : corrente),
+    sampleRate: () => ctx.sampleRate,
     chiudi: () => {
       if (chiuso) return;
       chiuso = true;
@@ -118,6 +149,49 @@ export function ascoltaLivello(stream: MediaStream): SondaLivello | null {
       void ctx.close().catch(() => {});
     },
   };
+}
+
+/**
+ * Il codice del worklet, come sorgente.
+ *
+ * Un AudioWorklet si carica da un URL, e un file a parte dovrebbe attraversare
+ * la pipeline di build per finire in `public/` con un percorso stabile: un
+ * blob URL costruito qui evita quel giro, e tiene le dodici righe che contano
+ * accanto a chi le usa. Il processore non scrive niente sull'uscita, quindi il
+ * suo collegamento alla destinazione trasporta silenzio: serve solo perche' il
+ * grafo venga TIRATO: un nodo che non arriva alla destinazione, in Chromium,
+ * puo' non essere elaborato affatto.
+ */
+const PCM_TAP_SOURCE = `
+class PcmTap extends AudioWorkletProcessor {
+  process(inputs) {
+    const channel = inputs[0] && inputs[0][0];
+    if (channel && channel.length) this.port.postMessage(new Float32Array(channel));
+    return true;
+  }
+}
+registerProcessor('pcm-tap', PcmTap);
+`;
+
+/**
+ * Attacca la presa dei campioni. Fallisce in silenzio: senza AudioWorklet (o
+ * se il modulo non si carica) la sonda continua a misurare il livello e la
+ * dettatura resta quella batch, che e' esattamente il ripiego previsto.
+ */
+function attachPcmTap(ctx: AudioContext, sorgente: AudioNode, onPcm: (frame: Float32Array) => void): void {
+  if (!ctx.audioWorklet) return;
+  const url = URL.createObjectURL(new Blob([PCM_TAP_SOURCE], { type: 'application/javascript' }));
+  void ctx.audioWorklet
+    .addModule(url)
+    .then(() => {
+      if (ctx.state === 'closed') return;
+      const node = new AudioWorkletNode(ctx, 'pcm-tap');
+      node.port.onmessage = (event: MessageEvent<Float32Array>) => onPcm(event.data);
+      sorgente.connect(node);
+      node.connect(ctx.destination);
+    })
+    .catch(() => { /* niente presa: la dettatura resta batch */ })
+    .finally(() => URL.revokeObjectURL(url));
 }
 
 /**
