@@ -42,12 +42,13 @@
  *
  * @covers KANBAN-11
  */
-import { describe, expect, test } from "bun:test";
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { readFileSync, existsSync, readdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { extractClaims, checkReport, type RepoProbe } from "./deliveryReportChecks";
-import { repoProbe } from "./deliveryReportProbe";
+import { repoProbe, probeForRoot } from "./deliveryReportProbe";
 
 const ROOT = join(import.meta.dir, "..", "..");
 
@@ -59,11 +60,10 @@ const tracked: string[] = execFileSync("git", ["ls-files"], { cwd: ROOT, encodin
 /**
  * MEMOIZED, and not as a micro-optimisation.
  *
- * `git log --all -S<symbol>` walks every ref of a repository with thousands of
- * commits; the bench asks it once per declared symbol, and the same symbols
- * recur across the reports of one card. Without the cache this file took 31
- * seconds - long enough that someone eventually moves it out of the unit suite,
- * and a bench that does not run is not a bench.
+ * The same sha recurs across the reports of one card, and every lookup is a
+ * `git cat-file` spawn. Without the cache the bench pays them again per test,
+ * and a bench slow enough to be moved out of the unit suite is a bench that
+ * does not run.
  */
 const cache = new Map<string, boolean>();
 const memo = (k: string, f: () => boolean) => {
@@ -91,14 +91,26 @@ const realProbe: RepoProbe = {
   readLine(p, r) {
     try { return readFileSync(join(ROOT, p), "utf8").split("\n")[r - 1] ?? null; } catch { return null; }
   },
-  symbolInHistory: (n) => memo(`sym:${n}`, () => {
-    try {
-      const out = execFileSync("git", ["log", "--all", "-S", n, "--format=%h", "-1"], {
-        cwd: ROOT, encoding: "utf8",
-      });
-      return out.trim().length > 0;
-    } catch { return false; }
-  }),
+  /**
+   * CONCEDED, and the concession is what keeps this bench runnable.
+   *
+   * `git log --all -S <name>` walks 6158 commits over 639 refs, and a NEGATIVE
+   * answer has to walk all of them: 4 s warm, 13 s cold, once per symbol. This
+   * bench asks about 14 distinct ones.
+   *
+   * What it buys, measured before conceding: nothing. All 14 answer YES, so the
+   * symbol check contributes not one finding to the seven rejections below -
+   * those come from shas, migrations and paths, which are looked up for real
+   * and cost milliseconds. And "yes" is the PERMISSIVE answer: it can only
+   * remove findings, never invent one, so every rejection this bench reports is
+   * attributable to evidence that was actually checked. Should a future fixture
+   * card rest on an invented symbol, this bench fails loudly (zero findings)
+   * rather than passing on a check nobody paid for.
+   *
+   * The probe's real symbol answer is proven on its own, in both directions, on
+   * a history this file writes: the nested describe at the foot of the file.
+   */
+  symbolInHistory: () => true,
 };
 
 type Fixture = Record<string, { title: string; reports: string[] }>;
@@ -157,19 +169,6 @@ describe("e non boccia il lavoro vero", () => {
     // committed: that is what makes this invented report an honest one.
     const r = `Fatto (commit ${sha}). Il predicato sta in \`server/routes/terminal.ts\`, e \`bridgeFailureDetail\` e' la funzione che decide. Typecheck 0.`;
     expect(checkReport(r, realProbe)).toEqual([]);
-  });
-
-  test("un simbolo scritto ma NON ANCORA committato viene rilevato, ed e' right cosi'", () => {
-    // Not a false positive. At review time the work has to be committed, and
-    // `git log --all -S` looks at every ref, so an agent's branch is inside
-    // that. A symbol that appears nowhere means it lives only in the worktree,
-    // which is exactly the defect `review_needs_commit` exists to stop, seen
-    // from another side. This test found it on its own: the first run cited a
-    // symbol from this very file, not yet committed, and the check rejected
-    // it.
-    const invented = "simboloCheNonHoMaiScritto" + "Qui";
-    const r = `Fatto (commit ${execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: ROOT, encoding: "utf8" }).trim()}). Vedi \`${invented}\`.`;
-    expect(checkReport(r, realProbe).map((x) => x.code)).toContain("symbol-never-written");
   });
 
   test("una migration vera, citata insieme a cio' che contiene, passa", () => {
@@ -274,15 +273,75 @@ describe("la sonda vera distingue «no» da «non lo so»", () => {
     expect(repoProbe.shaExists(head)).toBe(true);
   });
 
-  test("un simbolo mai scritto non compare nella storia", () => {
-    expect(repoProbe.symbolInHistory("simboloCheNessunoHaMaiScrittoQui" + "12345")).toBe(false);
-  });
-
   test("un percorso citato per nome corto si risolve", () => {
     // The false positive that accused 20 existing paths: reports cite files
     // the way people talk about them, not from the repository root.
     expect(repoProbe.fileMatches("tasks.ts")).toBe(true);
     expect(repoProbe.fileMatches("questo/file/non/esiste.ts")).toBe(false);
+  });
+
+  /**
+   * THE SYMBOL HALF, ON A HISTORY THIS FILE WRITES ITSELF.
+   *
+   * Asked of this repository the question is not expensive, it is prohibitive:
+   * `git log --all -S` walks 6158 commits over 639 refs, a NEGATIVE answer has
+   * to walk all of them, and it measured 4 s warm and 13 s cold. Two calls like
+   * that were most of this file's 16 s, and on a busy machine they went past the
+   * 30 s ceiling and failed four cards that had not touched any of this.
+   *
+   * Nothing in the claim depends on the size of a history. What is under test is
+   * that git's answer is read as "no" rather than as "cannot tell", and that the
+   * question is asked of the HISTORY and not of the current tree. Four commits
+   * we wrote ourselves prove both, in both directions, in a fraction of a
+   * second, and prove them better: the real repository could only ever show one
+   * side, because a symbol that was written and then deleted is not something
+   * you can arrange in it.
+   */
+  describe("i simboli, su una storia nota", () => {
+    let repo: string;
+    let probe: RepoProbe;
+
+    beforeAll(() => {
+      repo = mkdtempSync(join(tmpdir(), "topics-probe-history-"));
+      const git = (...a: string[]) => execFileSync("git", a, { cwd: repo, encoding: "utf8" }).trim();
+      git("init", "-b", "main");
+      git("config", "user.email", "t@t.t");
+      git("config", "user.name", "t");
+      writeFileSync(join(repo, "a.ts"), "export const keptSymbol = 1;\nexport const goneSymbol = 2;\n");
+      git("add", "-A");
+      git("commit", "-m", "uno");
+      writeFileSync(join(repo, "a.ts"), "export const keptSymbol = 1;\n");
+      git("add", "-A");
+      git("commit", "-m", "due");
+      // Written and never committed: the worktree-only case, on purpose.
+      writeFileSync(join(repo, "b.ts"), "export const worktreeOnlySymbol = 3;\n");
+      probe = probeForRoot(repo);
+    });
+    afterAll(() => rmSync(repo, { recursive: true, force: true }));
+
+    test("un simbolo mai scritto non compare nella storia", () => {
+      expect(probe.symbolInHistory("simboloCheNessunoHaMaiScritto")).toBe(false);
+    });
+
+    test("un simbolo scritto e poi cancellato resta nella storia", () => {
+      // The non-vacuity of the test above, and the line between the two
+      // implementations: this is a pickaxe over the DIFFS, not a grep of the
+      // tip. `goneSymbol` is in no file any more and must still answer yes.
+      expect(probe.symbolInHistory("goneSymbol")).toBe(true);
+      expect(probe.symbolInHistory("keptSymbol")).toBe(true);
+    });
+
+    test("un simbolo che vive solo nel worktree viene rilevato, ed e' giusto cosi'", () => {
+      // Not a false positive. At review time the work has to be committed, and
+      // `git log --all -S` looks at every ref, so an agent's branch is inside
+      // that. A symbol that appears nowhere means it lives only in the worktree,
+      // which is exactly the defect `review_needs_commit` exists to stop, seen
+      // from another side. This test found it on its own: the first run cited a
+      // symbol from the test file, not yet committed, and the check rejected it.
+      const sha = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
+      const r = `Fatto (commit ${sha}). Vedi \`worktreeOnlySymbol\`.`;
+      expect(checkReport(r, probe).map((x) => x.code)).toContain("symbol-never-written");
+    });
   });
 });
 

@@ -234,11 +234,19 @@ export async function listTurnCheckpoints(projectPath: string, sessionKey: strin
  * chat write no files at all, and without it a session would burn its whole
  * budget of 50 on identical snapshots and prune away the one turn that did
  * change something.
+ *
+ * `keep` is the pruning ceiling, and it is a parameter for the same reason
+ * `runGit`'s timeout is: so the pruning can be PROVEN cheaply. Every round is a
+ * real commit on a real repository, so watching the default of 50 prune costs
+ * 55 rounds and half a minute of git under load; with a small ceiling the same
+ * behaviour is measured in eight. Production passes nothing and gets
+ * `KEEP_PER_SESSION`.
  */
 export async function captureTurnCheckpoint(
   projectPath: string,
   sessionKey: string,
   label: string,
+  keep: number = KEEP_PER_SESSION,
 ): Promise<TurnCheckpoint | null> {
   if (!(await isGitRepo(projectPath))) return null;
 
@@ -280,17 +288,20 @@ export async function captureTurnCheckpoint(
     const ref = `${sessionRefPrefix(sessionKey)}/${seqToRefLeaf(seq)}`;
     await gitOrThrow(["update-ref", ref, commit], projectPath);
 
-    await pruneTurnCheckpoints(projectPath, sessionKey);
+    await pruneTurnCheckpoints(projectPath, sessionKey, keep);
     return { ref, commit, seq, label, createdAt };
   } finally {
     rmSync(indexDir, { recursive: true, force: true });
   }
 }
 
-/** Drop everything past the newest `KEEP_PER_SESSION`. */
-export async function pruneTurnCheckpoints(projectPath: string, sessionKey: string): Promise<number> {
+/** Drop everything past the newest `keep`, which is `KEEP_PER_SESSION` unless
+ *  a caller says otherwise. */
+export async function pruneTurnCheckpoints(
+  projectPath: string, sessionKey: string, keep: number = KEEP_PER_SESSION,
+): Promise<number> {
   const all = await listTurnCheckpoints(projectPath, sessionKey);
-  const doomed = all.slice(KEEP_PER_SESSION);
+  const doomed = all.slice(keep);
   for (const c of doomed) await runGit(["update-ref", "-d", c.ref, c.commit], projectPath);
   return doomed.length;
 }

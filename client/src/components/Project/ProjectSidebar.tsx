@@ -12,6 +12,7 @@ import { FileExplorer, type FileExplorerHandle } from './FileExplorer';
 import { useScripts } from '../../hooks/useScripts';
 import { useGitStatus } from '../../hooks/useGitStatus';
 import { isRecentFailure } from '../../lib/processFailure';
+import { hasGitStateToShow } from '../../lib/gitVisibility';
 import { DRAG_SLOP_PX } from '../../hooks/useGridResize';
 import type { WSMessage } from '../../types';
 import { useHoverReveal } from '../../hooks/useHoverReveal';
@@ -383,6 +384,12 @@ export function ProjectSidebar({
   const git = gitStatus && !notGit
     ? { branch: gitStatus.branch, fileCount: gitStatus.files?.length ?? 0, ahead: gitStatus.ahead ?? 0, behind: gitStatus.behind ?? 0 }
     : null;
+  // NOTHING CHANGED, NOTHING ON SCREEN. A section headed "git changes" with a
+  // count of zero spends a row to say that nothing happened, and the same row
+  // in the collapsed rail. It comes back by itself at the first change, at the
+  // first commit not pushed, at the first commit behind the upstream: the
+  // condition is live, not a one-off read at mount.
+  const gitVisible = hasGitStateToShow(git);
 
   const toggleSection = (section: SectionId) => {
     setExpandedSections(prev => {
@@ -705,7 +712,7 @@ export function ProjectSidebar({
           onClick={open('files')}
           title={tr('project.sidebar.files')}
         />
-        <RailButton
+        {gitVisible && <RailButton
           compact
           icon={GitBranch}
           active={expandedSections.git}
@@ -721,7 +728,7 @@ export function ProjectSidebar({
           // numero addosso al primo. Due pastiglie su un bottone da 28px
           // diventano rumore e non si leggono più né l'una né l'altra.
           dot={!!git && git.fileCount === 0 && (git.ahead > 0 || git.behind > 0)}
-        />
+        />}
         <RailButton
           compact
           icon={CirclePlay}
@@ -857,7 +864,8 @@ export function ProjectSidebar({
                 </div>
               )}
             </div>
-            <div
+            {gitVisible && <div
+              data-testid="project-sidebar-git-section"
               ref={el => { sectionsRef.current.git = el; }}
               className={`flex flex-col overflow-hidden ${expandedSections.git ? 'min-h-0 pb-[3px]' : 'flex-shrink-0'}`}
               style={expandedSections.git
@@ -886,7 +894,7 @@ export function ProjectSidebar({
               }>
                 <GitChanges projectPath={projectPath} compact expanded={expandedSections.git} onToggle={() => toggleSection('git')} />
               </Suspense>
-            </div>
+            </div>}
             <div
               ref={el => { sectionsRef.current.processes = el; }}
               className={`flex flex-col overflow-hidden ${expandedSections.processes ? 'min-h-0 pb-[3px]' : 'flex-shrink-0'}`}
@@ -1072,7 +1080,7 @@ export function ProjectSidebar({
 
         {/* Resize handle: Files ↔ first expanded bottom section */}
         {(() => {
-          const firstBottom: 'git' | 'processes' | null = expandedSections.git ? 'git' : expandedSections.processes ? 'processes' : null;
+          const firstBottom: 'git' | 'processes' | null = (gitVisible && expandedSections.git) ? 'git' : expandedSections.processes ? 'processes' : null;
           const active = !!firstBottom;
           return (
             <div
@@ -1089,8 +1097,10 @@ export function ProjectSidebar({
           );
         })()}
 
-        {/* Git Section — anchored at bottom, fixed pixel height */}
-        <div
+        {/* Git Section — anchored at bottom, fixed pixel height. Absent when
+            the repository has nothing to report: see `gitVisible`. */}
+        {gitVisible && <div
+          data-testid="project-sidebar-git-section"
           ref={el => { sectionsRef.current.git = el; }}
           className={`flex flex-col overflow-hidden ${expandedSections.git ? 'min-h-0 pb-[3px]' : 'flex-shrink-0'}`}
           style={expandedSections.git
@@ -1152,11 +1162,11 @@ export function ProjectSidebar({
               onToggle={() => toggleSection('git')}
             />
           </Suspense>
-        </div>
+        </div>}
 
         {/* Resize handle: Git ↔ Processes */}
         {(() => {
-          const active = expandedSections.git && expandedSections.processes;
+          const active = gitVisible && expandedSections.git && expandedSections.processes;
           return (
             <div
               data-testid="project-sidebar-split-git-processes"
