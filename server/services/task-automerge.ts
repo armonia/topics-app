@@ -298,6 +298,11 @@ export interface AutoMergeDeps {
    */
   regenerateBaseline?: (cwd: string, file: string) => Promise<GitRunResult>;
   /**
+   * Injected for tests. Default: `bun run scripts/gen-migrations-manifest.ts`
+   * in `cwd`, the script that owns `server/db/migrations-embedded.ts`.
+   */
+  regenerateManifest?: (cwd: string) => Promise<GitRunResult>;
+  /**
    * Injected for tests. Default: read `<repo>/public` and say what is missing
    * for it to be a servable bundle (`null` = it is one).
    */
@@ -367,11 +372,10 @@ const GENERATED_BASELINES: Record<string, string> = {
   "scripts/comment-language-baseline.json": "scripts/check-comment-language.ts",
 };
 
-async function defaultRegenerateBaseline(cwd: string, file: string): Promise<GitRunResult> {
-  const script = GENERATED_BASELINES[file];
-  if (!script) return { code: 1, stdout: "", stderr: `${file}: not a generated baseline` };
+/** `bun run <script> ...` in `cwd`, with the build's kill switch; never throws. */
+async function runRepoScript(cwd: string, args: string[]): Promise<GitRunResult> {
   try {
-    const proc = Bun.spawn(["bun", "run", script, "--update-baseline"], { cwd, stdout: "pipe", stderr: "pipe" });
+    const proc = Bun.spawn(["bun", "run", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
     const timer = setTimeout(() => { try { proc.kill(); } catch { /* already gone */ } }, BUILD_TIMEOUT_MS);
     const [stdout, stderr] = await Promise.all([
       new Response(proc.stdout).text(),
@@ -385,10 +389,32 @@ async function defaultRegenerateBaseline(cwd: string, file: string): Promise<Git
   }
 }
 
+async function defaultRegenerateBaseline(cwd: string, file: string): Promise<GitRunResult> {
+  const script = GENERATED_BASELINES[file];
+  if (!script) return { code: 1, stdout: "", stderr: `${file}: not a generated baseline` };
+  return runRepoScript(cwd, [script, "--update-baseline"]);
+}
+
+/**
+ * The embedded migrations manifest and the script that owns it. `.gitattributes`
+ * merges it as `union`, so two cards that each add a migration merge without a
+ * conflict - and without an order: the lines land as they arrive. The runtime
+ * sorts (`resolveMigrations`), the gate does not forgive, and on 2026-09-04 card
+ * 230bdc3f spent a turn regenerating it by hand after the realign.
+ */
+const MIGRATIONS_SQL_DIR = "server/db/migrations";
+const MIGRATIONS_MANIFEST = "server/db/migrations-embedded.ts";
+const MIGRATIONS_MANIFEST_SCRIPT = "scripts/gen-migrations-manifest.ts";
+
+function defaultRegenerateManifest(cwd: string): Promise<GitRunResult> {
+  return runRepoScript(cwd, [MIGRATIONS_MANIFEST_SCRIPT]);
+}
+
 export function createTaskAutoMerge(deps: AutoMergeDeps) {
   const runGit = deps.runGit ?? defaultRunGit;
   const runBuild = deps.runBuild ?? defaultRunBuild;
   const regenerateBaseline = deps.regenerateBaseline ?? defaultRegenerateBaseline;
+  const regenerateManifest = deps.regenerateManifest ?? defaultRegenerateManifest;
   const verifyBundle = deps.verifyBundle ?? bundleBreakageReason;
   const log = deps.log ?? (() => {});
 
@@ -514,6 +540,27 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
      * go (a temp worktree without `node_modules`, a script that fails, a path
      * still unmerged): the caller aborts the merge, and the tree is as it was.
      */
+    /**
+     * After a realign merge that touched the migrations on either side, the
+     * script rewrites the manifest and the merge commit takes it: our own
+     * commit, seconds old, never published. A fast-forward has no second
+     * parent and nothing to reorder; a script that fails is logged, and the
+     * gate says the rest.
+     */
+    async function refreshMigrationsManifest(cwd: string): Promise<void> {
+      const touched = await runGit(cwd, ["diff", "--name-only", "HEAD^1", "HEAD^2", "--", MIGRATIONS_SQL_DIR, MIGRATIONS_MANIFEST]);
+      if (touched.code !== 0 || touched.stdout.trim() === "") return;
+      const gen = await regenerateManifest(cwd);
+      if (gen.code !== 0) {
+        log(`[automerge] manifest delle migration non rigenerato in ${cwd}: ${(gen.stderr || gen.stdout).trim().slice(-300)}`);
+        return;
+      }
+      const changed = await runGit(cwd, ["status", "--porcelain", "--", MIGRATIONS_MANIFEST]);
+      if (changed.code !== 0 || changed.stdout.trim() === "") return;
+      await runGit(cwd, ["add", "--", MIGRATIONS_MANIFEST]);
+      await runGit(cwd, ["commit", "--amend", "--no-edit"]);
+    }
+
     async function settleGeneratedBaselines(cwd: string, files: string[]): Promise<boolean> {
       for (const file of files) {
         const take = await runGit(cwd, ["checkout", defaultBranch, "--", file]);
@@ -582,6 +629,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           // next to a baseline still goes back to the agent, whole.
           if (files.length > 0 && files.every((f) => Object.hasOwn(GENERATED_BASELINES, f))
             && await settleGeneratedBaselines(wtPath, files)) {
+            await refreshMigrationsManifest(wtPath);
             const which = files.length === 1 ? "una baseline generata" : `${files.length} baseline generate`;
             onRealigned(
               `il ramo era indietro di ${behind} commit su '${defaultBranch}': ci ho riportato main dentro; ` +
@@ -605,6 +653,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           }
           return { status: "conflict", branch: target.branch, realignConflict: { behind, files } };
         }
+        await refreshMigrationsManifest(wtPath);
         onRealigned(`il ramo era indietro di ${behind} commit su '${defaultBranch}': ci ho riportato main dentro (fusione pulita, nessun conflitto) prima di valutare i cancelli`);
         return null;
       } finally {
