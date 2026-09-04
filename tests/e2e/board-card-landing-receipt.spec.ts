@@ -35,7 +35,7 @@ const REPO = `/tmp/e2e-land-ricevuta-${Date.now()}`;
 
 const PROJECT_ID = boardIdForPath(REPO);
 
-const T_RAMO = "Rifare la scheda prodotto";
+const T_BRANCH = "Rifare la scheda prodotto";
 
 /** Two merges ahead: the number is on screen, so a queue of one is not a queue. */
 const AHEAD = 2;
@@ -102,9 +102,9 @@ test.describe("Board · la ricevuta del land arriva sulla card", () => {
     git(REPO, ["add", "-A"]);
     git(REPO, ["commit", "-q", "-m", "init"]);
 
-    const proj = await request.post(`${API}/projects`, { data: { name: `e2e-land-ricevuta-${Date.now()}`, path: REPO } });
-    expect(proj.ok()).toBe(true);
-    const project = (await proj.json()) as { id: string };
+    const projectRes = await request.post(`${API}/projects`, { data: { name: `e2e-land-ricevuta-${Date.now()}`, path: REPO } });
+    expect(projectRes.ok()).toBe(true);
+    const project = (await projectRes.json()) as { id: string };
 
     const wtRes = await request.post(`${API}/worktrees`, { data: { project_id: project.id, mode: "branch", base_ref: "main" } });
     expect(wtRes.status()).toBe(202);
@@ -130,13 +130,13 @@ test.describe("Board · la ricevuta del land arriva sulla card", () => {
     topicId = topic.id;
     expect((await request.patch(`${API}/topics/${topic.id}`, { data: { worktreeId: wt.id } })).ok()).toBe(true);
 
-    taskId = await createTask(request, { text: T_RAMO, status: "todo" });
+    taskId = await createTask(request, { text: T_BRANCH, status: "todo" });
     expect((await request.post(`${API}/test/tasks/${taskId}/bind-topic`, { data: { topicId: topic.id } })).ok()).toBe(true);
     expect((await request.patch(`${API}/boards/${PROJECT_ID}/tasks/${taskId}`, { data: { status: "review" } })).ok()).toBe(true);
     // If this falls, the red is about the SETUP: with no branch the card would
     // show another state's choices and the spec would measure something else.
-    const ramo = await request.get(`${API}/boards/${PROJECT_ID}/tasks/${taskId}`);
-    expect(((await ramo.json()) as { task: { deliveryBranch: string | null } }).task.deliveryBranch).toBeTruthy();
+    const branchRead = await request.get(`${API}/boards/${PROJECT_ID}/tasks/${taskId}`);
+    expect(((await branchRead.json()) as { task: { deliveryBranch: string | null } }).task.deliveryBranch).toBeTruthy();
   });
 
   test.afterAll(async ({ request }) => {

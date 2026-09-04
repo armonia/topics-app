@@ -223,6 +223,12 @@ Il land NON SHALL fare `push`: è un'operazione locale.
 - **AND** un conflitto in fase di riallineamento SHALL nominare i file, non dire
   genericamente «conflitto»
 
+#### Scenario: conflitto solo su una baseline generata
+- **GIVEN** un riallineamento il cui UNICO conflitto sta in una baseline scritta da uno script (bloat, identificatori, commenti)
+- **THEN** il land SHALL risolverla da sé: la copia di `main`, poi lo script che la scrive rieseguito nel ramo
+- **AND** il risultato SHALL essere `merged`, e la nota del riallineamento SHALL nominare la baseline rigenerata
+- **AND** se accanto alla baseline c'è un file di codice in conflitto, o lo script fallisce, SHALL valere il conflitto di prima, con l'albero pulito
+
 #### Scenario: commit non isolabili
 - **GIVEN** un ramo avanti rispetto a `main` di cui git non sa dire quali commit
   siano propri

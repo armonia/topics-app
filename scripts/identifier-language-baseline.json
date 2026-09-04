@@ -1,10 +1,9 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-09-03",
+  "generated": "2026-09-04",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
-      "panelLifecycle",
       "pinnedSpaceForHandoff"
     ],
     "client/src/components/Auth/PairingApproval.tsx": [
@@ -52,7 +51,6 @@
       "checklist",
       "contesto",
       "costo",
-      "deliveryStat",
       "evidenza",
       "lavoroInPlace",
       "parti",
@@ -62,7 +60,6 @@
       "spostataAMano"
     ],
     "client/src/components/Board/DeliveryFiles.tsx": [
-      "FileStat",
       "apri",
       "mostrati",
       "prossimo",
@@ -137,9 +134,6 @@
       "FANOUT_CHOICES",
       "RICHIESTA_PIEGA_CHARS"
     ],
-    "client/src/components/Board/diffFileRows.test.ts": [
-      "stat"
-    ],
     "client/src/components/Board/dispatchChip.test.ts": [
       "atteso",
       "fallito",
@@ -150,7 +144,6 @@
       "evento"
     ],
     "client/src/components/Board/format.ts": [
-      "attemptStat",
       "desc",
       "descSummary",
       "fmtAttesa",
@@ -219,10 +212,6 @@
       "replayerRef",
       "scrollAccRef",
       "unsubscribe"
-    ],
-    "client/src/components/Browser/ForgetSiteDialog.tsx": [
-      "ForgetSiteDialog",
-      "ForgetSiteDialogProps"
     ],
     "client/src/components/Browser/NativeBrowserPlaceholder.tsx": [
       "coalesceRaf",
@@ -481,7 +470,6 @@
     ],
     "client/src/components/Layout/StandaloneChatGroup.tsx": [
       "CronJobsPanel",
-      "lifecycle",
       "utilType"
     ],
     "client/src/components/Layout/flattenLayout.ts": [
@@ -498,15 +486,9 @@
       "lraw",
       "unsubscribeFromProjectLayout"
     ],
-    "client/src/components/Layout/hooks/standaloneTypes.ts": [
-      "UsePaneLifecycleArgs",
-      "UsePaneLifecycleHandlers",
-      "UsePaneLifecycleReturn"
-    ],
     "client/src/components/Layout/hooks/usePaneLifecycle.ts": [
       "handleUnsolo",
-      "isSplittable",
-      "usePaneLifecycle"
+      "isSplittable"
     ],
     "client/src/components/Layout/hooks/useProjectBrowserPanes.ts": [
       "fgid",
@@ -568,14 +550,12 @@
       "reso"
     ],
     "client/src/components/Modals/TopicSettingsModal.tsx": [
-      "cancelled",
-      "dialogRef"
+      "cancelled"
     ],
     "client/src/components/Profile/ProfilePane.tsx": [
       "chiesta"
     ],
     "client/src/components/Project/FileExplorer.tsx": [
-      "DeleteConfirmDialog",
       "cartella",
       "isMultiSelect",
       "isMultiSelected",
@@ -590,9 +570,7 @@
       "multi"
     ],
     "client/src/components/Project/GitChanges.tsx": [
-      "DiscardConfirmDialog",
       "LRM",
-      "LineStat",
       "basename",
       "handleBatchUnstage",
       "handleUnstage",
@@ -692,9 +670,6 @@
       "togli"
     ],
     "client/src/components/Settings/OrgProjectsSection.tsx": [
-      "PROPOSTE",
-      "Proposta",
-      "presente",
       "vivo"
     ],
     "client/src/components/Settings/PlanSection.tsx": [
@@ -771,10 +746,6 @@
       "cancelled",
       "descBits",
       "projLabel"
-    ],
-    "client/src/components/Shared/ConfirmDialog.tsx": [
-      "ConfirmDialog",
-      "ConfirmDialogProps"
     ],
     "client/src/components/Shared/MorphText.test.tsx": [
       "sorgente"
@@ -903,7 +874,6 @@
     ],
     "client/src/components/Sidebar/PerfSection.tsx": [
       "FpsSparkline",
-      "PerfStat",
       "scelta",
       "vociPeso",
       "vociTrattenuteVisibili"
@@ -1232,10 +1202,6 @@
     "client/src/hooks/useMenuKeyboard.ts": [
       "isTypingSurface"
     ],
-    "client/src/hooks/useModalDialog.ts": [
-      "UseModalDialogOptions",
-      "useModalDialog"
-    ],
     "client/src/hooks/useOwnerName.ts": [
       "annuncia",
       "ascoltatori",
@@ -1243,15 +1209,12 @@
       "inVolo"
     ],
     "client/src/hooks/usePanelLifecycle.ts": [
-      "UsePanelLifecycleArgs",
-      "UsePanelLifecycleReturn",
       "bctx",
       "closedProjectRec",
       "closingTopic",
       "focusLoc",
       "loc",
-      "onUnarchive",
-      "usePanelLifecycle"
+      "onUnarchive"
     ],
     "client/src/hooks/usePerfMetrics.ts": [
       "TAURI_GPU"
@@ -1390,11 +1353,6 @@
       "cancelled",
       "fwd"
     ],
-    "client/src/hooks/useTerminalLifecycle.ts": [
-      "UseTerminalLifecycleArgs",
-      "UseTerminalLifecycleReturn",
-      "useTerminalLifecycle"
-    ],
     "client/src/hooks/useWaitedProcess.test.ts": [
       "riga"
     ],
@@ -1453,7 +1411,6 @@
       "senzaConsegna"
     ],
     "client/src/lib/board.ts": [
-      "DiffFileStat",
       "enc",
       "isProjectlessId",
       "quando"
@@ -1943,13 +1900,6 @@
       "calibrating",
       "rms"
     ],
-    "client/src/lib/wsFrameBus.ts": [
-      "LifecycleHandler",
-      "WSLifecycleEvent",
-      "dispatchLifecycle",
-      "lifecycleHandlers",
-      "subscribeLifecycle"
-    ],
     "client/src/main.tsx": [
       "DYN_IMPORT_FAIL"
     ],
@@ -2062,7 +2012,6 @@
       "flushNowKeepalive"
     ],
     "client/src/state/pane/middleware/syncWS.ts": [
-      "unsubLifecycle",
       "upd"
     ],
     "client/src/state/pane/reducers/panes.test.ts": [
@@ -2174,13 +2123,11 @@
       "WSUIStateUpdatedMessage"
     ],
     "scripts/ai-bridge-replay-bench.ts": [
-      "Stat",
       "acc",
       "buf",
       "copies",
       "listLatencies",
       "resyncGap",
-      "stat",
       "synthStore"
     ],
     "scripts/bench/ai-latency-shape.ts": [
@@ -2224,7 +2171,6 @@
       "fmtTok",
       "makeRng",
       "meds",
-      "numstatCache",
       "quantile",
       "rng",
       "skipped"
@@ -3188,8 +3134,7 @@
       "attesArmate",
       "buf",
       "conAttesa",
-      "forkScanCooldownMs",
-      "stat"
+      "forkScanCooldownMs"
     ],
     "server/lib/claude-subagent-transcript.ts": [
       "birthtimeMs",
@@ -3315,18 +3260,10 @@
     ],
     "server/lib/git-numstat.ts": [
       "Contabile",
-      "NUMSTAT_ARGS",
-      "NUMSTAT_CACHED_ARGS",
-      "NUMSTAT_MAX_FILES",
-      "Numstat",
-      "attachNumstats",
       "leggi",
-      "parseNumstatZ",
       "primo",
-      "readNumstats",
       "rec",
-      "secondo",
-      "statOf"
+      "secondo"
     ],
     "server/lib/git-porcelain.test.ts": [
       "ren"
@@ -3335,12 +3272,9 @@
       "rec"
     ],
     "server/lib/git-show.test.ts": [
-      "NUMSTAT",
       "rinominato"
     ],
     "server/lib/git-show.ts": [
-      "Numstat",
-      "SHOW_NUMSTAT_ARGS",
       "conteggi"
     ],
     "server/lib/github-profile.ts": [
@@ -3840,8 +3774,7 @@
       "skipped"
     ],
     "server/lib/transcript-fork.ts": [
-      "buf",
-      "stat"
+      "buf"
     ],
     "server/lib/trash.test.ts": [
       "cestino",
@@ -4428,9 +4361,6 @@
       "parseGitignoreFlat",
       "risposta",
       "scaduto",
-      "stat",
-      "statProc",
-      "statText",
       "stderr",
       "stdout",
       "toplevelProc"
@@ -4503,7 +4433,6 @@
       "pcwd",
       "rilevati",
       "rilevato",
-      "stat",
       "unregisterPreviewProcess",
       "useTty"
     ],
@@ -4604,11 +4533,9 @@
       "miePath",
       "migliore",
       "nota",
-      "numstatPath",
       "preso",
       "prov",
       "spente",
-      "stat",
       "titoloInSottofondo"
     ],
     "server/routes/terminal.ts": [
@@ -4716,14 +4643,7 @@
       "ereditato",
       "fuori",
       "radice",
-      "ricopiato",
-      "stat"
-    ],
-    "server/services/branch-status.ts": [
-      "WorktreeDiffStat",
-      "WorktreeDiffStatOptions",
-      "numstat",
-      "worktreeDiffStat"
+      "ricopiato"
     ],
     "server/services/browser-orphan-reap.test.ts": [
       "CASA"
@@ -4762,8 +4682,7 @@
     ],
     "server/services/delivery-backfill.ts": [
       "candidati",
-      "ptr",
-      "stat"
+      "ptr"
     ],
     "server/services/delivery-branch-ref.test.ts": [
       "chiesto"
@@ -4849,8 +4768,7 @@
       "CARD_ATTERRATA",
       "RIGA",
       "commitAtterrato",
-      "ptr",
-      "stat"
+      "ptr"
     ],
     "server/services/landing-audit.test.ts": [
       "chiesti",
@@ -5182,7 +5100,6 @@
       "nota"
     ],
     "server/services/task-dispatcher-fanout.test.ts": [
-      "Stat",
       "righe",
       "rotto"
     ],
@@ -5617,7 +5534,6 @@
       "riusabile",
       "serializzati",
       "slugify",
-      "stat",
       "stmts",
       "subtree"
     ],
@@ -5668,7 +5584,6 @@
       "PARKED_REQUEUED_TAIL",
       "PARKED_REQUEUE_NOTE_LIKE",
       "REQUEUE_PARKED_LABEL",
-      "dietro",
       "isRequeueParkedLabel"
     ],
     "shared/browser-login-state.ts": [
@@ -6047,7 +5962,6 @@
       "padded"
     ],
     "shared/task-attempt.ts": [
-      "formatAttemptStat",
       "formatFanoutComment"
     ],
     "shared/task-similarity.test.ts": [
@@ -6478,9 +6392,6 @@
       "riga",
       "stato"
     ],
-    "tests/e2e/chat-checkpoints.spec.ts": [
-      "confirmDialog"
-    ],
     "tests/e2e/chat-compact-drain.spec.ts": [
       "apriCancello",
       "cancello",
@@ -6590,9 +6501,6 @@
       "multiTopic",
       "multiTopicData",
       "multiTopicName"
-    ],
-    "tests/e2e/confirm-non-blocking.spec.ts": [
-      "dialog"
     ],
     "tests/e2e/context-ring.spec.ts": [
       "dentro",
@@ -6784,7 +6692,6 @@
       "controllo",
       "creazione",
       "destinatario",
-      "dialog",
       "dopo",
       "elenco",
       "finto",
@@ -6886,8 +6793,7 @@
       "unmockChatStream"
     ],
     "tests/e2e/helpers/terminal-workspace.ts": [
-      "gotoTerminalProject",
-      "sel"
+      "gotoTerminalProject"
     ],
     "tests/e2e/helpers/webm-duration.ts": [
       "Elemento",
@@ -6914,9 +6820,6 @@
       "MAX_RAF",
       "origRaf",
       "rafTop"
-    ],
-    "tests/e2e/infra-panels.spec.ts": [
-      "confirmDialog"
     ],
     "tests/e2e/kanban-icone.spec.ts": [
       "apriBoard",
@@ -7021,9 +6924,6 @@
     ],
     "tests/e2e/pane-undo.spec.ts": [
       "gotoAndWait"
-    ],
-    "tests/e2e/panels.spec.ts": [
-      "dialog"
     ],
     "tests/e2e/perf-panel.spec.ts": [
       "costo",
@@ -7519,10 +7419,6 @@
     "tests/e2e/sw-restart-vs-offline.spec.ts": [
       "bootWithControllingSW"
     ],
-    "tests/e2e/system.spec.ts": [
-      "dialog",
-      "hasDialog"
-    ],
     "tests/e2e/tab-bar-command-air.spec.ts": [
       "Comando",
       "Riga",
@@ -7629,12 +7525,10 @@
       "righe"
     ],
     "tests/e2e/topic-management-org.spec.ts": [
-      "dialog",
       "gotoAndOpenTopic",
       "searchbox"
     ],
     "tests/e2e/topic-management.spec.ts": [
-      "dialog",
       "disp",
       "disp2"
     ],
@@ -7760,9 +7654,6 @@
       "servizio",
       "stato",
       "venditore"
-    ],
-    "tests/integration/daemon-state.test.ts": [
-      "stat"
     ],
     "tests/integration/helpers/index.ts": [
       "radice"
@@ -8365,8 +8256,7 @@
     "tests/unit/tool-call-detail-schema.test.ts": [
       "ZodInferredToolCallDetail",
       "_CheckTsAssignableToZod",
-      "_CheckZodAssignableToTs",
-      "_zodValue"
+      "_CheckZodAssignableToTs"
     ],
     "tests/unit/version-lockstep.test.ts": [
       "atteso",

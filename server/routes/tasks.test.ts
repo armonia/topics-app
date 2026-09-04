@@ -5,7 +5,7 @@
  */
 import { test, expect, describe, beforeAll, beforeEach, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AppContext } from "../types";
@@ -1108,6 +1108,74 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     const got = await (await call(r, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
     expect(got.task.status).not.toBe("review");
     expect(got.task.checksState).toBe("fail");
+  });
+
+  /**
+   * The checks measure the tree that LANDS. On 2026-09-04 three cards burnt a
+   * turn each on an "inherited" red: a baseline main had already moved while
+   * their branch sat on an older base. Main goes into the branch first; when
+   * that cannot happen, that is the verdict and no command runs.
+   */
+  test("prima dei check main entra nel ramo: la nota resta nel filo e i comandi girano", async () => {
+    let asked = 0;
+    const r = mk({ realignForChecks: async () => { asked += 1; return { ok: true, note: "il ramo era indietro di 2 commit su 'main'" }; } });
+    const t = await delivered(r);
+    await declare(r, t.projectId, ["true"]);
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "riassunto della consegna" }))!;
+    expect(resp.status).toBe(200);
+    const got = await (await call(r, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
+    expect(got.task.checksState).toBe("pass");
+    expect(got.comments.some((c: any) => c.author === "system" && c.content.includes("Riallineato su main prima dei check"))).toBe(true);
+    // Once per delivery: the legs that follow find the run and do not realign again.
+    expect(asked).toBe(1);
+  });
+
+  test("main non entra nel ramo (conflitto): quello e' il verdetto, 409 con i file e nessun comando parte", async () => {
+    const marker = join(cwd, "ran-anyway");
+    const r = mk({ realignForChecks: async () => ({ ok: false, reason: "riportare main nel ramo ha fatto conflitto su 1 file: contesa.txt", files: ["contesa.txt"] }) });
+    const t = await delivered(r);
+    await declare(r, t.projectId, [`touch ${marker}`]);
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "riassunto della consegna" }))!;
+    expect(resp.status).toBe(409);
+    const err = await resp.json();
+    expect(err.code).toBe("review_needs_green_checks");
+    expect(err.error).toContain("contesa.txt");
+    expect(existsSync(marker)).toBe(false);
+    const got = await (await call(r, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
+    expect(got.task.status).not.toBe("review");
+    expect(got.task.checksState).toBe("fail");
+    expect(got.task.checks.map((c: any) => c.name)).toEqual(["realign"]);
+  });
+
+  /**
+   * 2026-09-04, 12:37: three cards delivered together, sat in the gate's queue
+   * past the client's 50-minute cap, and the green verdicts that followed were
+   * applied by nobody. The route now re-issues the remembered PATCH itself.
+   */
+  test("il client smette di richiamare: la consegna verde si completa da sola, in review", async () => {
+    const r = mk();
+    const t = await delivered(r);
+    await declare(r, t.projectId, ["sleep 0.6"]);
+    const first = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "riassunto della consegna", legMs: 100 }))!;
+    expect(first.status).toBe(202);
+    // Nobody polls. The run ends on its own and the verdict lands anyway.
+    await Bun.sleep(1_500);
+    const after = await (await call(r, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
+    expect(after.task.status).toBe("review");
+    expect(after.task.checksState).toBe("pass");
+  });
+
+  test("il client smette di richiamare: la consegna rossa resta in lavorazione, col rosso nel filo", async () => {
+    const r = mk();
+    const t = await delivered(r);
+    await declare(r, t.projectId, ["sleep 0.6; echo riga-rossa >&2; exit 3"]);
+    const opened = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "riassunto della consegna", legMs: 100 }))!;
+    expect(opened.status).toBe(202);
+    await Bun.sleep(1_500);
+    const still = await (await call(r, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
+    expect(still.task.status).not.toBe("review");
+    expect(still.task.checksState).toBe("fail");
+    expect(still.comments.some((c: any) => c.author === "system" && c.content.includes("riga-rossa"))).toBe(true);
   });
 
   test("la board sa che stanno girando: broadcast 'running' PRIMA dell'esito", async () => {

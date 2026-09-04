@@ -145,6 +145,8 @@ import m20260830225759_amicizie from "./migrations/20260830225759-amicizie.sql" 
 import m20260903092935_delivery_uncommitted_files from "./migrations/20260903092935-delivery-uncommitted-files.sql" with { type: "text" };
 import m20260903232650_goal_continuazione from "./migrations/20260903232650-goal-continuazione.sql" with { type: "text" };
 import m20260904100839_tool_calls_duplicati_nei_blocchi from "./migrations/20260904100839-tool-calls-duplicati-nei-blocchi.sql" with { type: "text" };
+import m20260904101008_done_cards_keep_no_dispatch_error from "./migrations/20260904101008-done-cards-keep-no-dispatch-error.sql" with { type: "text" };
+import m20260904100239_approvals_whose_task_left_review from "./migrations/20260904100239-approvals-whose-task-left-review.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -294,4 +296,6 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260903092935, name: "20260903092935-delivery-uncommitted-files.sql", sql: m20260903092935_delivery_uncommitted_files },
   { version: 20260903232650, name: "20260903232650-goal-continuazione.sql", sql: m20260903232650_goal_continuazione },
   { version: 20260904100839, name: "20260904100839-tool-calls-duplicati-nei-blocchi.sql", sql: m20260904100839_tool_calls_duplicati_nei_blocchi },
+  { version: 20260904101008, name: "20260904101008-done-cards-keep-no-dispatch-error.sql", sql: m20260904101008_done_cards_keep_no_dispatch_error },
+  { version: 20260904100239, name: "20260904100239-approvals-whose-task-left-review.sql", sql: m20260904100239_approvals_whose_task_left_review },
 ];

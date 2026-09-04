@@ -17,6 +17,7 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createTaskService, type TaskService } from "./tasks";
+import { setDispatchBlock } from "./dispatch-block-signal";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 import { freshDb as schemaDb } from "./tasks-test-db";
 
@@ -67,6 +68,38 @@ describe("la ragione della coda arriva dal server, con la card", () => {
     const r = s.get(terzo.id)!.task.queueReason!;
     expect(r).toMatchObject({ kind: "slot", tone: "queued", key: "board.queue.slot.ahead", params: { ahead: 2 } });
     expect(s.get(primo.id)!.task.queueReason!.key).toBe("board.queue.slot.first");
+  });
+
+  /**
+   * THE INVISIBLE BRAKE reaches the card like every other reason.
+   *
+   * The RAM/disk floor and the 24h spend cap are read by the tick, once per
+   * round, and then it skips EVERY card: no field on the row can be used to
+   * infer them, so the reason fell through to the queue branch and said "in
+   * coda, la prossima" on a board that had not moved in hours. The dispatcher
+   * publishes them (`dispatch-block-signal.ts`) and the mapper reads them here.
+   */
+  test("pavimento e tetto di spesa: la card lo dice, senza cambiare un campo suo", () => {
+    const t = s.create({ projectId: PID, text: "Ferma per la macchina" });
+    mv(s, t.id, "todo");
+    expect(s.get(t.id)!.task.queueReason!.kind).toBe("slot");
+
+    setDispatchBlock({ kind: "resources", reason: "Disco quasi pieno: 2,4 GB liberi." });
+    const held = s.get(t.id)!.task.queueReason!;
+    expect(held).toMatchObject({ kind: "resource_floor", tone: "stalled" });
+    expect(held.params?.reason).toContain("2,4 GB");
+
+    setDispatchBlock({ kind: "spend", reason: "Tetto di spesa giornaliero raggiunto." });
+    expect(s.get(t.id)!.task.queueReason!.kind).toBe("spend_cap");
+
+    // Outside the queue the block is not what that card is waiting on: a step
+    // has its parent's reason, and a backlog card is parked.
+    const step = s.create({ projectId: PID, text: "Uno step", parentTaskId: t.id });
+    mv(s, step.id, "todo");
+    expect(s.get(step.id)!.task.queueReason!.kind).not.toBe("spend_cap");
+
+    setDispatchBlock(null);
+    expect(s.get(t.id)!.task.queueReason!.kind).toBe("slot");
   });
 
   test("la fila si conta su TUTTE le board: il tetto agenti è machine-wide", () => {
