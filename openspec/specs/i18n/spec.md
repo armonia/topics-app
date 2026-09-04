@@ -104,3 +104,19 @@ scrivono gli agenti sono contenuto, non interfaccia.
 #### Scenario: un nome di etichetta
 - **GIVEN** un'etichetta definita dall'utente
 - **THEN** NON SHALL essere tradotta
+
+### Requirement: I18N-04 — Le superfici di chat che chiedono una decisione parlano UNA lingua sola
+
+Il pannello dei permessi e i dialoghi distruttivi sono le superfici dove
+l'utente decide: SHALL leggersi nella lingua scelta, e la lingua non scelta NON
+SHALL comparire accanto, perché un pannello che mostra entrambe supera ogni
+verifica sulla presenza e fallisce l'unica che conta, quella sulla chiarezza.
+
+#### Scenario: il pannello dei permessi in inglese
+- **GIVEN** la lingua inglese selezionata e una richiesta di permesso a schermo
+- **THEN** i pulsanti SHALL leggersi Allow e affini
+- **AND** la versione italiana NON SHALL essere presente
+
+#### Scenario: un dialogo distruttivo in italiano
+- **GIVEN** la lingua italiana e un dialogo che chiede conferma di scartare
+- **THEN** NON SHALL comparire Cancel né Discard
