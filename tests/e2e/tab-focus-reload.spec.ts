@@ -21,6 +21,7 @@ import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes
 import { E2E_BASE } from "./helpers/test-server";
 import { projectIdForPath } from "../../shared/board";
 import { hermetic } from "./fixtures/hermetic";
+import { installUiStateProbe, waitForStableActiveTabs, waitForUiStateHydrated } from "./helpers/ui-state-probe";
 
 hermetic(test);
 
@@ -28,12 +29,24 @@ const PROJECT = join(realpathSync(tmpdir()), `e2e-focus-reload-${Date.now()}`);
 const PROJECT_TAB = `pane-tab-project:${encodeURIComponent(PROJECT)}`;
 const BOARD_TAB = "pane-tab-__board__";
 
-async function activeTabs(page: Page): Promise<string[]> {
-  return page.evaluate(() =>
-    Array.from(document.querySelectorAll('[data-testid^="pane-tab-"][data-active="true"]')).map(
-      (t) => t.getAttribute("data-testid") ?? "?",
-    ),
-  );
+/**
+ * The local snapshot is written on a debounce, and the reload needs the WRITE,
+ * not a second and a half of hope: on a busy machine the flush lands after the
+ * sleep and the page reboots from the previous state, which is a red about
+ * nothing. Two keys matter here, so both are polled: the snapshot a warm boot
+ * reads back, and the focus key `resolveBootFocus` honours.
+ */
+async function waitForLocalSnapshot(page: Page, focusContains: string): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        page.evaluate((needle) => {
+          const focused = localStorage.getItem("pane-store-focused-id") ?? "";
+          return !!localStorage.getItem("pane-store-v2") && focused.includes(needle);
+        }, focusContains),
+      { timeout: 15000, message: `the debounced local snapshot never landed with focus on ${focusContains}` },
+    )
+    .toBe(true);
 }
 
 async function openBoardTab(page: Page): Promise<void> {
@@ -66,6 +79,7 @@ test.describe("Tab focus survives a reload", () => {
   ] as const) {
     test(`CHROME-11: the focused project tab is still focused after a reload, ${name}`, async ({ page }) => {
       test.info().annotations.push({ type: "spec", description: "CHROME-11" });
+      await installUiStateProbe(page);
       await page.goto("/");
       await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
       await expect(page.getByTestId(PROJECT_TAB)).toBeVisible({ timeout: 15000 });
@@ -73,7 +87,7 @@ test.describe("Tab focus survives a reload", () => {
       await page.getByTestId(PROJECT_TAB).click();
       await expect(page.getByTestId(PROJECT_TAB)).toHaveAttribute("data-active", "true", { timeout: 15000 });
       // Let the debounced local snapshot land before the reload.
-      await page.waitForTimeout(1500);
+      await waitForLocalSnapshot(page, "project:");
       const before = await page.evaluate(() => ({
         focused: localStorage.getItem("pane-store-focused-id"),
         snapshot: !!localStorage.getItem("pane-store-v2"),
@@ -86,15 +100,18 @@ test.describe("Tab focus survives a reload", () => {
       await page.reload({ waitUntil: "domcontentloaded" });
       await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
       await expect(page.getByTestId(PROJECT_TAB)).toBeVisible({ timeout: 15000 });
-      const samples: string[] = [];
-      for (const t of [500, 1500, 3000, 6000]) {
-        await page.waitForTimeout(t - (samples.length ? [500, 1500, 3000, 6000][samples.length - 1] : 0));
-        samples.push(`${t}ms: ${(await activeTabs(page)).join("+") || "-"}`);
-      }
-      console.log(`[focus-reload] ${name} · ${samples.join(" | ")}`);
+      // The four samples at 500/1500/3000/6000 ms that used to live here were a
+      // MEASURE of when the focus settles, not a wait: they printed a timeline
+      // and then asserted the last frame of it. What the assertion needs is the
+      // end state, and the end state has a condition. The server snapshot has
+      // arrived (that is the late hydrate that used to steal the focus), and
+      // the row has stopped changing its mind for a stretch of painted frames.
+      await waitForUiStateHydrated(page, { timeout: 30_000 });
+      const settled = await waitForStableActiveTabs(page, { frames: 30, timeout: 30_000 });
+      console.log(`[focus-reload] ${name} · settled on ${settled}`);
       await expect(
         page.getByTestId(PROJECT_TAB),
-        `after the reload the app must be on the project tab, not on the last tab of the row. ${samples.join(" | ")}`,
+        `after the reload the app must be on the project tab, not on the last tab of the row. Settled on ${settled}`,
       ).toHaveAttribute("data-active", "true");
       await expect(page.getByTestId(BOARD_TAB)).toHaveAttribute("data-active", "false");
     });
@@ -111,6 +128,7 @@ test.describe("Tab focus survives a reload", () => {
     expect(created.ok(), "task creation").toBe(true);
     const taskId = ((await created.json()) as { id: string }).id;
     try {
+      await installUiStateProbe(page);
       await page.goto(`/task/${taskId}`);
       await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
       await expect(page.getByTestId(BOARD_TAB)).toHaveAttribute("data-active", "true", { timeout: 15000 });
@@ -118,14 +136,17 @@ test.describe("Tab focus survives a reload", () => {
       const onBoard = await page.evaluate(() => location.pathname);
       await page.getByTestId(PROJECT_TAB).click();
       await expect(page.getByTestId(PROJECT_TAB)).toHaveAttribute("data-active", "true", { timeout: 15000 });
-      await page.waitForTimeout(1500);
+      await waitForLocalSnapshot(page, "project:");
       const onProject = await page.evaluate(() => location.pathname);
       console.log(`[focus-reload] drawer: url on board=${onBoard} · url after switching to the project=${onProject}`);
       await page.reload({ waitUntil: "domcontentloaded" });
       await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
-      await page.waitForTimeout(6000);
-      const active = await activeTabs(page);
-      console.log(`[focus-reload] drawer: after reload active=${active.join("+")} url=${await page.evaluate(() => location.pathname)}`);
+      // Same as CHROME-11: the six seconds were the guess "by now the boot
+      // deep-link has had its say". The condition is the hydrate having landed
+      // and the tab row holding still afterwards.
+      await waitForUiStateHydrated(page, { timeout: 30_000 });
+      const active = await waitForStableActiveTabs(page, { frames: 30, timeout: 30_000 });
+      console.log(`[focus-reload] drawer: after reload active=${active} url=${await page.evaluate(() => location.pathname)}`);
       await expect(
         page.getByTestId(PROJECT_TAB),
         `the reload must land on the project tab; the URL left behind by the drawer was ${onProject}`,

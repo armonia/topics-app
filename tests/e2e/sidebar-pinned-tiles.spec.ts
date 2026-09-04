@@ -6,6 +6,13 @@ import fs from "node:fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import {
+  installUiStateProbe,
+  waitForAnimationsToSettle,
+  waitForFrames,
+  waitForProjectIconAnswer,
+  waitForUiStateHydrated,
+} from "./helpers/ui-state-probe";
 
 /**
  * Le TESSERE dei Fissati.
@@ -1796,7 +1803,10 @@ test.describe("Sidebar — quando una tessera è accesa", () => {
     // La cornice si dissolve in 200ms, e a meta' dissolvenza QUALUNQUE valore
     // sarebbe «smorzato»: si guarda di nuovo a transizione finita, o questo
     // test passerebbe anche su una cornice che si sta semplicemente spegnendo.
-    await page.waitForTimeout(400);
+    // "Finished" is what the animation itself reports, not what the clock
+    // says: a sleep of 400ms is a bet on the 200ms written in the stylesheet
+    // today and on a machine that is not busy.
+    await waitForAnimationsToSettle(rim);
     expect(await grado(), "aperta ma non a fuoco: smorzata, non spenta").toBe("smorzata");
 
     // Ora la fascia si svuota. La chat sta lì perché è FISSATA (una chat a tab
@@ -2465,6 +2475,10 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     // che e' la condizione del refresh vero (la seconda volta in poi).
     await gotoSidebar(page);
     await expect(tileNamed(page, "e2e-tile-lampo").locator("img")).toHaveCount(1, { timeout: 15000 });
+    // Drawn is not the same as remembered: the return trip only tests what it
+    // claims to if the answer is already on disk when the page boots.
+    await waitForProjectIconAnswer(page, conIcona);
+    await installUiStateProbe(page);
 
     // Il registratore parte PRIMA di qualunque script della pagina.
     await page.addInitScript(() => {
@@ -2492,8 +2506,10 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     await expect(tessera).toBeVisible({ timeout: 15000 });
     await expect(tessera.locator("img"), "la favicon e' arrivata").toHaveCount(1, { timeout: 15000 });
     // Qualche frame in piu' dopo che l'icona e' apparsa: il salto, se c'e',
-    // cade proprio li'.
-    await page.waitForTimeout(500);
+    // cade proprio li'. Frames, not milliseconds: the observer above records
+    // one sample per animation frame, so what makes the window big enough is
+    // how many were painted, and a busy machine paints fewer of them.
+    await waitForFrames(page, 30);
 
     const stati = await page.evaluate(() =>
       [...(window as unknown as { __statiNome: Set<string> }).__statiNome]);
@@ -2524,8 +2540,11 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
 
     await gotoSidebar(page);
     await expect(tileNamed(page, "e2e-tile-senza-icona")).toBeVisible({ timeout: 15000 });
-    // Enough for the probe to be answered and remembered before the return.
-    await page.waitForTimeout(1500);
+    // The probe answered AND remembered: the persisted cache holds a verified
+    // "no icon" for this path. That entry, not a second and a half, is the
+    // precondition of the measure below.
+    await waitForProjectIconAnswer(page, senzaIcona);
+    await installUiStateProbe(page);
 
     await page.addInitScript(() => {
       const visti = new Set<number>();
@@ -2544,7 +2563,12 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
 
     await gotoSidebar(page);
     await expect(tileNamed(page, "e2e-tile-senza-icona")).toBeVisible({ timeout: 15000 });
-    await page.waitForTimeout(2500);
+    // The shift used to arrive about a second after the first paint, when the
+    // server answer landed. So the window has to contain the hydration and
+    // then a stretch of painted frames: both are conditions the page reports,
+    // and 2500ms was only a guess at their sum.
+    await waitForUiStateHydrated(page, { timeout: 30_000 });
+    await waitForFrames(page, 60);
 
     const posizioni = await page.evaluate(() =>
       [...(window as unknown as { __xNome: Set<number> }).__xNome]);

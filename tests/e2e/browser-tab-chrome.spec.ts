@@ -38,6 +38,7 @@ import {
   closeAllBrowserContexts,
 } from "./helpers/api-fixtures";
 import { projectPanesKey } from "../../shared/project-keys";
+import { installUiStateProbe, waitForFrames, waitForUiStateHydrated } from "./helpers/ui-state-probe";
 import { mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -360,14 +361,19 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
         ignoreHTTPSErrors: true,
       });
       expect(put.ok(), "seeding the project browser pane").toBe(true);
+      await installUiStateProbe(page);
       await goToApp(page);
       const projectTab = page.getByTestId(`pane-tab-project:${encodeURIComponent(project)}`);
       await expect(projectTab).toBeVisible({ timeout: 15000 });
       await projectTab.click();
       const host = new URL(origin).host;
       await expect(tabDelBrowser(page)).toContainText(new RegExp(host.replace(/\./g, "\\.")), { timeout: 60_000 });
-      // The row must not come back on its own once the store has spoken.
-      await page.waitForTimeout(3000);
+      // The row must not come back on its own once the store has spoken. What
+      // the three-second sleep was standing in for is the hydration itself:
+      // the server answer, over the socket or over the fallback GET, plus the
+      // frames React needs to render it.
+      await waitForUiStateHydrated(page, { timeout: 30_000 });
+      await waitForFrames(page, 20);
       await expect(page.getByTestId("browser-url-input")).toHaveCount(0, { timeout: 30_000 });
     } finally {
       await resetProjectPanes(request, project).catch(() => {});
