@@ -103,6 +103,25 @@ describe("own-commits — su git vero", () => {
     expect(ptr).toEqual({ branch: "topics/card", commit: shaM });
   });
 
+  test("il ramo di un tentativo precedente della STESSA card non e' lavoro altrui: `ownRefs` lo toglie dalla sottrazione", async () => {
+    // 1929291c, 2026-09-04: the previous attempt's branch stayed in refs/heads
+    // with no worktree after the card got a new one, and the new branch
+    // continued it. Nothing else reaches those commits.
+    git(repo, "checkout", "-q", "-b", "topics/prima", "main");
+    commit(repo, "prima.txt", "primo tentativo\n", "primo tentativo della card");
+    git(repo, "checkout", "-q", "-b", "topics/seconda", "topics/prima");
+    commit(repo, "seconda.txt", "secondo tentativo\n", "secondo tentativo della card");
+    git(repo, "checkout", "-q", "main");
+
+    const declared = await otherLocalBranches(repo, "topics/seconda", { ownRefs: ["topics/prima"] });
+    expect(declared).not.toContain("refs/heads/topics/prima");
+    expect(await countOwnCommits(repo, "topics/seconda", { others: declared! })).toBe(2);
+    // Without the declaration the subtraction stays as it was: the old branch is foreign.
+    const all = await otherLocalBranches(repo, "topics/seconda");
+    expect(all).toContain("refs/heads/topics/prima");
+    expect(await countOwnCommits(repo, "topics/seconda", { others: all! })).toBe(1);
+  });
+
   test("i commit propri arrivano dal più recente: il primo è il puntatore di consegna", async () => {
     const own = await listOwnCommits(repo, "topics/doppia");
     expect(own?.map((sha) => subject(repo, sha))).toEqual(["secondo mio", "primo mio"]);

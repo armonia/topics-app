@@ -5,6 +5,7 @@
  */
 import { describe, it, expect, beforeEach } from "bun:test";
 import {
+  peekTurnEnd,
   recordTurnEnd,
   resetTurnEndRegistry,
   takeTurnEnd,
@@ -18,6 +19,16 @@ describe("deposita / ritira", () => {
   it("chi ritira ottiene quello che è stato depositato", () => {
     recordTurnEnd("s1", { end: "max_tokens" });
     expect(takeTurnEnd("s1")).toEqual({ end: "max_tokens" });
+  });
+
+  it("sbirciare NON consuma: il drain headless legge che la fine c'è e la lascia a chi la ritira", () => {
+    resetTurnEndRegistry();
+    expect(peekTurnEnd("topic:peek")).toBe(false);
+    recordTurnEnd("topic:peek", { end: "end_turn" });
+    expect(peekTurnEnd("topic:peek")).toBe(true);
+    expect(peekTurnEnd("topic:peek")).toBe(true);
+    expect(takeTurnEnd("topic:peek")).toEqual({ end: "end_turn" });
+    expect(peekTurnEnd("topic:peek")).toBe(false);
   });
 
   it("ritirare CONSUMA: la stessa fine non può essere attribuita a due turni", () => {

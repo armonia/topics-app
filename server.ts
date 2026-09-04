@@ -127,7 +127,7 @@ import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProvider
 import { aiBridgeEnabled, ClaudeCodeProvider } from "./server/providers/claude-code";
 import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers/stop-reason";
 import type { AbortReason } from "./server/providers/types";
-import { recordTurnEnd, takeTurnEnd } from "./server/providers/turn-end-registry";
+import { recordTurnEnd, takeTurnEnd, peekTurnEnd } from "./server/providers/turn-end-registry";
 import { readNativeUsage } from "./server/providers/native-usage-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
 import { pickTaskPlan } from "./server/services/task-model-picker";
@@ -845,6 +845,8 @@ function rejectedTurn(resp: Response, what: string): TurnEndInfo | null {
 // mid-turn reattach, which isn't a board task and has no `dispatchIdleMin`
 // setting to read) — matches `BoardSettings.dispatchIdleMin`'s own default.
 const DEFAULT_STALL_IDLE_MS = 5 * 60_000;
+/** After the route has deposited the end, how long a silent SSE body is still trusted to close on its own. */
+const HEADLESS_END_GRACE_MS = 20_000;
 
 /**
  * The transcript TAIL the stall judge reads: the last few local messages,
@@ -928,7 +930,31 @@ async function runHeadlessTurn(
    * still going, and nobody was looking. Without it the cap was a wall clock and
    * it cut healthy turns: 60 times, the last on 2026-08-21 at 00:37. It costs one
    * assignment per chunk. */
-  try { while (true) { const { done } = await reader.read(); if (done) break; detector.noteActivity(); } }
+  // THE END IS THE DEPOSIT, NOT THE CLOSE OF THE BODY. On 2026-09-04 (c8039b35)
+  // the route finalized the turn - row written, end deposited, `[Media]` line
+  // out - and this reader kept waiting on a body that never closed: the run
+  // stayed "in flight", the card's continuation parked behind it, and
+  // `restart-when-idle` waited an hour for a turn that did not exist. Once the
+  // end is deposited and the body has been silent for the grace, the turn is
+  // over for us too.
+  try {
+    while (true) {
+      const { done } = await Promise.race([
+        reader.read(),
+        (async () => {
+          while (true) {
+            await Bun.sleep(HEADLESS_END_GRACE_MS);
+            if (peekTurnEnd(sessionKey)) return { done: true as const };
+          }
+        })(),
+      ]);
+      if (done) {
+        if (peekTurnEnd(sessionKey)) reader.cancel().catch(() => {});
+        break;
+      }
+      detector.noteActivity();
+    }
+  }
   finally {
     detector.clear();
     try { reader.releaseLock(); } catch { /* already released */ }
@@ -1011,7 +1037,31 @@ async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number
    * still going, and nobody was looking. Without it the cap was a wall clock and
    * it cut healthy turns: 60 times, the last on 2026-08-21 at 00:37. It costs one
    * assignment per chunk. */
-  try { while (true) { const { done } = await reader.read(); if (done) break; detector.noteActivity(); } }
+  // THE END IS THE DEPOSIT, NOT THE CLOSE OF THE BODY. On 2026-09-04 (c8039b35)
+  // the route finalized the turn - row written, end deposited, `[Media]` line
+  // out - and this reader kept waiting on a body that never closed: the run
+  // stayed "in flight", the card's continuation parked behind it, and
+  // `restart-when-idle` waited an hour for a turn that did not exist. Once the
+  // end is deposited and the body has been silent for the grace, the turn is
+  // over for us too.
+  try {
+    while (true) {
+      const { done } = await Promise.race([
+        reader.read(),
+        (async () => {
+          while (true) {
+            await Bun.sleep(HEADLESS_END_GRACE_MS);
+            if (peekTurnEnd(sessionKey)) return { done: true as const };
+          }
+        })(),
+      ]);
+      if (done) {
+        if (peekTurnEnd(sessionKey)) reader.cancel().catch(() => {});
+        break;
+      }
+      detector.noteActivity();
+    }
+  }
   finally {
     detector.clear();
     try { reader.releaseLock(); } catch { /* already released */ }
@@ -1265,6 +1315,7 @@ function isChecksHold(sessionKey: string): boolean {
   }
 }
 
+const taskAttemptStore = createTaskAttemptStore(ctx.db);
 const taskDispatcher = createTaskDispatcher({
   captureDelivery: (taskId) => capturaConsegna ? capturaConsegna(taskId) : Promise.resolve(false),
   uncommittedInWorktree: (taskId) =>
@@ -1406,7 +1457,7 @@ const taskDispatcher = createTaskDispatcher({
   // scrivono le righe, come si misura cosa ha prodotto ognuno, come si chiama il
   // suo branch, e come si spegne la chat di un perdente. Assenti ⇒ il dispatcher
   // resta al path storico, un agente per task.
-  attempts: createTaskAttemptStore(ctx.db),
+  attempts: taskAttemptStore,
   attemptStats: async (worktreeId) => {
     const wt = ctx.worktreeStore.get(worktreeId);
     if (!wt || wt.mode !== "branch" || !wt.absPath || !existsSync(wt.absPath)) return null;
@@ -1865,6 +1916,7 @@ const taskAutoMerge = createTaskAutoMerge({
   // non-landabile. La card però il ramo lo dichiara da sé (`delivery_branch`,
   // registrato quando è entrata in review), e il checkout del suo progetto si
   // ricava dal board id come fa l'audit: invertendo l'hash del percorso.
+  ownBranches: (taskId) => taskAttemptStore.list(taskId).map((a) => a.branch).filter((b): b is string => typeof b === "string" && b.length > 0),
   declaredDelivery: (taskId) => {
     const task = dispatcherSvc.get(taskId)?.task;
     if (!task) return null;

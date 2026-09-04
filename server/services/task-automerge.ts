@@ -284,6 +284,8 @@ export interface AutoMergeDeps {
    * consegnato. Consultato solo quando `resolveTaskMerge` non risolve nulla.
    */
   declaredDelivery?: (taskId: string) => DeclaredDelivery | null;
+  /** The branches of this card's previous attempts: its own history, never "another session" (see own-commits.ts `ownRefs`). */
+  ownBranches?: (taskId: string) => string[];
   /** Injected for tests. Default: real `git` via Bun.spawn (never throws — returns the code). */
   runGit?: (cwd: string, args: string[]) => Promise<GitRunResult>;
   /**
@@ -1133,7 +1135,9 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         // righe e una rimozione da 21.775.
         /** Quando il branch porta anche commit non suoi: si prendono solo i suoi. */
         let onlyOwn: { total: number; mine: number; others: string[] } | null = null;
-        const others = await otherLocalBranches(repoPath, branch, { mainRef: defaultBranch, runGit });
+        let ownRefs: string[] = [];
+        try { ownRefs = deps.ownBranches?.(taskId) ?? []; } catch { ownRefs = []; }
+        const others = await otherLocalBranches(repoPath, branch, { mainRef: defaultBranch, runGit, ownRefs });
         if (others === null) {
           return {
             status: "skipped", code: "unisolable",
