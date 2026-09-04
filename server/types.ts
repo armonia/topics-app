@@ -487,6 +487,8 @@ export interface AppContext {
   loadUnread: () => UnreadData;
   saveUnread: (data: UnreadData) => void;
   loadLocalMessages: (sessionKey: string, opts?: ThreadLoadOpts) => StoredMessage[];
+  /** Fills `blocks`/`tool_calls` back into messages loaded lean. */
+  hydrateMessageBodies: (msgs: StoredMessage[]) => StoredMessage[];
   /** Rows of the WHOLE session (dead branches included) - what a deletion
    *  actually hits. */
   countMessagesBySession: (sessionKey: string) => number;

@@ -975,6 +975,28 @@ export function createTopicsRouter(
     return previews;
   }
 
+  /**
+   * The topics as a LIST carries them: everything except the two fields only
+   * the open topic ever reads.
+   *
+   * `systemPrompt` is 255,905 bytes on this machine and `browserState` 20,964,
+   * across 1,471 topics of which 1,448 are archived - a quarter of the boot
+   * payload, re-sent on every WS reconnect and re-serialised whole into
+   * localStorage, for text no list draws. `GET /api/topics/:id` serves them for
+   * the one topic that is being looked at, archived or not.
+   */
+  function listShape(topics: Record<string, Topic>): Record<string, Topic> {
+    const out: Record<string, Topic> = {};
+    for (const [id, topic] of Object.entries(topics)) {
+      const { systemPrompt, browserState: _browser, ...rest } = topic;
+      // The one thing a list DOES ask about the prompt: whether there is one.
+      // The empty state of a chat draws a badge from it, and a boolean answers
+      // that for a byte instead of a page of text.
+      out[id] = (systemPrompt ? { ...rest, hasSystemPrompt: true } : rest) as Topic;
+    }
+    return out;
+  }
+
   return async function topicsRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
 
     // --- Topics CRUD ---
@@ -997,8 +1019,18 @@ export function createTopicsRouter(
           for (const id of fixedIds) saveSingleTopic(data.topics[id]);
         })();
       }
-      return json({ ...data, workspaceProjects: getWorkspaceProjects() });
+      // THE LIST DOES NOT CARRY WHAT ONLY ONE TOPIC AT A TIME NEEDS. This is
+      // the boot payload, remade on every WS reconnect and written whole into
+      // localStorage, and it used to ship `system_prompt` and `browser_state`
+      // for all 1,471 topics of this machine - 1,448 of them archived - for
+      // 277 KB of the 1.07 MB that nothing in a list draws: the prompt is read
+      // by the settings panel and the empty state of the OPEN topic, the
+      // browser state by the pane that restores it. Both now come from
+      // `GET /api/topics/:id`, one topic, when it is looked at.
+      // Gate: tests/integration/topics-list-weight.test.ts.
+      return json({ ...data, topics: listShape(data.topics), workspaceProjects: getWorkspaceProjects() });
     }
+
 
     // Streaming-session snapshot for cross-reload loading hydration. The client
     // (useSignalsSync) polls this so a chat that was mid-reply when the page
@@ -1990,6 +2022,19 @@ export function createTopicsRouter(
         broadcastToAll({ type: "message:new", topicId: params.id, sessionKey: topic.sessionKey, role: "assistant", messageId: stored.id, content: body.content, preview: body.content.slice(0, 100) });
         updateUnreadCount(params.id);
         return json({ ok: true, message: stored });
+      }
+    }
+
+    // GET /api/topics/:id - ONE topic, whole, heavy fields included.
+    // The other half of the cut above: whoever needs the system prompt or the
+    // browser state of a topic asks for that topic. Placed after the literal
+    // `/api/topics/...` routes so it cannot swallow them.
+    {
+      const params = matchRoute(pathname, "/api/topics/:id");
+      if (params && method === "GET") {
+        const topic = getTopicById(params.id);
+        if (!topic) return json({ error: "Topic not found" }, 404);
+        return json({ topic });
       }
     }
 

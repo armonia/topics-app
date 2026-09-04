@@ -268,3 +268,58 @@ describe("il peso di GET /api/all-boards/tasks", () => {
     expect(primaBytes).toBeGreaterThan(body.length * 3);
   });
 });
+
+/**
+ * THE FEED DOES NOT GROW FOREVER.
+ *
+ * Closed cards never leave: 754 `done` out of 777 rows in September (1.60 MB)
+ * against 467 rows and 1.44 MB in August, and every open window re-reads that
+ * feed on every `task:*` event and on every reconnect. The cap on `done` cuts
+ * in SQL - the dropped rows are not even hydrated by SQLite - and touches no
+ * other status: what disappears is history, which is read from the archive, not
+ * work waiting for somebody.
+ */
+describe("il tetto sui done di GET /api/all-boards/tasks", () => {
+  /** 400 closed and 40 open: the proportion of the live database, exaggerated. */
+  function seedManyDone(db: Database): void {
+    const ins = db.prepare(
+      `INSERT INTO tasks (id, project_id, text, status, priority, kanban_order, created_at, updated_at, completed_at)
+       VALUES (?, 'board-1', ?, ?, 2, ?, ?, ?, ?)`,
+    );
+    for (let i = 0; i < 400; i++) {
+      // `completed_at` grows with i: the most recent ones are the last.
+      const at = `2026-09-${String((i % 28) + 1).padStart(2, "0")}T10:00:00.000Z`;
+      ins.run(`done-${String(i).padStart(3, "0")}`, `closed ${i}`, "done", i, at, at,
+        new Date(Date.UTC(2026, 0, 1) + i * 3_600_000).toISOString());
+    }
+    for (let i = 0; i < 40; i++) {
+      const at = "2026-09-01T10:00:00.000Z";
+      ins.run(`open-${i}`, `open ${i}`, i % 2 ? "todo" : "review", i, at, at, null);
+    }
+  }
+
+  test("the closed ones are cut at 120, every open one is there", async () => {
+    const db = freshDb();
+    seedManyDone(db);
+    const { tasks } = await feed(db);
+    const done = tasks.filter((t) => t.status === "done");
+    const open = tasks.filter((t) => t.status !== "done");
+    expect(done.length).toBe(120);
+    expect(open.length).toBe(40);
+    // And they are the MOST RECENT: the last 120 by `completed_at`.
+    const ids = new Set(done.map((t) => t.id));
+    expect(ids.has("done-399")).toBe(true);
+    expect(ids.has("done-280")).toBe(true);
+    expect(ids.has("done-279")).toBe(false);
+    expect(ids.has("done-000")).toBe(false);
+  });
+
+  test("THE MIRROR: without the cap the feed would carry all 400 closed ones", async () => {
+    const db = freshDb();
+    seedManyDone(db);
+    const allDone = (db.query("SELECT COUNT(*) n FROM tasks WHERE status = 'done'").get() as { n: number }).n;
+    expect(allDone).toBe(400);
+    const { tasks } = await feed(db);
+    expect(tasks.length).toBeLessThan(allDone);
+  });
+});

@@ -22,7 +22,7 @@ export interface HistoryDeps {
  * Behaviour is a verbatim move; only the route dispatch changed.
  */
 export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHandler {
-  const { json, readJSON, loadLocalMessages, appendLocalMessage, isStreaming, getStreamContent, SESSIONS_DIR } = ctx;
+  const { json, readJSON, loadLocalMessages, hydrateMessageBodies, appendLocalMessage, isStreaming, getStreamContent, SESSIONS_DIR } = ctx;
   const { matchHistoryRoute, providerForSessionKey } = deps;
 
   /** Il verdetto del broker, o `unknown` se il provider non sa rispondere. Non
@@ -64,7 +64,35 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
     const offsetN = Number(body?.offset ?? urlParams.get('offset') ?? '0');
     const offset = Number.isFinite(offsetN) ? Math.max(0, Math.trunc(offsetN)) : 0;
 
-    const localMsgs = loadLocalMessages(sessionKey);
+    // A CAPPED request pays for what it returns. The limit used to be applied
+    // after hydrating the whole session: `SELECT *` on every row plus a
+    // `JSON.parse` of `blocks` and `tool_calls` for each, then `slice(-limit)`.
+    // On the heaviest topic of this machine that is 14.2 MB read and parsed to
+    // answer 5 KB, with the single event loop of Bun standing still for the
+    // duration. Now the thread is walked lean - the two fat columns are not
+    // even requested - and `hydrateMessageBodies` fetches them for the rows
+    // that actually go out, after the slice.
+    //
+    // A request for the WHOLE thread (`limit:0`, what the chat pane sends)
+    // keeps the single fat read: it needs every row hydrated anyway, and a
+    // second pass by id would only add work.
+    // Gate: tests/integration/history-limit-cost.test.ts.
+    const cappedRead = !wantsAll;
+    const localMsgs = cappedRead
+      ? loadLocalMessages(sessionKey, { withBlocks: false, withToolCalls: false })
+      : loadLocalMessages(sessionKey);
+    // On a lean read the "is this an empty partial?" question cannot be asked
+    // of the message: its two columns were left in the table. It is asked of
+    // SQLite instead, and only about the partial rows - normally none, at most
+    // the turn in flight - so the fat columns are touched for those alone.
+    const partialsWithBody: Set<string> = cappedRead
+      ? new Set((ctx.db.prepare(
+          `SELECT id FROM messages
+            WHERE session_key = ? AND partial = 1
+              AND ((blocks IS NOT NULL AND length(blocks) > 2)
+                OR (tool_calls IS NOT NULL AND length(tool_calls) > 2))`,
+        ).all(sessionKey) as Array<{ id: string }>).map((r) => r.id))
+      : new Set<string>();
     // «Sta streammando?» non si chiede solo alla memoria di QUESTO processo.
     // `activeStreams` è vuota subito dopo un riavvio del server anche per una
     // sessione il cui figlio è vivo nel broker, fermo su una domanda a schermo
@@ -92,7 +120,8 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
     const isRealMessage = (m: StoredMessage) =>
       (m.content && m.content.trim().length > 0) ||
       (m.toolCalls && m.toolCalls.length > 0) ||
-      (m.blocks && m.blocks.length > 0);
+      (m.blocks && m.blocks.length > 0) ||
+      partialsWithBody.has(m.id);
     // When streaming, keep ALL messages (including empty partials) — filtering them deletes from disk
     const completeMsgs = activeStream
       ? localMsgs
@@ -121,7 +150,8 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
     if (completeMsgs.length > 0) {
       const total = completeMsgs.length;
       const sliced = offset > 0 ? completeMsgs.slice(0, Math.max(0, total - offset)) : completeMsgs;
-      const result = wantsAll ? sliced : sliced.slice(-limit);
+      const capped = wantsAll ? sliced : sliced.slice(-limit);
+      const result = cappedRead ? hydrateMessageBodies(capped) : capped;
       const currentStream = isStreaming(sessionKey);
 
       // Overlay in-memory stream content onto the last assistant message

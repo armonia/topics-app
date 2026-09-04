@@ -58,6 +58,21 @@ import { resolveTaskDiffRange } from "../services/task-diff-range";
 import { isTaskLabel, normalizeLabels, type TaskFile } from "../../shared/task-labels";
 import { probeUrl, invalidateProbeCache } from "../services/url-probe-cache";
 
+/**
+ * How many CLOSED cards the global feed carries.
+ *
+ * `GET /api/all-boards/tasks` is re-read by every open window on every `task:*`
+ * event and on every WS reconnect, and it only ever grew: 1.44 MB over 467 rows
+ * in August, 1.60 MB over 777 rows in September, 754 of them `done`. Nothing
+ * retires a closed card, so the cost of watching the board went up every day
+ * for a payload the columns do not draw - beyond the last few dozen, a done
+ * card is looked at through the archive, which is its own query.
+ *
+ * 120: more than a screen of the `done` column at any zoom, small enough that
+ * the feed stops tracking the lifetime of the installation.
+ */
+const DONE_FEED_LIMIT = 120;
+
 const ERROR_STATUS: Record<string, number> = {
   not_found: 404,
   invalid_input: 400,
@@ -1822,7 +1837,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // l'intera board per vedere le sue due schede. `ids` rende quel filtro una
       // clausola, e un insieme vuoto esce senza interrogare niente.
       if (pathname === "/api/all-boards/tasks") {
-        return json({ tasks: svc.list({ scope: "all", rootsOnly: true, ids: [...condivisi] }) });
+        return json({ tasks: svc.list({ scope: "all", rootsOnly: true, ids: [...condivisi], doneLimit: DONE_FEED_LIMIT }) });
       }
       // Un task singolo, il suo thread, i suoi allegati: passa solo se l'id è
       // fra i condivisi. L'id si legge dal path, che è la forma che tutte le
@@ -1849,7 +1864,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // Columns show ROOT tasks only — steps live in the parent's detail tree.
       // Tranne gli ORFANI (padre chiuso, archiviato o sparito): quello non è
       // l'albero di nessuno, e fuori dalle colonne non lo guarda più niente.
-      try { return json({ tasks: svc.list({ scope: "all", status: asTaskStatus(status), rootsOnly: true, includeOrphanSubtasks: true }) }); }
+      // The `done` column of the global feed is capped: see DONE_FEED_LIMIT.
+      // An explicit `?status=done` is a request for that column and is served
+      // capped too - it is the same rows the board would draw.
+      try { return json({ tasks: svc.list({ scope: "all", status: asTaskStatus(status), rootsOnly: true, includeOrphanSubtasks: true, doneLimit: DONE_FEED_LIMIT }) }); }
       catch (e) { return fail(e); }
     }
 
