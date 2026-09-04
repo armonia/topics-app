@@ -2042,7 +2042,20 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (attemptStore) {
         try {
           let gia = 0;
-          try { gia = attemptStore.list(taskId).length; } catch { /* prima riga */ }
+          // ONE live attempt per card on a single launch. A row left `running`
+          // by a session this launch replaces (the server died mid-turn, the
+          // card was re-dispatched on a new topic) is not a sibling: at the
+          // next boot the fan-out recovery counted it as one and closed the
+          // round on a live card (1929291c, 2026-09-04 18:03, sent to review
+          // "senza riassunto" while its agent was working).
+          try {
+            const prev = attemptStore.list(taskId);
+            gia = prev.length;
+            for (const stale of prev) {
+              if (stale.state !== "running") continue;
+              attemptStore.finish(stale.id, { state: "failed", error: "sostituito da un nuovo lancio sulla stessa card" });
+            }
+          } catch { /* prima riga */ }
           const a = attemptStore.create({
             taskId,
             idx: gia + 1,

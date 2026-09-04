@@ -437,6 +437,35 @@ describe("task-dispatcher fan-out", () => {
     expect(h.comments("t1").join("\n")).toContain("Il server è ripartito mentre 2");
   });
 
+  it("un lancio singolo chiude il tentativo rimasto `running` dalla sessione che sostituisce: al boot non e' un fratello del fan-out", async () => {
+    // 1929291c, 2026-09-04 18:03: the morning session's row was still `running`
+    // (the server had died mid-turn), the card was re-dispatched on a new topic,
+    // and the next boot read the stale row as a fan-out sibling: round closed,
+    // card sent to review "senza riassunto" while its agent was working.
+    const h = harness();
+    boardWithFanOut(h, 1);
+    const id = seedTask(h.db, { id: "t1", status: "todo" });
+    const stale = h.attempts.create({ taskId: id, idx: 1 });
+    h.attempts.bind(stale.id, { topicId: "topic-old", worktreeId: "wt-old", branch: "task/wt-old" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.turns.length).toBe(1);
+    const rows = h.rows("t1");
+    expect(rows.map((r) => `${r.idx}:${r.state}`).join(",")).toBe("1:failed,2:running");
+    const old = rows.find((r) => r.id === stale.id)!;
+    expect(old.state).toBe("failed");
+    expect(old.error).toContain("sostituito");
+    expect(rows.filter((r) => r.state === "running").length).toBe(1);
+
+    await h.dispatcher.reconcile();
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.status).toBe("in_progress");
+    expect(h.comments("t1").join("\n")).not.toContain("tentativo del fan-out");
+  });
+
   it("riavvio con UN solo tentativo vivo, sul topic della card: e' una sessione singola e riprende, niente worktree buttato", async () => {
     // Before 2026-09-04 this was read as an orphaned round and closed "without
     // a commit": card requeued, worktree reaped, uncommitted work gone. A lone
