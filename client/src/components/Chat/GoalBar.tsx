@@ -16,7 +16,7 @@
 
 import { useState } from 'react';
 import { useT } from '../../hooks/useT';
-import { Check, ChevronRight, Pencil, Square, Target, X } from 'lucide-react';
+import { Check, ChevronRight, Pencil, Square, Target, UserCheck, X } from 'lucide-react';
 import type { TopicGoal } from '../../types';
 import type { TodoSnapshot } from './selectLatestTodo';
 import { CHAT_STRIP_NEUTRAL } from '../../lib/chatStripStyles';
@@ -29,13 +29,21 @@ interface Props {
   onEdit: (content: string) => void;
   /** Stop the auto-continuation, leaving the objective alive. */
   onStopLoop?: () => void;
+  /** The person adopts a goal the agent proposed. Absent = no button. */
+  onPromote?: () => void;
 }
 
 type Row = { content: string; status: 'pending' | 'in_progress' | 'completed' };
 
-export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop }: Props) {
+export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote }: Props) {
   const tr = useT();
-  const [expanded, setExpanded] = useState(false);
+  // Null = nobody has touched the arrow yet, so the default decides: the plan
+  // of a goal the AGENT proposed opens by itself, because nobody asked for that
+  // goal and its steps are the thing to read. A goal the person declared keeps
+  // its own plan closed, the way it has always been. `null` and not a boolean
+  // because the steps arrive from a broadcast while the bar is already
+  // mounted: an initial value would have been decided before they existed.
+  const [manualExpand, setManualExpand] = useState<boolean | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(goal.content);
 
@@ -48,6 +56,8 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop }: Props) 
       }));
   const done = rows.filter((r) => r.status === 'completed').length;
   const active = rows.find((r) => r.status === 'in_progress');
+  const byAgent = goal.createdBy === 'agent';
+  const expanded = manualExpand ?? (byAgent && own && rows.length > 0);
 
   // THE STATE OF THE LOOP, which is not the state of the objective.
   //
@@ -103,7 +113,7 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop }: Props) 
       <div className="flex items-center gap-2 px-2.5 py-1.5">
         <button
           type="button"
-          onClick={() => rows.length && setExpanded((e) => !e)}
+          onClick={() => rows.length && setManualExpand(!expanded)}
           className="flex min-w-0 flex-1 items-center gap-2 text-left"
           aria-expanded={expanded}
           title={goal.content}
@@ -118,6 +128,14 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop }: Props) 
           <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-app-text">
             {goal.content}
           </span>
+          {byAgent && (
+            <span
+              data-testid="goal-by-agent"
+              className="flex-shrink-0 rounded border border-app-border px-1 py-px text-[10px] uppercase tracking-wide text-app-text-muted"
+            >
+              {tr('goal.byAgent')}
+            </span>
+          )}
           {rows.length > 0 && (
             <span className="flex-shrink-0 text-[11px] tabular-nums text-app-text-muted">
               {done}/{rows.length}
@@ -141,6 +159,17 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop }: Props) 
             className="flex-shrink-0 p-0.5 text-app-text-muted hover:text-app-text"
           >
             <Square size={11} />
+          </button>
+        )}
+        {byAgent && onPromote && (
+          <button
+            type="button"
+            data-testid="goal-promote"
+            onClick={onPromote}
+            title={tr('goal.promote')}
+            className="flex-shrink-0 p-0.5 text-app-text-muted hover:text-app-text"
+          >
+            <UserCheck size={13} />
           </button>
         )}
         <button

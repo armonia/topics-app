@@ -130,6 +130,8 @@ const IT: Dict = {
   'goal.loop.waitingYou': 'in attesa di te',
   'goal.loop.stop': 'Smetti di perseguirlo da solo',
   'goal.loop.count': 'continuazione {n} di {max}',
+  'goal.byAgent': "proposto dall'agente",
+  'goal.promote': "Fallo mio: l'agente non potrà più sostituirlo",
   'cmd.ran': 'Hai lanciato {what} /{name}. Apri per vederne il contenuto',
   'cmd.kind.skill': 'la skill',
   'cmd.kind.command': 'il comando',

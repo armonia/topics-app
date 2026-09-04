@@ -24,7 +24,7 @@ import { join } from "path";
 
 import type { ChatMessage } from "../providers/types";
 import type { AppContext, StoredMessage, Topic } from "../types";
-import { getActiveGoal, goalContextContent } from "../services/goals";
+import { getActiveGoal, goalContextContent, goalToolsHintContent } from "../services/goals";
 import { languageDirective } from "../lib/topics-agent-prompt";
 import { readUserRules, skillsBlock } from "../lib/native-parity";
 
@@ -222,6 +222,7 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
     // The goal before everything else, and on the lean turn too: see
     // `pushGoalBlock`.
     pushGoalBlock(systemBlocks, topic, ctx);
+    pushGoalHintBlock(systemBlocks, topic, ctx, { providerName, leanContext });
     // Whoever must not receive them drops them in `adaptEnvelope`, where the
     // provider is finally known (see SOLO_NATIVO). Not on a LEAN turn: the
     // session already saw them at kickoff, and resending them on every resume is
@@ -816,7 +817,11 @@ function pushPinnedMessagesBlock(
  * che il modello non vede è la premessa del guasto che questo blocco previene.
  * Per toglierlo si chiude il goal, che è una decisione, non un interruttore.
  */
-function pushGoalBlock(blocks: SystemBlock[], topic: Topic, ctx: AppContext): void {
+function pushGoalBlock(
+  blocks: SystemBlock[],
+  topic: Topic,
+  ctx: AppContext,
+): void {
   let content: string | null = null;
   try {
     content = goalContextContent(getActiveGoal(ctx.db, topic.id));
@@ -830,6 +835,50 @@ function pushGoalBlock(blocks: SystemBlock[], topic: Topic, ctx: AppContext): vo
   blocks.push({
     id: "synthetic:goal",
     label: "Obiettivo",
+    category: "synthetic",
+    content,
+    tokens: estimateTokens(content),
+    enabled: true,
+    countInBudget: true,
+    editable: false,
+    injectedByTopicsApp: true,
+  });
+}
+
+/**
+ * The one line that says the agent may declare the objective itself, injected
+ * only when there is NO active goal: with one, `goalContextContent` already
+ * carries the instruction to keep the steps up to date.
+ *
+ * Why it is worth a block of its own. Codex has `update_plan` and the model
+ * calls it by itself at the start of a job; here `set_goal` exists but nothing
+ * ever mentions it, so a twenty-step job runs with an empty bar. A tool the
+ * model never hears about is a tool that does not exist.
+ *
+ * NOT for a dispatched board agent (`bridge-only`): those two tools are outside
+ * its profile, and its plan is the subtasks on the card. Not on a lean turn
+ * either: the session heard it at kickoff, and a resume pays it again for
+ * nothing. Not for `openclaw`, which cannot reach the tools at all.
+ */
+function pushGoalHintBlock(
+  blocks: SystemBlock[],
+  topic: Topic,
+  ctx: AppContext,
+  opts: { providerName: string; leanContext: boolean },
+): void {
+  if (opts.leanContext) return;
+  if (!providerHasControlTools(opts.providerName)) return;
+  if (topic.mcpPolicy === "bridge-only") return;
+  try {
+    if (getActiveGoal(ctx.db, topic.id)) return;
+  } catch {
+    // No goals table (old DB): the tools would fail anyway, say nothing.
+    return;
+  }
+  const content = goalToolsHintContent();
+  blocks.push({
+    id: "synthetic:goal-hint",
+    label: "Obiettivo: come dichiararlo",
     category: "synthetic",
     content,
     tokens: estimateTokens(content),

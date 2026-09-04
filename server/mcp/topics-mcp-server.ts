@@ -29,6 +29,7 @@ import {
   type McpToolAnnotations,
 } from "../browser-tool-spec";
 import { PARKED_WAITED_OUT, PREVIEW_RULE, TASK_STATUSES } from "../../shared/board";
+import { GOAL_STEP_STATUSES } from "../../shared/types";
 import { commentAuthorLabel } from "../../shared/comment-author";
 import { CHECKS_LEG_MS } from "../services/checks-gate";
 
@@ -313,6 +314,43 @@ const TOOLS = [
         summary: { type: "string", description: "One or two sentences for the person: the outcome and where to look, or why it was dropped." },
       },
       required: ["status", "summary"],
+    },
+    annotations: MODIFICA,
+  },
+  {
+    name: "set_goal",
+    description:
+      "Declare the OBJECTIVE of this conversation: one sentence, shown to the person above the chat and re-injected into your context every turn, compaction included. Call it when the job takes several steps, before starting, then keep the plan visible with update_goal_steps. It does NOT replace a goal the person declared: on that one you get an error and you keep working on THEIR objective. Re-declaring the same sentence changes nothing.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        content: { type: "string", description: "The objective in one sentence, the way the person would read it: the outcome, not the first step." },
+      },
+      required: ["content"],
+    },
+    annotations: MODIFICA,
+  },
+  {
+    name: "update_goal_steps",
+    description:
+      "Rewrite the STEPS of the active goal: the whole list every time, with the status of each one, so the person sees where you are (done / doing / to do) with the progress count. Call it when you start a step and when you finish it, not once at the end: a plan updated at the end is a report. Needs an active goal (yours or the person's): with none, declare it with set_goal first.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        steps: {
+          type: "array",
+          description: "The complete list, in order: it REPLACES the previous one. Exactly one step in_progress at a time.",
+          items: {
+            type: "object",
+            properties: {
+              content: { type: "string", description: "The step, short and imperative: 'Add the endpoint'." },
+              status: { type: "string", enum: [...GOAL_STEP_STATUSES], description: "pending | in_progress | completed" },
+            },
+            required: ["content"],
+          },
+        },
+      },
+      required: ["steps"],
     },
     annotations: MODIFICA,
   },
@@ -681,6 +719,8 @@ const DISPATCH_EXCLUDED_TOOLS = new Set([
   // the two schemas would be paid on every call for a tool it can never use.
   "get_goal",
   "close_goal",
+  "set_goal",
+  "update_goal_steps",
   "list_agents",
   "send_chat_message",
   "read_chat_messages",
@@ -1123,6 +1163,59 @@ export async function callCloseGoal(
   return g
     ? `Goal «${g.content}» closed as ${g.status}. Summary: ${summary}`
     : `Goal closed as ${status}. Summary: ${summary}`;
+}
+
+/**
+ * The agent declares the objective. The refusal on a goal the person declared
+ * arrives from the route as a 409, and it is passed through as it is: it names
+ * the goal in force and what to do instead, which is what stops the model from
+ * retrying the same call.
+ */
+export async function callSetGoal(
+  args: ParsedArgs,
+  toolArgs: { content?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  const content = typeof toolArgs?.content === "string" ? toolArgs.content.trim() : "";
+  if (!content) throw new Error("set_goal: 'content' (string) is required: the objective in one sentence");
+  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/goal`;
+  const res = await httpJson<{ goal: GoalRow }>(args, "PUT", path, { content }, fetchImpl);
+  const g = res?.goal;
+  return g
+    ? `Goal set (id=${g.id}): ${g.content}. It is shown above the chat and re-injected in your context every turn. Keep the plan visible with update_goal_steps.`
+    : `Goal set: ${content}`;
+}
+
+/**
+ * The plan, whole, every time. The answer says back the counted progress: the
+ * model reads what the person is looking at, not "ok".
+ */
+export async function callUpdateGoalSteps(
+  args: ParsedArgs,
+  toolArgs: { steps?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  const raw = Array.isArray(toolArgs?.steps) ? toolArgs.steps : null;
+  if (!raw || !raw.length) {
+    throw new Error("update_goal_steps: 'steps' (non-empty array) is required: send the WHOLE list, with the status of each step");
+  }
+  const steps = raw.map((s) => {
+    const o = (typeof s === "string" ? { content: s } : s) as { content?: unknown; status?: unknown };
+    const content = String(o?.content ?? "").trim();
+    const status = typeof o?.status === "string" ? o.status : "pending";
+    if (!GOAL_STEP_STATUSES.includes(status as (typeof GOAL_STEP_STATUSES)[number])) {
+      throw new Error(`update_goal_steps: unknown status '${status}': use pending, in_progress or completed`);
+    }
+    return { content, status };
+  }).filter((s) => s.content.length > 0);
+  if (!steps.length) throw new Error("update_goal_steps: every step was empty");
+
+  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/goal/steps`;
+  const res = await httpJson<{ goal: GoalRow }>(args, "PUT", path, { steps }, fetchImpl);
+  const saved = res?.goal?.steps ?? steps;
+  const done = saved.filter((s) => s.status === "completed").length;
+  const doing = saved.find((s) => s.status === "in_progress");
+  return `Plan updated: ${done}/${saved.length} done${doing ? `, now: ${doing.content}` : ""}.`;
 }
 
 export async function callRunScript(
@@ -2159,6 +2252,8 @@ export const TOOL_HANDLERS: Record<
   get_task: (a, t) => callGetTask(a, t),
   get_goal: (a) => callGetGoal(a),
   close_goal: (a, t) => callCloseGoal(a, t as { status?: unknown; summary?: unknown }),
+  set_goal: (a, t) => callSetGoal(a, t as { content?: unknown }),
+  update_goal_steps: (a, t) => callUpdateGoalSteps(a, t as { steps?: unknown }),
   // `onProgress` come per le domande all'umano, e per lo stesso motivo: una
   // consegna fa girare i check pre-review, che durano minuti, e un client MCP
   // che non sente niente dichiara piantata la chiamata.

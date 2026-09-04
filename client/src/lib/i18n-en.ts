@@ -130,6 +130,8 @@ const EN = {
   'goal.loop.waitingYou': 'waiting for you',
   'goal.loop.stop': 'Stop chasing this goal by itself',
   'goal.loop.count': 'continuation {n} of {max}',
+  'goal.byAgent': 'proposed by the agent',
+  'goal.promote': 'Make it mine: the agent can no longer replace it',
   'cmd.ran': 'You ran {what} /{name}. Open to see what is inside',
   'cmd.kind.skill': 'the skill',
   'cmd.kind.command': 'the command',

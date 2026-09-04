@@ -124,7 +124,8 @@ describe("MCP stdio server (subprocess)", () => {
       "browser_save_state", "browser_load_state", "browser_status", "browser_upload",
       "run_script", "list_processes",
       "read_process_output", "wait_for_process", "stop_process",
-      "list_tasks", "create_task", "get_task", "get_goal", "close_goal", "update_task", "wait_for_condition", "label_task", "comment_task",
+      "list_tasks", "create_task", "get_task", "get_goal", "close_goal", "set_goal", "update_goal_steps",
+      "update_task", "wait_for_condition", "label_task", "comment_task",
       "ask_user_question",
       // Il canale di permesso, pubblicato sempre: lo designa
       // `--permission-prompt-tool` e la CLI lo toglie da sé dall'elenco che

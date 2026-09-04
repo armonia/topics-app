@@ -258,6 +258,55 @@ I due tool SHALL restare fuori dal profilo `dispatch`.
 - **GIVEN** una sessione con profilo `dispatch`
 - **THEN** `get_goal` e `close_goal` non compaiono fra i tool pubblicati
 
+### Requirement: CTX-GOAL-03 — L'agente si dà un obiettivo
+
+Il sistema SHALL offrire all'agente, con i tool `set_goal` e `update_goal_steps`,
+la dichiarazione dell'obiettivo del proprio topic (`createdBy: 'agent'`) e la
+riscrittura in blocco dei passi del goal attivo, risolvendo il topic dalla
+session key. `set_goal` SHALL RIFIUTARE la sostituzione di un goal dichiarato
+dall'umano, con un errore che nomina l'obiettivo in vigore e la via d'uscita;
+`update_goal_steps` SHALL invece funzionare anche dentro il goal dell'umano,
+perché scrivere il piano dell'obiettivo ricevuto è fare il lavoro, sostituire
+l'obiettivo è deciderlo. Senza un goal attivo l'envelope SHALL portare la riga
+che dice all'agente di dichiararlo, e la UI SHALL mostrare il goal dell'agente
+come proposta, con i passi in linea e il progresso, e un modo per l'umano di
+farlo proprio.
+
+> **Perché.** Fino a questa change il goal lo scriveva solo l'umano con `/goal` e
+> i passi arrivavano solo dal `plan` ACP: col runtime nativo e con claude-code la
+> barra restava vuota anche su un lavoro da venti passi. Codex ha `update_plan`,
+> che il modello chiama da sé a inizio lavoro; qui il tool per leggere e chiudere
+> il goal esisteva e quello per dichiararlo no.
+
+#### Scenario: L'agente dichiara l'obiettivo
+- **GIVEN** un topic senza goal attivo e la sua session key
+- **WHEN** l'agente chiama `set_goal`
+- **THEN** il goal è attivo con `createdBy: 'agent'` e il client riceve `goal:updated`
+
+#### Scenario: Il goal dell'umano non si sovrascrive
+- **GIVEN** un topic con un goal attivo dichiarato dall'umano
+- **WHEN** l'agente chiama `set_goal` con un altro obiettivo
+- **THEN** la chiamata fallisce, l'errore nomina il goal in vigore, e nessun goal cambia
+
+#### Scenario: Il piano si aggiorna a ogni passo
+- **GIVEN** un topic con un goal attivo
+- **WHEN** l'agente chiama `update_goal_steps` con l'elenco intero
+- **THEN** i passi del goal sono esattamente quelli inviati, con il loro stato, e il client riceve `goal:updated`
+
+#### Scenario: Senza goal l'envelope dice come dichiararlo
+- **GIVEN** un topic senza goal attivo, su un provider che ha i control tool
+- **WHEN** viene composto il contesto da inviare
+- **THEN** i messaggi di sistema contengono l'istruzione a usare `set_goal` e `update_goal_steps`
+
+#### Scenario: L'umano fa proprio il goal proposto
+- **GIVEN** un goal attivo con `createdBy: 'agent'`
+- **WHEN** l'umano lo promuove
+- **THEN** lo stesso goal risulta `createdBy: 'human'` con i suoi passi, e `set_goal` non può più sostituirlo
+
+#### Scenario: Fuori dal profilo dispatch
+- **GIVEN** una sessione con profilo `dispatch`
+- **THEN** `set_goal` e `update_goal_steps` non compaiono fra i tool pubblicati
+
 ### Requirement: CTX-DEDUP-02 — Lo stato di invio è valido solo per la conversazione CLI corrente
 
 Il sistema SHALL legare gli slot registrati come inviati a uno scope composto
