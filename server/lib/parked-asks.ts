@@ -32,6 +32,13 @@ export interface ParkedAskRow {
   sessionKey: string | null | undefined;
   toolCalls: string | null | undefined;
   blocks: string | null | undefined;
+  /**
+   * The topic this session belongs to is archived. Such a question holds
+   * nothing back: it has no row and no tab, so no person can reach it, and a
+   * deferral that waits for an unreachable answer is a block until the ask TTL
+   * runs out a whole day later.
+   */
+  archived?: boolean;
 }
 
 /**
@@ -50,6 +57,9 @@ export function sessionsParkedOnQuestion(
   for (const row of rows) {
     const key = row.sessionKey;
     if (!key || seen.has(key)) continue;
+    // An archived topic is off the screen: nobody can answer, so it does not
+    // park anything.
+    if (row.archived) continue;
     // No timestamp on the tool call: the question exists all the same, and
     // treating it as just opened is the only reading that does not invent an
     // age. It costs at most one TTL window of patience, once.
@@ -82,6 +92,12 @@ export interface AskRowReader {
  * `fastPathKeys` is the in-memory registry, for the window between "the panel
  * opened" and "the row is on disk". It adds nothing after a restart, which is
  * the whole reason the rows are read at all.
+ *
+ * ARCHIVED SESSIONS ARE READ FIRST AND SUBTRACTED FROM BOTH. The archived keys
+ * are one small query (one row per closed chat, no blobs) and they cut the
+ * message rows AND the in-memory registry: a question on an archived topic has
+ * no row and no tab, so it can never be answered, and holding the restart for
+ * it means holding it until the ask TTL expires a day later.
  */
 export function chatsParkedOnQuestion(
   db: AskRowReader,
@@ -89,6 +105,7 @@ export function chatsParkedOnQuestion(
   opts: { now: number; ttlMs: number; fastPathKeys: readonly string[] },
 ): string[] {
   let parked: string[] = [];
+  const archived = archivedSessionKeys(db);
   try {
     const rows = db.prepare(
       `SELECT session_key, tool_calls, blocks FROM messages
@@ -98,11 +115,36 @@ export function chatsParkedOnQuestion(
     ).iterate() as Iterable<{ session_key: string | null; tool_calls: unknown; blocks: unknown }>;
     const decoded = (function* () {
       for (const r of rows) {
-        yield { sessionKey: r.session_key, toolCalls: decode(r.tool_calls), blocks: decode(r.blocks) };
+        yield {
+          sessionKey: r.session_key,
+          toolCalls: decode(r.tool_calls),
+          blocks: decode(r.blocks),
+          archived: r.session_key ? archived.has(r.session_key) : false,
+        };
       }
     })();
     parked = sessionsParkedOnQuestion(decoded, { now: opts.now, ttlMs: opts.ttlMs });
   } catch { /* an unreadable table holds nothing back: the gate keeps its other sources */ }
-  for (const key of opts.fastPathKeys) if (!parked.includes(key)) parked.push(key);
+  for (const key of opts.fastPathKeys) {
+    if (archived.has(key)) continue;
+    if (!parked.includes(key)) parked.push(key);
+  }
   return parked;
+}
+
+/**
+ * The session keys of the archived topics, as a set.
+ *
+ * Failing open (an empty set) keeps the previous behaviour on an unreadable
+ * table: the gate defers, which is the safe direction for a live chat.
+ */
+export function archivedSessionKeys(db: AskRowReader): Set<string> {
+  const out = new Set<string>();
+  try {
+    const rows = db.prepare(
+      `SELECT session_key FROM topics WHERE archived = 1 AND session_key IS NOT NULL`,
+    ).iterate() as Iterable<{ session_key: string | null }>;
+    for (const r of rows) if (r.session_key) out.add(r.session_key);
+  } catch { /* no readable topics table: nothing is known archived */ }
+  return out;
 }

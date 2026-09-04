@@ -5364,7 +5364,7 @@ let askProbeCache: { at: number; parked: string[] } = { at: 0, parked: [] };
  * adottati che vivono solo nel broker. Le prime due sono gratis e si guardano a
  * ogni giro; la terza si paga, e si guarda ogni QUIESCENCE_BROKER_PROBE_MS.
  */
-async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; parkedAsks: number; holder: string | null }> {
+async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; parkedAsks: number; holder: string | null; holderKind: "turn" | "question" }> {
   // A land in flight is a card turn for this purpose: it rewrites main and
   // the card, and a restart in the middle of it forgets the delivery branch.
   const cards = taskDispatcher.busyCount() + landingQueue.inFlight();
@@ -5422,6 +5422,13 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
     // ripiego su `busy` che il nome della prima chat che passa. Fra gli stream
     // vince la NON riadottabile: e' quella il cui lavoro non torna.
     holder: cards > 0 ? null : (unadoptableKeys[0] ?? streamKeys[0] ?? brokerOpen[0] ?? parked[0] ?? null),
+    // WHICH GESTURE UNBLOCKS IT. The holder falls through to the parked list
+    // only when the three "working" sources are empty, and that holder is a
+    // chat waiting for a PERSON: the notice must ask for an answer, not for a
+    // stop, or whoever reads it kills the turn the gate was protecting.
+    holderKind: (cards === 0 && unadoptableKeys.length === 0 && streamKeys.length === 0 && brokerOpen.length === 0 && parked.length > 0)
+      ? "question"
+      : "turn",
   };
 }
 
@@ -5471,7 +5478,7 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
   // rumore, e il log gia' lo fa per chi lo legge.
   let avvisato = false;
   for (;;) {
-    const { busy, cards, unadoptable, parkedAsks, holder } = await whatIsStillWorking();
+    const { busy, cards, unadoptable, parkedAsks, holder, holderKind } = await whatIsStillWorking();
     if (!busy) break;
     // La REGOLA sta in `lib/quiescence.ts`, pura e provata: qui si applica.
     // Viveva dentro questo loop, e li' dentro nessun test poteva raggiungerla
@@ -5561,6 +5568,7 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
           capMs,
           busy,
           holderName: holder ? (ctx.getTopicBySessionKey(holder)?.name ?? null) : null,
+          holderKind,
           waitId: `${label}:${inizio}`,
         });
         if (avviso) {

@@ -10,7 +10,7 @@
  * @covers HOLD-05
  */
 import { test, expect, describe } from "bun:test";
-import { sessionsParkedOnQuestion } from "./parked-asks";
+import { sessionsParkedOnQuestion, chatsParkedOnQuestion } from "./parked-asks";
 
 const NOW = 1_800_000_000_000;
 const ASK_LIFETIME_MS = 24 * 60 * 60 * 1000;
@@ -105,5 +105,58 @@ describe("sessionsParkedOnQuestion - chi sta aspettando una persona", () => {
 
   test("niente righe, niente da trattenere", () => {
     expect(parked([])).toEqual([]);
+  });
+});
+
+/**
+ * AN ARCHIVED TOPIC HAS NO SCREEN LEFT.
+ *
+ * Archiving takes away the row and the tab, so the panel is on nobody's
+ * display: the answer that would end the wait can never be clicked. Left in
+ * the list, that question defers every restart until the ask TTL expires a day
+ * later, and a deferral nobody can end is a block (card 6c2dc14c).
+ */
+describe("sessionsParkedOnQuestion - un topic archiviato non trattiene", () => {
+  test("una domanda su un topic archiviato sparisce dalla lista", () => {
+    expect(parked([
+      { sessionKey: "topic:archived", toolCalls: toolCalls("waiting_for_input", NOW - 60_000), blocks: null, archived: true },
+    ])).toEqual([]);
+  });
+
+  test("la chat viva accanto a quella archiviata resta", () => {
+    expect(parked([
+      { sessionKey: "topic:archived", toolCalls: toolCalls("waiting_for_input", NOW - 60_000), blocks: null, archived: true },
+      { sessionKey: "topic:live", toolCalls: toolCalls("waiting_for_input", NOW - 60_000), blocks: null },
+    ])).toEqual(["topic:live"]);
+  });
+});
+
+describe("chatsParkedOnQuestion - il registro in memoria non riapre un archiviato", () => {
+  /** A database handle with two answers: the archived keys, and the messages. */
+  const fakeDb = (archivedKeys: string[], messages: Array<{ session_key: string; tool_calls: string | null }>) => ({
+    prepare(sql: string) {
+      if (sql.includes("FROM topics")) {
+        return { iterate: () => archivedKeys.map((session_key) => ({ session_key })) };
+      }
+      return { iterate: () => messages.map((m) => ({ ...m, blocks: null })) };
+    },
+  });
+  const identity = (v: unknown) => (typeof v === "string" ? v : null);
+
+  test("una chiave archiviata non rientra dal fast path", () => {
+    const db = fakeDb(["topic:archived"], []);
+    expect(chatsParkedOnQuestion(db, identity, {
+      now: NOW, ttlMs: ASK_LIFETIME_MS, fastPathKeys: ["topic:archived", "topic:live"],
+    })).toEqual(["topic:live"]);
+  });
+
+  test("la riga archiviata sul disco non trattiene", () => {
+    const db = fakeDb(["topic:archived"], [
+      { session_key: "topic:archived", tool_calls: toolCalls("waiting_for_input", NOW - 1_000) },
+      { session_key: "topic:live", tool_calls: toolCalls("waiting_for_input", NOW - 1_000) },
+    ]);
+    expect(chatsParkedOnQuestion(db, identity, {
+      now: NOW, ttlMs: ASK_LIFETIME_MS, fastPathKeys: [],
+    })).toEqual(["topic:live"]);
   });
 });
