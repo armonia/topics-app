@@ -2509,3 +2509,41 @@ risposto 12m fa» — e nella stessa riga non c'è una frase che le distingua.
 - **THEN** la tab NON SHALL portare il glifo aggregato
 - **WHEN** si seleziona un'altra tab
 - **THEN** la tab del progetto SHALL portarlo
+
+### Requirement: LAYOUT-PRED-01 — «Quante colonne» ha UN predicato solo, e vale 768px
+
+Ogni superficie che sceglie il proprio ramo in base a QUANTE COLONNE stanno
+sullo schermo SHALL leggere lo stesso predicato: `innerWidth < 768`. Non è una
+preferenza di stile, è l'unico modo perché due metà della stessa decisione
+possano essere coerenti.
+
+Ne esisteva un secondo — «schermo piccolo» come `<768 || (touch && <1024)` — e
+nella fascia 768-1023 col dito i due si contraddicevano. La contraddizione NON
+era estetica: la fila di comandi in fondo si accendeva col predicato touch
+mentre l'interruttore che essa contiene (board ⇄ lista) si calcolava con quello
+di layout, che lì è falso. Il tasto prendeva SEMPRE il ramo «apri la board e
+chiudi la colonna»: non tornava mai indietro, e ogni pressione chiudeva il
+cassetto. Un interruttore di sola andata è un interruttore rotto, e nasce dal
+fatto che i suoi due capi guardavano due schermi diversi.
+
+Quindi: la fila in fondo NON SHALL esistere dove la shell disegna il layout
+desktop, e dove esiste il suo interruttore SHALL fare andata E ritorno.
+
+E i comandi che governano gli split — «Dividi a destra», «Dividi in basso»,
+«Reimposta pannelli» — SHALL essere offerti ESATTAMENTE dove gli split si
+disegnano. La regola «un comando compare dove ha effetto» taglia in entrambi i
+versi: nasconderlo dove non fa niente è igiene, nasconderlo dove FUNZIONA è
+togliere la funzione. Su un tablet in verticale (834x1194) la griglia montava
+l'albero degli split coi suoi divisori mentre le tre voci sparivano dal menu
+della tab, dal menu «Topics» e dalla palette: gli split c'erano e non li si
+poteva più governare da nessuna parte.
+
+#### Scenario: un telefono in orizzontale, che è largo come un desktop stretto
+- **GIVEN** un contesto touch a 844x390, dove la shell disegna il layout desktop
+- **THEN** la fila di comandi in fondo NON SHALL essere a schermo
+- **AND** in alternativa, se c'è, due pressioni sull'interruttore SHALL riportare
+  a schermo la lista dei topic
+
+#### Scenario: un tablet in verticale, dove gli split esistono davvero
+- **GIVEN** un contesto touch a 834x1194 con più di una cella affiancata
+- **THEN** il menu della tab SHALL offrire «Dividi a destra»

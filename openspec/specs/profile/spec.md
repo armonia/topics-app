@@ -279,3 +279,24 @@ markdown. Senza nome NON SHALL essere scritta una query vuota.
 #### Scenario: da un indirizzo pubblico
 - **GIVEN** un'origine raggiungibile da fuori
 - **THEN** il markdown SHALL essere pronto, senza avvisi
+
+### Requirement: PUBLIC-PROFILE-URL-01 — Sotto il guscio desktop l'origine della pagina NON è un indirizzo
+
+«Copia link» del profilo pubblico SHALL costruire l'URL da un'origine che
+qualcun altro può aprire. Sotto Tauri l'origine della pagina è
+`tauri://localhost` (macOS) o `http://tauri.localhost` (altrove): NON SHALL
+finire nel link. In quel caso SHALL usarsi l'origine http su cui il server
+risponde, e la riga sotto il link SHALL dire fin dove quell'indirizzo arriva.
+Con il relay attivo SHALL vincere l'indirizzo del relay, che arriva ovunque.
+
+#### Scenario: guscio macOS
+- **GIVEN** l'origine della pagina è `tauri://localhost` e il server risponde su un'origine http
+- **THEN** il link SHALL usare l'origine http del server
+
+#### Scenario: relay attivo
+- **GIVEN** il relay è abilitato con un indirizzo pubblico
+- **THEN** il link SHALL usare l'indirizzo del relay
+
+#### Scenario: nel browser
+- **GIVEN** l'origine della pagina è già un indirizzo http
+- **THEN** il link SHALL usare quella, come prima

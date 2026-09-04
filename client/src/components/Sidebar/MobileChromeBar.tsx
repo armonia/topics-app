@@ -99,10 +99,33 @@ export interface MobileChromeBarProps {
   /** Apre la pane Profilo — statistiche e identità in una tab, non in una
    *  modale. Chi passa la callback la instrada su `topics:open-utility`. */
   onOpenProfile: () => void;
+  /**
+   * «Is this screen a single column?» — DECIDED BY WHOEVER MOUNTS THIS, exactly
+   * like the row of `StandaloneChatGroup`, and for the same reason.
+   *
+   * This row used to read `useMobile().isMobile`, i.e. `<768 || (touch &&
+   * <1024)`, while the shell folds into one column at 768 flat. On an iPhone
+   * held sideways (844x390) the two contradicted each other: the ~60px row
+   * appeared ON TOP of the desktop layout with its fixed sidebar column, the
+   * app root reserved `--mobile-chrome-h` anyway (15% of a 390-tall viewport),
+   * and above all `boardInFront` — which is computed from the LAYOUT predicate
+   * and is therefore false there — stayed false forever: the middle button
+   * always took the «open the board AND collapse the sidebar» branch, so it
+   * never came back and every press closed the drawer. The switch was one-way
+   * because its two ends were looking at two different screens.
+   *
+   * Now there is one predicate: the one App computes (`useLayoutMobile`), the
+   * same one it computes `boardInFront` with. The docstring below claims «it
+   * only exists under 768px», and that is finally true.
+   */
+  mobile: boolean;
 }
 
-export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard, onOpenProfile }: MobileChromeBarProps) {
-  const { isMobile, keyboardVisible, safeAreaInsets } = useMobile();
+export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard, onOpenProfile, mobile }: MobileChromeBarProps) {
+  // `keyboardVisible` and the safe-area insets stay DEVICE questions, not width
+  // ones: `useMobile` still answers those. The width does not: it comes in.
+  const { keyboardVisible, safeAreaInsets } = useMobile();
+  const isMobile = mobile;
   const barraRef = useRef<HTMLDivElement>(null);
   const slotRefs = useRef<Array<HTMLDivElement | null>>([]);
   const [forme, setForme] = useState<FormaScatola[]>([]);
@@ -190,7 +213,7 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
       // barra è un fratello della colonna, non un suo figlio, quindi non
       // compone la sua trasparenza con quella del vetro (la trappola descritta
       // su `--chrome-bg`). E comunque esiste solo sotto i 768px, dove la shell
-      // mac non arriva.
+      // mac non arriva: la soglia di LAYOUT, che arriva dalla prop `mobile`.
       className="fixed bottom-0 left-0 right-0 flex items-end bg-app-chrome border-t border-app-border"
       style={{
         zIndex: 60,

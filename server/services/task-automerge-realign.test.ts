@@ -16,10 +16,10 @@
  */
 import { describe, test, expect, afterEach } from "bun:test";
 import { execFileSync } from "child_process";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { createTaskAutoMerge, type TaskMergeTarget } from "./task-automerge";
+import { createTaskAutoMerge, type AutoMergeDeps, type TaskMergeTarget } from "./task-automerge";
 
 const BRANCH = "topics/ramo-vecchio";
 
@@ -80,9 +80,9 @@ function repoWithOldBranch(opts: {
   return dir;
 }
 
-function landOn(repoPath: string) {
+function landOn(repoPath: string, extra: Partial<AutoMergeDeps> = {}) {
   const target: TaskMergeTarget = { repoPath, branch: BRANCH, defaultBranch: "main" };
-  return createTaskAutoMerge({ resolveTaskMerge: () => target });
+  return createTaskAutoMerge({ resolveTaskMerge: () => target, ...extra });
 }
 
 /** I titoli dei commit raggiungibili da un ref, dal più recente. */
@@ -127,6 +127,106 @@ describe("il land riallinea il ramo su main da sé", () => {
     expect(res.realigned).toBeNull();
     // Un solo merge su main: quello del land. Nessuna fusione nel ramo.
     expect(log(repo, BRANCH).filter((s) => s.startsWith("Riporta main"))).toHaveLength(0);
+  }, WITH_REAL_GIT);
+
+  /**
+   * A generated baseline in conflict is not a conflict: both sides recorded
+   * their own growth in the same file, and the reconciliation is mechanical —
+   * main's ceilings, then the branch's sizes rewritten by the script that owns
+   * the format. On 2026-09-04 card 38d903e5 would have gone back to its agent
+   * for `scripts/bloat-baseline.json` alone: a whole turn for a file nobody
+   * writes by hand.
+   */
+  test("conflitto SOLO su una baseline generata: la rigenera dai tetti di main e landa", async () => {
+    const repo = repoWithOldBranch({
+      avanzamentoMain: [["scripts/bloat-baseline.json", '{"server.ts": 5716}\n']],
+      lavoroDelRamo: [["scripts/bloat-baseline.json", '{"server.ts": 5508, "ramo.ts": 900}\n'], ["ramo.txt", "x\n"]],
+    });
+    const seen: string[] = [];
+    const res = await landOn(repo, {
+      regenerateBaseline: async (cwd, file) => {
+        // What the real script does: read the tree it sits in, rewrite the file.
+        seen.push(readFileSync(join(cwd, file), "utf8"));
+        writeFileSync(join(cwd, file), '{"server.ts": 5716, "ramo.ts": 900}\n');
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    }).tryMerge("t1", "Card con baseline");
+
+    expect(res.status).toBe("merged");
+    if (res.status !== "merged") return;
+    // The script started from MAIN's ceilings, not from the branch's copy.
+    expect(seen).toEqual(['{"server.ts": 5716}\n']);
+    expect(res.realigned).toContain("baseline generata");
+    expect(res.realigned).toContain("scripts/bloat-baseline.json");
+    expect(git(repo, "show", "main:scripts/bloat-baseline.json")).toBe('{"server.ts": 5716, "ramo.ts": 900}\n');
+    expect(log(repo, "main")).toContain("ramo: ramo.txt");
+    expect(git(repo, "status", "--porcelain")).toBe("");
+    expect(git(repo, "worktree", "list")).not.toContain("topics-realign");
+  }, WITH_REAL_GIT);
+
+  test("baseline in conflitto ACCANTO a un file di codice: torna all'agent, tutto intero", async () => {
+    const repo = repoWithOldBranch({
+      avanzamentoMain: [["scripts/bloat-baseline.json", '{"a": 1}\n'], ["contesa.txt", "main\n"]],
+      lavoroDelRamo: [["scripts/bloat-baseline.json", '{"a": 2}\n'], ["contesa.txt", "ramo\n"]],
+    });
+    let regenerations = 0;
+    const res = await landOn(repo, {
+      regenerateBaseline: async () => { regenerations++; return { code: 0, stdout: "", stderr: "" }; },
+    }).tryMerge("t1", "Card mista");
+
+    expect(res.status).toBe("conflict");
+    if (res.status !== "conflict") return;
+    expect(res.realignConflict?.files).toEqual(["contesa.txt", "scripts/bloat-baseline.json"]);
+    expect(regenerations).toBe(0);
+    expect(git(repo, "status", "--porcelain")).toBe("");
+  }, WITH_REAL_GIT);
+
+  test("la rigenerazione fallisce (worktree senza dipendenze): conflitto come prima, albero pulito", async () => {
+    const repo = repoWithOldBranch({
+      avanzamentoMain: [["scripts/bloat-baseline.json", '{"a": 1}\n']],
+      lavoroDelRamo: [["scripts/bloat-baseline.json", '{"a": 2}\n'], ["ramo.txt", "x\n"]],
+    });
+    const mainPrima = git(repo, "rev-parse", "main").trim();
+    const res = await landOn(repo, {
+      regenerateBaseline: async () => ({ code: 1, stdout: "", stderr: "Cannot find module 'jscpd'" }),
+    }).tryMerge("t1", "Card senza node_modules");
+
+    expect(res.status).toBe("conflict");
+    if (res.status !== "conflict") return;
+    expect(res.realignConflict?.files).toEqual(["scripts/bloat-baseline.json"]);
+    expect(git(repo, "rev-parse", "main").trim()).toBe(mainPrima);
+    expect(git(repo, "status", "--porcelain")).toBe("");
+    expect(git(repo, "worktree", "list")).not.toContain("topics-realign");
+  }, WITH_REAL_GIT);
+
+  /**
+   * The same realign, on its own, for the pre-review checks: the gate must
+   * measure the tree that lands. Three cards on 2026-09-04 burnt a turn each on
+   * a bloat baseline main had already moved while their branch sat behind.
+   */
+  test("realign() da solo: porta main nel ramo e lo dice; su conflitto risponde con i file, main fermo", async () => {
+    const repo = repoWithOldBranch({
+      avanzamentoMain: [["main-uno.txt", "uno\n"], ["main-due.txt", "due\n"]],
+      lavoroDelRamo: [["ramo.txt", "x\n"]],
+    });
+    const mainPrima = git(repo, "rev-parse", "main").trim();
+    const done = await landOn(repo).realign("t1");
+    expect(done).toEqual({ ok: true, note: expect.stringContaining("2 commit") });
+    expect(log(repo, BRANCH)).toContain("Riporta main nel ramo prima del land");
+    expect(git(repo, "rev-parse", "main").trim()).toBe(mainPrima);
+    // Already inside: nothing to do, nothing to say.
+    expect(await landOn(repo).realign("t1")).toEqual({ ok: true, note: null });
+
+    const contested = repoWithOldBranch({
+      avanzamentoMain: [["contesa.txt", "main\n"]],
+      lavoroDelRamo: [["contesa.txt", "ramo\n"]],
+    });
+    const refused = await landOn(contested).realign("t1");
+    expect(refused.ok).toBe(false);
+    if (refused.ok) return;
+    expect(refused.files).toEqual(["contesa.txt"]);
+    expect(refused.reason).toContain("contesa.txt");
+    expect(git(contested, "status", "--porcelain")).toBe("");
   }, WITH_REAL_GIT);
 
   test("conflitto VERO nel riallineamento: si ferma, nomina i file, e main non si muove", async () => {

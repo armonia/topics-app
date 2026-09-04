@@ -8,6 +8,7 @@ import { usePublishSplitPositions } from '../../contexts/SplitPositionContext';
 import { getProjectPathFromPaneId } from '../../state/pane/adapters';
 import { getProjectGridWeight, subscribeProjectGridWeights, type ProjectGridWeight } from '../../state/projectGridWeights';
 import { useGridResize } from '../../hooks/useGridResize';
+import { useLayoutMobile } from '../../hooks/useMobile';
 import { DND_TYPES, dragMatchesScope, STANDALONE_SCOPE } from '../../lib/dndTypes';
 import { usePanelGridPersistence } from './usePanelGridPersistence';
 import { startDragPreview } from '../../lib/dragPreview';
@@ -338,13 +339,9 @@ export function PanelGrid({
   const topics = useTopics();
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Mobile detection for single-column layout
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
-  useEffect(() => {
-    const h = () => setIsMobile(window.innerWidth < 768);
-    window.addEventListener('resize', h);
-    return () => window.removeEventListener('resize', h);
-  }, []);
+  // Mobile detection for single-column layout: the shared layout predicate,
+  // so that «are there splits here?» has one answer and not one per file.
+  const isMobile = useLayoutMobile();
 
   /* ---- All panels are treated flat (no project grouping) ---- */
   /* Device-local layout persistence (rows, row heights, solo IDs) — see
