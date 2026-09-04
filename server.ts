@@ -765,14 +765,14 @@ ctx.worktreeGcDeps.listOwnedScripts = listOwnedScripts;
 // worktree creation, project-path resolution — is assembled here and injected,
 // keeping server/services/task-dispatcher.ts host-agnostic and unit-tested.
 const DISPATCH_WORKSPACE_DIR = join(ctx.OPENCLAW_DIR, "workspace");
-const dispatcherSvc = createTaskService(ctx.db, {
-  writeDeliverySheet: makeSheetWriter(ctx.OPENCLAW_DIR),
-  // The repository a delivery report is checked against: the agent's worktree
-  // (a cited file may exist only on the delivery branch), else the board's
-  // project. Until 2026-09-04 every report was checked against THIS checkout,
-  // so a dancerooms commit was "in no ref" and a new file on a branch "not
-  // tracked": four true deliveries accused in one morning.
-  repoRootFor: ({ projectId, assignedTopicId }) => {
+// The repository a delivery report is checked against: the agent's worktree
+// (a cited file may exist only on the delivery branch), else the repository
+// the topic worked in, else the board's project. Until 2026-09-04 every report
+// was checked against THIS checkout, so a dancerooms commit was "in no ref"
+// and a new file on a branch "not tracked". One resolver, handed to BOTH task
+// services: the dispatcher's and the router's, which is the one an agent's
+// update_task(status="review") actually reaches.
+const repoRootForCard = ({ projectId, assignedTopicId }: { taskId: string; projectId: string | undefined; assignedTopicId: string | null }): string | null => {
     try {
       if (assignedTopicId) {
         const row = ctx.db.prepare("SELECT worktree_id, project_path FROM topics WHERE id = ?").get(assignedTopicId) as { worktree_id?: string | null; project_path?: string | null } | undefined;
@@ -788,7 +788,10 @@ const dispatcherSvc = createTaskService(ctx.db, {
       const c = resolveProjectPath(projectId, buildProjectCandidates({ projectStore: ctx.projectStore, workspaceDir: DISPATCH_WORKSPACE_DIR, extraPaths: dispatchExtraPaths }));
       return c?.path && existsSync(c.path) ? c.path : null;
     } catch { return null; }
-  },
+  };
+const dispatcherSvc = createTaskService(ctx.db, {
+  writeDeliverySheet: makeSheetWriter(ctx.OPENCLAW_DIR),
+  repoRootFor: repoRootForCard,
 });
 
 async function abortHeadlessTurn(sessionKey: string): Promise<void> {
@@ -2029,6 +2032,7 @@ sondaLavoroNonCommittato = async (taskId: string) => {
 const landingQueue = createLandingQueue({ log: (m) => console.warn(m) });
 const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   landings: landingQueue,
+  repoRootFor: repoRootForCard,
   workspaceDir: DISPATCH_WORKSPACE_DIR,
   // Il titolo leggibile di una card dettata (`services/task-title.ts`). Si
   // risolve al momento della chiamata e non all'avvio: il default della

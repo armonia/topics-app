@@ -557,6 +557,15 @@ const DEFAULT_AUTO_EFFORT = "medium";
 
 const FREE_PROVIDER_ERRORS = 3;
 
+/** How long the post-turn git stat may take before the slot is released without it. */
+const ATTEMPT_STATS_DEADLINE_MS = 15_000;
+async function withDeadline<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const late = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), ms); });
+  try { return await Promise.race([p, late]); }
+  finally { if (timer) clearTimeout(timer); }
+}
+
 /**
  * Sotto quale carico PER CORE la macchina è «scarica» abbastanza da far partire
  * un task pesante.
@@ -980,6 +989,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   const slotWaits = new Map<string, { timer: ReturnType<typeof setTimeout>; message: string }>();
   /** Set once a planned restart is waiting on us: no new turn starts (see `drain`). */
   let draining: string | null = null;
+  /** Cards already told "dispatch off, session kept": one note per hold, not per poll. */
+  const heldOffNoted = new Set<string>();
   function drainBlock(): string | null {
     return draining
       ? `Riavvio del server in arrivo (${draining}): nessun turno nuovo parte finché non è ripartito. Questa card riprende da sola dopo, sulla stessa sessione. Niente è andato perso.`
@@ -1042,6 +1053,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
 
   /** Claim the slot for a new run. Returns its id — the owner's proof. */
   function beginRun(taskId: string, sessionKey: string): number {
+    heldOffNoted.delete(taskId);
     const runId = nextRunId++;
     // Un turno che PARTE rende senza senso il ritentativo che lo aspettava: se
     // restasse in `retryWaits` bloccherebbe il recupero orfani fino allo scadere
@@ -2106,6 +2118,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (!ownsRun(taskId, runId)) return;
       endLiveTurn(taskId);
       recordTurnMs(taskId, t0);
+      // THE STATS COME BEFORE onTurnEnd. onTurnEnd schedules the continuation
+      // nudge on a zero timer, and resume() drops a nudge while this run still
+      // holds the slot: with the git stat awaited after it, 8 of 8 first turns
+      // on 2026-09-04 lost their nudge and waited 60 s for the poll to resume
+      // them "da capo" with a note about a recycling that never happened.
+      // Bounded: a git that hangs must not hold the slot either.
+      const stats = attemptId && attemptStore && worktreeId && deps.attemptStats
+        ? await withDeadline(deps.attemptStats(worktreeId).catch(() => null), ATTEMPT_STATS_DEADLINE_MS)
+        : null;
+      if (!ownsRun(taskId, runId)) return;
       onTurnEnd(taskId, Date.now() - t0, turnEnd);
       // La fotografia dell'esito, con lo stesso significato che ha nel fan-out:
       // com'e' finito QUESTO turno, non come sta il disco adesso. `cancelled`
@@ -2113,7 +2135,6 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // due card tagliate a 1.800.0xx ms tonde sembravano pronte e non lo erano.
       if (attemptId && attemptStore) {
         try {
-          const stats = worktreeId && deps.attemptStats ? await deps.attemptStats(worktreeId).catch(() => null) : null;
           const usage = sessionKey ? sessionUsage(sessionKey) : null;
           attemptStore.finish(attemptId, {
             // `undefined` vale `end_turn`, ed e' la stessa convenzione di
@@ -4103,15 +4124,21 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // ne aveva N, e `assigned_topic_id` ne punta una sola (il tentativo 1).
       // Riprendere quella abbandonerebbe le altre in silenzio. Si chiude il giro
       // con ciò che i worktree hanno conservato e decide l'umano.
-      let orphanAttempts = 0;
-      try { orphanAttempts = deps.attempts?.runningCount(t.id) ?? 0; } catch { orphanAttempts = 0; }
       // A single launch writes its own attempt row as HISTORY (see `launch`),
-      // so a card mid-turn at boot always has one still "running". That row is
-      // not a fan-out round to close: a fan-out task has NO bound topic until
-      // the round picks one, a single launch does. Read as a fan-out, every
-      // bound card was closed "without a commit" at every restart and its
-      // worktree reaped: three cards, three worktrees, on 2026-09-04 10:05.
-      if (orphanAttempts > 0 && !t.assignedTopicId) {
+      // so a card mid-turn at boot always has one still "running", on the very
+      // topic the card is bound to. A fan-out round is recognisable by its
+      // SIBLINGS: running rows on OTHER topics (attempt 1 is bound to the task
+      // from the moment its topic exists, see `runAttempt`). Read every running
+      // row as a fan-out, the reconcile closed bound cards "without a commit"
+      // at every restart and reaped their worktrees: three cards on 2026-09-04.
+      let orphanAttempts = 0;
+      let siblings = 0;
+      try {
+        const running = (deps.attempts?.list(t.id) ?? []).filter((a) => a.state === "running");
+        orphanAttempts = running.length;
+        siblings = running.filter((a) => !t.assignedTopicId || a.topicId !== t.assignedTopicId).length;
+      } catch { orphanAttempts = 0; siblings = 0; }
+      if (siblings > 0) {
         try {
           deps.svc.claimInterruption({
             taskId: t.id,
@@ -4151,15 +4178,22 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         if (alive && !autoOn) {
           // The switch is off: nothing may start, but nothing is lost either.
           // The binding stays, the chip says "in coda", and the poll resumes
-          // this very session the moment the switch is back on.
-          try {
-            deps.svc.claimInterruption({
-              taskId: t.id,
-              note: "Dispatch spento al riavvio: tengo la sessione e il worktree di questa card, riparte da sola (stessa sessione) quando riaccendi il dispatch.",
-            });
-          } catch { /* dedupe/best-effort */ }
-          try { emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED })); } catch { /* best-effort */ }
-          heldOff++;
+          // this very session the moment the switch is back on. Said ONCE per
+          // hold: the poll passes here every 10 s for as long as the switch
+          // stays off.
+          if (!heldOffNoted.has(t.id)) {
+            heldOffNoted.add(t.id);
+            try {
+              deps.svc.claimInterruption({
+                taskId: t.id,
+                note: "Dispatch spento: tengo la sessione e il worktree di questa card, riparte da sola (stessa sessione) quando riaccendi il dispatch.",
+              });
+            } catch { /* dedupe/best-effort */ }
+            if (t.dispatchState !== CHIP_QUEUED) {
+              try { emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED })); } catch { /* best-effort */ }
+            }
+            heldOff++;
+          }
           continue;
         }
         if (alive) {

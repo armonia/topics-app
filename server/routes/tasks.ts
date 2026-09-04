@@ -42,6 +42,7 @@ import { newProjectParentDir } from "../services/project-path-resolver";
 import { parkedEdgeEvent, type TaskDispatcher } from "../services/task-dispatcher";
 import { landFallout, type TaskAutoMerge } from "../services/task-automerge";
 import type { LandingState } from "../services/landing-audit";
+import type { RepoProbe } from "../services/deliveryReportChecks";
 import { createLandingQueue, type LandingQueue, type LandingTicket, type LandOutcomeResult } from "../services/landing-queue";
 import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../services/worktree-gc";
 import { MAX_CHECKS, STATIC_RAILS_CHECK, checksVerdict, formatChecksComment, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
@@ -157,6 +158,15 @@ export { pendingQuestion, type PendingQuestionComment };
 const AGENT_COMMENT_MAX_CHARS = 600;
 
 export interface TasksRouterOpts {
+  /**
+   * The repository a delivery report is verified against, and how a root
+   * becomes a probe (tests pass a fake). Handed to the router's OWN task
+   * service: the agent's `update_task(status="review")` lands on
+   * PATCH /api/sessions/:key/tasks/:id, i.e. on THIS service, not on the
+   * dispatcher's. Wired only there, the fix verified nothing (2026-09-04).
+   */
+  repoRootFor?: (args: { taskId: string; projectId: string | undefined; assignedTopicId: string | null }) => string | null;
+  probeFor?: (root: string) => RepoProbe;
   /**
    * The landing queue, owned by the host so a planned restart can see the
    * lands still queued or running: on 2026-09-04 a restart cut a land in
@@ -555,7 +565,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   const { db, json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey, isPathAllowed } = ctx;
   // La SCHEDA DI CONSEGNA (l'anteprima disegnata quando non ce n'e' nessuna)
   // si scrive sotto `<dati>/media/`, cioe' dentro l'allowlist che la serve.
-  const svc = createTaskService(db, { writeDeliverySheet: makeSheetWriter(ctx.OPENCLAW_DIR) });
+  const svc = createTaskService(db, {
+    writeDeliverySheet: makeSheetWriter(ctx.OPENCLAW_DIR),
+    repoRootFor: opts?.repoRootFor,
+    probeFor: opts?.probeFor,
+  });
   const attempts = createTaskAttemptStore(db);
 
   /**
@@ -1749,12 +1763,16 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   }
 
   function fanOutGate(taskId: string, forbidden: string): Response | null {
-    let running = 0;
-    try { running = attempts.runningCount(taskId); } catch { return null; }
-    if (running < 1) return null;
+    // A fan-out is recognised by its SIBLINGS: running rows on topics other
+    // than the one the task is bound to. A single launch records its own row
+    // as history, and counting that row gated every first turn with a 409.
+    let running: TaskAttempt[] = [];
+    try { running = attempts.list(taskId).filter((a) => a.state === "running"); } catch { return null; }
+    const bound = svc.get(taskId)?.task.assignedTopicId ?? null;
+    if (!running.some((a) => !bound || a.topicId !== bound)) return null;
     return json({
       error:
-        `this task is in fan-out: ${running} parallel attempts are working the same task. ${forbidden}. ` +
+        `this task is in fan-out: ${running.length} parallel attempts are working the same task. ${forbidden}. ` +
         "work in YOUR worktree, commit everything on your branch, and end your turn with 2-3 sentences " +
         "describing what you did: the board composes the comparison from those.",
       code: "fanout_running",

@@ -42,7 +42,9 @@ function buildProbe(ROOT: string): RepoProbe {
 const MIGRATIONS = join(ROOT, "server", "db", "migrations");
 
 /** Cached per process: `git log --all -S` walks every ref and is not cheap. */
-const cache = new Map<string, boolean>();
+// Memoised git answers expire like the tracked list: a "no" for a sha is
+// true for that root NOW, and a worktree gets commits later.
+const cache = new Map<string, { v: boolean; at: number }>();
 
 /**
  * "git answered NO" and "git could not be asked" are DIFFERENT, and collapsing
@@ -73,12 +75,10 @@ function askGit(run: () => string): boolean | null {
 
 function memo(key: string, f: () => boolean | null): boolean {
   const hit = cache.get(key);
-  if (hit !== undefined) return hit;
+  if (hit !== undefined && Date.now() - hit.at < TRACKED_TTL_MS) return hit.v;
   const answer = f();
-  // `null` means unanswerable, and only THERE does failing open apply: an
-  // absent git must not accuse anyone.
   const v = answer === null ? true : answer;
-  cache.set(key, v);
+  cache.set(key, { v, at: Date.now() });
   return v;
 }
 

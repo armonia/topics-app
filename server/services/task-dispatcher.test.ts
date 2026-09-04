@@ -2055,7 +2055,7 @@ describe("task-dispatcher", () => {
     expect(t.dispatchState).toBe("queued");          // the chip says it waits, not that it works
     expect(h.turns.length).toBe(0);                  // off: nothing started
     expect(h.topicsCreated.length).toBe(0);          // and no fresh topic
-    expect(h.svc.get("t1")!.comments.some((c) => c.author === "system" && c.content.includes("Dispatch spento al riavvio"))).toBe(true);
+    expect(h.svc.get("t1")!.comments.some((c) => c.author === "system" && c.content.includes("Dispatch spento"))).toBe(true);
 
     // The switch comes back on: the poll resumes the very same session.
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
@@ -2069,7 +2069,7 @@ describe("task-dispatcher", () => {
     h.dispatcher.shutdown();
   });
 
-  it("reconcile LIBERA un orfano fermo su `queued` con la board SPENTA", async () => {
+  it("reconcile TRATTIENE un orfano fermo su `queued` con la board SPENTA: sessione sua, chip in coda, una nota sola", async () => {
     // Il fantasma misurato l'11/08: sette card in_progress col chip `queued`,
     // ferme da 40 minuti, nessun turno vivo. Nascono da un'attesa che vive in
     // memoria (il rinvio del resume quando il tetto è pieno): il riavvio si
@@ -2094,7 +2094,14 @@ describe("task-dispatcher", () => {
     expect(t.dispatchAttempts).toBe(1);             // a restart consumes no attempt
     expect(t.dispatchState).toBe("queued");         // the chip tells the truth: it waits
     expect(h.turns.length).toBe(0);                 // off: no agent restarts
-    expect(h.svc.get("t1")!.comments.some((c) => c.content.includes("Dispatch spento al riavvio"))).toBe(true);
+    expect(h.svc.get("t1")!.comments.some((c) => c.content.includes("Dispatch spento"))).toBe(true);
+
+    // The poll passes here every 10 s while the switch is off: one note, one
+    // chip write, not one per pass.
+    const eventsBefore = h.events.filter((e) => e.task?.id === "t1").length;
+    for (let i = 0; i < 3; i++) { await h.dispatcher.reconcile({ reason: "poll" }); await flush(); }
+    expect(h.svc.get("t1")!.comments.filter((c) => c.content.includes("Dispatch spento")).length).toBe(1);
+    expect(h.events.filter((e) => e.task?.id === "t1").length).toBe(eventsBefore);
   });
 
   it("reconcile RIPRENDE un orfano fermo su `queued` con la board ACCESA, sulla sua sessione", async () => {
@@ -2175,6 +2182,33 @@ describe("task-dispatcher", () => {
     expect(h.svc.get("t2")!.comments.some((c) => c.content.includes("aspettava uno slot: riprendo la stessa sessione"))).toBe(true);
     expect(h.svc.get("t2")!.comments.some((c) => c.content.includes("lo rimetto in coda"))).toBe(false);
     restarted.shutdown();
+  });
+
+  it("a first turn that ends without delivering gets its continuation nudge NOW, not after the 60 s poll", async () => {
+    // launch() awaited the post-turn git stat between onTurnEnd and endRun:
+    // the nudge fired on a zero timer while the run still held the slot, and
+    // resume() dropped it. 8 of 8 first turns on 2026-09-04 waited for the
+    // poll, which resumed them "da capo" with a note about a recycling that
+    // never happened.
+    const h = harness({
+      attemptStats: () => new Promise((resolve) => setTimeout(() => resolve({ commit: null, filesChanged: 0, insertions: 0, deletions: 0 }), 30)),
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.turns.length).toBe(1);
+
+    h.finishTurnWith({ end: "end_turn" });
+    await new Promise((r) => setTimeout(r, 80));
+    await flush();
+
+    expect(h.turns.length).toBe(2);                             // the nudge started the next turn
+    const topic = h.task("t1")!.assignedTopicId!;
+    expect(h.turns[1].sessionKey).toBe("topic:" + topic.slice(0, 8)); // on the same session
+    expect(h.svc.get("t1")!.comments.some((c) => c.content.includes("Nessun turno vivo"))).toBe(false);
+    h.dispatcher.shutdown();
   });
 
   it("a planned restart DRAINS the fleet: the queue starts nothing, a resume parks on its own session, the next boot resumes it", async () => {
