@@ -208,6 +208,17 @@ describe("lo stato del ciclo di auto-continuazione", () => {
     expect(dopo.status).toBe("achieved");
   });
 
+  test("il goal che si è dato l'agente ha lo stesso ciclo, e lo stesso tetto", () => {
+    // The continuation loop reads the ACTIVE goal, whoever wrote it. This is
+    // the assertion that keeps `set_goal` from producing a second-class goal:
+    // one the bar shows but nobody carries on by itself.
+    const g = setGoal(db, { topicId: "t1", content: "portare a termine il refactor", createdBy: "agent" });
+    expect(getActiveGoal(db, "t1")!.id).toBe(g.id);
+    const dopo = setGoalLoop(db, g.id, { continuations: 4, state: "running" })!;
+    expect(dopo.createdBy).toBe("agent");
+    expect(dopo.continuations).toBe(4);
+  });
+
   test("riaprire riparte da zero: il tetto speso apparteneva al giro finito", () => {
     const g = setGoal(db, { topicId: "t1", content: "arrivare in fondo" });
     setGoalLoop(db, g.id, { continuations: 7, idleTurns: 1, state: "stopped" });
