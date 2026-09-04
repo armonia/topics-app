@@ -238,10 +238,30 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
     git(copia, "clean", "-fdq");
   }
 
-  test("la copia parte verde su tutti e quattro i pezzi", () => {
+  test("la copia parte verde sui pezzi che dipendono solo dall'albero", () => {
     const { code, out } = esegui(copia);
-    expect(out).toContain("pubblicabile");
-    expect(code).toBe(0);
+    // THE THREE PIECES THAT READ THE TREE, and those are what this case is
+    // about: a clean copy must not turn any of them red.
+    expect(out).toMatch(/OK\s+data/);
+    expect(out).toMatch(/OK\s+home/);
+    expect(out).toMatch(/OK\s+secrets/);
+    expect(out).not.toContain("NON PUBBLICABILE");
+
+    // THE FOURTH PIECE ASKS THE REGISTRY, and the registry is not part of this
+    // repository. Measured on 2026-09-04 (card 18bdf214): with four board
+    // agents on the machine `bun audit` timed out in `client` and in `landing`,
+    // the checker did exactly what it should (`MUTO dependencies`, exit 2, no
+    // green printed), and this case read that as a security failure. Twelve
+    // minutes to say the network was busy. Demanding a green here does not
+    // check the gate, it checks the connection: so the missing measurement is
+    // accepted as such, while a red is not, and a run that DID reach the
+    // registry still has to end publishable.
+    if (code === 0) {
+      expect(out).toContain("pubblicabile");
+    } else {
+      expect(code).toBe(2);
+      expect(out).toContain("MISURA NON PRESA - dependencies");
+    }
   }, SECURITY_RUN_TIMEOUT_MS);
 
   test("PEZZO data: a THIRD PARTY's data in a tracked file goes RED", () => {
