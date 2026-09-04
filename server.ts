@@ -4366,6 +4366,9 @@ const staleStreamTimer = setInterval(() => {
     getMessageById,
     humanHoldAgeMs,
     childAlive: (sk) => childAliveForSweep(sk),
+    // The delivery's own wait: the same predicate the stall detector reads, so
+    // `update_task(status='review')` queued behind the checks is never "hung".
+    waitingOnOurChecks: (sk) => isChecksHold(sk),
     resyncStream: (sk) => {
       // The rescue went to claude-code too: for somebody else's turn it was a
       // mute no-op, a recovery attempt that attempted nothing.
