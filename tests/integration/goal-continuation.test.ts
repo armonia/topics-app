@@ -1,16 +1,16 @@
 /**
- * Il turno finisce, l'obiettivo no: la route lo prosegue da sola.
+ * The turn ends, the objective does not: the route carries it on by itself.
  *
- * Qui si guida la route VERA (`POST /api/chat`) con un provider finto, perché
- * il pezzo che mancava non era una funzione ma un COLLEGAMENTO: la regola e il
- * giudice si provano puri in `server/services/goal-loop.test.ts`, e restavano
- * inerti finché qualcuno non li chiamava alla fine di un turno. Il rosso di
- * partenza di questo file è esattamente quello: un turno chiuso `end_turn` con
- * un goal attivo non produceva nessuna continuazione.
+ * This drives the REAL route (`POST /api/chat`) with a fake provider, because
+ * what was missing was not a function but a CONNECTION: the rule and the judge
+ * are proved pure in `server/services/goal-loop.test.ts`, and they stayed inert
+ * until somebody called them at the end of a turn. The starting red of this
+ * file is exactly that: a turn closed `end_turn` with an active goal produced
+ * no continuation at all.
  *
- * Il provider finto fa due mestieri, ed è voluto: `sendChat` è il turno,
- * `complete` è il GIUDICE (la route gli chiede il verdetto sul provider del
- * topic). Così un test decide cosa risponde il giudice senza toccare la route.
+ * The fake provider does two jobs, on purpose: `sendChat` is the turn and
+ * `complete` is the JUDGE (the route asks the topic's provider for the
+ * verdict). So a test decides what the judge answers without touching the route.
  *
  * @covers CHAT-GOALLOOP-01
  */
@@ -29,7 +29,7 @@ beforeAll(() => setupTestDataDir(TEST_DATA));
 registerProvider({ type: "openai", apiKey: "" } as never);
 afterAll(() => { try { removeProvider("openai"); } catch { /* gia' tolto */ } });
 
-/** Il banco: una topic con un goal attivo e la route vera sopra. */
+/** The bench: a topic with an active goal and the real route on top. */
 async function banco(name: string, verdicts: string[]) {
   const sessionKey = `topic:${name}`;
   const ctx = await createTestAppContext();
@@ -93,14 +93,14 @@ async function banco(name: string, verdicts: string[]) {
     resp?.body?.cancel().catch(() => {});
   }
 
-  /** Chiude il turno in volo come lo chiuderebbe il modello: `end_turn`. */
+  /** Closes the in-flight turn the way the model would: `end_turn`. */
   async function finisci(text: string) {
     const h = handlers[handlers.length - 1];
     if (!h) throw new Error("nessun turno in volo da chiudere");
     h.onTextDelta(text, text);
     h.onDone();
-    // Il gancio di fine turno è differito (setTimeout 0) e passa da un giudice
-    // asincrono: gli si lascia un giro di eventi.
+    // The end-of-turn hook is deferred (setTimeout 0) and goes through an
+    // async judge: it gets one turn of the event loop.
     await new Promise((r) => setTimeout(r, 120));
   }
 
@@ -122,29 +122,29 @@ async function chiudi() {
 
 describe("fine turno con un obiettivo attivo", () => {
   test("«ho fatto metà»: la route manda da sola la continuazione, marcata", async () => {
-    // Il secondo verdetto chiude il ciclo: senza, questo test comprerebbe turni
-    // finché non finisce il timeout, che è precisamente il difetto che il tetto
-    // esiste per impedire in produzione.
+    // The second verdict closes the loop: without it this test would buy turns
+    // until the timeout, which is precisely the fault the ceiling exists to
+    // prevent in production.
     const b = await banco("goal-continue", ["continue", "met"]);
 
     await b.send("comincia");
     await b.finisci("ho fatto metà del lavoro, manca il resto");
 
-    // UN SECONDO TURNO È PARTITO: è questo che prima non succedeva.
+    // A SECOND TURN STARTED: this is what did not happen before.
     expect(b.handlers.length).toBe(2);
     expect(b.judged[0]).toContain("portare la barra a verde");
 
-    // E la riga che l'ha aperto NON è una bolla dell'utente: porta il marcatore.
+    // And the row that opened it is NOT a user bubble: it carries the marker.
     const utenti = b.righe().filter((r) => r.role === "user");
     expect(utenti.length).toBe(2);
     const nudge = blocksOf(utenti[1]!);
     expect(nudge).toEqual([{ kind: "goal-nudge", attempt: 1 }]);
     expect(utenti[1]!.content).toContain("portare la barra a verde");
 
-    // Il contatore del ciclo è sul goal, non in memoria.
+    // The loop counter lives on the goal, not in memory.
     expect(getActiveGoal(b.ctx.db, b.topic.id)?.continuations).toBe(1);
 
-    // Il secondo turno si chiude col verdetto `met`, che spegne il ciclo.
+    // The second turn closes on the `met` verdict, which switches the loop off.
     await b.finisci("fatto, la barra è verde e l'ho verificata");
     const dopo = getActiveGoal(b.ctx.db, b.topic.id);
     expect(dopo).toBe(null);
@@ -199,7 +199,7 @@ describe("fine turno con un obiettivo attivo", () => {
 
     expect(b.handlers.length).toBe(1);
     expect(getActiveGoal(b.ctx.db, b.topic.id)?.status).toBe("active");
-    expect(b.righe().length).toBe(prima + 2); // la domanda e la risposta, nient'altro
+    expect(b.righe().length).toBe(prima + 2); // the question and the answer, nothing else
     await chiudi();
   });
 });

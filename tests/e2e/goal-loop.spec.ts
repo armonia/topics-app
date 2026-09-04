@@ -61,8 +61,8 @@ test.describe.serial("La barra dell'obiettivo mostra il ciclo", () => {
     expect(put.ok()).toBe(true);
     goalId = ((await put.json()) as { goal: { id: string } }).goal.id;
 
-    // Il turno umano, la risposta a metà, e la continuazione che il server si è
-    // mandato da solo: è quest'ultima riga che non deve sembrare una persona.
+    // The human turn, the half-done answer, and the continuation the server
+    // sent itself: it is that last row that must not look like a person.
     await seedMessage(request, { sessionKey, role: "user", content: "comincia dai gate" });
     await seedMessage(request, {
       sessionKey,
@@ -91,23 +91,23 @@ test.describe.serial("La barra dell'obiettivo mostra il ciclo", () => {
     await goToApp(page);
     await openTopic(page, topicName);
 
-    // 1. L'obiettivo è sulla barra.
+    // 1. The objective is on the bar.
     const bar = page.getByTestId("goal-bar");
     await expect(bar).toBeVisible();
     await expect(bar).toContainText("portare la barra dei gate a verde");
 
-    // 2. LA CONTINUAZIONE NON È UNA BOLLA DELL'UTENTE. Una riga sola, compatta,
-    //    che dice di chi è la spinta e a che numero siamo.
+    // 2. THE CONTINUATION IS NOT A USER BUBBLE. One compact line that says
+    //    whose push this is and which attempt we are on.
     const nudge = page.getByTestId("goal-loop-row").filter({ has: page.locator('[data-goal-loop="nudge:1"]') })
       .or(page.locator('[data-testid="goal-loop-row"][data-goal-loop="nudge:1"]'));
     await expect(nudge.first()).toBeVisible();
-    // E il testo che il server ha mandato al modello non compare come prosa
-    // dell'utente: la riga lo sostituisce.
+    // And the text the server sent to the model does not show up as the
+    // user's prose: the line replaces it.
     await expect(page.locator('[data-testid="chat-message"][data-role="user"]')
       .filter({ hasText: "call close_goal(achieved)" })).toHaveCount(0);
 
-    // 3. IL CICLO È VIVO, E LA BARRA LO DICE. Il frame è quello che il server
-    //    manda a ogni passo del ciclo (`goal:updated` porta il goal intero).
+    // 3. THE LOOP IS ALIVE, AND THE BAR SAYS SO. The frame is the one the
+    //    server sends at every step (`goal:updated` carries the whole goal).
     const goalFrame = (over: Record<string, unknown>) => ({
       type: "goal:updated",
       topicId,
@@ -131,11 +131,11 @@ test.describe.serial("La barra dell'obiettivo mostra il ciclo", () => {
     const loopState = page.getByTestId("goal-loop-state");
     await expect(loopState).toBeVisible();
     await expect(loopState).toContainText("1");
-    // …e con esso il modo di fermarlo senza rinunciare all'obiettivo.
+    // ...and with it the way to stop it without giving up the objective.
     await expect(page.getByTestId("goal-loop-stop")).toBeVisible();
 
-    // 4. RAGGIUNTO: il goal si chiude e la barra sparisce da sola, senza che
-    //    nessuno ricarichi la pagina.
+    // 4. REACHED: the goal closes and the bar disappears on its own, with
+    //    nobody reloading the page.
     ws.send({ type: "goal:updated", topicId, goal: null });
     await expect(bar).toBeHidden();
   });
