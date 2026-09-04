@@ -222,9 +222,16 @@ export function applyPaneCascade(db: Database, deps: ReconcileDeps, result: Casc
     if (!recordRetirement(db, "pane", r.paneId, at, "tab-close")) continue;
     out.panes++;
     if (r.topicId) {
-      recordRetirement(db, "topic", r.topicId, at, "tab-close");
-      try { deps.archiveTopic(r.topicId); out.topics++; }
-      catch (err) { console.error(`[retirement] cascata topic ${r.topicId}`, err); }
+      // A durable coordinator remains a real Topic even after its panel is
+      // closed. Do not stamp it first and try to undo it later: a crash between
+      // those two actions would let boot reconciliation archive it forever.
+      if (deps.shouldRetireTopic?.(r.topicId) === false) {
+        clearRetirement(db, "topic", r.topicId);
+      } else {
+        recordRetirement(db, "topic", r.topicId, at, "tab-close");
+        try { deps.archiveTopic(r.topicId); out.topics++; }
+        catch (err) { console.error(`[retirement] cascata topic ${r.topicId}`, err); }
+      }
     }
     if (r.terminalSessionId) {
       recordRetirement(db, "terminal", r.terminalSessionId, at, "tab-close");
@@ -243,6 +250,13 @@ export function applyPaneCascade(db: Database, deps: ReconcileDeps, result: Casc
 export interface ReconcileDeps {
   /** Archivia il topic per intero (`archiveTopicFully` legato alle sue dipendenze). */
   archiveTopic: (topicId: string) => void;
+  /**
+   * Rare durable Topic roles may opt out of panel-driven retirement. The
+   * predicate must be identity-based (never a mutable title/UI field).
+   */
+  shouldRetireTopic?: (topicId: string) => boolean;
+  /** Repair a protected Topic that an older path archived before the exemption. */
+  restoreTopic?: (topicId: string) => void;
   /** Ritira la sessione di terminale: uccide il PTY se c'e' e butta la riga. */
   retireTerminal: (sessionId: string) => void;
 }
@@ -277,6 +291,18 @@ export function reconcile(db: Database, deps: ReconcileDeps): ReconcileResult {
   let topicsStamped = 0;
 
   for (const d of inv.divergences) {
+    if (d.kind === "topic" && deps.shouldRetireTopic?.(d.refId) === false) {
+      // A protected Topic may have a stale fact from before its exemption was
+      // introduced. Clear it instead of treating a closed panel as authority to
+      // archive the durable conversation during boot reconciliation.
+      if (d.reason === "registry-open-fact-retired") {
+        clearRetirement(db, "topic", d.refId);
+      } else {
+        try { deps.restoreTopic?.(d.refId); }
+        catch (err) { console.error(`[retirement] restore protected topic ${d.refId}`, err); }
+      }
+      continue;
+    }
     if (d.reason === "registry-closed-fact-open") {
       // Il registro sa una chiusura che il fatto non sa: si timbra il fatto.
       if (recordRetirement(db, d.kind, d.refId, now, "reconcile:registry")) topicsStamped++;
