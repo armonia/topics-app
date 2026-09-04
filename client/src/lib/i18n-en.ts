@@ -1046,6 +1046,8 @@ const EN = {
   'chat.noAnswer.detail': 'The connection may have dropped',
   'chat.turnInterrupted': 'Response interrupted',
   'chat.turnInterrupted.retry': 'Retry',
+  'chat.turnInterrupted.resuming': 'Resuming',
+  'chat.turnInterrupted.resuming.detail': 'the server restarted and is resending your message',
   'chat.turnInterrupted.watchdog': 'the model went silent and the turn was closed',
   'chat.turnInterrupted.wallClock': 'the turn ran past its time limit',
   'chat.turnInterrupted.serverShutdown': 'the server restarted mid turn',

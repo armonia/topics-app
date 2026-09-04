@@ -138,6 +138,24 @@ export function resumeVerdict(r: RigaDaValutare, oraMs: number): ResumeVerdict {
   return "resend";
 }
 
+/**
+ * THE READER OF THE FIELD THIS FILE WRITES.
+ *
+ * The resend goes out as `{ ripresa: <attempt> }` on the chat route's body,
+ * and two things downstream have to know: the `ripreso` block on the row, and
+ * the `resumedBy: "server"` marker on `stream:start`, which is what lets the
+ * chat say "resuming" instead of leaving the reader under a banner whose only
+ * advice is to press Retry.
+ *
+ * `true` still means one, because the field was a boolean before it was a
+ * counter and an old caller must not silently mean zero.
+ */
+export function resumeAttemptOf(body: { ripresa?: unknown } | null | undefined): number {
+  const value = body?.ripresa;
+  if (typeof value === "number" && value > 0) return value;
+  return value === true ? 1 : 0;
+}
+
 /** The yes/no of `resumeVerdict`, for the callers that only resend. */
 export function chatDaRiprendere(r: RigaDaValutare, oraMs: number): boolean {
   return resumeVerdict(r, oraMs) === "resend";

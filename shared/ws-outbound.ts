@@ -395,6 +395,19 @@ const streamStartSchema = z.looseObject({
    * per sempre. La vista si può rifare; il record no.
    */
   reattached: z.optional(z.boolean()),
+  /**
+   * NOBODY ASKED FOR THIS TURN: the boot resumed it.
+   *
+   * `lib/ripresa-boot.ts` resends the last user message of a turn its own
+   * restart had cut. On the wire that is an ordinary turn, and the chat that
+   * still shows the amber "Response interrupted ... Retry" banner has no way
+   * to tell it apart from silence: for a long turn that is a minute in which
+   * the only visible advice is to press Retry, which buys a SECOND turn.
+   *
+   * The value names the author instead of being a bare flag: a turn a person
+   * resumed by pressing Retry is not this case, and never will be.
+   */
+  resumedBy: z.optional(z.literal('server')),
 });
 
 const streamContentChunkSchema = z.looseObject({

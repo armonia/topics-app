@@ -6,6 +6,7 @@ import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { clipDiConsegna } from "./helpers/clip";
+import { beat } from "./helpers/evidence";
 
 hermetic(test);
 
@@ -48,6 +49,10 @@ const BASE = E2E_BASE;
 const DOMANDA = "Riassumi il documento che ti ho mandato";
 const PROSA = "Il documento parla di tre cose. La prima";
 const MSG_ID = "live-interrupted-0001";
+/** The bubble the boot's resend opens: a NEW row, as on the real path. */
+const RESUME_MSG_ID = "live-resumed-0001";
+/** The first word of the resumed answer, which is what closes the banner. */
+const RIPRESO = "Riprendo da dove ero rimasto:";
 
 const banner = (page: Page) => page.locator('[data-testid="turn-interrupted-banner"]');
 const assistantBubble = (page: Page) =>
@@ -166,6 +171,120 @@ test.describe.serial("Turno interrotto dal vivo: il banner compare da solo", () 
     // spinner to stop is what makes the absence meaningful instead of early.
     await expect(assistantBubble(page)).toContainText(PROSA);
     await expect(banner(page)).toHaveCount(0);
+  });
+
+  /**
+   * THE BANNER WHILE THE SERVER IS RESUMING BY ITSELF (card 1929291c).
+   *
+   * THE REPORT: "if this resumes on its own, with that banner and no sort of
+   * progress, you cannot tell whether it really is resuming".
+   * allow-italian: the report is quoted in the card, translated here
+   *
+   * The boot resends the message (`server/lib/ripresa-boot.ts`) and the turn
+   * can take a minute to say its first word. For that whole minute the screen
+   * used to show the SAME amber banner as before, whose only advice is to
+   * press Retry - which resends the very message the server is resending, so
+   * the reward for reading the screen was a second turn on a chat that has one
+   * open.
+   *
+   * The frames here are the shape the server broadcasts: `resumedBy: "server"`
+   * on `stream:start`, set from the `ripresa` field the boot puts on the chat
+   * route's body.
+   */
+  test("il server riprende da solo: il banner lo dice e toglie Riprova", async ({ page }) => {
+    const send = await apri(page);
+    await detta(page, send);
+
+    // The restart kills the turn: this is the row the boot will resume.
+    send({
+      type: "stream:end",
+      messageId: MSG_ID,
+      stopReason: "cancelled",
+      stopCause: "server-shutdown",
+      reason: "error",
+      error: "⚠️ Il server si è riavviato a turno aperto.",
+    });
+    await expect(banner(page)).toHaveAttribute("data-state", "interrupted");
+    await expect(page.locator('[data-testid="turn-interrupted-retry"]')).toBeVisible();
+
+    // The boot resends, and the turn starts again on the same chat.
+    send({ type: "stream:start", messageId: RESUME_MSG_ID, resumedBy: "server" });
+
+    const box = banner(page);
+    await expect(box).toHaveAttribute("data-state", "resuming", { timeout: 10_000 });
+    await expect(box).toContainText("Ripresa in corso"); // allow-italian: the banner's exact wording, which this asserts on
+    await expect(box).toContainText(/sta rimandando il tuo messaggio/);
+    // NO RETRY: pressing it would buy a second turn while the first resumes.
+    await expect(page.locator('[data-testid="turn-interrupted-retry"]')).toHaveCount(0);
+    // The activity indicator, same ring the app spins on any wait.
+    await expect(box.locator(".animate-spin")).toBeVisible();
+
+    // First token: from here the answer is its own proof, and the banner goes.
+    send({ type: "stream:content_chunk", messageId: RESUME_MSG_ID, content: RIPRESO });
+    await expect(assistantBubble(page)).toContainText(RIPRESO);
+    await expect(banner(page)).toHaveCount(0);
+  });
+
+  test("la ripresa fallisce: si torna al banner con la causa e Riprova", async ({ page }) => {
+    const send = await apri(page);
+    await detta(page, send);
+    send({
+      type: "stream:end", messageId: MSG_ID, stopReason: "cancelled", stopCause: "server-shutdown",
+      reason: "error", error: "⚠️ Il server si è riavviato a turno aperto.",
+    });
+    await expect(banner(page)).toHaveAttribute("data-state", "interrupted");
+
+    send({ type: "stream:start", messageId: RESUME_MSG_ID, resumedBy: "server" });
+    await expect(banner(page)).toHaveAttribute("data-state", "resuming", { timeout: 10_000 });
+
+    // The resume dies the same way the first turn did.
+    send({
+      type: "stream:end", messageId: RESUME_MSG_ID, stopReason: "cancelled", stopCause: "server-shutdown",
+      reason: "error", error: "⚠️ Il server si è riavviato a turno aperto.",
+    });
+
+    const box = banner(page);
+    await expect(box).toHaveAttribute("data-state", "interrupted", { timeout: 10_000 });
+    await expect(box).toHaveAttribute("data-cause", "server-shutdown");
+    await expect(box).toContainText(/il server si è riavviato a turno aperto/);
+    await expect(page.locator('[data-testid="turn-interrupted-retry"]')).toBeVisible();
+  });
+
+  test("la clip: interrotto, ripreso dal server, e la risposta riparte", async () => {
+    await clipDiConsegna({
+      nome: "turn-resuming-banner",
+      context: {
+        baseURL: BASE,
+        locale: "it-IT",
+        viewport: { width: 1280, height: 680 },
+        reducedMotion: "reduce",
+      },
+      scena: async (page) => {
+        const send = await apri(page);
+        // FIRST STATE: the turn answers, then the restart cuts it.
+        await detta(page, send);
+        send({
+          type: "stream:end", messageId: MSG_ID, stopReason: "cancelled",
+          stopCause: "server-shutdown", reason: "error",
+          error: "⚠️ Il server si è riavviato a turno aperto.",
+        });
+        await expect(banner(page)).toHaveAttribute("data-state", "interrupted", { timeout: 10_000 });
+        await expect(page.locator('[data-testid="turn-interrupted-retry"]')).toBeVisible();
+        await beat(page, 2200);
+
+        // SECOND STATE: the server resumes by itself and the banner says so.
+        send({ type: "stream:start", messageId: RESUME_MSG_ID, resumedBy: "server" });
+        await expect(banner(page)).toHaveAttribute("data-state", "resuming", { timeout: 10_000 });
+        await expect(page.locator('[data-testid="turn-interrupted-retry"]')).toHaveCount(0);
+        await beat(page, 3000);
+
+        // THIRD STATE: the first token arrives and the banner closes itself.
+        send({ type: "stream:content_chunk", messageId: RESUME_MSG_ID, content: RIPRESO });
+        await expect(assistantBubble(page)).toContainText(RIPRESO);
+        await expect(banner(page)).toHaveCount(0);
+        await beat(page, 2000);
+      },
+    });
   });
 
   test("la clip: il turno risponde, poi si interrompe da solo", async () => {
