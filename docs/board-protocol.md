@@ -46,6 +46,19 @@ equivalente, le parole esatte di qualcuno) la riga finisce con
 `allow-italian: <perche>`. Per leggere il debito di un file:
 `bun run scripts/check-comment-language.ts --list <path>`.
 
+**Il settimo cancello sono i NOMI (dal 04/09/2026).** `check:comment-language`
+legge i commenti e non vede un identificatore: nella notte del 04/09 trentacinque
+nomi italiani di test e costanti sono passati verdi da tutti i cancelli della
+board e hanno reso rosso `bun run check:identifier-language`
+(`scripts/check-identifier-language.ts`, ratchet in
+`scripts/identifier-language-baseline.json`). L'envelope ora lo nomina come
+settimo cancello: ogni nome NUOVO dichiarato deve essere una parola inglese, o
+entrare in `PROJECT_WORDS` con un motivo; la baseline si riscrive solo in
+discesa. Nota per chi imposta la board: i check pre-review (`reviewChecks`)
+restano sei slot, e i cancelli statici vanno incatenati in uno solo
+(`STATIC_RAILS_CHECK` in `server/services/review-checks.ts`) perche' la
+board li esegua davvero prima del land.
+
 Standard di consegna per gli agenti dispatchati sul board Kanban (worktree isolato
 per task, un agente = un task, fino allo stato `review`). Vale sia per chi lavora
 un task sia per chi tocca il codice del dispatcher/envelope: il testo dell'envelope
