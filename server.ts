@@ -5569,7 +5569,11 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
       return;
     }
     if (!logged) {
-      console.log(`[quiescence] ${label}: aspetto prima di riavviare — ${busy}${unadoptable > 0 ? ` (${unadoptable} non riadottabile/i: attesa lunga)` : ""}`);
+      // NAME THE HOLDERS. "4 card turns" told nobody that three of them were
+      // orphan recoveries stuck since boot (2026-09-04): a count cannot be
+      // checked against the board, a list of ids can.
+      const holders = cards > 0 ? ` [${taskDispatcher.busyIds().map((id) => id.slice(0, 8)).join(", ")}]` : "";
+      console.log(`[quiescence] ${label}: aspetto prima di riavviare — ${busy}${holders}${unadoptable > 0 ? ` (${unadoptable} non riadottabile/i: attesa lunga)` : ""}`);
       logged = true;
     }
     await new Promise((r) => setTimeout(r, 500));

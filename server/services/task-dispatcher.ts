@@ -520,6 +520,8 @@ export interface TaskDispatcher {
    * (the latter is only the turn window, missing setup/wind-down).
    */
   busyCount(): number;
+  /** The task ids behind `busyCount()`: what a restart is actually waiting for. */
+  busyIds(): string[];
   /**
    * A planned restart is on its way: from now until the process is replaced,
    * start NO new turn. Queue picks, slot wake-ups and resumes all park where
@@ -4389,6 +4391,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     tick, onEnterTodo, onLeaveTodo, deferWait, onBlockerDone, resume, reconcile, markInterrupted, shutdown, nightStatus,
     isInFlight: (id) => inFlight.has(id),
     busyCount: () => inFlight.size,
+    busyIds: () => [...inFlight.keys()],
     drain: (reason) => {
       if (draining !== reason) log(`drain: nessun turno nuovo fino al riavvio (${reason}); ${inFlight.size} in volo`);
       draining = reason;
