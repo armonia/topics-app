@@ -232,7 +232,7 @@ describe("la finestra dei modelli", () => {
  */
 describe("il contesto pieno non uccide la chat", () => {
   /** A round with a heavy argument: a `write_file` with the file inside. */
-  function scritture(rounds: number, argSize: number): AgentMessage[] {
+  function writes(rounds: number, argSize: number): AgentMessage[] {
     const msgs: AgentMessage[] = [{ role: "user", content: "Scrivi i file." }];
     for (let i = 0; i < rounds; i++) {
       msgs.push({
@@ -251,17 +251,17 @@ describe("il contesto pieno non uccide la chat", () => {
     // weigh two characters and all the weight is in the arguments, which used
     // to stay whole: on the two dead topics they were 77% of what was left
     // AFTER compaction.
-    const h = scritture(40, 20_000);
+    const h = writes(40, 20_000);
     const c = compact(h, { windowTokens: 200_000, overheadChars: 0 });
     expect(c.after).toBeLessThan(c.before / 4);
   });
 
   test("l'argomento alleggerito dice ancora QUALE file era, e quanto manca", () => {
-    const c = compact(scritture(40, 20_000), { windowTokens: 200_000 });
-    const blocco = c.messages
+    const c = compact(writes(40, 20_000), { windowTokens: 200_000 });
+    const block = c.messages
       .flatMap((m) => (Array.isArray(m.content) ? m.content : []))
       .find((b) => b.type === "tool_use" && (b.input as Record<string, unknown>)?.path === "f0.ts");
-    const input = blocco?.input as Record<string, string>;
+    const input = block?.input as Record<string, string>;
     expect(input.path).toBe("f0.ts");            // the path is short: it survives whole
     expect(input.content.length).toBeLessThan(400); // the content does not
     expect(input.content).toContain("dropped to fit the context window");
@@ -274,14 +274,14 @@ describe("il contesto pieno non uccide la chat", () => {
     // stays and the rest is cut until it fits.
     // Many rounds, each one light: lightening cannot help because the weight
     // is not INSIDE the messages, it is in their NUMBER. That is the floor.
-    const h = scritture(2_000, 500);
+    const h = writes(2_000, 500);
     const c = compact(h, { windowTokens: 40_000, overheadChars: 0 });
     expect(c.after).toBeLessThanOrEqual(40_000 * 0.75);
     expect(c.droppedMessages).toBeGreaterThan(0);
   });
 
   test("anche tagliando, la richiesta iniziale resta e dice cosa è sparito", () => {
-    const h = scritture(2_000, 500);
+    const h = writes(2_000, 500);
     const c = compact(h, { windowTokens: 10_000, overheadChars: 0 });
     const testa = c.messages[0]!;
     expect(testa.role).toBe("user");
@@ -292,17 +292,17 @@ describe("il contesto pieno non uccide la chat", () => {
   test("dopo il taglio ogni richiesta di strumento ha ancora la sua risposta", () => {
     // The invariant that would turn the cure into a fault: a `tool_use`
     // without its `tool_result` gets the WHOLE request refused.
-    const c = compact(scritture(2_000, 500), { windowTokens: 10_000 });
-    const chiesti = new Set<string>();
-    const risposti = new Set<string>();
+    const c = compact(writes(2_000, 500), { windowTokens: 10_000 });
+    const asked = new Set<string>();
+    const answered = new Set<string>();
     for (const m of c.messages) {
       if (!Array.isArray(m.content)) continue;
       for (const b of m.content) {
-        if (b.type === "tool_use" && b.id) chiesti.add(b.id);
-        if (b.type === "tool_result" && b.tool_use_id) risposti.add(b.tool_use_id);
+        if (b.type === "tool_use" && b.id) asked.add(b.id);
+        if (b.type === "tool_result" && b.tool_use_id) answered.add(b.tool_use_id);
       }
     }
-    expect([...chiesti].filter((id) => !risposti.has(id))).toEqual([]);
+    expect([...asked].filter((id) => !answered.has(id))).toEqual([]);
     // And the alternation holds: after the initial request comes an assistant.
     expect(c.messages[1]!.role).toBe("assistant");
   });
@@ -313,10 +313,10 @@ describe("la stima si CALIBRA, non si assume", () => {
     // The number measured on the real case: 1,921,976 characters counted by
     // us, 1,000,176 tokens counted by the API. With the assumed 4 the same
     // history looked like it sat comfortably inside a million.
-    const misurato = charsPerTokenFrom(1_921_976, 1_000_176);
-    expect(misurato).toBeCloseTo(1.92, 1);
+    const measured = charsPerTokenFrom(1_921_976, 1_000_176);
+    expect(measured).toBeCloseTo(1.92, 1);
     const h = longHistory(40, 10_000);
-    expect(estimateTokens(h, 0, misurato)).toBeGreaterThan(estimateTokens(h) * 1.9);
+    expect(estimateTokens(h, 0, measured)).toBeGreaterThan(estimateTokens(h) * 1.9);
   });
 
   test("la calibrazione non è mai più generosa dell'assunzione", () => {
@@ -361,9 +361,9 @@ describe("il 400 dell'API porta con sé la misura", () => {
   });
 
   test("dentro il JSON completo dell'errore, come arriva davvero", () => {
-    const vero = 'API 400: {"type":"error","error":{"type":"invalid_request_error",'
+    const realMessage = 'API 400: {"type":"error","error":{"type":"invalid_request_error",'
       + '"message":"prompt is too long: 1073758 tokens > 1000000 maximum"}}';
-    expect(promptTooLong(vero)).toEqual({ tokens: 1_073_758, max: 1_000_000 });
+    expect(promptTooLong(realMessage)).toEqual({ tokens: 1_073_758, max: 1_000_000 });
   });
 
   test("un altro 400 non viene scambiato per contesto pieno", () => {

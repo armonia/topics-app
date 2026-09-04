@@ -224,13 +224,13 @@ describe("un figlio VIVO non viene chiuso dall'orologio", () => {
     expect(row?.content).toBe("mezza risposta");
     const blocks = row?.blocks as ContentBlock[];
     expect(blocks).toHaveLength(2);
-    const verdetto = blocks[1] as { kind: string; cause?: string; text: string; at?: string };
-    expect(verdetto.kind).toBe("error");
+    const verdict = blocks[1] as { kind: string; cause?: string; text: string; at?: string };
+    expect(verdict.kind).toBe("error");
     // The CAUSE as a code: it is what the banner decides on, not the sentence.
-    expect(verdetto.cause).toBe("watchdog");
-    expect(verdetto.at).toBeTruthy();
+    expect(verdict.cause).toBe("watchdog");
+    expect(verdict.at).toBeTruthy();
     // And the warning sign stays in the old format only.
-    expect(verdetto.text.startsWith("\u26a0")).toBe(false);
+    expect(verdict.text.startsWith("\u26a0")).toBe(false);
   });
 
   test("due giri di seguito non impilano due verdetti", () => {

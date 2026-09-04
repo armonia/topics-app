@@ -94,7 +94,7 @@ async function banco(name: string, verdicts: string[]) {
   }
 
   /** Closes the in-flight turn the way the model would: `end_turn`. */
-  async function finisci(text: string) {
+  async function finish(text: string) {
     const h = handlers[handlers.length - 1];
     if (!h) throw new Error("nessun turno in volo da chiudere");
     h.onTextDelta(text, text);
@@ -104,18 +104,18 @@ async function banco(name: string, verdicts: string[]) {
     await new Promise((r) => setTimeout(r, 120));
   }
 
-  const righe = () => ctx.db
+  const rows = () => ctx.db
     .query(`SELECT role, content, blocks FROM messages WHERE session_key = ? ORDER BY sort_order ASC`)
     .all(sessionKey) as Array<{ role: string; content: string; blocks: string | null }>;
 
-  return { ctx: ctx as AppContext, topic, goal, handlers, judged, send, finisci, righe, sessionKey };
+  return { ctx: ctx as AppContext, topic, goal, handlers, judged, send, finish, rows, sessionKey };
 }
 
 function blocksOf(row: { blocks: string | null }): ContentBlock[] {
   try { return JSON.parse(row.blocks ?? "null") ?? []; } catch { return []; }
 }
 
-async function chiudi() {
+async function close() {
   const { closeDatabase } = await import("../../server/db");
   closeDatabase();
 }
@@ -128,50 +128,50 @@ describe("fine turno con un obiettivo attivo", () => {
     const b = await banco("goal-continue", ["continue", "met"]);
 
     await b.send("comincia");
-    await b.finisci("ho fatto metà del lavoro, manca il resto");
+    await b.finish("ho fatto metà del lavoro, manca il resto");
 
     // A SECOND TURN STARTED: this is what did not happen before.
     expect(b.handlers.length).toBe(2);
     expect(b.judged[0]).toContain("portare la barra a verde");
 
     // And the row that opened it is NOT a user bubble: it carries the marker.
-    const utenti = b.righe().filter((r) => r.role === "user");
-    expect(utenti.length).toBe(2);
-    const nudge = blocksOf(utenti[1]!);
+    const users = b.rows().filter((r) => r.role === "user");
+    expect(users.length).toBe(2);
+    const nudge = blocksOf(users[1]!);
     expect(nudge).toEqual([{ kind: "goal-nudge", attempt: 1 }]);
-    expect(utenti[1]!.content).toContain("portare la barra a verde");
+    expect(users[1]!.content).toContain("portare la barra a verde");
 
     // The loop counter lives on the goal, not in memory.
     expect(getActiveGoal(b.ctx.db, b.topic.id)?.continuations).toBe(1);
 
     // The second turn closes on the `met` verdict, which switches the loop off.
-    await b.finisci("fatto, la barra è verde e l'ho verificata");
-    const dopo = getActiveGoal(b.ctx.db, b.topic.id);
-    expect(dopo).toBe(null);
+    await b.finish("fatto, la barra è verde e l'ho verificata");
+    const after = getActiveGoal(b.ctx.db, b.topic.id);
+    expect(after).toBe(null);
     expect(b.handlers.length).toBe(2);
-    await chiudi();
+    await close();
   });
 
   test("giudice `met`: il goal si chiude raggiunto e nessun turno parte", async () => {
     const b = await banco("goal-met", ["met"]);
     await b.send("comincia");
-    await b.finisci("fatto tutto, verificato");
+    await b.finish("fatto tutto, verificato");
 
     expect(b.handlers.length).toBe(1);
     expect(getActiveGoal(b.ctx.db, b.topic.id)).toBe(null);
-    await chiudi();
+    await close();
   });
 
   test("una domanda all'utente ferma il ciclo e lascia l'obiettivo aperto", async () => {
     const b = await banco("goal-blocked", ["blocked_on_user"]);
     await b.send("comincia");
-    await b.finisci("preferisci A o B?");
+    await b.finish("preferisci A o B?");
 
     expect(b.handlers.length).toBe(1);
     const goal = getActiveGoal(b.ctx.db, b.topic.id);
     expect(goal?.status).toBe("active");
     expect(goal?.loopState).toBe("blocked");
-    await chiudi();
+    await close();
   });
 
   test("il tetto si ferma e lo scrive in chat", async () => {
@@ -179,27 +179,27 @@ describe("fine turno con un obiettivo attivo", () => {
     setGoalLoop(b.ctx.db, b.goal.id, { continuations: MAX_GOAL_CONTINUATIONS });
 
     await b.send("comincia");
-    await b.finisci("continuo ancora un po'");
+    await b.finish("continuo ancora un po'");
 
     expect(b.handlers.length).toBe(1);
     const goal = getActiveGoal(b.ctx.db, b.topic.id);
     expect(goal?.status).toBe("active");
     expect(goal?.loopState).toBe("stopped");
 
-    const avviso = b.righe().find((r) => blocksOf(r).some((x) => x.kind === "goal-stop"));
-    expect(avviso?.content).toContain(String(MAX_GOAL_CONTINUATIONS));
-    await chiudi();
+    const warning = b.rows().find((r) => blocksOf(r).some((x) => x.kind === "goal-stop"));
+    expect(warning?.content).toContain(String(MAX_GOAL_CONTINUATIONS));
+    await close();
   });
 
   test("un giudice illeggibile non compra niente e non scrive niente", async () => {
     const b = await banco("goal-mute", ["non lo so"]);
-    const prima = b.righe().length;
+    const prima = b.rows().length;
     await b.send("comincia");
-    await b.finisci("mah");
+    await b.finish("mah");
 
     expect(b.handlers.length).toBe(1);
     expect(getActiveGoal(b.ctx.db, b.topic.id)?.status).toBe("active");
-    expect(b.righe().length).toBe(prima + 2); // the question and the answer, nothing else
-    await chiudi();
+    expect(b.rows().length).toBe(prima + 2); // the question and the answer, nothing else
+    await close();
   });
 });
