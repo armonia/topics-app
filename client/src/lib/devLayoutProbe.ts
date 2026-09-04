@@ -32,6 +32,8 @@
  * finestra, poi leggere `/api/ui-state/dev-layout-probe-result`.
  */
 
+import { readProbeFlag, writeProbeState } from './devProbeProtocol';
+
 const FLAG_KEY = 'dev-layout-probe';
 const RESULT_KEY = 'dev-layout-probe-result';
 /** Finestra di registrazione: lunga abbastanza da vedere una pompa, corta abbastanza da non pesare. */
@@ -80,29 +82,6 @@ function label(node: Node | null): string {
   return parts.join(' in ') || '(detached)';
 }
 
-async function readFlag(): Promise<boolean> {
-  try {
-    const r = await fetch(`/api/ui-state/${FLAG_KEY}`);
-    if (!r.ok) return false;
-    const body = (await r.json()) as { value?: { armed?: boolean } };
-    return body?.value?.armed === true;
-  } catch {
-    return false;
-  }
-}
-
-async function write(key: string, value: unknown): Promise<void> {
-  try {
-    await fetch(`/api/ui-state/${key}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(value),
-    });
-  } catch {
-    /* la sonda non deve mai far rumore se il server non risponde */
-  }
-}
-
 /**
  * Avvia la sonda se armata. Ritorna una funzione di stop (idempotente) che
  * ripristina ogni patch: va chiamata allo smontaggio anche se la sonda non è
@@ -110,9 +89,9 @@ async function write(key: string, value: unknown): Promise<void> {
  */
 export function initDevLayoutProbe(): () => void {
   let stop = () => {};
-  void readFlag().then((armed) => {
+  void readProbeFlag(FLAG_KEY).then((armed) => {
     if (!armed) return;
-    void write(FLAG_KEY, { armed: false }); // one-shot: mai due giri di fila
+    void writeProbeState(FLAG_KEY, { armed: false }); // one-shot: mai due giri di fila
     stop = run();
   });
   return () => stop();
@@ -257,7 +236,7 @@ function run(): () => void {
         const t = eff && 'target' in eff ? eff.target : null;
         return `${(a as unknown as { animationName?: string }).animationName ?? '(transition)'} su ${label(t)}`;
       });
-    void write(RESULT_KEY, {
+    void writeProbeState(RESULT_KEY, {
       seconds: Math.round(seconds * 10) / 10,
       perSecond: {
         mutations: Math.round(mutationTotal / seconds),
