@@ -1,12 +1,12 @@
 import { test, expect } from "./fixtures/browser-v2.fixture";
-import { goToApp } from "./helpers";
+import { goToApp, openTopic } from "./helpers";
 import {
   createTopic,
   deleteTopic,
-  waitForTopicVisible,
   resetPaneStore,
   closeAllBrowserContexts,
 } from "./helpers/api-fixtures";
+import { E2E_BASE } from "./helpers/test-server";
 import { seedMessage } from "./helpers/seed-messages";
 import { hermetic } from "./fixtures/hermetic";
 
@@ -39,6 +39,18 @@ async function externalOpens(page: import("@playwright/test").Page): Promise<str
   return page.evaluate(() => (window as unknown as { __externalOpens?: string[] }).__externalOpens ?? []);
 }
 
+/** The seed endpoint keys on the SESSION, which is not the topic id. */
+async function sessionKeyOf(
+  request: import("@playwright/test").APIRequestContext,
+  topicId: string,
+): Promise<string> {
+  const res = await request.get(`${E2E_BASE}/api/topics`, { ignoreHTTPSErrors: true });
+  const { topics } = (await res.json()) as {
+    topics: Record<string, { id: string; sessionKey: string }>;
+  };
+  return Object.values(topics).find((t) => t.id === topicId)?.sessionKey ?? "";
+}
+
 test.afterAll(async ({ request }) => {
   await closeAllBrowserContexts(request);
 });
@@ -63,19 +75,16 @@ test.describe("LINK-TAB-01 a chat link opens in a Topics tab", () => {
     });
     await stubExternalChannel(page);
 
-    const topic = await createTopic(request, `E2E-LinkTab-${Date.now()}`);
+    const name = `E2E-LinkTab-${Date.now()}`;
+    const topic = await createTopic(request, name);
     try {
       await seedMessage(request, {
-        sessionKey: topic.id,
+        sessionKey: await sessionKeyOf(request, topic.id),
         role: "assistant",
         content: "Look at [the docs](https://example.com/from-chat).",
       });
       await goToApp(page);
-      await waitForTopicVisible(page, topic.id);
-      await page
-        .locator(`[data-pane-id="${topic.id}"], [data-topic-id="${topic.id}"]`)
-        .first()
-        .click();
+      await openTopic(page, new RegExp(name));
 
       const link = page.locator('a[href="https://example.com/from-chat"]').first();
       await expect(link).toBeVisible({ timeout: 15000 });
@@ -99,19 +108,16 @@ test.describe("LINK-TAB-01 a chat link opens in a Topics tab", () => {
     await browserProcessPageV2.mockBrowserContexts([]);
     await stubExternalChannel(page);
 
-    const topic = await createTopic(request, `E2E-LinkExt-${Date.now()}`);
+    const name = `E2E-LinkExt-${Date.now()}`;
+    const topic = await createTopic(request, name);
     try {
       await seedMessage(request, {
-        sessionKey: topic.id,
+        sessionKey: await sessionKeyOf(request, topic.id),
         role: "assistant",
         content: "Look at [the docs](https://example.com/gesture).",
       });
       await goToApp(page);
-      await waitForTopicVisible(page, topic.id);
-      await page
-        .locator(`[data-pane-id="${topic.id}"], [data-topic-id="${topic.id}"]`)
-        .first()
-        .click();
+      await openTopic(page, new RegExp(name));
 
       const link = page.locator('a[href="https://example.com/gesture"]').first();
       await expect(link).toBeVisible({ timeout: 15000 });
