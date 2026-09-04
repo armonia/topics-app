@@ -3205,7 +3205,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // picks the N most recent among the ones this same list would return.
       if (input.doneLimit !== undefined && input.doneLimit >= 0) {
         const doneClauses = [input.archived === true ? "archived = 1" : "archived = 0", "status = 'done'"];
-        const doneParams: any[] = [];
+        const doneParams: unknown[] = [];
         if (input.scope === "project" && input.projectId) {
           doneClauses.push("project_id = ?");
           doneParams.push(input.projectId);

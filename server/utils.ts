@@ -599,10 +599,14 @@ export function createAppContext(baseDir: string): AppContext {
    * Default `true` per entrambe: nessun altro chiamante cambia comportamento.
    */
   /** The `tool_calls` column, parsed and sanitized. `undefined` when unusable. */
-  function parseToolCallsCol(raw: any, messageId: string): any {
+  function parseToolCallsCol(raw: unknown, messageId: string): StoredMessage["toolCalls"] {
     try {
-      const parsed = JSON.parse(decodeCol(raw) ?? "null");
-      return Array.isArray(parsed) ? parsed.map(sanitizeToolCallDetail) : parsed;
+      const parsed: unknown = JSON.parse(decodeCol(raw) ?? "null");
+      // A non-array survives untouched, as it always has: a corrupt shape is
+      // reported by whoever reads it, not silently turned into an empty list.
+      return Array.isArray(parsed)
+        ? parsed.map(sanitizeToolCallDetail)
+        : (parsed as StoredMessage["toolCalls"]);
     } catch (err) {
       // Corrupt tool_calls JSON → message hydrates without its tool calls
       // (recoverable, but silently lossy). Observe it.
@@ -612,17 +616,18 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   /** The `blocks` column, parsed and sanitized. `undefined` when unusable. */
-  function parseBlocksCol(raw: any, messageId: string): any[] | undefined {
+  function parseBlocksCol(raw: unknown, messageId: string): ContentBlock[] | undefined {
     try {
-      const parsed = JSON.parse(decodeCol(raw) ?? "null");
+      const parsed: unknown = JSON.parse(decodeCol(raw) ?? "null");
       if (!Array.isArray(parsed)) return undefined;
       // v3 foundations NORM-01 DB hydration: each block of kind 'tool'
       // carries a toolCall whose `detail` may be a legacy / drifted
       // shape. Sanitize at the boundary so downstream consumers always
       // see a schema-conforming detail or none.
-      return parsed.map((block: any) => {
-        if (block && block.kind === 'tool' && block.toolCall) {
-          return { ...block, toolCall: sanitizeToolCallDetail(block.toolCall) };
+      return parsed.map((block: ContentBlock) => {
+        const tool = block as { kind?: string; toolCall?: unknown };
+        if (tool && tool.kind === 'tool' && tool.toolCall) {
+          return { ...block, toolCall: sanitizeToolCallDetail(tool.toolCall) };
         }
         return block;
       });
@@ -1254,15 +1259,17 @@ export function createAppContext(baseDir: string): AppContext {
    * back untouched.
    */
   function hydrateMessageBodies(msgs: StoredMessage[]): StoredMessage[] {
+    /** The three columns the second pass reads back, and nothing else. */
+    interface BodyRow { id: string; blocks: unknown; tool_calls: unknown }
     if (msgs.length === 0) return msgs;
-    const byId = new Map<string, any>();
+    const byId = new Map<string, BodyRow>();
     // Chunked: SQLite refuses a statement with more than 999 bound parameters.
     const CHUNK = 500;
     for (let i = 0; i < msgs.length; i += CHUNK) {
       const chunk = msgs.slice(i, i + CHUNK);
       const rows = db
         .query(`SELECT id, blocks, tool_calls FROM messages WHERE id IN (${chunk.map(() => "?").join(",")})`)
-        .all(...chunk.map((m) => m.id)) as any[];
+        .all(...chunk.map((m) => m.id)) as BodyRow[];
       for (const row of rows) byId.set(row.id, row);
     }
     for (const m of msgs) {
