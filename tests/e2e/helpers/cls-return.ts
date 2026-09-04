@@ -61,8 +61,8 @@ export async function armObserver(page: Page): Promise<void> {
     // only name the code chose on purpose; then aria-label, id, and as a last
     // resort the first classes, which at least name the neighbourhood.
     const name1 = (el: Element): string => {
-      const testid = el.getAttribute("data-testid");
-      if (testid) return `${el.tagName.toLowerCase()}[data-testid=${testid}]`;
+      const marker = el.getAttribute("data-testid");
+      if (marker) return `${el.tagName.toLowerCase()}[data-testid=${marker}]`;
       const aria = el.getAttribute("aria-label");
       if (aria) return `${el.tagName.toLowerCase()}[aria-label="${aria}"]`;
       if (el.id) return `${el.tagName.toLowerCase()}#${el.id}`;

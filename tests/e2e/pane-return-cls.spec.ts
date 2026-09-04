@@ -59,8 +59,8 @@ const LABEL = process.env.E2E_CLS_LABEL || "run";
 
 /** Phone and desktop: the two viewports declared by the method. */
 const PHONE = { name: "390x844", width: 390, height: 844 } as const;
-const DESKTOP = { name: "1440x900", width: 1440, height: 900 } as const;
-const VIEWPORTS = [PHONE, DESKTOP] as const;
+const WIDE = { name: "1440x900", width: 1440, height: 900 } as const;
+const VIEWPORTS = [PHONE, WIDE] as const;
 
 /**
  * WHY THE PROJECT PANES ARE MEASURED ON THE DESKTOP ONLY.
@@ -73,7 +73,7 @@ const VIEWPORTS = [PHONE, DESKTOP] as const;
  * phone actually lands: the chat (`refresh-cls.spec.ts`) and the board, both
  * below.
  */
-const PROJECT_VIEWPORTS = [DESKTOP] as const;
+const PROJECT_VIEWPORTS = [WIDE] as const;
 
 async function measureReturn(page: Page, selector: string, name: string): Promise<ClsReport> {
   await armObserver(page);
@@ -211,7 +211,7 @@ test.describe("OPEN - a file already seen opens on the click", () => {
     await cleanupFileProject(request, project);
   });
 
-  test.use({ viewport: { width: DESKTOP.width, height: DESKTOP.height } });
+  test.use({ viewport: { width: WIDE.width, height: WIDE.height } });
   test("the text is on screen within a frame of the click", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "PERF-01" });
     const explorer = new FileExplorerPage(page);
@@ -235,7 +235,7 @@ test.describe("OPEN - a file already seen opens on the click", () => {
     await expect(page.getByTestId("file-pane").first()).toContainText("e2e-test-project", { timeout: 15000 });
     const ms = await readOpenClock(page);
     const report = buildReport(await collectShifts(page));
-    writeReport(LABEL, `open-file-${DESKTOP.name}`, report);
+    writeReport(LABEL, `open-file-${WIDE.name}`, report);
     console.log(`\n[open:${LABEL}] click->text=${ms ?? "never"}ms CLS=${report.cls.toFixed(4)}\n${summarize(report)}\n`);
     expect(ms ?? Number.MAX_SAFE_INTEGER, "click to text").toBeLessThanOrEqual(OPEN_BUDGET_MS);
     expect(report.cls, `who moved:\n${summarize(report)}`).toBeLessThanOrEqual(RETURN_BUDGET);
