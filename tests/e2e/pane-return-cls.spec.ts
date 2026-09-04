@@ -1,4 +1,6 @@
 import { expect, test, type Page, type APIRequestContext } from "@playwright/test";
+import { readFileSync } from "fs";
+import { resolve } from "path";
 import { goToApp } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";
 import { FileExplorerPage } from "./fixtures/file-explorer.fixture";
@@ -54,6 +56,14 @@ hermetic(test);
  */
 
 const RETURN_BUDGET = 0.01;
+/**
+ * From the app's FIRST PAINT to the pane having content. Not from
+ * `DOMContentLoaded`: see the note on `Fullness` in `helpers/cls-return.ts` -
+ * that one includes the bundle boot, which on a shared machine swings by two
+ * orders of magnitude and would make this gate a load meter. 100 ms is six
+ * frames: a synchronous read of the local copy lands inside one, a fetch does
+ * not land inside any.
+ */
 const FULL_BUDGET_MS = 100;
 const LABEL = process.env.E2E_CLS_LABEL || "run";
 
@@ -85,7 +95,7 @@ async function measureReturn(page: Page, selector: string, name: string): Promis
   });
   const file = writeReport(LABEL, name, report);
   console.log(
-    `\n[cls:${LABEL}:${name}] CLS=${report.cls.toFixed(4)} total=${report.total.toFixed(4)} shifts=${report.count} full=${report.fullness?.ms ?? "never"}ms` +
+    `\n[cls:${LABEL}:${name}] CLS=${report.cls.toFixed(4)} total=${report.total.toFixed(4)} shifts=${report.count} full=${report.fullness?.afterShellMs ?? "never"}ms-after-shell (${report.fullness?.ms ?? "?"}ms from DCL)` +
     `\n${summarize(report)}\n-> ${file}\n`,
   );
   return report;
@@ -95,8 +105,9 @@ async function measureReturn(page: Page, selector: string, name: string): Promis
 function expectQuietAndFull(report: ClsReport): void {
   expect(report.cls, `who moved:\n${summarize(report)}`).toBeLessThanOrEqual(RETURN_BUDGET);
   expect(
-    report.fullness?.ms ?? Number.MAX_SAFE_INTEGER,
-    `the surface was still empty ${report.fullness?.ms ?? "forever"}ms after DOMContentLoaded`,
+    report.fullness?.afterShellMs ?? Number.MAX_SAFE_INTEGER,
+    `the pane was still empty ${report.fullness?.afterShellMs ?? "forever"}ms after the app had painted` +
+      ` (${report.fullness?.ms ?? "?"}ms after DOMContentLoaded, boot included)`,
   ).toBeLessThanOrEqual(FULL_BUDGET_MS);
 }
 
@@ -174,18 +185,37 @@ test.describe("FILES - the tree and the open file return without moving", () => 
  * click itself (inside the page, on the capture phase) and stops on the frame
  * where the pane shows that file's text.
  */
-const OPEN_BUDGET_MS = 100;
+/**
+ * The ceiling for a click comes from `tests/e2e/ink-budget.json`, which is the
+ * repo's ONE copy of it and says so ("Nothing else may hold a copy of these
+ * numbers"). `maxMs` and not `medianMs` because this is a single sample, and
+ * `maxMs` is exactly the half of that budget written for single samples: no one
+ * gesture stalled. Writing 100 here instead would be a second, quieter budget
+ * for the same question.
+ */
+const OPEN_BUDGET_MS = (
+  JSON.parse(readFileSync(resolve(__dirname, "ink-budget.json"), "utf8")) as { budget: { maxMs: number } }
+).budget.maxMs;
 
+/**
+ * Starts the clock and watches for the text.
+ *
+ * The start is stamped HERE, from the test, right before the click - not from a
+ * listener on the click itself. A capture listener on `document` looked more
+ * faithful and was flaky: it never fired once in six runs, and the case then
+ * reported "never" for a gesture that had plainly worked. Stamping it a moment
+ * EARLY can only make the measured time longer than the truth, so the assertion
+ * stays honest and stops depending on which listener wins a race.
+ */
 async function armOpenClock(page: Page, needle: string): Promise<void> {
   await page.evaluate((text: string) => {
     const w = window as unknown as { __openT0: number | null; __openPaintAt: number | null };
-    w.__openT0 = null;
+    w.__openT0 = performance.now();
     w.__openPaintAt = null;
-    document.addEventListener("click", () => { if (w.__openT0 === null) w.__openT0 = performance.now(); }, { capture: true });
     const tick = () => {
       if (w.__openPaintAt !== null) return;
       const el = document.querySelector('[data-testid="file-pane"]');
-      if (w.__openT0 !== null && el && (el.textContent || "").includes(text)) { w.__openPaintAt = performance.now(); return; }
+      if (el && (el.textContent || "").includes(text)) { w.__openPaintAt = performance.now(); return; }
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
@@ -217,22 +247,29 @@ test.describe("OPEN - a file already seen opens on the click", () => {
     const explorer = new FileExplorerPage(page);
     await explorer.gotoProject(project!.tmpDir, project!.topicName);
 
-    // First open: this is what fills the local copy. Nothing is measured here.
-    const item = explorer.fileTree.getByRole("treeitem", { name: /package\.json/ }).first();
-    await item.click();
-    await expect(page.getByTestId("file-pane").first()).toBeVisible({ timeout: 15000 });
-    await expect(page.getByTestId("file-pane").first()).toContainText("e2e-test-project", { timeout: 15000 });
+    // TWO files are opened first, and neither open is measured: this is what
+    // fills the local copy. Two and not one, because the measured gesture has
+    // to open a file that is NOT already on screen - with a single file the
+    // pane comes back from the reload already showing it, and the clock would
+    // stop before the click had done anything.
+    const pane = page.getByTestId("file-pane").first();
+    await explorer.fileTree.getByRole("treeitem", { name: /package\.json/ }).first().click();
+    await expect(pane).toContainText("e2e-test-project", { timeout: 15000 });
+    await explorer.fileTree.getByRole("treeitem", { name: /newfile\.txt/ }).first().click();
+    await expect(pane).toContainText("new content", { timeout: 15000 });
     await page.waitForTimeout(1500);
 
-    // Back to a page that has never drawn this file, with the copy in hand.
+    // Back to a page showing newfile.txt, with package.json's text in the local
+    // copy but nowhere on screen.
     await armObserver(page);
     await page.reload({ waitUntil: "commit" });
     await expect(explorer.fileTree.first()).toBeVisible({ timeout: 20000 });
-    await page.waitForTimeout(3000);
+    await expect(pane).toContainText("new content", { timeout: 20000 });
+    await page.waitForTimeout(2000);
 
     await armOpenClock(page, "e2e-test-project");
     await explorer.fileTree.getByRole("treeitem", { name: /package\.json/ }).first().click();
-    await expect(page.getByTestId("file-pane").first()).toContainText("e2e-test-project", { timeout: 15000 });
+    await expect(pane).toContainText("e2e-test-project", { timeout: 15000 });
     const ms = await readOpenClock(page);
     const report = buildReport(await collectShifts(page));
     writeReport(LABEL, `open-file-${WIDE.name}`, report);

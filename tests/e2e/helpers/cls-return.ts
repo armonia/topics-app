@@ -26,12 +26,28 @@ export type ShiftSource = {
 };
 export type Shift = { value: number; at: number; sources: ShiftSource[] };
 
-/** How long after `DOMContentLoaded` the watched surface first had content. */
+/**
+ * WHEN THE SURFACE STOPPED BEING EMPTY, measured from two different starts.
+ *
+ * `ms` counts from `DOMContentLoaded`, which is the number the reader lives:
+ * it includes downloading, parsing and booting the client bundle. It is
+ * REPORTED, and it is not the gate - on a machine running a dozen agents that
+ * boot alone swings from 40 ms to two seconds, so a budget hung on it fails or
+ * passes depending on the load, which means it measures the machine.
+ *
+ * `afterShellMs` counts from the app's own FIRST PAINT (the root has a child).
+ * That is the quantity this card is about: once React is running, is the pane
+ * already full - drawn from the local copy - or does it still have to wait for
+ * a fetch? The bundle boot cancels out of the subtraction, so the same number
+ * comes back on an idle machine and on a loaded one.
+ */
 export type Fullness = {
   /** The selector that stands for "this pane drew something real". */
   selector: string;
   /** Milliseconds from `DOMContentLoaded`, or `null` if it never filled. */
   ms: number | null;
+  /** Milliseconds from the app shell's first paint. THE GATE. */
+  afterShellMs: number | null;
 };
 
 export type ClsReport = {
@@ -119,12 +135,24 @@ export async function armObserver(page: Page): Promise<void> {
  */
 export async function armFullness(page: Page, selector: string): Promise<void> {
   await page.addInitScript((sel: string) => {
-    const w = window as unknown as { __fullAt: number | null; __domReadyAt: number | null };
+    const w = window as unknown as { __fullAt: number | null; __domReadyAt: number | null; __shellAt: number | null };
     w.__fullAt = null;
     w.__domReadyAt = null;
+    w.__shellAt = null;
     const markReady = () => { if (w.__domReadyAt === null) w.__domReadyAt = performance.now(); };
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", markReady, { once: true });
     else markReady();
+
+    // The app's first paint: the moment React has put ANYTHING under the root.
+    // Everything before it is the bundle arriving and booting - the machine's
+    // share of the wait, which is not what this measures.
+    const shellTick = () => {
+      if (w.__shellAt !== null) return;
+      const root = document.getElementById("root");
+      if (root && root.childElementCount > 0) { w.__shellAt = performance.now(); return; }
+      requestAnimationFrame(shellTick);
+    };
+    requestAnimationFrame(shellTick);
 
     const filled = (): boolean => {
       const el = document.querySelector(sel);
@@ -163,11 +191,15 @@ export async function collectShifts(page: Page): Promise<Shift[]> {
 
 export async function collectFullness(page: Page, selector: string): Promise<Fullness> {
   const raw = await page.evaluate(() => {
-    const w = window as unknown as { __fullAt?: number | null; __domReadyAt?: number | null };
-    return { full: w.__fullAt ?? null, ready: w.__domReadyAt ?? null };
+    const w = window as unknown as { __fullAt?: number | null; __domReadyAt?: number | null; __shellAt?: number | null };
+    return { full: w.__fullAt ?? null, ready: w.__domReadyAt ?? null, shell: w.__shellAt ?? null };
   });
-  if (raw.full === null || raw.ready === null) return { selector, ms: null };
-  return { selector, ms: Math.max(0, Math.round(raw.full - raw.ready)) };
+  if (raw.full === null) return { selector, ms: null, afterShellMs: null };
+  return {
+    selector,
+    ms: raw.ready === null ? null : Math.max(0, Math.round(raw.full - raw.ready)),
+    afterShellMs: raw.shell === null ? null : Math.max(0, Math.round(raw.full - raw.shell)),
+  };
 }
 
 /** The readable report: who moved and what it cost, most expensive first. */
