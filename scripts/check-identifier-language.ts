@@ -186,8 +186,9 @@ export const PROJECT_WORDS = new Set([
   // `realtime` is how ElevenLabs names the streaming model, the WebSocket route
   // and the token type (`scribe_v2_realtime`, `realtime_scribe`): writing it as
   // two words here would stop the code matching the protocol it speaks. `pcm`
-  // is the audio encoding those sockets carry.
-  "realtime", "pcm",
+  // is the audio encoding those sockets carry, and `wav` the container the test
+  // fixtures are stored in.
+  "realtime", "pcm", "wav",
   "html", "dom", "ui", "ux", "cli", "cwd", "env", "pid", "cpu", "ram", "os", "io",
   "utf", "ascii", "regex", "regexp", "async", "await", "iife", "impl", "init",
   "dict", "dicts", "payload", "payloads", "pixel", "pixels", "png", "jpeg", "byte", "bytes", "svg", "webp", "baseline", "baselines", "ratchet", "camelcase", "snake",

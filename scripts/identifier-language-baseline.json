@@ -3695,8 +3695,7 @@
       "grezzo",
       "lang",
       "motivo",
-      "transcribeDeepgram",
-      "wav"
+      "transcribeDeepgram"
     ],
     "server/lib/subagent-watch.ts": [
       "buf"
@@ -6477,17 +6476,12 @@
     "tests/e2e/cross-window-topic-sync.spec.ts": [
       "conversazione"
     ],
-    "tests/e2e/dictation-hermetic.spec.ts": [
-      "SPOKEN_WAV"
-    ],
     "tests/e2e/dictation-real-mic.spec.ts": [
-      "SPOKEN_WAV",
       "attendiFraseDetta",
       "buf",
       "didascalia",
       "irraggiungibile",
-      "motivoSttIrraggiungibile",
-      "wavDurationSec"
+      "motivoSttIrraggiungibile"
     ],
     "tests/e2e/diff-project-scope.spec.ts": [
       "PROJ_A",
