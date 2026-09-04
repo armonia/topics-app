@@ -157,6 +157,12 @@ The system SHALL periodically clean up stale active streams, not only on access.
 - **THEN** the system automatically removes it from `activeStreams`
 - **AND** broadcasts `stream:end` to connected clients
 
+#### Scenario: a delivery waiting on its own pre-review checks
+- **GIVEN** a live turn whose running tool is `update_task(status='review')`, and the board is running (or queuing) the pre-review checks for the card bound to that session
+- **WHEN** that tool has been running longer than the hung-tool cap
+- **THEN** the sweeper extends the stream instead of closing it as hung
+- **AND** the provider is not aborted
+
 **Implementation**: Add a `setInterval` (every 60s) that iterates `activeStreams` and removes expired entries.
 
 ### Requirement: STREAM-SNAPSHOT-01 — The streaming snapshot walks the registry, not the topics table

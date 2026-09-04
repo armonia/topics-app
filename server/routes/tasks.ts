@@ -40,7 +40,7 @@ import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import { resolveAgentRuntime } from "../services/app-settings";
 import { newProjectParentDir } from "../services/project-path-resolver";
 import { parkedEdgeEvent, type TaskDispatcher } from "../services/task-dispatcher";
-import { landFallout, type TaskAutoMerge } from "../services/task-automerge";
+import { type RealignOutcome, landFallout, type TaskAutoMerge } from "../services/task-automerge";
 import type { LandingState } from "../services/landing-audit";
 import type { RepoProbe } from "../services/deliveryReportChecks";
 import { createLandingQueue, type LandingQueue, type LandingTicket, type LandOutcomeResult } from "../services/landing-queue";
@@ -249,6 +249,12 @@ export interface TasksRouterOpts {
    * "verde" vale per QUEL codice, non per il branch a vita.
    */
   taskCheckoutRef?: (taskId: string) => Promise<{ cwd: string; commit: string | null } | null>;
+  /**
+   * Brings main into the card's branch BEFORE the pre-review checks run, the
+   * way the land does before merging (`taskAutoMerge.realign`). `ok:false` is
+   * the verdict itself: the checks do not start.
+   */
+  realignForChecks?: (taskId: string) => Promise<RealignOutcome>;
   /**
    * Il provider con cui ricavare un titolo leggibile da una card dettata.
    *
@@ -866,6 +872,46 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * in review mentre i comandi girano (il reviewer vedrebbe una consegna
    * guardabile a verdetto ignoto), e un rosso torna all'agente con l'output.
    */
+  /**
+   * A DELIVERY WHOSE CLIENT GAVE UP STILL LANDS ITS VERDICT.
+   *
+   * The checks run in the registry and the status moves only when a leg comes
+   * back with the verdict - and the leg is the MCP client polling every 25 s,
+   * for at most 50 minutes (`CHECKS_MAX_LEGS`). On 2026-09-04 at 12:37 three
+   * cards resumed together, delivered at once, and sat in the gate's slot
+   * queue past that cap: `update_task` threw, each agent ended its turn saying
+   * "consegnato", the checks finished green minutes later and NOBODY applied
+   * them. The cards stayed in_progress, the dispatcher read the turns as
+   * "closed without review" and spent an attempt each.
+   *
+   * So the route remembers the delivery it answered 202 to, and when the run
+   * ends it re-issues that same PATCH to itself: green moves the card to
+   * review exactly as a client leg would, red leaves the comment the run
+   * already wrote. The client's polling becomes a courtesy, not a condition.
+   */
+  const pendingDeliveries = new Map<string, { pathname: string; body: Record<string, unknown> }>();
+  function settleDelivery(taskId: string, attempt = 0): void {
+    const pending = pendingDeliveries.get(taskId);
+    if (!pending) return;
+    // The run's promise settles a microtask after `run` returns; a timer is
+    // enough to land after it, and a run still marked live simply waits.
+    setTimeout(() => {
+      if (checksGate.isRunning(taskId)) {
+        if (attempt < 20) settleDelivery(taskId, attempt + 1);
+        return;
+      }
+      if (!pendingDeliveries.delete(taskId)) return;
+      const url = new URL(`http://localhost${pending.pathname}`);
+      const req = new Request(url, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...pending.body, legMs: 1_000 }),
+      });
+      tasksRouter(req, url, pending.pathname, "PATCH")
+        .then((resp) => console.log(`[Tasks] consegna di ${taskId.slice(0, 8)} completata dal server a client andato: HTTP ${resp?.status ?? "nessuna risposta"}`))
+        .catch((err) => console.warn(`[Tasks] consegna di ${taskId.slice(0, 8)}: il PATCH riemesso dal server è fallito:`, err));
+    }, attempt === 0 ? 0 : 250);
+  }
+
   async function runChecksGate(
     taskId: string,
     projectId: string,
@@ -875,6 +921,37 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     let checks: ReviewCheck[] = [];
     try { checks = svc.getBoardSettings(projectId).reviewChecks; } catch { return null; }
     if (!checks.length) return null;
+    // THE CHECKS MEASURE THE TREE THAT LANDS. On 2026-09-04 three cards
+    // (4c4ac437, 882f81b9, c8039b35) burnt a turn each on an "inherited" red:
+    // a bloat baseline main had already moved while their branch sat on an
+    // older base. The land realigns before merging; the checks now do the
+    // same before measuring, once per delivery (a key the gate already knows
+    // is a run in flight or a retained verdict, not a new delivery). A realign
+    // that cannot happen - conflict, dirty tree - IS the verdict: not a single
+    // command runs, and the agent gets the file list instead of a timeout.
+    if (opts.realignForChecks && !checksGate.known(taskId)) {
+      const re = await opts.realignForChecks(taskId)
+        .catch((err): RealignOutcome => ({ ok: false, reason: `riallineamento fallito: ${err instanceof Error ? err.message : String(err)}` }));
+      if (!re.ok) {
+        const comment =
+          `**Riallineamento su main fallito, check non partiti**: ${re.reason}. ` +
+          "Nel worktree fai `git merge main`, risolvi, committa, poi rimetti in review con update_task(status=\"review\").";
+        try {
+          svc.recordChecks({
+            taskId, state: "fail", commit: null,
+            runs: [{ name: "realign", cmd: "git merge main", ok: false, code: 1, ms: 0, timedOut: false, tail: re.reason }],
+          });
+          svc.addComment({ taskId, author: "system", kind: "comment", content: comment });
+          const t = svc.get(taskId, { projectId })?.task;
+          if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
+        } catch { /* the verdict counts more than its record */ }
+        return { ok: false, comment };
+      }
+      if (re.note) {
+        try { svc.addComment({ taskId, author: "system", kind: "service", content: `Riallineato su main prima dei check: ${re.note}` }); }
+        catch { /* a trace, not the gate */ }
+      }
+    }
     const ref = await opts.taskCheckoutRef(taskId).catch(() => null);
     if (!ref) return null;
 
@@ -938,6 +1015,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           const t = svc.get(taskId, { projectId })?.task;
           if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
         } catch { /* l'esito conta più della sua registrazione */ }
+        settleDelivery(taskId);
         return { ok, comment };
       },
     });
@@ -1779,7 +1857,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     }, 409);
   }
 
-  return async function tasksRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
+  const tasksRouter = async function tasksRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
     // Fast reject: only task paths — agent (session-scoped) or human (board-scoped),
     // plus the machine-wide dispatch-capacity probe (a /api/system/ path that this
     // router owns because it reads the same dispatch config).
@@ -3583,6 +3661,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           if (isDelivery) {
             const outcome = await runChecksGate(item.taskId, sess.projectId, legMs).catch(() => null);
             if (outcome && "pending" in outcome) {
+              // Remembered with the body as sent: the server re-issues THIS
+              // request when the run ends, should the client stop polling.
+              if (body && typeof body === "object") pendingDeliveries.set(item.taskId, { pathname, body: body as Record<string, unknown> });
               const t = svc.get(item.taskId, { projectId: sess.projectId })?.task;
               return json({
                 pending: true,
@@ -3592,6 +3673,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                 checksState: t?.checksState ?? "running",
               }, 202);
             }
+            pendingDeliveries.delete(item.taskId);
             if (outcome && !outcome.ok) {
               return json({ error: outcome.comment, code: "review_needs_green_checks" }, 409);
             }
@@ -3637,4 +3719,5 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
 
     return null;
   };
+  return tasksRouter;
 }

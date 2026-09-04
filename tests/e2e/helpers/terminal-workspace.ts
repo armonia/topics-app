@@ -54,13 +54,13 @@ const PROJECT_PATH_SPELLINGS = [...new Set([
  * was: from the second call on, a `title`-only selector looks for an attribute
  * the previous hover already stripped.
  */
-function labelledButton(text: string): string {
+function labeledButton(text: string): string {
   return `button[title="${text}"], button[data-tip="${text}"]`;
 }
 
 /** The project row, whichever spelling of its path the server registered. */
 export function projectRowSelector(): string {
-  return PROJECT_PATH_SPELLINGS.map(labelledButton).join(", ");
+  return PROJECT_PATH_SPELLINGS.map(labeledButton).join(", ");
 }
 
 /**
@@ -196,7 +196,7 @@ export async function clickAddShell(page: Page): Promise<void> {
   const projectHeader = page.locator(projectRowSelector()).first();
   // The "+" is `opacity-0` until the row is hovered.
   await projectHeader.hover();
-  const addBtn = projectHeader.locator("..").locator(labelledButton("Add to project")).first();
+  const addBtn = projectHeader.locator("..").locator(labeledButton("Add to project")).first();
   await addBtn.waitFor({ state: "visible", timeout: 5000 });
   await addBtn.click();
 

@@ -53,14 +53,14 @@ describe("the pre-review checks gate", () => {
   const flushLand = () => new Promise((r) => setTimeout(r, 0));
 
   /** Records a red the way the pre-review gate would write it on a delivery. */
-  const rosso = (id: string) =>
+  const markRed = (id: string) =>
     db.prepare("UPDATE tasks SET checks_state = 'fail', checks_json = ? WHERE id = ?")
       .run(JSON.stringify([{ name: "lint", cmd: "bun run lint", ok: false, code: 1, ms: 10, timedOut: false, tail: "1 error" }]), id);
 
   test("POST /land coi checks ROSSI: 409, e nessuna fusione parte", async () => {
     const id = await reviewTask();
     db.prepare("UPDATE tasks SET delivery_branch = 'topics/x' WHERE id = ?").run(id);
-    rosso(id);
+    markRed(id);
     const blocked = (await call(router, "POST", `/api/boards/pX/tasks/${id}/land`, {}))!;
     expect(blocked.status).toBe(409);
     const err = await blocked.json();
@@ -74,7 +74,7 @@ describe("the pre-review checks gate", () => {
   test("…e `force` e' la scelta esplicita dell'umano: il land parte", async () => {
     const id = await reviewTask();
     db.prepare("UPDATE tasks SET delivery_branch = 'topics/x' WHERE id = ?").run(id);
-    rosso(id);
+    markRed(id);
     const ok = (await call(router, "POST", `/api/boards/pX/tasks/${id}/land`, { force: true }))!;
     expect(ok.status).toBe(202);
     await flushLand();
@@ -86,7 +86,7 @@ describe("the pre-review checks gate", () => {
     // approve `if`: the same merge, with nobody looking at the checks.
     const id = await reviewTask();
     db.prepare("UPDATE tasks SET delivery_branch = 'topics/x' WHERE id = ?").run(id);
-    rosso(id);
+    markRed(id);
     const blocked = (await call(router, "POST", `/api/boards/pX/tasks/${id}/review`, { decision: "reject", comment: LAND_ACTION_LABEL }))!;
     expect(blocked.status).toBe(409);
     await flushLand();

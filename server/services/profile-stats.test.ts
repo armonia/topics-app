@@ -18,6 +18,7 @@ import { join } from "path";
 import type { Database } from "bun:sqlite";
 import { initDatabase, closeDatabase, getDatabase } from "../db";
 import { computeProfileStats, computePresenceCounts, streak } from "./profile-stats";
+import { projectIdForPath } from "../../shared/board";
 
 let tmpRoot: string;
 let db: Database;
@@ -228,8 +229,8 @@ describe("computePresenceCounts", () => {
   });
 
   test("i task al lavoro sono quelli che la board sta eseguendo, non tutti gli aperti", () => {
-    progetto("p1", "Armonia-CRM");
-    task({ id: "t1", status: "in_progress", dispatch: "working", inProgressAgeMs: 60_000 });
+    progetto("p1", "Armonia-CRM", "/tmp/crm");
+    task({ id: "t1", project: projectIdForPath("/tmp/crm"), status: "in_progress", dispatch: "working", inProgressAgeMs: 60_000 });
     task({ id: "t2", status: "in_progress", dispatch: "queued" });
     task({ id: "t3", status: "todo", dispatch: null });
     const c = computePresenceCounts(db, 0);
@@ -246,6 +247,21 @@ describe("computePresenceCounts", () => {
     const c = computePresenceCounts(db, 0);
     expect(c.activeTasks).toBe(0);
     expect(c.focusProject).toBe("Pix");
+  });
+
+  test("il progetto del task al lavoro vince sul topic piu' recente, e lo nomina giusto", () => {
+    // `tasks.project_id` is the board SLUG (`<folder>-<hash>`), `projects.id` is
+    // a UUID: the old join on `p.id` matched nothing, so this branch was always
+    // empty and the presence answered with the OTHER project - the one of the
+    // most recently touched topic - in the status bar and in Rich Presence.
+    progetto("11111111-1111-4111-8111-111111111111", "foo", "/x/foo");
+    progetto("22222222-2222-4222-8222-222222222222", "bar", "/x/bar");
+    db.run(
+      "INSERT INTO topics (id, name, slug, session_key, created_at, updated_at, archived, project_path) VALUES (?,?,?,?,?,?,0,?)",
+      ["b", "b", "b", "sk-b", iso(0), iso(0), "/x/bar"],
+    );
+    task({ id: "t1", project: projectIdForPath("/x/foo"), status: "in_progress", dispatch: "working", inProgressAgeMs: 60_000 });
+    expect(computePresenceCounts(db, 0).focusProject).toBe("foo");
   });
 
   test("niente progetti ⇒ null, che il livello `detailed` sa degradare", () => {

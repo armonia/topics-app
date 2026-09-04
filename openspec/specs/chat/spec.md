@@ -701,6 +701,29 @@ The system SHALL let a topic select `claude-code` as its provider and SHALL pers
 - **THEN** the resolution SHALL yield nothing
 - **AND** the caller SHALL fall back to the home directory rather than spawn in a dead cwd
 
+### Requirement: CHAT-COMPOSER-01 - Removing one attachment out of several does not SEND the message
+
+The composer is a `<form onSubmit>`, and inside a form a `<button>` with no `type`
+IS a submit button. The little "x" on an attachment chip SHALL declare
+`type="button"`: without it, a click that only tidies the tray submits the draft
+with the wrong attachment set.
+
+The obvious round - one attachment, click its x - CANNOT see the defect: the
+handler drops the file, React re-renders before the browser runs the button's
+submit step, and the chip has already left the DOM, so it has no form owner and
+nothing is submitted. The bench SHALL therefore start from TWO attachments, where
+the chips are keyed by index and the clicked button is still inside the form when
+the submit step runs.
+
+Both chip flavours SHALL be covered, because they are two components: the
+paperclip chip and the image thumbnail.
+
+#### Scenario: The x on the first of two attachments
+- **GIVEN** a composer holding two attachments
+- **WHEN** the x of the first one is clicked
+- **THEN** the attachment SHALL be removed
+- **AND** no message SHALL be sent, and no upload or chat request SHALL leave
+
 ### Requirement: CHAT-RND-01 — Syntax Highlighting In Code Blocks
 
 > Promoted from `2026-07-10-chat-rendering-parity` and translated into English. The safe-degradation scenario (unknown language, blocks over 50 000 characters, tokenizer failure) is not restated: no test exercises it. The behaviour is in `highlightCode`, which returns null in those cases and leaves the block plain.

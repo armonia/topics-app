@@ -46,9 +46,20 @@ Se qualcuno sta GIÀ parlando in quella chat, la ripresa NON SHALL accavallarsi.
 Una ripresa SHALL avvenire UNA volta sola. Due avvii di fila NON SHALL riprendere
 due volte lo stesso turno.
 
+Un messaggio della persona rimasto SENZA RISPOSTA — nessuna riga di risposta
+dopo di lui, nessun turno vivo su quella chat, più vecchio dei due minuti che
+un turno vivo impiega a scrivere la propria riga — SHALL contare come
+interruzione della MACCHINA: prima il cartello nel filo (RESUME-02), poi il
+rimando, con la stessa finestra e lo stesso tetto. Una chat che appartiene a
+una card della board NON SHALL essere ripresa da qui: la riprende il dispatcher.
+
 #### Scenario: fermato da una persona
 - **GIVEN** un turno interrotto da chi lo stava guardando
 - **THEN** NON SHALL essere ripreso
+
+#### Scenario: un messaggio senza risposta
+- **GIVEN** una chat la cui ultima riga è della persona, da più di due minuti, senza turno vivo
+- **THEN** SHALL comparire il cartello nel filo e il messaggio SHALL essere rimandato una volta
 
 #### Scenario: due riavvii di fila
 - **GIVEN** un turno già ripreso a un avvio precedente

@@ -58,8 +58,8 @@ export function terminalErrorText(
   try {
     const parsed: unknown = JSON.parse(body);
     if (parsed && typeof parsed === 'object') {
-      const obj = parsed as Record<string, unknown>;
-      if (typeof obj.code === 'string') code = obj.code;
+      const fields = parsed as Record<string, unknown>;
+      if (typeof fields.code === 'string') code = fields.code;
     }
   } catch { /* not an envelope: nothing to read, the status decides alone */ }
 

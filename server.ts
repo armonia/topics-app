@@ -2114,6 +2114,9 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // commit su cui sta. Solo worktree di branch — un task in-place girerebbe i
   // comandi nel checkout principale, cioè su codice che non è il suo.
   taskCheckoutRef,
+  // Main dentro il ramo PRIMA dei check, come fa il land prima di fondere: il
+  // cancello misura l'albero che atterra, non una base invecchiata.
+  realignForChecks: (taskId) => taskAutoMerge.realign(taskId),
   // L'esito di atterraggio della card, timbrato SUBITO dopo un land: un verdetto
   // concreto è ciò che il land ha visto e vale come fatto (`witnessed`), `"ask"`
   // è il caso in cui non sa e si chiede al repo (`auditOneLanding`, più in basso).
@@ -4366,6 +4369,9 @@ const staleStreamTimer = setInterval(() => {
     getMessageById,
     humanHoldAgeMs,
     childAlive: (sk) => childAliveForSweep(sk),
+    // The delivery's own wait: the same predicate the stall detector reads, so
+    // `update_task(status='review')` queued behind the checks is never "hung".
+    waitingOnOurChecks: (sk) => isChecksHold(sk),
     resyncStream: (sk) => {
       // The rescue went to claude-code too: for somebody else's turn it was a
       // mute no-op, a recovery attempt that attempted nothing.
@@ -4917,7 +4923,24 @@ reattachSurvivingChatTurns()
   .then(() => reconcileOrphanedTranscripts())
   .then(() => reconcileArchivedTopicSessions())
   .then(() => riprendiTurniInterrotti(ctx, topicsRouter))
-  .catch((err) => console.error("[chat-reattach] boot sweep failed", err));
+  .catch((err) => console.error("[chat-reattach] boot sweep failed", err))
+  .finally(() => scheduleResumeSweep());
+
+// NOT ONLY AT BOOT. A turn cut by the watchdog, a stall or a provider error
+// while the server keeps running was never resumed until the next boot: on
+// 2026-09-04 the person had to write "riprendi" by hand. The same sweep runs
+// every five minutes; a resumed row carries its `ripreso` marker and a new
+// answer after it, so a sweep never resends twice. Chained, not on an
+// interval: one sweep can wait up to fifteen minutes on a stream.
+const RESUME_SWEEP_MS = 5 * 60_000;
+function scheduleResumeSweep(): void {
+  const t = setTimeout(() => {
+    riprendiTurniInterrotti(ctx, topicsRouter)
+      .catch((err) => console.error("[ripresa] periodic sweep failed", err))
+      .finally(() => scheduleResumeSweep());
+  }, RESUME_SWEEP_MS);
+  t.unref?.();
+}
 
 // ── Worktree GC — origin fix for worktree pile-up ──────────────────────────
 // La decisione sta in `server/services/worktree-gc.ts` (`sweepWorktrees`), il

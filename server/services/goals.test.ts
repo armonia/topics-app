@@ -195,17 +195,17 @@ describe("lo stato del ciclo di auto-continuazione", () => {
   test("i contatori si scrivono uno per volta, gli altri restano dove sono", () => {
     const g = setGoal(db, { topicId: "t1", content: "arrivare in fondo" });
     setGoalLoop(db, g.id, { continuations: 3 });
-    const dopo = setGoalLoop(db, g.id, { state: "blocked" })!;
-    expect(dopo.continuations).toBe(3);
-    expect(dopo.loopState).toBe("blocked");
+    const after = setGoalLoop(db, g.id, { state: "blocked" })!;
+    expect(after.continuations).toBe(3);
+    expect(after.loopState).toBe("blocked");
   });
 
   test("un goal chiuso non si tocca: il suo ciclo è finito per definizione", () => {
     const g = setGoal(db, { topicId: "t1", content: "arrivare in fondo" });
     closeGoal(db, g.id, "achieved");
-    const dopo = setGoalLoop(db, g.id, { continuations: 9, state: "running" })!;
-    expect(dopo.continuations).toBe(0);
-    expect(dopo.status).toBe("achieved");
+    const after = setGoalLoop(db, g.id, { continuations: 9, state: "running" })!;
+    expect(after.continuations).toBe(0);
+    expect(after.status).toBe("achieved");
   });
 
   test("il goal che si è dato l'agente ha lo stesso ciclo, e lo stesso tetto", () => {
@@ -214,9 +214,9 @@ describe("lo stato del ciclo di auto-continuazione", () => {
     // one the bar shows but nobody carries on by itself.
     const g = setGoal(db, { topicId: "t1", content: "portare a termine il refactor", createdBy: "agent" });
     expect(getActiveGoal(db, "t1")!.id).toBe(g.id);
-    const dopo = setGoalLoop(db, g.id, { continuations: 4, state: "running" })!;
-    expect(dopo.createdBy).toBe("agent");
-    expect(dopo.continuations).toBe(4);
+    const after = setGoalLoop(db, g.id, { continuations: 4, state: "running" })!;
+    expect(after.createdBy).toBe("agent");
+    expect(after.continuations).toBe(4);
   });
 
   test("riaprire riparte da zero: il tetto speso apparteneva al giro finito", () => {
