@@ -619,6 +619,21 @@ contratto per cui è stata costruita. Ed è anche la metà che il 7 agosto ripor
 la barra in fondo — «gli account che fine hanno fatto?» — quindi lasciarla lì
 risolve due cose con lo stesso gesto.
 
+Gli scenari di questo requisito cominciavano TUTTI con «GIVEN un desktop», e
+intanto quelle righe erano le uniche superfici dell'app che nominano lo stato
+della connessione: sul telefono non esisteva nessun elemento che dicesse
+«Offline» o «Reconnecting…», e il pallino del titolo — l'unico residuo — a
+cassetto chiuso è largo zero e fuori schermo. Il telefono è il dispositivo che
+la rete la perde davvero. Quindi l'allarme del trasporto SHALL essere a schermo
+anche sotto i 768px SENZA aprire il cassetto; l'identità no, che resta il pezzo
+desktop-only per il contratto di larghezza qui sopra.
+
+#### Scenario: il telefono perde la rete
+- **GIVEN** un telefono a 390x844 col cassetto CHIUSO e la connessione caduta
+- **THEN** un elemento a schermo SHALL nominare lo stato («Offline» o
+  «Reconnecting…»)
+- **AND** NON SHALL essere necessario aprire il cassetto per leggerlo
+
 #### Scenario: la colonna a tutto a posto
 - **GIVEN** un desktop con WebSocket connesso e nessun avviso
 - **WHEN** si guarda la colonna dei topic

@@ -43,7 +43,7 @@ async function sessionKeyOf(request: import("@playwright/test").APIRequestContex
 /** Where the seeded tool calls claim to have written. The folder does not need
  *  to exist: outside a repository the panel answers from the tool calls alone,
  *  which is the degraded shape this spec walks through. */
-const WORKDIR = "/tmp/e2e-changed-files";
+const WORK_DIR = "/tmp/e2e-changed-files";
 
 test.describe("I file che questa conversazione ha toccato", () => {
   const topics: string[] = [];
@@ -77,8 +77,8 @@ test.describe("I file che questa conversazione ha toccato", () => {
       role: "assistant",
       content: "fatto",
       toolCalls: [
-        { id: "tc-1", name: "Write", args: { file_path: `${WORKDIR}/nuovo.ts` }, status: "success" },
-        { id: "tc-2", name: "Edit", args: { file_path: `${WORKDIR}/base.ts` }, status: "success" },
+        { id: "tc-1", name: "Write", args: { file_path: `${WORK_DIR}/nuovo.ts` }, status: "success" },
+        { id: "tc-2", name: "Edit", args: { file_path: `${WORK_DIR}/base.ts` }, status: "success" },
       ],
     });
 
@@ -106,7 +106,7 @@ test.describe("I file che questa conversazione ha toccato", () => {
       role: "assistant",
       content: "ho guardato",
       toolCalls: [
-        { id: "tc-3", name: "Read", args: { file_path: `${WORKDIR}/base.ts` }, status: "success" },
+        { id: "tc-3", name: "Read", args: { file_path: `${WORK_DIR}/base.ts` }, status: "success" },
         { id: "tc-4", name: "Bash", args: { command: "ls" }, status: "success" },
       ],
     });

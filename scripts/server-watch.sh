@@ -59,6 +59,7 @@ src_hash() {
     | sort -z | xargs -0 shasum -a 1 2>/dev/null | shasum -a 1 | cut -c1-40)
 }
 LAST_HASH=$(src_hash)
+BOOT_SEEN=$(stat -f %m "${TOPICS_HOME:-$HOME/.topics}/daemon-state.json" 2>/dev/null || echo 0)
 echo "[start-prod] server hot-reload watch ON (graceful, debounce 2s, impronta ${LAST_HASH:0:8}, pid $$)"
 
     fswatch -o -l 2 --event Updated --event Created --event Removed --event Renamed \
@@ -86,6 +87,20 @@ echo "[start-prod] server hot-reload watch ON (graceful, debounce 2s, impronta $
           continue
         fi
         HOLD_SAID=0
+        # 1-bis. A server that booted AFTER the last reload request runs the
+        #    tree as it was at ITS boot, not as it was when the request was
+        #    made. Edits saved in between were already loaded, yet the stale
+        #    LAST_HASH made the next event look like "changed again" and asked
+        #    a second restart seconds after every boot (drain, fleet frozen:
+        #    twice on 2026-09-04). The boot is stamped by daemon-state.json.
+        DSTATE_BOOT="${TOPICS_HOME:-$HOME/.topics}/daemon-state.json"
+        BOOT_NOW=$(stat -f %m "$DSTATE_BOOT" 2>/dev/null || echo 0)
+        if [ "$BOOT_NOW" != "${BOOT_SEEN:-}" ]; then
+          BOOT_SEEN=$BOOT_NOW
+          LAST_HASH=$(src_hash)
+          echo "[start-prod] server (ri)partito alle $(date -r "$BOOT_NOW" +%H:%M:%S 2>/dev/null): impronta dei sorgenti riletta, nessun riavvio per modifiche gia' caricate"
+          continue
+        fi
         # 2. L'impronta del contenuto: uguale a quella dell'ultimo avvio (o
         #    dell'ultimo reload chiesto) significa che il server gira GIA' su
         #    questo codice. ~250ms per ~900 file: niente rispetto a un riavvio.
