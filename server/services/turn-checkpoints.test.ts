@@ -16,7 +16,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   CHECKPOINT_REF_ROOT,
-  KEEP_PER_SESSION,
   captureTurnCheckpoint,
   listTurnCheckpoints,
   restoreTurnCheckpoint,
@@ -79,14 +78,34 @@ describe("cattura", () => {
     }
   });
 
-  test("la potatura tiene gli ultimi KEEP_PER_SESSION", async () => {
-    for (let i = 0; i < KEEP_PER_SESSION + 5; i++) {
-      writeFileSync(join(repo, "f.txt"), `giro ${i}\n`);
-      await captureTurnCheckpoint(repo, SESSION, `turno ${i}`);
+  /**
+   * THE PRUNING, MEASURED WITH A SMALL CEILING instead of the production 50.
+   *
+   * Every round here is a real commit on a real repository, and at the default
+   * that is 55 of them: the test timed out at 30 s on any busy machine (30.3 s
+   * and 30.4 s, two runs on 2026-09-04) and took four unrelated cards down with
+   * it. What it has to show - the newest `keep` survive and the older ones go -
+   * does not depend on that number being 50, so the number is injected and the
+   * proof costs eight rounds.
+   *
+   * `dir` is bound locally on purpose, and it is the other half of the fix. A
+   * test the runner has already given up on KEEPS RUNNING: this loop used to
+   * read the shared `repo` on every round, which by then was the NEXT test's
+   * fresh repository, and wrote into it. That is how one timeout here surfaced
+   * as a failure two tests down, in a test that passes on its own.
+   */
+  test("la potatura tiene gli ultimi keep, i piu' vecchi se ne vanno", async () => {
+    const dir = repo;
+    const keep = 3;
+    const rounds = 6;
+    for (let i = 0; i < rounds; i++) {
+      writeFileSync(join(dir, "f.txt"), `giro ${i}\n`);
+      await captureTurnCheckpoint(dir, SESSION, `turno ${i}`, keep);
     }
-    const all = await listTurnCheckpoints(repo, SESSION);
-    expect(all.length).toBe(KEEP_PER_SESSION);
-    expect(all[0].label, "il piu' recente e' il primo").toBe(`turno ${KEEP_PER_SESSION + 4}`);
+    const all = await listTurnCheckpoints(dir, SESSION);
+    expect(all.length).toBe(keep);
+    expect(all[0].label, "il piu' recente e' il primo").toBe(`turno ${rounds - 1}`);
+    expect(all[all.length - 1].label, "i giri piu' vecchi sono stati potati").toBe(`turno ${rounds - keep}`);
   });
 });
 
