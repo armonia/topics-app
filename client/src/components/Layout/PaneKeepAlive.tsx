@@ -131,7 +131,7 @@ export function PaneKeepAlive({
             lo stesso riferimento fra un render e l'altro, quindi il bailout di
             React scatta identico un livello più giù.
           */}
-          <ErrorBoundary fallbackMessage="Questa pane si è rotta">{frozen.current}</ErrorBoundary>
+          <ErrorBoundary fallbackMessageKey="crash.pane">{frozen.current}</ErrorBoundary>
         </PaneKeyContext.Provider>
       </PaneAliveContext.Provider>
     </div>

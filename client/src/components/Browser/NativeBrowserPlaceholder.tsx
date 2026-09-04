@@ -482,7 +482,7 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
       {!browser.ready && (
         <div className="absolute inset-0 flex items-center justify-center text-text-muted">
           <Loader2 className="w-5 h-5 animate-spin mr-2" />
-          Initializing native browser...
+          {tr('browser.native.initializing')}
         </div>
       )}
 

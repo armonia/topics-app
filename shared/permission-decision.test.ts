@@ -4,8 +4,8 @@
 import { describe, expect, it } from "bun:test";
 import {
   PERMISSION_CHOICES,
-  PERMISSION_HINTS,
-  PERMISSION_LABELS,
+  PERMISSION_HINT_KEY,
+  PERMISSION_LABEL_KEY,
   cliDecisionFor,
   decisionFreesSession,
   isPermissionDecision,
@@ -15,8 +15,8 @@ import {
 describe("i tre bottoni in fila, e il quarto che NON ci sta", () => {
   it("hanno tutti un'etichetta e una riga che dice cosa fanno", () => {
     for (const choice of PERMISSION_CHOICES) {
-      expect(PERMISSION_LABELS[choice]).toBeTruthy();
-      expect(PERMISSION_HINTS[choice]).toBeTruthy();
+      expect(PERMISSION_LABEL_KEY[choice]).toBe(`permission.decision.${choice}.label`);
+      expect(PERMISSION_HINT_KEY[choice]).toBe(`permission.decision.${choice}.hint`);
     }
     expect(PERMISSION_CHOICES).toEqual(["allow", "allow_always", "deny"]);
   });
@@ -30,17 +30,14 @@ describe("i tre bottoni in fila, e il quarto che NON ci sta", () => {
     // un quarto bottone identico agli altri — a un pollice da «Consenti» — e
     // l'unica decisione che toglie la barriera di sicurezza diventa la più
     // facile da premere per sbaglio. Questo caso è lì per accorgersene.
-    expect(PERMISSION_LABELS.allow_free).toBeTruthy();
-    expect(PERMISSION_HINTS.allow_free).toBeTruthy();
+    expect(PERMISSION_LABEL_KEY.allow_free).toBeTruthy();
+    expect(PERMISSION_HINT_KEY.allow_free).toBeTruthy();
     expect(PERMISSION_CHOICES).not.toContain("allow_free");
   });
 
-  it("la sua riga dice sia cosa smette di succedere sia da dove si torna indietro", () => {
-    // Un consenso permanente che non dice come si revoca è una porta che si
-    // apre e basta.
-    expect(PERMISSION_HINTS.allow_free).toContain("senza chiedere");
-    expect(PERMISSION_HINTS.allow_free).toContain("autonomia");
-  });
+  // What that line has to SAY is asserted where the words now live, on both
+  // catalogues at once: `client/src/lib/i18n-catalogue.test.ts`. Here there are
+  // only keys, and a key cannot be read.
 });
 
 describe("verso la CLI viaggiano sempre e solo le tre che capisce", () => {

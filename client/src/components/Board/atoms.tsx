@@ -6,6 +6,7 @@ import type { ProjectCounts } from '../../lib/projectTaskCounts';
 import type { LabelSource } from '../../../../shared/task-labels';
 import { STATUS_ICON_COLOR, DISPATCH_CHIP } from './constants';
 import { chipKey } from './chipKey';
+import { queueReasonText } from '../../../../shared/queue-reason-text';
 import { memorableId } from '../../lib/memorableId';
 
 /**
@@ -212,25 +213,34 @@ const QUEUE_TONE_CLS: Record<QueueTone, string> = {
 };
 
 /**
- * PERCHÉ questa card è ferma: la frase, così com'è arrivata.
+ * WHY this card is stopped: the sentence, assembled from the key that arrived.
  *
- * Non c'è nessuna logica qui, e non deve essercene: `head`, `detail` e `title`
- * li scrive il server insieme alla decisione di non dispacciare
- * (`shared/board.deriveQueueReason`, chiamata da `rowToTask`). Se un giorno
- * questo componente si mettesse a dedurre la ragione dai campi del task,
- * direbbe la regola di ieri con la faccia sicura il giorno che il dispatcher
- * cambia — ed è esattamente il difetto che il chip chiude.
+ * There is no logic here and there must not be: the REASON is picked by the
+ * server together with the decision not to dispatch
+ * (`shared/board.deriveQueueReason`, called by `rowToTask`), and what arrives
+ * is a key with its parameters. If this component ever started deducing the
+ * reason from the task fields, it would state yesterday's rule with a
+ * confident face the day the dispatcher changes, which is exactly the defect
+ * the chip closes.
+ *
+ * What DID change is the language. The sentence used to travel already
+ * composed, in Italian, from a `shared/` module the language selector cannot
+ * reach: sixteen branches, sixteen sentences, none of them translatable. Now
+ * the server sends `key` and `params`, the client writes them in the chosen
+ * language, and whoever decided still decides.
  */
 export function QueueReasonChip({ reason }: { reason: QueueReason }) {
+  const tr = useT();
+  const { head, detail, title } = queueReasonText(reason, tr);
   return (
     <span
       data-testid="queue-reason-chip"
       data-kind={reason.kind}
       data-tone={reason.tone}
       className={`inline-flex min-w-0 shrink items-center rounded px-1.5 py-0.5 text-xs md:text-[11px] ${QUEUE_TONE_CLS[reason.tone]}`}
-      title={reason.title}
+      title={title}
     >
-      <span className="truncate">{reason.head} · {reason.detail}</span>
+      <span className="truncate">{head} · {detail}</span>
     </span>
   );
 }

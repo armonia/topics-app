@@ -24,20 +24,32 @@
 
 import type { PermissionDecision } from './types';
 
-export const PERMISSION_LABELS: Record<PermissionDecision, string> = {
-  allow: 'Consenti',
-  allow_always: 'Consenti sempre',
-  deny: 'Nega',
-  allow_free: 'Passa a libero',
+/**
+ * The i18n KEY of each decision's button, not the button's words.
+ *
+ * This module is the authority on WHICH decisions exist and in what order; it
+ * stopped being the authority on the words the day the app got a language
+ * selector, because a literal here cannot follow it. The four labels used to
+ * be Italian strings printed straight into the panel where a person decides
+ * whether an agent may touch their files: the most consequential text in the
+ * app was the one text the selector could not reach.
+ *
+ * Keys and not words also keeps this module free of the client: `shared/` has
+ * no access to the catalogues, and whoever renders resolves them.
+ */
+export const PERMISSION_LABEL_KEY: Record<PermissionDecision, string> = {
+  allow: 'permission.decision.allow.label',
+  allow_always: 'permission.decision.allow_always.label',
+  deny: 'permission.decision.deny.label',
+  allow_free: 'permission.decision.allow_free.label',
 };
 
-/** Cosa fa ciascuna, in una riga — sotto l'etichetta, nel pannello. */
-export const PERMISSION_HINTS: Record<PermissionDecision, string> = {
-  allow: 'Solo per questa volta.',
-  allow_always: 'Non chiedere più per questo strumento. Si revoca dalle impostazioni.',
-  deny: "L'agente riceve un no e prosegue senza.",
-  allow_free:
-    'Consente questa richiesta e porta QUESTA chat in modalità libera: da qui in poi esegue senza chiedere. Si torna indietro dal selettore di autonomia, nel composer.',
+/** What each one does, in one line, under the button. Keys, same reason. */
+export const PERMISSION_HINT_KEY: Record<PermissionDecision, string> = {
+  allow: 'permission.decision.allow.hint',
+  allow_always: 'permission.decision.allow_always.hint',
+  deny: 'permission.decision.deny.hint',
+  allow_free: 'permission.decision.allow_free.hint',
 };
 
 /**

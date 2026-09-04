@@ -25,9 +25,7 @@ import type { QueueReason } from '../../../shared/board';
 const reason = (over: Partial<QueueReason>): QueueReason => ({
   kind: 'parent_review',
   tone: 'stalled',
-  head: 'ferma',
-  detail: 'il padre aspetta te',
-  title: 'Il padre e\' in review: aspetta una persona, non un agente.',
+  key: 'board.queue.parentReview',
   ...over,
 } as QueueReason);
 
@@ -46,7 +44,7 @@ describe('subtaskQueueChip', () => {
     const chip = subtaskQueueChip(bareStep(reason({})));
     expect(chip).not.toBeNull();
     expect(chip!.tone).toBe('stalled');
-    expect(chip!.detail).toBe('il padre aspetta te');
+    expect(chip!.key).toBe('board.queue.parentReview');
   });
 
   test('ogni altro tono resta muto: la visibilita\' non si compra col rumore', () => {

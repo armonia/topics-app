@@ -5,6 +5,15 @@
  * @covers CHAT-04
  */
 import { describe, it, expect } from "bun:test";
+import IT from './i18n-it';
+import { interpolate } from './i18n';
+
+/**
+ * The catalogue lookup the composer does, minus React: the sentence moved to
+ * the dictionaries, the assertions below did not move with it.
+ */
+const say = (key: string, vars?: Record<string, string | number>): string =>
+  interpolate(IT[key] ?? '', vars);
 import { messaggioNotaVuota } from "./stt";
 
 describe("messaggioNotaVuota", () => {
@@ -12,20 +21,20 @@ describe("messaggioNotaVuota", () => {
   // diverse: la chat parlava (fe635287), il campo task della board taceva. Una
   // frase sola in un posto solo e' cio' che impedisce che succeda di nuovo.
   it("ZERO spezzoni dice che il microfono non ha aperto affatto", () => {
-    const m = messaggioNotaVuota(0, 0, 'audio/mp4');
+    const m = messaggioNotaVuota(0, 0, 'audio/mp4', say);
     expect(m).toContain('0 spezzoni');
     expect(m).toContain('0 byte');
     expect(m).toContain('audio/mp4');
   });
 
   it("pochi byte in uno spezzone dice che ha registrato silenzio", () => {
-    const m = messaggioNotaVuota(1, 44, 'audio/webm;codecs=opus');
+    const m = messaggioNotaVuota(1, 44, 'audio/webm;codecs=opus', say);
     expect(m).toContain('1 spezzoni');
     expect(m).toContain('44 byte');
   });
 
   it("senza mime non lascia un buco nella frase", () => {
-    expect(messaggioNotaVuota(0, 0, '')).toContain('formato ignoto');
+    expect(messaggioNotaVuota(0, 0, '', say)).toContain('formato ignoto');
   });
 
   it("i due numeri ci sono SEMPRE: sono la diagnosi, non un contorno", () => {
@@ -33,7 +42,7 @@ describe("messaggioNotaVuota", () => {
     // distingue un permesso negato da un silenzio registrato, e sono due
     // riparazioni diverse.
     for (const [sp, by] of [[0, 0], [1, 44], [7, 511]] as const) {
-      const m = messaggioNotaVuota(sp, by, 'audio/mp4');
+      const m = messaggioNotaVuota(sp, by, 'audio/mp4', say);
       expect(m).toContain(`${sp} spezzoni`);
       expect(m).toContain(`${by} byte`);
     }

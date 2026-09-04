@@ -5,7 +5,8 @@ import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures
 import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
-import { PERMISSION_LABELS } from "../../shared/permission-decision";
+import { PERMISSION_LABEL_KEY } from "../../shared/permission-decision";
+import IT from "../../client/src/lib/i18n-it";
 
 hermetic(test);
 
@@ -166,7 +167,11 @@ test.describe.serial("Pannello di permesso", () => {
 
     // Tre esiti, e NIENTE testo libero: non è una domanda, non c'è un «Altro»
     // che prometta una risposta e ne dia un'altra.
-    for (const label of Object.values(PERMISSION_LABELS)) {
+    // The words live in the catalogue now: the panel renders the key the
+    // shared module names. The suite runs in Italian (`playwright.config.ts`
+    // pins `locale: "it-IT"`), so the Italian catalogue is what is on screen.
+    for (const key of Object.values(PERMISSION_LABEL_KEY)) {
+      const label = IT[key]!;
       // `exact`: senza, «Consenti» pesca anche «Consenti sempre».
       await expect(panel.getByRole("button", { name: label, exact: true })).toBeVisible();
     }

@@ -1,33 +1,37 @@
 import { useState } from 'react';
 import { ShieldQuestion, Loader2, Check, ShieldCheck, ShieldOff, Ban } from 'lucide-react';
 import type { PermissionDecision, ToolPermissionOutcome, ToolPermissionRequest } from '../../types';
-import { PERMISSION_CHOICES, PERMISSION_HINTS, PERMISSION_LABELS, summarizeToolInput } from '../../../../shared/permission-decision';
+import { PERMISSION_CHOICES, PERMISSION_HINT_KEY, PERMISSION_LABEL_KEY, summarizeToolInput } from '../../../../shared/permission-decision';
+import { useT } from '../../hooks/useT';
 
 /**
- * Il pannello di un PERMESSO. Non è il form delle domande, e non lo era mai
- * stato davvero.
+ * The PERMISSION panel. It is not the question form, and it never really was.
  *
- * Il primo taglio riusava `ToolInputForm` con uno schema `kind: 'questions'`,
- * per ereditare gratis pannello inline, ambra della tab e sopravvivenza al
- * reload. Reggeva, e ha lasciato la firma di una cosa nel posto sbagliato:
- * dentro il form delle domande sono servite TRE eccezioni — spegnere «Altro»
- * (qui il testo libero non è una risposta: il server ne riconosce tre e tutto
- * il resto valeva NEGA), cambiare l'etichetta del tasto, cambiare l'occhiello.
- * E la decisione viaggiava come TESTO dentro una mappa di risposte,
- * riconosciuta per prefisso di stringa.
+ * The first cut reused `ToolInputForm` with a `kind: 'questions'` schema, to
+ * inherit the inline panel, the amber tab and surviving a reload for free. It
+ * held, and it left the signature of a thing in the wrong place: inside the
+ * question form it took THREE exceptions. Switch off the free-text answer
+ * (here free text is not an answer: the server knows three outcomes and
+ * everything else counted as DENY), change the button label, change the
+ * eyebrow. Three exceptions are the sign that something is in the wrong place.
  *
- * Qui invece: tre bottoni, una `PermissionDecision` sul filo, nessuna prosa da
- * interpretare. Un click = una decisione, senza il passaggio «scegli poi
- * invia» — su tre esiti esatti quel secondo gesto non aggiunge una scelta,
- * aggiunge un'occasione di lasciare il pannello a metà.
+ * Here instead: three buttons, a `PermissionDecision` on the wire, no prose to
+ * interpret. One click is one decision, without the "pick then send" step. On
+ * three exact outcomes that second gesture adds no choice, it adds a chance of
+ * leaving the panel half done.
  *
- * ── E una quarta azione, che non sta in fila ────────────────────────────────
- * «Passa a libero» (`allow_free`) consente QUESTA richiesta e porta la sessione
- * in modalità libera: da lì in poi non si chiede più. È l'unica pressione che
- * cambia il regime invece dell'esito, quindi vive sotto una linea, con un
- * trattamento suo e la riga che dice cosa comporta e da dove si torna indietro.
- * Metterla accanto a «Consenti» avrebbe reso la decisione più pesante del
- * pannello la più facile da prendere per sbaglio.
+ * A FOURTH ACTION, which does not stand in the row.
+ * "Switch to free mode" (`allow_free`) allows THIS request and puts the
+ * session in free mode: from there on it stops asking. It is the only press
+ * that changes the regime instead of the outcome, so it lives below a line,
+ * with its own treatment and the line that says what it entails and how to
+ * come back. Next to "Allow" it would have made the heaviest decision in the
+ * panel the easiest one to take by mistake.
+ *
+ * The WORDS of the four decisions are not here and not in `shared/` either:
+ * they are i18n keys (`PERMISSION_LABEL_KEY`), because the panel where a
+ * person decides whether an agent may touch their files was the one panel the
+ * language selector could not reach.
  */
 interface Props {
   request: ToolPermissionRequest;
@@ -46,6 +50,7 @@ const DECISION_ICON = {
 } as const;
 
 export function ToolPermissionRow({ request, outcome, onDecide, toolCallId }: Props) {
+  const tr = useT();
   const [sending, setSending] = useState<PermissionDecision | null>(null);
   const [error, setError] = useState<string | null>(null);
   const summary = summarizeToolInput(request.input);
@@ -65,10 +70,10 @@ export function ToolPermissionRow({ request, outcome, onDecide, toolCallId }: Pr
           className={outcome.decision === 'deny' ? 'text-red-500' : freed ? 'text-amber-500' : 'text-emerald-500'}
         />
         <span>
-          {PERMISSION_LABELS[outcome.decision]} · <span className="font-mono">{request.toolName}</span>
+          {tr(PERMISSION_LABEL_KEY[outcome.decision])} · <span className="font-mono">{request.toolName}</span>
           {/* Chi ha deciso si scrive solo dove cambia il regime: su un
               «Consenti» non c'è niente da attribuire. */}
-          {freed && outcome.actor && <> · da {outcome.actor}</>}
+          {freed && outcome.actor && <> · {tr('permission.decidedBy', { actor: outcome.actor })}</>}
         </span>
       </div>
     );
@@ -82,7 +87,7 @@ export function ToolPermissionRow({ request, outcome, onDecide, toolCallId }: Pr
       await onDecide(decision);
     } catch (err: unknown) {
       const message = err && typeof err === 'object' && 'message' in err ? String((err as { message?: unknown }).message) : null;
-      setError(message || 'La decisione non è arrivata al server');
+      setError(message || tr('permission.notDelivered'));
       setSending(null);
     }
   }
@@ -94,7 +99,7 @@ export function ToolPermissionRow({ request, outcome, onDecide, toolCallId }: Pr
     >
       <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
         <ShieldQuestion size={12} />
-        <span>L'agente chiede un permesso</span>
+        <span>{tr('permission.asks')}</span>
       </div>
 
       {/* Il nome dello strumento e con quali argomenti: un permesso concesso
@@ -122,7 +127,7 @@ export function ToolPermissionRow({ request, outcome, onDecide, toolCallId }: Pr
               type="button"
               onClick={() => void decide(choice)}
               disabled={sending !== null}
-              title={PERMISSION_HINTS[choice]}
+              title={tr(PERMISSION_HINT_KEY[choice])}
               data-testid={`tool-permission-${choice}-${toolCallId}`}
               className={
                 'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ' +
@@ -134,13 +139,13 @@ export function ToolPermissionRow({ request, outcome, onDecide, toolCallId }: Pr
               }
             >
               {sending === choice ? <Loader2 size={13} className="animate-spin" /> : <Icon size={13} />}
-              {PERMISSION_LABELS[choice]}
+              {tr(PERMISSION_LABEL_KEY[choice])}
             </button>
           );
         })}
       </div>
 
-      <div className="text-[11px] leading-snug text-app-text-muted">{PERMISSION_HINTS.allow_always}</div>
+      <div className="text-[11px] leading-snug text-app-text-muted">{tr(PERMISSION_HINT_KEY.allow_always)}</div>
 
       {/* ── «Passa a libero» ────────────────────────────────────────────────
           Sotto una linea, e non in fila con gli altri tre, perché non è un
@@ -157,7 +162,7 @@ export function ToolPermissionRow({ request, outcome, onDecide, toolCallId }: Pr
           type="button"
           onClick={() => void decide('allow_free')}
           disabled={sending !== null}
-          title={PERMISSION_HINTS.allow_free}
+          title={tr(PERMISSION_HINT_KEY.allow_free)}
           data-testid={`tool-permission-allow_free-${toolCallId}`}
           className={
             'flex w-full items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-1.5 ' +
@@ -166,9 +171,9 @@ export function ToolPermissionRow({ request, outcome, onDecide, toolCallId }: Pr
           }
         >
           {sending === 'allow_free' ? <Loader2 size={13} className="animate-spin" /> : <ShieldOff size={13} />}
-          {PERMISSION_LABELS.allow_free}
+          {tr(PERMISSION_LABEL_KEY.allow_free)}
         </button>
-        <div className="text-[11px] leading-snug text-app-text-muted">{PERMISSION_HINTS.allow_free}</div>
+        <div className="text-[11px] leading-snug text-app-text-muted">{tr(PERMISSION_HINT_KEY.allow_free)}</div>
       </div>
     </div>
   );
