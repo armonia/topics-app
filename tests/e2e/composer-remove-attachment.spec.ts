@@ -39,6 +39,11 @@ const PNG_1x1 = Buffer.from(
   "base64",
 );
 
+// Two 1x1 PNGs that differ in colour: pasted images are re-encoded through a
+// canvas, so only the pixel tells one resulting data URL from the other.
+const RED_PNG_1x1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC";
+const BLUE_PNG_1x1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYPgPAAEDAQAIicLsAAAAAElFTkSuQmCC";
+
 test.describe("the x on an attachment", () => {
   let topicId: string;
   let topicName: string;
@@ -118,5 +123,40 @@ test.describe("the x on an attachment", () => {
     const textarea = await openComposer(page, request);
     await removeFirstOfTwo(page, textarea, [firstPng, secondPng]);
     await expect(page.getByTestId("composer-attachment").locator("img")).toHaveAttribute("alt", "second.png");
+  });
+
+  /**
+   * The third chip flavour: an image that arrived by PASTE, which the composer
+   * keeps in its own `pendingImages` state with its own inline x. Same
+   * index-keyed list, so the same first-of-two round applies. The two source
+   * pixels differ in colour on purpose: the surviving thumbnail can then be
+   * identified by its data URL, which proves the FIRST one is the one that
+   * left.
+   */
+  test("pasted image: removes the first of two and sends nothing", async ({ page, request }) => {
+    const textarea = await openComposer(page, request);
+    await textarea.fill("ciao");
+
+    await textarea.evaluate((el, pngs: string[]) => {
+      const dt = new DataTransfer();
+      for (const [i, b64] of pngs.entries()) {
+        const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+        dt.items.add(new File([bytes], `pasted-${i}.png`, { type: "image/png" }));
+      }
+      el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    }, [RED_PNG_1x1, BLUE_PNG_1x1]);
+
+    const attachments = page.getByTestId("composer-attachment");
+    await expect(attachments).toHaveCount(2);
+    const survivorSrc = await attachments.last().locator("img").getAttribute("src");
+
+    await attachments.first().locator("button").first().click();
+
+    await expect(
+      textarea,
+      "removing a pasted image submitted the composer: the draft was cleared (the send path empties it first)",
+    ).toHaveValue("ciao");
+    await expect(attachments).toHaveCount(1);
+    await expect(attachments.locator("img")).toHaveAttribute("src", survivorSrc!);
   });
 });

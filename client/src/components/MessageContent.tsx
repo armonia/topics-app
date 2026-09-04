@@ -1356,7 +1356,7 @@ export function ImageThumbnail({ file, onRemove }: { file: File; onRemove: () =>
   return (
     <div className="relative inline-block">
       <ZoomableImage src={src} alt={file.name} className="w-16 h-16 object-cover rounded-lg border border-app-border-light" />
-      <button type="button" onClick={onRemove} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600">×</button>
+      <button onClick={onRemove} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600">×</button>
     </div>
   );
 }
