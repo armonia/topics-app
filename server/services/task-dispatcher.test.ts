@@ -1974,6 +1974,35 @@ describe("task-dispatcher", () => {
     expect(h.dispatcher.isInFlight("t1")).toBe(true);
   });
 
+  it("at boot the history row of a single launch is NOT a fan-out to close: the session resumes, the worktree stays", async () => {
+    // `launch` records its own attempt as history, so a card mid-turn at boot
+    // always carries one "running" row. Read as a fan-out round, the recovery
+    // closed it "without a commit", requeued the card and reaped the worktree:
+    // three cards lost their work at the 2026-09-04 10:05 restart.
+    const h = harness({ topicExists: () => true });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-live", attempts: 1, dispatchState: "working" });
+    const store = createTaskAttemptStore(h.db);
+    const row = store.create({ taskId: "t1", idx: 1, model: null });
+    store.bind(row.id, { topicId: "topic-live", worktreeId: "wt-1", branch: "topics/one" });
+    expect(store.runningCount("t1")).toBe(1);
+
+    await h.dispatcher.reconcile({ reason: "boot" });
+    await flush();
+
+    const t = h.task("t1")!;
+    expect(t.status).toBe("in_progress");                 // not requeued
+    expect(t.assignedTopicId).toBe("topic-live");         // same session
+    expect(t.dispatchAttempts).toBe(1);
+    expect(h.topicsCreated.length).toBe(0);
+    expect(h.turns.length).toBe(1);
+    expect(h.turns[0].sessionKey).toBe("topic:" + "topic-live".slice(0, 8));
+    expect(h.svc.get("t1")!.comments.some((c) => c.content.includes("riprendo la stessa sessione"))).toBe(true);
+    expect(h.svc.get("t1")!.comments.some((c) => c.content.includes("fan-out"))).toBe(false);
+    h.dispatcher.shutdown();
+  });
+
   it("reconcile re-dispatches FRESH a working orphan whose topic died during the downtime", async () => {
     // No session left to resume → the requeue+re-claim path: rollback the
     // interrupted attempt, clear the dead binding, and (dispatch on) re-launch

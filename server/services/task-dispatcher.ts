@@ -4096,7 +4096,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // con ciò che i worktree hanno conservato e decide l'umano.
       let orphanAttempts = 0;
       try { orphanAttempts = deps.attempts?.runningCount(t.id) ?? 0; } catch { orphanAttempts = 0; }
-      if (orphanAttempts > 0) {
+      // A single launch writes its own attempt row as HISTORY (see `launch`),
+      // so a card mid-turn at boot always has one still "running". That row is
+      // not a fan-out round to close: a fan-out task has NO bound topic until
+      // the round picks one, a single launch does. Read as a fan-out, every
+      // bound card was closed "without a commit" at every restart and its
+      // worktree reaped: three cards, three worktrees, on 2026-09-04 10:05.
+      if (orphanAttempts > 0 && !t.assignedTopicId) {
         try {
           deps.svc.claimInterruption({
             taskId: t.id,
