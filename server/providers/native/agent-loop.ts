@@ -29,7 +29,10 @@ import { detectUserInputRequest } from "../ask-user-detector";
 import type { ProviderUsage } from "../types";
 import { decide, DEFAULT_AUTONOMY } from "./permissions";
 import { applyPromptCache } from "../prompt-cache";
-import { needsCompaction, compact, windowFor, clipToolResult, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS } from "./compaction";
+import {
+  needsCompaction, compact, windowFor, clipToolResult, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS,
+  estimateChars, charsPerTokenFrom, promptTooLong, DEFAULT_CHARS_PER_TOKEN,
+} from "./compaction";
 import { isTopicsTool, executeTopicsTool, type TopicsToolContext } from "./topics-tools";
 import { isMcpTool, executeMcpTool } from "./mcp-fleet";
 import type { AutonomyLevel } from "../../../shared/types";
@@ -74,6 +77,18 @@ const CLAUDE_CODE_IDENTITY = "You are Claude Code, Anthropic's official CLI for 
  * qualcosa. Regolabile senza ricompilare per il caso raro che sfora davvero.
  */
 const MAX_ITERATIONS = Number(process.env.TOPICS_MAX_TOOL_ROUNDS) || 300;
+
+/**
+ * How many times a turn may save itself from a "prompt is too long" by
+ * compacting again.
+ *
+ * Two, not one: the first recompaction works on the freshly corrected
+ * calibration and usually suffices; the second covers the case where the cut
+ * did not reach the target on the first go. Beyond that the weight is not
+ * where we are looking for it, and insisting means spinning, one network round
+ * at a time.
+ */
+const MAX_COMPACT_RECOVERIES = 2;
 
 export interface Block {
   type: string;
@@ -158,6 +173,18 @@ export interface AgentTurnOptions {
    * default from `retry.ts`, the same shape the CLI uses.
    */
   retryPolicy?: RetryPolicy;
+  /**
+   * HOW MANY CHARACTERS MAKE A TOKEN IN THIS CONVERSATION, measured.
+   *
+   * Mutable and owned by the CALLER, like `history`: the calibration belongs
+   * to the session, not to the turn. Living in here, every turn would restart
+   * from the assumed 4, and the turn that dies of a full context is precisely
+   * the FIRST round, the one the assumed 4 had declared harmless.
+   *
+   * Absent = no memory between turns: the loop still calibrates from the
+   * second round on, which is what the tests need.
+   */
+  calibration?: { charsPerToken: number };
 }
 
 /** Un giro solo: una richiesta, i suoi delta, i suoi blocchi. */
@@ -429,6 +456,23 @@ async function streamOnce(
   return { blocks: blocks.filter(Boolean), stopReason, usage };
 }
 
+/**
+ * The notice for when compacting is not enough any more.
+ *
+ * Giving up has to be readable too: `API 400: {"type":"error"...}` sends the
+ * reader hunting for a network fault that is not there, and does not say the
+ * one useful thing: that the conversation has run out of room, and that they
+ * can open a new one or pick a model with a wider window.
+ */
+function contestoPieno(misura: { tokens: number; max: number }, tentativi: number): string {
+  return (
+    `Contesto pieno: la conversazione non entra nella finestra del modello ` // allow-italian: testo mostrato in chat, la UI è in italiano
+    + `(${misura.tokens} token contro un tetto di ${misura.max}) nemmeno dopo ` // allow-italian: testo mostrato in chat, la UI è in italiano
+    + `${tentativi} compattazione/i. Apri una chat nuova per ripartire leggero, ` // allow-italian: testo mostrato in chat, la UI è in italiano
+    + `oppure scegli un modello con la finestra lunga.` // allow-italian: testo mostrato in chat, la UI è in italiano
+  );
+}
+
 /** The characters of a request that are not in `messages`: system and tools. */
 function overheadCharsFor(opts: AgentTurnOptions): number {
   const tools = opts.tools?.() ?? CODING_TOOLS;
@@ -592,6 +636,13 @@ export async function runAgentTurn(
   const auth = { token };
   const total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 };
   let finalText = "";
+  // The estimate's calibration: the caller's when it keeps one (it survives
+  // across turns), turn-local otherwise. See `AgentTurnOptions.calibration`.
+  const calibration = opts.calibration ?? { charsPerToken: DEFAULT_CHARS_PER_TOKEN };
+  // How many times this turn has already saved itself from a "prompt is too
+  // long": the first recompacts on the real number, the second covers a first
+  // cut that did not suffice. Beyond that, insisting is spinning.
+  let compactRecoveries = 0;
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     if (opts.signal?.aborted) {
@@ -624,8 +675,8 @@ export async function runAgentTurn(
     // because the fleet is alive and the list can change between rounds.
     const windowTokens = windowFor(opts.model);
     const overheadChars = overheadCharsFor(opts);
-    if (needsCompaction(opts.history, windowTokens, overheadChars)) {
-      const c = compact(opts.history, { windowTokens, overheadChars });
+    if (needsCompaction(opts.history, windowTokens, overheadChars, calibration.charsPerToken)) {
+      const c = compact(opts.history, { windowTokens, overheadChars, charsPerToken: calibration.charsPerToken });
       if (c.after < c.before) {
         // Si sostituisce IN PLACE perché `history` è la memoria della sessione
         // e il chiamante tiene lo stesso array: assegnargliene uno nuovo
@@ -639,15 +690,75 @@ export async function runAgentTurn(
       }
     }
 
+    // THE CHARACTERS WE ARE ABOUT TO SEND, taken BEFORE the request: if the
+    // API refuses them saying how many tokens they were, the ratio between
+    // these two numbers is the real calibration. After the request the history
+    // has already changed, and the count would no longer be of that payload.
+    const sentChars = estimateChars(opts.history, overheadChars);
+
     // One round, tried again when the failure is the API's and not ours: the
     // policy and the loop live in retry.ts, this is the only call site.
-    const round = await retryRound((token) => streamOnce(token, opts, handler), {
-      auth,
-      policy: opts.retryPolicy ?? DEFAULT_RETRY_POLICY,
-      signal: opts.signal,
-      renewToken: recoverAfter401,
-      onRetry: (info) => handler.onRetry?.(info),
-    });
+    let round: RoundResult;
+    try {
+      round = await retryRound((token) => streamOnce(token, opts, handler), {
+        auth,
+        policy: opts.retryPolicy ?? DEFAULT_RETRY_POLICY,
+        signal: opts.signal,
+        renewToken: recoverAfter401,
+        onRetry: (info) => handler.onRetry?.(info),
+      });
+    } catch (err) {
+      // ── "PROMPT IS TOO LONG" IS NOT A FAILURE: IT IS A MEASUREMENT ────────
+      //
+      // It is the only error that carries the EXACT count of a payload we sent
+      // ourselves, and it is also the only one that, without this branch,
+      // kills the chat for good: `classifyFailure` rules 400s as "give-up"
+      // (rightly so, resending the same request would earn the same error),
+      // the in-memory history stays identical, and EVERY later send repeats
+      // that same 400. Measured on two topics (card 18bdf214): dead for hours,
+      // with a "provider error" in the chat that says nothing.
+      //
+      // Here the request is NOT resent unchanged: the estimate is corrected
+      // with the number the API just stated, the history is recompacted
+      // against the REAL ceiling, and the round is redone. If even that is not
+      // enough the error goes on, but by then it is an honest error rather
+      // than a wrong estimate.
+      const detail = err instanceof Error ? err.message : String(err);
+      const tooLong = promptTooLong(detail);
+      if (!tooLong || opts.signal?.aborted) throw err;
+      if (compactRecoveries >= MAX_COMPACT_RECOVERIES) throw new Error(contestoPieno(tooLong, compactRecoveries));
+      compactRecoveries++;
+
+      calibration.charsPerToken = charsPerTokenFrom(sentChars, tooLong.tokens);
+      const c = compact(opts.history, {
+        windowTokens: Math.min(windowTokens, tooLong.max),
+        overheadChars,
+        charsPerToken: calibration.charsPerToken,
+      });
+      // Nothing was freed: insisting is spinning, and whoever is reading has a
+      // right to know the road has ended and what they can do about it.
+      if (c.after >= c.before) throw new Error(contestoPieno(tooLong, compactRecoveries));
+      opts.history.length = 0;
+      opts.history.push(...c.messages);
+      console.log(
+        `[native] prompt troppo lungo (${tooLong.tokens} > ${tooLong.max}): ` // allow-italian: log del server, non UI
+        + `ricalibrato a ${calibration.charsPerToken.toFixed(2)} char/token, ` // allow-italian: log del server, non UI
+        + `compattato ~${c.before} → ~${c.after}, rifaccio il giro`, // allow-italian: log del server, non UI
+      );
+      // TWO NOTICES, because they are two different things: `onCompaction`
+      // leaves the permanent divider in the transcript, `onRetry` is the live
+      // line that tells whoever is watching WHY nothing is moving right now.
+      // Without the second, a recompaction is a hole of silence mid-turn.
+      handler.onCompaction?.({ trigger: "auto", preTokens: c.before, postTokens: c.after });
+      handler.onRetry?.({
+        attempt: compactRecoveries,
+        maxAttempts: MAX_COMPACT_RECOVERIES,
+        delayMs: 0,
+        reason: "contesto pieno: compatto e riprovo", // allow-italian: testo mostrato in chat, la UI è in italiano
+      });
+      i--; // the same round, with a lightened history
+      continue;
+    }
     total.input += round.usage.input;
     total.output += round.usage.output;
     total.cacheRead += round.usage.cacheRead;
@@ -656,6 +767,18 @@ export async function runAgentTurn(
     // la quota a TTL un'ora arrivava sempre zero, cioè la parte di scrittura di
     // cache che costa 2x veniva tariffata 1.25x.
     total.cacheWrite1h += round.usage.cacheWrite1h;
+
+    // THE CALIBRATION IS ALSO TAKEN FROM THE ROUNDS THAT GO WELL, and this is
+    // the part that AVOIDS the 400 instead of repairing it.
+    //
+    // The real prompt is `input + cacheRead + cacheWrite`: the API counts the
+    // tokens read from cache and the ones written separately, but they all sit
+    // in the same window. Compared with the characters we had sent, it gives
+    // how many characters make a token IN THIS conversation, which on agent
+    // content (JSON, diffs, source) is ~2 rather than the assumed 4. From here
+    // on the threshold is judged on a measured number.
+    const promptTokens = round.usage.input + round.usage.cacheRead + round.usage.cacheWrite;
+    if (promptTokens > 0) calibration.charsPerToken = charsPerTokenFrom(sentChars, promptTokens);
     // Il giro è finito: il suo costo va depositato ADESSO, non a fine turno.
     // Il `try` c'è perché è telemetria: un registro che esplode non deve
     // portarsi via il turno.
