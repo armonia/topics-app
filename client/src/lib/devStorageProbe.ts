@@ -31,6 +31,8 @@
  *   curl -sk https://localhost:3333/api/ui-state/dev-storage-probe-result
  */
 
+import { readProbeFlag, writeProbeState } from './devProbeProtocol';
+
 const FLAG_KEY = 'dev-storage-probe';
 const RESULT_KEY = 'dev-storage-probe-result';
 
@@ -60,9 +62,9 @@ type CostTable = Record<string, StorageKeyCost>;
  * is looking for, which is which writer is hot.
  */
 export function foldKey(key: string): string {
-  const families = ['messages-cache-', 'board-rows-', 'draft-', 'ask-draft-', 'composer-memory-'];
-  for (const family of families) {
-    if (key.startsWith(family)) return `${family}*`;
+  const prefixes = ['messages-cache-', 'board-rows-', 'draft-', 'ask-draft-', 'composer-memory-'];
+  for (const prefix of prefixes) {
+    if (key.startsWith(prefix)) return `${prefix}*`;
   }
   return key;
 }
@@ -90,29 +92,6 @@ export function totalWrites(table: CostTable): number {
   let sum = 0;
   for (const cost of Object.values(table)) sum += cost.writes;
   return sum;
-}
-
-async function readFlag(): Promise<boolean> {
-  try {
-    const r = await fetch(`/api/ui-state/${FLAG_KEY}`);
-    if (!r.ok) return false;
-    const body = (await r.json()) as { value?: { armed?: boolean } };
-    return body?.value?.armed === true;
-  } catch {
-    return false;
-  }
-}
-
-async function write(key: string, value: unknown): Promise<void> {
-  try {
-    await fetch(`/api/ui-state/${key}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(value),
-    });
-  } catch {
-    /* the probe must never make noise when the server does not answer */
-  }
 }
 
 /**
@@ -175,9 +154,9 @@ export function initDevStorageProbe(): () => void {
     }
   };
 
-  void readFlag().then((armed) => {
+  void readProbeFlag(FLAG_KEY).then((armed) => {
     if (!armed || stopped) return;
-    void write(FLAG_KEY, { armed: false }); // one shot: never two runs in a row
+    void writeProbeState(FLAG_KEY, { armed: false }); // one shot: never two runs in a row
     const probe = instrument();
     restore = probe.restore;
     const startedAt = Date.now();
@@ -201,7 +180,7 @@ export function initDevStorageProbe(): () => void {
       });
       n += 1;
       const elapsedMinutes = Math.max(minute, 1 / 60);
-      void write(RESULT_KEY, {
+      void writeProbeState(RESULT_KEY, {
         samples: n,
         startedAt: new Date(startedAt).toISOString(),
         bytesPerMinute: Math.round(totalBytes(probe.table) / elapsedMinutes),

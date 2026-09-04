@@ -36,6 +36,7 @@
  */
 
 import { collectFeatureWeights } from './featureWeight';
+import { readProbeFlag, writeProbeState } from './devProbeProtocol';
 
 const FLAG_KEY = 'dev-heap-probe';
 const RESULT_KEY = 'dev-heap-probe-result';
@@ -128,29 +129,6 @@ export function collectHeapReport(): Record<string, HeapReport & { error?: strin
   return out;
 }
 
-async function readFlag(): Promise<boolean> {
-  try {
-    const r = await fetch(`/api/ui-state/${FLAG_KEY}`);
-    if (!r.ok) return false;
-    const body = (await r.json()) as { value?: { armed?: boolean } };
-    return body?.value?.armed === true;
-  } catch {
-    return false;
-  }
-}
-
-async function write(key: string, value: unknown): Promise<void> {
-  try {
-    await fetch(`/api/ui-state/${key}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(value),
-    });
-  } catch {
-    /* la sonda non deve mai far rumore se il server non risponde */
-  }
-}
-
 /**
  * Ogni quanto campionare, e per quante volte.
  *
@@ -174,15 +152,15 @@ export function initDevHeapProbe(): () => void {
   let timer: ReturnType<typeof setInterval> | null = null;
   let stopped = false;
 
-  void readFlag().then((armed) => {
+  void readProbeFlag(FLAG_KEY).then((armed) => {
     if (!armed || stopped) return;
-    void write(FLAG_KEY, { armed: false }); // one-shot: mai due giri di fila
+    void writeProbeState(FLAG_KEY, { armed: false }); // one-shot: mai due giri di fila
     const series: { at: string; dom: DomCensus; owners: Record<string, HeapReport> }[] = [];
     let n = 0;
     const tick = (): void => {
       series.push({ at: new Date().toISOString(), dom: domCensus(), owners: collectHeapReport() });
       n += 1;
-      void write(RESULT_KEY, { samples: n, series });
+      void writeProbeState(RESULT_KEY, { samples: n, series });
       if (n >= SAMPLES && timer) {
         clearInterval(timer);
         timer = null;
