@@ -339,20 +339,20 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
     writeFileSync(path, `${JSON.stringify(base, null, 2)}\n`);
 
     const { code, out } = esegui(copia, "--only=dependencies");
-    // SENZA REGISTRO NON SI DIMOSTRA, E NON SI FINGE: fin qui la riga sopra
-    // aveva ragione. Quello che sbagliava era la CONCLUSIONE: alzava un
-    // fallimento, cioe' esattamente quello che il cancello dice quando trova un
-    // avviso non dichiarato. Misurato il 2026-09-04 (card 18bdf214): con
-    // quattro agenti sulla macchina `bun audit` scade, e questo caso diventava
-    // rosso per 111 secondi di rete occupata, tingendo di rosso `test:unit` e
-    // insieme la consegna di qualunque card in volo.
+    // WITHOUT THE REGISTRY IT CANNOT BE SHOWN, AND IT IS NOT FAKED: the old
+    // line was right about that. What it got wrong was the CONCLUSION, which
+    // raised a failure, the very thing the gate says when it finds an
+    // undeclared advisory. Measured on 2026-09-04 (card 18bdf214): with four
+    // agents on the machine `bun audit` times out, and this case went red for
+    // 111 seconds of busy network, turning `test:unit` red and with it the
+    // delivery of every card in flight.
     //
-    // Il comando sotto esame ha tre esiti, non due, e il terzo esiste proprio
-    // per questo: MUTO, «la misura non l'ho presa». Il banco che lo falsifica
-    // deve saper dire la stessa cosa, altrimenti pretende dalla rete una
-    // garanzia che il codice non puo' dare. Quindi: la misura non presa si
-    // dichiara e non si asserisce nulla; se invece il registro ha risposto,
-    // la pretesa resta intera e severa come prima.
+    // The command under test has three outcomes, not two, and the third exists
+    // for exactly this: MUTE, "I did not take the measurement". The bench that
+    // falsifies it has to be able to say the same, or it demands from the
+    // network a guarantee the code cannot give. So: a missing measurement is
+    // declared and nothing is asserted; if the registry did answer, the demand
+    // stays whole and as strict as before.
     if (out.includes("bun audit non ha risposto")) {
       console.warn(
         "[check-security.test] MISURA NON PRESA: il registro degli avvisi non ha risposto, "

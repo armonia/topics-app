@@ -28,6 +28,7 @@ import { CODING_TOOLS, WORKSPACE_FREE_TOOLS } from "./tools";
 import { pruneDanglingToolUses } from "./history-repair";
 import { rehydrateHistory } from "./history-rehydrate";
 import { DEFAULT_CHARS_PER_TOKEN } from "./compaction";
+import type { Calibration } from "./context-window";
 import { levelFor } from "./permissions";
 import { topicsToolSpecs, type TopicsToolContext } from "./topics-tools";
 import { ensureMcpFleet, mcpToolSpecs, closeMcpFleet } from "./mcp-fleet";
@@ -183,13 +184,9 @@ interface NativeSession {
   model?: string;
   /** Quando questa sessione è stata toccata l'ultima volta. Serve allo sfratto. */
   lastUsedAt: number;
-  /**
-   * How many characters make a token IN THIS conversation, measured on the
-   * rounds already done. It lives on the session and not on the turn on
-   * purpose: the turn that dies of a full context dies on its FIRST round,
-   * before that turn could measure anything. See `AgentTurnOptions.calibration`.
-   */
-  calibration: { charsPerToken: number };
+  /** Measured chars-per-token. On the SESSION and not on the turn: the turn
+   * that dies of a full context dies on its FIRST round, measuring nothing. */
+  calibration: Calibration;
 }
 
 export interface NativeProviderConfig {
@@ -574,9 +571,8 @@ export class NativeProvider implements AIProvider {
             ? options?.systemPrompt
             : [options?.systemPrompt, NO_WORKSPACE_NOTE].filter(Boolean).join("\n\n"),
           history: session.history,
-          // The token estimate's calibration belongs to the SESSION: passed by
-          // reference, every turn restarts from what the previous one measured
-          // instead of from the assumed 4 characters per token.
+          // Passed by REFERENCE: every turn restarts from what the previous
+          // one measured, instead of from the assumed 4 chars per token.
           calibration: session.calibration,
           tools,
           // Il segnale scende FIN DENTRO il comando: il ciclo guarda l'abort in

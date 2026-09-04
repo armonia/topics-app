@@ -372,18 +372,18 @@ const LOCKFILE_DIRS = [".", "client", "landing"];
 const BASELINE_REL = "scripts/security-baseline.json";
 
 /**
- * Quanto si aspetta il registro, per cartella, prima di dire che non risponde.
+ * How long the registry is given, per directory, before we call it silent.
  *
- * Senza questo limite si aspetta quello interno di `bun audit`, che il
- * 2026-09-04 (card 18bdf214) ha impiegato circa due minuti e mezzo per
- * cartella: con tre lockfile fanno sette minuti e mezzo per arrivare a dire
- * «la rete era occupata». Sette minuti e mezzo dentro i venti che ha in tutto
- * la suite unit, cioe' un cancello la cui DURATA la decide il registro.
+ * Without this cap we wait for the one inside `bun audit`, which on 2026-09-04
+ * (card 18bdf214) took about two and a half minutes per directory: with three
+ * lockfiles that is seven and a half minutes just to report "the network was
+ * busy". Seven and a half minutes out of the twenty the whole unit suite gets,
+ * which makes it a gate whose DURATION is decided by the registry.
  *
- * Quarantacinque secondi sono larghi per un'interrogazione che di norma ne
- * impiega due o tre, e l'esito non cambia di natura: un registro che non ha
- * risposto entro il limite non ha risposto, ed e' gia' il terzo stato che
- * questo comando sa dire, MUTO. Non e' un verde e non e' un rosso.
+ * Forty-five seconds is generous for a query that normally takes two or three,
+ * and the nature of the outcome does not change: a registry that has not
+ * answered within the cap has not answered, and that is already the third
+ * thing this command knows how to say, MUTE. Not a green, and not a red.
  */
 const AUDIT_TIMEOUT_MS = Number(process.env.TOPICS_AUDIT_TIMEOUT_MS) || 45_000;
 
@@ -393,9 +393,9 @@ function auditDir(root: string, dir: string): { advisories: Advisory[]; error: s
   const res = spawnSync("bun", ["audit", "--json"], {
     cwd, encoding: "utf8", maxBuffer: 32 * 1024 * 1024, timeout: AUDIT_TIMEOUT_MS,
   });
-  // Scaduto il tempo il figlio viene ucciso: senza questo ramo l'uscita per
-  // segnale finirebbe piu' sotto come «uscito null senza JSON», che manda a
-  // cercare un guasto di `bun` invece di un registro che tace.
+  // On timeout the child is killed: without this branch the signal exit would
+  // fall through below as "exited null without JSON", which sends the reader
+  // hunting for a fault in `bun` instead of a registry that went quiet.
   if (res.signal) {
     return { advisories: [], error: `bun audit in ${dir} non ha risposto entro ${AUDIT_TIMEOUT_MS} ms` };
   }
