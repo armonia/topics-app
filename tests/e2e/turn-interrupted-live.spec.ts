@@ -192,8 +192,8 @@ test.describe.serial("Turno interrotto dal vivo: il banner compare da solo", () 
    * route's body.
    */
   test("il server riprende da solo: il banner lo dice e toglie Riprova", async ({ page }) => {
-    const send = await apri(page);
-    await detta(page, send);
+    const send = await openStream(page);
+    await dictate(page, send);
 
     // The restart kills the turn: this is the row the boot will resume.
     send({
@@ -226,8 +226,8 @@ test.describe.serial("Turno interrotto dal vivo: il banner compare da solo", () 
   });
 
   test("la ripresa fallisce: si torna al banner con la causa e Riprova", async ({ page }) => {
-    const send = await apri(page);
-    await detta(page, send);
+    const send = await openStream(page);
+    await dictate(page, send);
     send({
       type: "stream:end", messageId: MSG_ID, stopReason: "cancelled", stopCause: "server-shutdown",
       reason: "error", error: "⚠️ Il server si è riavviato a turno aperto.",
@@ -260,9 +260,9 @@ test.describe.serial("Turno interrotto dal vivo: il banner compare da solo", () 
         reducedMotion: "reduce",
       },
       scena: async (page) => {
-        const send = await apri(page);
+        const send = await openStream(page);
         // FIRST STATE: the turn answers, then the restart cuts it.
-        await detta(page, send);
+        await dictate(page, send);
         send({
           type: "stream:end", messageId: MSG_ID, stopReason: "cancelled",
           stopCause: "server-shutdown", reason: "error",
