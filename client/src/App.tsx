@@ -478,6 +478,10 @@ function App() {
     archiveProject,
     applyTopicFromWS,
   } = useTopics();
+  // Archive affordances can outlive the render that created them (for example a
+  // pending-action commit). Read the current server-projected coordinator marker
+  // at execution time rather than trusting a stale callback closure.
+  const topicsRef = useRefMirror(topics);
 
   const {
     sendMessage,
@@ -963,19 +967,27 @@ function App() {
   }, [topics, handleClosePanel, enqueueAndTick, focusedPanelId, visiblePanels, handleFocusPanel]);
 
   const handleArchiveTopicDeferred = useCallback((topicId: string, archive: boolean): Promise<boolean> => {
+    const topic = topicsRef.current[topicId];
+    // A server-registered global coordinator is durable. This guard covers
+    // stale UI affordances as well as the normal visible archive controls;
+    // the server remains authoritative if an older client still sends a call.
+    if (topic?.isGlobalOrchestrator) return Promise.resolve(false);
     // Unarchive (archive=false) is restorative — commit immediately.
     if (!archive) return archiveTopic(topicId, false);
-    const topic = topics[topicId];
     const label = topic?.name || topicId;
     enqueueAndTick({
       key: `archive-topic:${topicId}`,
       kind: 'archive-topic',
       label,
       color: topic?.color,
-      commit: async () => { await archiveTopic(topicId, true); },
+      commit: async () => {
+        if (!topicsRef.current[topicId]?.isGlobalOrchestrator) {
+          await archiveTopic(topicId, true);
+        }
+      },
     });
     return Promise.resolve(true);
-  }, [topics, archiveTopic, enqueueAndTick]);
+  }, [topicsRef, archiveTopic, enqueueAndTick]);
 
   const handleArchiveProjectDeferred = useCallback((projectPath: string, archive: boolean): Promise<boolean> => {
     if (!archive) return handleArchiveProject(projectPath, false);
@@ -1020,8 +1032,8 @@ function App() {
       id.startsWith('terminal:') ||
       id.startsWith('browser:')
     ) return false;
-    const topic = topics[id];
-    if (!topic || topic.archived) return false;
+    const topic = topicsRef.current[id];
+    if (!topic || topic.archived || topic.isGlobalOrchestrator) return false;
     const chatPaneId = createPaneId('chat', id);
     const openTopLevel = openPanels.includes(id);
     const openInLiveProject = Object.entries(projectOpenPanes).some(([pp, ids]) =>
@@ -1029,7 +1041,7 @@ function App() {
       openPanels.includes(createPaneId('project', pp)),
     );
     return !openTopLevel && !openInLiveProject;
-  }, [sidebarIsPinned, topics, openPanels, projectOpenPanes]);
+  }, [sidebarIsPinned, topicsRef, openPanels, projectOpenPanes]);
   const handleTogglePin = useCallback((id: string) => {
     // Chat-only unpin-while-closed archive semantics. Projects (`project:<path>`),
     // terminals (`terminal:<id>`) and browsers (`browser:<ctx>`) don't archive on

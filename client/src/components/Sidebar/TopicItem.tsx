@@ -494,7 +494,7 @@ export const TopicItem = memo(function TopicItem({
 
           `data-pending` tiene acceso il comando mentre il conto scorre: un'azione
           ancora annullabile deve restare annullabile anche se sposti il mouse. */}
-      {onArchive && (
+      {onArchive && !topic.isGlobalOrchestrator && (
         <span
           className={`${ROW_ACTIONS} ${ROW_ACTION_BOX}`}
           data-pending={pendingArchiveStatus ? 'true' : undefined}
@@ -518,4 +518,3 @@ export const TopicItem = memo(function TopicItem({
     </div>
   );
 });
-

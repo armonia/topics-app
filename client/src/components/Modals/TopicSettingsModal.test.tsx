@@ -22,8 +22,26 @@
  */
 import { describe, test, expect } from 'bun:test';
 
-import { TopicShareAction } from './TopicSettingsModal';
+import type { Topic } from '../../types';
+import { buildTopicSettingsUpdate, TopicShareAction } from './TopicSettingsModal';
 import { ShareControl } from '../Share/ShareControl';
+
+function makeTopic(overrides: Partial<Topic> = {}): Topic {
+  return {
+    id: 'topic-abc123',
+    name: 'Ordinary topic',
+    slug: 'ordinary-topic',
+    parentId: null,
+    links: [],
+    sessionKey: 'topic:abc123',
+    color: '#5865f2',
+    icon: 'MessageSquare',
+    createdAt: '2026-09-04T11:00:00.000Z',
+    updatedAt: '2026-09-04T11:00:00.000Z',
+    archived: false,
+    ...overrides,
+  };
+}
 
 describe('TopicShareAction', () => {
   // CONTROLLO POSITIVO. Se questo si rompe, l'asserzione negativa sotto non
@@ -54,5 +72,70 @@ describe('TopicShareAction', () => {
 
     expect(reso).not.toBeNull();
     expect(reso?.props).toMatchObject({ resourceType: 'topic', resourceId: 'drafty-1' });
+  });
+});
+
+describe('buildTopicSettingsUpdate', () => {
+  const everySetting = {
+    name: 'Renamed coordinator',
+    color: '#f97316',
+    projectPath: ' /a/project ',
+    systemPrompt: 'Do unrelated work',
+    promptLoaded: true,
+    contextFiles: ['/a/project/CONTEXT.md'],
+    provider: 'claude-code',
+    muted: true,
+    autonomy: 'yolo' as const,
+  };
+
+  test('global coordinator can only persist its presentation settings', () => {
+    const update = buildTopicSettingsUpdate(makeTopic({
+      isGlobalOrchestrator: true,
+      projectPath: '/existing/project',
+      provider: 'codex',
+      systemPrompt: 'server-owned prompt',
+      contextFiles: ['/existing/CONTEXT.md'],
+      autonomyLevel: 'ask',
+    }), everySetting);
+
+    expect(update).toEqual({
+      name: 'Renamed coordinator',
+      color: '#f97316',
+      muted: true,
+    });
+    expect(update).not.toHaveProperty('projectPath');
+    expect(update).not.toHaveProperty('systemPrompt');
+    expect(update).not.toHaveProperty('contextFiles');
+    expect(update).not.toHaveProperty('provider');
+    expect(update).not.toHaveProperty('autonomyLevel');
+  });
+
+  test('the coordinator omits the prompt and provider even once the single-topic read has landed', () => {
+    const update = buildTopicSettingsUpdate(
+      makeTopic({ isGlobalOrchestrator: true, provider: 'codex', systemPrompt: 'server-owned prompt' }),
+      { ...everySetting, promptLoaded: true },
+    );
+    expect(update).toEqual({ name: 'Renamed coordinator', color: '#f97316', muted: true });
+  });
+
+  test('ordinary topics retain their normal operational settings payload', () => {
+    expect(buildTopicSettingsUpdate(makeTopic(), everySetting)).toEqual({
+      name: 'Renamed coordinator',
+      color: '#f97316',
+      muted: true,
+      projectPath: '/a/project',
+      systemPrompt: 'Do unrelated work',
+      contextFiles: ['/a/project/CONTEXT.md'],
+      provider: 'claude-code',
+      autonomyLevel: 'yolo',
+    });
+  });
+
+  // The list shape does not carry the prompt: until the single-topic read
+  // lands, the PATCH must leave the column alone instead of erasing it.
+  test('an ordinary topic whose prompt has not loaded yet sends no systemPrompt at all', () => {
+    const update = buildTopicSettingsUpdate(makeTopic(), { ...everySetting, promptLoaded: false });
+    expect(update).not.toHaveProperty('systemPrompt');
+    expect(update).toMatchObject({ projectPath: '/a/project', provider: 'claude-code', autonomyLevel: 'yolo' });
   });
 });

@@ -1438,7 +1438,17 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // ---- Handlers ----
 
   // openPanel
-  const openPanel = useCallback((topicId: string, mode: 'preview' | 'permanent' | 'below', autoFocus = true) => {
+  const openPanel = useCallback((
+    topicId: string,
+    mode: 'preview' | 'permanent' | 'below',
+    autoFocus = true,
+    // Canonical server creation endpoints may return a Topic before a
+    // reconnecting WebSocket has delivered its lifecycle broadcast. Use that
+    // exact projection only for this opening render; `applyTopicFromWS` below
+    // still hydrates the normal cache before the pane is rendered.
+    topicOverride?: Topic,
+  ) => {
+    const resolvedTopic = topics[topicId] ?? topicOverride;
     if (openPanels.includes(topicId)) {
       if (autoFocus) setFocusedPanelId(topicId);
       if (mode === 'permanent' && previewPanelId === topicId) {
@@ -1450,12 +1460,14 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // non-archived — so opening an archived (= closed) topic restores it.
     // Optimistic archived:false lands this render, so the validPanels effect
     // (which evicts archived ids) keeps the freshly-opened tab.
-    if (topics[topicId]?.archived) void archiveTopic(topicId, false);
+    if (resolvedTopic?.archived && !resolvedTopic.isGlobalOrchestrator) {
+      void archiveTopic(topicId, false);
+    }
     // Project chat / TASK WORKSPACE session → open its PROJECT PANE (splittable
     // window), not a loose chat. For a task workspace this is what gives the
     // agent's browser/output panes a home (they route by the task's unique
     // projectPath). Mirrors handleTopicClick's project route.
-    const opTopic = topics[topicId];
+    const opTopic = resolvedTopic;
     if (opensAsProjectPane(opTopic) && opTopic?.projectPath) {
       const projectPaneId = createPaneId('project', opTopic.projectPath);
       ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath: opTopic.projectPath, title: opTopic.name });
@@ -1473,7 +1485,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // focused project's inner group (otherwise the new tab would appear as a
     // child of whatever project happens to have focus).
     ensurePaneRegistered(
-      { id: topicId, type: 'chat', topicId, title: topics[topicId]?.name },
+      { id: topicId, type: 'chat', topicId, title: resolvedTopic?.name },
       { groupId: 'group:default' },
     );
     let newPanels: string[];
@@ -1502,12 +1514,19 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // `permanent` opt-in stays available for callers that pass it in the detail.
   useEffect(() => {
     const onOpenTopic = (e: Event) => {
-      const detail = (e as CustomEvent<{ topicId?: string; mode?: 'preview' | 'permanent' }>).detail;
-      if (detail?.topicId) openPanel(detail.topicId, detail.mode ?? 'preview');
+      const detail = (e as CustomEvent<{
+        topicId?: string;
+        mode?: 'preview' | 'permanent';
+        /** Direct server projection for creation while WebSocket is offline. */
+        topic?: Topic;
+      }>).detail;
+      if (!detail?.topicId) return;
+      if (detail.topic) applyTopicFromWS(detail.topic);
+      openPanel(detail.topicId, detail.mode ?? 'preview', true, detail.topic);
     };
     window.addEventListener('topics:open-topic', onOpenTopic as EventListener);
     return () => window.removeEventListener('topics:open-topic', onOpenTopic as EventListener);
-  }, [openPanel]);
+  }, [openPanel, applyTopicFromWS]);
 
 
   // Keep the openPanelRef (declared up top, before the WS effects) pointed at
@@ -1531,11 +1550,14 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       // (the pinned-exempt variant resurrected closed pinned chats across a
       // multi-client sync because only the device-local tombstone protected
       // them).
-      if (id && t) void archiveTopic(id, true);
+      // The global Kanban coordinator is a durable server-owned conversation:
+      // closing its project-window pane only closes that local pane. It must
+      // never enter the normal closed <-> archived lifecycle.
+      if (id && t && !t.isGlobalOrchestrator) void archiveTopic(id, true);
     };
     const onUnarchive = (e: Event) => {
       const id = (e as CustomEvent<{ topicId?: string }>).detail?.topicId;
-      if (id) void archiveTopic(id, false);
+      if (id && !topicsRef.current[id]?.isGlobalOrchestrator) void archiveTopic(id, false);
     };
     window.addEventListener('topic-archive-on-close', onArchive);
     window.addEventListener('topic-unarchive-on-open', onUnarchive);
@@ -1555,7 +1577,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // `standalone` non-task topic falls through to the loose-chat funnel.
     if (opensAsProjectPane(topic)) {
       // 2-state model: opening an (archived = closed) project chat restores it.
-      if (topic!.archived) void archiveTopic(topicId, false);
+      if (topic!.archived && !topic!.isGlobalOrchestrator) void archiveTopic(topicId, false);
       const projectPaneId = createPaneId('project', topic!.projectPath!);
       ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath: topic!.projectPath!, title: topic!.name });
       if (isMobile) {
@@ -1641,7 +1663,12 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // on the topic being non-archived: buildSidebarItems' pinnedIds escape keeps
     // it listed even when archived, and openPanel/handleTopicClick unarchive on
     // reopen — so "one click reopens" (Arc semantics) is fully preserved.
-    const archivesOnClose = !!closingTopic && !isDraftPaneId(topicId);
+    // The global coordinator remains durable when its local pane closes. Its
+    // server-projected marker is authoritative for this client-side exception;
+    // ordinary Topics retain the existing close <-> archive contract.
+    const archivesOnClose = !!closingTopic
+      && !isDraftPaneId(topicId)
+      && !closingTopic.isGlobalOrchestrator;
     let panelIndex = 0;
     {
       const s = usePaneStore.getState();
@@ -2424,7 +2451,13 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       }
       const pane = await reopenClosedTab(record);
       // 2-state model: reopening a closed chat tab restores it -> unarchive.
-      if (pane.type === 'chat' && pane.topicId) void archiveTopic(pane.topicId, false);
+      if (
+        pane.type === 'chat'
+        && pane.topicId
+        && !topicsRef.current[pane.topicId]?.isGlobalOrchestrator
+      ) {
+        void archiveTopic(pane.topicId, false);
+      }
       // BACK IN ITS SLOT, not at the end. The record knows the index the tab was
       // closed from; the store and `openPanels` must agree on it in the SAME
       // turn, or Effect B (React -> store) immediately reorders the group to
@@ -2459,7 +2492,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     } finally {
       reopeningRef.current.delete(record.id);
     }
-  }, [removeClosedTab, archiveTopic]);
+  }, [removeClosedTab, archiveTopic, topicsRef]);
 
   // ---- 20. Detached auto-close ----
   useEffect(() => {

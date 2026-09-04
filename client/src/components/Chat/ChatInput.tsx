@@ -75,6 +75,8 @@ function AddMenu({
   onSlashCommand,
   onAttach,
   onExport,
+  allowAttachments,
+  allowSlashCommands,
 }: {
   isCallActive: boolean; isListening: boolean; isSpeaking: boolean; autoTTS: boolean;
   voiceCallSupported: boolean; sttSupported: boolean; currentStreaming: boolean; uploading: boolean;
@@ -89,6 +91,10 @@ function AddMenu({
   onAttach: () => void;
   /** Export the conversation as a Markdown download (absent → row hidden). */
   onExport?: () => void;
+  /** The global Kanban coordinator has no per-topic file/context surface. */
+  allowAttachments: boolean;
+  /** Its tool profile is server-owned, so generic slash shortcuts stay hidden. */
+  allowSlashCommands: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -128,7 +134,7 @@ function AddMenu({
           il fuoco alla chiusura. */}
       <Menu open={open} anchorRef={triggerRef} onClose={() => setOpen(false)} align="left" minWidth={230} restoreFocus={false}>
         {/* Allegare è la ragione per cui questo menu si apre: prima riga. */}
-        <button
+        {allowAttachments && <button
           type="button"
           onClick={() => { onAttach(); setOpen(false); }}
           className={`${rowClass} text-app-text`}
@@ -138,7 +144,7 @@ function AddMenu({
           <Paperclip size={14} />
           Attach file
           <span className="ml-auto text-[11px] text-app-text-muted">{shortcut('U')}</span>
-        </button>
+        </button>}
         {/* «Registra voce» NON sta qui: è il tasto col microfono in fondo alla
             riga, l'unico ammesso prima dell'invio. Due porte per lo stesso
             gesto sono due posti dove cercarlo e uno di troppo da tenere in
@@ -206,6 +212,7 @@ function AddMenu({
           </button>
         )}
 
+        {allowSlashCommands && <>
         {/* Divider */}
         <div className="h-px bg-app-border my-1" />
 
@@ -225,6 +232,7 @@ function AddMenu({
             </button>
           );
         })}
+        </>}
       </Menu>
     </>
   );
@@ -364,6 +372,10 @@ export function ChatInput({
 }: ChatInputProps) {
   const tr = useT();
   const toast = useToast();
+  // Registry-derived server marker: this client-side branch only removes
+  // controls that cannot apply to the global coordinator. The server remains
+  // authoritative for every route and provider decision.
+  const isGlobalOrchestrator = topic.isGlobalOrchestrator === true;
   /**
    * IL SECONDO TESTIMONE sul fatto che il turno sia vivo, e l'unico che
    * sopravvive a un ricarico: il registro del server, servito da
@@ -381,7 +393,7 @@ export function ChatInput({
   // send path respects). This used to be a LOCAL Set nothing ever read at
   // send time: the pill greyed out but the file was injected into the model
   // context anyway, and the ✕ button only greyed it too instead of removing.
-  const contextFilePaths = topic.contextFiles || [];
+  const contextFilePaths = isGlobalOrchestrator ? [] : (topic.contextFiles || []);
   const excludedContextPaths = useMemo(
     () => new Set(
       (topic.disabledContextSources || [])
@@ -407,7 +419,9 @@ export function ChatInput({
     }),
     [providersSnapshot, providerOverride, fastMode],
   );
-  const { budgetPercent, sources: contextSources } = useContextInspector(isDraftTopic ? null : topic.id);
+  const { budgetPercent, sources: contextSources } = useContextInspector(
+    isDraftTopic || isGlobalOrchestrator ? null : topic.id,
+  );
   // Proiezione delle sources che l'inspector ha GIA' scaricato: nessuna seconda
   // richiesta, e i token per file sono quelli veri invece di una stringa in
   // prosa raschiata con una regex.
@@ -422,7 +436,10 @@ export function ChatInput({
   //     fosse la prima.
   // Quando la misura reale esiste vince lei; il preventivo resta dentro il
   // Context Inspector, dove è etichettato per quello che è.
-  const realContext = useRealContext(isDraftTopic ? null : topic.sessionKey, onMessage);
+  const realContext = useRealContext(
+    isDraftTopic || isGlobalOrchestrator ? null : topic.sessionKey,
+    onMessage,
+  );
   /**
    * The boot is resending the message by itself, right now.
    *
@@ -490,36 +507,36 @@ export function ChatInput({
   const contextPopoverRef = useRef<HTMLDivElement>(null);
   const contextScrimRef = useRef<HTMLDivElement>(null);
   useDismissable({
-    open: showContextPopover,
+    open: showContextPopover && !isGlobalOrchestrator,
     onClose: () => setShowContextPopover(false),
     refs: [contextBtnRef, contextPopoverRef],
   });
   // Sul telefono l'ispettore è un foglio dal basso, e un foglio si spinge giù
   // col dito (hooks/useSheetDrag).
   useSheetDrag({
-    enabled: showContextPopover && isMobile,
+    enabled: showContextPopover && isMobile && !isGlobalOrchestrator,
     sheetRef: contextPopoverRef,
     scrimRef: contextScrimRef,
     onClose: () => setShowContextPopover(false),
   });
   const handleContextRingClick = useCallback(() => {
-    if (isDraftTopic) return;
+    if (isDraftTopic || isGlobalOrchestrator) return;
     setShowContextPopover(v => !v);
-  }, [isDraftTopic]);
+  }, [isDraftTopic, isGlobalOrchestrator]);
 
   // External triggers (the per-pane header "Context Inspector" button in the
   // various layouts) still reach the inspector through this window event — they
   // just toggle THIS composer's popover now instead of a docked side panel.
   useEffect(() => {
     const handler = (e: Event) => {
-      if (isDraftTopic) return;
+      if (isDraftTopic || isGlobalOrchestrator) return;
       const detail = (e as CustomEvent).detail as { topicId?: string } | undefined;
       if (detail?.topicId && detail.topicId !== topic.id) return;
       setShowContextPopover(v => !v);
     };
     window.addEventListener('chat-input:toggle-context', handler);
     return () => window.removeEventListener('chat-input:toggle-context', handler);
-  }, [topic.id, isDraftTopic]);
+  }, [topic.id, isDraftTopic, isGlobalOrchestrator]);
 
   // Position the desktop popover above the ring button, right-clamped to the
   // viewport (mirrors ProviderModelPicker's placement math).
@@ -533,7 +550,7 @@ export function ChatInput({
   // motivo per cui non passa da uno stato: la posizione non decide cosa
   // renderizzare, quindi non deve costare un secondo render.
   const contextPopoverPanelRef = useRef<HTMLDivElement>(null);
-  const contextPopoverOpen = showContextPopover && !!onUpdateTopic && !isMobile;
+  const contextPopoverOpen = showContextPopover && !!onUpdateTopic && !isMobile && !isGlobalOrchestrator;
   useLayoutEffect(() => {
     if (!contextPopoverOpen) return;
     const place = () => {
@@ -581,10 +598,11 @@ export function ChatInput({
   // autocomplete. Fetched once; the headless CLI expands them on send.
   const [customCmds, setCustomCmds] = useState<CustomSlashCommand[]>([]);
   useEffect(() => {
+    if (isGlobalOrchestrator) return;
     let alive = true;
     slashCommandsApi.list().then((c) => { if (alive) setCustomCmds(c); }).catch(() => { /* best-effort */ });
     return () => { alive = false; };
-  }, []);
+  }, [isGlobalOrchestrator]);
   const [showMentionMenu, setShowMentionMenu] = useState(false);
   const [mentionFilter, setMentionFilter] = useState('');
   const [mentionMenuIndex, setMentionMenuIndex] = useState(0);
@@ -685,7 +703,7 @@ export function ChatInput({
   // Global keyboard shortcuts for voice features — focused pane only (see the
   // `isFocused` prop doc: these are window-level and every pane mounts one).
   useEffect(() => {
-    if (!isFocused) return;
+    if (!isFocused || isGlobalOrchestrator) return;
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       const isMod = e.metaKey || e.ctrlKey;
       
@@ -716,7 +734,7 @@ export function ChatInput({
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [isFocused, toggleCall, toggleListening, voiceCallSupported, sttSupported, isCallActive, isRecording, startRecording, stopRecording, isSpeaking, stopSpeaking]);
+  }, [isFocused, isGlobalOrchestrator, toggleCall, toggleListening, voiceCallSupported, sttSupported, isCallActive, isRecording, startRecording, stopRecording, isSpeaking, stopSpeaking]);
 
   // Escape mentre si detta CHIUDE il microfono buttando via l'audio. Senza,
   // l'unico modo di annullare era premere stop e poi cancellare a mano il testo
@@ -798,6 +816,7 @@ export function ChatInput({
   // commands/skills (which fall through to the child, expanded by the CLI).
   // Built-in wins on a name clash. The menu render only reads {cmd, description}.
   const allSlashCommands = useMemo(() => {
+    if (isGlobalOrchestrator) return [];
     const builtin = SLASH_COMMANDS.map((c) => ({ cmd: c.cmd, description: tr(c.descriptionKey) }));
     const builtinNames = new Set(builtin.map((c) => c.cmd));
     const custom = customCmds
@@ -807,7 +826,7 @@ export function ChatInput({
     // `tr` changes identity when the catalogue of the chosen language lands:
     // without it here the menu would keep the fallback language until something
     // else redrew it.
-  }, [customCmds, tr]);
+  }, [customCmds, tr, isGlobalOrchestrator]);
 
   const filteredSlashCommands = allSlashCommands.filter(c =>
     c.cmd.toLowerCase().startsWith(slashFilter.toLowerCase())
@@ -922,7 +941,7 @@ export function ChatInput({
   };
 
   const hasAttachments = pendingImages.length > 0 || pendingFiles.length > 0;
-  const hasContext = mentionedFiles.length > 0 || contextFilePaths.length > 0;
+  const hasContext = !isGlobalOrchestrator && (mentionedFiles.length > 0 || contextFilePaths.length > 0);
 
   // ── L'altezza del campo la decide il testo, non le righe ─────────────────
   //
@@ -1333,8 +1352,8 @@ export function ChatInput({
                 isListening={isListening}
                 isSpeaking={isSpeaking}
                 autoTTS={autoTTS}
-                voiceCallSupported={voiceCallSupported}
-                sttSupported={sttSupported}
+                voiceCallSupported={!isGlobalOrchestrator && voiceCallSupported}
+                sttSupported={!isGlobalOrchestrator && sttSupported}
                 currentStreaming={currentStreaming}
                 uploading={uploading}
                 dictationBusy={isDictationTranscribing}
@@ -1347,6 +1366,8 @@ export function ChatInput({
                   setMessage(cmd + ' ');
                   textareaRef.current?.focus();
                 }}
+                allowAttachments={!isGlobalOrchestrator}
+                allowSlashCommands={!isGlobalOrchestrator}
               />
 
               {/* `min-w-[4rem]` è il pavimento del campo: con `flex-1` la base è
@@ -1360,7 +1381,7 @@ export function ChatInput({
                 value={message}
                 onChange={handleMessageChange}
                 onKeyDown={handleKeyDown}
-                onPaste={onPaste}
+                onPaste={isGlobalOrchestrator ? undefined : onPaste}
                 aria-label={`Message input for ${topic.name}`}
                 aria-describedby="chat-input-hint"
                 placeholder={awaitingAnswer ? tr('chat.answerPlaceholder') : replyingTo ? 'Reply...' : topic.projectPath ? 'Message... (@ to mention files)' : 'Message...'}
@@ -1379,7 +1400,7 @@ export function ChatInput({
                     finisce di riempirsi. Il resto della voce (dettatura del
                     browser, chiamata, lettura ad alta voce) resta nel «+»,
                     perché sono modalità, non un gesto singolo. */}
-                <button
+                {!isGlobalOrchestrator && <button
                   type="button"
                   onClick={() => { if (isRecording) stopRecording(); else startRecording(); }}
                   className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg transition-all ${
@@ -1390,7 +1411,7 @@ export function ChatInput({
                   disabled={currentStreaming || uploading}
                 >
                   {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
-                </button>
+                </button>}
                 {/*
                   Unified composer button. The four states resolve via the
                   pure `decideComposerAction` helper so this JSX no longer
@@ -1488,7 +1509,8 @@ export function ChatInput({
                 390px di viewport i quadrati da 32px misuravano 20.9px
                 (misurato da `chat-layout-audit`, sotto il minimo WCAG 2.2 di
                 24px), con l'icona da 16px in un box storto. */}
-            <div className="flex items-center gap-0.5 min-w-0 px-0.5 pt-1.5 overflow-x-auto scrollbar-hide">
+            {!isGlobalOrchestrator && (
+              <div className="flex items-center gap-0.5 min-w-0 px-0.5 pt-1.5 overflow-x-auto scrollbar-hide">
               {/* I PERMESSI PER PRIMI: è l'unica leva di questa riga che
                   decide se l'agente può toccare i tuoi file, ed è quindi la
                   cosa da guardare prima di premere invio — non l'ultima
@@ -1621,7 +1643,8 @@ export function ChatInput({
                 providerOverride={providerOverride ?? null}
                 defaultProviderLabel={defaultProviderLabel}
               />
-            </div>
+              </div>
+            )}
 
             {/* Popover menus (anchored to form) */}
             {showSlashMenu && filteredSlashCommands.length > 0 && (
@@ -1704,7 +1727,7 @@ export function ChatInput({
         </div>,
         document.body,
       )}
-      {showContextPopover && onUpdateTopic && isMobile && createPortal(
+      {!isGlobalOrchestrator && showContextPopover && onUpdateTopic && isMobile && createPortal(
         <>
           <div
             ref={contextScrimRef}
