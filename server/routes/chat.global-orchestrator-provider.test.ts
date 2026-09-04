@@ -20,11 +20,21 @@ const codexProvider = {
 // `chat.ts` imports this one runtime symbol from the provider barrel. Mocking
 // it proves the route asks specifically for Codex rather than falling through
 // to the ordinary dependency-injected provider resolver.
+//
+// `mock.module` is process-global in bun and outlives this file when the suite
+// runs in one process: everything but the Codex lookup is delegated to the real
+// barrel (captured BEFORE the mock, since the live bindings get rewritten), so
+// a later file that registers a real provider still finds the registry it
+// expects. Measured 2026-09-04: a throwing stub turned topics-abort-turnend red.
+import * as realProviders from "../providers";
+const realBarrel = { ...realProviders };
+const realGetProvider = realProviders.getProvider;
 mock.module("../providers", () => ({
+  ...realBarrel,
   getProvider: (name?: string) => {
     providerCalls.push(name ?? "");
-    if (name !== "codex") throw new Error(`unexpected provider ${name}`);
-    return codexProvider;
+    if (name === "codex") return codexProvider;
+    return realGetProvider(name);
   },
 }));
 

@@ -14,10 +14,18 @@ import { setupTestDataDir, createTestAppContext, cleanupTestDataDir, testTmpDir 
 // healthy coordinator path deliberately resolves Codex before persisting a
 // message. Keep this command test focused on the command fence rather than
 // the machine's installed-provider registry.
+//
+// Process-global mock (bun): everything but the Codex lookup delegates to the
+// real barrel captured before the mock, so the files that run after this one
+// in the same process keep their provider registry.
+import * as realProviders from "../providers";
+const realBarrel = { ...realProviders };
+const realGetProvider = realProviders.getProvider;
 mock.module("../providers", () => ({
+  ...realBarrel,
   getProvider: (name?: string) => {
-    if (name !== "codex") throw new Error(`unexpected provider ${name}`);
-    return { name: "codex", capabilities: new Set<string>(), connected: true };
+    if (name === "codex") return { name: "codex", capabilities: new Set<string>(), connected: true };
+    return realGetProvider(name);
   },
 }));
 
