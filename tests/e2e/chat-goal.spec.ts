@@ -162,6 +162,10 @@ test.describe("Obiettivo della chat", () => {
     await expect(bar).toContainText("Passare i sei cancelli");
 
     if (process.env.E2E_EVIDENCE) {
+      // Narrow on purpose: the evidence must stay readable once the board card
+      // shrinks it to 268px, and a bar 800px wide gets there with 4px text.
+      await page.setViewportSize({ width: 520, height: 720 });
+      await expect(bar).toContainText("2/4");
       await bar.screenshot({ path: test.info().outputPath("goal-bar-agent.png") });
     }
 
