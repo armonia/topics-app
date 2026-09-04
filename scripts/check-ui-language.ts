@@ -24,9 +24,20 @@
  *  · IN  -> JSX text nodes in tracked `.tsx` under `client/src`, plus the four
  *    attributes a person actually reads: `title`, `aria-label`, `placeholder`,
  *    `alt`.
+ *  · IN  -> string literals inside a JSX EXPRESSION CONTAINER in child
+ *    position: `{'Consenti'}`, `{n ? 'Invia' : 'Avanti'}`. allow-italian: the quoted labels ARE the example. The first cut
+ *    stripped every `{...}` before looking, so a label written as an
+ *    expression was invisible to a gate whose whole job is labels.
+ *  · IN  -> the value of a property a person reads: `label`, `message`,
+ *    `hint`, `title`, `head`, `detail`, `description`, `confirmLabel`,
+ *    `cancelLabel`, `placeholder`, `tooltip`. A dialog that takes its words
+ *    from an object literal is not less visible than one that inlines them.
  *  · IN  -> `error:` / `detail:` / `reason:` / `message:` string values in the
  *    tracked modules under `server/routes`. Those are the payloads the client
  *    prints straight into a toast or an inline error.
+ *  · IN  -> `client/src/lib/**.ts`, `client/src/hooks/**.ts` and `shared/**.ts`.
+ *    A `.ts` module has no JSX, which is exactly why the copy that lives there
+ *    (a decision label, a queue phrase, an error sentence) never got looked at.
  *  · OUT -> COMMENTS, always and on purpose. This repo's comments are Italian
  *    by design and there are thousands of them; policing prose in comments is a
  *    separate and much larger decision, and a gate that flagged them would be
@@ -34,9 +45,23 @@
  *    `scripts/check-script-naming.test.ts` already write down).
  *  · OUT -> test and spec files. Their strings are assertions, not copy, and
  *    several of them anchor Italian text on purpose.
- *  · OUT -> `client/src/lib/i18n.ts`. It is a `.ts`, so it is not scanned at
- *    all: the `it` dictionary IS the Italian, and flagging it would be flagging
- *    the feature.
+ *  · OUT -> the translation catalogues themselves (`i18n*.ts`), by name now
+ *    that `.ts` modules are scanned: the `it` dictionary IS the Italian, and
+ *    flagging it would be flagging the feature.
+ *
+ * THE SECOND PASS, and why it is a different question. Italian is only half of
+ * "this string cannot follow the chosen language". The other half is English
+ * hard-coded in a file that ALREADY imports `useT`: the surface was migrated,
+ * a later change wrote `Copy` straight into the JSX, and nothing complains
+ * because the gate was only ever looking for Italian. Those hits are counted
+ * as `untranslated`, in their own baseline map, because the fix is different
+ * (add a key) and the debt is much larger.
+ *
+ * The heuristic for "prose a person reads" is deliberately tight: two words or
+ * more, or one word from a short list of button verbs, capitalised, and never
+ * anything that smells like an identifier, a class name, a path or a URL. One
+ * false positive here costs more trust than ten missed strings, and this pass
+ * runs over files that are already doing the right thing.
  *
  * HOW THE MATCH WORKS. Whole tokens against a stopword list, never substrings:
  * "alter" must not trip on "alt", "content" must not trip on "con", and a
@@ -73,7 +98,7 @@ import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { resolve, relative } from "node:path";
 import { spawnSync } from "node:child_process";
 
-import { ACCENTS, STOPWORDS } from "./ui-language-words";
+import { ACCENTS, STOPWORDS, UI_COPY_WORDS } from "./ui-language-words";
 
 const ROOT = resolve(import.meta.dir, "..");
 const BASELINE_PATH = resolve(ROOT, "scripts/ui-language-baseline.json");
@@ -90,11 +115,50 @@ const READABLE_ATTRS = ["aria-label", "placeholder", "title", "alt"] as const;
 /** The payload keys a client renders verbatim into a toast or an inline error. */
 const PAYLOAD_KEYS = ["error", "detail", "reason", "message"] as const;
 
+/**
+ * The property names whose value is read by a person. `name`, `id`, `key`,
+ * `value` and `type` are out on purpose: they are identifiers everywhere in
+ * this tree, and one false positive costs more than ten missed strings.
+ */
+const READABLE_FIELDS = [
+  "label", "message", "hint", "title", "head", "detail", "description",
+  "confirmLabel", "cancelLabel", "placeholder", "tooltip",
+] as const;
+
+/**
+ * The catalogues are DATA, not copy. They are excluded by name now that `.ts`
+ * modules are in scope: the Italian dictionary is the feature this gate
+ * protects, so scanning it would report the product as the defect.
+ */
+const I18N_CATALOGUES = new Set([
+  "client/src/lib/i18n.ts",
+  "client/src/lib/i18n-it.ts",
+  "client/src/lib/i18n-en.ts",
+  "client/src/lib/i18n-types.ts",
+  "client/src/lib/i18n-spend-it.ts",
+  "client/src/lib/i18n-spend-en.ts",
+]);
+
+/**
+ * The two fields that are button copy in every file, migrated or not.
+ *
+ * `title` and `message` are read only where a translation function is already
+ * in scope: a component nobody has migrated yet is written in English on
+ * purpose, and calling that a defect would flag the whole app. These two are
+ * different. They are the buttons of a destructive dialog, they are handed to
+ * a SHARED component, and the default the shared component picks when a caller
+ * omits them is the one a person reads next to "Move to trash".
+ */
+const DIALOG_FIELDS = ["confirmLabel", "cancelLabel"] as const;
+
+/** Which question a hit answers: is this Italian, or is it simply not keyed. */
+type HitKind = "italian" | "untranslated";
 
 interface Hit {
   file: string;
   line: number;
-  /** `jsx` | `attr:<name>` | `payload:<key>`, so a report says WHY it looked. */
+  kind: HitKind;
+  /** `jsx` | `jsx-expr` | `attr:<name>` | `field:<name>`, so a report says WHY. */
   where: string;
   words: string[];
   text: string;
@@ -311,7 +375,7 @@ function italianWords(text: string): string[] {
   if (ACCENTS.test(text)) found.add("<accent>");
   for (const raw of text.toLowerCase().split(/[^a-zàèéìòù-]+/)) {
     const token = raw.replace(/^-+|-+$/g, "");
-    if (token.length >= 3 && STOPWORDS.has(token)) found.add(token);
+    if (token.length >= 3 && (STOPWORDS.has(token) || UI_COPY_WORDS.has(token))) found.add(token);
   }
   return [...found];
 }
@@ -380,7 +444,60 @@ function scanJsxText(file: string, src: string, lexed: Lexed, starts: number[], 
     if (words.length === 0) continue;
     const line = lineOf(starts, open + 1 + Math.max(0, chunk.search(/\S/)));
     if (waived(rawLines, line, lineOf(starts, open))) continue;
-    hits.push({ file, line, where: "jsx", words, text: excerpt(chunk) });
+    hits.push({ file, line, kind: "italian", where: "jsx", words, text: excerpt(chunk) });
+  }
+  return hits;
+}
+
+/**
+ * The `{...}` regions that sit in JSX CHILD position, as (start, end) offsets
+ * of their CONTENT. Same anchor as `scanJsxText`: a span between a `>` and the
+ * next `<` in the structural view. `CODE_RESIDUE` is NOT applied here, because
+ * a ternary is code by definition and its branches are still labels.
+ */
+function jsxExpressionRegions(code: string): { start: number; end: number }[] {
+  const out: { start: number; end: number }[] = [];
+  for (let i = 0; i < code.length; i++) {
+    if (code[i] !== "<") continue;
+    const open = code.lastIndexOf(">", i - 1);
+    if (open === -1) continue;
+    for (let k = open + 1; k < i; k++) {
+      if (code[k] !== "{") continue;
+      let depth = 0;
+      let end = -1;
+      for (let j = k; j < code.length; j++) {
+        if (code[j] === "{") depth++;
+        else if (code[j] === "}") {
+          depth--;
+          if (depth === 0) {
+            end = j;
+            break;
+          }
+        }
+      }
+      if (end === -1) break;
+      out.push({ start: k + 1, end });
+      k = end;
+    }
+  }
+  return out;
+}
+
+/** String literals written inside a JSX expression container: `{'Consenti'}`. */
+function scanJsxExpressions(file: string, src: string, lexed: Lexed, starts: number[], rawLines: string[]): Hit[] {
+  const hits: Hit[] = [];
+  const seen = new Set<number>();
+  for (const region of jsxExpressionRegions(lexed.codeOnly)) {
+    for (const lit of literalsIn(lexed.literals, region.start, region.end)) {
+      if (seen.has(lit.start)) continue;
+      seen.add(lit.start);
+      const text = src.slice(lit.start, lit.end);
+      const words = italianWords(text);
+      if (words.length === 0) continue;
+      const line = lineOf(starts, lit.start);
+      if (waived(rawLines, line, lineOf(starts, region.start))) continue;
+      hits.push({ file, line, kind: "italian", where: "jsx-expr", words, text: excerpt(text) });
+    }
   }
   return hits;
 }
@@ -419,17 +536,28 @@ function scanAttributes(file: string, src: string, lexed: Lexed, starts: number[
       if (words.length === 0) continue;
       const line = lineOf(starts, lit.start);
       if (waived(rawLines, line, lineOf(starts, m.index))) continue;
-      hits.push({ file, line, where: `attr:${attr}`, words, text: excerpt(text) });
+      hits.push({ file, line, kind: "italian", where: `attr:${attr}`, words, text: excerpt(text) });
     }
   }
   return hits;
 }
 
-/** `error:` / `detail:` / `reason:` / `message:` values, the client's copy. */
-function scanPayloads(file: string, src: string, lexed: Lexed, starts: number[], rawLines: string[]): Hit[] {
+/**
+ * The value of a named property, for a list of property names. Two callers:
+ * the server payload keys the client prints verbatim, and the label-ish fields
+ * a dialog takes its words from.
+ */
+function scanKeyedValues(
+  file: string, src: string, lexed: Lexed, starts: number[], rawLines: string[],
+  keys: readonly string[], wherePrefix: string,
+): Hit[] {
   const hits: Hit[] = [];
   const code = lexed.codeOnly;
-  const re = new RegExp(`(?<![\\w$.])(${PAYLOAD_KEYS.join("|")})\\s*:\\s*`, "g");
+  // `:` is the object literal, `=` is the other two ways the same words arrive:
+  // a JSX prop (`confirmLabel="Discard"`) and a destructuring default
+  // (`{ confirmLabel = 'Confirm' }`). ConfirmDialog hard-codes both buttons that
+  // second way, and a scan that only knew `:` called that file clean.
+  const re = new RegExp(`(?<![\\w$.-])(${keys.join("|")})\\s*[:=]\\s*`, "g");
   let m: RegExpExecArray | null;
   while ((m = re.exec(code)) !== null) {
     const key = m[1]!;
@@ -446,10 +574,143 @@ function scanPayloads(file: string, src: string, lexed: Lexed, starts: number[],
       if (words.length === 0) continue;
       const line = lineOf(starts, lit.start);
       if (waived(rawLines, line, lineOf(starts, m.index))) continue;
-      hits.push({ file, line, where: `payload:${key}`, words, text: excerpt(text) });
+      hits.push({ file, line, kind: "italian", where: `${wherePrefix}:${key}`, words, text: excerpt(text) });
     }
   }
   return hits;
+}
+
+/**
+ * EVERY string literal, for the `.ts` modules that have no JSX.
+ *
+ * In a component the extraction has to be surgical: a `.tsx` is full of class
+ * lists and ids, and looking everywhere would drown the report. A `lib`, a
+ * `hook` or a `shared` module is the opposite case: it has no markup, its
+ * literals are keys, paths and copy, and Italian in one of them is copy by
+ * elimination. That is where `PERMISSION_LABELS`, `navErrorMessage` and the
+ * dictation errors were hiding from a gate that only knew how to read JSX.
+ */
+function scanModuleLiterals(file: string, src: string, lexed: Lexed, starts: number[], rawLines: string[]): Hit[] {
+  const hits: Hit[] = [];
+  for (const lit of lexed.literals) {
+    const text = src.slice(lit.start, lit.end);
+    const words = italianWords(text);
+    if (words.length === 0) continue;
+    const line = lineOf(starts, lit.start);
+    if (waived(rawLines, line, line)) continue;
+    hits.push({ file, line, kind: "italian", where: "module", words, text: excerpt(text) });
+  }
+  return hits;
+}
+
+/**
+ * The one-word labels a button is allowed to be. A single word is normally not
+ * enough evidence that a literal is copy (it is usually an identifier), but
+ * these are the words this app's buttons are actually made of, and they are
+ * exactly the ones that got hard-coded.
+ */
+const BUTTON_WORDS = new Set([
+  "copy", "confirm", "cancel", "discard", "reload", "refresh", "close",
+  "retry", "back", "next", "send", "save", "delete", "remove", "open",
+  "allow", "deny", "stop", "start", "edit", "rename", "undo", "redo",
+]);
+
+/**
+ * True when a literal reads as English COPY rather than as code.
+ *
+ * Tight on purpose: this pass runs over files that already went through the
+ * translation layer, so a false positive here accuses somebody who did the
+ * work. Anything lowercase is treated as an identifier, a key or a class
+ * list, which is what lowercase strings are in this tree.
+ */
+function englishProse(raw: string): boolean {
+  const text = raw.trim();
+  if (text.length < 3 || text.length > 200) return false;
+  // Paths, urls, keys, css, formats: not something a translator would touch.
+  if (/[/\\_@#$]|:\/\/|\.[a-z]{2,4}$/.test(text)) return false;
+  if (/^[a-z0-9.\-\s]+$/.test(text)) return false;
+  if (italianWords(text).length > 0) return false;
+  const words = text.match(/[A-Za-z][A-Za-z'\u2019]*/g) ?? [];
+  if (words.length === 0) return false;
+  // Non-letter soup (numbers, symbols, emoji) is not a sentence.
+  if (words.join("").length < text.replace(/[\s.,!?()'\u2019]/g, "").length / 2) return false;
+  const first = text.match(/[A-Za-z]/)?.[0] ?? "";
+  if (first !== first.toUpperCase()) return false;
+  // No whitespace means ONE token, whatever the hyphens and dots inside it
+  // suggest: `Content-Type`, `ArrowDown`, `PascalCase` are names, not
+  // sentences. Only the short list of button words survives that test.
+  if (!/\s/.test(text)) return BUTTON_WORDS.has(text.replace(/[^A-Za-z]/g, "").toLowerCase());
+  if (words.length === 1) return BUTTON_WORDS.has(words[0]!.toLowerCase());
+  // ALL CAPS is a constant, an acronym or a shout, not a sentence.
+  if (text === text.toUpperCase()) return false;
+  return true;
+}
+
+/**
+ * English hard-coded into a file that already imports `useT`.
+ *
+ * Same extraction sites as the Italian pass, opposite question: the surface
+ * HAS a translation function in scope and this string walked past it.
+ */
+function scanUntranslated(file: string, src: string, lexed: Lexed, starts: number[], rawLines: string[]): Hit[] {
+  const code = lexed.codeOnly;
+  // Two different burdens of proof. A JSX text node is only evidence of a
+  // missed key in a file that HAS a translation function in scope; everywhere
+  // else it is a surface nobody has migrated yet, which is a plan, not a
+  // regression. A `label`/`confirmLabel` value is copy by construction: that
+  // is the whole reason the field list exists, so it is read everywhere.
+  const migrated = /\buseT\b/.test(src);
+  const hits: Hit[] = [];
+  const push = (start: number, text: string, where: string, openAt: number): void => {
+    if (!englishProse(text)) return;
+    const line = lineOf(starts, start);
+    if (waived(rawLines, line, lineOf(starts, openAt))) return;
+    hits.push({ file, line, kind: "untranslated", where, words: [], text: excerpt(text) });
+  };
+
+  if (migrated && file.endsWith(".tsx")) {
+    for (let i = 0; i < code.length; i++) {
+      if (code[i] !== "<") continue;
+      const open = code.lastIndexOf(">", i - 1);
+      if (open === -1) continue;
+      const chunk = stripBraces(code.slice(open + 1, i));
+      if (CODE_RESIDUE.test(chunk)) continue;
+      const at = chunk.search(/\S/);
+      if (at === -1) continue;
+      push(open + 1 + at, chunk, "jsx", open);
+    }
+    const seen = new Set<number>();
+    for (const region of jsxExpressionRegions(code)) {
+      for (const lit of literalsIn(lexed.literals, region.start, region.end)) {
+        if (seen.has(lit.start)) continue;
+        seen.add(lit.start);
+        push(lit.start, src.slice(lit.start, lit.end), "jsx-expr", region.start);
+      }
+    }
+    const attrRe = new RegExp(`(?<![\\w$.-])(${READABLE_ATTRS.join("|")})\\s*=\\s*["'\`]`, "g");
+    let a: RegExpExecArray | null;
+    while ((a = attrRe.exec(code)) !== null) {
+      const at = m0End(a);
+      for (const lit of literalsIn(lexed.literals, at, at + 1)) {
+        push(lit.start, src.slice(lit.start, lit.end), `attr:${a[1]!}`, a.index);
+      }
+    }
+  }
+
+  const fieldRe = new RegExp(`(?<![\\w$.-])(${(migrated ? READABLE_FIELDS : DIALOG_FIELDS).join("|")})\\s*[:=]\\s*["'\`]`, "g");
+  let f: RegExpExecArray | null;
+  while ((f = fieldRe.exec(code)) !== null) {
+    const at = m0End(f);
+    for (const lit of literalsIn(lexed.literals, at, at + 1)) {
+      push(lit.start, src.slice(lit.start, lit.end), `field:${f[1]!}`, f.index);
+    }
+  }
+  return hits;
+}
+
+/** Offset just after the quote a `key: "` match ends on: where the content starts. */
+function m0End(m: RegExpExecArray): number {
+  return m.index + m[0].length;
 }
 
 /**
@@ -484,10 +745,40 @@ function scanFile(file: string): Hit[] {
   const hits: Hit[] = [];
   if (file.endsWith(".tsx")) {
     hits.push(...scanJsxText(file, src, lexed, starts, rawLines));
+    hits.push(...scanJsxExpressions(file, src, lexed, starts, rawLines));
     hits.push(...scanAttributes(file, src, lexed, starts, rawLines));
   }
-  hits.push(...scanPayloads(file, src, lexed, starts, rawLines));
-  return hits.sort((a, b) => a.line - b.line);
+  // The keyed scans run BEFORE the sweep so the more specific `where` wins the
+  // dedupe: a report that says `payload:error` tells you what to fix, one that
+  // says `module` only tells you where.
+  hits.push(...scanKeyedValues(file, src, lexed, starts, rawLines, PAYLOAD_KEYS, "payload"));
+  hits.push(...scanKeyedValues(file, src, lexed, starts, rawLines, READABLE_FIELDS, "field"));
+  if (!file.endsWith(".tsx") && !file.startsWith("server/routes/")) {
+    // The server routes keep their narrow payload scan: their literals are SQL,
+    // column names and ids by the hundred, and only what the client prints
+    // verbatim is copy.
+    hits.push(...scanModuleLiterals(file, src, lexed, starts, rawLines));
+  }
+  hits.push(...scanUntranslated(file, src, lexed, starts, rawLines));
+  return dedupe(hits).sort((a, b) => a.line - b.line);
+}
+
+/**
+ * One string reported once. `detail:` and `message:` are in both key lists and
+ * a label inside a JSX expression is also a field value, so the same literal
+ * can arrive from two scans; counting it twice would inflate the baseline and
+ * make a cured file look half cured.
+ */
+function dedupe(hits: Hit[]): Hit[] {
+  const seen = new Set<string>();
+  const out: Hit[] = [];
+  for (const h of hits) {
+    const key = `${h.kind}|${h.line}|${h.text}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(h);
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -496,8 +787,24 @@ function scanFile(file: string): Hit[] {
 
 const IS_TEST = /\.(test|spec|e2e)\.[cm]?tsx?$/;
 
+/**
+ * EVERY tracked `.ts` under `client/src` is in scope, not just `lib` and
+ * `hooks`. The first cut named those two directories and missed exactly the
+ * modules the bug report was about: `components/Browser/navErrorMessage.ts`
+ * and `components/Chat/useVoiceRecording.ts` are plain modules that live
+ * beside the component that uses them, and a scope written by directory name
+ * declared them out of the product.
+ */
+function inScope(p: string): boolean {
+  if (IS_TEST.test(p)) return false;
+  if (I18N_CATALOGUES.has(p)) return false;
+  if (p.endsWith(".tsx")) return p.startsWith("client/src/");
+  if (!p.endsWith(".ts")) return false;
+  return p.startsWith("client/src/") || p.startsWith("server/routes/") || p.startsWith("shared/");
+}
+
 function trackedFiles(): string[] {
-  const git = spawnSync("git", ["ls-files", "-z", "client/src", "server/routes"], {
+  const git = spawnSync("git", ["ls-files", "-z", "client/src", "server/routes", "shared"], {
     cwd: ROOT,
     encoding: "utf-8",
     maxBuffer: 64 * 1024 * 1024,
@@ -506,11 +813,7 @@ function trackedFiles(): string[] {
     console.error("[check-ui-language] cannot list tracked files: is this a git checkout?");
     process.exit(2);
   }
-  return git.stdout
-    .split("\0")
-    .filter(Boolean)
-    .filter((p) => !IS_TEST.test(p))
-    .filter((p) => (p.startsWith("client/src/") ? p.endsWith(".tsx") : p.endsWith(".ts")));
+  return git.stdout.split("\0").filter(Boolean).filter(inScope);
 }
 
 // ---------------------------------------------------------------------------
@@ -521,8 +824,10 @@ interface Baseline {
   $schema: string;
   _comment: string[];
   updated: string;
-  /** path -> number of hits on the day recorded. Absent means "must stay at 0". */
+  /** path -> hard-coded ITALIAN hits the day recorded. Absent means "stay at 0". */
   files: Record<string, number>;
+  /** path -> hard-coded ENGLISH hits in a file that already imports `useT`. */
+  untranslated: Record<string, number>;
 }
 
 const BASELINE_COMMENT = [
@@ -543,6 +848,13 @@ const BASELINE_COMMENT = [
   "string, or if the Italian IS the data (a fixture, a parser, a label compared",
   "by value across the client/server boundary) mark that line with",
   "`// allow-italian: <why>` instead of buying the exemption here.",
+  "",
+  "TWO MAPS, TWO DEFECTS. `files` counts hard-coded ITALIAN: a string an",
+  "English-speaking user reads in the wrong language. `untranslated` counts",
+  "hard-coded ENGLISH inside a file that already imports `useT`: the surface was",
+  "migrated and a later change wrote the label straight into the JSX, so the",
+  "language selector silently stops governing it. The fix differs (translate vs",
+  "add a key), so the debt is counted apart.",
 ];
 
 function readBaseline(): Baseline | null {
@@ -552,7 +864,11 @@ function readBaseline(): Baseline | null {
     if (parsed === null || typeof parsed !== "object") return null;
     const files = (parsed as { files?: unknown }).files;
     if (files === null || typeof files !== "object") return null;
-    return parsed as Baseline;
+    const body = parsed as Baseline;
+    // A v1 baseline has no second map: an absent map is an empty one, so an
+    // older file still reads and every untranslated hit shows up as new.
+    body.untranslated ??= {};
+    return body;
   } catch (err) {
     console.error(`[check-ui-language] baseline unreadable: ${String(err)}`);
     process.exit(2);
@@ -560,19 +876,25 @@ function readBaseline(): Baseline | null {
   return null;
 }
 
-function writeBaseline(counts: Map<string, number>): void {
-  const files: Record<string, number> = {};
-  for (const key of [...counts.keys()].sort()) files[key] = counts.get(key)!;
+function sortedMap(counts: Map<string, number>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const key of [...counts.keys()].sort()) out[key] = counts.get(key)!;
+  return out;
+}
+
+function writeBaseline(italian: Map<string, number>, untranslated: Map<string, number>): void {
   const body: Baseline = {
-    $schema: "ui-language-baseline-v1",
+    $schema: "ui-language-baseline-v2",
     _comment: BASELINE_COMMENT,
     updated: new Date().toISOString().slice(0, 10),
-    files,
+    files: sortedMap(italian),
+    untranslated: sortedMap(untranslated),
   };
   writeFileSync(BASELINE_PATH, `${JSON.stringify(body, null, 2)}\n`, "utf-8");
+  const total = (m: Map<string, number>): number => [...m.values()].reduce((a, b) => a + b, 0);
   console.log(
-    `[check-ui-language] baseline written: ${Object.keys(files).length} file(s), ` +
-      `${[...counts.values()].reduce((a, b) => a + b, 0)} hit(s).`,
+    `[check-ui-language] baseline written: ${italian.size} file(s) with ${total(italian)} Italian hit(s), ` +
+      `${untranslated.size} file(s) with ${total(untranslated)} untranslated hit(s).`,
   );
 }
 
@@ -592,23 +914,23 @@ function main(): void {
   const hits: Hit[] = [];
   for (const file of files) hits.push(...scanFile(file));
 
-  const counts = new Map<string, number>();
-  for (const h of hits) counts.set(h.file, (counts.get(h.file) ?? 0) + 1);
+  const italianHits = hits.filter((h) => h.kind === "italian");
+  const untranslatedHits = hits.filter((h) => h.kind === "untranslated");
+  const countBy = (list: Hit[]): Map<string, number> => {
+    const m = new Map<string, number>();
+    for (const h of list) m.set(h.file, (m.get(h.file) ?? 0) + 1);
+    return m;
+  };
+  const counts = countBy(italianHits);
+  const untranslatedCounts = countBy(untranslatedHits);
 
   if (update) {
     if (absolute) {
       console.error("[check-ui-language] --update-baseline needs the full tracked scan, not a file list.");
       process.exit(2);
     }
-    writeBaseline(counts);
+    writeBaseline(counts, untranslatedCounts);
     process.exit(0);
-  }
-
-  const byFile = new Map<string, Hit[]>();
-  for (const h of hits) {
-    const list = byFile.get(h.file) ?? [];
-    list.push(h);
-    byFile.set(h.file, list);
   }
 
   const report = (list: Hit[]): void => {
@@ -620,22 +942,26 @@ function main(): void {
     }
     for (const [file, rows] of grouped) {
       console.error(`\n  ${file}`);
-      for (const r of rows) console.error(`    :${r.line}  [${r.where}] ${r.words.join(" ")} | ${r.text}`);
+      for (const r of rows) {
+        const why = r.kind === "italian" ? r.words.join(" ") : "not keyed";
+        console.error(`    :${r.line}  [${r.where}] ${why} | ${r.text}`);
+      }
     }
   };
 
   if (absolute) {
     if (json) console.log(JSON.stringify({ mode: "absolute", files: files.length, hits }, null, 2));
     if (hits.length === 0) {
-      if (!json) console.log(`[check-ui-language] OK (absolute): ${files.length} file(s), no Italian in app text.`);
+      if (!json) console.log(`[check-ui-language] OK (absolute): ${files.length} file(s), every app text is keyed.`);
       process.exit(0);
     }
     if (!json) {
       console.error(
-        `[check-ui-language] FAIL (absolute): ${hits.length} Italian string(s) across ${byFile.size} file(s).`,
+        `[check-ui-language] FAIL (absolute): ${italianHits.length} Italian string(s) and ` +
+          `${untranslatedHits.length} unkeyed string(s).`,
       );
       report(hits);
-      console.error(`\nTranslate them, or mark the line with '// ${ALLOW} <why>' when the Italian IS the data.`);
+      console.error(`\nPut them through i18n, or mark the line with '// ${ALLOW} <why>' when the string IS the data.`);
     }
     process.exit(1);
   }
@@ -649,31 +975,42 @@ function main(): void {
     process.exit(2);
   }
 
-  const newFiles: string[] = [];
-  const grown: { file: string; was: number; now: number }[] = [];
-  const cured: { file: string; was: number; now: number }[] = [];
+  interface Move { file: string; was: number; now: number }
+  interface Verdict { newFiles: string[]; grown: Move[]; cured: Move[] }
 
-  for (const [file, count] of counts) {
-    const was = baseline.files[file];
-    if (was === undefined) newFiles.push(file);
-    else if (count > was) grown.push({ file, was, now: count });
-    else if (count < was) cured.push({ file, was, now: count });
-  }
-  for (const [file, was] of Object.entries(baseline.files)) {
-    if (!counts.has(file)) cured.push({ file, was, now: 0 });
-  }
+  /** The ratchet, one family at a time: new file or grown file fails, cured is free. */
+  const compare = (now: Map<string, number>, was: Record<string, number>): Verdict => {
+    const v: Verdict = { newFiles: [], grown: [], cured: [] };
+    for (const [file, count] of now) {
+      const before = was[file];
+      if (before === undefined) v.newFiles.push(file);
+      else if (count > before) v.grown.push({ file, was: before, now: count });
+      else if (count < before) v.cured.push({ file, was: before, now: count });
+    }
+    for (const [file, before] of Object.entries(was)) {
+      if (!now.has(file)) v.cured.push({ file, was: before, now: 0 });
+    }
+    return v;
+  };
+
+  const italian = compare(counts, baseline.files);
+  const untranslated = compare(untranslatedCounts, baseline.untranslated);
 
   if (json) {
-    console.log(JSON.stringify({ mode: "ratchet", files: files.length, newFiles, grown, cured, hits }, null, 2));
+    console.log(JSON.stringify({ mode: "ratchet", files: files.length, italian, untranslated, hits }, null, 2));
   }
 
-  const failing = newFiles.length > 0 || grown.length > 0;
+  const failing =
+    italian.newFiles.length + italian.grown.length + untranslated.newFiles.length + untranslated.grown.length > 0;
+
   if (!failing) {
     if (!json) {
       console.log(
         `[check-ui-language] OK: ${files.length} file(s) scanned, ` +
-          `${hits.length} known hit(s) in ${counts.size} baselined file(s).`,
+          `${italianHits.length} known Italian hit(s) in ${counts.size} file(s), ` +
+          `${untranslatedHits.length} known unkeyed hit(s) in ${untranslatedCounts.size} file(s).`,
       );
+      const cured = [...italian.cured, ...untranslated.cured];
       if (cured.length > 0) {
         console.log(
           `[check-ui-language] ${cured.length} file(s) improved. ` +
@@ -686,21 +1023,27 @@ function main(): void {
   }
 
   if (!json) {
-    console.error("[check-ui-language] FAIL: Italian reached a text a person reads.");
-    if (newFiles.length > 0) {
-      console.error(`\n${newFiles.length} file(s) NOT in the baseline gained a hit:`);
-      report(hits.filter((h) => newFiles.includes(h.file)));
-    }
-    if (grown.length > 0) {
-      console.error(`\n${grown.length} baselined file(s) gained MORE:`);
-      for (const g of grown) console.error(`  ${g.file}: ${g.was} -> ${g.now}`);
-      report(hits.filter((h) => grown.some((g) => g.file === h.file)));
+    console.error("[check-ui-language] FAIL: a text a person reads does not follow the chosen language.");
+    const families: [string, Verdict, Hit[]][] = [
+      ["hard-coded Italian", italian, italianHits],
+      ["copy that does not go through i18n", untranslated, untranslatedHits],
+    ];
+    for (const [what, verdict, family] of families) {
+      if (verdict.newFiles.length > 0) {
+        console.error(`\n${verdict.newFiles.length} file(s) NOT in the baseline gained ${what}:`);
+        report(family.filter((h) => verdict.newFiles.includes(h.file)));
+      }
+      if (verdict.grown.length > 0) {
+        console.error(`\n${verdict.grown.length} baselined file(s) gained MORE ${what}:`);
+        for (const g of verdict.grown) console.error(`  ${g.file}: ${g.was} -> ${g.now}`);
+        report(family.filter((h) => verdict.grown.some((g) => g.file === h.file)));
+      }
     }
     console.error(
-      `\nThe app ships in English. Put the string through 'client/src/lib/i18n.ts'` +
-        `\nor write it in English. If the Italian IS the data (a fixture, a parser, a` +
-        `\nlabel the server and the client compare by value), end the line with` +
-        `\n'// ${ALLOW} <why>'. Do not raise a number in the baseline to pass.`,
+      `\nThe app ships in the language the person chose. Put the string through` +
+        `\n'client/src/lib/i18n.ts' and add the key to BOTH catalogues. If the string IS` +
+        `\nthe data (a fixture, a parser, a label the server and the client compare by` +
+        `\nvalue), end the line with '// ${ALLOW} <why>'. Do not raise a baseline number.`,
     );
   }
   process.exit(1);

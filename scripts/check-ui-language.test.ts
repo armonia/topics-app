@@ -137,4 +137,81 @@ describe("check-ui-language", () => {
     const file = fixture("V.tsx", `export const V = () => <p className="riga-selezionata" data-stato="aperto" />;\n`);
     expect((await run(file)).code).toBe(0);
   });
+
+  // ---------------------------------------------------------------------
+  // What the first cut could not see, and the report that said OK anyway
+  // ---------------------------------------------------------------------
+
+  test("a label written as a JSX expression is still a label", async () => {
+    // `{'Consenti'}` and `{n ? 'Invia' : 'Avanti'}` were invisible. allow-italian: the quoted labels ARE the case under test. The JSX
+    // pass stripped every brace before looking, so the gate read the markup of
+    // a permission panel and reported nothing.
+    const file = fixture("V.tsx", `export const V = () => <button>{ok ? 'Consenti' : 'Nega'}</button>;\n`);
+    const { code, out } = await run(file);
+    expect(code).toBe(1);
+    expect(out).toContain("jsx-expr");
+  });
+
+  test("the value of a label-ish field is read wherever it is written", async () => {
+    const file = fixture("V.tsx", `export const MENU = [{ id: 'back', label: 'Indietro' }];\n`);
+    const { code, out } = await run(file);
+    expect(code).toBe(1);
+    expect(out).toContain("field:label");
+  });
+
+  test("a plain .ts module is scanned whole: no JSX is not the same as no copy", async () => {
+    // `PERMISSION_LABELS` is a Record keyed by an enum, so no field name in any
+    // list would have caught it. In a module without markup, Italian is copy by
+    // elimination.
+    const file = fixture(
+      "labels.ts",
+      `export const PERMISSION_LABELS = { allow: 'Consenti sempre', deny: 'Nega' };\n`,
+    );
+    const { code, out } = await run(file);
+    expect(code).toBe(1);
+    expect(out).toContain("[module]");
+  });
+
+  test("English hard-coded in a file that already imports useT is a hit of its own", async () => {
+    const file = fixture(
+      "V.tsx",
+      "import { useT } from '../hooks/useT';\n" +
+        "export const V = () => { const tr = useT(); return <button title={tr('a.b')}>Copy</button>; };\n",
+    );
+    const { code, out } = await run(file);
+    expect(code).toBe(1);
+    expect(out).toContain("not keyed");
+  });
+
+  test("the same English in a file with no translation function is not a hit", async () => {
+    // A surface nobody has migrated yet is written in English on purpose. That
+    // is a plan, not a regression, and a gate that called it one would be red
+    // on every file in the tree the day it landed.
+    const file = fixture("V.tsx", `export const V = () => <button>Copy</button>;\n`);
+    expect((await run(file)).code).toBe(0);
+  });
+
+  test("the default label of a shared dialog is read even without useT", async () => {
+    // ConfirmDialog hard-codes both buttons as destructuring defaults, and the
+    // caller that omits them ships "Move to trash" next to "Cancel".
+    const file = fixture(
+      "D.tsx",
+      "export function D({ confirmLabel = 'Confirm', cancelLabel = 'Cancel' }) { return <b>{confirmLabel}{cancelLabel}</b>; }\n",
+    );
+    const { code, out } = await run(file);
+    expect(code).toBe(1);
+    expect(out).toContain("field:confirmLabel");
+  });
+
+  test("an identifier, a header name and a class list are not copy", async () => {
+    // The tight half of the second pass: one false positive here accuses
+    // somebody who did the work, which is how a gate stops being read.
+    const file = fixture(
+      "V.tsx",
+      "import { useT } from '../hooks/useT';\n" +
+        "export const V = () => { const tr = useT(); return <p title={tr('a.b')} " +
+        "className=\"flex items-center gap-2\">{'Content-Type'}{'ArrowDown'}{'https://a.b/c'}</p>; };\n",
+    );
+    expect((await run(file)).code).toBe(0);
+  });
 });
