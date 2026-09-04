@@ -17,7 +17,7 @@
  * Both go through the service's projectId guard, so a caller can only touch
  * tasks on the project it named/owns (no cross-project IDOR).
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import type { AppContext, RouteHandler } from "../types";
@@ -42,7 +42,7 @@ import { newProjectParentDir } from "../services/project-path-resolver";
 import { parkedEdgeEvent, type TaskDispatcher } from "../services/task-dispatcher";
 import { landFallout, type TaskAutoMerge } from "../services/task-automerge";
 import type { LandingState } from "../services/landing-audit";
-import { createLandingQueue, type LandingTicket, type LandOutcomeResult } from "../services/landing-queue";
+import { createLandingQueue, type LandingQueue, type LandingTicket, type LandOutcomeResult } from "../services/landing-queue";
 import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../services/worktree-gc";
 import { MAX_CHECKS, STATIC_RAILS_CHECK, checksVerdict, formatChecksComment, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
 import { clampLegMs, createChecksGate, type ChecksLeg } from "../services/checks-gate";
@@ -157,6 +157,13 @@ export { pendingQuestion, type PendingQuestionComment };
 const AGENT_COMMENT_MAX_CHARS = 600;
 
 export interface TasksRouterOpts {
+  /**
+   * The landing queue, owned by the host so a planned restart can see the
+   * lands still queued or running: on 2026-09-04 a restart cut a land in
+   * half (the merge done, the card bounced back to in_progress and its
+   * delivery branch forgotten) because quiescence counted turns only.
+   */
+  landings?: LandingQueue;
   /** All project dirs the server knows (same union the dispatcher resolves against). */
   listProjectDirs?: () => string[];
   /** Workspace root for scaffolding a NEW project from the board. */
@@ -534,6 +541,15 @@ async function gitDiffBundle(cwd: string, range: string, gopts?: { includeUntrac
 }
 
 export { gitDiffBundle };
+
+/** Is this repository the one this server runs from (and serves `public/` of)? */
+function isServerRepo(repoPath: string): boolean {
+  try {
+    return realpathSync(repoPath) === realpathSync(join(import.meta.dir, "..", ".."));
+  } catch {
+    return false;
+  }
+}
 
 export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, opts?: TasksRouterOpts): RouteHandler {
   const { db, json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey, isPathAllowed } = ctx;
@@ -957,7 +973,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * mentre una è in corso adesso si ACCODA con un ticket interrogabile, invece
    * di essere una promise fluttuante che nessuno tiene (`void landTask(...)`).
    */
-  const landings = createLandingQueue({ log: (m) => console.warn(m) });
+  const landings = opts?.landings ?? createLandingQueue({ log: (m) => console.warn(m) });
 
   /**
    * Accoda il land di una card e restituisce il suo ticket (subito, senza
@@ -1232,7 +1248,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             content: `⚠️ Landato su main ma NON ancora attivo: il server di produzione gira dal checkout fermo su '${res.checkoutBranch}', non su main. Per attivarlo riporta quel checkout su main (git switch main) oppure fai girare il server da un checkout dedicato su main.`,
           });
         } else {
-          if (res.touchedClient) {
+          // THE REBUILD IS FOR THE APP THIS SERVER SERVES, not for every repo
+          // with a `client/` folder: a dancerooms land got "Client NON
+          // servibile: manca dancerooms/public/index.html" on 2026-09-04.
+          const servesFromHere = isServerRepo(res.repoPath);
+          if (res.touchedClient && servesFromHere) {
             const t2 = svc.get(taskId, { projectId })?.task;
             if (t2) broadcastToAll({ type: "task:updated", projectId, task: t2 });
             const build = await autoMerge.buildClient(res.repoPath);
@@ -1255,10 +1275,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             });
             if (build.code !== 0) console.error("[land] build:client failed for", taskId, build.artifact ?? build.stderr.slice(-2000));
           }
-          if (res.touchedNative) {
+          if (res.touchedNative && servesFromHere) {
             svc.addComment({ taskId, author: "system", content: "Il landing tocca desktop-tauri/: per vederlo nel shell nativo serve un rebuild dell'app (cargo build + relaunch)." });
           }
-          if (res.touchedServer) {
+          if (res.touchedServer && servesFromHere) {
             svc.addComment({ taskId, author: "system", kind: "service", content: "Il landing tocca il server: andrà live al prossimo reload del server (hot-reload watch attivo, o riavvio manuale)." });
           }
         }

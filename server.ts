@@ -1,3 +1,4 @@
+import { createLandingQueue } from "./server/services/landing-queue";
 import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
 import { bonificaTurniMuti } from "./server/lib/verdetto-turno-interrotto";
@@ -774,9 +775,12 @@ const dispatcherSvc = createTaskService(ctx.db, {
   repoRootFor: ({ projectId, assignedTopicId }) => {
     try {
       if (assignedTopicId) {
-        const row = ctx.db.prepare("SELECT worktree_id FROM topics WHERE id = ?").get(assignedTopicId) as { worktree_id?: string | null } | undefined;
+        const row = ctx.db.prepare("SELECT worktree_id, project_path FROM topics WHERE id = ?").get(assignedTopicId) as { worktree_id?: string | null; project_path?: string | null } | undefined;
         const wt = row?.worktree_id ? ctx.worktreeStore.get(row.worktree_id) : null;
         if (wt?.absPath && existsSync(wt.absPath)) return wt.absPath;
+        // The worktree may already be reaped (a land, a restart): the topic
+        // still knows which repository it worked in.
+        if (row?.project_path && existsSync(row.project_path)) return row.project_path;
       }
     } catch { /* fall through to the project */ }
     if (!projectId) return null;
@@ -2021,7 +2025,10 @@ sondaLavoroNonCommittato = async (taskId: string) => {
   try { return await worktreeRealDirt(wt.absPath); } catch { return null; }
 };
 
+// Owned here so the quiescence wait can see lands still queued or running.
+const landingQueue = createLandingQueue({ log: (m) => console.warn(m) });
 const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
+  landings: landingQueue,
   workspaceDir: DISPATCH_WORKSPACE_DIR,
   // Il titolo leggibile di una card dettata (`services/task-title.ts`). Si
   // risolve al momento della chiamata e non all'avvio: il default della
@@ -5324,7 +5331,9 @@ let askProbeCache: { at: number; parked: string[] } = { at: 0, parked: [] };
  * ogni giro; la terza si paga, e si guarda ogni QUIESCENCE_BROKER_PROBE_MS.
  */
 async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; parkedAsks: number; holder: string | null }> {
-  const cards = taskDispatcher.busyCount();
+  // A land in flight is a card turn for this purpose: it rewrites main and
+  // the card, and a restart in the middle of it forgets the delivery branch.
+  const cards = taskDispatcher.busyCount() + landingQueue.inFlight();
   const streamKeys = [...activeStreams.keys()];
   // La sonda del broker si paga, e si paga solo quando serve: se una fonte più
   // economica ha già detto «occupato», la risposta non cambia.
