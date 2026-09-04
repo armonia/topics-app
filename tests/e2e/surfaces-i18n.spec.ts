@@ -16,7 +16,7 @@
  *  - the browser pane CONTEXT MENU is nine entries that were Italian even with
  *    the interface in English;
  *  - the DESTRUCTIVE DIALOGS shipped an English "Cancel" next to an Italian
- *    "Sposta nel cestino", which is the mixed language showing up exactly
+ *    "Sposta nel cestino". allow-italian: the quoted label IS the defect. The mixed language showed up exactly
  *    where somebody is about to lose something.
  *
  * The last one is checked with the locale in ITALIAN, deliberately: its defect
