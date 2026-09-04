@@ -715,7 +715,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         // dumping the restored tab into the arbitrary first group.
         const capturedLoc = locateGroup(rowsRef.current, groupId);
         pushUndo({
-          description: `Close ${pane.title || pane.type}`,
+          description: tr('editor.tab.close', { name: pane.title || pane.type }),
           undo: async () => {
             const restored = await reopenClosedTab(capturedRecord);
             // Undo of a browser close retracts its tombstone so a later reload
@@ -1331,7 +1331,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         const sourceGroup = groups.find(g => g.id === sourceGroupId);
         if (sourceGroup && sourceGroup.paneIds.length <= 1) {
           const draftId = createDraftPaneId();
-          const draftPane: Pane = { id: draftId, type: 'chat', title: 'New Chat', preview: false };
+          const draftPane: Pane = { id: draftId, type: 'chat', title: tr('pane.chat.newTitle'), preview: false };
           setPanes(prev => [...prev, draftPane]);
           setGroups(prev =>
             prev.map(g =>
@@ -1372,7 +1372,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         const prevHeightsSnap = rowHeightsRef.current;
         const prevFocusedSnap = focusedGroupIdRef.current;
         pushUndo({
-          description: 'Split pane',
+          description: tr('layout.undo.splitPane'),
           undo: () => {
             setGroups(prevGroupsSnap);
             setRows(prevRowsSnap);
@@ -1463,7 +1463,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
 
       setFocusedGroupId(newGroupId);
     },
-    [panes, groups, rowsRef, groupsRef, rowHeightsRef, focusedGroupIdRef],
+    [panes, groups, rowsRef, groupsRef, rowHeightsRef, focusedGroupIdRef, tr],
   );
 
   // Pin the latest handleSplitGroup so the early-mounted browser-split effect

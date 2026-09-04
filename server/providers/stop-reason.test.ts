@@ -205,3 +205,30 @@ it("a turn cut by a server restart does not consume an attempt: the boot resumes
   expect(consumesAttempt({ end: "cancelled", cause: "server-shutdown" } as const)).toBe(false);
   expect(consumesAttempt({ end: "cancelled", cause: "watchdog" } as const)).toBe(true);
 });
+
+/**
+ * A 429 that outlived every retry: not the agent's fault, not deterministic.
+ *
+ * @covers RESUME-04
+ */
+describe("classifyTurnError — il limite dell'API", () => {
+  const measured = 'API 429: {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account\'s rate limit. Please try again later."},"request_id":"req_x"} (retried 27 times over 1655s without success)';
+
+  it("the API's own words for the rate limit are a `rate-limit` end", () => {
+    expect(classifyTurnError(measured)).toEqual({ end: "error", cause: "rate-limit", detail: measured });
+    expect(classifyTurnError("stream overloaded_error (retried 27 times over 600s without success)").cause).toBe("rate-limit");
+    expect(classifyTurnError("API 529: overloaded").cause).toBe("rate-limit");
+    expect(classifyTurnError("API 429: usage window exhausted, resets at 2026-09-04T20:49:59.852Z").cause).toBe("rate-limit");
+  });
+
+  it("any other API error stays a provider error", () => {
+    expect(classifyTurnError("API 400: invalid_request_error").cause).toBe("provider-error");
+    expect(classifyTurnError("ai-bridge: ack timeout").cause).toBe("provider-error");
+  });
+
+  it("costs no attempt on a card, and has a sentence of its own", () => {
+    expect(consumesAttempt({ end: "error", cause: "rate-limit" })).toBe(false);
+    expect(consumesAttempt({ end: "error", cause: "provider-error" })).toBe(true);
+    expect(describeTurnEnd({ end: "error", cause: "rate-limit" })).toMatch(/API/);
+  });
+});

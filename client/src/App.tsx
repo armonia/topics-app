@@ -500,6 +500,7 @@ function App() {
     expiredMessages,
     retryExpired,
     clearExpired,
+    dismissExpiredSession,
     onWSMessage: chatStreamHandler,
     error: chatError,
     gatewayConnected: _gatewayConnected,
@@ -1922,6 +1923,7 @@ function App() {
           expiredMessages={expiredMessages}
           retryExpired={retryExpired}
           clearExpired={clearExpired}
+          dismissExpiredSession={dismissExpiredSession}
           sendWS={sendWS}
           onWSMessage={onWSMessage}
           onUpdateTopic={updateTopic}

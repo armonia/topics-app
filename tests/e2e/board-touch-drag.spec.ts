@@ -42,8 +42,12 @@ const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 let projectTopicId: string | null = null;
 const createdTasks: string[] = [];
 
-async function createTask(request: import("@playwright/test").APIRequestContext, text: string): Promise<{ id: string }> {
-  const res = await request.post(`${BASE}/api/boards/${PROJECT_ID}/tasks`, { data: { text } });
+async function createTask(
+  request: import("@playwright/test").APIRequestContext,
+  text: string,
+  extra: { status?: string; parentTaskId?: string } = {},
+): Promise<{ id: string }> {
+  const res = await request.post(`${BASE}/api/boards/${PROJECT_ID}/tasks`, { data: { text, ...extra } });
   expect(res.ok()).toBe(true);
   const task = (await res.json()) as { id: string };
   createdTasks.push(task.id);
@@ -205,22 +209,31 @@ test.describe("La board col dito", () => {
    * other two (in the drawer) are the same button with the same class.
    */
   test("TOUCHTAP-01: la ✕ che chiude l'errore ha l'area di un dito e ha un nome", async ({ page, request }) => {
-    const task = await createTask(request, `Errore da chiudere ${Date.now()}`);
+    // The error on the card comes from an action the server REFUSES, not from a
+    // seed: an approval asked on a parent that still has an open child, which is
+    // the very refusal the red band exists to report. The two halves of that
+    // setup are the parent DELIVERED (`review` and no branch is the only state
+    // where the card offers `accept`) and the child OPEN (`backlog` counts for
+    // the gate and no dispatcher picks it up).
+    const task = await createTask(request, `Errore da chiudere ${Date.now()}`, { status: "review" });
+    await createTask(request, `Figlio aperto ${Date.now()}`, { parentTaskId: task.id, status: "backlog" });
+
     await page.goto(BASE);
     await openProjectBoard(page);
-    await expect(page.locator(`[data-task-card="${task.id}"]`)).toBeVisible({ timeout: 15000 });
+    const card = page.locator(`[data-task-card="${task.id}"]`);
+    await expect(card).toBeVisible({ timeout: 15000 });
+    await card.scrollIntoViewIfNeeded();
 
-    // The error on the card comes from an action the server REFUSES, not from a
-    // seed: the task is asked to go to done while it still has an open child,
-    // which is the very refusal the red band exists to report.
-    const child = await createTask(request, `Figlio aperto ${Date.now()}`);
-    await request.patch(`${BASE}/api/boards/${PROJECT_ID}/tasks/${child.id}`, { data: { parentTaskId: task.id } });
+    // The band is PROVOKED, it is not hoped for. This used to create the child
+    // and then skip when no band showed up: since nobody ever pressed the
+    // approval, the band could not appear and the test measured zero targets
+    // every single round, green and empty.
+    const accept = card.getByTestId("task-choice-accept");
+    await expect(accept).toBeVisible({ timeout: 10000 });
+    await accept.click();
 
     const errorBand = page.locator('[data-testid="card-action-error"]');
-    // If the band does not appear this round the test has nothing to measure and
-    // SAYS so, instead of passing having measured zero targets.
-    const appeared = await errorBand.first().isVisible().catch(() => false);
-    test.skip(!appeared, "no error band on the board this round");
+    await expect(errorBand.first()).toBeVisible({ timeout: 10000 });
 
     const [x] = await measureTargets(page, ['[data-testid="card-action-error"] button']);
     expect(x, "the error's X is not on screen").toBeTruthy();

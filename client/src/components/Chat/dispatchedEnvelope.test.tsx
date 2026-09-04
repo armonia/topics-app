@@ -1,4 +1,6 @@
 /**
+ * @covers DISPENV-01
+ *
  * THE BOARD'S ENVELOPE IS NOT A BUBBLE YOU WROTE.
  *
  * The kickoff, the resume and the nudge reach the transcript as `user` rows
@@ -11,6 +13,8 @@
  *
  * `renderToStaticMarkup` (no DOM in this repo): the assertion is on the markup,
  * which is what the E2E locators read.
+ *
+ * @covers CHAT-USERROW-01
  */
 import { describe, expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';

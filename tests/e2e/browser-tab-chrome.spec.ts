@@ -38,7 +38,6 @@ import {
   closeAllBrowserContexts,
 } from "./helpers/api-fixtures";
 import { projectPanesKey } from "../../shared/project-keys";
-import { installUiStateProbe, waitForFrames, waitForUiStateHydrated } from "./helpers/ui-state-probe";
 import { mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -361,19 +360,42 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
         ignoreHTTPSErrors: true,
       });
       expect(put.ok(), "seeding the project browser pane").toBe(true);
-      await installUiStateProbe(page);
       await goToApp(page);
       const projectTab = page.getByTestId(`pane-tab-project:${encodeURIComponent(project)}`);
       await expect(projectTab).toBeVisible({ timeout: 15000 });
       await projectTab.click();
       const host = new URL(origin).host;
       await expect(tabDelBrowser(page)).toContainText(new RegExp(host.replace(/\./g, "\\.")), { timeout: 60_000 });
-      // The row must not come back on its own once the store has spoken. What
-      // the three-second sleep was standing in for is the hydration itself:
-      // the server answer, over the socket or over the fallback GET, plus the
-      // frames React needs to render it.
-      await waitForUiStateHydrated(page, { timeout: 30_000 });
-      await waitForFrames(page, 20);
+      // The claim is a negative one - the URL row must NOT come back on its own
+      // once the store has spoken - and `toHaveCount(0)` is true the instant it
+      // is asked. The condition that makes it mean something is not a fixed
+      // window but SETTLEMENT: the row's presence has stopped changing. A row
+      // that reappears restarts the quiet period and is then read as present,
+      // which is the failure we want; a clean run stops as soon as it is quiet.
+      const rowSettled = await page.waitForFunction(
+        (quiet) => {
+          const w = window as unknown as { __rowSeen?: number; __rowSince?: number };
+          const now = performance.now();
+          const count = document.querySelectorAll('[data-testid="browser-url-input"]').length;
+          if (w.__rowSeen !== count) {
+            w.__rowSeen = count;
+            w.__rowSince = now;
+            return null;
+          }
+          // An OBJECT, not the number: `waitForFunction` reads the return value
+          // as "am I done?", and a settled count of zero - the good case - is
+          // falsy, so returning it plainly would poll until the timeout.
+          return now - (w.__rowSince ?? now) >= quiet ? { count } : null;
+        },
+        2000,
+        { timeout: 30_000, polling: "raf" },
+      );
+      // The handle's type still admits the not-settled sentinel, which cannot
+      // reach here: `waitForFunction` only resolves on a truthy value. The
+      // fallback names that impossible case with a count no run can produce,
+      // so it would fail loudly instead of being asserted away.
+      const settledRow = (await rowSettled.jsonValue()) ?? { count: -1 };
+      expect(settledRow.count, "the URL row must not come back on its own").toBe(0);
       await expect(page.getByTestId("browser-url-input")).toHaveCount(0, { timeout: 30_000 });
     } finally {
       await resetProjectPanes(request, project).catch(() => {});

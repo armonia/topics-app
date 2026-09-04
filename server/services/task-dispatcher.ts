@@ -51,6 +51,7 @@ import {
   shouldResume,
   type TurnEndInfo,
 } from "../providers/stop-reason";
+import { providerHold, holdUntilLabel } from "../lib/provider-hold";
 import { languageDirective } from "../lib/topics-agent-prompt";
 import { resolveOutputLanguage } from "./app-settings";
 import { OUTPUT_LANGUAGES, type OutputLanguage } from "../../shared/types";
@@ -935,6 +936,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * Sta in memoria di proposito: un riavvio ri-pianifica comunque.
    */
   const providerErrors = new Map<string, number>();
+  /** The `sinceMs` of the provider hold already logged by `tick`: once per hold. */
+  let holdAnnounced = 0;
 
   /**
    * One in-flight run: a turn being set up, running, or winding down.
@@ -2830,7 +2833,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           // card `in_progress` senza turno vivo e la sveglia comunque, contro
           // una sessione che sta ancora rispondendo. Vedi `retryWaits`.
           clearRetryWait(taskId);
-          const waitMs = outage ? backoff : 0;
+          // A spent usage window has a published end: the card waits for it
+          // (plus its backoff), instead of resuming into the same 429.
+          const holdMs = Math.max(0, (providerHold()?.untilMs ?? 0) - Date.now());
+          const waitMs = outage ? Math.max(backoff, holdMs) : 0;
           const retryTimer = setTimeout(() => {
             retryWaits.delete(taskId);
             void resume(taskId, "", { continuation: true });
@@ -3254,6 +3260,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // A restart is waiting for the fleet to go quiet: picking a card now would
     // keep it waiting forever. The card is not lost, it is next after the boot.
     if (draining) return;
+    // The plan's usage window is spent (`provider-hold.ts`): a card started
+    // now would only add its own 429s to the pile. Said once per hold.
+    const hold = providerHold();
+    if (hold) {
+      if (holdAnnounced !== hold.sinceMs) {
+        holdAnnounced = hold.sinceMs;
+        log(`dispatch fermo: ${hold.reason}, riparte alle ${holdUntilLabel(hold)}`);
+      }
+      return;
+    }
     // IL FRENO DI QUESTA BOARD, e viene dopo il globale di proposito: puo' solo
     // FERMARE. Il dispatch parte se il globale e' acceso E questa board non e'
     // in pausa; una board non in pausa con il globale spento non parte lo

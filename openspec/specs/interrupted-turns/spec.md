@@ -118,6 +118,10 @@ essere riconosciuti come riprendibili.
 - **GIVEN** un turno fermato a mano
 - **THEN** NON SHALL essere scritto nessun cartello
 
+#### Scenario: il limite dell'API per tutti i tentativi
+- **GIVEN** un turno morto con il testo grezzo «API 429 … rate_limit_error … (retried 27 times …)»
+- **THEN** il cartello SHALL dire che il limite di richieste dell'API è rimasto saturo, con l'ora del reset quando è nota, NON SHALL nominare «Riprova», e SHALL essere riconosciuto come interruzione nostra
+
 ### Requirement: INTERRUPT-04 — La lapide di un turno vuoto si riusa, ma solo se è davvero una lapide
 
 Quando un cartello di turno vuoto è seguito poco dopo dalla risposta VERA, quella

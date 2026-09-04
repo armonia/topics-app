@@ -1346,7 +1346,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       // stesso rifiuto del bottone Approva: il refetch riporta la card al suo
       // posto, e il perché la aspetta lì invece che in cima al pannello, dove
       // con la colonna scrollata non lo leggeva nessuno.
-      onCardError(task.id, taskActionErrorMessage(e, 'spostamento non riuscito'));
+      onCardError(task.id, taskActionErrorMessage(e, tr, tr('board.actionError.moveFailed')));
       refetch();
     } finally {
       // La scrittura ha risposto (bene o male): da qui in poi comanda il
@@ -1361,7 +1361,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       });
       flushDeferredRead();
     }
-  }, [patchTask, refetch, onCardError, flushDeferredRead]);
+  }, [patchTask, refetch, onCardError, flushDeferredRead, tr]);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   // Il movimento della board si aggancia qui: misura le colonne quando la firma

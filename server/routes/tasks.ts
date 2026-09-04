@@ -942,17 +942,23 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // (4c4ac437, 882f81b9, c8039b35) burnt a turn each on an "inherited" red:
     // a bloat baseline main had already moved while their branch sat on an
     // older base. The land realigns before merging; the checks now do the
-    // same before measuring, once per delivery (a key the gate already knows
-    // is a run in flight or a retained verdict, not a new delivery). A realign
-    // that cannot happen - conflict, dirty tree - IS the verdict: not a single
-    // command runs, and the agent gets the file list instead of a timeout.
-    if (opts.realignForChecks && !checksGate.known(taskId)) {
+    // same before measuring, once per delivery. "Once per delivery" is read
+    // off the gate: a run in flight, or a retained verdict for the commit the
+    // worktree is on, means the legs of the same delivery; anything else is a
+    // new delivery and main may have moved since (8db353ac, 2026-09-04: a
+    // redelivery measured on a base ten commits behind because the key was
+    // merely "known"). A realign that cannot happen - conflict, dirty tree -
+    // IS the verdict: not a single command runs, and the agent gets the file
+    // list instead of a timeout.
+    const before = await opts.taskCheckoutRef(taskId).catch(() => null);
+    const sameDelivery = checksGate.isRunning(taskId) || checksGate.verdictFor(taskId, before?.commit ?? null);
+    if (opts.realignForChecks && !sameDelivery) {
       const re = await opts.realignForChecks(taskId)
-        .catch((err): RealignOutcome => ({ ok: false, reason: `riallineamento fallito: ${err instanceof Error ? err.message : String(err)}` }));
+        .catch((err): RealignOutcome => ({ ok: false, reason: `riallineamento fallito: ${err instanceof Error ? err.message : String(err)}` })); // allow-italian: board notes are written in Italian like every other service comment
       if (!re.ok) {
         const comment =
-          `**Riallineamento su main fallito, check non partiti**: ${re.reason}. ` +
-          "Nel worktree fai `git merge main`, risolvi, committa, poi rimetti in review con update_task(status=\"review\").";
+          `**Riallineamento su main fallito, check non partiti**: ${re.reason}. ` + // allow-italian: board notes are written in Italian like every other service comment
+          "Nel worktree fai `git merge main`, risolvi, committa, poi rimetti in review con update_task(status=\"review\")."; // allow-italian: board notes are written in Italian like every other service comment
         try {
           svc.recordChecks({
             taskId, state: "fail", commit: null,
@@ -965,7 +971,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         return { ok: false, comment };
       }
       if (re.note) {
-        try { svc.addComment({ taskId, author: "system", kind: "service", content: `Riallineato su main prima dei check: ${re.note}` }); }
+        try { svc.addComment({ taskId, author: "system", kind: "service", content: `Riallineato su main prima dei check: ${re.note}` }); } // allow-italian: board notes are written in Italian like every other service comment
         catch { /* a trace, not the gate */ }
       }
     }

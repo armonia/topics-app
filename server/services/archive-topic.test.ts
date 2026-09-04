@@ -32,6 +32,7 @@ interface Harness {
   broadcasts: { type: string; [k: string]: unknown }[];
   purged: string[];
   parked: string[];
+  cancelAskCalls: string[];
 }
 
 function harness(opts: { topic?: Topic | null; purgeFails?: string } = {}): Harness {
@@ -41,10 +42,12 @@ function harness(opts: { topic?: Topic | null; purgeFails?: string } = {}): Harn
   const broadcasts: { type: string; [k: string]: unknown }[] = [];
   const purged: string[] = [];
   const parked: string[] = [];
+  const cancelAskCalls: string[] = [];
   return {
-    saved, unread, broadcasts, purged, parked,
+    saved, unread, broadcasts, purged, parked, cancelAskCalls,
     deps: {
       parkClaudeSession: (sk) => { parked.push(sk); },
+      cancelPendingAsk: (sk) => { cancelAskCalls.push(sk); },
       getTopicById: (id) => (topic && topic.id === id ? topic : null),
       saveSingleTopic: (t) => { saved.push(t); },
       loadUnread: () => unread,
@@ -169,5 +172,34 @@ describe("archiveTopicFully", () => {
     h.unread.altro = { lastReadAt: "2026-07-01T00:00:00.000Z", unreadCount: 3 };
     archiveTopicFully(h.deps, "t1");
     expect(h.unread.altro?.unreadCount).toBe(3);
+  });
+});
+
+/**
+ * THE QUESTION GOES WITH THE TOPIC.
+ *
+ * A chat parked on a question is the fourth source of the quiescence gate, and
+ * the gate defers a restart on it at once. Archiving takes the panel off every
+ * screen, so nobody can answer, and the deferral becomes a block that lasts
+ * the whole ask TTL. Cancelling the ask is the step that ends it (card
+ * 6c2dc14c).
+ */
+describe("archiveTopicFully - la domanda aperta", () => {
+  it("annulla l'ask della sessione archiviata", () => {
+    const h = harness();
+    archiveTopicFully(h.deps, "t1");
+    expect(h.cancelAskCalls).toEqual(["sk1"]);
+  });
+
+  it("ri-archiviare RIPARA: annulla anche su un topic gia' archiviato", () => {
+    const h = harness({ topic: makeTopic({ archived: true }) });
+    archiveTopicFully(h.deps, "t1");
+    expect(h.cancelAskCalls).toEqual(["sk1"]);
+  });
+
+  it("un topic senza sessione non chiama niente", () => {
+    const h = harness({ topic: makeTopic({ sessionKey: undefined }) });
+    archiveTopicFully(h.deps, "t1");
+    expect(h.cancelAskCalls).toEqual([]);
   });
 });

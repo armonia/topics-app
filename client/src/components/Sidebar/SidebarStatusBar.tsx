@@ -6,6 +6,7 @@ import { ROW_INSET } from '@/lib/selectionStyles';
 import { clearBootDegraded, degradedNotice, fetchBootDegraded, type BootDegraded } from '@/lib/shell/bootDegraded';
 import { useMobile } from '@/hooks/useMobile';
 import { useT } from '@/hooks/useT';
+import { useProviderHold } from '@/state/providerHold';
 
 /**
  * IL FONDO DELLA COLONNA: chi sei, e cosa non va.
@@ -60,6 +61,11 @@ export function TransportAlarms({ wsStatus, dataNotice, inset }: {
   const { isMobile } = useMobile();
   const padLeft = inset?.left ?? ROW_INSET;
   const padRight = inset?.right ?? ROW_INSET;
+  // The plan's usage window is spent (server/lib/provider-hold.ts): every turn
+  // would end on a 429 until the reset, so the server holds the fleet and the
+  // resumes. Said here, once, for the whole app: 27 silent retries per chat
+  // were how the person found out on 2026-09-04.
+  const providerHold = useProviderHold();
 
   /**
    * L'ATTESA MUTA, DETTA.
@@ -147,6 +153,23 @@ export function TransportAlarms({ wsStatus, dataNotice, inset }: {
             }`} />
             <span className="truncate">
               {wsStatus === 'connecting' ? 'Connecting…' : wsStatus === 'reconnecting' ? 'Reconnecting…' : 'Offline'}
+            </span>
+          </span>
+        </div>
+      )}
+
+      {wsStatus === 'connected' && providerHold && (
+        <div style={{ paddingLeft: padLeft, paddingRight: padRight }}>
+          <span
+            data-testid="provider-hold-notice"
+            className={`flex items-center gap-1.5 text-[11px] ${SEGNALE_ATTESA} min-w-0 overflow-hidden`}
+            title={tr('statusBar.providerHold.title')}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${PALLINO_ATTESA}`} />
+            <span className="truncate">
+              {tr(providerHold.window === 'seven_day' ? 'statusBar.providerHold.week' : 'statusBar.providerHold.fiveHours', {
+                time: new Date(providerHold.untilMs).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
+              })}
             </span>
           </span>
         </div>

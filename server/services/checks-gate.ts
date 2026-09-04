@@ -81,6 +81,8 @@ export type ChecksGate = {
    *  `false` = the next leg opens a NEW delivery, which is when the branch is
    *  realigned on main before anything is measured (see `runChecksGate`). */
   known(key: string): boolean;
+  /** A finished run for THIS commit is retained: the same delivery, asked again. */
+  verdictFor(key: string, commit: string | null): boolean;
   /**
    * Quante corse stanno GIRANDO adesso (non conteggiate quelle in coda).
    * Letto dal dispatcher per includere le barre di check nel freno del dispatch:
@@ -207,6 +209,10 @@ export function createChecksGate(opts: {
     },
     known(key) {
       return corse.has(key);
+    },
+    verdictFor(key, commit) {
+      const corsa = corse.get(key);
+      return !!corsa && corsa.endedAt !== null && corsa.commit === commit;
     },
     async leg(key, { commit, legMs, run }) {
       let corsa = corse.get(key);

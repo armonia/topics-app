@@ -2157,6 +2157,26 @@ empty queue SHALL render nothing at all.
 - **GIVEN** an empty queue
 - **THEN** the queue renders nothing, and no send-now control
 
+### Requirement: CHAT-QUEUE-05 — Il banner dei messaggi non inviati dice QUALE chat, e ci porta
+
+Quando uno o più messaggi non sono partiti, il banner SHALL mostrare una riga
+per chat, con il nome del topic, il conteggio e un'anteprima del testo: un
+conteggio globale senza nome manda la persona a cercare la chat a mano.
+
+Il click su una riga SHALL aprire o mettere a fuoco quella chat; «Riprova» e
+«Scarta» SHALL agire per riga, non su tutte le chat insieme. Le stringhe SHALL
+passare dai cataloghi i18n. Su un telefono il banner SHALL stare sopra la barra
+in basso, non sopra il composer.
+
+#### Scenario: due chat con messaggi fermi
+- **GIVEN** un messaggio non inviato in due chat diverse
+- **THEN** il banner SHALL mostrare due righe con i due nomi, e il click sulla prima SHALL portare a quella chat
+
+#### Scenario: scarta una riga
+- **GIVEN** due righe nel banner
+- **WHEN** la persona scarta la prima
+- **THEN** la seconda SHALL restare
+
 ### Requirement: CHAT-BUBBLE-01 — La bolla porta l'id del SERVER, e una riadozione non la raddoppia
 
 Il segnaposto disegnato quando parte un turno SHALL portare l'IDENTIFICATIVO che
@@ -3187,6 +3207,46 @@ turno, semplicemente nessuno compra più turni per perseguirlo.
 - **THEN** l'obiettivo è ancora attivo
 - **AND** alla fine del turno successivo nessuna continuazione parte
 
+### Requirement: CHAT-USERROW-01 — Una riga `user` scritta dalla macchina non è una bolla della persona
+
+Le righe `user` che il dispatcher scrive per far partire o continuare un turno
+(kickoff, ripresa, sollecito, continuazione dopo un'interruzione) SHALL essere
+marcate ALLA FONTE come righe della macchina, e una riga `user` scritta dalla
+persona NON SHALL portare nessun marchio: un marchio su ogni riga non direbbe
+niente.
+
+Il client SHALL rendere una riga marcata come cartiglio di sistema (piegato,
+con il nome di chi l'ha scritta), NON come bolla della persona a destra con il
+bottone di modifica: trecento righe di istruzioni della board in bocca alla
+persona sono una bugia a schermo.
+
+#### Scenario: la busta del dispatcher
+- **GIVEN** un turno avviato dalla board con la sua busta
+- **THEN** la riga `user` SHALL portare il marchio della macchina e SHALL comparire come cartiglio, non come bolla
+
+#### Scenario: il messaggio della persona
+- **GIVEN** una riga `user` scritta dalla persona nel composer
+- **THEN** NON SHALL portare nessun marchio e SHALL restare una bolla
+
+### Requirement: CHAT-PERSIST-01 — La riga di un turno non si riscrive per intero a ogni evento
+
+Un turno in corso SHALL riscrivere la propria colonna `blocks` a intervalli
+(ogni N eventi e a fine turno), non a ogni delta o evento di tool: il costo di
+un turno in byte scritti SHALL crescere in modo lineare con i suoi eventi, non
+quadratico.
+
+Con `blocks` sulla riga, la colonna `tool_calls` NON SHALL essere scritta una
+seconda volta: le chiamate di tool si leggono dalla timeline. Chi scrive la
+timeline lo dichiara (`mirroredInBlocks`), invece di farlo indovinare alla riga.
+
+#### Scenario: quindici eventi, poche scritture
+- **GIVEN** un turno che riceve quindici eventi di tool
+- **THEN** la colonna `blocks` SHALL essere riscritta un numero di volte limitato dall'intervallo, e per intero solo a fine turno
+
+#### Scenario: nessuna seconda copia
+- **GIVEN** una riga che porta `blocks`
+- **THEN** `tool_calls` SHALL restare vuota e i tool SHALL essere letti dalla timeline
+
 ### Requirement: CHAT-INT-01 — Un turno interrotto dice perché, e offre una via d'uscita
 
 Quando il sistema chiude un turno che non è arrivato in fondo, il messaggio SHALL
@@ -3245,3 +3305,57 @@ vuol dire «non attribuito», non «watchdog»).
 #### Scenario: Uno stop della persona non accende il banner
 - **GIVEN** un turno chiuso con causa `user`
 - **THEN** il banner «Risposta interrotta» non compare
+
+### Requirement: USERROW-01 — A `user` row nobody typed says so, and one somebody typed does not
+
+Two turns reach the chat wearing the person's role without being the person:
+the dispatcher's envelope (kickoff, resume, nudge of a board task) and the goal
+loop continuation. Both HAVE to be `user` rows, because that is the only role a
+provider answers. Measured on the live database: 411 rows opening with the
+kickoff text and 1,033 with the interrupted-turn text, all with a NULL author.
+
+A row written by the dispatcher SHALL carry a `dispatched-envelope` mark, and a
+row bought by the goal loop SHALL carry a `goal-nudge` mark with its attempt
+number. A row the person really typed SHALL carry NOTHING: absent marks are
+what gives the present ones any meaning.
+
+The absence SHALL be `undefined`, never an empty list: an empty `blocks` column
+would claim "we looked and found nothing" where the truth is there was nothing
+to mark, and it is also what every row written before this rule carries.
+
+A continuation number that is not a positive number NOT SHALL produce a mark:
+zero is the loop saying it bought nothing, and a non-numeric value is not a
+continuation to invent one from.
+
+#### Scenario: the person's own message
+- **GIVEN** a `user` row with no dispatch and no continuation
+- **THEN** no marks SHALL be written, and the column SHALL stay unset
+
+#### Scenario: the board's envelope
+- **GIVEN** a turn the board drives
+- **THEN** the row SHALL carry the `dispatched-envelope` mark
+
+#### Scenario: a continuation the loop bought
+- **GIVEN** a turn bought by the goal loop as attempt 3
+- **THEN** the row SHALL carry the continuation mark with attempt 3
+
+### Requirement: DISPENV-01 — The dispatcher's envelope is drawn as a service line, not as your bubble
+
+A row marked as the dispatcher's envelope NOT SHALL be drawn as a right-hand
+user bubble: three hundred lines of generated instructions in the person's
+mouth, with an "edit" button on hover, is the transcript lying about who spoke.
+
+The renderer SHALL read the mark off the row's blocks and draw ONE collapsed
+service line instead. COLLAPSED, NOT HIDDEN: the resume envelope quotes the
+person's own message inside it, so the text SHALL stay one click away.
+
+The mark SHALL be recognised beside other marks on the same row, and an
+unmarked row SHALL keep the ordinary bubble.
+
+#### Scenario: a kickoff row
+- **GIVEN** a `user` row carrying the `dispatched-envelope` mark
+- **THEN** the service line SHALL be rendered and the user bubble NOT SHALL be
+
+#### Scenario: a row a person typed
+- **GIVEN** a `user` row with no marks
+- **THEN** the ordinary bubble SHALL be rendered
