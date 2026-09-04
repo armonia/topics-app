@@ -18,6 +18,15 @@ const NIGHTLY_ONLY_SPECS = [
   // per riprovare tre flussi che altre spec già coprono. Nel notturno gira, così
   // l'attrezzo resta vivo e i numeri del giorno restano registrati.
   "ink-latency",
+  // Same family, same reason. `pane-return-cls` measures a RETURN per pane:
+  // CLS plus the milliseconds between the app painting and the pane having
+  // content. The CLS half is stable anywhere; the milliseconds half is not,
+  // because it counts real frames on a real CPU. Measured on this machine the
+  // same case reads 24 ms idle and 365 ms with a dozen agents running, so on
+  // the PR gate it would report the load average, and a gate that goes red
+  // when the machine is busy teaches people to re-run it rather than to read
+  // it. Nightly it runs alone, where the number means what it says.
+  "pane-return-cls",
   "browser-ws-streaming",
   "chat-scroll",
   "browser-agent-control",

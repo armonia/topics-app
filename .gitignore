@@ -118,6 +118,10 @@ docs/*
 # normale fa entrare Internet come proprietario — e la regola per evitarlo. Una
 # nota del genere che vive solo sulla macchina di chi l'ha scritta non protegge
 # nessun altro.
+# The first-frame inventory is the map this rule is applied from: which pane
+# draws what before its data arrives, and which local copy it reads. A map that
+# lives on one machine gets rebuilt from scratch by the next person.
+!docs/pane-first-frame-inventory.md
 !docs/drag-preview.md
 !docs/tunnel.md
 # licenze-rilascio.md dice DOVE vive la chiave privata con cui si firmano le

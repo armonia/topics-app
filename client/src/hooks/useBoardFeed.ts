@@ -43,6 +43,7 @@ import {
   hasLoadedBoardTasks, patchBoardTask, requestBoardTasksRefresh,
   useBoardTasks, useBoardTasksLoaded,
 } from '../lib/boardTasksStore';
+import { readBoardRowsCache, writeBoardRowsCache } from '../lib/boardRowsCache';
 import { subscribeLifecycle } from '../lib/wsFrameBus';
 
 /** Same window as the global feed's, and for the same reasons (useGlobalBoard). */
@@ -95,7 +96,18 @@ export function useBoardFeed({ mode, projectId, showArchived, onError }: BoardFe
   // what makes "still loading" a derived value instead of a flag set from an
   // effect: switching board or opening the archive changes the key, and the
   // spinner is simply "the answer on hand is not for this question".
-  const [own, setOwn] = useState<{ key: string; rows: readonly BoardTask[] }>({ key: '', rows: [] });
+  //
+  // THE SEED: the rows this very query answered last time, read synchronously
+  // from the local copy. Without it a reload lands on empty columns until the
+  // fetch comes back, and the answer to "was the board there on the first
+  // frame" was no. `key` is set to the query the seed answers, so `loading`
+  // stays false and the columns keep the geometry the reader left behind; the
+  // fetch below leaves anyway and overwrites it.
+  const [own, setOwn] = useState<{ key: string; rows: readonly BoardTask[] }>(() => {
+    const k = queryKey(projectId, showArchived);
+    const cached = readBoardRowsCache(k);
+    return cached ? { key: k, rows: cached } : { key: '', rows: [] };
+  });
   const key = queryKey(projectId, showArchived);
 
   // The query lives in a ref because the reader owns a timer: rebuilding it on
@@ -127,6 +139,7 @@ export function useBoardFeed({ mode, projectId, showArchived, onError }: BoardFe
         apply: (out) => {
           if (out.ok) {
             setOwn({ key: out.key, rows: out.rows });
+            writeBoardRowsCache(out.key, out.rows);
             onErrorRef.current(null);
           } else {
             // A failed read still ANSWERS the question: the previous rows stay

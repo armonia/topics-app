@@ -1257,7 +1257,6 @@
       "dsfRef",
       "failWebrtc",
       "fetchScreenshot",
-      "preload",
       "psf",
       "psfChanged",
       "retryWebrtc",
@@ -1481,9 +1480,6 @@
     ],
     "client/src/lib/cacheBreakdown.test.ts": [
       "pctCosto"
-    ],
-    "client/src/lib/chunkReloadGuard.ts": [
-      "onPreloadError"
     ],
     "client/src/lib/columnFlash.test.ts": [
       "chiusa",
@@ -7046,9 +7042,6 @@
       "primo",
       "verificaAssoluta"
     ],
-    "tests/e2e/refresh-cls.spec.ts": [
-      "testid"
-    ],
     "tests/e2e/refresh-durability-board.spec.ts": [
       "PROJ",
       "PROJ_ID",
@@ -8228,12 +8221,10 @@
       "stato"
     ],
     "tests/unit/test-default-timeout.test.ts": [
-      "PRELOAD_REL",
       "applicato",
       "atteso",
       "bunfig",
       "costanteDichiarata",
-      "dalPreload",
       "scriptCheLancianoBunTest",
       "sorgentePreload"
     ],

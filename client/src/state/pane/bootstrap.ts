@@ -30,6 +30,7 @@ import {
   markServerHydrated,
 } from './middleware/serverHydrated';
 import { usePaneStore } from './store';
+import { preloadPaneChunks } from './panePreload';
 import { subscribeFrames } from '../../lib/wsFrameBus';
 import { initTombstoneSync } from './adapters/tombstoneSync';
 
@@ -140,6 +141,14 @@ export function bootstrapPaneStore(): void {
   // and the focus-keeper effects would snap focus to `storeOrder[0]`.
   // Server hydrate still wins LWW via syncWS's lastAppliedServerSeq guard.
   hydrateFromLocalSnapshot();
+
+  // The snapshot just told us WHICH KINDS of pane are on screen, and every pane
+  // body is a lazy chunk. Ask for those chunks now, in parallel with the rest
+  // of the boot, instead of after React has mounted and hit the suspense
+  // boundary: that wait was 222-347 ms of spinner on a reload, and it was the
+  // same figure for the board, the editor and the terminal, because it was
+  // never their data - it was their code. See `panePreload.ts`.
+  preloadPaneChunks(Object.values(usePaneStore.getState().panes).map((p) => p.type));
 
   // Wire the persistence subscribers (write paths gated on detached above).
   if (!isDetached) {

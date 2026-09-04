@@ -1,10 +1,16 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
-import { mkdirSync, writeFileSync } from "fs";
-import { resolve } from "path";
 import { goToApp, ensureTopicVisible, openTopic } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";
 import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
+import {
+  armObserver,
+  buildReport,
+  collectShifts,
+  summarize,
+  writeReport,
+  type ClsReport as ReturnReport,
+} from "./helpers/cls-return";
 
 hermetic(test);
 
@@ -53,101 +59,16 @@ hermetic(test);
  */
 const RETURN_BUDGET = 0.01;
 
-const OUT_DIR = resolve(__dirname, "../../test-results/cls");
 const LABEL = process.env.E2E_CLS_LABEL || "run";
 
-type ShiftSource = {
-  node: string;
-  from: { x: number; y: number; w: number; h: number };
-  to: { x: number; y: number; w: number; h: number };
-};
-type Shift = { value: number; at: number; sources: ShiftSource[] };
 /** Le misure del contenuto VERO, a lista posata. Servono a poter dire se uno
  *  scheletro è realistico con un numero invece che a occhio: uno scheletro che
  *  non ha le misure del contenuto vero è un layout shift col cappello. */
 type Geometry = { sidebarRow: number | null; messageRows: number[] };
-type ClsReport = { cls: number; total: number; count: number; geometry: Geometry; shifts: Shift[] };
-
-/**
- * Registra l'osservatore PRIMA della app. Vive su `window` perché deve
- * sopravvivere al `reload` come codice di init, non come stato.
- */
-async function armObserver(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    type LayoutShiftSource = { node?: Node | null; previousRect: DOMRectReadOnly; currentRect: DOMRectReadOnly };
-    type LayoutShift = PerformanceEntry & { value: number; hadRecentInput: boolean; sources?: LayoutShiftSource[] };
-    const shifts: unknown[] = [];
-    (window as unknown as { __clsShifts: unknown[] }).__clsShifts = shifts;
-
-    // Come si chiama il nodo che si è mosso. Il testid per primo perché è
-    // l'unico nome che il codice ha scelto apposta; poi aria-label, id,
-    // e in ultima istanza le prime due classi — che almeno dicono il quartiere.
-    const name1 = (el: Element): string => {
-      const testid = el.getAttribute("data-testid");
-      if (testid) return `${el.tagName.toLowerCase()}[data-testid=${testid}]`;
-      const aria = el.getAttribute("aria-label");
-      if (aria) return `${el.tagName.toLowerCase()}[aria-label="${aria}"]`;
-      if (el.id) return `${el.tagName.toLowerCase()}#${el.id}`;
-      const cls = (el.getAttribute("class") || "").split(/\s+/).filter(Boolean).slice(0, 3).join(".");
-      return cls ? `${el.tagName.toLowerCase()}.${cls}` : el.tagName.toLowerCase();
-    };
-    // Il nodo da solo spesso non dice niente («div»): la prima misura ha
-    // attribuito il 100% del costo a un `div` anonimo, che è un'attribuzione
-    // che non si può usare. Serve il QUARTIERE — l'antenato più vicino che
-    // qualcuno ha battezzato con un testid/aria — altrimenti l'elenco di «cosa
-    // arriva tardi» non si può nemmeno scrivere.
-    const describe = (n: Node | null | undefined): string => {
-      if (!n || !(n instanceof Element)) return "(non-element)";
-      const el = n as Element;
-      const chain: string[] = [name1(el)];
-      let p: Element | null = el.parentElement;
-      let named = el.hasAttribute("data-testid");
-      for (let i = 0; i < 8 && p && !named; i++) {
-        if (p.hasAttribute("data-testid") || p.hasAttribute("aria-label")) { chain.unshift(name1(p)); named = true; break; }
-        p = p.parentElement;
-      }
-      if (!named && el.parentElement) chain.unshift(name1(el.parentElement));
-      return chain.join(" » ");
-    };
-    const rect = (r: DOMRectReadOnly) => ({
-      x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height),
-    });
-
-    new PerformanceObserver((list) => {
-      for (const raw of list.getEntries()) {
-        const e = raw as LayoutShift;
-        if (e.hadRecentInput) continue;
-        shifts.push({
-          value: e.value,
-          at: Math.round(e.startTime),
-          sources: (e.sources || []).map((s) => ({
-            node: describe(s.node),
-            from: rect(s.previousRect),
-            to: rect(s.currentRect),
-          })),
-        });
-      }
-    }).observe({ type: "layout-shift", buffered: true });
-  });
-}
-
-/** Le finestre di sessione della definizione web-vitals: gap 1s, durata 5s. */
-function sessionCls(shifts: Shift[]): number {
-  let best = 0, sum = 0, first = 0, prev = 0;
-  for (const s of shifts) {
-    if (sum && (s.at - prev > 1000 || s.at - first > 5000)) sum = 0;
-    if (!sum) first = s.at;
-    prev = s.at;
-    sum += s.value;
-    if (sum > best) best = sum;
-  }
-  return best;
-}
+type ClsReport = ReturnReport & { geometry: Geometry };
 
 async function collect(page: Page): Promise<ClsReport> {
-  const shifts = await page.evaluate(
-    () => (window as unknown as { __clsShifts?: Shift[] }).__clsShifts ?? [],
-  ) as Shift[];
+  const shifts = await collectShifts(page);
   const geometry = await page.evaluate(() => {
     const row = document.querySelector('[role="treeitem"]');
     const items = [...document.querySelectorAll('[data-testid="virtuoso-item-list"] > *')]
@@ -158,26 +79,7 @@ async function collect(page: Page): Promise<ClsReport> {
       messageRows: items,
     };
   });
-  const total = shifts.reduce((a, s) => a + s.value, 0);
-  return { cls: sessionCls(shifts), total, count: shifts.length, geometry, shifts };
-}
-
-/** Il rapporto leggibile: chi si è mosso e quanto è costato, in ordine di costo. */
-function summarize(report: ClsReport): string {
-  const byNode = new Map<string, { value: number; hits: number }>();
-  for (const s of report.shifts) {
-    const names = s.sources.length ? s.sources.map((x) => x.node) : ["(senza sorgente)"];
-    for (const n of names) {
-      const cur = byNode.get(n) || { value: 0, hits: 0 };
-      cur.value += s.value / names.length;
-      cur.hits += 1;
-      byNode.set(n, cur);
-    }
-  }
-  return [...byNode.entries()]
-    .sort((a, b) => b[1].value - a[1].value)
-    .map(([n, v]) => `  ${v.value.toFixed(4)}  ×${v.hits}  ${n}`)
-    .join("\n");
+  return { ...buildReport(shifts, { geometry }), geometry };
 }
 
 /**
@@ -225,9 +127,7 @@ async function measureRefresh(page: Page, request: APIRequestContext, name: stri
   await page.waitForTimeout(6000);
 
   const report = await collect(page);
-  mkdirSync(OUT_DIR, { recursive: true });
-  const file = resolve(OUT_DIR, `${LABEL}-${name}.json`);
-  writeFileSync(file, JSON.stringify(report, null, 2));
+  const file = writeReport(LABEL, name, report);
   console.log(
     `\n[cls:${LABEL}:${name}] CLS=${report.cls.toFixed(4)} total=${report.total.toFixed(4)} shifts=${report.count}` +
     `\n[geom:${LABEL}:${name}] riga-sidebar=${report.geometry.sidebarRow}px messaggi=[${report.geometry.messageRows.join(', ')}]px` +
