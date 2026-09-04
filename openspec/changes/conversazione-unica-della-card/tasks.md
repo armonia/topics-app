@@ -6,41 +6,41 @@ sola con la sua barra.
 
 ## 1. T1 — Ancore sul filo (server, nessun cambio UI)
 
-- [ ] 1.1 Backup PRIMA di creare qualunque file di migration:
+- [x] 1.1 Backup PRIMA di creare qualunque file di migration:
   `cp data/topics.db data/topics.db.bak-$(date +%s)` e lo stesso per
   `data/topics.db-wal` (il watcher `TOPICS_SERVER_WATCH=1` applica al DB vivo in
   secondi).
-- [ ] 1.2 Migration `server/db/migrations/2026090XXXXXXX-mark-dispatched-envelopes.sql`
+- [x] 1.2 Migration `server/db/migrations/2026090XXXXXXX-mark-dispatched-envelopes.sql`
   con l'`UPDATE` ancorato all'inizio sulle quattro aperture, `role='user'` e
   `blocks IS NULL`; rigenerare il manifest embedded come per le altre.
-- [ ] 1.3 `tests/integration/migration-XXXX-dispatched-envelopes.test.ts` sul
+- [x] 1.3 `tests/integration/migration-XXXX-dispatched-envelopes.test.ts` sul
   pattern di `migration-071-empty-turns.test.ts`: ESEGUE il file .sql su un DB
   sintetico — 4 aperture marcate, 1 riga umana che cita «Human update on task» a
   metà frase → `NULL`, 1 riga già marcata → invariata.
-- [ ] 1.4 Aggiornare il commento di `server/lib/user-row-marks.ts:10-15`
+- [x] 1.4 Aggiornare il commento di `server/lib/user-row-marks.ts:10-15`
   (2301 totali, 437 `LAST TURN on`).
-- [ ] 1.5 `commentIds` sulla busta: `shared/types.ts:960`;
+- [x] 1.5 `commentIds` sulla busta: `shared/types.ts:960`;
   `userRowMarks({goalNudge, dispatched, commentIds})` scrive gli id solo con
   `dispatched === true` e elenco non vuoto; `server/routes/chat.ts:327` legge
   `body.dispatchedFor` (array di stringhe, filtrato) e 431-436 lo passa;
   `runHeadlessTurn` (server.ts:872-885) lo mette nel body.
-- [ ] 1.6 Catena nel dispatcher: `resume(taskId, text, {continuation?, commentIds?})`
+- [x] 1.6 Catena nel dispatcher: `resume(taskId, text, {continuation?, commentIds?})`
   (3064); `pendingResume`/`bufferResume` (1192-1193) conservano `commentId?`; i
   flush di `onTurnEnd` (2695, 2714) passano gli id; `slotWaits` (3151-3160) li
   eredita; il ramo che parte (3178-3187) passa `dispatchedFor` a `deps.runTurn`
   (firma ~318-327 estesa).
-- [ ] 1.7 Chiamanti: `routes/tasks.ts:3230` →
+- [x] 1.7 Chiamanti: `routes/tasks.ts:3230` →
   `dispatcher.resume(root.id, msg, {commentIds:[comment.id]})`; rotta
   reject-con-testo (2929-2939): `svc.addComment` PRIMA, poi
   `reviewDecision({comment: text})` come oggi, poi `resume(…, {commentIds:[id]})`.
   Il testo di `buildResume` (3012-3027) non cambia.
-- [ ] 1.8 Migration `server/db/migrations/2026090XXXXXXX-task-comment-message-anchor.sql`:
+- [x] 1.8 Migration `server/db/migrations/2026090XXXXXXX-task-comment-message-anchor.sql`:
   `ALTER TABLE task_comments ADD COLUMN message_id TEXT` (nullable, nessun
   backfill, nessun indice). Backup come in 1.1.
-- [ ] 1.9 `addComment({…, messageId?})` scrive la colonna (tasks.ts:3670);
+- [x] 1.9 `addComment({…, messageId?})` scrive la colonna (tasks.ts:3670);
   `rowToComment` espone `messageId`; `shared/board.ts:1350-1380`
   `TaskComment.messageId?: string | null`.
-- [ ] 1.10 Scrittori dell'ancora: `routes/tasks.ts:3425-3470` (`comment_task`) con
+- [x] 1.10 Scrittori dell'ancora: `routes/tasks.ts:3425-3470` (`comment_task`) con
   `ctx.isStreaming(sk)?.messageId ?? null`; la PATCH di sessione con
   `status:'review'`+`summary` passa l'id a `update()` → tasks.ts:3345 sulla riga
   `delivery`; `routes/permission.ts:57-67` (domanda instradata);
@@ -48,11 +48,11 @@ sola con la sua barra.
   `recoverAgentWords` (task-dispatcher.ts:2628-2633) e il chiamante a 2215 si
   adeguano, `deliverToReviewBySystem` (tasks.ts:4431-4560) scrive `message_id`
   sulla nota con le «Ultime parole».
-- [ ] 1.11 Test nuovi: `userRowMarks` scrive `commentIds` solo con `dispatched`;
+- [x] 1.11 Test nuovi: `userRowMarks` scrive `commentIds` solo con `dispatched`;
   `resume` con `commentIds` → body con `dispatchedFor`; il flush di `onTurnEnd`
   conserva gli id; `addComment({messageId})` round-trip in `rowToComment`;
   `getLastAgentText` torna l'id giusto saltando i cartelli ⚠️.
-- [ ] 1.12 Barra T1: `bun test server/lib/user-row-marks.test.ts
+- [x] 1.12 Barra T1: `bun test server/lib/user-row-marks.test.ts
   server/services/task-dispatcher.test.ts server/services/tasks.comment-kind.test.ts
   server/services/tasks.delivery.test.ts server/services/tasks.system-delivery.test.ts
   tests/integration/ultima-prosa-agente.test.ts

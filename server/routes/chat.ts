@@ -341,6 +341,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       // propaga sul `stream:end` di completamento così la push di fine risposta
       // lo esclude (vedi server/push-triggers.ts). Decine di turni d'agente = spam.
       const dispatched = body.dispatched === true;
+      // The card comments this envelope delivers, when the dispatcher is
+      // resuming an agent on words somebody wrote while it was busy. Filtered
+      // here rather than trusted: the body is input.
+      const dispatchedFor: string[] = Array.isArray(body.dispatchedFor)
+        ? (body.dispatchedFor as unknown[]).filter((id): id is string => typeof id === "string" && id.length > 0)
+        : [];
       // O(1) UNIQUE-index lookup — replaces a full topics scan per chat send.
       const matchedTopic = getTopicBySessionKey(sessionKey);
       // Reset browser navigate tracking for this topic so new URLs can trigger
@@ -448,7 +454,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         const storedUserMsg = appendLocalMessage(
           sessionKey, "user", lastUserMsg.content,
           autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null),
-          userRowMarks({ goalNudge: body.goalNudge, dispatched }),
+          userRowMarks({ goalNudge: body.goalNudge, dispatched, commentIds: dispatchedFor }),
         );
         // ADESSO il messaggio esiste, e da adesso una ripetizione è un doppione.
         // Non un istante prima: la riga è la prova, e finché non c'è, ripetere è

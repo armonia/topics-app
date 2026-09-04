@@ -2967,6 +2967,20 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             const queued = svc.get(bReview.taskId, { projectId: bReview.projectId })?.task ?? before;
             return json({ ...queued, landing: ticket }, 202);
           }
+          // The rejection text is written HERE first, so the row exists and has
+          // an id before the resume that delivers it. `reviewDecision` writes
+          // the same comment right after and the author+content dedupe makes
+          // that second write a no-op, which is why the review_comment it keeps
+          // is untouched.
+          let rejectCommentId: string | null = null;
+          if (decision === "reject" && comment) {
+            try {
+              rejectCommentId = svc.addComment({
+                taskId: bReview.taskId, author: HUMAN, content: comment,
+                projectId: bReview.projectId,
+              }).id;
+            } catch { rejectCommentId = null; }
+          }
           const task = svc.reviewDecision({
             taskId: bReview.taskId, by: HUMAN, decision, comment,
             projectId: bReview.projectId,
@@ -2977,7 +2991,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // resumes instead of a fresh agent spawning. reviewDecision already
           // moved it back to in_progress.
           if (dispatcher && decision === "reject" && task.assignedTopicId) {
-            dispatcher.resume(bReview.taskId, comment ?? "")
+            dispatcher.resume(bReview.taskId, comment ?? "", rejectCommentId ? { commentIds: [rejectCommentId] } : undefined)
               .catch((err) => console.warn(`[Tasks] resume after reject failed for ${bReview.taskId}:`, err));
           } else if (dispatcher && decision === "reject") {
             // No session to resume: the binding was released (a restart with
@@ -3268,7 +3282,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               // Attachments ride along as disk paths — the agent reads them
               // directly (screenshots, docs, mockups the human dropped in).
               if (comment.media.length) msg += `\nAllegati (file su disco, leggili): ${comment.media.join(" ")}`;
-              dispatcher.resume(root.id, msg)
+              // The envelope carries the id of the comment it delivers: those
+              // words are already a row in the thread, and the anchor is what
+              // lets a reader draw them once instead of twice.
+              dispatcher.resume(root.id, msg, { commentIds: [comment.id] })
                 .catch((err) => console.warn(`[Tasks] resume after comment failed for ${root.id}:`, err));
             }
           } catch { /* the root may have moved meanwhile */ }
@@ -3509,6 +3526,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           questionOptions: Array.isArray(body?.options)
             ? body.options.filter((o: unknown) => typeof o === "string")
             : undefined,
+          // WHERE THE AGENT WAS WHEN IT SAID THIS: the assistant row being
+          // streamed right now, the same reading the chat route makes for its
+          // `stream_in_flight` 409. Absent outside a turn, which is honest.
+          messageId: ctx.isStreaming?.(sk)?.messageId ?? null,
         });
         const task = svc.get(commentsRoute.taskId, { projectId: sess.projectId })?.task;
         broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
@@ -3742,6 +3763,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             projectId: sess.projectId,
             agentTopicId: sess.topicId,
             patch: parsed.patch,
+            // The delivery line is said DURING a turn, and this is the row it
+            // was said in: same anchor as `comment_task`, so the reviewer's
+            // thread can put the summary under the step that produced it.
+            messageId: ctx.isStreaming?.(decodeURIComponent(item.sessionKey))?.messageId ?? null,
           });
           task = await captureDelivery(task, prevStatus);
           broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });

@@ -956,8 +956,13 @@ export type ContentBlock =
    * to silence a push notification. This is the same fact, persisted on the
    * row, so the client can draw one collapsed service line - openable, because
    * a resume envelope carries the human's own message inside it.
+   *
+   * `commentIds` is the other half of the anchor: a resume envelope DELIVERS
+   * card comments somebody wrote while the agent was busy, and carrying their
+   * ids means the reader can draw those words once, as the comments they are,
+   * instead of twice. Absent on a kickoff, which delivers nothing.
    */
-  | { kind: 'dispatched-envelope' };
+  | { kind: 'dispatched-envelope'; commentIds?: string[] };
 
 // ─── Entità di dominio (payload REST + broadcast WS) ────────────────────
 //

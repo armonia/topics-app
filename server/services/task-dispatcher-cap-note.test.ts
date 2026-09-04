@@ -41,7 +41,9 @@ function freshDb(): Database {
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
     content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,
-    kind TEXT NOT NULL DEFAULT 'comment'
+    kind TEXT NOT NULL DEFAULT 'comment',
+    -- migration 20260904190855: the assistant row an agent said this in.
+    message_id TEXT
   )`);
   db.run(`CREATE TABLE approvals (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, requested_by TEXT NOT NULL,
@@ -107,7 +109,7 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
     worktreeBranch: (id) => `task/${id}`,
     attemptStats: async () => ({ commit: "c0ffee", filesChanged: 1, insertions: 1, deletions: 0 }),
     archiveTopic: () => {},
-    getLastAgentText: () => "riassunto",
+    getLastAgentText: () => ({ text: "riassunto", id: "m-riassunto" }),
     runTurn: (sessionKey, content) =>
       new Promise<TurnEndInfo | void>((res) => { turns.push({ sessionKey, content }); pending.set(sessionKey, res); }),
     broadcast: () => {},

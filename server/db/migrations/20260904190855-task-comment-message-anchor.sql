@@ -1,0 +1,22 @@
+-- 20260904190855-task-comment-message-anchor.sql
+--
+-- WHERE A COMMENT WAS SAID, ON THE AGENT'S SIDE.
+--
+-- A card comment written by an agent (`comment_task`, a delivery summary, a
+-- routed question) happens DURING an assistant message, and until now nothing
+-- recorded which one. Without that link the card thread and the session
+-- transcript are two lists that can only be ordered by clock, and the same
+-- words show up twice: once as the comment, once as the tool call that wrote
+-- it.
+--
+-- The value is `ctx.isStreaming(sk)?.messageId`, the id of the assistant row
+-- being streamed, which the chat route already reads for the `stream_in_flight`
+-- 409.
+--
+-- Nullable, no backfill, no index. No backfill because there is no honest way
+-- to guess the message for the 21k comments already written, and a guess here
+-- would draw a comment under the wrong step. No index because nothing looks
+-- rows up BY this column: the panel loads a card's comments and matches them in
+-- memory against the messages it already holds.
+
+ALTER TABLE task_comments ADD COLUMN message_id TEXT;

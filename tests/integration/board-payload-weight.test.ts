@@ -49,7 +49,9 @@ function freshDb(): Database {
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
     content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,
-    kind TEXT NOT NULL DEFAULT 'comment'
+    kind TEXT NOT NULL DEFAULT 'comment',
+    -- migration 20260904190855: the assistant row an agent said this in.
+    message_id TEXT
   )`);
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, auto_dispatch INTEGER NOT NULL DEFAULT 0,
