@@ -111,5 +111,9 @@ export function tabFor(page: Page, paneId: string): Locator {
 export async function closeTabViaX(page: Page, paneId: string): Promise<void> {
   const tab = tabFor(page, paneId).first();
   await tab.hover();
-  await page.locator(`[aria-label="Chiudi tab ${paneId}"]`).first().click();
+  // Scoped to the TAB, not matched by aria-label: that label carries the human
+  // name of the chat now (a screen reader announcing an id is announcing
+  // nothing), so the id is no longer in it. `data-testid` inside the tab is the
+  // stable handle and does not move when the chat is renamed.
+  await tab.locator('[data-testid="pane-tab-close"]').first().click();
 }

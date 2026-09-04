@@ -1589,6 +1589,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             {(!nonClosablePaneIds?.has(pane.id) || pane.type === 'browser') && (
               <PaneCloseButton
                 paneId={pane.id}
+                label={label}
                 onClose={onClose}
                 closable={!nonClosablePaneIds?.has(pane.id)}
                 before={pane.type === 'browser' ? <BrowserTabMenuButton paneId={pane.id} /> : undefined}
@@ -2163,9 +2164,18 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
  * `usePanePendingStatus` — hooks can't run inside `panes.map(...)`.
  */
 function PaneCloseButton({
-  paneId, onClose, before, closable = true,
+  paneId, label, onClose, before, closable = true,
 }: {
   paneId: string;
+  /**
+   * IL NOME UMANO DELLA TAB, quello scritto sulla tab stessa (`etichettaTab`).
+   *
+   * Serve al nome accessibile della X, che portava l'ID INTERNO: con VoiceOver
+   * un'azione distruttiva si annunciava «Chiudi tab 7f3a1c22-4b9e-...», cioè
+   * chiedeva di distruggere qualcosa che non si può riconoscere. I gemelli
+   * nella sidebar (TopicItem, TopicTree) dicono da sempre il nome della chat.
+   */
+  label: string;
   onClose: (id: string) => void;
   /** Commands that ride in the same rail, BEFORE the close ring (the browser
    *  tab's three dots). See the ROW_ACTIONS contract. */
@@ -2289,7 +2299,11 @@ function PaneCloseButton({
         testId="pane-tab-close"
         onIdleClick={() => onClose(paneId)}
         idleTitle="Chiudi tab"
-        idleAriaLabel={`Chiudi tab ${paneId}`}
+        // Il NOME, non l'id: vedi la prop `label`. Il prefisso «Chiudi tab»
+        // resta primo perche' i locator dei test ci si agganciano
+        // (`[aria-label^="Chiudi tab"]`) e perche' e' l'azione a dover venire
+        // prima del soggetto in un annuncio vocale.
+        idleAriaLabel={`Chiudi tab ${label}`}
         pendingTitle="Annulla chiusura"
         pendingAriaLabel="Annulla chiusura"
       />}

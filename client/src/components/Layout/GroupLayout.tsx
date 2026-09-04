@@ -10,6 +10,7 @@ import { DND_TYPES, dragMatchesScope } from '../../lib/dndTypes';
 import { paneCellBg, paneCellTopInset } from '../../lib/paneCellBg';
 import { CHROME_BAR, CHROME_BAR_CONSUMED, CHROME_BAR_H_VAR, CHROME_BAR_SUB, CHROME_BAR_SUB_H_CLASS } from '../../lib/selectionStyles';
 import { PaneKeepAlive } from './PaneKeepAlive';
+import { useLayoutMobile } from '../../hooks/useMobile';
 import { usePaneResidency } from './hooks/usePaneResidency';
 import { usePaneAlive } from '../../state/paneLiveness';
 import { canSplitPane, canDropSplit } from './splitRules';
@@ -200,12 +201,7 @@ export function GroupLayout({
   // Mobile (<768px): the SplitTree has no mobile mode and would cram two groups
   // side-by-side. On a phone we FLATTEN every group's panes into a single tab
   // strip and show one pane at a time (see the mobile branch in the return).
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
-  useEffect(() => {
-    const h = () => setIsMobile(window.innerWidth < 768);
-    window.addEventListener('resize', h);
-    return () => window.removeEventListener('resize', h);
-  }, []);
+  const isMobile = useLayoutMobile();
 
   const { getBadgeCount, clearPane } = useTabNotifications();
   const tr = useT();

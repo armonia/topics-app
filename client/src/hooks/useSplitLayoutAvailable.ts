@@ -1,4 +1,4 @@
-import { useMobile } from './useMobile';
+import { useLayoutMobile } from './useMobile';
 
 /**
  * «Un comando compare dove ha effetto.»
@@ -30,13 +30,19 @@ import { useMobile } from './useMobile';
  * riga è quella: un'AZIONE senza effetto è rumore, un VALORE senza effetto qui
  * è una preferenza che ce l'ha altrove.
  *
- * Perché `isMobile` e non `isTouch`: è una domanda di LAYOUT — quante colonne
- * stanno sullo schermo — ed è la stessa soglia (768px) che `PanelGrid` e
- * `GroupLayout` usano per scegliere il loro ramo. Un iPad col dito affianca i
- * pannelli benissimo; un telefono col mouse collegato no. Vedi il blocco in
- * testa a `useMobile.ts`.
+ * Perché una domanda di LARGHEZZA e non di dito: quante colonne stanno sullo
+ * schermo è la stessa soglia (768px) che `PanelGrid` e `GroupLayout` usano per
+ * scegliere il loro ramo. Un iPad col dito affianca i pannelli benissimo; un
+ * telefono col mouse collegato no.
+ *
+ * THIS PARAGRAPH USED TO SAY «the same 768px threshold» while calling
+ * `useMobile().isMobile`, which is `<768 || (touch && <1024)`. On an iPad in
+ * portrait (834x1194) `PanelGrid` mounted the split tree with its dividers and
+ * this hook answered «no splits here»: the three commands that govern them
+ * vanished from the tab menu and from the Topics menu, which hands the palette
+ * `undefined` and takes away the last way in. The splits existed and no command
+ * could reach them. Now the sentence and the call agree: `useLayoutMobile`.
  */
 export function useSplitLayoutAvailable(): boolean {
-  const { isMobile } = useMobile();
-  return !isMobile;
+  return !useLayoutMobile();
 }

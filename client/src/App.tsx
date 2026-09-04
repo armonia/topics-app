@@ -105,7 +105,7 @@ import { normalizeTerminalAgent } from './lib/terminalAgents';
 import { popOutTopic } from './lib/popOutTopic';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
-import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
+import { SidebarStatusBar, MobileTransportBand } from './components/Sidebar/SidebarStatusBar';
 import { NotificationHistoryButton } from './components/Sidebar/NotificationHistoryButton';
 import { MobileChromeBar } from './components/Sidebar/MobileChromeBar';
 import { shortcut, usesCtrl } from './lib/shortcutLabel';
@@ -1750,6 +1750,18 @@ function App() {
           si dipinge da sé invece di ereditare il chrome della sidebar.
           Il «+» è lo STESSO `PaneAddMenu` del desktop, con la faccia della
           fila: l'elenco delle cose creabili è uno solo. */}
+      {/* L'ALLARME DEL TRASPORTO SUL TELEFONO. Le righe «Offline» /
+          «Reconnecting…» / «dati dalla cache» vivevano SOLO dentro il blocco
+          `{!isMobile && …}` della barra in fondo alla colonna, cioe' non
+          esistevano proprio sul dispositivo che la rete la perde davvero. Qui
+          sono fuori dal cassetto, come la fila: si vedono senza aprire niente.
+          La fascia dell'identita' resta desktop-only, che e' l'altra meta'. */}
+      {isMobile && (
+        <ErrorBoundary fallbackMessage="Transport status error">
+          <MobileTransportBand wsStatus={wsStatus} dataNotice={topicsError} />
+        </ErrorBoundary>
+      )}
+
       <MobileChromeBar
         onSearch={() => { setSearchScope('all'); setShowSearch(true); }}
         addSlot={
@@ -1764,6 +1776,10 @@ function App() {
         }
         boardInFront={boardInFront}
         onToggleBoard={handleMobileBoardToggle}
+        // LO STESSO booleano con cui è calcolato `boardInFront` qui sopra: erano
+        // due predicati diversi, e nella fascia 768-1023 su touch la fila si
+        // accendeva su un layout desktop con l'interruttore bloccato in andata.
+        mobile={isMobile}
         // LA PANE Profilo, non più la modale delle Impostazioni.
         //
         // Portava a Impostazioni → Profilo, cioè dentro un pannello che si apre
