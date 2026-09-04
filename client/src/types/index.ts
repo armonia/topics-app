@@ -59,7 +59,7 @@ export interface Message {
 // ToolCallDetail, ToolCall e ContentBlock erano riscritti qui riga per riga,
 // identici a `server/types.ts` a meno dei commenti, col solito "Mirrors" a
 // fare da garanzia. Ora la dichiarazione è UNA, in `shared/types.ts`.
-export type { ToolCallDetail, ToolCall, ContentBlock } from '../../../shared/types';
+export type { ToolCallDetail, ToolCall, ContentBlock, TurnEndCause } from '../../../shared/types';
 export type { PermissionDecision, ToolPermissionRequest, ToolPermissionOutcome } from '../../../shared/types';
 import type { ToolCall, ContentBlock, ToolPermissionRequest, ToolPermissionOutcome } from '../../../shared/types';
 

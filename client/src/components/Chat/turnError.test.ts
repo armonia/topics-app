@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { turnErrorOf, turnIsOnlyError, turnLooksUnanswered } from './turnError';
+import { turnErrorOf, turnIsOnlyError, turnLooksUnanswered, interruptedTurnOf, TURN_CAUSE_KEY } from './turnError';
+import { STOP_CAUSES } from '../../../../shared/ws-outbound';
+import type { TurnEndCause } from '../../types';
+import it from '../../lib/i18n-it';
+import en from '../../lib/i18n-en';
 
 /**
  * «Questo turno è finito male?» e «c'è SOLO l'errore?».
@@ -117,5 +121,43 @@ describe('turnLooksUnanswered — il banner tace se qualcuno dice che il turno �
   test("se l'ultimo messaggio non è dell'utente non c'è nessuna attesa da dichiarare", () => {
     expect(caso({ lastMessageIsUser: false })).toBe(false);
     expect(caso({ lastMessageIsUser: false, serverSaysOpen: true })).toBe(false);
+  });
+});
+
+/**
+ * THE INTERRUPTED-TURN BANNER: what lights it, and what must leave it dark.
+ *
+ * Getting it wrong costs differently on each side. A missing banner on a dead
+ * turn is waiting for an answer that never comes (the 2026-09-03 report); an
+ * extra banner on a stop pressed by hand tells whoever just stopped the turn
+ * that something broke.
+ */
+describe('interruptedTurnOf — chi accende il banner', () => {
+  const killedTurn = (cause: TurnEndCause) => ({ blocks: [testo('a metà'), { kind: 'error' as const, text: 'timed out', cause, at: '2026-09-03T22:25:00.000Z' }] });
+
+  test('il watchdog accende, con causa e istante', () => {
+    expect(interruptedTurnOf(killedTurn('watchdog'))).toEqual({ cause: 'watchdog', text: 'timed out', at: '2026-09-03T22:25:00.000Z' });
+  });
+
+  test('lo stop della persona no: quel caso ha già il suo banner', () => {
+    expect(interruptedTurnOf(killedTurn('user'))).toBeNull();
+  });
+
+  test('una riga senza causa no: assente vuol dire «non attribuito»', () => {
+    expect(interruptedTurnOf({ blocks: [errore('ack timeout')] })).toBeNull();
+  });
+
+  test('un turno sano no', () => {
+    expect(interruptedTurnOf({ blocks: [testo('tutto bene')] })).toBeNull();
+    expect(interruptedTurnOf({})).toBeNull();
+  });
+
+  test('ogni causa ha la sua frase: nessun nome in codice stampato in faccia', () => {
+    for (const cause of STOP_CAUSES) {
+      const key = TURN_CAUSE_KEY[cause];
+      expect(typeof key).toBe('string');
+      expect(it[key as keyof typeof it]).toBeString();
+      expect(en[key as keyof typeof en]).toBeString();
+    }
   });
 });
