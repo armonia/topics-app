@@ -21,7 +21,7 @@
 
 import { useCallback, useEffect, useRef, useState, startTransition, type Dispatch, type SetStateAction } from 'react';
 import type { AppSettings } from '../types';
-import { useMobile } from './useMobile';
+import { useLayoutMobile } from './useMobile';
 import { useStorageSync } from './useStorageSync';
 import { loadSettings, saveSettings, SETTINGS_CHANGED_EVENT } from '../lib/settings';
 import { generateUUID } from '../utils/uuid';
@@ -100,23 +100,16 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
   // Unique ID for this window (for cross-window drag coordination)
   const windowId = getWindowId();
 
-  // Mobile detection
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 768);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  // Mobile detection. The shared LAYOUT predicate, not a private copy of the
+  // same comparison: what App passes down from here has to be the very same
+  // boolean the grids and the bottom row of commands branch on.
+  const isMobile = useLayoutMobile();
 
   // PWA standalone mode detection
   const [isPWA] = useState(() =>
     mediaQueryMatches('(display-mode: standalone)') ||
     (window.navigator as unknown as { standalone?: boolean }).standalone === true,
   );
-
-  // Touch detection (kept for parity with original App.tsx; underscore-marked
-  // there as unused — preserved here for any future reads).
-  useMobile();
 
   // Mobile keyboard: adjust app height when virtual keyboard opens.
   // `viewportTop` mirrors visualViewport.offsetTop: iOS ignores

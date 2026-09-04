@@ -1,5 +1,5 @@
 import { contextTokens, costTokens, partsFromTask } from '../../../../shared/token-cost';
-import { memo, useState, useEffect, useMemo, useRef } from 'react';
+import { memo, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -309,11 +309,33 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // Il menu della tessera si apriva SOLO col tasto destro: sulla board da
   // telefono era irraggiungibile. `openContextMenuAt` apre lo stesso menu, non
   // un secondo. NB: la board monta un `DndContext` con `TouchSensor` a 200ms
-  // (KanbanBoardPane), quindi qui i due gesti convivono — il sensore rivendica
-  // il tocco solo se il dito si MUOVE oltre la tolleranza, mentre il long-press
-  // scatta a 500ms su un dito fermo.
+  // (KanbanBoardPane), quindi qui i due gesti convivono: vedi
+  // `onCardTouchStart`, che e' il punto in cui si spartiscono il dito.
   const { isTouch } = useMobile();
   const cardLongPress = useLongPress(openContextMenuAt, { enabled: isTouch });
+  /**
+   * THE ONE TOUCH, SHARED BY HAND between the two gestures that want it.
+   *
+   * `{...listeners}` (dnd-kit's activators) and `{...cardLongPress.handlers}`
+   * both carry an `onTouchStart`, and a JSX spread does not merge props: the
+   * later one WINS. So the drag activator never reached the DOM, the
+   * `PoliteTouchSensor` registered in KanbanBoardPane never saw a finger, and
+   * on touch the only sensor left was the mouse one, fed by the click the
+   * browser synthesises after `touchend`: a card could not be moved to another
+   * column with a finger at all, silently.
+   *
+   * Composing them is enough because the two gestures exclude each other by
+   * MOVEMENT, not by luck: past the 10px slop the long press cancels its own
+   * timer and only the drag is left; on a still finger the menu opens at 500ms
+   * and the drop that follows lands on the card itself, which `planDrop` reads
+   * as a no-op (`overId === task.id`). The other three touch handlers exist on
+   * one side only, so their spread is not a collision.
+   */
+  const dragTouchStart = listeners?.onTouchStart;
+  const onCardTouchStart = useCallback((e: React.TouchEvent<HTMLElement>) => {
+    dragTouchStart?.(e);
+    cardLongPress.handlers.onTouchStart(e);
+  }, [dragTouchStart, cardLongPress.handlers]);
   const confirm = useConfirm();
   const tr = useT();
   // Numeri e date della card seguono la lingua scelta, non una fissata a mano.
@@ -751,6 +773,10 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
       style={{ transform: isDragging ? undefined : CSS.Transform.toString(transform), transition }}
       onClick={() => onOpen(task.id)}
       {...cardLongPress.handlers}
+      // AFTER both spreads, and on purpose: this is the composed one (see
+      // `onCardTouchStart`). Whoever moves it above them loses the board's
+      // touch drag again, without a single error.
+      onTouchStart={onCardTouchStart}
       data-pressing={cardLongPress.pressed || undefined}
       // «Tieni premuto» = lo STESSO menu del tasto destro. Il gesto e' lo
       // standard dell'app: `openContextMenuAt` sintetizza un `contextmenu`
@@ -1709,10 +1735,13 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
         >
           <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
           <span className="min-w-0 flex-1 break-words">{error}</span>
+          {/* 16x16 (p-0.5 + h-3): under the 24px the repo gives itself, and
+              the bounding box IS the target. `tap-expand` is safe here because
+              the only thing to its left is the error text, not a command. */}
           <button
             aria-label={tr('board.task.closeError')}
             onClick={clearError}
-            className="shrink-0 rounded p-0.5 hover:bg-white/10"
+            className="tap-expand shrink-0 rounded p-0.5 hover:bg-white/10 coarse:p-1.5"
           ><X className="h-3 w-3" /></button>
         </div>
       )}

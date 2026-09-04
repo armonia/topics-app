@@ -901,13 +901,23 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           Fondo bg-[#111] scuro in ENTRAMBI i temi, quindi i `bg-white/N` qui sotto
           sono il rialzo corretto (bianco su nero) — è l'eccezione alla regola in
           index.css, non un bug da tema chiaro. */}
+      {/* THE KEYS OF A KEYBOARD ARE FINGER-SIZED, or it is not a keyboard.
+          These were ~20px tall with a 4px `gap-1`, which put Ctrl+C four pixels
+          from the arrows: the wrong key is one tremble away, and here the wrong
+          key INTERRUPTS what is running. The strip only exists on a touch
+          device, so growing it costs no desktop pixel -- and it grows the
+          button itself rather than projecting an invisible 44px band, which
+          here would hang over the terminal rows underneath and eat taps meant
+          for the output. */}
       {isTouchDevice && !stale && (
-        <div className="flex-shrink-0 flex items-center gap-1 px-2 py-[5px] bg-[#111] border-b border-white/10 overflow-x-auto select-none">
+        <div className="flex-shrink-0 flex items-center gap-1 coarse:gap-2 px-2 py-[5px] bg-[#111] border-b border-white/10 overflow-x-auto select-none">
           {TOUCH_KEYS.map(({ label, data, wide }) => (
             <button
               key={label}
+              aria-label={label}
+              data-testid="terminal-key"
               onPointerDown={(e) => { e.preventDefault(); sendToTerminal(data); }}
-              className={`flex-shrink-0 px-2 py-[3px] rounded bg-white/10 text-white text-[11px] font-mono active:bg-white/30 transition-colors ${wide ? 'px-3' : ''}`}
+              className={`flex-shrink-0 inline-flex items-center justify-center px-2 py-[3px] rounded bg-white/10 text-white text-[11px] font-mono active:bg-white/30 transition-colors coarse:min-h-11 coarse:min-w-11 coarse:text-[13px] ${wide ? 'px-3 coarse:px-4' : ''}`}
             >
               {label}
             </button>
@@ -915,8 +925,9 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           <div className="flex-1" />
           <button
             onClick={handleCopyOutput}
-            className="flex-shrink-0 flex items-center gap-1 px-2 py-[3px] rounded bg-white/10 text-white text-[11px] active:bg-white/30 transition-colors"
+            className="flex-shrink-0 flex items-center gap-1 px-2 py-[3px] rounded bg-white/10 text-white text-[11px] active:bg-white/30 transition-colors coarse:min-h-11 coarse:px-3"
             title={t('terminal.copyOutput')}
+            aria-label={t('terminal.copyOutput')}
           >
             {copied ? <Check size={11} /> : <Copy size={11} />}
             <span>{copied ? t('terminal.copied') : t('terminal.copy')}</span>

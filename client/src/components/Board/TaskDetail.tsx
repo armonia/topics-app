@@ -2483,7 +2483,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           className="flex shrink-0 items-start justify-between gap-2 border-b border-sky-500/20 bg-sky-500/10 px-3 py-1.5 text-[11px] text-sky-300"
         >
           <span>{notice}</span>
-          <button aria-label={tr('board.task.closeError')} onClick={() => setNotice(null)} className="shrink-0 rounded p-0.5 hover:bg-white/10"><X className="h-3 w-3" /></button>
+          <button aria-label={tr('board.task.closeError')} onClick={() => setNotice(null)} className="tap-expand shrink-0 rounded p-0.5 hover:bg-white/10 coarse:p-1.5"><X className="h-3 w-3" /></button>
         </div>
       )}
       {/* Land ACCODATO, non ancora avvenuto. Sta sopra la banda «non su main»
@@ -2783,10 +2783,22 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                       <span className="max-w-[10rem] truncate">{label}</span>
                       <span className="text-[9px] uppercase tracking-wide text-app-text-faint">{tr('board.task.closedTab')}</span>
                     </button>
+                    {/* The ONLY call site of `removeTab`, and it was hover-only:
+                        with a finger the tray of closed tabs could only get
+                        longer. `coarse:opacity-100` gives it back, and on a
+                        coarse pointer the box grows to 24x24 (6+12+6).
+                        `tap-expand-y`, not `tap-expand`: a 44px square centred
+                        here would overhang the reopen button on its left and,
+                        being later in the DOM, would win the overlap -- tapping
+                        the end of the label would DELETE the tab instead of
+                        reopening it. Vertical only costs the neighbour nothing
+                        (see index.css). */}
                     <button
                       onClick={(e) => { e.stopPropagation(); browser.removeTab(t.contextId); }}
                       title={tr('board.task.removeTabTitle')}
-                      className="mr-1 rounded p-0.5 text-app-text-muted opacity-0 hover:bg-white/10 hover:text-app-text group-hover/prev:opacity-100"
+                      aria-label={tr('board.task.removeTabTitle')}
+                      data-testid="parked-tab-remove"
+                      className="tap-expand-y mr-1 rounded p-0.5 text-app-text-muted opacity-0 hover:bg-white/10 hover:text-app-text group-hover/prev:opacity-100 focus-visible:opacity-100 coarse:p-1.5 coarse:opacity-100"
                     ><X className="h-3 w-3" /></button>
                   </div>
                 );
@@ -2930,7 +2942,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 className="mb-2 flex items-start gap-2 rounded border border-rose-500/30 bg-rose-500/10 px-2 py-1.5 text-[11px] text-rose-300"
               >
                 <span className="min-w-0 flex-1 break-words">{error}</span>
-                <button aria-label={tr('board.task.closeError')} onClick={() => setError(null)} className="shrink-0 rounded p-0.5 hover:bg-white/10"><X className="h-3 w-3" /></button>
+                <button aria-label={tr('board.task.closeError')} onClick={() => setError(null)} className="tap-expand shrink-0 rounded p-0.5 hover:bg-white/10 coarse:p-1.5"><X className="h-3 w-3" /></button>
               </div>
             )}
             {/* Fuori dalla review le scelte della card ci sono lo stesso — è la

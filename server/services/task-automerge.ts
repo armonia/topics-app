@@ -286,6 +286,12 @@ export interface AutoMergeDeps {
    */
   runBuild?: (cwd: string) => Promise<GitRunResult>;
   /**
+   * Injected for tests. Default: `bun run <script> --update-baseline` in `cwd`
+   * for the generated baseline `file` (see `GENERATED_BASELINES`), with the same
+   * kill switch as the build.
+   */
+  regenerateBaseline?: (cwd: string, file: string) => Promise<GitRunResult>;
+  /**
    * Injected for tests. Default: read `<repo>/public` and say what is missing
    * for it to be a servable bundle (`null` = it is one).
    */
@@ -338,9 +344,45 @@ async function defaultRunBuild(cwd: string): Promise<GitRunResult> {
   }
 }
 
+/**
+ * The generated gate baselines and the script that owns each one.
+ *
+ * Two branches that each recorded their own growth in the same file conflict
+ * on every land, and nobody writes these files by hand: the resolution is
+ * mechanical (main's ceilings first, then the branch's own sizes re-recorded
+ * by the script that writes the format). On 2026-09-04 card 38d903e5 would
+ * have gone back to its agent for `scripts/bloat-baseline.json` alone, a
+ * whole turn under load for a file the script rewrites in seconds. Nothing
+ * else is resolved this way: a conflict in code still goes back to the agent.
+ */
+const GENERATED_BASELINES: Record<string, string> = {
+  "scripts/bloat-baseline.json": "scripts/check-bloat.ts",
+  "scripts/identifier-language-baseline.json": "scripts/check-identifier-language.ts",
+  "scripts/comment-language-baseline.json": "scripts/check-comment-language.ts",
+};
+
+async function defaultRegenerateBaseline(cwd: string, file: string): Promise<GitRunResult> {
+  const script = GENERATED_BASELINES[file];
+  if (!script) return { code: 1, stdout: "", stderr: `${file}: not a generated baseline` };
+  try {
+    const proc = Bun.spawn(["bun", "run", script, "--update-baseline"], { cwd, stdout: "pipe", stderr: "pipe" });
+    const timer = setTimeout(() => { try { proc.kill(); } catch { /* already gone */ } }, BUILD_TIMEOUT_MS);
+    const [stdout, stderr] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    const code = await proc.exited;
+    clearTimeout(timer);
+    return { code, stdout, stderr };
+  } catch (e) {
+    return { code: 1, stdout: "", stderr: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 export function createTaskAutoMerge(deps: AutoMergeDeps) {
   const runGit = deps.runGit ?? defaultRunGit;
   const runBuild = deps.runBuild ?? defaultRunBuild;
+  const regenerateBaseline = deps.regenerateBaseline ?? defaultRegenerateBaseline;
   const verifyBundle = deps.verifyBundle ?? bundleBreakageReason;
   const log = deps.log ?? (() => {});
 
@@ -526,6 +568,32 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
      *   • niente push, niente rebase: la storia del ramo non si riscrive sotto
      *     chi la sta guardando, ci si aggiunge un merge.
      */
+    /**
+     * Inside a conflicted merge of `defaultBranch` into the branch: take main's
+     * copy of each generated baseline, let its script re-record the tree it
+     * now sits in, stage, and complete the merge. `false` = something did not
+     * go (a temp worktree without `node_modules`, a script that fails, a path
+     * still unmerged): the caller aborts the merge, and the tree is as it was.
+     */
+    async function settleGeneratedBaselines(cwd: string, files: string[]): Promise<boolean> {
+      for (const file of files) {
+        const take = await runGit(cwd, ["checkout", defaultBranch, "--", file]);
+        if (take.code !== 0) return false;
+        const rewrite = await regenerateBaseline(cwd, file);
+        if (rewrite.code !== 0) {
+          log(`[automerge] ${file}: rigenerazione fallita nel worktree ${cwd}: ${(rewrite.stderr || rewrite.stdout).trim().slice(-300)}`);
+          return false;
+        }
+      }
+      const add = await runGit(cwd, ["add", "--", ...files]);
+      if (add.code !== 0) return false;
+      const left = await runGit(cwd, ["diff", "--diff-filter=U", "--name-only"]);
+      if (left.code !== 0 || left.stdout.trim() !== "") return false;
+      // `--no-edit`: the message the merge was started with (MERGE_MSG) stays.
+      const commit = await runGit(cwd, ["commit", "--no-edit"]);
+      return commit.code === 0;
+    }
+
     async function realignOnMain(): Promise<AutoMergeResult | null> {
       // `merge-base --is-ancestor` invece di contare: una domanda sola, e la
       // risposta «main è già dentro» è quella del caso normale.
@@ -570,6 +638,18 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         if (merge.code !== 0) {
           const unmerged = await runGit(wtPath, ["diff", "--diff-filter=U", "--name-only"]);
           const files = unmerged.code === 0 ? unmerged.stdout.split("\n").map((f) => f.trim()).filter(Boolean) : [];
+          // GENERATED BASELINES SETTLE THEMSELVES (see `GENERATED_BASELINES`).
+          // Only when EVERY conflicting path is one of them: a code conflict
+          // next to a baseline still goes back to the agent, whole.
+          if (files.length > 0 && files.every((f) => Object.hasOwn(GENERATED_BASELINES, f))
+            && await settleGeneratedBaselines(wtPath, files)) {
+            const which = files.length === 1 ? "una baseline generata" : `${files.length} baseline generate`;
+            realigned =
+              `il ramo era indietro di ${behind} commit su '${defaultBranch}': ci ho riportato main dentro; ` +
+              `l'unico conflitto era su ${which} (${files.join(", ")}), che ho rigenerato dallo script che la scrive ` +
+              "prima di valutare i cancelli";
+            return null;
+          }
           await runGit(wtPath, ["merge", "--abort"]).catch(() => undefined);
           // Un merge può fallire SENZA conflitti: git si rifiuta di partire
           // perché sovrascriverebbe un file non tracciato, o l'albero non è

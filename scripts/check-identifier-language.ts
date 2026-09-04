@@ -109,6 +109,11 @@ export const PROJECT_WORDS = new Set([
   // it parses), and `entities` is the plural of `entity` exactly as `entries` is
   // of `entry`: both reach identifiers through the markup they read.
   "href", "entities",
+  // Three names git itself uses, read verbatim from its own flags and output in
+  // `server/lib/topic-changes.ts`: `numstat` is `git diff --numstat`, `pathspec`
+  // is git's own word for the path filter, `stat` is `--stat`. Renaming them
+  // would put a gap between the code and the command it parses.
+  "numstat", "pathspec", "stat",
   // `affordance` is design vocabulary this repository already speaks - the
   // file `tests/e2e/chat-affordances-audit.spec.ts` predates the gate - and no
   // 1934 word list carries it. There is no English word to rename it to that

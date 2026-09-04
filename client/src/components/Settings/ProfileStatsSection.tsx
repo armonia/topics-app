@@ -3,6 +3,8 @@ import { useT } from '../../hooks/useT';
 import { appSettingsApi, profileApi, type AppBehaviorSettings, type ProfileStats } from '../../lib/api';
 import { copyText } from '../../lib/clipboard';
 import { bannerMarkdown } from '../../lib/bannerShare';
+import { publicProfileUrl, type RelayEndpoint } from '../../lib/publicProfileUrl';
+import { serverHttpBase } from '../../lib/shell/net';
 
 /**
  * LE TUE STATISTICHE: quanto lavoro è passato davvero di qui.
@@ -57,16 +59,6 @@ function Sparkline({ serie }: { serie: ProfileStats['activity']['last30'] }) {
   );
 }
 
-/**
- * Risultato della configurazione relay: URL condivisibile via relay oppure
- * URL locale (LAN only).
- */
-interface RelayInfo {
-  /** URL di destinazione (relay o localhost). */
-  url: string;
-  /** `true` = l'URL è raggiungibile solo sulla LAN locale. */
-  lanOnly: boolean;
-}
 
 export function ProfileStatsSection() {
   const t = useT();
@@ -78,7 +70,7 @@ export function ProfileStatsSection() {
   const [avviso, setAvviso] = useState<string | null>(null);
   const [copiatoLink, setCopiatoLink] = useState(false);
   const [appSettings, setAppSettings] = useState<AppBehaviorSettings | null>(null);
-  const [relayInfo, setRelayInfo] = useState<RelayInfo | null>(null);
+  const [relay, setRelay] = useState<RelayEndpoint | null>(null);
   /** In-flight: 'publishing' | 'revoking' | null */
   const [tokenBusy, setTokenBusy] = useState<'publishing' | 'revoking' | null>(null);
 
@@ -90,43 +82,27 @@ export function ProfileStatsSection() {
     appSettingsApi.get()
       .then((s) => { if (vivo) setAppSettings(s); })
       .catch(() => { /* non bloccante */ });
-    // Costruisce l'URL pubblico dal relay se disponibile.
-    // `/i/:relayId/public/profile/<token>` e' il percorso del browser proxy del relay.
+    // The relay is the only address that leaves this machine. Whether there is
+    // one decides how far the link travels; the URL itself is built below.
     fetch('/api/auth/relay', { credentials: 'same-origin' })
       .then((r) => r.json())
-      .then((r: { enabled: boolean; baseUrl: string | null; relayId: string | null }) => {
-        if (!vivo) return;
-        if (r.enabled && r.baseUrl && r.relayId) {
-          setRelayInfo({
-            url: `${r.baseUrl}/i/${r.relayId}/public/profile`,
-            lanOnly: false,
-          });
-        } else {
-          // Relay non configurato: l'URL funziona solo in LAN.
-          setRelayInfo({
-            url: `${typeof window !== 'undefined' ? window.location.origin : ''}/public/profile`,
-            lanOnly: true,
-          });
-        }
-      })
-      .catch(() => {
-        if (!vivo) return;
-        setRelayInfo({
-          url: `${typeof window !== 'undefined' ? window.location.origin : ''}/public/profile`,
-          lanOnly: true,
-        });
-      });
+      .then((r: RelayEndpoint) => { if (vivo) setRelay(r); })
+      .catch(() => { if (vivo) setRelay({ enabled: false, baseUrl: null, relayId: null }); });
     return () => { vivo = false; };
   }, []);
 
   // Il token rende la pagina raggiungibile. Senza token la pagina non esiste.
-  // L'URL completo aggiunge /<token> al base. Il relay proxy passa il path
-  // invariato al server, quindi /i/<relayId>/public/profile/<token> funziona.
+  // The origin is NOT `window.location.origin` alone: under the desktop shell
+  // that is `tauri://localhost`, which is not an address. `publicProfileUrl`
+  // knows the fallback and how far the result reaches.
   const token = appSettings?.profileShareToken ?? null;
-  const baseUrl = relayInfo?.url
-    ?? `${typeof window !== 'undefined' ? window.location.origin : ''}/public/profile`;
-  const publicUrl = token ? `${baseUrl}/${token}` : null;
-  const lanOnly = relayInfo?.lanOnly ?? true;
+  const link = publicProfileUrl(
+    typeof window !== 'undefined' ? window.location.origin : '',
+    serverHttpBase(),
+    relay,
+    token,
+  );
+  const publicUrl = link.url;
 
   const togglePublishCost = useCallback(async () => {
     if (!appSettings) return;
@@ -345,13 +321,15 @@ export function ProfileStatsSection() {
                   </>
                 )}
               </div>
-              {/* Stato: non pubblicata / avviso LAN-only. */}
+              {/* State: unpublished, or how far the link actually reaches. */}
               <p className="text-[10.5px] text-app-text-muted">
                 {!token
                   ? t('profile.public.notPublished')
-                  : lanOnly
+                  : link.reach === 'public'
+                  ? t('profile.public.hint')
+                  : link.reach === 'lan'
                   ? t('profile.public.hintLanOnly')
-                  : t('profile.public.hint')}
+                  : t('profile.public.hintThisComputer')}
               </p>
               {/* Toggle spesa: dato personale, opt-in esplicito. Visibile anche
                   prima di pubblicare: la scelta si fa PRIMA di condividere. */}
