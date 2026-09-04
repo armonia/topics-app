@@ -264,7 +264,7 @@ export interface DispatcherDeps {
    * — abort + resume the SAME session). Absent `idleMs` ⇒ the host's own
    * default.
    */
-  runTurn: (sessionKey: string, content: string, opts: { timeoutMs: number; idleMs?: number; contextMode?: "full" | "lean" }) => Promise<TurnEndInfo | void>;
+  runTurn: (sessionKey: string, content: string, opts: { timeoutMs: number; idleMs?: number; contextMode?: "full" | "lean"; dispatchedFor?: string[] }) => Promise<TurnEndInfo | void>;
   /**
    * True if a still-running agent turn for this session survived a server
    * restart in the ai-bridge broker (provider.hasLiveSession). When present and
@@ -325,7 +325,7 @@ export interface DispatcherDeps {
    * bare system note (or losing a worked task to `failed`). Synchronous (reads
    * the local message store). Absent (tests/degraded) ⇒ no mirror, old behaviour.
    */
-  getLastAgentText?: (sessionKey: string) => string | null;
+  getLastAgentText?: (sessionKey: string) => { text: string; id: string } | null;
   /**
    * A task just reached `review` (self-delivered or system-delivered): boot a
    * live preview server from its worktree, point output_url at the LOCAL
@@ -491,7 +491,7 @@ export interface TaskDispatcher {
    * `in_progress` (via reviewDecision); this resumes the same agent tab so the
    * conversation continues instead of spawning a fresh one.
    */
-  resume(taskId: string, humanMessage: string): Promise<void>;
+  resume(taskId: string, humanMessage: string, opts?: { commentIds?: string[] }): Promise<void>;
   /**
    * Boot + periodic sweep. Three passes:
    *  0. LIVENESS: a turn we still believe is running but whose agent process is
@@ -990,7 +990,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * imbuca il messaggio in `pendingResume`), così la voce del registro c'è
    * esattamente finché c'è un timer pendente.
    */
-  const slotWaits = new Map<string, { timer: ReturnType<typeof setTimeout>; message: string }>();
+  const slotWaits = new Map<string, { timer: ReturnType<typeof setTimeout>; message: string; commentIds?: string[] }>();
   /** Set once a planned restart is waiting on us: no new turn starts (see `drain`). */
   let draining: string | null = null;
   /** Cards already told "dispatch off, session kept": one note per hold, not per poll. */
@@ -1050,7 +1050,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     if (wait) {
       clearTimeout(wait.timer);
       slotWaits.delete(taskId);
-      if (inherit && wait.message.trim()) bufferResume(taskId, wait.message);
+      if (inherit && wait.message.trim()) bufferResume(taskId, wait.message, wait.commentIds?.[0]);
     }
     waitingForSlot.delete(taskId);
   }
@@ -1190,10 +1190,19 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // handed over much later: on 2026-09-04 a card was reopened at 04:36 for a
   // sentence typed at 03:52, and without the hour the reopen reads as a verdict
   // on the delivery instead of the delayed hand-over it is.
-  const pendingResume = new Map<string, { text: string; at: number }[]>();
+  //
+  // The buffer also carries the id of the CARD COMMENT the words came from,
+  // when they came from one. That id rides the envelope to the row (`commentIds`)
+  // so a reader can tell that these words are already in the thread, and draw
+  // them once instead of twice.
+  const pendingResume = new Map<string, { text: string; at: number; commentId?: string }[]>();
   /** Queue a message for the turn boundary, keeping the order it was written in. */
-  function bufferResume(taskId: string, text: string): void {
-    pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), { text, at: clock() }]);
+  function bufferResume(taskId: string, text: string, commentId?: string): void {
+    pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), { text, at: clock(), commentId }]);
+  }
+  /** The card comments a queued batch delivers, in the order they were written. */
+  function queuedCommentIds(queued: { commentId?: string }[]): string[] {
+    return queued.map((q) => q.commentId).filter((id): id is string => typeof id === "string" && id.length > 0);
   }
 
   /** Broadcast the updated task so live boards move the chip. */
@@ -2229,7 +2238,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /** L'ultima prosa dell'agent, senza far esplodere niente se il host non la sa. */
   function lastAgentWords(sessionKey: string): string | null {
     if (!sessionKey || !deps.getLastAgentText) return null;
-    try { return deps.getLastAgentText(sessionKey)?.trim() || null; } catch { return null; }
+    try { return deps.getLastAgentText(sessionKey)?.text.trim() || null; } catch { return null; }
   }
 
   /**
@@ -2641,10 +2650,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * and it can't comment — we surface its last words inside the system note
    * (honest attribution), NEVER as a faked agent comment. null when unavailable.
    */
-  function recoverAgentWords(task: Task): string | null {
+  function recoverAgentWords(task: Task): { text: string; id: string } | null {
     const topicId = task.assignedTopicId;
     if (!topicId || !deps.getLastAgentText) return null;
-    try { return deps.getLastAgentText("topic:" + topicId.slice(0, 8))?.trim() || null; }
+    try {
+      const last = deps.getLastAgentText("topic:" + topicId.slice(0, 8));
+      const text = last?.text.trim();
+      return text && last ? { text, id: last.id } : null;
+    }
     catch { return null; }
   }
 
@@ -2723,13 +2736,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         try { emit(deps.svc.get(taskId)?.task ?? cur); } catch { /* best-effort */ }
         if (reopened) {
           // Deferred a tick: the caller's finally still holds the inFlight slot.
-          setTimeout(() => { void resume(taskId, queued.map((q) => q.text).join("\n")); }, 0);
+          setTimeout(() => { void resume(taskId, queued.map((q) => q.text).join("\n"), { commentIds: queuedCommentIds(queued) }); }, 0);
           return;
         }
         // Delivery intact: fall through to the review handling below (chip,
         // preview). The card stays where the agent put it.
       } else if (cur.status === "in_progress") {
-        setTimeout(() => { void resume(taskId, queued.map((q) => q.text).join("\n")); }, 0);
+        setTimeout(() => { void resume(taskId, queued.map((q) => q.text).join("\n"), { commentIds: queuedCommentIds(queued) }); }, 0);
         return;
       } else {
         // No turn to resume: the card went back to the queue (a declared wait, a
@@ -2958,7 +2971,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
                 ? "Non c'e' un diff da guardare: rimandalo avanti e riparte sulla stessa sessione, oppure prendilo in mano tu."
                 : "L'ho portato io in review: valuta cosa ha prodotto, oppure rimandalo indietro (un rifiuto lo fa ripartire sulla stessa sessione).";
           const reason = recovered
-            ? `${base}\n\nUltime parole dell'agent (recuperate dalla sessione): ${recovered}`
+            ? `${base}\n\nUltime parole dell'agent (recuperate dalla sessione): ${recovered.text}`
             : base;
           try {
             const delivered = deps.svc.deliverToReviewBySystem({
@@ -2974,6 +2987,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
               // is zero, "not measurable" stays null, and the sheet says two
               // different sentences instead of passing one off as the other.
               uncommittedFiles: sporchi ? sporchi.length : null,
+              // The note QUOTES an assistant row, so it is anchored to it: the
+              // reader draws the recovered words under the step they were said
+              // in instead of at the bottom, hours away from it.
+              messageId: recovered?.id ?? null,
             });
             emit(delivered);
             // System-delivery bypasses the route PATCH, so the review-edge
@@ -3080,7 +3097,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     catch { return text; }
   }
 
-  async function resume(taskId: string, humanMessage: string, opts?: { continuation?: boolean }): Promise<void> {
+  async function resume(taskId: string, humanMessage: string, opts?: { continuation?: boolean; commentIds?: string[] }): Promise<void> {
     const t = deps.svc.get(taskId)?.task;
     // The caller (reviewDecision reject) has already moved it to in_progress and
     // it must still be bound to its topic. Anything else = nothing to resume.
@@ -3105,7 +3122,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // reopened at 04:50 with nothing to read. Nothing is lost by dropping it.
       if (opts?.continuation || !humanMessage.trim()) return;
       const already = (pendingResume.get(taskId)?.length ?? 0) > 0;
-      bufferResume(taskId, humanMessage);
+      bufferResume(taskId, humanMessage, opts?.commentIds?.[0]);
       if (!already) {
         try {
           deps.svc.addComment({
@@ -3155,7 +3172,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // scattando): si imbuca dove si imbucano già i messaggi arrivati a turno
       // vivo, e `onTurnEnd` lo consegna quando il turno dell'attesa ha finito.
       if (slotWaits.has(taskId)) {
-        if (!opts?.continuation && humanMessage.trim()) bufferResume(taskId, humanMessage);
+        if (!opts?.continuation && humanMessage.trim()) bufferResume(taskId, humanMessage, opts?.commentIds?.[0]);
         return;
       }
       // Sfalsati, o venti resume in coda si sveglierebbero tutti insieme per
@@ -3170,7 +3187,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         slotWaits.delete(taskId);
         void resume(taskId, humanMessage, opts);
       }, delay);
-      slotWaits.set(taskId, { timer, message: humanMessage });
+      slotWaits.set(taskId, { timer, message: humanMessage, commentIds: opts?.commentIds });
       return;
     }
     // C'è posto: questo turno parte e si prende anche l'eredità di un'attesa
@@ -3207,6 +3224,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           timeoutMs: Math.max(1, timeoutMin) * 60_000,
           idleMs: Math.max(1, idleMin) * 60_000,
           contextMode: "lean",
+          ...(opts?.continuation ? {} : { dispatchedFor: opts?.commentIds ?? [] }),
         })) || undefined;
       }
       catch (err) { log(`resume turn failed for ${taskId}`, err); turnEnd = classifyTurnError(err); }

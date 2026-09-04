@@ -19,6 +19,7 @@
  * The two messages below are the real ones from `topic:85561235`.
  *
  * @covers KANBAN-05
+ * @covers KANBAN-72
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -33,17 +34,23 @@ import { TURN_ERROR_PREFIX } from "../../shared/board";
  * and this file names it so that anybody changing the closure finds the test by
  * searching for the phrase.
  */
-function ultimaProsaDellAgente(msgs: ReadonlyArray<{ role: string; content: unknown }>): string | null {
+function ultimaProsaDellAgente(
+  msgs: ReadonlyArray<{ id?: string; role: string; content: unknown }>,
+): { text: string; id: string } | null {
   for (let i = msgs.length - 1; i >= 0; i--) {
     const m = msgs[i]!;
     if (m.role !== "assistant" || typeof m.content !== "string") continue;
     const testo = m.content.trim();
     if (!testo) continue;
     if (testo.startsWith(TURN_ERROR_PREFIX)) continue;
-    return m.content;
+    return { text: m.content, id: m.id ?? "" };
   }
   return null;
 }
+
+/** The words alone, for the cases that only care about which row was picked. */
+const wordsOnly = (msgs: ReadonlyArray<{ id?: string; role: string; content: unknown }>) =>
+  ultimaProsaDellAgente(msgs)?.text ?? null;
 
 const CARTELLO = TURN_ERROR_PREFIX + " Turno interrotto da un riavvio del server. Il messaggio che hai inviato e' ancora qui: premi Riprova per inviarlo di nuovo.";
 const PROSA = "I'll start by framing the work: reading the task and exploring the tab/browser code.";
@@ -51,7 +58,7 @@ const PROSA = "I'll start by framing the work: reading the task and exploring th
 describe("l'ultima prosa dell'agente", () => {
   /** THE 235afe11 CASE, with the real messages in the real order. */
   test("salta il cartello e trova le parole sotto", () => {
-    const out = ultimaProsaDellAgente([
+    const out = wordsOnly([
       { role: "user", content: "vai" },
       { role: "assistant", content: PROSA },
       { role: "assistant", content: CARTELLO },
@@ -60,7 +67,7 @@ describe("l'ultima prosa dell'agente", () => {
   });
 
   test("più cartelli di fila non fermano la discesa", () => {
-    const out = ultimaProsaDellAgente([
+    const out = wordsOnly([
       { role: "assistant", content: PROSA },
       { role: "assistant", content: "⚠️ Turno interrotto prima di una risposta finale." },
       { role: "assistant", content: CARTELLO },
@@ -74,21 +81,35 @@ describe("l'ultima prosa dell'agente", () => {
    * as "the agent's words" would be a false attribution.
    */
   test("solo cartelli: nessuna parola da rispecchiare", () => {
-    expect(ultimaProsaDellAgente([{ role: "assistant", content: CARTELLO }])).toBeNull();
+    expect(wordsOnly([{ role: "assistant", content: CARTELLO }])).toBeNull();
   });
 
   test("un turno sano non è toccato", () => {
-    const out = ultimaProsaDellAgente([
+    const out = wordsOnly([
       { role: "assistant", content: PROSA },
       { role: "assistant", content: "Fatto: tre file, typecheck verde." },
     ]);
     expect(out).toBe("Fatto: tre file, typecheck verde.");
   });
 
+  /**
+   * THE ID COMES BACK WITH THE WORDS, and it is the id of the row the words are
+   * on: the note that mirrors them is anchored to it, so a reader draws them
+   * under the step that said them. Picking the last row's id instead would
+   * anchor the quote to the sign announcing the death.
+   */
+  test("torna l'id della riga giusta, non quello dell'ultima", () => {
+    const out = ultimaProsaDellAgente([
+      { id: "m1", role: "assistant", content: PROSA },
+      { id: "m2", role: "assistant", content: CARTELLO },
+    ]);
+    expect(out).toEqual({ text: PROSA, id: "m1" });
+  });
+
   /** A warning sign in the MIDDLE of the prose is not a sign: only the start counts. */
   test("un ⚠️ dentro il testo non lo squalifica", () => {
     const con = "Fatto, ma ⚠️ attenzione al caso limite.";
-    expect(ultimaProsaDellAgente([{ role: "assistant", content: con }])).toBe(con);
+    expect(wordsOnly([{ role: "assistant", content: con }])).toBe(con);
   });
 });
 
