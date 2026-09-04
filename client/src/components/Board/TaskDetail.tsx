@@ -870,12 +870,35 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     setDragX(0);
   };
 
+  /**
+   * The read that FAILED, kept instead of swallowed.
+   *
+   * Two different sentences come out of one state, and which one depends on
+   * whether we ever had the row. With no `task` the drawer used to sit on a
+   * full-height spinner forever: the spinner promised the row was coming, so
+   * nobody had a reason to close and reopen, which was the only way out. With a
+   * `task` already on screen the drawer is showing data from BEFORE the failed
+   * refresh, and this is the tail of every mutation (`decide`, `doLand`, `send`,
+   * `saveTitle`, `changeStatus`, `toggleLabel`): the action landed on the
+   * server and the drawer would keep the old row without saying so.
+   */
+  const [loadFailed, setLoadFailed] = useState<string | null>(null);
   const load = useCallback(async () => {
     try {
       const { task, comments, children } = await boardApi.get(projectId, taskId);
       setTask(task); setComments(comments); setChildren(children ?? []);
-    } catch { /* closed or gone */ }
+      setLoadFailed(null);
+    } catch (e) {
+      // The RAW message goes in, translated at render: putting `tr` in these
+      // deps would rebuild `load` when the English catalogue lands, and `load`
+      // is a dependency of the fetch-on-mount effect below.
+      setLoadFailed(e instanceof Error ? e.message : String(e ?? ''));
+    }
   }, [projectId, taskId]);
+  const loadFailedMessage = useMemo(
+    () => (loadFailed === null ? null : taskActionErrorMessage(loadFailed, tr('board.task.loadFailedReason'))),
+    [loadFailed, tr],
+  );
   // fetch-on-mount: setState lands after the await, not synchronously
   useEffect(() => { load(); }, [load, bump]);
   /**
@@ -2298,8 +2321,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           title={tr('board.task.changeStatusTitle')}
           className="flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-app-text-heading hover:bg-white/10"
         >
-          {task ? <StatusIcon status={task.status} /> : <Spinner size="sm" tone="current" />}
-          {task ? STATUS_LABEL[task.status] : tr('board.task.loading')}
+          {/* A failed first read must not keep saying «Loading…»: the spinner is
+              a promise, and here nothing is coming. */}
+          {task ? <StatusIcon status={task.status} /> : loadFailedMessage ? <AlertTriangle className="h-3.5 w-3.5 text-rose-300" /> : <Spinner size="sm" tone="current" />}
+          {task ? STATUS_LABEL[task.status] : loadFailedMessage ? tr('board.task.loadFailedChip') : tr('board.task.loading')}
           <ChevronDown className="h-3 w-3 text-app-text-faint" />
         </button>
         {/* Condividere sta accanto allo STATO, non dentro un menù: è una
@@ -2548,7 +2573,26 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           TRAPPOLA, non toccare: il GroupLayout deve restare FUORI dallo scroll.
           Dentro un contenitore scrollabile perde l'altezza definita e le sue
           pane collassano a 0. Per costruzione, non per fortuna. */}
-      {!task ? (
+      {!task && loadFailedMessage ? (
+        /* THE DEAD END, closed. With no row the body below never mounts, so the
+           only thing on screen was the spinner: no message, no way to retry,
+           and the one recovery that existed (the wake-up refresh on
+           `visibilitychange`) worked by accident, if you happened to leave the
+           window. Here the server's own sentence and one button that calls the
+           same `load()`. */
+        <div data-testid="task-load-error" className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+          <AlertTriangle className="h-6 w-6 text-rose-300" />
+          <p className="text-sm text-app-text-heading">{tr('board.task.loadFailedTitle')}</p>
+          <p className="max-w-sm break-words text-[11px] text-app-text-muted">{loadFailedMessage}</p>
+          <button
+            data-testid="task-load-retry"
+            onClick={() => { void load(); }}
+            className="rounded-md border border-app-border px-3 py-1.5 text-xs text-app-text-heading hover:bg-white/10"
+          >
+            {tr('board.task.loadRetry')}
+          </button>
+        </div>
+      ) : !task ? (
         <div className="flex flex-1 items-center justify-center">
           <Spinner size="md" tone="current" className="text-app-text-muted" />
         </div>
@@ -2860,6 +2904,26 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 sta appiccicato ai bottoni che l'hanno prodotto (Approva, Landa,
                 le scelte, il composer) e resta nel viewport quanto loro. In
                 testa al drawer era vero e invisibile. */}
+            {/* THE ACTION LANDED, THE REFRESH DID NOT. Every mutation here ends
+                with `load()`, so when that read fails the server has already
+                moved and the drawer is still drawing the row from before. Said
+                next to the buttons, with the same retry: silence here reads as
+                a button that did nothing. */}
+            {task && loadFailedMessage && (
+              <div
+                data-testid="task-stale-warning"
+                className="mb-2 flex items-start gap-2 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-200"
+              >
+                <span className="min-w-0 flex-1 break-words">{tr('board.task.staleAfterAction', { reason: loadFailedMessage })}</span>
+                <button
+                  data-testid="task-stale-retry"
+                  onClick={() => { void load(); }}
+                  className="shrink-0 rounded px-1.5 py-0.5 text-amber-100 underline decoration-dotted hover:bg-white/10"
+                >
+                  {tr('board.task.loadRetry')}
+                </button>
+              </div>
+            )}
             {error && (
               <div
                 data-testid="task-action-error"

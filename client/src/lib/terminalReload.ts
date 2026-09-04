@@ -15,8 +15,14 @@
  *
  * `toast` and `tr` are passed in because both are React hooks at the call sites; keeping them as
  * parameters is what lets the one implementation cover all three call sites.
+ *
+ * The first cure showed the server's answer RAW, and `errorResponse` always serialises
+ * `{"error": "..."}`: what a person read was `{"error":"Reload already in progress for this
+ * session"}`, braces included, in English, and on a 500 with an internal exception message inside.
+ * So the reason now comes from `terminalErrorText` — the status, translated, one sentence.
  */
 import { signalsActions } from '../state/signals';
+import { terminalErrorText, terminalUnreachableText } from './terminalActions';
 
 type ErrorReporter = { error: (message: string, duration?: number) => void };
 
@@ -36,7 +42,7 @@ export function restartTerminalSession(
     .then(async (res) => {
       if (res.ok) return;
       const said = await res.text().catch(() => '');
-      giveUp(said.trim() || tr('tab.restartSessionFailed'));
+      giveUp(terminalErrorText('restart', res.status, said, tr));
     })
-    .catch(() => giveUp(tr('tab.restartSessionUnreachable')));
+    .catch(() => giveUp(terminalUnreachableText('restart', tr)));
 }

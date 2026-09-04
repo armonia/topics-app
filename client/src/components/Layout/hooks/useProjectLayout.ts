@@ -89,6 +89,9 @@ import { useProjectBrowserPanes } from './useProjectBrowserPanes';
 import { useProjectTerminalSync } from './useProjectTerminalSync';
 import { reconcileRowsWithGroups } from './rowLayoutReconcile';
 import { popOutTopic } from '../../../lib/popOutTopic';
+import { createTerminalSession } from '../../../lib/terminalActions';
+import { useToast } from '../../Shared/Toast';
+import { useT } from '../../../hooks/useT';
 
 // --- Module-local helpers (mirrors of ProjectWindow.tsx helpers) ---
 
@@ -232,6 +235,12 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     onOpenPaneSettings,
     onBrowserNavigateUrl,
   } = args;
+
+  // Both doors below can be REFUSED by the server (no PTY bridge in this
+  // build, spawn failure, cwd outside a known project), and a refusal that
+  // nobody says is a «+» that does nothing.        allow-italian: quoted UI string
+  const toast = useToast();
+  const tr = useT();
 
   // The pane id this ProjectWindow renders under at the parent layout level.
   // Computed once; matches the wrapper id in ProjectWindow.tsx.
@@ -980,20 +989,11 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       if (type === 'terminal') {
         const termType = normalizeTerminalAgent(subType);
         paneTitle = TERMINAL_AGENT_LABELS[termType];
-        try {
-          const body = buildTerminalSessionBody(termType, { cwd: projectPath, skipPermissions: claudeSkipPermissions });
-          const res = await fetch('/api/terminal/sessions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-          });
-          if (!res.ok) return;
-          const data = await res.json();
-          paneId = createPaneId('terminal', data.id);
-          paneTitle = data.name || paneTitle;
-        } catch {
-          return;
-        }
+        const body = buildTerminalSessionBody(termType, { cwd: projectPath, skipPermissions: claudeSkipPermissions });
+        const data = await createTerminalSession(body, toast, tr);
+        if (!data) return;
+        paneId = createPaneId('terminal', data.id);
+        paneTitle = data.name || paneTitle;
       } else {
         // paneKey makes the id deterministic (browser panes use it so a
         // terminal-originated open registers its CDP target under the same
@@ -1074,7 +1074,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       setFocusedGroupId(groupId);
       return paneId;
     },
-    [panes, groups, projectPath, claudeSkipPermissions],
+    [panes, groups, projectPath, claudeSkipPermissions, toast, tr],
   );
 
   // Pin the latest handleAddPaneToGroup into the forward-declared ref so the
@@ -1102,20 +1102,11 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       if (type === 'terminal') {
         const termType = normalizeTerminalAgent(subType);
         paneTitle = TERMINAL_AGENT_LABELS[termType];
-        try {
-          const body = buildTerminalSessionBody(termType, { cwd: projectPath, skipPermissions: claudeSkipPermissions });
-          const res = await fetch('/api/terminal/sessions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-          });
-          if (!res.ok) return;
-          const data = await res.json();
-          paneId = createPaneId('terminal', data.id);
-          paneTitle = data.name || paneTitle;
-        } catch {
-          return;
-        }
+        const body = buildTerminalSessionBody(termType, { cwd: projectPath, skipPermissions: claudeSkipPermissions });
+        const data = await createTerminalSession(body, toast, tr);
+        if (!data) return;
+        paneId = createPaneId('terminal', data.id);
+        paneTitle = data.name || paneTitle;
       } else {
         paneId = createPaneId(type, paneKey);
         paneTitle = config.label;
@@ -1154,7 +1145,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       setFocusedGroupId(newGroupId);
       return paneId;
     },
-    [projectPath, claudeSkipPermissions],
+    [projectPath, claudeSkipPermissions, toast, tr],
   );
 
   // Pinned each render, come `handleAddPaneToGroupRef`: l'effetto browser è

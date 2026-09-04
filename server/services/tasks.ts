@@ -22,7 +22,8 @@
  * DB without booting the server.
  */
 import { checkReport as checkDeliveryReport } from "./deliveryReportChecks";
-import { repoProbe } from "./deliveryReportProbe";
+import { repoProbe, probeForRoot } from "./deliveryReportProbe";
+import type { RepoProbe } from "./deliveryReportChecks";
 import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -281,6 +282,16 @@ interface ServiceOpts {
    * dir e non deve toccare il filesystem: vedi `services/delivery-sheet.ts`.
    */
   writeDeliverySheet?: (taskId: string, svg: string) => string | null;
+  /**
+   * The repository a delivery report talks about: the agent's worktree first
+   * (a cited file may exist only on the delivery branch), then the board's
+   * project. `null` = this server's own checkout, which is right for exactly
+   * one board. The server wires this; the service cannot know where projects
+   * live.
+   */
+  repoRootFor?: (args: { taskId: string; projectId: string | undefined; assignedTopicId: string | null }) => string | null;
+  /** How a root becomes a probe (tests pass a fake). */
+  probeFor?: (root: string) => RepoProbe;
 }
 
 /** Cosa e' stato spostato da una fusione. I conti servono a chi la annuncia. */
@@ -2812,7 +2823,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       ).all(taskId, turnStart, turnStart) as Array<{ content: string }>;
       if (rows.length === 0) return;
 
-      const findings = rows.flatMap((r) => checkDeliveryReport(r.content ?? "", repoProbe));
+      let probe: RepoProbe = repoProbe;
+      try {
+        const row = getTaskRow(taskId);
+        const root = opts.repoRootFor?.({ taskId, projectId, assignedTopicId: (row?.assigned_topic_id as string | null) ?? null }) ?? null;
+        if (root) probe = (opts.probeFor ?? probeForRoot)(root);
+      } catch { /* the server's own checkout, as before */ }
+      const findings = rows.flatMap((r) => checkDeliveryReport(r.content ?? "", probe));
       // "Nothing to check" is not a finding worth showing: that is a report
       // written in prose, which is legitimate. Only what was LOOKED UP and not
       // found gets annotated.
@@ -4570,6 +4587,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // sta già facendo, e rifarla a ogni giro sarebbe il rumore che spegne le
       // domande vere.
       if (row.archived === 1 || row.status === "done" || row.status === "review") return null;
+      // A parent in the QUEUE is a promise of work, not a stall: the agent it
+      // gets reads the open subtasks in its kickoff and works them. Asking "who
+      // will work them?" moved three queued parents to review, each with a
+      // question on top, twelve seconds after their sub-cards were put back to
+      // todo (2026-09-04 10:09). "In the queue" is a todo card that carries the
+      // `queued` chip or has never had a turn; a todo card that already spent
+      // one and came back without a chip is what the rake exists for.
+      if (row.status === "todo" && (row.dispatch_state === "queued" || Number(row.dispatch_attempts ?? 0) === 0)) return null;
       // IL PADRE STA LAVORANDO: la domanda non si fa adesso.
       //
       // Spostare in review una card con un turno vivo gli taglia il turno sotto

@@ -440,3 +440,71 @@ tre non lo è.
 #### Scenario: il servizio non risponde
 - **GIVEN** nessuna risposta alla richiesta
 - **THEN** SHALL essere dichiarato, non atteso fino al tetto
+
+### Requirement: TERM-SAY-01 — Aprire o rinominare un terminale non SHALL fallire in silenzio
+
+Il gesto che apre un terminale ha tre porte nel client, e tutte e tre buttavano
+via l'esito della richiesta. Il servizio rifiuta in quattro modi — questa
+installazione non ha il ponte PTY (guscio autonomo, sidecar, e ogni build
+Windows), il ponte non è riuscito ad avviare il processo, la cartella è fuori
+dai progetti conosciuti, il dispositivo non è autorizzato — e nessuno dei
+quattro arrivava allo schermo: si sceglie l'agente dal «+» e non succede
+assolutamente niente. Su Windows è permanente e per costruzione.
+
+Un rifiuto SHALL essere DETTO. Il testo mostrato SHALL essere tradotto e SHALL
+descrivere il gesto fallito, non il messaggio interno del servizio: quello è
+inglese, a volte è il testo di un'eccezione, e nel caso del riavvio arrivava a
+schermo con le graffe della sua serializzazione attorno.
+
+L'assenza permanente del ponte SHALL essere distinguibile da un rifiuto
+temporaneo: sono due frasi diverse perché le due mosse successive sono opposte
+— riprovare, oppure smettere di aspettarsi un terminale da questa
+installazione.
+
+La rinomina di una scheda SHALL seguire la stessa regola. La scheda si
+rietichetta solo quando il servizio ridiffonde l'elenco, quindi un rifiuto è
+invisibile per costruzione: il nome torna quello di prima e l'editor è già
+chiuso.
+
+Le tre porte SHALL passare da UNA sola implementazione, per la ragione già
+pagata sul riavvio: curarne una lascia il difetto vivo nelle altre.
+
+#### Scenario: nessun ponte PTY in questa installazione
+- **GIVEN** un'installazione senza ponte PTY
+- **WHEN** si chiede un nuovo terminale
+- **THEN** SHALL essere detto che i terminali non sono disponibili qui
+
+#### Scenario: il servizio rifiuta l'apertura
+- **GIVEN** una richiesta di apertura respinta
+- **THEN** il motivo SHALL essere leggibile, tradotto, e SHALL nominare il terminale
+
+#### Scenario: la rinomina viene rifiutata
+- **GIVEN** una sessione che non esiste più
+- **WHEN** si conferma il nuovo nome
+- **THEN** il rifiuto SHALL essere detto, invece del vecchio nome che ricompare
+
+### Requirement: TERM-SAY-02 — Un tasto che non arriva SHALL essere dichiarato a chi lo batte
+
+Con il ponte non connesso il tasto viene SCARTATO, ed è la scelta giusta:
+rigiocarlo dentro un processo che nel frattempo è ripartito in un altro stato è
+peggio che perderlo. Ma lo scarto era annotato solo nel registro del SERVIZIO.
+Dalla parte di chi scrive la connessione resta aperta, il cursore lampeggia e il
+terminale non fa eco locale: battere su un terminale morto era indistinguibile
+dal battere su uno vivo.
+
+Il servizio SHALL mandare al client un messaggio di controllo quando scarta
+l'ingresso. Il pannello SHALL renderlo come un avviso persistente — non un
+avviso che scorre via — e SHALL toglierlo alla prima uscita vera, che è la
+prova che il ponte risponde di nuovo. L'avviso SHALL dire che quel che si
+scrive va perso, e NON SHALL promettere un recupero: i tasti scartati restano
+scartati.
+
+#### Scenario: si batte con il ponte caduto
+- **GIVEN** una sessione attaccata e il ponte non connesso
+- **WHEN** arriva un byte in ingresso
+- **THEN** un messaggio di controllo SHALL raggiungere il client
+
+#### Scenario: il ponte risponde di nuovo
+- **GIVEN** l'avviso mostrato
+- **WHEN** arriva la prima uscita vera dal terminale
+- **THEN** l'avviso SHALL sparire da sé
