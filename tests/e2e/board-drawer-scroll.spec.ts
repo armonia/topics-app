@@ -92,6 +92,7 @@ function tallPng(width: number, height: number): Buffer {
 
 let projectTopicId: string | null = null;
 let sessionTopicId: string | null = null;
+let liveTopicId: string | null = null;
 const createdTasks: string[] = [];
 
 async function api(request: import("@playwright/test").APIRequestContext, method: "post" | "patch", path: string, data: unknown) {
@@ -256,6 +257,7 @@ test.describe("Drawer del task — un solo scroll", () => {
     }
     if (projectTopicId) await deleteTopic(request, projectTopicId);
     if (sessionTopicId) await deleteTopic(request, sessionTopicId);
+    if (liveTopicId) await deleteTopic(request, liveTopicId);
     rmSync(PROJECT_PATH, { recursive: true, force: true });
     if (previewPath) rmSync(previewPath, { force: true });
   });
@@ -527,5 +529,109 @@ test.describe("Drawer del task — un solo scroll", () => {
     // The thread stays the place you write: the column is still there, and it
     // is not the same thing as the tab.
     await expect(drawer.getByTestId("task-session-column")).toBeVisible();
+  });
+
+  /**
+   * DRAWER-05a — a live turn arrives on the WIRE, not from a poll.
+   *
+   * The drawer used to ask for 200 rows of history every 3 seconds to notice a
+   * token. It now reads the same store the chat reduces every frame into, and
+   * to be fed at all it has to DECLARE its topic: per-token deltas are routed
+   * on the subscribed set, and a drawer is not a pane.
+   *
+   * So there are three things to measure, and the negative one is the point:
+   *  · the window really sends a `subscribe` frame carrying this topic;
+   *  · the streamed text is in the session BEFORE `stream:end` arrives;
+   *  · zero history reads while the turn runs. The counter is armed AFTER the
+   *    mount on purpose: mount, wake-up and `stream:end` are the three reads
+   *    that survive, and none of them falls inside the window measured here.
+   */
+  test("DRAWER-05a: il turno vivo arriva dal filo, e la cronologia non si rilegge", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    const topic = await createTopic(page.request, `E2E-Drawer-Live-${Date.now()}`);
+    liveTopicId = topic.id;
+    const seeded = `Passo seminato ${Date.now()}`;
+    const task = await seedDispatchedTask(page.request, topic.id, seeded);
+
+    const list = await page.request.get(`${BASE}/api/topics`, { ignoreHTTPSErrors: true });
+    const topics = (await list.json()) as { topics: Record<string, { id: string; sessionKey: string }> };
+    const sessionKey = Object.values(topics.topics).find((t) => t.id === topic.id)?.sessionKey;
+    expect(sessionKey, "the bound topic must carry a sessionKey").toBeTruthy();
+
+    // The socket, proxied: what the page SENDS is readable (the subscribe
+    // frame), and frames can be pushed back as the server would push them.
+    const sent: string[] = [];
+    let inject: ((data: string) => void) | null = null;
+    await page.routeWebSocket(/\/ws/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((m) => { sent.push(String(m)); server.send(m); });
+      server.onMessage((m) => ws.send(m));
+      inject = (data: string) => ws.send(data);
+    });
+    const send = (frame: Record<string, unknown>) =>
+      inject!(JSON.stringify({ sessionKey, topicId: topic.id, ...frame }));
+
+    await page.goto("/");
+    await openProjectBoard(page);
+    await openTaskDrawer(page, task.text);
+    const drawer = page.getByTestId("task-detail-drawer");
+    await expandEverySection(page);
+    await drawer.getByTestId(`pane-tab-session:${task.id}`).click();
+    const pane = drawer.getByTestId("task-session-pane");
+    // The mount read has happened: the seeded step is on screen. Everything
+    // after this line is what the wire alone can do.
+    await expect(pane.getByText(seeded)).toBeVisible({ timeout: 15_000 });
+    await expect.poll(() => inject !== null, { timeout: 10_000 }).toBe(true);
+
+    // The declaration: this window asked to hear about the drawer's topic.
+    const declares = (frame: string) => {
+      const f = JSON.parse(frame) as { type?: string; topicIds?: string[] };
+      return f.type === "subscribe" && (f.topicIds ?? []).includes(topic.id);
+    };
+    await expect.poll(() => sent.some(declares), { timeout: 10_000 }).toBe(true);
+
+    // From here on, every history read is a regression.
+    let historyReads = 0;
+    await page.route("**/api/history/**", async (route) => { historyReads++; await route.fallback(); });
+
+    const MSG = `live-drawer-${Date.now()}`;
+    // Twelve pieces, not three: each one is waited for on screen, so the turn
+    // takes as long as a real one takes to type and the clip shows a session
+    // growing instead of a single jump.
+    const PIECES = [
+      "Sto leggendo il file. ",
+      "La riga incriminata ",
+      "e' la 214, ",
+      "e non e' quella ",
+      "che il rapporto indicava. ",
+      "Il valore ci arriva ",
+      "gia' arrotondato, ",
+      "quindi la differenza ",
+      "nasce prima, ",
+      "in chi lo scrive. ",
+      "Ho lasciato il confronto ",
+      "in fondo al file.",
+    ];
+    send({ type: "stream:start", messageId: MSG });
+    let written = "";
+    for (const piece of PIECES) {
+      send({ type: "stream:content_chunk", messageId: MSG, content: piece });
+      written += piece;
+      // The wait IS the assertion: the text is in the session while the turn is
+      // still open, so the pacing comes from the page and not from a clock.
+      await expect(pane).toContainText(written.trim(), { timeout: 10_000 });
+    }
+    expect(historyReads, "no history read while following a live turn").toBe(0);
+
+    // The turn ends, and the drawer asks for the history again: that read is
+    // NOT asserted here, and the reason is worth writing down. `loadHistory`
+    // drops a re-fetch that lands within 5 seconds of the previous one, so at
+    // this timescale the request never reaches the network and a counter here
+    // would be measuring the dedup instead of the drawer. What the drawer does
+    // with a `stream:end` (its own session only, never a neighbour's) is held
+    // by the unit gate on the source, `Board/TaskDetail.test.ts`.
+    send({ type: "stream:end", messageId: MSG, completed: true, latencyMs: 900 });
+    await expect(pane).toContainText(written.trim());
+    expect(historyReads, "the turn ended, and still no poll behind it").toBe(0);
   });
 });

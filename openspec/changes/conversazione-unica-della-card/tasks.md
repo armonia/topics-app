@@ -63,17 +63,17 @@ sola con la sua barra.
 
 ## 2. T2 — La sessione dallo store della chat, il drawer dichiara il suo topic (client, nessun cambio visivo)
 
-- [ ] 2.1 `client/src/state/topicSubscriptions.ts` (+ `.test.ts`): insieme extra
+- [x] 2.1 `client/src/state/topicSubscriptions.ts` (+ `.test.ts`): insieme extra
   con conteggio — `holdTopic(topicId): () => void`, `getExtraTopicIds()`,
   `subscribeExtraTopics(cb)` — stabile per riferimento.
-- [ ] 2.2 `usePanelLifecycle.ts:2553`: il frame `subscribe` manda
+- [x] 2.2 `usePanelLifecycle.ts:2553`: il frame `subscribe` manda
   `presenceTopicIds ∪ extra` (dedup), effetto dipendente anche da `extra`;
   `presence:announce` (2537-2552) invariato. Server invariato (server.ts:3963,
   server/lib/ws-topic-routing.ts:33).
-- [ ] 2.3 `loadHistory` e `onMessage` per prop: `ProjectWindow.tsx:504` e
+- [x] 2.3 `loadHistory` e `onMessage` per prop: `ProjectWindow.tsx:504` e
   `StandaloneChatGroup.tsx:739` → `KanbanBoardPane` (props 574, `onMessage` 65)
   → `TaskDetail` (KanbanBoardPane.tsx:1913).
-- [ ] 2.4 In `TaskDetail.tsx` sostituire `sessionMsgs`/`loadSession`/poll/
+- [x] 2.4 In `TaskDetail.tsx` sostituire `sessionMsgs`/`loadSession`/poll/
   `sessionCatchUp`/`streamPreview` (1594-1656) con: `usePaneAlive()`;
   `holdTopic(task.assignedTopicId)` gated; `useSyncExternalStore` su
   `subscribeSession`/`getSessionMessagesFromStore` gated; `loadHistory(sessionKey)`
@@ -81,20 +81,24 @@ sola con la sua barra.
   `stream:end` con `sessionKey` uguale ricevuto da `onMessage`. Mappa temporanea
   ChatMessage→SessionMsg per `SessionPane`, che T3 toglie; `streamPreview`
   ricavato dall'ultima riga assistant `partial` finché T3 non lo toglie.
-- [ ] 2.5 Riscrivere `client/src/components/Board/TaskDetail.test.ts` (scan del
+- [x] 2.5 Riscrivere `client/src/components/Board/TaskDetail.test.ts` (scan del
   sorgente): niente `/api/history` né `}, 3000);`; presenti `usePaneAlive()` e
   `holdTopic(`; sottoscrizione gated su `paneAlive`; UN solo
   `addEventListener('visibilitychange'`; recupero su `stream:end` filtrato per
   `sessionKey`. Docblock KANBAN-52 aggiornato.
-- [ ] 2.6 e2e `DRAWER-05a` in `tests/e2e/board-drawer-scroll.spec.ts`: card legata
+- [x] 2.6 e2e `DRAWER-05a` in `tests/e2e/board-drawer-scroll.spec.ts`: card legata
   a un topic con turno vivo del provider di test (pattern
   `tests/e2e/turn-interrupted-live.spec.ts` + `/api/test/tasks/:id/bind-topic`
   come a 145-152) → `page.route('**/api/history/**')` armato DOPO il mount conta 0
   richieste finché il turno è vivo, e il testo streammato compare PRIMA di
-  `stream:end`; un `stream:tool_permission_required` seminato
-  (`server/routes/permission.test.ts:174`) porta `awaiting_permission` nello
-  store della sessione del drawer.
-- [ ] 2.7 Barra T2: `bun test client/src/state/topicSubscriptions.test.ts
+  `stream:end`; la lettura di recupero su
+  `stream:end` NON e' asseribile dalla rete a questa scala (il dedup da 5 s di
+  `loadHistory` la trattiene: il contatore misurerebbe il dedup, non il drawer)
+  e resta al cancello sul sorgente; il `stream:tool_permission_required` non e'
+  osservabile finche' il pane della sessione non disegna le tool row, cioe'
+  fino a T3, e viaggia con lo stesso instradamento del testo, che qui e'
+  provato.
+- [x] 2.7 Barra T2: `bun test client/src/state/topicSubscriptions.test.ts
   client/src/components/Board/TaskDetail.test.ts client/src/hooks` verde (con
   `holdTopic('t1')` il frame `subscribe` contiene `t1` e non lo contiene dopo il
   release; `listSessions().watched` true mentre il drawer è iscritto);
