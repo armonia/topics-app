@@ -14,6 +14,7 @@
 // ragione.
 
 import { staleStreamVerdict } from "./stale-stream-verdict";
+import type { TurnEndCause } from "../../shared/types";
 import { pendingAskVerdict } from "./ask-user-bridge";
 
 /** Il minimo di `ActiveStream` che questo giro legge. */
@@ -83,8 +84,23 @@ export interface StaleStreamSweepDeps {
   abortProvider: (sessionKey: string) => void;
   endStream: (sessionKey: string) => InterruptedTool[];
   broadcast: (msg: Record<string, unknown>) => void;
-  /** `marker` non nullo = il turno non aveva prosa e va spiegato all'utente. */
-  finalizeMessage: (args: { messageId: string; marker: string | null }) => void;
+  /**
+   * `marker` non nullo = il turno non aveva prosa e va spiegato all'utente.
+   *
+   * `interruption` is the SAME explanation in machine-readable form, and it
+   * travels even when `marker` is null: a turn cut halfway through a long
+   * answer keeps its prose (so no marker), and used to say nothing at all about
+   * why it stopped. That silence is the 2026-09-03 report. See
+   * `lib/interrupted-turn-block.ts` for who may write it and who may not.
+   *
+   * NOT to be confused with `staleStreamVerdict` above, which decides whether
+   * to finalize AT ALL: this one is the sentence shown once that is decided.
+   */
+  finalizeMessage: (args: {
+    messageId: string;
+    marker: string | null;
+    interruption: { text: string; cause: TurnEndCause; at: string };
+  }) => void;
   recordTurnEnd: (sessionKey: string) => void;
   warn: (msg: string) => void;
   info: (msg: string) => void;
@@ -365,7 +381,15 @@ export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, Sweep
     // drop in an explicit interrupted marker so the user sees WHAT happened;
     // any tool blocks are untouched and still render below it.
     const hadProse = typeof partial.content === "string" && partial.content.trim().length > 0;
-    deps.finalizeMessage({ messageId: stream.messageId, marker: hadProse ? null : INTERRUPTED_MARKER });
+    // The verdict goes on the row EITHER WAY. The marker only covers the empty
+    // bubble; the frequent shape is a turn cut mid-answer, which keeps its
+    // prose and, before this, kept no trace of why it ended - the reason lived
+    // in the server log, where nobody waiting for an answer ever looks.
+    deps.finalizeMessage({
+      messageId: stream.messageId,
+      marker: hadProse ? null : INTERRUPTED_MARKER,
+      interruption: { text: INTERRUPTED_MARKER, cause: "watchdog", at: new Date().toISOString() },
+    });
     // Il turno è morto senza un `result` pulito: chi lo sta guidando (il
     // dispatcher) deve leggere "fermato dal watchdog", non la fine di default.
     deps.recordTurnEnd(sessionKey);

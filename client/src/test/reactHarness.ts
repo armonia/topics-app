@@ -88,6 +88,21 @@ export interface RenderPass {
   providerValues: unknown[];
   /** Tutto il testo dei nodi host, concatenato. */
   text: string;
+  /**
+   * The HOST nodes drawn (`input`, `button`, `form`…), in tree order.
+   *
+   * They answer the two questions `text` alone cannot: what is WRITTEN in a
+   * field (the value is a prop, not a child) and what happens when it is used
+   * (`onSubmit`, `onClick`). With no DOM this is the only way to observe them,
+   * and it is still the real code that produced them: nothing is simulated
+   * here, what is read is what the component returned.
+   */
+  hosts: HostNode[];
+}
+
+export interface HostNode {
+  type: string;
+  props: Record<string, unknown>;
 }
 
 export interface Harness {
@@ -250,6 +265,7 @@ export function mount(element: React.ReactNode): Harness {
       for (const [k, had, prev] of saved) { if (had) live.set(k, prev); else live.delete(k); }
       return;
     }
+    if (typeof type === 'string') pass.hosts.push({ type, props: props as Record<string, unknown> });
     walk(props.children, `${path}/c`, fiber, pass);
   };
 
@@ -263,7 +279,7 @@ export function mount(element: React.ReactNode): Harness {
   };
 
   const renderOnce = (): void => {
-    const pass: RenderPass = { providerValues: [], text: '' };
+    const pass: RenderPass = { providerValues: [], text: '', hosts: [] };
     rendering = true;
     const slot = dispatcherSlot();
     const prev = slot.H;

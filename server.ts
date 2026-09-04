@@ -34,6 +34,8 @@ import { setLocalFileServing } from "./server/browser-local-file-url";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
+import { timelineWithInterruptedVerdict } from "./server/lib/interrupted-turn-block";
+import type { ContentBlock } from "./shared/types";
 import { describeInFlight, unadoptableStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
 import { dispatchReconcileHeld } from "./server/lib/e2e-dispatch-hold";
 import { chatsParkedOnQuestion } from "./server/lib/parked-asks";
@@ -4350,9 +4352,26 @@ const staleStreamTimer = setInterval(() => {
     },
     endStream: (sk) => ctx.endStream(sk),
     broadcast: (msg) => broadcastToAll(msg as Parameters<typeof broadcastToAll>[0]),
-    finalizeMessage: ({ messageId, marker }) => {
+    finalizeMessage: ({ messageId, marker, interruption }) => {
       if (marker === null) db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE id = ?", [messageId]);
       else db.run("UPDATE messages SET partial = 0, streamed_at = NULL, content = ? WHERE id = ?", [marker, messageId]);
+      // WHY the turn ended, on the row, in the shape the composer's banner
+      // reads. Without it the reaper closed a turn cut mid-answer leaving the
+      // reason in the server log only: the 2026-09-03 report, "stuck with no
+      // feedback at all". `timelineWithInterruptedVerdict` refuses the rows
+      // that must not be touched (empty timeline, already explained).
+      try {
+        const row = db.query("SELECT blocks FROM messages WHERE id = ?").get(messageId) as { blocks?: unknown } | undefined;
+        const raw = decodeCol(row?.blocks);
+        const parsed = raw ? (JSON.parse(raw) as ContentBlock[]) : null;
+        const timeline = timelineWithInterruptedVerdict(parsed, interruption);
+        if (timeline) db.run("UPDATE messages SET blocks = ? WHERE id = ?", [encodeCol(JSON.stringify(timeline)) ?? null, messageId]);
+      } catch (err) {
+        // A row we cannot read is a row we leave alone: the marker above
+        // already said something, and rewriting a timeline we failed to parse
+        // would throw away the turn for not understanding it.
+        console.warn(`[StaleStream] verdetto non scritto su ${messageId}:`, err);
+      }
     },
     recordTurnEnd: (sk) => recordTurnEnd(sk, cancelled("watchdog", "stale stream sweep")),
     warn: (msg) => console.warn(msg),
