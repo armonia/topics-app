@@ -1034,9 +1034,6 @@
     "client/src/components/Terminal/writeCoalescer.test.ts": [
       "reentered"
     ],
-    "client/src/contexts/PendingActionContext.tsx": [
-      "committed"
-    ],
     "client/src/hooks/browserCoords.test.ts": [
       "MEvt",
       "evt"
@@ -1155,7 +1152,6 @@
     ],
     "client/src/hooks/useDictation.ts": [
       "SondaLivello",
-      "SttCapabilities",
       "chiedi",
       "riprova",
       "sondaRef",
@@ -1847,11 +1843,7 @@
       "figlioLavora"
     ],
     "client/src/lib/stt.ts": [
-      "SttRequestError",
-      "capabilitiesPromise",
-      "fetchSttCapabilities",
       "filename",
-      "forgetSttCapabilities",
       "messaggioNotaVuota",
       "segnalaNotaVuota"
     ],
@@ -1898,9 +1890,6 @@
     ],
     "client/src/main.tsx": [
       "DYN_IMPORT_FAIL"
-    ],
-    "client/src/schemas/ws-handshake.ts": [
-      "CLIENT_CAPABILITIES"
     ],
     "client/src/state/attention.test.ts": [
       "PROJ",
@@ -1969,9 +1958,6 @@
     ],
     "client/src/state/pane/adapters/paneConfig.test.ts": [
       "senza"
-    ],
-    "client/src/state/pane/adapters/paneConfig.ts": [
-      "paneCapabilities"
     ],
     "client/src/state/pane/adapters/projectLayoutSync.ts": [
       "__getUnackedProjectSyncKeys",
@@ -2155,7 +2141,6 @@
       "tls"
     ],
     "scripts/board-arms.ts": [
-      "committed",
       "rec",
       "resummarise",
       "summarise",
@@ -2282,9 +2267,6 @@
       "superati",
       "turniPagatiDopoUnLand",
       "verdetto"
-    ],
-    "scripts/check-drag-frames.ts": [
-      "committed"
     ],
     "scripts/check-eslint-disable.ts": [
       "isJustified"
@@ -3700,7 +3682,6 @@
     ],
     "server/lib/stt.test.ts": [
       "Chiamata",
-      "SttAudio",
       "chiamate",
       "esito",
       "ffmpeg",
@@ -3709,20 +3690,12 @@
     "server/lib/stt.ts": [
       "ELEVENLABS_FALLBACK_MODEL",
       "FFMPEG_TIMEOUT_MS",
-      "MAX_STT_BYTES",
       "OPENAI_FALLBACK_MODEL",
-      "STT_AUTO_ORDER",
-      "SttAudio",
-      "SttDeps",
-      "SttError",
       "ffmpeg",
       "grezzo",
       "lang",
       "motivo",
-      "resolveSttChain",
-      "sttCapabilities",
-      "transcribeDeepgram",
-      "wav"
+      "transcribeDeepgram"
     ],
     "server/lib/subagent-watch.ts": [
       "buf"
@@ -3857,7 +3830,6 @@
       "AcpSessionState",
       "AcpSessionUpdate",
       "AcpTranslateState",
-      "CLIENT_CAPABILITIES",
       "ENV_ALLOWLIST"
     ],
     "server/providers/acp/agents.ts": [
@@ -4568,7 +4540,6 @@
     "server/routes/voice.ts": [
       "LANG_RE",
       "MAX_TTS_CHARS",
-      "SttDeps",
       "corpo",
       "langField",
       "testo"
@@ -5552,9 +5523,6 @@
       "WebrtcBridge",
       "createWebrtcBridge"
     ],
-    "server/ws-capabilities.ts": [
-      "SERVER_CAPABILITIES"
-    ],
     "shared/account.ts": [
       "CODICI_ACCOUNT",
       "CodiceAccount"
@@ -5943,12 +5911,6 @@
     "shared/shortcuts.ts": [
       "byCodepoint"
     ],
-    "shared/stt.ts": [
-      "SttCapabilities",
-      "SttProviderId",
-      "SttProviderStatus",
-      "SttResult"
-    ],
     "shared/tab-link.test.ts": [
       "enc",
       "proj"
@@ -6082,8 +6044,7 @@
       "altri"
     ],
     "tests/e2e/board-composer-dictation.spec.ts": [
-      "SECONDA",
-      "stubStt"
+      "SECONDA"
     ],
     "tests/e2e/board-composer-persistence.spec.ts": [
       "PROJ",
@@ -6119,7 +6080,6 @@
       "vecchio"
     ],
     "tests/e2e/board-drag-frames.spec.ts": [
-      "committed",
       "rec"
     ],
     "tests/e2e/board-drawer-scroll.spec.ts": [
@@ -6516,20 +6476,12 @@
     "tests/e2e/cross-window-topic-sync.spec.ts": [
       "conversazione"
     ],
-    "tests/e2e/dictation-hermetic.spec.ts": [
-      "SPOKEN_WAV",
-      "stubStt"
-    ],
     "tests/e2e/dictation-real-mic.spec.ts": [
-      "SPOKEN_WAV",
       "attendiFraseDetta",
       "buf",
       "didascalia",
       "irraggiungibile",
-      "motivoSttIrraggiungibile",
-      "readSttCapabilities",
-      "valueAfterStt",
-      "wavDurationSec"
+      "motivoSttIrraggiungibile"
     ],
     "tests/e2e/diff-project-scope.spec.ts": [
       "PROJ_A",

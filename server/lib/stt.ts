@@ -102,7 +102,7 @@ function modelFor(id: SttProviderId, env: SttDeps["env"]): string {
 }
 
 /** Lingua attesa. Vuoto = auto-detect, che su Scribe/gpt-transcribe è la scelta giusta. */
-function languageHint(env: SttDeps["env"]): string | null {
+export function languageHint(env: SttDeps["env"]): string | null {
   const raw = (env.STT_LANGUAGE || "").trim().toLowerCase();
   if (!raw || raw === "auto") return null;
   return raw;
@@ -705,5 +705,33 @@ export async function sttCapabilities(env: SttDeps["env"], deps: Pick<SttDeps, "
     model: head?.model ?? null,
     providers: all,
     language: languageHint(env),
+    realtime: realtimeSttReason(env) === null,
   };
+}
+
+// ─── Dictating while you speak ────────────────────────────────────────────────
+//
+// The cascade above is BATCH: record, stop, wait. That is fine for a voice
+// note, not for dictating, so ElevenLabs Scribe v2 Realtime streams the words
+// over a WebSocket the CLIENT opens. The token that lets it do so without ever
+// seeing the key is minted in `stt-realtime-token.ts`; what stays here is the
+// one question that has to be answered from the cascade itself.
+//
+// ONE CONDITION TO OFFER IT: that ElevenLabs is the engine that would really
+// transcribe (head of the chain, key verified). If a dead key pushed it down,
+// or the configuration pins another one, realtime is not announced: announcing
+// it and then falling back to batch with the microphone open is the very defect
+// verified capabilities exist to remove.
+
+/**
+ * Why realtime is NOT available, or `null` when it is. It reads the chain that
+ * is already resolved: no new rule about who transcribes, only the question
+ * «can whoever would transcribe right now also do it streaming?».
+ */
+export function realtimeSttReason(env: SttDeps["env"]): string | null {
+  const { chain } = resolveSttChain(env);
+  const head = chain[0];
+  if (!head) return "no transcription engine available";
+  if (head.id !== "elevenlabs") return `only ElevenLabs transcribes live, here ${head.id} does`;
+  return null;
 }

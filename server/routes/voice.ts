@@ -1,5 +1,12 @@
 import type { AppContext, RouteHandler } from "../types";
-import { transcribe, sttCapabilities, SttError, MAX_STT_BYTES, type SttDeps } from "../lib/stt";
+import {
+  transcribe,
+  sttCapabilities,
+  SttError,
+  MAX_STT_BYTES,
+  type SttDeps,
+} from "../lib/stt";
+import { realtimeSttToken, SttRealtimeError } from "../lib/stt-realtime-token";
 import { classifyIntent } from "../lib/intent-classifier";
 
 const MAX_INTENT_CHARS = 2000;
@@ -36,6 +43,29 @@ export function createVoiceRouter(ctx: AppContext, deps: Partial<SttDeps> = {}):
     // registrare quaranta secondi e ricevere un errore.
     if (method === "GET" && pathname === "/api/stt/capabilities") {
       return json(await sttCapabilities(env, { fetchImpl: doFetch }));
+    }
+
+    // --- The permission to listen live, without the key ---
+    //
+    // The client opens the Scribe v2 Realtime WebSocket itself: it holds the
+    // microphone, and routing the audio through the server would add a hop to
+    // every 250 ms packet. But `ELEVENLABS_API_KEY` must NEVER reach the
+    // browser: in an app that also runs on the phone at home, a key in the
+    // bundle is a published key. So the server stays in the loop for one line
+    // only: a single-use token, 15 minutes, consumed on connect.
+    //
+    // 503 and 502 say two different things to the client: «not on offer» (key
+    // not verified, a different engine at the head of the chain) against «I
+    // tried and it broke». Both go down to the batch flow, but only the second
+    // deserves a line on screen.
+    if (method === "POST" && pathname === "/api/stt/realtime-token") {
+      try {
+        return json(await realtimeSttToken(env, { fetchImpl: doFetch }));
+      } catch (err) {
+        const status = err instanceof SttRealtimeError ? err.status : 500;
+        const message = err instanceof Error ? err.message : String(err);
+        return json({ error: message }, status);
+      }
     }
 
     // --- La nota vocale VUOTA si registra da sola ---

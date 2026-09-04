@@ -400,6 +400,7 @@ const EN = {
 
   'chat.dictation.hint': '⌘⇧D to close · Esc cancels',
   'chat.dictation.listening': 'Dictation',
+  'chat.dictation.live': 'Dictation · live',
   'chat.dictation.transcribing': 'Transcribing…',
   'chat.dictation.stop': 'Stop',
   'chat.dictation.menuStart': 'Dictation mode',
@@ -1954,6 +1955,7 @@ const EN = {
   'stt.micFailed': 'Recording did not start: {reason}',
   'stt.dictationFailed': 'Dictation not transcribed: {reason}',
   'stt.noEngine': 'Dictation unavailable: no transcription engine is configured.',
+  'stt.realtimeFellBack': 'Live dictation stopped ({reason}). What was heard is in the field; keep speaking and the rest is transcribed at the end.',
   'voice.noTranscript': 'Voice note sent without a transcript: the agent only gets the audio file, which it cannot listen to.',
   'voice.noTranscriptBecause': 'Voice note sent without a transcript: the agent only gets the audio file, which it cannot listen to. Reason: {reason}',
   'voice.uploadFailed': 'Sending the voice note failed: {reason}',

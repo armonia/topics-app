@@ -403,6 +403,7 @@ const IT: Dict = {
 
   'chat.dictation.hint': '⌘⇧D per chiudere · Esc annulla',
   'chat.dictation.listening': 'Dettatura',
+  'chat.dictation.live': 'Dettatura · in diretta',
   'chat.dictation.transcribing': 'Trascrivo…',
   'chat.dictation.stop': 'Ferma',
   'chat.dictation.menuStart': 'Dettatura',
@@ -2265,6 +2266,7 @@ const IT: Dict = {
   'stt.micFailed': 'Registrazione non partita: {reason}',
   'stt.dictationFailed': 'Dettatura non trascritta: {reason}',
   'stt.noEngine': 'Dettatura non disponibile: nessun motore di trascrizione configurato.',
+  'stt.realtimeFellBack': 'Dettatura in diretta interrotta ({reason}). Quello che ha sentito è nel campo; continua a parlare, il resto viene trascritto alla fine.',
   'voice.noTranscript': "Nota vocale inviata senza trascrizione: l'agente riceve solo il file audio, che non può ascoltare.",
   'voice.noTranscriptBecause': "Nota vocale inviata senza trascrizione: l'agente riceve solo il file audio, che non può ascoltare. Motivo: {reason}",
   'voice.uploadFailed': 'Invio del vocale fallito: {reason}',

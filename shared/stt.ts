@@ -43,4 +43,34 @@ export interface SttCapabilities {
   providers: SttProviderStatus[];
   /** Lingua forzata da configurazione; `null` = auto-detect. */
   language: string | null;
+  /**
+   * The words can appear WHILE you speak, not after you stop.
+   *
+   * True only when the engine at the head of the chain is the one that has a
+   * streaming API (ElevenLabs Scribe v2 Realtime) with a key that answered.
+   * The client reads it BEFORE opening the microphone: without it, discovering
+   * that live dictation is not on offer would cost a wasted round trip to the
+   * token endpoint at the exact moment the person pressed the button.
+   *
+   * Optional on the wire: an older server, or a test double, simply does not
+   * say it, and the client stays on the batch flow it already had.
+   */
+  realtime?: boolean;
+}
+
+/**
+ * What the client needs to open the realtime socket ITSELF, without ever
+ * holding the API key: a single-use token (15 minutes, consumed on connect)
+ * plus the model and the audio format the session was asked for.
+ */
+export interface SttRealtimeToken {
+  token: string;
+  /** e.g. `scribe_v2_realtime`. */
+  model: string;
+  /** Sample rate of the PCM the client must send. */
+  sampleRate: number;
+  /** ElevenLabs audio format id, e.g. `pcm_16000`. */
+  audioFormat: string;
+  /** Forced language, or `null` for auto-detect. */
+  language: string | null;
 }

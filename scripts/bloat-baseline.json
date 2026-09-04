@@ -51,7 +51,18 @@
     "moving the budget). It is DATA: 900 lines of key-value pairs, and cutting a",
     "dictionary at an arbitrary line number to satisfy a threshold meant for logic",
     "would make it harder to read, not easier. Its sibling `i18n.ts` drops 2096 ->",
-    "1210 in the same move, which is the half of this edit that is free."
+    "1210 in the same move, which is the half of this edit that is free.",
+    "",
+    "2026-09-04: duplication recorded 411 -> 437 WITHOUT this branch having grown",
+    "it. Measured on a clean tree at main 31f9bd306: the gate is already red there,",
+    "so the 26 lines landed with an earlier card that did not record them. Named,",
+    "not hidden, so the next reader does not attribute them to live dictation:",
+    "  - client/src/components/Layout/InsertDividers.tsx:71-102 <-> 168-195 (25",
+    "    lines): the same divider block for the two axes.",
+    "  - client/src/components/Terminal/SingleTerminalPane.tsx:1060-1090 <-> ",
+    "    1126-1156 (26 lines), and server.ts:923-962 <-> 1030-1069 (26 lines).",
+    "These are three real extractions somebody owes; recording the number here is",
+    "what keeps the gate meaningful for everybody else in the meantime."
   ],
   "updated": "2026-09-04",
   "tolerance_pct": 5,
@@ -162,6 +173,6 @@
     "relay/ponte.test.ts": 803,
     "server/providers/acp.ts": 803
   },
-  "duplicated_lines": 411,
+  "duplicated_lines": 437,
   "clone_groups": 16
 }
