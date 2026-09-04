@@ -20,6 +20,8 @@ import {
   type StaleStreamSweepDeps,
   type SweepableStream,
 } from "../../server/lib/stale-stream-sweep";
+import { timelineWithInterruptedVerdict } from "../../server/lib/interrupted-turn-block";
+import type { ContentBlock } from "../../shared/types";
 
 const MIN = 60_000;
 const SK = "topic:e1ea0e41";
@@ -28,7 +30,7 @@ const MSG = "msg-1";
 interface Harness {
   deps: StaleStreamSweepDeps;
   clock: { t: number };
-  rows: Map<string, { content: string; partial: boolean }>;
+  rows: Map<string, { content: string; partial: boolean; toolCalls?: unknown; blocks?: unknown }>;
   warnings: string[];
   aborted: string[];
   /** Who was told to stop the provider's turn, and in what order with `endStream`. */
@@ -42,6 +44,8 @@ interface Harness {
 function harness(opts?: {
   alive?: boolean;
   content?: string;
+  /** The turn's timeline, for the rows whose verdict has somewhere to go. */
+  blocks?: unknown;
   silentMs?: number;
   humanHoldAgeMs?: number | null;
   /**
@@ -67,6 +71,7 @@ function harness(opts?: {
     [MSG, {
       content: opts?.content ?? "",
       partial: true,
+      ...(opts?.blocks ? { blocks: opts.blocks } : {}),
       ...(opts?.toolRunning
         ? (() => {
             const startedAt = opts.toolRunningForMs === undefined
@@ -126,11 +131,15 @@ function harness(opts?: {
     // voce dalla mappa. È lui il proprietario della cancellazione, non il giro.
     endStream: (sk) => { order.push("endStream"); activeStreams.delete(sk); return []; },
     broadcast: () => {},
-    finalizeMessage: ({ messageId, marker }) => {
+    finalizeMessage: ({ messageId, marker, interruption }) => {
       const row = rows.get(messageId);
       if (!row) return;
       row.partial = false;
       if (marker !== null) row.content = marker;
+      // Same rule the real deps applies in `server.ts`: the reason goes on the
+      // timeline, and a row whose timeline is empty is left alone.
+      const timeline = timelineWithInterruptedVerdict(row.blocks as ContentBlock[] | null, interruption);
+      if (timeline) row.blocks = timeline;
     },
     recordTurnEnd: (sk) => turnsEnded.push(sk),
     warn: (m) => warnings.push(m),
@@ -185,7 +194,53 @@ describe("un figlio VIVO non viene chiuso dall'orologio", () => {
   test("con la prosa già streammata il contenuto resta il suo", () => {
     const h = harness({ alive: false, silentMs: 7 * MIN, content: "mezza risposta" });
     sweepStaleStreams(h.deps);
+    // No timeline on this row: it renders from `content`, so writing a first
+    // block would hide the half answer instead of explaining it.
     expect(h.rows.get(MSG)).toEqual({ content: "mezza risposta", partial: false });
+  });
+
+  /**
+   * THE 2026-09-03 REPORT, in one test.
+   *
+   * The reaper kills the child of a turn that had already written a long
+   * answer. The prose stays (no marker), and until now that was ALL that
+   * happened: the reason lived in the server log, and the chat looked "stuck
+   * with no feedback at all". Now the row carries the cause in the shape the
+   * composer's banner reads.
+   */
+  test("un turno tagliato a metà risposta dice PERCHÉ, sulla sua timeline", () => {
+    const h = harness({
+      alive: false,
+      silentMs: 7 * MIN,
+      content: "mezza risposta",
+      blocks: [{ kind: "text", text: "mezza risposta" }],
+    });
+    sweepStaleStreams(h.deps);
+
+    const row = h.rows.get(MSG);
+    expect(row?.content).toBe("mezza risposta");
+    const blocks = row?.blocks as ContentBlock[];
+    expect(blocks).toHaveLength(2);
+    const verdetto = blocks[1] as { kind: string; cause?: string; text: string; at?: string };
+    expect(verdetto.kind).toBe("error");
+    // The CAUSE as a code: it is what the banner decides on, not the sentence.
+    expect(verdetto.cause).toBe("watchdog");
+    expect(verdetto.at).toBeTruthy();
+    // And the warning sign stays in the old format only.
+    expect(verdetto.text.startsWith("\u26a0")).toBe(false);
+  });
+
+  test("due giri di seguito non impilano due verdetti", () => {
+    const h = harness({
+      alive: false,
+      silentMs: 7 * MIN,
+      content: "mezza risposta",
+      blocks: [{ kind: "text", text: "mezza risposta" }],
+    });
+    sweepStaleStreams(h.deps);
+    h.deps.activeStreams.set(SK, h.stream);
+    sweepStaleStreams(h.deps);
+    expect((h.rows.get(MSG)?.blocks as ContentBlock[]).filter((b) => b.kind === "error")).toHaveLength(1);
   });
 
   /**
