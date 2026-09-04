@@ -628,6 +628,10 @@ function englishProse(raw: string): boolean {
   if (text.length < 3 || text.length > 200) return false;
   // Paths, urls, keys, css, formats: not something a translator would touch.
   if (/[/\\_@#$]|:\/\/|\.[a-z]{2,4}$/.test(text)) return false;
+  // A quote INSIDE the literal means a list of names, not a sentence: this is
+  // what a CSS font stack looks like, and it was the only false positive the
+  // second pass produced on this tree.
+  if (/["'\u2018\u201c]/.test(text.slice(1, -1))) return false;
   if (/^[a-z0-9.\-\s]+$/.test(text)) return false;
   if (italianWords(text).length > 0) return false;
   const words = text.match(/[A-Za-z][A-Za-z'\u2019]*/g) ?? [];

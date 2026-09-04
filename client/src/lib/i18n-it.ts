@@ -2167,6 +2167,46 @@ const IT: Dict = {
   'browser.parked.checking': 'Controllo...',
   'browser.parked.retry': 'Riprova',
 
+  'ask.other': 'Altro',
+  'ask.back': 'Indietro',
+  'ask.next': 'Avanti',
+  'ask.send': 'Invia',
+  'ask.sending': 'Invio...',
+  'ask.submitFailed': 'Invio fallito',
+  'ask.jsonPlaceholder': 'Valore JSON (o testo semplice)...',
+  'goal.edit': 'Cambia obiettivo',
+  'goal.achieved': 'Obiettivo raggiunto',
+  'chat.goal.current': 'Obiettivo: {goal}',
+  'chat.goal.achieved': 'Obiettivo raggiunto: {goal}',
+  'chat.goal.abandoned': 'Obiettivo abbandonato: {goal}',
+
+  'stt.rejectedKey': '{provider} ha rifiutato la chiave (HTTP {status})',
+  'stt.fellBackTo': 'Trascritto con {provider} ({model}) in {seconds}s perché {because}.',
+  'stt.emptyNote': 'Nota vocale vuota: {chunks} spezzoni, {bytes} byte in {format}. Niente da trascrivere.',
+  'stt.unknownFormat': 'formato ignoto',
+  'stt.unknownError': 'errore sconosciuto',
+  'stt.micDenied': 'Microfono negato: autorizzalo nelle impostazioni di sistema/browser.',
+  'stt.micMissing': 'Nessun microfono trovato.',
+  'stt.micInsecure': 'Microfono non disponibile: serve HTTPS (o il permesso è stato negato).',
+  'stt.micFailed': 'Registrazione non partita: {reason}',
+  'stt.dictationFailed': 'Dettatura non trascritta: {reason}',
+  'stt.noEngine': 'Dettatura non disponibile: nessun motore di trascrizione configurato.',
+  'voice.noTranscript': "Nota vocale inviata senza trascrizione: l'agente riceve solo il file audio, che non può ascoltare.",
+  'voice.noTranscriptBecause': "Nota vocale inviata senza trascrizione: l'agente riceve solo il file audio, che non può ascoltare. Motivo: {reason}",
+  'voice.uploadFailed': 'Invio del vocale fallito: {reason}',
+
+  'guest.reload': 'Ricarica',
+  'guest.loading': 'Carico...',
+  'browser.native.openFailed': 'Impossibile aprire il browser nativo. Riprova.',
+
+  'topic.unsaved.title': 'Ci sono modifiche non salvate.',
+  'topic.unsaved.body': 'Chiudo senza salvare?',
+  'topic.unsaved.confirm': 'Scarta',
+  'chat.clear.title': 'Svuoto la conversazione?',
+  'chat.clear.body': 'Una copia di sicurezza viene salvata.',
+  'chat.clear.confirm': 'Svuota',
+  'chat.clear.done': 'Conversazione svuotata',
+
 };
 
 

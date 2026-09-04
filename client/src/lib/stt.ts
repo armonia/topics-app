@@ -16,6 +16,7 @@
 // Le forme del filo vivono in shared/: qui si ri-esportano perché i callsite del
 // client importino da un posto solo, non perché siano dichiarate due volte.
 import type { SttCapabilities, SttResult } from '../../../shared/stt';
+import type { Translate } from '../../../shared/queue-reason-text';
 export type { SttCapabilities, SttResult } from '../../../shared/stt';
 
 const UNAVAILABLE: SttCapabilities = { available: false, provider: null, model: null, providers: [], language: null };
@@ -74,15 +75,20 @@ export function forgetSttCapabilities(): void {
  * «slow and wrong»; the truth was «the key is dead». Absent `attempts`, or an
  * empty list, means nothing to say.
  */
-export function fallbackNotice(result: Pick<SttResult, 'provider' | 'model' | 'durationMs' | 'attempts'>): string | null {
+export function fallbackNotice(
+  result: Pick<SttResult, 'provider' | 'model' | 'durationMs' | 'attempts'>,
+  tr: Translate,
+): string | null {
   const fallen = result.attempts ?? [];
   if (fallen.length === 0) return null;
   const seconds = Math.round(result.durationMs / 100) / 10;
   const because = fallen.map((a) => {
     const rejected = /HTTP (401|403)/.exec(a.error);
-    return rejected ? `${a.provider} ha rifiutato la chiave (HTTP ${rejected[1]})` : `${a.provider}: ${a.error.slice(0, 80)}`;
+    return rejected
+      ? tr('stt.rejectedKey', { provider: a.provider, status: rejected[1]! })
+      : `${a.provider}: ${a.error.slice(0, 80)}`;
   }).join(' · ');
-  return `Trascritto con ${result.provider} (${result.model}) in ${seconds}s perché ${because}.`;
+  return tr('stt.fellBackTo', { provider: result.provider, model: result.model, seconds, because });
 }
 
 export class SttRequestError extends Error {
@@ -181,7 +187,7 @@ export const MIN_VOICE_BLOB_BYTES = 512;
  */
 export function segnalaNotaVuota(spezzoni: number, byte: number, mimeType: string, superficie: string): void {
   try {
-    void fetch('/api/stt/vuota', {
+    void fetch('/api/stt/vuota', { // allow-italian: the route path IS the data, the server matches it by value
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ spezzoni, byte, mimeType, superficie }),
@@ -190,8 +196,12 @@ export function segnalaNotaVuota(spezzoni: number, byte: number, mimeType: strin
   } catch { /* idem */ }
 }
 
-export function messaggioNotaVuota(spezzoni: number, byte: number, mimeType: string): string {
-  return `Nota vocale vuota: ${spezzoni} spezzoni, ${byte} byte in ${mimeType || 'formato ignoto'}. Niente da trascrivere.`;
+export function messaggioNotaVuota(spezzoni: number, byte: number, mimeType: string, tr: Translate): string {
+  return tr('stt.emptyNote', {
+    chunks: spezzoni,
+    bytes: byte,
+    format: mimeType || tr('stt.unknownFormat'),
+  });
 }
 
 /** Vincoli del microfono buoni per il parlato: mono, con la catena di pulizia del browser accesa. */
@@ -206,17 +216,17 @@ export const SPEECH_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
 export const SPEECH_BITS_PER_SECOND = 48_000;
 
 /** Il messaggio da mostrare quando `getUserMedia` dice di no. */
-export function micErrorMessage(err: unknown): string {
+export function micErrorMessage(err: unknown, tr: Translate): string {
   const msg = err instanceof Error ? err.message : String(err);
   const name = err instanceof Error ? err.name : '';
   if (name === 'NotAllowedError' || /NotAllowed|Permission|denied/i.test(msg)) {
-    return 'Microfono negato: autorizzalo nelle impostazioni di sistema/browser.';
+    return tr('stt.micDenied');
   }
   if (name === 'NotFoundError' || /NotFound|Requested device/i.test(msg)) {
-    return 'Nessun microfono trovato.';
+    return tr('stt.micMissing');
   }
   if (/secure|insecure|https/i.test(msg)) {
-    return 'Microfono non disponibile: serve HTTPS (o il permesso è stato negato).';
+    return tr('stt.micInsecure');
   }
-  return `Registrazione non partita: ${msg}`;
+  return tr('stt.micFailed', { reason: msg });
 }

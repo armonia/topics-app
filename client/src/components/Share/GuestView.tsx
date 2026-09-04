@@ -87,14 +87,14 @@ export function GuestView({ deviceName }: { deviceName: string }) {
         <button
           onClick={() => void carica()}
           className="ml-auto rounded p-1 text-app-text-tertiary hover:bg-app-hover hover:text-app-text"
-          aria-label="Ricarica"
+          aria-label={tr('guest.reload')}
         >
           <RefreshCw size={13} />
         </button>
       </header>
 
       <main className="mx-auto max-w-2xl px-4 py-5">
-        {stato === 'carico' && <p className="text-[13px] text-app-text-muted">Carico…</p>}
+        {stato === 'carico' && <p className="text-[13px] text-app-text-muted">{tr('guest.loading')}</p>}
 
         {stato === 'errore' && (
           <p className="text-[13px] text-app-text-secondary">

@@ -1862,6 +1862,46 @@ const EN = {
   'browser.parked.checking': 'Checking...',
   'browser.parked.retry': 'Try again',
 
+  'ask.other': 'Other',
+  'ask.back': 'Back',
+  'ask.next': 'Next',
+  'ask.send': 'Send',
+  'ask.sending': 'Sending...',
+  'ask.submitFailed': 'Submission failed',
+  'ask.jsonPlaceholder': 'JSON value (or plain text)...',
+  'goal.edit': 'Change the goal',
+  'goal.achieved': 'Goal reached',
+  'chat.goal.current': 'Goal: {goal}',
+  'chat.goal.achieved': 'Goal reached: {goal}',
+  'chat.goal.abandoned': 'Goal abandoned: {goal}',
+
+  'stt.rejectedKey': '{provider} refused the key (HTTP {status})',
+  'stt.fellBackTo': 'Transcribed with {provider} ({model}) in {seconds}s because {because}.',
+  'stt.emptyNote': 'Empty voice note: {chunks} chunks, {bytes} bytes in {format}. Nothing to transcribe.',
+  'stt.unknownFormat': 'an unknown format',
+  'stt.unknownError': 'unknown error',
+  'stt.micDenied': 'Microphone denied: allow it in the system or browser settings.',
+  'stt.micMissing': 'No microphone found.',
+  'stt.micInsecure': 'Microphone unavailable: it needs HTTPS (or the permission was denied).',
+  'stt.micFailed': 'Recording did not start: {reason}',
+  'stt.dictationFailed': 'Dictation not transcribed: {reason}',
+  'stt.noEngine': 'Dictation unavailable: no transcription engine is configured.',
+  'voice.noTranscript': 'Voice note sent without a transcript: the agent only gets the audio file, which it cannot listen to.',
+  'voice.noTranscriptBecause': 'Voice note sent without a transcript: the agent only gets the audio file, which it cannot listen to. Reason: {reason}',
+  'voice.uploadFailed': 'Sending the voice note failed: {reason}',
+
+  'guest.reload': 'Reload',
+  'guest.loading': 'Loading...',
+  'browser.native.openFailed': 'Could not open the native browser. Try again.',
+
+  'topic.unsaved.title': 'You have unsaved changes.',
+  'topic.unsaved.body': 'Close without saving?',
+  'topic.unsaved.confirm': 'Discard',
+  'chat.clear.title': 'Clear conversation?',
+  'chat.clear.body': 'A backup will be saved.',
+  'chat.clear.confirm': 'Clear',
+  'chat.clear.done': 'Conversation cleared',
+
 } satisfies Dict;
 
 export default EN;

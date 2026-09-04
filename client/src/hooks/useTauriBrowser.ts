@@ -756,7 +756,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
           isCancelled: () => { if (!cancelled) return false; resolve(false); return true; },
           onOpened: () => { applyOpened(); resolve(true); },
           onGaveUp: () => {
-            setNavError({ message: 'Impossibile aprire il browser nativo. Riprova.', url: openUrl });
+            setNavError({ message: trRef.current('browser.native.openFailed'), url: openUrl });
             // Chi ha chiesto l'apertura ha acceso la barra e non aspetta l'esito
             // (`navigate` e «Riprova» del parcheggio non lo leggono): se non la
             // spegne questo ramo, resta accesa per sempre — nessuno dei punti che
@@ -1666,7 +1666,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       // prima di ogni misura.
       handshake: applyBounds,
       onLabelBurned: () =>
-        console.warn(`[tauri-browser] pane ${id}: la vista ha rifiutato di chiudersi — etichetta bruciata, riapro come vista nuova`),
+        console.warn(`[tauri-browser] pane ${id}: the view refused to close, label burned, reopening as a new view`),
     });
   }, [id, applyBounds, requestOpenView]);
 
