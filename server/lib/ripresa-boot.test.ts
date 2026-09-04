@@ -469,3 +469,69 @@ describe("la catena dei riavvii ha un tetto", () => {
     expect(attemptsInChain(db, "topic:x", "a0")).toBe(0);
   });
 });
+
+/**
+ * TWO CHATS TO RESUME, NOT ONE BEHIND THE OTHER.
+ *
+ * The resend loop awaited the answer and then DRAINED the stream, which is a
+ * whole turn: the second candidate did not start until the first had finished,
+ * up to fifteen minutes later, while its chat carried a notice promising it
+ * resumes by itself. The same SIGTERM kills them both, so the second one often
+ * never started at all (card 6c2dc14c).
+ *
+ * @covers RESUME-01
+ */
+describe("i rimandi partono insieme, non in fila", () => {
+  const nowIso = () => new Date().toISOString();
+
+  function dbWithTwoCutTurns(): Database {
+    const db = new Database(":memory:");
+    db.run(`CREATE TABLE messages (
+      id TEXT PRIMARY KEY, session_key TEXT, role TEXT, content TEXT, blocks TEXT,
+      partial INTEGER, timestamp TEXT, sort_order INTEGER, parent_id TEXT, branch_index INTEGER
+    )`);
+    let order = 0;
+    for (const sk of ["topic:uno", "topic:due"]) {
+      db.run(
+        "INSERT INTO messages (id, session_key, role, content, partial, timestamp, sort_order, branch_index) VALUES (?,?,'user','misura la ripresa',0,?,?,0)",
+        [`m-${sk}`, sk, nowIso(), order++],
+      );
+      insertRestartNotification(
+        db as unknown as Parameters<typeof insertRestartNotification>[0],
+        sk,
+        { generateId: () => `avviso-${sk}`, now: nowIso },
+      );
+    }
+    return db;
+  }
+
+  test("la seconda POST non aspetta che finisca lo stream della prima", async () => {
+    const db = dbWithTwoCutTurns();
+    const startedAt: number[] = [];
+    // Every resend answers at once and keeps its stream open for 300 ms: in
+    // series the second POST could not arrive before then.
+    const route: Parameters<typeof riprendiTurniInterrotti>[1] = async () => {
+      startedAt.push(Date.now());
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("data: {}\n\n"));
+          setTimeout(() => controller.close(), 300);
+        },
+      });
+      return new Response(body, { status: 200 });
+    };
+
+    const log = console.log, warn = console.warn;
+    console.log = () => {}; console.warn = () => {};
+    try {
+      await riprendiTurniInterrotti(
+        { db, getTopicBySessionKey: () => ({ archived: false }) } as Parameters<typeof riprendiTurniInterrotti>[0],
+        route,
+        { responseMs: 500, streamMs: 500 },
+      );
+    } finally { console.log = log; console.warn = warn; }
+
+    expect(startedAt).toHaveLength(2);
+    expect(startedAt[1] - startedAt[0]).toBeLessThan(50);
+  });
+});

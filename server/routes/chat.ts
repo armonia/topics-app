@@ -1234,8 +1234,14 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // freeze. Harmless if a healthy-but-slow turn trips it — the slow
           // annotation is stripped the moment output resumes (resetStreamTimer
           // recovery). Grace (recovery window) and the hard cap are unchanged.
-          const STREAM_TIMEOUT_MS = 60_000;        // 1 min soft
-          const STREAM_GRACE_MS = 60_000;          // 1 min grace
+          // The soft and grace windows are minutes long, which is right in
+          // production and makes the watchdog untestable anywhere else: proving
+          // what a timed-out turn leaves on the row and on the wire would cost
+          // two minutes of wall clock per case. These two knobs shrink the
+          // windows for a test that drives the real route; unset, the values
+          // are the ones that have always been here.
+          const STREAM_TIMEOUT_MS = Number(process.env.TOPICS_STREAM_SOFT_MS) || 60_000; // 1 min soft
+          const STREAM_GRACE_MS = Number(process.env.TOPICS_STREAM_GRACE_MS) || 60_000;  // 1 min grace
           const STREAM_HARD_TIMEOUT_MS = 30 * 60_000; // 30 min hard upper-bound
           let softTimer: ReturnType<typeof setTimeout> | null = null;
           let graceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1246,6 +1252,36 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             if (softTimer) { clearTimeout(softTimer); softTimer = null; }
             if (graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
             if (hardTimer) { clearTimeout(hardTimer); hardTimer = null; }
+          };
+
+          /**
+           * Close the turn in the database AND tell the screens about it.
+           *
+           * `endStream` repairs the row and RETURNS the tool calls it cancelled,
+           * and that list is the only event able to switch off a panel already
+           * drawn: dropped, the spinner keeps spinning and a question or a
+           * permission prompt stays clickable on a turn that is over and whose
+           * human hold is already released. `finalizeStream` and the stale
+           * stream sweeper announce it; the two watchdogs below used to throw
+           * it away, which is the same defect with nobody watching.
+           */
+          const endStreamAndAnnounce = (opts?: Parameters<typeof endStream>[1]): ToolCall[] => {
+            const interruptedTools = endStream(sessionKey, opts);
+            for (const tc of interruptedTools) {
+              broadcastStreamToTopic({
+                type: "stream:tool_result",
+                sessionKey,
+                topicId: matchedTopic?.id,
+                toolCallId: tc.id,
+                status: "error",
+                // The row's own output, not an empty string: cancelling a tool
+                // does not erase what it had already printed.
+                result: tc.result,
+                error: tc.error,
+                endedAt: tc.endedAt,
+              }, matchedTopic?.id);
+            }
+            return interruptedTools;
           };
 
           /**
@@ -1371,7 +1407,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // what the client draws the banner off (`interrupted-turn-block`).
             const graceBlocks = appendInterruptedVerdict(blocks, { text: timeoutMsg, cause: "watchdog" });
             updateLastMessage(sessionKey, { content: fullContent, blocks: graceBlocks, partial: undefined, streamedAt: undefined });
-            endStream(sessionKey);
+            endStreamAndAnnounce();
             topicProvider.unregisterStreamHandler?.(sessionKey);
             // Abort the underlying provider turn too. `unregisterStreamHandler` is
             // a no-op for providers that don't implement it (e.g. ClaudeCodeProvider),
@@ -1427,7 +1463,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // witnesses of the same turn must not disagree.
             const hardBlocks = appendInterruptedVerdict(blocks, { text: msg, cause: "watchdog" });
             updateLastMessage(sessionKey, { content: fullContent, blocks: hardBlocks, partial: undefined, streamedAt: undefined });
-            endStream(sessionKey);
+            endStreamAndAnnounce();
             topicProvider.unregisterStreamHandler?.(sessionKey);
             // See handleGraceExpiry: abort the orphaned provider turn (no-op
             // unregister otherwise leaves the process running).
@@ -1916,6 +1952,13 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // the BLOCKS, and in the text only when there is no text.
               blocks.push({ kind: "error", text: cutNotice.replace(/^⚠️\s*/, "") });
               if (!fullContent.trim()) fullContent = cutNotice;
+              // AND THE END MUST SAY IT WENT WRONG. Without this the
+              // `stream:end` goes out with no `reason: "error"`, so
+              // `maybeSendPush` returns at its gate and the turn that stopped
+              // in the middle of a document notifies nobody. The three sibling
+              // branches all set it: this one is the invariant stated in the
+              // comment above, not an exception to it.
+              turnError = cutNotice;
               console.warn(`[StreamWS] ${sessionKey}: turn cut by the output cap`);
               if (matchedTopic) {
                 broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: cutNotice });
@@ -2028,26 +2071,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // able to switch off a panel already on screen: dropped, the form
             // stayed grey on `Invio...` over a turn that no longer exists. The
             // stale-stream sweeper announces its own list the same way.
-            const interrupted = endStream(
-              sessionKey,
+            const interrupted = endStreamAndAnnounce(
               askingPlanApproval && pendingPlan ? { keepAwaiting: [pendingPlan.toolCallId] } : undefined,
             );
-            for (const tc of interrupted) {
-              broadcastStreamToTopic({
-                type: "stream:tool_result",
-                sessionKey,
-                topicId: matchedTopic?.id,
-                toolCallId: tc.id,
-                status: "error",
-                // The row's own output, not an empty string: cancelling a tool
-                // does not erase what it had already printed, and the database
-                // still has it, so a screen wiped here would come back on the
-                // next reload.
-                result: tc.result,
-                error: tc.error,
-                endedAt: tc.endedAt,
-              }, matchedTopic?.id);
-            }
             topicProvider.unregisterStreamHandler?.(sessionKey, handler);
 
             // Detect sub-agent launches

@@ -354,7 +354,19 @@ export async function riprendiTurniInterrotti(
   }
   if (candidati.length === 0) return;
   console.log(`[ripresa] ${candidati.length} turno/i interrotto/i da riprendere`);
-  for (const c of candidati) {
+  // ONE RESEND DOES NOT WAIT FOR THE ONE BEFORE IT.
+  //
+  // This was a `for` that awaited the answer (up to a minute) and then DRAINED
+  // the stream, which is a whole turn: fifteen minutes of ceiling. Candidate
+  // N+1 did not start until turn N had finished, while the notice on every one
+  // of those chats reads "Riprendo da solo: non serve che tu faccia niente" allow-italian: quoted notice text
+  // (lib/cancelled-notice.ts). True for the first, a lie for the rest, and the
+  // same SIGTERM kills them all together. Each resend is independent (its own
+  // session, its own row, its own trace), so they go at once and the boot chain
+  // is as long as the slowest one instead of their sum.
+  await Promise.all(candidati.map((c) => resumeOne(c)));
+
+  async function resumeOne(c: (typeof candidati)[number]): Promise<void> {
     // LA TRACCIA PRIMA DEL LAVORO. Se il rimando fallisce a metà — o il server
     // muore di nuovo mentre lo fa — la traccia c'è comunque, e il boot dopo non
     // lo riprende una seconda volta. Al contrario si costruirebbe un ciclo che
@@ -371,7 +383,7 @@ export async function riprendiTurniInterrotti(
         .run(encodeCol(JSON.stringify(conTraccia)) ?? null, c.idTurno);
     } catch (err) {
       console.warn(`[ripresa] ${c.sessionKey}: non riesco a segnare il turno, lo salto:`, err);
-      continue;
+      return;
     }
     // The instant before the resend, so afterwards we can tell whether
     // anything was born of it.
@@ -404,7 +416,7 @@ export async function riprendiTurniInterrotti(
         console.warn(
           `[ripresa] ${c.sessionKey}: la route non ha risposto entro ${responseCeilingMs} ms, smetto di aspettarla: il turno NON è ripreso`,
         );
-        continue;
+        return;
       }
       const resp = answered;
       // THE STATUS GETS READ, or "resumed" is a word and not a fact.
@@ -420,7 +432,7 @@ export async function riprendiTurniInterrotti(
         console.warn(
           `[ripresa] ${c.sessionKey}: la route ha rifiutato il rimando (HTTP ${resp?.status ?? "nessuna risposta"}), il turno NON è ripreso`,
         );
-        continue;
+        return;
       }
       // Lo stream si consuma fino in fondo: la route finalizza la riga quando
       // il turno finisce, non quando parte.
@@ -437,7 +449,7 @@ export async function riprendiTurniInterrotti(
           console.warn(
             `[ripresa] ${c.sessionKey}: lo stream non è finito entro ${streamCeilingMs} ms, smetto di guardarlo: il turno può essere vivo, ma non lo dichiaro ripreso`,
           );
-          continue;
+          return;
         }
       }
       // AND A 200 IS NOT ENOUGH EITHER. The route can answer and then end the
@@ -451,7 +463,7 @@ export async function riprendiTurniInterrotti(
         console.warn(
           `[ripresa] ${c.sessionKey}: la route ha risposto ${resp.status} ma la sessione non ha guadagnato nessun messaggio: il turno NON è ripreso`,
         );
-        continue;
+        return;
       }
       console.log(`[ripresa] ${c.sessionKey}: turno ripreso`);
     } catch (err) {
