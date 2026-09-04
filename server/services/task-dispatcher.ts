@@ -520,6 +520,19 @@ export interface TaskDispatcher {
    * (the latter is only the turn window, missing setup/wind-down).
    */
   busyCount(): number;
+  /**
+   * A planned restart is on its way: from now until the process is replaced,
+   * start NO new turn. Queue picks, slot wake-ups and resumes all park where
+   * they are, bindings intact, and the boot reconcile of the next process
+   * resumes them on their own sessions.
+   *
+   * Without this `restart-when-idle` never fired under a live fleet: the wait
+   * looks for zero card turns, and with a queue behind a full cap a new turn
+   * starts the second one ends. Measured on 2026-09-04: a restart requested
+   * at 04:50 was still deferred 18,482 s later, three turns at a time, while
+   * the landed server fixes and a migration sat on disk unapplied.
+   */
+  drain(reason: string): void;
 }
 
 /**
@@ -963,6 +976,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * esattamente finché c'è un timer pendente.
    */
   const slotWaits = new Map<string, { timer: ReturnType<typeof setTimeout>; message: string }>();
+  /** Set once a planned restart is waiting on us: no new turn starts (see `drain`). */
+  let draining: string | null = null;
+  function drainBlock(): string | null {
+    return draining
+      ? `Riavvio del server in arrivo (${draining}): nessun turno nuovo parte finché non è ripartito. Questa card riprende da sola dopo, sulla stessa sessione. Niente è andato perso.`
+      : null;
+  }
 
   /**
    * LE ATTESE DI BACKOFF, per la stessa ragione esatta di `slotWaits`.
@@ -3053,7 +3073,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // the same reason: the message is not lost, it waits. A cap that refused only
     // new dispatches would let through the turn that starts from a review
     // rejection, which is exactly the extra turn on an already expensive card.
-    const floorBlock = admissionBlock() ?? spendBrake.dayBlock() ?? spendBrake.taskBlock(t.agentCostCents);
+    const floorBlock = drainBlock() ?? admissionBlock() ?? spendBrake.dayBlock() ?? spendBrake.taskBlock(t.agentCostCents);
     // Le corse dei gate occupano slot come gli agenti: un resume che trovasse
     // un posto «libero» ignorando i gate lancerebbe un agente in piu' proprio
     // mentre la macchina e' gia' al limite per i check.
@@ -3195,6 +3215,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     try { settings = deps.svc.getBoardSettings(projectId); }
     catch (err) { log(`getBoardSettings failed for ${projectId}`, err); return; }
     if (!settings.autoDispatch) return;
+    // A restart is waiting for the fleet to go quiet: picking a card now would
+    // keep it waiting forever. The card is not lost, it is next after the boot.
+    if (draining) return;
     // IL FRENO DI QUESTA BOARD, e viene dopo il globale di proposito: puo' solo
     // FERMARE. Il dispatch parte se il globale e' acceso E questa board non e'
     // in pausa; una board non in pausa con il globale spento non parte lo
@@ -4014,7 +4037,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // ripreso un riavvio bisognava interrogare il database. I contatori qui
     // sotto diventano UNA riga sola in fondo al passo, non una riga per card:
     // con 303 riprese il per-card e' un allagamento, non una misura.
-    let directIn = 0, daCapo = 0, inCoda = 0, nonRecuperabili = 0, fanOut = 0;
+    let directIn = 0, daCapo = 0, inCoda = 0, nonRecuperabili = 0, fanOut = 0, heldOff = 0;
     for (const t of running) {
       if (inFlight.has(t.id)) continue; // we own it, leave it
       if (reason !== "boot") {
@@ -4100,9 +4123,30 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // and the global dispatch switch still ON.
       let autoOn = false;
       try { autoOn = deps.svc.getBoardSettings(t.projectId).autoDispatch; } catch { /* treat as off */ }
-      if (t.dispatchState === CHIP_WORKING && t.assignedTopicId && autoOn) {
+      // A card that was WAITING for a slot has a session as much as one that
+      // was mid-turn: the wait lived in memory, the conversation and the
+      // worktree did not. Requeueing it handed the next agent an EMPTY
+      // worktree (2026-09-04: twelve cards at one boot, eight of them with
+      // uncommitted work) for the sole reason that the cap was full, or the
+      // switch off, when the process died.
+      const topicId = t.assignedTopicId;
+      if ((t.dispatchState === CHIP_WORKING || t.dispatchState === CHIP_QUEUED) && topicId) {
         let alive = true;
-        try { alive = deps.topicExists ? deps.topicExists(t.assignedTopicId) : true; } catch { alive = true; }
+        try { alive = deps.topicExists ? deps.topicExists(topicId) : true; } catch { alive = true; }
+        if (alive && !autoOn) {
+          // The switch is off: nothing may start, but nothing is lost either.
+          // The binding stays, the chip says "in coda", and the poll resumes
+          // this very session the moment the switch is back on.
+          try {
+            deps.svc.claimInterruption({
+              taskId: t.id,
+              note: "Dispatch spento al riavvio: tengo la sessione e il worktree di questa card, riparte da sola (stessa sessione) quando riaccendi il dispatch.",
+            });
+          } catch { /* dedupe/best-effort */ }
+          try { emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED })); } catch { /* best-effort */ }
+          heldOff++;
+          continue;
+        }
         if (alive) {
           // Broker survived the restart with the turn STILL RUNNING → reattach
           // in place (seamless, no re-run). Only when there's no live session do
@@ -4121,7 +4165,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           // una volta (vedi il commento a server.ts:812-826).
           let live = false;
           if (deps.hasLiveSession && deps.reattach) {
-            const sessionKey = "topic:" + t.assignedTopicId.slice(0, 8);
+            const sessionKey = "topic:" + topicId.slice(0, 8);
             try { live = await deps.hasLiveSession(sessionKey); } catch { live = false; }
           }
           if (live) {
@@ -4139,7 +4183,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             deps.svc.claimInterruption({
               taskId: t.id,
               note: reason === "boot"
-                ? "Server ripartito a metà turno: riprendo la stessa sessione, nessun tentativo consumato."
+                ? (t.dispatchState === CHIP_QUEUED
+                  ? "Server ripartito mentre la card aspettava uno slot: riprendo la stessa sessione appena c'è posto, nessun tentativo consumato."
+                  : "Server ripartito a metà turno: riprendo la stessa sessione, nessun tentativo consumato.")
                 : "Nessun turno vivo su questa card (riciclato o finito senza consegna): riprendo la stessa sessione, nessun tentativo consumato.",
             });
           } catch { /* dedupe/best-effort */ }
@@ -4159,7 +4205,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // e l'attesa è morta col processo. Dirgli "mentre l'agent lavorava"
         // manderebbe l'umano a cercare un lavoro che non c'è mai stato.
         const nota = t.dispatchState === CHIP_QUEUED
-          ? "Il server è ripartito mentre il task aspettava uno slot libero: l'attesa viveva in memoria, quindi lo rimetto in coda (il riavvio non consuma un tentativo)."
+          ? "Il server è ripartito mentre il task aspettava uno slot libero e la sua sessione non c'è più: lo rimetto in coda (il riavvio non consuma un tentativo)."
           : "Il server è ripartito mentre l'agent lavorava: task rimesso in coda (il riavvio non consuma un tentativo).";
         // La nota passa dal cancello, la release no: il task torna in coda
         // comunque, ma se questa interruzione è già stata raccontata (un
@@ -4178,10 +4224,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         inCoda++;
       } catch (err) { log(`reconcile release failed for ${t.id}`, err); }
     }
-    if (directIn + daCapo + inCoda + nonRecuperabili + fanOut > 0) {
+    if (directIn + daCapo + inCoda + nonRecuperabili + fanOut + heldOff > 0) {
       log(
         `riavvio: ${directIn + daCapo} riprese (${directIn} in diretta, ${daCapo} da capo), ` +
-        `${inCoda} rimesse in coda, ${fanOut} fan-out chiusi, ${nonRecuperabili} non recuperabili`,
+        `${inCoda} rimesse in coda, ${heldOff} trattenute a dispatch spento, ${fanOut} fan-out chiusi, ${nonRecuperabili} non recuperabili`,
       );
     }
     // 1-ter) IL CHIP «IN CODA» RIMASTO ACCESO IN BACKLOG.
@@ -4333,5 +4379,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     };
   }
 
-  return { tick, onEnterTodo, onLeaveTodo, deferWait, onBlockerDone, resume, reconcile, markInterrupted, shutdown, nightStatus, isInFlight: (id) => inFlight.has(id), busyCount: () => inFlight.size };
+  return {
+    tick, onEnterTodo, onLeaveTodo, deferWait, onBlockerDone, resume, reconcile, markInterrupted, shutdown, nightStatus,
+    isInFlight: (id) => inFlight.has(id),
+    busyCount: () => inFlight.size,
+    drain: (reason) => {
+      if (draining !== reason) log(`drain: nessun turno nuovo fino al riavvio (${reason}); ${inFlight.size} in volo`);
+      draining = reason;
+    },
+  };
 }
