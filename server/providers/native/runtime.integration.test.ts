@@ -20,7 +20,13 @@ import { runAgentTurn, type AgentMessage } from "./agent-loop";
 import { executeTool } from "./tools";
 import type { StreamHandler } from "../types";
 
-const describeIfAuth = hasCredentials() ? describe : describe.skip;
+// OPT-IN, not "whenever there are credentials". This file spends real turns
+// of the plan every time it runs, and it runs inside every pre-review gate:
+// on 2026-09-04 it was part of what emptied the five-hour window, and then it
+// was the six reds that sent a green delivery back (429, then instant refusals)
+// while the code under review had not touched it. A test that pays and can
+// fail for the account's sake is run on purpose: `TOPICS_REAL_API_TESTS=1`.
+const describeIfAuth = process.env.TOPICS_REAL_API_TESTS === "1" && hasCredentials() ? describe : describe.skip;
 
 let ws: string;
 

@@ -118,7 +118,19 @@ export type StopCause =
    */
   | "superseded"
   /** Il provider ha risposto errore (rete, credito, limite). */
-  | "provider-error";
+  | "provider-error"
+  /**
+   * THE API STAYED SATURATED THROUGH EVERY RETRY.
+   *
+   * A 429/529 is retried by the native runtime (`native/retry.ts`, up to 28
+   * attempts with backoff); this is what is left when all of them failed.
+   * Measured 2026-09-04 with eight agents and the user's chats on one key: the
+   * chats ended on the raw "API 429 ... (retried 27 times ...)" text, which no
+   * resume recognised, and stayed there for hours. It is not the agent's fault
+   * and it is not deterministic - the same message succeeds once the account's
+   * limit frees - so it is resumed like a restart and it costs no attempt.
+   */
+  | "rate-limit";
 
 /**
  * THE TWO LISTS MUST MATCH, and the compiler is what checks it.
@@ -166,6 +178,9 @@ const REFUSAL_RE =
   /\b(refus(al|ed|es)|declined to (assist|answer|comply)|stop_reason["' :]+refusal)\b/i;
 
 /** Il turno ha esaurito le richieste al modello concesse (`--max-turns`). */
+/** The API's own words for "not now": the rate limit and the overload, as
+ *  the native runtime reports them after its retries are spent. */
+const RATE_LIMIT_RE = /rate_limit_error|rate.?limit|overloaded_error|\bAPI (?:429|529)\b/i;
 const MAX_TURNS_RE = /error_max_turns|max[ _-]?turns? (exceeded|reached)/i;
 
 /**
@@ -254,6 +269,7 @@ export function classifyTurnError(err: unknown, fallbackCause?: StopCause): Turn
   if (MAX_TOKENS_RE.test(msg)) return { end: "max_tokens", detail: msg };
   if (MAX_TURNS_RE.test(msg)) return { end: "max_turn_requests", detail: msg };
   if (REFUSAL_RE.test(msg)) return { end: "refusal", detail: msg };
+  if (RATE_LIMIT_RE.test(msg)) return { end: "error", cause: "rate-limit", detail: msg };
   return { end: "error", cause: fallbackCause ?? "provider-error", detail: msg };
 }
 
@@ -288,6 +304,9 @@ export function shouldResume(info: TurnEndInfo): boolean {
  * è lo stesso turno che riparte.
  */
 export function consumesAttempt(info: TurnEndInfo): boolean {
+  // A saturated API is an `error` end, but the agent did nothing: charging it
+  // an attempt would park the card FAILED for a limit the fleet itself filled.
+  if (info.end === "error" && info.cause === "rate-limit") return false;
   if (info.end !== "cancelled") return true;
   return (
     info.cause !== "user" &&
@@ -343,6 +362,7 @@ export function describeTurnEnd(info: TurnEndInfo): string {
       switch (info.cause) {
         case "process-died": return "Il processo dell'agente è morto";
         case "provider-error": return "Errore del provider";
+        case "rate-limit": return "Limite di richieste dell'API saturo per tutti i tentativi";
         default: return "Turno finito in errore";
       }
   }

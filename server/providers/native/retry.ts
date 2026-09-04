@@ -192,6 +192,14 @@ export interface RetryRoundContext {
   /** Called once on a 401: returns a fresh token, or null when only /login helps. */
   renewToken: (staleToken: string) => Promise<string | null>;
   onRetry?: (info: { attempt: number; maxAttempts: number; delayMs: number; reason: string }) => void;
+  /**
+   * Asked on a 429: "is there a published end to this?" Answers with the
+   * reset time (ms epoch) when the plan's usage window is spent, null when the
+   * 429 is the per-minute kind that the backoff below absorbs. See
+   * `usage-window.ts`: this is what turns 27 minutes of blind retries into one
+   * notice with the hour on it.
+   */
+  onSaturated?: (retryAfterMs: number | null) => Promise<number | null>;
 }
 
 /**
@@ -246,6 +254,17 @@ export async function retryRound<T>(run: (token: string) => Promise<T>, ctx: Ret
 
       if (verdict.kind !== "retry" || attempt >= policy.maxAttempts) {
         throw attempt > 1 ? new Error(exhaustedMessage(message, attempt, Date.now() - startedAt)) : err;
+      }
+
+      // A 429 with a spent usage window is not transient: its end is a clock,
+      // not a backoff. Give up NOW with the hour in the message, so the turn
+      // ends as `rate-limit` (see stop-reason.ts) and whoever resumes it
+      // (`provider-hold.ts` readers) waits for that hour instead of retrying.
+      if (verdict.reason === "API 429" && ctx.onSaturated) {
+        const untilMs = await ctx.onSaturated(verdict.retryAfterMs);
+        if (untilMs != null && untilMs - Date.now() > policy.capMs) {
+          throw new ApiHttpError(`API 429: usage window exhausted, resets at ${new Date(untilMs).toISOString()}`, 429, untilMs - Date.now());
+        }
       }
 
       const delayMs = backoffMs(attempt, policy, verdict.retryAfterMs);

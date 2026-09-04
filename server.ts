@@ -3,6 +3,7 @@ import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
 import { bonificaTurniMuti } from "./server/lib/verdetto-turno-interrotto";
 import { riprendiTurniInterrotti } from "./server/lib/ripresa-boot";
+import { providerHold, holdUntilLabel, onProviderHold } from "./server/lib/provider-hold";
 import { spiegaTurnoTroncato } from "./server/lib/turno-troncato";
 import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, rmSync, readlinkSync, realpathSync } from "fs";
 import { timingSafeEqual } from "crypto";
@@ -3513,6 +3514,12 @@ const opzioniServer = {
       };
 
       inviaIniziale({ type: "connected", clientId: ws.data.id });
+      // A hold in force is the first thing a reconnecting client must know:
+      // without it the banner would appear only at the NEXT change.
+      const holdInForce = providerHold();
+      if (holdInForce) {
+        inviaIniziale({ type: "provider:hold", untilMs: holdInForce.untilMs, window: holdInForce.window, reason: holdInForce.reason, sinceMs: holdInForce.sinceMs });
+      }
       // v3 foundations WS-02 — handshake welcome (additive; old clients ignore unknown types).
       inviaIniziale({
         type: "welcome",
@@ -4935,12 +4942,29 @@ reattachSurvivingChatTurns()
 const RESUME_SWEEP_MS = 5 * 60_000;
 function scheduleResumeSweep(): void {
   const t = setTimeout(() => {
+    // The plan's usage window is spent: a resend now would end on the same
+    // 429 and spend one of the chain's attempts for nothing. The sweep after
+    // the reset picks the same rows up.
+    const hold = providerHold();
+    if (hold) {
+      console.log(`[ripresa] sweep rinviato: ${hold.reason}, riparte alle ${holdUntilLabel(hold)}`);
+      scheduleResumeSweep();
+      return;
+    }
     riprendiTurniInterrotti(ctx, topicsRouter)
       .catch((err) => console.error("[ripresa] periodic sweep failed", err))
       .finally(() => scheduleResumeSweep());
   }, RESUME_SWEEP_MS);
   t.unref?.();
 }
+
+// The hold is news for every open chat: the banner says why nothing moves and
+// until when, instead of a spinner and 27 silent retries.
+onProviderHold((hold) => {
+  broadcastToAll(hold
+    ? { type: "provider:hold", untilMs: hold.untilMs, window: hold.window, reason: hold.reason, sinceMs: hold.sinceMs }
+    : { type: "provider:hold", untilMs: null, window: null, reason: null, sinceMs: null });
+});
 
 // ── Worktree GC — origin fix for worktree pile-up ──────────────────────────
 // La decisione sta in `server/services/worktree-gc.ts` (`sweepWorktrees`), il

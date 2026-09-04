@@ -138,8 +138,15 @@ const SKIP_DIRS = new Set(["node_modules", "test-results"]);
  * other shape stays red, and that is measured: drop `message:new` from the
  * probe and the bench fails, drop `stream:end` and it skips, and on this
  * machine it passes in 9.8s. Requirement LAT-AI-04.
+ *
+ * 26 (2026-09-04): `runtime.integration.test.ts` runs against the REAL API and
+ * spends turns of the plan; it used to run whenever credentials existed, i.e.
+ * inside every pre-review gate, and on 2026-09-04 its six "reds" were the
+ * account's exhausted window, not the code. It is now opt-in
+ * (`TOPICS_REAL_API_TESTS=1`) and skips by default: that skip is the honest
+ * shape of "this test costs money and can fail for the account's sake".
  */
-const BASELINE = 25;
+const BASELINE = 26;
 
 /** `test.skip(` e `test.fixme(` — non `test.describe.skip`, che disattiva un blocco intero. */
 const SKIP_CALL = /\btest\.(skip|fixme)\s*\(/g;

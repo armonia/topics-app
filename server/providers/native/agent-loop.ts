@@ -24,6 +24,8 @@ import {
   ApiHttpError, ApiStreamError, ApiTransportError, parseRetryAfter, retryRound,
   DEFAULT_RETRY_POLICY, type RetryPolicy,
 } from "./retry";
+import { saturationHold } from "./usage-window";
+import { clearProviderHold } from "../../lib/provider-hold";
 import { CODING_TOOLS, executeTool, type ToolContext, type ToolSpec } from "./tools";
 import { detectUserInputRequest } from "../ask-user-detector";
 import type { ProviderUsage } from "../types";
@@ -637,7 +639,10 @@ export async function runAgentTurn(
         signal: opts.signal,
         renewToken: recoverAfter401,
         onRetry: (info) => handler.onRetry?.(info),
+        onSaturated: () => saturationHold(auth.token),
       });
+      // The API took a round: whatever hold a 429 had recorded is over early.
+      clearProviderHold();
     } catch (err) {
       // A full context is a measurement, not a failure: it recompacts and
       // returns, or rethrows what it cannot resolve. See `context-window.ts`.

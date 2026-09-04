@@ -71,6 +71,10 @@ export function meritaRipresaAutomatica(s: StatoRipresa): boolean {
   if (s.turnoInCorso) return false;
   if (s.giaRipreso) return false;
   const fine = s.fine;
+  // An `error` end is a real failure, except one: the API's limit saturated
+  // through every retry. That one is the machine's (ours and the fleet's),
+  // and the same message goes through once the limit frees.
+  if (fine?.end === "error" && fine.cause === "rate-limit") return true;
   if (!fine || fine.end !== "cancelled") return false;
   // Un `cancelled` SENZA causa non si riprende: la stessa regola di
   // `cancelled-notice`, e per la stessa ragione — non si indovina chi ha
