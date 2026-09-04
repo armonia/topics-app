@@ -4,7 +4,7 @@
  * @covers RESUME-04
  */
 import { describe, expect, test, beforeEach } from "bun:test";
-import { parseUsage, holdFromUsage, saturationHold, fetchUsage, EXHAUSTED_AT } from "./usage-window";
+import { parseUsage, holdFromUsage, saturationHold, fetchUsage, releaseHoldIfFreed, EXHAUSTED_AT } from "./usage-window";
 import { providerHold, clearProviderHold } from "../../lib/provider-hold";
 
 const NOW = Date.parse("2026-09-04T15:00:00Z");
@@ -67,6 +67,24 @@ describe("the usage windows", () => {
     expect(await fetchUsage("tok", down)).toBeNull();
     const denied = (async () => new Response("nope", { status: 403 })) as unknown as typeof fetch;
     expect(await saturationHold("tok", NOW, denied)).toBeNull();
+    expect(providerHold(NOW)).toBeNull();
+  });
+
+  test("a success under a hold lifts it only when the windows say so", async () => {
+    const spentJson = { ...measured, five_hour: { utilization: 100, resets_at: RESET_5H } };
+    const spent = (async () => new Response(JSON.stringify(spentJson))) as unknown as typeof fetch;
+    const freed = (async () => new Response(JSON.stringify(measured))) as unknown as typeof fetch;
+    // No hold in force: nothing to do, no request made.
+    let asked = 0;
+    const counting = (async () => { asked++; return new Response(JSON.stringify(measured)); }) as unknown as typeof fetch;
+    expect(await releaseHoldIfFreed("tok", NOW, counting)).toBe(false);
+    expect(asked).toBe(0);
+    await saturationHold("tok", NOW, spent);
+    // Still spent: the hold stays (a small request passing is not the wall gone).
+    expect(await releaseHoldIfFreed("tok", NOW, spent)).toBe(false);
+    expect(providerHold(NOW)).not.toBeNull();
+    // Freed: the hold goes.
+    expect(await releaseHoldIfFreed("tok", NOW, freed)).toBe(true);
     expect(providerHold(NOW)).toBeNull();
   });
 });

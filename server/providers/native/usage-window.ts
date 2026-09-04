@@ -7,7 +7,7 @@
 // published time, hours away (worth NOTHING but waiting for that time). The
 // message does not tell them apart; the usage endpoint does.
 
-import { setProviderHold, type UsageWindowKind } from "../../lib/provider-hold";
+import { setProviderHold, clearProviderHold, providerHold, type UsageWindowKind } from "../../lib/provider-hold";
 
 export const USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 
@@ -84,4 +84,20 @@ export async function saturationHold(token: string, nowMs: number = Date.now(), 
   if (!hold) return null;
   setProviderHold(hold, nowMs);
   return hold.untilMs;
+}
+
+/**
+ * A round went through while a hold was in force. That alone does not prove
+ * the wall is gone: at the edge of a window small requests pass and large ones
+ * do not, and clearing on every success would flap the banner and the
+ * dispatcher. So the memo follows the measurement: the windows are re-read,
+ * and the hold is lifted only when none is spent any more.
+ */
+export async function releaseHoldIfFreed(token: string, nowMs: number = Date.now(), fetchImpl: typeof fetch = fetch): Promise<boolean> {
+  if (!providerHold(nowMs)) return false;
+  const usage = await fetchUsage(token, fetchImpl);
+  if (!usage) return false;
+  if (holdFromUsage(usage, nowMs)) return false;
+  clearProviderHold();
+  return true;
 }
