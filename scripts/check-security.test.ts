@@ -218,6 +218,23 @@ function copiaAlbero(da: string, a: string): void {
  */
 const SECURITY_RUN_TIMEOUT_MS = 15 * 60_000;
 
+/**
+ * The two cases that need the npm registry run only on request:
+ * `TOPICS_NETWORK_TESTS=1 bun test scripts/check-security.test.ts`.
+ *
+ * `test:unit` is the pre-review check of every board card, and a unit suite
+ * that needs a remote service is not a unit suite: on 2026-09-04 the
+ * registry's advisory endpoint stopped answering (`bun audit` gave up after
+ * 3:30 per directory while `/-/ping` answered in 0.36 s) and every card of
+ * the night went red on THIS file, for hours, for nothing they had written.
+ * The measure itself is not lost: `bun run check:security` (qa-gate, CI)
+ * still runs all four pieces and still refuses to print green when the
+ * registry is mute. Here, offline, the three pieces that need no network are
+ * asserted for real; the fourth is asserted when the network is asked for.
+ */
+const REGISTRY_TESTS = process.env.TOPICS_NETWORK_TESTS === "1";
+const OFFLINE_PIECES = "--only=data,home,secrets";
+
 describe("check:security - i pezzi che vogliono l'albero vero", () => {
   let copia = "";
   let temporanea = "";
@@ -238,8 +255,10 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
     git(copia, "clean", "-fdq");
   }
 
-  test("la copia parte verde su tutti e quattro i pezzi", () => {
-    const { code, out } = esegui(copia);
+  test(REGISTRY_TESTS
+    ? "la copia parte verde su tutti e quattro i pezzi"
+    : "la copia parte verde sui tre pezzi che non chiedono la rete", () => {
+    const { code, out } = REGISTRY_TESTS ? esegui(copia) : esegui(copia, OFFLINE_PIECES);
     expect(out).toContain("pubblicabile");
     expect(code).toBe(0);
   }, SECURITY_RUN_TIMEOUT_MS);
@@ -308,7 +327,8 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
     ripristina();
   }, SECURITY_RUN_TIMEOUT_MS);
 
-  test("PEZZO dependencies: un avviso NON dichiarato nella baseline fa ROSSO", () => {
+  // Registered only when the network is asked for: see REGISTRY_TESTS.
+  if (REGISTRY_TESTS) test("PEZZO dependencies: un avviso NON dichiarato nella baseline fa ROSSO", () => {
     // La leva onesta. Il cancello osserva UNA cosa: c'e' un avviso che la
     // baseline non elenca? Togliere una voce dalla baseline e installare un
     // pacchetto vulnerabile producono per lui lo stesso stato, e il primo non
