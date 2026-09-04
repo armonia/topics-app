@@ -55,6 +55,8 @@ function commit(cwd: string, path: string, body: string, message: string): void 
  * stato in cui finisce ogni consegna che aspetta la review più di qualche ora.
  */
 function repoWithOldBranch(opts: {
+  /** Files that exist BEFORE the branch is born (besides radice.txt). */
+  radice?: Array<[string, string]>;
   /** File che main aggiunge dopo che il ramo è nato. */
   avanzamentoMain: Array<[string, string]>;
   /** File che il ramo aggiunge (o cambia) per conto suo. */
@@ -69,6 +71,7 @@ function repoWithOldBranch(opts: {
   git(dir, "config", "user.name", "Test");
   git(dir, "config", "commit.gpgsign", "false");
   commit(dir, "radice.txt", "radice\n", "radice");
+  for (const [path, body] of opts.radice ?? []) commit(dir, path, body, `radice: ${path}`);
 
   git(dir, "switch", "-q", "-c", BRANCH);
   for (const [path, body] of opts.lavoroDelRamo) commit(dir, path, body, `ramo: ${path}`);
@@ -227,6 +230,37 @@ describe("il land riallinea il ramo su main da sé", () => {
     expect(refused.files).toEqual(["contesa.txt"]);
     expect(refused.reason).toContain("contesa.txt");
     expect(git(contested, "status", "--porcelain")).toBe("");
+  }, WITH_REAL_GIT);
+
+  /**
+   * Two cards each add a migration: `merge=union` keeps both manifest lines,
+   * in arrival order. On 2026-09-04 card 230bdc3f spent a turn regenerating
+   * the manifest by hand after the realign; now the merge commit carries the
+   * script's version, and it is still ONE merge commit.
+   */
+  test("una migration per lato: il manifest viene rigenerato dallo script dentro il merge di riallineamento", async () => {
+    const MANIFEST = "server/db/migrations-embedded.ts";
+    const repo = repoWithOldBranch({
+      radice: [[".gitattributes", `${MANIFEST} merge=union\n`], [MANIFEST, "import a from './migrations/001-a.sql';\n"], ["server/db/migrations/001-a.sql", "-- a\n"]],
+      avanzamentoMain: [["server/db/migrations/003-c.sql", "-- c\n"], [MANIFEST, "import a from './migrations/001-a.sql';\nimport c from './migrations/003-c.sql';\n"]],
+      lavoroDelRamo: [["server/db/migrations/002-b.sql", "-- b\n"], [MANIFEST, "import a from './migrations/001-a.sql';\nimport b from './migrations/002-b.sql';\n"]],
+    });
+    const seen: string[] = [];
+    const res = await landOn(repo, {
+      regenerateManifest: async (cwd) => {
+        seen.push(readFileSync(join(cwd, MANIFEST), "utf8"));
+        writeFileSync(join(cwd, MANIFEST), "import a from './migrations/001-a.sql';\nimport b from './migrations/002-b.sql';\nimport c from './migrations/003-c.sql';\n");
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    }).realign("t1");
+    expect(res).toEqual({ ok: true, note: expect.stringContaining("2 commit") });
+    // The script saw the union merge (both lines, arrival order) and wrote the sorted one.
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("002-b");
+    expect(seen[0]).toContain("003-c");
+    expect(git(repo, "show", `${BRANCH}:${MANIFEST}`)).toBe("import a from './migrations/001-a.sql';\nimport b from './migrations/002-b.sql';\nimport c from './migrations/003-c.sql';\n");
+    expect(log(repo, BRANCH).filter((s) => s.startsWith("Riporta main"))).toHaveLength(1);
+    expect(git(repo, "status", "--porcelain")).toBe("");
   }, WITH_REAL_GIT);
 
   test("conflitto VERO nel riallineamento: si ferma, nomina i file, e main non si muove", async () => {
