@@ -46,12 +46,12 @@ const BASE = E2E_BASE;
  * @covers CHAT-INT-01
  */
 
-const DOMANDA = "Riassumi il documento che ti ho mandato";
-const PROSA_INTERROTTA = "Il documento parla di tre cose. La prima";
-const RISPOSTA_RIPROVA = "Ecco il riassunto, stavolta intero.";
+const QUESTION = "Riassumi il documento che ti ho mandato";
+const INTERRUPTED_PROSE = "Il documento parla di tre cose. La prima";
+const RETRY_ANSWER = "Ecco il riassunto, stavolta intero.";
 
 /** The watchdog verdict, in the shape `handleGraceExpiry` persists it. */
-const VERDETTO = "Response timed out";
+const VERDICT = "Response timed out";
 
 const banner = (page: Page) => page.locator('[data-testid="turn-interrupted-banner"]');
 const userBubbles = (page: Page) => page.locator('[data-testid="chat-message"][data-role="user"]');
@@ -77,14 +77,14 @@ async function seedInterruptedTurn(
   sessionKey: string,
   cause: "watchdog" | "user",
 ): Promise<void> {
-  await seedMessage(request, { sessionKey, role: "user", content: DOMANDA });
+  await seedMessage(request, { sessionKey, role: "user", content: QUESTION });
   await seedMessage(request, {
     sessionKey,
     role: "assistant",
-    content: `${PROSA_INTERROTTA}\n\n---\n*[${VERDETTO}]*`,
+    content: `${INTERRUPTED_PROSE}\n\n---\n*[${VERDICT}]*`,
     blocks: [
-      { kind: "text", text: PROSA_INTERROTTA },
-      { kind: "error", text: VERDETTO, cause, at: new Date().toISOString() },
+      { kind: "text", text: INTERRUPTED_PROSE },
+      { kind: "error", text: VERDICT, cause, at: new Date().toISOString() },
     ],
   });
 }
@@ -108,7 +108,7 @@ async function mockRetryReply(page: Page, sessionKey: string): Promise<void> {
 
   await page.route(CHAT_ROUTE_PATTERN, async (route) => {
     if (route.request().method() !== "POST") return route.fallback();
-    const delta = JSON.stringify({ choices: [{ index: 0, delta: { content: RISPOSTA_RIPROVA } }] });
+    const delta = JSON.stringify({ choices: [{ index: 0, delta: { content: RETRY_ANSWER } }] });
     await route.fulfill({
       status: 200,
       headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
@@ -123,8 +123,8 @@ async function mockRetryReply(page: Page, sessionKey: string): Promise<void> {
       json: {
         messages: [
           ...messages,
-          { id: "retry-user", role: "user", content: DOMANDA, timestamp: now },
-          { id: "retry-assistant", role: "assistant", content: RISPOSTA_RIPROVA, timestamp: now },
+          { id: "retry-user", role: "user", content: QUESTION, timestamp: now },
+          { id: "retry-assistant", role: "assistant", content: RETRY_ANSWER, timestamp: now },
         ],
       },
     });
@@ -138,7 +138,7 @@ async function openChat(page: Page, topicName: string): Promise<void> {
   await messageInput(page).waitFor({ state: "visible", timeout: 15_000 });
   // The history is on the page: the banner's absence means nothing on an
   // empty chat still loading.
-  await expect(assistantBubbles(page).last()).toContainText(PROSA_INTERROTTA, { timeout: 15_000 });
+  await expect(assistantBubbles(page).last()).toContainText(INTERRUPTED_PROSE, { timeout: 15_000 });
 }
 
 test.describe.serial("Turno interrotto: il banner sopra il composer", () => {
@@ -184,7 +184,7 @@ test.describe.serial("Turno interrotto: il banner sopra il composer", () => {
 
     // The prose the turn had written is still there: the banner adds, it does
     // not replace.
-    await expect(assistantBubbles(page).last()).toContainText(PROSA_INTERROTTA);
+    await expect(assistantBubbles(page).last()).toContainText(INTERRUPTED_PROSE);
   });
 
   test("«Riprova» rimanda l'ultimo messaggio dell'utente, e il banner se ne va", async ({ request }) => {
@@ -213,7 +213,7 @@ test.describe.serial("Turno interrotto: il banner sopra il composer", () => {
         const box = banner(page);
         await expect(box).toBeVisible({ timeout: 15_000 });
         await expect(box).toContainText(/il modello ha smesso di rispondere/);
-        await expect(userBubbles(page).last()).toContainText(DOMANDA);
+        await expect(userBubbles(page).last()).toContainText(QUESTION);
         await expect(assistantBubbles(page)).toHaveCount(1);
         await didascalia(page, "Risposta interrotta: il banner dice perché");
         await beat(page, 1600);
@@ -223,11 +223,11 @@ test.describe.serial("Turno interrotto: il banner sopra il composer", () => {
         // What Retry sends is the OBSERVABLE: the POST body's last message is
         // the user's question, word for word. Registered before the click so
         // a fast request cannot slip past the listener.
-        const postRiprova = page.waitForRequest((req) => {
+        const afterRetry = page.waitForRequest((req) => {
           if (req.method() !== "POST" || !req.url().endsWith("/api/chat")) return false;
           const body = req.postDataJSON() as { messages?: Array<{ role: string; content: string }> } | null;
           const last = body?.messages?.[body.messages.length - 1];
-          return last?.role === "user" && last.content === DOMANDA;
+          return last?.role === "user" && last.content === QUESTION;
         }, { timeout: 15_000 });
 
         const retry = page.locator('[data-testid="turn-interrupted-retry"]');
@@ -238,11 +238,11 @@ test.describe.serial("Turno interrotto: il banner sopra il composer", () => {
 
         // SECOND STATE: the question left again as a new turn, the reply
         // landed under it, and the interrupted turn is still there above.
-        await postRiprova;
-        await expect(assistantBubbles(page).last()).toContainText(RISPOSTA_RIPROVA, { timeout: 15_000 });
+        await afterRetry;
+        await expect(assistantBubbles(page).last()).toContainText(RETRY_ANSWER, { timeout: 15_000 });
         await expect(userBubbles(page)).toHaveCount(2);
-        await expect(userBubbles(page).last()).toContainText(DOMANDA);
-        await expect(assistantBubbles(page).first()).toContainText(PROSA_INTERROTTA);
+        await expect(userBubbles(page).last()).toContainText(QUESTION);
+        await expect(assistantBubbles(page).first()).toContainText(INTERRUPTED_PROSE);
         // `toHaveCount(0)`, not `toBeHidden`: the node must not exist.
         await expect(box).toHaveCount(0);
         await didascalia(page, "Il messaggio è ripartito, il banner non c'è più");

@@ -106,6 +106,22 @@ describe("staleStreamVerdict", () => {
     })).toBe("extend");
   });
 
+  /**
+   * The delivery's own wait. `update_task(status='review')` keeps its tool call
+   * open while OUR pre-review checks grind in the worktree, by design up to 50
+   * minutes (`CHECKS_MAX_LEGS`), and under load the slot queue alone gets there.
+   * On 2026-09-04 three deliveries were cut here at 31-32 minutes as "a promise
+   * that never returns": the promise was ours. Same exemption the stall detector
+   * already grants (`isWaitingForChecks`).
+   */
+  test("a tool waiting on our own pre-review checks is never hung, whatever its age", () => {
+    const delivering = { silentMs: 60 * 60_000, timeoutMs: TIMEOUT, childAlive: true, toolRunning: true, waitingOnOurChecks: true };
+    expect(staleStreamVerdict({ ...delivering, alreadyResynced: true, toolRunningMs: 32 * 60_000 })).toBe("extend");
+    expect(staleStreamVerdict({ ...delivering, alreadyResynced: false, toolRunningMs: 49 * 60_000 })).toBe("rescue");
+    // The exemption belongs to the checks, not to the tool: once they are over the cap is back.
+    expect(staleStreamVerdict({ ...delivering, alreadyResynced: true, waitingOnOurChecks: false, toolRunningMs: 32 * 60_000 })).toBe("hung");
+  });
+
   test("a dead child finalizes on the first stale tick, rescue spent or not", () => {
     expect(staleStreamVerdict({ silentMs: TIMEOUT + 1, timeoutMs: TIMEOUT, childAlive: false, alreadyResynced: false })).toBe("finalize");
     expect(staleStreamVerdict({ silentMs: TIMEOUT + 1, timeoutMs: TIMEOUT, childAlive: false, alreadyResynced: true })).toBe("finalize");

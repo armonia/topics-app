@@ -24,7 +24,7 @@ import {
 } from "../services/goals";
 
 /** A step is a string or `{content, status}`: both shapes reach the same row. */
-function normaliseSteps(raw: unknown[]): Array<{ content: string; status?: string }> {
+function normalizeSteps(raw: unknown[]): Array<{ content: string; status?: string }> {
   return raw.map((s) =>
     typeof s === "string"
       ? { content: s }
@@ -125,7 +125,7 @@ export function createGoalsRouter(ctx: AppContext): RouteHandler {
         const body = await readJSON(req);
         const raw = Array.isArray(body?.steps) ? body.steps : null;
         if (!raw) return errorResponse(400, "steps array required");
-        replaceSteps(db, active.id, normaliseSteps(raw));
+        replaceSteps(db, active.id, normalizeSteps(raw));
         announce(topic.id);
         return json({ goal: getGoal(db, active.id) });
       }
@@ -218,7 +218,7 @@ export function createGoalsRouter(ctx: AppContext): RouteHandler {
         const body = await readJSON(req);
         const raw = Array.isArray(body?.steps) ? body.steps : null;
         if (!raw) return errorResponse(400, "steps array required");
-        replaceSteps(db, params.id, normaliseSteps(raw));
+        replaceSteps(db, params.id, normalizeSteps(raw));
         announce(existing.topicId);
         return json({ goal: getGoal(db, params.id) });
       }

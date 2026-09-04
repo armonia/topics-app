@@ -346,11 +346,11 @@ function main(): void {
 
   if (!json) {
     console.error("[check-ui-language] FAIL: a text a person reads does not follow the chosen language.");
-    const families: [string, Verdict, Hit[]][] = [
+    const groups: [string, Verdict, Hit[]][] = [
       ["hard-coded Italian", italian, italianHits],
       ["copy that does not go through i18n", untranslated, untranslatedHits],
     ];
-    for (const [what, verdict, family] of families) {
+    for (const [what, verdict, family] of groups) {
       if (verdict.newFiles.length > 0) {
         console.error(`\n${verdict.newFiles.length} file(s) NOT in the baseline gained ${what}:`);
         report(family.filter((h) => verdict.newFiles.includes(h.file)));

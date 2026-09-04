@@ -2644,7 +2644,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   }
 
   /** `04:36`, local time: when the buffered message was actually written. */
-  function hhmm(at: number): string {
+  function hourMinute(at: number): string {
     const d = new Date(at);
     return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
   }
@@ -2652,7 +2652,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /** The buffered messages as one quotable block, hours included, trimmed. */
   function quoteQueued(queued: { text: string; at: number }[]): string {
     return queued
-      .map((q) => `${hhmm(q.at)} «${q.text.trim().length > 220 ? q.text.trim().slice(0, 220) + "..." : q.text.trim()}»`)
+      .map((q) => `${hourMinute(q.at)} «${q.text.trim().length > 220 ? q.text.trim().slice(0, 220) + "..." : q.text.trim()}»`)
       .join(" / ");
   }
 
