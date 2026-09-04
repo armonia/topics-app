@@ -42,6 +42,12 @@ export function recordTurnEnd(sessionKey: string, info: TurnEndInfo): void {
 }
 
 /** Ritira (e consuma) la fine del turno. `undefined` = nessuna, o già ritirata. */
+/** Is an end already deposited for this session? Read without consuming: the
+ *  headless drain uses it to stop waiting on a body that will never close. */
+export function peekTurnEnd(sessionKey: string): boolean {
+  return lastTurnEnd.has(sessionKey);
+}
+
 export function takeTurnEnd(sessionKey: string): TurnEndInfo | undefined {
   const info = lastTurnEnd.get(sessionKey);
   if (info) lastTurnEnd.delete(sessionKey);
