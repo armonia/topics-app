@@ -33,12 +33,20 @@ import {
 //
 // They run only as type-level assertions; the runtime values are never used.
 
-declare const _zodValue: ZodInferredToolCallDetail;
-declare const _tsValue: ToolCallDetail;
+// The assignability lives in the CONSTRAINT (`A extends B`), not in a
+// conditional type. Until 2026-09 these two checks were written as
+// `type C = A extends B ? true : never`, which resolves to `never` on drift
+// and compiles perfectly happily: the guard never bit, and four variants
+// (`ask_user`, `agent_control`, `agent_message`, `artifact`) plus the
+// `tool_search` search alias sat in the TS union and outside the schema long
+// enough to throw away 3653 details in production. A violated constraint IS a
+// compile error.
+type AssertAssignable<A extends B, B> = A & B;
+
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-type _CheckZodAssignableToTs = typeof _zodValue extends ToolCallDetail ? true : never;
+type _CheckZodAssignableToTs = AssertAssignable<ZodInferredToolCallDetail, ToolCallDetail>;
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-type _CheckTsAssignableToZod = typeof _tsValue extends ZodInferredToolCallDetail ? true : never;
+type _CheckTsAssignableToZod = AssertAssignable<ToolCallDetail, ZodInferredToolCallDetail>;
 
 // ----- Round-trip coverage --------------------------------------------------
 
@@ -117,6 +125,32 @@ const validDetails: ToolCallDetail[] = [
 
   { type: 'lsp', operation: 'goToDefinition' },
   { type: 'lsp', operation: 'findReferences', filePath: '/x.ts', symbol: 'foo', result: '3 refs' },
+
+  // Agent-fleet + ask-the-human shapes. The three names below are the ones the
+  // production log counted as dropped (2736 + 835 + 82 in one file) because
+  // the schema had never learned them.
+  { type: 'agent_message', to: 'child-1' },
+  { type: 'agent_message', to: 'child-1', summary: 'go on', message: 'full body', result: 'sent' },
+
+  { type: 'agent_control', op: 'list' },
+  { type: 'agent_control', op: 'list', result: '2 agents' },
+  { type: 'agent_control', op: 'output', target: 'task_9', result: 'tail' },
+  { type: 'agent_control', op: 'stop', target: 'task_9' },
+
+  { type: 'artifact', action: 'publish' },
+  { type: 'artifact', action: 'publish', title: 'Report', url: 'https://x/r', filePath: '/tmp/r.html', result: 'ok' },
+
+  { type: 'ask_user', questions: [] },
+  {
+    type: 'ask_user',
+    questions: [
+      { question: 'Which route?', header: 'Route', options: ['Schema', 'Renderer'] },
+      { question: 'Ship it?' },
+    ],
+    result: 'Schema',
+  },
+
+  { type: 'search', query: 'browser', toolName: 'tool_search', content: '3 tools' },
 
   { type: 'unknown', raw: {} },
   { type: 'unknown', raw: { args: { x: 1 }, result: 'noop' } },
@@ -234,8 +268,8 @@ function variantsOf(schema: any): any[] {
 }
 
 describe('schema completeness', () => {
-  test('exactly 19 variants in the union', () => {
-    expect(variantsOf(toolCallDetailSchema).length).toBe(19);
+  test('exactly 23 variants in the union', () => {
+    expect(variantsOf(toolCallDetailSchema).length).toBe(23);
   });
 
   test('all variant discriminators are unique', () => {
@@ -268,6 +302,10 @@ describe('schema completeness', () => {
         'skill',
         'slash_command',
         'lsp',
+        'agent_message',
+        'agent_control',
+        'artifact',
+        'ask_user',
         'unknown',
       ]),
     );

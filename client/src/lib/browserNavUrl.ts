@@ -20,11 +20,12 @@
 export function resolveBrowserNavigateUrl(raw: string): string {
   if (typeof window === 'undefined') return raw;
 
-  // Un file locale non arriva come `file://` — arriva come `/api/media?path=…`,
-  // da risolvere sulla NOSTRA origine (server/browser-local-file-url.ts). Qui e
-  // non nel server perché la stessa app si serve su porte diverse a seconda di
-  // chi guarda: il proxy in chiaro del guscio desktop, il server in TLS, l'host
-  // che vede un telefono in LAN. Un assoluto deciso là è giusto per uno solo.
+  // A local file does not arrive as `file://`: it arrives as
+  // `/api/media?path=...`, to be resolved on OUR origin
+  // (server/browser-local-file-url.ts). Here and not on the server because the
+  // same app is served on different ports depending on who is looking: the
+  // desktop shell's cleartext proxy, the TLS server, the host a phone on the
+  // LAN sees. An absolute decided over there is right for exactly one of them.
   if (raw.startsWith('/api/media?path=')) {
     try {
       return new URL(raw, window.location.origin).toString();

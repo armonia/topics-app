@@ -496,6 +496,8 @@ export interface AppContext {
     role: "user" | "assistant",
     content: string,
     autore?: { authorPersonId?: string | null; authorDeviceId?: string | null },
+    /** Blocks written on the row (today: the goal continuation's `goal-nudge`). */
+    blocks?: ContentBlock[],
   ) => StoredMessage;
   /** Append pre-formed messages (id/parentId/toolCalls fixed by the caller) to
    *  the tail — the incremental-import complement to `saveLocalMessages`. */

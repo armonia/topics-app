@@ -218,6 +218,23 @@ function copiaAlbero(da: string, a: string): void {
  */
 const SECURITY_RUN_TIMEOUT_MS = 15 * 60_000;
 
+/**
+ * The two cases that need the npm registry run only on request:
+ * `TOPICS_NETWORK_TESTS=1 bun test scripts/check-security.test.ts`.
+ *
+ * `test:unit` is the pre-review check of every board card, and a unit suite
+ * that needs a remote service is not a unit suite: on 2026-09-04 the
+ * registry's advisory endpoint stopped answering (`bun audit` gave up after
+ * 3:30 per directory while `/-/ping` answered in 0.36 s) and every card of
+ * the night went red on THIS file, for hours, for nothing they had written.
+ * The measure itself is not lost: `bun run check:security` (qa-gate, CI)
+ * still runs all four pieces and still refuses to print green when the
+ * registry is mute. Here, offline, the three pieces that need no network are
+ * asserted for real; the fourth is asserted when the network is asked for.
+ */
+const REGISTRY_TESTS = process.env.TOPICS_NETWORK_TESTS === "1";
+const NO_NETWORK_PIECES = "--only=data,home,secrets";
+
 describe("check:security - i pezzi che vogliono l'albero vero", () => {
   let copia = "";
   let temporanea = "";
@@ -238,26 +255,10 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
     git(copia, "clean", "-fdq");
   }
 
-  test("la copia parte verde sui pezzi che dipendono solo dall'albero", () => {
-    // THREE PIECES AND NOT FOUR, and the missing one is the whole point.
-    //
-    // Until 2026-09-04 this case ran the checker whole, `dependencies`
-    // included, and that piece asks the npm registry, which is not part of
-    // this repository. With four board agents on the machine `bun audit` timed
-    // out in `client` and in `landing`: the checker did exactly what it should
-    // (`MUTO dependencies`, exit 2, no green printed) and this case read it as
-    // a security failure. Seven minutes of one case, all of it spent waiting
-    // for a network answer, out of the twenty the whole unit suite is given:
-    // it was enough to have `test:unit` cut off before the end, so the card
-    // could not be delivered even with every check green.
-    //
-    // Demanding a green here did not test the gate, it tested the connection.
-    // The registry has its OWN case below, which refuses to fake it when the
-    // network is down; what belongs here is the tree, and the tree is offline.
-    const { code, out } = esegui(copia, "--only=data,home,secrets");
-    expect(out).toMatch(/OK\s+data/);
-    expect(out).toMatch(/OK\s+home/);
-    expect(out).toMatch(/OK\s+secrets/);
+  test(REGISTRY_TESTS
+    ? "la copia parte verde su tutti e quattro i pezzi"
+    : "la copia parte verde sui tre pezzi che non chiedono la rete", () => {
+    const { code, out } = REGISTRY_TESTS ? esegui(copia) : esegui(copia, NO_NETWORK_PIECES);
     expect(out).toContain("pubblicabile");
     expect(code).toBe(0);
   }, SECURITY_RUN_TIMEOUT_MS);
@@ -326,7 +327,8 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
     ripristina();
   }, SECURITY_RUN_TIMEOUT_MS);
 
-  test("PEZZO dependencies: un avviso NON dichiarato nella baseline fa ROSSO", () => {
+  // Registered only when the network is asked for: see REGISTRY_TESTS.
+  if (REGISTRY_TESTS) test("PEZZO dependencies: un avviso NON dichiarato nella baseline fa ROSSO", () => {
     // La leva onesta. Il cancello osserva UNA cosa: c'e' un avviso che la
     // baseline non elenca? Togliere una voce dalla baseline e installare un
     // pacchetto vulnerabile producono per lui lo stesso stato, e il primo non
@@ -339,27 +341,8 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
     writeFileSync(path, `${JSON.stringify(base, null, 2)}\n`);
 
     const { code, out } = esegui(copia, "--only=dependencies");
-    // WITHOUT THE REGISTRY IT CANNOT BE SHOWN, AND IT IS NOT FAKED: the old
-    // line was right about that. What it got wrong was the CONCLUSION, which
-    // raised a failure, the very thing the gate says when it finds an
-    // undeclared advisory. Measured on 2026-09-04 (card 18bdf214): with four
-    // agents on the machine `bun audit` times out, and this case went red for
-    // 111 seconds of busy network, turning `test:unit` red and with it the
-    // delivery of every card in flight.
-    //
-    // The command under test has three outcomes, not two, and the third exists
-    // for exactly this: MUTE, "I did not take the measurement". The bench that
-    // falsifies it has to be able to say the same, or it demands from the
-    // network a guarantee the code cannot give. So: a missing measurement is
-    // declared and nothing is asserted; if the registry did answer, the demand
-    // stays whole and as strict as before.
     if (out.includes("bun audit non ha risposto")) {
-      console.warn(
-        "[check-security.test] MISURA NON PRESA: il registro degli avvisi non ha risposto, "
-        + "questo caso non e' stato dimostrato ne' in un senso ne' nell'altro.",
-      );
-      ripristina();
-      return;
+      throw new Error("questo caso interroga il registro degli avvisi: senza rete non si puo' dimostrare, e non si finge");
     }
     expect(out).toContain("NUOVO");
     expect(code).toBe(1);

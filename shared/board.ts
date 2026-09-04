@@ -267,11 +267,11 @@ export const CODE_GATES_RULE = [
  * ESEMPIO, esattamente come nei cancelli: la riga dice di leggerli in
  * `package.json`.
  *
- * E dal 04/09/2026 la riga dice anche QUANDO non si bumpa: mai da una card.
- * Con quattordici card in volo la prima consegna portava il suo bump
- * (`chore(release): bump v2.2.265`), e N card che bumpano in parallelo allo
- * stesso numero collidono su tutti e quattro i file al land. Il numero si
- * muove una volta per release, al land, da chi landa.
+ * Since 2026-09-04 the line also says WHEN not to bump: never from a card.
+ * With fourteen cards in flight the first delivery carried its own bump
+ * (`chore(release): bump v2.2.265`), and N cards bumping in parallel to the
+ * same number collide on all four files at land time. The number moves once
+ * per release, at landing, by whoever lands.
  */
 export const VERSION_BUMP_RULE =
   "A VERSION BUMP IS ONE COMMAND, never the files by hand. The name you read in `package.json` (here `bun run bump [patch|X.Y.Z]`, and `bun run bump sync` to realign a tree that already drifted). The number is written in SEVERAL places and one of them is a GENERATED file (a lockfile): it is the only one nobody ever opens by hand, so it is the only one a manual bump forgets. It has already happened twice in one night. AND ON A CARD YOU DO NOT BUMP AT ALL: the number moves once per release, at landing, by whoever lands. Read on 2026-09-04: with fourteen cards in flight, the first one delivered carried its own bump, and every card bumping in parallel collides on all four files at land time.";

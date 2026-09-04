@@ -32,6 +32,7 @@ import {
 } from "./processes";
 import { insertCompactionMarkerIfNew, backfillPostTokens } from "../db/compaction-markers";
 import { getActiveGoal, replaceSteps } from "../services/goals";
+import { goalContinuationForChatRoute, type TurnEndInfo as GoalTurnEnd } from "../services/goal-continuation";
 import { recordSessionContext } from "../db/session-context";
 import { buildContextUpdate } from "../usage/usage-update";
 import { getSnapshotManager } from "../providers/snapshot-manager";
@@ -196,6 +197,18 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
    * Senza `topicId` (sessione non ancora legata a una topic) resta il broadcast
    * a tutti: non c'e' niente su cui instradare.
    */
+  /**
+   * THE GOAL LOOP'S ONE HANDLE ON THIS ROUTE.
+   *
+   * The wiring lives in `services/goal-continuation.ts`; what stays here is the
+   * one thing only this scope can give it, the route itself. It is a named
+   * function expression, whose name is in scope only inside its own body, so it
+   * hands itself over on the first request it serves (see `selfRoute` below).
+   */
+  const goalLoop = goalContinuationForChatRoute({
+    ctx, resolveProvider, log: (m) => console.log(`[goal] ${m}`),
+  });
+
   const broadcastStreamToTopic = (message: OutboundMessage, topicId: string | undefined): void => {
     if (topicId) broadcastToTopicSubscribers(topicId, message);
     else broadcastToAll(message);
@@ -256,6 +269,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
   };
 
   return async function chatRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
+    // The goal loop resends through this very route: see `goalLoop`.
+    goalLoop.useRoute(chatRouter);
     if (method === "POST" && pathname === "/api/chat") {
       console.log(`[HTTP] POST /api/chat received`);
       const body = await readJSON(req);
@@ -407,9 +422,20 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         // chiamante (import di transcript, sotto-agenti) non ha un'identità di
         // richiesta da cui ricavarlo, e quelle righe restano senza autore —
         // che è la risposta giusta, non una mancanza.
+        // THE CONTINUATION IS MARKED ON THE ROW, not disguised as the human.
+        //
+        // A goal still open at the end of a turn buys the next one
+        // (`services/goal-loop.ts`), and the message has to be a `user` row
+        // because that is the only role a provider answers. The block is what
+        // keeps the transcript honest: the client draws one compact system line
+        // with the attempt number instead of a bubble nobody typed.
+        const goalNudgeAttempt = typeof body.goalNudge === "number" && body.goalNudge > 0
+          ? Math.floor(body.goalNudge)
+          : null;
         const storedUserMsg = appendLocalMessage(
           sessionKey, "user", lastUserMsg.content,
           autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null),
+          goalNudgeAttempt ? [{ kind: "goal-nudge", attempt: goalNudgeAttempt }] : undefined,
         );
         // ADESSO il messaggio esiste, e da adesso una ripetizione è un doppione.
         // Non un istante prima: la riga è la prova, e finché non c'è, ripetere è
@@ -2060,6 +2086,38 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 ...(turnError ? { reason: "error", error: turnError } : {}),
               });
               finalizeTurnActivity(matchedTopic);
+
+              // THE TURN IS OVER, THE OBJECTIVE MAY NOT BE.
+              //
+              // A goal that is still `active` here gets one verdict from a
+              // cheap judge and, if the work is unfinished, one continuation
+              // sent back through this same route (`services/goal-loop.ts` for
+              // the rule and its brakes). Before this, a chat with an open goal
+              // simply stopped, and the objective sat on the bar with nobody
+              // pursuing it.
+              //
+              // Deferred and never awaited: this runs inside the finalization
+              // of the stream that just ended, and the continuation is a WHOLE
+              // new turn. Awaiting it here would hold the SSE response open for
+              // as long as the loop lasts. `setTimeout(0)` also puts it after
+              // `endStream` has settled, so the resend does not meet its own
+              // turn on the 409 gate.
+              const goalTurn: GoalTurnEnd = {
+                sessionKey,
+                topicId: matchedTopic.id,
+                dispatched,
+                end: endInfo.end,
+                discarded: !!discardedMessageId,
+                // A turn parked on a question is not a turn that decided to
+                // stop: `interrupted` carries the tools still awaiting a human,
+                // and the plan approval is kept out of it on purpose above.
+                pendingAsk: askingPlanApproval || interrupted.length > 0,
+                usedTools: trackedToolCallIds.length > 0,
+                lastAssistantText: fullContent,
+              };
+              setTimeout(() => {
+                goalLoop.onTurnEnd(goalTurn).catch((err) => console.warn("[goal] end-of-turn hook failed:", err));
+              }, 0);
             }
 
             // Activity log (Fix E): one row per stream lifecycle event so

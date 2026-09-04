@@ -33,7 +33,10 @@ import { GOAL_STEP_STATUSES } from "../../shared/types";
 // Solo i due tipi che qualcuno importa DA QUI: gli stati si prendono da
 // `shared/types`, e ri-esportarli comodamente li farebbe esistere in due posti.
 export type { TopicGoal, GoalStep } from "../../shared/types";
-import type { TopicGoal, GoalStep, GoalStatus, GoalStepStatus } from "../../shared/types";
+import type {
+  TopicGoal, GoalStep, GoalStatus, GoalStepStatus, GoalLoopState,
+} from "../../shared/types";
+import { GOAL_LOOP_STATES } from "../../shared/types";
 
 const STEP_STATUSES: readonly string[] = GOAL_STEP_STATUSES;
 
@@ -52,6 +55,12 @@ function mapStep(r: Record<string, unknown>): GoalStep {
   };
 }
 
+function normLoopState(v: unknown): GoalLoopState {
+  return (GOAL_LOOP_STATES as readonly string[]).includes(v as string)
+    ? (v as GoalLoopState)
+    : "running";
+}
+
 function mapGoal(r: Record<string, unknown>, steps: GoalStep[]): TopicGoal {
   return {
     id: String(r.id),
@@ -62,6 +71,9 @@ function mapGoal(r: Record<string, unknown>, steps: GoalStep[]): TopicGoal {
     createdAt: String(r.created_at),
     closedAt: r.closed_at != null ? String(r.closed_at) : null,
     steps,
+    continuations: Number(r.continuations) || 0,
+    idleTurns: Number(r.idle_turns) || 0,
+    loopState: normLoopState(r.loop_state),
   };
 }
 
@@ -163,6 +175,35 @@ export function closeGoal(
   return getGoal(db, goalId);
 }
 
+/**
+ * Writes the loop counters of a goal. It is the ONLY door onto those three
+ * columns: the rule that computes them is pure and lives in `goal-loop.ts`, so
+ * everything that decides is testable without a database and everything that
+ * writes passes through one statement.
+ *
+ * A closed goal is not touched. Its loop is over by definition, and letting a
+ * late end-of-turn verdict bump the counters of an abandoned goal would revive
+ * a ceiling nobody is counting any more.
+ */
+export function setGoalLoop(
+  db: Database,
+  goalId: string,
+  loop: { continuations?: number; idleTurns?: number; state?: GoalLoopState },
+): TopicGoal | null {
+  const existing = getGoal(db, goalId);
+  if (!existing) return null;
+  if (existing.status !== "active") return existing;
+  db.prepare(
+    `UPDATE topic_goals SET continuations = ?, idle_turns = ?, loop_state = ? WHERE id = ?`,
+  ).run(
+    loop.continuations ?? existing.continuations,
+    loop.idleTurns ?? existing.idleTurns,
+    normLoopState(loop.state ?? existing.loopState),
+    goalId,
+  );
+  return getGoal(db, goalId);
+}
+
 /** Riapre un goal chiuso, abbandonando quello attivo se c'è. */
 export function reopenGoal(db: Database, goalId: string): TopicGoal | null {
   const existing = getGoal(db, goalId);
@@ -174,7 +215,15 @@ export function reopenGoal(db: Database, goalId: string): TopicGoal | null {
       `UPDATE topic_goals SET status = 'abandoned', closed_at = ?
         WHERE topic_id = ? AND status = 'active'`,
     ).run(now, existing.topicId);
-    db.prepare(`UPDATE topic_goals SET status = 'active', closed_at = NULL WHERE id = ?`).run(goalId);
+    // Reopening restarts the loop from zero. The counters of the run that
+    // closed this goal describe a finished chase; carrying them over would
+    // hand the reopened goal a ceiling it had already spent.
+    db.prepare(
+      `UPDATE topic_goals
+          SET status = 'active', closed_at = NULL,
+              continuations = 0, idle_turns = 0, loop_state = 'running'
+        WHERE id = ?`,
+    ).run(goalId);
   })();
   return getGoal(db, goalId);
 }
