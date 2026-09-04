@@ -334,8 +334,8 @@ describe('WS-04 contract: chatWsInboundSchema (main /ws)', () => {
 // ----- Contract: tool-call-detail (NORM-01) ---------------------------------
 
 describe('WS-04 contract: toolCallDetailSchema (NORM-01)', () => {
-  test('exactly 19 variants', () => {
-    expect(variantsOf(toolCallDetailSchema).length).toBe(19);
+  test('exactly 23 variants', () => {
+    expect(variantsOf(toolCallDetailSchema).length).toBe(23);
   });
 
   test('discriminator literals are frozen', () => {
@@ -352,7 +352,18 @@ describe('WS-04 contract: toolCallDetailSchema (NORM-01)', () => {
     //   slash_command — user-typed slash command
     //   lsp           — LSP language-server query
     //   wait          — WaitForProcess (block until a process ends)
+    // Four more joined on 2026-09-04, and they were not new: the canonical TS
+    // union had carried them since the agent-fleet pass, the schema had not,
+    // and hydration dropped every detail wearing one of them.
+    //   agent_message — SendMessage (one agent writing to another)
+    //   agent_control — ListAgents / TaskOutput / TaskStop
+    //   artifact      — Artifact (publishing a page)
+    //   ask_user      — AskUserQuestion (the question put to the human)
     expect([...types].sort()).toEqual([
+      'agent_control',
+      'agent_message',
+      'artifact',
+      'ask_user',
       'bash_output',
       'edit',
       'fetch',
@@ -393,7 +404,7 @@ describe('WS-04 contract: toolCallDetailSchema (NORM-01)', () => {
     );
     if (!search) throw new Error('search variant missing');
     const sig = objectSignature(search);
-    expect(sig.enums.toolName).toEqual(['glob', 'grep', 'search', 'web_search']);
+    expect(sig.enums.toolName).toEqual(['glob', 'grep', 'search', 'tool_search', 'web_search']);
     expect(sig.enums.mode).toEqual(['content', 'count', 'files_with_matches']);
   });
 

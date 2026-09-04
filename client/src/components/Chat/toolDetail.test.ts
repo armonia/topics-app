@@ -90,6 +90,49 @@ describe('resolveToolDetail — server-built detail survives validation', () => 
     expect(d.type).toBe('monitor');
     if (d.type === 'monitor') expect(d.description).toBe('errors in deploy.log');
   });
+
+  test('a question built by the server keeps its options in the renderer', () => {
+    const tc: ToolCall = {
+      id: 't2',
+      name: 'ask_user_question',
+      args: {},
+      detail: {
+        type: 'ask_user',
+        questions: [{ question: 'Which port?', header: 'Port', options: ['3333', '4000'] }],
+      },
+    };
+    const d = resolveToolDetail(tc);
+    expect(d.type).toBe('ask_user');
+    if (d.type === 'ask_user') {
+      expect(d.questions[0]!.question).toBe('Which port?');
+      expect(d.questions[0]!.options).toEqual(['3333', '4000']);
+    }
+  });
+
+  test('a detail degraded to `unknown` still renders by name when the name is known', () => {
+    // The server keeps a drifted detail as `unknown` rather than deleting it,
+    // so nothing is lost on the wire. The row must not become a JSON blob for
+    // it: what the tool NAME says wins, and the raw payload is the last resort.
+    const tc: ToolCall = {
+      id: 't3',
+      name: 'Bash',
+      args: { command: 'ls' },
+      detail: { type: 'unknown', raw: { args: { type: 'shell_v2', command: 'ls' } } },
+    };
+    expect(resolveToolDetail(tc).type).toBe('shell');
+  });
+
+  test('a degraded detail on an unknown name keeps the raw payload', () => {
+    const tc: ToolCall = {
+      id: 't4',
+      name: 'ToolShippedNextMonth',
+      args: {},
+      detail: { type: 'unknown', raw: { args: { type: 'someFutureType', keepMe: 1 } } },
+    };
+    const d = resolveToolDetail(tc);
+    expect(d.type).toBe('unknown');
+    if (d.type === 'unknown') expect(d.raw.args).toEqual({ type: 'someFutureType', keepMe: 1 });
+  });
 });
 
 // ── TaskCreate / TaskUpdate (CLI 2.1.220) ──────────────────────────────────

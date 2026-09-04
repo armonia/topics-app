@@ -51,7 +51,7 @@ const writeSchema = z.object({
   content: z.optional(z.string()),
 });
 
-const searchToolNameSchema = z.enum(['search', 'grep', 'glob', 'web_search']);
+const searchToolNameSchema = z.enum(['search', 'grep', 'glob', 'web_search', 'tool_search']);
 const searchModeSchema = z.enum(['content', 'files_with_matches', 'count']);
 
 const searchSchema = z.object({
@@ -172,6 +172,42 @@ const lspSchema = z.object({
   result: z.optional(z.string()),
 });
 
+const agentMessageSchema = z.object({
+  type: z.literal('agent_message'),
+  to: z.string(),
+  summary: z.optional(z.string()),
+  message: z.optional(z.string()),
+  result: z.optional(z.string()),
+});
+
+const agentControlOpSchema = z.enum(['list', 'output', 'stop']);
+const agentControlSchema = z.object({
+  type: z.literal('agent_control'),
+  op: agentControlOpSchema,
+  target: z.optional(z.string()),
+  result: z.optional(z.string()),
+});
+
+const artifactSchema = z.object({
+  type: z.literal('artifact'),
+  action: z.string(),
+  title: z.optional(z.string()),
+  url: z.optional(z.string()),
+  filePath: z.optional(z.string()),
+  result: z.optional(z.string()),
+});
+
+const askUserQuestionSchema = z.object({
+  question: z.string(),
+  header: z.optional(z.string()),
+  options: z.optional(z.array(z.string())),
+});
+const askUserSchema = z.object({
+  type: z.literal('ask_user'),
+  questions: z.array(askUserQuestionSchema),
+  result: z.optional(z.string()),
+});
+
 const unknownSchema = z.object({
   type: z.literal('unknown'),
   raw: z.object({
@@ -199,8 +235,30 @@ export const toolCallDetailSchema = z.discriminatedUnion('type', [
   skillSchema,
   slashCommandSchema,
   lspSchema,
+  agentMessageSchema,
+  agentControlSchema,
+  artifactSchema,
+  askUserSchema,
   unknownSchema,
 ]);
+
+/**
+ * The discriminator values the schema knows, read OFF the union itself so the
+ * list cannot drift from it. Callers use it to tell the two failure modes
+ * apart: a detail whose `type` is not in here comes from a NEW tool kind the
+ * CLI grew (degrade, keep the payload), while a detail with a known `type` and
+ * a broken shape is a corrupt row (drop it and let the renderer re-derive from
+ * `args`).
+ */
+export const knownDetailTypes: ReadonlySet<string> = new Set(
+  // zod/mini keeps the variants under `def.options`, and a Zod 4 literal is
+  // multi-valued, hence `def.values[0]`.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ((toolCallDetailSchema as any).def?.options ?? []).map(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (opt: any) => opt.def.shape.type.def.values[0] as string,
+  ),
+);
 
 export type ParseResult =
   | { ok: true; data: ToolCallDetail }

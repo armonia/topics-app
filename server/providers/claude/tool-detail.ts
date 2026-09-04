@@ -272,7 +272,14 @@ export function deriveToolDetail(
       ...(result ? { result } : {}),
     };
   }
-  if (c === "askuserquestion" || c === "ask_user_question") {
+  // The question an agent puts TO the human, under every name it travels with:
+  // the CLI's own `AskUserQuestion`, the bare `ask_user_question`, and the MCP
+  // re-export `mcp__topics__ask_user_question`. The suffix match runs BEFORE
+  // the generic `mcp__` branch below, otherwise the one tool whose whole point
+  // is to be read renders as an anonymous MCP row. Same name set as
+  // `server/providers/ask-user-detector.ts`, which decides whether the turn is
+  // waiting on a human: the row and the wait now agree on what a question is.
+  if (c === "askuserquestion" || c === "ask_user_question" || c.endsWith("__ask_user_question")) {
     const qs = Array.isArray(a.questions) ? (a.questions as Array<Record<string, unknown>>) : [];
     return {
       type: "ask_user",
