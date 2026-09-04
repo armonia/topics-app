@@ -28,6 +28,12 @@
 
 import type { Database } from "bun:sqlite";
 import type { OutboundMessage } from "../../shared/ws-outbound";
+import type { Topic } from "../types";
+
+/** The chat route, as narrow as this file needs it. */
+type ChatRouteLike = (
+  req: Request, url: URL, pathname: string, method: string,
+) => Promise<Response | null>;
 import { closeGoal, getActiveGoal, setGoalLoop } from "./goals";
 import {
   GOAL_JUDGE_PROMPT,
@@ -212,5 +218,83 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
       log(`goal-loop: the continuation did not go through (${err instanceof Error ? err.message : String(err)})`);
     }
     return "continued";
+  };
+}
+
+/**
+ * The chat route's goal loop, wired.
+ *
+ * It lives here and not in `routes/chat.ts` for the same reason the rule lives
+ * in `goal-loop.ts`: the route is already the longest file in the server, and
+ * a mechanism whose pieces are scattered across it is one nobody re-reads. The
+ * route keeps the ONE thing only it can give, which is itself: `useRoute` takes
+ * the handler on the first request served, because a named function expression
+ * is only in scope inside its own body.
+ */
+export function goalContinuationForChatRoute(deps: {
+  ctx: {
+    db: Database;
+    getTopicById: (id: string) => Topic | null;
+    broadcastToAll: (msg: OutboundMessage) => void;
+  };
+  resolveProvider: (topic?: Topic | null) => {
+    name: string;
+    complete: (
+      messages: Array<{ role: "user"; content: string }>,
+      options?: { model?: string },
+    ) => Promise<{ content?: string | null }>;
+  };
+  log?: (msg: string) => void;
+}) {
+  const { ctx } = deps;
+  let route: ChatRouteLike | null = null;
+
+  const onTurnEnd = createGoalContinuation({
+    db: ctx.db,
+    // The judge runs on the TOPIC's provider, at its cheapest tier where the
+    // provider has one. Cheapest and NOT the turn's model on purpose: this call
+    // happens after every turn of every chat that has a goal, and a judge
+    // costing a real fraction of the turn it guards is a judge somebody turns
+    // off. `complete` is a single one-shot: no tools, no session.
+    judge: async (prompt, info) => {
+      const provider = deps.resolveProvider(ctx.getTopicById(info.topicId));
+      const cheap = provider.name === "claude-code" ? { model: "claude-haiku-4-5" } : undefined;
+      const answer = await provider.complete([{ role: "user", content: prompt }], cheap);
+      return answer.content ?? "";
+    },
+    resend: async ({ sessionKey, text, attempt }) => {
+      if (!route) return;
+      const url = new URL("http://localhost/api/chat");
+      const resp = await route(
+        new Request(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          // `goalNudge` is what marks the row: the message has to be a `user`
+          // one (the only role a provider answers) and the block is what stops
+          // the transcript from showing the human saying it.
+          body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: text }], goalNudge: attempt }),
+        }),
+        url, "/api/chat", "POST",
+      );
+      // The stream is drained to the end: the route finalizes the row when the
+      // turn is over, not when it starts, and that finalization ends in this
+      // same hook and decides whether to continue once more. Reading it is what
+      // makes the loop sequential instead of a fan-out.
+      if (resp?.body) {
+        const reader = resp.body.getReader();
+        while (true) { const { done } = await reader.read(); if (done) break; }
+      }
+    },
+    announce: (topicId) => {
+      ctx.broadcastToAll({ type: "goal:updated", topicId, goal: getActiveGoal(ctx.db, topicId) });
+    },
+    broadcast: ctx.broadcastToAll,
+    log: deps.log,
+  });
+
+  return {
+    /** The route hands itself over on the first request it serves. */
+    useRoute(handler: ChatRouteLike) { route ??= handler; },
+    onTurnEnd,
   };
 }

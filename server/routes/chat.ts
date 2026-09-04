@@ -32,7 +32,7 @@ import {
 } from "./processes";
 import { insertCompactionMarkerIfNew, backfillPostTokens } from "../db/compaction-markers";
 import { getActiveGoal, replaceSteps } from "../services/goals";
-import { createGoalContinuation, type TurnEndInfo as GoalTurnEnd } from "../services/goal-continuation";
+import { goalContinuationForChatRoute, type TurnEndInfo as GoalTurnEnd } from "../services/goal-continuation";
 import { recordSessionContext } from "../db/session-context";
 import { buildContextUpdate } from "../usage/usage-update";
 import { getSnapshotManager } from "../providers/snapshot-manager";
@@ -200,58 +200,13 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
   /**
    * THE GOAL LOOP'S ONE HANDLE ON THIS ROUTE.
    *
-   * The continuation is sent through the chat route itself, exactly like the
-   * boot resume does (`lib/ripresa-boot.ts`): building a turn here would be a
-   * second, quieter way of talking to a provider, with none of the route's
-   * guarantees (the 409 on a turn already in flight, the envelope, the
-   * checkpoint, the activity bump). The route is a named function expression,
-   * whose name is only in scope inside its own body, so it hands itself over
-   * here on the first request it serves.
+   * The wiring lives in `services/goal-continuation.ts`; what stays here is the
+   * one thing only this scope can give it, the route itself. It is a named
+   * function expression, whose name is in scope only inside its own body, so it
+   * hands itself over on the first request it serves (see `selfRoute` below).
    */
-  let selfRoute: RouteHandler | null = null;
-
-  const onGoalTurnEnd = createGoalContinuation({
-    db,
-    // The judge runs on the TOPIC's provider, at its cheapest tier where the
-    // provider has one. Cheapest and NOT the turn's model on purpose: this call
-    // happens after every turn of every chat that has a goal, and a judge
-    // costing a real fraction of the turn it guards is a judge somebody turns
-    // off. `complete` is a single one-shot, no tools, no session.
-    judge: async (prompt, info) => {
-      const topic = ctx.getTopicById(info.topicId);
-      const provider = resolveProvider(topic);
-      const cheap = provider.name === "claude-code" ? { model: "claude-haiku-4-5" } : undefined;
-      const answer = await provider.complete([{ role: "user", content: prompt }], cheap);
-      return answer.content ?? "";
-    },
-    resend: async ({ sessionKey, text, attempt }) => {
-      if (!selfRoute) return;
-      const url = new URL("http://localhost/api/chat");
-      const resp = await selfRoute(
-        new Request(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          // `goalNudge` is what marks the row: the message has to be a `user`
-          // one (the only role a provider answers) and the block is what stops
-          // the transcript from showing the human saying it.
-          body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: text }], goalNudge: attempt }),
-        }),
-        url, "/api/chat", "POST",
-      );
-      // The stream is drained to the end: the route finalizes the row when the
-      // turn is over, not when it starts, and it is that finalization that ends
-      // in this same hook and decides whether to continue once more. Reading it
-      // is what makes the loop sequential instead of a fan-out.
-      if (resp?.body) {
-        const reader = resp.body.getReader();
-        while (true) { const { done } = await reader.read(); if (done) break; }
-      }
-    },
-    announce: (topicId) => {
-      broadcastToAll({ type: "goal:updated", topicId, goal: getActiveGoal(db, topicId) });
-    },
-    broadcast: broadcastToAll,
-    log: (m) => console.log(`[goal] ${m}`),
+  const goalLoop = goalContinuationForChatRoute({
+    ctx, resolveProvider, log: (m) => console.log(`[goal] ${m}`),
   });
 
   const broadcastStreamToTopic = (message: OutboundMessage, topicId: string | undefined): void => {
@@ -314,8 +269,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
   };
 
   return async function chatRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
-    // See `selfRoute`: the goal loop resends through this very route.
-    selfRoute ??= chatRouter;
+    // The goal loop resends through this very route: see `goalLoop`.
+    goalLoop.useRoute(chatRouter);
     if (method === "POST" && pathname === "/api/chat") {
       console.log(`[HTTP] POST /api/chat received`);
       const body = await readJSON(req);
@@ -2161,7 +2116,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 lastAssistantText: fullContent,
               };
               setTimeout(() => {
-                onGoalTurnEnd(goalTurn).catch((err) => console.warn("[goal] end-of-turn hook failed:", err));
+                goalLoop.onTurnEnd(goalTurn).catch((err) => console.warn("[goal] end-of-turn hook failed:", err));
               }, 0);
             }
 
