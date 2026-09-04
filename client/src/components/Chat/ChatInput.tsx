@@ -430,7 +430,7 @@ export function ChatInput({
    * starts: during a resume there IS a stream, so a banner hanging off that
    * memo would vanish exactly in the window this card is about.
    */
-  const serverResuming = useServerResume(isDraftTopic ? null : topic.sessionKey, onMessage);
+  const serverResume = useServerResume(isDraftTopic ? null : topic.sessionKey, onMessage);
   const ringPercent = realContext ? realContext.percent : budgetPercent;
   // Il tooltip dell'anello è dove vive la SPIEGAZIONE, adesso che l'avviso è
   // una pastiglia da tre caratteri: un numero ambra accanto all'anello dice a
@@ -1008,22 +1008,22 @@ export function ChatInput({
           last message instead of leaving it to guesswork. It clears itself:
           the memo recomputes on the messages, and the first new row is not an
           interrupted turn any more. */}
-      {(serverResuming || interruptedTurn) && (
+      {(serverResume || interruptedTurn) && (
         <div
           data-testid="turn-interrupted-banner"
-          data-state={serverResuming ? 'resuming' : 'interrupted'}
+          data-state={serverResume ? 'resuming' : 'interrupted'}
           {...(interruptedTurn ? { 'data-cause': interruptedTurn.cause } : {})}
           className={`${CHAT_STRIP} px-3 py-2 flex items-center gap-2 flex-shrink-0 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40`}
         >
-          {serverResuming && (
+          {serverResume && (
             <Spinner size="sm" tone="current" className="text-amber-600 dark:text-amber-500 flex-shrink-0" />
           )}
           <div className="flex-1 min-w-0">
             <div className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">
-              {tr(serverResuming ? 'chat.turnInterrupted.resuming' : 'chat.turnInterrupted')}
+              {tr(serverResume ? 'chat.turnInterrupted.resuming' : 'chat.turnInterrupted')}
             </div>
             <div className="text-[11px] text-amber-600 dark:text-amber-500 truncate">
-              {serverResuming
+              {serverResume
                 ? tr('chat.turnInterrupted.resuming.detail')
                 : interruptedTurn && tr(TURN_CAUSE_KEY[interruptedTurn.cause])}
             </div>
@@ -1033,7 +1033,7 @@ export function ChatInput({
               would land on a chat that has one open (`stream_in_flight`) and
               be paid for twice. The button comes back by itself if the resume
               ends badly, because then this is an interrupted turn again. */}
-          {!serverResuming && interruptedTurn && lastUserText && (
+          {!serverResume && interruptedTurn && lastUserText && (
             <button
               data-testid="turn-interrupted-retry"
               onClick={() => { void sendMessageDirect(lastUserText); }}
