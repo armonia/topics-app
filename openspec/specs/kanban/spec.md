@@ -761,6 +761,16 @@ difetto: una verifica che conferma ciò che non ha esaminato.
 > e valeva meno, perché due di quelle carte venivano bocciate per ragioni che
 > non le riguardavano.
 
+#### Scenario: le rivendicazioni si verificano nel repository della card, non in quello del server
+
+- **GIVEN** una card di un altro progetto, oppure una card il cui rapporto cita
+  un file che esiste solo sul ramo di consegna
+- **WHEN** il rapporto viene verificato
+- **THEN** i controlli interrogano il worktree dell'agente (o, se manca, il
+  repository del progetto della board), e non il checkout del server
+- **AND** un file presente sul ramo o un commit presente in quel repository
+  NON producono rilievi
+
 #### Scenario: un commit citato che non esiste viene rilevato
 
 - **GIVEN** un rapporto che dichiara "Fatto (commit 6dc39750)"

@@ -22,7 +22,8 @@
  * DB without booting the server.
  */
 import { checkReport as checkDeliveryReport } from "./deliveryReportChecks";
-import { repoProbe } from "./deliveryReportProbe";
+import { repoProbe, probeForRoot } from "./deliveryReportProbe";
+import type { RepoProbe } from "./deliveryReportChecks";
 import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -281,6 +282,16 @@ interface ServiceOpts {
    * dir e non deve toccare il filesystem: vedi `services/delivery-sheet.ts`.
    */
   writeDeliverySheet?: (taskId: string, svg: string) => string | null;
+  /**
+   * The repository a delivery report talks about: the agent's worktree first
+   * (a cited file may exist only on the delivery branch), then the board's
+   * project. `null` = this server's own checkout, which is right for exactly
+   * one board. The server wires this; the service cannot know where projects
+   * live.
+   */
+  repoRootFor?: (args: { taskId: string; projectId: string | undefined; assignedTopicId: string | null }) => string | null;
+  /** How a root becomes a probe (tests pass a fake). */
+  probeFor?: (root: string) => RepoProbe;
 }
 
 /** Cosa e' stato spostato da una fusione. I conti servono a chi la annuncia. */
@@ -2812,7 +2823,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       ).all(taskId, turnStart, turnStart) as Array<{ content: string }>;
       if (rows.length === 0) return;
 
-      const findings = rows.flatMap((r) => checkDeliveryReport(r.content ?? "", repoProbe));
+      let probe: RepoProbe = repoProbe;
+      try {
+        const row = getTaskRow(taskId);
+        const root = opts.repoRootFor?.({ taskId, projectId, assignedTopicId: (row?.assigned_topic_id as string | null) ?? null }) ?? null;
+        if (root) probe = (opts.probeFor ?? probeForRoot)(root);
+      } catch { /* the server's own checkout, as before */ }
+      const findings = rows.flatMap((r) => checkDeliveryReport(r.content ?? "", probe));
       // "Nothing to check" is not a finding worth showing: that is a report
       // written in prose, which is legitimate. Only what was LOOKED UP and not
       // found gets annotated.

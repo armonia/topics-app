@@ -210,9 +210,9 @@ describe("un padre fermo solo su figli parcheggiati fa una DOMANDA", () => {
   test("un figlio che torna in todo sotto un padre IN CODA non alza la domanda: il padre sta per essere lavorato", () => {
     // 2026-09-04 10:09: three sub-cards put back to todo after a restart had
     // reaped their worktree; their parents sat in todo, chip queued, waiting
-    // for a slot. Each parent went to review with "Fermo su N sottotask che
-    // non lavorera' nessuno" on top. The dispatcher was about to hand them to
-    // an agent whose kickoff lists exactly those open subtasks.
+    // for a slot. Each parent went to review with the parked-children
+    // question on top. The dispatcher was about to hand them to an agent
+    // whose kickoff lists exactly those open subtasks.
     const padre = s.create({ projectId: PID, text: "Il padre in coda", status: "todo" }).id;
     s.setDispatchState({ taskId: padre, state: "queued" });
     const figlio = s.create({ projectId: PID, text: "Un passo", parentTaskId: padre }).id;

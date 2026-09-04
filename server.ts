@@ -763,8 +763,29 @@ ctx.worktreeGcDeps.listOwnedScripts = listOwnedScripts;
 // board gesture. All its host-specific wiring — the in-process turn runtime,
 // worktree creation, project-path resolution — is assembled here and injected,
 // keeping server/services/task-dispatcher.ts host-agnostic and unit-tested.
-const dispatcherSvc = createTaskService(ctx.db, { writeDeliverySheet: makeSheetWriter(ctx.OPENCLAW_DIR) });
 const DISPATCH_WORKSPACE_DIR = join(ctx.OPENCLAW_DIR, "workspace");
+const dispatcherSvc = createTaskService(ctx.db, {
+  writeDeliverySheet: makeSheetWriter(ctx.OPENCLAW_DIR),
+  // The repository a delivery report is checked against: the agent's worktree
+  // (a cited file may exist only on the delivery branch), else the board's
+  // project. Until 2026-09-04 every report was checked against THIS checkout,
+  // so a dancerooms commit was "in no ref" and a new file on a branch "not
+  // tracked": four true deliveries accused in one morning.
+  repoRootFor: ({ projectId, assignedTopicId }) => {
+    try {
+      if (assignedTopicId) {
+        const row = ctx.db.prepare("SELECT worktree_id FROM topics WHERE id = ?").get(assignedTopicId) as { worktree_id?: string | null } | undefined;
+        const wt = row?.worktree_id ? ctx.worktreeStore.get(row.worktree_id) : null;
+        if (wt?.absPath && existsSync(wt.absPath)) return wt.absPath;
+      }
+    } catch { /* fall through to the project */ }
+    if (!projectId) return null;
+    try {
+      const c = resolveProjectPath(projectId, buildProjectCandidates({ projectStore: ctx.projectStore, workspaceDir: DISPATCH_WORKSPACE_DIR, extraPaths: dispatchExtraPaths }));
+      return c?.path && existsSync(c.path) ? c.path : null;
+    } catch { return null; }
+  },
+});
 
 async function abortHeadlessTurn(sessionKey: string): Promise<void> {
   const url = new URL("http://localhost/api/chat/abort");
