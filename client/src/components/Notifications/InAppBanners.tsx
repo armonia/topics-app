@@ -12,7 +12,8 @@ import { useT } from '../../hooks/useT';
 import { Bell, X } from 'lucide-react';
 import { useInAppBannerStore, IN_APP_BANNER_TTL_MS } from '../../state/inAppBanner';
 import { clearBannerTimers, syncBannerTimers } from '../../state/inAppBannerTimers';
-import { openTaskInApp, openTopicInApp, selfTaskLinkTarget, selfTopicLinkTarget } from '../../lib/openTaskLink';
+import { openTaskInApp, selfTaskLinkTarget, selfTopicLinkTarget } from '../../lib/openTaskLink';
+import { openTopicInApp } from '../../lib/deepLinkEntry';
 import { runNotificationAction } from '../../lib/notify/notificationAction';
 import { boardNotificationDeps } from '../../lib/notify/boardActionDeps';
 

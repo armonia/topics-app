@@ -12,14 +12,19 @@ import {
   reflectTaskFocus,
   subscribePopstateTask,
   openTaskInApp,
-  openTaskFromUrl,
-  subscribeServiceWorkerTaskOpen,
   parseTopicLocation,
   selfTopicLinkTarget,
+} from './openTaskLink';
+// The deep-link FRONT DOOR moved one layer up, into its own module, so that the
+// single gate (`tabLink`) and the task-URL primitives stop importing each other.
+// The behaviour under test is unchanged, so the cases stay here next to it.
+import {
+  openTaskFromUrl,
+  subscribeServiceWorkerTaskOpen,
   openTopicInApp,
   openDeepLinkInApp,
   setDeepLinkNotifier,
-} from './openTaskLink';
+} from './deepLinkEntry';
 import {
   DEAD_TAB_MESSAGE,
   __resetTabLinkStateForTests,

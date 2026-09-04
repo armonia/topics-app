@@ -7,19 +7,10 @@ import { encodeNotifyTarget, openNotifyTarget, type NotifyTarget } from '../noti
 import { markReloadFlash } from '../reloadFlash';
 import type { NotifyAction } from '../../../../shared/notify-actions';
 
-/** Open a URL in the user's default browser (never inside the app shell). */
-export async function openExternal(url: string): Promise<void> {
-  switch (shellKind) {
-    case 'tauri':
-      // Native `open_external` command, NOT tauri-plugin-opener: the plugin's
-      // open_url leaks a zombie process per call (it drops the spawned Child
-      // without waiting). See the command's doc comment in src-tauri/src/lib.rs.
-      await tauriInvoke('open_external', { url });
-      return;
-    default:
-      window.open(url, '_blank', 'noopener,noreferrer');
-  }
-}
+// `openExternal` now lives in ./external, a leaf that depends only on the host.
+// It was moved out of here because this module also owns the notification
+// banner, so importing it for an external link pulled in the whole notify stack
+// and closed an import cycle. Import it from './shell/external'.
 
 /** Native folder picker — returns the chosen directory path, or null if the user
  *  cancelled. No-op (null) on web/PWA where there's no OS dialog. */

@@ -28,7 +28,7 @@
  * esadecimali e trattini), quindi non puo' cominciare per `topic_`.
  */
 import { notificationTargetUrl, type NotificationTargetKind } from '../../../../shared/notification-log';
-import { openDeepLinkInApp } from '../openTaskLink';
+import { openDeepLinkInApp } from '../deepLinkEntry';
 
 export interface NotifyTarget {
   kind: NotificationTargetKind;
