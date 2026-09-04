@@ -3634,7 +3634,7 @@ describe("l'envelope non parla italiano", () => {
     const { h, kickoff } = await envelopeDiKickoff();
     // I rami che devono essere davvero nel testo: senza questa riga il cancello
     // sotto passerebbe anche su un envelope a cui manca metà.
-    for (const ramo of ["PLAN FIRST", "AUTOMATIC PRIORITY", "open subtask(s)", "PRE-REVIEW CHECKS", "REVIEW EVIDENCE", "THE SIX CODE GATES", "THE REPO IS ENGLISH", "A VERSION BUMP IS ONE COMMAND", "Start now."]) {
+    for (const ramo of ["PLAN FIRST", "AUTOMATIC PRIORITY", "open subtask(s)", "PRE-REVIEW CHECKS", "REVIEW EVIDENCE", "THE SEVEN CODE GATES", "THE REPO IS ENGLISH", "A VERSION BUMP IS ONE COMMAND", "Start now."]) {
       expect(kickoff).toContain(ramo);
     }
     expect(italianRows(kickoff)).toEqual([]);
