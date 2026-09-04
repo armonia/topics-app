@@ -139,11 +139,14 @@ export async function gotoTerminalProject(page: Page, topicName: string): Promis
  * cura è un budget più largo dove serve, non un a-capo mandato alla shell per
  * farle ristampare il prompt (quello sì nasconderebbe una perdita vera).
  */
-export async function openShellViaSidebar(
-  page: Page,
-  terminalPage: TerminalPage,
-  readyTimeout = 15_000,
-): Promise<void> {
+/**
+ * The GESTURE alone: «+» on the project row, then «Shell».         allow-italian: quoted UI string
+ *
+ * Split out of `openShellViaSidebar` because a spec about a REFUSED creation
+ * needs the click without the wait that follows it: there will be no xterm, and
+ * waiting fifteen seconds for one would report the setup instead of the bug.
+ */
+export async function clickAddShell(page: Page): Promise<void> {
   /* THE `title` ATTRIBUTE IS NOT STABLE WHILE THE MOUSE IS OVER THE ROW.
    *
    * `TooltipDelegate` (ec40c0932) moves the value of `title` onto `data-tip`
@@ -165,17 +168,20 @@ export async function openShellViaSidebar(
   await addBtn.waitFor({ state: "visible", timeout: 5000 });
   await addBtn.click();
 
-  // Testid e non `getByRole("button", { name: "Shell" })`: da baff80a5
-  // (2026-08-06) PaneAddMenu passa dalla primitiva `Menu`, e le sue righe
-  // dichiarano `role="menuitem"` dentro un `role="menu"` — il ruolo IMPLICITO di
-  // bottone non esiste più, quindi quel locator non trova più nulla e i tre test
-  // del terminale morivano qui, prima ancora di aprire una shell. Il messaggio di
-  // quel commit dice «l'unico locator che ne dipendeva è passato al testid»: gli
-  // erano sfuggiti questo helper e `fixtures/terminal.fixture.ts`. Il testid è il
-  // contratto stabile (stessa scelta in terminal-tab-reload.spec.ts:243).
+  // Testid and not `getByRole("button", { name: "Shell" })`: PaneAddMenu rows
+  // declare `role="menuitem"` inside a `role="menu"`, so the implicit button
+  // role no longer exists. The testid is the stable contract.
   const shellBtn = page.getByTestId("pane-add-menu-shell");
   await shellBtn.waitFor({ state: "visible", timeout: 5000 });
   await shellBtn.click();
+}
+
+export async function openShellViaSidebar(
+  page: Page,
+  terminalPage: TerminalPage,
+  readyTimeout = 15_000,
+): Promise<void> {
+  await clickAddShell(page);
 
   await expect(terminalPage.xtermRows.first()).toBeVisible({ timeout: readyTimeout });
   await terminalPage.waitForReady(readyTimeout);
