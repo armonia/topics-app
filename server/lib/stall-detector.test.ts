@@ -36,7 +36,7 @@ describe("armStallDetector — silence asks the judge before ever cutting", () =
   test("a clean 'alive' verdict rearms the SAME watch, never calls onStuck", async () => {
     const t = fakeTimers();
     let stuck = 0;
-    let rearms: Array<"human" | "alive"> = [];
+    let rearms: Array<"human" | "checks" | "alive"> = [];
     armStallDetector({
       idleMs: 5_000,
       isWaitingForHuman: () => false,
@@ -97,7 +97,7 @@ describe("armStallDetector — silence asks the judge before ever cutting", () =
   test("a human on screen rearms without ever asking the judge", async () => {
     const t = fakeTimers();
     let judged = 0;
-    let rearms: Array<"human" | "alive"> = [];
+    let rearms: Array<"human" | "checks" | "alive"> = [];
     armStallDetector({
       idleMs: 5_000,
       isWaitingForHuman: () => true,
@@ -111,6 +111,38 @@ describe("armStallDetector — silence asks the judge before ever cutting", () =
     t.fire();
     expect(judged).toBe(0);
     expect(rearms).toEqual(["human"]);
+  });
+
+  test("our own pre-review checks hold the watch: no judge, rearm says 'checks'", async () => {
+    // 2026-09-04: a delivering agent waits on the checks gate for minutes, its
+    // transcript is quiet, and the judge read that silence as "stuck".
+    const t = fakeTimers();
+    let judged = 0;
+    let stuck = 0;
+    let rearms: Array<"human" | "checks" | "alive"> = [];
+    let checksRunning = true;
+    armStallDetector({
+      idleMs: 5_000,
+      isWaitingForHuman: () => false,
+      isWaitingForChecks: () => checksRunning,
+      getTail: () => "assistant: PATCH status=review → 202 review_checks_running",
+      judge: async () => { judged++; return "stuck"; },
+      onStuck: () => { stuck++; },
+      onRearm: (r) => rearms.push(r),
+      setTimer: t.setTimer, clearTimer: t.clearTimer, now: t.now,
+    });
+    t.silence(5_000);
+    t.fire();
+    expect(judged).toBe(0);
+    expect(stuck).toBe(0);
+    expect(rearms).toEqual(["checks"]);
+    // Checks done, still quiet: now the judge is asked and may recycle.
+    checksRunning = false;
+    t.silence(5_000);
+    t.fire();
+    await Promise.resolve(); await Promise.resolve();
+    expect(judged).toBe(1);
+    expect(stuck).toBe(1);
   });
 
   test("noteActivity forwards to the live inner watch (resets silence)", () => {

@@ -500,7 +500,7 @@ export interface TaskDispatcher {
    *     without a resumable session are requeued.
    *  2. Then tick every board with queued todos.
    */
-  reconcile(): Promise<void>;
+  reconcile(opts?: { reason?: "boot" | "poll" }): Promise<void>;
   /**
    * Lo spegnimento scrive un bit sulle card che stavano lavorando.
    *
@@ -2567,6 +2567,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   }
 
   function onTurnEnd(taskId: string, turnMs?: number, turnEnd?: TurnEndInfo): void {
+    recentlyEnded.set(taskId, Date.now());
     // Chi non la sa la dichiara `end_turn` — non è un default innocuo, è
     // l'ipotesi più benevola: "l'agent ha finito". Sbagliarla verso `error`
     // farebbe scattare backoff su turni sani.
@@ -3919,7 +3920,24 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     return buried;
   }
 
-  async function reconcile(): Promise<void> {
+  /**
+   * Turns that ended in the last minute. The poll reconcile runs every 10 s
+   * and looks for in_progress cards nobody owns; a card whose turn JUST ended
+   * is between `onTurnEnd` and the `resume` that re-registers it (slot wait,
+   * retry wait, or a fresh run), and that gap is a few awaits wide. Read on
+   * 2026-09-04: fourteen recycled cards got a "server restarted mid-turn"
+   * note and a second resume from the poll, with no restart anywhere.
+   */
+  const recentlyEnded = new Map<string, number>();
+  const RECONCILE_GRACE_MS = 60_000;
+
+  async function reconcile(opts?: { reason?: "boot" | "poll" }): Promise<void> {
+    const reason = opts?.reason ?? "boot";
+    // The notes below used to assume a restart: on the 10 s poll that is a
+    // lie, and it was read as one (a restart that never happened).
+    const perche = reason === "boot"
+      ? "Il server e' ripartito mentre questa card lavorava"
+      : "Questa card risulta al lavoro ma non ha nessun turno vivo (turno riciclato o finito senza consegna)";
     // 0) Turns whose agent process died without ever settling their promise —
     //    the one case the orphan pass below can't see (it skips `inFlight`).
     const justBuried = sweepDeadTurns();
@@ -3937,6 +3955,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     let directIn = 0, daCapo = 0, inCoda = 0, nonRecuperabili = 0, fanOut = 0;
     for (const t of running) {
       if (inFlight.has(t.id)) continue; // we own it, leave it
+      if (reason !== "boot") {
+        const endedAt = recentlyEnded.get(t.id);
+        if (endedAt !== undefined) {
+          if (Date.now() - endedAt < RECONCILE_GRACE_MS) continue;
+          recentlyEnded.delete(t.id);
+        }
+      }
       // Un'attesa di slot VIVA (il resume rinviato a tetto pieno) non ha un turno,
       // quindi non lascia traccia in `inFlight`: da qui è indistinguibile da un
       // fantasma del riavvio — stessa riga `in_progress`, stesso chip `queued`.
@@ -3973,7 +3998,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           const detta = deps.svc.noteStranded({
             taskId: t.id,
             note:
-              `Il server e' ripartito mentre questa card lavorava, ma il suo stato (${chip}) non e' fra quelli che il recupero riprende: ` +
+              `${perche}, ma il suo stato (${chip}) non e' fra quelli che il recupero riprende: ` +
               "nessun turno ripartira' da solo. Per rimetterla in moto riportala in Todo, oppure chiudila.",
           });
           if (detta) nonRecuperabili++;
@@ -4051,7 +4076,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           try {
             deps.svc.claimInterruption({
               taskId: t.id,
-              note: "Server ripartito a metà turno: riprendo la stessa sessione, nessun tentativo consumato.",
+              note: reason === "boot"
+                ? "Server ripartito a metà turno: riprendo la stessa sessione, nessun tentativo consumato."
+                : "Nessun turno vivo su questa card (riciclato o finito senza consegna): riprendo la stessa sessione, nessun tentativo consumato.",
             });
           } catch { /* dedupe/best-effort */ }
           daCapo++;

@@ -11,6 +11,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { deriveToolDetail, deriveToolDetailFromCall } from "./tool-detail";
+import { parseToolCallDetail } from "../../../shared/tool-call-detail";
 
 describe("deriveToolDetail", () => {
   test("shell aliases all collapse to type=shell", () => {
@@ -500,6 +501,32 @@ describe("parity with the CLI's tools", () => {
     // DEBT is empty today; the assertion that keeps this block non-vacuous is
     // the fallback test above, not a minimum length here.
     expect(RENDERED.filter((n) => DEBT.includes(n)), "a name cannot be both rendered and in debt").toEqual([]);
+  });
+
+  test("what the producer builds is what the schema accepts", () => {
+    // THE loop that was missing, and the whole reason for this task: the
+    // producer typed `ask_user` / `agent_control` / `artifact` / `tool_search`
+    // while the shared Zod schema had never heard of them, so every one of
+    // those details was thrown away on the way out of the DB (3639 drops in one
+    // production log). A row rendered here and refused there is not a rendered
+    // row, it is a row that survives until the first reload.
+    const rejected = RENDERED
+      .map((n) => ({ n, r: parseToolCallDetail(deriveToolDetail(n, (ARG[n] ?? {}) as never, "some result")) }))
+      .filter(({ r }) => !r.ok)
+      .map(({ n, r }) => `${n}: ${r.ok ? "" : r.error}`);
+    expect(rejected, "the producer emits a detail the shared schema refuses").toEqual([]);
+  });
+
+  test("the question renders under every name it travels with", () => {
+    // Bare in the native runtime, `AskUserQuestion` in the CLI, and re-exported
+    // over MCP as `mcp__topics__ask_user_question` - the same names
+    // `ask-user-detector.ts` matches to decide the turn is waiting on a human.
+    // The MCP form used to fall into the generic `mcp__` branch and render as an
+    // anonymous row, which is the tool whose entire purpose is to be read.
+    for (const n of ["AskUserQuestion", "ask_user_question", "mcp__topics__ask_user_question"]) {
+      const d = deriveToolDetail(n, { questions: [{ question: "q?", options: [{ label: "A" }] }] } as never);
+      expect(d.type, `${n} does not render as a question`).toBe("ask_user");
+    }
   });
 
   test("the client mirror knows the same names as the server", () => {

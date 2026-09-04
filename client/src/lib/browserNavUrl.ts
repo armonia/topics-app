@@ -9,7 +9,7 @@
  * desktop — where the WebContentsView runs on the SAME machine as the server —
  * that turned a reachable `http://localhost:3000` into an unreachable
  * `https://127.0.0.1:3000`, so Chromium showed `chrome-error://…` (a blank
- * white page). That is exactly the "apre il browser e si apre bianco" report. allow-italian: the reported wording, quoted verbatim
+ * white page). That is exactly the "apre il browser e si apre bianco" report. allow-italian: quoted report, the reporter's own words
  *
  * The rewrite only makes sense for a REMOTE web client (Tailscale / LAN): there
  * the client's browser genuinely cannot reach the server's localhost, so local
@@ -20,11 +20,12 @@
 export function resolveBrowserNavigateUrl(raw: string): string {
   if (typeof window === 'undefined') return raw;
 
-  // Un file locale non arriva come `file://` — arriva come `/api/media?path=…`,
-  // da risolvere sulla NOSTRA origine (server/browser-local-file-url.ts). Qui e
-  // non nel server perché la stessa app si serve su porte diverse a seconda di
-  // chi guarda: il proxy in chiaro del guscio desktop, il server in TLS, l'host
-  // che vede un telefono in LAN. Un assoluto deciso là è giusto per uno solo.
+  // A local file does not arrive as `file://`: it arrives as
+  // `/api/media?path=...`, to be resolved on OUR origin
+  // (server/browser-local-file-url.ts). Here and not on the server because the
+  // same app is served on different ports depending on who is looking: the
+  // desktop shell's cleartext proxy, the TLS server, the host a phone on the
+  // LAN sees. An absolute decided over there is right for exactly one of them.
   if (raw.startsWith('/api/media?path=')) {
     try {
       return new URL(raw, window.location.origin).toString();
@@ -113,7 +114,7 @@ export function displayUrl(raw: string): string {
   // The origin can be the server (`http://127.0.0.1:13333`) or the desktop
   // shell itself: `tauri://localhost` on macOS, `http://tauri.localhost` on
   // Windows and Linux. Read on 2026-09-04: the bar showed
-  // `tauri://localhost/api/media?path=%2FUsers%2F…%2Flungomare_anteprima.mp4`
+  // `tauri://localhost/api/media?path=%2FUsers%2F…%2F<video>.mp4`
   // because only `http(s)` was accepted here.
   if (i > 0 && !/^(https?|tauri):\/\/[^/]+$/.test(raw.slice(0, i))) return raw;
   const path = raw.slice(i + '/api/media?path='.length).split('&')[0];

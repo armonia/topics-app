@@ -23,6 +23,10 @@
  * the re-export.
  */
 
+// Type-only: erased at build time, so this module still has no runtime
+// dependency (and no zod on the client through the back door).
+import type { STOP_CAUSES } from './ws-outbound';
+
 // ─── Language (the interface AND the model's answers) ──────────────────
 
 /**
@@ -819,6 +823,17 @@ export interface ToolCall {
  * split that lost ordering. Consecutive same-kind deltas are coalesced into
  * a single block while streaming.
  */
+/**
+ * Why a turn ended, with the SAME vocabulary the wire already speaks.
+ *
+ * `STOP_CAUSES` lives in `shared/ws-outbound.ts` because the `stream:end`
+ * schema validates against it; the import here is type-only, so this file keeps
+ * its promise of costing the client nothing at runtime. Copying the ten strings
+ * over would be the third copy of a list that has already gone out of sync once
+ * and left dead chats spinning forever (see that file's comment).
+ */
+export type TurnEndCause = (typeof STOP_CAUSES)[number];
+
 export type ContentBlock =
   | { kind: 'text'; text: string }
   | { kind: 'thinking'; text: string }
@@ -840,7 +855,24 @@ export type ContentBlock =
    * produzione erano turni interi incorniciati di giallo senza una parola che
    * dicesse perché.
    */
-  | { kind: 'error'; text: string }
+  | {
+      kind: 'error';
+      text: string;
+      /**
+       * WHO stopped the turn, in the wire vocabulary (`STOP_CAUSES`) the
+       * `stream:end` event already speaks.
+       *
+       * The text alone is prose: it renders, it does not decide. The banner
+       * above the composer has to pick a sentence in the reader's language and
+       * to stay quiet on a stop by hand, and both are decisions on a CODE, not
+       * on an English sentence written by the server. Absent on every row
+       * written before this field existed, and on verdicts nobody could
+       * attribute: absent means "not attributed", never "user".
+       */
+      cause?: TurnEndCause;
+      /** When the turn was declared over (ISO 8601). */
+      at?: string;
+    }
   /**
    * QUESTA RISPOSTA NON L'HAI CHIESTA TU.
    *
@@ -885,7 +917,30 @@ export type ContentBlock =
    * resend cut by the next restart is a new row starting from zero. Rows
    * written before this field carry no number: they count as 1.
    */
-  | { kind: 'ripreso'; attempt?: number };
+  | { kind: 'ripreso'; attempt?: number }
+  /**
+   * THIS TURN WAS ASKED FOR BY THE GOAL, not by the human.
+   *
+   * A goal that stays `active` at the end of a turn gets one continuation: the
+   * server sends the chat a short "carry on" message (`goal-loop.ts`). The row
+   * has to be a `user` one, because that is the only role a provider answers,
+   * and this block is what stops the transcript from showing the human saying
+   * something they never typed: the client draws one compact system line with
+   * the attempt number instead of a bubble.
+   *
+   * `attempt` is the consecutive continuation number for this goal (1 = the
+   * first one), the same number the ceiling counts.
+   */
+  | { kind: 'goal-nudge'; attempt: number }
+  /**
+   * The auto-continuation stopped on its own, and says why.
+   *
+   * `capped` = the ceiling of consecutive continuations; `stalled` = two turns
+   * in a row that ran no tool. The reason travels in the block and the sentence
+   * is rendered translated by the client; `content` carries the English text,
+   * which is what the model reads on the next turn.
+   */
+  | { kind: 'goal-stop'; reason: 'capped' | 'stalled' };
 
 // ─── Entità di dominio (payload REST + broadcast WS) ────────────────────
 //
@@ -1260,6 +1315,17 @@ export type GoalStatus = (typeof GOAL_STATUSES)[number];
 export const GOAL_STEP_STATUSES = ['pending', 'in_progress', 'completed'] as const;
 export type GoalStepStatus = (typeof GOAL_STEP_STATUSES)[number];
 
+/**
+ * The state of the AUTO-CONTINUATION loop, which is not the state of the goal.
+ *
+ * A goal can be `active` with its loop `stopped`: the objective stays in the
+ * context of every turn, nobody chases it on its own any more. Keeping the two
+ * apart is what lets the human press Stop without abandoning the goal, and lets
+ * the ceiling fire without pretending the goal is over.
+ */
+export const GOAL_LOOP_STATES = ['running', 'blocked', 'stopped'] as const;
+export type GoalLoopState = (typeof GOAL_LOOP_STATES)[number];
+
 /** Un passo del piano dichiarato dall'agente, nell'ordine in cui l'ha scritto. */
 export interface GoalStep {
   id: string;
@@ -1289,6 +1355,12 @@ export interface TopicGoal {
   /** Quando è passato a uno stato finale; null finché è `active`. */
   closedAt: string | null;
   steps: GoalStep[];
+  /** Auto-continuations already spent on this goal, consecutive. */
+  continuations: number;
+  /** Turns in a row that ran no tool. Two of them stop the loop. */
+  idleTurns: number;
+  /** Whether the end-of-turn loop still chases this goal. */
+  loopState: GoalLoopState;
 }
 
 /**

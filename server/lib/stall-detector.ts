@@ -24,6 +24,15 @@ export interface StallDetectorOptions {
    *  contract as `TurnDeadlineOptions.isWaitingForHuman` — the human's own
    *  time never counts against the idle clock. */
   isWaitingForHuman: () => boolean;
+  /** Our OWN pre-review checks are running (or queued) for the task this
+   *  session works on. The agent asked for review, the gate answered 202 and
+   *  is grinding typecheck/lint/test:unit for minutes: the transcript goes
+   *  quiet because it is waiting on US. Read on 2026-09-04, 23:38-00:48: with
+   *  four cards delivering under load, every one of them was judged "stuck"
+   *  during its own checks and recycled, up to the attempts cap, each recycle
+   *  re-posting the delivery. Same contract as the human hold: that time never
+   *  counts against the idle clock. */
+  isWaitingForChecks?: () => boolean;
   /** The tail of the transcript to hand the judge. `null` = nothing readable
    *  right now — treated as "alive": never recycle on ignorance. */
   getTail: () => string | null;
@@ -34,7 +43,7 @@ export interface StallDetectorOptions {
   onStuck: () => void;
   /** Fires on every rearm (a human in the loop, or an "alive" verdict) —
    *  logging only, mirrors `TurnDeadlineOptions.onRearm`. */
-  onRearm?: (reason: "human" | "alive") => void;
+  onRearm?: (reason: "human" | "checks" | "alive") => void;
   now?: () => number;
   setTimer?: (fn: () => void, ms: number) => unknown;
   clearTimer?: (handle: unknown) => void;
@@ -54,11 +63,12 @@ export function armStallDetector(opts: StallDetectorOptions): StallDetector {
     if (stopped) return;
     inner = armTurnDeadline({
       ms: opts.idleMs,
-      isWaitingForHuman: opts.isWaitingForHuman,
+      isWaitingForHuman: () => opts.isWaitingForHuman() || (opts.isWaitingForChecks?.() ?? false),
       now: opts.now,
       setTimer: opts.setTimer,
       clearTimer: opts.clearTimer,
-      onRearm: () => opts.onRearm?.("human"),
+      // The inner watch only knows "somebody is holding": name who, for the log.
+      onRearm: () => opts.onRearm?.(opts.isWaitingForHuman() ? "human" : "checks"),
       onExpired: () => {
         // Fire-and-continue: the inner timer has already stopped ticking (it
         // is single-shot on expiry), so nothing races `startInner` below.

@@ -1080,6 +1080,10 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
       // Nemmeno `ripreso`: dice da dove viene il turno, non cosa è successo
       // dentro. Si rende in cima, come gli altri due cartelli.
       if (b.kind === 'ripreso') continue;
+      // Nor the two blocks of the goal loop: they say WHY this row exists, not
+      // what happened inside the turn, and the one that draws them is
+      // `MessageBubble` (one compact system line instead of a bubble).
+      if (b.kind === 'goal-nudge' || b.kind === 'goal-stop') continue;
       if (b.kind === 'tool') {
         const last = out[out.length - 1];
         if (last && last.kind === 'tools') last.tools.push(b.toolCall);
@@ -1352,7 +1356,7 @@ export function ImageThumbnail({ file, onRemove }: { file: File; onRemove: () =>
   return (
     <div className="relative inline-block">
       <ZoomableImage src={src} alt={file.name} className="w-16 h-16 object-cover rounded-lg border border-app-border-light" />
-      <button onClick={onRemove} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600">×</button>
+      <button type="button" onClick={onRemove} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600">×</button>
     </div>
   );
 }

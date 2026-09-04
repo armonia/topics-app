@@ -29,7 +29,13 @@ import { detectUserInputRequest } from "../ask-user-detector";
 import type { ProviderUsage } from "../types";
 import { decide, DEFAULT_AUTONOMY } from "./permissions";
 import { applyPromptCache } from "../prompt-cache";
-import { needsCompaction, compact, windowFor, clipToolResult, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS } from "./compaction";
+import {
+  windowFor, clipToolResult, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS,
+  estimateChars, DEFAULT_CHARS_PER_TOKEN,
+} from "./compaction";
+import {
+  compactIfNeeded, recoverFromFullContext, calibrateFrom, overheadCharsFor, type Calibration,
+} from "./context-window";
 import { isTopicsTool, executeTopicsTool, type TopicsToolContext } from "./topics-tools";
 import { isMcpTool, executeMcpTool } from "./mcp-fleet";
 import type { AutonomyLevel } from "../../../shared/types";
@@ -158,6 +164,8 @@ export interface AgentTurnOptions {
    * default from `retry.ts`, the same shape the CLI uses.
    */
   retryPolicy?: RetryPolicy;
+  /** Measured chars-per-token, owned by the CALLER like `history`. */
+  calibration?: Calibration;
 }
 
 /** Un giro solo: una richiesta, i suoi delta, i suoi blocchi. */
@@ -429,14 +437,6 @@ async function streamOnce(
   return { blocks: blocks.filter(Boolean), stopReason, usage };
 }
 
-/** The characters of a request that are not in `messages`: system and tools. */
-function overheadCharsFor(opts: AgentTurnOptions): number {
-  const tools = opts.tools?.() ?? CODING_TOOLS;
-  return CLAUDE_CODE_IDENTITY.length
-    + (opts.system?.length ?? 0)
-    + (tools.length > 0 ? JSON.stringify(tools).length : 0);
-}
-
 function currentText(blocks: Block[]): string {
   return blocks.filter((b) => b?.type === "text").map((b) => b.text ?? "").join("");
 }
@@ -592,6 +592,10 @@ export async function runAgentTurn(
   const auth = { token };
   const total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 };
   let finalText = "";
+  // The caller's calibration when it keeps one (it survives across turns),
+  // turn-local otherwise; the recovery count is per TURN, not per round.
+  const calibration = opts.calibration ?? { charsPerToken: DEFAULT_CHARS_PER_TOKEN };
+  const recovery = { attempts: 0 };
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     if (opts.signal?.aborted) {
@@ -614,40 +618,36 @@ export async function runAgentTurn(
       return { turnEnd: end, text: finalText, usage: total };
     }
 
-    // Si compatta PRIMA di chiedere, non dopo aver ricevuto un 400: a quel
-    // punto il turno è già morto e il lavoro fatto fin qui è perso. Il
-    // controllo costa una scansione della storia, cioè niente rispetto al giro
-    // di rete che segue.
-    // The system prompt and the tool schemas travel with EVERY request and
-    // count in the same window as the messages: with the MCP fleet mounted the
-    // schemas alone are tens of thousands of tokens. Counted here, per round,
-    // because the fleet is alive and the list can change between rounds.
+    // Compacted BEFORE asking, never after a 400: by then the turn is dead.
     const windowTokens = windowFor(opts.model);
-    const overheadChars = overheadCharsFor(opts);
-    if (needsCompaction(opts.history, windowTokens, overheadChars)) {
-      const c = compact(opts.history, { windowTokens, overheadChars });
-      if (c.after < c.before) {
-        // Si sostituisce IN PLACE perché `history` è la memoria della sessione
-        // e il chiamante tiene lo stesso array: assegnargliene uno nuovo
-        // lascerebbe la sessione con la versione pesante.
-        opts.history.length = 0;
-        opts.history.push(...c.messages);
-        console.log(
-          `[native] contesto compattato: ~${c.before} → ~${c.after} token stimati`,
-        );
-        handler.onCompaction?.({ trigger: "auto", preTokens: c.before, postTokens: c.after });
-      }
-    }
+    const overheadChars = overheadCharsFor(opts, CLAUDE_CODE_IDENTITY);
+    compactIfNeeded({ history: opts.history, windowTokens, overheadChars, calibration, handler });
+
+    // Taken BEFORE the request: with the count the API reports, they give the
+    // real ratio. Afterwards the history has changed.
+    const sentChars = estimateChars(opts.history, overheadChars);
 
     // One round, tried again when the failure is the API's and not ours: the
     // policy and the loop live in retry.ts, this is the only call site.
-    const round = await retryRound((token) => streamOnce(token, opts, handler), {
-      auth,
-      policy: opts.retryPolicy ?? DEFAULT_RETRY_POLICY,
-      signal: opts.signal,
-      renewToken: recoverAfter401,
-      onRetry: (info) => handler.onRetry?.(info),
-    });
+    let round: RoundResult;
+    try {
+      round = await retryRound((token) => streamOnce(token, opts, handler), {
+        auth,
+        policy: opts.retryPolicy ?? DEFAULT_RETRY_POLICY,
+        signal: opts.signal,
+        renewToken: recoverAfter401,
+        onRetry: (info) => handler.onRetry?.(info),
+      });
+    } catch (err) {
+      // A full context is a measurement, not a failure: it recompacts and
+      // returns, or rethrows what it cannot resolve. See `context-window.ts`.
+      recoverFromFullContext(err, {
+        history: opts.history, windowTokens, overheadChars, sentChars, calibration,
+        state: recovery, aborted: opts.signal?.aborted === true, handler,
+      });
+      i--; // the same round, with a lightened history
+      continue;
+    }
     total.input += round.usage.input;
     total.output += round.usage.output;
     total.cacheRead += round.usage.cacheRead;
@@ -656,6 +656,8 @@ export async function runAgentTurn(
     // la quota a TTL un'ora arrivava sempre zero, cioè la parte di scrittura di
     // cache che costa 2x veniva tariffata 1.25x.
     total.cacheWrite1h += round.usage.cacheWrite1h;
+
+    calibrateFrom(calibration, sentChars, round.usage);
     // Il giro è finito: il suo costo va depositato ADESSO, non a fine turno.
     // Il `try` c'è perché è telemetria: un registro che esplode non deve
     // portarsi via il turno.

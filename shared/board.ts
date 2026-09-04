@@ -1,21 +1,21 @@
 /**
- * Contratto della board: UNA dichiarazione, letta dai due lati del filo.
+ * The board contract: ONE declaration, read from both ends of the wire.
  *
- * Fino al 29/07 questi tipi esistevano due volte — `server/services/tasks.ts`
- * + `server/services/review-checks.ts` + `server/services/dispatch-capacity.ts`
- * da una parte, `client/src/lib/board.ts` dall'altra — e la copia del client
- * era già indietro: `BoardSettings` non conosceva `dispatchRetryCap` né
- * `dispatchRetryBackoffS`, campi che il server SCRIVE nella riga
- * `board_settings` e RIMANDA in ogni GET. Il client li riceveva e li buttava,
- * e una PATCH costruita dal suo tipo li avrebbe silenziosamente azzerati.
+ * Until 29/07 these types existed twice (`server/services/tasks.ts` +
+ * `server/services/review-checks.ts` + `server/services/dispatch-capacity.ts`
+ * on one side, `client/src/lib/board.ts` on the other) and the client copy was
+ * already behind: `BoardSettings` did not know `dispatchRetryCap` nor
+ * `dispatchRetryBackoffS`, fields the server WRITES in the `board_settings`
+ * row and sends back on every GET. The client received them and threw them
+ * away, and a PATCH built from its type would have silently zeroed them.
  *
- * Anche l'elenco degli stati era scritto tre volte (il tipo lato client, il
- * suo `TASK_STATUSES`, e la `const STATUSES` privata del server). Qui è UNO:
- * il tipo DERIVA dal valore, quindi aggiungere una colonna alla kanban senza
- * aggiornare la validazione non compila più.
+ * The list of statuses was written three times too (the client-side type, its
+ * `TASK_STATUSES`, and the server's private `const STATUSES`). Here it is ONE:
+ * the type DERIVES from the value, so adding a kanban column without updating
+ * the validation no longer compiles.
  *
- * `shared/` è l'unica cartella che entrambi i progetti TS possono includere
- * senza violare il confine composite (TS6307) — vedi `shared/ws-outbound.ts`.
+ * `shared/` is the only folder both TS projects can include without breaking
+ * the composite boundary (TS6307): see `shared/ws-outbound.ts`.
  */
 
 /** L'elenco degli stati. Il tipo lo segue: una sola verità, non due gemelle. */
@@ -266,9 +266,15 @@ export const CODE_GATES_RULE = [
  * repo a repo, «non aprirli a mano» no. I nomi degli script valgono come
  * ESEMPIO, esattamente come nei cancelli: la riga dice di leggerli in
  * `package.json`.
+ *
+ * Since 2026-09-04 the line also says WHEN not to bump: never from a card.
+ * With fourteen cards in flight the first delivery carried its own bump
+ * (`chore(release): bump v2.2.265`), and N cards bumping in parallel to the
+ * same number collide on all four files at land time. The number moves once
+ * per release, at landing, by whoever lands.
  */
 export const VERSION_BUMP_RULE =
-  "A VERSION BUMP IS ONE COMMAND, never the files by hand. The name you read in `package.json` (here `bun run bump [patch|X.Y.Z]`, and `bun run bump sync` to realign a tree that already drifted). The number is written in SEVERAL places and one of them is a GENERATED file (a lockfile): it is the only one nobody ever opens by hand, so it is the only one a manual bump forgets. It has already happened twice in one night.";
+  "A VERSION BUMP IS ONE COMMAND, never the files by hand. The name you read in `package.json` (here `bun run bump [patch|X.Y.Z]`, and `bun run bump sync` to realign a tree that already drifted). The number is written in SEVERAL places and one of them is a GENERATED file (a lockfile): it is the only one nobody ever opens by hand, so it is the only one a manual bump forgets. It has already happened twice in one night. AND ON A CARD YOU DO NOT BUMP AT ALL: the number moves once per release, at landing, by whoever lands. Read on 2026-09-04: with fourteen cards in flight, the first one delivered carried its own bump, and every card bumping in parallel collides on all four files at land time.";
 
 /**
  * Ritaglia il blocco `PREVIEW_RULE` da un envelope già composto, per STRUTTURA

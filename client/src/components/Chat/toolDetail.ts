@@ -236,7 +236,9 @@ export function deriveToolDetail(
       ...(result ? { result } : {}),
     };
   }
-  if (c === 'askuserquestion' || c === 'ask_user_question') {
+  // Every name the question travels with, the MCP re-export included: matched
+  // before the generic `mcp__` branch below. See the server mirror.
+  if (c === 'askuserquestion' || c === 'ask_user_question' || c.endsWith('__ask_user_question')) {
     const qs = Array.isArray(a.questions) ? (a.questions as Array<Record<string, unknown>>) : [];
     return {
       type: 'ask_user',
@@ -364,7 +366,16 @@ export function resolveToolDetail(tc: ToolCall): ToolCallDetail {
     // boundary. On schema drift / malformed payload, fall back to client-side
     // derivation (graceful degradation — UI still renders, with a dev warning).
     const result = parseToolCallDetail(tc.detail);
-    if (result.ok) return result.data;
+    // A detail the server could not type is now KEPT as `unknown` instead of
+    // being deleted (server/utils.ts), so nothing is lost on the wire. The
+    // renderer still prefers what it can derive from the tool NAME: a generic
+    // JSON blob is the last resort, not the first answer. Without this the
+    // degradation would trade a dropped detail for a permanently generic row.
+    if (result.ok && result.data.type !== 'unknown') return result.data;
+    if (result.ok) {
+      const derived = deriveToolDetail(tc.name, tc.args, tc.result);
+      return derived.type === 'unknown' ? result.data : derived;
+    }
     if (import.meta.env.DEV) {
       console.warn(`[toolDetail] Invalid detail for ${tc.name}: ${result.error}`);
     }

@@ -207,6 +207,34 @@ function copiaAlbero(da: string, a: string): void {
   git(a, "add", "-A", "--force");
 }
 
+/**
+ * Every case below runs the WHOLE checker on a copy of the tree, and the
+ * checker is not fast: 60-100 s on a quiet machine, 350 s on 2026-09-04 with
+ * four board agents and their pre-review checks sharing the cores. The old
+ * 120 s cap turned a correct verdict into a red `test:unit` for every card of
+ * that night, and a gate that goes red with the load is a clock, not a check.
+ * The number below is a backstop against a hang, not a performance bar: time
+ * is measured by the scripts in `qa-gate.sh`'s excluded list, never here.
+ */
+const SECURITY_RUN_TIMEOUT_MS = 15 * 60_000;
+
+/**
+ * The two cases that need the npm registry run only on request:
+ * `TOPICS_NETWORK_TESTS=1 bun test scripts/check-security.test.ts`.
+ *
+ * `test:unit` is the pre-review check of every board card, and a unit suite
+ * that needs a remote service is not a unit suite: on 2026-09-04 the
+ * registry's advisory endpoint stopped answering (`bun audit` gave up after
+ * 3:30 per directory while `/-/ping` answered in 0.36 s) and every card of
+ * the night went red on THIS file, for hours, for nothing they had written.
+ * The measure itself is not lost: `bun run check:security` (qa-gate, CI)
+ * still runs all four pieces and still refuses to print green when the
+ * registry is mute. Here, offline, the three pieces that need no network are
+ * asserted for real; the fourth is asserted when the network is asked for.
+ */
+const REGISTRY_TESTS = process.env.TOPICS_NETWORK_TESTS === "1";
+const NO_NETWORK_PIECES = "--only=data,home,secrets";
+
 describe("check:security - i pezzi che vogliono l'albero vero", () => {
   let copia = "";
   let temporanea = "";
@@ -227,11 +255,13 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
     git(copia, "clean", "-fdq");
   }
 
-  test("la copia parte verde su tutti e quattro i pezzi", () => {
-    const { code, out } = esegui(copia);
+  test(REGISTRY_TESTS
+    ? "la copia parte verde su tutti e quattro i pezzi"
+    : "la copia parte verde sui tre pezzi che non chiedono la rete", () => {
+    const { code, out } = REGISTRY_TESTS ? esegui(copia) : esegui(copia, NO_NETWORK_PIECES);
     expect(out).toContain("pubblicabile");
     expect(code).toBe(0);
-  }, 120_000);
+  }, SECURITY_RUN_TIMEOUT_MS);
 
   test("PEZZO data: a THIRD PARTY's data in a tracked file goes RED", () => {
     // THE NAME HERE IS INVENTED, and that is new. Until 2026-09-02 this case
@@ -260,7 +290,7 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
       rmSync(elenco, { force: true });
       ripristina();
     }
-  }, 120_000);
+  }, SECURITY_RUN_TIMEOUT_MS);
 
   test("PEZZO data: the repo AUTHOR's name does NOT go red", () => {
     // The other half of the rule, and the half that used to be the opposite:
@@ -277,7 +307,7 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
     expect(out).toContain("verde");
     expect(code).toBe(0);
     ripristina();
-  }, 120_000);
+  }, SECURITY_RUN_TIMEOUT_MS);
 
   test("PEZZO home: il percorso della home in un file tracciato fa ROSSO", () => {
     appendFileSync(join(copia, "README.md"), `\nlog in ${homedir()}/prova.log\n`);
@@ -285,7 +315,7 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
     expect(out).toContain("ROSSO");
     expect(code).toBe(1);
     ripristina();
-  }, 120_000);
+  }, SECURITY_RUN_TIMEOUT_MS);
 
   test("PEZZO secrets: una chiave nell'albero vero fa ROSSO", () => {
     const chiave = `${"AKIA"}${"Q7WR2XL9PKM4TVB8"}`;
@@ -295,9 +325,10 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
     expect(out).toContain("README.md");
     expect(code).toBe(1);
     ripristina();
-  }, 120_000);
+  }, SECURITY_RUN_TIMEOUT_MS);
 
-  test("PEZZO dependencies: un avviso NON dichiarato nella baseline fa ROSSO", () => {
+  // Registered only when the network is asked for: see REGISTRY_TESTS.
+  if (REGISTRY_TESTS) test("PEZZO dependencies: un avviso NON dichiarato nella baseline fa ROSSO", () => {
     // La leva onesta. Il cancello osserva UNA cosa: c'e' un avviso che la
     // baseline non elenca? Togliere una voce dalla baseline e installare un
     // pacchetto vulnerabile producono per lui lo stesso stato, e il primo non
@@ -316,7 +347,7 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
     expect(out).toContain("NUOVO");
     expect(code).toBe(1);
     ripristina();
-  }, 120_000);
+  }, SECURITY_RUN_TIMEOUT_MS);
 
   test("un pezzo che non sa misurare NON stampa verde: esce 2", () => {
     // Il guasto che uccide i cancelli in silenzio e' il verde a vuoto. Qui il
@@ -326,5 +357,5 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
     expect(out).toContain("MUTO");
     expect(code).toBe(2);
     ripristina();
-  }, 120_000);
+  }, SECURITY_RUN_TIMEOUT_MS);
 });

@@ -34,6 +34,8 @@ import { setLocalFileServing } from "./server/browser-local-file-url";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
+import { timelineWithInterruptedVerdict } from "./server/lib/interrupted-turn-block";
+import type { ContentBlock } from "./shared/types";
 import { describeInFlight, unadoptableStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
 import { dispatchReconcileHeld } from "./server/lib/e2e-dispatch-hold";
 import { chatsParkedOnQuestion } from "./server/lib/parked-asks";
@@ -874,12 +876,15 @@ async function runHeadlessTurn(
   const detector = armStallDetector({
     idleMs: opts.idleMs ?? DEFAULT_STALL_IDLE_MS,
     isWaitingForHuman: () => isHumanHold(sessionKey),
+    isWaitingForChecks: () => isChecksHold(sessionKey),
     getTail: () => stallTranscriptTail(sessionKey),
     judge: (tail) => judgeStall({ complete: stallJudgeComplete }, tail),
     onRearm: (reason) => console.log(
       reason === "human"
         ? `[turn] stall watch rearmed on ${sessionKey}: a person is in the loop (question or permission), their time doesn't count`
-        : `[turn] stall watch rearmed on ${sessionKey}: judge says alive, still watching`,
+        : reason === "checks"
+          ? `[turn] stall watch rearmed on ${sessionKey}: our pre-review checks are running for its card, that wait is ours`
+          : `[turn] stall watch rearmed on ${sessionKey}: judge says alive, still watching`,
     ),
     onStuck: () => {
       stalled = true;
@@ -954,12 +959,15 @@ async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number
   const detector = armStallDetector({
     idleMs: opts.idleMs ?? DEFAULT_STALL_IDLE_MS,
     isWaitingForHuman: () => isHumanHold(sessionKey),
+    isWaitingForChecks: () => isChecksHold(sessionKey),
     getTail: () => stallTranscriptTail(sessionKey),
     judge: (tail) => judgeStall({ complete: stallJudgeComplete }, tail),
     onRearm: (reason) => console.log(
       reason === "human"
         ? `[turn] stall watch rearmed on ${sessionKey}: a person is in the loop (question or permission), their time doesn't count`
-        : `[turn] stall watch rearmed on ${sessionKey}: judge says alive, still watching`,
+        : reason === "checks"
+          ? `[turn] stall watch rearmed on ${sessionKey}: our pre-review checks are running for its card, that wait is ours`
+          : `[turn] stall watch rearmed on ${sessionKey}: judge says alive, still watching`,
     ),
     onStuck: () => {
       stalled = true;
@@ -1205,6 +1213,28 @@ let sondaLavoroNonCommittato: ((taskId: string) => Promise<string[] | null>) | n
  * 78,83 su 12 core.
  */
 let checksGateRunningCount: (() => number) | null = null;
+/** `checksGate.isRunning(taskId)`: running OR queued behind another card's run. */
+let checksGateIsRunning: ((taskId: string) => boolean) | null = null;
+/**
+ * Is the task this session works on waiting on OUR pre-review checks? The
+ * stall detector must not judge that silence: the agent asked for review, the
+ * gate said 202 and is grinding typecheck/lint/test:unit, and the agent is
+ * waiting on us. `checks_state='running'` covers the run; the gate covers the
+ * queue behind another card (one run at a time, minutes each).
+ */
+function isChecksHold(sessionKey: string): boolean {
+  const topicPrefix = sessionKey.startsWith("topic:") ? sessionKey.slice("topic:".length) : sessionKey;
+  if (!topicPrefix) return false;
+  try {
+    const row = db.prepare(
+      `SELECT id, checks_state FROM tasks WHERE status = 'in_progress' AND assigned_topic_id LIKE ? LIMIT 1`,
+    ).get(topicPrefix + "%") as { id: string; checks_state: string | null } | null;
+    if (!row) return false;
+    return row.checks_state === "running" || (checksGateIsRunning?.(row.id) ?? false);
+  } catch {
+    return false;
+  }
+}
 
 const taskDispatcher = createTaskDispatcher({
   captureDelivery: (taskId) => capturaConsegna ? capturaConsegna(taskId) : Promise.resolve(false),
@@ -2113,7 +2143,10 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // Collega il gate dei check al freno del dispatcher: appena il gate esiste,
   // `checksGateRunningCount` punta al suo `runningCount()` e il dispatcher
   // lo usa in ogni tick e resume per sapere quante barre sono in volo.
-  onChecksGate: (gate) => { checksGateRunningCount = () => gate.runningCount(); },
+  onChecksGate: (gate) => {
+    checksGateRunningCount = () => gate.runningCount();
+    checksGateIsRunning = (taskId) => gate.isRunning(taskId);
+  },
   // Same union the dispatcher resolves against — but trimmed to the dirs that
   // are actually SELECTABLE boards. Internal catch-all plumbing (the shared
   // `generale` dir, the per-task `tasks/<id8>` cwds), the home dir, config
@@ -4319,9 +4352,26 @@ const staleStreamTimer = setInterval(() => {
     },
     endStream: (sk) => ctx.endStream(sk),
     broadcast: (msg) => broadcastToAll(msg as Parameters<typeof broadcastToAll>[0]),
-    finalizeMessage: ({ messageId, marker }) => {
+    finalizeMessage: ({ messageId, marker, interruption }) => {
       if (marker === null) db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE id = ?", [messageId]);
       else db.run("UPDATE messages SET partial = 0, streamed_at = NULL, content = ? WHERE id = ?", [marker, messageId]);
+      // WHY the turn ended, on the row, in the shape the composer's banner
+      // reads. Without it the reaper closed a turn cut mid-answer leaving the
+      // reason in the server log only: the 2026-09-03 report, "stuck with no
+      // feedback at all". `timelineWithInterruptedVerdict` refuses the rows
+      // that must not be touched (empty timeline, already explained).
+      try {
+        const row = db.query("SELECT blocks FROM messages WHERE id = ?").get(messageId) as { blocks?: unknown } | undefined;
+        const raw = decodeCol(row?.blocks);
+        const parsed = raw ? (JSON.parse(raw) as ContentBlock[]) : null;
+        const timeline = timelineWithInterruptedVerdict(parsed, interruption);
+        if (timeline) db.run("UPDATE messages SET blocks = ? WHERE id = ?", [encodeCol(JSON.stringify(timeline)) ?? null, messageId]);
+      } catch (err) {
+        // A row we cannot read is a row we leave alone: the marker above
+        // already said something, and rewriting a timeline we failed to parse
+        // would throw away the turn for not understanding it.
+        console.warn(`[StaleStream] verdetto non scritto su ${messageId}:`, err);
+      }
     },
     recordTurnEnd: (sk) => recordTurnEnd(sk, cancelled("watchdog", "stale stream sweep")),
     warn: (msg) => console.warn(msg),
@@ -4338,13 +4388,13 @@ const staleStreamTimer = setInterval(() => {
 // "reconcile() is a no-op", e ha mandato a caccia nel posto sbagliato chi
 // cercava perché sette fantasmi `queued` non venissero mai recuperati).
 const DISPATCH_POLL_MS = 10_000;
-taskDispatcher.reconcile().catch((err) => console.error("[dispatcher] boot reconcile failed", err));
+taskDispatcher.reconcile({ reason: "boot" }).catch((err) => console.error("[dispatcher] boot reconcile failed", err));
 const dispatchTimer = setInterval(() => {
   // THE E2E BENCH CAN HOLD THIS ONE STEP, and nothing else can: the only writer
   // is a route mounted on a test server. See `lib/e2e-dispatch-hold.ts` for the
   // race it closes — a staged fake agent recovered mid-gesture.
   if (!dispatchReconcileHeld()) {
-    taskDispatcher.reconcile().catch((err) => console.error("[dispatcher] poll reconcile failed", err));
+    taskDispatcher.reconcile({ reason: "poll" }).catch((err) => console.error("[dispatcher] poll reconcile failed", err));
   }
   // LA QUOTA DI CORE SI RILEGGE QUI, sullo stesso giro che fa nascere e morire
   // gli agenti — cioè l'unico momento in cui il denominatore («quanti stanno

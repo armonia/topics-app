@@ -103,5 +103,17 @@ export function useGoal(
     [topicId],
   );
 
-  return { goal, declare, close, reload };
+  /** Stop the auto-continuation loop, leaving the objective alive. */
+  const stopLoop = useCallback(async () => {
+    if (!topicId) return;
+    await goalApi.setLoop(topicId, 'stopped');
+  }, [topicId]);
+
+  /** The person adopts the goal the agent proposed. */
+  const promote = useCallback(async () => {
+    if (!goal) return;
+    await goalApi.promote(goal.id);
+  }, [goal]);
+
+  return { goal, declare, close, promote, reload, stopLoop };
 }
