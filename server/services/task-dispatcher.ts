@@ -1013,7 +1013,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     if (wait) {
       clearTimeout(wait.timer);
       slotWaits.delete(taskId);
-      if (inherit && wait.message) pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), wait.message]);
+      if (inherit && wait.message.trim()) bufferResume(taskId, wait.message);
     }
     waitingForSlot.delete(taskId);
   }
@@ -1141,7 +1141,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // between the agent's →review and the actual turn end). Buffered here and
   // delivered on the SAME tab at turn end — dropping it would strand the task
   // in_progress and the reconciler would respawn a fresh agent without context.
-  const pendingResume = new Map<string, string[]>();
+  //
+  // ONLY WORDS SOMEBODY WROTE GO IN HERE. The buffer carries the moment they
+  // were written because it is what the note has to say when the message is
+  // handed over much later: on 2026-09-04 a card was reopened at 04:36 for a
+  // sentence typed at 03:52, and without the hour the reopen reads as a verdict
+  // on the delivery instead of the delayed hand-over it is.
+  const pendingResume = new Map<string, { text: string; at: number }[]>();
+  /** Queue a message for the turn boundary, keeping the order it was written in. */
+  function bufferResume(taskId: string, text: string): void {
+    pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), { text, at: clock() }]);
+  }
 
   /** Broadcast the updated task so live boards move the chip. */
   function emit(task: Task): void {
@@ -2566,6 +2576,36 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     catch { return null; }
   }
 
+  /**
+   * Which review chip this arrival in review deserves, read from the agent's
+   * last word: a question = "serve te" (a human decision is required), anything
+   * else = delivered. Also the test for "was this card waiting for an answer?",
+   * which is what decides whether a late message may reopen it.
+   */
+  function reviewChipFor(taskId: string): string {
+    try {
+      const comments = deps.svc.get(taskId)?.comments ?? [];
+      // kind='status' rows are transition events, not the agent speaking:
+      // "the agent's last word" must be an actual comment.
+      const lastAgent = [...comments].reverse().find((c) => c.author !== "user" && c.author !== "system" && c.kind === "comment");
+      if (lastAgent && !commentAsksHuman(lastAgent.content)) return CHIP_DELIVERED;
+    } catch { /* default to needs_input */ }
+    return CHIP_NEEDS_INPUT;
+  }
+
+  /** `04:36`, local time: when the buffered message was actually written. */
+  function hhmm(at: number): string {
+    const d = new Date(at);
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }
+
+  /** The buffered messages as one quotable block, hours included, trimmed. */
+  function quoteQueued(queued: { text: string; at: number }[]): string {
+    return queued
+      .map((q) => `${hhmm(q.at)} «${q.text.trim().length > 220 ? q.text.trim().slice(0, 220) + "..." : q.text.trim()}»`)
+      .join(" / ");
+  }
+
   function onTurnEnd(taskId: string, turnMs?: number, turnEnd?: TurnEndInfo): void {
     recentlyEnded.set(taskId, Date.now());
     // Chi non la sa la dichiara `end_turn` — non è un default innocuo, è
@@ -2578,37 +2618,59 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // requeue path (which would discard the conversation). Deferred a tick:
     // the caller's finally still holds the inFlight slot at this point.
     //
-    // LA CONSEGNA NON DIPENDE DA DOVE È FINITA LA CARD. Il messaggio si imbuca
-    // mentre il turno è vivo, e il modo NORMALE in cui quel turno finisce è
-    // portare la card in review: la condizione «ancora in_progress» buttava via
-    // proprio il caso più frequente, cioè il feedback scritto mentre l'agent
-    // stava consegnando. Da review si passa dal rifiuto — la stessa strada che
-    // fa un commento umano su una card in review, e per la stessa ragione: quel
-    // feedback è la risposta a una consegna che non l'aveva ancora visto.
-    const queued = pendingResume.get(taskId);
+    // A DELIVERY IS NOT REJECTED BY A MESSAGE THAT NEVER SAW IT.
+    //
+    // The message is buffered while the turn is alive, and the NORMAL way that
+    // turn ends is by taking the card to review. Rejecting from there put the
+    // card back to work twenty seconds after the delivery, signed "user", with
+    // nothing in the thread saying why: three times on the night of 2026-09-04
+    // (18bdf214, cdeb9868, d2a4a907), a wasted turn each, and the agent hunting
+    // for a hole in a delivery nobody had complained about. The one case where
+    // a late message really is an answer is the card that ASKED something
+    // (chip "serve te"): there it reopens, and it says so out loud. Otherwise
+    // the delivery stands and the message waits in the thread for the person
+    // who is about to open it anyway.
+    const queued = pendingResume.get(taskId) ?? [];
     pendingResume.delete(taskId);
-    if (queued && queued.length && cur.assignedTopicId) {
-      let open = cur.status === "in_progress" ? cur : null;
+    if (queued.length && cur.assignedTopicId) {
       if (cur.status === "review") {
+        const answering = reviewChipFor(taskId) === CHIP_NEEDS_INPUT;
+        let reopened: Task | null = null;
+        if (answering) {
+          try { reopened = deps.svc.reviewDecision({ taskId, by: "system", decision: "reject" }); }
+          catch { reopened = null; }
+        }
         try {
-          open = deps.svc.reviewDecision({ taskId, by: "user", decision: "reject" });
-          emit(open);
-        } catch { open = null; }
-      }
-      if (open) {
-        setTimeout(() => { void resume(taskId, queued.join("\n")); }, 0);
+          deps.svc.addComment({
+            taskId, author: "system", kind: "service",
+            content: reopened
+              ? `Riaperta per consegnare all'agent, che aspettava una risposta, il messaggio arrivato mentre chiudeva il turno (${quoteQueued(queued)}).`
+              : `Feedback arrivato mentre l'agent stava consegnando, quindi non l'ha visto (${quoteQueued(queued)}). La consegna resta in review, decidi tu: se la rifiuti l'agent riprende e rilegge il thread, questo messaggio compreso.`,
+          });
+        } catch { /* best-effort */ }
+        try { emit(deps.svc.get(taskId)?.task ?? cur); } catch { /* best-effort */ }
+        if (reopened) {
+          // Deferred a tick: the caller's finally still holds the inFlight slot.
+          setTimeout(() => { void resume(taskId, queued.map((q) => q.text).join("\n")); }, 0);
+          return;
+        }
+        // Delivery intact: fall through to the review handling below (chip,
+        // preview). The card stays where the agent put it.
+      } else if (cur.status === "in_progress") {
+        setTimeout(() => { void resume(taskId, queued.map((q) => q.text).join("\n")); }, 0);
         return;
+      } else {
+        // No turn to resume: the card went back to the queue (a declared wait, a
+        // requeue) and restarts when its turn comes. The feedback is NOT lost, it
+        // is a comment in the thread and the agent re-reads it with `get_task`,
+        // but the silence here looked like a successful hand-over, so we say it.
+        try {
+          deps.svc.addComment({
+            taskId, author: "system", kind: "service",
+            content: "Il tuo feedback è arrivato a turno finito: resta nel thread e l'agent lo legge quando questa card riprende.",
+          });
+        } catch { /* best-effort */ }
       }
-      // Nessun turno da riprendere: la card è tornata in coda (attesa dichiarata,
-      // requeue) e riparte quando tocca a lei. Il feedback NON è perso — è un
-      // commento nel thread e l'agent lo rilegge con `get_task` — ma il silenzio
-      // qui sembrava una consegna riuscita, quindi lo si dice.
-      try {
-        deps.svc.addComment({
-          taskId, author: "system", kind: "service",
-          content: "Il tuo feedback è arrivato a turno finito: resta nel thread e l'agent lo legge quando questa card riprende.",
-        });
-      } catch { /* best-effort */ }
     }
     // The agent declared a wait mid-turn (wait_for_condition → deferForWait moved
     // it back to todo + chip `waiting`). The slot is already freed by the finally;
@@ -2627,14 +2689,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // The test is `commentAsksHuman`, not the presence of the fence: this very
       // envelope orders a landable delivery to attach `options=["Landa su main"]`,
       // so reading the fence chipped every finished delivery "serve te".
-      let chip = CHIP_NEEDS_INPUT;
-      try {
-        const comments = deps.svc.get(taskId)?.comments ?? [];
-        // kind='status' rows are transition events, not the agent speaking —
-        // "the agent's last word" must be an actual comment.
-        const lastAgent = [...comments].reverse().find((c) => c.author !== "user" && c.author !== "system" && c.kind === "comment");
-        if (lastAgent && !commentAsksHuman(lastAgent.content)) chip = CHIP_DELIVERED;
-      } catch { /* default to needs_input */ }
+      const chip = reviewChipFor(taskId);
       try { emit(deps.svc.setDispatchState({ taskId, state: chip })); } catch { /* best-effort */ }
       // Review-ready preview: boot a live server from the worktree, set output_url
       // to the local deep-link, attach a screenshot. Best-effort, fire-and-forget.
@@ -2967,9 +3022,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // un feedback ignorato, e chi guarda lo riscrive. La nota è una sola per
       // coda (il secondo messaggio si accoda a un'attesa già annunciata): dire
       // due volte la stessa cosa è rumore, non conferma.
+      // A NUDGE IS NOT A MESSAGE. A continuation nudge (or an empty
+      // resume) buffered against a LIVE turn is a contradiction: the nudge says
+      // "your turn ended without delivering" and the turn is right there,
+      // answering. It stayed in the buffer anyway and `onTurnEnd` handed it over
+      // as if a person had written it: card d2a4a907, delivered at 04:50 and
+      // reopened at 04:50 with nothing to read. Nothing is lost by dropping it.
+      if (opts?.continuation || !humanMessage.trim()) return;
       const already = (pendingResume.get(taskId)?.length ?? 0) > 0;
-      pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), humanMessage]);
-      if (!already && humanMessage) {
+      bufferResume(taskId, humanMessage);
+      if (!already) {
         try {
           deps.svc.addComment({
             taskId, author: "system", kind: "service",
@@ -3018,7 +3080,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // scattando): si imbuca dove si imbucano già i messaggi arrivati a turno
       // vivo, e `onTurnEnd` lo consegna quando il turno dell'attesa ha finito.
       if (slotWaits.has(taskId)) {
-        if (humanMessage) pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), humanMessage]);
+        if (!opts?.continuation && humanMessage.trim()) bufferResume(taskId, humanMessage);
         return;
       }
       // Sfalsati, o venti resume in coda si sveglierebbero tutti insieme per
