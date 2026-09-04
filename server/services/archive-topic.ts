@@ -63,6 +63,15 @@ export interface ArchiveTopicDeps {
    * data gia' scritta, quindi il ripasso non costa niente.
    */
   recordRetirement?: (topicId: string, at: string) => void;
+  /**
+   * Cancels the question or permission prompt this session may be sitting on
+   * (`cancelAsk`, lib/ask-user-bridge.ts). Archiving takes away both the row
+   * and the tab, so the panel is on nobody's screen any more and the answer
+   * can never arrive. Left alone, that ask keeps parking the chat, and the
+   * quiescence gate defers every server restart until the ask TTL expires a
+   * day later. Injected like the two steps above; absent means step skipped.
+   */
+  cancelPendingAsk?: (sessionKey: string, reason: string) => void;
 }
 
 export interface ArchiveTopicResult {
@@ -130,7 +139,16 @@ export function archiveTopicFully(deps: ArchiveTopicDeps, topicId: string): Arch
   // terminale, quindi il ripasso non costa broadcast per niente.
   if (topic.sessionKey) deps.parkClaudeSession?.(topic.sessionKey);
 
-  // 5. Il fatto. Ultimo perche' e' l'unico passo che non ha conseguenze: e' la
+  // 5. The open question goes with the topic. Same reason as step 4, one layer
+  // up: an ask whose panel nobody can open any more is a wait for an answer
+  // that cannot come, and it parks the chat for the quiescence gate, which
+  // then defers every restart. Run on an already archived topic too, so a
+  // re-archive repairs a leaked ask, and it is a no-op when there is none.
+  if (topic.sessionKey) {
+    deps.cancelPendingAsk?.(topic.sessionKey, "il topic e' stato archiviato"); // allow-italian: user-facing reason shown in the chat
+  }
+
+  // 6. Il fatto. Ultimo perche' e' l'unico passo che non ha conseguenze: e' la
   // riga su cui il riconcilio al boot decidera' che questo topic era chiuso
   // anche se qualcuno, un giorno, riuscira' a rimettere `archived` a 0 da una
   // strada che non passa di qui.

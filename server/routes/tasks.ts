@@ -948,11 +948,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // command runs, and the agent gets the file list instead of a timeout.
     if (opts.realignForChecks && !checksGate.known(taskId)) {
       const re = await opts.realignForChecks(taskId)
-        .catch((err): RealignOutcome => ({ ok: false, reason: `riallineamento fallito: ${err instanceof Error ? err.message : String(err)}` }));
+        .catch((err): RealignOutcome => ({ ok: false, reason: `riallineamento fallito: ${err instanceof Error ? err.message : String(err)}` })); // allow-italian: board notes are written in Italian like every other service comment
       if (!re.ok) {
         const comment =
-          `**Riallineamento su main fallito, check non partiti**: ${re.reason}. ` +
-          "Nel worktree fai `git merge main`, risolvi, committa, poi rimetti in review con update_task(status=\"review\").";
+          `**Riallineamento su main fallito, check non partiti**: ${re.reason}. ` + // allow-italian: board notes are written in Italian like every other service comment
+          "Nel worktree fai `git merge main`, risolvi, committa, poi rimetti in review con update_task(status=\"review\")."; // allow-italian: board notes are written in Italian like every other service comment
         try {
           svc.recordChecks({
             taskId, state: "fail", commit: null,
@@ -965,7 +965,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         return { ok: false, comment };
       }
       if (re.note) {
-        try { svc.addComment({ taskId, author: "system", kind: "service", content: `Riallineato su main prima dei check: ${re.note}` }); }
+        try { svc.addComment({ taskId, author: "system", kind: "service", content: `Riallineato su main prima dei check: ${re.note}` }); } // allow-italian: board notes are written in Italian like every other service comment
         catch { /* a trace, not the gate */ }
       }
     }

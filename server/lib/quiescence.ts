@@ -238,17 +238,29 @@ export function reloadHeldNotice(args: {
   busy: string;
   /** Readable name of the holding chat, when it is known. */
   holderName?: string | null;
+  /**
+   * WHICH SOURCE IS HOLDING, because the gesture to ask for is not the same.
+   *
+   * A running turn is unblocked by stopping it; a chat parked on a question is
+   * unblocked by ANSWERING it, and stopping it destroys the very turn the gate
+   * was protecting. One body for both said "stop it from the chat" to somebody
+   * whose only correct move was to click an answer.
+   */
+  holderKind?: "turn" | "question";
   /** Identifies THIS wait, so the next one may speak again. */
   waitId: string;
 }): ReloadHeldNotice | null {
   if (args.waitedMs < args.capMs) return null;
   const min = Math.round(args.waitedMs / 60_000);
   const chi = args.holderName?.trim() ? `«${args.holderName.trim()}»` : args.busy;
+  const body = args.holderKind === "question"
+    ? `${chi} aspetta una tua risposta da ${min} minuti, e il riavvio non taglia una domanda a schermo. `
+      + "Aprila e rispondi alla domanda: il riavvio parte da solo subito dopo."
+    : `${chi} ha un turno in corso da ${min} minuti, e il riavvio non taglia un turno che non tornerebbe. `
+      + "Se e' piantato, fermalo dalla chat: il riavvio parte da solo subito dopo.";
   return {
     title: "Un riavvio del server sta aspettando",
-    body:
-      `${chi} ha un turno in corso da ${min} minuti, e il riavvio non taglia un turno che non tornerebbe. `
-      + "Se e' piantato, fermalo dalla chat: il riavvio parte da solo subito dopo.",
+    body,
     dedupeKey: `reload-held:${args.waitId}`,
   };
 }

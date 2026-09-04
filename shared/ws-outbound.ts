@@ -65,6 +65,7 @@ export const STOP_CAUSES = [
   'turn-in-flight',
   'superseded',
   'provider-error',
+  'rate-limit',
 ] as const;
 
 
@@ -1002,6 +1003,16 @@ const boardDispatchSchema = z.looseObject({
   autoDispatch: z.boolean(),
 });
 
+// The model provider is not worth calling until `untilMs`: the plan's usage
+// window is spent (server/lib/provider-hold.ts). Nulls lift the hold.
+const providerHoldSchema = z.looseObject({
+  type: z.literal('provider:hold'),
+  untilMs: z.nullable(z.number()),
+  window: z.nullable(z.enum(['five_hour', 'seven_day'])),
+  reason: z.nullable(z.string()),
+  sinceMs: z.nullable(z.number()),
+});
+
 // Il cap macchina-wide vive sulla riga riservata '*'. `maxAgentsAuto` è un
 // BOOLEANO ("scegli tu in base alla capacità"), non un numero.
 const boardGlobalCapSchema = z.looseObject({
@@ -1313,6 +1324,7 @@ const OUTBOUND_SCHEMAS = {
   'task:awaiting-human': taskAwaitingHumanSchema,
   'board:dispatch': boardDispatchSchema,
   'board:global-cap': boardGlobalCapSchema,
+  'provider:hold': providerHoldSchema,
   'board:settings': boardSettingsSchema,
   // Dev bundle hot-delivery
   'ui:bundle-updated': uiBundleUpdatedSchema,

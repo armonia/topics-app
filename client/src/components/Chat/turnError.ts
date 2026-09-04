@@ -113,6 +113,7 @@ export const TURN_CAUSE_KEY: Record<TurnEndCause, string> = {
   'turn-in-flight': 'chat.turnInterrupted.turnInFlight',
   'superseded': 'chat.turnInterrupted.superseded',
   'provider-error': 'chat.turnInterrupted.providerError',
+  'rate-limit': 'chat.turnInterrupted.rateLimit',
 };
 
 /**

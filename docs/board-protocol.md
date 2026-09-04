@@ -55,6 +55,17 @@ alla consegna: con sei agent erano fino a tre suite in parallelo sui tre slot
 del gate, più le copie orfane lasciate da un turno tagliato — misurato load 115
 su 12 core alle 14:40 del 04/09. Il carico sono i cancelli, non gli agent.
 
+**Il tetto vero e' il PIANO, non la CPU (dal 04/09/2026).** Otto agent nativi e
+le chat della persona stanno sulla stessa OAuth del piano Claude: alle 13:00Z
+la finestra di 5 ore era al 100% e per tre ore ogni turno rispondeva 429. Ora
+il server legge l'endpoint di utilizzo (`server/providers/native/usage-window.ts`)
+e con una finestra esaurita registra un hold (`server/lib/provider-hold.ts`):
+niente dispatch, niente riprese, cartello con l'ora del reset in chat e nella
+status bar. Con la finestra settimanale sopra il 90% il tetto degli agent va
+tenuto a 2-3, altrimenti al 100% si fermano TUTTI, chat comprese, fino al
+reset settimanale. `runtime.integration.test.ts` chiama l'API vera e spende
+turni del piano: e' opt-in (`TOPICS_REAL_API_TESTS=1`), non gira nei gate.
+
 **Il settimo cancello sono i NOMI (dal 04/09/2026).** `check:comment-language`
 legge i commenti e non vede un identificatore: nella notte del 04/09 trentacinque
 nomi italiani di test e costanti sono passati verdi da tutti i cancelli della

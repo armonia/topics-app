@@ -419,3 +419,27 @@ describe("reloadHeldNotice — oltre il tetto il cancello parla", () => {
     expect(n.body).toContain("non taglia");
   });
 });
+
+/**
+ * IL GESTO GIUSTO DIPENDE DA CHI TRATTIENE.
+ *
+ * The same body for both holders sent whoever read it to press Stop on a chat
+ * whose only correct move was answering the question on screen: the notice
+ * destroyed the very turn the gate was protecting (card 6c2dc14c).
+ */
+describe("reloadHeldNotice - domanda o turno, due gesti diversi", () => {
+  const CAP = 25 * 60_000;
+  const base = { capMs: CAP, busy: "1 chat ferma su una domanda (topic:abc)", waitId: "w9", waitedMs: CAP };
+
+  test("con un holder di tipo domanda chiede di RISPONDERE, non di fermare", () => {
+    const n = reloadHeldNotice({ ...base, holderKind: "question" })!;
+    expect(n.body).toContain("rispondi alla domanda");
+    expect(n.body).not.toContain("fermalo dalla chat");
+  });
+
+  test("con un turno resta il corpo di prima", () => {
+    const n = reloadHeldNotice({ ...base, holderKind: "turn" })!;
+    expect(n.body).toContain("fermalo dalla chat");
+    expect(reloadHeldNotice({ ...base })!.body).toBe(n.body);
+  });
+});

@@ -1249,6 +1249,7 @@ const IT: Dict = {
   'chat.turnInterrupted.turnInFlight': 'un altro turno era già in corso',
   'chat.turnInterrupted.superseded': 'un turno più recente ha preso il suo posto',
   'chat.turnInterrupted.providerError': 'il provider ha risposto con un errore',
+  'chat.turnInterrupted.rateLimit': "il limite di richieste dell'API è rimasto saturo per tutti i tentativi; riprende da solo",
   'git.noRepoInitialized': 'Nessun repository git inizializzato',
   'git.noRepo': 'Nessun repository git',
   'git.cleanTree': 'Albero di lavoro pulito',
@@ -1880,6 +1881,9 @@ const IT: Dict = {
   // screen was one red dot. Measured on Windows on 2026-08-28 (card d1f702ab).
   'statusBar.degraded.why': 'Nessun server sulla porta {port}. Questa macchina ne ha già avuto uno, quindi Topics aspetta quello invece di avviarne uno suo.',
   'statusBar.degraded.wayOut': 'Per avere un server locale qui, Topics deve dimenticare quel server: elimina questo file e riparti.',
+  'statusBar.providerHold.title': 'La finestra di utilizzo del piano Claude è esaurita: i turni riprendono da soli dopo il reset.',
+  'statusBar.providerHold.fiveHours': 'Limite del piano raggiunto (finestra di 5 ore): riparte alle {time}',
+  'statusBar.providerHold.week': 'Limite del piano raggiunto (finestra settimanale): riparte alle {time}',
   'statusBar.degraded.fix': 'Avvia un server locale',
   'statusBar.degraded.fixFailed': "Non ci sono riuscito: elimina il file a mano e riapri Topics.",
   // THE DOT NEXT TO «Topics». Three sentences and not one with a number in it:
