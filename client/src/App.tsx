@@ -37,6 +37,7 @@ import { TOPICS_LABEL_MIN_W_WINDOWS } from './lib/shell/windowControlsGeometry';
 import { initDevBundleReload } from './lib/devBundleReload';
 import { initDevLayoutProbe } from './lib/devLayoutProbe';
 import { initDevHeapProbe } from './lib/devHeapProbe';
+import { initDevStorageProbe } from './lib/devStorageProbe';
 import { registerFeatureWeightSources } from './lib/featureWeightSources';
 import { initChunkReloadGuard } from './lib/chunkReloadGuard';
 import { DevBundleToast } from './components/DevBundleToast';
@@ -240,6 +241,10 @@ function App() {
   // E2E non riproduce il problema. Vedi lib/devLayoutProbe.ts.
   useEffect(() => initDevLayoutProbe(), []);
   useEffect(() => initDevHeapProbe(), []);
+  // Who writes to localStorage, and how many bytes a minute: the WebKit journal
+  // grows with the number of rewrites, not with what is stored. See
+  // lib/devStorageProbe.ts.
+  useEffect(() => initDevStorageProbe(), []);
   /* L'INVENTARIO DEL PESO: chi dichiara cosa. Una registrazione sola, qui, e
    * non sparsa negli store — un elenco che omette in silenzio e' peggio di
    * nessun elenco, perche' chi legge crede di vedere tutto. Vedi
