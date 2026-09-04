@@ -121,6 +121,11 @@ docs/*
 # The first-frame inventory is the map this rule is applied from: which pane
 # draws what before its data arrives, and which local copy it reads. A map that
 # lives on one machine gets rebuilt from scratch by the next person.
+# webkit-localstorage-wal.md e' MANUTENZIONE: dice perche' il giornale WAL di
+# localStorage arriva a 5,92 GB e come lo si riassorbe, e il come richiede la
+# app CHIUSA, quindi non puo' stare nel codice. Una procedura che vive solo
+# sulla macchina di chi l'ha misurata si ripaga da zero al prossimo che la trova.
+!docs/webkit-localstorage-wal.md
 !docs/pane-first-frame-inventory.md
 !docs/drag-preview.md
 !docs/tunnel.md
