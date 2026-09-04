@@ -190,13 +190,41 @@ export function acceptWord(override: AcceptOverride, tr: Translate = fallbackTra
 }
 
 /**
- * `land` on a card NOBODY delivered. Same merge, and a word that stops calling
- * it a delivery: the branch exists (the agent committed while working) but no
- * agent ever said it was finished, so «Landa su main» promised a consegna that
- * was never made. That green button on the card is the whole incident.
+ * WHY landing here is an exception, or `null` when it is not. Twin of
+ * `acceptOverride`, and a twin by necessity: landing CONTAINS the acceptance
+ * and merges the branch onto main on top of it. While only `accept` named the
+ * exception, the less reversible of the two gestures was the silent one.
+ *
+ * Same precedence as `acceptOverride`: "nobody delivered" comes before red
+ * checks, which on a turn that never finished have usually not even run.
  */
-export function landWord(unfinished: boolean, tr: Translate = fallbackTranslate): TaskActionWord {
-  if (!unfinished) return taskActionWord('land', tr);
+export type LandOverride = 'checks-red' | 'unfinished' | null;
+
+export function landOverride(
+  task: Pick<BoardTask, 'status' | 'deliveredBy' | 'deliveredReason' | 'checksState'>,
+): LandOverride {
+  return acceptOverride(task);
+}
+
+/**
+ * `land` when merging is an EXCEPTION: nobody delivered the branch, or the
+ * pre-review checks are red.
+ *
+ * The word stops calling it a delivery: the branch exists (the agent committed
+ * while working) but no agent ever said it was finished, so «Landa su main»
+ * promised a consegna that was never made. That green button on the card is the
+ * whole incident. With red checks the same holds one step further down: main
+ * gets code a check already judged, so the word says «comunque» and the tooltip
+ * names the normal path instead of the merge.
+ */
+export function landWord(override: LandOverride, tr: Translate = fallbackTranslate): TaskActionWord {
+  if (!override) return taskActionWord('land', tr);
+  if (override === 'checks-red') {
+    return {
+      label: tr('board.action.land.anyway'),
+      title: tr('board.action.land.checks.title', { sendBack: tr(KEYS['send-back'].label) }),
+    };
+  }
   return { label: tr('board.action.land.anyway'), title: tr('board.action.land.anyway.title') };
 }
 
@@ -310,7 +338,7 @@ export function reviewDecisionButtons(
   return {
     accept: acceptWord(acceptOverride(task), tr),
     sendBack: sendBackWord(sendBackDest(task), tr),
-    land: isAgentReview ? landWord(unfinished, tr) : null,
+    land: isAgentReview ? landWord(landOverride(task), tr) : null,
     primary: unfinished ? 'send-back' : 'accept',
   };
 }

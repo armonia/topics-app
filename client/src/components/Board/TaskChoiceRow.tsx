@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { MoreHorizontal } from 'lucide-react';
 import { boardApi, isAgentWorking, type BoardTask } from '../../lib/board';
+import type { LandingTicket } from '../../lib/board';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useT } from '../../hooks/useT';
 import { Menu } from '../Shared/Menu';
@@ -80,14 +81,28 @@ interface RunnerOpts {
    * premuto nel campo: leggerlo al click costa un render in meno per carattere.
    */
   pendingText?: () => string;
+  /**
+   * The RECEIPT of a queued land (`202`). Whoever does not pick it up will
+   * never know how it ended: the land is asynchronous, and the card does not
+   * move until the merge is confirmed. Optional only for the surfaces that do
+   * not draw land in the row (the drawer excludes it: it has its own button).
+   */
+  onLanding?: (ticket: LandingTicket) => void;
 }
 
 /** Le scelte di questa card e come si eseguono. Una sola copia per le due forme. */
-function useTaskChoiceRunner(task: BoardTask, { exclude, onDone, onError, onNeedText, pendingText }: RunnerOpts) {
+function useTaskChoiceRunner(task: BoardTask, { exclude, onDone, onError, onNeedText, pendingText, onLanding }: RunnerOpts) {
   const confirm = useConfirm();
   const tr = useT();
   const [running, setRunning] = useState<TaskChoiceId | null>(null);
   const choices = taskChoices(task, { exclude, t: tr });
+  /**
+   * The checks gate is only overridden when the button SAYS so. The words
+   * («Approva comunque», «Landa comunque») and this `force` come from the same
+   * field: were they ever to diverge, the button would promise an exception and
+   * the server would answer 409, which is the exact defect this line comes from.
+   */
+  const forcesChecks = task.checksState === 'fail';
 
   const run = async (choice: TaskChoice) => {
     if (running) return;
@@ -106,14 +121,22 @@ function useTaskChoiceRunner(task: BoardTask, { exclude, onDone, onError, onNeed
     const { projectId, id } = task;
     try {
       switch (choice.id) {
-        case 'land': await boardApi.land(projectId, id); break;
+        // The `202` receipt is NOT thrown away: it says whether the land is
+        // queued, running or failed, and it is the only thing that separates
+        // "about to happen" from "happened". Who DRAWS the band is the caller
+        // (card and drawer put it in two different places); here it is handed over.
+        case 'land': onLanding?.((await boardApi.land(projectId, id, { force: forcesChecks })).landing); break;
         // Rispondere a un task in review = `reject`: il server rimette il task
         // in corso e fa ripartire LO STESSO tab dell'agente. E se nel campo
         // libero c'è già un'indicazione, PARTE CON QUELLA: è la stessa chiamata
         // che faceva il bottone d'invio del campo, quindi lasciarla indietro
         // non era una scelta di disegno, era perderla.
         case 'send-back': await boardApi.review(projectId, id, 'reject', sendBackComment(pendingText?.())); break;
-        case 'accept': await boardApi.review(projectId, id, 'approve'); break;
+        // `force` as the drawer does it: the button here already says «Approva
+        // comunque» (see `acceptWord` in `taskChoices`), so the click IS the
+        // explicit choice the server's gate asks for. Without it the card took
+        // a 409 naming an API field to someone with no way to pass it.
+        case 'accept': await boardApi.review(projectId, id, 'approve', undefined, { force: forcesChecks }); break;
         // Esce dal giro dell'agente: in corso, con un nome sopra. `in_progress`
         // non è auto-dispatchabile (parte da `todo`) e `dispatch_state` resta di
         // una persona, quindi il reconciler non lo riprende.
@@ -142,7 +165,7 @@ function useTaskChoiceRunner(task: BoardTask, { exclude, onDone, onError, onNeed
   return { choices, running, run };
 }
 
-export function TaskChoiceRow({ task, exclude, disabled, onDone, onError, onNeedText, pendingText, className }: {
+export function TaskChoiceRow({ task, exclude, disabled, onDone, onError, onNeedText, pendingText, onLanding, className }: {
   task: BoardTask;
   /** Voci che il chiamante ha già come bottoni suoi (il drawer). */
   exclude?: TaskChoiceId[];
@@ -154,9 +177,11 @@ export function TaskChoiceRow({ task, exclude, disabled, onDone, onError, onNeed
   onNeedText?: () => void;
   /** Il testo già battuto nel campo libero: «Rimanda indietro» lo porta con sé. */
   pendingText?: () => string;
+  /** The queued land's receipt, to be followed until it closes. */
+  onLanding?: (ticket: LandingTicket) => void;
   className?: string;
 }) {
-  const { choices, running, run } = useTaskChoiceRunner(task, { exclude, onDone, onError, onNeedText, pendingText });
+  const { choices, running, run } = useTaskChoiceRunner(task, { exclude, onDone, onError, onNeedText, pendingText, onLanding });
   if (choices.length === 0) return null;
 
   return (

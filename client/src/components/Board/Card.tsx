@@ -23,6 +23,9 @@ import { DraftCard } from './DraftCard';
 import { DeliveryFiles } from './DeliveryFiles';
 import { isDeliverySheetPath } from '../../../../shared/media-kind';
 import { TaskChoiceMenu, TaskChoiceRow } from './TaskChoiceRow';
+import { LandingNotice } from './LandingNotice';
+import { landingBand } from './landingBand';
+import { useLandingTicket } from './useLandingTicket';
 import { taskActionErrorMessage } from './taskActionError';
 import { choiceForText, taskChoices, usableQuestionOptions } from './taskChoices';
 import { taskChoiceState } from './taskChoices';
@@ -427,6 +430,18 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // testo, lasciarlo nella casella dopo un esito buono lo farebbe sembrare mai
   // partito — e al secondo click ripartirebbe due volte.
   const choiceDone = () => { clearError(); setFreeText(''); onRefetch(); };
+  /**
+   * THE LANDING RECEIPT, which this card used to throw away.
+   *
+   * `boardApi.land` answers `202` with a ticket: the merge is QUEUED, and the
+   * card does not move until main confirms it. Without keeping it, "queued",
+   * "refused" and "landed" all looked the same, which is to say like nothing,
+   * and a failed land left the card identical forever. Same hook as the
+   * drawer: following one ticket in two ways is how the card ended up not
+   * following it at all.
+   */
+  const { landing, setLanding } = useLandingTicket(task.projectId, task.id, onRefetch);
+  const landingBanda = landingBand(landing);
 
   // Route mutations by the task's own projectId (works in the global board too).
   const review = async (decision: 'approve' | 'reject', comment?: string) => {
@@ -1611,6 +1626,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               onDone={choiceDone} onError={choiceFailed}
               onNeedText={() => freeTextRef.current?.focus()}
               pendingText={() => freeText}
+              onLanding={setLanding}
             />
           </div>
           {/* IL CAMPO DA' UN'INDICAZIONE ALLE SCELTE QUI SOPRA. Non ha un
@@ -1667,6 +1683,15 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               className="flex shrink-0 items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-sky-500 disabled:opacity-50"
             ><Send className="h-3.5 w-3.5" /></button>
           </div>
+        </div>
+      )}
+      {/* The land is QUEUED, not done. The band sits here, under the choices,
+          because it is the answer to the button just pressed. It goes away by
+          itself when the round closes well; when the merge is REFUSED it stays,
+          with the reason, and the card is still here to try again. */}
+      {landingBanda && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <LandingNotice band={landingBanda} testId="card-landing" compact />
         </div>
       )}
       {/* Il perché il click non ha fatto niente, ATTACCATO al bottone che l'ha

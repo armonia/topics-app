@@ -17,7 +17,8 @@
 
 import { PARKED_STOPPED, PARKED_WAITED_OUT, isAgentWorking, isUnfinishedReview, normalizeActionLabel, type BoardTask } from '../../lib/board';
 import {
-  acceptWord, fallbackTranslate, landWord, redoWord, reservedActionLabel, sendBackDest, sendBackWord, stopWord, taskActionWord, unblockWord,
+  acceptOverride, acceptWord, fallbackTranslate, landOverride, landWord, redoWord, reservedActionLabel,
+  sendBackDest, sendBackWord, stopWord, taskActionWord, unblockWord,
   type TaskActionId, type Translate,
 } from './taskActionWords';
 
@@ -44,10 +45,18 @@ export interface TaskChoice {
   needsText?: boolean;
 }
 
-/** I campi della card da cui nascono le scelte: il resto non c'entra. */
-type ChoiceTask = Pick<BoardTask,
+/**
+ * The card fields the choices are born from: nothing else matters here.
+ *
+ * `checksState` arrived late, and its absence WAS the hole. Without it
+ * `acceptOverride` answered "no exception" on every card, so the button said
+ * «Approva» where the drawer said «Approva comunque» and the server answered
+ * 409. A missing field does not make a surface say a random wrong word: it
+ * makes it say the NORMAL one, exactly in the case that is not normal.
+ */
+export type ChoiceTask = Pick<BoardTask,
   'status' | 'assignedTopicId' | 'deliveryBranch' | 'dispatchState' | 'blockedByTaskId' | 'blockedBy'
-  | 'deliveredBy' | 'deliveredReason'>;
+  | 'deliveredBy' | 'deliveredReason' | 'checksState'>;
 
 /**
  * The chips the dispatcher writes when it sets a card ASIDE, with the reason
@@ -123,6 +132,16 @@ export function taskChoices(
     ({ id, tone, ...(needsText ? { needsText } : {}), ...taskActionWord(id, tr) });
   /** Same, for the two whose TOOLTIP depends on there being an agent to go back to. */
   const toAgent = !!task.assignedTopicId;
+  /**
+   * Approving and landing are EXCEPTIONS when the checks are red or nobody
+   * delivered. Both words are derived here, once, from the same functions the
+   * drawer reads through `reviewDecisionButtons`: the card used to say
+   * «Approva» on a delivery with red checks, and the click took a 409.
+   */
+  const acceptSay = (tone: TaskChoice['tone']): TaskChoice =>
+    ({ id: 'accept', tone, ...acceptWord(acceptOverride(task), tr) });
+  const landSay = (tone: TaskChoice['tone']): TaskChoice =>
+    ({ id: 'land', tone, ...landWord(landOverride(task), tr) });
   let out: TaskChoice[] = [];
   switch (state) {
     // Consegnata, con un ramo. `accept` STA QUI, e la sua assenza era un buco:
@@ -135,13 +154,26 @@ export function taskChoices(
     // È la stessa regola già scritta due casi più sotto per `review-unfinished`:
     // togliere un'uscita a chi decide è l'errore opposto. Neutro e dopo il land,
     // perché su una consegna col ramo il gesto normale resta far atterrare.
+    //
+    // THE GREEN ONE IS NOT ALWAYS THE LAND. With red checks the normal gesture
+    // is no longer to merge, it is to send the output back. Land and accept
+    // both stay, neutral and carrying the «comunque» word: no exit disappears,
+    // what changes is which one the thumb finds first. Same rule as
+    // `review-unfinished`, one case below.
     case 'review-branch':
-      out = [
-        say('land', 'primary'),
-        { id: 'send-back', tone: 'neutral', ...sendBackWord(sendBackDest(task), tr) },
-        say('accept', 'neutral'),
-        say('take-over', 'neutral'),
-      ];
+      out = acceptOverride(task) === 'checks-red'
+        ? [
+          { id: 'send-back', tone: 'primary', ...sendBackWord(sendBackDest(task), tr) },
+          landSay('neutral'),
+          acceptSay('neutral'),
+          say('take-over', 'neutral'),
+        ]
+        : [
+          landSay('primary'),
+          { id: 'send-back', tone: 'neutral', ...sendBackWord(sendBackDest(task), tr) },
+          acceptSay('neutral'),
+          say('take-over', 'neutral'),
+        ];
       break;
     // Nessuno ha consegnato: le uscite sono le stesse, l'ordine e il tono no.
     // Il verde va su «Rimandalo avanti» perché è la sola che fa avanzare il
@@ -152,15 +184,16 @@ export function taskChoices(
       out = [
         { id: 'send-back', tone: 'primary', ...sendBackWord(sendBackDest(task), tr) },
         say('take-over', 'neutral'),
-        { id: 'accept', tone: 'neutral', ...acceptWord('unfinished', tr) },
-        ...(toAgent && task.deliveryBranch
-          ? [{ id: 'land' as const, tone: 'neutral' as const, ...landWord(true, tr) }]
-          : []),
+        acceptSay('neutral'),
+        ...(toAgent && task.deliveryBranch ? [landSay('neutral')] : []),
       ];
       break;
     case 'review-plain':
       out = [
-        say('accept', 'primary'),
+        // Green either way: the only other exit here is «Rifai così…», which
+        // does nothing without a written line. The word changes, the weight
+        // does not.
+        acceptSay('primary'),
         // «Rifai così…» on a review a human filed by hand has no agent to hand
         // anything to: same word, and a tooltip that names where the task
         // really goes instead of an agent that is not there.

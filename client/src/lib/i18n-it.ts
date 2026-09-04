@@ -525,6 +525,10 @@ const IT: Dict = {
   // nessuno ha detto che è finito. La parola cambia perché la promessa cambia.
   'board.action.land.anyway': 'Landa comunque',
   'board.action.land.anyway.title': "Nessun agent ha consegnato questo ramo: fondendolo porti su main lavoro che nessuno ha dichiarato finito. Guarda prima il diff. Main LOCALE: nessun push, e quindi nessuna release finche' non pubblichi.",
+  // Same word, other reason: here the branch IS delivered but a check has
+  // already judged it. Landing puts it on main all the same, so the sentence
+  // names the normal road instead of explaining a merge again.
+  'board.action.land.checks.title': "I checks pre-review sono rossi: landando porti su main lavoro gia' giudicato. La strada normale e' «{sendBack}», che rimanda l'output all'agent. Main LOCALE: nessun push finche' non pubblichi.",
   'board.action.accept': 'Approva',
   // `{land}` is the `land` label taken from this same table: naming the other
   // button by copying its text by hand is how two words drift apart again.
@@ -659,6 +663,13 @@ const IT: Dict = {
   'board.task.landRunningRest': ": la fusione su main sta girando adesso. L'esito arriva nel thread.",
   'board.task.landFailed': 'fallito',
   'board.task.landUnknownError': 'errore sconosciuto',
+  // `settled` means "the round is over", not "the branch is on main": the real
+  // verdict is in `outcome`, and without these two rows a REFUSED merge looked
+  // exactly like a successful one on both surfaces.
+  'board.task.landUnlanded': 'respinto',
+  'board.task.landUnlandedRest': ': il ramo NON è su main. La card resta qui.',
+  'board.task.landUnverifiable': 'non verificabile',
+  'board.task.landUnverifiableRest': ": la fusione è uscita zero ma main non si è potuto rileggere. Controlla prima di darlo per atterrato.",
   'board.task.deployProposed': "La board propone il deploy: conferma per lanciarlo nel checkout main.",
   'board.task.deployNow': 'Deploya ora',
   'board.task.deployRunning': 'Deploy in corso…',
