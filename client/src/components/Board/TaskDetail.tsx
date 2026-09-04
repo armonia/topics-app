@@ -35,7 +35,10 @@ import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import { DictationButton } from '../Shared/DictationButton';
 import { emptyThreadKey } from './emptyThread';
-import { boardApi, commentAuthorLabel, diffTotals, hasCodeQuestion, showsLandingDebt, showsDeployProposal, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, subtaskQueueChip, subtaskOpenable, reopenedChip, attemptHasWork, priorityAwaitingAgent, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef, type DiffBundle, type DiffNote, type CheckRun, type TaskAttempt, type LandingTicket } from '../../lib/board';
+import { LandingNotice } from './LandingNotice';
+import { landingBand } from './landingBand';
+import { useLandingTicket } from './useLandingTicket';
+import { boardApi, commentAuthorLabel, diffTotals, hasCodeQuestion, showsLandingDebt, showsDeployProposal, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, subtaskQueueChip, subtaskOpenable, reopenedChip, attemptHasWork, priorityAwaitingAgent, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef, type DiffBundle, type DiffNote, type CheckRun, type TaskAttempt } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
 import { ZoomableImage } from '../Shared/ImageLightbox';
 import { UnifiedDiff } from './UnifiedDiff';
@@ -784,8 +787,6 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
    * same one the column drag shows, from the same key.
    */
   const [notice, setNotice] = useState<string | null>(null);
-  /** La ricevuta del land chiesto da QUESTO client, finché non si chiude. */
-  const [landing, setLanding] = useState<LandingTicket | null>(null);
   const showError = (e: unknown) => setError(taskActionErrorMessage(e));
   // Narrow (default) keeps the board visible behind the drawer; wide grows the
   // drawer so the task's tab group can live in a side panel (Thread on the left,
@@ -869,14 +870,46 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     setDragX(0);
   };
 
+  /**
+   * The read that FAILED, kept instead of swallowed.
+   *
+   * Two different sentences come out of one state, and which one depends on
+   * whether we ever had the row. With no `task` the drawer used to sit on a
+   * full-height spinner forever: the spinner promised the row was coming, so
+   * nobody had a reason to close and reopen, which was the only way out. With a
+   * `task` already on screen the drawer is showing data from BEFORE the failed
+   * refresh, and this is the tail of every mutation (`decide`, `doLand`, `send`,
+   * `saveTitle`, `changeStatus`, `toggleLabel`): the action landed on the
+   * server and the drawer would keep the old row without saying so.
+   */
+  const [loadFailed, setLoadFailed] = useState<string | null>(null);
   const load = useCallback(async () => {
     try {
       const { task, comments, children } = await boardApi.get(projectId, taskId);
       setTask(task); setComments(comments); setChildren(children ?? []);
-    } catch { /* closed or gone */ }
+      setLoadFailed(null);
+    } catch (e) {
+      // The RAW message goes in, translated at render: putting `tr` in these
+      // deps would rebuild `load` when the English catalogue lands, and `load`
+      // is a dependency of the fetch-on-mount effect below.
+      setLoadFailed(e instanceof Error ? e.message : String(e ?? ''));
+    }
   }, [projectId, taskId]);
+  const loadFailedMessage = useMemo(
+    () => (loadFailed === null ? null : taskActionErrorMessage(loadFailed, tr('board.task.loadFailedReason'))),
+    [loadFailed, tr],
+  );
   // fetch-on-mount: setState lands after the await, not synchronously
   useEffect(() => { load(); }, [load, bump]);
+  /**
+   * La ricevuta del land chiesto da QUESTO client, seguita finché non si
+   * chiude. Il come sta in `useLandingTicket`, che è lo stesso della card: due
+   * superfici che seguono lo stesso ticket in due modi diversi è esattamente
+   * come la card è finita per non seguirlo affatto.
+   */
+  const afterLanding = useCallback(() => { void load(); onChanged(); }, [load, onChanged]);
+  const { landing, setLanding } = useLandingTicket(projectId, taskId, afterLanding);
+  const landingBanda = landingBand(landing);
   // Wake-up refresh (same rationale as the board's): an open drawer coming back
   // from sleep would keep yesterday's chip/ticker until some WS event lands.
   //
@@ -1134,29 +1167,6 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     finally { setDeploying(false); }
   };
 
-  // Il ticket si SEGUE finché non si chiude. Senza qualcuno che chieda «e poi?»,
-  // il 202 sarebbe l'onestà del server sprecata: la richiesta è andata a buon
-  // fine e l'esito non arriva comunque mai a chi l'ha chiesto.
-  useEffect(() => {
-    if (!landing || (landing.phase !== 'queued' && landing.phase !== 'running')) return;
-    let alive = true;
-    const id = setInterval(async () => {
-      try {
-        const res = await boardApi.landStatus(projectId, taskId);
-        if (!alive) return;
-        // Stesso oggetto quando niente è cambiato: altrimenti ogni giro
-        // rimonterebbe questo effetto e riazzererebbe l'intervallo.
-        setLanding((prev) =>
-          prev && prev.phase === res.landing.phase && prev.ahead === res.landing.ahead ? prev : res.landing);
-        if (res.landing.phase === 'settled' || res.landing.phase === 'failed') { await load(); onChanged(); }
-      } catch {
-        // Il ticket è caduto fuori dalla finestra interrogabile (o la board non
-        // risponde): la banda sparisce invece di mentire.
-        if (alive) setLanding(null);
-      }
-    }, 2000);
-    return () => { alive = false; clearInterval(id); };
-  }, [landing, projectId, taskId, load, onChanged]);
 
   // Ricattura evidenza: rifà l'anteprima di QUESTA card senza svegliare l'agent
   // (il server risponde sul canale review-note, non su quello dei commenti) e
@@ -2311,8 +2321,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           title={tr('board.task.changeStatusTitle')}
           className="flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-app-text-heading hover:bg-white/10"
         >
-          {task ? <StatusIcon status={task.status} /> : <Spinner size="sm" tone="current" />}
-          {task ? STATUS_LABEL[task.status] : tr('board.task.loading')}
+          {/* A failed first read must not keep saying «Loading…»: the spinner is
+              a promise, and here nothing is coming. */}
+          {task ? <StatusIcon status={task.status} /> : loadFailedMessage ? <AlertTriangle className="h-3.5 w-3.5 text-rose-300" /> : <Spinner size="sm" tone="current" />}
+          {task ? STATUS_LABEL[task.status] : loadFailedMessage ? tr('board.task.loadFailedChip') : tr('board.task.loading')}
           <ChevronDown className="h-3 w-3 text-app-text-faint" />
         </button>
         {/* Condividere sta accanto allo STATO, non dentro un menù: è una
@@ -2476,19 +2488,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       )}
       {/* Land ACCODATO, non ancora avvenuto. Sta sopra la banda «non su main»
           perché in questa finestra quella banda dice il vero ma non dice tutto:
-          il codice non è su main E qualcuno ci sta già lavorando. */}
-      {landing && (landing.phase === 'queued' || landing.phase === 'running') && (
-        <div className="shrink-0 border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-300">
-          {landing.ahead > 0
-            ? <>{tr('board.task.land')} <strong>{tr('board.task.landQueued')}</strong>{tr(landing.ahead === 1 ? 'board.task.landQueuedRestOne' : 'board.task.landQueuedRestMany', { n: landing.ahead })}</>
-            : <>{tr('board.task.land')} <strong>{tr('board.task.landRunning')}</strong>{tr('board.task.landRunningRest')}</>}
-        </div>
-      )}
-      {landing?.phase === 'failed' && (
-        <div className="shrink-0 border-b border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-300">
-          ⚠️ {tr('board.task.land')} <strong>{tr('board.task.landFailed')}</strong>: {landing.error ?? tr('board.task.landUnknownError')}
-        </div>
-      )}
+          il codice non è su main E qualcuno ci sta già lavorando.
+          La frase (e il caso che qui mancava: un `settled` RESPINTO, che senza
+          leggere `outcome` era identico a un successo) sta in `LandingNotice`,
+          insieme a quella della card. */}
+      {landingBanda && <LandingNotice band={landingBanda} testId="task-detail-landing" />}
       {/* Verdetto dell'audit di landing: un task chiuso il cui lavoro non è su
           main. Sta QUI, in cima al drawer, e non solo come commento nel thread —
           il commento si perde, la banda no.
@@ -2569,7 +2573,26 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           TRAPPOLA, non toccare: il GroupLayout deve restare FUORI dallo scroll.
           Dentro un contenitore scrollabile perde l'altezza definita e le sue
           pane collassano a 0. Per costruzione, non per fortuna. */}
-      {!task ? (
+      {!task && loadFailedMessage ? (
+        /* THE DEAD END, closed. With no row the body below never mounts, so the
+           only thing on screen was the spinner: no message, no way to retry,
+           and the one recovery that existed (the wake-up refresh on
+           `visibilitychange`) worked by accident, if you happened to leave the
+           window. Here the server's own sentence and one button that calls the
+           same `load()`. */
+        <div data-testid="task-load-error" className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+          <AlertTriangle className="h-6 w-6 text-rose-300" />
+          <p className="text-sm text-app-text-heading">{tr('board.task.loadFailedTitle')}</p>
+          <p className="max-w-sm break-words text-[11px] text-app-text-muted">{loadFailedMessage}</p>
+          <button
+            data-testid="task-load-retry"
+            onClick={() => { void load(); }}
+            className="rounded-md border border-app-border px-3 py-1.5 text-xs text-app-text-heading hover:bg-white/10"
+          >
+            {tr('board.task.loadRetry')}
+          </button>
+        </div>
+      ) : !task ? (
         <div className="flex flex-1 items-center justify-center">
           <Spinner size="md" tone="current" className="text-app-text-muted" />
         </div>
@@ -2881,6 +2904,26 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 sta appiccicato ai bottoni che l'hanno prodotto (Approva, Landa,
                 le scelte, il composer) e resta nel viewport quanto loro. In
                 testa al drawer era vero e invisibile. */}
+            {/* THE ACTION LANDED, THE REFRESH DID NOT. Every mutation here ends
+                with `load()`, so when that read fails the server has already
+                moved and the drawer is still drawing the row from before. Said
+                next to the buttons, with the same retry: silence here reads as
+                a button that did nothing. */}
+            {task && loadFailedMessage && (
+              <div
+                data-testid="task-stale-warning"
+                className="mb-2 flex items-start gap-2 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-200"
+              >
+                <span className="min-w-0 flex-1 break-words">{tr('board.task.staleAfterAction', { reason: loadFailedMessage })}</span>
+                <button
+                  data-testid="task-stale-retry"
+                  onClick={() => { void load(); }}
+                  className="shrink-0 rounded px-1.5 py-0.5 text-amber-100 underline decoration-dotted hover:bg-white/10"
+                >
+                  {tr('board.task.loadRetry')}
+                </button>
+              </div>
+            )}
             {error && (
               <div
                 data-testid="task-action-error"

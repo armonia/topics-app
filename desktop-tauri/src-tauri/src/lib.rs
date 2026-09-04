@@ -1067,6 +1067,12 @@ async fn read_request_head(s: &mut tokio::net::TcpStream) -> Vec<u8> {
                 Ok(0) => break,
                 Ok(n) => {
                     head.extend_from_slice(&buf[..n]);
+                    // A TLS handshake has no blank line to wait for: without this
+                    // the caller would sit here for the whole timeout before it
+                    // could hang up on a client that came to the wrong port.
+                    if is_tls_client_hello(&head) {
+                        break;
+                    }
                     if head.windows(4).any(|w| w == b"\r\n\r\n") || head.len() >= 16 * 1024 {
                         break;
                     }
@@ -1077,6 +1083,29 @@ async fn read_request_head(s: &mut tokio::net::TcpStream) -> Vec<u8> {
     };
     let _ = tokio::time::timeout(deadline, fut).await;
     head
+}
+
+/// Is this a TLS `ClientHello` instead of an HTTP request?
+///
+/// THE BUG THIS EXISTS FOR (board card cbfd6248, 2026-09-04). The proxy listens
+/// in the CLEAR on :13333 and originates the TLS itself. A browser opening a
+/// deep link like `http://127.0.0.1:13333/tab/chat/<id>` does not always speak
+/// clear HTTP though: with HTTPS-First / HSTS-style upgrading it retries the
+/// same authority over TLS, and what lands on this socket is a handshake
+/// record, not a request line.
+///
+/// Piped as if it were a request, those bytes reached the upstream, which
+/// answered a plain-HTTP `400` that the browser could not read as TLS: an
+/// address of the app that hands back a blob, i.e. the browser offering to SAVE
+/// the deep link as a file. Closing instead is what a port that does not speak
+/// TLS is supposed to do, and it is what makes the browser fall back to the
+/// clear `http://` it was given.
+///
+/// The shape is fixed by RFC 8446 §5.1: content type `0x16` (handshake) then a
+/// legacy record version of `0x03 0x0X`. Cheap, and no HTTP method starts with
+/// a control byte, so it can never swallow a real request.
+fn is_tls_client_hello(head: &[u8]) -> bool {
+    matches!(head, [0x16, 0x03, ..])
 }
 
 /// Is this request head a WebSocket upgrade? Those must never be answered with an
@@ -1259,6 +1288,14 @@ async fn proxy_loop(listener: tokio::net::TcpListener, source: UpstreamSource) {
             // an XHR/WebSocket. Whatever we read is replayed to the upstream below —
             // it's already out of the socket, `copy_bidirectional` can't see it.
             let head = read_request_head(&mut inbound).await;
+            // A TLS handshake on a port that speaks clear HTTP is not a request:
+            // forwarding it made the upstream answer a plain `400` that the
+            // browser read as an opaque body, and offered to download. Hang up,
+            // which is the answer a non-TLS port owes a TLS client.
+            if is_tls_client_hello(&head) {
+                let _ = inbound.shutdown().await;
+                return;
+            }
             let doc = is_document_head(&head);
             // AND ONLY NOW ASK WHERE TO GO. Reading the boot decision here, rather
             // than once when the loop started, is what keeps a connection that
@@ -11667,7 +11704,7 @@ mod bundle_rev_tests {
 #[cfg(test)]
 mod window_recovery_tests {
     use super::{
-        connect_upstream_retrying, is_document_head, is_websocket_head,
+        connect_upstream_retrying, is_document_head, is_tls_client_hello, is_websocket_head,
         window_recompose::rect_intersects_any, Upstream, UpstreamSource, RELOAD_IF_BLANK_JS,
         UPSTREAM,
     };
@@ -11748,6 +11785,27 @@ Upgrade: websocket\r\nConnection: Upgrade\r\nAccept: */*\r\n\r\n";
         assert!(!is_document_head(WS));
         assert!(is_websocket_head(WS));
         assert!(!is_websocket_head(DOC));
+    }
+
+    /// A TLS HANDSHAKE IS NOT A REQUEST, and must never be piped upstream.
+    ///
+    /// The deep-link download (board card cbfd6248): a browser that upgrades
+    /// `http://127.0.0.1:13333/tab/chat/<id>` to TLS by itself puts a
+    /// `ClientHello` on a port that speaks clear HTTP. Forwarded, it came back
+    /// as a plain-HTTP `400` the browser could not read as TLS, so it offered to
+    /// SAVE the address as a file. And the recogniser must not go the other way
+    /// either: every real request the proxy carries stays a request.
+    #[test]
+    fn una_stretta_di_mano_tls_non_e_una_richiesta() {
+        assert!(is_tls_client_hello(&[0x16, 0x03, 0x01, 0x02, 0x00]));
+        assert!(is_tls_client_hello(&[0x16, 0x03, 0x03, 0x00, 0x2a]));
+        for head in [DOC, XHR, WS] {
+            assert!(!is_tls_client_hello(head), "una richiesta HTTP non e' una stretta di mano");
+        }
+        // A connection that said nothing yet (speculative preconnect) is not one
+        // either: hanging up on it would kill a perfectly good pipe.
+        assert!(!is_tls_client_hello(b""));
+        assert!(!is_tls_client_hello(&[0x16]));
     }
 
     /// A browser that sends no `Sec-Fetch-Dest` must still be recognised by Accept.

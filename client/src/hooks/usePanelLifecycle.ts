@@ -77,6 +77,9 @@ import {
   TERMINAL_AGENT_LABELS,
   type TerminalAgentType,
 } from '../lib/terminalAgents';
+import { createTerminalSession } from '../lib/terminalActions';
+import { useToast } from '../components/Shared/Toast';
+import { useT } from './useT';
 
 import { utilityPanelId } from '../components/Layout/UtilityPanel';
 import { UTILITY_PANEL_TYPES, type UtilityPanelType } from '../state/pane/adapters/utilityPanelId';
@@ -345,6 +348,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   const {
     loadHistory, sendMessage, drainQueue,
   } = chatStreamHandlers;
+
+  // Opening a terminal can be REFUSED (no PTY bridge in this build, spawn
+  // failure, cwd outside a project). Saying so needs both of these here.
+  const toast = useToast();
+  const tr = useT();
 
   // ---- 1. State ----
   const [openPanels, setOpenPanels] = useState<string[]>(() => {
@@ -2160,56 +2168,51 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   }, [draftMeta, createTopic, sendMessage, focusedPanelIdRef]);
 
   const handleQuickCreateTerminal = useCallback(async (termType: TerminalAgentType = 'shell', skipPermissions = true): Promise<string | null> => {
-    try {
-      const name = TERMINAL_AGENT_LABELS[termType];
-      const body = buildTerminalSessionBody(termType, { skipPermissions });
-      const res = await fetch('/api/terminal/sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+    const name = TERMINAL_AGENT_LABELS[termType];
+    const body = buildTerminalSessionBody(termType, { skipPermissions });
+    // The refusal is spoken by the helper (translated, one sentence). Null is
+    // still the answer, but no longer the ONLY thing that happened.
+    const data = await createTerminalSession(body, toast, tr);
+    if (!data) return null;
+    const paneId = createPaneId('terminal', data.id);
+    terminalOps.markRecentlyCreated(data.id);
+    terminalOps.addOptimisticSession({
+      id: data.id, name: data.name || name, createdAt: data.createdAt,
+      cwd: data.cwd, command: data.command, clients: 0,
+      topicId: data.topicId, type: data.type,
+    });
+    {
+      const s = usePaneStore.getState();
+      const focusLoc = s.focusedPaneId
+        ? findPaneLocation(s, s.focusedPaneId)
+        : null;
+      const targetGroupId = focusLoc?.groupId ?? 'group:default';
+      s.dispatch({
+        type: 'OPEN_PANE',
+        payload: {
+          id: paneId,
+          type: 'terminal',
+          title: data.name || name,
+          terminalType: termType,
+          preview: false,
+          groupId: targetGroupId,
+        },
       });
-      if (!res.ok) return null;
-      const data = await res.json();
-      const paneId = createPaneId('terminal', data.id);
-      terminalOps.markRecentlyCreated(data.id);
-      terminalOps.addOptimisticSession({
-        id: data.id, name: data.name || name, createdAt: data.createdAt,
-        cwd: data.cwd, command: data.command, clients: 0,
-        topicId: data.topicId, type: data.type,
-      });
-      {
-        const s = usePaneStore.getState();
-        const focusLoc = s.focusedPaneId
-          ? findPaneLocation(s, s.focusedPaneId)
-          : null;
-        const targetGroupId = focusLoc?.groupId ?? 'group:default';
-        s.dispatch({
-          type: 'OPEN_PANE',
-          payload: {
-            id: paneId,
-            type: 'terminal',
-            title: data.name || name,
-            terminalType: termType,
-            preview: false,
-            groupId: targetGroupId,
-          },
-        });
-      }
-      setOpenPanels(prev => prev.includes(paneId) ? prev : [...prev, paneId]);
-      setFocusedPanelId(paneId);
-      // Don't mark the new terminal as a top-level solo cell — that would
-      // render it as its own column outside any tab bar (the "split" the user
-      // sees when clicking + → Claude Code on the standalone/non-project tab
-      // bar). Let it land as a regular tab in the standalone group instead,
-      // mirroring the project tab bar behaviour. The user can manually split
-      // it into its own cell via the existing split affordances.
-      if (isMobile) setSidebarCollapsed(true);
-      // Return the new pane id so the caller can re-target it — a "+" clicked
-      // on a SPLIT cell's tab bar merges the pane into that cell (see
-      // usePaneLifecycle.handleAddPane), otherwise it stays in the pool.
-      return paneId;
-    } catch { return null; }
-  }, [isMobile, terminalOps, setSidebarCollapsed]);
+    }
+    setOpenPanels(prev => prev.includes(paneId) ? prev : [...prev, paneId]);
+    setFocusedPanelId(paneId);
+    // Don't mark the new terminal as a top-level solo cell — that would
+    // render it as its own column outside any tab bar (the "split" the user
+    // sees when clicking + → Claude Code on the standalone/non-project tab
+    // bar). Let it land as a regular tab in the standalone group instead,
+    // mirroring the project tab bar behaviour. The user can manually split
+    // it into its own cell via the existing split affordances.
+    if (isMobile) setSidebarCollapsed(true);
+    // Return the new pane id so the caller can re-target it — a "+" clicked
+    // on a SPLIT cell's tab bar merges the pane into that cell (see
+    // usePaneLifecycle.handleAddPane), otherwise it stays in the pool.
+    return paneId;
+  }, [isMobile, terminalOps, setSidebarCollapsed, toast, tr]);
 
   const handleCloseTerminal = useCallback(async (sessionId: string) => {
     fetch(`/api/terminal/sessions/${sessionId}`, { method: 'DELETE' }).catch(() => {});

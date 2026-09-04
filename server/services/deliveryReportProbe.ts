@@ -15,11 +15,36 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { RepoProbe } from "./deliveryReportChecks";
 
-const ROOT = join(import.meta.dir, "..", "..");
+const SERVER_ROOT = join(import.meta.dir, "..", "..");
+
+/**
+ * ONE PROBE PER REPOSITORY, and the repository is the one the report talks
+ * about. The probe used to be a singleton over this server's own checkout:
+ * `git ls-files` and `cat-file` on topics-app's main. So a file that existed
+ * only on the delivery branch was "not tracked", a dancerooms commit "in no
+ * ref", and main's tracked list, cached once per process, went stale the
+ * moment a card landed. Four true deliveries were accused on 2026-09-04 alone.
+ */
+const probes = new Map<string, RepoProbe>();
+export function probeForRoot(root: string): RepoProbe {
+  const hit = probes.get(root);
+  if (hit) return hit;
+  const built = buildProbe(root);
+  probes.set(root, built);
+  return built;
+}
+
+/** How long a `git ls-files` answer stays fresh: enough to check one report,
+ *  short enough that a commit made later is seen. */
+const TRACKED_TTL_MS = 30_000;
+
+function buildProbe(ROOT: string): RepoProbe {
 const MIGRATIONS = join(ROOT, "server", "db", "migrations");
 
 /** Cached per process: `git log --all -S` walks every ref and is not cheap. */
-const cache = new Map<string, boolean>();
+// Memoised git answers expire like the tracked list: a "no" for a sha is
+// true for that root NOW, and a worktree gets commits later.
+const cache = new Map<string, { v: boolean; at: number }>();
 
 /**
  * "git answered NO" and "git could not be asked" are DIFFERENT, and collapsing
@@ -50,18 +75,17 @@ function askGit(run: () => string): boolean | null {
 
 function memo(key: string, f: () => boolean | null): boolean {
   const hit = cache.get(key);
-  if (hit !== undefined) return hit;
+  if (hit !== undefined && Date.now() - hit.at < TRACKED_TTL_MS) return hit.v;
   const answer = f();
-  // `null` means unanswerable, and only THERE does failing open apply: an
-  // absent git must not accuse anyone.
   const v = answer === null ? true : answer;
-  cache.set(key, v);
+  cache.set(key, { v, at: Date.now() });
   return v;
 }
 
 let trackedFiles: string[] | null = null;
+let trackedAt = 0;
 function tracked(): string[] {
-  if (trackedFiles) return trackedFiles;
+  if (trackedFiles && Date.now() - trackedAt < TRACKED_TTL_MS) return trackedFiles;
   try {
     trackedFiles = execFileSync("git", ["ls-files"], { cwd: ROOT, encoding: "utf8", maxBuffer: 64 << 20 })
       .split("\n")
@@ -69,10 +93,11 @@ function tracked(): string[] {
   } catch {
     trackedFiles = [];
   }
+  trackedAt = Date.now();
   return trackedFiles;
 }
 
-export const repoProbe: RepoProbe = {
+return {
   shaExists: (sha) =>
     memo(`sha:${sha}`, () =>
       askGit(() => {
@@ -125,3 +150,7 @@ export const repoProbe: RepoProbe = {
       }
     }),
 };
+}
+
+/** This server's own checkout: the fallback when a card names no repository. */
+export const repoProbe: RepoProbe = probeForRoot(SERVER_ROOT);

@@ -23,8 +23,22 @@ describe('taskActionErrorMessage', () => {
     expect(detto).toMatch(/Todo/);
   });
 
+  it('traduce il 409 dei checks rossi senza mettere in faccia un campo dell\'API', () => {
+    // The server's sentence is written for an API caller: its remedy is
+    // `force: true`, which a card cannot pass. The check's name stays (it says
+    // what to look at); the JSON field and the timestamp do not.
+    const detto = taskActionErrorMessage(new Error(
+      'i checks pre-review sono ROSSI (`lint`). La strada normale e\' rimandarlo all\'agent; '
+      + 'per accettarlo comunque usa il bottone «comunque» della card.',
+    ));
+    expect(detto).not.toMatch(/force/i);
+    expect(detto).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
+    expect(detto).toMatch(/lint/);
+    expect(detto).toMatch(/comunque/);
+  });
+
   it('lascia passare gli altri errori come sono', () => {
-    expect(taskActionErrorMessage(new Error('checks pre-review rossi'))).toBe('checks pre-review rossi');
+    expect(taskActionErrorMessage(new Error('worktree sporco'))).toBe('worktree sporco');
   });
 
   it('senza messaggio usa il fallback del chiamante (mai una banda vuota)', () => {

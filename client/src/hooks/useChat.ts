@@ -9,6 +9,7 @@ import { isEmptyAssistantTurn } from '../../../shared/empty-turn';
 import { mergeCatchupIntoPartial, shouldAdoptIntoPlaceholder, CLIENT_MESSAGE_ID_PREFIX } from './streamCatchupMerge';
 import { clearPartialForReattach, reviveClosedBubble } from './streamReattachReset';
 import { LiveTurnIds, liveAssistantIndex, shouldFillFromBroadcast } from './liveTurn';
+import { liveInterruptionBlock } from '../components/Chat/turnError';
 import { decideCacheWrite } from './messageCacheWrite';
 import { decideCachePrune } from './messageCachePrune';
 import { useRefMirror } from './useRefMirror';
@@ -1544,9 +1545,25 @@ export function useChat() {
             // Always run through the centralized cleaner so detection tracks the
             // full marker set; only rewrite if it actually changed something.
             const cleaned = cleanInvisibleMarkers(last.content);
-            if (cleaned !== last.content) {
+            // WHY THE TURN ENDED, ONTO THE ROW WE ARE ALREADY HOLDING.
+            // The server just wrote this same block in the DB, but this page
+            // has the message in memory: without applying it here the banner
+            // showed up only after a reload, which is to say it did not show up
+            // to the person who was sitting there watching. See
+            // `liveInterruptionBlock` for which ends qualify.
+            const verdict = liveInterruptionBlock({
+              stopCause: event.stopCause,
+              error: event.error,
+              blocks: last.blocks,
+            });
+            if (cleaned !== last.content || verdict) {
               const updated = [...msgs];
-              updated[at] = { ...last, content: cleaned, partial: false };
+              updated[at] = {
+                ...last,
+                content: cleaned,
+                partial: false,
+                ...(verdict ? { blocks: [...(last.blocks ?? []), verdict] } : {}),
+              };
               cacheOnEnd.msgs = updated;
               return { ...prev, [sessionKey]: updated };
             }

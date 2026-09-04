@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TerminalSessionInfo, WSMessage } from '../types';
 import type { TerminalOps } from './appHookTypes';
+import { createDormantTerminalGuard, type DormantKnowledge } from '../lib/dormantTerminalGuard';
 import { decideRosterTrust } from './rosterTrust';
 import { useRefMirror } from './useRefMirror';
 
@@ -99,6 +100,25 @@ export function useTerminalLifecycle(args: UseTerminalLifecycleArgs): UseTermina
   // ISSUE 13 fix: track recently created terminal session IDs with timestamps
   // to avoid cleanup race when server WS broadcast hasn't caught up yet.
   const recentlyCreatedTerminalsRef = useRef<Map<string, number>>(new Map());
+
+  /**
+   * PARKED sessions, and the knowledge that puts the prune back in motion when
+   * more of it lands.
+   *
+   * The roster cannot contain them by construction (it is the server's
+   * in-memory map, and a parked session has left it), so without this the prune
+   * below read a parking as a death. And the guard is not a list read once: it
+   * is asked again at every disappearance, which is the only moment the
+   * question means anything.
+   *
+   * STATE, not a ref, on purpose: the answer arrives async and the pass that
+   * actually prunes is the NEXT one - with no re-render the cleanup effect
+   * would never run it.
+   */
+  const [parked, setParked] = useState<DormantKnowledge>(() => ({
+    dormantIds: new Set<string>(), confirmedGoneIds: new Set<string>(),
+  }));
+  const [dormantGuard] = useState(() => createDormantTerminalGuard({ onUpdate: setParked }));
 
   // Internal mirror so the pure helper can be a stable callback (no deps,
   // never re-created — keeps the panel hook's terminal-cleanup effect
@@ -231,16 +251,32 @@ export function useTerminalLifecycle(args: UseTerminalLifecycleArgs): UseTermina
     for (const [id, ts] of recentlyCreatedTerminalsRef.current) {
       if (now - ts > GRACE_MS) recentlyCreatedTerminalsRef.current.delete(id);
     }
+    // Ids that left the roster and are neither parked nor confirmed dead yet.
+    const toVerify: string[] = [];
     const filtered = currentPaneIds.filter(id => {
       if (!id.startsWith('terminal:')) return true;
       const sessionId = id.slice('terminal:'.length);
-      return sessionIds.has(sessionId) || recentlyCreatedTerminalsRef.current.has(sessionId);
+      if (sessionIds.has(sessionId) || recentlyCreatedTerminalsRef.current.has(sessionId)) return true;
+      // OUT OF THE ROSTER IS NOT DEAD. The roster mirrors the server's live
+      // session map, which a claude session leaves the instant it exits - while
+      // its row stays `dormant` and resumable. This prune saw only the map, so
+      // typing `/exit` deleted the tab within the second, taking the "Session
+      // ended / Resume" overlay (and the uuid it prints for `--resume`) with it.
+      // Ask the dormant list, keep the pane until it answers.
+      if (parked.dormantIds.has(sessionId)) return true;
+      if (parked.confirmedGoneIds.has(sessionId)) return false;
+      toVerify.push(sessionId);
+      return true;
     });
+    if (toVerify.length > 0) dormantGuard.recheck(toVerify);
     return filtered.length === currentPaneIds.length ? currentPaneIds : filtered;
-    // sessionsRef is a stable ref object (identity never changes), so listing
-    // it keeps the callback's identity stable — this stays a zero-churn
-    // callback as the cleanup effect requires while satisfying exhaustive-deps.
-  }, [sessionsRef]);
+    // sessionsRef is a stable ref object and `dormantGuard` a stable state
+    // value (identity never changes), so listing them keeps the callback's
+    // identity stable — this stays a zero-churn callback as the cleanup effect
+    // requires while satisfying exhaustive-deps. `parked` is the one deliberate
+    // churn: a fresh dormant answer must re-run the cleanup effect, which is
+    // the pass that finally prunes a session confirmed gone.
+  }, [sessionsRef, dormantGuard, parked]);
 
   return {
     sessions,

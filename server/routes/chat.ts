@@ -96,6 +96,7 @@ import { avvisoPerTurno, abortLogTitle } from "../lib/cancelled-notice";
 import { toolOutcomeAtTurnEnd } from "../lib/tool-finalize-status";
 import { providerSurvivesRestart } from "../lib/quiescence";
 import { toolsSuspendSoftTimer } from "../lib/soft-timer-suspension";
+import { appendInterruptedVerdict } from "../lib/interrupted-turn-block";
 
 /**
  * Le chiavi dei messaggi gia' presi, per riconoscere una ripetizione.
@@ -1365,7 +1366,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             fullContent = stripSlowAnnotation(fullContent);
             if (!fullContent.trim()) fullContent = timeoutMsg;
             else fullContent += "\n\n---\n*[Response timed out]*";
-            updateLastMessage(sessionKey, { content: fullContent, partial: undefined, streamedAt: undefined });
+            // The marker above is the fallback for old clients, and it is a
+            // footnote. The EVENT is the block: the cause in code, which is
+            // what the client draws the banner off (`interrupted-turn-block`).
+            const graceBlocks = appendInterruptedVerdict(blocks, { text: timeoutMsg, cause: "watchdog" });
+            updateLastMessage(sessionKey, { content: fullContent, blocks: graceBlocks, partial: undefined, streamedAt: undefined });
             endStream(sessionKey);
             topicProvider.unregisterStreamHandler?.(sessionKey);
             // Abort the underlying provider turn too. `unregisterStreamHandler` is
@@ -1417,7 +1422,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             fullContent = stripSlowAnnotation(fullContent);
             if (!fullContent.trim()) fullContent = msg;
             else fullContent += `\n\n---\n*[Hard timeout (${STREAM_HARD_TIMEOUT_MS / 60_000} min) reached]*`;
-            updateLastMessage(sessionKey, { content: fullContent, partial: undefined, streamedAt: undefined });
+            // `watchdog` and not `wall-clock`: the cause written on the row is
+            // the one this path broadcasts on `stream:end` below, and two
+            // witnesses of the same turn must not disagree.
+            const hardBlocks = appendInterruptedVerdict(blocks, { text: msg, cause: "watchdog" });
+            updateLastMessage(sessionKey, { content: fullContent, blocks: hardBlocks, partial: undefined, streamedAt: undefined });
             endStream(sessionKey);
             topicProvider.unregisterStreamHandler?.(sessionKey);
             // See handleGraceExpiry: abort the orphaned provider turn (no-op

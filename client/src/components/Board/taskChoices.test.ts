@@ -36,6 +36,9 @@ function task(over: Partial<ChoiceInput> = {}): ChoiceInput {
     // quasi tutti i casi qui sotto.
     deliveredBy: null,
     deliveredReason: null,
+    // Pre-review checks not run: the "normal" card is not an exception, and the
+    // words stay plain.
+    checksState: null,
     ...over,
   };
 }
@@ -410,6 +413,32 @@ describe('review portata dal sistema: le scelte non sono quelle di una consegna'
     expect(taskChoices(consegnata).find((c) => c.id === 'accept')).toMatchObject({ tone: 'neutral' });
   });
 
+  it('coi checks ROSSI la card dice «comunque», come il drawer', () => {
+    // The defect: `checksState` was not among the fields the choices are born
+    // from, so `acceptOverride` always answered "no exception". The button said
+    // «Approva», the drawer on the SAME task said «Approva comunque», and the
+    // click took a 409 naming `force: true` at someone who cannot pass it.
+    const rossa = task({ ...consegnata, checksState: 'fail' });
+    const scelte = byId(rossa);
+    expect(scelte.get('accept')!.label).toBe(acceptWord('checks-red').label);
+    expect(scelte.get('accept')!.label).not.toBe(taskActionWord('accept').label);
+    // Landing CONTAINS the acceptance and merges onto main on top: if
+    // «comunque» holds for one of the two, it holds all the more for the other.
+    expect(scelte.get('land')!.label).toBe(landWord('checks-red').label);
+    expect(scelte.get('land')!.label).not.toBe(taskActionWord('land').label);
+    // And the green one is no longer the land: with red checks the normal road
+    // is sending the output back. No exit disappears.
+    expect(taskChoices(rossa)[0]).toMatchObject({ id: 'send-back', tone: 'primary' });
+    expect(taskChoices(rossa).filter((c) => c.tone === 'primary')).toHaveLength(1);
+    expect(taskChoices(rossa).map((c) => c.id).sort()).toEqual(taskChoices(consegnata).map((c) => c.id).sort());
+  });
+
+  it('coi checks verdi non cambia niente: l\'eccezione è l\'eccezione', () => {
+    const verde = task({ ...consegnata, checksState: 'pass' });
+    expect(taskChoices(verde).map((c) => c.label)).toEqual(taskChoices(consegnata).map((c) => c.label));
+    expect(taskChoices(verde)[0]).toMatchObject({ id: 'land', tone: 'primary' });
+  });
+
   it('il verde non è più «Landa su main»: è la sola uscita che fa avanzare il lavoro', () => {
     expect(taskChoices(consegnata)[0]).toMatchObject({ id: 'land', tone: 'primary' });
     expect(taskChoices(reaper)[0]).toMatchObject({ id: 'send-back', tone: 'primary' });
@@ -426,7 +455,7 @@ describe('review portata dal sistema: le scelte non sono quelle di una consegna'
   it('e non portano le stesse parole: «comunque» dice che è un\'eccezione', () => {
     const scelte = byId(reaper);
     expect(taskChoices(reaper).map((c) => c.label)).not.toEqual(taskChoices(consegnata).map((c) => c.label));
-    expect(scelte.get('land')!.label).toBe(landWord(true).label);
+    expect(scelte.get('land')!.label).toBe(landWord('unfinished').label);
     expect(scelte.get('land')!.label).not.toBe(taskActionWord('land').label);
     expect(scelte.get('accept')!.label).toBe(acceptWord('unfinished').label);
     expect(scelte.get('accept')!.label).not.toBe(taskActionWord('accept').label);
@@ -461,7 +490,7 @@ describe('review portata dal sistema: le scelte non sono quelle di una consegna'
     const d = reviewDecisionButtons(drawerReaper);
     expect(d.accept.label).toBe(acceptWord('unfinished').label);
     expect(d.sendBack.label).toBe(sendBackWord('unfinished').label);
-    expect(d.land!.label).toBe(landWord(true).label);
+    expect(d.land!.label).toBe(landWord('unfinished').label);
   });
 
   it('il de-duplicatore vede le parole DISEGNATE, anche quando cambiano', () => {
@@ -469,7 +498,7 @@ describe('review portata dal sistema: le scelte non sono quelle di una consegna'
     // sottrae i gemelli resta a ieri, quindi la risposta rapida che RIGETTA
     // torna accanto al bottone vero.
     const drawerReaper = drawerTask({ deliveredBy: 'system', deliveredReason: 'retries_exhausted' });
-    expect(drawerSurfaceLabels(drawerReaper)).toContain(landWord(true).label);
+    expect(drawerSurfaceLabels(drawerReaper)).toContain(landWord('unfinished').label);
     expect(drawerSurfaceLabels(drawerReaper)).toContain(sendBackWord('unfinished').label);
     expect(drawerSurfaceLabels(drawerReaper)).not.toContain(taskActionWord('land').label);
     expect(usableQuestionOptions(reaper, ['Landa comunque', 'Sì'], { surfaceLabels: drawerSurfaceLabels(drawerReaper) }))
@@ -503,6 +532,8 @@ describe('usableQuestionOptions', () => {
     // Consegnata DALL'AGENTE: è ciò che rende le sue scelte land/send-back/take-over.
     deliveredBy: 'agent' as const,
     deliveredReason: null,
+    // Checks not run: the words stay plain (red turns them into «comunque»).
+    checksState: null,
   };
 
   it('drops an option that collides with a real choice', () => {
@@ -577,8 +608,8 @@ describe('usableQuestionOptions', () => {
   it('«Landa su main» cade anche quando il bottone vero dice «Landa comunque»', () => {
     const reaper = { ...consegnata, deliveredBy: 'system' as const, deliveredReason: 'retries_exhausted' as const };
     // Precondizione: è proprio il caso in cui la parola sul bottone cambia.
-    expect(taskChoices(reaper).find((c) => c.id === 'land')!.label).toBe(landWord(true).label);
-    expect(landWord(true).label).not.toBe(LAND_ACTION_LABEL);
+    expect(taskChoices(reaper).find((c) => c.id === 'land')!.label).toBe(landWord('unfinished').label);
+    expect(landWord('unfinished').label).not.toBe(LAND_ACTION_LABEL);
     // E il gemello deve sparire lo stesso: stessa porta, stesso merge.
     expect(usableQuestionOptions(reaper, [LAND_ACTION_LABEL])).toEqual([]);
     expect(usableQuestionOptions(reaper, ['🚀 Landa su main'])).toEqual([]);
@@ -610,6 +641,8 @@ describe('usableQuestionOptions, locale en', () => {
     // Consegnata DALL'AGENTE: è ciò che rende le sue scelte land/send-back/take-over.
     deliveredBy: 'agent' as const,
     deliveredReason: null,
+    // Checks not run: the words stay plain (red turns them into «comunque»).
+    checksState: null,
   };
 
   it('the fallback word for land IS the string the server executes', () => {

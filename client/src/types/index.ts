@@ -59,7 +59,7 @@ export interface Message {
 // ToolCallDetail, ToolCall e ContentBlock erano riscritti qui riga per riga,
 // identici a `server/types.ts` a meno dei commenti, col solito "Mirrors" a
 // fare da garanzia. Ora la dichiarazione è UNA, in `shared/types.ts`.
-export type { ToolCallDetail, ToolCall, ContentBlock } from '../../../shared/types';
+export type { ToolCallDetail, ToolCall, ContentBlock, TurnEndCause } from '../../../shared/types';
 export type { PermissionDecision, ToolPermissionRequest, ToolPermissionOutcome } from '../../../shared/types';
 import type { ToolCall, ContentBlock, ToolPermissionRequest, ToolPermissionOutcome } from '../../../shared/types';
 
@@ -437,6 +437,10 @@ export interface WSStreamEndMessage {
    *  fermato (`watchdog`, `user`, …). Presenti solo su una fine non pulita. */
   stopReason?: string;
   stopCause?: string;
+  /** The server's sentence about the failure, when the end carried one. It is
+   *  the FALLBACK text of the verdict block: the banner renders the translated
+   *  cause, so an end that carries only `stopCause` still explains itself. */
+  error?: string;
   /** Marcatore POSITIVo di fine PULITA (`end_turn`): il modello ha chiuso da
    *  solo. Assente su annullo/limite/errore. Lo legge la push di fine risposta
    *  (server/push-triggers.ts) per non annunciare "risposta pronta" a vuoto. */

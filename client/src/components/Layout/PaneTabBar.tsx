@@ -58,6 +58,7 @@ import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { prefersReducedMotion } from '../../lib/reducedMotion';
 import { useToast } from '../Shared/Toast';
 import { restartTerminalSession } from '../../lib/terminalReload';
+import { renameTerminalSession } from '../../lib/terminalActions';
 
 /** The width of a tab, in px. Fixed on purpose: tabs that resize with their
  *  own content make the tab under the pointer move while you are aiming at it. */
@@ -429,11 +430,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       if (sid) {
         // Terminal: PATCH the session name (name_source='user') — the server
         // re-broadcasts the roster so the tab relabels without a local write.
-        void fetch(`/api/terminal/sessions/${encodeURIComponent(sid)}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name }),
-        }).catch(() => {});
+        // Which is exactly why a refusal has to be SAID: with no local write,
+        // a 404 or a dead network just leaves the old label there, and the
+        // editor has already closed on the line below.
+        renameTerminalSession(sid, name, toast, tr);
       } else if (pane?.type === 'chat' && pane.topicId) {
         // Chat: route through the host's canonical topic-update path.
         onRenameChat?.(pane.topicId, name);
@@ -444,7 +444,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     }
     setRenameDraft(null);
     setCtxMenu(null);
-  }, [panes, onRenameChat, onRenameBrowser]);
+  }, [panes, onRenameChat, onRenameBrowser, toast, tr]);
   // «Copia link»: costruzione + copia + toast stanno in un posto solo, condiviso
   // con il menu del topic in sidebar e con la palette ⌘K (useCopyTabLink), così
   // le tre superfici non possono dire parole diverse per lo stesso gesto.

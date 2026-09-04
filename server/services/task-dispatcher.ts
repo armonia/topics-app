@@ -520,6 +520,21 @@ export interface TaskDispatcher {
    * (the latter is only the turn window, missing setup/wind-down).
    */
   busyCount(): number;
+  /** The task ids behind `busyCount()`: what a restart is actually waiting for. */
+  busyIds(): string[];
+  /**
+   * A planned restart is on its way: from now until the process is replaced,
+   * start NO new turn. Queue picks, slot wake-ups and resumes all park where
+   * they are, bindings intact, and the boot reconcile of the next process
+   * resumes them on their own sessions.
+   *
+   * Without this `restart-when-idle` never fired under a live fleet: the wait
+   * looks for zero card turns, and with a queue behind a full cap a new turn
+   * starts the second one ends. Measured on 2026-09-04: a restart requested
+   * at 04:50 was still deferred 18,482 s later, three turns at a time, while
+   * the landed server fixes and a migration sat on disk unapplied.
+   */
+  drain(reason: string): void;
 }
 
 /**
@@ -541,6 +556,15 @@ export interface TaskDispatcher {
 const DEFAULT_AUTO_EFFORT = "medium";
 
 const FREE_PROVIDER_ERRORS = 3;
+
+/** How long the post-turn git stat may take before the slot is released without it. */
+const ATTEMPT_STATS_DEADLINE_MS = 15_000;
+async function withDeadline<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const late = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), ms); });
+  try { return await Promise.race([p, late]); }
+  finally { if (timer) clearTimeout(timer); }
+}
 
 /**
  * Sotto quale carico PER CORE la macchina è «scarica» abbastanza da far partire
@@ -963,6 +987,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * esattamente finché c'è un timer pendente.
    */
   const slotWaits = new Map<string, { timer: ReturnType<typeof setTimeout>; message: string }>();
+  /** Set once a planned restart is waiting on us: no new turn starts (see `drain`). */
+  let draining: string | null = null;
+  /** Cards already told "dispatch off, session kept": one note per hold, not per poll. */
+  const heldOffNoted = new Set<string>();
+  function drainBlock(): string | null {
+    return draining
+      ? `Riavvio del server in arrivo (${draining}): nessun turno nuovo parte finché non è ripartito. Questa card riprende da sola dopo, sulla stessa sessione. Niente è andato perso.`
+      : null;
+  }
 
   /**
    * LE ATTESE DI BACKOFF, per la stessa ragione esatta di `slotWaits`.
@@ -1013,13 +1046,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     if (wait) {
       clearTimeout(wait.timer);
       slotWaits.delete(taskId);
-      if (inherit && wait.message) pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), wait.message]);
+      if (inherit && wait.message.trim()) bufferResume(taskId, wait.message);
     }
     waitingForSlot.delete(taskId);
   }
 
   /** Claim the slot for a new run. Returns its id — the owner's proof. */
   function beginRun(taskId: string, sessionKey: string): number {
+    heldOffNoted.delete(taskId);
     const runId = nextRunId++;
     // Un turno che PARTE rende senza senso il ritentativo che lo aspettava: se
     // restasse in `retryWaits` bloccherebbe il recupero orfani fino allo scadere
@@ -1141,7 +1175,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // between the agent's →review and the actual turn end). Buffered here and
   // delivered on the SAME tab at turn end — dropping it would strand the task
   // in_progress and the reconciler would respawn a fresh agent without context.
-  const pendingResume = new Map<string, string[]>();
+  //
+  // ONLY WORDS SOMEBODY WROTE GO IN HERE. The buffer carries the moment they
+  // were written because it is what the note has to say when the message is
+  // handed over much later: on 2026-09-04 a card was reopened at 04:36 for a
+  // sentence typed at 03:52, and without the hour the reopen reads as a verdict
+  // on the delivery instead of the delayed hand-over it is.
+  const pendingResume = new Map<string, { text: string; at: number }[]>();
+  /** Queue a message for the turn boundary, keeping the order it was written in. */
+  function bufferResume(taskId: string, text: string): void {
+    pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), { text, at: clock() }]);
+  }
 
   /** Broadcast the updated task so live boards move the chip. */
   function emit(task: Task): void {
@@ -1206,7 +1250,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     noted.add(task.id);
     try {
       emit(deps.svc.setDispatchState({ taskId: task.id, state: CHIP_QUEUED }));
-      deps.svc.addComment({ taskId: task.id, author: "system", content: why, kind: "service" });
+      // ONE SLOT, not a pile. "In coda: N agent su un tetto di M" is the STATE
+      // of the queue, and it changes at every boot and every cap move: 363
+      // such notes in twelve hours on 2026-09-04, four on one card, the old
+      // ones contradicting the new. The card keeps the current one only.
+      deps.svc.addComment({
+        taskId: task.id, author: "system", content: why, kind: "service",
+        replaces: why.startsWith("In coda:") ? "In coda:" : undefined,
+      });
     } catch { /* il task può essersi mosso sotto i piedi */ }
   }
 
@@ -2067,6 +2118,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (!ownsRun(taskId, runId)) return;
       endLiveTurn(taskId);
       recordTurnMs(taskId, t0);
+      // THE STATS COME BEFORE onTurnEnd. onTurnEnd schedules the continuation
+      // nudge on a zero timer, and resume() drops a nudge while this run still
+      // holds the slot: with the git stat awaited after it, 8 of 8 first turns
+      // on 2026-09-04 lost their nudge and waited 60 s for the poll to resume
+      // them "da capo" with a note about a recycling that never happened.
+      // Bounded: a git that hangs must not hold the slot either.
+      const stats = attemptId && attemptStore && worktreeId && deps.attemptStats
+        ? await withDeadline(deps.attemptStats(worktreeId).catch(() => null), ATTEMPT_STATS_DEADLINE_MS)
+        : null;
+      if (!ownsRun(taskId, runId)) return;
       onTurnEnd(taskId, Date.now() - t0, turnEnd);
       // La fotografia dell'esito, con lo stesso significato che ha nel fan-out:
       // com'e' finito QUESTO turno, non come sta il disco adesso. `cancelled`
@@ -2074,7 +2135,6 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // due card tagliate a 1.800.0xx ms tonde sembravano pronte e non lo erano.
       if (attemptId && attemptStore) {
         try {
-          const stats = worktreeId && deps.attemptStats ? await deps.attemptStats(worktreeId).catch(() => null) : null;
           const usage = sessionKey ? sessionUsage(sessionKey) : null;
           attemptStore.finish(attemptId, {
             // `undefined` vale `end_turn`, ed e' la stessa convenzione di
@@ -2566,6 +2626,36 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     catch { return null; }
   }
 
+  /**
+   * Which review chip this arrival in review deserves, read from the agent's
+   * last word: a question = "serve te" (a human decision is required), anything
+   * else = delivered. Also the test for "was this card waiting for an answer?",
+   * which is what decides whether a late message may reopen it.
+   */
+  function reviewChipFor(taskId: string): string {
+    try {
+      const comments = deps.svc.get(taskId)?.comments ?? [];
+      // kind='status' rows are transition events, not the agent speaking:
+      // "the agent's last word" must be an actual comment.
+      const lastAgent = [...comments].reverse().find((c) => c.author !== "user" && c.author !== "system" && c.kind === "comment");
+      if (lastAgent && !commentAsksHuman(lastAgent.content)) return CHIP_DELIVERED;
+    } catch { /* default to needs_input */ }
+    return CHIP_NEEDS_INPUT;
+  }
+
+  /** `04:36`, local time: when the buffered message was actually written. */
+  function hhmm(at: number): string {
+    const d = new Date(at);
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }
+
+  /** The buffered messages as one quotable block, hours included, trimmed. */
+  function quoteQueued(queued: { text: string; at: number }[]): string {
+    return queued
+      .map((q) => `${hhmm(q.at)} «${q.text.trim().length > 220 ? q.text.trim().slice(0, 220) + "..." : q.text.trim()}»`)
+      .join(" / ");
+  }
+
   function onTurnEnd(taskId: string, turnMs?: number, turnEnd?: TurnEndInfo): void {
     recentlyEnded.set(taskId, Date.now());
     // Chi non la sa la dichiara `end_turn` — non è un default innocuo, è
@@ -2578,37 +2668,59 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // requeue path (which would discard the conversation). Deferred a tick:
     // the caller's finally still holds the inFlight slot at this point.
     //
-    // LA CONSEGNA NON DIPENDE DA DOVE È FINITA LA CARD. Il messaggio si imbuca
-    // mentre il turno è vivo, e il modo NORMALE in cui quel turno finisce è
-    // portare la card in review: la condizione «ancora in_progress» buttava via
-    // proprio il caso più frequente, cioè il feedback scritto mentre l'agent
-    // stava consegnando. Da review si passa dal rifiuto — la stessa strada che
-    // fa un commento umano su una card in review, e per la stessa ragione: quel
-    // feedback è la risposta a una consegna che non l'aveva ancora visto.
-    const queued = pendingResume.get(taskId);
+    // A DELIVERY IS NOT REJECTED BY A MESSAGE THAT NEVER SAW IT.
+    //
+    // The message is buffered while the turn is alive, and the NORMAL way that
+    // turn ends is by taking the card to review. Rejecting from there put the
+    // card back to work twenty seconds after the delivery, signed "user", with
+    // nothing in the thread saying why: three times on the night of 2026-09-04
+    // (18bdf214, cdeb9868, d2a4a907), a wasted turn each, and the agent hunting
+    // for a hole in a delivery nobody had complained about. The one case where
+    // a late message really is an answer is the card that ASKED something
+    // (chip "serve te"): there it reopens, and it says so out loud. Otherwise
+    // the delivery stands and the message waits in the thread for the person
+    // who is about to open it anyway.
+    const queued = pendingResume.get(taskId) ?? [];
     pendingResume.delete(taskId);
-    if (queued && queued.length && cur.assignedTopicId) {
-      let open = cur.status === "in_progress" ? cur : null;
+    if (queued.length && cur.assignedTopicId) {
       if (cur.status === "review") {
+        const answering = reviewChipFor(taskId) === CHIP_NEEDS_INPUT;
+        let reopened: Task | null = null;
+        if (answering) {
+          try { reopened = deps.svc.reviewDecision({ taskId, by: "system", decision: "reject" }); }
+          catch { reopened = null; }
+        }
         try {
-          open = deps.svc.reviewDecision({ taskId, by: "user", decision: "reject" });
-          emit(open);
-        } catch { open = null; }
-      }
-      if (open) {
-        setTimeout(() => { void resume(taskId, queued.join("\n")); }, 0);
+          deps.svc.addComment({
+            taskId, author: "system", kind: "service",
+            content: reopened
+              ? `Riaperta per consegnare all'agent, che aspettava una risposta, il messaggio arrivato mentre chiudeva il turno (${quoteQueued(queued)}).`
+              : `Feedback arrivato mentre l'agent stava consegnando, quindi non l'ha visto (${quoteQueued(queued)}). La consegna resta in review, decidi tu: se la rifiuti l'agent riprende e rilegge il thread, questo messaggio compreso.`,
+          });
+        } catch { /* best-effort */ }
+        try { emit(deps.svc.get(taskId)?.task ?? cur); } catch { /* best-effort */ }
+        if (reopened) {
+          // Deferred a tick: the caller's finally still holds the inFlight slot.
+          setTimeout(() => { void resume(taskId, queued.map((q) => q.text).join("\n")); }, 0);
+          return;
+        }
+        // Delivery intact: fall through to the review handling below (chip,
+        // preview). The card stays where the agent put it.
+      } else if (cur.status === "in_progress") {
+        setTimeout(() => { void resume(taskId, queued.map((q) => q.text).join("\n")); }, 0);
         return;
+      } else {
+        // No turn to resume: the card went back to the queue (a declared wait, a
+        // requeue) and restarts when its turn comes. The feedback is NOT lost, it
+        // is a comment in the thread and the agent re-reads it with `get_task`,
+        // but the silence here looked like a successful hand-over, so we say it.
+        try {
+          deps.svc.addComment({
+            taskId, author: "system", kind: "service",
+            content: "Il tuo feedback è arrivato a turno finito: resta nel thread e l'agent lo legge quando questa card riprende.",
+          });
+        } catch { /* best-effort */ }
       }
-      // Nessun turno da riprendere: la card è tornata in coda (attesa dichiarata,
-      // requeue) e riparte quando tocca a lei. Il feedback NON è perso — è un
-      // commento nel thread e l'agent lo rilegge con `get_task` — ma il silenzio
-      // qui sembrava una consegna riuscita, quindi lo si dice.
-      try {
-        deps.svc.addComment({
-          taskId, author: "system", kind: "service",
-          content: "Il tuo feedback è arrivato a turno finito: resta nel thread e l'agent lo legge quando questa card riprende.",
-        });
-      } catch { /* best-effort */ }
     }
     // The agent declared a wait mid-turn (wait_for_condition → deferForWait moved
     // it back to todo + chip `waiting`). The slot is already freed by the finally;
@@ -2627,14 +2739,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // The test is `commentAsksHuman`, not the presence of the fence: this very
       // envelope orders a landable delivery to attach `options=["Landa su main"]`,
       // so reading the fence chipped every finished delivery "serve te".
-      let chip = CHIP_NEEDS_INPUT;
-      try {
-        const comments = deps.svc.get(taskId)?.comments ?? [];
-        // kind='status' rows are transition events, not the agent speaking —
-        // "the agent's last word" must be an actual comment.
-        const lastAgent = [...comments].reverse().find((c) => c.author !== "user" && c.author !== "system" && c.kind === "comment");
-        if (lastAgent && !commentAsksHuman(lastAgent.content)) chip = CHIP_DELIVERED;
-      } catch { /* default to needs_input */ }
+      const chip = reviewChipFor(taskId);
       try { emit(deps.svc.setDispatchState({ taskId, state: chip })); } catch { /* best-effort */ }
       // Review-ready preview: boot a live server from the worktree, set output_url
       // to the local deep-link, attach a screenshot. Best-effort, fire-and-forget.
@@ -2967,9 +3072,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // un feedback ignorato, e chi guarda lo riscrive. La nota è una sola per
       // coda (il secondo messaggio si accoda a un'attesa già annunciata): dire
       // due volte la stessa cosa è rumore, non conferma.
+      // A NUDGE IS NOT A MESSAGE. A continuation nudge (or an empty
+      // resume) buffered against a LIVE turn is a contradiction: the nudge says
+      // "your turn ended without delivering" and the turn is right there,
+      // answering. It stayed in the buffer anyway and `onTurnEnd` handed it over
+      // as if a person had written it: card d2a4a907, delivered at 04:50 and
+      // reopened at 04:50 with nothing to read. Nothing is lost by dropping it.
+      if (opts?.continuation || !humanMessage.trim()) return;
       const already = (pendingResume.get(taskId)?.length ?? 0) > 0;
-      pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), humanMessage]);
-      if (!already && humanMessage) {
+      bufferResume(taskId, humanMessage);
+      if (!already) {
         try {
           deps.svc.addComment({
             taskId, author: "system", kind: "service",
@@ -2991,7 +3103,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // the same reason: the message is not lost, it waits. A cap that refused only
     // new dispatches would let through the turn that starts from a review
     // rejection, which is exactly the extra turn on an already expensive card.
-    const floorBlock = admissionBlock() ?? spendBrake.dayBlock() ?? spendBrake.taskBlock(t.agentCostCents);
+    const floorBlock = drainBlock() ?? admissionBlock() ?? spendBrake.dayBlock() ?? spendBrake.taskBlock(t.agentCostCents);
     // Le corse dei gate occupano slot come gli agenti: un resume che trovasse
     // un posto «libero» ignorando i gate lancerebbe un agente in piu' proprio
     // mentre la macchina e' gia' al limite per i check.
@@ -3018,7 +3130,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // scattando): si imbuca dove si imbucano già i messaggi arrivati a turno
       // vivo, e `onTurnEnd` lo consegna quando il turno dell'attesa ha finito.
       if (slotWaits.has(taskId)) {
-        if (humanMessage) pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), humanMessage]);
+        if (!opts?.continuation && humanMessage.trim()) bufferResume(taskId, humanMessage);
         return;
       }
       // Sfalsati, o venti resume in coda si sveglierebbero tutti insieme per
@@ -3133,6 +3245,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     try { settings = deps.svc.getBoardSettings(projectId); }
     catch (err) { log(`getBoardSettings failed for ${projectId}`, err); return; }
     if (!settings.autoDispatch) return;
+    // A restart is waiting for the fleet to go quiet: picking a card now would
+    // keep it waiting forever. The card is not lost, it is next after the boot.
+    if (draining) return;
     // IL FRENO DI QUESTA BOARD, e viene dopo il globale di proposito: puo' solo
     // FERMARE. Il dispatch parte se il globale e' acceso E questa board non e'
     // in pausa; una board non in pausa con il globale spento non parte lo
@@ -3952,7 +4067,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // ripreso un riavvio bisognava interrogare il database. I contatori qui
     // sotto diventano UNA riga sola in fondo al passo, non una riga per card:
     // con 303 riprese il per-card e' un allagamento, non una misura.
-    let directIn = 0, daCapo = 0, inCoda = 0, nonRecuperabili = 0, fanOut = 0;
+    let directIn = 0, daCapo = 0, inCoda = 0, nonRecuperabili = 0, fanOut = 0, heldOff = 0;
     for (const t of running) {
       if (inFlight.has(t.id)) continue; // we own it, leave it
       if (reason !== "boot") {
@@ -4009,9 +4124,21 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // ne aveva N, e `assigned_topic_id` ne punta una sola (il tentativo 1).
       // Riprendere quella abbandonerebbe le altre in silenzio. Si chiude il giro
       // con ciò che i worktree hanno conservato e decide l'umano.
+      // A single launch writes its own attempt row as HISTORY (see `launch`),
+      // so a card mid-turn at boot always has one still "running", on the very
+      // topic the card is bound to. A fan-out round is recognisable by its
+      // SIBLINGS: running rows on OTHER topics (attempt 1 is bound to the task
+      // from the moment its topic exists, see `runAttempt`). Read every running
+      // row as a fan-out, the reconcile closed bound cards "without a commit"
+      // at every restart and reaped their worktrees: three cards on 2026-09-04.
       let orphanAttempts = 0;
-      try { orphanAttempts = deps.attempts?.runningCount(t.id) ?? 0; } catch { orphanAttempts = 0; }
-      if (orphanAttempts > 0) {
+      let siblings = 0;
+      try {
+        const running = (deps.attempts?.list(t.id) ?? []).filter((a) => a.state === "running");
+        orphanAttempts = running.length;
+        siblings = running.filter((a) => !t.assignedTopicId || a.topicId !== t.assignedTopicId).length;
+      } catch { orphanAttempts = 0; siblings = 0; }
+      if (siblings > 0) {
         try {
           deps.svc.claimInterruption({
             taskId: t.id,
@@ -4038,9 +4165,37 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // and the global dispatch switch still ON.
       let autoOn = false;
       try { autoOn = deps.svc.getBoardSettings(t.projectId).autoDispatch; } catch { /* treat as off */ }
-      if (t.dispatchState === CHIP_WORKING && t.assignedTopicId && autoOn) {
+      // A card that was WAITING for a slot has a session as much as one that
+      // was mid-turn: the wait lived in memory, the conversation and the
+      // worktree did not. Requeueing it handed the next agent an EMPTY
+      // worktree (2026-09-04: twelve cards at one boot, eight of them with
+      // uncommitted work) for the sole reason that the cap was full, or the
+      // switch off, when the process died.
+      const topicId = t.assignedTopicId;
+      if ((t.dispatchState === CHIP_WORKING || t.dispatchState === CHIP_QUEUED) && topicId) {
         let alive = true;
-        try { alive = deps.topicExists ? deps.topicExists(t.assignedTopicId) : true; } catch { alive = true; }
+        try { alive = deps.topicExists ? deps.topicExists(topicId) : true; } catch { alive = true; }
+        if (alive && !autoOn) {
+          // The switch is off: nothing may start, but nothing is lost either.
+          // The binding stays, the chip says "in coda", and the poll resumes
+          // this very session the moment the switch is back on. Said ONCE per
+          // hold: the poll passes here every 10 s for as long as the switch
+          // stays off.
+          if (!heldOffNoted.has(t.id)) {
+            heldOffNoted.add(t.id);
+            try {
+              deps.svc.claimInterruption({
+                taskId: t.id,
+                note: "Dispatch spento: tengo la sessione e il worktree di questa card, riparte da sola (stessa sessione) quando riaccendi il dispatch.",
+              });
+            } catch { /* dedupe/best-effort */ }
+            if (t.dispatchState !== CHIP_QUEUED) {
+              try { emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED })); } catch { /* best-effort */ }
+            }
+            heldOff++;
+          }
+          continue;
+        }
         if (alive) {
           // Broker survived the restart with the turn STILL RUNNING → reattach
           // in place (seamless, no re-run). Only when there's no live session do
@@ -4059,7 +4214,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           // una volta (vedi il commento a server.ts:812-826).
           let live = false;
           if (deps.hasLiveSession && deps.reattach) {
-            const sessionKey = "topic:" + t.assignedTopicId.slice(0, 8);
+            const sessionKey = "topic:" + topicId.slice(0, 8);
             try { live = await deps.hasLiveSession(sessionKey); } catch { live = false; }
           }
           if (live) {
@@ -4077,7 +4232,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             deps.svc.claimInterruption({
               taskId: t.id,
               note: reason === "boot"
-                ? "Server ripartito a metà turno: riprendo la stessa sessione, nessun tentativo consumato."
+                ? (t.dispatchState === CHIP_QUEUED
+                  ? "Server ripartito mentre la card aspettava uno slot: riprendo la stessa sessione appena c'è posto, nessun tentativo consumato."
+                  : "Server ripartito a metà turno: riprendo la stessa sessione, nessun tentativo consumato.")
                 : "Nessun turno vivo su questa card (riciclato o finito senza consegna): riprendo la stessa sessione, nessun tentativo consumato.",
             });
           } catch { /* dedupe/best-effort */ }
@@ -4097,7 +4254,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // e l'attesa è morta col processo. Dirgli "mentre l'agent lavorava"
         // manderebbe l'umano a cercare un lavoro che non c'è mai stato.
         const nota = t.dispatchState === CHIP_QUEUED
-          ? "Il server è ripartito mentre il task aspettava uno slot libero: l'attesa viveva in memoria, quindi lo rimetto in coda (il riavvio non consuma un tentativo)."
+          ? "Il server è ripartito mentre il task aspettava uno slot libero e la sua sessione non c'è più: lo rimetto in coda (il riavvio non consuma un tentativo)."
           : "Il server è ripartito mentre l'agent lavorava: task rimesso in coda (il riavvio non consuma un tentativo).";
         // La nota passa dal cancello, la release no: il task torna in coda
         // comunque, ma se questa interruzione è già stata raccontata (un
@@ -4116,10 +4273,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         inCoda++;
       } catch (err) { log(`reconcile release failed for ${t.id}`, err); }
     }
-    if (directIn + daCapo + inCoda + nonRecuperabili + fanOut > 0) {
+    if (directIn + daCapo + inCoda + nonRecuperabili + fanOut + heldOff > 0) {
       log(
         `riavvio: ${directIn + daCapo} riprese (${directIn} in diretta, ${daCapo} da capo), ` +
-        `${inCoda} rimesse in coda, ${fanOut} fan-out chiusi, ${nonRecuperabili} non recuperabili`,
+        `${inCoda} rimesse in coda, ${heldOff} trattenute a dispatch spento, ${fanOut} fan-out chiusi, ${nonRecuperabili} non recuperabili`,
       );
     }
     // 1-ter) IL CHIP «IN CODA» RIMASTO ACCESO IN BACKLOG.
@@ -4271,5 +4428,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     };
   }
 
-  return { tick, onEnterTodo, onLeaveTodo, deferWait, onBlockerDone, resume, reconcile, markInterrupted, shutdown, nightStatus, isInFlight: (id) => inFlight.has(id), busyCount: () => inFlight.size };
+  return {
+    tick, onEnterTodo, onLeaveTodo, deferWait, onBlockerDone, resume, reconcile, markInterrupted, shutdown, nightStatus,
+    isInFlight: (id) => inFlight.has(id),
+    busyCount: () => inFlight.size,
+    busyIds: () => [...inFlight.keys()],
+    drain: (reason) => {
+      if (draining !== reason) log(`drain: nessun turno nuovo fino al riavvio (${reason}); ${inFlight.size} in volo`);
+      draining = reason;
+    },
+  };
 }

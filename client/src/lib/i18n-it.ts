@@ -525,6 +525,10 @@ const IT: Dict = {
   // nessuno ha detto che è finito. La parola cambia perché la promessa cambia.
   'board.action.land.anyway': 'Landa comunque',
   'board.action.land.anyway.title': "Nessun agent ha consegnato questo ramo: fondendolo porti su main lavoro che nessuno ha dichiarato finito. Guarda prima il diff. Main LOCALE: nessun push, e quindi nessuna release finche' non pubblichi.",
+  // Same word, other reason: here the branch IS delivered but a check has
+  // already judged it. Landing puts it on main all the same, so the sentence
+  // names the normal road instead of explaining a merge again.
+  'board.action.land.checks.title': "I checks pre-review sono rossi: landando porti su main lavoro gia' giudicato. La strada normale e' «{sendBack}», che rimanda l'output all'agent. Main LOCALE: nessun push finche' non pubblichi.",
   'board.action.accept': 'Approva',
   // `{land}` is the `land` label taken from this same table: naming the other
   // button by copying its text by hand is how two words drift apart again.
@@ -589,6 +593,11 @@ const IT: Dict = {
   'board.task.dispatch.starting': 'avvio agent…',
   'board.task.dispatch.working': 'agent al lavoro…',
   'board.task.loading': 'Carico…',
+  'board.task.loadFailedChip': 'Non caricato',
+  'board.task.loadFailedTitle': 'Questo task non si è caricato',
+  'board.task.loadFailedReason': 'il server non ha risposto',
+  'board.task.loadRetry': 'Riprova',
+  'board.task.staleAfterAction': "L'azione è passata, l'aggiornamento no ({reason}): quello che vedi può essere vecchio.",
   'board.task.changeStatusTitle': 'Cambia lo stato del task',
   'board.task.optionsTitle': 'Altre opzioni: piano prima, bloccato da, sottotask…',
   'board.task.reuseBlockerTitle': "Quando parte, l'agent riceve il contesto della sessione del task bloccante invece di uno start a freddo",
@@ -654,6 +663,13 @@ const IT: Dict = {
   'board.task.landRunningRest': ": la fusione su main sta girando adesso. L'esito arriva nel thread.",
   'board.task.landFailed': 'fallito',
   'board.task.landUnknownError': 'errore sconosciuto',
+  // `settled` means "the round is over", not "the branch is on main": the real
+  // verdict is in `outcome`, and without these two rows a REFUSED merge looked
+  // exactly like a successful one on both surfaces.
+  'board.task.landUnlanded': 'respinto',
+  'board.task.landUnlandedRest': ': il ramo NON è su main. La card resta qui.',
+  'board.task.landUnverifiable': 'non verificabile',
+  'board.task.landUnverifiableRest': ": la fusione è uscita zero ma main non si è potuto rileggere. Controlla prima di darlo per atterrato.",
   'board.task.deployProposed': "La board propone il deploy: conferma per lanciarlo nel checkout main.",
   'board.task.deployNow': 'Deploya ora',
   'board.task.deployRunning': 'Deploy in corso…',
@@ -1220,6 +1236,17 @@ const IT: Dict = {
   'chat.turnStopped.detail': "L'hai fermato tu. Il messaggio è ancora qui.",
   'chat.noAnswer': 'Nessuna risposta',
   'chat.noAnswer.detail': 'La connessione può essersi interrotta',
+  'chat.turnInterrupted': 'Risposta interrotta',
+  'chat.turnInterrupted.retry': 'Riprova',
+  'chat.turnInterrupted.watchdog': 'il modello ha smesso di rispondere e il turno è stato chiuso',
+  'chat.turnInterrupted.wallClock': 'il turno ha superato il tempo massimo',
+  'chat.turnInterrupted.serverShutdown': 'il server si è riavviato a turno aperto',
+  'chat.turnInterrupted.stall': 'il turno non dava più segni di vita',
+  'chat.turnInterrupted.sessionReset': 'la sessione è stata ricreata',
+  'chat.turnInterrupted.processDied': "il processo dell'agente è uscito",
+  'chat.turnInterrupted.turnInFlight': 'un altro turno era già in corso',
+  'chat.turnInterrupted.superseded': 'un turno più recente ha preso il suo posto',
+  'chat.turnInterrupted.providerError': 'il provider ha risposto con un errore',
   'git.noRepoInitialized': 'Nessun repository git inizializzato',
   'git.noRepo': 'Nessun repository git',
   'git.cleanTree': 'Albero di lavoro pulito',
@@ -1611,6 +1638,20 @@ const IT: Dict = {
   'terminal.resume': 'Riprendi',
   'terminal.restarting': 'Riavvio…',
   'terminal.restartingSession': 'Riavvio sessione…',
+  // ── Terminal: the refusals that used to happen in silence. The server text
+  //    is English, internal and sometimes an exception message, so none of it
+  //    is shown: the status (plus a `code` for the two different 503s) picks
+  //    one of these.
+  'terminal.err.unavailable': 'I terminali non sono disponibili in questa installazione.',
+  'terminal.err.unauthorized': 'Questo dispositivo non può aprire un terminale.',
+  'terminal.err.notFound': 'Questa sessione di terminale non esiste più.',
+  'terminal.err.busy': 'La sessione è già occupata in un\'altra operazione.',
+  'terminal.err.retry': 'Il server dei terminali non è pronto. Riprova.',
+  'terminal.err.createFailed': 'Il terminale non si è aperto: il server ha rifiutato.',
+  'terminal.err.createUnreachable': 'Il terminale non si è aperto: il server non risponde.',
+  'terminal.err.renameFailed': 'Rinomina non riuscita: il server ha rifiutato.',
+  'terminal.err.renameUnreachable': 'Rinomina non riuscita: il server non risponde.',
+  'terminal.inputDropped': 'Il terminale non è connesso: quello che scrivi va perso.',
   // ── Le tre parole che ogni superficie riscriveva per conto suo.
   'common.close': 'Chiudi',
   'common.retry': 'Riprova',

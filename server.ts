@@ -1,3 +1,4 @@
+import { createLandingQueue } from "./server/services/landing-queue";
 import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
 import { bonificaTurniMuti } from "./server/lib/verdetto-turno-interrotto";
@@ -34,6 +35,8 @@ import { setLocalFileServing } from "./server/browser-local-file-url";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
+import { timelineWithInterruptedVerdict } from "./server/lib/interrupted-turn-block";
+import type { ContentBlock } from "./shared/types";
 import { describeInFlight, unadoptableStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
 import { dispatchReconcileHeld } from "./server/lib/e2e-dispatch-hold";
 import { chatsParkedOnQuestion } from "./server/lib/parked-asks";
@@ -761,8 +764,35 @@ ctx.worktreeGcDeps.listOwnedScripts = listOwnedScripts;
 // board gesture. All its host-specific wiring — the in-process turn runtime,
 // worktree creation, project-path resolution — is assembled here and injected,
 // keeping server/services/task-dispatcher.ts host-agnostic and unit-tested.
-const dispatcherSvc = createTaskService(ctx.db, { writeDeliverySheet: makeSheetWriter(ctx.OPENCLAW_DIR) });
 const DISPATCH_WORKSPACE_DIR = join(ctx.OPENCLAW_DIR, "workspace");
+// The repository a delivery report is checked against: the agent's worktree
+// (a cited file may exist only on the delivery branch), else the repository
+// the topic worked in, else the board's project. Until 2026-09-04 every report
+// was checked against THIS checkout, so a dancerooms commit was "in no ref"
+// and a new file on a branch "not tracked". One resolver, handed to BOTH task
+// services: the dispatcher's and the router's, which is the one an agent's
+// update_task(status="review") actually reaches.
+const repoRootForCard = ({ projectId, assignedTopicId }: { taskId: string; projectId: string | undefined; assignedTopicId: string | null }): string | null => {
+    try {
+      if (assignedTopicId) {
+        const row = ctx.db.prepare("SELECT worktree_id, project_path FROM topics WHERE id = ?").get(assignedTopicId) as { worktree_id?: string | null; project_path?: string | null } | undefined;
+        const wt = row?.worktree_id ? ctx.worktreeStore.get(row.worktree_id) : null;
+        if (wt?.absPath && existsSync(wt.absPath)) return wt.absPath;
+        // The worktree may already be reaped (a land, a restart): the topic
+        // still knows which repository it worked in.
+        if (row?.project_path && existsSync(row.project_path)) return row.project_path;
+      }
+    } catch { /* fall through to the project */ }
+    if (!projectId) return null;
+    try {
+      const c = resolveProjectPath(projectId, buildProjectCandidates({ projectStore: ctx.projectStore, workspaceDir: DISPATCH_WORKSPACE_DIR, extraPaths: dispatchExtraPaths }));
+      return c?.path && existsSync(c.path) ? c.path : null;
+    } catch { return null; }
+  };
+const dispatcherSvc = createTaskService(ctx.db, {
+  writeDeliverySheet: makeSheetWriter(ctx.OPENCLAW_DIR),
+  repoRootFor: repoRootForCard,
+});
 
 async function abortHeadlessTurn(sessionKey: string): Promise<void> {
   const url = new URL("http://localhost/api/chat/abort");
@@ -1998,7 +2028,11 @@ sondaLavoroNonCommittato = async (taskId: string) => {
   try { return await worktreeRealDirt(wt.absPath); } catch { return null; }
 };
 
+// Owned here so the quiescence wait can see lands still queued or running.
+const landingQueue = createLandingQueue({ log: (m) => console.warn(m) });
 const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
+  landings: landingQueue,
+  repoRootFor: repoRootForCard,
   workspaceDir: DISPATCH_WORKSPACE_DIR,
   // Il titolo leggibile di una card dettata (`services/task-title.ts`). Si
   // risolve al momento della chiamata e non all'avvio: il default della
@@ -4350,9 +4384,26 @@ const staleStreamTimer = setInterval(() => {
     },
     endStream: (sk) => ctx.endStream(sk),
     broadcast: (msg) => broadcastToAll(msg as Parameters<typeof broadcastToAll>[0]),
-    finalizeMessage: ({ messageId, marker }) => {
+    finalizeMessage: ({ messageId, marker, interruption }) => {
       if (marker === null) db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE id = ?", [messageId]);
       else db.run("UPDATE messages SET partial = 0, streamed_at = NULL, content = ? WHERE id = ?", [marker, messageId]);
+      // WHY the turn ended, on the row, in the shape the composer's banner
+      // reads. Without it the reaper closed a turn cut mid-answer leaving the
+      // reason in the server log only: the 2026-09-03 report, "stuck with no
+      // feedback at all". `timelineWithInterruptedVerdict` refuses the rows
+      // that must not be touched (empty timeline, already explained).
+      try {
+        const row = db.query("SELECT blocks FROM messages WHERE id = ?").get(messageId) as { blocks?: unknown } | undefined;
+        const raw = decodeCol(row?.blocks);
+        const parsed = raw ? (JSON.parse(raw) as ContentBlock[]) : null;
+        const timeline = timelineWithInterruptedVerdict(parsed, interruption);
+        if (timeline) db.run("UPDATE messages SET blocks = ? WHERE id = ?", [encodeCol(JSON.stringify(timeline)) ?? null, messageId]);
+      } catch (err) {
+        // A row we cannot read is a row we leave alone: the marker above
+        // already said something, and rewriting a timeline we failed to parse
+        // would throw away the turn for not understanding it.
+        console.warn(`[StaleStream] verdetto non scritto su ${messageId}:`, err);
+      }
     },
     recordTurnEnd: (sk) => recordTurnEnd(sk, cancelled("watchdog", "stale stream sweep")),
     warn: (msg) => console.warn(msg),
@@ -5284,7 +5335,9 @@ let askProbeCache: { at: number; parked: string[] } = { at: 0, parked: [] };
  * ogni giro; la terza si paga, e si guarda ogni QUIESCENCE_BROKER_PROBE_MS.
  */
 async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; parkedAsks: number; holder: string | null }> {
-  const cards = taskDispatcher.busyCount();
+  // A land in flight is a card turn for this purpose: it rewrites main and
+  // the card, and a restart in the middle of it forgets the delivery branch.
+  const cards = taskDispatcher.busyCount() + landingQueue.inFlight();
   const streamKeys = [...activeStreams.keys()];
   // La sonda del broker si paga, e si paga solo quando serve: se una fonte più
   // economica ha già detto «occupato», la risposta non cambia.
@@ -5343,6 +5396,13 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
 }
 
 async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_MS): Promise<void> {
+  // FIRST CLOSE THE DOOR. Every caller of this wait is a restart, and a wait
+  // that lets the dispatcher keep starting turns behind a full cap never ends:
+  // on 2026-09-04 `restart-when-idle` was still deferred after 18,482 s, three
+  // card turns at a time, one starting as soon as one finished. From here on
+  // no new card turn starts; the ones in flight finish, the queued ones keep
+  // their sessions and the next process resumes them at boot.
+  taskDispatcher.drain(label);
   // DUE SCADENZE, E TUTTE E DUE SONO TETTI VERI — contate dall'INIZIO
   // dell'attesa, non da «l'ultima volta che ho visto del lavoro».
   //
@@ -5522,7 +5582,11 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
       return;
     }
     if (!logged) {
-      console.log(`[quiescence] ${label}: aspetto prima di riavviare — ${busy}${unadoptable > 0 ? ` (${unadoptable} non riadottabile/i: attesa lunga)` : ""}`);
+      // NAME THE HOLDERS. "4 card turns" told nobody that three of them were
+      // orphan recoveries stuck since boot (2026-09-04): a count cannot be
+      // checked against the board, a list of ids can.
+      const holders = cards > 0 ? ` [${taskDispatcher.busyIds().map((id) => id.slice(0, 8)).join(", ")}]` : "";
+      console.log(`[quiescence] ${label}: aspetto prima di riavviare — ${busy}${holders}${unadoptable > 0 ? ` (${unadoptable} non riadottabile/i: attesa lunga)` : ""}`);
       logged = true;
     }
     await new Promise((r) => setTimeout(r, 500));

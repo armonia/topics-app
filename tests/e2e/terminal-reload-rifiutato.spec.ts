@@ -55,10 +55,17 @@ test.describe.serial("Ricarica di una tab terminale · il rifiuto si vede", () =
 
   test("un rifiuto del server toglie SUBITO «Riavvio…» e dice il motivo", async ({ page, terminalPage }) => {
     test.info().annotations.push({ type: "spec", description: "RESTART-SAY-01" });
-    const REASON = "Reload already in progress for this session";
+    // The server's own words, in the envelope `errorResponse` always builds.
+    // They must NOT reach the screen: they are English, internal, and wrapped
+    // in braces the person reading has no use for.
+    const SERVER_SAID = "Reload already in progress for this session";
 
     await page.route("**/api/terminal/sessions/*/reload", (route) =>
-      route.fulfill({ status: 409, contentType: "text/plain", body: REASON }),
+      route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify({ error: SERVER_SAID }),
+      }),
     );
 
     await navigateAndOpenTerminal(page, terminalPage, topicName);
@@ -82,9 +89,15 @@ test.describe.serial("Ricarica di una tab terminale · il rifiuto si vede", () =
       "«Riavvio…» e' rimasto su un riavvio che il server ha rifiutato",
     ).toHaveCount(0, { timeout: 3_000 });
 
+    // The reason is READABLE, i.e. the translated sentence for a 409 — and not
+    // the raw `{"error":"..."}` the first cure used to paste into the toast.
     await expect(
-      page.getByText(REASON),
+      page.getByText(/gia' occupata|già occupata|already busy/i).first(),
       "il rifiuto e' stato ingoiato: chi guarda non sa perche' non e' successo niente",
     ).toBeVisible({ timeout: 5_000 });
+    await expect(
+      page.getByText(SERVER_SAID),
+      "il corpo grezzo della risposta e' finito a schermo, graffe comprese",
+    ).toHaveCount(0);
   });
 });
