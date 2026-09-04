@@ -9,6 +9,9 @@ hermetic(test);
 
 const BASE = E2E_BASE;
 
+// Screenshots land in the run's artifacts, never in someone's home directory.
+const SHOTS = "test-results/unsent-banner";
+
 /**
  * The banner for the messages that never reached the server.
  *
@@ -116,7 +119,7 @@ test.describe.serial("Unsent messages banner", () => {
     await expect(firstRow).toContainText("primo messaggio non inviato");
 
     await page.setViewportSize({ width: 1280, height: 800 });
-    await page.screenshot({ path: "/Users/zorahrel/.topics/media/unsent-banner-desktop.png" });
+    await page.screenshot({ path: `${SHOTS}/unsent-banner-desktop.png` });
 
     // Click the row: the chat it names comes to the front as the active tab.
     await firstRow.getByTestId("unsent-row-open").click();
@@ -165,7 +168,7 @@ test.describe.serial("Unsent messages banner", () => {
     await goToApp(page);
 
     await expect(banner(page)).toBeVisible({ timeout: 20_000 });
-    await page.screenshot({ path: "/Users/zorahrel/.topics/media/unsent-banner-mobile.png" });
+    await page.screenshot({ path: `${SHOTS}/unsent-banner-mobile.png` });
 
     const box = await banner(page).boundingBox();
     expect(box).not.toBeNull();
