@@ -43,7 +43,7 @@ const BASE = E2E_BASE;
  * `stream:end` since long before this banner) - the contract is copied, not
  * imagined.
  *
- * @covers CHAT-INT-01
+ * @covers CHAT-INT-01, CHAT-INT-02
  */
 
 const DOMANDA = "Riassumi il documento che ti ho mandato";

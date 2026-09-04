@@ -10,7 +10,7 @@
  * chat lights a banner under a composer nobody resumed; a resume that never
  * ends leaves that banner on top of a working answer forever.
  *
- * @covers CHAT-INT-01
+ * @covers CHAT-INT-02
  */
 import { describe, test, expect } from "bun:test";
 import { resumeStateAfter } from "./useServerResume";

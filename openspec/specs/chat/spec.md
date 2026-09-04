@@ -3222,3 +3222,36 @@ vuol dire «non attribuito», non «watchdog»).
 #### Scenario: Uno stop della persona non accende il banner
 - **GIVEN** un turno chiuso con causa `user`
 - **THEN** il banner «Risposta interrotta» non compare
+
+### Requirement: CHAT-INT-02 — Una ripresa automatica si vede mentre accade
+
+Quando il server riprende da solo un turno che il suo riavvio aveva tagliato
+(rimandando l'ultimo messaggio dell'utente), il turno SHALL dichiararlo sul filo
+(`resumedBy: "server"` su `stream:start`) e il banner SHALL dire che la ripresa
+è in corso, con lo stesso indicatore di attività di una risposta in streaming.
+
+Il comando «Riprova» NON SHALL essere disponibile mentre la ripresa è in corso:
+rimanderebbe lo stesso messaggio che il server sta già rimandando, cioè un
+secondo turno su una chat che ne ha uno aperto. Il banner SHALL chiudersi da sé
+al primo token, e SHALL tornare allo stato «Risposta interrotta» con la causa e
+il comando di rimando se la ripresa finisce a sua volta con una causa.
+
+Il banner SHALL stare in fondo al thread, sotto l'ultimo messaggio e sopra il
+composer, dove l'occhio sta durante una risposta.
+
+#### Scenario: Il server riprende e il banner lo dice
+- **GIVEN** un turno tagliato con causa `server-shutdown` e il banner a schermo
+- **WHEN** il server riprende da solo sulla stessa chat
+- **THEN** il banner dice che la ripresa è in corso, con l'indicatore di attività
+- **AND** il comando «Riprova» non è più a schermo
+
+#### Scenario: Il primo token chiude il banner
+- **GIVEN** il banner di ripresa in corso a schermo
+- **WHEN** arriva il primo token della risposta ripresa
+- **THEN** il banner non c'è più
+
+#### Scenario: Una ripresa che fallisce riporta la via d'uscita
+- **GIVEN** il banner di ripresa in corso a schermo
+- **WHEN** anche il turno ripreso finisce con una causa di interruzione
+- **THEN** il banner torna «Risposta interrotta» con quella causa
+- **AND** il comando «Riprova» è di nuovo a schermo
