@@ -18,6 +18,33 @@ export interface ProviderHold {
 let current: ProviderHold | null = null;
 const listeners = new Set<() => void>();
 let wired = false;
+let expiryTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * The hold lifts by itself at `untilMs`.
+ *
+ * Reading the clock while rendering would be two bugs in one: it is impure,
+ * and nothing re-renders when the deadline passes, so a spent hold would stay
+ * on screen until the next frame happened to arrive. The store owns the
+ * expiry instead and tells the listeners, exactly as a frame would.
+ */
+function armExpiry(): void {
+  if (expiryTimer !== null) {
+    clearTimeout(expiryTimer);
+    expiryTimer = null;
+  }
+  if (!current) return;
+  const delay = current.untilMs - Date.now();
+  if (delay <= 0) {
+    current = null;
+    return;
+  }
+  expiryTimer = setTimeout(() => {
+    expiryTimer = null;
+    current = null;
+    for (const cb of listeners) cb();
+  }, delay);
+}
 
 function adopt(frame: unknown): void {
   const f = frame as { type?: string; untilMs?: number | null; window?: string | null; sinceMs?: number | null } | null;
@@ -28,6 +55,7 @@ function adopt(frame: unknown): void {
       : null;
   if ((current?.untilMs ?? null) === (next?.untilMs ?? null) && current?.window === next?.window) return;
   current = next;
+  armExpiry();
   for (const cb of listeners) cb();
 }
 
@@ -45,8 +73,7 @@ function subscribe(cb: () => void): () => void {
 
 /** The hold in force, or null. Expired holds read as null without a frame. */
 export function useProviderHold(): ProviderHold | null {
-  const hold = useSyncExternalStore(subscribe, () => current, () => current);
-  return hold && hold.untilMs > Date.now() ? hold : null;
+  return useSyncExternalStore(subscribe, () => current, () => current);
 }
 
 /** Test seam: feed a frame as the socket would. */
