@@ -1627,6 +1627,20 @@ const IT: Dict = {
   'terminal.resume': 'Riprendi',
   'terminal.restarting': 'Riavvio…',
   'terminal.restartingSession': 'Riavvio sessione…',
+  // ── Terminal: the refusals that used to happen in silence. The server text
+  //    is English, internal and sometimes an exception message, so none of it
+  //    is shown: the status (plus a `code` for the two different 503s) picks
+  //    one of these.
+  'terminal.err.unavailable': 'I terminali non sono disponibili in questa installazione.',
+  'terminal.err.unauthorized': 'Questo dispositivo non può aprire un terminale.',
+  'terminal.err.notFound': 'Questa sessione di terminale non esiste più.',
+  'terminal.err.busy': 'La sessione è già occupata in un\'altra operazione.',
+  'terminal.err.retry': 'Il server dei terminali non è pronto. Riprova.',
+  'terminal.err.createFailed': 'Il terminale non si è aperto: il server ha rifiutato.',
+  'terminal.err.createUnreachable': 'Il terminale non si è aperto: il server non risponde.',
+  'terminal.err.renameFailed': 'Rinomina non riuscita: il server ha rifiutato.',
+  'terminal.err.renameUnreachable': 'Rinomina non riuscita: il server non risponde.',
+  'terminal.inputDropped': 'Il terminale non è connesso: quello che scrivi va perso.',
   // ── Le tre parole che ogni superficie riscriveva per conto suo.
   'common.close': 'Chiudi',
   'common.retry': 'Riprova',

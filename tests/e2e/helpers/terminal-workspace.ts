@@ -26,9 +26,42 @@ import {
   resetProjectPanes,
 } from "./api-fixtures";
 import { goToApp } from "../helpers";
+import { realpathSync } from "node:fs";
 
 /** Il progetto su cui girano i test dei terminali: /tmp esiste sempre (su macOS è un symlink a /private/tmp). */
 export const TERMINAL_PROJECT_PATH = "/tmp";
+
+/**
+ * THE ROW IS LABELLED WITH THE RESOLVED PATH, and on macOS that is not `/tmp`.
+ *
+ * The project row carries the path the SERVER registered, and creating a topic
+ * on `/tmp` registers it through a realpath: on macOS `/tmp` is a symlink, so
+ * the button reads `/private/tmp`. Measured on a fresh e2e database: every
+ * terminal spec died on `button[title="/tmp"]` after ten seconds, blaming the
+ * sidebar for a name it never had. Matching both spellings costs one selector
+ * and removes a whole family of false reds.
+ */
+const PROJECT_PATH_SPELLINGS = [...new Set([
+  TERMINAL_PROJECT_PATH,
+  (() => { try { return realpathSync(TERMINAL_PROJECT_PATH); } catch { return TERMINAL_PROJECT_PATH; } })(),
+])];
+
+/**
+ * CSS for a button carrying `text` as its label, in both places it can live.
+ *
+ * `TooltipDelegate` moves the value of `title` onto `data-tip` on `mouseover`
+ * and puts it back on `mouseout`, and Playwright leaves the pointer where it
+ * was: from the second call on, a `title`-only selector looks for an attribute
+ * the previous hover already stripped.
+ */
+function labelledButton(text: string): string {
+  return `button[title="${text}"], button[data-tip="${text}"]`;
+}
+
+/** The project row, whichever spelling of its path the server registered. */
+export function projectRowSelector(): string {
+  return PROJECT_PATH_SPELLINGS.map(labelledButton).join(", ");
+}
 
 /**
  * Stato di partenza noto per OGNI test (retry-safe: gira a ogni tentativo).
@@ -106,7 +139,7 @@ export async function gotoTerminalProject(page: Page, topicName: string): Promis
     }
   }
 
-  const projectHeader = page.locator(`button[title="${TERMINAL_PROJECT_PATH}"]`);
+  const projectHeader = page.locator(projectRowSelector()).first();
   await projectHeader.waitFor({ state: "visible", timeout: 10000 });
   await projectHeader.click();
 
@@ -139,11 +172,14 @@ export async function gotoTerminalProject(page: Page, topicName: string): Promis
  * cura è un budget più largo dove serve, non un a-capo mandato alla shell per
  * farle ristampare il prompt (quello sì nasconderebbe una perdita vera).
  */
-export async function openShellViaSidebar(
-  page: Page,
-  terminalPage: TerminalPage,
-  readyTimeout = 15_000,
-): Promise<void> {
+/**
+ * The GESTURE alone: «+» on the project row, then «Shell».         allow-italian: quoted UI string
+ *
+ * Split out of `openShellViaSidebar` because a spec about a REFUSED creation
+ * needs the click without the wait that follows it: there will be no xterm, and
+ * waiting fifteen seconds for one would report the setup instead of the bug.
+ */
+export async function clickAddShell(page: Page): Promise<void> {
   /* THE `title` ATTRIBUTE IS NOT STABLE WHILE THE MOUSE IS OVER THE ROW.
    *
    * `TooltipDelegate` (ec40c0932) moves the value of `title` onto `data-tip`
@@ -157,25 +193,27 @@ export async function openShellViaSidebar(
    * Matching both forms is not a patch: `data-tip` IS where the title lives
    * while the mouse is over the row, which is exactly the state this helper
    * works in. */
-  const sel = (t: string) => `button[title="${t}"], button[data-tip="${t}"]`;
-  const projectHeader = page.locator(sel(TERMINAL_PROJECT_PATH)).first();
+  const projectHeader = page.locator(projectRowSelector()).first();
   // The "+" is `opacity-0` until the row is hovered.
   await projectHeader.hover();
-  const addBtn = projectHeader.locator("..").locator(sel("Add to project")).first();
+  const addBtn = projectHeader.locator("..").locator(labelledButton("Add to project")).first();
   await addBtn.waitFor({ state: "visible", timeout: 5000 });
   await addBtn.click();
 
-  // Testid e non `getByRole("button", { name: "Shell" })`: da baff80a5
-  // (2026-08-06) PaneAddMenu passa dalla primitiva `Menu`, e le sue righe
-  // dichiarano `role="menuitem"` dentro un `role="menu"` — il ruolo IMPLICITO di
-  // bottone non esiste più, quindi quel locator non trova più nulla e i tre test
-  // del terminale morivano qui, prima ancora di aprire una shell. Il messaggio di
-  // quel commit dice «l'unico locator che ne dipendeva è passato al testid»: gli
-  // erano sfuggiti questo helper e `fixtures/terminal.fixture.ts`. Il testid è il
-  // contratto stabile (stessa scelta in terminal-tab-reload.spec.ts:243).
+  // Testid and not `getByRole("button", { name: "Shell" })`: PaneAddMenu rows
+  // declare `role="menuitem"` inside a `role="menu"`, so the implicit button
+  // role no longer exists. The testid is the stable contract.
   const shellBtn = page.getByTestId("pane-add-menu-shell");
   await shellBtn.waitFor({ state: "visible", timeout: 5000 });
   await shellBtn.click();
+}
+
+export async function openShellViaSidebar(
+  page: Page,
+  terminalPage: TerminalPage,
+  readyTimeout = 15_000,
+): Promise<void> {
+  await clickAddShell(page);
 
   await expect(terminalPage.xtermRows.first()).toBeVisible({ timeout: readyTimeout });
   await terminalPage.waitForReady(readyTimeout);

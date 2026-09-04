@@ -72,7 +72,25 @@ test.describe("Condividere un progetto", () => {
     await expect(pannello.getByTestId("share-control")).toBeVisible();
     await pannello.screenshot({ path: "test-results/share-progetto.png" });
 
-    // Un clic fuori lo chiude: è un pannello, non una pagina.
+    // The card is the one from the contract: `MODAL_PANEL` (hence
+    // `native-occlude`, what freezes the native browser pane under the
+    // backdrop) plus `role="dialog"`, what `hasOpenModalSurface()` looks for.
+    // Without them Escape reached the global shortcut handler and stopped the
+    // focused session's turn instead of closing the panel.
+    await expect(
+      page.locator(
+        '[data-testid="project-share-panel"] .native-occlude, [data-testid="project-share-panel"][role="dialog"]',
+      ),
+    ).toHaveCount(1);
+
+    // Escape closes it, like every other full-screen dialog.
+    await page.keyboard.press("Escape");
+    await expect(pannello).toHaveCount(0);
+
+    // And a click outside closes it too: it is a panel, not a page.
+    await riga.click({ button: "right" });
+    await page.getByTestId("project-share").click();
+    await expect(pannello).toBeVisible({ timeout: 10000 });
     await page.mouse.click(5, 5);
     await expect(pannello).toHaveCount(0);
   });

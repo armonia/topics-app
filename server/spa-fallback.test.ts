@@ -56,6 +56,29 @@ describe("shouldServeSpaFallback", () => {
     expect(shouldServeSpaFallback({ method: "GET", pathname: "/task/x", accept: "application/json" })).toBe(false);
     expect(shouldServeSpaFallback({ method: "GET", pathname: "/task/x", accept: null })).toBe(false);
   });
+
+  // A permalink asked for with the wildcard type answered `404 Not Found` in
+  // `text/plain`: an address of the app that exists or not depending on WHO
+  // knocks. What opens a link is often not the rendering engine but the OS link
+  // handler, an embedded view or a chat client's preview, and those send the
+  // wildcard.
+  test("un permalink chiesto col tipo jolly riceve il guscio", () => {
+    for (const accept of ["*/*", "text/*", "application/json, */*;q=0.5"]) {
+      expect(shouldServeSpaFallback({ method: "GET", pathname: "/tab/chat/d8ea2ff3-d412-4771-810d-401faa1d1754", accept })).toBe(true);
+      expect(shouldServeSpaFallback({ method: "GET", pathname: "/task/d8ea2ff3-d412-4771-810d-401faa1d1754", accept })).toBe(true);
+    }
+  });
+
+  test("il jolly NON allarga le rotte che non sono permalink", () => {
+    expect(shouldServeSpaFallback({ method: "GET", pathname: "/settings", accept: "*/*" })).toBe(false);
+    expect(shouldServeSpaFallback({ method: "GET", pathname: "/api/does-not-exist", accept: "*/*" })).toBe(false);
+    expect(shouldServeSpaFallback({ method: "GET", pathname: "/assets/missing.js", accept: "*/*" })).toBe(false);
+  });
+
+  test("chi chiede solo JSON su un permalink prende il suo 404 vero", () => {
+    expect(shouldServeSpaFallback({ method: "GET", pathname: "/tab/chat/x", accept: "application/json" })).toBe(false);
+    expect(shouldServeSpaFallback({ method: "GET", pathname: "/tab/chat/x", accept: null })).toBe(false);
+  });
 });
 
 // Il permalink a una tab (`shared/tab-link.ts`) porta chiavi che possono

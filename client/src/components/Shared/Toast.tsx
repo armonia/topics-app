@@ -105,14 +105,21 @@ function ToastItem({ toast: t, onRemove }: { toast: Toast; onRemove: (id: string
 
   return (
     <div
-      className={`flex items-center gap-2 px-3 py-2 rounded-lg shadow-lg text-[11px] font-medium text-white transition-all duration-300 ${bg} ${
+      // `items-start` and not `items-center`: a message on two lines keeps the
+      // icon and the close button on the FIRST line, where they belong.
+      className={`flex items-start gap-2 px-3 py-2 rounded-lg shadow-lg text-[11px] font-medium text-white transition-all duration-300 ${bg} ${
         state === 'enter' ? 'opacity-0 translate-y-2' :
         state === 'exit'  ? 'opacity-0 -translate-y-1' :
                             'opacity-100 translate-y-0'
       }`}
     >
       <span className="flex-shrink-0 opacity-90">{icon}</span>
-      <span className="flex-1 min-w-0 truncate">{t.message}</span>
+      {/* WRAP, DO NOT TRUNCATE. `truncate` cut every sentence longer than the
+          320px of the box, which on an error means the half that says WHY is
+          the half thrown away: "I terminali non sono disponibili in questa   allow-italian: quoted UI string
+          insta…". Three lines is the cap — past that it is a dialog, not a
+          toast — and the ellipsis stays for the pathological case. */}
+      <span className="flex-1 min-w-0 line-clamp-3">{t.message}</span>
       {t.action && (
         <button
           data-testid="toast-action"

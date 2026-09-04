@@ -4,19 +4,19 @@
  * nove effetti, ~130 righe di regole di potatura).
  *
  * Possiede:
- *  - Le due fetch d'avvio: `/api/terminal/sessions` (roster) e
- *    `/api/terminal/sessions/dormant?cwd=…` (parcheggiate), e la ripassata del
- *    prune quando la seconda arriva dopo la prima (nessun ordine garantito).
+ *  - La fetch d'avvio del roster (`/api/terminal/sessions`) e il guard delle
+ *    PARCHEGGIATE (`lib/dormantTerminalGuard`), che non si legge una volta
+ *    sola: si richiede a ogni sparizione, e alla risposta ripassa il prune.
  *  - La sottoscrizione WS a `terminal:sessions`.
  *  - Le tre memorie che rendono il prune sicuro: id VISTI almeno una volta,
- *    id dormienti, ultimo roster ricevuto.
+ *    id parcheggiati/confermati morti (nel guard), ultimo roster ricevuto.
  *  - Il prune («vista e poi sparita», o mai vista con roster autorevole), la
  *    rietichettatura dal roster e l'auto-aggiunta delle sessioni del progetto.
  *
  * NON possiede:
  *  - I gruppi, le righe, il fuoco: scrive SOLO `panes`, e solo con un updater
  *    funzionale. Chi ospita le nuove pane in un gruppo è l'orphan-sync.
- *  - La decisione «tenere o potare» in sé: quella è `shouldKeepRestoredTerminalPane`.
+ *  - La decisione «tenere o potare» in sé: quella è `decideRestoredTerminalPane`.
  *  - La rianimazione di una sessione dormiente — la fa la pane quando diventa
  *    ATTIVA (SingleTerminalPane, gated su `isActive`). Qui le dormienti si
  *    censiscono soltanto: aprire un progetto non deve riaccendere tutti i
@@ -26,7 +26,8 @@ import { useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
 import type { Pane, PaneType, Topic, WSMessage } from '../../../types';
 import { getTerminalSessionFromPaneId, getTerminalTombstones } from '../../../state/pane/adapters';
 import { normalizeTerminalAgent, TERMINAL_AGENT_LABELS } from '../../../lib/terminalAgents';
-import { shouldKeepRestoredTerminalPane } from './terminalReconcile';
+import { createDormantTerminalGuard } from '../../../lib/dormantTerminalGuard';
+import { decideRestoredTerminalPane } from './terminalReconcile';
 
 interface TerminalRosterEntry { id: string; cwd: string; name: string; type: string }
 
@@ -54,15 +55,8 @@ export function useProjectTerminalSync({
   // reconcile finishes; pruning on those used to wipe every restored
   // claude-code tab inside a project AND persist the wipe → sessions lost.
   const seenTerminalSessionIdsRef = useRef<Set<string>>(new Set());
-  /** Sessioni PARCHEGGIATE del progetto: fuori dal roster ma vive come riga
-   *  ripristinabile, quindi le loro tab non vanno potate. Vuoto finché la
-   *  risposta non arriva — e vuoto è il comportamento di prima. */
-  const dormantIdsRef = useRef<ReadonlySet<string>>(new Set());
-  /** Has the dormant list answered (or failed)? While this is false the prune
-   *  removes nothing - see the comment inside `setPanes`. */
-  const dormantLoadedRef = useRef(false);
-  /** Ultimo roster visto, per ripassare il prune se la lista delle dormienti
-   *  arriva dopo (le due fetch non hanno un ordine garantito). */
+  /** Ultimo roster visto, per ripassare il prune quando la lista delle dormienti
+   *  risponde (all'avvio, e dopo ogni ri-verifica). */
   const lastRosterRef = useRef<TerminalRosterEntry[]>([]);
 
   useEffect(() => {
@@ -117,6 +111,10 @@ export function useProjectTerminalSync({
         s => (s.cwd === projectPath || s.cwd.startsWith(projectPath + '/'))
           && !tombstones.has(s.id),
       );
+      // Ids whose session left the roster and whose fate the dormant list in
+      // hand cannot settle: collected here, re-checked after the update. The
+      // panes stay meanwhile.
+      const toVerify = new Set<string>();
       setPanes(prev => {
         let updated = prev.filter(p => {
           if (p.type !== 'terminal') return true;
@@ -131,9 +129,9 @@ export function useProjectTerminalSync({
           // The roster and the dormant list are fetched together and answer in
           // no guaranteed order - and in practice the roster wins: its fetch is
           // issued first and reads an in-memory Map. At that instant
-          // `rosterAuthoritative` is already true and `dormantIdsRef` is still
+          // `rosterAuthoritative` is already true and the dormant set is still
           // empty, so a PARKED tab falls through to the last branch of
-          // `shouldKeepRestoredTerminalPane` and is pruned.
+          // `decideRestoredTerminalPane` and is pruned.
           //
           // And the second pass below cannot put it back: the prune is
           // destructive (`prev.filter`), so that pass gets a `prev` the pane has
@@ -151,8 +149,19 @@ export function useProjectTerminalSync({
           // So the prune waits until it knows. If the dormant fetch fails the
           // flag is raised anyway with an empty set: from there on the behaviour
           // is exactly what it was - never worse.
-          if (!dormantLoadedRef.current) return true;
-          return shouldKeepRestoredTerminalPane(sid, sessionIds, seen, rosterAuthoritative, dormantIdsRef.current);
+          //
+          // AND THE SAME HOLDS FOR EVERY LATER DISAPPEARANCE, not just for the
+          // race at mount. `/exit` in a live claude tab parks the row and
+          // rebroadcasts a roster without it: with a dormant set read at mount
+          // that is plain seen-then-gone, so the tab was deleted within the
+          // second and the layout saved the deletion (no debounce). Hence
+          // `verify`: keep the pane, ask the dormant list again, decide then.
+          if (!guard.loaded) return true;
+          const verdict = decideRestoredTerminalPane(
+            sid, sessionIds, seen, rosterAuthoritative, guard.dormantIds, guard.confirmedGoneIds,
+          );
+          if (verdict === 'verify') toVerify.add(sid);
+          return verdict !== 'prune';
         });
         // Relabel existing terminal tabs from the live roster. Returns the same
         // object when unchanged, so the identity check below still short-circuits
@@ -182,41 +191,28 @@ export function useProjectTerminalSync({
         if (toAdd.length > 0) updated = [...updated, ...toAdd];
         return updated.length === prev.length && updated.every((p, i) => p === prev[i]) ? prev : updated;
       });
+      // Outside the updater on purpose: React can invoke it twice (StrictMode),
+      // and this must fire once per real disappearance. `recheck` ignores ids it
+      // has already settled, so a repeated call costs nothing.
+      if (toVerify.size > 0) guard.recheck(toVerify);
     };
 
+    // Le sessioni PARCHEGGIATE si censiscono, non si rianimano: la lista serve
+    // al prune (una dormiente è fuori dal roster per costruzione), non a
+    // rimettere in piedi i processi che il parcheggio ha appena spento. A
+    // rianimare ci pensa la pane quando diventa ATTIVA (SingleTerminalPane,
+    // gated su `isActive`), con `--resume` ed esattamente dov'era.
+    const guard = createDormantTerminalGuard({
+      // Ripassa il prune sull'ultimo roster: è così che una risposta fresca
+      // diventa una tab tenuta (parcheggiata) o potata (sparita davvero).
+      onUpdate: () => syncTerminals(lastRosterRef.current),
+    });
     fetch('/api/terminal/sessions').then(r => r.json()).then(syncTerminals).catch(() => {});
 
-    // Le sessioni PARCHEGGIATE si censiscono, non si rianimano.
-    //
-    // Qui si faceva `POST …/revive` su OGNI sessione dormiente di questo cwd.
-    // Serviva a farle rientrare nel roster prima del prune (una dormiente non è
-    // nella mappa in memoria del server, e per il prune «vista e poi sparita» è
-    // indistinguibile da «chiusa in un'altra finestra»), ma il prezzo era che
-    // aprire un progetto rimetteva in piedi in un colpo solo tutti i processi
-    // che il parcheggio per inattività aveva appena spento: il gesto più comune
-    // che esista annullava il risparmio.
-    //
-    // Ora gli id dormienti si passano al prune, che li tiene perché sono
-    // parcheggiati e non morti. A rianimare ci pensa la pane quando diventa
-    // ATTIVA (SingleTerminalPane, gated su `isActive`): con `--resume`,
-    // esattamente dov'era, scrollback compreso. Montare una tab non richiede una
-    // PTY viva — la richiede metterla a fuoco.
-    fetch(`/api/terminal/sessions/dormant?cwd=${encodeURIComponent(projectPath)}`)
-      .then(r => r.json())
-      .then((dormant: { id: string }[]) => {
-        if (Array.isArray(dormant)) dormantIdsRef.current = new Set(dormant.map(d => d.id));
-        // Now pruning may happen: the filter above keeps everything while this
-        // flag is false, so this is the FIRST pass that removes anything, not a
-        // second pass trying to put something back.
-        dormantLoadedRef.current = true;
-        syncTerminals(lastRosterRef.current);
-      })
-      .catch(() => {
-        // No answer: carry on with the empty set, which is exactly the old
-        // behaviour. Not knowing must not turn into "never prune".
-        dormantLoadedRef.current = true;
-        syncTerminals(lastRosterRef.current);
-      });
+    // Prima lettura: finché non risponde, `guard.loaded` è false e il prune non
+    // toglie niente. Alla risposta il guard richiama `onUpdate`, quindi questa è
+    // la PRIMA passata che pota qualcosa, non una seconda che prova a rimettere.
+    guard.load();
 
     return onWSMessage((msg: WSMessage) => {
       const m = msg as unknown as { type?: string; sessions?: unknown };

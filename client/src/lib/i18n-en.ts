@@ -1392,6 +1392,20 @@ const EN = {
   'terminal.resume': 'Resume',
   'terminal.restarting': 'Restarting…',
   'terminal.restartingSession': 'Restarting session…',
+  // ── Terminal: the refusals that used to happen in silence. The server text
+  //    is English, internal and sometimes an exception message, so none of it
+  //    is shown: the status (plus a `code` for the two different 503s) picks
+  //    one of these.
+  'terminal.err.unavailable': 'Terminals are not available in this installation.',
+  'terminal.err.unauthorized': 'This device is not allowed to open a terminal.',
+  'terminal.err.notFound': 'This terminal session no longer exists.',
+  'terminal.err.busy': 'This session is already busy with another operation.',
+  'terminal.err.retry': 'The terminal server is not ready. Try again.',
+  'terminal.err.createFailed': 'The terminal did not open: the server refused.',
+  'terminal.err.createUnreachable': 'The terminal did not open: the server did not answer.',
+  'terminal.err.renameFailed': 'Rename failed: the server refused.',
+  'terminal.err.renameUnreachable': 'Rename failed: the server did not answer.',
+  'terminal.inputDropped': 'The terminal is not connected: what you type is being lost.',
   // ── The three words every surface used to rewrite on its own.
   'common.close': 'Close',
   'common.retry': 'Retry',
