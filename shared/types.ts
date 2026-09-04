@@ -23,6 +23,10 @@
  * the re-export.
  */
 
+// Type-only: erased at build time, so this module still has no runtime
+// dependency (and no zod on the client through the back door).
+import type { STOP_CAUSES } from './ws-outbound';
+
 // ─── Language (the interface AND the model's answers) ──────────────────
 
 /**
@@ -819,6 +823,17 @@ export interface ToolCall {
  * split that lost ordering. Consecutive same-kind deltas are coalesced into
  * a single block while streaming.
  */
+/**
+ * Why a turn ended, with the SAME vocabulary the wire already speaks.
+ *
+ * `STOP_CAUSES` lives in `shared/ws-outbound.ts` because the `stream:end`
+ * schema validates against it; the import here is type-only, so this file keeps
+ * its promise of costing the client nothing at runtime. Copying the ten strings
+ * over would be the third copy of a list that has already gone out of sync once
+ * and left dead chats spinning forever (see that file's comment).
+ */
+export type TurnEndCause = (typeof STOP_CAUSES)[number];
+
 export type ContentBlock =
   | { kind: 'text'; text: string }
   | { kind: 'thinking'; text: string }
@@ -840,7 +855,24 @@ export type ContentBlock =
    * produzione erano turni interi incorniciati di giallo senza una parola che
    * dicesse perché.
    */
-  | { kind: 'error'; text: string }
+  | {
+      kind: 'error';
+      text: string;
+      /**
+       * WHO stopped the turn, in the wire vocabulary (`STOP_CAUSES`) the
+       * `stream:end` event already speaks.
+       *
+       * The text alone is prose: it renders, it does not decide. The banner
+       * above the composer has to pick a sentence in the reader's language and
+       * to stay quiet on a stop by hand, and both are decisions on a CODE, not
+       * on an English sentence written by the server. Absent on every row
+       * written before this field existed, and on verdicts nobody could
+       * attribute: absent means "not attributed", never "user".
+       */
+      cause?: TurnEndCause;
+      /** When the turn was declared over (ISO 8601). */
+      at?: string;
+    }
   /**
    * QUESTA RISPOSTA NON L'HAI CHIESTA TU.
    *

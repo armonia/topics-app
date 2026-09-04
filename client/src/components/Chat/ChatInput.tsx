@@ -6,7 +6,7 @@ import { decideComposerAction } from './composerAction';
 import { SLASH_COMMANDS } from './slashCommands';
 import { canAnswerWithText, findPendingAsk } from '../../state/pendingAsk';
 import { useServerTurnAsked, useTopicLoading } from '../../state/signals';
-import { turnLooksUnanswered } from './turnError';
+import { turnLooksUnanswered, interruptedTurnOf, TURN_CAUSE_KEY } from './turnError';
 import type { Topic, ChatMessage, UpdateTopicRequest, WSMessage } from '../../types';
 import { ImageThumbnail } from '../MessageContent';
 import { ZoomableImage } from '../Shared/ImageLightbox';
@@ -590,6 +590,35 @@ export function ChatInput({
     [currentMessages],
   );
 
+  /**
+   * WAS THE LAST TURN INTERRUPTED, AND BY WHOM.
+   *
+   * The case "No answer" does not cover and cannot cover: that banner requires
+   * the LAST message to be the user's, while a turn the watchdog killed leaves
+   * its assistant bubble in place with everything it had written before dying.
+   * Different shape, same question for whoever is watching: is it over, or am I
+   * waiting for something that will never arrive?
+   *
+   * While the stream is alive nothing is said: the cause sits on a row the
+   * server already closed, but a NEW turn on the same chat leaves it on the
+   * page until the first new word lands.
+   */
+  const interruptedTurn = useMemo(() => {
+    if (currentStreaming) return null;
+    const last = currentMessages[currentMessages.length - 1];
+    if (last?.role !== 'assistant') return null;
+    return interruptedTurnOf(last);
+  }, [currentMessages, currentStreaming]);
+
+  /** What Retry resends: the last user message before the dead turn. */
+  const lastUserText = useMemo(() => {
+    for (let i = currentMessages.length - 1; i >= 0; i--) {
+      const m = currentMessages[i];
+      if (m.role === 'user' && m.content?.trim()) return m.content;
+    }
+    return null;
+  }, [currentMessages]);
+
   // Dettatura. Il testo entra AL CURSORE, non in coda: chi detta a metà di una
   // frase già scritta si aspetta che la voce continui da lì, ed è anche l'unico
   // modo per dettare due volte di seguito senza rimescolare l'ordine.
@@ -958,6 +987,38 @@ export function ChatInput({
           hint={tr('chat.dictation.hint')}
           onStop={toggleListening}
         />
+      )}
+
+      {/* AN INTERRUPTED TURN IS AN EVENT, not a footnote.
+          On 2026-09-03 the only sign of a turn closed by the watchdog was
+          "[Response timed out]" appended at the bottom of a long message, and
+          the chat looked "stuck with no feedback at all": the why was in the
+          server log and there was no way out. Here the cause is the one the
+          server wrote on the row (`cause`, the `stream:end` vocabulary), the
+          sentence is ours and in the reader's language, and Retry resends the
+          last message instead of leaving it to guesswork. It clears itself:
+          the memo recomputes on the messages, and the first new row is not an
+          interrupted turn any more. */}
+      {interruptedTurn && (
+        <div
+          data-testid="turn-interrupted-banner"
+          data-cause={interruptedTurn.cause}
+          className={`${CHAT_STRIP} px-3 py-2 flex items-center gap-2 flex-shrink-0 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40`}
+        >
+          <div className="flex-1 min-w-0">
+            <div className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">{tr('chat.turnInterrupted')}</div>
+            <div className="text-[11px] text-amber-600 dark:text-amber-500 truncate">{tr(TURN_CAUSE_KEY[interruptedTurn.cause])}</div>
+          </div>
+          {lastUserText && (
+            <button
+              data-testid="turn-interrupted-retry"
+              onClick={() => { void sendMessageDirect(lastUserText); }}
+              className="px-3 py-1.5 text-[11px] rounded-md transition-colors flex items-center gap-1 bg-amber-500 text-white hover:bg-amber-600"
+            >
+              <span>↻</span> {tr('chat.turnInterrupted.retry')}
+            </button>
+          )}
+        </div>
       )}
 
       {/* Nessuna risposta dopo un messaggio tuo. La CAUSA non si legge dalla

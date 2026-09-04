@@ -3163,3 +3163,62 @@ turno, semplicemente nessuno compra più turni per perseguirlo.
 - **WHEN** si preme Ferma sulla barra
 - **THEN** l'obiettivo è ancora attivo
 - **AND** alla fine del turno successivo nessuna continuazione parte
+
+### Requirement: CHAT-INT-01 — Un turno interrotto dice perché, e offre una via d'uscita
+
+Quando il sistema chiude un turno che non è arrivato in fondo, il messaggio SHALL
+portare la CAUSA in forma strutturata (il blocco `error` con `cause`, lo stesso
+vocabolario di `stream:end`, e l'istante `at`), non solo un testo appeso in
+fondo alla prosa. Il client SHALL mostrare sopra il composer un banner
+«Risposta interrotta», con la causa scritta nella lingua dell'interfaccia e un
+comando che rimanda l'ultimo messaggio dell'utente. Il marcatore testuale in
+`content` SHALL restare, come fallback per i client che non sanno leggere la
+causa.
+
+Il banner NON SHALL comparire quando il turno lo ha fermato la persona (`cause`
+`user`: quel caso ha già il suo banner), quando il turno sta ancora rispondendo,
+e su una riga senza `cause` (scritta prima che questo campo esistesse: assente
+vuol dire «non attribuito», non «watchdog»).
+
+#### Scenario: Il watchdog chiude un turno e il banner lo dice
+- **GIVEN** un turno in corso che ha già scritto della prosa
+- **WHEN** il watchdog lo chiude perché il processo del fornitore è morto
+- **THEN** il messaggio porta un blocco `error` con `cause: "watchdog"` e l'istante
+- **AND** sopra il composer compare il banner «Risposta interrotta» con la causa in chiaro
+
+#### Scenario: Il turno si interrompe mentre lo si sta guardando
+- **GIVEN** una chat aperta con un turno che sta rispondendo
+- **WHEN** arriva la fine del turno con la causa (`stopCause`) e nessuno ricarica la pagina
+- **THEN** il banner compare da sé, con la causa in chiaro
+- **AND** la prosa già scritta resta al suo posto
+
+#### Scenario: Una fine pulita non accende nessun banner
+- **GIVEN** una chat aperta con un turno che sta rispondendo
+- **WHEN** il turno finisce normalmente, senza causa di interruzione
+- **THEN** nessun banner compare
+
+#### Scenario: Il reaper d'inattività chiude un turno tagliato a metà risposta
+- **GIVEN** un turno che ha già scritto una risposta lunga
+- **WHEN** il reaper d'inattività lo chiude perché il processo figlio è morto
+- **THEN** la prosa già scritta resta al suo posto
+- **AND** in fondo alla sua timeline compare il verdetto con `cause: "watchdog"` e l'istante
+- **AND** una seconda passata del reaper non aggiunge un secondo verdetto
+
+#### Scenario: Una riga senza timeline non si riscrive
+- **GIVEN** un turno chiuso dal reaper la cui timeline è vuota
+- **THEN** il verdetto NON viene scritto nei blocchi
+- **AND** la spiegazione resta quella che il reaper mette in `content`, che è ciò che quella riga disegna
+
+#### Scenario: Riprova rimanda l'ultimo messaggio dell'utente
+- **GIVEN** il banner di turno interrotto a schermo
+- **WHEN** si preme «Riprova»
+- **THEN** l'ultimo messaggio dell'utente riparte come turno nuovo
+
+#### Scenario: Il banner sparisce quando la risposta arriva
+- **GIVEN** il banner di turno interrotto a schermo
+- **WHEN** un turno nuovo risponde sulla stessa chat
+- **THEN** il banner non c'è più
+
+#### Scenario: Uno stop della persona non accende il banner
+- **GIVEN** un turno chiuso con causa `user`
+- **THEN** il banner «Risposta interrotta» non compare

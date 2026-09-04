@@ -1,4 +1,4 @@
-import type { ContentBlock } from '../../types';
+import type { ContentBlock, TurnEndCause } from '../../types';
 
 /**
  * Perché un turno è finito male — la domanda posta UNA volta.
@@ -60,6 +60,107 @@ export function turnIsOnlyError(msg: {
   const c = (msg.content ?? '').trim();
   if (!c.startsWith(LEGACY_ERROR_PREFIX)) return true; // il verdetto sta nei blocchi, e content è vuoto
   return c.slice(LEGACY_ERROR_PREFIX.length).split(/\n\s*\n/).length === 1;
+}
+
+/**
+ * WAS THE TURN INTERRUPTED, AND BY WHOM - the banner's question.
+ *
+ * THE REPORT, 2026-09-03: a turn closed by the watchdog at 22:25, and the chat
+ * "stuck with no feedback at all". The only sign was a line appended at the
+ * bottom of a long message, "[Response timed out]", which nobody reads: getting
+ * to the bottom of a wall of text takes scrolling on purpose. The real cause
+ * (the reaper had killed the child process) was in the server log, and there
+ * was no way out: resend the message, or keep waiting, was left to guessing.
+ *
+ * WHY THE CAUSE IS ASKED, NOT THE TEXT. The verdict's text is English prose
+ * written by the server: it prints, nothing gets decided on it. The code
+ * (`STOP_CAUSES`, the same one `stream:end` speaks) answers the two questions
+ * that matter - which sentence, in which language - and a third one, which is
+ * why the banner does not shout out of turn: `user` is NOT an interruption to
+ * explain. Whoever pressed stop already knows why the turn ended, and has their
+ * own banner for it.
+ *
+ * OLD ROWS HAVE NO CAUSE, and stay without a banner: a missing `cause` means
+ * "not attributed", not "watchdog". Reopening a three-week-old chat must not
+ * light an amber box over a turn nobody will resend; the verdict inside the
+ * bubble is there as before.
+ */
+export function interruptedTurnOf(msg: {
+  blocks?: ContentBlock[] | null;
+}): { cause: TurnEndCause; text: string; at?: string } | null {
+  const block = msg.blocks?.find((b) => b.kind === 'error');
+  if (!block || block.kind !== 'error') return null;
+  if (!block.cause || block.cause === 'user') return null;
+  return { cause: block.cause, text: block.text, at: block.at };
+}
+
+/**
+ * The sentence explaining the cause, by translation key.
+ *
+ * An EXPLICIT map and not a key built at runtime from the cause: a computed key
+ * is one nobody can search for in the catalogues, and the first cause added to
+ * `STOP_CAUSES` without its sentence would come out as the code name printed in
+ * the reader's face. This way it does not compile instead.
+ */
+export const TURN_CAUSE_KEY: Record<TurnEndCause, string> = {
+  'user': 'chat.turnStopped',
+  'watchdog': 'chat.turnInterrupted.watchdog',
+  'wall-clock': 'chat.turnInterrupted.wallClock',
+  'server-shutdown': 'chat.turnInterrupted.serverShutdown',
+  'stall': 'chat.turnInterrupted.stall',
+  'session-reset': 'chat.turnInterrupted.sessionReset',
+  'process-died': 'chat.turnInterrupted.processDied',
+  'turn-in-flight': 'chat.turnInterrupted.turnInFlight',
+  'superseded': 'chat.turnInterrupted.superseded',
+  'provider-error': 'chat.turnInterrupted.providerError',
+};
+
+/**
+ * THE SAME VERDICT, BUILT FROM THE EVENT INSTEAD OF THE ROW.
+ *
+ * The gap this closes is the one the report is actually about: the watchdog
+ * fires WHILE somebody is watching the chat. The server writes the cause on the
+ * row, but this page already holds that message in memory and nothing puts it
+ * there: `stream:end` flipped the spinner off and left the bubble as it was, so
+ * the banner appeared only after a reload. Which is to say: it did not appear
+ * to the one person who was there to see it.
+ *
+ * The data was already on the wire - `stopCause` has been on `stream:end` since
+ * long before this banner - it was simply never applied. So no new field: the
+ * event is read, and the row in memory gets the same block the server just
+ * persisted. A reload afterwards shows the identical thing.
+ *
+ * MEMBERSHIP IS TESTED AGAINST `TURN_CAUSE_KEY`, not against `STOP_CAUSES`.
+ * Two reasons, and the second is the one that matters. `STOP_CAUSES` lives in
+ * `shared/ws-outbound.ts`, which imports zod: importing the VALUE here would
+ * drag a schema library into the chat bundle to check ten strings. And the map
+ * is the more honest test anyway - it answers "can I render this cause?", which
+ * is the actual question, so a cause we have no sentence for cannot reach the
+ * banner as a code name.
+ */
+export function liveInterruptionBlock(input: {
+  /** `stopCause` from the `stream:end` event, if it carried one. */
+  stopCause?: string;
+  /** The server's own sentence, when the event carried one. */
+  error?: string;
+  /** The blocks already on the row: a verdict there wins over ours. */
+  blocks?: ContentBlock[] | null;
+}): ContentBlock | null {
+  const cause = input.stopCause;
+  if (!cause || cause === 'user') return null;
+  if (!(cause in TURN_CAUSE_KEY)) return null;
+  // Somebody already explained, and their version is on the row: adding ours
+  // would show two verdicts for one turn.
+  if (input.blocks?.some((b) => b.kind === 'error')) return null;
+  return {
+    kind: 'error',
+    // The text is the FALLBACK: the banner renders the translated cause. When
+    // the event carried no sentence (the reaper's `stream:end` does not), the
+    // cause alone is what we have, and it is enough to render.
+    text: (input.error ?? '').replace(/^\u26a0\ufe0f\s*/, '').trim(),
+    cause: cause as TurnEndCause,
+    at: new Date().toISOString(),
+  };
 }
 
 /**
