@@ -4574,8 +4574,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // gets reads the open subtasks in its kickoff and works them. Asking "who
       // will work them?" moved three queued parents to review, each with a
       // question on top, twelve seconds after their sub-cards were put back to
-      // todo (2026-09-04 10:09). The question belongs to a parent that STOPPED.
-      if (row.status === "todo") return null;
+      // todo (2026-09-04 10:09). "In the queue" is a todo card that carries the
+      // `queued` chip or has never had a turn; a todo card that already spent
+      // one and came back without a chip is what the rake exists for.
+      if (row.status === "todo" && (row.dispatch_state === "queued" || Number(row.dispatch_attempts ?? 0) === 0)) return null;
       // IL PADRE STA LAVORANDO: la domanda non si fa adesso.
       //
       // Spostare in review una card con un turno vivo gli taglia il turno sotto
