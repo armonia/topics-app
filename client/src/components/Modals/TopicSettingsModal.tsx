@@ -15,7 +15,7 @@ import { buildTabLinkForTarget } from '../../lib/tabLink';
 import { Select } from '../Shared/Select';
 import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
 import { useModalDialog } from '../../hooks/useModalDialog';
-import { worktreesApi } from '../../lib/api';
+import { topicsApi, worktreesApi } from '../../lib/api';
 import { useToast } from '../Shared/Toast';
 import { useT } from '../../hooks/useT';
 import { SwitchTrack } from '../Shared/Switch';
@@ -73,6 +73,14 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   const [topicName, setTopicName] = useState(topic.name);
   const [topicColor, setTopicColor] = useState(topic.color);
   const [systemPrompt, setSystemPrompt] = useState(topic.systemPrompt || '');
+  // THE PROMPT IS NOT IN THE LIST any more (see shared/types.ts): the topic
+  // prop that reaches this modal carries `hasSystemPrompt`, not the text. Until
+  // the single-topic read lands, the textarea holds a value nobody typed - so
+  // it is read-only and, above all, the save leaves the field ALONE: sending
+  // the empty string would erase the prompt of every topic whose settings you
+  // merely opened.
+  const [promptLoaded, setPromptLoaded] = useState(topic.systemPrompt !== undefined);
+  const [loadedPrompt, setLoadedPrompt] = useState(topic.systemPrompt || '');
   const [contextFilesList, setContextFilesList] = useState<string[]>(topic.contextFiles || []);
   const [newContextFile, setNewContextFile] = useState('');
   const [provider, setProvider] = useState<string | null>(topic.provider ?? null);
@@ -105,6 +113,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
     setTopicName(topic.name);
     setTopicColor(topic.color);
     setSystemPrompt(topic.systemPrompt || '');
+    setLoadedPrompt(topic.systemPrompt || '');
     setContextFilesList(topic.contextFiles || []);
     setNewContextFile('');
     setProvider(topic.provider ?? null);
@@ -116,6 +125,31 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
     // renaming a New Chat a few seconds in — silently wiped whatever the user
     // was typing in these fields and dropped isDirty. Re-seeding is only
     // correct when the modal (re)opens or targets a different topic.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topic.id, isOpen]);
+
+  // The prompt of THIS topic, on open. One topic, one read - the same reason
+  // the list stopped carrying 255 KB of prompts nobody was drawing.
+  useEffect(() => {
+    let cancelled = false;
+    if (!isOpen) return;
+    if (topic.systemPrompt !== undefined) {
+      setPromptLoaded(true);
+      setLoadedPrompt(topic.systemPrompt);
+      setSystemPrompt(topic.systemPrompt);
+      return;
+    }
+    setPromptLoaded(false);
+    topicsApi.get(topic.id)
+      .then((full) => {
+        if (cancelled) return;
+        const text = full.systemPrompt || '';
+        setLoadedPrompt(text);
+        setSystemPrompt(text);
+        setPromptLoaded(true);
+      })
+      .catch(() => { /* leave it read-only: better empty than a prompt overwritten by a failed read */ });
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [topic.id, isOpen]);
 
@@ -134,7 +168,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
     projectPath !== (topic.projectPath || '') ||
     topicName !== topic.name ||
     topicColor !== topic.color ||
-    systemPrompt !== (topic.systemPrompt || '') ||
+    (promptLoaded && systemPrompt !== loadedPrompt) ||
     JSON.stringify(contextFilesList) !== JSON.stringify(topic.contextFiles || []) ||
     provider !== (topic.provider ?? null) ||
     muted !== !!topic.muted;
@@ -157,7 +191,9 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
       // è mai stato scelto resta `undefined` e la PATCH parziale non tocca la
       // colonna — un topic che non ha deciso continua a comportarsi come prima.
       ...(autonomy ? { autonomyLevel: autonomy } : {}),
-      systemPrompt,
+      // Omitted while the single-topic read is in flight: a partial PATCH that
+      // does not carry the field leaves the column alone.
+      ...(promptLoaded ? { systemPrompt } : {}),
       contextFiles: contextFilesList,
       provider,
       muted,
@@ -438,6 +474,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
               onChange={e => setSystemPrompt(e.target.value)}
               placeholder="Enter a system prompt for this topic..."
               rows={4}
+              readOnly={!promptLoaded}
               className="w-full px-3 py-2 border border-app-border-light rounded-lg text-[13px] bg-surface dark:bg-elevated text-app-text placeholder-app-placeholder focus:outline-none focus:ring-2 focus:ring-primary transition-colors resize-y"
               aria-label="System prompt"
             />

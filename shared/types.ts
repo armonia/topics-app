@@ -990,7 +990,19 @@ export interface Topic {
   createdAt: string;
   updatedAt: string;
   archived: boolean;
+  /**
+   * ABSENT IN THE LIST. `GET /api/topics` omits it (255 KB across the topics of
+   * this machine, for text no list draws) and `GET /api/topics/:id` carries it:
+   * whoever EDITS or reads a prompt is looking at one topic. Use
+   * `hasSystemPrompt` to know whether there is one without asking for it.
+   */
   systemPrompt?: string;
+  /**
+   * "This topic has a custom prompt", which is all a list needs to know. The
+   * server sets it on the list shape; on a single topic the prompt itself is
+   * there and answers the same question.
+   */
+  hasSystemPrompt?: boolean;
   contextFiles?: string[];
   pinnedMessages?: string[];
   projectPath?: string;

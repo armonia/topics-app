@@ -603,6 +603,46 @@ export function createAppContext(baseDir: string): AppContext {
    *
    * Default `true` per entrambe: nessun altro chiamante cambia comportamento.
    */
+  /** The `tool_calls` column, parsed and sanitized. `undefined` when unusable. */
+  function parseToolCallsCol(raw: unknown, messageId: string): StoredMessage["toolCalls"] {
+    try {
+      const parsed: unknown = JSON.parse(decodeCol(raw) ?? "null");
+      // A non-array survives untouched, as it always has: a corrupt shape is
+      // reported by whoever reads it, not silently turned into an empty list.
+      return Array.isArray(parsed)
+        ? parsed.map(sanitizeToolCallDetail)
+        : (parsed as StoredMessage["toolCalls"]);
+    } catch (err) {
+      // Corrupt tool_calls JSON → message hydrates without its tool calls
+      // (recoverable, but silently lossy). Observe it.
+      warnThrottled("rowToMessage:tool_calls", `[Store] Failed to parse tool_calls for message ${messageId}:`, err);
+      return undefined;
+    }
+  }
+
+  /** The `blocks` column, parsed and sanitized. `undefined` when unusable. */
+  function parseBlocksCol(raw: unknown, messageId: string): ContentBlock[] | undefined {
+    try {
+      const parsed: unknown = JSON.parse(decodeCol(raw) ?? "null");
+      if (!Array.isArray(parsed)) return undefined;
+      // v3 foundations NORM-01 DB hydration: each block of kind 'tool'
+      // carries a toolCall whose `detail` may be a legacy / drifted
+      // shape. Sanitize at the boundary so downstream consumers always
+      // see a schema-conforming detail or none.
+      return parsed.map((block: ContentBlock) => {
+        const tool = block as { kind?: string; toolCall?: unknown };
+        if (tool && tool.kind === 'tool' && tool.toolCall) {
+          return { ...block, toolCall: sanitizeToolCallDetail(tool.toolCall) };
+        }
+        return block;
+      });
+    } catch (err) {
+      // Corrupt blocks JSON → message hydrates without its rich blocks.
+      warnThrottled("rowToMessage:blocks", `[Store] Failed to parse blocks for message ${messageId}:`, err);
+      return undefined;
+    }
+  }
+
   function rowToMessage(row: any, opts?: { withBlocks?: boolean; withToolCalls?: boolean }): StoredMessage {
     const msg: StoredMessage = {
       id: row.id,
@@ -612,36 +652,12 @@ export function createAppContext(baseDir: string): AppContext {
     };
     if (row.thinking) msg.thinking = row.thinking;
     if (row.tool_calls && opts?.withToolCalls !== false) {
-      try {
-        const parsed = JSON.parse(decodeCol(row.tool_calls) ?? "null");
-        msg.toolCalls = Array.isArray(parsed)
-          ? parsed.map(sanitizeToolCallDetail)
-          : parsed;
-      } catch (err) {
-        // Corrupt tool_calls JSON → message hydrates without its tool calls
-        // (recoverable, but silently lossy). Observe it.
-        warnThrottled("rowToMessage:tool_calls", `[Store] Failed to parse tool_calls for message ${row.id}:`, err);
-      }
+      const parsed = parseToolCallsCol(row.tool_calls, row.id);
+      if (parsed !== undefined) msg.toolCalls = parsed;
     }
     if (row.blocks && opts?.withBlocks !== false) {
-      try {
-        const parsed = JSON.parse(decodeCol(row.blocks) ?? "null");
-        if (Array.isArray(parsed)) {
-          // v3 foundations NORM-01 DB hydration: each block of kind 'tool'
-          // carries a toolCall whose `detail` may be a legacy / drifted
-          // shape. Sanitize at the boundary so downstream consumers always
-          // see a schema-conforming detail or none.
-          msg.blocks = parsed.map((block: any) => {
-            if (block && block.kind === 'tool' && block.toolCall) {
-              return { ...block, toolCall: sanitizeToolCallDetail(block.toolCall) };
-            }
-            return block;
-          });
-        }
-      } catch (err) {
-        // Corrupt blocks JSON → message hydrates without its rich blocks.
-        warnThrottled("rowToMessage:blocks", `[Store] Failed to parse blocks for message ${row.id}:`, err);
-      }
+      const parsed = parseBlocksCol(row.blocks, row.id);
+      if (parsed !== undefined) msg.blocks = parsed;
     }
     // The `tool_calls` column is not written when the row has `blocks`
     // (`toolCallsColumnForRow`, shared/lean-tool-call.ts): the tool calls live
@@ -1247,6 +1263,47 @@ export function createAppContext(baseDir: string): AppContext {
    */
   function loadLocalMessages(sessionKey: string, opts?: ThreadLoadOpts): StoredMessage[] {
     return loadActiveThread(sessionKey, opts);
+  }
+
+  /**
+   * Fills `blocks` and `tool_calls` back in, for THESE messages only.
+   *
+   * The other half of a lean load: the thread is walked without the two fat
+   * columns, and only the handful of messages that actually leave the server
+   * pays for them. A session of 49 messages carrying 14.2 MB across those
+   * columns used to read, decompress and parse all of it to answer
+   * `{"limit":1}` with 5 KB; now the bytes read follow the answer.
+   *
+   * Mutates in place. A message whose row has nothing in either column comes
+   * back untouched.
+   */
+  function hydrateMessageBodies(msgs: StoredMessage[]): StoredMessage[] {
+    /** The three columns the second pass reads back, and nothing else. */
+    interface BodyRow { id: string; blocks: unknown; tool_calls: unknown }
+    if (msgs.length === 0) return msgs;
+    const byId = new Map<string, BodyRow>();
+    // Chunked: SQLite refuses a statement with more than 999 bound parameters.
+    const CHUNK = 500;
+    for (let i = 0; i < msgs.length; i += CHUNK) {
+      const chunk = msgs.slice(i, i + CHUNK);
+      const rows = db
+        .query(`SELECT id, blocks, tool_calls FROM messages WHERE id IN (${chunk.map(() => "?").join(",")})`)
+        .all(...chunk.map((m) => m.id)) as BodyRow[];
+      for (const row of rows) byId.set(row.id, row);
+    }
+    for (const m of msgs) {
+      const row = byId.get(m.id);
+      if (!row) continue;
+      if (row.tool_calls) {
+        const parsed = parseToolCallsCol(row.tool_calls, m.id);
+        if (parsed !== undefined) m.toolCalls = parsed;
+      }
+      if (row.blocks) {
+        const parsed = parseBlocksCol(row.blocks, m.id);
+        if (parsed !== undefined) m.blocks = parsed;
+      }
+    }
+    return msgs;
   }
 
   /**
@@ -2524,7 +2581,7 @@ export function createAppContext(baseDir: string): AppContext {
     loadTopics, saveTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey, setTopicBrowserState, touchTopicActivity,
     loadUnread, saveUnread,
-    loadLocalMessages, countMessagesBySession, saveLocalMessages, appendLocalMessage, appendImportedMessages,
+    loadLocalMessages, hydrateMessageBodies, countMessagesBySession, saveLocalMessages, appendLocalMessage, appendImportedMessages,
     createPartialMessage, reuseOrCreatePartialForReattach, reuseHeadstoneOrCreate, updateLastMessage, appendToLastMessage,
     finalizeLastMessage, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
     startStream, updateStreamActivity, updateStreamContent, getStreamContent, endStream, isStreaming,

@@ -107,11 +107,15 @@ export function streak(activeDays: Set<string>, todayMs: number): number {
 }
 
 /**
- * The statistics, right now.
+ * The statistics, right now. Uncached: `profileStatsCached` is the door the
+ * routes use.
  *
- * No cache: they are nine queries on indexed tables, the panel asks for them
- * when you open it, and a wrong cache on a number that has to say "this is you
- * today" is an elaborate way of showing yesterday.
+ * The old comment here refused a cache because these were "nine queries on
+ * indexed tables". The query plans say otherwise: `COUNT(*) ... WHERE role =
+ * 'assistant'`, the two SUMs over the token columns and the `GROUP BY
+ * date(timestamp)` all come out as `SCAN messages`, and on this machine that
+ * table is 350 MB. bun:sqlite is synchronous, so every one of those scans is
+ * the event loop standing still - streaming, WS, PTY and browser pane included.
  */
 export function computeProfileStats(db: Database, now: number = Date.now()): ProfileStats {
   try {
@@ -209,6 +213,42 @@ export function computeProfileStats(db: Database, now: number = Date.now()): Pro
     // the empty shape, and the card shows it as "nothing yet".
     return { ...EMPTY, activity: { ...EMPTY.activity, last30: [] } };
   }
+}
+
+/**
+ * How long the numbers are allowed to be old. Fifteen seconds: shorter than
+ * anybody's reading of the panel, longer than the burst of requests that
+ * opening it (stats) plus the banner plus the public profile fire together.
+ */
+export const PROFILE_STATS_TTL_MS = 15_000;
+
+let statsCache: { db: Database; at: number; value: ProfileStats } | null = null;
+
+/**
+ * The statistics with a short memory - what the routes call.
+ *
+ * `/api/profile/stats`, `/api/profile/banner.svg` and `/api/public-profile`
+ * each ran the full set of scans, the last one reachable by anyone holding the
+ * token and with no throttle at all: a refresh loop on that URL was a way to
+ * hold the single event loop of the server for as long as you liked. Within the
+ * window they now share one computation.
+ *
+ * Deliberately NOT invalidated on write: a counter of messages ever sent does
+ * not become wrong fifteen seconds late, and an invalidation hook on the
+ * hottest write path of the app would cost more than the scans it saves.
+ */
+export function profileStatsCached(db: Database, now: number = Date.now()): ProfileStats {
+  if (statsCache && statsCache.db === db && now - statsCache.at < PROFILE_STATS_TTL_MS) {
+    return statsCache.value;
+  }
+  const value = computeProfileStats(db, now);
+  statsCache = { db, at: now, value };
+  return value;
+}
+
+/** Drops the memoized statistics. For tests, and for a DB swapped underfoot. */
+export function resetProfileStatsCache(): void {
+  statsCache = null;
 }
 
 // ── The state RIGHT NOW, for the presence ──────────────────────────────────

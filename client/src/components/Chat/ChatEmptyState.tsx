@@ -94,7 +94,10 @@ export function ChatEmptyState({
       }`}
     >
       <p className="text-[14px] font-medium text-app-text-secondary">{topic.name}</p>
-      {topic.systemPrompt && (
+      {/* `hasSystemPrompt` because the topics list no longer carries the prompt
+          itself (see shared/types.ts): the badge only ever asked whether there
+          is one. The direct field stays as the answer for a single topic. */}
+      {(topic.hasSystemPrompt || topic.systemPrompt) && (
         <p className="text-[11px] text-purple-400 mt-1 flex items-center justify-center gap-1">
           <span>✨</span> Custom system prompt active
         </p>
