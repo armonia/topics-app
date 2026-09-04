@@ -11,7 +11,7 @@ import { describe, expect, test } from "bun:test";
 import {
   chatDaRiprendere, FINESTRA_RIPRESA_MS, MAX_RESUME_ATTEMPTS, riprendiTurniInterrotti,
   RESPONSE_CEILING_MS, STREAM_CEILING_MS, RESUME_CAP_MARKER, attemptsInChain, attemptsOnRow,
-  resumeVerdict, type RigaDaValutare, USER_TAIL_GRACE_MS, UNANSWERED_NOTICE,
+  resumeVerdict, resumeAttemptOf, type RigaDaValutare, USER_TAIL_GRACE_MS, UNANSWERED_NOTICE,
 } from "./ripresa-boot";
 import { Database } from "bun:sqlite";
 import { insertRestartNotification } from "./boot-partial-sweep";
@@ -577,5 +577,33 @@ describe("i rimandi partono insieme, non in fila", () => {
 
     expect(startedAt).toHaveLength(2);
     expect(startedAt[1] - startedAt[0]).toBeLessThan(50);
+  });
+});
+
+/**
+ * The field this file writes, read back by the chat route.
+ *
+ * It decides two things at once: the `ripreso` block on the row (how the next
+ * boot counts the chain) and the `resumedBy: "server"` marker on
+ * `stream:start` (how the chat says "resuming" instead of offering a Retry
+ * that would buy a second turn). A zero read where there should be one is a
+ * banner that never changes.
+ */
+describe("resumeAttemptOf", () => {
+  test("the counter is taken as it is", () => {
+    expect(resumeAttemptOf({ ripresa: 1 })).toBe(1);
+    expect(resumeAttemptOf({ ripresa: 2 })).toBe(2);
+  });
+
+  test("the old boolean still means one resend, never zero", () => {
+    expect(resumeAttemptOf({ ripresa: true })).toBe(1);
+  });
+
+  test("no field, no resume: an ordinary turn must not be announced as one", () => {
+    expect(resumeAttemptOf({})).toBe(0);
+    expect(resumeAttemptOf(null)).toBe(0);
+    expect(resumeAttemptOf({ ripresa: false })).toBe(0);
+    expect(resumeAttemptOf({ ripresa: 0 })).toBe(0);
+    expect(resumeAttemptOf({ ripresa: "2" })).toBe(0);
   });
 });

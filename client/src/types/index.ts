@@ -407,6 +407,13 @@ export interface WSStreamStartMessage {
    * Il record in DB non viene più toccato — vedi `reuseOrCreatePartialForReattach`.
    */
   reattached?: boolean;
+  /**
+   * NOBODY ASKED FOR THIS TURN: the boot resumed it by itself
+   * (`server/lib/ripresa-boot.ts` resends the last user message of a turn its
+   * own restart had cut). The banner reads it to say "resuming" instead of
+   * offering Retry, which while a resend is running would buy a second turn.
+   */
+  resumedBy?: 'server';
 }
 
 export interface WSStreamEndMessage {

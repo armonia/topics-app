@@ -1257,6 +1257,8 @@ const IT: Dict = {
   'chat.noAnswer.detail': 'La connessione può essersi interrotta',
   'chat.turnInterrupted': 'Risposta interrotta',
   'chat.turnInterrupted.retry': 'Riprova',
+  'chat.turnInterrupted.resuming': 'Ripresa in corso',
+  'chat.turnInterrupted.resuming.detail': 'il server si è riavviato e sta rimandando il tuo messaggio',
   'chat.turnInterrupted.watchdog': 'il modello ha smesso di rispondere e il turno è stato chiuso',
   'chat.turnInterrupted.wallClock': 'il turno ha superato il tempo massimo',
   'chat.turnInterrupted.serverShutdown': 'il server si è riavviato a turno aperto',
