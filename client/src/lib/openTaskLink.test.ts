@@ -17,13 +17,21 @@ import {
   parseTopicLocation,
   selfTopicLinkTarget,
   openTopicInApp,
+  openDeepLinkInApp,
+  setDeepLinkNotifier,
 } from './openTaskLink';
+import {
+  DEAD_TAB_MESSAGE,
+  __resetTabLinkStateForTests,
+  __setTabLinkRetryDelayForTests,
+} from './tabLink';
 
 // jsdom-less: a minimal, typed view of the global surface the module touches,
 // so the stubs below need no `any` (this file is linted under no-explicit-any).
 type Listener = (e: unknown) => void;
 type StubWindow = {
   location: { origin: string; href: string; pathname: string; search: string };
+  open?: (url: string, target?: string, features?: string) => void;
   dispatchEvent?: (e: { type: string; detail?: unknown }) => boolean;
   history?: {
     pushState: (state: unknown, title: unknown, url: string) => void;
@@ -81,7 +89,52 @@ function stubWindow(href: string, opts?: { withHistory?: boolean; listeners?: bo
   return { events, popstateCbs, sync };
 }
 
-beforeEach(() => { stubWindow(`${origin}/`); });
+// WHAT `/api/tabs/resolve` ANSWERS in this file. `openTopicInApp` now goes
+// through the single gate (`openTabInApp`), which asks the server whether the
+// subject still exists before routing: 'unknown' is the only answer that
+// refuses. Tests that only care about the routing leave it at 'closed' - an
+// existing, closed topic - because the interesting branch is the other one.
+let resolveState: string | null = 'closed';
+
+/** The subject check is asynchronous, so an assertion on the bus has to WAIT
+ *  for it. Polls instead of guessing a number of microtasks: the gate does one
+ *  fetch, and on `unavailable` a second one after the (shortened) retry. */
+async function until(check: () => boolean, tries = 200): Promise<void> {
+  for (let i = 0; i < tries; i++) {
+    if (check()) return;
+    await new Promise((r) => setTimeout(r, 2));
+  }
+}
+
+type SWListener = (e: { data: unknown }) => void;
+/** The channel `public/sw.js` uses to hand a notification click to the app.
+ *  Module scope because two describes need it: the web-push route, and the
+ *  detached window that must NOT be routed by it. */
+function stubServiceWorker() {
+  const listeners: SWListener[] = [];
+  (globalThis as unknown as { navigator: unknown }).navigator = {
+    serviceWorker: {
+      addEventListener: (type: string, cb: SWListener) => { if (type === 'message') listeners.push(cb); },
+      removeEventListener: (type: string, cb: SWListener) => {
+        if (type !== 'message') return;
+        const i = listeners.indexOf(cb); if (i >= 0) listeners.splice(i, 1);
+      },
+    },
+  };
+  return { post: (data: unknown) => listeners.forEach((cb) => cb({ data })), listeners };
+}
+
+beforeEach(() => {
+  stubWindow(`${origin}/`);
+  resolveState = 'closed';
+  __resetTabLinkStateForTests();
+  __setTabLinkRetryDelayForTests(1);
+  (globalThis as unknown as { fetch: unknown }).fetch = () =>
+    Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve(resolveState === null ? {} : { state: resolveState }),
+    });
+});
 
 describe('buildTaskLink / parseTaskLocation (path-based)', () => {
   test('emits a clean /task/<uuid> path — no query, no %7E', () => {
@@ -376,21 +429,6 @@ describe('openTaskInApp / openTaskFromUrl', () => {
 // Questo canale è l'ULTIMO pezzo del deep-link: se salta, la push ti sveglia e
 // ti lascia dove eri.
 describe('subscribeServiceWorkerTaskOpen (click su una web-push)', () => {
-  type SWListener = (e: { data: unknown }) => void;
-  function stubServiceWorker() {
-    const listeners: SWListener[] = [];
-    (globalThis as unknown as { navigator: unknown }).navigator = {
-      serviceWorker: {
-        addEventListener: (type: string, cb: SWListener) => { if (type === 'message') listeners.push(cb); },
-        removeEventListener: (type: string, cb: SWListener) => {
-          if (type !== 'message') return;
-          const i = listeners.indexOf(cb); if (i >= 0) listeners.splice(i, 1);
-        },
-      },
-    };
-    return { post: (data: unknown) => listeners.forEach((cb) => cb({ data })), listeners };
-  }
-
   test('un /task/<id> dal SW apre il drawer', () => {
     const { events } = stubWindow(`${origin}/`);
     const { post } = stubServiceWorker();
@@ -440,13 +478,15 @@ describe('subscribeServiceWorkerTaskOpen (click su una web-push)', () => {
     expect(() => subscribeServiceWorkerTaskOpen()()).not.toThrow();
   });
 
-  test('un /topic/<id> dalla push di fine chat apre la tab del topic', () => {
+  test('un /topic/<id> dalla push di fine chat apre la tab del topic', async () => {
     const { events } = stubWindow(`${origin}/`);
     const { post } = stubServiceWorker();
     const off = subscribeServiceWorkerTaskOpen();
     post({ type: 'topics:open-url', url: '/topic/tp1' });
-    expect(events.map((e) => e.type)).toEqual(['topics:open-topic']);
-    expect(events[0].detail).toEqual({ topicId: 'tp1', mode: 'permanent' });
+    await until(() => events.some((e) => e.type === 'topics:open-topic'));
+    // `topics:open-tab` is the focus INTENT the single gate arms before routing.
+    expect(events.map((e) => e.type)).toEqual(['topics:open-tab', 'topics:open-topic']);
+    expect(events[1].detail).toEqual({ topicId: 'tp1', mode: 'permanent' });
     off();
   });
 });
@@ -470,17 +510,110 @@ describe('deep-link del topic', () => {
     expect(selfTopicLinkTarget(`${origin}/task/t1`)).toBeNull();
   });
 
-  test('openTopicInApp emette topics:open-topic (permanent)', () => {
+  test('openTopicInApp emette topics:open-topic (permanent)', async () => {
     const { events } = stubWindow(`${origin}/`);
     openTopicInApp({ topicId: 'tp1' });
-    expect(events.map((e) => e.type)).toEqual(['topics:open-topic']);
-    expect(events[0].detail).toEqual({ topicId: 'tp1', mode: 'permanent' });
+    await until(() => events.some((e) => e.type === 'topics:open-topic'));
+    expect(events.map((e) => e.type)).toEqual(['topics:open-tab', 'topics:open-topic']);
+    expect(events[1].detail).toEqual({ topicId: 'tp1', mode: 'permanent' });
   });
 
-  test('openTaskFromUrl apre il topic da finestra chiusa (/topic/<id> al boot)', () => {
-    const { events } = stubWindow(`${origin}/topic/tp1`);
+  test('openTaskFromUrl apre il topic da finestra chiusa (/topic/<id> al boot)', async () => {
+    const { events } = stubWindow(`${origin}/topic/tp2`);
     openTaskFromUrl();
-    expect(events.map((e) => e.type)).toEqual(['topics:open-topic']);
-    expect(events[0].detail).toEqual({ topicId: 'tp1', mode: 'permanent' });
+    await until(() => events.some((e) => e.type === 'topics:open-topic'));
+    expect(events.map((e) => e.type)).toEqual(['topics:open-tab', 'topics:open-topic']);
+    expect(events[1].detail).toEqual({ topicId: 'tp2', mode: 'permanent' });
+  });
+});
+
+// THE THREE ENTRANCES THAT SKIPPED THE SINGLE GATE. `openTabInApp` exists so a
+// link can never mint a pane on a subject that is gone; every notification
+// surface (native banner, web-push, the bell history) came in through
+// `openDeepLinkInApp`, which did not use it.
+describe('openDeepLinkInApp: la porta unica vale anche per le notifiche', () => {
+  test('un topic CANCELLATO non apre niente e lo DICE', async () => {
+    const { events } = stubWindow(`${origin}/`);
+    resolveState = 'unknown';
+    const said: string[] = [];
+    const stop = setDeepLinkNotifier((message) => said.push(message));
+
+    expect(openDeepLinkInApp('/topic/11111111-1111-4111-8111-111111111111')).toBe(true);
+    await until(() => said.length > 0);
+    // The ghost tab was born HERE: a bare `topics:open-topic` makes
+    // `usePanelLifecycle` register the pane, and a UUID with no record survives
+    // the validation effect forever.
+    expect(events.some((e) => e.type === 'topics:open-topic')).toBe(false);
+    expect(said).toEqual([DEAD_TAB_MESSAGE]);
+    stop();
+  });
+
+  test('un topic che ESISTE (anche chiuso) si apre come prima', async () => {
+    const { events } = stubWindow(`${origin}/`);
+    resolveState = 'closed';
+    const said: string[] = [];
+    const stop = setDeepLinkNotifier((message) => said.push(message));
+
+    expect(openDeepLinkInApp('/topic/22222222-2222-4222-8222-222222222222')).toBe(true);
+    await until(() => events.some((e) => e.type === 'topics:open-topic'));
+    expect(events[events.length - 1].detail)
+      .toEqual({ topicId: '22222222-2222-4222-8222-222222222222', mode: 'permanent' });
+    expect(said).toEqual([]);
+    stop();
+  });
+
+  test('una URL che non è un deep-link torna false, senza avvisi', () => {
+    stubWindow(`${origin}/`);
+    const said: string[] = [];
+    const stop = setDeepLinkNotifier((message) => said.push(message));
+    expect(openDeepLinkInApp('https://altro.example/topic/tp1')).toBe(false);
+    expect(openDeepLinkInApp('/')).toBe(false);
+    expect(said).toEqual([]);
+    stop();
+  });
+});
+
+// A DETACHED window (`?topics=`) is a pop-out whose identity IS that query, and
+// where pane-store persistence is off on purpose. Routing a deep-link there
+// opens panes nobody saves AND wipes the query through the URL reflection, so
+// the next reload reopens the whole workspace instead of those chats.
+describe('finestra staccata: un deep-link non la degrada a principale', () => {
+  test('la web-push non tocca la history e non apre niente in casa', async () => {
+    const { events } = stubWindow(`${origin}/?topics=a,b`);
+    const pushed: string[] = [];
+    const replaced: string[] = [];
+    const outside: string[] = [];
+    g.window.history = {
+      pushState: (_s, _t, url) => { pushed.push(url); },
+      replaceState: (_s, _t, url) => { replaced.push(url); },
+    };
+    g.window.open = (url: string) => { outside.push(url); };
+    const { post } = stubServiceWorker();
+    const off = subscribeServiceWorkerTaskOpen();
+
+    post({ type: 'topics:open-url', url: '/task/t-detached' });
+    post({ type: 'topics:open-url', url: '/topic/33333333-3333-4333-8333-333333333333' });
+    await until(() => false, 20);
+
+    expect(pushed).toEqual([]);
+    expect(replaced).toEqual([]);
+    expect(events.map((e) => e.type)).toEqual([]);
+    // The query IS the window's identity: losing it turns the pop-out into a
+    // main window, which on reload draws the whole workspace.
+    expect(g.window.location.search).toBe('?topics=a,b');
+    // And it is not mute: the destination is handed OUTSIDE, absolute.
+    expect(outside).toEqual([
+      `${origin}/task/t-detached`,
+      `${origin}/topic/33333333-3333-4333-8333-333333333333`,
+    ]);
+    off();
+  });
+
+  test('la forma storica `?topic=` conta come staccata', async () => {
+    const { events } = stubWindow(`${origin}/?topic=solo-questa`);
+    g.window.open = () => {};
+    expect(openDeepLinkInApp('/task/t-detached-legacy')).toBe(true);
+    await until(() => false, 20);
+    expect(events.map((e) => e.type)).toEqual([]);
   });
 });

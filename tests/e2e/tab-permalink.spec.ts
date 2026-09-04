@@ -27,6 +27,10 @@
  *    toast non è disponibile ovunque: in chat si ricade sul browser esterno
  *    (il context dei toast non è memoizzato e non si può consumare lì), al boot
  *    si mostra il toast — che vive sotto `<ToastProvider>`, cioè non in App;
+ *  · TABLINK-13 the twin of TABLINK-10 for `/task/<id>`: the one branch of the
+ *    grammar that does not go through the existence check, because the board
+ *    drawer is what resolves it. When that id does not exist the dead end was
+ *    MUTE, with the URL back at `/` a heartbeat later;
  *  · TABLINK-11 il criterio di esistenza è ASIMMETRICO, e passa dalla rotta
  *    vera: una CARTELLA che sta sul disco è un soggetto valido anche se il
  *    server non l'ha mai registrata, mentre una chat inventata resta rifiutata.
@@ -405,6 +409,26 @@ test.describe("Permalink di una tab — il consumatore a freddo", () => {
     // …e nessuna pane fantasma: è il buco che la verifica esiste per chiudere.
     await expect(page.getByTestId(`pane-tab-${inventato}`)).toHaveCount(0);
     await expect(page.getByTestId(`pane-tab-${BYSTANDER}`)).toBeVisible();
+  });
+
+  test("TABLINK-13: un `/task/<id>` MORTO lo dice, invece di riportare la URL a `/` in silenzio", async ({ page, request }) => {
+    // The twin of TABLINK-10 for the one branch that does not go through
+    // `routeIfSubjectExists`: a task is resolved by the board drawer. When
+    // `boardApi.resolve` answered `null` the board just ended the race
+    // (`topics:task-opened`, `setSelectedId(null)`) and a heartbeat later
+    // `reflectTaskClose()` put the URL back to `/`: no drawer, no toast, and
+    // not even a trace of what had been asked for. The two roads to one
+    // destination now say the same thing.
+    await resetPaneStore(request, [BYSTANDER]);
+    const inventato = "00000000-0000-4000-8000-0000000000aa";
+
+    await page.goto(`/task/${inventato}`);
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+
+    const toast = page.locator('[data-testid="toast"]', { hasText: "Questa tab non esiste più" });
+    await expect(toast).toBeVisible({ timeout: 20000 });
+    // And no drawer opened on a task that is not there.
+    await expect(page.getByTestId("task-detail-drawer")).toHaveCount(0);
   });
 
   test("TABLINK-11: una CARTELLA che esiste sul disco è un soggetto valido, anche se il server non l'ha mai registrata", async ({ request }) => {

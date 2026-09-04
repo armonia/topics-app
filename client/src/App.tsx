@@ -41,7 +41,7 @@ import { registerFeatureWeightSources } from './lib/featureWeightSources';
 import { initChunkReloadGuard } from './lib/chunkReloadGuard';
 import { DevBundleToast } from './components/DevBundleToast';
 import { ReloadedFlash } from './components/ReloadedFlash';
-import { openTaskFromUrl, currentTaskTarget, subscribeServiceWorkerTaskOpen } from './lib/openTaskLink';
+import { openTaskFromUrl, currentTaskTarget, subscribeServiceWorkerTaskOpen, setDeepLinkNotifier } from './lib/openTaskLink';
 import { subscribeServiceWorkerBanner } from './lib/push/swBridge';
 import { InAppBanners } from './components/Notifications/InAppBanners';
 import { PushEnrollPrompt } from './components/Notifications/PushEnrollPrompt';
@@ -2384,6 +2384,13 @@ function BootDeepLinkResolver({ isDetached }: { isDetached: boolean }) {
   // App, e metterlo fra le dipendenze avrebbe rifatto partire l'intera corsa di
   // boot a ogni toast mostrato.
   const toast = useToast();
+  // THE WARNING CHANNEL FOR THE NOTIFICATION CLICKS, registered from the one
+  // component that sits under `<ToastProvider>`. A native banner, a web-push and
+  // a row of the bell history all land in `openDeepLinkInApp`, which is a pure
+  // module and cannot read a React context: without this registration a topic
+  // that no longer exists would go from minting a ghost tab to doing nothing at
+  // all, which is the outcome this repository calls the worst of the three.
+  useEffect(() => setDeepLinkNotifier((message) => toast.warning(message)), [toast]);
   useEffect(() => {
     // Le finestre STACCATE (`?topics=`) sono read-only verso il pane-store
     // (bootstrap.ts: niente persistenza locale, niente PUT, niente cross-tab):
