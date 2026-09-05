@@ -269,4 +269,9 @@ const CARTELLI_RIPRENDIBILI = [
   // `cause` field on the block exists since 2026-09-03), so the prefix is what
   // reaches them; newer rows are also recognised by cause (`isResumableCause`).
   "Risposta interrotta: nessuna attività per",
+  // The tool-round budget of the native runtime (`MAX_ITERATIONS` in
+  // providers/native/agent-loop.ts). Rows written before 05/09/2026 carry this
+  // text with no `cause`: topic 514354ce sat idle for hours on it while its
+  // goal was still open. Newer rows also carry `cause: "tool-budget"`.
+  "il turno ha esaurito i",
 ] as const;

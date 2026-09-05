@@ -1,7 +1,7 @@
 /**
  * @covers GATE-06
  */
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect, afterAll } from "bun:test";
 import { spawnSync } from "child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, readFileSync, copyFileSync, existsSync, rmSync } from "fs";
 import { tmpdir, homedir, userInfo } from "os";
@@ -239,11 +239,21 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
   let copia = "";
   let temporanea = "";
 
-  beforeAll(() => {
+  /**
+   * The copy is made by the FIRST test, not by `beforeAll`. A hook runs under
+   * the suite's `--timeout` (30 s on the board's shards), and the copy is
+   * 4,000 files plus `git init` and `git add`: 1 s on a quiet machine, 14 s at
+   * load 37 on 2026-09-05, when three agents and their pre-review checks shared
+   * the cores, and the hook went red for a card that had touched none of this.
+   * Inside a test the copy sits under SECURITY_RUN_TIMEOUT_MS, which was sized
+   * for exactly that load.
+   */
+  function prepareCopy(): void {
+    if (copia) return;
     temporanea = mkdtempSync(join(tmpdir(), "security-copy-"));
     copia = join(temporanea, "copia");
     copiaAlbero(ROOT, copia);
-  });
+  }
 
   afterAll(() => {
     if (temporanea) rmSync(temporanea, { recursive: true, force: true });
@@ -258,6 +268,7 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
   test(REGISTRY_TESTS
     ? "la copia parte verde su tutti e quattro i pezzi"
     : "la copia parte verde sui tre pezzi che non chiedono la rete", () => {
+    prepareCopy();
     const { code, out } = REGISTRY_TESTS ? esegui(copia) : esegui(copia, NO_NETWORK_PIECES);
     expect(out).toContain("pubblicabile");
     expect(code).toBe(0);
@@ -276,6 +287,7 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
     // stronger at the same time: an invented name, handed over through
     // TOPICS_PERSONAL_TERMS, which exists precisely so that a gate whose only
     // input is an untracked file can still be SHOWN to turn red.
+    prepareCopy();
     const terzo = "Quintaine Marlowe";
     const elenco = join(temporanea, "terzi-di-prova.txt");
     writeFileSync(elenco, `${terzo}\n`);
@@ -299,6 +311,7 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
     // person who wrote them. A gate that protects something already published
     // in every commit signature protects nothing; it only teaches people to
     // switch gates off.
+    prepareCopy();
     const repoAuthor = (spawnSync("git", ["config", "user.name"], { encoding: "utf8" }).stdout ?? "").trim();
     const termine = repoAuthor.split(/\s+/).find((t) => filtraTermini([t]).length > 0) ?? "";
     if (!termine) return; // no git identity on this machine: nothing to prove
@@ -310,6 +323,7 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
   }, SECURITY_RUN_TIMEOUT_MS);
 
   test("PEZZO home: il percorso della home in un file tracciato fa ROSSO", () => {
+    prepareCopy();
     appendFileSync(join(copia, "README.md"), `\nlog in ${homedir()}/prova.log\n`);
     const { code, out } = esegui(copia, "--only=home");
     expect(out).toContain("ROSSO");
@@ -318,6 +332,7 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
   }, SECURITY_RUN_TIMEOUT_MS);
 
   test("PEZZO secrets: una chiave nell'albero vero fa ROSSO", () => {
+    prepareCopy();
     const chiave = `${"AKIA"}${"Q7WR2XL9PKM4TVB8"}`;
     appendFileSync(join(copia, "README.md"), `\nAWS: ${chiave}\n`);
     const { code, out } = esegui(copia, "--only=secrets");
@@ -333,6 +348,7 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
     // baseline non elenca? Togliere una voce dalla baseline e installare un
     // pacchetto vulnerabile producono per lui lo stesso stato, e il primo non
     // ha bisogno della rete per scaricare mezzo registro.
+    prepareCopy();
     const path = join(copia, "scripts/security-baseline.json");
     const base = JSON.parse(readFileSync(path, "utf8")) as { advisories: Record<string, unknown[]> };
     const withAdvisories = Object.keys(base.advisories).filter((d) => (base.advisories[d] ?? []).length > 0);
@@ -352,6 +368,7 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
   test("un pezzo che non sa misurare NON stampa verde: esce 2", () => {
     // Il guasto che uccide i cancelli in silenzio e' il verde a vuoto. Qui il
     // test delegato sparisce dalla copia: l'esito giusto non e' 0 e non e' 1.
+    prepareCopy();
     rmSync(join(copia, "tests/unit/no-home-paths-tracked.test.ts"));
     const { code, out } = esegui(copia, "--only=home");
     expect(out).toContain("MUTO");
