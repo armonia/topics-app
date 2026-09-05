@@ -9,7 +9,8 @@
   * @covers UPDATER-01
  */
 import { describe, test, expect } from 'bun:test';
-import { shouldShowUpdaterToast, type UpdaterStatus } from './updater';
+import { readFileSync } from 'node:fs';
+import { shouldShowUpdaterToast, updateTitle, type UpdaterStatus } from './updater';
 
 const quiet = { dismissed: false, versionPopoverOpen: false };
 
@@ -120,4 +121,72 @@ describe('closing the banner means "not this version"', () => {
   test('an update with no version cannot be remembered, so it always shows', () => {
     expect(shouldShowUpdaterToast({ state: 'update-available' }, seen)).toBe(true);
   });
+});
+
+describe('updateTitle — the headline is a key, never the transport error', () => {
+  // What reaches `status.error` is `e.to_string()` of the Rust updater plugin.
+  // On screen it was the title, in bold, on the first line, truncated by the
+  // banner: "Network Error: error sending request for url (…)". The user was
+  // being shown the transport's business instead of their own.
+  test('a network failure maps to a sentence, not to itself', () => {
+    const key = updateTitle({
+      state: 'error',
+      error: 'Network Error: error sending request for url (https://example.invalid/latest.json)',
+    }).key;
+    expect(key).toBe('update.err.network');
+    expect(key).not.toContain('sending request');
+  });
+
+  test('an endpoint with no release for this build says so', () => {
+    expect(updateTitle({ state: 'error', error: 'Could not fetch a valid release JSON: 404' }).key)
+      .toBe('update.err.endpoint');
+  });
+
+  test('an unknown failure still lands on a key', () => {
+    expect(updateTitle({ state: 'error', error: 'boom' }).key).toBe('update.err.generic');
+    expect(updateTitle({ state: 'error' }).key).toBe('update.err.generic');
+  });
+
+  test('every state has its own sentence, and the numbers travel as params', () => {
+    expect(updateTitle({ state: 'up-to-date' }).key).toBe('update.title.upToDate');
+    expect(updateTitle({ state: 'checking' }).key).toBe('update.title.checking');
+    expect(updateTitle({ state: 'update-available', version: '2.3.0' }).params).toEqual({ v: ' v2.3.0' });
+    expect(updateTitle({ state: 'downloading', progress: 41.4 }).params).toEqual({ pct: ' 41%' });
+    expect(updateTitle({ state: 'ready' }).key).toBe('update.title.ready');
+  });
+});
+
+describe('"you are up to date" is an answer, "idle" is not', () => {
+  // A check the user asked for that found nothing used to end in `idle`, and no
+  // surface draws `idle`: the menu entry flashed "Checking…" and then nothing.
+  test('an explicit check that found nothing draws', () => {
+    expect(shouldShowUpdaterToast({ state: 'up-to-date', silent: false }, quiet)).toBe(true);
+  });
+
+  test('the boot check that found nothing stays quiet', () => {
+    expect(shouldShowUpdaterToast({ state: 'up-to-date', silent: true }, quiet)).toBe(false);
+  });
+
+  test('idle keeps meaning "no check has been made"', () => {
+    expect(shouldShowUpdaterToast({ state: 'idle' }, quiet)).toBe(false);
+  });
+});
+
+describe('the keys exist in both dictionaries', () => {
+  // A key with no sentence behind it renders as the key itself, which is how a
+  // banner ends up saying "update.err.network" to a person.
+  const KEYS = [
+    'update.title.checking', 'update.title.upToDate', 'update.title.available',
+    'update.title.downloading', 'update.title.ready', 'update.title.idle',
+    'update.err.network', 'update.err.endpoint', 'update.err.generic',
+    'update.downloadInstall',
+  ];
+  const it = readFileSync(new URL('./i18n-it.ts', import.meta.url), 'utf8');
+  const en = readFileSync(new URL('./i18n-en.ts', import.meta.url), 'utf8');
+  for (const k of KEYS) {
+    test(`${k} is translated in it and en`, () => {
+      expect(it).toContain(`'${k}':`);
+      expect(en).toContain(`'${k}':`);
+    });
+  }
 });
