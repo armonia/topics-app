@@ -4377,7 +4377,7 @@ const staleStreamTimer = setInterval(() => {
   // "extend" were unreachable and three minutes of silence were enough to close
   // it. The dispatcher had already been fixed with `resolveTurnAlive` (see
   // above); the sweeper, ten lines further down, had not.
-  sweepStaleStreams({
+  const sweepOutcomes = sweepStaleStreams({
     now: () => Date.now(),
     timeoutMs: STALE_STREAM_TIMEOUT_MS,
     askTtlMs: ASK_TTL_MS,
@@ -4440,6 +4440,9 @@ const staleStreamTimer = setInterval(() => {
     warn: (msg) => console.warn(msg),
     info: (msg) => console.log(msg),
   });
+  // A cut just happened, and its notice says "riprende da solo entro pochi
+  // minuti": the resume sweep must not wait for its five-minute tick.
+  if ([...sweepOutcomes.values()].includes("finalized")) nudgeResumeSweep();
 }, STALE_STREAM_CHECK_INTERVAL_MS);
 
 // Task auto-dispatch reconciliation: on boot, requeue any in-progress task whose
@@ -4951,6 +4954,27 @@ reattachSurvivingChatTurns()
 // answer after it, so a sweep never resends twice. Chained, not on an
 // interval: one sweep can wait up to fifteen minutes on a stream.
 const RESUME_SWEEP_MS = 5 * 60_000;
+
+/**
+ * THE SWEEP RUNS EARLY WHEN A CUT JUST HAPPENED. The periodic tick is what
+ * makes "riprende da solo" true at all; this is what makes it true within
+ * seconds instead of within five minutes. One pending nudge at a time, and a
+ * hold in force still wins: a resend into a spent usage window is a 429 and
+ * one of the chain's attempts burnt for nothing.
+ */
+const RESUME_NUDGE_MS = 20_000;
+let resumeNudge: ReturnType<typeof setTimeout> | null = null;
+function nudgeResumeSweep(): void {
+  if (resumeNudge) return;
+  resumeNudge = setTimeout(() => {
+    resumeNudge = null;
+    if (providerHold()) return;
+    riprendiTurniInterrotti(ctx, topicsRouter)
+      .catch((err) => console.error("[ripresa] nudged sweep failed", err));
+  }, RESUME_NUDGE_MS);
+  resumeNudge.unref?.();
+}
+
 function scheduleResumeSweep(): void {
   const t = setTimeout(() => {
     // The plan's usage window is spent: a resend now would end on the same

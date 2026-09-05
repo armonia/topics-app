@@ -898,7 +898,7 @@ function ChatPaneComponent({
         const lines = [`Contesto: ${k(a.totalTokens)} / ${k(a.budgetLimit)} token (${Math.round(a.budgetPercent)}%)`];
         const top = [...a.sources].filter((s) => s.enabled && s.tokens > 0).sort((x, y) => y.tokens - x.tokens).slice(0, 6);
         for (const s of top) lines.push(`  • ${s.category} · ${s.label}: ${k(s.tokens)}`);
-        if (a.warnings && a.warnings.length > 0) lines.push(`⚠ ${a.warnings.length} avviso${a.warnings.length === 1 ? '' : 'i'}`);
+        if (a.warnings && a.warnings.length > 0) lines.push(`${a.warnings.length} avviso${a.warnings.length === 1 ? '' : 'i'}`);
         setCommandResult({ type: 'success', message: lines.join('\n') });
       } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); }
       finally { setCommandLoading(false); }

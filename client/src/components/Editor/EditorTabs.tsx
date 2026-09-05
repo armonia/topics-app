@@ -259,7 +259,7 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
               <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">{(() => { const d = getFileIconDef(tab.name); const I = d.icon; return <I size={12} style={{ color: d.color }} />; })()}</span>
               <span className={`truncate ${tab.preview ? 'italic' : ''}`}>{tab.name}</span>
               {isModified && <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0" title="Unsaved changes" />}
-              {status === 'saved' && <span className="text-[11px] text-green-500 flex-shrink-0">✓</span>}
+              {status === 'saved' && <span className="flex-shrink-0"><Check className="w-3 h-3 text-green-500" aria-hidden="true" /></span>}
               {status === 'error' && <span className="text-[11px] text-red-500 flex-shrink-0">!</span>}
               <button
                 onClick={(e) => closeTab(i, e)}

@@ -20,7 +20,7 @@
  *
  * @covers CHAT-01, SUBAGENT-07
  */
-import { describe, expect, test } from 'bun:test';
+import { afterAll, describe, expect, test } from 'bun:test';
 import * as React from 'react';
 import { mount } from '../test/reactHarness';
 import { useChat } from './useChat';
@@ -38,6 +38,17 @@ class MemStorage {
 }
 
 const g = globalThis as unknown as Record<string, unknown>;
+// Everything installed below is process-wide: put back what this file found
+// (nothing, under bun) once it is done, or the next file in the same `bun test`
+// process meets a window without `getComputedStyle` and its `typeof window`
+// guards misfire on it — `dispatchedEnvelope.test.tsx` went red exactly so.
+const found = { window: g.window, requestAnimationFrame: g.requestAnimationFrame, cancelAnimationFrame: g.cancelAnimationFrame };
+afterAll(() => {
+  for (const [k, v] of Object.entries(found)) {
+    if (v === undefined) delete g[k];
+    else g[k] = v;
+  }
+});
 // Merge into whatever window a sibling test file already installed instead of
 // replacing it: in this repo a fake window is process-wide, and overwriting one
 // that another module captured is how a subset of the suite goes red on its own.

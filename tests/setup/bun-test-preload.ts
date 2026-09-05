@@ -50,7 +50,7 @@
  * La guardia che tiene insieme tutto questo, numeri compresi, e'
  * `tests/unit/test-default-timeout.test.ts`.
  */
-import { setDefaultTimeout } from "bun:test";
+import { afterAll, setDefaultTimeout } from "bun:test";
 import { readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { acquireSlot, claimOutfile, slotCount, alreadyHeld, GATE_HELD_ENV } from "../../scripts/gate-slot.ts";
@@ -315,6 +315,59 @@ function claimOwnOutfile(): void {
   process.on("exit", () => release());
 }
 
+/**
+ * FAKE DOM GLOBALS DO NOT OUTLIVE THEIR FILE.
+ *
+ * `bun test` runs every file of a run in ONE process. A test that installs
+ * `globalThis.window = { localStorage }` for its hook and never removes it
+ * hands it to every file after it: a component rendered later passes its
+ * `typeof window !== "undefined"` guard, calls `getComputedStyle`, and the
+ * global does not exist - a `ReferenceError` in a file that is green on its
+ * own. Measured on 05/09/2026: 10 files out of 1149 left `window`,
+ * `localStorage` or `requestAnimationFrame` behind, and
+ * `dispatchedEnvelope.test.tsx` went red only in the run whose shard placed it
+ * after one of them. A red the triage on the single file never reproduces.
+ *
+ * WHAT IT COVERS, measured on bun 1.3.8: an `afterAll` registered by the
+ * preload runs ONCE per process, after the last file, and if it throws the
+ * process exits red (`(fail) (unnamed)`). So it does not say WHO leaked: it
+ * says THAT somebody in this run leaked, and it says so every time, instead
+ * of a red that shows up only with the unlucky grouping. The culprit is found
+ * with `bun run check:test-globals` (every file on its own, under this same
+ * guard) or with `bun test <suspect>`: alone, the run is that file.
+ *
+ * The snapshot is taken HERE, at preload, not from a list of what bun has:
+ * whatever bun defines (`navigator`, `CustomEvent`, `fetch`) is not a leak,
+ * and if a future bun adds `localStorage` the guard does not start shouting.
+ * The guard of this guard is `tests/unit/bun-test-preload-globals.test.ts`.
+ */
+const DOM_GLOBAL_KEYS = [
+  "window", "document", "localStorage", "sessionStorage", "location", "history", "screen",
+  "matchMedia", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame",
+  "HTMLElement", "Element", "Node", "ResizeObserver", "IntersectionObserver", "MutationObserver",
+  "CSS", "self", "devicePixelRatio", "innerWidth", "visualViewport", "Image", "Audio", "speechSynthesis",
+] as const;
+
+/** The signature in the message: `scripts/check-test-globals.ts` reads it to say which file leaked what. */
+export const DOM_LEAK_MARKER = "leaked DOM globals";
+
+function guardDomGlobals(): void {
+  const g = globalThis as Record<string, unknown>;
+  const before = new Set<string>(DOM_GLOBAL_KEYS.filter((k) => g[k] !== undefined));
+  afterAll(() => {
+    const leaked = DOM_GLOBAL_KEYS.filter((k) => !before.has(k) && g[k] !== undefined);
+    if (leaked.length === 0) return;
+    throw new Error(
+      `[preload] ${DOM_LEAK_MARKER}: ${leaked.join(",")}\n` +
+      "       A file in this run installed a fake DOM global and never removed it: the next file\n" +
+      "       inherits it, and its `typeof window` guards fire on a partial object.\n" +
+      "       Who: `bun run check:test-globals` (every file on its own) or `bun test <suspect>`.\n" +
+      "       Fix: in `afterAll`/`afterEach` put back what the file found (`delete globalThis.window`).",
+    );
+  });
+}
+
 claimOwnOutfile();
 holdGateSlot();
 boundOwnRuntime();
+guardDomGlobals();

@@ -7,7 +7,7 @@
  *
  * @covers TAB-SYNC-01
  */
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, afterAll } from "bun:test";
 
 // Minimal browser-ish globals so the module imports without blowing up under
 // bun:test. syncCrossTab is imported by syncServer (for getTabId), and it
@@ -40,6 +40,10 @@ function uninstallFakeWindow(): void {
 }
 
 installFakeWindow();
+// Every afterEach re-installs the fake for the next test; nothing took it down
+// once the FILE was done, so `window` + `localStorage` outlived it into the
+// next file of the same `bun test` process.
+afterAll(() => uninstallFakeWindow());
 
 const {
   __getInflightKeys,

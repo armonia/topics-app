@@ -154,6 +154,9 @@ beforeEach(() => {
 afterEach(() => {
   (globalThis as unknown as { fetch: unknown }).fetch = realFetch;
   (globalThis as unknown as { navigator: unknown }).navigator = realNavigator;
+  // And the stub window: bun has none, and a partial one left behind flips the
+  // `typeof window` guards of the next file in this process.
+  delete (globalThis as { window?: unknown }).window;
 });
 
 describe('buildTaskLink / parseTaskLocation (path-based)', () => {

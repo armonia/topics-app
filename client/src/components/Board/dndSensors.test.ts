@@ -20,7 +20,7 @@
  *
  * @covers KANBAN-01
  */
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test, afterAll } from 'bun:test';
 import { PoliteKeyboardSensor, PoliteMouseSensor, PoliteTouchSensor } from './dndSensors';
 
 /**
@@ -36,9 +36,17 @@ class FakeElement {
     return selettore.includes(this.combacia) ? this : null;
   }
 }
-if (typeof (globalThis as { Element?: unknown }).Element === 'undefined') {
+const elementInstalledByUs = typeof (globalThis as { Element?: unknown }).Element === 'undefined';
+if (elementInstalledByUs) {
   (globalThis as { Element?: unknown }).Element = FakeElement;
 }
+
+// If the global Element is ours (bun has none), remove it when the file ends: an
+// `instanceof Element` in a later file of the same sharded process must not trip
+// over our FakeElement.
+afterAll(() => {
+  if (elementInstalledByUs) delete (globalThis as { Element?: unknown }).Element;
+});
 
 /** Un bersaglio finto con la catena `closest` che serve al sensore. */
 function bersaglio(selettoreCheCombacia: string | null): EventTarget {

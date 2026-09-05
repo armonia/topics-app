@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from 'react';
+import { Frown, RefreshCw } from 'lucide-react';
 import { isChunkLoadError } from '../../lib/chunkReloadGuard';
 import { reloadForNewBundle } from '../../lib/devBundleReload';
 import { t as translate, resolveLocale, FALLBACK_LOCALE, type Locale } from '../../lib/i18n';
@@ -70,7 +71,13 @@ export class ErrorBoundary extends Component<Props, State> {
       const raw = this.state.error?.message;
       return (
         <div className="flex flex-col items-center justify-center h-full p-6 text-center">
-          <div className="text-3xl mb-3">{chunkError ? '🔄' : '😵'}</div>
+          <div className="mb-3">
+            {chunkError ? (
+              <RefreshCw className="w-8 h-8 mx-auto" aria-hidden="true" />
+            ) : (
+              <Frown className="w-8 h-8 mx-auto" aria-hidden="true" />
+            )}
+          </div>
           <h2 className="text-[15px] font-semibold text-app-text mb-1">
             {chunkError
               ? tr('crash.staleBundle.title')

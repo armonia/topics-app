@@ -66,6 +66,7 @@ export const STOP_CAUSES = [
   'superseded',
   'provider-error',
   'rate-limit',
+  'tool-budget',
 ] as const;
 
 

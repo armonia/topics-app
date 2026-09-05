@@ -43,7 +43,7 @@
  */
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus } from 'lucide-react';
+import { Check, Plus } from 'lucide-react';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { useMobile } from '../../hooks/useMobile';
 import { useDismissable } from '../../hooks/useDismissable';
@@ -178,7 +178,7 @@ export function PaneAddMenuItems({
                       : 'border-app-border'
                   }`}
                 >
-                  {claudeSkipPermissions ? '✓' : ''}
+                  {claudeSkipPermissions && <Check className="w-2.5 h-2.5" aria-hidden="true" />}
                 </span>
                 <span aria-hidden="true">yolo</span>
               </span>

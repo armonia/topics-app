@@ -111,7 +111,12 @@ function stubResolverBroken(status = 503) {
 // sopra aveva già fatto cadere `server/browser-native-delegate.socket.test.ts`,
 // che fa una fetch VERA — un rosso a chilometri di distanza dalla sua causa.
 const realFetch = globalThis.fetch;
-afterAll(() => { g.fetch = realFetch as unknown as StubFetch; });
+afterAll(() => {
+  g.fetch = realFetch as unknown as StubFetch;
+  // The fake window too: bun has none, and a partial one left here trips the
+  // `typeof window` guards of the next file in the same process.
+  delete (globalThis as { window?: unknown }).window;
+});
 
 /** Lascia sfilare le micro-task della verifica (e i timer a 0ms). */
 const settle = () => new Promise((r) => setTimeout(r, 5));

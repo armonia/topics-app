@@ -65,6 +65,20 @@ una card della board NON SHALL essere ripresa da qui: la riprende il dispatcher.
 - **GIVEN** un turno già ripreso a un avvio precedente
 - **THEN** NON SHALL essere ripreso di nuovo
 
+Il verdetto di interruzione SHALL leggersi dal TESTO del cartello OPPURE dalla
+CAUSA scritta sul blocco (`cause`): le cause nostre, il limite dell'API e il
+tetto dei giri di tool si riprendono; lo stop di una persona e un guasto vero
+no. Il taglio dello sweeper dei flussi fermi («Risposta interrotta: nessuna
+attività per…») SHALL essere fra i cartelli riconosciuti: fino al 05/09/2026
+non lo era, e nessuna chat chiusa dallo sweeper è mai stata ripresa. Quando lo
+sweeper chiude un flusso, il giro di ripresa SHALL partire entro pochi secondi,
+non al prossimo tick dei cinque minuti, e il cartello SHALL dirlo.
+
+#### Scenario: il taglio dello sweeper si riprende, dal testo o dalla causa
+- **GIVEN** una chat la cui ultima riga porta il cartello dello sweeper, oppure un blocco `error` con causa `watchdog` e una frase che nessuna lista conosce
+- **THEN** SHALL essere ripresa come ogni altra interruzione nostra
+- **AND** un blocco con causa `user` NON SHALL esserlo, qualunque frase porti
+
 ### Requirement: RESUME-02 — Prima si SPIEGA, poi si riprende — e senza spiegazione non si riprende
 
 Quando l'avvio azzera un turno rimasto a metà, SHALL scrivere nel filo un
