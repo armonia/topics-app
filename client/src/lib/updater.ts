@@ -15,7 +15,13 @@ import { isTauri } from './shell/index';
 import { tauriInvoke } from './shell/tauri';
 
 export interface UpdaterStatus {
-  state: 'idle' | 'checking' | 'update-available' | 'downloading' | 'ready' | 'error';
+  /**
+   * `idle` and `up-to-date` are NOT the same thing, and collapsing them is what
+   * made an explicit check answer with silence: `idle` is "no check has been
+   * made", which has nothing to say, while `up-to-date` is the ANSWER to a
+   * check the user asked for. Only the second one draws.
+   */
+  state: 'idle' | 'checking' | 'up-to-date' | 'update-available' | 'downloading' | 'ready' | 'error';
   progress?: number;
   error?: string;
   /** Version string of the pending update, when the main process reports it. */
@@ -38,7 +44,7 @@ export function shouldShowUpdaterToast(
   status: UpdaterStatus,
   opts: { dismissed: boolean; versionPopoverOpen: boolean; dismissedVersion?: string | null },
 ): boolean {
-  if (status.state === 'idle') return false;      // niente da dire
+  if (status.state === 'idle') return false;      // nessun controllo fatto: niente da dire
   if (opts.dismissed) return false;               // l'utente l'ha chiuso
   if (opts.versionPopoverOpen) return false;      // lo direbbe due volte
   if (status.silent) return false;                // esito di un controllo al boot
@@ -73,6 +79,67 @@ export function shouldShowUpdaterToast(
   // case it was not written for: a visible window, an update that now waits for a
   // click, and an app with no way left to mention it.
   return true;
+}
+
+/** A dictionary key plus the values the sentence interpolates. */
+export interface UpdateTitle {
+  key: string;
+  params?: Record<string, string>;
+}
+
+/**
+ * From the raw transport error to a sentence key.
+ *
+ * Same shape as `chiaveErroreAuth` in lib/authErrors.ts, and for the same
+ * reason: what reaches here is `e.to_string()` of the Rust updater plugin, so
+ * putting it on screen means bolding "Network Error: error sending request for
+ * url (...)" as the headline of a banner that then truncates it. The user is
+ * told the transport's business, not their own.
+ *
+ * Three outcomes only, because only three change what a person does: the
+ * machine could not reach the endpoint (check the network, retry later), the
+ * endpoint answered but has no release for this build (nothing to do), or
+ * something else entirely (retry, then report).
+ */
+export function updateErrorKey(error: string | undefined): string {
+  const text = (error ?? '').toLowerCase();
+  if (/network|sending request|timed? ?out|dns|connect|offline|unreachable/.test(text)) {
+    return 'update.err.network';
+  }
+  if (/404|not found|no manifest|could not fetch a valid release/.test(text)) {
+    return 'update.err.endpoint';
+  }
+  return 'update.err.generic';
+}
+
+/**
+ * The banner/popover headline for a status, as a KEY the caller translates.
+ *
+ * Pure on purpose, like `shouldShowUpdaterToast` above: the previous version of
+ * this was a ternary chain inside the toast, with Italian literals in a client
+ * that translates everything else, and with `status.error` used verbatim as the
+ * title.
+ */
+export function updateTitle(status: UpdaterStatus): UpdateTitle {
+  switch (status.state) {
+    case 'checking':
+      return { key: 'update.title.checking' };
+    case 'up-to-date':
+      return { key: 'update.title.upToDate' };
+    case 'update-available':
+      return { key: 'update.title.available', params: { v: status.version ? ` v${status.version}` : '' } };
+    case 'downloading':
+      return {
+        key: 'update.title.downloading',
+        params: { pct: status.progress !== undefined ? ` ${Math.round(status.progress)}%` : '' },
+      };
+    case 'ready':
+      return { key: 'update.title.ready' };
+    case 'error':
+      return { key: updateErrorKey(status.error) };
+    default:
+      return { key: 'update.title.idle' };
+  }
 }
 
 /** Where the dismissed version is remembered. Per browser profile, like every
@@ -114,8 +181,8 @@ export interface ElectronUpdater {
 // Rust commands (updater_check / updater_install — see desktop-tauri lib.rs).
 // We adapt them to the same ElectronUpdater shape so UpdaterToast + VersionPopover
 // work unchanged. Tauri's update is ATOMIC (download+install+restart in one call),
-// so "download" is a no-op transition to `ready` and the real work runs on
-// install. No progress events (would require @tauri-apps/api, which the shell
+// so "download" and "install" are the same call and the surfaces show a single
+// button instead of pretending there are two steps. No progress events (would require @tauri-apps/api, which the shell
 // deliberately avoids — see lib/shell/tauri.ts), so the bar stays indeterminate.
 let tauriStatus: UpdaterStatus = { state: 'idle' };
 const tauriListeners = new Set<(s: UpdaterStatus) => void>();
@@ -135,6 +202,19 @@ function setTauriStatus(next: UpdaterStatus): void {
 function errText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
+/** The one real action: download + install + relaunch, in a single Rust call. */
+async function downloadAndInstall(): Promise<{ ok: boolean; reason?: string }> {
+  setTauriStatus({ state: 'downloading' });
+  try {
+    // Never resolves on success: the process is replaced.
+    await tauriInvoke('updater_install');
+    setTauriStatus({ state: 'ready' });
+    return { ok: true };
+  } catch (e) {
+    setTauriStatus({ state: 'error', error: errText(e) });
+    return { ok: false, reason: errText(e) };
+  }
+}
 const tauriUpdater: ElectronUpdater = {
   async checkForUpdates(options) {
     if (tauriUpdaterDenied) return { ok: false, reason: 'updater unavailable in this webview' };
@@ -145,7 +225,7 @@ const tauriUpdater: ElectronUpdater = {
       const info = await tauriInvoke<{ version: string } | null>('updater_check');
       // C'è davvero un aggiornamento: questo si vede SEMPRE, silenzioso o no.
       if (info) { setTauriStatus({ state: 'update-available', version: info.version, silent: false }); return { ok: true }; }
-      setTauriStatus({ state: 'idle', silent });
+      setTauriStatus({ state: 'up-to-date', silent });
       return { ok: true, reason: 'up-to-date' };
     } catch (e) {
       if (isAclDenial(e)) {
@@ -157,24 +237,16 @@ const tauriUpdater: ElectronUpdater = {
       return { ok: false, reason: errText(e) };
     }
   },
-  // Atomic on Tauri: just advance to `ready`; the real download runs on install.
-  async downloadUpdate() {
-    setTauriStatus({ state: 'ready' });
-    return { ok: true };
-  },
+  // ATOMIC ON TAURI, SO THERE IS ONLY ONE ACTION. `updater_install` downloads,
+  // installs and replaces the process in a single call: there is no state of
+  // the world in which the bytes are here and the install is not. This used to
+  // announce `ready` without invoking anything, so the surfaces showed a green
+  // "new version ready" and a sticky banner over a download that had not
+  // started - visible by unplugging the network before pressing it. Both
+  // entry points now run the same real work; the surfaces offer one button.
+  async downloadUpdate() { return downloadAndInstall(); },
   async status() { return tauriStatus; },
-  async quitAndInstall() {
-    setTauriStatus({ state: 'downloading' });
-    try {
-      // Downloads, installs, then replaces the process — never resolves on success.
-      await tauriInvoke('updater_install');
-      setTauriStatus({ state: 'ready' });
-      return { ok: true };
-    } catch (e) {
-      setTauriStatus({ state: 'error', error: errText(e) });
-      return { ok: false, reason: errText(e) };
-    }
-  },
+  async quitAndInstall() { return downloadAndInstall(); },
   onStatus(cb) { tauriListeners.add(cb); return () => { tauriListeners.delete(cb); }; },
 };
 

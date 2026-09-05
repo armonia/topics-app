@@ -317,3 +317,42 @@ pagina che rimonta ne accumulerebbe uno in piu' ogni volta.
 - **GIVEN** il giro dei controlli avviato
 - **WHEN** viene fermato
 - **THEN** SHALL non arrivare nessun controllo successivo
+
+### Requirement: UPDATER-04 — Un controllo CHIESTO ha una risposta, «scarica» scarica, e l'errore e' una frase
+
+Uno stato di RIPOSO e la RISPOSTA «sei aggiornato» sono due cose diverse, e
+confonderle rende muto il gesto piu' esplicito che l'app offre: dal menu
+«Controlla aggiornamenti…» si vedeva un lampo di «controllo in corso» e poi
+nulla, perche' l'esito «nessun aggiornamento» finiva nello stesso stato in cui
+l'app si trova prima di aver controllato — e quello stato, giustamente, non
+disegna niente. L'esito di un controllo chiesto dall'utente SHALL avere uno
+stato suo e SHALL essere mostrato; l'esito dello stesso controllo fatto in
+automatico SHALL restare silenzioso (UPDATER-01).
+
+Un comando che dichiara un esito SHALL averlo prodotto. Sotto Tauri il
+download e l'installazione sono la STESSA chiamata: dichiarare «nuova versione
+pronta» senza aver invocato niente mostrava la spunta verde e un banner
+appiccicoso sopra zero byte scaricati — visibile staccando la rete prima di
+premere. Le superfici SHALL quindi offrire UN SOLO gesto («scarica e
+installa»), e nessuno stato «pronto» SHALL essere annunciato senza che il
+lavoro sia stato davvero chiesto alla shell.
+
+Il testo di un guasto SHALL essere una frase del dizionario, non la stringa che
+arriva dal trasporto: «Network Error: error sending request for url (…)» in
+grassetto, in prima riga, e per giunta tagliato, racconta a chi guarda i fatti
+del trasporto invece dei suoi. La mappatura SHALL essere una funzione pura,
+come `chiaveErroreAuth` per i rifiuti del server.
+
+#### Scenario: il controllo dal menu non trova niente
+- **GIVEN** un controllo chiesto dall'utente su un'app gia' aggiornata
+- **THEN** SHALL comparire la risposta «sei aggiornato»
+
+#### Scenario: lo stesso esito da un controllo automatico
+- **GIVEN** un controllo silenzioso su un'app gia' aggiornata
+- **THEN** NON SHALL comparire niente
+
+#### Scenario: si preme «scarica» con la rete staccata
+- **GIVEN** un aggiornamento disponibile e nessuna rete
+- **WHEN** si preme il gesto di scaricamento
+- **THEN** lo stato NON SHALL diventare «pronto»
+- **AND** il titolo mostrato SHALL essere una chiave del dizionario, non l'errore del trasporto

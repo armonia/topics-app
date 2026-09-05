@@ -69,6 +69,16 @@ const IT: Dict = {
   'space.elsewhere.blurb': 'Un gruppo lo disegna una finestra sola: le sue tab vivono là, e qui non si duplicano.',
   'update.download': 'Scarica',
   'update.restartInstall': 'Riavvia e installa',
+  'update.downloadInstall': 'Scarica e installa',
+  'update.title.idle': 'Aggiornamenti',
+  'update.title.checking': 'Controllo in corso…',
+  'update.title.upToDate': 'Sei aggiornato',
+  'update.title.available': 'Aggiornamento{v} disponibile',
+  'update.title.downloading': 'Download{pct} in corso…',
+  'update.title.ready': 'Pronta da installare',
+  'update.err.network': 'Server degli aggiornamenti irraggiungibile',
+  'update.err.endpoint': 'Nessun aggiornamento pubblicato per questa build',
+  'update.err.generic': 'Aggiornamento fallito',
 
   'model.ctxWindow': 'Finestra di contesto: {n} token',
   'model.ctxWindow.guess': 'Modello non in tabella: finestra stimata in {n} token',
@@ -2003,11 +2013,9 @@ const IT: Dict = {
   'version.checking': 'Controllo aggiornamenti…',
   'version.autoArriving': 'Arriva da se\'{v}: le finestre si ricaricano quando e\' pronta.',
   'version.available': 'Disponibile{v}.',
-  'version.download': 'Scarica aggiornamento',
   'version.downloading': 'Download… {pct}',
   'version.ready': 'Nuova versione pronta.',
   'version.installRestart': 'Riavvia e installa',
-  'version.checkFailed': 'Controllo fallito',
   'version.check': 'Controlla aggiornamenti',
   // ── Cronologia notifiche. Queste due etichette NON sono più congelate: il
   //    locator che le teneva ferme (`[aria-label$='non viste']`, in

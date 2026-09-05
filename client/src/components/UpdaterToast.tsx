@@ -6,7 +6,9 @@
  * in the bottom-right corner.
  *
  * Behaviour (revised 2026-05-11 — opt-in only, no surprise downloads):
- *   · `idle`              → nothing rendered
+ *   · `idle`              → nothing rendered (no check has been made)
+ *   · `up-to-date`        → "You are up to date", the answer to an explicit
+ *                           check; a silent boot check stays quiet
  *   · `checking`          → small "Checking for updates…" hint
  *   · `update-available`  → "Update vX.Y.Z available" + "Download" CTA
  *                           (the user MUST click to actually download —
@@ -34,6 +36,7 @@ import {
   getUpdaterApi,
   readDismissedUpdateVersion,
   shouldShowUpdaterToast,
+  updateTitle,
   writeDismissedUpdateVersion,
   type UpdaterStatus,
 } from '@/lib/updater';
@@ -139,12 +142,10 @@ export function UpdaterToast() {
   // Il TITOLO in una riga, e il numero di versione dentro quando c'è: è
   // l'informazione che distingue questo avviso dall'altro («Aggiornamento
   // automatico», il bundle ricostruito) e prima non compariva da nessuna parte.
-  const title =
-    status.state === 'checking' ? 'Controllo in corso…'
-    : status.state === 'update-available' ? (status.version ? `v${status.version} disponibile` : 'Disponibile')
-    : status.state === 'downloading' ? `Scarico${status.progress !== undefined ? ` ${Math.round(status.progress)}%` : '…'}`
-    : isReady ? 'Pronta da installare'
-    : (status.error || 'Aggiornamento fallito');
+  // The sentence itself comes from `updateTitle`, which is where the error is
+  // turned into a key instead of being bolded verbatim.
+  const heading = updateTitle(status);
+  const title = tr(heading.key, heading.params);
 
   return (
     <SidebarUpdateBanner
@@ -154,7 +155,7 @@ export function UpdaterToast() {
       icon={
         status.state === 'checking' ? <RefreshCw size={14} className="animate-spin" />
         : (status.state === 'update-available' || status.state === 'downloading') ? <Download size={14} />
-        : isReady ? <Check size={14} />
+        : (isReady || status.state === 'up-to-date') ? <Check size={14} />
         : isError ? <AlertCircle size={14} /> : null
       }
       title={title}
@@ -176,20 +177,15 @@ export function UpdaterToast() {
       {status.state === 'update-available' && (
         <button
           onClick={async () => {
+            // ONE BUTTON, because there is one action: the shell downloads and
+            // installs in the same call. Two buttons described a two-step flow
+            // the host never had.
             const api = getUpdaterApi();
-            if (api?.downloadUpdate) {
-              await api.downloadUpdate();
-            } else {
-              // Fallback for older preloads that don't expose downloadUpdate:
-              // re-running checkForUpdates with the legacy autoDownload=true
-              // would have triggered a fetch. With opt-in flow this is just
-              // a no-op safety net.
-              await api?.checkForUpdates();
-            }
+            await (api?.downloadUpdate ? api.downloadUpdate() : api?.quitAndInstall());
           }}
           className="mt-1 text-app-text underline underline-offset-2 hover:no-underline"
         >
-          {tr('update.download')}
+          {tr('update.downloadInstall')}
         </button>
       )}
       {isReady && (
