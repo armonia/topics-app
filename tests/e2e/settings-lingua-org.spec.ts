@@ -1,21 +1,22 @@
 /**
- * THE SETTINGS SPEAK ITALIAN, AND THE ORGANISATIONS CAN BE FOUND.
+ * THE SETTINGS SPEAK THE USER'S LANGUAGE, AND THE ORGANISATIONS CAN BE FOUND.
  *
- * Reported: «tutta la parte di settings ancora non le vedo ben divise. Non allow-italian: the exact words of the report
- * vedo le organizzazioni. In profile vedo accorpata la possibilità anche di allow-italian: the exact words of the report
- * aggiungere più persone, ma non ha senso perché io sono io e la mia mail». allow-italian: the exact words of the report
+ * Reported, verbatim: «tutta la parte di settings ancora non le vedo ben
+ * divise. Non vedo le organizzazioni. In profile vedo accorpata la possibilità
+ * anche di aggiungere più persone, ma non ha senso perché io sono io e la mia
+ * mail».  allow-italian: the report is the subject of this test.
  *
- * Two distinct facts that look like the same one:
+ * Two distinct facts that look like one:
  *
  *  1. THE LANGUAGE. The left menu said "Appearance", "Notifications",
- *     "Profile", "Devices", "Plan": five English words inside an app that
- *     speaks Italian. Not a whim. When an entry is named with a word that is
- *     not the one you have in mind, scanning the list fails and the conclusion
- *     is "it is not there". The repo already has a dictionary (`i18n.ts`) and
- *     the settings were the only surface not using it.
+ *     "Profile", "Devices", "Plan": five English words inside an app running in
+ *     Italian. It is not a nicety: when an entry is named with a word that is
+ *     not the one in your head, scanning the list fails and the conclusion is
+ *     "it is not there". The repo already has a dictionary (`i18n.ts`) and
+ *     Settings was the one surface not using it.
  *  2. THE ORGANISATIONS ARE THERE. `IdentitySection` handles them in full and
- *     lives inside "Profilo". The test finds them, so if one day somebody moves
- *     them back to the bottom of a tab about something else, it turns red.
+ *     sits inside "Profile". The test finds them, so the day somebody moves
+ *     them back to the bottom of a tab about something else, it goes red.
   * @covers SETORG-01
  */
 import { test, expect } from "@playwright/test";

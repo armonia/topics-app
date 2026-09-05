@@ -14,13 +14,13 @@ interface ToggleRowProps {
 }
 
 /**
- * L'interruttore delle Impostazioni. Vive in un file suo perché lo usano DUE
- * schede (Aspetto e Notifiche): tenerlo dentro una delle due farebbe importare
- * l'altra scheda intera per un solo bottone.
+ * The Settings toggle. It lives in a file of its own because TWO tabs use it
+ * (Appearance and Notifications): keeping it inside one of them would make the
+ * other import a whole tab for a single button.
  *
- * L'interruttore vero e proprio sta in `Shared/Switch`: il disegno era copiato
- * qui e nel modale delle impostazioni del topic, e il difetto dello stato
- * spento (bianco su bianco in tema chiaro) andava corretto in due punti.
+ * The switch itself is `Shared/Switch`: the drawing used to be copied here and
+ * in the topic settings modal, so the off-state defect (white on white in the
+ * light theme) had to be fixed in two places.
  */
 export function ToggleRow({ label, description, value, onChange, disabled }: ToggleRowProps) {
   return (
