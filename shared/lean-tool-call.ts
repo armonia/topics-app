@@ -289,7 +289,7 @@ export function toolCallResultText(tc: { result?: unknown; detail?: unknown } | 
   return undefined;
 }
 
-// ── Strip tool detail text ──────────────────────────────────────────────────
+// ── The history wire: a tool call carries only what its CLOSED row draws ─────
 
 /**
  * The fields inside `detail` that carry large text blobs — the output of a
@@ -305,7 +305,80 @@ export function toolCallResultText(tc: { result?: unknown; detail?: unknown } | 
 const STRIP_FIELDS = ['output', 'content', 'result'] as const;
 
 /**
- * Minimum shape needed: a toolCall that may carry a detail object.
+ * Above this many characters a string inside `args` or `detail` travels as a
+ * PREVIEW on the history wire: its first `WIRE_STRING_PREVIEW_CHARS`
+ * characters, with the count of what was cut declared on the tool call
+ * (`argsBytes` / `detailBytes`). At or below it, the string travels whole.
+ *
+ * Why a threshold and not a list of fields. Blanking the three text fields
+ * above left the rest of every tool call intact, and on a real thread the rest
+ * is most of the weight: `args` repeats what `detail` already types (a Write's
+ * `content`, an Edit's `new_string`, a Bash script in `command`), and `detail`
+ * has long fields of its own that no closed row reads (`command` beyond its
+ * first line, `oldString`, `newString`, `unifiedDiff`, an MCP `args` object).
+ * Measured on the live DB on 2026-09-05, six working topics of 16-69 messages
+ * and 521-3,627 tool calls: `args` weighed 197 KB-1.86 MB per topic and the
+ * non-text fields of `detail` another 313 KB-1.8 MB, out of 1.1-5.4 MB total;
+ * a 17-message topic took 2.6 MB and 1.4 s to open. A field list would have
+ * to be kept in step with 25 detail variants and every provider's argument
+ * names; a length rule does not care what the field is called.
+ *
+ * Why 512. A closed row draws a path, the head of a command, a pattern, a
+ * URL, a one-line summary: `buildToolDisplayLabel` never shows more than one
+ * CSS-truncated line, and `summarizeArgs` cuts each value at 48 characters.
+ * 512 covers every one of those with room to spare, and on the six topics it
+ * removes 32-59% of the `args` bytes and 30-91% of the non-text `detail`
+ * bytes. The short strings that remain are the ones the row actually draws.
+ *
+ * What is NOT here, and why: `toolCall.result` that survived `leanToolCall`
+ * (a result with no identical copy in `detail`) weighed 2-13 KB per topic on
+ * the same measurement. Not worth a third counter.
+ */
+export const WIRE_STRING_PREVIEW_CHARS = 512;
+
+/**
+ * How deep the preview walk goes. The long strings sit at most a few levels
+ * down: `args.edits[i].new_string` (MultiEdit) is depth 3, `detail.raw.args.x`
+ * (an unknown tool) is depth 3, `detail.actions[i].summary` is depth 3. Six is
+ * a ceiling against a pathological payload, not a shape anyone relies on: a
+ * string deeper than this simply travels whole.
+ */
+const PREVIEW_MAX_DEPTH = 6;
+
+/** A value after the preview walk and how many characters the walk removed. */
+type Previewed = { value: unknown; removed: number };
+
+/**
+ * `value` with every string longer than `WIRE_STRING_PREVIEW_CHARS` cut to its
+ * head, recursively through objects and arrays. Same reference (and `removed`
+ * 0) when nothing was long enough, so a caller can skip the copy of the row.
+ */
+function previewLongStrings(value: unknown, depth = 0): Previewed {
+  if (typeof value === 'string') {
+    if (value.length <= WIRE_STRING_PREVIEW_CHARS) return { value, removed: 0 };
+    return { value: value.slice(0, WIRE_STRING_PREVIEW_CHARS), removed: value.length - WIRE_STRING_PREVIEW_CHARS };
+  }
+  if (depth >= PREVIEW_MAX_DEPTH || value === null || typeof value !== 'object') return { value, removed: 0 };
+  let removed = 0;
+  if (Array.isArray(value)) {
+    const out = value.map((v) => {
+      const p = previewLongStrings(v, depth + 1);
+      removed += p.removed;
+      return p.value;
+    });
+    return removed > 0 ? { value: out, removed } : { value, removed: 0 };
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    const p = previewLongStrings(v, depth + 1);
+    removed += p.removed;
+    out[k] = p.value;
+  }
+  return removed > 0 ? { value: out, removed } : { value, removed: 0 };
+}
+
+/**
+ * Minimum shape needed: a toolCall that may carry a detail object and args.
  *
  * `detail?: unknown` and not `Record<string, unknown>`, for the same reason
  * `LeanableToolCall` above does it: `ToolCallDetail` is a union of interfaces,
@@ -314,17 +387,22 @@ const STRIP_FIELDS = ['output', 'content', 'result'] as const;
  * narrowed at runtime instead, where the check is real.
  */
 type StrippableToolCall = {
+  args?: unknown;
+  argsBytes?: number;
   detail?: unknown;
   detailBytes?: number;
 };
 
 /**
- * Replace the three large text fields inside `detail` with `''` and record the
- * original byte count in `detailBytes` on the toolCall (NOT inside detail —
- * Zod would discard any unknown field there).
+ * `detail` as the history wire carries it: the three large text fields
+ * replaced with `''`, every other string longer than the threshold cut to its
+ * preview, and the characters removed summed into `detailBytes` on the
+ * toolCall (NOT inside detail — Zod would discard any unknown field there).
  *
- * Returns the same reference when nothing was stripped (no detail, or detail
- * carries no text in those fields).
+ * `plan.text` is the one field left whole whatever its length: the closed row
+ * summarises it, and it is measured to weigh nothing (see `STRIP_FIELDS`).
+ *
+ * Returns the same reference when nothing was removed.
  *
  * CONSTRAINT: `detailBytes` must live on the toolCall, never inside `detail`.
  * `resolveToolDetail` -> `parseToolCallDetail` runs the Zod schema on `detail`
@@ -334,37 +412,74 @@ type StrippableToolCall = {
 export function stripDetailText<T extends StrippableToolCall>(tc: T): T {
   const det = tc.detail;
   if (!det || typeof det !== 'object') return tc;
-  let stripped = false;
+  const rec = det as Record<string, unknown>;
   let bytes = 0;
   const newDet: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(det)) {
+  for (const [k, v] of Object.entries(rec)) {
     if ((STRIP_FIELDS as readonly string[]).includes(k) && typeof v === 'string' && v.length > 0) {
       bytes += v.length;
       newDet[k] = '';
-      stripped = true;
-    } else {
-      newDet[k] = v;
+      continue;
     }
+    if (rec.type === 'plan' && k === 'text') {
+      newDet[k] = v;
+      continue;
+    }
+    const p = previewLongStrings(v);
+    bytes += p.removed;
+    newDet[k] = p.value;
   }
-  if (!stripped) return tc;
+  if (bytes === 0) return tc;
   return { ...tc, detail: newDet, detailBytes: bytes } as T;
 }
 
-/** Strip large text from every toolCall in the blocks of a message list. */
-function stripBlocksDetailText<T extends LeanableBlock>(blocks: readonly T[]): readonly T[] {
+/**
+ * `args` as the history wire carries them: every string longer than the
+ * threshold cut to its preview, the characters removed declared in
+ * `argsBytes`. Same reference when nothing was long.
+ *
+ * `args` is read by the renderer only as a FALLBACK, when `detail` is missing
+ * or untyped (`deriveToolDetail`): the path, the head of the command and the
+ * pattern it needs there all fit in the preview. The whole object comes back
+ * from the detail route when the row opens.
+ */
+export function stripArgsText<T extends StrippableToolCall>(tc: T): T {
+  const p = previewLongStrings(tc.args);
+  if (p.removed === 0) return tc;
+  return { ...tc, args: p.value, argsBytes: p.removed } as T;
+}
+
+/** A tool call as `GET /api/history` ships it: lean `detail` AND lean `args`. */
+export function leanToolCallForHistory<T extends StrippableToolCall>(tc: T): T {
+  return stripArgsText(stripDetailText(tc));
+}
+
+/** `leanToolCallForHistory` on every toolCall nested in the blocks of a message. */
+function leanBlocksForHistory<T extends LeanableBlock>(blocks: readonly T[]): readonly T[] {
   let changed = false;
   const out = blocks.map((b) => {
     if (!b || typeof b !== 'object' || !b.toolCall) return b;
-    const stripped = stripDetailText(b.toolCall as StrippableToolCall);
-    if (stripped === b.toolCall) return b;
+    const lean = leanToolCallForHistory(b.toolCall as StrippableToolCall);
+    if (lean === b.toolCall) return b;
     changed = true;
-    return { ...b, toolCall: stripped };
+    return { ...b, toolCall: lean };
   });
   return changed ? out : blocks;
 }
 
+/** `leanToolCallForHistory` on a flat list of tool calls (the legacy bucket). */
+function leanToolCallsForHistory<T extends StrippableToolCall>(calls: readonly T[]): readonly T[] {
+  let changed = false;
+  const out = calls.map((tc) => {
+    const lean = leanToolCallForHistory(tc);
+    if (lean !== tc) changed = true;
+    return lean;
+  });
+  return changed ? out : calls;
+}
+
 /**
- * A message with blocks that may carry tool details to strip.
+ * A message whose tool calls may need trimming for the history wire.
  *
  * No `& Record<string, unknown>`: `StoredMessage` is an interface and has no
  * index signature, so that intersection made the real message type UNASSIGNABLE
@@ -374,26 +489,34 @@ function stripBlocksDetailText<T extends LeanableBlock>(blocks: readonly T[]): r
 type StrippableMessage = {
   partial?: boolean;
   blocks?: readonly LeanableBlock[];
+  toolCalls?: readonly StrippableToolCall[];
 };
 
 /**
- * Strip the large text fields from every tool detail in a message list.
+ * Every tool call of a message list in its history-wire form.
  *
  * Called in `history.ts` on the response of `GET /api/history/:sessionKey`,
  * AFTER `leanMessagesForWire`. Only the history route uses this; the MCP
  * `/api/topics/:id/messages` route is left as-is (agents need the full text).
  *
+ * The tool calls live in `blocks`; the legacy `toolCalls` bucket is trimmed
+ * too, because a message persisted before blocks existed has its calls only
+ * there and the renderer draws them through the very same rows. When both are
+ * present `leanMessageForWire` has already dropped the bucket.
+ *
  * PARTIAL messages are left intact: the tool result is still being written
- * to them by the streaming layer.
+ * to them by the streaming layer, and the client applies the live events on
+ * top of what it holds.
  */
-export function stripToolDetailText<T extends StrippableMessage>(msgs: readonly T[]): readonly T[] {
+export function leanMessagesForHistory<T extends StrippableMessage>(msgs: readonly T[]): readonly T[] {
   let changed = false;
   const out = msgs.map((m) => {
     if (!m || typeof m !== 'object' || m.partial) return m;
-    const blocks = m.blocks?.length ? stripBlocksDetailText(m.blocks) : m.blocks;
-    if (blocks === m.blocks) return m;
+    const blocks = m.blocks?.length ? leanBlocksForHistory(m.blocks) : m.blocks;
+    const toolCalls = m.toolCalls?.length ? leanToolCallsForHistory(m.toolCalls) : m.toolCalls;
+    if (blocks === m.blocks && toolCalls === m.toolCalls) return m;
     changed = true;
-    return { ...m, blocks };
+    return { ...m, blocks, toolCalls };
   });
   return changed ? out : msgs;
 }

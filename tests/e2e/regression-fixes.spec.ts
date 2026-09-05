@@ -10,6 +10,7 @@ import { test, expect } from "@playwright/test";
 import {
   createTopic,
   deleteTopic,
+  fetchTopic,
   resetPaneStore,
   resetProjectPanes,
 } from "./helpers/api-fixtures";
@@ -366,13 +367,10 @@ test.describe("Panel validation: archived topic panels are removed", () => {
         ignoreHTTPSErrors: true,
       });
 
-      // Verify the archive was persisted server-side
-      const verifyRes = await request.get(`${BASE}/api/topics`);
-      const topicsData = (await verifyRes.json()) as {
-        topics: Record<string, { id: string; archived: boolean }>;
-      };
+      // Verify the archive was persisted server-side. By id: the boot list
+      // (`GET /api/topics`) carries only the live topics now.
       expect(
-        topicsData.topics[topic.id]?.archived,
+        (await fetchTopic(request, topic.id))?.archived,
         "Server should have archived=true for the topic"
       ).toBeTruthy();
 

@@ -25,6 +25,7 @@ import { goToApp } from "./helpers";
 import {
   createTopic,
   deleteTopic,
+  fetchTopic,
   resetPaneStore,
   resetProjectPanes,
   seedProjectPane,
@@ -174,9 +175,10 @@ test.describe("Tab «Progetto»: si spegne quando l'hai guardata", () => {
       ignoreHTTPSErrors: true,
     });
     expect(chiuso.ok(), "la chat di prova dev'essere davvero archiviata").toBeTruthy();
-    const dopo = await request.get(`${BASE}/api/topics`, { ignoreHTTPSErrors: true });
-    const mappa = ((await dopo.json()) as { topics: Record<string, { archived?: boolean }> }).topics;
-    expect(mappa[chiusa.id]?.archived, "il server deve riportarla archiviata").toBe(true);
+    // By id, not from the list: `GET /api/topics` carries the LIVE chats only,
+    // and an archived one is simply absent there.
+    const dopo = await fetchTopic(request, chiusa.id);
+    expect(dopo?.archived, "il server deve riportarla archiviata").toBe(true);
     try {
       const ws = await interceptWebSocket(page);
       await goToApp(page);

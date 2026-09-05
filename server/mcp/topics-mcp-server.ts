@@ -1572,10 +1572,19 @@ export async function callSendChatMessage(
   }
   // Resolve the target topic → its sessionKey (topics carry non-derivable
   // sessionKeys for adopted/cloud sessions, so look it up rather than compute).
-  const listing = await httpJson<{ topics?: Record<string, { sessionKey?: string; name?: string; archived?: boolean }> }>(
-    args, "GET", "/api/topics", undefined, fetchImpl,
-  );
-  const target = listing?.topics?.[toolArgs.topic_id];
+  // ONE topic, not the list: `GET /api/topics` is the live half only, and a
+  // closed chat is still a chat one can write to.
+  let target: { sessionKey?: string; name?: string } | undefined;
+  try {
+    const r = await httpJson<{ topic?: { sessionKey?: string; name?: string } }>(
+      args, "GET", `/api/topics/${encodeURIComponent(toolArgs.topic_id)}`, undefined, fetchImpl,
+    );
+    target = r?.topic;
+  } catch (err: unknown) {
+    // A 404 is "not found", said below in the tool's own words; anything else
+    // (server down, 500) is the transport's problem and stays its message.
+    if (!/^HTTP 404\b/.test(err instanceof Error ? err.message : String(err))) throw err;
+  }
   if (!target?.sessionKey) {
     throw new Error(`send_chat_message: topic '${toolArgs.topic_id}' not found`);
   }

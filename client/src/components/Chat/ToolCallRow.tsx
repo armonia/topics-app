@@ -74,11 +74,12 @@ interface Props {
    */
   onPlanDecision?: (approved: boolean) => void;
   /**
-   * L'id del messaggio DB a cui appartiene questo toolCall. Necessario per
-   * il lazy-load del detail: quando il payload della cronologia ha svuotato
-   * `output`/`content`/`result`, la prima apertura della riga va a riprenderli
-   * da `GET /api/messages/:messageId/tool/:toolCallId/detail`.
-   * Assente per le righe in streaming (non hanno mai il detail svuotato).
+   * The DB id of the message this toolCall belongs to. Needed for the lazy
+   * load: when the history payload has blanked `output`/`content`/`result`
+   * and cut the long strings of `detail` and `args` to their head, the first
+   * opening of the row fetches the whole thing from
+   * `GET /api/messages/:messageId/tool/:toolCallId/detail`.
+   * Absent for streaming rows (their blocks always arrive whole).
    */
   messageId?: string;
 }
@@ -107,23 +108,31 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   const settledMetricClass = useSettledMetricClass('tool');
   const [open, setOpen] = useState(false);
 
-  // Lazy detail: when the history payload strips the large text fields from
-  // `detail` (output, content, result), it leaves `toolCall.detailBytes > 0`
-  // as a signal. The first time the row is actually opened, we fetch the full
-  // detail from GET /api/messages/:id/tool/:id/detail and merge it in.
-  // The fetched object lives only in this component state and dies with the
-  // unmount: nothing pollutes the store, and nothing travels on the wire until
-  // the user explicitly opens the row.
-  const [fetchedDetail, setFetchedDetail] = useState<Record<string, unknown> | null>(null);
+  // Lazy body: the history payload ships a tool call in its closed-row form —
+  // the large text fields of `detail` (output, content, result) blank, every
+  // other long string of `detail` and `args` cut to its head — and leaves
+  // `toolCall.detailBytes` / `toolCall.argsBytes` > 0 as the signal. The first
+  // time the row is actually opened, we fetch the whole detail AND args from
+  // GET /api/messages/:id/tool/:id/detail and merge them in. The fetched
+  // object lives only in this component state and dies with the unmount:
+  // nothing pollutes the store, and nothing travels on the wire until the
+  // user explicitly opens the row.
+  const [fetched, setFetched] = useState<{ detail: Record<string, unknown> | null; args: Record<string, unknown> | null } | null>(null);
   const fetchedForRef = useRef<string | null>(null);
+  const strippedBytes = (toolCall.detailBytes ?? 0) + (toolCall.argsBytes ?? 0);
 
   // Resolve the detail (server-provided or fallback derivation) and the
   // user-facing display name + summary. Sub-agent rows are auto-expanded
   // because their action log IS the primary signal — collapsed they'd hide
   // the entire reason for showing the row.
-  // When the payload has stripped text, merge the lazily-fetched fields back.
-  const baseDetail = resolveToolDetail(toolCall);
-  const detail = fetchedDetail ? { ...baseDetail, ...fetchedDetail } : baseDetail;
+  // When the payload has trimmed the call, merge the lazily-fetched pieces
+  // back: the whole `args` feed the fallback derivation (a row with no typed
+  // `detail` draws its command and path from there), the whole `detail`
+  // overlays the typed one. Whatever the body shows, copies or opens from
+  // here on is the full text, never the preview.
+  const wholeCall = fetched?.args ? { ...toolCall, args: fetched.args } : toolCall;
+  const baseDetail = resolveToolDetail(wholeCall);
+  const detail = fetched?.detail ? { ...baseDetail, ...fetched.detail } : baseDetail;
   const display = buildToolDisplayLabel(detail, toolCall.name);
   const Icon = iconForDetail(detail);
   const status = toolCall.status ?? 'pending';
@@ -190,24 +199,25 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
     setOpen((v) => !v);
   };
 
-  // Lazy detail fetch: the first time a row with stripped text is opened,
-  // we pull the full detail from the server and merge it in.
+  // Lazy fetch: the first time a trimmed row is opened, we pull the whole
+  // detail and args from the server and merge them in.
   useEffect(() => {
     if (!effectiveOpen) return;
     if (!messageId) return;
-    if (!toolCall.detailBytes || toolCall.detailBytes === 0) return;
+    if (strippedBytes === 0) return;
     if (fetchedForRef.current === toolCall.id) return; // already fetched
     fetchedForRef.current = toolCall.id;
-    chatApi.fetchToolDetail(messageId, toolCall.id).then(({ detail: fullDetail }) => {
-      if (fullDetail && typeof fullDetail === 'object') {
-        setFetchedDetail(fullDetail as Record<string, unknown>);
-      }
+    chatApi.fetchToolDetail(messageId, toolCall.id).then(({ detail: fullDetail, args: fullArgs }) => {
+      const asRecord = (v: unknown): Record<string, unknown> | null =>
+        v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+      const next = { detail: asRecord(fullDetail), args: asRecord(fullArgs) };
+      if (next.detail || next.args) setFetched(next);
     }).catch(() => {
-      // Non-fatal: the row still renders with the partial detail.
-      // The missing text fields will just be empty, which is what they
-      // were before the user opened the row.
+      // Non-fatal: the row still renders with the trimmed call. The missing
+      // text is blank or cut, which is what it was before the user opened
+      // the row.
     });
-  }, [effectiveOpen, messageId, toolCall.id, toolCall.detailBytes]);
+  }, [effectiveOpen, messageId, toolCall.id, strippedBytes]);
 
   // C'è davvero qualcosa da aprire? Una `Skill` senza istruzioni — cioè ogni
   // riga scritta prima che il provider imparasse a raccoglierle — apriva un
@@ -215,7 +225,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   // corpo la riga non offre il gesto (e non ne finge nemmeno lo spazio: il
   // posto del chevron resta, o le righe non si allineerebbero più).
   const hasBody =
-    toolCardHasBody(detail, toolCall.detailBytes) || isHumanTurn || isError || !!toolCall.error || !!toolCall.userResponse
+    toolCardHasBody(detail, strippedBytes) || isHumanTurn || isError || !!toolCall.error || !!toolCall.userResponse
     // Una decisione presa su un permesso è la traccia che si va a rileggere:
     // la riga si richiude (la palla non è più tua) ma deve restare APRIBILE,
     // come già fa una domanda a cui hai risposto.

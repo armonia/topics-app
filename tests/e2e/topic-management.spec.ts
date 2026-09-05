@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/topic-management.fixture";
-import { createTopic, archiveTopic, cleanupAll, resetPaneStore } from "./helpers/api-fixtures";
+import { createTopic, archiveTopic, cleanupAll, fetchTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 
@@ -444,16 +444,10 @@ test.describe("Topic Management — Fissati archive interplay", () => {
     await menu.locator("button", { hasText: "Archivia" }).click();
 
     // The topic IS archived server-side (explicit archive is not blocked by
-    // the pin — only the close-tab funnel is)…
+    // the pin — only the close-tab funnel is)… Asked by id: the boot list no
+    // longer carries archived topics, so it cannot say "yes" here.
     await expect
-      .poll(
-        async () => {
-          const res = await request.get(`${BASE}/api/topics`, { ignoreHTTPSErrors: true });
-          const data = await res.json();
-          return data?.topics?.[disp.id]?.archived;
-        },
-        { timeout: 10000 }
-      )
+      .poll(async () => (await fetchTopic(request, disp.id))?.archived, { timeout: 10000 })
       .toBe(true);
 
     // …but the pinned row STAYS listed with showArchived=false (pinnedIds

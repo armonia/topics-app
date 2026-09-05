@@ -8,7 +8,7 @@ import { clientReceivesTopicDelta } from "./lib/ws-topic-routing";
 import { warnThrottled } from "./lib/warn-throttled";
 import { isReusableHeadstone } from "./lib/empty-turn-headstone";
 import type {
-  WSData, GuestBroadcastFilter, StoredMessage, ReattachedPartial, ToolCall, Topic, TopicsData, UnreadData,
+  WSData, GuestBroadcastFilter, StoredMessage, ReattachedPartial, ToolCall, Topic, TopicsData, TopicsFilter, UnreadData,
   ActiveStream, ErrorResponseOptions, AppContext, Project, ThreadLoadOpts, ContentBlock,
 } from "./types";
 import { initDatabase } from "./db";
@@ -180,6 +180,24 @@ export function createAppContext(baseDir: string): AppContext {
   // Initialize SQLite (DB file under STATE_DIR/data; migrations read from baseDir)
   const db = initDatabase(baseDir, STATE_DIR);
 
+  // A topic whose parent is gone goes back to the root. ONCE, here at boot,
+  // not inside `GET /api/topics`: there it was a JavaScript walk of every row
+  // on every boot and every WS reconnect, for a condition the schema itself
+  // prevents since `parent_id … ON DELETE SET NULL` runs under
+  // `PRAGMA foreign_keys = ON` (db.ts). What is left to repair is a row written
+  // before that rule, and one statement on `idx_topics_parent` finds it.
+  // Gate: tests/integration/topics-list-weight.test.ts.
+  {
+    const t0 = performance.now();
+    const fixed = db.prepare(
+      `UPDATE topics SET parent_id = NULL
+        WHERE parent_id IS NOT NULL AND parent_id NOT IN (SELECT id FROM topics)`,
+    ).run().changes;
+    if (fixed > 0) {
+      console.log(`[Orphan Fix] ${fixed} topic(s) had a parentId that no longer exists — moved to root (${(performance.now() - t0).toFixed(1)} ms)`);
+    }
+  }
+
   // State
   const activeStreams = new Map<string, ActiveStream>();
   const wsClients = new Set<ServerWebSocket<WSData>>();
@@ -188,6 +206,10 @@ export function createAppContext(baseDir: string): AppContext {
   const stmts = {
     // Topics
     getAllTopics: db.prepare(`SELECT * FROM topics WHERE 1=1`),
+    // The two halves of the list, each on `idx_topics_archived`. The boot
+    // payload asks for the live half only: on this machine 19 of 1,554 topics.
+    getLiveTopics: db.prepare(`SELECT * FROM topics WHERE archived = 0`),
+    getArchivedTopics: db.prepare(`SELECT * FROM topics WHERE archived = 1`),
     getTopicById: db.prepare(`SELECT * FROM topics WHERE id = ?`),
     getTopicLinks: db.prepare(`SELECT target_id FROM topic_links WHERE source_id = ?`),
     getTopicContextFiles: db.prepare(`SELECT file_path FROM topic_context_files WHERE topic_id = ?`),
@@ -1023,8 +1045,17 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   // --- Topics (SQLite-backed) ---
-  function loadTopics(): TopicsData {
-    const rows = stmts.getAllTopics.all() as any[];
+  /**
+   * Every topic, or one half of them. `{ archived: false }` is the boot list
+   * (`GET /api/topics`), `{ archived: true }` the archive the client asks for
+   * later; without a filter, all of them, for the callers that walk the table
+   * (bulk archive, context assembly, the CLI).
+   */
+  function loadTopics(filter?: TopicsFilter): TopicsData {
+    const statement = filter?.archived === undefined
+      ? stmts.getAllTopics
+      : filter.archived ? stmts.getArchivedTopics : stmts.getLiveTopics;
+    const rows = statement.all() as any[];
     // Batch-load every relation once (1 + 5 scans) instead of 5 sub-queries per
     // topic — GET /api/topics is the hot UI-hydration path, hit on every load /
     // reconnect, and this DB carries ~hundreds of topics.

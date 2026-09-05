@@ -1123,8 +1123,7 @@
       "riconciliato",
       "scheduleSSEFailsafe",
       "sseFailsafeRef",
-      "toolUpdateRafRef",
-      "upsertMarker"
+      "toolUpdateRafRef"
     ],
     "client/src/hooks/useChatLiveTurn.test.ts": [
       "DOPO",
@@ -2057,8 +2056,7 @@
     "client/src/state/taskBrowserTabs.ts": [
       "dst",
       "neighbourActive",
-      "resyncTaskTabsFromServer",
-      "upsertTab"
+      "resyncTaskTabsFromServer"
     ],
     "client/src/state/taskSessions.test.ts": [
       "woken",
@@ -4604,10 +4602,8 @@
       "corsa"
     ],
     "server/services/claude-tasks-sync.ts": [
-      "TopicsTaskUpsert",
       "projDir",
-      "skipped",
-      "upserted"
+      "skipped"
     ],
     "server/services/daemon-state.ts": [
       "obj",
@@ -4760,8 +4756,7 @@
     ],
     "server/services/machine-store.ts": [
       "markStaleOffline",
-      "stmts",
-      "upsertLocal"
+      "stmts"
     ],
     "server/services/night-mode.ts": [
       "parseHHMM",
@@ -5136,9 +5131,6 @@
     "server/services/task-model-picker.test.ts": [
       "corpo",
       "lunga"
-    ],
-    "server/services/task-tab-persist.ts": [
-      "upsertTaskTab"
     ],
     "server/services/task-tab-teardown.ts": [
       "taskSubtreeIds"
@@ -5939,7 +5931,6 @@
     ],
     "shared/ws-outbound.ts": [
       "cronUpdatedSchema",
-      "machineUpsertedSchema",
       "typingBroadcastSchema"
     ],
     "tests/e2e/add-menu.spec.ts": [
@@ -6939,7 +6930,6 @@
       "chiusa",
       "chiuso",
       "dopo",
-      "mappa",
       "tabProgetto"
     ],
     "tests/e2e/project-tabs.spec.ts": [
@@ -7871,9 +7861,6 @@
     "tests/unit/ci-check-job-measures-everything.test.ts": [
       "armati",
       "senza"
-    ],
-    "tests/unit/claude-tasks-sync.test.ts": [
-      "TopicsTaskUpsert"
     ],
     "tests/unit/claude-transcript-title.test.ts": [
       "jline"

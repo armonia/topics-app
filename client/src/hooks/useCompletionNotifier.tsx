@@ -54,6 +54,14 @@ interface CompletionNotifierProps {
   /** Topic map keyed by id (the shape returned by `useTopics`). Used to
    *  resolve a friendly name for the toast body. */
   topics: Record<string, Topic>;
+  /** The map is the LIVE topics plus whatever of the archive has arrived, and
+   *  a turn can end in a closed chat (a parked session, a board agent whose
+   *  card was closed). When the id is not in the map, this asks the server for
+   *  that one topic so the banner carries its name; `ensureArchivedTopics`
+   *  loads the archive when only the session key is known. Both optional:
+   *  without them a miss falls back to the generic label, as before. */
+  ensureTopic?: (topicId: string) => Promise<Topic | null>;
+  ensureArchivedTopics?: () => Promise<void>;
   /** The currently-focused panel id (e.g. `chat:<topicId>`, `agents:…`).
    *  Used to suppress the toast for the topic the user is already looking
    *  at, unless `notifyEvenWhenFocused` is on. */
@@ -167,6 +175,8 @@ export function useCompletionNotifier({
   onWSMessage,
   settings,
   topics,
+  ensureTopic,
+  ensureArchivedTopics,
   focusedPanelId,
   terminalSessions,
   taskForTopic,
@@ -303,7 +313,18 @@ export function useCompletionNotifier({
   // status diffs). useRefMirror is the canonical state→ref bridge.
   const settingsRef = useRefMirror(settings);
   const topicsRef = useRefMirror(topics);
+  const ensureTopicRef = useRefMirror(ensureTopic);
+  const ensureArchivedTopicsRef = useRefMirror(ensureArchivedTopics);
   const focusedRef = useRefMirror(focusedPanelId);
+
+  /** The topic's name from the map, or from the server when the map does not
+   *  have it yet (a closed chat, before the archive has loaded). */
+  const resolveTopicName = async (topicId: string | null | undefined): Promise<string | undefined> => {
+    if (!topicId) return undefined;
+    const known = topicsRef.current[topicId]?.name;
+    if (known) return known;
+    return (await ensureTopicRef.current?.(topicId))?.name;
+  };
   const terminalSessionsRef = useRefMirror(terminalSessions);
   const taskForTopicRef = useRefMirror(taskForTopic);
   const isOwnStreamRef = useRefMirror(isOwnStream);
@@ -459,7 +480,7 @@ export function useCompletionNotifier({
   // L'ordine conta: prima tutti i gate SINCRONI, la claim per ultima. Una
   // finestra che comunque tacerebbe non deve potersi mangiare la consegna di una
   // che invece parlerebbe.
-  useWSSubscription(onWSMessage, 'message:new', (msg) => {
+  useWSSubscription(onWSMessage, 'message:new', async (msg) => {
       const cfg = settingsRef.current;
       const task = taskForTopicRef.current?.(msg.topicId) ?? null;
       const decision = decideMessageBanner({
@@ -469,7 +490,7 @@ export function useCompletionNotifier({
         notificationsEnabled: cfg.notificationsEnabled,
         isOwnStream: isOwnStreamRef.current?.(msg.sessionKey) ?? false,
         body: msg.preview || msg.content || '',
-        topicName: topicsRef.current[msg.topicId]?.name,
+        topicName: await resolveTopicName(msg.topicId),
         muted: isTopicMuted(msg.topicId),
         agentWorking: isAgentWorking(task?.dispatchState),
         lastFiredAt: cooldownRef.current.get(`msg:${msg.topicId}`),
@@ -527,7 +548,7 @@ export function useCompletionNotifier({
   // (session:state is transition-only, but the bootstrap replays the snapshot)
   // never re-banners an event we already showed. Bounded below on each event.
   const firedTermBannersRef = useRef<Set<string>>(new Set());
-  useWSSubscription(onWSMessage, 'session:state', (msg) => {
+  useWSSubscription(onWSMessage, 'session:state', async (msg) => {
       const state = msg.state;
       if (!state) return;
 
@@ -584,7 +605,7 @@ export function useCompletionNotifier({
           typeof document !== 'undefined' ? document.hasFocus() : true,
         );
 
-        const topicName = ts.topicId ? topicsRef.current[ts.topicId]?.name : undefined;
+        const topicName = await resolveTopicName(ts.topicId);
         const decision = decideTerminalBanner({
           terminalId: ts.id,
           phase: state.phase,
@@ -662,15 +683,17 @@ export function useCompletionNotifier({
       // Resolve the friendly topic name. The session-key convention for
       // Topics chats is `topic:<8-char-id>`; we scan the topics map for the
       // first one whose `sessionKey` matches. Falls back to a generic label.
-      let topicId: string | null = null;
-      let label = 'Claude';
-      for (const t of Object.values(topicsRef.current)) {
-        if (t.sessionKey === sessionKey) {
-          topicId = t.id;
-          label = t.name || 'Claude';
-          break;
-        }
+      // The map is the live topics plus whatever of the archive has arrived,
+      // and a parked session ends its turn in a CLOSED chat: on a miss the
+      // archive is loaded (once, then it is memory) and the scan runs again.
+      const bySessionKey = () => Object.values(topicsRef.current).find((t) => t.sessionKey === sessionKey);
+      let match = bySessionKey();
+      if (!match && ensureArchivedTopicsRef.current) {
+        await ensureArchivedTopicsRef.current();
+        match = bySessionKey();
       }
+      const topicId: string | null = match?.id ?? null;
+      const label = match?.name || 'Claude';
 
       // Il task che questo topic sta lavorando, se ce n'è uno. Serve due volte:
       // per zittire la fine turno di un agente di board (subito sotto) e per far
@@ -765,7 +788,7 @@ export function useCompletionNotifier({
   // at `starting`, or already resting) do we let the pty signal through. Dedup
   // is keyed by claudeSessionId, the SAME key the phase path uses, so a hooked
   // session that emits BOTH only notifies once.
-  useWSSubscription(onWSMessage, 'terminal:activity', (msg) => {
+  useWSSubscription(onWSMessage, 'terminal:activity', async (msg) => {
       if (!msg.finished) return;
       if (msg.kind !== 'claude-code' && msg.kind !== 'claude-code-team') return;
 
@@ -807,7 +830,7 @@ export function useCompletionNotifier({
       if (now - last < 10_000) return;
       cooldownRef.current.set(cooldownKey, now);
 
-      const topicName = ts?.topicId ? topicsRef.current[ts.topicId]?.name : undefined;
+      const topicName = await resolveTopicName(ts?.topicId);
       const label = ts?.name || topicName || 'Claude Code';
       // Stessa chiave della cooldown qui sopra: questo ripiego e il percorso
       // phase-based non devono poter lasciare due righe per la stessa fine

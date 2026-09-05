@@ -483,6 +483,8 @@ function App() {
     archiveTopic,
     archiveProject,
     applyTopicFromWS,
+    ensureTopic,
+    ensureArchivedTopics,
   } = useTopics();
   // Archive affordances can outlive the render that created them (for example a
   // pending-action commit). Read the current server-projected coordinator marker
@@ -650,6 +652,17 @@ function App() {
   // declared BEFORE usePanelLifecycle so the pin predicate can feed its
   // archive-on-close guards (ref-backed, stays a stable identity).
   const sidebar = useSidebarState(onWSMessage);
+
+  // The archive is not in the boot list (1,535 of 1,554 topics on the
+  // workspace this was measured on): the two surfaces that draw closed chats
+  // ask for it the moment they open. Both calls are one request at most -
+  // `ensureArchivedTopics` answers from memory once the archive is loaded.
+  useEffect(() => {
+    if (sidebar.showArchived) void ensureArchivedTopics();
+  }, [sidebar.showArchived, ensureArchivedTopics]);
+  useEffect(() => {
+    if (showSearch) void ensureArchivedTopics();
+  }, [showSearch, ensureArchivedTopics]);
   const isPinnedRef = useRefMirror(sidebar.isPinned);
 
   // Verso di LETTURA delle preferenze: `saveSettings` faceva il PUT da sempre,
@@ -663,7 +676,7 @@ function App() {
   // for the full effect-declaration-order contract.
   const panelLifecycle = usePanelLifecycle({
     isDetached, detachedTopicId, detachedTopicIds, isMobile,
-    topics, topicsLoading, loadTopics, createTopic, applyTopicFromWS, archiveProject, archiveTopic,
+    topics, topicsLoading, loadTopics, createTopic, applyTopicFromWS, archiveProject, archiveTopic, ensureTopic,
     workspaceProjects,
     terminalSessions,
     pruneStaleTerminalPanes: terminals.pruneStaleTerminalPanes,
@@ -1297,6 +1310,8 @@ function App() {
       onWSMessage={onWSMessage}
       settings={appSettings}
       topics={topics}
+      ensureTopic={ensureTopic}
+      ensureArchivedTopics={ensureArchivedTopics}
       focusedPanelId={focusedPanelId}
       terminalSessions={terminalSessions}
       taskForTopic={taskForTopic}

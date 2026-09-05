@@ -2,7 +2,19 @@
  * @covers LEAN-01
  */
 import { describe, expect, test } from 'bun:test';
-import { blocksForDisk, leanBlocks, leanToolCall, leanToolCalls, toolCallResultText, toolCallsForDisk } from './lean-tool-call';
+import {
+  WIRE_STRING_PREVIEW_CHARS,
+  blocksForDisk,
+  leanBlocks,
+  leanMessagesForHistory,
+  leanToolCall,
+  leanToolCallForHistory,
+  leanToolCalls,
+  stripArgsText,
+  stripDetailText,
+  toolCallResultText,
+  toolCallsForDisk,
+} from './lean-tool-call';
 
 describe('leanToolCall', () => {
   test('drops result when detail carries the same string (shell)', () => {
@@ -132,5 +144,166 @@ describe('toolCallResultText: dove si va a riprendere il testo', () => {
     expect(toolCallResultText({ detail: { type: 'read', filePath: '/x' } })).toBeUndefined();
     expect(toolCallResultText({ result: '' })).toBeUndefined();
     expect(toolCallResultText(undefined)).toBeUndefined();
+  });
+});
+
+// ── The history wire: previews for the long strings a closed row never reads ─
+
+/** The shape the history wire trims: the counters are what the trim adds. */
+type WireCall = {
+  id: string;
+  name: string;
+  args?: Record<string, unknown>;
+  argsBytes?: number;
+  detail?: Record<string, unknown>;
+  detailBytes?: number;
+};
+
+/** A string one character over the threshold, and one exactly at it. */
+const OVER = 'a'.repeat(WIRE_STRING_PREVIEW_CHARS + 1);
+const AT = 'b'.repeat(WIRE_STRING_PREVIEW_CHARS);
+/** A 30 KB script: the shape measured on the live DB (a Bash block with 33 KB of `args`). */
+const SCRIPT = `echo first line\n${'echo filler line of a long script\n'.repeat(900)}echo LAST`;
+
+describe('stripArgsText: the long strings of args travel as their head', () => {
+  test('a string over the threshold is cut to the threshold and the cut is declared', () => {
+    const tc: WireCall = { id: 'a', name: 'Bash', args: { command: SCRIPT, description: 'run it' } };
+    const lean = stripArgsText(tc);
+    expect(lean).not.toBe(tc);
+    expect((lean.args as { command: string }).command).toBe(SCRIPT.slice(0, WIRE_STRING_PREVIEW_CHARS));
+    expect((lean.args as { command: string }).command.startsWith('echo first line')).toBe(true);
+    expect(lean.argsBytes).toBe(SCRIPT.length - WIRE_STRING_PREVIEW_CHARS);
+    // The short field next to it is untouched.
+    expect((lean.args as { description: string }).description).toBe('run it');
+  });
+
+  test('a string AT the threshold travels whole, one character over does not', () => {
+    const whole: WireCall = { id: 'a', name: 'X', args: { s: AT } };
+    expect(stripArgsText(whole)).toBe(whole);
+    const cut = stripArgsText<WireCall>({ id: 'a', name: 'X', args: { s: OVER } });
+    expect((cut.args as { s: string }).s.length).toBe(WIRE_STRING_PREVIEW_CHARS);
+    expect(cut.argsBytes).toBe(1);
+  });
+
+  test('nested: a MultiEdit carries its long strings inside edits[]', () => {
+    const tc: WireCall = { id: 'a', name: 'MultiEdit', args: { file_path: '/x.ts', edits: [{ old_string: OVER, new_string: SCRIPT }, { old_string: 'short', new_string: 'short too' }] } };
+    const lean = stripArgsText(tc);
+    const edits = (lean.args as { edits: Array<{ old_string: string; new_string: string }> }).edits;
+    expect(edits[0].old_string.length).toBe(WIRE_STRING_PREVIEW_CHARS);
+    expect(edits[0].new_string.length).toBe(WIRE_STRING_PREVIEW_CHARS);
+    expect(edits[1]).toEqual({ old_string: 'short', new_string: 'short too' });
+    expect(lean.argsBytes).toBe(1 + SCRIPT.length - WIRE_STRING_PREVIEW_CHARS);
+    expect((lean.args as { file_path: string }).file_path).toBe('/x.ts');
+  });
+
+  test('non-strings, empty args and missing args are left alone by reference', () => {
+    const numbers: WireCall = { id: 'a', name: 'X', args: { n: 3, flag: true, list: [1, 2, 3], nothing: null } };
+    expect(stripArgsText(numbers)).toBe(numbers);
+    const empty: WireCall = { id: 'a', name: 'X', args: {} };
+    expect(stripArgsText(empty)).toBe(empty);
+    const missing: WireCall = { id: 'a', name: 'X' };
+    expect(stripArgsText(missing)).toBe(missing);
+  });
+
+  test('does not mutate the original', () => {
+    const args = { command: SCRIPT };
+    stripArgsText({ id: 'a', name: 'Bash', args });
+    expect(args.command).toBe(SCRIPT);
+  });
+});
+
+describe('stripDetailText: text fields blank, other long fields cut, one counter', () => {
+  test('a shell: output goes blank, the long command is cut, detailBytes sums both', () => {
+    const out = 'x'.repeat(4000);
+    const tc: WireCall = { id: 'a', name: 'Bash', detail: { type: 'shell', command: SCRIPT, cwd: '/repo', output: out } };
+    const lean = stripDetailText(tc);
+    const detail = lean.detail as { command: string; cwd: string; output: string; type: string };
+    expect(detail.output).toBe('');
+    expect(detail.command).toBe(SCRIPT.slice(0, WIRE_STRING_PREVIEW_CHARS));
+    expect(detail.cwd).toBe('/repo');
+    expect(detail.type).toBe('shell');
+    expect(lean.detailBytes).toBe(out.length + SCRIPT.length - WIRE_STRING_PREVIEW_CHARS);
+  });
+
+  test('an edit: oldString and newString are cut, filePath stays', () => {
+    const tc: WireCall = { id: 'a', name: 'Edit', detail: { type: 'edit', filePath: '/x.ts', oldString: OVER, newString: SCRIPT } };
+    const detail = stripDetailText(tc).detail as { filePath: string; oldString: string; newString: string };
+    expect(detail.filePath).toBe('/x.ts');
+    expect(detail.oldString.length).toBe(WIRE_STRING_PREVIEW_CHARS);
+    expect(detail.newString.length).toBe(WIRE_STRING_PREVIEW_CHARS);
+  });
+
+  test('an MCP call: the long values inside detail.args are cut, the short ones stay', () => {
+    const tc: WireCall = { id: 'a', name: 'mcp__x__y', detail: { type: 'mcp', server: 'x', tool: 'y', args: { body: SCRIPT, path: '/short' }, result: 'ret' } };
+    const lean = stripDetailText(tc);
+    const detail = lean.detail as { args: { body: string; path: string }; result: string };
+    expect(detail.args.body.length).toBe(WIRE_STRING_PREVIEW_CHARS);
+    expect(detail.args.path).toBe('/short');
+    expect(detail.result).toBe('');
+    expect(lean.detailBytes).toBe(SCRIPT.length - WIRE_STRING_PREVIEW_CHARS + 'ret'.length);
+  });
+
+  test('plan.text travels WHOLE whatever its length: the closed row summarises it', () => {
+    const tc: WireCall = { id: 'a', name: 'Write', detail: { type: 'plan', text: SCRIPT } };
+    expect(stripDetailText(tc)).toBe(tc);
+  });
+
+  test('nothing long and no text fields: same reference', () => {
+    const tc: WireCall = { id: 'a', name: 'Read', detail: { type: 'read', filePath: '/x', offset: 1, limit: 20 } };
+    expect(stripDetailText(tc)).toBe(tc);
+  });
+});
+
+describe('leanToolCallForHistory / leanMessagesForHistory', () => {
+  const heavy = (): WireCall => ({
+    id: 'a',
+    name: 'Bash',
+    args: { command: SCRIPT },
+    detail: { type: 'shell', command: SCRIPT, output: 'ok' },
+  });
+
+  test('both counters land on the same call, and both copies of the script are cut', () => {
+    const lean = leanToolCallForHistory(heavy());
+    expect(lean.argsBytes).toBe(SCRIPT.length - WIRE_STRING_PREVIEW_CHARS);
+    expect(lean.detailBytes).toBe(SCRIPT.length - WIRE_STRING_PREVIEW_CHARS + 'ok'.length);
+    expect(JSON.stringify(lean).length).toBeLessThan(3 * WIRE_STRING_PREVIEW_CHARS);
+  });
+
+  test('blocks: the nested toolCall is trimmed, the text block next to it is the same reference', () => {
+    const text = { kind: 'text', text: 'hello' };
+    const msgs = [{ id: 'm', blocks: [text, { kind: 'tool', toolCall: heavy() }] }];
+    const lean = leanMessagesForHistory(msgs);
+    expect(lean).not.toBe(msgs);
+    expect(lean[0].blocks[0]).toBe(text);
+    const tc = (lean[0].blocks[1] as { toolCall: WireCall }).toolCall;
+    expect(tc.argsBytes).toBeGreaterThan(0);
+    expect((tc.args as { command: string }).command.length).toBe(WIRE_STRING_PREVIEW_CHARS);
+  });
+
+  test('the legacy toolCalls bucket is trimmed too: a message from before blocks has its calls only there', () => {
+    const msgs = [{ id: 'm', toolCalls: [heavy()] }];
+    const lean = leanMessagesForHistory(msgs);
+    expect(lean[0].toolCalls![0].argsBytes).toBeGreaterThan(0);
+    expect((lean[0].toolCalls![0].args as { command: string }).command.length).toBe(WIRE_STRING_PREVIEW_CHARS);
+  });
+
+  test('a PARTIAL message is left whole: streaming is still writing into it', () => {
+    const msgs = [{ id: 'm', partial: true, blocks: [{ kind: 'tool', toolCall: heavy() }] }];
+    expect(leanMessagesForHistory(msgs)).toBe(msgs);
+  });
+
+  test('nothing to trim: same reference all the way down', () => {
+    const light: WireCall = { id: 'a', name: 'Read', args: { file_path: '/x' }, detail: { type: 'read', filePath: '/x' } };
+    const msgs = [{ id: 'm', blocks: [{ kind: 'tool', toolCall: light }] }];
+    expect(leanMessagesForHistory(msgs)).toBe(msgs);
+  });
+
+  test('does not mutate the original message', () => {
+    const tc = heavy();
+    const msgs = [{ id: 'm', blocks: [{ kind: 'tool', toolCall: tc }] }];
+    leanMessagesForHistory(msgs);
+    expect((tc.args as { command: string }).command).toBe(SCRIPT);
+    expect((tc.detail as { command: string; output: string }).command).toBe(SCRIPT);
+    expect((tc.detail as { command: string; output: string }).output).toBe('ok');
   });
 });
