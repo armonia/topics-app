@@ -431,6 +431,34 @@ SECOND tab in the same strip: the pane that asked SHALL keep the page it is show
 > Out of scope, and knowingly: a popup that needs `opener`/`postMessage` still sees
 > `window.open()` return null, so those flows do not link up.
 
+### Requirement: LINK-TAB-02 — Where the link-opened tab lands
+
+The system SHALL place a link-opened tab beside the browser strip the user is already
+looking at rather than tiling a new cell for every link, and SHALL insert it right after
+the tab it was opened from, the way a browser does. When no browser pane exists yet, the
+system SHALL split one out beside the pane the click came from, keeping the source pane
+visible.
+
+#### Scenario: The first link splits a browser out beside the chat
+- **GIVEN** a window whose focused group holds a chat and a terminal, and no browser pane
+- **WHEN** a link is opened
+- **THEN** the target is that same group, split, anchored right after the pane in focus
+
+#### Scenario: The second link joins the strip the first one made
+- **GIVEN** a window that already has a group holding a browser pane
+- **WHEN** another link is opened
+- **THEN** the tab joins THAT group without splitting, anchored on its browser pane
+
+#### Scenario: The click's origin wins over the focus
+- **GIVEN** a click coming from a terminal or from a browser pane that is not the focused one
+- **WHEN** the link is opened
+- **THEN** the tab lands beside the pane the click came from, not where focus happened to be
+
+#### Scenario: A vanished anchor appends instead of throwing
+- **GIVEN** an anchor pane id that no longer exists in the group
+- **WHEN** the tab is inserted
+- **THEN** it is appended at the end of the strip and no error reaches the user
+
 ### Requirement: CD-CLOSE-01 — A browser tab closed on one device disappears live on the other
 
 > Written from `tests/e2e/browser-cross-device-close.spec.ts`. It lives here

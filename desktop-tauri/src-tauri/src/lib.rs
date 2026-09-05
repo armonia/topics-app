@@ -4008,6 +4008,7 @@ static NEW_TAB_REQUESTS: std::sync::Mutex<Vec<NewTabMsg>> = std::sync::Mutex::ne
 const NEW_TAB_QUEUE_MAX: usize = 64;
 
 /// Drain the tabs `id`'s page asked to open. Empty is the normal answer.
+// ENGINES: wkwebview, webview2, webkitgtk - a plain mutex drain, and the queue behind it is filled by the builder's `on_new_window`, which wry implements on all three engines (WryWebViewUIDelegate, NewWindowRequested, the webkitgtk create signal).
 #[tauri::command]
 fn browser_take_new_tabs(id: String) -> Vec<NewTabMsg> {
     match NEW_TAB_REQUESTS.lock() {
