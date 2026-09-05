@@ -239,11 +239,17 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
   let copia = "";
   let temporanea = "";
 
+  // THE SAME CAP AS THE CASES, and for the same reason. This hook copies every
+  // tracked file, runs `git init` and re-adds the lot: it is the heaviest step
+  // of the file, and it was the only one left at the suite's 30 s default while
+  // the cases it feeds are allowed fifteen minutes. Under a loaded machine it
+  // died there and took the whole describe with it (measured 2026-09-05: hook
+  // timed out at 53 s inside `test:unit`, 5 s when the file runs alone).
   beforeAll(() => {
     temporanea = mkdtempSync(join(tmpdir(), "security-copy-"));
     copia = join(temporanea, "copia");
     copiaAlbero(ROOT, copia);
-  });
+  }, SECURITY_RUN_TIMEOUT_MS);
 
   afterAll(() => {
     if (temporanea) rmSync(temporanea, { recursive: true, force: true });
