@@ -85,17 +85,17 @@ const ERROR_STATUS: Record<string, number> = {
   agent_cannot_complete: 409,
   open_subtasks: 409,
   review_needs_summary: 409,
-  // Il task e stato tolto all'agente (park/requeue): 409 come gli altri rifiuti
-  // di proprieta, non 403 — non e un problema di permessi, e uno stato che nel
-  // frattempo e cambiato sotto.
+  // The task was taken away from the agent (park/requeue): 409 like the other
+  // ownership refusals, not 403. This is not a permissions problem, it is a
+  // state that changed underneath in the meantime.
   task_not_yours: 409,
-  // La card era chiusa da un umano: riaprirla e' scavalcare quella decisione.
-  // 409 come gli altri rifiuti di stato, non 403 — non e un permesso mancante,
-  // e una decisione che esiste gia sulla card.
+  // The card was closed by a human: reopening it would override that decision.
+  // 409 like the other state refusals, not 403. It is not a missing permission,
+  // it is a decision that already exists on the card.
   reopen_needs_human: 409,
-  // 403 e non 409: qui NON è uno stato cambiato sotto, è un permesso che non
-  // esiste e non esisterà al prossimo tentativo. Un agente non marca
-  // `invisibile` il proprio lavoro, punto.
+  // 403 and not 409: here it is NOT a state that changed underneath, it is a
+  // permission that does not exist and will not exist on the next attempt. An
+  // agent does not mark its own work `invisibile`, full stop.
   label_forbidden: 403,
 };
 
@@ -115,30 +115,30 @@ export function emitReviewReadyEdge(
   prevStatus: string | undefined,
   reason?: string,
   /**
-   * Il thread del task, PIGRO: chiamato solo quando il fronte scatta davvero.
-   * Serve a sapere se l'ultima parola dell'agente è una domanda, perché le sue
-   * opzioni diventano i tasti del banner. Pigro e non un parametro già
-   * risolto perché questa funzione la chiama ogni PATCH del task — leggere il
-   * thread a ogni salvataggio di priorità per un fronte che scatta una volta
-   * sola sarebbe una query per niente.
+   * The task's thread, LAZY: called only when the edge actually fires. It
+   * tells us whether the agent's last word is a question, because its options
+   * become the banner's buttons. Lazy rather than an already-resolved
+   * parameter because every PATCH of the task calls this function: reading the
+   * thread on every priority save, for an edge that fires exactly once, would
+   * be a query for nothing.
    */
   resolveComments?: () => readonly PendingQuestionComment[] | null | undefined,
 ): void {
   if (task && task.status === "review" && prevStatus !== "review") {
     let question: { text: string; options: string[] } | null = null;
-    // Best-effort: una lettura del thread che fallisce non deve mangiarsi il
-    // fronte (il banner senza tasti resta molto meglio di nessun banner).
+    // Best-effort: a thread read that fails must not swallow the edge (a banner
+    // without buttons is still far better than no banner at all).
     let isAsk = false;
     try {
       const comments = resolveComments?.();
       question = pendingQuestion(comments);
-      // `question` porta anche le opzioni di una CONSEGNA (l'envelope ordina
-      // di allegare `options=["Landa su main"]` a ogni consegna, e il server
-      // le avvolge nella stessa fence ```question): non basta a dire se
-      // l'ultima parola dell'agente sta chiedendo qualcosa. `isAsk` guarda lo
-      // stesso ultimo commento con `commentAsksHuman` (legge le OPZIONI, non
-      // la fence), cosi il banner puo' scegliere il titolo giusto senza
-      // perdere il tasto "Landa su main" che vive in `question.options`.
+      // `question` also carries the options of a DELIVERY (the envelope tells
+      // the agent to attach `options=["Landa su main"]` to every delivery, and
+      // the server wraps them in the same ```question fence): it is not enough
+      // to tell whether the agent's last word is asking something. `isAsk`
+      // looks at the same last comment with `commentAsksHuman` (it reads the
+      // OPTIONS, not the fence), so the banner can pick the right title without
+      // losing the "Landa su main" button that lives in `question.options`.
       const speech = (comments ?? []).filter(isThreadSpeech);
       const last = speech[speech.length - 1];
       isAsk = commentAsksHuman(last?.content);
@@ -149,25 +149,25 @@ export function emitReviewReadyEdge(
       taskId: task.id,
       taskTitle: task.text || "Task",
       ...(reason ? { reason } : {}),
-      // SEMPRE presente, `null` compreso — ed è il punto. Il client decide da
-      // qui se il banner porta "Approva" o le risposte alla domanda, e i due
-      // lati del filo si aggiornano separatamente (il guscio desktop si porta
-      // dietro il suo client, il server è il demone). Con il campo OMESSO
-      // quando non c'è domanda, un client nuovo su un server vecchio leggerebbe
-      // "nessuna domanda" e metterebbe un tasto "Approva" su un task che sta
-      // aspettando una risposta: un click, e il task è chiuso invece di
-      // risposto. `null` esplicito rende distinguibile «non c'è» da «questo
-      // server non lo sa dire».
+      // ALWAYS present, `null` included, and that is the point. The client
+      // decides from here whether the banner carries "Approva" or the answers
+      // to the question, and the two ends of the wire update separately (the
+      // desktop shell ships its own client, the server is the daemon). With the
+      // field OMITTED when there is no question, a new client on an old server
+      // would read "no question" and put an "Approva" button on a task that is
+      // waiting for an answer: one click, and the task is closed instead of
+      // answered. An explicit `null` keeps "there is none" distinguishable from
+      // "this server cannot say".
       question,
       isAsk,
     });
   }
 }
 
-// `pendingQuestion` vive in `shared/board.ts`: i lettori sono tre e stanno su
-// due lati del filo (questo emettitore, il ripiego del client su un server che
-// il campo non lo manda, e concettualmente la quick-reply della card).
-// Ri-esportato perché i test di questo modulo lo importano da qui, dov'era.
+// `pendingQuestion` lives in `shared/board.ts`: it has three readers on two
+// sides of the wire (this emitter, the client's fallback on a server that does
+// not send the field, and conceptually the card's quick-reply).
+// Re-exported because this module's tests import it from here, where it was.
 export { pendingQuestion, type PendingQuestionComment };
 
 /**
@@ -1360,27 +1360,28 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           });
         }
         svc.addComment({ taskId, author: "system", kind: "service", content: `Mergiato su main (commit ${res.commit}).` });
-        // È QUI che finisce la vita di review della card, non all'inizio del
-        // land: l'anteprima si smonta quando il merge è confermato. Smontarla
-        // prima di provare a fondere toglieva al reviewer la pagina viva anche
-        // quando il land poi falliva e la card gli tornava in mano (idempotente).
+        // THIS is where the card's review life ends, not at the start of the
+        // land: the preview is torn down once the merge is confirmed. Tearing it
+        // down before attempting the merge took the live page away from the
+        // reviewer even when the land then failed and the card came back to
+        // them (idempotent).
         try { await opts?.teardownPreview?.(taskId); } catch { /* best-effort */ }
-        // L'ALTRO verso dello stesso difetto. Il land promuoveva a `done` solo
-        // passando da `review` (`POST …/land` lo fa prima di chiamare qui): da
-        // ogni altro stato mergiava e lasciava la card dov'era. Misurato l'11/08
-        // su `4ec47331` — lavoro su main (`a5f83e0e`), card `in_progress` con il
-        // chip `working`, e un agente che ha speso un turno intero a rifarlo.
-        // Un merge riuscito è l'affermazione più forte che il lavoro è finito:
-        // lo stato la deve dire, da qualunque stato si arrivi. Idempotente sulle
-        // card già chiuse e ferme (il caso normale), quindi non aggiunge righe
-        // di storico al percorso che funzionava.
+        // The OTHER side of the same defect. The land promoted to `done` only
+        // when coming from `review` (`POST …/land` does that before calling
+        // here): from every other state it merged and left the card where it
+        // was. Measured on 11/08 on `4ec47331`: work on main (`a5f83e0e`), card
+        // `in_progress` with the `working` chip, and an agent that spent a whole
+        // turn redoing it. A successful merge is the strongest possible claim
+        // that the work is finished: the status must say so, whatever state we
+        // came from. Idempotent on cards already closed and still (the normal
+        // case), so it adds no history rows to the path that already worked.
         const closed = svc.settleLanded({ taskId, by: "system", reason: `landed: the code is on main (${res.commit})` });
-        // IL MERGE È AVVENUTO ANCHE QUANDO LA CARD NON SI CHIUDE. `settleLanded`
-        // rifiuta di chiudere un padre che ha ancora step aperti (chiuderlo li
-        // renderebbe irraggiungibili: il feed è `rootsOnly`), e senza questa riga
-        // chi ha cliccato «Landa su main» leggerebbe «Mergiato su main» sopra una
-        // card che resta in review, senza sapere perché. Si nominano i passi:
-        // sono quelli da chiudere o archiviare prima di approvarla.
+        // THE MERGE HAPPENED EVEN WHEN THE CARD DOES NOT CLOSE. `settleLanded`
+        // refuses to close a parent that still has open steps (closing it would
+        // make them unreachable: the feed is `rootsOnly`), and without this line
+        // whoever clicked "Landa su main" would read "Mergiato su main" above a
+        // card that stays in review, with no idea why. The steps are named: they
+        // are the ones to close or archive before approving the card.
         if (closed && closed.status !== "done") {
           const aperti = (svc.get(taskId, { projectId })?.children ?? [])
             .filter((c) => c.status !== "done")
@@ -1394,19 +1395,21 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             });
           }
         }
-        // Chi ASPETTAVA questa card lo scopre qui, non più all'approvazione:
-        // adesso è questa la porta da cui una card landata arriva in `done`.
+        // Whoever was WAITING on this card finds out here, no longer at
+        // approval: this is now the door through which a landed card reaches
+        // `done`.
         if (closed && closed.status === "done") dispatcher?.onBlockerDone(taskId);
-        // …e se un agente stava LAVORANDO su quella card, lo si ferma. Chiudere
-        // la card lo toglie dalla coda ma non taglia il turno già partito, ed è
-        // lì che vanno i soldi: misurato l'11/08 su due land di fila, $5,64
-        // (`4ec47331`) e $8,24 (`56677242`, fermata entro un minuto) spesi a
-        // rifare lavoro che era già su main. Non è un caso limite — è successo a
-        // due land su due, e il conto sale a ogni land.
+        // ...and if an agent was still WORKING on that card, it gets stopped.
+        // Closing the card removes it from the queue but does not cut the turn
+        // already under way, and that is where the money goes: measured on
+        // 11/08 on two consecutive lands, $5,64 (`4ec47331`) and $8,24
+        // (`56677242`, stopped within a minute) spent redoing work that was
+        // already on main. Not an edge case: it happened on two lands out of
+        // two, and the bill grows with every land.
         //
-        // DOPO `settleLanded`, mai prima: la fine del turno passa da `onTurnEnd`,
-        // che su una card ancora `in_progress` RIPRENDE l'agente. Tagliare prima
-        // di chiudere la card la farebbe ripartire.
+        // AFTER `settleLanded`, never before: the end of the turn goes through
+        // `onTurnEnd`, which RESUMES the agent on a card still `in_progress`.
+        // Cutting before closing the card would make it start again.
         if (closed && cutLiveTurn(closed, "il lavoro di questa card è atterrato su main: il turno non serve più")) {
           svc.addComment({
             taskId, author: "system",
@@ -1537,21 +1540,22 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           }
         }
       }
-      // ── L'esito si REGISTRA adesso, non si ricostruisce dopo ────────────
+      // ── The outcome is RECORDED now, not reconstructed later ─────────────
       //
-      // `landingState` lo scriveva solo una passata ogni 30 minuti che, dato il
-      // commit di consegna, prova a DEDURRE se il suo contenuto è su main. Due
-      // guai: il verdetto arrivava fino a mezz'ora tardi (rosso su lavoro appena
-      // atterrato), e la deduzione sbaglia — provate a mano su 108 card, la
-      // patch inversa dà 20 falsi allarmi, la riga distintiva 5, e il messaggio
-      // «NON su main» nel thread ce l'hanno anche le card atterrate bene perché
-      // è emesso alla CONSEGNA. L'unica prova che regge vale finché il ramo
-      // esiste, cioè ADESSO.
+      // `landingState` used to be written only by a pass every 30 minutes that,
+      // given the delivery commit, tries to INFER whether its content is on
+      // main. Two problems: the verdict arrived up to half an hour late (red on
+      // work that had just landed), and the inference is wrong. Tried by hand
+      // on 108 cards: the reverse patch gives 20 false alarms, the distinctive
+      // line 5, and the "NON su main" message in the thread is there on cards
+      // that landed fine too, because it is emitted at DELIVERY. The only proof
+      // that holds is valid as long as the branch exists, that is, NOW.
       //
-      // Quindi qui si scrive ciò che il land HA VISTO — `merged` = atterrato,
-      // fallito = non atterrato — e lo si marca testimoniato, così la passata
-      // periodica lo salta invece di sovrascriverlo con la sua deduzione. Solo
-      // dove il land non sa (nessun ramo da guardare, o «non c'era niente da
+      // So here we write what the land HAS SEEN (`merged` = landed, failed =
+      // not landed) and mark it witnessed, so the periodic pass skips it
+      // instead of overwriting it with its inference. Only where the land does
+      // not know (no branch to look at, or "there was nothing to bring over")
+      // do we ask the repo.
       // portare») si chiede al repo.
       const verdict: LandingState | "ask" =
         res.status === "merged" ? (proof === true ? "landed" : "unverifiable")
@@ -1561,15 +1565,16 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       try { await opts?.stampLanding?.(taskId, verdict); } catch { /* la spia non fa fallire un land */ }
       const updated = svc.get(taskId, { projectId })?.task;
       if (updated) broadcastToAll({ type: "task:updated", projectId, task: updated });
-      // Restituisce l'esito al ticket della coda: GET /land lo riporta subito,
-      // senza dover rileggere il task da un secondo GET.
-      // `verdict === "ask"` copre i casi in cui il land non sa (nessun ramo, o
-      // il ramo era gia' su main): li mappa su "skipped" per il chiamante MCP.
+      // Hands the outcome back to the queue ticket: GET /land reports it right
+      // away, without having to re-read the task through a second GET.
+      // `verdict === "ask"` covers the cases where the land does not know (no
+      // branch, or the branch was already on main): they map to "skipped" for
+      // the MCP caller.
       const ticketOutcome: LandOutcomeResult['outcome'] =
         verdict === "ask" ? "skipped" : verdict;
-      // La ragione e' utile solo quando il merge e' stato rifiutato: e' quella
-      // che l'MCP riporta direttamente invece di lasciare che chi chiama apra
-      // il thread della card.
+      // The reason is only useful when the merge was refused: it is what the
+      // MCP reports directly instead of leaving the caller to open the card's
+      // thread.
       const ticketReason: string | null =
         verdict === "unlanded"
           ? (res.status === "conflict"
@@ -1580,19 +1585,20 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           : null;
       return { outcome: ticketOutcome, reason: ticketReason };
     } catch (e) {
-      // ── Il percorso che produceva «zero commenti, zero ragione» ─────────────
+      // ── The path that produced "zero comments, zero reason" ────────────────
       //
-      // Questo `catch` copriva git, i commenti, la potatura del worktree e il
-      // rebuild — e li copriva con un `console.error`. Il risultato per chi
-      // guarda la board è una card in Done col codice sul suo ramo e un thread
-      // che non dice niente: lo stesso stato che il land fallito «rumoroso»
-      // (`skipped`) ha imparato a evitare, raggiunto dalla porta di servizio.
+      // This `catch` covered git, the comments, the worktree pruning and the
+      // rebuild, and it covered them with a `console.error`. What whoever looks
+      // at the board got was a card in Done with the code on its branch and a
+      // thread that says nothing: the very state the "noisy" failed land
+      // (`skipped`) learned to avoid, reached through the back door.
       //
-      // Adesso un'eccezione dice tre cose, nell'ordine in cui servono: la riga
-      // nel thread, il verdetto `unlanded` sulla card, e il ritiro da Done —
-      // perché una card chiusa su lavoro non atterrato è quella che il GC dei
-      // worktree può potare. Poi RILANCIA: il ticket in coda è l'unico posto
-      // dove chi ha premuto «Landa» può ancora leggere com'è andata.
+      // Now an exception says three things, in the order they are needed: the
+      // line in the thread, the `unlanded` verdict on the card, and the
+      // withdrawal from Done, because a card closed on work that has not landed
+      // is the one the worktree GC may prune. Then it RETHROWS: the queue
+      // ticket is the only place where whoever pressed "Landa" can still read
+      // how it went.
       const msg = e instanceof Error ? e.message : String(e);
       console.error("[land] failed for", taskId, e);
       try {

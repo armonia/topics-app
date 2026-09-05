@@ -750,6 +750,56 @@ describe("PATCH /api/topics/:id — global coordinator invariants", () => {
       expect(h.broadcasts).toEqual([]);
     } finally { h.cleanup(); }
   });
+
+  test("attached context files are refused here too, not only on the upload route", async () => {
+    // `/api/context-upload` and `/api/context-file` already answer 403 for the
+    // coordinator, and this PATCH wrote the same list straight onto the row:
+    // one guard was doing the work of two, and the second entrance was open.
+    const h = makeHarness();
+    try {
+      h.topics.set("coordinator", makeTopic({ id: "coordinator", provider: "codex" }));
+      h.registerGlobalOrchestratorTopic("coordinator", true);
+
+      const response = (await h.call("PATCH", "/api/topics/coordinator", {
+        contextFiles: ["/tmp/anything.md"],
+      }))!;
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({ code: "orchestrator_topic_invariant" });
+      expect(h.topics.get("coordinator")?.contextFiles).toBeUndefined();
+      expect(h.broadcasts).toEqual([]);
+    } finally { h.cleanup(); }
+  });
+});
+
+describe("POST /api/topics/adopt — the coordinator is not an adoptable session", () => {
+  test("refuses the registered session key instead of turning it into a cloud chat", async () => {
+    // Adopting means "make this an ordinary interactive chat", and the branch
+    // that returns an existing Topic also binds it to a project on the way out.
+    const h = makeHarness();
+    try {
+      const topic = makeTopic({ id: "coordinator", provider: "codex" });
+      h.topics.set(topic.id, topic);
+      h.registerGlobalOrchestratorTopic(topic.id, true);
+
+      const response = (await h.call("POST", "/api/topics/adopt", { sessionKey: topic.sessionKey }))!;
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({ code: "orchestrator_topic_invariant" });
+      expect(h.broadcasts).toEqual([]);
+    } finally { h.cleanup(); }
+  });
+
+  test("an ordinary adopted session leaves without a forged role marker", async () => {
+    const h = makeHarness();
+    try {
+      const response = (await h.call("POST", "/api/topics/adopt", {
+        sessionKey: "topic:ordinary-cloud",
+        isGlobalOrchestrator: true,
+      }))!;
+      expect(response.status).toBe(201);
+      const body = await response.json() as Record<string, unknown>;
+      expect(body.isGlobalOrchestrator).toBeUndefined();
+    } finally { h.cleanup(); }
+  });
 });
 
 describe("global coordinator direct-route invariants", () => {

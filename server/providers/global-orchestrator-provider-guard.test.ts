@@ -8,12 +8,12 @@
  * @covers GLOBAL-ORCHESTRATOR-PROVIDER-01
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "fs";
+import { mkdtempSync, readdirSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { closeDatabase, getDatabase, initDatabase } from "../db";
 import { ClaudeCodeProvider } from "./claude-code";
-import { CodexProvider } from "./codex";
+import { CodexProvider, globalOrchestratorWorkspace } from "./codex";
 import type { StreamHandler } from "./types";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
@@ -96,6 +96,23 @@ describe("provider-level global coordinator integrity guard", () => {
     expect(errors).toEqual(["Global coordinator is Codex-only; reopen it from the Kanban."]);
     expect(invoked).toBe(false);
     expect((provider as unknown as { processes: Map<string, unknown> }).processes.size).toBe(0);
+  });
+
+  test("the coordinator's cwd is an empty directory of its own, not the shared temp root", async () => {
+    // `--sandbox read-only` stops WRITES, not reads: whatever the cwd holds is
+    // readable. The temp root, which this used to be, holds the other sessions'
+    // scratch files on a machine running the fleet.
+    const previous = process.env.APP_DATA_DIR;
+    process.env.APP_DATA_DIR = tempRoot;
+    try {
+      const workspace = globalOrchestratorWorkspace();
+      expect(workspace.startsWith(tempRoot)).toBe(true);
+      expect(workspace).not.toBe(tmpdir());
+      expect(readdirSync(workspace)).toEqual([]);
+    } finally {
+      if (previous === undefined) delete process.env.APP_DATA_DIR;
+      else process.env.APP_DATA_DIR = previous;
+    }
   });
 
   test("Claude Code also refuses a healthy raw coordinator: registry role is Codex-only", async () => {

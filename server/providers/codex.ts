@@ -15,7 +15,7 @@
 
 import { spawn, type ChildProcess } from "child_process";
 import { createInterface } from "readline";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync } from "fs";
 import { join } from "path";
 import type {
   AIProvider,
@@ -186,6 +186,23 @@ export function extractCodexErrorMessage(event: Record<string, unknown>): string
 // provider and the interactive PTY route (routes/terminal.ts) agree on where
 // codex is — including the Codex.app bundle, which isn't on PATH.
 const resolveCodexBinary = resolveCodexBin;
+
+/**
+ * An empty directory of its own for the global Kanban coordinator's Codex
+ * process, under the app data dir so it follows `APP_DATA_DIR` in tests and in
+ * a container instead of landing in a shared temp root.
+ *
+ * Best effort: if it cannot be created the caller still gets a usable path, and
+ * a cwd that does not exist is Codex's problem to report, not a reason to fail
+ * a turn here.
+ */
+export function globalOrchestratorWorkspace(): string {
+  const dataDir =
+    process.env.APP_DATA_DIR || process.env.OPENCLAW_DIR || join(process.env.HOME ?? ".", ".openclaw");
+  const dir = join(dataDir, "orchestrator-cwd");
+  try { mkdirSync(dir, { recursive: true }); } catch { /* reported by Codex if it matters */ }
+  return dir;
+}
 
 function hasActiveSession(): boolean {
   // Heuristic: Codex stores real credentials under $CODEX_HOME (or ~/.codex).
@@ -382,10 +399,19 @@ export class CodexProvider implements AIProvider {
     }
 
     // The coordinator never inherits a project/home workspace. Its durable
-    // board operations travel through the registry-gated bridge, while the
-    // Codex subprocess is deliberately read-only in a neutral temp cwd.
+    // board operations travel through the registry-gated bridge, and the Codex
+    // subprocess runs `--sandbox read-only` in a directory of its own.
+    //
+    // ITS OWN, and not the temp root, which is what this used to be. Read-only
+    // stops WRITES, it does not stop reads: whatever the cwd contains is
+    // readable, and on a machine running the fleet the temp root holds other
+    // sessions' scratch files, test databases and agent workspaces. An empty
+    // directory changes what is one `ls .` away, which is the part a cwd
+    // actually decides. It does not confine reads, and nothing here pretends
+    // to: the confinement of the coordinator is its five-tool profile, not
+    // its sandbox flag.
     const workspace = globalOrchestrator
-      ? (process.env.TMPDIR || "/tmp")
+      ? globalOrchestratorWorkspace()
       : (this.config.defaultWorkspace || process.env.HOME || "/tmp");
 
     // Force the reasoning-effort tier explicitly — the codex mirror of the

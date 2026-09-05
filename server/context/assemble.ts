@@ -279,14 +279,15 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
       // emit them for providers that can actually reach those tools (openclaw
       // cannot — see providerHasControlTools). For openclaw, log the degradation
       // to user-driven control once (never a silent no-op) and skip the blocks.
-      // The global coordinator has a deliberately five-tool profile. Do not
-      // inject generic browser/project/topic-control instructions for tools it
-      // cannot call; that would be a misleading capability claim.
-      if (canUseOrdinaryTopicContext && providerHasControlTools(providerName)) {
+      // The coordinator never reaches this arm: it needs
+      // `canUseOrdinaryTopicContext`, and a registered session is on the other
+      // side of that flag. Which is the right answer for it too, since its
+      // five-tool profile cannot call any of these.
+      if (providerHasControlTools(providerName)) {
         pushBrowserInstructionBlock(systemBlocks);
         pushProjectMarkersBlock(systemBlocks);
         pushTopicSwitchDirectoryBlock(systemBlocks, topic, ctx);
-      } else if (canUseOrdinaryTopicContext && !controlToolWarningLogged.has(providerName)) {
+      } else if (!controlToolWarningLogged.has(providerName)) {
         controlToolWarningLogged.add(providerName);
         console.warn(
           `[assemble] provider "${providerName}" has no AI-initiated control-tool channel ` +
@@ -300,12 +301,14 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
       // `--append-system-prompt` in cui infilare la direttiva. Questa è l'unica
       // via che li raggiunge, ed è anche l'unica verificabile a occhio
       // nell'ispettore del contesto invece che per fede.
-      if (canUseOrdinaryTopicContext || isGlobalOrchestrator) {
-        pushLanguageBlock(systemBlocks);
-        pushMemoryBlocks(systemBlocks, topic, ctx, isEnabled);
-        pushPinnedMessagesBlock(systemBlocks, topic, ctx, isEnabled, historyOverride);
-        if (planMode) pushPlanModeBlock(systemBlocks);
-      }
+      // Unconditional, and it used to read `canUseOrdinaryTopicContext ||
+      // isGlobalOrchestrator`: inside an arm that already required the first
+      // flag, the second could never be the reason a block got emitted. It read
+      // like a carve-out for the coordinator and was one only on paper.
+      pushLanguageBlock(systemBlocks);
+      pushMemoryBlocks(systemBlocks, topic, ctx, isEnabled);
+      pushPinnedMessagesBlock(systemBlocks, topic, ctx, isEnabled, historyOverride);
+      if (planMode) pushPlanModeBlock(systemBlocks);
     }
   }
 

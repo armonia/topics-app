@@ -1275,10 +1275,24 @@ export function createTopicsRouter(
           return json({ error: "invalid sessionKey" }, 400);
         }
 
+        // Adopting means "make this an ordinary interactive chat", which is the
+        // one thing the coordinator's Topic must never become: the branch below
+        // would bind it to a project on the way out. The canonical Kanban
+        // endpoint stays the only door to that row.
+        if (isGlobalOrchestratorSession(db, sessionKey)) {
+          return json({
+            error: "the global coordinator is not an adoptable cloud session; open it from the Kanban",
+            code: "orchestrator_topic_invariant",
+          }, 403);
+        }
+
         const existing = getTopicBySessionKey(sessionKey);
         if (existing) {
           if (existing.projectPath) bindTopicToProject(existing.id, existing.projectPath, { focus: true });
-          return json(existing, 200);
+          // The role marker is server-projected on every Topic that leaves the
+          // server, this route included: an ordinary payload must not carry a
+          // stale or forged `isGlobalOrchestrator` either.
+          return json(presentGlobalOrchestratorTopic(db, existing), 200);
         }
 
         const id = crypto.randomUUID();
@@ -1315,14 +1329,14 @@ export function createTopicsRouter(
 
         if (!out.created) {
           if (out.topic.projectPath) bindTopicToProject(out.topic.id, out.topic.projectPath, { focus: true });
-          return json(out.topic, 200);
+          return json(presentGlobalOrchestratorTopic(db, out.topic), 200);
         }
 
         broadcastToAll({ type: "topic:created", topic: out.topic });
         // Scope to its project (open + nest) when one was resolved; otherwise the
         // caller opens it as a standalone cloud chat.
         if (projectDir) bindTopicToProject(out.topic.id, projectDir, { focus: true });
-        return json(out.topic, 201);
+        return json(presentGlobalOrchestratorTopic(db, out.topic), 201);
       } catch (err: any) {
         console.warn("[adopt] failed:", err);
         return json({ error: `adopt failed: ${err?.message || String(err)}` }, 500);
@@ -1481,11 +1495,18 @@ export function createTopicsRouter(
           || body.projectPath !== undefined
           || body.worktreeId !== undefined
           || body.parentId !== undefined
+          // The same door the context-file routes already close. `/api/media`
+          // refuses the coordinator generic context storage with a 403, and
+          // this PATCH wrote the list straight onto the row a few lines below:
+          // one guard was doing the work of two, and the second entrance was
+          // open. An attachment is exactly the ordinary-topic capability the
+          // coordinator does not get.
+          || body.contextFiles !== undefined
           || (body.provider !== undefined && body.provider !== "codex")
           || (Array.isArray(body.disabledContextSources) && body.disabledContextSources.includes("prompt:system"))
         )) {
           return json({
-            error: "the global coordinator keeps a server-owned enabled prompt, stays Codex-only, and must remain an unbound top-level Topic",
+            error: "the global coordinator keeps a server-owned enabled prompt, takes no attached context files, stays Codex-only, and must remain an unbound top-level Topic",
             code: "orchestrator_topic_invariant",
           }, 403);
         }
