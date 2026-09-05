@@ -11,23 +11,27 @@
  * Silent by construction: a topic that wrote nothing renders nothing, so the
  * chip is a signal and not decoration.
  *
- * WHERE IT HANGS. Above the tab bar, mounted by `Layout/TopicStatusStrip`, not
- * inside the transcript: what the topic touched is state of the topic, and
- * state lives in the chrome. Full width and not on the chat measure, because
- * up there it is a bar of the surface, not a block of the conversation.
+ * WHERE IT HANGS. Above the composer, in the bottom block of `ChatPane`, on the
+ * same column and the same geometry as the other strips that sit there
+ * (`chatStripStyles`): what the topic touched is read where the next message
+ * is written, not in the chrome above the tabs and not inside the transcript.
+ *
+ * THE BRANCH. Named only for a topic bound to an isolated worktree, where it is
+ * the topic's own branch and nothing else on screen says it; in the project's
+ * own checkout the sidebar already shows it (`lib/changesStripBranch`).
  */
 import { useCallback, useState } from 'react';
-import { FileDiff, Terminal } from 'lucide-react';
+import { ChevronRight, FileDiff, GitBranch } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { splitPath, useTopicChanges } from '../../hooks/useTopicChanges';
-import { buildTerminalSessionBody } from '../../lib/terminalAgents';
-import type { WSMessage } from '../../types';
+import { branchLabelFor } from '../../lib/changesStripBranch';
+import { CHAT_STRIP_NEUTRAL, CHAT_STRIP_ROW } from '../../lib/chatStripStyles';
+import type { Topic, WSMessage } from '../../types';
 import type { TopicChangedFile } from '../../../../shared/topic-changes';
 
 interface ChangedFilesStripProps {
-  topicId: string;
-  /** The folder the topic works in, needed to open a diff in the editor pane. */
-  projectPath?: string;
+  /** Id for the endpoint, folder to open a diff in, worktree binding for the branch. */
+  topic: Pick<Topic, 'id' | 'projectPath' | 'worktreeId'>;
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
 }
 
@@ -38,13 +42,14 @@ const KIND_MARK: Record<TopicChangedFile['kind'], { letter: string; tone: string
   deleted: { letter: 'D', tone: 'text-red-500' },
 };
 
-export function ChangedFilesStrip({ topicId, projectPath, onWSMessage }: ChangedFilesStripProps) {
+export function ChangedFilesStrip({ topic, onWSMessage }: ChangedFilesStripProps) {
   const tr = useT();
-  const changes = useTopicChanges(topicId, onWSMessage);
+  const changes = useTopicChanges(topic.id, onWSMessage);
   const [open, setOpen] = useState(false);
 
   const files = changes?.files ?? [];
-  const root = changes?.git?.root ?? projectPath ?? '';
+  const root = changes?.git?.root ?? topic.projectPath ?? '';
+  const branch = branchLabelFor(topic, changes?.git ?? null);
 
   const openDiff = useCallback((file: TopicChangedFile) => {
     if (!root) return;
@@ -56,61 +61,39 @@ export function ChangedFilesStrip({ topicId, projectPath, onWSMessage }: Changed
       : { detail: { path: file.path } }));
   }, [changes, root]);
 
-  const openTerminal = useCallback(async () => {
-    if (!root) return;
-    try {
-      const res = await fetch('/api/terminal/sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildTerminalSessionBody('shell', { cwd: root })),
-      });
-      if (!res.ok) return;
-      const data = (await res.json()) as { id: string; name?: string };
-      window.dispatchEvent(new CustomEvent('topics:open-terminal-pane', {
-        detail: { sessionId: data.id, name: data.name || '' },
-      }));
-    } catch {
-      // Nothing to say: the terminal either opens or it does not.
-    }
-  }, [root]);
-
   if (!files.length) return null;
 
   return (
-    <div data-testid="chat-changes-strip" className="flex-shrink-0 border-b border-app-border">
-      <div className="flex items-center gap-2 px-3 py-1.5">
-        <button
-          type="button"
-          data-testid="chat-changes-chip"
-          aria-expanded={open}
-          onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
-          title={tr('chat.changes.chipTitle')}
-          className="flex items-center gap-1.5 rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-app-text-heading hover:bg-white/10"
-        >
-          <FileDiff size={12} className="flex-shrink-0 text-app-text-secondary" />
+    <div data-testid="chat-changes-strip" className={CHAT_STRIP_NEUTRAL}>
+      <button
+        type="button"
+        data-testid="chat-changes-chip"
+        aria-expanded={open}
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        title={tr('chat.changes.chipTitle')}
+        className={CHAT_STRIP_ROW}
+      >
+        <ChevronRight
+          size={13}
+          className={`flex-shrink-0 text-app-text-muted transition-transform ${open ? 'rotate-90' : ''}`}
+        />
+        <FileDiff size={13} className="flex-shrink-0 text-app-text-secondary" />
+        <span className="flex-shrink-0 text-[11px] font-medium tabular-nums text-app-text-secondary">
           {tr('chat.changes.chip', { n: String(files.length) })}
-        </button>
-        {changes?.git && (
-          <span className="min-w-0 truncate text-[11px] text-app-text-muted" title={changes.git.root}>
-            {changes.git.branch}
+        </span>
+        {branch && (
+          <span
+            data-testid="chat-changes-branch"
+            className="flex min-w-0 items-center gap-1 text-[11px] text-app-text-muted"
+            title={changes?.git?.root}
+          >
+            <GitBranch size={12} className="flex-shrink-0" />
+            <span className="truncate">{branch}</span>
           </span>
         )}
-        <span className="flex-1" />
-        {root && (
-          <button
-            type="button"
-            data-testid="chat-changes-terminal"
-            onClick={(e) => { e.stopPropagation(); void openTerminal(); }}
-            title={tr('chat.changes.openTerminalTitle')}
-            className="flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-app-text-muted hover:bg-white/10 hover:text-app-text"
-          >
-            <Terminal size={12} />
-            {tr('chat.changes.openTerminal')}
-          </button>
-        )}
-      </div>
+      </button>
       {open && (
-        <ul data-testid="chat-changes-list" className="max-h-48 overflow-y-auto px-3 pb-1.5">
+        <ul data-testid="chat-changes-list" className="max-h-48 overflow-y-auto border-t border-app-border/50 px-2.5 py-1.5">
           {files.map((file) => {
             const { dir, name } = splitPath(file.path);
             const mark = KIND_MARK[file.kind];
