@@ -17,7 +17,7 @@
  *
  * @covers TAB-SYNC-02
  */
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, afterAll } from "bun:test";
 
 // syncCrossTab (pulled in transitively) reads window/localStorage lazily — give
 // it a harmless shim so module load doesn't blow up. See syncServer.test.ts.
@@ -38,7 +38,17 @@ function installFakeWindow(): void {
   (globalThis as unknown as { localStorage: unknown }).localStorage = storageApi;
 }
 
+// The fake window/localStorage is partial: left behind at the end of the file it
+// flips the `typeof window === 'undefined'` guards of later files in the same
+// sharded process (e.g. useMobile -> getComputedStyle). Restore bun's baseline
+// (no DOM globals).
+function uninstallFakeWindow(): void {
+  delete (globalThis as unknown as { window?: unknown }).window;
+  delete (globalThis as unknown as { localStorage?: unknown }).localStorage;
+}
+
 installFakeWindow();
+afterAll(uninstallFakeWindow);
 
 const { initWSSync, __getLastAppliedServerSeq } = await import("./syncWS");
 const { rememberLocalAck, __resetSelfEchoForTests } = await import("./selfEcho");

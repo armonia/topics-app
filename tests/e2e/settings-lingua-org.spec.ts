@@ -1,21 +1,22 @@
 /**
- * THE SETTINGS SPEAK ITALIAN, AND THE ORGANISATIONS CAN BE FOUND.
+ * LE IMPOSTAZIONI PARLANO ITALIANO, E LE ORGANIZZAZIONI SI TROVANO.
  *
- * Reported by whoever uses the app: «tutta la parte di settings ancora non le vedo ben divise. Non vedo le organizzazioni. In profile vedo accorpata la possibilita' anche di aggiungere piu' persone, ma non ha senso perche' io sono io e la mia mail». allow-italian: the exact words of the report are the subject
+ * Segnalato: «tutta la parte di settings ancora non le vedo ben divise. Non
+ * vedo le organizzazioni. In profile vedo accorpata la possibilità anche di
+ * aggiungere più persone, ma non ha senso perché io sono io e la mia mail».
  *
- * Two distinct facts that look like one:
+ * Due fatti distinti, che sembrano lo stesso:
  *
- *  1. THE LANGUAGE. The left menu said "Appearance", "Notifications",
- *     "Profile", "Devices", "Plan" - five English words inside an app in
- *     Italian. Not a nicety: when an entry is named with a word that is not
- *     the one in your head, scanning the list fails and the conclusion is "it
- *     is not there". The repo already has a dictionary (`i18n.ts`) and the
- *     settings were the one surface not using it.
- *  2. THE ORGANISATIONS ARE THERE. `IdentitySection` owns them entirely and
- *     lives inside "Profilo". The test finds them, so the day somebody moves
- *     them back to the bottom of a tab about something else, it goes red.
- *
- * @covers SETORG-01
+ *  1. LA LINGUA. Il menu di sinistra diceva «Appearance», «Notifications»,
+ *     «Profile», «Devices», «Plan» — cinque parole inglesi in un'app in
+ *     italiano. Non è un vezzo: quando una voce si chiama con una parola che
+ *     non è quella che hai in testa, la scansione della lista fallisce e la
+ *     conclusione è «non c'è». Il repo ha già un dizionario (`i18n.ts`) e i
+ *     settings erano l'unica superficie che non lo usava.
+ *  2. LE ORGANIZZAZIONI CI SONO. `IdentitySection` le gestisce per intero e sta
+ *     dentro «Profilo». Il test le trova, così se un domani qualcuno le sposta
+ *     di nuovo in fondo a una scheda che parla d'altro, diventa rosso.
+  * @covers SETORG-01
  */
 import { test, expect } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
@@ -124,10 +125,10 @@ test.describe("Impostazioni · lingua e organizzazioni", () => {
     await expect(profilo, "deve esistere anche una voce «Profilo»").toBeVisible({ timeout: 5000 });
   });
 
-  // SET-NOTIF-DISABLED: col master delle notifiche SPENTO, i figli devono
-  // essere DAVVERO disattivati — fuori dall'ordine di tab, Spazio inerte, stato
-  // esposto ad AT — non solo attenuati con un velo `opacity/pointer-events` che
-  // lasciava il bottone commutabile da tastiera.
+  // SET-NOTIF-DISABLED: with the notifications master OFF, the children must be
+  // REALLY disabled (out of the tab order, Space inert, state exposed to AT),
+  // not just dimmed behind an `opacity/pointer-events` veil that left the button
+  // switchable from the keyboard.
   test("SET-NOTIF-DISABLED: con le notifiche spente «Play sound» è disattivato", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "SETORG-01" });
     await page.goto("/");
@@ -143,13 +144,13 @@ test.describe("Impostazioni · lingua e organizzazioni", () => {
     const playSound = pannello.getByRole("switch", { name: "Play sound" });
     await expect(master).toBeVisible({ timeout: 5000 });
 
-    // Spegni il master se acceso (il default del DB può essere on).
+    // Switch the master off if it is on (the DB default may be on).
     if ((await master.getAttribute("aria-checked")) === "true") {
       await master.click();
     }
     await expect(master).toHaveAttribute("aria-checked", "false");
 
-    // Il figlio è disabilitato: il `disabled` arriva fino al <button role=switch>.
+    // The child is disabled: `disabled` reaches all the way to the <button role=switch>.
     await expect(playSound).toBeDisabled();
   });
 });

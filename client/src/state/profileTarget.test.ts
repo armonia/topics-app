@@ -13,7 +13,7 @@
  *
  * @covers PROFILE-06
  */
-import { describe, test, expect, beforeEach } from 'bun:test';
+import { describe, test, expect, beforeEach, afterAll } from 'bun:test';
 import { apriProfilo, openPersonProfile, dimenticaPaginaProfilo, paginaProfiloChiesta, requestedProfile } from './profileTarget';
 
 // `apriProfilo` fires two DOM events: in bun there is no window, so the two
@@ -23,6 +23,12 @@ const finestra = { dispatchEvent: () => true } as unknown as Window & typeof glo
 (globalThis as { CustomEvent?: unknown }).CustomEvent ??= class {
   constructor(readonly type: string, readonly init?: unknown) {}
 };
+
+// The fake window (dispatchEvent only) would flip `typeof window === 'undefined'`
+// for the later files in the sharded process. Remove it when the file ends.
+afterAll(() => {
+  delete (globalThis as { window?: unknown }).window;
+});
 
 describe('paginaProfiloChiesta', () => {
   beforeEach(() => { dimenticaPaginaProfilo(); });

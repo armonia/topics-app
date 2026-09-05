@@ -39,7 +39,7 @@
  *
  * @covers TAB-SYNC-01, LAYOUT-02
  */
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, afterAll } from "bun:test";
 
 type StorageArea = Record<string, string>;
 function installFakeWindow(): void {
@@ -59,7 +59,18 @@ function installFakeWindow(): void {
   (globalThis as unknown as { document: unknown }).document = { visibilityState: "visible" };
 }
 
+// The fake window/localStorage/document is partial: left behind at the end of
+// the file it flips the `typeof window === 'undefined'` guards of later files in
+// the same sharded process (e.g. useMobile -> getComputedStyle). Restore bun's
+// baseline (no DOM globals).
+function uninstallFakeWindow(): void {
+  delete (globalThis as unknown as { window?: unknown }).window;
+  delete (globalThis as unknown as { localStorage?: unknown }).localStorage;
+  delete (globalThis as unknown as { document?: unknown }).document;
+}
+
 installFakeWindow();
+afterAll(uninstallFakeWindow);
 
 const mod = await import("./projectLayoutSync");
 const { saveProjectLayout, projectPanesLocalKey, __resetProjectSyncForTests } =

@@ -16,7 +16,18 @@
 
 import { useState } from 'react';
 import { useT } from '../../hooks/useT';
-import { Check, ChevronRight, Pencil, Square, Target, UserCheck, X } from 'lucide-react';
+import {
+  Check,
+  ChevronRight,
+  Circle,
+  CircleCheck,
+  CircleDot,
+  Pencil,
+  Square,
+  Target,
+  UserCheck,
+  X,
+} from 'lucide-react';
 import type { TopicGoal } from '../../types';
 import type { TodoSnapshot } from './selectLatestTodo';
 import { CHAT_STRIP_NEUTRAL } from '../../lib/chatStripStyles';
@@ -244,7 +255,13 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote
           {rows.map((r, i) => (
             <li key={i} className="flex items-start gap-2 text-[12px]">
               <span className="mt-0.5 flex-shrink-0">
-                {r.status === 'completed' ? '✓' : r.status === 'in_progress' ? '◐' : '○'}
+                {r.status === 'completed' ? (
+                  <CircleCheck size={13} aria-hidden="true" />
+                ) : r.status === 'in_progress' ? (
+                  <CircleDot size={13} aria-hidden="true" />
+                ) : (
+                  <Circle size={13} aria-hidden="true" />
+                )}
               </span>
               <span
                 className={

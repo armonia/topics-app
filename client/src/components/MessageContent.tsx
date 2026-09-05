@@ -5,7 +5,7 @@ import { copyText } from '../lib/clipboard';
 import { type Components } from 'react-markdown';
 import { ChatMarkdown } from './ChatMarkdown';
 import { highlightCode, subscribeHighlighter, highlighterReady } from '../lib/syntaxHighlight';
-import { Copy, Check, CheckCheck, Download, Layers, ChevronRight } from 'lucide-react';
+import { Copy, Check, CheckCheck, Download, Layers, ChevronRight, ImageOff, MicOff, Music, TriangleAlert, Bell } from 'lucide-react';
 import { splitCompactionSummary } from '../lib/compactionSummary';
 import { CompactionHoistContext } from './Chat/compactionHoist';
 import { getFileIconDef } from '../lib/fileIcons';
@@ -126,7 +126,7 @@ function MediaImage({ path }: { path: string }) {
   if (error) {
     return (
       <div data-testid="media-image-error" className="inline-flex items-center gap-2 bg-app-hover dark:bg-elevated rounded-lg p-2 text-sm text-app-text-muted">
-        🖼️ Image failed to load: {getFileName(path)}
+        <ImageOff aria-hidden className="w-4 h-4 inline-block align-[-3px] mr-1" />Image failed to load: {getFileName(path)}
       </div>
     );
   }
@@ -186,7 +186,7 @@ function VoiceMessagePlayer({ path, isUserMessage }: { path: string; isUserMessa
   if (error) {
     return (
       <div data-testid="voice-player-error" className="inline-flex items-center gap-2 bg-app-hover dark:bg-elevated rounded-lg p-2 text-sm text-app-text-muted">
-        🎙️ Voice message failed to load
+        <MicOff aria-hidden className="w-4 h-4 inline-block align-[-3px] mr-1" />Voice message failed to load
       </div>
     );
   }
@@ -304,7 +304,7 @@ function MediaAudio({ path, isVoice, isUserMessage }: { path: string; isVoice?: 
   const src = getMediaUrl(path);
   return (
     <div data-testid="media-audio" className="my-2 bg-elevated dark:bg-elevated rounded-lg p-3 border border-app-border-light">
-      <div className="flex items-center gap-2 mb-2 text-sm text-app-text-secondary">🎵 {getFileName(path)}</div>
+      <div className="flex items-center gap-2 mb-2 text-sm text-app-text-secondary"><Music aria-hidden className="w-4 h-4 shrink-0" />{getFileName(path)}</div>
       <audio controls className="w-full" preload="metadata">
         <source src={src} />
         Your browser does not support audio playback.
@@ -984,7 +984,7 @@ function TurnErrorBanner({ text }: { text: string }) {
       data-testid="turn-error"
       className="mb-1.5 flex items-start gap-1.5 rounded-lg border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 px-2.5 py-1.5 text-[12px] leading-snug text-amber-900 dark:text-amber-200"
     >
-      <span aria-hidden className="flex-shrink-0 leading-snug">⚠️</span>
+      <span aria-hidden className="flex-shrink-0 leading-snug"><TriangleAlert className="w-4 h-4" /></span>
       <span className="min-w-0 break-words">{text}</span>
     </div>
   );
@@ -1010,7 +1010,7 @@ function WokenBanner({ label }: { label?: string }) {
       data-testid="woken-banner"
       className="mb-1.5 flex items-start gap-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/25 px-2.5 py-1.5 text-[12px] leading-snug text-blue-900 dark:text-blue-200"
     >
-      <span aria-hidden className="flex-shrink-0 leading-snug">🔔</span>
+      <span aria-hidden className="flex-shrink-0 leading-snug"><Bell className="w-4 h-4" /></span>
       <span className="min-w-0 break-words">
         {label ? tr('woken.arrivedFor', { what: label }) : tr('woken.arrived')}
       </span>
