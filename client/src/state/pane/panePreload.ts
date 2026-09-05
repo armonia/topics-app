@@ -35,17 +35,23 @@
  */
 import type { Pane, PaneType } from './types';
 import { projectPanesKey } from '../../../../shared/project-keys';
+import { warm } from '../../lib/lazyWarm';
 
 type Loader = () => Promise<unknown>;
 
-const loadBoard: Loader = () => import('../../components/Board/KanbanBoardPane');
-const loadTerminal: Loader = () => import('../../components/Terminal/SingleTerminalPane');
-const loadBrowser: Loader = () => import('../../components/Browser/RemoteBrowserPanel');
-const loadFilePane: Loader = () => import('../../components/Editor/FilePane');
-const loadFileExplorer: Loader = () => import('../../components/Project/FileExplorer');
-const loadGitChanges: Loader = () => import('../../components/Project/GitChanges');
-const loadDashboard: Loader = () => import('../../components/Dashboard/DashboardPane');
-const loadProcessLog: Loader = () => import('../../components/Project/ProcessLogPane');
+/**
+ * THE loaders, one object each, shared with the `lazyWarm` wrappers in the
+ * layout components: `warm` remembers a module by the identity of the function
+ * that loaded it, so the wrapper and the preload have to hold the same one.
+ */
+export const loadBoard = () => import('../../components/Board/KanbanBoardPane');
+export const loadTerminal = () => import('../../components/Terminal/SingleTerminalPane');
+export const loadBrowser = () => import('../../components/Browser/RemoteBrowserPanel');
+export const loadFilePane = () => import('../../components/Editor/FilePane');
+export const loadFileExplorer = () => import('../../components/Project/FileExplorer');
+export const loadGitChanges = () => import('../../components/Project/GitChanges');
+export const loadDashboard = () => import('../../components/Dashboard/DashboardPane');
+export const loadProcessLog = () => import('../../components/Project/ProcessLogPane');
 
 /**
  * The chunks each pane type lives in. Only the types with a heavy lazy body:
@@ -106,7 +112,8 @@ export function paneTypesToWarm(
 }
 
 /**
- * Asks for the chunks of `types`, once each.
+ * Asks for the chunks of `types`, once each, through `warm` so that the
+ * `lazyWarm` wrappers can render them without a boundary once they settle.
  *
  * Not awaited by the caller: the point is that the requests are IN FLIGHT while
  * the app boots. Whoever needs the module waits on the same promise.
@@ -118,7 +125,7 @@ export function preloadPaneChunks(types: Iterable<PaneType>): void {
       if (seen.has(load)) continue;
       seen.add(load);
       // The lazy boundary stays the place where a broken chunk is reported.
-      void load().catch(() => {});
+      void warm(load).catch(() => {});
     }
   }
 }
