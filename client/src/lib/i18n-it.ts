@@ -1490,6 +1490,7 @@ const IT: Dict = {
   'profile.public.revoke': 'Revoca',
   'profile.public.publishing': 'Pubblicazione…',
   'profile.public.revoking': 'Revoca…',
+  'profile.public.failed': 'Il server non ha risposto. Il link è rimasto com’era.',
   'profile.public.notPublished': 'Non pubblicata. Clicca «Pubblica» per generare il link.',
   'profile.public.showCost': 'Mostra anche la spesa in dollari',
   'profile.public.showCostHint': "La spesa \u00e8 un dato personale. Di default non compare sulla pagina pubblica.",
