@@ -11,7 +11,7 @@
  * What this spec proves, in the real app against the test server:
  *  1. an archived topic is NOT in the boot payload, NOT in the sidebar, NOT in
  *     `topics-cache` - and IS in `topics-archived-cache` once the idle load ran;
- *  2. «Mostra archiviati» brings its row back and reopening it restores it
+ *  2. «Mostra archiviati» (allow-italian: the UI label) brings its row back and reopening it restores it
  *     (tab open, `archived:false` on the server) - the 2-state model intact;
  *  3. a surface that shows a closed chat with the toggle OFF - a pinned row -
  *     still resolves its name on a device that boots with empty caches.
@@ -84,7 +84,7 @@ test.describe("Topics — the archive is off the boot path", () => {
       .toContain(topic.id);
     expect(await page.evaluate(() => window.localStorage.getItem("topics-cache") ?? "")).not.toContain(topic.id);
 
-    // «Mostra archiviati» (Topics ▾ menu): the row is back.
+    // «Mostra archiviati» (Topics ▾ menu; allow-italian: the UI label): the row is back.
     await page.locator('button[title="Settings & Tools"]').click();
     const archiveToggle = page.getByRole("button", { name: "Mostra archiviati" });
     await expect(archiveToggle).toBeVisible({ timeout: 3000 });
