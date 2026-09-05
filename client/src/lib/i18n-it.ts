@@ -1686,6 +1686,8 @@ const IT: Dict = {
   // ── Le tre parole che ogni superficie riscriveva per conto suo.
   'common.close': 'Chiudi',
   'common.retry': 'Riprova',
+  'common.removeImage': "Togli l'immagine",
+  'common.resetZoom': 'Azzera lo zoom',
   'common.loading': 'Carico…',
   // ── Editor: le schede e il file che non si è caricato.
   'editor.tab.close': 'Chiudi {name}',

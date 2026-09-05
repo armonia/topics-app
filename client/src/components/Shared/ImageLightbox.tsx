@@ -1,6 +1,7 @@
 import { X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useT } from '../../hooks/useT';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import { MODAL_LAYER } from '../../lib/modalStyles';
 
@@ -21,6 +22,7 @@ import { MODAL_LAYER } from '../../lib/modalStyles';
  * Pinch, drag and double-tap zoom are what the chat had; nothing was removed.
  */
 export function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+  const tr = useT();
   // Escape closes. It did not: the only ways out were the x and a click on
   // the veil, and worse, Escape fell through to the global handler and
   // INTERRUPTED the AI turn behind the image (the lightbox carried no modal
@@ -108,6 +110,7 @@ export function ImageLightbox({ src, alt, onClose }: { src: string; alt: string;
       />
       <button
         data-testid="lightbox-close"
+        aria-label={tr('common.close')}
         className="absolute top-4 right-4 text-white bg-black/50 rounded-full w-10 h-10 flex items-center justify-center"
         onClick={(e) => { e.stopPropagation(); onClose(); }}
       ><X className="w-5 h-5" aria-hidden="true" /></button>
@@ -115,7 +118,7 @@ export function ImageLightbox({ src, alt, onClose }: { src: string; alt: string;
         <button
           className="absolute bottom-8 left-1/2 -translate-x-1/2 text-white text-xs bg-black/50 rounded-full px-3 py-1"
           onClick={(e) => { e.stopPropagation(); setScale(1); setOffset({ x: 0, y: 0 }); }}
-        >Reset zoom</button>
+        >{tr('common.resetZoom')}</button>
       )}
     </div>,
     document.body

@@ -1439,6 +1439,8 @@ const EN = {
   // ── The three words every surface used to rewrite on its own.
   'common.close': 'Close',
   'common.retry': 'Retry',
+  'common.removeImage': 'Remove the image',
+  'common.resetZoom': 'Reset zoom',
   'common.loading': 'Loading…',
   // ── Editor: the tabs and the file that did not load.
   'editor.tab.close': 'Close {name}',
