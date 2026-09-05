@@ -111,6 +111,51 @@ export function isActiveContentUpload(fileName: string, declaredType: string, se
   );
 }
 
+/**
+ * The guard headers for a stored file served INLINE on the app's own origin.
+ *
+ * One function because there are two doors onto the same bytes: `/api/media`
+ * and `/preview/` (server.ts) both hand back a file from a project directory
+ * with a `Content-Type` deduced from the extension. `/preview/` had neither
+ * header until this was extracted, so an `.html` or `.svg` an agent wrote (or
+ * an upload) ran as a same-origin document with the session cookie and could
+ * call `/api/files/content` and `/api/files/save` from inside the page.
+ *
+ * `nosniff` alone does not cover an SVG: there the declared type IS the active
+ * one, nothing is being guessed. What closes it is `sandbox`, which puts the
+ * DOCUMENT in an opaque origin, so the script inside no longer sees the cookie
+ * nor the API. An `<img>` creates no document, so legitimate SVG images still
+ * draw: that is why the answer is a sandbox and not a forced `attachment`,
+ * which would turn "open this file in the pane" into a download.
+ *
+ * `sandboxFlags` is what the two doors do NOT share. `/api/media` grants
+ * nothing: those files are attachments and context uploads, and no one expects
+ * them to run. `/preview/` grants `allow-scripts allow-forms allow-popups`,
+ * the exact set of the iframe the client already renders it in
+ * (`client/src/components/Editor/fileMedia.tsx`), so previewing a page an
+ * agent wrote keeps working. The directive that matters is the one NEITHER
+ * grants: without `allow-same-origin` the document has no origin to abuse.
+ */
+export function activeContentGuardHeaders(
+  contentType: string,
+  opts?: { sandboxFlags?: string },
+): Record<string, string> {
+  const headers: Record<string, string> = { "X-Content-Type-Options": "nosniff" };
+  if (ACTIVE_CONTENT_MIMES.has(normalizeMime(contentType))) {
+    headers["Content-Security-Policy"] = `sandbox${opts?.sandboxFlags ? " " + opts.sandboxFlags : ""}`;
+  }
+  return headers;
+}
+
+/** What `/preview/` grants inside its sandbox: the iframe's own attribute set,
+ *  minus `allow-same-origin`, which is the whole point. */
+export const PREVIEW_SANDBOX_FLAGS = "allow-scripts allow-forms allow-popups";
+
+/** A topic id that can be a directory name and nothing else. The negated form
+ *  of the class `getMessagesPath` sanitizes with, so the two agree on what a
+ *  topic id is allowed to look like. */
+export const TOPIC_ID_SEGMENT = /^[A-Za-z0-9_:-]+$/;
+
 export function createMediaRouter(ctx: AppContext): RouteHandler {
   const {
     json, readJSON, getTopicById, saveSingleTopic,
@@ -159,17 +204,10 @@ export function createMediaRouter(ctx: AppContext): RouteHandler {
       const contentType = getMimeType(resolved);
       // Questa rotta restituisce file di cui NON conosciamo la provenienza —
       // i file di contesto caricati da un client, i media di un progetto — con
-      // il `Content-Type` dedotto dall'estensione, sulla nostra origine.
-      // `nosniff` da solo non basta contro un `.svg`: lì il tipo dichiarato È
-      // il tipo attivo, quindi non c'è niente da indovinare. La `sandbox`
-      // mette il DOCUMENTO in un'origine opaca, così lo script dentro l'SVG (o
-      // dentro un `.html`) non vede più né il cookie né l'API. Un `<img>` non
-      // crea nessun documento, quindi le immagini SVG legittime continuano a
-      // disegnarsi: è per questo che si sandboxa invece di forzare
-      // `attachment`, che trasformerebbe «apri questo file nel pannello» in un
-      // download.
-      const guardie: Record<string, string> = { "X-Content-Type-Options": "nosniff" };
-      if (ACTIVE_CONTENT_MIMES.has(normalizeMime(contentType))) guardie["Content-Security-Policy"] = "sandbox";
+      // il `Content-Type` dedotto dall'estensione, sulla nostra origine. Il
+      // perché delle due intestazioni sta su `activeContentGuardHeaders`, che
+      // è la stessa che compone quelle di `/preview/`.
+      const guardie = activeContentGuardHeaders(contentType);
       // Range support — required for <video> seeking (review clips). Bun does
       // NOT auto-slice a manually-built Response (verified: a Range request got
       // a full 200), so serve 206 ourselves when a Range header is present; a
@@ -299,6 +337,15 @@ export function createMediaRouter(ctx: AppContext): RouteHandler {
         const topicId = formData.get("topicId") as string;
         if (!file || typeof file === "string") return json({ error: "file required" }, 400);
         if (!topicId) return json({ error: "topicId required" }, 400);
+        // A SINGLE SEGMENT, judged before anything touches the disk. `topicId`
+        // went straight into `join(CONTEXT_DIR, topicId)` + `mkdirSync`, and
+        // `join` collapses `..`: only the file NAME was sanitized, so the
+        // FOLDER walked out of CONTEXT_DIR wherever the caller asked. Same
+        // character class as `getMessagesPath` (`server/utils.ts`), which is
+        // the shape a topic id really has; the twin route
+        // `POST /api/files/upload` reaches the same place with
+        // `hasDotDotSegment` + `isContained`.
+        if (!TOPIC_ID_SEGMENT.test(topicId)) return json({ error: "invalid topicId" }, 400);
         const safeName = (file as File).name.replace(/[^a-zA-Z0-9._-]/g, "_");
         // La STESSA porta, la stessa regola. L'allowlist che stava qui ammetteva
         // `text/html` e `image/svg+xml` (misurato: `l.svg` → 200, scritto in

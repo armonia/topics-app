@@ -1504,8 +1504,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // l'11/08 su `2e6964cb`. Ora un land fallito ritira la card, con la
         // causa nella riga di storico; l'unico `skipped` che la lascia chiusa è
         // «non c'era niente da atterrare».
-        const fall = landFallout(res.code);
         const cur = svc.get(taskId, { projectId })?.task;
+        // The delivery commit decides whether a missing branch is a loss or a
+        // no-op (see `landFallout`): an analysis card whose branch was reaped
+        // after a "nothing to land" must be closable.
+        const fall = landFallout(res.code, { deliveryCommit: cur ? (cur.deliveryCommit ?? null) : undefined });
         // Da `done` la card si RITIRA; da `review` non si è mai mossa (il land
         // non approva più prima di atterrare) e ci resta — tranne dove il
         // fallout la manda dall'agente, che è l'unico posto in cui c'è qualcosa

@@ -1,6 +1,7 @@
 import { useRef, useMemo, useState, useCallback, useEffect, useLayoutEffect } from 'react';
 import type { Pane, PaneGroup, PaneGroupType, PaneType, GroupLayoutRow } from '../../types';
 import { PaneTabBar, type TabLinkContext } from './PaneTabBar';
+import { TopicStatusStrip } from './TopicStatusStrip';
 import { CellSubStack } from './CellSubStack';
 import { setColumnStackHeights, columnDepth } from './groupLayoutStacks';
 import { flattenGroupRows } from './flattenLayout';
@@ -969,6 +970,17 @@ export function GroupLayout({
     const groupCanSplit = canSplitPane({ surface: 'project', groupSize: group.paneIds.length });
     return (
       <div data-split-card className={`relative flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${cardVar(rowIdx === 0).className}`} style={cardVar(rowIdx === 0).style}>
+        {/* What the active chat of this group touched, ABOVE its bar: it is
+            state of the topic, not a message inside it. Silent, and taking no
+            height, when there is nothing to say. */}
+        <TopicStatusStrip panes={groupPanes} activePaneId={group.activePaneId} />
+        {/* THE POSITIONING CONTEXT OF THE CHROME BAR, and the reason it is a
+            wrapper and not a margin: `.pane-chrome-bar` is `position: absolute;
+            top: 0` (the transcript floats UNDER it, see index.css), so anchored
+            to the card it would paint ON the strip above and eat its clicks.
+            Anchored here it starts where the strip ends, and the pass-under
+            behaviour of the content is untouched. */}
+        <div className="relative flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
         {/* Per-group tab bar — h-10 to match the project sidebar header
             and the StandaloneChatGroup header (consistent chrome row). */}
         <div className={barraSub(rowIdx === 0)} onDragOverCapture={handleTabBarDragOver(gid)}>
@@ -1117,6 +1129,7 @@ export function GroupLayout({
             />
           )}
           {edgeDrop === 'center' && <CenterRegion />}
+        </div>
         </div>
       </div>
     );

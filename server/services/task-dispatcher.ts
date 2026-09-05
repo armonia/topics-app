@@ -3043,7 +3043,35 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // il chip, e la card tornerebbe muta — cioè indistinguibile da un park a
     // mano, che è esattamente il difetto che `waited_out` esiste per togliere.
     if (cur.dispatchState === PARKED_WAITED_OUT) return;
-    // Human moved it elsewhere (backlog/todo/done) mid-turn → just drop our chip.
+    // Human moved it elsewhere (backlog/todo/done) mid-turn.
+    //
+    // A turn the agent CLOSED by itself leaves nothing to say: the card is the
+    // human's now, so we drop our chip and get out of the way. A turn that
+    // FAILED is the opposite case, and it was going down the same road: the two
+    // parks above are skipped because they announce themselves, and this branch
+    // announced nothing at all. So the failure was erased in silence and the
+    // card sat exactly as the human had left it, indistinguishable from one no
+    // agent had ever touched: "I moved it to backlog, it failed, and nothing
+    // happened". The chip and the reason are the only place that failure can
+    // live once the card is no longer ours.
+    //
+    // `consumesAttempt` is the same test the retry budget uses, so what it
+    // calls free (a stop by hand, a restart of the server, a session reset, a
+    // saturated API) stays mute here too: those are not the agent's failures
+    // and a chip on them would be noise on a card that is about to restart.
+    const failedInHumanHands = cur.status !== "done"
+      && end.end !== "end_turn"
+      && consumesAttempt(end);
+    if (failedInHumanHands) {
+      const why = `${describeTurnEnd(end)}. La card era stata spostata a mano mentre il turno girava: il tentativo e' finito qui, non e' stato rimesso in coda.`;
+      try { emit(deps.svc.setDispatchState({ taskId, state: CHIP_FAILED, error: why })); } catch { /* best-effort */ }
+      try {
+        deps.svc.addComment({ taskId, author: "system", kind: "service", content: why });
+      } catch { /* best-effort */ }
+      const parked = parkedEdgeEvent(cur, { requeue: false, parkState: CHIP_FAILED, reason: why });
+      if (parked) { try { deps.broadcast(parked); } catch { /* best-effort */ } }
+      return;
+    }
     try { emit(deps.svc.setDispatchState({ taskId, state: null })); } catch { /* best-effort */ }
   }
 

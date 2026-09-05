@@ -168,6 +168,13 @@ export const PROJECT_WORDS = new Set([
   // `lifecycle` is the standard word for the mount/unmount arc - it already
   // names `useTerminalLifecycle.ts`. Neither is in the 1934 list.
   "dialog", "lifecycle",
+  // The boundary this repository defends and the directory it defends it
+  // against. `allowlist` is the word every comment in
+  // `services/known-project-dirs.ts` already uses for the set of project
+  // directories a client path is judged against, and `ssh` names the folder
+  // (`~/.ssh`) the gate exists to keep out: a fixture called anything else
+  // would stop naming the case it reproduces.
+  "allowlist", "ssh",
 
   // the product and its parts. "org" is the schema's own word, not an
   // abbreviation someone chose in passing: the tables are `orgs` and
