@@ -6,7 +6,8 @@ import App from './App'
 // Phase 30 PANE-01: all pane-state bootstrap (legacy-storage hydration, the four
 // persistence transports, and the 500 ms GET fallback) lives inside
 // client/src/state/pane/. main.tsx is intentionally a thin shell.
-import { bootstrapPaneStore } from './state/pane/bootstrap';
+import { bootstrapPaneStore, paneChunksWarm } from './state/pane/bootstrap';
+import { awaitWithCap, FIRST_FRAME_WARM_CAP_MS } from './lib/firstFrameGate';
 import { initWindowPresence } from './state/windowPresence';
 import { installNetShim } from './lib/shell/net';
 import { isInternalDrag } from './lib/dndTypes';
@@ -81,13 +82,22 @@ bootstrapPaneStore();
 // another window" markers work from the first `presence:windows` snapshot.
 initWindowPresence();
 
-createRoot(container).render(
-  <StrictMode>
-    {/* Chi entra decide COSA si monta. Un ospite non deve far partire l'app
-        sotto una schermata che lo copre: ogni suo pezzo chiederebbe al server
-        cose che il gate nega, e il risultato è una pagina di errori. */}
-    <SessionRoot>
-      <App />
-    </SessionRoot>
-  </StrictMode>,
-);
+const root = createRoot(container);
+// The first frame waits for the chunks of the panes on screen, up to a cap: a
+// cached chunk still settles in a later task than React's first render, and
+// rendering before it paints a spinner per tile that the real body replaces a
+// frame later. A complete frame a few dozen milliseconds later is the gesture
+// a reload owes the reader; past the cap the app renders anyway and the
+// suspense boundaries report what is missing. See `lib/firstFrameGate`.
+void awaitWithCap(paneChunksWarm(), FIRST_FRAME_WARM_CAP_MS).then(() => {
+  root.render(
+    <StrictMode>
+      {/* Chi entra decide COSA si monta. Un ospite non deve far partire l'app
+          sotto una schermata che lo copre: ogni suo pezzo chiederebbe al server
+          cose che il gate nega, e il risultato è una pagina di errori. */}
+      <SessionRoot>
+        <App />
+      </SessionRoot>
+    </StrictMode>,
+  );
+});

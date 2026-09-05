@@ -118,6 +118,17 @@ function scheduleInitialLoadFallback(): void {
   }, 500);
 }
 
+/** Settles when the chunks of the panes on screen have been evaluated. */
+let chunksWarm: Promise<void> = Promise.resolve();
+
+/**
+ * The promise the first render waits on (with a cap): the chunks of every pane
+ * the local snapshot says is open. Resolved already when nothing is open.
+ */
+export function paneChunksWarm(): Promise<void> {
+  return chunksWarm;
+}
+
 /**
  * Bootstrap the pane store. Call exactly once at app module load, before React
  * renders. Idempotent via each init*()'s internal `started` flag.
@@ -151,7 +162,7 @@ export function bootstrapPaneStore(): void {
   // same figure for the board, the editor and the terminal, because it was
   // never their data - it was their code. See `panePreload.ts`. The tiles a
   // project window persisted in its own local record count as open panes too.
-  preloadPaneChunks(paneTypesToWarm(Object.values(usePaneStore.getState().panes), (key) => {
+  chunksWarm = preloadPaneChunks(paneTypesToWarm(Object.values(usePaneStore.getState().panes), (key) => {
     try { return localStorage.getItem(key); } catch { return null; }
   }));
 

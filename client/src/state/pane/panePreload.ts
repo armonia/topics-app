@@ -115,17 +115,23 @@ export function paneTypesToWarm(
  * Asks for the chunks of `types`, once each, through `warm` so that the
  * `lazyWarm` wrappers can render them without a boundary once they settle.
  *
- * Not awaited by the caller: the point is that the requests are IN FLIGHT while
- * the app boots. Whoever needs the module waits on the same promise.
+ * The requests are IN FLIGHT while the app boots; the returned promise settles
+ * when every chunk has been evaluated (or failed), and never rejects. The first
+ * render waits for it, up to a cap: see `main.tsx`. A cached chunk still lands
+ * in a later task than React's first render, so without that wait the wrappers
+ * found nothing warm and the tiles drew the fallback anyway (measured: 240 ms
+ * of spinner with every chunk cached at 110 ms).
  */
-export function preloadPaneChunks(types: Iterable<PaneType>): void {
+export function preloadPaneChunks(types: Iterable<PaneType>): Promise<void> {
   const seen = new Set<Loader>();
+  const pending: Promise<unknown>[] = [];
   for (const type of types) {
     for (const load of LOADERS[type] ?? []) {
       if (seen.has(load)) continue;
       seen.add(load);
       // The lazy boundary stays the place where a broken chunk is reported.
-      void warm(load).catch(() => {});
+      pending.push(warm(load).catch(() => {}));
     }
   }
+  return Promise.all(pending).then(() => {});
 }

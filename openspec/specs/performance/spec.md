@@ -104,6 +104,10 @@ Il preload SHALL ricordare il modulo risolto per identità del loader, e il
 wrapper (`lazyWarm`) SHALL leggerlo al montaggio: caldo → corpo nello stesso
 passaggio; freddo → `React.lazy` come prima. La scelta SHALL essere presa una
 volta per istanza montata, per non rimontare una pane quando il chunk si scalda.
+Poiché un chunk in cache si risolve comunque in un task SUCCESSIVO al primo
+render di React, il primo render SHALL aspettare che i chunk caldi si risolvano,
+con un tetto (300 ms): oltre il tetto l'app renderizza lo stesso e i confini
+fanno il loro mestiere. Senza snapshot locale non c'è niente da aspettare.
 
 #### Scenario: i tile di un project window non mostrano lo spinner al ricarico
 - **GIVEN** un project window con un terminale e un browser nel suo record locale
