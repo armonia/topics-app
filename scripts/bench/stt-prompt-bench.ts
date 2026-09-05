@@ -123,11 +123,11 @@ function buildCorpus(dir: string, rebuild: boolean): void {
       if (!r.ok) throw new Error(`ffmpeg on ${clip.id}: ${r.err}`);
       continue;
     }
-    const aiff = join(dir, `${clip.id}.aiff`);
-    const said = run(["/usr/bin/say", "-v", clip.voice!, "-r", String(clip.rate ?? 180), "-o", aiff, clip.text]);
+    const spokenAudio = join(dir, `${clip.id}.aiff`);
+    const said = run(["/usr/bin/say", "-v", clip.voice!, "-r", String(clip.rate ?? 180), "-o", spokenAudio, clip.text]);
     if (!said.ok) throw new Error(`say on ${clip.id}: ${said.err}`);
     if (clip.kind === "clean") {
-      const r = run([ffmpeg, "-y", "-i", aiff, "-ar", "16000", "-ac", "1", wav]);
+      const r = run([ffmpeg, "-y", "-i", spokenAudio, "-ar", "16000", "-ac", "1", wav]);
       if (!r.ok) throw new Error(`ffmpeg on ${clip.id}: ${r.err}`);
     } else {
       // What a real note sounds like when it reaches the server: a microphone
@@ -136,20 +136,20 @@ function buildCorpus(dir: string, rebuild: boolean): void {
       const noisy = join(dir, `${clip.id}.noisy.wav`);
       const opus = join(dir, `${clip.id}.opus.ogg`);
       const chain = run([
-        ffmpeg, "-y", "-i", aiff,
+        ffmpeg, "-y", "-i", spokenAudio,
         "-f", "lavfi", "-i", "anoisesrc=color=pink:amplitude=0.005:r=16000",
         "-filter_complex", "[0:a]highpass=f=120,lowpass=f=6000[s];[s][1:a]amix=inputs=2:duration=shortest:dropout_transition=0,volume=1.6",
         "-ar", "16000", "-ac", "1", noisy,
       ]);
       if (!chain.ok) throw new Error(`ffmpeg chain on ${clip.id}: ${chain.err}`);
-      const enc = run([ffmpeg, "-y", "-i", noisy, "-c:a", "libopus", "-b:a", "24k", opus]);
-      if (!enc.ok) throw new Error(`opus on ${clip.id}: ${enc.err}`);
-      const dec = run([ffmpeg, "-y", "-i", opus, "-ar", "16000", "-ac", "1", wav]);
-      if (!dec.ok) throw new Error(`decode on ${clip.id}: ${dec.err}`);
+      const encoded = run([ffmpeg, "-y", "-i", noisy, "-c:a", "libopus", "-b:a", "24k", opus]);
+      if (!encoded.ok) throw new Error(`opus on ${clip.id}: ${encoded.err}`);
+      const decoded = run([ffmpeg, "-y", "-i", opus, "-ar", "16000", "-ac", "1", wav]);
+      if (!decoded.ok) throw new Error(`decode on ${clip.id}: ${decoded.err}`);
       rmSync(noisy, { force: true });
       rmSync(opus, { force: true });
     }
-    rmSync(aiff, { force: true });
+    rmSync(spokenAudio, { force: true });
   }
   writeFileSync(join(dir, "manifest.json"), JSON.stringify(CLIPS, null, 2));
 }
