@@ -5,7 +5,7 @@ import { useT, useLocale } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useOwnerName } from '../../hooks/useOwnerName';
 import { authorDisplay } from '../../lib/authorDisplay';
-import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, GitCompare, GitMerge, Globe, Hourglass, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Send, ShieldCheck, Sparkles, StickyNote, Tag, UserRound, WifiOff, X } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, GitCompare, GitMerge, Globe, Hourglass, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Rocket, Send, ShieldCheck, Sparkles, StickyNote, Tag, TriangleAlert, UserRound, WifiOff, X } from 'lucide-react';
 import { SectionHeader, useSectionOpen } from './sectionAccordion';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { PlanSurface } from './PlanSurface';
@@ -276,7 +276,7 @@ function ChecksSection({ task }: { task: BoardTask }) {
           {runs.map((r, i) => (
             <div key={i}>
               <div className={r.ok ? 'text-emerald-300' : 'text-rose-200'}>
-                {r.ok ? '✓' : '✗'} <code className="font-mono">{r.cmd}</code>{r.ok ? '' : `: ${short(r)}`}
+                {r.ok ? <Check size={14} className="inline-block text-emerald-300" aria-hidden="true" /> : <X size={14} className="inline-block text-rose-300" aria-hidden="true" />} <code className="font-mono">{r.cmd}</code>{r.ok ? '' : `: ${short(r)}`}
               </div>
               {!r.ok && (r.tail || r.spawnError) && (
                 <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-black/40 p-1.5 font-mono text-[10px] leading-snug text-app-text-heading">
@@ -2591,7 +2591,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       {task && showsLandingDebt(task) && (
         <div data-testid="task-not-landed-banner" className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-300">
           <span className="min-w-0">
-            ⚠️ {tr('task.landing.closedBut')} <strong>{tr('board.task.notOnMain')}</strong>{tr('task.landing.commitIs')}
+            <TriangleAlert className="w-4 h-4 inline-block align-[-2px]" aria-hidden="true" /> {tr('task.landing.closedBut')} <strong>{tr('board.task.notOnMain')}</strong>{tr('task.landing.commitIs')}
             {task.deliveryCommit ? <> <code className="rounded bg-black/30 px-1">{task.deliveryCommit.slice(0, 8)}</code></> : null}
             {task.deliveryBranch ? <> ({tr('task.landing.branch')} <code className="rounded bg-black/30 px-1">{task.deliveryBranch}</code>)</> : null}
             {' '}{tr('task.landing.notInMain')}
@@ -2615,7 +2615,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           above, for the same reason (a comment scrolls away, this does not). */}
       {task && showsDeployProposal(task) && (
         <div data-testid="task-deploy-proposed-banner" className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-sky-500/20 bg-sky-500/10 px-3 py-1.5 text-[11px] text-sky-300">
-          <span className="min-w-0">🚀 {tr('board.task.deployProposed')}</span>
+          <span className="min-w-0"><Rocket className="w-4 h-4 shrink-0" aria-hidden="true" /> {tr('board.task.deployProposed')}</span>
           <button
             data-testid="task-deploy-now"
             disabled={deploying} onClick={doDeploy}

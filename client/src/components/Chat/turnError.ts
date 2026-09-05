@@ -114,6 +114,7 @@ export const TURN_CAUSE_KEY: Record<TurnEndCause, string> = {
   'superseded': 'chat.turnInterrupted.superseded',
   'provider-error': 'chat.turnInterrupted.providerError',
   'rate-limit': 'chat.turnInterrupted.rateLimit',
+  'tool-budget': 'chat.turnInterrupted.toolBudget',
 };
 
 /**

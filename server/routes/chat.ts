@@ -99,7 +99,7 @@ import { DEFAULT_CONTEXT_WINDOW } from "../usage/context-window";
 import { permissionModeForAutonomy, planModeFor } from "../lib/autonomy-mode";
 import { findPlanAwaitingApproval, shouldAskPlanApproval, planApprovalSchema } from "../lib/plan-approval";
 import { createIdempotencyCache } from "../lib/idempotency-cache";
-import { avvisoPerTurno, abortLogTitle } from "../lib/cancelled-notice";
+import { avvisoPerTurno, abortLogTitle, isResumableCause } from "../lib/cancelled-notice";
 import { toolOutcomeAtTurnEnd } from "../lib/tool-finalize-status";
 import { providerSurvivesRestart } from "../lib/quiescence";
 import { toolsSuspendSoftTimer } from "../lib/soft-timer-suspension";
@@ -1990,7 +1990,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // coda «Riprendo da solo» esisteva nel codice e non e' mai
               // comparsa a schermo, nemmeno sui turni che il boot riprendeva
               // davvero.
-              const riprendeDaSolo = endInfo.cause === "server-shutdown";
+              // Every cause the resume acts on, not only the restart: the
+              // sweep (`riprendiTurniInterrotti`, every 5 min) reads the same
+              // predicate off the block, so a notice saying "Riprendo da solo"
+              // is a promise the same code keeps.
+              const riprendeDaSolo = isResumableCause(endInfo.cause);
               const avviso = avvisoPerTurno(endInfo, { haProdotto, riprendeDaSolo });
               if (avviso) {
                 blocks.push({ kind: "error", text: avviso.replace(/^⚠️\s*/, "") });
@@ -2121,6 +2125,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 topicId: matchedTopic.id,
                 dispatched,
                 end: endInfo.end,
+                // The cause tells OUR tool budget (`tool-budget`) from a fault:
+                // the loop continues the former and leaves the latter alone.
+                cause: endInfo.cause,
                 discarded: !!discardedMessageId,
                 // A turn parked on a question is not a turn that decided to
                 // stop: `interrupted` carries the tools still awaiting a human,

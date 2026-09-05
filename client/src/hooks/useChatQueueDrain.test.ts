@@ -21,7 +21,7 @@
  *
  * @covers CHAT-01
  */
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import * as React from 'react';
 import { mount } from '../test/reactHarness';
 import { useChat } from './useChat';
@@ -39,6 +39,15 @@ class MemStorage {
 }
 
 const g = globalThis as unknown as Record<string, unknown>;
+// Process-wide globals: put back what this file found once it is done, or the
+// next file in the same `bun test` process meets a partial window.
+const found = { window: g.window, requestAnimationFrame: g.requestAnimationFrame, cancelAnimationFrame: g.cancelAnimationFrame };
+afterAll(() => {
+  for (const [k, v] of Object.entries(found)) {
+    if (v === undefined) delete g[k];
+    else g[k] = v;
+  }
+});
 const w = (g.window as Record<string, unknown> | undefined) ?? {};
 w.localStorage ??= new MemStorage();
 w.addEventListener ??= () => {};

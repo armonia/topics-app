@@ -1077,6 +1077,7 @@ const EN = {
   'chat.turnInterrupted.superseded': 'a newer turn took its place',
   'chat.turnInterrupted.providerError': 'the provider answered with an error',
   'chat.turnInterrupted.rateLimit': 'the API stayed rate-limited through every retry; it resumes on its own',
+  'chat.turnInterrupted.toolBudget': 'the turn used up the server budget of tool rounds; it resumes once by itself',
   'git.noRepoInitialized': 'No git repository initialized',
   'git.noRepo': 'No git repository',
   'git.cleanTree': 'Clean working tree',

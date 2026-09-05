@@ -139,6 +139,8 @@ describe("reopenClosedTab (terminal revive path)", () => {
   });
   afterEach(() => {
     if (realFetch) (globalThis as unknown as { fetch: typeof fetch }).fetch = realFetch;
+    // bun has no `localStorage`: the fake one must not outlive this file.
+    delete (globalThis as { localStorage?: unknown }).localStorage;
   });
 
   test("dormant claude terminal: GET 404 → REVIVE by id → same pane, NO fresh POST (no empty second tab)", async () => {

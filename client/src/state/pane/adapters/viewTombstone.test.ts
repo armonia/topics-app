@@ -10,7 +10,7 @@
  * browsers were already protected by a tombstone of their own; the singleton
  * views were not.
  */
-import { describe, expect, test, beforeEach } from 'bun:test';
+import { describe, expect, test, beforeEach, afterAll } from 'bun:test';
 import { addViewTombstone, clearViewTombstone, getViewTombstones, viewTombstoneKey } from './closedTabRecord';
 
 const store: Record<string, string> = {};
@@ -22,6 +22,12 @@ const store: Record<string, string> = {};
   key: () => null,
   length: 0,
 } as unknown as Storage;
+
+// Restore bun's baseline (no global localStorage): do not leave it mounted for
+// the later files of the same sharded process.
+afterAll(() => {
+  delete (globalThis as unknown as { localStorage?: unknown }).localStorage;
+});
 
 const PROJECT = '/tmp/progetto';
 

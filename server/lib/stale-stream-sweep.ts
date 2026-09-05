@@ -113,7 +113,7 @@ export interface StaleStreamSweepDeps {
 
 /** Il testo che sostituisce una bolla vuota: senza, il client la nasconde. */
 export const INTERRUPTED_MARKER =
-  "⚠️ Risposta interrotta: nessuna attività per 3 minuti (il processo potrebbe essersi bloccato o disconnesso). Riprova.";
+  "⚠️ Risposta interrotta: nessuna attività per 3 minuti (il processo potrebbe essersi bloccato o disconnesso). Riprende da solo entro pochi minuti.";
 
 /** Cosa il giro ha fatto a ciascuna sessione: il valore di ritorno esiste per i test. */
 export type SweepOutcome = "dropped" | "held" | "rescued" | "extended" | "finalized";

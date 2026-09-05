@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
-import { Search, Settings, X, RefreshCw } from 'lucide-react';
+import { Search, Settings, X, RefreshCw, Check } from 'lucide-react';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { useDismissable } from '../../hooks/useDismissable';
 import { POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
@@ -380,7 +380,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
                           {win.known ? '' : '≈'}{formatContextWindow(win.tokens)}
                         </span>
                         <span className="w-3 flex-shrink-0 text-center" aria-hidden={!isSelected}>
-                          {isSelected ? '✓' : ''}
+                          {isSelected && <Check className="w-4 h-4" aria-hidden="true" />}
                         </span>
                       </button>
                     );

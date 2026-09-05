@@ -524,3 +524,74 @@ spec piu' vicine al cambiamento.
 #### Scenario: la spec che misura il cambiamento viene per prima
 - **GIVEN** una modifica che tocca una funzione con la sua spec dedicata
 - **THEN** quella spec SHALL precedere le spec di altre funzioni
+
+### Requirement: GATE-12 — La suite unit si divide in shard, e il verdetto non dipende dal raggruppamento
+
+Il cancello `test:unit` in un solo processo costava ~462 s a macchina scarica e
+~18 minuti sotto il carico di una flotta: un pre-review che dura quanto il
+lavoro che controlla viene spento dal primo che ha fretta. La suite SHALL quindi
+poter girare in N `bun test` concorrenti (`test:unit:shards`), e il verdetto
+SHALL essere l'aggregato: verde solo se OGNI shard è verde.
+
+La divisione SHALL coprire gli STESSI file del cancello seriale (le radici sono
+le stesse di `test:unit` in package.json): un file che la divisione perde è un
+cancello che si crede di avere. La divisione SHALL bilanciare per durata
+misurata, e un file senza durata nota SHALL pesare la mediana, mai zero.
+
+Il verdetto SHALL essere lo stesso per qualunque raggruppamento: misurato il
+05/09/2026 su 24 raggruppamenti casuali × 4 shard, zero rossi. Quello che NON
+si isola — i racer che si contendono una risorsa del sistema con asserzioni di
+tempistica — SHALL girare in una coda seriale DOPO gli shard, senza contesa di
+CPU, e la lista di quei file SHALL corrispondere a file che esistono.
+
+Uno shard rosso SHALL stampare il comando che lo riproduce con la stessa lista
+nello stesso ordine: il piano cambia a ogni corsa, e un rosso che dipende dal
+raggruppamento senza la sua lista non si ricostruisce più.
+
+Le ULTIME righe del sommario SHALL nominare i test rossi (file e titolo, letti
+dal referto junit): il commento sulla card tiene solo la coda dell'output, e il
+05/09/2026 l'agente della card 7bbefd9e leggeva «test:unit exit 1» e doveva
+rifare lo shard per sapere quale test fosse rosso. Quando il referto non porta
+nessun test rosso — hook scaduto, crash, timeout di processo — il sommario
+SHALL dirlo, non tacere.
+
+#### Scenario: un test rosso in uno shard
+- **GIVEN** uno shard che esce 1 con un test case che porta `<failure>`
+- **THEN** il sommario SHALL chiudersi con il nome di quel test, file e titolo
+
+#### Scenario: il file più lento va nel secchio più leggero
+- **GIVEN** durate note e N secchi
+- **THEN** ogni file SHALL comparire in un solo secchio, e il più lento nel secchio con meno carico
+
+#### Scenario: le radici della divisione sono quelle del seriale
+- **GIVEN** le radici dichiarate da `test:unit` in package.json
+- **THEN** SHALL coincidere con le radici che la divisione enumera
+
+#### Scenario: un rosso in uno shard è un rosso del cancello
+- **GIVEN** N shard di cui uno esce non-zero
+- **THEN** il verdetto aggregato SHALL essere non-zero
+
+### Requirement: GATE-13 — Un globale DOM finto non sopravvive al suo file
+
+`bun test` fa girare tutti i file della corsa in UN processo. Un test che
+installa `globalThis.window = { localStorage }` e non lo toglie lo regala a
+ogni file dopo: un componente renderizzato più avanti passa la sua guardia
+`typeof window !== "undefined"`, chiama `getComputedStyle` e il globale non
+esiste. Misurato il 05/09/2026: 10 file su 1149 lasciavano `window`,
+`localStorage` o `requestAnimationFrame`, e un test da solo verde usciva rosso
+solo nella corsa il cui shard lo metteva dopo uno di loro.
+
+Il preload della suite SHALL fotografare i globali DOM presenti all'avvio e, a
+fine corsa, SHALL far uscire rosso il processo se uno di quelli è comparso e
+non è stato tolto, nominando quali. La foto SHALL essere scattata al preload e
+non presa da una lista di ciò che bun ha: ciò che bun definisce non è un
+residuo. Il colpevole SHALL potersi trovare rilanciando ogni file da solo con
+la stessa guardia (`check:test-globals`).
+
+#### Scenario: un file che lascia window fa uscire rossa la corsa
+- **GIVEN** un file di test che installa `globalThis.window` e non lo toglie
+- **THEN** `bun test` su quel file SHALL uscire non-zero e il messaggio SHALL nominare `window`
+
+#### Scenario: un file che rimette a posto passa senza un fiato
+- **GIVEN** un file di test che installa `globalThis.window` e lo toglie in `afterAll`
+- **THEN** `bun test` su quel file SHALL uscire zero senza la firma della guardia

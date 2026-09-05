@@ -17,6 +17,9 @@ import {
   goalStopNotice,
   parseGoalVerdict,
   turnCanContinueGoal,
+  toolBudgetResumeStep,
+  toolBudgetStopNotice,
+  TOOL_BUDGET_RESUME_TEXT,
 } from "./goal-loop";
 import type { FinishedTurn } from "./goal-loop";
 import type { TopicGoal } from "../../shared/types";
@@ -195,5 +198,39 @@ describe("the texts", () => {
     expect(goalStopNotice({ kind: "continue", attempt: 1 }, "g")).toBe(null);
     expect(goalStopNotice({ kind: "achieved" }, "g")).toBe(null);
     expect(goalStopNotice({ kind: "blocked" }, "g")).toBe(null);
+  });
+});
+
+describe("our tool budget is a machine end, not a decision", () => {
+  it("a turn cut by our tool budget is a candidate for the goal loop; a real provider error is not", () => {
+    expect(turnCanContinueGoal(turn({ end: "error", cause: "tool-budget" }), goal())).toBe(true);
+    expect(turnCanContinueGoal(turn({ end: "error", cause: "provider-error" }), goal())).toBe(false);
+    expect(turnCanContinueGoal(turn({ end: "error", cause: "process-died" }), goal())).toBe(false);
+    expect(turnCanContinueGoal(turn({ end: "cancelled", cause: "watchdog" }), goal())).toBe(false);
+  });
+
+  it("the budget keeps the other brakes: dispatched, parked on a question, loop not running", () => {
+    const cut = { end: "error", cause: "tool-budget" } as const;
+    expect(turnCanContinueGoal(turn({ ...cut, dispatched: true }), goal())).toBe(false);
+    expect(turnCanContinueGoal(turn({ ...cut, pendingAsk: true }), goal())).toBe(false);
+    expect(turnCanContinueGoal(turn(cut), goal({ loopState: "stopped" }))).toBe(false);
+  });
+
+  it("without a goal: one resume, then stop, and nothing for any other end", () => {
+    const cut = turn({ end: "error", cause: "tool-budget" });
+    expect(toolBudgetResumeStep(cut, false)).toBe("resume");
+    expect(toolBudgetResumeStep(cut, true)).toBe("stop");
+    expect(toolBudgetResumeStep(turn({ end: "error", cause: "provider-error" }), false)).toBe("none");
+    expect(toolBudgetResumeStep(turn(), false)).toBe("none");
+    expect(toolBudgetResumeStep(turn({ end: "error", cause: "tool-budget", dispatched: true }), false)).toBe("none");
+    expect(toolBudgetResumeStep(turn({ end: "error", cause: "tool-budget", pendingAsk: true }), false)).toBe("none");
+    expect(toolBudgetResumeStep(turn({ end: "error", cause: "tool-budget", discarded: true }), false)).toBe("none");
+  });
+
+  it("the stop notice names the budget and hands over to the human", () => {
+    const notice = toolBudgetStopNotice(300);
+    expect(notice).toContain("300 giri di tool");
+    expect(notice.startsWith("⚠️ ")).toBe(true);
+    expect(TOOL_BUDGET_RESUME_TEXT).toContain("not by your choice");
   });
 });

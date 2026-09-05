@@ -13,7 +13,7 @@
  *
  * @covers TAB-SYNC-01
  */
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterAll } from "bun:test";
 
 // Fake window stub (same pattern as bootstrap.test.ts / syncCrossTab.test.ts).
 function installFakeWindow(): void {
@@ -65,6 +65,18 @@ function resetStore(): void {
 beforeEach(() => {
   localStorage.clear();
   resetStore();
+});
+
+// installFakeWindow() (line ~40) installs a PARTIAL `globalThis.window`, with no
+// getComputedStyle/innerWidth/matchMedia, and used to leave it there for good.
+// Under sharded execution a later file that renders a real component (e.g.
+// MessageBubble -> useMobile) passes the `typeof window === 'undefined'` guard
+// and then blows up on `getComputedStyle`. Restoring the pre-file state (no
+// ambient window) makes this test order-independent, as syncCrossTab.test.ts
+// already does.
+afterAll(() => {
+  delete (globalThis as unknown as { window?: unknown }).window;
+  delete (globalThis as unknown as { localStorage?: unknown }).localStorage;
 });
 
 describe("persistLocal — lo scroll delle chat non sopravvive al ricaricamento", () => {

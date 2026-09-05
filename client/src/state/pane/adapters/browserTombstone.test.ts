@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterAll } from "bun:test";
 
 /**
  * Browser-context tombstone contract. A browser pane closed INSIDE a project
@@ -26,6 +26,15 @@ const fakeStorageApi = {
   removeEventListener() {},
 };
 (globalThis as unknown as { localStorage: unknown }).localStorage = fakeStorageApi;
+
+// The fake window/localStorage is partial: removing it when the file ends
+// (pre-file state = no DOM globals under bun) keeps it from flipping the
+// `typeof window` guards of later files in the sharded process. See
+// persistLocal/syncCrossTab.
+afterAll(() => {
+  delete (globalThis as { window?: unknown }).window;
+  delete (globalThis as { localStorage?: unknown }).localStorage;
+});
 
 const {
   addBrowserTombstone,
