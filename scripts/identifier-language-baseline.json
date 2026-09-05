@@ -3806,8 +3806,7 @@
       "AcpProvider",
       "AcpSessionState",
       "AcpSessionUpdate",
-      "AcpTranslateState",
-      "ENV_ALLOWLIST"
+      "AcpTranslateState"
     ],
     "server/providers/acp/agents.ts": [
       "AcpAgentSpec",
@@ -3889,7 +3888,6 @@
     "server/providers/claude-code.ts": [
       "ClaudeCliCompat",
       "DEFAULT_ONESHOT_MODEL",
-      "ENV_ALLOWLIST",
       "ENV_BLOCKLIST_EXCEPTIONS",
       "ENV_BLOCKLIST_PATTERNS",
       "certsDir",
@@ -3947,7 +3945,6 @@
       "ricordaMonitor"
     ],
     "server/providers/codex.ts": [
-      "ENV_ALLOWLIST",
       "errObj",
       "obj",
       "stderr",
