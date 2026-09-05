@@ -45,7 +45,7 @@ import type { LandingState } from "../services/landing-audit";
 import type { RepoProbe } from "../services/deliveryReportChecks";
 import { createLandingQueue, type LandingQueue, type LandingTicket, type LandOutcomeResult } from "../services/landing-queue";
 import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../services/worktree-gc";
-import { MAX_CHECKS, STATIC_RAILS_CHECK, checksVerdict, formatChecksComment, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
+import { MAX_CHECKS, STATIC_RAILS_CHECK, checksVerdict, formatChecksComment, formatChecksWait, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
 import { clampLegMs, createChecksGate, type ChecksLeg } from "../services/checks-gate";
 import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
 import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
@@ -592,7 +592,7 @@ function checksLanes(): number {
 }
 
 export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, opts?: TasksRouterOpts): RouteHandler {
-  const { db, json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey, isPathAllowed } = ctx;
+  const { db, json, readJSON, matchRoute, broadcastToAll, broadcastToTopicSubscribers, getTopicBySessionKey, isPathAllowed } = ctx;
   // La SCHEDA DI CONSEGNA (l'anteprima disegnata quando non ce n'e' nessuna)
   // si scrive sotto `<dati>/media/`, cioe' dentro l'allowlist che la serve.
   const svc = createTaskService(db, {
@@ -922,6 +922,47 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * already wrote. The client's polling becomes a courtesy, not a condition.
    */
   const pendingDeliveries = new Map<string, { pathname: string; body: Record<string, unknown> }>();
+
+  /**
+   * THE CHAT SEES THE WAIT TOO. The card shows «2/5» (`checksProgress`); the
+   * agent's thread showed a mute `update_task` spinning for the whole bar, and
+   * from there the topic looked stuck: on 05/09/2026 three card turns sat 20-60
+   * minutes in this exact wait while the person asked, three times, why the
+   * topics were still. Each pending leg pushes ONE line into the running tool
+   * call of the agent's live stream, on the channel bash already uses for its
+   * partial output (`stream:tool_update`): ephemeral, never persisted, skipped
+   * when there is no live stream or no running tool to hang it on. The clock
+   * starts at the first pending leg, so the queue behind another card counts.
+   */
+  const checksWaitSince = new Map<string, number>();
+  function tellChatAboutChecksWait(
+    sessionKey: string,
+    topicId: string | null,
+    taskId: string,
+    projectId: string,
+    task: { checksProgress?: { done: number; total: number } | null } | undefined,
+  ): void {
+    try {
+      const since = checksWaitSince.get(taskId) ?? Date.now();
+      checksWaitSince.set(taskId, since);
+      const stream = ctx.activeStreams.get(sessionKey);
+      if (!stream) return;
+      const running = ctx.getMessageById(stream.messageId)?.toolCalls?.find((tc) => tc.status === "running");
+      if (!running) return;
+      const names = svc.getBoardSettings(projectId).reviewChecks.map((c) => c.name);
+      const progress = task?.checksProgress ?? null;
+      const partialResult = formatChecksWait({
+        done: progress ? progress.done : null,
+        total: progress?.total ?? names.length,
+        names,
+        elapsedMs: Date.now() - since,
+      });
+      const message = { type: "stream:tool_update" as const, sessionKey, topicId: topicId ?? undefined, toolCallId: running.id, partialResult };
+      if (topicId) broadcastToTopicSubscribers(topicId, message);
+      else broadcastToAll(message);
+    } catch { /* a courtesy line: it must never stop the leg */ }
+  }
+
   function settleDelivery(taskId: string, attempt = 0): void {
     const pending = pendingDeliveries.get(taskId);
     if (!pending) return;
@@ -3727,6 +3768,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               // request when the run ends, should the client stop polling.
               if (body && typeof body === "object") pendingDeliveries.set(item.taskId, { pathname, body: body as Record<string, unknown> });
               const t = svc.get(item.taskId, { projectId: sess.projectId })?.task;
+              tellChatAboutChecksWait(sk, sess.topicId, item.taskId, sess.projectId, t);
               return json({
                 pending: true,
                 code: "review_checks_running",
@@ -3736,6 +3778,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               }, 202);
             }
             pendingDeliveries.delete(item.taskId);
+            checksWaitSince.delete(item.taskId);
             if (outcome && !outcome.ok) {
               return json({ error: outcome.comment, code: "review_needs_green_checks" }, 409);
             }

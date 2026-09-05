@@ -40,6 +40,7 @@ import {
   ACTIVE_CONTENT_EXTENSIONS,
 } from "./media";
 import type { AppContext } from "../types";
+import { closeDatabase } from "../db";
 
 /* DATA_DIR E' AMBIENTE CONDIVISO, e questo file lo scrive.
  *
@@ -434,6 +435,13 @@ describe("/api/media · come torna indietro ciò che è stato caricato", () => {
 });
 
 afterAll(() => {
+  // The "what REALLY arrives" describe opens the `_db` singleton through
+  // createAppContext (line ~241) and never closed it: `_db` stayed open for the
+  // next file in the same process. Under sharded execution that file can be
+  // migration-registry-by-name, whose initDatabase becomes a no-op on the stale
+  // singleton and never creates its dataDir: "unable to open database file".
+  // Closing here makes this file order-independent.
+  closeDatabase();
   if (DATA_DIR_PRIMA === undefined) delete process.env.DATA_DIR;
   else process.env.DATA_DIR = DATA_DIR_PRIMA;
 });

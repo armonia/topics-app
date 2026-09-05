@@ -125,10 +125,10 @@ test.describe("Impostazioni · lingua e organizzazioni", () => {
     await expect(profilo, "deve esistere anche una voce «Profilo»").toBeVisible({ timeout: 5000 });
   });
 
-  // SET-NOTIF-DISABLED: with the notifications master OFF, its children must be
-  // disabled FOR REAL: out of the tab order, Space inert, state exposed to
-  // assistive tech. Not merely dimmed under an `opacity/pointer-events` veil,
-  // which left the button toggleable from the keyboard.
+  // SET-NOTIF-DISABLED: with the notifications master OFF, the children must be
+  // REALLY disabled (out of the tab order, Space inert, state exposed to AT),
+  // not just dimmed behind an `opacity/pointer-events` veil that left the button
+  // switchable from the keyboard.
   test("SET-NOTIF-DISABLED: con le notifiche spente «Play sound» è disattivato", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "SETORG-01" });
     await page.goto("/");
@@ -137,20 +137,20 @@ test.describe("Impostazioni · lingua e organizzazioni", () => {
     const pannello = page.locator('[data-testid="settings-panel"]');
     await expect(pannello).toBeVisible({ timeout: 10000 });
 
-    // The Notifications section (the label is localised: /Notif/i covers it).
+    // Sezione Notifiche (etichetta localizzata: /Notif/i copre «Notifiche»).
     await pannello.locator("nav button", { hasText: /Notif/i }).click();
 
     const master = pannello.getByRole("switch", { name: "Enable notifications" });
     const playSound = pannello.getByRole("switch", { name: "Play sound" });
     await expect(master).toBeVisible({ timeout: 5000 });
 
-    // Turn the master off if it is on (the DB default can be on).
+    // Switch the master off if it is on (the DB default may be on).
     if ((await master.getAttribute("aria-checked")) === "true") {
       await master.click();
     }
     await expect(master).toHaveAttribute("aria-checked", "false");
 
-    // The child is disabled: `disabled` reaches the <button role=switch>.
+    // The child is disabled: `disabled` reaches all the way to the <button role=switch>.
     await expect(playSound).toBeDisabled();
   });
 });

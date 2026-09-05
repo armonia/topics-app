@@ -79,6 +79,8 @@ beforeEach(() => {
 });
 afterEach(() => {
   if (realFetch) (globalThis as unknown as { fetch: typeof fetch }).fetch = realFetch;
+  // bun has no `localStorage`: the fake one must not outlive this file.
+  delete (globalThis as { localStorage?: unknown }).localStorage;
 });
 
 describe('reopenClosedTab: la revive che trova la coda occupata', () => {
