@@ -5,6 +5,7 @@ import { useT } from '../../hooks/useT';
 import { chiaveErroreAuth } from '../../lib/authErrors';
 import { copyText } from '../../lib/clipboard';
 import { Menu } from '../Shared/Menu';
+import { useToast } from '../Shared/Toast';
 import { POPOVER_DIVIDER, POPOVER_ITEM } from '../../lib/popoverStyles';
 
 /**
@@ -99,6 +100,7 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
   deepLink?: () => string | null;
 }) {
   const t = useT();
+  const toast = useToast();
   const [aperto, setAperto] = useState(false);
   const [shares, setShares] = useState<Share[]>([]);
   const [soggetti, setSoggetti] = useState<Subject[]>([]);
@@ -124,11 +126,23 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
   const copyDeepLink = useCallback(async () => {
     const url = deepLink?.();
     if (!url) return;
-    if (!(await copyText(url))) return;
+    if (!(await copyText(url))) {
+      toast.error(t('browser.menu.copyFailed'));
+      return;
+    }
     setCopiatoDeep(true);
     if (timerCopy.current) clearTimeout(timerCopy.current);
     timerCopy.current = setTimeout(() => setCopiatoDeep(false), 1400);
-  }, [deepLink]);
+  }, [deepLink, t, toast]);
+
+  const copyGuestLink = useCallback(async () => {
+    if (!appenaCreato) return;
+    if (await copyText(appenaCreato)) {
+      setCopiato(true);
+    } else {
+      toast.error(t('browser.menu.copyFailed'));
+    }
+  }, [appenaCreato, t, toast]);
 
   const carica = useCallback(async () => {
     try {
@@ -330,7 +344,7 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
                       className="min-w-0 flex-1 rounded border border-app-border bg-app-bg px-1.5 py-1 font-mono text-[10px] text-app-text outline-none"
                     />
                     <button
-                      onClick={() => { void navigator.clipboard?.writeText(appenaCreato); setCopiato(true); }}
+                      onClick={() => { void copyGuestLink(); }}
                       aria-label={t('share.copyGuestLink')}
                       className="flex-shrink-0 rounded p-1 text-app-text-tertiary hover:bg-app-hover hover:text-app-text"
                     >

@@ -8,6 +8,7 @@ import { AlertTriangle, ArchiveRestore, ArrowRightLeft, CircleSlash, ClipboardLi
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
+import { useToast } from '../Shared/Toast';
 import { questionToProse } from '../../../../shared/question-prose';
 import { isSettledParkedQuestion } from '../../../../shared/parked-question';
 import { STATUS_LABEL, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, nothingDeliveredWins, parseQuestionBlock, reopenedChip, showsLandingDebt, subtaskWorkChip, systemDeliveryChip, waitingOnThisChip, whoCloses, type BoardTask, type TaskStatus, priorityAwaitingAgent } from '../../lib/board';
@@ -339,6 +340,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   }, [dragTouchStart, cardLongPress.handlers]);
   const confirm = useConfirm();
   const tr = useT();
+  const toast = useToast();
   // Numeri e date della card seguono la lingua scelta, non una fissata a mano.
   const locale = useLocale();
   // The context menu offers two of the same actions as the button row (stop,
@@ -380,7 +382,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // quando il menu si APRE, non al click: `navigator.clipboard.writeText` deve
   // girare nello stesso task del gesto (in WebKit un `await` in mezzo perde il
   // permesso), quindi al momento del click il testo dev'essere già qui.
-  const [fullDescription, setFullDescription] = useState<string | null>(null);
+  const [fullDescription, setFullDescription] = useState<string | null | undefined>(undefined);
   // Si chiede ogni volta che c'è un'anteprima senza il testo dietro, anche
   // quando l'anteprima è già tutta la descrizione: dedurlo dalla lunghezza
   // vorrebbe dire scrivere qui il numero di caratteri del taglio del server, e
@@ -388,25 +390,24 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // niente lo dica. Una richiesta in più su un tasto destro non si sente.
   const wantsFullDescription = task.description === null && !!task.descriptionPreview;
   useEffect(() => {
-    if (!ctxMenu || !wantsFullDescription || fullDescription !== null) return;
+    if (!ctxMenu || !wantsFullDescription || fullDescription !== undefined) return;
     let alive = true;
     boardApi.get(task.projectId, task.id)
       .then(({ task: full }) => { if (alive) setFullDescription(full.description); })
-      .catch(() => { /* si ricade sull'attesa nel gesto */ });
+      .catch(() => {});
     return () => { alive = false; };
   }, [ctxMenu, wantsFullDescription, fullDescription, task.projectId, task.id]);
-  const copyTask = (): void => {
+  const copyTask = async (): Promise<void> => {
     const description = task.description ?? fullDescription;
-    if (description !== null || !wantsFullDescription) {
-      void copyText(taskCopyText({ text: task.text, description }));
+    if (wantsFullDescription && description === undefined) {
+      toast.error(tr('browser.menu.copyFailed'));
       return;
     }
-    // Non è ancora atterrata: si aspetta. Incollare i 240 caratteri
-    // dell'anteprima spacciandoli per il testo è il guasto silenzioso; se
-    // nemmeno questa risponde si copia il titolo, che è vero.
-    void boardApi.get(task.projectId, task.id)
-      .then(({ task: full }) => copyText(taskCopyText(full)))
-      .catch(() => copyText(taskCopyText({ text: task.text, description: null })));
+    if (await copyText(taskCopyText({ text: task.text, description: description ?? null }))) {
+      toast.success(tr('board.task.copyTextDone'));
+    } else {
+      toast.error(tr('browser.menu.copyFailed'));
+    }
   };
   // La riga della lista comanda; il fetch è la ricaduta per un server vecchio.
   const rowThread = useMemo(() => cardCommentsFromRow(task), [task]);
@@ -1763,7 +1764,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               sempre dalla card, senza aprire niente. */}
           <button
             role="menuitem"
-            onClick={(e) => { e.stopPropagation(); setCtxMenu(null); copyTask(); }}
+            onClick={(e) => { e.stopPropagation(); setCtxMenu(null); void copyTask(); }}
             className={POPOVER_ITEM}
           ><Copy className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.card.copyTask')}</button>
           {canOpenSession && (

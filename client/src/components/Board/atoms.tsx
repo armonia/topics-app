@@ -8,6 +8,7 @@ import { STATUS_ICON_COLOR, DISPATCH_CHIP } from './constants';
 import { chipKey } from './chipKey';
 import { queueReasonText } from '../../../../shared/queue-reason-text';
 import { memorableId } from '../../lib/memorableId';
+import { copyText } from '../../lib/clipboard';
 
 /**
  * Il riferimento al task nell'eyebrow della card: un SEGNO, non una parola.
@@ -44,7 +45,11 @@ export function TaskIdChip({ id, className = '' }: { id: string; className?: str
       aria-label={tr('task.id.copy.aria', { id: memorableId(id) })}
       onClick={(e) => {
         e.stopPropagation();
-        try { void navigator.clipboard?.writeText(id); setCopied(true); setTimeout(() => setCopied(false), 1200); } catch { /* clipboard blocked */ }
+        void copyText(id).then((didCopy) => {
+          if (!didCopy) return;
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1200);
+        });
       }}
       title={copied ? tr('task.id.copied') : tr('task.id.copyHint', { short: memorableId(id), full: id })}
       className={`tap-expand inline-flex shrink-0 items-center justify-center rounded p-0.5 transition-colors ${copied ? 'text-emerald-400' : 'text-app-text-muted hover:text-app-text-heading'} ${className}`}
