@@ -108,6 +108,7 @@ export function ImageLightbox({ src, alt, onClose }: { src: string; alt: string;
       />
       <button
         data-testid="lightbox-close"
+        aria-label="Close image"
         className="absolute top-4 right-4 text-white bg-black/50 rounded-full w-10 h-10 flex items-center justify-center"
         onClick={(e) => { e.stopPropagation(); onClose(); }}
       ><X className="w-5 h-5" aria-hidden="true" /></button>
