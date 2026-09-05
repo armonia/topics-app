@@ -16,6 +16,40 @@ Common preconditions shared across scenarios:
 
 The system SHALL support creating, renaming, archiving, deleting, and restoring topics with full lifecycle management including settings, hierarchy, and templates.
 
+**La lista di boot porta i soli topic VIVI.** Misurato il 2026-09-05 sulla
+macchina di chi usa la app: 1.554 topic, 1.535 archiviati, e `GET /api/topics`
+li portava tutti — 872 KB, 1,4 s a macchina carica — per le 19 righe che la
+sidebar disegna, rifatti a ogni avvio e a ogni riconnessione WebSocket, e
+riscritti interi in `topics-cache` a ogni cambiamento di qualunque topic. Quindi
+`GET /api/topics` SHALL rispondere con i soli topic non archiviati (più
+`workspaceProjects`), e gli archiviati SHALL stare dietro
+`GET /api/topics?archived=1`, nella stessa forma da lista (senza `systemPrompt`
+e `browserState`, con `hasSystemPrompt`). `GET /api/topics/:id` SHALL
+continuare a servire intero qualunque topic, archiviato o no. Il client SHALL
+caricare l'archivio DOPO il primo fotogramma — in idle, o alla prima superficie
+che lo chiede: «Mostra archiviati», la palette di ricerca, un link o una
+notifica che nomina una chat chiusa (che si risolve col singolo topic). Le due
+metà SHALL avere due cache: `topics-cache` per i vivi e `topics-archived-cache`
+per gli archiviati, scritta solo quando l'insieme degli archiviati cambia (vedi
+STORAGE-WAL-01). Il primo fotogramma continua a leggere dalla cache locale.
+Il riparo dei `parentId` orfani, che girava dentro la GET, SHALL girare una
+volta alla costruzione del router.
+
+#### Scenario: un topic archiviato non viaggia con la lista di boot
+- **GIVEN** mille topic archiviati e tre vivi
+- **WHEN** il client chiede `GET /api/topics`
+- **THEN** la risposta SHALL contenere i tre vivi e nessun archiviato
+- **AND** `GET /api/topics?archived=1` SHALL contenere i mille archiviati, nella stessa forma da lista, e nessun vivo
+- **AND** `GET /api/topics/:id` di uno degli archiviati SHALL servirlo intero, `systemPrompt` compreso
+
+#### Scenario: archiviare e riaprire dopo un ricarico
+- **GIVEN** un topic archiviato, e la app ricaricata
+- **THEN** il topic NON SHALL comparire in sidebar né in `topics-cache`
+- **AND** SHALL comparire in `topics-archived-cache` una volta caricato l'archivio
+- **WHEN** l'utente attiva «Mostra archiviati» e clicca il topic
+- **THEN** la tab SHALL aprirsi e il server SHALL riportare `archived: false`
+- **AND** una riga fissata di una chat chiusa SHALL mostrare il suo nome anche su un dispositivo che parte a cache vuote
+
 #### Scenario: Create topic via new topic button
 - **GIVEN** the sidebar is visible with the topic tree
 - **WHEN** the user clicks the new topic button in the sidebar header

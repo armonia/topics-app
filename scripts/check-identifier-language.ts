@@ -98,6 +98,9 @@ export const PROJECT_WORDS = new Set([
   // and `perf` are the units this codebase measures in, and `strongest` is a
   // regular superlative the 1934 list simply does not carry.
   "online", "primaries", "fps", "perf", "strongest",
+  // `upsert` is the database verb (insert-or-update) SQLite itself documents;
+  // the 1934 list predates it.
+  "upsert",
   // The name of the tool this codebase shells out to for every audio
   // conversion. A variable holding its path can only be called this: any
   // synonym would hide which binary is being run.

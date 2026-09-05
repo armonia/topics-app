@@ -782,10 +782,13 @@ export interface ToolCall {
    * How many characters the history payload REMOVED from `detail`.
    *
    * `GET /api/history/:sessionKey` blanks the three big text fields inside
-   * `detail` (`output`, `content`, `result`) before putting the thread on the
-   * wire: a closed tool row never reads them, and they are most of the weight
-   * of opening a chat. This counter is what the row has left to know that a
-   * body EXISTED, since the strings it would have measured are now empty.
+   * `detail` (`output`, `content`, `result`) and cuts every other string
+   * longer than `WIRE_STRING_PREVIEW_CHARS` to its head (a Bash `command`
+   * beyond its first lines, an Edit's `oldString`/`newString`, an MCP `args`
+   * value) before putting the thread on the wire: a closed tool row never
+   * reads past that, and those strings are most of the weight of opening a
+   * chat. This counter is what the row has left to know that a body EXISTED,
+   * since the strings it would have measured are now empty or short.
    *
    * Set by `stripDetailText` (shared/lean-tool-call.ts). Absent when nothing
    * was stripped, which is also the shape every other route ships: only the
@@ -801,6 +804,20 @@ export interface ToolCall {
    * `GET /api/messages/:messageId/tool/:toolCallId/detail`.
    */
   detailBytes?: number;
+  /**
+   * How many characters the history payload REMOVED from `args`: the twin of
+   * `detailBytes` for the other copy of the same text.
+   *
+   * `args` repeats what `detail` already types (a Write's `content`, an Edit's
+   * `new_string`, a script in `command`) and the renderer reads it only as a
+   * fallback when `detail` is missing or untyped. On the history wire every
+   * string inside `args` longer than `WIRE_STRING_PREVIEW_CHARS` travels as
+   * its head, and this is the count of what was cut. Absent when nothing was.
+   *
+   * Set by `stripArgsText` (shared/lean-tool-call.ts). The whole `args` come
+   * back from the same detail route, in the same fetch, when the row opens.
+   */
+  argsBytes?: number;
   /** See client mirror for full semantics. Populated for tools that
    *  request human input; lives on the row so re-renders + scrollback
    *  show the original prompt. */
@@ -1152,6 +1169,15 @@ export interface Machine {
   acknowledgedWarnings: Record<string, string>;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * Which half of the topics table a list wants. `GET /api/topics` is the live
+ * half; `GET /api/topics?archived=1` the archive; the store without a filter
+ * still walks all of them.
+ */
+export interface TopicsFilter {
+  archived?: boolean;
 }
 
 /** Corpo della risposta di `GET /api/topics`. */

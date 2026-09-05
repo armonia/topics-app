@@ -275,6 +275,71 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
       await deleteTopic(request, fresh.id);
     }
   });
+
+  test("a tool call with 30 KB of args arrives as its head and opens whole", async ({ page, request }) => {
+    // WIRE-09: the history wire carries of a tool call only what the CLOSED
+    // row draws. A 30 KB script travels as its first 512 characters (the
+    // closed row shows its first line), a 30 KB Write as its path; the whole
+    // text comes back from the detail route the first time the row opens.
+    test.info().annotations.push({ type: "spec", description: "WIRE-09" });
+    const fresh = await createTopic(request, "Tool Lean " + Date.now());
+    const sk = `topic:${fresh.id.slice(0, 8)}`;
+    // Head and tail markers: the head must be on the closed row, the tail
+    // must NOT be on the wire and MUST be in the open body.
+    const SHELL_HEAD = "echo lean-shell-head";
+    const SHELL_TAIL = "echo lean-shell-tail-marker";
+    const WRITE_TAIL = "// lean-write-tail-marker";
+    const command = [SHELL_HEAD, ...Array.from({ length: 700 }, (_, i) => `echo filler-${i} ${"x".repeat(32)}`), SHELL_TAIL].join("\n");
+    const content = `// lean-write-head\n${"const filler = 1;\n".repeat(1800)}${WRITE_TAIL}\n`;
+    expect(command.length).toBeGreaterThan(30_000);
+    expect(content.length).toBeGreaterThan(30_000);
+    try {
+      const u = await seedMessage(request, {
+        sessionKey: sk, role: "user", content: "Hi",
+        timestamp: new Date(Date.now() - 3000).toISOString(),
+      });
+      await seedMessage(request, {
+        sessionKey: sk,
+        role: "assistant",
+        parentId: u.id,
+        content: "Done.",
+        timestamp: new Date(Date.now() - 2000).toISOString(),
+        toolCalls: [
+          { id: "tc-lean-shell", name: "Bash", args: { command }, status: "success", result: "ok" },
+          { id: "tc-lean-write", name: "Write", args: { file_path: "/tmp/lean/big-file.ts", content }, status: "success", result: "File created successfully at: /tmp/lean/big-file.ts" },
+        ],
+      });
+
+      await goToApp(page);
+      await page.keyboard.press("Escape");
+      await openTopic(page, new RegExp(fresh.name));
+
+      const shell = page.locator('[data-testid="tool-call-row-tc-lean-shell"]');
+      await shell.waitFor({ state: "visible", timeout: 10_000 });
+      const write = page.locator('[data-testid="tool-call-row-tc-lean-write"]');
+      await expect(write).toBeVisible();
+
+      // CLOSED: the head of the command and the path are drawn; the tails are
+      // not even in the DOM, because the wire did not carry them.
+      await expect(shell).toContainText(SHELL_HEAD);
+      await expect(shell).not.toContainText(SHELL_TAIL);
+      await expect(write).toContainText("big-file.ts");
+      await expect(write).not.toContainText(WRITE_TAIL);
+
+      // OPEN: the whole text is fetched and drawn, tail included.
+      await shell.locator("button").first().click();
+      await expect(shell.locator('[data-testid="tool-call-args"]')).toContainText(SHELL_TAIL, { timeout: 10_000 });
+      await write.locator("button").first().click();
+      await expect(write.locator('[data-testid="tool-call-result"]')).toContainText(WRITE_TAIL, { timeout: 10_000 });
+      // The Write card also counts the characters of the WHOLE content, not of
+      // the preview. The card formats the number with the browser's locale, so
+      // the digit groups may be split by any separator (or none).
+      const grouped = String(content.length).replace(/\B(?=(\d{3})+(?!\d))/g, "[^\\d]?");
+      await expect(write.locator('[data-testid="tool-call-args"]')).toContainText(new RegExp(`${grouped} chars`));
+    } finally {
+      await deleteTopic(request, fresh.id);
+    }
+  });
 });
 
 /**

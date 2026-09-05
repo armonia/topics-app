@@ -306,6 +306,26 @@ non un successo.
 - **GIVEN** lo stesso testo in due campi
 - **THEN** SHALL viaggiare una volta sola
 
+Di una chiamata di strumento la storia SHALL portare SOLO ciò che la riga
+CHIUSA disegna: il percorso, la testa di un comando, il pattern, l'indirizzo,
+una riga di riassunto. Un campo di testo di `args` o di `detail` più lungo
+della soglia condivisa (`WIRE_STRING_PREVIEW_CHARS`) SHALL viaggiare come
+ANTEPRIMA troncata, e la misura di quanto è stato tolto SHALL essere DICHIARATA
+sulla chiamata (`argsBytes` accanto a `detailBytes`); i campi corti SHALL
+restare interi. Misurato su un discorso vero di 17 messaggi: 2,6 MB e 1,4 s
+per aprire la chat, con `args` e `detail` di un solo blocco shell a 33 KB
+ciascuno contro 174 byte dichiarati tolti. Il testo intero SHALL tornare dalla
+porta del dettaglio quando la riga si apre, e ciò che la riga aperta mostra,
+copia o apre SHALL essere il testo intero, mai l'anteprima. Lo streaming dal
+vivo NON cambia: i blocchi di un turno in corso arrivano interi, la magrezza è
+della sola storia.
+
+#### Scenario: una chiamata con 30 KB di argomenti
+- **GIVEN** una storia con venti chiamate di strumento da 30 KB di argomenti ciascuna
+- **WHEN** la storia viene richiesta
+- **THEN** la riga chiusa SHALL avere la testa del comando e il percorso, il carico SHALL restare sotto il budget in byte, e la misura tolta SHALL essere dichiarata
+- **AND** la porta del dettaglio SHALL restituire gli argomenti interi
+
 ### Requirement: WIRE-10 — Una colonna grande si COMPRIME, e ogni lettore sa leggerla in entrambe le forme
 
 Le colonne che portano molto testo SHALL essere COMPRESSE sopra una soglia, e

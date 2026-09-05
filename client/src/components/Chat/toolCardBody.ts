@@ -31,15 +31,16 @@ export function skillInstructions(result?: string): string | null {
  * Lì il chevron prometteva un corpo e apriva il vuoto — il click sembrava non
  * funzionare, ed è esattamente com'è stato letto («la skill non apre nulla»).
  */
-export function toolCardHasBody(detail: ToolCallDetail, detailBytes?: number): boolean {
-  // Il payload della cronologia svuota `output`/`content`/`result` dentro
-  // `detail` e lascia sul toolCall il conto dei byte tolti (`detailBytes`).
-  // Senza questa riga le tre righe che decidono guardando quelle stringhe
-  // leggerebbero il vuoto e concluderebbero «niente da aprire»: il chevron
-  // sparirebbe proprio dalle righe che un corpo ce l'hanno, e grosso.
-  // Il conto e' la traccia che quel corpo esisteva; il testo si va a prendere
-  // all'apertura.
-  if (typeof detailBytes === 'number' && detailBytes > 0) return true;
+export function toolCardHasBody(detail: ToolCallDetail, strippedBytes?: number): boolean {
+  // The history payload blanks `output`/`content`/`result` inside `detail`,
+  // cuts every other long string of `detail` and `args` to its head, and
+  // leaves on the toolCall the count of what it removed (`detailBytes` +
+  // `argsBytes`, summed by the caller). Without this line the three rows
+  // below that decide by looking at those strings would read the blank and
+  // conclude "nothing to open": the chevron would vanish precisely from the
+  // rows that do have a body, and a big one. The count is the trace that the
+  // body existed; the text is fetched on open.
+  if (typeof strippedBytes === 'number' && strippedBytes > 0) return true;
   switch (detail.type) {
     case 'skill':
       return skillInstructions(detail.result) !== null;
