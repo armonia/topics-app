@@ -5,32 +5,24 @@
  * before the normal bind helper had a chance to reject the bind.
  * @covers GLOBAL-ORCHESTRATOR-ISOLATION-01
  */
-import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { setupTestDataDir, createTestAppContext, cleanupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
-
-// The guard is useful even while a real Codex turn is unavailable, but the
-// healthy coordinator path deliberately resolves Codex before persisting a
-// message. Keep this command test focused on the command fence rather than
-// the machine's installed-provider registry.
-//
-// Process-global mock (bun): everything but the Codex lookup delegates to the
-// real barrel captured before the mock, so the files that run after this one
-// in the same process keep their provider registry.
-import * as realProviders from "../providers";
-const realBarrel = { ...realProviders };
-const realGetProvider = realProviders.getProvider;
-mock.module("../providers", () => ({
-  ...realBarrel,
-  getProvider: (name?: string) => {
-    if (name === "codex") return { name: "codex", capabilities: new Set<string>(), connected: true };
-    return realGetProvider(name);
-  },
-}));
-
+import { registerProvider, removeProvider } from "../providers";
 import { createChatRouter } from "./chat";
 import type { Topic } from "../types";
+
+// The guard is useful even while a real Codex turn is unavailable, but the
+// healthy coordinator path deliberately resolves Codex from the registry
+// before persisting a message. Register a REAL Codex provider rather than
+// mocking the barrel: `mock.module` is process-global in bun and outlives this
+// file, and a namespace import of the barrel makes every provider export look
+// used to the dead-code gate. The Codex constructor only stores its config and
+// `start()` only flips a flag: no process is spawned and no CLI is required.
+// The command fence returns before the turn would reach the provider.
+beforeAll(() => { registerProvider({ type: "codex" }); });
+afterAll(() => { removeProvider("codex"); });
 
 const ROOT = testTmpDir("chat-global-project-command");
 const DATA_DIR = join(ROOT, "data");

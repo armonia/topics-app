@@ -2039,7 +2039,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   async function reviewDeliveryGate(
     taskId: string,
     projectId: string,
-    body: any,
+    body: Record<string, unknown> | null,
     legMs: number,
     pathname: string,
     chat: { sessionKey: string; topicId: string | null },
@@ -2137,7 +2137,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     taskId: string,
     projectId: string,
     session: { actor: string; sessionKey: string; topicId: string },
-    body: any,
+    body: Record<string, unknown> | null,
     pathname: string,
   ): Promise<Response> {
     const noDelivery = rejectDeliveryPatch(body);
@@ -3673,7 +3673,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       }
 
       if (method === "POST") {
-        const body = (await readJSON(req)) as any;
+        const body = (await readJSON(req)) as {
+          board_id?: unknown;
+          text?: unknown;
+          description?: unknown;
+          priority?: unknown;
+          assignee?: unknown;
+          idempotency_key?: unknown;
+          allow_duplicate?: unknown;
+        } | null;
         const unexpected = rejectUnexpectedGlobalFields(
           body,
           ["board_id", "text", "description", "priority", "assignee", "idempotency_key", "allow_duplicate"],
@@ -3713,8 +3721,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         try {
           const task = svc.create({
             projectId,
-            text: body?.text,
-            description: body?.description ?? null,
+            // Narrated here rather than cast: the service is the one that
+            // says "task text is required", and an empty string is how a
+            // missing (or non-string) field asks it that question.
+            text: typeof body?.text === "string" ? body.text : "",
+            description: typeof body?.description === "string" ? body.description : null,
             priority: typeof body?.priority === "number" ? body.priority : undefined,
             assignedTo: typeof body?.assignee === "string" ? body.assignee : null,
             // A coordinator records work; a human still decides when a card is
@@ -3741,7 +3752,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       }
       const gated = fanOutGate(globalCommentsRoute.taskId, "do NOT write in the shared thread");
       if (gated) return gated;
-      const body = (await readJSON(req)) as any;
+      const body = (await readJSON(req)) as { content?: unknown; options?: unknown } | null;
       const unexpected = rejectUnexpectedGlobalFields(body, ["content", "options"]);
       if (unexpected) return unexpected;
       if (typeof body?.content === "string" && body.content.length > AGENT_COMMENT_MAX_CHARS) {
@@ -3758,10 +3769,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const comment = svc.addComment({
           taskId: globalCommentsRoute.taskId,
           author: globalSession.actor,
-          content: body?.content,
+          content: typeof body?.content === "string" ? body.content : "",
           projectId: target.projectId,
           questionOptions: Array.isArray(body?.options)
-            ? body.options.filter((option: unknown) => typeof option === "string")
+            ? body.options.filter((option: unknown): option is string => typeof option === "string")
             : undefined,
         });
         const task = svc.get(globalCommentsRoute.taskId, { projectId: target.projectId })?.task;
@@ -3787,7 +3798,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       if (method === "PATCH") {
         const gated = fanOutGate(globalItem.taskId, "do NOT change the task's status, title or assignee");
         if (gated) return gated;
-        const body = (await readJSON(req)) as any;
+        const body = (await readJSON(req)) as Record<string, unknown> | null;
         // Re-read from storage for every detailed mutation, then pass the
         // server-resolved board id into the ordinary agent lifecycle gates.
         const target = resolveGlobalTask(globalItem.taskId);
@@ -3868,8 +3879,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         try {
           const task = svc.create({
             projectId: sess.projectId,
-            text: body?.text,
-            description: body?.description ?? null,
+            // Narrated here rather than cast: the service is the one that
+            // says "task text is required", and an empty string is how a
+            // missing (or non-string) field asks it that question.
+            text: typeof body?.text === "string" ? body.text : "",
+            description: typeof body?.description === "string" ? body.description : null,
             priority: typeof body?.priority === "number" ? body.priority : undefined,
             assignedTo: typeof body?.assignee === "string" ? body.assignee : null,
             // Agents/MCP always create into `backlog` (intake), never straight into

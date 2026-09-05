@@ -6,39 +6,22 @@
  * be resolved as a fallback.
  * @covers GLOBAL-ORCHESTRATOR-PROVIDER-01
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { getProvider, registerProvider, removeProvider } from "../providers";
+import { createChatRouter } from "./chat";
 import type { AppContext, Topic } from "../types";
 
-const providerCalls: string[] = [];
-const codexProvider = {
-  name: "codex",
-  capabilities: new Set<string>(),
-  connected: true,
-};
-
-// `chat.ts` imports this one runtime symbol from the provider barrel. Mocking
-// it proves the route asks specifically for Codex rather than falling through
-// to the ordinary dependency-injected provider resolver.
-//
-// `mock.module` is process-global in bun and outlives this file when the suite
-// runs in one process: everything but the Codex lookup is delegated to the real
-// barrel (captured BEFORE the mock, since the live bindings get rewritten), so
-// a later file that registers a real provider still finds the registry it
-// expects. Measured 2026-09-04: a throwing stub turned topics-abort-turnend red.
-import * as realProviders from "../providers";
-const realBarrel = { ...realProviders };
-const realGetProvider = realProviders.getProvider;
-mock.module("../providers", () => ({
-  ...realBarrel,
-  getProvider: (name?: string) => {
-    providerCalls.push(name ?? "");
-    if (name === "codex") return codexProvider;
-    return realGetProvider(name);
-  },
-}));
-
-import { createChatRouter } from "./chat";
+// `chat.ts` resolves the coordinator's provider straight from the registry
+// (`getProvider("codex")`), never through the dependency-injected resolver.
+// A REAL Codex provider is registered for the file rather than a `mock.module`
+// on the barrel: the module mock is process-global in bun and outlives this
+// file, and the namespace import it needed made every provider export look
+// used to the dead-code gate. The Codex constructor only stores its config and
+// `start()` only flips a flag: no process is spawned and no CLI is required.
+// The harness stops the route right after persistence, before any spawn.
+beforeAll(() => { registerProvider({ type: "codex" }); });
+afterAll(() => { removeProvider("codex"); });
 
 const SESSION_KEY = "topic:global-provider-test";
 const TOPIC_ID = "global-provider-test";
@@ -148,8 +131,6 @@ function harness(topicProvider = "codex") {
   };
 }
 
-beforeEach(() => { providerCalls.splice(0); });
-
 describe("POST /api/chat — global coordinator Codex-only boundary", () => {
   test("rejects every non-Codex override before message persistence", async () => {
     const h = harness();
@@ -159,7 +140,6 @@ describe("POST /api/chat — global coordinator Codex-only boundary", () => {
         expect(response?.status).toBe(400);
         expect(await response!.json()).toMatchObject({ code: "orchestrator_provider_required" });
       }
-      expect(providerCalls).toEqual([]);
       expect(h.fallbackCalls()).toBe(0);
       expect(h.appended).toEqual([]);
     } finally { h.db.close(); }
@@ -168,11 +148,33 @@ describe("POST /api/chat — global coordinator Codex-only boundary", () => {
   test("forces the Codex registry provider and never resolves the ordinary fallback", async () => {
     const h = harness();
     try {
+      // The registry holds Codex, so the route passes the boundary and reaches
+      // persistence: the message is recorded without the injected resolver
+      // ever running. That is the forced decision, observed from outside.
+      expect(getProvider("codex").name).toBe("codex");
       await expect(h.send("codex")).rejects.toThrow("STOP_AFTER_APPEND");
-      expect(providerCalls).toEqual(["codex"]);
       expect(h.fallbackCalls()).toBe(0);
       expect(h.appended).toEqual(["coordinate this board"]);
     } finally { h.db.close(); }
+  });
+
+  test("with Codex missing from the registry the turn fails closed instead of falling back", async () => {
+    // Same request as above, minus the only provider the coordinator accepts.
+    // A route that fell through to the ordinary resolver would count a
+    // fallback call or persist the message; a route that asks the registry for
+    // Codex specifically can only answer 503.
+    removeProvider("codex");
+    const h = harness();
+    try {
+      const response = await h.send("codex");
+      expect(response?.status).toBe(503);
+      expect(await response!.json()).toMatchObject({ code: "codex_unavailable" });
+      expect(h.fallbackCalls()).toBe(0);
+      expect(h.appended).toEqual([]);
+    } finally {
+      h.db.close();
+      registerProvider({ type: "codex" });
+    }
   });
 
   test("a raw registered row with a non-Codex provider fails closed before fallback", async () => {
@@ -181,7 +183,6 @@ describe("POST /api/chat — global coordinator Codex-only boundary", () => {
       const response = await h.send("codex");
       expect(response?.status).toBe(409);
       expect(await response!.json()).toMatchObject({ code: "orchestrator_topic_invariant" });
-      expect(providerCalls).toEqual([]);
       expect(h.fallbackCalls()).toBe(0);
       expect(h.appended).toEqual([]);
     } finally { h.db.close(); }
