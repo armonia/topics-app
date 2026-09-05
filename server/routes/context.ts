@@ -6,6 +6,7 @@ import { contextUpdateFromUsage } from "../usage/usage-update";
 import { probeSessionCost } from "../usage/cost-probe";
 import { assembleTopicContext, getProviderStrategy } from "../context";
 import { getProvider, getDefaultProvider } from "../providers";
+import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 
 // ── Cache dell'analisi del contesto (TTL 15s) ────────────────────────────
 const CONTEXT_CACHE_TTL = 15000;
@@ -103,6 +104,16 @@ export function createContextRouter(ctx: AppContext): RouteHandler {
       // suo (`contextLimit`/`maxTokens`) vince quello: e' la sessione che sta
       // servendo lui.
       const modelLimit = contextWindowFor(ctx.getTopicBySessionKey?.(sessionKey)?.model).tokens;
+
+      // The coordinator is Codex-only and has no OpenClaw scope.  Its context
+      // estimate is local even if its stored Topic has been manually damaged.
+      // Do not read its attached files either: a raw registry role never gets
+      // project/file authority through this diagnostic endpoint.
+      if (isGlobalOrchestratorSession(ctx.db, sessionKey)) {
+        const localMsgs = loadLocalMessages(sessionKey);
+        const estimatedTokens = localMsgs.reduce((sum, m) => sum + (m.content?.length || 0) / 4, 0);
+        return json({ total: Math.round(estimatedTokens), limit: modelLimit, breakdown: [{ label: "Messages", tokens: Math.round(estimatedTokens), color: "#22c55e" }] });
+      }
 
       try {
         const resp = await fetch(`${GATEWAY_URL}/tools/invoke`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` }, body: JSON.stringify({ tool: "session_status", args: { sessionKey } }) });

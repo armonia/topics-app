@@ -19,6 +19,7 @@ import { sessionIsFree, switchSessionToFree } from "../lib/session-free-mode";
 import { etichettaAutore } from "../lib/message-author";
 import { logActivity } from "../db/activity-log";
 import { decodeCol } from "../../shared/message-blob";
+import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 import type { PermissionDecision, ToolPermissionOutcome, ToolPermissionRequest } from "../../shared/types";
 
 /**
@@ -45,6 +46,19 @@ import type { PermissionDecision, ToolPermissionOutcome, ToolPermissionRequest }
  */
 export function createPermissionRouter(ctx: AppContext): RouteHandler {
   const { json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey, saveSingleTopic, updateToolCallFields } = ctx;
+
+  // The registry role remains recognizable even after a backing Topic has been
+  // corrupted.  It never gets to use the generic human-approval bridge: the
+  // coordinator's Codex-only profile has just the focused board tools, and a
+  // raw row must not become an ordinary session merely because that invariant
+  // no longer holds.
+  const denyGlobalCoordinatorHumanBridge = (sessionKey: string): Response | null => {
+    if (!isGlobalOrchestratorSession(ctx.db, sessionKey)) return null;
+    return json({
+      error: "the global coordinator does not use generic ask or permission bridges",
+      code: "orchestrator_topic_invariant",
+    }, 403);
+  };
 
   // Le dipendenze dell'instradamento di una domanda nel thread di un task. Il
   // servizio dei task si costruisce qui e non si riceve, come fa la rotta dei
@@ -104,6 +118,8 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
       const bySession = matchRoute(pathname, "/api/sessions/:sessionKey/ask-user");
       if (bySession && method === "POST") {
         const sk = decodeURIComponent(bySession.sessionKey);
+        const denied = denyGlobalCoordinatorHumanBridge(sk);
+        if (denied) return denied;
         const body = (await readJSON(req)) as { questions?: unknown; legMs?: unknown } | null;
         if (!Array.isArray(body?.questions) || body.questions.length === 0) {
           return json({ error: "questions (non-empty array) is required" }, 400);
@@ -174,6 +190,8 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
       const permM = matchRoute(pathname, "/api/sessions/:sessionKey/permission");
       if (permM && method === "POST") {
         const sk = decodeURIComponent(permM.sessionKey);
+        const denied = denyGlobalCoordinatorHumanBridge(sk);
+        if (denied) return denied;
         const body = (await readJSON(req)) as
           | { toolName?: unknown; input?: unknown; toolUseId?: unknown; legMs?: unknown }
           | null;
@@ -296,6 +314,8 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
       const respM = matchRoute(pathname, "/api/sessions/:sessionKey/permission-response");
       if (respM && method === "POST") {
         const sk = decodeURIComponent(respM.sessionKey);
+        const denied = denyGlobalCoordinatorHumanBridge(sk);
+        if (denied) return denied;
         const body = (await readJSON(req)) as { toolCallId?: unknown; decision?: unknown } | null;
         const toolCallId = typeof body?.toolCallId === "string" ? body.toolCallId : "";
         if (!toolCallId) return json({ error: "toolCallId is required" }, 400);

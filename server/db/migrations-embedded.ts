@@ -149,6 +149,7 @@ import m20260904100839_tool_calls_duplicati_nei_blocchi from "./migrations/20260
 import m20260904101008_done_cards_keep_no_dispatch_error from "./migrations/20260904101008-done-cards-keep-no-dispatch-error.sql" with { type: "text" };
 import m20260904190854_mark_dispatched_envelopes from "./migrations/20260904190854-mark-dispatched-envelopes.sql" with { type: "text" };
 import m20260904190855_task_comment_message_anchor from "./migrations/20260904190855-task-comment-message-anchor.sql" with { type: "text" };
+import m20260904110000_global_orchestrator_sessions from "./migrations/20260904110000-global-orchestrator-sessions.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -302,4 +303,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260904101008, name: "20260904101008-done-cards-keep-no-dispatch-error.sql", sql: m20260904101008_done_cards_keep_no_dispatch_error },
   { version: 20260904190854, name: "20260904190854-mark-dispatched-envelopes.sql", sql: m20260904190854_mark_dispatched_envelopes },
   { version: 20260904190855, name: "20260904190855-task-comment-message-anchor.sql", sql: m20260904190855_task_comment_message_anchor },
+  { version: 20260904110000, name: "20260904110000-global-orchestrator-sessions.sql", sql: m20260904110000_global_orchestrator_sessions },
 ];

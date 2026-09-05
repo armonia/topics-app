@@ -26,9 +26,10 @@ import { cancelPermission, hasPendingPermission, sessionHasPendingPermission } f
 
 type Row = { tool_calls?: string | null; blocks?: string | null } | undefined;
 
-function makeHarness(row: Row = undefined) {
+function makeHarness(row: Row = undefined, options: { rawGlobalSessions?: Iterable<string> } = {}) {
   const broadcasts: Array<{ type: string } & Record<string, unknown>> = [];
   const toolCallWrites: Array<{ sessionKey: string; toolCallId: string; fields: Record<string, unknown> }> = [];
+  const rawGlobalSessions = new Set(options.rawGlobalSessions ?? []);
 
   /**
    * I topic della finta app. Uno per session key, coniato alla prima richiesta
@@ -48,7 +49,17 @@ function makeHarness(row: Row = undefined) {
   };
 
   const ctx = {
-    db: { prepare: () => ({ get: () => row }) },
+    db: {
+      prepare: () => ({ get: () => row }),
+      // This deliberately models only the raw registry lookup. A coordinator
+      // with corrupt provider/project fields is still a registry role and must
+      // be rejected before any generic bridge side effect.
+      query: () => ({
+        get: (_scope: string, sessionKey: string) => rawGlobalSessions.has(sessionKey)
+          ? { scope: "global", topic_id: "registered-coordinator", created_at: "now", updated_at: "now" }
+          : null,
+      }),
+    },
     json: (data: unknown, status = 200) =>
       new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } }),
     readJSON: async (req: Request) => { try { return await req.json(); } catch { return null; } },
@@ -229,6 +240,34 @@ describe("POST /api/sessions/:sessionKey/permission-response", () => {
     expect(resp.status).toBe(200);
     const outcome = h.toolCallWrites.at(-1)!.fields.permissionOutcome as { decision: string };
     expect(outcome.decision).toBe("deny");
+  });
+});
+
+describe("global coordinator human-bridge isolation", () => {
+  test("raw registry coordinator cannot enter ask, permission, or permission-response paths", async () => {
+    const sk = "topic:registered-coordinator";
+    const h = makeHarness(undefined, { rawGlobalSessions: [sk] });
+
+    const ask = (await h.call("POST", `/api/sessions/${sk}/ask-user`, { questions: [{ question: "?" }] }))!;
+    expect(ask.status).toBe(403);
+    expect((await ask.json()).code).toBe("orchestrator_topic_invariant");
+    expect(hasPendingAsk(sk)).toBe(false);
+
+    const permission = (await h.call("POST", `/api/sessions/${sk}/permission`, {
+      toolName: "Bash", toolUseId: "coordinator-tool", legMs: 100,
+    }))!;
+    expect(permission.status).toBe(403);
+    expect(hasPendingPermission(sk, "coordinator-tool")).toBe(false);
+
+    const response = (await h.call("POST", `/api/sessions/${sk}/permission-response`, {
+      toolCallId: "coordinator-tool", decision: "allow_free",
+    }))!;
+    expect(response.status).toBe(403);
+    expect(h.toolCallWrites).toEqual([]);
+    expect(h.broadcasts).toEqual([]);
+    // In particular, a direct `allow_free` could not mutate its Topic's
+    // autonomy level and widen a later generic session.
+    expect(h.topicFor(sk).autonomyLevel).toBe("auto-apply");
   });
 });
 

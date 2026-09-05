@@ -142,25 +142,27 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned
               onClick={() => { onPopOut(); onClose(); }}
             />
           )}
-          <div className="border-t border-app-border my-1" />
-          {/* NON È UN CESTINO, e per tre anni lo ha detto: `Trash2` in rosso,
-              con la stessa grammatica di «elimina». Archiviare qui è la stessa
-              identica cosa che fa il cerchio in coda alla riga — «fatto, togli
-              dalla lista» — e quel gesto è reversibile, ha tre secondi di
-              ripensamento e la sua controparte «Ripristina». Dipingerlo come
-              distruttivo faceva evitare la voce che invece serve.
-              Il glifo d'archivio resta legittimo QUI: in un menu accompagna
-              un'etichetta scritta, non deve dire uno stato da solo (che era il
-              suo problema quando stava in testa alla riga). */}
-          <MenuItem
-            icon={topic.archived ? ArchiveRestore : Archive}
-            label={topic.archived ? 'Ripristina' : 'Archivia'}
-            onClick={() => {
-              // Ripristinare è sicuro: nessuna conferma, come ovunque nell'app.
-              if (topic.archived) { void onDelete(topic.id, false); onClose(); return; }
-              setSubMenu('confirm-delete');
-            }}
-          />
+          {!topic.isGlobalOrchestrator && <>
+            <div className="border-t border-app-border my-1" />
+            {/* NON È UN CESTINO, e per tre anni lo ha detto: `Trash2` in rosso,
+                con la stessa grammatica di «elimina». Archiviare qui è la stessa
+                identica cosa che fa il cerchio in coda alla riga — «fatto, togli
+                dalla lista» — e quel gesto è reversibile, ha tre secondi di
+                ripensamento e la sua controparte «Ripristina». Dipingerlo come
+                distruttivo faceva evitare la voce che invece serve.
+                Il glifo d'archivio resta legittimo QUI: in un menu accompagna
+                un'etichetta scritta, non deve dire uno stato da solo (che era il
+                suo problema quando stava in testa alla riga). */}
+            <MenuItem
+              icon={topic.archived ? ArchiveRestore : Archive}
+              label={topic.archived ? 'Ripristina' : 'Archivia'}
+              onClick={() => {
+                // Ripristinare è sicuro: nessuna conferma, come ovunque nell'app.
+                if (topic.archived) { void onDelete(topic.id, false); onClose(); return; }
+                setSubMenu('confirm-delete');
+              }}
+            />
+          </>}
         </>
       )}
 

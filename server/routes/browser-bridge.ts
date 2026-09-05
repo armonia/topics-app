@@ -50,6 +50,7 @@ import { collectLiveContextIds, listBrowserTabs, type TabInventoryDeps } from ".
 import { timingSafeEqualStr } from "../utils";
 import { taskTabContextId, slugTabName } from "../../shared/task-tab-context";
 import { checkPortOwnership, formatPortWarning, realPortOwnerDeps, type PortOwnerDeps } from "../lib/port-project-owner";
+import { isGlobalOrchestratorSession, isGlobalOrchestratorTopic } from "../services/global-orchestrator-session";
 
 /**
  * Le sessioni di terminale viste da qui: solo i tre campi che servono a dare un
@@ -394,6 +395,36 @@ export function createBrowserBridgeRouter(
   };
 
   return async function browserBridgeRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
+    // A coordinator has a deliberately narrow global-board tool surface, never
+    // browser control. Gate the whole direct REST namespace before any route can
+    // resolve a topic context or fall back to a terminal session. This is the
+    // raw registry role on purpose: a corrupt/bound coordinator remains denied
+    // rather than becoming an ordinary browser-capable topic.
+    const sessionBrowserRoute = /^\/api\/sessions\/([^/]+)\/browser(?:\/|$)/.exec(pathname);
+    if (sessionBrowserRoute) {
+      let sessionKey: string;
+      try { sessionKey = decodeURIComponent(sessionBrowserRoute[1]); }
+      catch { return json({ error: "invalid session key" }, 400); }
+      if (isGlobalOrchestratorSession(ctx.db, sessionKey)) {
+        return json({
+          error: "the global coordinator cannot control browser contexts",
+          code: "orchestrator_topic_invariant",
+        }, 403);
+      }
+    }
+    const topicBrowserRoute = /^\/api\/topics\/([^/]+)\/browser(?:\/|$)/.exec(pathname);
+    if (topicBrowserRoute) {
+      let topicId: string;
+      try { topicId = decodeURIComponent(topicBrowserRoute[1]); }
+      catch { return json({ error: "invalid topic id" }, 400); }
+      if (isGlobalOrchestratorTopic(ctx.db, topicId)) {
+        return json({
+          error: "the global coordinator cannot control browser contexts",
+          code: "orchestrator_topic_invariant",
+        }, 403);
+      }
+    }
+
     // POST /api/topics/:id/browser/open-pane
     // POST /api/sessions/:sessionKey/browser/open-pane
     //

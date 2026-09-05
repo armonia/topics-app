@@ -102,6 +102,10 @@ export const PROJECT_WORDS = new Set([
   // conversion. A variable holding its path can only be called this: any
   // synonym would hide which binary is being run.
   "ffmpeg",
+  // Same hole again (2026-09-04): `coordinator` names the global Kanban
+  // coordinator throughout the orchestrator feature, and `denied` is the
+  // past participle the list stops short of.
+  "coordinator", "denied",
   // A dictionary hole, not jargon. `/usr/share/dict/words` is a 1934 legacy and
   // does not carry words today's English uses without thinking: `entries`
   // (Object.entries) is as English as `entry`, which it does carry. Same for

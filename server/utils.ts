@@ -37,6 +37,10 @@ import { isAwaitingHuman } from "../shared/types";
 import type { OutboundMessage } from "../shared/ws-outbound";
 import { imageShape } from "./services/image-shape";
 import { httpLogLine } from "./lib/http-log";
+import {
+  listGlobalOrchestratorTopicIds,
+  presentGlobalOrchestratorTopic,
+} from "./services/global-orchestrator-session";
 
 /**
  * v3 foundations WS-01 outbound validation hook. Runs in DEV mode only —
@@ -407,6 +411,8 @@ export function createAppContext(baseDir: string): AppContext {
     contextFiles: Map<string, string[]>;
     pinnedMessages: Map<string, string[]>;
     disabledSources: Map<string, string[]>;
+    /** One batched role lookup for the client-facing full Topic snapshot. */
+    globalOrchestratorTopicIds: ReadonlySet<string>;
   };
   function buildTopicRelations(): TopicRelations {
     const push = <T>(m: Map<string, T[]>, k: string, v: T) => {
@@ -420,7 +426,13 @@ export function createAppContext(baseDir: string): AppContext {
     for (const r of stmts.getAllTopicPinnedMessages.all() as any[]) push(pinnedMessages, r.topic_id, r.message_id);
     const disabledSources = new Map<string, string[]>();
     for (const r of stmts.getAllTopicDisabledSources.all() as any[]) push(disabledSources, r.topic_id, r.source_id);
-    return { links, contextFiles, pinnedMessages, disabledSources };
+    return {
+      links,
+      contextFiles,
+      pinnedMessages,
+      disabledSources,
+      globalOrchestratorTopicIds: listGlobalOrchestratorTopicIds(db),
+    };
   }
 
   // --- Helper: Convert SQLite topic row to Topic object ---
@@ -440,6 +452,10 @@ export function createAppContext(baseDir: string): AppContext {
       updatedAt: row.updated_at,
       archived: !!row.archived,
     };
+    // This is a server-projected UI capability marker, not Topic persistence.
+    // `loadTopics()` supplies the complete registry set in one query, avoiding
+    // a role lookup for every one of the hundreds of hydrated rows.
+    if (rels?.globalOrchestratorTopicIds.has(row.id)) topic.isGlobalOrchestrator = true;
     if (row.system_prompt) topic.systemPrompt = row.system_prompt;
     if (row.project_path) topic.projectPath = row.project_path;
     if (row.sort_order !== undefined) topic.sortOrder = row.sort_order;
@@ -757,9 +773,22 @@ export function createAppContext(baseDir: string): AppContext {
     }
   }
 
+  function presentTopicInOutboundMessage(message: OutboundMessage): OutboundMessage {
+    // Only Topic lifecycle frames have a normal Topic payload today, but keep
+    // this structural so a future Topic-bearing frame cannot accidentally
+    // bypass the UI's server-owned capability marker.  The projection queries
+    // the singleton registry by id; it never trusts the frame's title/provider.
+    const candidate = message as OutboundMessage & { topic?: unknown };
+    const topic = candidate.topic;
+    if (!topic || typeof topic !== "object" || typeof (topic as Topic).id !== "string") return message;
+    const presented = presentGlobalOrchestratorTopic(db, topic as Topic);
+    return presented === topic ? message : { ...candidate, topic: presented } as OutboundMessage;
+  }
+
   function broadcast(message: OutboundMessage, exclude?: ServerWebSocket<WSData>) {
-    devValidateOutbound(message);
-    const payload = JSON.stringify(message);
+    const presentedMessage = presentTopicInOutboundMessage(message);
+    devValidateOutbound(presentedMessage);
+    const payload = JSON.stringify(presentedMessage);
     // Era l'UNICA fan-out senza filtro degli ospiti, e portava roba d'oro:
     // `auth:pair-requested` con il `requestId` e il codice di chi sta entrando,
     // `auth:pair-resolved`, `auth:device-revoked`. Un ospite con un permesso di
@@ -774,8 +803,8 @@ export function createAppContext(baseDir: string): AppContext {
     const guests = guestSocketFilter();
     for (const ws of wsClients) {
       if (ws !== exclude && ws.readyState === 1) {
-        if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data.deviceId!, message)) continue;
-        sendFrame(ws, payload, message.type);
+        if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data.deviceId!, presentedMessage)) continue;
+        sendFrame(ws, payload, presentedMessage.type);
       }
     }
   }
@@ -794,8 +823,9 @@ export function createAppContext(baseDir: string): AppContext {
   const isGuestSocket = (ws: ServerWebSocket<WSData>) => isGuestSocketData(ws.data);
 
   function broadcastToAll(message: OutboundMessage) {
-    devValidateOutbound(message);
-    const payload = JSON.stringify(message);
+    const presentedMessage = presentTopicInOutboundMessage(message);
+    devValidateOutbound(presentedMessage);
+    const payload = JSON.stringify(presentedMessage);
     // Un OSPITE non riceve tutto. Il gate controlla le RICHIESTE, e un broadcast
     // non è una richiesta: senza questo filtro un ospite col socket aperto
     // vedrebbe passare stato dei progetti, git, presenza, capacità di dispatch —
@@ -808,11 +838,11 @@ export function createAppContext(baseDir: string): AppContext {
     const guests = guestSocketFilter();
     for (const ws of wsClients) {
       if (ws.readyState !== 1) continue;
-      if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data.deviceId!, message)) continue;
-      sendFrame(ws, payload, message.type);
+      if (guests && isGuestSocket(ws) && !guests.mayReceiveFrame(ws.data.deviceId!, presentedMessage)) continue;
+      sendFrame(ws, payload, presentedMessage.type);
     }
     // Trigger push notifications for meaningful events
-    try { maybeSendPush(message as Record<string, any>); } catch (err) {
+    try { maybeSendPush(presentedMessage as Record<string, any>); } catch (err) {
       // Push is best-effort, but a persistent throw here means notifications
       // are silently dead — surface it (throttled) instead of never knowing.
       warnThrottled("maybeSendPush", `[Push] maybeSendPush threw:`, err);

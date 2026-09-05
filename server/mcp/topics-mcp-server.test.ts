@@ -50,6 +50,8 @@ import {
   callResolveTab,
   callBrowserBridge,
   handleMessage,
+  toolsForProfile,
+  isToolAllowedForProfile,
   ASK_LEG_MS,
   ASK_MAX_LEGS,
 } from "./topics-mcp-server";
@@ -105,6 +107,57 @@ describe("parseArgs", () => {
     ]);
     expect(args.baseUrl).toBe("http://x");
     expect(args.sessionKey).toBe("s");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Global Kanban orchestrator profile
+// ---------------------------------------------------------------------------
+
+describe("global-orchestrator MCP profile", () => {
+  const GLOBAL_TASK_TOOLS = [
+    "list_global_tasks",
+    "get_global_task",
+    "create_global_task",
+    "update_global_task",
+    "comment_global_task",
+  ];
+
+  test("publishes only the narrow, board-scoped task surface", () => {
+    expect(toolsForProfile("global-orchestrator").map((tool) => tool.name)).toEqual(GLOBAL_TASK_TOOLS);
+  });
+
+  test("defense-in-depth rejects agent, process, browser, and ordinary task calls", () => {
+    for (const name of GLOBAL_TASK_TOOLS) {
+      expect(isToolAllowedForProfile("global-orchestrator", name)).toBe(true);
+    }
+
+    for (const forbidden of [
+      "spawn_agent",
+      "send_to_agent",
+      "stop_agent",
+      "run_script",
+      "open_browser_pane",
+      "list_tasks",
+      "update_task",
+      "create_task",
+      "send_chat_message",
+    ]) {
+      expect(isToolAllowedForProfile("global-orchestrator", forbidden)).toBe(false);
+    }
+  });
+
+  test("keeps the global surface out of every non-global profile and direct dispatch", () => {
+    for (const profile of [undefined, "dispatch"]) {
+      const advertised = toolsForProfile(profile).map((tool) => tool.name);
+      for (const name of GLOBAL_TASK_TOOLS) {
+        expect(advertised).not.toContain(name);
+        expect(isToolAllowedForProfile(profile, name)).toBe(false);
+      }
+    }
+    // The coordinator does not launch a CLI permission workflow, so even its
+    // bridge-only control tool stays out of the direct-call allow-list.
+    expect(isToolAllowedForProfile("global-orchestrator", "approval_prompt")).toBe(false);
   });
 });
 
@@ -505,7 +558,7 @@ describe("handleMessage", () => {
     expect(result.serverInfo.name).toBe("topics-app");
   });
 
-  test("tools/list → returns the full Phase-1 tool set", async () => {
+  test("tools/list → returns the ordinary Phase-1 tool set without global-only authority", async () => {
     const resp = await handleMessage(
       { jsonrpc: "2.0", id: 2, method: "tools/list" },
       ARGS,
@@ -616,6 +669,7 @@ describe("handleMessage", () => {
       // Aspettare la fine di un processo non lo tocca: è una lettura che dura.
       "wait_for_process",
       "list_tasks", "get_task", "get_goal", "read_agent", "list_agents",
+      "list_global_tasks", "get_global_task",
       "read_chat_messages", "resolve_tab",
       // Chiedere a una persona non cambia niente: è la lettura più pura che ci sia.
       "ask_user_question", "approval_prompt",
@@ -630,16 +684,23 @@ describe("handleMessage", () => {
       "run_script", "stop_process",
       "create_task", "update_task", "close_goal", "set_goal", "update_goal_steps",
       "comment_task", "label_task", "wait_for_condition",
+      "create_global_task", "update_global_task", "comment_global_task",
       "move_session_to_project", "spawn_agent", "send_to_agent", "stop_agent",
       "switch_topic", "new_topic", "create_project", "open_project",
       "send_chat_message",
     ].sort();
 
     const resp = await handleMessage({ jsonrpc: "2.0", id: 9, method: "tools/list" }, ARGS);
-    const tools = (resp!.result as any).tools as Array<{
+    const ordinaryTools = (resp!.result as any).tools as Array<{
       name: string;
       annotations?: { readOnlyHint?: boolean };
     }>;
+    const globalResp = await handleMessage(
+      { jsonrpc: "2.0", id: 10, method: "tools/list" },
+      { ...ARGS, profile: "global-orchestrator" },
+    );
+    const globalTools = (globalResp!.result as any).tools as typeof ordinaryTools;
+    const tools = [...ordinaryTools, ...globalTools];
 
     // 1. Nessun tool sfugge alla classificazione, in nessuna delle due direzioni.
     expect([...SOLA_LETTURA, ...MODIFICANO].sort()).toEqual([...tools.map((t) => t.name)].sort());

@@ -432,6 +432,87 @@ const TOOLS = [
     },
     annotations: MODIFICA,
   },
+  // The global Kanban coordinator is deliberately NOT a normal task agent.
+  // Its identity is checked by the server-owned registry, and this profile
+  // exposes only the narrow cross-board operations that registry authorizes.
+  // In particular it has no process, browser, topic, project, or sub-agent
+  // controls: coordination must happen through durable task data.
+  {
+    name: "list_global_tasks",
+    description:
+      "List current tasks across the global Kanban. Optionally filter by status. This is a bounded board view; read get_global_task before making a detailed change.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: [...TASK_STATUSES], description: "Optional filter: backlog | todo | in_progress | review | done." },
+      },
+    },
+    annotations: SOLA_LETTURA,
+  },
+  {
+    name: "get_global_task",
+    description:
+      "Read one global Kanban task and its discussion thread. The server resolves the task's real board from its id; no board/project id is accepted here.",
+    inputSchema: {
+      type: "object",
+      properties: { task_id: { type: "string", description: "Task id from list_global_tasks." } },
+      required: ["task_id"],
+    },
+    annotations: SOLA_LETTURA,
+  },
+  {
+    name: "create_global_task",
+    description:
+      "Create a new task in an explicit existing board. board_id is mandatory and is validated server-side against the boards Topics knows; never infer or invent a board target. New tasks enter Backlog and duplicate detection remains active unless allow_duplicate is explicitly true.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        board_id: { type: "string", description: "Explicit target board id returned by list_global_tasks (never a filesystem path)." },
+        text: { type: "string", description: "Task title / one-line description." },
+        description: { type: "string", description: "Optional longer body." },
+        priority: { type: "number", description: "0–4 (default 2)." },
+        assignee: { type: "string", description: "Optional agent/person to assign." },
+        idempotency_key: { type: "string", description: "Optional dedupe key for safe retries." },
+        allow_duplicate: { type: "boolean", description: "Only set true after inspecting the matching existing task returned by the duplicate gate." },
+      },
+      required: ["board_id", "text"],
+    },
+    annotations: MODIFICA,
+  },
+  {
+    name: "update_global_task",
+    description:
+      "Update one global Kanban task. The server re-reads the task and resolves its board from task_id before changing it; do not supply a project/board id. Normal review, done, duplicate, and lifecycle gates remain in force.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task_id: { type: "string", description: "Task id from list_global_tasks." },
+        status: { type: "string", enum: [...TASK_STATUSES], description: "Task status. Agent review/done gates still apply." },
+        summary: { type: "string", description: "Required delivery summary when setting status='review'." },
+        priority: { type: "number", description: "0–4." },
+        assignee: { type: "string", description: "Agent/person to assign." },
+        text: { type: "string", description: "Replacement title." },
+        description: { type: "string", description: "Replacement description." },
+      },
+      required: ["task_id"],
+    },
+    annotations: MODIFICA,
+  },
+  {
+    name: "comment_global_task",
+    description:
+      "Add a concise durable comment to one global Kanban task. The server resolves the task's board from task_id and signs the comment as this orchestrator session.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task_id: { type: "string", description: "Task id from list_global_tasks." },
+        content: { type: "string", description: "Concise progress note, handoff, or question." },
+        options: { type: "array", items: { type: "string" }, description: "Optional human quick-reply choices." },
+      },
+      required: ["task_id", "content"],
+    },
+    annotations: MODIFICA,
+  },
   {
     name: "ask_user_question",
     description:
@@ -686,7 +767,7 @@ export interface ParsedArgs {
   baseUrl: string;
   sessionKey: string;
   gatewayToken?: string;
-  /** Tool profile: "dispatch" = reduced set for board agents (see DISPATCH_EXCLUDED_TOOLS). */
+  /** Tool profile. "dispatch" scopes a task agent; "global-orchestrator" is the registry-gated global board surface. */
   profile?: string;
 }
 
@@ -733,6 +814,20 @@ const DISPATCH_EXCLUDED_TOOLS = new Set([
 ]);
 
 /**
+ * The global coordinator is purpose-built board coordination, not a general
+ * agent shell. Keep this positive allowlist intentionally tiny: visibility is
+ * not authorization (the routes re-check the registry), but it prevents a
+ * model from discovering unrelated controls in the first place.
+ */
+const GLOBAL_ORCHESTRATOR_TOOL_NAMES = new Set([
+  "list_global_tasks",
+  "get_global_task",
+  "create_global_task",
+  "update_global_task",
+  "comment_global_task",
+]);
+
+/**
  * `approval_prompt` è pubblicato SEMPRE, e non è un'incoerenza: lo spawn passa
  * `--permission-prompt-tool` in ogni modalità, e la CLI toglie da sé il tool
  * designato dall'elenco che il modello vede (verificato sul filo, anche in
@@ -742,8 +837,16 @@ const DISPATCH_EXCLUDED_TOOLS = new Set([
  * «MCP tool mcp__topics__approval_prompt … not found» su ogni richiesta.
  */
 export function toolsForProfile(profile: string | undefined): typeof TOOLS {
-  if (profile !== "dispatch") return TOOLS;
-  return TOOLS.filter((t) => !DISPATCH_EXCLUDED_TOOLS.has(t.name));
+  if (profile === "global-orchestrator") {
+    return TOOLS.filter((t) => GLOBAL_ORCHESTRATOR_TOOL_NAMES.has(t.name));
+  }
+  // Global board tools have no safe meaning outside the registry-backed
+  // coordinator. Do not merely hide them from `tools/list`: exclude them from
+  // every ordinary profile and deny direct calls below as well.
+  return TOOLS.filter((t) =>
+    !GLOBAL_ORCHESTRATOR_TOOL_NAMES.has(t.name)
+    && (profile !== "dispatch" || !DISPATCH_EXCLUDED_TOOLS.has(t.name)),
+  );
 }
 
 export function isToolAllowedForProfile(profile: string | undefined, name: string): boolean {
@@ -751,6 +854,12 @@ export function isToolAllowedForProfile(profile: string | undefined, name: strin
   // chiama è la CLI, non il modello, e un `tools/list` che non lo elenca non
   // vuol dire che la CLI non lo designi. Rifiutarlo qui spegnerebbe il canale
   // proprio nelle sessioni che ne hanno bisogno.
+  // The permission bridge is invoked by the CLI, not advertised to the model.
+  // Ordinary profiles retain it; the global coordinator deliberately has no
+  // generic approval/tool-resume channel, only its five board tools.
+  if (profile === "global-orchestrator") return GLOBAL_ORCHESTRATOR_TOOL_NAMES.has(name);
+  if (name === "approval_prompt") return true;
+  if (GLOBAL_ORCHESTRATOR_TOOL_NAMES.has(name)) return false;
   return profile !== "dispatch" || !DISPATCH_EXCLUDED_TOOLS.has(name);
 }
 
@@ -1683,6 +1792,8 @@ export async function callUpdateTask(
     /** Una riga per gamba mentre i check girano: e' cio' che tiene vivo il client. */
     onProgress?: (leg: number) => void;
   } = {},
+  /** Narrow wrappers can reuse the same review-check polling protocol safely. */
+  endpointPath?: string,
 ): Promise<string> {
   if (typeof toolArgs?.task_id !== "string" || !toolArgs.task_id) {
     throw new Error("update_task: 'task_id' (string) is required");
@@ -1728,7 +1839,8 @@ export async function callUpdateTask(
   if (Object.keys(patch).length === 0) {
     throw new Error("update_task: provide at least one of 'status', 'priority', 'assignee', 'output_url', 'text', 'description', 'preview_image'");
   }
-  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks/${encodeURIComponent(toolArgs.task_id)}`;
+  const path = endpointPath
+    ?? `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks/${encodeURIComponent(toolArgs.task_id)}`;
   // La gamba viaggia nel corpo e il server la strappa via prima di leggere la
   // patch: e' trasporto, non un campo del task.
   const legMs = opts.legMs ?? CHECKS_LEG_MS;
@@ -1928,6 +2040,161 @@ export async function callCommentTask(
   const res = await httpJson<CommentResp>(args, "POST", path, reqBody, fetchImpl);
   const suffix = options.length > 0 ? ` with ${options.length} quick-reply options` : "";
   return `commented on ${toolArgs.task_id}${res?.id ? ` (${res.id})` : ""}${suffix}`;
+}
+
+function globalTasksCollectionPath(args: ParsedArgs): string {
+  return `/api/orchestrator-sessions/${encodeURIComponent(args.sessionKey)}/tasks`;
+}
+
+function globalTaskItemPath(args: ParsedArgs, taskId: string): string {
+  return `${globalTasksCollectionPath(args)}/${encodeURIComponent(taskId)}`;
+}
+
+/**
+ * The registry-gated global profile uses different endpoints on purpose.  It
+ * must never piggyback on the ordinary `/api/sessions/:key/tasks` contract,
+ * whose authority remains a project-bound session.
+ */
+export async function callListGlobalTasks(
+  args: ParsedArgs,
+  toolArgs: { status?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  const qs = new URLSearchParams();
+  if (typeof toolArgs?.status === "string" && toolArgs.status) qs.set("status", toolArgs.status);
+  const query = qs.toString();
+  const body = await httpJson<TasksResp>(
+    args,
+    "GET",
+    `${globalTasksCollectionPath(args)}${query ? `?${query}` : ""}`,
+    undefined,
+    fetchImpl,
+  );
+  const tasks = Array.isArray(body?.tasks) ? body.tasks : [];
+  if (!tasks.length) return "No global tasks.";
+  return tasks.map((t: TaskRow) => {
+    const parent = t.parentTaskId ?? t.parent_task_id ?? null;
+    const meta = `id=${t.id} board=${t.projectId ?? t.project_id ?? "?"}${parent ? ` step of=${parent}` : ""}`;
+    return `[${t.status}] ${t.text} (${meta})`;
+  }).join("\n");
+}
+
+export async function callGetGlobalTask(
+  args: ParsedArgs,
+  toolArgs: { task_id?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  if (typeof toolArgs?.task_id !== "string" || !toolArgs.task_id) {
+    throw new Error("get_global_task: 'task_id' (string) is required");
+  }
+  const res = await httpJson<GetTaskResp>(
+    args, "GET", globalTaskItemPath(args, toolArgs.task_id), undefined, fetchImpl,
+  );
+  const task = res?.task;
+  if (!task) return `Task ${toolArgs.task_id} not found.`;
+  const who = task.assignedTo ?? task.assigned_to;
+  const lines = [
+    `[${task.status}] ${task.text} (id=${task.id}${who ? ` @${who}` : ""})`,
+  ];
+  const children = Array.isArray((res as { children?: TaskRow[] })?.children)
+    ? (res as { children?: TaskRow[] }).children!
+    : [];
+  if (children.length) {
+    lines.push("subtasks:");
+    for (const child of children) lines.push(`  [${child.status}] ${child.text} (id=${child.id})`);
+  }
+  const comments = Array.isArray(res?.comments) ? res.comments : [];
+  if (!comments.length) return `${lines.join("\n")}\n(no comments)`;
+  lines.push("comments:");
+  for (const comment of comments) {
+    lines.push(`  ${commentAuthorLabel(comment.author).label}: ${comment.content ?? ""}`);
+  }
+  return lines.join("\n");
+}
+
+export async function callCreateGlobalTask(
+  args: ParsedArgs,
+  toolArgs: { board_id?: unknown; text?: unknown; description?: unknown; priority?: unknown; assignee?: unknown; idempotency_key?: unknown; allow_duplicate?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  if (typeof toolArgs?.board_id !== "string" || !toolArgs.board_id.trim()) {
+    throw new Error("create_global_task: 'board_id' (string) is required and must name an existing board");
+  }
+  if (typeof toolArgs?.text !== "string" || !toolArgs.text.trim()) {
+    throw new Error("create_global_task: 'text' (string) is required");
+  }
+  const body: Record<string, unknown> = { board_id: toolArgs.board_id.trim(), text: toolArgs.text };
+  if (typeof toolArgs.description === "string") body.description = toolArgs.description;
+  if (typeof toolArgs.priority === "number") body.priority = toolArgs.priority;
+  if (typeof toolArgs.assignee === "string") body.assignee = toolArgs.assignee;
+  if (typeof toolArgs.idempotency_key === "string") body.idempotency_key = toolArgs.idempotency_key;
+  if (toolArgs.allow_duplicate === true) body.allow_duplicate = true;
+  const result = await httpJson<CreateTaskResp>(args, "POST", globalTasksCollectionPath(args), body, fetchImpl);
+  return `created task ${result?.id ?? "?"} [${result?.status ?? "backlog"}] on board ${toolArgs.board_id}: ${toolArgs.text}`;
+}
+
+export async function callUpdateGlobalTask(
+  args: ParsedArgs,
+  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; text?: unknown; description?: unknown; summary?: unknown },
+  fetchImpl: typeof fetch = fetch,
+  opts: {
+    legMs?: number;
+    maxLegs?: number;
+    transportGraceMs?: number;
+    backoffMs?: number[];
+    now?: () => number;
+    onProgress?: (leg: number) => void;
+  } = {},
+): Promise<string> {
+  if (typeof toolArgs?.task_id !== "string" || !toolArgs.task_id) {
+    throw new Error("update_global_task: 'task_id' (string) is required");
+  }
+  // Build a positive allowlist before delegating to the shared review/check
+  // polling logic. A raw MCP caller cannot smuggle preview URLs or any future
+  // ordinary-task-only field through this focused profile.
+  const allowed = {
+    task_id: toolArgs.task_id,
+    ...(typeof toolArgs.status === "string" ? { status: toolArgs.status } : {}),
+    ...(typeof toolArgs.priority === "number" ? { priority: toolArgs.priority } : {}),
+    ...(typeof toolArgs.assignee === "string" ? { assignee: toolArgs.assignee } : {}),
+    ...(typeof toolArgs.text === "string" ? { text: toolArgs.text } : {}),
+    ...(typeof toolArgs.description === "string" ? { description: toolArgs.description } : {}),
+    ...(typeof toolArgs.summary === "string" ? { summary: toolArgs.summary } : {}),
+  };
+  const result = await callUpdateTask(
+    args,
+    allowed,
+    fetchImpl,
+    opts,
+    globalTaskItemPath(args, toolArgs.task_id),
+  );
+  return result.replace(/^task /, "global task ");
+}
+
+export async function callCommentGlobalTask(
+  args: ParsedArgs,
+  toolArgs: { task_id?: unknown; content?: unknown; options?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  if (typeof toolArgs?.task_id !== "string" || !toolArgs.task_id) {
+    throw new Error("comment_global_task: 'task_id' (string) is required");
+  }
+  if (typeof toolArgs?.content !== "string" || !toolArgs.content.trim()) {
+    throw new Error("comment_global_task: 'content' (string) is required");
+  }
+  const body: Record<string, unknown> = { content: toolArgs.content };
+  if (Array.isArray(toolArgs.options)) {
+    const options = toolArgs.options.filter((option): option is string => typeof option === "string" && !!option.trim());
+    if (options.length) body.options = options;
+  }
+  const result = await httpJson<CommentResp>(
+    args,
+    "POST",
+    `${globalTaskItemPath(args, toolArgs.task_id)}/comments`,
+    body,
+    fetchImpl,
+  );
+  return `commented on ${toolArgs.task_id}${result?.id ? ` (${result.id})` : ""}`;
 }
 
 /**
@@ -2250,6 +2517,16 @@ export const TOOL_HANDLERS: Record<
   list_tasks: (a, t) => callListTasks(a, t),
   create_task: (a, t) => callCreateTask(a, t),
   get_task: (a, t) => callGetTask(a, t),
+  list_global_tasks: (a, t) => callListGlobalTasks(a, t),
+  get_global_task: (a, t) => callGetGlobalTask(a, t),
+  create_global_task: (a, t) => callCreateGlobalTask(a, t),
+  update_global_task: (a, t, ctx) =>
+    callUpdateGlobalTask(a, t, fetch, {
+      onProgress: ctx?.onProgress
+        ? (leg) => ctx.onProgress?.(leg, "i check pre-review stanno girando")
+        : undefined,
+    }),
+  comment_global_task: (a, t) => callCommentGlobalTask(a, t),
   get_goal: (a) => callGetGoal(a),
   close_goal: (a, t) => callCloseGoal(a, t as { status?: unknown; summary?: unknown }),
   set_goal: (a, t) => callSetGoal(a, t as { content?: unknown }),

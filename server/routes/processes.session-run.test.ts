@@ -17,8 +17,25 @@ import { createProcessesRouter } from "./processes";
 
 type Topic = { id: string; sessionKey: string; projectPath?: string } | null;
 
-function makeCtx(opts: { topic?: Topic; cwd?: string | null }) {
+function makeCtx(opts: { topic?: Topic; cwd?: string | null; globalSessionKey?: string }) {
+  // The raw role predicate deliberately joins on `topics.session_key`; this
+  // small fake only implements that lookup so the route gate is exercised
+  // before script discovery or process spawning.
+  const db = {
+    query: (sql: string) => ({
+      get: (_scope: string, sessionKey: string) =>
+        sql.includes("topics.session_key") && sessionKey === opts.globalSessionKey
+          ? {
+              scope: "global",
+              topic_id: opts.topic?.id ?? "global-coordinator",
+              created_at: "2026-09-04T00:00:00.000Z",
+              updated_at: "2026-09-04T00:00:00.000Z",
+            }
+          : null,
+    }),
+  };
   return {
+    db,
     json: (data: unknown, status = 200) =>
       new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } }),
     broadcastToAll: () => {},
@@ -57,6 +74,17 @@ describe("POST /api/sessions/:sessionKey/scripts/run — gate", () => {
     const resp = await runReq(router, "s", { scriptName: "test" });
     expect(resp.status).toBe(400);
     expect((await resp.json()).error).toMatch(/no project directory/i);
+  });
+
+  test("403 for the registered global coordinator before it can resolve a corrupted project cwd", async () => {
+    const router = createProcessesRouter(makeCtx({
+      topic: { id: "global-coordinator", sessionKey: "global-session", projectPath: "/should-never-be-read" },
+      cwd: "/should-never-be-read",
+      globalSessionKey: "global-session",
+    }));
+    const resp = await runReq(router, "global-session", { scriptName: "test" });
+    expect(resp.status).toBe(403);
+    expect(await resp.json()).toMatchObject({ code: "orchestrator_topic_invariant" });
   });
 
   // Da 33944fa5 il cancello guarda TUTTI i manifest, non solo `package.json`, e

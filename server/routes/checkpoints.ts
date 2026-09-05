@@ -28,6 +28,7 @@ import {
   listTurnCheckpoints,
   restoreTurnCheckpoint,
 } from "../services/turn-checkpoints";
+import { isGlobalOrchestratorTopic } from "../services/global-orchestrator-session";
 
 function getCheckpointsDir(baseDir: string): string {
   const dir = join(baseDir, "checkpoints");
@@ -72,6 +73,22 @@ export function createCheckpointsRouter(ctx: AppContext): RouteHandler {
   const { json, matchRoute, loadTopics, loadLocalMessages, STATE_DIR } = ctx;
 
   return async function checkpointsRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
+    // No checkpoint endpoint belongs to the global coordinator: a corrupt
+    // project binding must not turn its durable board session into a reader or
+    // mutator of a repository. Match the whole checkpoint namespace before any
+    // route reads topic state, files, or git refs.
+    const coordinatorRoute = /^\/api\/topics\/([^/]+)\/(?:turn-)?checkpoints(?:\/|$)/.exec(pathname);
+    if (coordinatorRoute) {
+      let topicId: string;
+      try { topicId = decodeURIComponent(coordinatorRoute[1]); }
+      catch { return json({ error: "invalid topic id" }, 400); }
+      if (isGlobalOrchestratorTopic(ctx.db, topicId)) {
+        return json({
+          error: "the global coordinator cannot access project checkpoints",
+          code: "orchestrator_topic_invariant",
+        }, 403);
+      }
+    }
 
     // GET /api/topics/:id/checkpoints
     {

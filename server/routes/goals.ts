@@ -22,6 +22,10 @@ import {
   setGoal,
   setGoalLoop,
 } from "../services/goals";
+import {
+  isGlobalOrchestratorSession,
+  isGlobalOrchestratorTopic,
+} from "../services/global-orchestrator-session";
 
 /** A step is a string or `{content, status}`: both shapes reach the same row. */
 function normalizeSteps(raw: unknown[]): Array<{ content: string; status?: string }> {
@@ -37,6 +41,22 @@ function normalizeSteps(raw: unknown[]): Array<{ content: string; status?: strin
 
 export function createGoalsRouter(ctx: AppContext): RouteHandler {
   const { db, json, readJSON, matchRoute, errorResponse, broadcast } = ctx;
+
+  // Goals are ordinary per-Topic conversation state.  The coordinator's
+  // durable role is recognized from the registry even if its backing Topic is
+  // corrupt/ineligible, and it must never regain this generic state surface.
+  // Its intentionally small Codex profile contains only global task tools.
+  function denyGlobalCoordinatorGoalAccess(topicId: string): Response | null {
+    if (!isGlobalOrchestratorTopic(db, topicId)) return null;
+    return globalCoordinatorGoalAccessResponse();
+  }
+
+  function globalCoordinatorGoalAccessResponse(): Response {
+    return json({
+      error: "the global coordinator cannot access generic topic goals",
+      code: "orchestrator_topic_invariant",
+    }, 403);
+  }
 
   /** Annuncia lo stato ATTUALE della topic, non quello del goal toccato: chi
    *  ascolta vuole sapere cosa perseguiamo adesso, e dopo un `close` la
@@ -55,11 +75,15 @@ export function createGoalsRouter(ctx: AppContext): RouteHandler {
     {
       const params = matchRoute(pathname, "/api/topics/:id/goal");
       if (params && method === "GET") {
+        const denied = denyGlobalCoordinatorGoalAccess(params.id);
+        if (denied) return denied;
         return json({ goal: getActiveGoal(db, params.id), history: listGoals(db, params.id) });
       }
 
       // PUT /api/topics/:id/goal → dichiara il goal (chiude il precedente).
       if (params && method === "PUT") {
+        const denied = denyGlobalCoordinatorGoalAccess(params.id);
+        if (denied) return denied;
         const body = await readJSON(req);
         const content = typeof body?.content === "string" ? body.content.trim() : "";
         if (!content) return errorResponse(400, "content required");
@@ -73,6 +97,8 @@ export function createGoalsRouter(ctx: AppContext): RouteHandler {
       // `status` distingue «fatto» da «lasciato perdere»: default `abandoned`,
       // perché è quello che significa una chiusura senza spiegazioni.
       if (params && method === "DELETE") {
+        const denied = denyGlobalCoordinatorGoalAccess(params.id);
+        if (denied) return denied;
         const active = getActiveGoal(db, params.id);
         if (!active) return errorResponse(404, "no active goal");
         const body = await readJSON(req).catch(() => null);
@@ -93,6 +119,8 @@ export function createGoalsRouter(ctx: AppContext): RouteHandler {
     {
       const params = matchRoute(pathname, "/api/topics/:id/goal/loop");
       if (params && method === "POST") {
+        const denied = denyGlobalCoordinatorGoalAccess(params.id);
+        if (denied) return denied;
         const active = getActiveGoal(db, params.id);
         if (!active) return errorResponse(404, "no active goal");
         const body = await readJSON(req).catch(() => null);
@@ -118,8 +146,14 @@ export function createGoalsRouter(ctx: AppContext): RouteHandler {
     {
       const params = matchRoute(pathname, "/api/sessions/:sessionKey/goal/steps");
       if (params && method === "PUT") {
-        const topic = ctx.getTopicBySessionKey(decodeURIComponent(params.sessionKey));
+        const sessionKey = decodeURIComponent(params.sessionKey);
+        // Same registry-first check as the session goal route below: the raw
+        // registry row is refused before the Topic resolver gets a say.
+        if (isGlobalOrchestratorSession(db, sessionKey)) return globalCoordinatorGoalAccessResponse();
+        const topic = ctx.getTopicBySessionKey(sessionKey);
         if (!topic) return errorResponse(404, "no topic for this session");
+        const denied = denyGlobalCoordinatorGoalAccess(topic.id);
+        if (denied) return denied;
         const active = getActiveGoal(db, topic.id);
         if (!active) return errorResponse(404, "no active goal");
         const body = await readJSON(req);
@@ -140,8 +174,15 @@ export function createGoalsRouter(ctx: AppContext): RouteHandler {
     {
       const params = matchRoute(pathname, "/api/sessions/:sessionKey/goal");
       if (params && (method === "GET" || method === "PUT" || method === "DELETE")) {
-        const topic = ctx.getTopicBySessionKey(decodeURIComponent(params.sessionKey));
+        const sessionKey = decodeURIComponent(params.sessionKey);
+        // Check the raw registry join directly from the session key before
+        // consulting the ordinary Topic resolver.  The latter must not become
+        // the authority that decides whether this special session is ordinary.
+        if (isGlobalOrchestratorSession(db, sessionKey)) return globalCoordinatorGoalAccessResponse();
+        const topic = ctx.getTopicBySessionKey(sessionKey);
         if (!topic) return errorResponse(404, "no topic for this session");
+        const denied = denyGlobalCoordinatorGoalAccess(topic.id);
+        if (denied) return denied;
         // PUT: the agent declares the objective it is pursuing, so a job of
         // twenty steps shows above the chat instead of nothing.
         //
@@ -187,6 +228,8 @@ export function createGoalsRouter(ctx: AppContext): RouteHandler {
       if (params && method === "POST") {
         const existing = getGoal(db, params.id);
         if (!existing) return errorResponse(404, "goal not found");
+        const denied = denyGlobalCoordinatorGoalAccess(existing.topicId);
+        if (denied) return denied;
         const goal = reopenGoal(db, params.id);
         announce(existing.topicId);
         return json({ goal });
@@ -203,6 +246,8 @@ export function createGoalsRouter(ctx: AppContext): RouteHandler {
       if (params && method === "POST") {
         const existing = getGoal(db, params.id);
         if (!existing) return errorResponse(404, "goal not found");
+        const denied = denyGlobalCoordinatorGoalAccess(existing.topicId);
+        if (denied) return denied;
         const goal = promoteGoal(db, params.id);
         announce(existing.topicId);
         return json({ goal });
@@ -215,6 +260,8 @@ export function createGoalsRouter(ctx: AppContext): RouteHandler {
       if (params && method === "PUT") {
         const existing = getGoal(db, params.id);
         if (!existing) return errorResponse(404, "goal not found");
+        const denied = denyGlobalCoordinatorGoalAccess(existing.topicId);
+        if (denied) return denied;
         const body = await readJSON(req);
         const raw = Array.isArray(body?.steps) ? body.steps : null;
         if (!raw) return errorResponse(400, "steps array required");

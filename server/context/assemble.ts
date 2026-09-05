@@ -25,6 +25,11 @@ import { join } from "path";
 import type { ChatMessage } from "../providers/types";
 import type { AppContext, StoredMessage, Topic } from "../types";
 import { getActiveGoal, goalContextContent, goalToolsHintContent } from "../services/goals";
+import {
+  isEligibleGlobalOrchestratorSession,
+  isGlobalOrchestratorSession,
+} from "../services/global-orchestrator-session";
+import { globalOrchestratorBoardSnapshot } from "../services/global-orchestrator-board-context";
 import { languageDirective } from "../lib/topics-agent-prompt";
 import { readUserRules, skillsBlock } from "../lib/native-parity";
 
@@ -192,6 +197,17 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
   } = args;
 
   const topic = ctx.getTopicBySessionKey(sessionKey);
+  const isRegisteredGlobalOrchestrator = isGlobalOrchestratorSession(ctx.db, sessionKey);
+  // A raw registry row remains an identity boundary elsewhere, but volatile
+  // cross-board context is a capability: emit it only for the intact unbound,
+  // top-level Codex coordinator.
+  const isGlobalOrchestrator = isEligibleGlobalOrchestratorSession(ctx.db, sessionKey);
+  // The registry is an identity boundary even after a manual DB corruption.
+  // A raw registered row must never inherit a project cwd, attached files, or
+  // ordinary browser/project/topic-control instructions while it is ineligible
+  // for the narrow global-board capability. Chat routes reject that state, but
+  // this extra guard keeps previews and future callers from leaking it.
+  const canUseOrdinaryTopicContext = !isRegisteredGlobalOrchestrator;
   const disabled = disabledSources ?? topic?.disabledContextSources ?? [];
   const isEnabled = (id: string) => !disabled.includes(id);
 
@@ -212,22 +228,41 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
   //     We surface them ONLY for openclaw (informational, with
   //     `injectedByTopicsApp: false` so the adapter still skips them and
   //     we don't double-inject).
-  if (providerName === "openclaw" || providerStrategy === "gateway-stateful") {
+  if (!isRegisteredGlobalOrchestrator && (providerName === "openclaw" || providerStrategy === "gateway-stateful")) {
     pushOpenClawInformationalBlocks(systemBlocks, ctx);
   }
 
   // (b) Topics-app-emitted blocks, in delivery order.
   if (topic) {
-    pushSystemPromptBlock(systemBlocks, topic, isEnabled);
+    // The registered coordinator's role prompt is server-owned. A stale or
+    // crafted `disabledContextSources` preference must not be able to silence
+    // it; the registry is the authority for this exception, never its title or
+    // MCP policy.
+    if (canUseOrdinaryTopicContext || isGlobalOrchestrator) {
+      pushSystemPromptBlock(systemBlocks, topic, isGlobalOrchestrator ? () => true : isEnabled);
+    }
+    // The registry (not a title, mcpPolicy, or project binding) authorizes the
+    // one global coordinator. Its view is reconstructed from SQLite on every
+    // assembly and remains a volatile system block, never a stored message.
+    if (isGlobalOrchestrator) {
+      pushGlobalBoardSnapshotBlock(systemBlocks, ctx.db);
+    }
     // The goal before everything else, and on the lean turn too: see
     // `pushGoalBlock`.
-    pushGoalBlock(systemBlocks, topic, ctx);
-    pushGoalHintBlock(systemBlocks, topic, ctx, { providerName, leanContext });
+    if (canUseOrdinaryTopicContext || isGlobalOrchestrator) {
+      pushGoalBlock(systemBlocks, topic, ctx);
+    }
+    // The hint advertises set_goal / update_goal_steps. The coordinator's
+    // MCP profile does not publish those tools and its goal routes are
+    // denied, so advertising them there would only invite refused calls.
+    if (canUseOrdinaryTopicContext) {
+      pushGoalHintBlock(systemBlocks, topic, ctx, { providerName, leanContext });
+    }
     // Whoever must not receive them drops them in `adaptEnvelope`, where the
     // provider is finally known (see SOLO_NATIVO). Not on a LEAN turn: the
     // session already saw them at kickoff, and resending them on every resume is
     // exactly the compound cost `leanContext` exists not to pay.
-    if (!leanContext) {
+    if (!leanContext && (canUseOrdinaryTopicContext || isGlobalOrchestrator)) {
       pushUserRulesBlock(systemBlocks, isEnabled);
       pushSkillsBlock(systemBlocks, isEnabled);
     }
@@ -235,20 +270,23 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
     // The persistent CLI session already carries CLAUDE.md/README, the browser
     // instructions, memory & co. from the kickoff turn — re-sending them just
     // grows the cached history for every subsequent call this turn.
-    if (leanContext) {
+    if (leanContext && canUseOrdinaryTopicContext) {
       pushProjectTemplateBlocks(systemBlocks, topic, ctx, isEnabled, { lean: true });
-    } else {
+    } else if (!leanContext && canUseOrdinaryTopicContext) {
       pushContextFileBlocks(systemBlocks, topic, isEnabled);
       pushProjectTemplateBlocks(systemBlocks, topic, ctx, isEnabled);
       // Browser/project/topic control instructions steer the model to TOOLS. Only
       // emit them for providers that can actually reach those tools (openclaw
       // cannot — see providerHasControlTools). For openclaw, log the degradation
       // to user-driven control once (never a silent no-op) and skip the blocks.
-      if (providerHasControlTools(providerName)) {
+      // The global coordinator has a deliberately five-tool profile. Do not
+      // inject generic browser/project/topic-control instructions for tools it
+      // cannot call; that would be a misleading capability claim.
+      if (canUseOrdinaryTopicContext && providerHasControlTools(providerName)) {
         pushBrowserInstructionBlock(systemBlocks);
         pushProjectMarkersBlock(systemBlocks);
         pushTopicSwitchDirectoryBlock(systemBlocks, topic, ctx);
-      } else if (!controlToolWarningLogged.has(providerName)) {
+      } else if (canUseOrdinaryTopicContext && !controlToolWarningLogged.has(providerName)) {
         controlToolWarningLogged.add(providerName);
         console.warn(
           `[assemble] provider "${providerName}" has no AI-initiated control-tool channel ` +
@@ -262,10 +300,12 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
       // `--append-system-prompt` in cui infilare la direttiva. Questa è l'unica
       // via che li raggiunge, ed è anche l'unica verificabile a occhio
       // nell'ispettore del contesto invece che per fede.
-      pushLanguageBlock(systemBlocks);
-      pushMemoryBlocks(systemBlocks, topic, ctx, isEnabled);
-      pushPinnedMessagesBlock(systemBlocks, topic, ctx, isEnabled, historyOverride);
-      if (planMode) pushPlanModeBlock(systemBlocks);
+      if (canUseOrdinaryTopicContext || isGlobalOrchestrator) {
+        pushLanguageBlock(systemBlocks);
+        pushMemoryBlocks(systemBlocks, topic, ctx, isEnabled);
+        pushPinnedMessagesBlock(systemBlocks, topic, ctx, isEnabled, historyOverride);
+        if (planMode) pushPlanModeBlock(systemBlocks);
+      }
     }
   }
 
@@ -320,9 +360,9 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
       ? {
           topicName: topic.name,
           modelName: topic.model ?? null,
-          projectPath: topic.projectPath ?? null,
-          workingDir: ctx.resolveTopicCwd(topic),
-          worktreeId: topic.worktreeId ?? null,
+          projectPath: canUseOrdinaryTopicContext ? (topic.projectPath ?? null) : null,
+          workingDir: canUseOrdinaryTopicContext ? ctx.resolveTopicCwd(topic) : null,
+          worktreeId: canUseOrdinaryTopicContext ? (topic.worktreeId ?? null) : null,
           totalStoredMessages: stored.length,
           planMode,
           fastMode,
@@ -928,6 +968,25 @@ function pushPlanModeBlock(blocks: SystemBlock[]): void {
   blocks.push({
     id: "synthetic:plan-mode",
     label: "Plan Mode",
+    category: "synthetic",
+    content,
+    tokens: estimateTokens(content),
+    enabled: true,
+    countInBudget: true,
+    editable: false,
+    injectedByTopicsApp: true,
+  });
+}
+
+/** Current board state for the registry-backed global coordinator only. */
+function pushGlobalBoardSnapshotBlock(blocks: SystemBlock[], db: AppContext["db"]): void {
+  const content = globalOrchestratorBoardSnapshot(db);
+  // A partial/degraded database must not receive invented task data. On a
+  // healthy migrated server this is always present, and the next turn re-reads.
+  if (!content) return;
+  blocks.push({
+    id: "synthetic:global-board-snapshot",
+    label: "Global board snapshot",
     category: "synthetic",
     content,
     tokens: estimateTokens(content),

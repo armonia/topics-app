@@ -904,7 +904,7 @@ export function TopicTree({
         // se non è GIÀ fissata: la sua tessera c'è, e il gesto sarebbe un
         // bersaglio che si accende senza rispondere.
         touchDrag={item.pinned ? undefined : ditoVersoIFissati}
-        onStopStreaming={stopSession ? () => {
+        onStopStreaming={!topic.isGlobalOrchestrator && stopSession ? () => {
           // Si archivia solo se il server ha davvero buttato via la chat: qui
           // lo Stop non ferma soltanto, fa SPARIRE il topic dalla sidebar, ed è
           // la mossa che nell'incidente del 10 agosto il client si prendeva da

@@ -36,6 +36,10 @@ import { buildCodexArgs, buildCodexOneshotArgs } from "./codex/args";
 import { getDatabase } from "../db";
 import { applyJobQuota } from "../services/agent-job-quota";
 import { contextTokensFromUsage } from "../usage/usage-update";
+import {
+  isEligibleGlobalOrchestratorSession,
+  isGlobalOrchestratorSession,
+} from "../services/global-orchestrator-session";
 
 // ============ Config ============
 
@@ -324,6 +328,32 @@ export class CodexProvider implements AIProvider {
     handler: StreamHandler,
     options?: { model?: string; history?: ChatMessage[] },
   ): Promise<{ runId?: string }> {
+    // The HTTP chat entry point rejects this state too, but do it at the
+    // provider boundary as well: a raw registry role that has become bound or
+    // switched provider must never fall through to a normal Codex bridge,
+    // inherited user config, or project/home workspace through a direct call.
+    let ineligibleRawCoordinator = false;
+    try {
+      const db = getDatabase();
+      ineligibleRawCoordinator = (
+        isGlobalOrchestratorSession(db, sessionKey)
+        && !isEligibleGlobalOrchestratorSession(db, sessionKey)
+      );
+    } catch {
+      // A provider unit test or early bootstrap may not have initialized the
+      // database yet. Without a readable registry we cannot classify a role;
+      // preserve ordinary provider startup behavior.
+    }
+    if (ineligibleRawCoordinator) {
+      // A prior direct turn may still be alive while an out-of-band database
+      // change corrupts the role. Stop it rather than leaving a generic
+      // provider process behind after refusing the new turn.
+      try { await this.abort(sessionKey); } catch { /* fail closed anyway */ }
+      try { handler.onError("Global coordinator integrity is invalid; reopen it from the Kanban."); }
+      catch { /* caller callbacks must not reopen this provider path */ }
+      return { runId: undefined };
+    }
+
     const bin = resolveCodexBinary();
     if (!bin) {
       handler.onError("Codex CLI not found. Install it and run `codex login`.");
@@ -332,7 +362,6 @@ export class CodexProvider implements AIProvider {
 
     const runId = crypto.randomUUID();
     const explicitModel = options?.model ?? this.config.model;
-    const workspace = this.config.defaultWorkspace || process.env.HOME || "/tmp";
 
     // Wire the topics-app MCP bridge into `codex exec` so a codex session can
     // drive topics (open browser pane, switch/create topic, open/create project)
@@ -340,11 +369,24 @@ export class CodexProvider implements AIProvider {
     // to this topic server-side. Un bridge che non si monta è un degrado, non un
     // guasto: il turno parte comunque, senza i tool di Topics.
     let bridge: { command: string; args: string[] } | null = null;
+    let globalOrchestrator = false;
     try {
-      bridge = topicsMcpBridgeSpec(sessionKey);
+      // A ChatGPT/Codex subscription remains an ordinary provider choice. The
+      // only special capability is this registry-backed tool profile; it does
+      // not imply, observe, or connect any voice session.
+      globalOrchestrator = isEligibleGlobalOrchestratorSession(getDatabase(), sessionKey);
+      const profile = globalOrchestrator ? "global-orchestrator" : undefined;
+      bridge = topicsMcpBridgeSpec(sessionKey, profile);
     } catch (err) {
       console.warn(`[codex] MCP bridge config failed for ${sessionKey}:`, err);
     }
+
+    // The coordinator never inherits a project/home workspace. Its durable
+    // board operations travel through the registry-gated bridge, while the
+    // Codex subprocess is deliberately read-only in a neutral temp cwd.
+    const workspace = globalOrchestrator
+      ? (process.env.TMPDIR || "/tmp")
+      : (this.config.defaultWorkspace || process.env.HOME || "/tmp");
 
     // Force the reasoning-effort tier explicitly — the codex mirror of the
     // `--effort` flag claude-code sessions get. Deterministic under launchd
@@ -362,7 +404,13 @@ export class CodexProvider implements AIProvider {
     // ChatGPT (che rifiutano `gpt-5-codex` passato a mano).
     const args = buildCodexArgs({
       model: explicitModel,
-      approvalMode: this.config.approvalMode,
+      // Never inherit a global full-access setting into the coordinator.
+      approvalMode: globalOrchestrator ? null : this.config.approvalMode,
+      sandbox: globalOrchestrator ? "read-only" : undefined,
+      // `-c` alone layers onto user config. The global profile must not inherit
+      // arbitrary user MCP servers or executable rules; Codex auth remains
+      // available with this CLI isolation flag.
+      isolated: globalOrchestrator,
       bridge,
       reasoningEffort,
     });

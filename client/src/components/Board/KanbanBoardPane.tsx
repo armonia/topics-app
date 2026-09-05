@@ -13,7 +13,7 @@ import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { PoliteKeyboardSensor, PoliteMouseSensor, PoliteTouchSensor } from './dndSensors';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { AlertTriangle, Archive, ChevronDown, ChevronRight, Settings, Target, UploadCloud, X } from 'lucide-react';
+import { AlertTriangle, Archive, ChevronDown, ChevronRight, MessageSquare, Settings, Target, UploadCloud, X } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
 import { Spinner } from '../Shared/Spinner';
@@ -73,6 +73,11 @@ interface Props {
   loadHistory?: (sessionKey: string) => Promise<boolean>;
   /** Deep-link a task's bound agent tab into focus (wired to handleTopicClick). */
   onOpenTopic?: (topicId: string) => void;
+  /**
+   * Opens the one server-owned orchestration conversation. This is supplied
+   * only by the global board host; project boards never render the entry point.
+   */
+  onOpenGlobalOrchestrator?: () => Promise<void>;
   /**
    * Consegna una MISSIONE alla sessione laterale del progetto: apre la chat
    * accanto alla board e le mette il testo davanti. Restituisce il motivo per
@@ -579,7 +584,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
   );
 }
 
-export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHistory, onOpenTopic, onStartMission }: Props) {
+export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHistory, onOpenTopic, onOpenGlobalOrchestrator, onStartMission }: Props) {
   const tr = useT();
   // A dead `/task/<id>` has to SAY SO, with the same words a dead `/tab/…`
   // permalink uses: two roads to one destination cannot answer differently. The
@@ -606,6 +611,19 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // 'project' = this project only · 'all' = the global cross-project board.
   const [mode, setMode] = useState<'project' | 'all'>(canToggle ? 'project' : 'all');
   const [error, setError] = useState<string | null>(null);
+  const [openingOrchestrator, setOpeningOrchestrator] = useState(false);
+  const openGlobalOrchestrator = useCallback(async () => {
+    if (!global || !onOpenGlobalOrchestrator || openingOrchestrator) return;
+    setOpeningOrchestrator(true);
+    try {
+      await onOpenGlobalOrchestrator();
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : tr('board.orchestrator.openError'));
+    } finally {
+      setOpeningOrchestrator(false);
+    }
+  }, [global, onOpenGlobalOrchestrator, openingOrchestrator, tr]);
   // L'errore di UNA card sta sulla card, non nella barra qui sopra: quella vive
   // in cima al pannello, mentre la card che ha rifiutato il click può essere
   // dieci righe più giù in una colonna scrollata. Ne teniamo uno solo, l'ultimo:
@@ -1754,6 +1772,20 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
           {/* L'auto-dispatch (e il tetto) stanno nel pannello del ⚙: una sola porta. */}
           {canRunMissions && (
             <MissionsMenu onStart={(m) => setError(onStartMission!(m))} />
+          )}
+          {global && onOpenGlobalOrchestrator && (
+            <button
+              type="button"
+              data-testid="board-open-orchestrator"
+              onClick={() => { void openGlobalOrchestrator(); }}
+              disabled={openingOrchestrator}
+              title={tr('board.orchestrator.openTitle')}
+              aria-label={tr('board.orchestrator.open')}
+              className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/10 hover:text-app-text disabled:cursor-wait disabled:opacity-60"
+            >
+              <MessageSquare className="h-3 w-3 shrink-0" />
+              <span>{openingOrchestrator ? tr('board.orchestrator.opening') : tr('board.orchestrator.open')}</span>
+            </button>
           )}
           {/* UN controllo per i due gradini della consegna: «non su main» e «su
               main ma non pubblicato». Erano due bottoni adiacenti, e da fuori si
