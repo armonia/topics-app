@@ -104,8 +104,19 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 
 // Topics API
 export const topicsApi = {
+  /** The LIVE topics plus the workspace projects: the boot payload. */
   async getAll(signal?: AbortSignal): Promise<TopicsData> {
     return request<TopicsData>('/topics', { signal });
+  },
+
+  /**
+   * The ARCHIVED topics, same list shape, asked for apart from the boot: on
+   * a workspace of 1,554 topics they were 1,535 of them, 872 KB the first
+   * frame never drew. Loaded in idle, or when a surface needs them (the
+   * archived section of the sidebar, the search palette).
+   */
+  async getArchived(signal?: AbortSignal): Promise<TopicsData> {
+    return request<TopicsData>('/topics?archived=1', { signal });
   },
 
   /**

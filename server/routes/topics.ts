@@ -1001,25 +1001,11 @@ export function createTopicsRouter(
   return async function topicsRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
 
     // --- Topics CRUD ---
+    // GET /api/topics            - the LIVE topics + workspaceProjects: the boot payload.
+    // GET /api/topics?archived=1 - the archived ones, same list shape, no projects.
+    // (The orphan-parent repair that used to run in here runs once at boot,
+    // in createAppContext: server/utils.ts.)
     if (method === "GET" && pathname === "/api/topics") {
-      const data = loadTopics();
-      const fixedIds: string[] = [];
-      for (const topic of Object.values(data.topics)) {
-        if (topic.parentId && !data.topics[topic.parentId]) {
-          console.log(`[Orphan Fix] Topic "${topic.name}" (${topic.id}) had broken parentId "${topic.parentId}" — moved to root`);
-          topic.parentId = null;
-          fixedIds.push(topic.id);
-        }
-      }
-      // Save only the topics we actually modified — saveTopics-all would
-      // re-write every row and could overwrite a sibling request's recent
-      // mutation on an unrelated field. One outer transaction so a crash
-      // mid-loop can't leave half the orphan-fixes applied.
-      if (fixedIds.length > 0) {
-        ctx.db.transaction(() => {
-          for (const id of fixedIds) saveSingleTopic(data.topics[id]);
-        })();
-      }
       // THE LIST DOES NOT CARRY WHAT ONLY ONE TOPIC AT A TIME NEEDS. This is
       // the boot payload, remade on every WS reconnect and written whole into
       // localStorage, and it used to ship `system_prompt` and `browser_state`
@@ -1028,8 +1014,20 @@ export function createTopicsRouter(
       // by the settings panel and the empty state of the OPEN topic, the
       // browser state by the pane that restores it. Both now come from
       // `GET /api/topics/:id`, one topic, when it is looked at.
+      //
+      // AND IT DOES NOT CARRY THE ARCHIVE. Measured on 2026-09-05 with the
+      // prompts already out: 1,554 topics, 1,535 archived, 872 KB, 1.4 s on a
+      // loaded machine, for 19 rows the sidebar draws. The archive is its own
+      // request (`?archived=1`) that the client makes in idle or when a surface
+      // asks for it: the archived section of the sidebar, the search palette,
+      // a link to a closed chat. `GET /api/topics/:id` still serves any one of
+      // them whole.
       // Gate: tests/integration/topics-list-weight.test.ts.
-      return json({ ...data, topics: listShape(data.topics), workspaceProjects: getWorkspaceProjects() });
+      const wantArchived = url.searchParams.get("archived");
+      if (wantArchived === "1" || wantArchived === "true") {
+        return json({ topics: listShape(loadTopics({ archived: true }).topics) });
+      }
+      return json({ topics: listShape(loadTopics({ archived: false }).topics), workspaceProjects: getWorkspaceProjects() });
     }
 
 

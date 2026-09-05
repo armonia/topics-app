@@ -260,10 +260,10 @@ export interface StoredMessage {
 // missing right here. Now there is one single declaration, in
 // `shared/types.ts`, and this re-export keeps every existing
 // `import type { Topic } from "./types"` valid.
-export type { Topic, Project, Worktree, TopicsData, UnreadData } from "../shared/types";
+export type { Topic, Project, Worktree, TopicsData, TopicsFilter, UnreadData } from "../shared/types";
 // `export type { … } from` re-exports but does NOT bring the names into local
 // scope, and `AppContext` below uses them. A separate import, not redundancy.
-import type { Topic, Project, TopicsData, UnreadData } from "../shared/types";
+import type { Topic, Project, TopicsData, TopicsFilter, UnreadData } from "../shared/types";
 import type { ServizioLicenza } from "./lib/licenza";
 
 export interface ActiveStream {
@@ -462,7 +462,7 @@ export interface AppContext {
   broadcastProject: (type: import("./lib/project-visibility").TipoFrameProgetto, project: Project) => void;
   broadcastToTopic: (topicId: string, message: OutboundMessage, exclude?: ServerWebSocket<WSData>) => void;
   broadcastToTopicSubscribers: (topicId: string, message: OutboundMessage, exclude?: ServerWebSocket<WSData>) => void;
-  loadTopics: () => TopicsData;
+  loadTopics: (filter?: TopicsFilter) => TopicsData;
   saveTopics: (data: TopicsData) => void;
   /**
    * Upsert a single topic without touching others. Prefer this over

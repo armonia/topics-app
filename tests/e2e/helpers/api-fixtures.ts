@@ -485,6 +485,27 @@ export async function seedProjectPane(
   return paneId;
 }
 
+/**
+ * ONE topic as the server holds it, archived or not: `GET /api/topics/:id`.
+ *
+ * The boot list (`GET /api/topics`) carries only the LIVE topics since the
+ * archive left it (1,535 of 1,554 rows on the machine it was measured on), so
+ * "did the server archive it?" can no longer be read off that map: an archived
+ * topic is simply absent there. `null` when the topic does not exist.
+ */
+export async function fetchTopic(
+  request: APIRequestContext,
+  id: string
+): Promise<{ id: string; name: string; archived: boolean } | null> {
+  const res = await request.get(`${BASE}/api/topics/${encodeURIComponent(id)}`, {
+    ignoreHTTPSErrors: true,
+  });
+  if (res.status() === 404) return null;
+  if (!res.ok()) throw new Error(`Failed to fetch topic ${id}: ${res.status()}`);
+  const body = (await res.json()) as { topic: { id: string; name: string; archived: boolean } };
+  return body.topic;
+}
+
 export async function patchTopic(
   request: APIRequestContext,
   id: string,

@@ -207,6 +207,12 @@ export interface UsePanelLifecycleArgs {
   // explicit user-close of a chat tab archives it. Threaded in so both the
   // open and close funnels can keep tab-state and archived in lockstep.
   archiveTopic: (topicId: string, archive: boolean) => Promise<boolean>;
+  // ONE topic the map does not have yet: the boot list is the LIVE topics
+  // only, so a link, a board card or a notification can name a closed chat
+  // before the archive has loaded. `reopen` unarchives it on the server
+  // before it enters the map - the 2-state model's "open" for a topic the
+  // open funnel could not see. See useTopics.ensureTopic.
+  ensureTopic: (topicId: string, opts?: { reopen?: boolean }) => Promise<Topic | null>;
   workspaceProjects: string[];
   // Terminal lifecycle (no setters cross seam)
   terminalSessions: TerminalSessionInfo[];
@@ -333,7 +339,7 @@ const DRAFT_MIN_LOOKED_AT_MS = 500;
 export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycleReturn {
   const {
     isDetached, detachedTopicId, detachedTopicIds, isMobile,
-    topics, topicsLoading, loadTopics, createTopic, applyTopicFromWS, archiveProject, archiveTopic,
+    topics, topicsLoading, loadTopics, createTopic, applyTopicFromWS, archiveProject, archiveTopic, ensureTopic,
     workspaceProjects,
     terminalSessions, pruneStaleTerminalPanes, terminalOps,
     onWSMessage, sendWS, wsStatus, windowId,
@@ -1453,6 +1459,13 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // Optimistic archived:false lands this render, so the validPanels effect
     // (which evicts archived ids) keeps the freshly-opened tab.
     if (topics[topicId]?.archived) void archiveTopic(topicId, false);
+    // Not in the map at all: a closed chat the archive has not delivered yet
+    // (the boot list is the live topics only), reached through a link, a board
+    // card or a notification. The tab opens now - the validation below keeps a
+    // UUID it does not know - and the topic is fetched and unarchived on the
+    // server BEFORE it lands in the map, so that same validation never sees it
+    // archived and evicts the tab it just kept.
+    else if (!topics[topicId]) void ensureTopic(topicId, { reopen: true });
     // Project chat / TASK WORKSPACE session → open its PROJECT PANE (splittable
     // window), not a loose chat. For a task workspace this is what gives the
     // agent's browser/output panes a home (they route by the task's unique
@@ -1490,7 +1503,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     if (autoFocus) setFocusedPanelId(topicId);
     setPreviewPanelId(mode === 'preview' ? topicId : null);
     setNextPanelMode(mode === 'below' ? 'below' : 'side');
-  }, [openPanels, previewPanelId, isMobile, topics, archiveTopic, setSidebarCollapsed]);
+  }, [openPanels, previewPanelId, isMobile, topics, archiveTopic, ensureTopic, setSidebarCollapsed]);
 
   // Open a TOPIC as a chat tab from any surface (e.g. the global board's task
   // drawer "apri la sessione" — its hosts have no openPanel in scope). Same

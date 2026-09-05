@@ -1154,6 +1154,15 @@ export interface Machine {
   updatedAt: string;
 }
 
+/**
+ * Which half of the topics table a list wants. `GET /api/topics` is the live
+ * half; `GET /api/topics?archived=1` the archive; the store without a filter
+ * still walks all of them.
+ */
+export interface TopicsFilter {
+  archived?: boolean;
+}
+
 /** Corpo della risposta di `GET /api/topics`. */
 export interface TopicsData {
   topics: Record<string, Topic>;

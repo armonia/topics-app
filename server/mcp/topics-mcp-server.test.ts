@@ -359,8 +359,10 @@ describe("callSendChatMessage", () => {
     let chatBody = "";
     const fetchImpl = stubFetch(async (url, init) => {
       const u = String(url);
-      if (u.endsWith("/api/topics")) {
-        return new Response(JSON.stringify({ topics: { t1: { sessionKey: "topic:target", name: "Target" } } }), { status: 200 });
+      // One topic, whole: the list (`GET /api/topics`) is the live half only,
+      // and a closed chat must still be reachable by id.
+      if (u.endsWith("/api/topics/t1")) {
+        return new Response(JSON.stringify({ topic: { sessionKey: "topic:target", name: "Target", archived: true } }), { status: 200 });
       }
       if (u.endsWith("/api/chat")) {
         chatBody = String(init?.body ?? "");
@@ -377,20 +379,20 @@ describe("callSendChatMessage", () => {
 
   test("refuses to message your own session (self-loop guard)", async () => {
     const fetchImpl = stubFetch(async () =>
-      new Response(JSON.stringify({ topics: { t1: { sessionKey: "topic:mine", name: "Me" } } }), { status: 200 }),
+      new Response(JSON.stringify({ topic: { sessionKey: "topic:mine", name: "Me" } }), { status: 200 }),
     );
     await expect(callSendChatMessage(A, { topic_id: "t1", message: "hi" }, fetchImpl)).rejects.toThrow(/own session/);
   });
 
   test("throws when the target topic is unknown", async () => {
-    const fetchImpl = stubFetch(async () => new Response(JSON.stringify({ topics: {} }), { status: 200 }));
+    const fetchImpl = stubFetch(async () => new Response(JSON.stringify({ error: "Topic not found" }), { status: 404 }));
     await expect(callSendChatMessage(A, { topic_id: "nope", message: "hi" }, fetchImpl)).rejects.toThrow(/not found/);
   });
 
   test("empty reply (tool-only turn) returns an inspect hint, not an error", async () => {
     const fetchImpl = stubFetch(async (url) => {
       const u = String(url);
-      if (u.endsWith("/api/topics")) return new Response(JSON.stringify({ topics: { t1: { sessionKey: "topic:target", name: "T" } } }), { status: 200 });
+      if (u.endsWith("/api/topics/t1")) return new Response(JSON.stringify({ topic: { sessionKey: "topic:target", name: "T" } }), { status: 200 });
       return sseResponse([]);
     });
     const out = await callSendChatMessage(A, { topic_id: "t1", message: "go" }, fetchImpl);
