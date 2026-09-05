@@ -56,6 +56,49 @@ export function resetMoondreamCounter(contextId: string): void {
   counter.delete(contextId);
 }
 
+/**
+ * Give back a charged call. The counter is charged BEFORE the request so a
+ * retry loop can't spend the budget twice, but a rejected KEY never bought any
+ * vision: leaving it charged turned one misconfiguration into two different
+ * errors (first "HTTP 401", then "budget exceeded" for the rest of the pane's
+ * life), and the second one names the wrong culprit.
+ */
+function refundCall(contextId: string): void {
+  const used = counter.get(contextId) ?? 0;
+  if (used > 0) counter.set(contextId, used - 1);
+}
+
+/** Is the vision provider refusing the CREDENTIAL rather than the request? */
+function isAuthStatus(status: number): boolean {
+  return status === 401 || status === 403;
+}
+
+/**
+ * The message an agent actually needs when the vision provider answers.
+ *
+ * Measured on 2026-09-03/05 (card 7bbefd9e): 26 `browser_read_screen` calls on
+ * this machine, 26 failures, zero successes, all of them HTTP 401 from a key
+ * the .env still carried. The route reports them as 502, so what reached the
+ * agent read like a dead gateway on a live pane: it retried, then spent three
+ * minutes routing around a tool that could never work. A rejected key is not
+ * transient, and saying so out loud (plus which tools DO work meanwhile) is the
+ * difference between one failed call and a wasted turn.
+ */
+export function visionApiErrorMessage(status: number, tool: string): string {
+  if (isAuthStatus(status)) {
+    return (
+      `Vision unavailable: the vision provider rejected MOONDREAM_API_KEY (HTTP ${status}). ` +
+      `This is a configuration error, not a transient one - retrying ${tool} will fail the same way. ` +
+      `Set a valid key in .env (or Settings) and restart the server. ` +
+      `Meanwhile read the page with browser_get_text / browser_observe, or capture it with browser_screenshot.`
+    );
+  }
+  if (status === 429) {
+    return `Vision rate-limited by the provider (HTTP 429) on ${tool}. Wait before retrying, or read the page with browser_get_text / browser_observe.`;
+  }
+  return `Moondream API error: HTTP ${status}`;
+}
+
 interface PointObjectArgs {
   contextId: string;
   imageBase64: string;
@@ -124,8 +167,9 @@ export async function pointObject(
 
   if (!resp.ok) {
     const text = await resp.text().catch(() => "<no body>");
+    if (isAuthStatus(resp.status)) refundCall(contextId);
     return {
-      error: `Moondream API error: HTTP ${resp.status}`,
+      error: visionApiErrorMessage(resp.status, "browser_point"),
       details: text,
     };
   }
@@ -272,7 +316,8 @@ export async function describeImage(args: {
   if (!apiKey) {
     return {
       error:
-        "Vision unavailable: MOONDREAM_API_KEY not set. Set it in .env to enable browser_read_screen.",
+        "Vision unavailable: MOONDREAM_API_KEY not set. Set it in .env to enable browser_read_screen. " +
+        "Meanwhile read the page with browser_get_text / browser_observe, or capture it with browser_screenshot.",
     };
   }
 
@@ -307,7 +352,8 @@ export async function describeImage(args: {
   }
   if (!resp.ok) {
     const text = await resp.text().catch(() => "<no body>");
-    return { error: `Moondream API error: HTTP ${resp.status}`, details: text };
+    if (isAuthStatus(resp.status)) refundCall(contextId);
+    return { error: visionApiErrorMessage(resp.status, "browser_read_screen"), details: text };
   }
 
   let text = "";
