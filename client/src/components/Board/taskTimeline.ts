@@ -27,8 +27,8 @@
  *      stripped row that became empty is gone before it can carry a run;
  *   3. only then the two lists are merged, on the items the reader will see.
  *
- * See `openspec/changes/conversazione-unica-della-card`, KANBAN-73 (the
- * projection) and KANBAN-74 (the derived delivery chip).
+ * Requirements KANBAN-73 (the projection) and KANBAN-74 (the derived delivery
+ * chip), in `openspec/specs/kanban/spec.md`.
  */
 import type { TaskComment } from '../../../../shared/board';
 import type { ChatMessage, ContentBlock, ToolCall } from '../../types';
