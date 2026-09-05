@@ -125,8 +125,9 @@ describe("cattura", () => {
     expect(all.length, "the marks that close the kept turns stay with them").toBe(keep * 2);
     // Six real commits on a real repository: the default 5 s is the runner's
     // idea of a unit test, not of a git one, and this file is full of the
-    // second kind.
-  }, 20_000);
+    // second kind. The budget matches the one the sharded run hands out,
+    // because a cap lower than that turns a loaded machine into a red.
+  }, 60_000);
 });
 
 describe("kinds", () => {
