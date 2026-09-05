@@ -35,6 +35,8 @@ import {
   registerProjectWindow,
 } from '../../../state/pane/adapters';
 import { resolveBrowserNavigateUrl } from '../../../lib/browserNavUrl';
+import { OPEN_TAB_EVENT, type OpenTabDetail } from '../../../lib/openLink';
+import { insertPaneAfter, resolveOpenTabTarget } from '../../../lib/openTabTarget';
 import { setBrowserSpawner } from '../../../state/browserSpawner';
 import { chooseSplitOrientation } from '../gridWidths';
 
@@ -255,6 +257,57 @@ export function useProjectBrowserPanes({
     };
     window.addEventListener('browser:open-and-navigate', domHandler);
 
+    // A LINK was clicked somewhere that can host it here (chat, terminal, tool
+    // card, board preview, or a page in a browser pane asking for a popup).
+    // Different from `browser:open-and-navigate` on the one point that matters:
+    // it never reuses a pane. The router minted a fresh contextId, so this opens
+    // a NEW tab and leaves whatever was on screen alone.
+    //
+    // The claim is synchronous (preventDefault before the async pane creation):
+    // `openLink` reads it to know whether anybody hosts the tab, and sends the
+    // link to the system browser when nobody does.
+    const openTabHandler = (e: Event) => {
+      if (e.defaultPrevented) return;
+      const d = (e as CustomEvent<OpenTabDetail>).detail;
+      if (!d?.url || !d.contextId) return;
+      const fromHere = !!d.nearPaneId && panesRef.current.some(p => p.id === d.nearPaneId);
+      const belongs =
+        fromHere ||
+        (!d.nearPaneId &&
+          ((!!d.projectPath && d.projectPath === projectPath) ||
+            topicBelongsToThisProject(d.topicId)));
+      if (!belongs) return;
+      e.preventDefault();
+
+      const url = resolveBrowserNavigateUrl(d.url);
+      const target = resolveOpenTabTarget({
+        nearPaneId: d.nearPaneId,
+        panes: panesRef.current,
+        groups: groupsRef.current,
+        focusedGroupId: focusedGroupIdRef.current,
+      });
+      queueMicrotask(async () => {
+        const newId = target.groupId
+          ? await handleAddPaneToGroupRef.current?.(target.groupId, 'browser', undefined, d.contextId)
+          : await handleAddPaneWhenEmptyRef.current?.('browser', undefined, d.contextId);
+        if (!newId) return;
+        if (d.topicId) setBrowserSpawner(d.contextId, d.topicId);
+        if (url && url !== 'about:blank') updatePaneRef.current?.(newId, { url });
+        if (target.groupId) {
+          const gid = target.groupId;
+          setGroups(prev => prev.map(g => (g.id === gid
+            ? { ...g, paneIds: insertPaneAfter(g.paneIds, newId, target.afterPaneId), activePaneId: newId }
+            : g)));
+          setFocusedGroupId(gid);
+          // Only the FIRST browser of a group earns a cell of its own; the next
+          // ones are tabs of that strip, like any browser.
+          if (target.split) setPendingBrowserSplit({ paneId: newId, sourceGroupId: gid });
+        }
+        onBrowserNavigateUrl?.(url, newId);
+      });
+    };
+    window.addEventListener(OPEN_TAB_EVENT, openTabHandler);
+
     // Page-initiated close: a page (or the agent) called window.close(); App
     // bridges it to this event. Close the browser pane IF this project owns it —
     // the ownership guard means exactly one surface (app-level or the owning
@@ -291,6 +344,7 @@ export function useProjectBrowserPanes({
     return () => {
       unsubWS();
       window.removeEventListener('browser:open-and-navigate', domHandler);
+      window.removeEventListener(OPEN_TAB_EVENT, openTabHandler);
       window.removeEventListener('browser:request-close', closeHandler);
       window.removeEventListener('browser:request-focus', focusHandler);
     };

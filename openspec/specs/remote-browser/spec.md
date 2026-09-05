@@ -387,6 +387,78 @@ pane in live clients on a remote close.
 - **WHEN** `POST /api/topics/:id/browser/close-pane` is called
 - **THEN** the request succeeds and the pane root disappears from the live client
 
+### Requirement: LINK-TAB-01 — A link opens in a TAB of the Topics browser, never in a detached window
+
+The system SHALL route every link a user clicks inside the app (chat markdown, terminal,
+tool cards, board previews) through one door, which SHALL open the URL as a tab of the
+Topics browser in the current window. The system SHALL use the system browser only on an
+explicit gesture (Cmd/Ctrl-click, middle click, or an "open externally" action) or for a
+scheme a browser pane cannot host. The system SHALL NOT open a detached native window, and
+SHALL NOT let a click end in nothing: when no surface can host a tab, the link SHALL fall
+back to the system browser.
+
+A page that asks for `window.open` / `target="_blank"` inside a browser pane SHALL get a
+SECOND tab in the same strip: the pane that asked SHALL keep the page it is showing.
+
+#### Scenario: A link in the chat opens a browser pane in the same window
+- **GIVEN** an assistant message containing a markdown link to an external URL
+- **WHEN** the user clicks it with no modifier
+- **THEN** a pane root marked `[data-browser-pane]` becomes visible in that window
+- **AND** nothing is handed to the external channel
+
+#### Scenario: Cmd-click leaves the app on purpose
+- **GIVEN** the same message
+- **WHEN** the user clicks the link with Cmd/Ctrl held
+- **THEN** the external channel receives that exact URL
+- **AND** no browser tab is opened for it
+
+#### Scenario: A scheme no pane can host goes out whatever the gesture
+- **GIVEN** a link with a non-http(s) scheme (`mailto:`, `tel:`, an editor's custom scheme)
+- **WHEN** the user clicks it
+- **THEN** it is handed to the external channel, because a browser pane cannot load it
+
+#### Scenario: Nobody can host the tab
+- **GIVEN** a surface where no window claims the open-tab request (a detached pop-out)
+- **WHEN** a link is clicked
+- **THEN** it opens in the system browser rather than doing nothing at all
+
+#### Scenario: `target=_blank` inside a pane becomes a second tab
+- **GIVEN** a page in a browser pane whose link carries `target="_blank"`
+- **WHEN** the link is followed
+- **THEN** the request is queued per pane and drained by the client, which opens a new tab
+- **AND** the pane that asked keeps the page it was showing (it does NOT navigate in place)
+
+> Out of scope, and knowingly: a popup that needs `opener`/`postMessage` still sees
+> `window.open()` return null, so those flows do not link up.
+
+### Requirement: LINK-TAB-02 — Where the link-opened tab lands
+
+The system SHALL place a link-opened tab beside the browser strip the user is already
+looking at rather than tiling a new cell for every link, and SHALL insert it right after
+the tab it was opened from, the way a browser does. When no browser pane exists yet, the
+system SHALL split one out beside the pane the click came from, keeping the source pane
+visible.
+
+#### Scenario: The first link splits a browser out beside the chat
+- **GIVEN** a window whose focused group holds a chat and a terminal, and no browser pane
+- **WHEN** a link is opened
+- **THEN** the target is that same group, split, anchored right after the pane in focus
+
+#### Scenario: The second link joins the strip the first one made
+- **GIVEN** a window that already has a group holding a browser pane
+- **WHEN** another link is opened
+- **THEN** the tab joins THAT group without splitting, anchored on its browser pane
+
+#### Scenario: The click's origin wins over the focus
+- **GIVEN** a click coming from a terminal or from a browser pane that is not the focused one
+- **WHEN** the link is opened
+- **THEN** the tab lands beside the pane the click came from, not where focus happened to be
+
+#### Scenario: A vanished anchor appends instead of throwing
+- **GIVEN** an anchor pane id that no longer exists in the group
+- **WHEN** the tab is inserted
+- **THEN** it is appended at the end of the strip and no error reaches the user
+
 ### Requirement: CD-CLOSE-01 — A browser tab closed on one device disappears live on the other
 
 > Written from `tests/e2e/browser-cross-device-close.spec.ts`. It lives here
