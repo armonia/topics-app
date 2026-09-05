@@ -389,7 +389,7 @@ export const TopicItem = memo(function TopicItem({
           gap follows. With the old 13 + 3 + 11 = 27 the name started at 1.5px
           from the top of the row, measured on 28/08. */}
       <div className="flex-1 min-w-0 flex flex-col justify-center gap-1">
-        <span data-row-name="chat" className={cn(
+        <span data-row-name="chat" title={topic.name} className={cn(
           "truncate-tight",
           onFill && cn("font-semibold", ON_FILL_TEXT),
           !onFill && notificationCount > 0 && !isFocused && "font-semibold text-app-text"

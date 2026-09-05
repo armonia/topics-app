@@ -368,18 +368,20 @@ export function NotificationsSection({ settings, onChange }: NotificationsSectio
           onChange={(v) => onChange('notificationsEnabled', v)}
         />
 
-        <div className={masterOn ? '' : 'opacity-50 pointer-events-none'}>
+        <div>
           <ToggleRow
             label="Play sound"
             description="Short tone when an agent completes."
             value={settings.notificationsSound}
             onChange={(v) => onChange('notificationsSound', v)}
+            disabled={!masterOn}
           />
           <ToggleRow
             label="Notify even when topic is focused"
             description="Useful when you keep multiple topics open in parallel."
             value={settings.notifyEvenWhenFocused}
             onChange={(v) => onChange('notifyEvenWhenFocused', v)}
+            disabled={!masterOn}
           />
         </div>
       </div>

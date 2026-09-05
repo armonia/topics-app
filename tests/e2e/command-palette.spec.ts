@@ -737,4 +737,56 @@ test.describe("Command Palette", () => {
     await page.unroute("**/api/search");
     await commandPalettePage.close();
   });
+
+  // CMD-06: the flat keyboard order must follow the VISUAL order — the LEFT
+  // column (Projects) before the RIGHT column (everything else). Regression:
+  // `allItems` led with the right column while the render puts Projects on the
+  // left, so index 0 (initial aria-selected) landed on the top-RIGHT row and
+  // ↑↓ zig-zagged across columns. Guard: every left-section `data-cmd-idx`
+  // precedes every right-section one.
+  test("PALETTE-ORD: left column indices precede right column indices", async ({
+    commandPalettePage,
+    page,
+    request,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "CMD-06" });
+    // A PROJECT shows in the left column; it is derived from a topic's
+    // projectPath (CommandPalette.tsx:275), whose basename shares the "E2E-Cmd"
+    // prefix with the seeded topics — so one query lights up BOTH columns.
+    const projHost = await createTopic(request, `E2E-CmdProjHost-${TS}`, {
+      projectPath: `/tmp/E2E-CmdProj-${TS}`,
+    });
+    topicIds.push(projHost.id);
+    await resetPaneStore(request, [...seededPaneIds, projHost.id]);
+
+    await goToApp(page);
+    await commandPalettePage.open();
+    await commandPalettePage.searchInput.fill("E2E-Cmd");
+
+    const overlay = commandPalettePage.overlay;
+    // Query mode renders a 2-col grid: the projects <section> (no role) on the
+    // left and the results <section role="listbox"> on the right.
+    const left = overlay.locator('section:not([role="listbox"]) [data-cmd-idx]');
+    const right = overlay.locator('section[role="listbox"] [data-cmd-idx]');
+    await expect(left.first()).toBeVisible();
+    await expect(right.first()).toBeVisible();
+
+    const idxOf = (loc: import("@playwright/test").Locator) =>
+      loc.evaluateAll((els: Element[]) =>
+        els.map((e) => Number(e.getAttribute("data-cmd-idx"))),
+      );
+    const leftIdx = await idxOf(left);
+    const rightIdx = await idxOf(right);
+    expect(
+      leftIdx.length,
+      "a project row must be present in the left column",
+    ).toBeGreaterThan(0);
+    expect(
+      rightIdx.length,
+      "a result row must be present in the right column",
+    ).toBeGreaterThan(0);
+    expect(Math.max(...leftIdx)).toBeLessThan(Math.min(...rightIdx));
+
+    await commandPalettePage.close();
+  });
 });

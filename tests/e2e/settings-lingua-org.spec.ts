@@ -124,4 +124,33 @@ test.describe("Impostazioni · lingua e organizzazioni", () => {
     const profilo = pannello.locator("nav button", { hasText: /^Profilo$/ });
     await expect(profilo, "deve esistere anche una voce «Profilo»").toBeVisible({ timeout: 5000 });
   });
+
+  // SET-NOTIF-DISABLED: col master delle notifiche SPENTO, i figli devono
+  // essere DAVVERO disattivati — fuori dall'ordine di tab, Spazio inerte, stato
+  // esposto ad AT — non solo attenuati con un velo `opacity/pointer-events` che
+  // lasciava il bottone commutabile da tastiera.
+  test("SET-NOTIF-DISABLED: con le notifiche spente «Play sound» è disattivato", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "SETORG-01" });
+    await page.goto("/");
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+    await page.keyboard.press("Meta+Comma");
+    const pannello = page.locator('[data-testid="settings-panel"]');
+    await expect(pannello).toBeVisible({ timeout: 10000 });
+
+    // Sezione Notifiche (etichetta localizzata: /Notif/i copre «Notifiche»).
+    await pannello.locator("nav button", { hasText: /Notif/i }).click();
+
+    const master = pannello.getByRole("switch", { name: "Enable notifications" });
+    const playSound = pannello.getByRole("switch", { name: "Play sound" });
+    await expect(master).toBeVisible({ timeout: 5000 });
+
+    // Spegni il master se acceso (il default del DB può essere on).
+    if ((await master.getAttribute("aria-checked")) === "true") {
+      await master.click();
+    }
+    await expect(master).toHaveAttribute("aria-checked", "false");
+
+    // Il figlio è disabilitato: il `disabled` arriva fino al <button role=switch>.
+    await expect(playSound).toBeDisabled();
+  });
 });
