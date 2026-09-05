@@ -442,6 +442,51 @@ non perde i propri pannelli.
 - **WHEN** il client scrive `pane-store-v2`
 - **THEN** il pannello resta com'è
 
+### Requirement: PROJ-ID-04 — Un pannello di progetto salvato con un percorso grezzo si serve canonico, con la lapide sul vecchio id
+
+I topic di una cartella sono archiviati sotto il percorso canonico (PROJ-ID-01), ma un
+pannello `project:<percorso>` conserva il percorso con cui è nato: se passa da un link
+simbolico, la finestra che apre non trova NESSUNA chat, perché il client confronta i due
+percorsi per stringa. Il pannello grezzo si auto-perpetua: la sidebar ricava la voce del
+progetto dagli id dei pannelli persistiti, e ogni click lo riapre grezzo.
+
+Il server SHALL servire `pane-store-v2` con ogni pannello di progetto rinominato sul
+percorso canonico (id e `projectPath`, con tutti i riferimenti: fila delle tab, focus,
+`closedStack`), su ogni strada di lettura: GET singola, GET di tutte le chiavi e frame
+`ui-state:init`. Il `server_seq` NON cambia: cambia solo il valore, e il client lo
+riscrive canonico al primo PUT. Se il pannello canonico esiste già, quello grezzo
+SHALL sparire e i riferimenti puntare all'esistente: nessun doppione.
+
+L'id grezzo SHALL ricevere una lapide (`tombstones`) nello snapshot servito: l'idratazione
+del client è un'UNIONE con il localStorage, e la sola assenza lascerebbe due tab dello
+stesso progetto sul dispositivo che tiene ancora la copia grezza. Un pannello di progetto
+non contiene né topic né sessione di terminale, quindi la cascata di ritiro che la lapide
+innesca non archivia e non chiude niente.
+
+Le righe per-progetto `topics-project-panes-<hash>` SHALL seguire il pannello: la chiave
+è un hash del percorso e non si può invertire, quindi all'avvio una riparazione una-tantum
+riscrive `pane-store-v2` e rinomina `<hash(grezzo)>` in `<hash(canonico)>` in una sola
+transazione, idempotente; se la riga canonica esiste già, si tiene quella e si scarta la
+grezza. La riga riscritta prende un `server_seq` nuovo, altrimenti un dispositivo che
+aveva già visto quel seq la ignorerebbe e la riscriverebbe grezza al primo PUT.
+
+La tabella `projects` e `projectIdForPath` NON SHALL essere toccate: cambiare quei
+percorsi cambierebbe l'identità delle board e orfanerebbe i task.
+
+#### Scenario: una finestra aperta da un pannello grezzo mostra le chat e si divide
+- **GIVEN** un topic creato su `/tmp/x` (memorizzato sotto `/private/tmp/x`) e un pannello `project:/tmp/x` persistito
+- **WHEN** un client si idrata e apre il progetto
+- **THEN** il pannello che vede è `project:/private/tmp/x`, la chat figlia compare come tab interna e «Dividi a destra» apre un secondo gruppo
+
+#### Scenario: grezzo e canonico insieme
+- **GIVEN** uno snapshot con il pannello grezzo e quello canonico
+- **THEN** resta il solo canonico, con il proprio contenuto, e l'id grezzo ha una lapide
+
+#### Scenario: la riparazione all'avvio, due volte
+- **GIVEN** `pane-store-v2` con un pannello su un link e la riga `topics-project-panes-<hash(link)>`
+- **WHEN** il server parte
+- **THEN** il pannello è canonico, la riga è sotto `<hash(cartella vera)>`, e un secondo avvio non cambia nulla
+
 ### Requirement: PROJECT-12 — Zero modifiche git non è un numero da mostrare: è una sezione che non c'è
 
 Le superfici che raccontano le modifiche git NON SHALL comparire quando le modifiche

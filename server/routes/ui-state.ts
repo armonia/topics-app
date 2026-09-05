@@ -26,9 +26,73 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { projectPathTokensIn } from "../services/known-project-dirs";
 import { clientProjectPathRefused, CLIENT_PROJECT_PATH_ERROR } from "../lib/client-project-path";
+import { canonicalProjectPath } from "../lib/canonical-project-path";
+import { canonicalPaneSnapshot, projectPanesKeyRenames, type UiStateKeyRename } from "../lib/canonical-pane-state";
+import { PROJECT_PANES_PREFIX } from "../../shared/project-keys";
 
 type UiStateMeta = { payload_version: number; server_seq: number };
 type UiStateEnvelope = { data: Record<string, unknown>; meta: Record<string, UiStateMeta> };
+type UiStateRow = { value: string; payload_version: number; server_seq: number };
+
+/**
+ * THE VALUE SERVED IS CANONICAL, EVEN WHEN THE ROW IS NOT.
+ *
+ * A `project:` pane keeps the raw path it was opened through, while the topics
+ * of that folder are filed under the resolved one, and a window opened from
+ * the raw pane shows no chat (see `lib/canonical-pane-state.ts`). The rename
+ * happens ON READ, in the one place every reader passes through: the single
+ * GET, the all-keys GET and the `ui-state:init` frame all call this. The
+ * `server_seq` is NOT touched: only the value changes, and the client writes
+ * it back canonical on its first PUT. The per-project rows follow the pane:
+ * `topics-project-panes-<hash(raw)>` is served as `<hash(canon)>` unless the
+ * canonical row already exists, in which case the raw one is dropped.
+ */
+function servedPaneStore(parsed: unknown): { value: unknown; renames: UiStateKeyRename[] } {
+  const { value, pairs } = canonicalPaneSnapshot(parsed, canonicalProjectPath);
+  return { value, renames: projectPanesKeyRenames(pairs) };
+}
+
+function parseStoredValue(raw: string): unknown {
+  try { return JSON.parse(raw); } catch { return raw; }
+}
+
+function canonicalUiStateEnvelope(env: UiStateEnvelope): UiStateEnvelope {
+  if (!(PANE_STORE_KEY in env.data)) return env;
+  const { value, renames } = servedPaneStore(env.data[PANE_STORE_KEY]);
+  if (renames.length === 0 && value === env.data[PANE_STORE_KEY]) return env;
+  const data: Record<string, unknown> = { ...env.data, [PANE_STORE_KEY]: value };
+  const meta: Record<string, UiStateMeta> = { ...env.meta };
+  for (const { from, to } of renames) {
+    if (!(from in data)) continue;
+    if (!(to in data)) {
+      data[to] = data[from];
+      meta[to] = meta[from];
+    }
+    delete data[from];
+    delete meta[from];
+  }
+  return { data, meta };
+}
+
+/** The row a single-key GET serves, already parsed and canonicalised. */
+function servedUiStateRow(db: import("bun:sqlite").Database, key: string): { value: unknown; payload_version: number; server_seq: number } | null {
+  const select = "SELECT value, payload_version, server_seq FROM ui_state WHERE key = ?";
+  let row = db.query(select).get(key) as UiStateRow | null;
+  if (key === PANE_STORE_KEY) {
+    if (!row) return null;
+    return { ...row, value: servedPaneStore(parseStoredValue(row.value)).value };
+  }
+  if (!row && key.startsWith(PROJECT_PANES_PREFIX)) {
+    // The canonical per-project row does not exist yet: the client asks for it
+    // because the PANE it was served is canonical. Answer with the raw row the
+    // pane store still points at, under the name the client asked for.
+    const store = db.query("SELECT value FROM ui_state WHERE key = ?").get(PANE_STORE_KEY) as { value: string } | null;
+    const rawKey = store ? servedPaneStore(parseStoredValue(store.value)).renames.find((r) => r.to === key)?.from : undefined;
+    if (rawKey) row = db.query(select).get(rawKey) as UiStateRow | null;
+  }
+  if (!row) return null;
+  return { ...row, value: parseStoredValue(row.value) };
+}
 
 /**
  * Max accepted JSON body size for a single ui-state PUT. 256 KB is >>10x the
@@ -314,10 +378,10 @@ export function createUiStateRouter(ctx: AppContext, opts?: UiStateRouterOptions
     const meta: Record<string, UiStateMeta> = {};
     for (const row of rows) {
       assertMigration012(row, "GET-all");
-      try { data[row.key] = JSON.parse(row.value); } catch { data[row.key] = row.value; }
+      data[row.key] = parseStoredValue(row.value);
       meta[row.key] = { payload_version: row.payload_version, server_seq: row.server_seq };
     }
-    return { data, meta };
+    return canonicalUiStateEnvelope({ data, meta });
   }
 
   return async function uiStateRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
@@ -336,7 +400,7 @@ export function createUiStateRouter(ctx: AppContext, opts?: UiStateRouterOptions
     const getMatch = method === "GET" && pathname.match(/^\/api\/ui-state\/([^/]+)$/);
     if (getMatch) {
       const key = decodeURIComponent(getMatch[1]);
-      const row = db.query("SELECT value, payload_version, server_seq FROM ui_state WHERE key = ?").get(key) as { value: string; payload_version: number; server_seq: number } | null;
+      const row = servedUiStateRow(db, key);
       if (!row) return json(null);
       try {
         assertMigration012(row, "GET-single");
@@ -344,9 +408,7 @@ export function createUiStateRouter(ctx: AppContext, opts?: UiStateRouterOptions
         console.error("[ui-state] GET single failed:", err);
         return json({ error: err.message }, 500);
       }
-      let parsed: unknown;
-      try { parsed = JSON.parse(row.value); } catch { parsed = row.value; }
-      return json({ value: parsed, payload_version: row.payload_version, server_seq: row.server_seq });
+      return json({ value: row.value, payload_version: row.payload_version, server_seq: row.server_seq });
     }
 
     // PUT /api/ui-state/:key — single key update (stamps payload_version=2, increments server_seq)
@@ -642,13 +704,13 @@ export function loadAllUiState(db: import("bun:sqlite").Database): UiStateEnvelo
       if (row.payload_version === undefined || row.payload_version === null) {
         console.error(`[ui-state] loadAllUiState: migration 012 not applied (key=${row.key}) — clients will see degraded meta.`);
       }
-      try { data[row.key] = JSON.parse(row.value); } catch { data[row.key] = row.value; }
+      data[row.key] = parseStoredValue(row.value);
       meta[row.key] = {
         payload_version: row.payload_version ?? 1,
         server_seq: row.server_seq ?? 0,
       };
     }
-    return { data, meta };
+    return canonicalUiStateEnvelope({ data, meta });
   } catch {
     return { data: {}, meta: {} };
   }
