@@ -326,15 +326,15 @@ describe("il server si spegne sopra un turno vivo", () => {
  * «Riprova rimanda il tuo messaggio»: premendolo partivano due turni, entrambi
  * a pagamento.
  *
- * E LA CAUSA RIPRENDIBILE È UNA SOLA DELLE TRE. `riprendiTurniInterrotti` è una
- * funzione di BOOT (`server.ts`, in coda al giro di riadozione):
- *
- *  · `server-shutdown` → un boot segue per definizione, il processo sta morendo
- *    mentre scriviamo il cartello. La promessa si mantiene da sé.
- *  · `watchdog` / `wall-clock` → il server RESTA SU: quella funzione non gira,
- *    e nessuno riprende niente. Prometterlo qui sarebbe il verso peggiore
- *    dell'errore — oggi si spreca un turno in modo VISIBILE, con la promessa si
- *    perderebbe il turno in SILENZIO.
+ * NOW ALL THREE OF `CAUSE_NOSTRE` KEEP THE PROMISE, and the reason the other
+ * two used to be excluded is gone. The exclusion rested on `riprendiTurniInterrotti`
+ * being a BOOT function only: with the server still up nobody would have run it,
+ * so promising a resume for `watchdog` / `wall-clock` would have lost the turn in
+ * SILENCE instead of wasting it visibly. Since the sweeper landed its own resume
+ * round, which fires while the process is alive, a cut with one of our causes is
+ * picked up by `isResumableCause` and started again without a boot. So the sign
+ * says the true thing for all three, and this test guards that they agree: the
+ * flag on the notice and the list that actually resumes are the same list.
  */
 describe("la promessa di ripresa sul cartello", () => {
   test("spegnimento del server: la card dice che non serve fare niente", async () => {
@@ -352,7 +352,7 @@ describe("la promessa di ripresa sul cartello", () => {
     expect(testo).not.toContain("«Riprova»");
   });
 
-  test("watchdog e limite di tempo: resta «Riprova», perché nessuno riprende", async () => {
+  test("watchdog e limite di tempo: anche loro dicono «Riprendo da solo», perché ora qualcuno riprende", async () => {
     for (const cause of ["watchdog", "wall-clock"] as const) {
       const h = await harness(`topic:ripresa-${cause}`);
       const handler = await h.startTurn();
@@ -362,8 +362,22 @@ describe("la promessa di ripresa sul cartello", () => {
       const m = h.ctx.loadLocalMessages(`topic:ripresa-${cause}`).filter((x) => x.role === "assistant").pop()!;
       const cartello = (m.blocks ?? []).find((b) => b.kind === "error");
       const testo = cartello && cartello.kind === "error" ? cartello.text : "";
-      expect(testo, cause).toContain("«Riprova»");
-      expect(testo, cause).not.toContain("Riprendo da solo");
+      expect(testo, cause).toContain("Riprendo da solo");
+      expect(testo, cause).not.toContain("«Riprova»");
     }
+  });
+
+  // The guard that keeps the two lists from drifting apart: a cause that is NOT
+  // ours gets no promise, because nothing resumes it.
+  test("una causa che non è nostra non promette niente: resta «Riprova»", async () => {
+    const h = await harness("topic:ripresa-utente");
+    const handler = await h.startTurn();
+    handler.onAborted?.({ result: "", turnEnd: { end: "cancelled" } });
+    await new Promise((r) => setTimeout(r, 50));
+
+    const m = h.ctx.loadLocalMessages("topic:ripresa-utente").filter((x) => x.role === "assistant").pop()!;
+    const cartello = (m.blocks ?? []).find((b) => b.kind === "error");
+    const testo = cartello && cartello.kind === "error" ? cartello.text : "";
+    expect(testo).not.toContain("Riprendo da solo");
   });
 });
