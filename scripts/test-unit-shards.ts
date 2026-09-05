@@ -212,6 +212,46 @@ export function parseJunitDurations(xml: string): Record<string, number> {
   return out;
 }
 
+/** One red test case as the junit report names it. */
+export interface JunitFailure {
+  file: string;
+  /** `classname › name`, i.e. the describe path and the test title. */
+  test: string;
+}
+
+/**
+ * The test cases that carry a `<failure>` or `<error>` child.
+ *
+ * WHY THE SUMMARY NEEDS THEM. The whole output of a red shard is reprinted
+ * above the summary, `(fail)` lines included, but the board keeps only the
+ * TAIL of a check's output in the card comment: on 05/09/2026 the agent of
+ * card 7bbefd9e read "test:unit exit 1" plus the reproduce line and had to
+ * rerun the shard just to learn which test was red. The names go in the last
+ * lines, where the comment keeps them. A hook timeout or a crashed process
+ * leaves no red test case in the report: the summary says so instead of
+ * printing nothing.
+ */
+export function parseJunitFailures(xml: string): JunitFailure[] {
+  const out: JunitFailure[] = [];
+  const caseRe = /<testcase\b([^>]*?)(?<!\/)>([\s\S]*?)<\/testcase>/g;
+  let m: RegExpExecArray | null;
+  while ((m = caseRe.exec(xml)) !== null) {
+    const attrs = m[1] ?? "";
+    const body = m[2] ?? "";
+    if (!/<(failure|error)\b/.test(body)) continue;
+    const file = /\bfile="([^"]*)"/.exec(attrs)?.[1] ?? "?";
+    const name = decodeXmlAttr(/\bname="([^"]*)"/.exec(attrs)?.[1] ?? "?");
+    const describePath = decodeXmlAttr(/\bclassname="([^"]*)"/.exec(attrs)?.[1] ?? "");
+    out.push({ file, test: describePath ? `${describePath} › ${name}` : name });
+  }
+  return out;
+}
+
+function decodeXmlAttr(s: string): string {
+  return s
+    .replace(/&quot;/g, "\"").replace(/&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+}
+
 /** Green (0) only if EVERY worker is green; otherwise the first non-zero code. */
 export function aggregateVerdict(exitCodes: number[]): number {
   const failed = exitCodes.find((c) => c !== 0);
@@ -226,6 +266,8 @@ interface RunResult {
   wallS: number;
   fileCount: number;
   measured: Record<string, number>;
+  /** Red test cases named by the junit report; empty on a hook timeout or a crash. */
+  failures: JunitFailure[];
 }
 
 /** Launches ONE `bun test` process on the given `files` and collects verdict + durations. */
@@ -256,12 +298,17 @@ async function runBunTest(
     proc.exited,
   ]);
   let measured: Record<string, number> = {};
+  let failures: JunitFailure[] = [];
   try {
-    if (existsSync(xmlPath)) measured = parseJunitDurations(readFileSync(xmlPath, "utf8"));
+    if (existsSync(xmlPath)) {
+      const xml = readFileSync(xmlPath, "utf8");
+      measured = parseJunitDurations(xml);
+      failures = parseJunitFailures(xml);
+    }
   } catch {
     /* incomplete xml: the old durations are kept for those files */
   }
-  return { code, stdout, stderr, wallS: (Date.now() - t0) / 1000, fileCount: files.length, measured };
+  return { code, stdout, stderr, wallS: (Date.now() - t0) / 1000, fileCount: files.length, measured, failures };
 }
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
@@ -330,6 +377,17 @@ if (import.meta.main) {
   });
   if (phase2) {
     console.log(`  fase2 seriale : ${phase2.code === 0 ? "ok " : "RED"}  ${phase2.fileCount} file  ${phase2.wallS.toFixed(1)}s`);
+  }
+  // The red tests BY NAME, last: the card comment keeps the tail of this output.
+  const MAX_NAMED = 12;
+  for (const { label, r } of reds) {
+    if (r.failures.length === 0) {
+      console.log(`  ${label}: nessun test rosso nel referto junit — il rosso e' un hook scaduto, un crash o un timeout di processo: leggi l'output del shard qui sopra`);
+      continue;
+    }
+    console.log(`  ${label}, test rossi (${r.failures.length}):`);
+    for (const f of r.failures.slice(0, MAX_NAMED)) console.log(`    ✗ ${f.file} › ${f.test}`);
+    if (r.failures.length > MAX_NAMED) console.log(`    … e altri ${r.failures.length - MAX_NAMED}`);
   }
   const codes = [...phase1.map((r) => r.code), ...(phase2 ? [phase2.code] : [])];
   const verdict = aggregateVerdict(codes);

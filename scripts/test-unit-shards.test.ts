@@ -15,6 +15,7 @@ import {
   partitionTiers,
   planShards,
   parseJunitDurations,
+  parseJunitFailures,
   aggregateVerdict,
 } from "./test-unit-shards.ts";
 
@@ -56,6 +57,36 @@ describe("planShards (LPT)", () => {
     const all = buckets.flatMap((b) => b.files);
     expect(new Set(all).size).toBe(200);
     expect(all.length).toBe(200);
+  });
+});
+
+describe("parseJunitFailures", () => {
+  test("names only the test cases that carry a failure or error child, decoding the title", () => {
+    // Bun's own shape (measured 05/09/2026): green cases are self-closing,
+    // red ones wrap a `<failure>`; names are XML-escaped.
+    const xml = `<?xml version="1.0"?>
+      <testsuites>
+        <testsuite name="red.test.ts" file="red.test.ts">
+          <testsuite name="gruppo" file="red.test.ts">
+            <testcase name="verde" classname="gruppo" time="0" file="red.test.ts" line="2" assertions="1" />
+            <testcase name="rosso &quot;a&quot; &amp; b" classname="gruppo" time="0.0003" file="red.test.ts" line="2">
+              <failure type="AssertionError" />
+            </testcase>
+            <testcase name="esplode" classname="gruppo" file="red.test.ts">
+              <error type="Error" message="boom" />
+            </testcase>
+          </testsuite>
+        </testsuite>
+      </testsuites>`;
+    expect(parseJunitFailures(xml)).toEqual([
+      { file: "red.test.ts", test: "gruppo › rosso \"a\" & b" },
+      { file: "red.test.ts", test: "gruppo › esplode" },
+    ]);
+  });
+
+  test("a report with no red case gives an empty list, so the summary can say the red is a hook or a crash", () => {
+    expect(parseJunitFailures(`<testsuites><testcase name="x" file="a.ts" time="1" /></testsuites>`)).toEqual([]);
+    expect(parseJunitFailures("")).toEqual([]);
   });
 });
 
