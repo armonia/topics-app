@@ -3441,3 +3441,53 @@ marcata invariata. `bun test server/lib/user-row-marks.test.ts` verde:
 #### Scenario: la chat non attribuisce la busta alla persona
 - **GIVEN** una riga `user` marcata `dispatched-envelope`
 - **THEN** la chat del topic la disegna come riga collassata, non come bolla della persona
+
+### Requirement: CHAT-FAIL-01 — Un'azione della chat che fallisce lo DICE
+
+Quattro azioni del pannello di chat scrivono sul server senza aggiornamento
+ottimistico: «Remember this» sulla bolla, la barra dell'obiettivo (chiusura e
+rinomina), le pastiglie del contesto (esclusione e rimozione file) e l'incolla di
+immagini nel composer. Per ognuna, un rifiuto del server SHALL produrre un toast
+di errore che riporta il messaggio del server, e NON SHALL essere buttato in un
+`catch {}` vuoto o in un `console.warn`.
+
+Sulla RINOMINA dell'obiettivo il campo di modifica SHALL restare aperto col testo
+digitato finché la scrittura non riesce: chiuderlo prima della risposta rimette a
+schermo il testo vecchio, che è indistinguibile da un successo. Un secondo invio
+mentre la prima scrittura è in volo NON SHALL partire.
+
+L'incolla di più immagini SHALL usare `Promise.allSettled`: le immagini leggibili
+entrano nel composer e il toast SHALL nominare il file scartato. Una sola immagine
+illeggibile NON SHALL far cadere l'intero incollaggio.
+
+FUORI: nessun aggiornamento ottimistico nuovo. La barra continua a mostrare quello
+che il server ha davvero.
+
+MISURA: `npx playwright test tests/e2e/chat-silent-failures.spec.ts` verde, quattro
+scenari, ciascuno con la sua rotta mockata a 500 o abortita.
+
+#### Scenario: «Remember this» rifiutato lo dice
+- **GIVEN** una bolla dell'assistente con il bottone «Remember this»
+- **AND** `POST /api/memory/*/append` risponde 500
+- **WHEN** la persona clicca il bottone
+- **THEN** compare un toast di errore con il messaggio del server
+
+#### Scenario: la rinomina dell'obiettivo che fallisce tiene il campo aperto
+- **GIVEN** una barra dell'obiettivo con un obiettivo attivo
+- **AND** la scrittura del goal risponde 500
+- **WHEN** la persona apre la matita, scrive un testo nuovo e conferma
+- **THEN** compare un toast di errore
+- **AND** il campo di modifica resta aperto col testo digitato, non col vecchio
+
+#### Scenario: la pastiglia di contesto che non si spegne lo dice
+- **GIVEN** il popover del contesto con un file elencato
+- **AND** `PATCH /api/topics/*` risponde 500
+- **WHEN** la persona spegne la pastiglia
+- **THEN** compare un toast di errore
+- **AND** la pastiglia resta accesa, perché il file è ancora nel contesto
+
+#### Scenario: un'immagine illeggibile non porta via le altre
+- **GIVEN** il composer a fuoco
+- **WHEN** la persona incolla insieme un'immagine valida e una corrotta
+- **THEN** l'anteprima della valida entra nel composer
+- **AND** un toast di errore nomina il file scartato
