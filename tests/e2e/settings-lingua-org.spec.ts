@@ -1,22 +1,22 @@
 /**
- * LE IMPOSTAZIONI PARLANO ITALIANO, E LE ORGANIZZAZIONI SI TROVANO.
+ * THE SETTINGS SPEAK THE APP'S LANGUAGE, AND THE ORGANISATIONS CAN BE FOUND.
  *
- * Segnalato: «tutta la parte di settings ancora non le vedo ben divise. Non
- * vedo le organizzazioni. In profile vedo accorpata la possibilità anche di
- * aggiungere più persone, ma non ha senso perché io sono io e la mia mail».
+ * Reported: «tutta la parte di settings ancora non le vedo ben divise. Non  allow-italian: the report is quoted verbatim
+ * vedo le organizzazioni. In profile vedo accorpata la possibilita' anche di  allow-italian: the report is quoted verbatim
+ * aggiungere piu' persone, ma non ha senso perche' io sono io e la mia mail».  allow-italian: the report is quoted verbatim
  *
- * Due fatti distinti, che sembrano lo stesso:
+ * Two distinct facts that look like one:
  *
- *  1. LA LINGUA. Il menu di sinistra diceva «Appearance», «Notifications»,
- *     «Profile», «Devices», «Plan» — cinque parole inglesi in un'app in
- *     italiano. Non è un vezzo: quando una voce si chiama con una parola che
- *     non è quella che hai in testa, la scansione della lista fallisce e la
- *     conclusione è «non c'è». Il repo ha già un dizionario (`i18n.ts`) e i
- *     settings erano l'unica superficie che non lo usava.
- *  2. LE ORGANIZZAZIONI CI SONO. `IdentitySection` le gestisce per intero e sta
- *     dentro «Profilo». Il test le trova, così se un domani qualcuno le sposta
- *     di nuovo in fondo a una scheda che parla d'altro, diventa rosso.
-  * @covers SETORG-01
+ *  1. THE LANGUAGE. The left menu said "Appearance", "Notifications",
+ *     "Profile", "Devices", "Plan" - five English words inside an app running
+ *     in Italian. Not a nicety: when an entry is named with a word that is not
+ *     the one in your head, scanning the list fails and the conclusion is "it
+ *     is not there". The repo already has a dictionary (`i18n.ts`) and the
+ *     settings were the one surface not using it.
+ *  2. THE ORGANISATIONS ARE THERE. `IdentitySection` handles them end to end
+ *     and lives inside "Profilo". The test finds them, so the day somebody
+ *     moves them back to the bottom of a tab about something else, it goes red.
+ * @covers SETORG-01
  */
 import { test, expect } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";

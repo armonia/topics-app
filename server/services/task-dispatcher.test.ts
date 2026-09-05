@@ -1705,35 +1705,41 @@ describe("task-dispatcher", () => {
     expect(h.svc.get("t1")!.comments.some((c) => c.kind === "service" && c.content.includes("Feedback arrivato"))).toBe(false);
   });
 
-  it("il feedback imbucato si ANNUNCIA sulla card, una volta sola", async () => {
-    // Senza la nota, scrivere a un agent che lavora non produce niente di
-    // visibile: il messaggio entra in una Map e ricompare solo a turno finito.
+  it("il feedback imbucato NON scrive nessuna nota: lo dice il chip, e arriva tutto", async () => {
+    // Writing to a working agent used to leave a service line saying the
+    // message was queued. That line was STATE, and state is derived from the
+    // envelope now (the bubble carries its own «queued» / «delivered» chip):
+    // the row said in the past tense, forever, what the chip says while it is
+    // true. What must NOT change is the delivery.
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-42", attempts: 1 });
     const p = h.dispatcher.resume("t1", "primo giro");
     await flush();
 
-    void h.dispatcher.resume("t1", "primo feedback");
-    void h.dispatcher.resume("t1", "secondo feedback");
+    void h.dispatcher.resume("t1", "primo feedback", { commentIds: ["c1"] });
+    void h.dispatcher.resume("t1", "secondo feedback", { commentIds: ["c2"] });
     await flush();
-    const notes = () => h.svc.get("t1")!.comments.filter((c) => c.kind === "service" && c.content.includes("mentre l'agent sta lavorando"));
-    expect(notes().length).toBe(1);
-    expect(h.events.some((e) => e.type === "task:updated" && e.task?.id === "t1")).toBe(true);
+    expect(h.svc.get("t1")!.comments.filter((c) => c.kind === "service")).toEqual([]);
 
     h.svc.addComment({ taskId: "t1", author: "claude", content: "consegnato" });
     h.finishTurn();
     await p;
     await flush();
-    // Consegnati ENTRAMBI, nell'ordine in cui sono stati scritti.
+    // Consegnati ENTRAMBI, nell'ordine in cui sono stati scritti, e la busta
+    // porta gli id delle due righe che li dicono.
     expect(h.turns.at(-1)!.content).toContain("primo feedback");
     expect(h.turns.at(-1)!.content).toContain("secondo feedback");
+    expect(h.turns.at(-1)!.dispatchedFor).toEqual(["c1", "c2"]);
+    expect(h.svc.get("t1")!.comments.filter((c) => c.kind === "service")).toEqual([]);
   });
 
-  it("se la card è tornata in coda il feedback non si perde: resta nel thread e lo dice", async () => {
+  it("se la card è tornata in coda il feedback non si perde, e nessuna nota lo racconta", async () => {
     // `wait_for_condition` a metà turno riporta la card a todo col chip
     // `waiting`: non c'è nessun turno da riprendere adesso, e il ramo del
-    // resume qui sopra non scatta. Il messaggio è comunque nel thread.
+    // resume qui sopra non scatta. Il messaggio è comunque nel thread, come
+    // riga umana propria: la nota che lo ripeteva era lo stesso fatto scritto
+    // due volte.
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-42", attempts: 1 });
@@ -1750,8 +1756,7 @@ describe("task-dispatcher", () => {
 
     expect(h.turns.length).toBe(1);                       // nessun agente svegliato
     expect(h.task("t1")!.dispatchState).toBe("waiting");  // l'attesa dichiarata resta
-    const notes = h.svc.get("t1")!.comments.filter((c) => c.kind === "service" && c.content.includes("resta nel thread"));
-    expect(notes.length).toBe(1);
+    expect(h.svc.get("t1")!.comments.filter((c) => c.kind === "service")).toEqual([]);
   });
 
   it("resume is a no-op when the task has no bound topic", async () => {

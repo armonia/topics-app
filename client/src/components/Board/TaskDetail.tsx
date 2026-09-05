@@ -1024,7 +1024,17 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // presentarsi come una decisione da prendere.
   const speech = comments.filter((c) => isThreadSpeech(c) && !isResolvedParkedQuestion(c, children));
   const lastThreadComment = speech[speech.length - 1] ?? null;
-  const pending = isAgentReview && lastThreadComment ? parseQuestionBlock(lastThreadComment.content) : null;
+  // A QUESTION IS A QUESTION IN EVERY COLUMN, not only in review. The buttons
+  // used to hang off `isAgentReview`, so a card the agent kept working on while
+  // asking (a routed `ask_user_question`: the rendez-vous is open, the turn is
+  // alive, the card stays `in_progress`) showed its options nowhere and the only
+  // way to answer was to guess the wording by hand. The rule is the one the
+  // server already applies with `awaitingAnswerFor`: the last word of the thread
+  // is a question block. `done` is the single exception, because a closed card
+  // has nobody left to answer.
+  const pending = lastThreadComment && task && task.status !== 'done'
+    ? parseQuestionBlock(lastThreadComment.content)
+    : null;
   // Same trap as on the card, one size bigger: the drawer draws its own approve
   // / send-back / land buttons, so a quick reply carrying one of those labels
   // sits beside a button that does something else entirely.
@@ -1671,6 +1681,28 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
 
   // Live agent state (needed below): typing indicator + stream preview + stop.
   const agentBusy = !!task && isAgentWorking(task.dispatchState);
+
+  /**
+   * THE COMPOSER NAMES THE VERB OF THE STATE IT SITS IN.
+   *
+   * One box, three destinations: on a delivered card the text is picked up by
+   * the send-back button, on a working card it reaches the agent mid-turn, on a
+   * closed one it stays a note. Only the words say which, and a placeholder that
+   * says «Commenta» over a box that wakes an agent is the difference between a
+   * note and a turn.
+   *
+   * The fourth case is the one that was missing: the agent asked and is waiting.
+   * Then the box is not a steer, it is the answer the turn restarts from.
+   */
+  const steerable = !!task && (task.status === 'in_progress' || agentBusy);
+  const composerPlaceholder = isAgentReview
+    ? tr('board.task.replyPlaceholder', { sendBack: sendBackLabel })
+    : steerable
+      ? (pending ? tr('board.task.answerPlaceholder') : tr('board.task.steerPlaceholder'))
+      : tr('board.task.commentPlaceholder');
+  const composerSendTitle = steerable
+    ? (pending ? tr('task.comment.answer') : tr('task.comment.toAgent'))
+    : tr('task.comment');
 
   // Coming back from hidden, the store may have missed frames the socket
   // dropped while the tab slept. The wake-up listener up at `onWake` calls this
@@ -3010,13 +3042,29 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 onError={setError} onNeedText={() => commentRef.current?.focus()}
               />
             )}
+            {/* The answers to the open question sit right above the composer in
+                EVERY state, not only in review: the question is the last word of
+                the thread, and where the words are is where the answer belongs.
+                On a card still working, clicking one lands on the comments route,
+                which hands it to the rendez-vous that is waiting for it. */}
+            {task.status !== 'review' && replyOptions.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-1" data-testid="task-question-options">
+                {replyOptions.map((opt, i) => (
+                  <button
+                    key={i} disabled={sending}
+                    onClick={() => answerOption(opt)}
+                    className="rounded bg-white/10 px-2 py-1 text-xs text-app-text hover:bg-white/20 disabled:opacity-50"
+                  >{opt}</button>
+                ))}
+              </div>
+            )}
             {/* Review zone — decisions live HERE, where the agent's questions
                 land (end of the thread), not up in the header. ("Modifiche" moved
                 up above the body, out of this composer area.) */}
             {task.status === 'review' && (
               <div className="mb-2 space-y-1.5">
                 {replyOptions.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
+                  <div className="flex flex-wrap gap-1" data-testid="task-question-options">
                     {replyOptions.map((opt, i) => (
                       <button
                         key={i} disabled={sending}
@@ -3110,7 +3158,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 value={draft} onChange={(e) => { setDraft(e.target.value); saveCommentCursor(); }} rows={1}
                 onSelect={saveCommentCursor} onKeyUp={saveCommentCursor} onClick={saveCommentCursor}
                 onFocus={() => markActiveComposer(commentCursorKey)}
-                placeholder={isAgentReview ? tr('board.task.replyPlaceholder', { sendBack: sendBackLabel }) : agentBusy ? tr('board.task.steerPlaceholder') : tr('board.task.commentPlaceholder')}
+                placeholder={composerPlaceholder}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
                 onPaste={(e) => {
                   const imgs = imagesFromClipboard(e.clipboardData);
@@ -3140,7 +3188,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               ) : (
                 <button
                   onClick={() => void send()} disabled={sending || (!draft.trim() && attachments.length === 0)}
-                  title={agentBusy ? tr('task.comment.toAgent') : tr('task.comment')}
+                  title={composerSendTitle}
                   className={`rounded p-1.5 text-white disabled:opacity-50 ${agentBusy ? 'bg-sky-500/80 hover:bg-sky-500' : 'bg-emerald-500/80 hover:bg-emerald-500'}`}
                 >{sending ? <Spinner size="md" tone="current" /> : <Send className="h-4 w-4" />}</button>
               )}

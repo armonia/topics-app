@@ -2744,18 +2744,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       } else if (cur.status === "in_progress") {
         setTimeout(() => { void resume(taskId, queued.map((q) => q.text).join("\n"), { commentIds: queuedCommentIds(queued) }); }, 0);
         return;
-      } else {
-        // No turn to resume: the card went back to the queue (a declared wait, a
-        // requeue) and restarts when its turn comes. The feedback is NOT lost, it
-        // is a comment in the thread and the agent re-reads it with `get_task`,
-        // but the silence here looked like a successful hand-over, so we say it.
-        try {
-          deps.svc.addComment({
-            taskId, author: "system", kind: "service",
-            content: "Il tuo feedback è arrivato a turno finito: resta nel thread e l'agent lo legge quando questa card riprende.",
-          });
-        } catch { /* best-effort */ }
       }
+      // No turn to resume: the card went back to the queue (a declared wait, a
+      // requeue) and restarts when its turn comes. Nothing is written here. The
+      // note that used to say it was STATE ("your feedback arrived after the
+      // turn"), and state is the chip the thread derives from the envelope: the
+      // words are already a row of their own, and a service line under them said
+      // the same thing a second time, in the past tense, forever.
     }
     // The agent declared a wait mid-turn (wait_for_condition → deferForWait moved
     // it back to todo + chip `waiting`). The slot is already freed by the finally;
@@ -3108,12 +3103,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     if (inFlight.has(taskId)) {
       // Turn still live (winding down): buffer, onTurnEnd delivers it.
       //
-      // E LO DICE. Scrivere a un agent che lavora non produceva NIENTE sulla
-      // card: nessuna nota, nessun chip, il messaggio spariva dentro una Map e
-      // ricompariva solo quando il turno finiva. Da fuori è indistinguibile da
-      // un feedback ignorato, e chi guarda lo riscrive. La nota è una sola per
-      // coda (il secondo messaggio si accoda a un'attesa già annunciata): dire
-      // due volte la stessa cosa è rumore, non conferma.
+      // AND THE CARD SAYS IT, without a note. Writing to a working agent used to
+      // produce nothing visible, so the dispatcher wrote a service line to say
+      // the message was queued. That line was STATE, and state now comes from
+      // the envelope: the comment carries a «queued» chip under its own bubble
+      // until the turn ends, then the same chip says «delivered». One row, that
+      // changes, instead of two rows that both stay.
       // A NUDGE IS NOT A MESSAGE. A continuation nudge (or an empty
       // resume) buffered against a LIVE turn is a contradiction: the nudge says
       // "your turn ended without delivering" and the turn is right there,
@@ -3121,17 +3116,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // as if a person had written it: card d2a4a907, delivered at 04:50 and
       // reopened at 04:50 with nothing to read. Nothing is lost by dropping it.
       if (opts?.continuation || !humanMessage.trim()) return;
-      const already = (pendingResume.get(taskId)?.length ?? 0) > 0;
       bufferResume(taskId, humanMessage, opts?.commentIds?.[0]);
-      if (!already) {
-        try {
-          deps.svc.addComment({
-            taskId, author: "system", kind: "service",
-            content: "Feedback ricevuto mentre l'agent sta lavorando: glielo consegno appena chiude il turno in corso. Non serve riscriverlo.",
-          });
-          emit(deps.svc.get(taskId)!.task);
-        } catch { /* best-effort */ }
-      }
       return;
     }
     // Il tetto vale anche qui. Il messaggio NON si perde: si riprova quando un
