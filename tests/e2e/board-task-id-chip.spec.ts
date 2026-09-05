@@ -342,6 +342,15 @@ test.describe("Board card — il riferimento al task è un segno, non una parola
     await expect(page.getByTestId("task-detail-drawer")).toHaveCount(0);
   });
 
+  test("IDCHIP-06: clipboard absence never confirms the copy", async ({ page }) => {
+    const chip = page.locator(`[data-task-card="${createdTasks[0]}"]`).first().getByTestId("task-id-chip");
+    await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined }));
+
+    await chip.click();
+
+    await expect(chip).not.toHaveAttribute("data-copied", "true");
+  });
+
   test("IDCHIP-05: un titolo lungo va a capo AL BORDO, non sotto il cancelletto", async ({ page }) => {
     // Segnalato: «il titolo non va piu' a capo bene, ma e' incolonnato a
     // partire dal cancelletto».
