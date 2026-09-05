@@ -5,11 +5,11 @@ interface ToggleRowProps {
   description?: string;
   value: boolean;
   onChange: (v: boolean) => void;
-  /** Spegne l'interruttore per davvero: fuori dall'ordine di tab, Spazio inerte,
-   *  stato esposto ad AT. Attenua anche la label perché la riga si legga spenta.
-   *  Un wrapper `opacity-50 pointer-events-none` NON basta: il bottone resta
-   *  focusabile e commutabile da tastiera, e `aria-checked` cambia senza dire
-   *  che è disabilitato. */
+  /** Switches the toggle off for real: out of the tab order, Space inert, state
+   *  exposed to AT. It also dims the label so the row reads as off. A wrapper
+   *  `opacity-50 pointer-events-none` is NOT enough: the button stays focusable
+   *  and switchable from the keyboard, and `aria-checked` changes without
+   *  saying it is disabled. */
   disabled?: boolean;
 }
 

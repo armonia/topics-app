@@ -1969,9 +1969,6 @@
       "loc",
       "unackedJson"
     ],
-    "client/src/state/pane/bootstrap.test.ts": [
-      "uninstallFakeWindow"
-    ],
     "client/src/state/pane/devOverlay/MutationLogOverlay.tsx": [
       "ndjson"
     ],
@@ -1979,12 +1976,6 @@
       "applicato",
       "ordine",
       "unsubscribe"
-    ],
-    "client/src/state/pane/middleware/syncCrossTab.test.ts": [
-      "uninstallFakeWindow"
-    ],
-    "client/src/state/pane/middleware/syncServer.test.ts": [
-      "uninstallFakeWindow"
     ],
     "client/src/state/pane/middleware/syncServer.ts": [
       "armaSpinta",
@@ -2496,8 +2487,7 @@
       "pausa"
     ],
     "scripts/install-claude-hooks.ts": [
-      "__dirname",
-      "uninstall"
+      "__dirname"
     ],
     "scripts/job-quota-live-demo.ts": [
       "AMBIENTE",

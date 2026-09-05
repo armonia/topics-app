@@ -146,6 +146,7 @@ export const PROJECT_WORDS = new Set([
   // in `state-dir-single-door.test.ts`, where the whole point of the constant is
   // to name the SHAPE of a read the gate must catch.
   "destructure",
+  "uninstall", // plain English the Webster list predates; `hooks:uninstall`, `uninstallFakeWindow`
   // Same hole again: `exec` is how every programmer says "execute" (exec,
   // execSync, execve) and the 1934 list has none of them. It arrived with
   // `onToolExecStart`, the signal that tells a tool ANNOUNCED apart from a
