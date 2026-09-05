@@ -3664,14 +3664,11 @@
       "Chiamata",
       "chiamate",
       "esito",
-      "ffmpeg",
       "rotta"
     ],
     "server/lib/stt.ts": [
       "ELEVENLABS_FALLBACK_MODEL",
-      "FFMPEG_TIMEOUT_MS",
       "OPENAI_FALLBACK_MODEL",
-      "ffmpeg",
       "grezzo",
       "lang",
       "motivo",
