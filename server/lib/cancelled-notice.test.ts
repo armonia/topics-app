@@ -329,6 +329,9 @@ describe("il taglio dello sweeper e la causa sul blocco: entrambi si riprendono"
   test("il cartello dello sweeper è riconosciuto dal testo, con o senza il prefisso", () => {
     expect(eCartelloDiInterruzione("⚠️ Risposta interrotta: nessuna attività per 3 minuti (il processo potrebbe essersi bloccato o disconnesso). Riprende da solo entro pochi minuti.")).toBe(true);
     expect(eCartelloDiInterruzione("Risposta interrotta: nessuna attività per 3 minuti.")).toBe(true);
+    // The tool-round budget, in the wording rows carried before the block had a cause.
+    expect(eCartelloDiInterruzione("il turno ha esaurito i 300 giri di tool a disposizione (non è un guasto: il lavoro resta, la ripresa continua la stessa sessione).")).toBe(true);
+    expect(eCartelloDiInterruzione("il turno è stato fermato dalla persona")).toBe(false);
   });
 
   test("le cause nostre, il limite dell'API e il tetto dei tool si riprendono; l'umano e un guasto no", () => {
