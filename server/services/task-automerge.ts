@@ -158,16 +158,27 @@ const REBASE_INSTRUCTION =
  * altrove, o uno nuovo aggiunto senza passare di qui) vale come fallito: sbaglia
  * verso il rimandare indietro una card, mai verso il chiuderla.
  */
-export function landFallout(code: LandSkipCode | undefined): LandFallout {
+export function landFallout(code: LandSkipCode | undefined, ctx: { deliveryCommit?: string | null } = {}): LandFallout {
   switch (code) {
     case "no-branch":
       return { status: null, reason: "" };
+    // A branch that is gone with NOTHING ever delivered as code is the no-branch
+    // case wearing a name: the card recorded a branch, the land found it equal
+    // to main and reaped it, and the person then approved. Bouncing that card
+    // to review makes a loop nobody can leave: on 2026-09-05 card 89a87bbf (an
+    // analysis, report in the thread, branch identical to main) went
+    // done -> land -> "branch-missing" -> review, and back, on every approval.
+    // With a delivery commit recorded the missing branch stays a failure: that
+    // is code that may have been lost, and the card must not close over it.
+    // And so does a caller who did not LOOK (`deliveryCommit` undefined): the
+    // acceptance is an explicit statement, never the default.
+    case "branch-missing":
+      if (ctx.deliveryCommit === null) return { status: null, reason: "" };
+      return { status: "review", reason: "il ramo consegnato non è più confrontabile con main" };
     case "unisolable":
       return { status: "in_progress", reason: "il land non ha saputo isolare i commit della card", resume: REBASE_INSTRUCTION };
     case "foreign-commits":
       return { status: "in_progress", reason: "il ramo porta anche commit di un'altra sessione", resume: REBASE_INSTRUCTION };
-    case "branch-missing":
-      return { status: "review", reason: "il ramo consegnato non è più confrontabile con main" };
     case "repo-unresolved":
       return { status: "review", reason: "non si trova il checkout del progetto su cui atterrare il ramo consegnato" };
     case "dirty-checkout":

@@ -799,6 +799,14 @@ describe("task-automerge", () => {
 describe("landFallout — un land fallito non lascia la card in Done", () => {
   test("l'unico esito che lascia la card chiusa è «non c'era niente da atterrare»", () => {
     expect(landFallout("no-branch").status).toBe(null);
+    // A reaped branch with no delivery commit is the same innocuous case: the
+    // card never delivered code, so nothing can have been lost (89a87bbf,
+    // 2026-09-05: done -> land -> review, on every approval). With a delivery
+    // commit the missing branch stays a failure.
+    expect(landFallout("branch-missing", { deliveryCommit: null }).status).toBe(null);
+    // Not stated (the caller did not look) or a commit recorded: still a failure.
+    expect(landFallout("branch-missing").status).toBe("review");
+    expect(landFallout("branch-missing", { deliveryCommit: "abc1234" }).status).toBe("review");
   });
 
   test("ogni altro esito TOGLIE la card da Done, con una ragione da scrivere nello stato", () => {
