@@ -50,6 +50,10 @@ export function slotDir(): string {
  */
 export const GATE_HELD_ENV = "TOPICS_GATE_HELD";
 
+// The line `slot.ts` prints when it holds a slot, read by the board's check
+// runner to restart its cap: see shared/slot-acquired.ts.
+export { SLOT_ACQUIRED_PREFIX, slotAcquiredLine, parseSlotAcquired } from "../shared/slot-acquired";
+
 /**
  * Past this, waiting has cost more than the contention it was avoiding.
  * `TOPICS_GATE_MAX_WAIT_MS` moves it, which is also how a bench measures the

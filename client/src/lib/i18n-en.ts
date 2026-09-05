@@ -45,6 +45,9 @@ const EN = {
   'compaction.summaryTitle': 'Summary of the compacted context',
   'settings.close': 'Close the settings',
   'toast.close': 'Dismiss the notification',
+  'lightbox.close': 'Close the image',
+  'lightbox.resetZoom': 'Reset zoom',
+  'lightbox.image': 'Image',
   'activity.runningFor': 'Running for {label}{approx}',
   'activity.atLeast': ' (at least: the turn was already going at the last server restart)',
 
@@ -1439,8 +1442,6 @@ const EN = {
   // ── The three words every surface used to rewrite on its own.
   'common.close': 'Close',
   'common.retry': 'Retry',
-  'common.removeImage': 'Remove the image',
-  'common.resetZoom': 'Reset zoom',
   'common.loading': 'Loading…',
   // ── Editor: the tabs and the file that did not load.
   'editor.tab.close': 'Close {name}',

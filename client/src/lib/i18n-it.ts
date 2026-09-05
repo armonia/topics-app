@@ -45,6 +45,9 @@ const IT: Dict = {
   'compaction.summaryTitle': 'Riassunto del contesto compattato',
   'settings.close': 'Chiudi le impostazioni',
   'toast.close': 'Chiudi la notifica',
+  'lightbox.close': "Chiudi l'immagine",
+  'lightbox.resetZoom': 'Azzera lo zoom',
+  'lightbox.image': 'Immagine',
   'activity.runningFor': 'In esecuzione da {label}{approx}',
   'activity.atLeast': " (almeno: il turno era già in corso all'ultimo riavvio del server)",
 
@@ -1686,8 +1689,6 @@ const IT: Dict = {
   // ── Le tre parole che ogni superficie riscriveva per conto suo.
   'common.close': 'Chiudi',
   'common.retry': 'Riprova',
-  'common.removeImage': "Togli l'immagine",
-  'common.resetZoom': 'Azzera lo zoom',
   'common.loading': 'Carico…',
   // ── Editor: le schede e il file che non si è caricato.
   'editor.tab.close': 'Chiudi {name}',

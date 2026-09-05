@@ -127,6 +127,9 @@ function harness(opts: HarnessOpts = {}) {
       page: page(contextId),
       context: opts.storageState ? { storageState: async () => opts.storageState } : undefined,
     }),
+    // A fake capture that is NOT empty: read-screen hands it to the vision
+    // model, and the bytes are the only thing that says the pane was ready.
+    screenshot: async () => Buffer.from("fake pixels"),
     destroyContext: async (id: string) => {
       if (opts.destroyThrows) throw new Error("nessun contesto headless per questa pane");
       destroyed.push(id);
@@ -979,5 +982,62 @@ describe("save_state — l'handle finisce sulla tab del task", () => {
     await h.post("/api/topics/aaaaaaaa-topic/browser/eval", { expression: "1+1" });
 
     expect(h.loginAttached).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// read-screen RIGHT AFTER open-pane: the sequence the logs failed 26 times out
+// of 26 (card 7bbefd9e). The 502 came back in 1.6s, well before any timeout,
+// and all it said was "gateway" about a pane that was alive.
+// ---------------------------------------------------------------------------
+describe("read-screen subito dopo open-pane", () => {
+  const realFetch = globalThis.fetch;
+  let savedKey: string | undefined;
+
+  beforeEach(() => {
+    savedKey = process.env.MOONDREAM_API_KEY;
+    process.env.MOONDREAM_API_KEY = "test-key";
+  });
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    if (savedKey === undefined) delete process.env.MOONDREAM_API_KEY;
+    else process.env.MOONDREAM_API_KEY = savedKey;
+  });
+
+  function stubVision(status: number, body: string): void {
+    globalThis.fetch = (async () =>
+      new Response(body, { status, headers: { "content-type": "application/json" } })) as unknown as typeof fetch;
+  }
+
+  test("apri e leggi nello stesso respiro: 200 con la descrizione della pagina", async () => {
+    stubVision(200, JSON.stringify({ caption: "una pagina di login" }));
+    const h = harness();
+    h.addTopic("t1");
+
+    const open = await h.post("/api/topics/t1/browser/open-pane", { url: "https://example.com/" });
+    // No wait in between: this is the case that failed in production.
+    const read = await h.post("/api/topics/t1/browser/read-screen", {});
+
+    expect(open!.status).toBe(200);
+    expect(read!.status).toBe(200);
+    expect(await read!.json()).toEqual({ vision: "una pagina di login" });
+  });
+
+  test("chiave rifiutata: il corpo del 502 dice cos'è e cosa usare al posto suo", async () => {
+    stubVision(401, JSON.stringify({ error: "Unauthorized" }));
+    const h = harness();
+    h.addTopic("t1");
+    await h.post("/api/topics/t1/browser/open-pane", { url: "https://example.com/" });
+
+    const read = await h.post("/api/topics/t1/browser/read-screen", {});
+
+    expect(read!.status).toBe(502);
+    const { error } = (await read!.json()) as { error: string };
+    // "Bad Gateway" about a live pane sends the agent hunting the server. The
+    // body has to name the cause (the key), say that retrying is pointless, and
+    // point at the tools that do work meanwhile.
+    expect(error).toContain("MOONDREAM_API_KEY");
+    expect(error).toContain("not a transient one");
+    expect(error).toContain("browser_get_text");
   });
 });

@@ -113,19 +113,37 @@ export function languageHint(env: SttDeps["env"]): string | null {
  * gpt-*-transcribe). Topics è una app per agenti da terminale: senza questo
  * suggerimento «git rebase» diventa «git ribes» e «Tauri» diventa «Taury».
  *
- * NON viene passato ai provider basati su Whisper: lì l'`initial_prompt` finisce
- * regolarmente NELLA trascrizione quando l'audio è silenzioso, ed è esattamente
- * il difetto che stiamo togliendo di mezzo.
+ * IT IS NOT SENT TO THE WHISPER PROVIDERS, and that is no longer a hypothesis.
+ * Measured 2026-09-05 on 13 generated clips (5 clean, 5 through a microphone
+ * chain with an Opus pass, 3 without speech), scoring the domain terms that come
+ * out right, with the prompt and without it. Both engines got WORSE, and both
+ * gave a silent clip a sentence to say:
+ *
+ *   groq whisper-large-v3-turbo   63% -> 59%   1 silent clip out of 3 answered
+ *                                              «Teechnical dictation.»
+ *   whisper.cpp large-v3-turbo    53% -> 38%   3 out of 3, e.g. «Andres, open,
+ *                                              and the web.»
+ *
+ * The reason is in what the parameter IS: for gpt-transcribe it is an instruction,
+ * for a Whisper model it is text ALREADY DECODED that the model continues from,
+ * so on silence it keeps writing the prompt and on speech it drags the whole
+ * transcript towards English. The leaked sentences are not the subtitle credits
+ * the silence filter below knows, so that filter is no protection here.
+ * Rerun: `bun run scripts/bench/stt-prompt-bench.ts`.
  */
-const DEFAULT_PROMPT =
+export const DEFAULT_PROMPT =
   "Technical dictation inside a developer tool for terminal AI coding agents. " +
   "Expect software vocabulary: git, commit, rebase, branch, merge, pull request, TypeScript, React, Rust, Tauri, " +
   "npm, bun, Docker, API, endpoint, webhook, WebSocket, prompt, token, Claude, Codex.";
 
 function promptFor(id: SttProviderId, env: SttDeps["env"]): string | null {
+  // The gate is the ENGINE, not the configuration: `STT_PROMPT` used to reach
+  // Groq too, which is the one live path by which those numbers above could
+  // land in somebody's composer.
+  if (id !== "openai") return null;
   const raw = env.STT_PROMPT;
   if (raw !== undefined) return raw.trim() ? raw.trim() : null;
-  return id === "openai" ? DEFAULT_PROMPT : null;
+  return DEFAULT_PROMPT;
 }
 
 // ─── Scelta della catena ──────────────────────────────────────────────────────
@@ -508,14 +526,13 @@ async function transcribeGroq(audio: SttAudio, deps: SttDeps, model: string): Pr
   const doFetch = deps.fetchImpl ?? fetch;
   const key = deps.env.GROQ_API_KEY!;
   const lang = languageHint(deps.env);
-  const prompt = promptFor("groq", deps.env);
 
+  // No `prompt` field, on purpose and with a number behind it: see DEFAULT_PROMPT.
   const form = new FormData();
   form.append("model", model);
   form.append("file", fileOf(audio));
   form.append("response_format", "json");
   if (lang) form.append("language", lang);
-  if (prompt) form.append("prompt", prompt);
 
   const resp = await doFetch("https://api.groq.com/openai/v1/audio/transcriptions", {
     method: "POST",
