@@ -1,21 +1,21 @@
 /**
- * LE IMPOSTAZIONI PARLANO ITALIANO, E LE ORGANIZZAZIONI SI TROVANO.
+ * THE SETTINGS SPEAK ITALIAN, AND THE ORGANISATIONS CAN BE FOUND.
  *
- * Segnalato: «tutta la parte di settings ancora non le vedo ben divise. Non
- * vedo le organizzazioni. In profile vedo accorpata la possibilità anche di
- * aggiungere più persone, ma non ha senso perché io sono io e la mia mail».
+ * Reported: «tutta la parte di settings ancora non le vedo ben divise. Non allow-italian: the exact words of the report
+ * vedo le organizzazioni. In profile vedo accorpata la possibilità anche di allow-italian: the exact words of the report
+ * aggiungere più persone, ma non ha senso perché io sono io e la mia mail». allow-italian: the exact words of the report
  *
- * Due fatti distinti, che sembrano lo stesso:
+ * Two distinct facts that look like the same one:
  *
- *  1. LA LINGUA. Il menu di sinistra diceva «Appearance», «Notifications»,
- *     «Profile», «Devices», «Plan» — cinque parole inglesi in un'app in
- *     italiano. Non è un vezzo: quando una voce si chiama con una parola che
- *     non è quella che hai in testa, la scansione della lista fallisce e la
- *     conclusione è «non c'è». Il repo ha già un dizionario (`i18n.ts`) e i
- *     settings erano l'unica superficie che non lo usava.
- *  2. LE ORGANIZZAZIONI CI SONO. `IdentitySection` le gestisce per intero e sta
- *     dentro «Profilo». Il test le trova, così se un domani qualcuno le sposta
- *     di nuovo in fondo a una scheda che parla d'altro, diventa rosso.
+ *  1. THE LANGUAGE. The left menu said "Appearance", "Notifications",
+ *     "Profile", "Devices", "Plan": five English words inside an app that
+ *     speaks Italian. Not a whim. When an entry is named with a word that is
+ *     not the one you have in mind, scanning the list fails and the conclusion
+ *     is "it is not there". The repo already has a dictionary (`i18n.ts`) and
+ *     the settings were the only surface not using it.
+ *  2. THE ORGANISATIONS ARE THERE. `IdentitySection` handles them in full and
+ *     lives inside "Profilo". The test finds them, so if one day somebody moves
+ *     them back to the bottom of a tab about something else, it turns red.
   * @covers SETORG-01
  */
 import { test, expect } from "@playwright/test";

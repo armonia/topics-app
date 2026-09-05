@@ -98,3 +98,101 @@ describe('small-text tokens hold 4.5:1 on every light-theme background', () => {
     }
   }
 });
+
+/**
+ * THE SAME CALCULATION ON THE FOUR STATES THE APP ACTUALLY HAS.
+ *
+ * The block above reads `:root` only, i.e. the light theme on a wide window.
+ * That is how the defect this suite exists for came back on two more tokens:
+ * `--text-placeholder` and `--text-faint` were retuned under 768px (with the
+ * measurement written in the comment) and left alone on the desktop, which is
+ * where nearly all the use is. The mobile value was the good one and the
+ * desktop one the worst of the palette.
+ *
+ * So the resolver below rebuilds the token cascade for light and dark, wide and
+ * narrow, and asks each token for 4.5 against the surfaces it really lands on.
+ * A placeholder lives inside an input or on a popover, never on the chrome; the
+ * faint text lives on panels, cards and the chrome, never inside an input.
+ * Checking every token against every background would fail on pairs that never
+ * touch, and a gate that is red for a pair nobody renders gets muted.
+ */
+
+/** Every block whose selector is EXACTLY this one, in file order. */
+function blocksFor(selector: string): string[] {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`(^|[\\n}])\\s*${escaped}\\s*\\{`, 'g');
+  const out: string[] = [];
+  for (let m = re.exec(CSS); m !== null; m = re.exec(CSS)) {
+    const open = CSS.indexOf('{', m.index + m[0].length - 1);
+    let depth = 0;
+    for (let j = open; j < CSS.length; j++) {
+      if (CSS[j] === '{') depth++;
+      else if (CSS[j] === '}') {
+        depth--;
+        if (depth === 0) { out.push(CSS.slice(open, j)); break; }
+      }
+    }
+  }
+  return out;
+}
+
+/** The cascade of selectors that is in force in each of the four states. */
+const STATES: Array<{ name: string; selectors: string[] }> = [
+  { name: 'light desktop', selectors: [':root'] },
+  { name: 'dark desktop', selectors: [':root', '.dark'] },
+  {
+    name: 'light mobile',
+    selectors: [':root', 'html:not(.native-frost)', 'html:not(.dark):not(.native-frost)'],
+  },
+  {
+    name: 'dark mobile',
+    selectors: [':root', '.dark', 'html:not(.native-frost)', 'html.dark:not(.native-frost)'],
+  },
+];
+
+/** Resolves a token in one state, following `var(--other)` to the end. */
+function resolve(name: string, selectors: string[]): [number, number, number] {
+  const declared = (want: string): string | null => {
+    let found: string | null = null;
+    for (const selector of selectors) {
+      for (const block of blocksFor(selector)) {
+        const m = block.match(new RegExp(`--${want}:\\s*([^;]+);`));
+        if (m) found = m[1].trim();
+      }
+    }
+    return found;
+  };
+  let value = declared(name);
+  for (let hop = 0; value !== null && hop < 5; hop++) {
+    const alias = value.match(/^var\(\s*--([\w-]+)\s*\)$/);
+    if (!alias) return toRgb(value);
+    value = declared(alias[1]);
+  }
+  throw new Error(`token --${name} unresolved for [${selectors.join(', ')}]`);
+}
+
+/** The surfaces each token is painted on, and nothing else. */
+const SURFACES: Record<string, string[]> = {
+  // Composer, command palette, topic settings, new topic: an input or a popover.
+  'text-placeholder': ['bg-input', 'bg-inset', 'bg-surface', 'popover-bg'],
+  // Capacity reason, spend cap explanation, empty states, commit author on a card.
+  'text-faint': ['bg-inset', 'bg-surface', 'bg', 'chrome-bg', 'bg-elevated'],
+};
+
+describe('the text tokens hold 4.5:1 in all four states', () => {
+  for (const { name, selectors } of STATES) {
+    for (const [tokenName, surfaces] of Object.entries(SURFACES)) {
+      for (const surface of surfaces) {
+        it(`--${tokenName} on --${surface}, ${name}`, () => {
+          const r = ratio(resolve(tokenName, selectors), resolve(surface, selectors));
+          if (r < 4.5) {
+            throw new Error(
+              `${name}: --${tokenName} on --${surface} gives ${r.toFixed(2)}:1, needs 4.5:1`,
+            );
+          }
+          expect(r).toBeGreaterThanOrEqual(4.5);
+        });
+      }
+    }
+  }
+});

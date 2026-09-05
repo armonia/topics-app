@@ -430,10 +430,27 @@
    * token appears on (chrome #ecedee 4.56, page #f4f5f5 4.89, white 5.34):
    * computed, not eyeballed, so as to change as little as possible. */
   --text-muted: hsl(220 2.8% 42.5%);
-  --text-placeholder: hsl(220 2.8% 59.2%);
+  /* 59.2% gave 2.84 on --bg-input and 2.65 on the popover: the WORST text token
+   * of the whole palette, on the text that TELLS YOU WHAT TO TYPE (the composer,
+   * the command palette, the topic settings) at 11-13px. The mobile block had
+   * already been retuned for the same reason; the desktop, which is 90% of the
+   * use, had been left behind.
+   * 43.3% is the lightest lightness holding 4.5 on every surface a placeholder
+   * lands on (input 4.96, inset 4.88, white 5.18, popover 4.63): computed on the
+   * four real backgrounds, not eyeballed. */
+  --text-placeholder: hsl(220 2.8% 43.3%);
   --text-heading: hsl(220 3.1% 20.7%);
   --text-body: hsl(220 3.1% 27.6%);
-  --text-faint: hsl(220 2.8% 55.4%);
+  /* This token is NOT decoration: it paints the line that says why the
+   * dispatcher keeps N agents instead of M (GlobalCapControl), the spend cap
+   * explanation, the commit author on a board card. At 55.4% that was 2.86 on
+   * the chrome and 3.36 on white, i.e. the sentences explaining why something
+   * does not start were the least readable text in the app.
+   * 42.1% holds 4.5 on all five surfaces it lands on (chrome 4.62 is the tight
+   * one). In LIGHT this lands on top of --text-muted: below 4.5 this palette has
+   * no room for a fourth grey, so the faint tier survives as intent here and as
+   * a real gap only in dark. A dimmer value would be a tier nobody can read. */
+  --text-faint: hsl(220 2.8% 42.1%);
   --text-hover: hsl(220 2.8% 34.3%);
   --border: hsl(220 4.9% 91.4%);
   --border-light: hsl(220 4.9% 88.5%);
@@ -557,10 +574,18 @@
   --text-secondary: #aab0ba;
   --text-tertiary: #969ca6;
   --text-muted: #8a9099;
-  --text-placeholder: #6b7079;
+  /* #6b7079 was 3.25 on --bg-input and 2.87 on the popover: same defect as the
+   * light theme, same tokens. #919397 is the dimmest grey holding 4.5 on the
+   * four surfaces a placeholder lands on (input 5.24, inset 5.72, surface 5.55,
+   * popover 4.62). */
+  --text-placeholder: #919397;
   --text-heading: #ccced4;
   --text-body: #bbbec5;
-  --text-faint: #7d838d;
+  /* #7d838d held 4.5 on the page and the chrome but fell to 4.11 on
+   * --bg-elevated, which is where the board cards and the panels put it.
+   * #898b8f holds on all five (elevated 4.61 is the tight one) and stays a step
+   * under --text-muted, so in dark the faint tier is still a real tier. */
+  --text-faint: #898b8f;
   --text-hover: #ccced4;
   --border: hsl(220 3.8% 18%);
   --border-light: hsl(220 3.5% 24%);
@@ -681,7 +706,6 @@
      *   fondo mobile (#eaecf0, più scuro) quel gradino si chiude a 1,07:1 — la
      *   bolla SPARIVA. Riportata al distacco che il disegno dichiara (~1,20:1,
      *   vedi il commento del token in :root): hsl(220 4.9% 85%) → 1,221:1.
-     * · Il placeholder #949494 cadeva a 2,56:1. hsl(220 2.8% 50%) → 3,55:1.
      * È la stessa regola della sidebar: un layer che si sposta si ritara i token
      * che gli stanno sopra, invece di trascinarli dietro rotti. */
   }
@@ -706,8 +730,14 @@
      * fondo mobile (#eaecf0, più scuro) quel gradino si chiude a 1,07:1 — la
      * bolla SPARIVA. Riportata al distacco che il disegno dichiara: 1,221:1. */
     --bg-user-bubble: hsl(220 4.9% 85%);
-    /* #949494 cadeva a 2,56:1 → 3,55:1. */
-    --text-placeholder: hsl(220 2.8% 50%);
+    /* The placeholder still needs its own value here, but the OTHER WAY ROUND
+     * from before: this override used to LIGHTEN it (50%, 3.55:1), and against
+     * the :root value it would now be a regression. Under 768px the surfaces
+     * collapse downwards, so a placeholder can land on the chrome (93%) or on
+     * the popover (88%) instead of a 98% input, and 43.3% falls to 4.29 and
+     * 3.98 there. 38.9% is the lightest lightness holding 4.5 on all four
+     * (input 5.85, inset 5.76, chrome 5.21, popover 4.63). */
+    --text-placeholder: hsl(220 2.8% 38.9%);
     --text-tertiary: hsl(220 2.8% 42%);
     --border: hsl(220 4.9% 84%);
     --border-light: hsl(220 4.9% 80%);
@@ -732,12 +762,13 @@
     background-color: var(--popover-bg);
   }
   /* Lo scuro ha SOLO i suoi valori, e non annulla niente di nessuno: la bolla e
-   * i bordi qui reggono da sé sul fondo più scuro. L'unico ritocco è il
-   * placeholder, che era a 3,98:1 — sotto il 4,5, e questo è il fondo di TUTTA
-   * la schermata, non di un angolo. */
+   * i bordi qui reggono da sé sul fondo più scuro.
+   * The placeholder override that used to sit here (48%, 4.55:1 on the chrome)
+   * is gone for the same reason as its light twin: it held on the screen
+   * background and fell to 3.72:1 inside an input, and now that :root holds 4.5
+   * on all four surfaces that line would push it back under the bar. */
   html.dark:not(.native-frost) {
     --popover-bg: hsl(222 4.9% 13%);
-    --text-placeholder: hsl(220 2.8% 48%);
     /* LE SUPERFICI SCURE ERANO TUTTE ×1,14 PIÙ CHIARE DEL DISEGNO.
      *
      * l'utente, 07/08: «vedo ancora un blu o un grigio troppo chiaro da alcune
