@@ -669,8 +669,6 @@ const EN = {
   'chat.empty.project': 'in project {name}',
   'chat.changes.chip': '{n} files',
   'chat.changes.chipTitle': 'The files this conversation wrote or changed',
-  'chat.changes.openTerminal': 'Terminal',
-  'chat.changes.openTerminalTitle': 'Open a terminal in this folder',
   'chat.changes.binary': 'binary',
   'chat.session.taskLabel': 'Task',
   'chat.session.openTaskCard': 'Open the card',

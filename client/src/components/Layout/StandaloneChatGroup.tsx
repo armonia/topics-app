@@ -4,7 +4,6 @@ import type { TerminalAgentType } from '../../../../shared/terminal-session-type
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, PanelTab, CompactionMarker } from '../../types';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { PaneTabBar } from './PaneTabBar';
-import { TopicStatusStrip } from './TopicStatusStrip';
 import { ChatPanel } from './ChatPanel';
 import { LazyPane } from './LazyPane';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
@@ -818,14 +817,6 @@ export function StandaloneChatGroup({
         onDragLeave={handleStandaloneDragLeave}
         onDrop={handleStandaloneDrop}
       >
-        {/* The per-topic strip of the chat you have in front of you, above the
-            bar and outside the transcript. Nothing written, nothing drawn. */}
-        <TopicStatusStrip panes={panes} activePaneId={activePaneId} />
-        {/* The chrome bar is `position: absolute; top: 0` (the transcript
-            floats under it): anchored to the card it would sit ON the strip and
-            swallow its clicks. This wrapper is the anchor, so the bar starts
-            where the strip ends. */}
-        <div className="relative flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
         {/* Single shared header — tab bar + (optional) sidebar toggle.
             Previously every pane-type branch rendered its own copy of
             this header; consolidating it lets the body switch underneath
@@ -890,7 +881,6 @@ export function StandaloneChatGroup({
               );
             })
           )}
-        </div>
         </div>
       </div>
       {settingsTopic && (

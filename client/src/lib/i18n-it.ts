@@ -733,8 +733,6 @@ const IT: Dict = {
   'chat.empty.project': 'nel progetto {name}',
   'chat.changes.chip': '{n} file',
   'chat.changes.chipTitle': 'I file che questa conversazione ha scritto o modificato',
-  'chat.changes.openTerminal': 'Terminale',
-  'chat.changes.openTerminalTitle': 'Apri un terminale in questa cartella',
   'chat.changes.binary': 'binario',
   'chat.session.taskLabel': 'Task',
   'chat.session.openTaskCard': 'Apri la scheda',
