@@ -98,6 +98,10 @@ export const PROJECT_WORDS = new Set([
   // and `perf` are the units this codebase measures in, and `strongest` is a
   // regular superlative the 1934 list simply does not carry.
   "online", "primaries", "fps", "perf", "strongest",
+  // The name of the tool this codebase shells out to for every audio
+  // conversion. A variable holding its path can only be called this: any
+  // synonym would hide which binary is being run.
+  "ffmpeg",
   // A dictionary hole, not jargon. `/usr/share/dict/words` is a 1934 legacy and
   // does not carry words today's English uses without thinking: `entries`
   // (Object.entries) is as English as `entry`, which it does carry. Same for
