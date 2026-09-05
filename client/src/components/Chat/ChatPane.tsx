@@ -33,6 +33,7 @@ import { useVoiceRecording } from './useVoiceRecording';
 import { usePaneStore } from '../../state/pane/store';
 import { createPaneId } from '../../state/pane/adapters';
 import { useToast } from '../Shared/Toast';
+import { copyText } from '../../lib/clipboard';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import {
   effortKey,
@@ -1393,7 +1394,14 @@ function ChatPaneComponent({
   // the shallow memo and re-parsing every visible message's markdown per chunk.
   // With stable identities only the growing last bubble (whose `msg` object
   // actually changes) re-renders.
-  const handleCopyMessage = useCallback((msg: ChatMessage) => { navigator.clipboard.writeText(msg.content).then(() => { setCopiedMsgId(msg.id); setTimeout(() => setCopiedMsgId(null), 2000); }); }, []);
+  const handleCopyMessage = useCallback(async (msg: ChatMessage) => {
+    if (await copyText(msg.content)) {
+      setCopiedMsgId(msg.id);
+      setTimeout(() => setCopiedMsgId(null), 2000);
+    } else {
+      toast.error(tr('browser.menu.copyFailed'));
+    }
+  }, [toast, tr]);
   const handleTogglePin = useCallback(async (msg: ChatMessage) => { const pinned = topic.pinnedMessages || []; const newPinned = pinned.includes(msg.id) ? pinned.filter(id => id !== msg.id) : [...pinned, msg.id]; await onUpdateTopic(topic.id, { pinnedMessages: newPinned }); }, [topic.pinnedMessages, topic.id, onUpdateTopic]);
   const isImageFile = (f: File) => f.type.startsWith('image/');
   // Per ID e non per posizione: correggere il secondo mentre il primo parte non

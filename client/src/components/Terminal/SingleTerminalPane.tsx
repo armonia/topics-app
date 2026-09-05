@@ -18,6 +18,7 @@ import { usePaneAlive } from '../../state/paneLiveness';
 import { isWindowAwake } from '../../state/windowAwake';
 import { useT } from '../../hooks/useT';
 import { restartTerminalSession } from '../../lib/terminalReload';
+import { copyText } from '../../lib/clipboard';
 import { useToast } from '../Shared/Toast';
 import { readTerminalScrollback, writeTerminalScrollback } from '../../lib/terminalScrollbackCache';
 import { TERMINAL_INPUT_DROPPED } from '../../../../shared/terminal-messages';
@@ -433,7 +434,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
       const isCopy = (e.metaKey || (e.ctrlKey && e.shiftKey)) && e.key === 'c' && e.type === 'keydown';
       if (isCopy && term.hasSelection()) {
-        navigator.clipboard.writeText(term.getSelection()).catch(() => {});
+        void copyText(term.getSelection());
         return false; // prevent default xterm handling
       }
       return true;
@@ -922,7 +923,12 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     return () => document.removeEventListener('visibilitychange', handleVisible);
   }, [sessionId]);
 
-  const handleCopyOutput = () => {
+  const flashCopied = () => {
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleCopyOutput = async () => {
     const term = termRef.current?.term;
     if (!term) return;
     // Copy selection if any, otherwise copy last 200 lines of scrollback
@@ -937,10 +943,17 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           }
           return lines.join('\n').trimEnd();
         })();
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }).catch(() => {});
+    if (await copyText(text)) flashCopied();
+    else toast.error(t('browser.menu.copyFailed'));
+  };
+
+  const copyResume = async (claudeSessionId: string) => {
+    if (await copyText(`claude --resume ${claudeSessionId}`)) {
+      flashCopied();
+      toast.success(t('terminal.copied'));
+    } else {
+      toast.error(t('browser.menu.copyFailed'));
+    }
   };
 
   const sendToTerminal = (data: string) => {
@@ -1076,10 +1089,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
                             che si sbaglia. Un click mette negli appunti il
                             comando completo, non solo l'id. */}
                         <button
-                          onClick={() => {
-                            const cmd = `claude --resume ${info.claudeSessionId}`;
-                            try { void navigator.clipboard?.writeText(cmd); } catch { /* clipboard negata */ }
-                          }}
+                          onClick={() => { void copyResume(info.claudeSessionId!); }}
                           title={t('terminal.copyResume', { id: info.claudeSessionId })}
                           className="underline decoration-dotted underline-offset-2 hover:text-app-text"
                         >resume {info.claudeSessionId.slice(0, 8)}</button>
@@ -1142,10 +1152,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
                             che si sbaglia. Un click mette negli appunti il
                             comando completo, non solo l'id. */}
                         <button
-                          onClick={() => {
-                            const cmd = `claude --resume ${info.claudeSessionId}`;
-                            try { void navigator.clipboard?.writeText(cmd); } catch { /* clipboard negata */ }
-                          }}
+                          onClick={() => { void copyResume(info.claudeSessionId!); }}
                           title={t('terminal.copyResume', { id: info.claudeSessionId })}
                           className="underline decoration-dotted underline-offset-2 hover:text-app-text"
                         >resume {info.claudeSessionId.slice(0, 8)}</button>
