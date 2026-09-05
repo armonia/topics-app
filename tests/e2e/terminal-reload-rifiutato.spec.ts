@@ -31,6 +31,7 @@ import {
   resetTerminalWorkspace,
   navigateAndOpenTerminal,
 } from "./helpers/terminal-workspace";
+import { resetPaneStore } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
 
 // The hermetic boundary is declared here too, as in terminal.spec.ts: using the terminal
@@ -99,5 +100,59 @@ test.describe.serial("Ricarica di una tab terminale · il rifiuto si vede", () =
       page.getByText(SERVER_SAID),
       "il corpo grezzo della risposta e' finito a schermo, graffe comprese",
     ).toHaveCount(0);
+  });
+
+  test("resume command reports an unavailable clipboard", async ({ page, request }) => {
+    const sessionId = `clipboard-resume-${Date.now()}`;
+    const claudeSessionId = "01234567-89ab-4cde-8f01-23456789abcd";
+    const session = {
+      id: sessionId,
+      name: "E2E Clipboard Resume",
+      createdAt: new Date().toISOString(),
+      cwd: "/clipboard-e2e",
+      command: "claude",
+      clients: 0,
+      type: "claude-code",
+      claudeSessionId,
+    };
+    let inject: ((data: string) => void) | null = null;
+    let rosterRequested = false;
+
+    await page.route("**/api/terminal/sessions", async (route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      rosterRequested = true;
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify([session]) });
+    });
+    await page.route("**/api/terminal/sessions/dormant", async (route) => {
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify([{ id: sessionId }]) });
+    });
+    await page.routeWebSocket(/\/ws$/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((message) => server.send(message));
+      server.onMessage((message) => {
+        if (String(message).includes('"type":"terminal:sessions"')) return;
+        ws.send(message);
+      });
+      inject = (data) => ws.send(data);
+    });
+    await page.routeWebSocket(/\/ws\/terminal\//, (ws) => {
+      ws.close({ code: 1008, reason: "e2e-session-not-found" });
+    });
+    await resetPaneStore(request, [`terminal:${sessionId}`]);
+
+    await page.goto("/");
+    await expect.poll(() => rosterRequested).toBe(true);
+    await expect.poll(() => inject !== null).toBe(true);
+    const tab = page.locator(`[data-testid="pane-tab-terminal:${sessionId}"]`);
+    await expect(tab).toBeVisible();
+    await expect(tab).toContainText(session.name);
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    inject!(JSON.stringify({ type: "terminal:sessions", sessions: [], reconciled: true }));
+    await expect(page.getByTestId("terminal-stale-overlay")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("terminal-stale-info")).toContainText(`resume ${claudeSessionId.slice(0, 8)}`);
+
+    await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined }));
+    await page.getByRole("button", { name: `resume ${claudeSessionId.slice(0, 8)}` }).click();
+    await expect(page.getByTestId("toast").filter({ hasText: "Non è stato possibile copiare" })).toBeVisible();
   });
 });

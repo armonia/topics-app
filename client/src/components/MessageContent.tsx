@@ -1,6 +1,7 @@
 // VoiceMessagePlayer v2 - custom player for voice messages
 import React, { createContext, useContext, useDeferredValue, useEffect, useMemo, useState, useCallback, useRef, useSyncExternalStore, memo } from 'react';
 import { useT } from '../hooks/useT';
+import { copyText } from '../lib/clipboard';
 import { type Components } from 'react-markdown';
 import { ChatMarkdown } from './ChatMarkdown';
 import { highlightCode, subscribeHighlighter, highlighterReady } from '../lib/syntaxHighlight';
@@ -15,6 +16,7 @@ import { ToolCallRow } from './Chat/ToolCallRow';
 import { GroupedToolRows } from './Chat/ToolGroupRow';
 import { ReasoningRow } from './Chat/ReasoningRow';
 import { Spinner } from './Shared/Spinner';
+import { useToast } from './Shared/Toast';
 import { SlashCommandChip } from './Chat/SlashCommandChip';
 import type { ToolCall } from '../types';
 import { LEGACY_ERROR_PREFIX, turnErrorOf } from './Chat/turnError';
@@ -395,6 +397,7 @@ const MermaidBlock = memo(function MermaidBlock({ code }: { code: string }) {
 // Code block with copy button, language badge, line numbers, collapsible, word wrap
 const CodeBlock = memo(function CodeBlock({ children, className }: { children: React.ReactNode; className?: string }) {
   const tr = useT();
+  const toast = useToast();
   const [copied, setCopied] = useState(false);
   const [collapsed, setCollapsed] = useState(true); // collapsed by default if >20 lines
   const [showLineNumbers, setShowLineNumbers] = useState(false);
@@ -407,12 +410,14 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
   const isLong = lineCount > 20;
   const PREVIEW_LINES = 10;
 
-  const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(textContent).then(() => {
+  const handleCopy = useCallback(async () => {
+    if (await copyText(textContent)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    });
-  }, [textContent]);
+    } else {
+      toast.error(tr('browser.menu.copyFailed'));
+    }
+  }, [textContent, toast, tr]);
 
   const displayContent = isLong && collapsed
     ? lines.slice(0, PREVIEW_LINES).join('\n')
