@@ -51,8 +51,11 @@ export function slotDir(): string {
 export const GATE_HELD_ENV = "TOPICS_GATE_HELD";
 
 // The line `slot.ts` prints when it holds a slot, read by the board's check
-// runner to restart its cap: see shared/slot-acquired.ts.
-export { SLOT_ACQUIRED_PREFIX, slotAcquiredLine, parseSlotAcquired } from "../shared/slot-acquired";
+// runner to restart its cap: see shared/slot-acquired.ts. Only the writing
+// side is re-exported here; whoever READS the line (review-checks) imports it
+// from shared/ directly, so re-exporting the prefix and the parser too would
+// be three names nobody reaches through this module.
+export { slotAcquiredLine } from "../shared/slot-acquired";
 
 /**
  * Past this, waiting has cost more than the contention it was avoiding.
