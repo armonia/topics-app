@@ -445,12 +445,16 @@ describe("/api/context-upload · la SECONDA porta, stessa regola", () => {
   });
 
   test("requires an existing Topic before deriving or creating a context directory", async () => {
-    const escapeId = "../escaped-context-root";
-    const escaped = resolve(contextDir, escapeId);
-    const r = await contextUpload(new File(["x"], "nota.txt"), escapeId);
+    // A well-formed id that names nobody: the single-segment guard above has
+    // already answered 400 for the shapes that try to walk out, so this one is
+    // about the OTHER half of the door. No directory is created for a Topic
+    // that does not exist, which is how a phantom sibling of the context root
+    // used to appear from a multipart field alone.
+    const unknownId = "topic-that-does-not-exist";
+    const r = await contextUpload(new File(["x"], "nota.txt"), unknownId);
 
     expect(r.status).toBe(404);
-    expect(existsSync(escaped)).toBe(false);
+    expect(existsSync(join(contextDir, unknownId))).toBe(false);
     expect(contextFiles()).toHaveLength(0);
   });
 
