@@ -3,7 +3,8 @@ import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
 import { bonificaTurniMuti } from "./server/lib/verdetto-turno-interrotto";
 import { riprendiTurniInterrotti } from "./server/lib/ripresa-boot";
-import { providerHold, holdUntilLabel, onProviderHold } from "./server/lib/provider-hold";
+import { providerHold, holdUntilLabel, onProviderHold, configureProviderHoldStore } from "./server/lib/provider-hold";
+import { resolveStateDir } from "./server/lib/data-dir";
 import { getAccessToken } from "./server/providers/native/auth";
 import { releaseHoldIfFreed } from "./server/providers/native/usage-window";
 import { spiegaTurnoTroncato } from "./server/lib/turno-troncato";
@@ -5074,6 +5075,13 @@ onProviderHold((hold) => {
 // credential on a short timer and lift it the instant no window is spent — an
 // account switch or a silent free heals within one tick, not on the next boot.
 const HOLD_RECHECK_MS = 90_000;
+// THE MEMO OUTLIVES THE PROCESS. Mirrored in the state dir (next to the
+// ai-bridge store), adopted here if a previous process left one that has not
+// ended: a hot reload in a spent window no longer forgets the wall.
+{
+  const restored = configureProviderHoldStore(join(resolveStateDir(process.cwd()), "provider-hold.json"));
+  if (restored) console.log(`[provider-hold] restored from disk: ${restored.reason}, until ${holdUntilLabel(restored)}`);
+}
 function scheduleHoldRecheck(): void {
   const t = setTimeout(() => {
     void (async () => {
