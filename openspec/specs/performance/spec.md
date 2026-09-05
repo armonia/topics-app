@@ -83,6 +83,24 @@ The system SHALL load within acceptable time thresholds and SHALL NOT block the 
 - **WHEN** user interacts
 - **THEN** no long tasks (>50ms) block the main thread during normal interaction
 
+Il codice di una pane APERTA non è un chunk pigro. Ogni corpo di pane è un
+`React.lazy`, giusto per una pane mai aperta; per quella che si sta guardando al
+ricarico il chunk SHALL essere chiesto al boot, dallo snapshot locale, prima che
+React monti — e questo SHALL valere anche per i TILE di un project window
+(terminale, browser, albero dei file, git, dashboard, log di processo), che il
+pane-store non elenca: stanno nel record locale del progetto
+(`topics-project-panes-<hash>`). Misurato il 05/09/2026 sullo stato reale del
+desktop: ogni tile di ogni project window disegnava uno spinner per 220-240 ms a
+ogni ricarico, perché nessuno aveva chiesto il suo chunk. Il ripiego HTTP dello
+snapshot del pane-store SHALL leggere la SOLA chiave che gli serve
+(`/api/ui-state/pane-store-v2`), non l'intero store (413 chiavi, 276 KB).
+
+#### Scenario: i tile di un project window non mostrano lo spinner al ricarico
+- **GIVEN** un project window con un terminale e un browser nel suo record locale
+- **WHEN** la pagina si ricarica
+- **THEN** i chunk del terminale e del browser sono chiesti al boot, insieme a quelli delle pane del pane-store
+- **AND** un record locale illeggibile lascia il project window ai suoi chunk pigri, senza fermare il boot
+
 ### Requirement: LEAK-01 — Una sessione lunga non accumula, e c'è un cancello che se ne accorge
 
 Topics è una sessione lunga per costruzione: resta aperta per giorni, le pane si

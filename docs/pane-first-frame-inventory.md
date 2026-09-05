@@ -31,6 +31,8 @@ it is exactly the boot the reader was not supposed to watch.
 | Open file (text, code, markdown) | **was:** a centred spinner, then the text | `GET /api/files/content` | **added:** `file-content-cache` (12 files, 128 KB each) | fixed |
 | Open file (image, video, PDF) | The viewer chrome, then the media inside a fixed box | `/preview/<path>` | none: the box is sized by the container, not by the media | green on the container, the media itself still arrives when it arrives |
 | Browser pane | URL bar, title and favicon from the pane record; the frame is a stream | pane store (local), then the stream | `pane-store-v2` + `browser-history-<topicId>` | not measured here (a server-side Chromium makes it a nightly-only case) |
+| Project window tiles (terminal, browser, tree, git, dashboard) | **was:** a spinner per tile for 220-240 ms after the shell, on every reload, on the desktop's real state (2026-09-05) | none: it was their CODE, the pane store only says "project" | **added:** `paneTypesToWarm` reads `topics-project-panes-<hash>` and warms the tiles' chunks at boot | fixed |
+| Pane-store HTTP fallback | - | **was:** `GET /api/ui-state`, 413 keys / 276 KB, queued next to the chat history | **now:** `GET /api/ui-state/pane-store-v2`, 70 KB | fixed |
 | Dashboard (KPI, charts) | Nulls, then the numbers | `GET /api/dashboard/*` | none | open: not a pane a reload lands on by default, left out of this pass |
 | Notifications | Empty, filled by the socket | WS | none | out: it is an overlay, it decides no layout under it |
 

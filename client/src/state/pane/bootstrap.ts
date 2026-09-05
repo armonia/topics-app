@@ -30,7 +30,7 @@ import {
   markServerHydrated,
 } from './middleware/serverHydrated';
 import { usePaneStore } from './store';
-import { preloadPaneChunks } from './panePreload';
+import { paneTypesToWarm, preloadPaneChunks } from './panePreload';
 import { subscribeFrames } from '../../lib/wsFrameBus';
 import { initTombstoneSync } from './adapters/tombstoneSync';
 
@@ -80,14 +80,16 @@ function scheduleInitialLoadFallback(): void {
   setTimeout(async () => {
     if (hasReceivedServerHydrate()) return;
     try {
-      const res = await fetch('/api/ui-state');
+      // The ONE key this fallback reads, not the whole store: `GET /api/ui-state`
+      // is every key of every device (413 keys, 276 KB on the desktop measured
+      // 2026-09-05, a third of it a heap-probe result), and it was queued at boot
+      // next to the chat history on the same six connections. The single-key
+      // route answers with `{ value, payload_version, server_seq }`.
+      const res = await fetch('/api/ui-state/pane-store-v2');
       if (!res.ok) return;
-      const envelope = (await res.json()) as {
-        data?: Record<string, unknown>;
-        meta?: Record<string, { payload_version: number; server_seq: number }>;
-      };
-      const snap = envelope.data?.['pane-store-v2'];
-      const seq = envelope.meta?.['pane-store-v2']?.server_seq ?? 0;
+      const envelope = (await res.json()) as { value?: unknown; server_seq?: number };
+      const snap = envelope.value;
+      const seq = envelope.server_seq ?? 0;
       // A successful GET — even one we decide not to apply (self-echo of our
       // own PUT) — proves the server is reachable and authoritative for this
       // tab, so mark hydrated to suppress any subsequent race with the 500 ms
@@ -147,8 +149,11 @@ export function bootstrapPaneStore(): void {
   // of the boot, instead of after React has mounted and hit the suspense
   // boundary: that wait was 222-347 ms of spinner on a reload, and it was the
   // same figure for the board, the editor and the terminal, because it was
-  // never their data - it was their code. See `panePreload.ts`.
-  preloadPaneChunks(Object.values(usePaneStore.getState().panes).map((p) => p.type));
+  // never their data - it was their code. See `panePreload.ts`. The tiles a
+  // project window persisted in its own local record count as open panes too.
+  preloadPaneChunks(paneTypesToWarm(Object.values(usePaneStore.getState().panes), (key) => {
+    try { return localStorage.getItem(key); } catch { return null; }
+  }));
 
   // Wire the persistence subscribers (write paths gated on detached above).
   if (!isDetached) {
