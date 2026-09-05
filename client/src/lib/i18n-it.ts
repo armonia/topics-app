@@ -1705,6 +1705,7 @@ const IT: Dict = {
   'palette.noHistory': 'Ancora niente in cronologia',
   'palette.searchHistory': 'Cerca nella cronologia: tab chiuse e pagine viste',
   'palette.noResults': 'Nessun risultato',
+  'palette.searchFailed': 'Non è stato possibile cercare nei messaggi. Riprova.',
   'palette.results': 'Risultati',
   // ── Altre superfici condivise.
   'shortcuts.close': 'Chiudi le scorciatoie da tastiera',
@@ -1722,6 +1723,7 @@ const IT: Dict = {
   'fileSearch.placeholderOpen': 'Apri un file in {scope}…',
   'fileSearch.placeholderSearch': 'Cerca in {scope}…',
   'fileSearch.failed': 'Ricerca non riuscita. Il progetto è ancora raggiungibile?',
+  'fileSearch.partialFailure': 'Nessuna risposta da {projects}: questi risultati non li comprendono.',
   'fileSearch.noResults': 'Nessun risultato',
   'fileSearch.truncated': 'Ricerca interrotta al tempo massimo, i risultati sono parziali',
   'fileSearch.first100': 'Primi 100 risultati',
@@ -2014,6 +2016,9 @@ const IT: Dict = {
   'notifications.settings': 'Impostazioni notifiche',
   'notifications.empty': 'Nessuna notifica',
   'notifications.logStartsHere': 'Da qui in poi ogni notifica mandata lascia una riga.',
+  'notifications.loadMore': 'Carica altre notifiche',
+  'notifications.loadingMore': 'Carico…',
+  'notifications.allLoaded': 'Sei arrivato in fondo al registro.',
   // ── Barra dei progetti sotto la board.
   'board.projects.more': 'Altri {n} progetti con task aperti',
   // ── Righe della barra laterale.

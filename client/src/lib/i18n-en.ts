@@ -1461,6 +1461,7 @@ const EN = {
   'palette.noHistory': 'Nothing in history yet',
   'palette.searchHistory': 'Search history: closed tabs and visited pages',
   'palette.noResults': 'No results',
+  'palette.searchFailed': 'Message search failed. Try again.',
   'palette.results': 'Results',
   // ── Other shared surfaces.
   'shortcuts.close': 'Close the keyboard shortcuts',
@@ -1477,6 +1478,7 @@ const EN = {
   'fileSearch.placeholderOpen': 'Open a file in {scope}…',
   'fileSearch.placeholderSearch': 'Search in {scope}…',
   'fileSearch.failed': 'Search failed. Is the project still reachable?',
+  'fileSearch.partialFailure': 'No answer from {projects}: these results do not include them.',
   'fileSearch.noResults': 'No results',
   'fileSearch.truncated': 'Search stopped at the time limit, these results are partial',
   'fileSearch.first100': 'First 100 results',
@@ -1706,6 +1708,9 @@ const EN = {
   'notifications.settings': 'Notification settings',
   'notifications.empty': 'No notifications',
   'notifications.logStartsHere': 'From here on every notification sent leaves a row.',
+  'notifications.loadMore': 'Load older notifications',
+  'notifications.loadingMore': 'Loading…',
+  'notifications.allLoaded': 'You reached the bottom of the log.',
   // ── Project strip under the board.
   'board.projects.more': '{n} more projects with open tasks',
   // ── Sidebar rows.

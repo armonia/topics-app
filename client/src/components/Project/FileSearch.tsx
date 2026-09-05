@@ -69,6 +69,11 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
   const [loading, setLoading] = useState<boolean>(false);
   const [truncated, setTruncated] = useState(false);
   const [failed, setFailed] = useState(false);
+  // The roots that did NOT answer, while others did. Partial results with no
+  // sign are the same lie as calling a network error "no results", only harder
+  // to catch: the group headers name the projects that DID answer, so the
+  // missing one leaves no trace at all.
+  const [failedRoots, setFailedRoots] = useState<string[]>([]);
   const [useRegex, setUseRegex] = useState<boolean>(false);
   const [caseSensitive, setCaseSensitive] = useState<boolean>(false);
   const [selectedIdx, setSelectedIdx] = useState(-1);
@@ -100,6 +105,7 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
     setRegexError(null);
     setTruncated(false);
     setFailed(false);
+    setFailedRoots([]);
     if (!q.trim()) {
       setResults([]);
       return;
@@ -128,6 +134,7 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
       }));
       if (seq !== searchSeqRef.current) return; // stale — a newer search ran
       if (settled.every((s) => s.status === 'rejected')) setFailed(true);
+      else setFailedRoots(projects.filter((_, i) => settled[i]?.status === 'rejected'));
       const merged = settled.flatMap((s) => (s.status === 'fulfilled' ? s.value : []));
       // In modo NOME il punteggio è per progetto: si ri-ordina sull'unione, o
       // il progetto che risponde per primo si prende le prime righe.
@@ -384,6 +391,14 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
           {failed && !loading && !regexError && (
             <div data-testid="file-search-error" className="text-center text-red-400 text-xs py-6 px-3">
               {tr('fileSearch.failed')}
+            </div>
+          )}
+          {/* Some roots answered and some did not: the results are PARTIAL and
+              the missing ones get named. Without this line a project that has
+              nothing to show and a project that never answered look the same. */}
+          {failedRoots.length > 0 && !loading && !regexError && !failed && (
+            <div data-testid="file-search-partial" className="px-3 py-2 text-[11px] text-amber-400 border-b border-app-border">
+              {tr('fileSearch.partialFailure', { projects: failedRoots.map((r) => basename(r)).join(', ') })}
             </div>
           )}
           {!loading && !regexError && !failed && query && results.length === 0 && (

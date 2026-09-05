@@ -302,6 +302,43 @@ test.describe("Cronologia notifiche", () => {
     const dopo = await page.request.get(`${BASE}/api/notifications`);
     expect(((await dopo.json()) as { unseen: number }).unseen).toBe(0);
   });
+
+  test("NH-06: oltre la prima pagina — il registro non finisce alla cinquantesima", async ({ page }) => {
+    // The registry holds 500 rows and a page serves 50. The panel drew 50 and
+    // stopped there: no "load more", no line saying the list was cut. The
+    // other 450 existed only for whoever knew to call the route with `before`.
+    for (let i = 0; i < 60; i++) {
+      await postNotification(page.request, {
+        kind: "chat-message",
+        title: `Riga di registro ${i}`,
+        dedupeKey: `nh06-${Date.now()}-${i}`,
+      });
+    }
+
+    await page.goto("/");
+    await expect(bell(page)).toBeVisible({ timeout: 15_000 });
+    await bell(page).click();
+    await expect(panel(page)).toBeVisible();
+
+    // The first page is a PAGE, and the panel says so instead of letting
+    // fifty rows look like everything there is.
+    await expect(rows(page)).toHaveCount(50, { timeout: 15_000 });
+    // The control is there for the keyboard and for a list too short to
+    // scroll, and it says the list is cut.
+    await expect(page.getByTestId("notification-history-more")).toBeVisible();
+
+    // The gesture is the one a reader makes: the bottom of the list. Clicking
+    // the button would be a race against itself - the rows land ABOVE it, so
+    // the target moves while the click is being aimed.
+    await page.getByTestId("notification-history-scroll").evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    await expect
+      .poll(() => rows(page).count(), { timeout: 15_000, message: "la seconda pagina non è mai arrivata" })
+      .toBeGreaterThan(50);
+    // And the first fifty are still there: it MERGES, it does not replace.
+    await expect(rows(page).first()).toBeVisible();
+  });
 });
 
 /** L'id della prima riga in elenco, letto dalla rotta (il DOM non lo espone). */
