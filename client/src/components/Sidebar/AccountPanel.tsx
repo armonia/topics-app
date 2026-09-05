@@ -40,6 +40,7 @@ import { useCallback } from 'react';
 import { Hourglass, KeyRound, LogIn, Mail, ShieldCheck } from 'lucide-react';
 import { useT } from '@/hooks/useT';
 import { useConfirm } from '@/hooks/useConfirm';
+import { useToast } from '@/components/Shared/Toast';
 import { useAccountLink } from '@/hooks/useAccountLink';
 import { mostraSezione as accountIsAThingHere } from '@/components/Settings/accountState';
 import { SEGNALE_ATTESA as WAITING_INK } from './chromeSignals';
@@ -77,6 +78,7 @@ export function AccountPanel({ who, DeviceIcon, facts, doors }: {
 }) {
   const t = useT();
   const askConfirm = useConfirm();
+  const toast = useToast();
   const {
     state, step, email, code, error, busy,
     setEmail, setCode, askCode, verify, back, unlink,
@@ -84,8 +86,14 @@ export function AccountPanel({ who, DeviceIcon, facts, doors }: {
 
   const signOut = useCallback(async () => {
     if (!await askConfirm({ title: t('account.unlink'), body: t('account.unlinkConfirm') })) return;
-    await unlink();
-  }, [askConfirm, t, unlink]);
+    // A REFUSED SIGN-OUT HAS TWO PLACES TO LAND, and it needs both. The row
+    // below draws it while the panel is open; but the pointer that presses the
+    // confirmation falls outside this popover, and `useDismissable` closes it
+    // in the capture phase, so on a refusal the panel is frequently already
+    // gone. The toast outlives it, and it is the same phrase.
+    const refused = await unlink();
+    if (refused) toast.error(t(refused));
+  }, [askConfirm, t, toast, unlink]);
 
   const speaksOfAccounts = accountIsAThingHere(state);
   const linked = !!state?.linked;
@@ -185,8 +193,18 @@ export function AccountPanel({ who, DeviceIcon, facts, doors }: {
               </div>
             </div>
           )}
-          {error && <p data-testid="account-error" className="mt-1.5 text-[11px] text-red-500">{t(error)}</p>}
         </div>
+      )}
+
+      {/* THE REASON SITS OUTSIDE THE WAY IN, and that is the whole fix: it used
+          to be drawn inside the `!linked` block, so it existed only while
+          nobody was signed in. A failed sign-out leaves you signed in by
+          definition, hence the one case where the sentence was needed was the
+          one case where the block that held it was not rendered. */}
+      {error && (
+        <p data-testid="account-error" className="border-t border-app-border px-3 py-2 text-[11px] leading-snug text-red-500">
+          {t(error)}
+        </p>
       )}
 
       {/* The link holds with the service unreachable, and that is said out loud

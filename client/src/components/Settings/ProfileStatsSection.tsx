@@ -60,6 +60,20 @@ function Sparkline({ serie }: { serie: ProfileStats['activity']['last30'] }) {
 }
 
 
+
+/**
+ * What the server said about a failed publish or revoke, or `null` when it said
+ * nothing at all.
+ *
+ * `lib/api.request` already carries the server's `error` field into the thrown
+ * message, so there is usually something true to show; the empty case is the
+ * caller's, because the phrase that replaces it has to go through i18n.
+ */
+function failureText(e: unknown): string | null {
+  const message = e instanceof Error ? e.message.trim() : '';
+  return message || null;
+}
+
 export function ProfileStatsSection() {
   const t = useT();
   const [stats, setStats] = useState<ProfileStats | null>(null);
@@ -73,6 +87,11 @@ export function ProfileStatsSection() {
   const [relay, setRelay] = useState<RelayEndpoint | null>(null);
   /** In-flight: 'publishing' | 'revoking' | null */
   const [tokenBusy, setTokenBusy] = useState<'publishing' | 'revoking' | null>(null);
+  /** Why the last «Publish» or «Revoke» did not go through. Both used to end in
+   *  an empty `catch`, and on the revoke side that silence is the dangerous
+   *  one: the person walks away believing a public URL is closed while it is
+   *  still answering. */
+  const [tokenError, setTokenError] = useState<string | null>(null);
 
   useEffect(() => {
     let vivo = true;
@@ -121,11 +140,12 @@ export function ProfileStatsSection() {
   const handlePublish = useCallback(async () => {
     if (tokenBusy) return;
     setTokenBusy('publishing');
+    setTokenError(null);
     try {
       const tok = await appSettingsApi.publishProfile();
       setAppSettings((s) => s ? { ...s, profileShareToken: tok } : s);
-    } catch {
-      // noop: il bottone torna attivo
+    } catch (e) {
+      setTokenError(failureText(e) ?? t('profile.public.failed'));
     } finally {
       setTokenBusy(null);
     }
@@ -135,11 +155,15 @@ export function ProfileStatsSection() {
   const handleRevoke = useCallback(async () => {
     if (tokenBusy) return;
     setTokenBusy('revoking');
+    setTokenError(null);
     try {
       await appSettingsApi.revokeProfile();
+      // Only AFTER the server has confirmed it. The link is what this button is
+      // about: showing it as closed on a request that failed is the one lie
+      // this panel must never tell.
       setAppSettings((s) => s ? { ...s, profileShareToken: null } : s);
-    } catch {
-      // noop
+    } catch (e) {
+      setTokenError(failureText(e) ?? t('profile.public.failed'));
     } finally {
       setTokenBusy(null);
     }
@@ -321,6 +345,15 @@ export function ProfileStatsSection() {
                   </>
                 )}
               </div>
+              {/* The refusal, NEXT TO the two buttons that produced it. Both
+                  ended in an empty `catch`: «Revoke» left the label back at
+                  rest and the link still in the list, which reads exactly like
+                  a click that did nothing. */}
+              {tokenError && (
+                <p data-testid="profile-public-error" className="text-[10.5px] leading-snug text-red-500">
+                  {tokenError}
+                </p>
+              )}
               {/* State: unpublished, or how far the link actually reaches. */}
               <p className="text-[10.5px] text-app-text-muted">
                 {!token

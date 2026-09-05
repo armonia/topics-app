@@ -152,6 +152,14 @@ export function IdentitySection() {
   const [inCorso, setInCorso] = useState(false);
   /** La chiave della frase se l'ultima cancellazione è stata rifiutata. */
   const [rifiutoCancella, setRifiutoCancella] = useState<string | null>(null);
+  /** Why the last gesture on the GROUP or on one of its members did not go
+   *  through. The five handlers below used to drop the answer on the floor:
+   *  the panel reloaded, the row went back to what it was, and nothing said
+   *  the server had refused. */
+  const [memberRefusal, setMemberRefusal] = useState<string | null>(null);
+  /** The same, for creating a group: it is drawn next to the form, which stays
+   *  open with the typed name in it. */
+  const [groupRefusal, setGroupRefusal] = useState<string | null>(null);
 
   const carica = useCallback(async () => {
     try {
@@ -206,29 +214,52 @@ export function IdentitySection() {
   // che porta a un rifiuto è un'interfaccia che mente.
   const amministra = gruppo?.role === 'owner' || gruppo?.role === 'admin';
 
+  /**
+   * One gesture, one answer: `null` when it went, otherwise the i18n key of the
+   * refusal. The server sends a CODE (`shared/auth-codes.ts`) and the sentence
+   * is chosen here, exactly as the add-a-person and delete-a-person handlers
+   * already did: this is that shape, made available to the five that lacked it.
+   */
+  const ask = async (route: string, init: RequestInit): Promise<string | null> => {
+    try {
+      const r = await fetch(route, { credentials: 'same-origin', ...init });
+      if (r.ok) return null;
+      const body = await r.json().catch(() => null) as { error?: string } | null;
+      return chiaveErroreAuth(body?.error);
+    } catch {
+      // No answer at all: still a refusal from where the person is standing,
+      // and silence is the one thing it must not be.
+      return chiaveErroreAuth(undefined);
+    }
+  };
+
   const salva = async () => {
     if (!modifica) return;
     const nome = bozzaNome.trim();
     if (!nome) { setModifica(null); return; }
     setInCorso(true);
+    setMemberRefusal(null);
     try {
       const rotta = modifica.tipo === 'gruppo'
         ? `/api/auth/orgs/${encodeURIComponent(scelto ?? '')}`
         : `/api/auth/people/${encodeURIComponent(modifica.id)}`;
-      await fetch(rotta, {
+      const refused = await ask(rotta, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
         // Stringa vuota = togli l'email. È diverso da «non l'ho toccata», e il
         // server distingue le due cose.
         body: JSON.stringify(
           modifica.tipo === 'gruppo' ? { name: nome } : { name: nome, email: bozzaEmail.trim() || null },
         ),
       });
+      // The field STAYS OPEN on a refusal, with what was typed still in it:
+      // closing it threw away the new name and left the old one on screen, so
+      // the only visible outcome of a rejected rename was «nothing happened».
+      if (refused) { setMemberRefusal(refused); return; }
       await ricarica();
+      setModifica(null);
     } finally {
       setInCorso(false);
-      setModifica(null);
     }
   };
 
@@ -260,9 +291,12 @@ export function IdentitySection() {
 
   const togli = async (m: Membro) => {
     if (!scelto) return;
-    await fetch(`/api/auth/orgs/${encodeURIComponent(scelto)}/members?personId=${encodeURIComponent(m.id)}`, {
-      method: 'DELETE', credentials: 'same-origin',
-    });
+    setMemberRefusal(null);
+    const refused = await ask(
+      `/api/auth/orgs/${encodeURIComponent(scelto)}/members?personId=${encodeURIComponent(m.id)}`,
+      { method: 'DELETE' },
+    );
+    if (refused) { setMemberRefusal(refused); return; }
     await ricarica();
   };
 
@@ -300,13 +334,17 @@ export function IdentitySection() {
   const changeRole = async (m: Membro, ruolo: Ruolo) => {
     if (!scelto || ruolo === m.role) return;
     setInCorso(true);
+    setMemberRefusal(null);
     try {
-      await fetch(`/api/auth/orgs/${encodeURIComponent(scelto)}/members`, {
+      const refused = await ask(`/api/auth/orgs/${encodeURIComponent(scelto)}/members`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
         body: JSON.stringify({ personId: m.id, role: ruolo }),
       });
+      // The selector snaps back on its own when the reload brings the old role
+      // in: without a sentence, that spring-back is the only thing a person
+      // sees, and it looks like the click missed.
+      if (refused) { setMemberRefusal(refused); return; }
       await ricarica();
     } finally { setInCorso(false); }
   };
@@ -315,17 +353,28 @@ export function IdentitySection() {
     const nome = (nuovoGruppo ?? '').trim();
     if (!nome) { setNuovoGruppo(null); return; }
     setInCorso(true);
+    setGroupRefusal(null);
     try {
       const r = await fetch('/api/auth/orgs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
         body: JSON.stringify({ name: nome }),
-      });
-      const b = r.ok ? (await r.json()) as { id?: string } : null;
+      }).catch(() => null);
+      // `r.ok ? … : null` READ the body and threw the refusal away: the server
+      // says `name_required`, `no_person_for_org` or `db_unavailable`, and the
+      // form closed on all three taking the typed name with it. Now the reason
+      // is shown and the form stays, so retrying is not retyping.
+      if (!r || !r.ok) {
+        const body = r ? await r.json().catch(() => null) as { error?: string } | null : null;
+        setGroupRefusal(chiaveErroreAuth(body?.error));
+        return;
+      }
+      const b = (await r.json().catch(() => null)) as { id?: string } | null;
       if (b?.id) setScelto(b.id);
       await ricarica(b?.id ?? null);
-    } finally { setInCorso(false); setNuovoGruppo(null); }
+      setNuovoGruppo(null);
+    } finally { setInCorso(false); }
   };
 
   const cancellaGruppo = async (g: Gruppo) => {
@@ -338,8 +387,13 @@ export function IdentitySection() {
       confirmLabel: t('identity.deleteGroup', { nome: g.name }),
     })) return;
     setInCorso(true);
+    setMemberRefusal(null);
     try {
-      await fetch(`/api/auth/orgs/${encodeURIComponent(g.id)}`, { method: 'DELETE', credentials: 'same-origin' });
+      const refused = await ask(`/api/auth/orgs/${encodeURIComponent(g.id)}`, { method: 'DELETE' });
+      // `installation_org_undeletable` and `not_org_admin` are refusals with a
+      // sentence each: swallowing them left a group on screen that the person
+      // believed they had just deleted.
+      if (refused) { setMemberRefusal(refused); return; }
       setScelto(null);
       await ricarica(null);
     } finally { setInCorso(false); }
@@ -615,6 +669,19 @@ export function IdentitySection() {
             )}
           </div>
         )}
+
+        {/* The refusals of the gestures made INSIDE this box: rename, remove,
+            role, delete the group. One line, at the foot of the box that holds
+            all four, because that is the surface that did not change when the
+            server said no. */}
+        {memberRefusal && (
+          <p
+            data-testid="identity-error"
+            className="border-t border-app-border px-3 py-2 text-[11px] leading-snug text-red-500"
+          >
+            {t(memberRefusal)}
+          </p>
+        )}
       </div>
 
       {/* I TOLTI: solo chi amministra li vede, perché solo lui può cancellarli. */}
@@ -630,7 +697,7 @@ export function IdentitySection() {
 
       {nuovoGruppo === null ? (
         <button
-          onClick={() => setNuovoGruppo('')}
+          onClick={() => { setNuovoGruppo(''); setGroupRefusal(null); }}
           className="flex items-center gap-1.5 text-[11.5px] text-app-text-secondary hover:text-app-text coarse:min-h-11"
         >
           <Plus size={12} className="flex-shrink-0 text-app-text-tertiary" />
@@ -655,12 +722,20 @@ export function IdentitySection() {
             {t('identity.create')}
           </button>
           <button
-            onClick={() => setNuovoGruppo(null)}
+            onClick={() => { setNuovoGruppo(null); setGroupRefusal(null); }}
             className="flex-shrink-0 rounded px-2 py-1 text-[11px] text-app-text-tertiary hover:bg-app-hover"
           >
             {t('identity.cancel')}
           </button>
         </div>
+      )}
+
+      {/* Attached to the form, like the one on «add a person» fifteen lines
+          up: whoever just pressed «Create» is looking here. */}
+      {groupRefusal && (
+        <p data-testid="identity-group-error" className="text-[11px] leading-snug text-red-500">
+          {t(groupRefusal)}
+        </p>
       )}
 
       <p className="text-[10px] leading-snug text-app-text-muted">

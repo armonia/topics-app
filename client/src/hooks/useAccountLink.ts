@@ -55,10 +55,22 @@ export interface AccountLink {
   /** Back to the address, keeping what was typed: a wrong letter should not
    *  cost the whole flow. */
   back: () => void;
-  /** Detach the account. The caller asks the human first. */
-  unlink: () => Promise<void>;
+  /**
+   * Detach the account. The caller asks the human first.
+   *
+   * It ANSWERS with the i18n key of the refusal (`null` when it went). The
+   * `error` state alone was not enough for the sidebar: confirming closes the
+   * popover that would have drawn it, so the reason had to be able to travel
+   * somewhere else. The caller decides where.
+   */
+  unlink: () => Promise<string | null>;
   reload: () => Promise<void>;
 }
+
+/** What a request left behind: it went, or the phrase that says why not. The
+ *  key is RETURNED as well as stored, because a caller whose surface is about
+ *  to be dismissed cannot read it from the state afterwards. */
+interface Sent { ok: boolean; error: string | null }
 
 export function useAccountLink(): AccountLink {
   const [state, setState] = useState<AccountState | null>(null);
@@ -92,8 +104,9 @@ export function useAccountLink(): AccountLink {
     };
   }, [reload]);
 
+
   /** The one place a response becomes "it went" or "here is why not". */
-  const send = useCallback(async (path: string, method: string, payload?: unknown) => {
+  const send = useCallback(async (path: string, method: string, payload?: unknown): Promise<Sent> => {
     setBusy(true);
     setError(null);
     try {
@@ -105,13 +118,15 @@ export function useAccountLink(): AccountLink {
       });
       const b = (await r.json().catch(() => null)) as { ok?: boolean; code?: string } | null;
       if (!r.ok || b?.ok === false) {
-        setError(errorKey(b?.code));
-        return false;
+        const key = errorKey(b?.code);
+        setError(key);
+        return { ok: false, error: key };
       }
-      return true;
+      return { ok: true, error: null };
     } catch {
-      setError(errorKey('service_unreachable'));
-      return false;
+      const key = errorKey('service_unreachable');
+      setError(key);
+      return { ok: false, error: key };
     } finally {
       setBusy(false);
     }
@@ -120,7 +135,7 @@ export function useAccountLink(): AccountLink {
   const askCode = useCallback(async () => {
     const address = email.trim();
     if (!address) return;
-    if (await send('/api/auth/account/code', 'POST', { email: address })) {
+    if ((await send('/api/auth/account/code', 'POST', { email: address })).ok) {
       setStep({ phase: 'code', email: address });
       setCode('');
     }
@@ -128,7 +143,7 @@ export function useAccountLink(): AccountLink {
 
   const verify = useCallback(async () => {
     if (step.phase !== 'code' || !code.trim()) return;
-    if (await send('/api/auth/account/verify', 'POST', { email: step.email, code: code.trim() })) {
+    if ((await send('/api/auth/account/verify', 'POST', { email: step.email, code: code.trim() })).ok) {
       setStep({ phase: 'address' });
       setCode('');
       // The event reloads THIS hook too, through its own listener: reloading
@@ -143,7 +158,9 @@ export function useAccountLink(): AccountLink {
   }, []);
 
   const unlink = useCallback(async () => {
-    if (await send('/api/auth/account', 'DELETE')) window.dispatchEvent(new Event(ACCOUNT_CHANGED));
+    const outcome = await send('/api/auth/account', 'DELETE');
+    if (outcome.ok) window.dispatchEvent(new Event(ACCOUNT_CHANGED));
+    return outcome.error;
   }, [send]);
 
   return {
