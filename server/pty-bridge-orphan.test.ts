@@ -139,8 +139,14 @@ describe("pty-bridge · monitor anti-orfano", () => {
     }, 800);
     cleanups.push(() => { clearInterval(probing); for (const p of open) p.destroy(); });
 
-    expect(await until(() => exited, MONITOR_TICK_MS * 6 + 5_000)).toBe(true);
-  }, 60_000);
+    // The budget is wide because what is being measured is a NEGATIVE (nobody
+    // renews the licence), and its proof is an exit that has to be waited for
+    // through several ticks. Under the full suite this bridge is one of 1149
+    // files competing for the machine: at `MONITOR_TICK_MS * 6 + 5s` it went red
+    // at 8.9s on 2026-09-05 while passing alone in 22s, i.e. it was measuring the
+    // load and not the monitor. The test still ends the moment the process dies.
+    expect(await until(() => exited, MONITOR_TICK_MS * 12 + 20_000)).toBe(true);
+  }, 90_000);
 
   test("un ponte con il padre VIVO resta su", async () => {
     const sock = socketPath("live");
