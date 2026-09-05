@@ -166,34 +166,34 @@ sola con la sua barra.
 
 ## 4. T4 — Il composer dice il verbo, i tasti in ogni stato, lo stato di consegna non è più una nota
 
-- [ ] 4.1 Composer (`TaskDetail.tsx:3046-3095`, semantica server invariata):
+- [x] 4.1 Composer (`TaskDetail.tsx:3046-3095`, semantica server invariata):
   placeholder e title derivati — review con agent → `board.task.replyPlaceholder`
   con «{sendBack}» + «Nota»; in_progress → `board.task.steerPlaceholder` o, con
   domanda pendente, nuovo `board.task.answerPlaceholder`; done/todo/backlog →
   `board.task.commentPlaceholder`. Nessun composer spento in più.
-- [ ] 4.2 Risposte rapide: `pending` (999-1001) da `isAgentReview && …` a
+- [x] 4.2 Risposte rapide: `pending` (999-1001) da `isAgentReview && …` a
   «`lastThreadComment` è un blocco question e `task.status !== 'done'`»;
   `usableQuestionOptions` (1019-1023) e `ReviewDecisionRow` invariati.
-- [ ] 4.3 `interceptBoardAction(root, text)` estratta da `routes/tasks.ts:2876-2892`
+- [x] 4.3 `interceptBoardAction(root, text)` estratta da `routes/tasks.ts:2876-2892`
   in `server/services/board-actions.ts` (+ `board-actions.test.ts`), chiamata anche
   dalla rotta dei commenti (3147-3236) DOPO `quiet` (3175) e DOPO
   `pendingRoutedAsk` (3190), PRIMA di reject/resume (3218-3230).
-- [ ] 4.4 Via le due note (`task-dispatcher.ts` 3086-3095 e 2722-2729); restano
-  2699-2707 e 3121-3151. Nessun test cerca oggi le due stringhe (verificato con
-  `/usr/bin/grep -rl 'Feedback ricevuto mentre\|arrivato a turno finito'` su
-  `*.ts`/`*.tsx`/`*.md`: solo il dispatcher e i file di questa change): non c'è
-  niente da sostituire, si AGGIUNGE in `task-dispatcher.test.ts` il test «un
-  messaggio umano bufferizzato a turno vivo non produce righe `service`, e il
-  resume seguente porta `commentIds`».
-- [ ] 4.5 i18n it/en per le chiavi nuove; `grep` su `docs/board-protocol.md` non
+- [x] 4.4 Via le due note (`task-dispatcher.ts` 3086-3095 e 2722-2729); restano
+  2699-2707 e 3121-3151. La misura scritta qui («nessun test cerca le due
+  stringhe») era su `Feedback ricevuto mentre` / `arrivato a turno finito`: DUE
+  test le cercavano per FRAMMENTO (`mentre l'agent sta lavorando`, `resta nel
+  thread`), e sono stati riscritti sulla regola nuova — un messaggio umano
+  bufferizzato a turno vivo non produce righe `service`, e il resume seguente
+  porta `commentIds`.
+- [x] 4.5 i18n it/en per le chiavi nuove; `grep` su `docs/board-protocol.md` non
   trova le due note.
-- [ ] 4.6 e2e `BOARD-08b` in `tests/e2e/board.spec.ts`: card `in_progress` con
+- [x] 4.6 e2e `BOARD-08b` in `tests/e2e/board.spec.ts`: card `in_progress` con
   una domanda `ask_user_question` instradata (POST /api/sessions/:sk/ask-user su
   un task legato, come `server/routes/permission.test.ts`) → tasti sopra il
   composer, un click chiude il rendez-vous (`waiting_for_input` → chiuso) senza
   reject. e2e `DRAWER-06`: steer durante un turno vivo → nessuna `task-app-note`
   con «Feedback ricevuto», solo il chip «in coda».
-- [ ] 4.7 Barra T4: `bun test server/services/task-dispatcher.test.ts
+- [x] 4.7 Barra T4: `bun test server/services/task-dispatcher.test.ts
   server/services/board-actions.test.ts server/routes` verde;
   `bun run typecheck` verde; board-review-quiet-note e BOARD-08 verdi; BOARD-08b e
   DRAWER-06 verdi.

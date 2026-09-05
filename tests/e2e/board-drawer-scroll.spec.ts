@@ -93,6 +93,7 @@ function tallPng(width: number, height: number): Buffer {
 let projectTopicId: string | null = null;
 let sessionTopicId: string | null = null;
 let liveTopicId: string | null = null;
+let steerTopicId: string | null = null;
 const createdTasks: string[] = [];
 
 async function api(request: import("@playwright/test").APIRequestContext, method: "get" | "post" | "patch", path: string, data?: unknown) {
@@ -262,6 +263,7 @@ test.describe("Drawer del task — un solo scroll", () => {
     if (projectTopicId) await deleteTopic(request, projectTopicId);
     if (sessionTopicId) await deleteTopic(request, sessionTopicId);
     if (liveTopicId) await deleteTopic(request, liveTopicId);
+    if (steerTopicId) await deleteTopic(request, steerTopicId);
     rmSync(PROJECT_PATH, { recursive: true, force: true });
     if (previewPath) rmSync(previewPath, { force: true });
   });
@@ -770,4 +772,79 @@ test.describe("Drawer del task — un solo scroll", () => {
     // next one (BOARD-01 reads it).
     await api(page.request, "patch", "/api/all-boards/settings", { autoDispatch: settings.autoDispatch });
   });
+
+  /**
+   * DRAWER-06 - a steer written mid-turn shows up as a CHIP, not as a note.
+   *
+   * The dispatcher used to write two service rows to say where your message had
+   * got to: one while the agent was working, one when the flush found the card
+   * out of the queue. Both were STATE, and state is now carried by the chip
+   * under the bubble: "queued" until the envelope goes out, "delivered" once it
+   * does. The note said the same thing in the past tense, forever, next to the
+   * words that already said it.
+   *
+   * THE BOUNDARY, declared: that the dispatcher no longer writes those rows is
+   * held by its unit test (no `service` row while it buffers, and the envelope
+   * carrying the `commentIds`). What is measured HERE is the surface, with the
+   * same staging as DRAWER-05 - a card that still owes a turn, reconcile held:
+   * no app row appears in the thread, and what says where the steer got to is
+   * the chip, which changes when the envelope lands.
+   */
+  test("DRAWER-06: lo steer a turno vivo non produce nessuna nota, solo il chip", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    const topic = await createTopic(page.request, `E2E-Drawer-Steer-${Date.now()}`);
+    steerTopicId = topic.id;
+    const settings = (await api(page.request, "get", "/api/all-boards/settings")) as { autoDispatch: boolean };
+    await api(page.request, "patch", "/api/all-boards/settings", { autoDispatch: false });
+    await api(page.request, "post", "/api/test/dispatch-hold", { ms: 120_000 });
+    const seeded = `Passo seminato ${Date.now()}`;
+    const task = await seedDispatchedTask(page.request, topic.id, seeded, "todo");
+
+    await page.goto("/");
+    await openProjectBoard(page);
+    await openTaskDrawer(page, task.text, "todo");
+    const drawer = page.getByTestId("task-detail-drawer");
+    await expandEverySection(page);
+    const pane = drawer.getByTestId("task-session-column");
+    await expect(pane.getByText(seeded)).toBeVisible({ timeout: 15_000 });
+    const notesBefore = await pane.getByTestId("task-app-note").count();
+
+    const steer = `Guarda anche il caso vuoto ${Date.now()}`;
+    const composer = drawer.locator("textarea").last();
+    await composer.fill(steer);
+    await composer.press("Enter");
+
+    // The bubble is yours and the chip is under it: not one extra row.
+    await expect(pane.getByText(steer)).toBeVisible({ timeout: 15_000 });
+    await expect(pane.getByTestId("task-comment-queued").last()).toBeVisible({ timeout: 15_000 });
+    await expect(pane.getByTestId("task-app-note")).toHaveCount(notesBefore);
+    await expect(pane.getByText(/Feedback ricevuto/)).toHaveCount(0);
+
+    // And when the envelope goes out it is the SAME chip that changes word: one
+    // row that updates, not two rows that both stay.
+    const withComments = (await (await page.request.get(
+      `${BASE}/api/boards/${PROJECT_ID}/tasks/${task.id}`,
+    )).json()) as { comments?: Array<{ id: string; content: string }> };
+    const steerId = withComments.comments?.find((c) => c.content.includes(steer))?.id;
+    expect(steerId, "the steer must be a row of the thread").toBeTruthy();
+    await api(page.request, "post", `/api/test/topics/${topic.id}/session-row`, {
+      role: "user",
+      content: "Riprendi il lavoro sulla card.",
+      blocks: [{ kind: "dispatched-envelope", commentIds: [steerId] }],
+    });
+    // The envelope row is in the transcript, which the drawer reads back at
+    // MOUNT: one reload, instead of a wait on the clock.
+    await page.reload();
+    // The board is already open in the group (the "+" filters out the singleton
+    // panes already there): wait for it to remount, do not reopen it.
+    await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 20_000 });
+    await openTaskDrawer(page, task.text, "todo");
+    const reopened = page.getByTestId("task-detail-drawer");
+    await expect(reopened.getByTestId("task-comment-delivered").last()).toBeVisible({ timeout: 20_000 });
+    await expect(reopened.getByTestId("dispatch-envelope-row")).toHaveCount(0);
+    await expect(reopened.getByTestId("task-app-note")).toHaveCount(notesBefore);
+
+    await api(page.request, "patch", "/api/all-boards/settings", { autoDispatch: settings.autoDispatch });
+  });
+
 });

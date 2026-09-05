@@ -35,7 +35,8 @@ import { getTerminalSessionById } from "./terminal";
 import { applySpendCapPatch, hasSpendCapPatch, spendCapFields, spendSnapshot } from "./task-spend-caps";
 import { deliverAnswer } from "../lib/ask-user-bridge";
 import { answerRoutedAsk, pendingRoutedAsk } from "../services/board-ask-routing";
-import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, isArchiveParkedLabel, isLandActionLabel, isPromoteParkedLabel, isPublishActionLabel, isRequeueParkedLabel, isTakeOverParkedLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
+import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, isPublishActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
+import { interceptBoardAction } from "../services/board-actions";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import { resolveAgentRuntime } from "../services/app-settings";
 import { newProjectParentDir } from "../services/project-path-resolver";
@@ -2942,74 +2943,20 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             return json({ ...queued, landing: ticket }, 202);
           }
           // The agent offers "Landa su main" as a quick-reply at delivery; picking
-          // it arrives here as a reject-with-that-text. LANDING = merge THEN accept:
-          // la card resta in review e la chiude il land, quando main lo conferma —
-          // mai un reject. È il difetto del 13/08 al contrario: l'approvazione
-          // raccontava l'intenzione, e il lavoro poteva non arrivare mai.
-          // LE DUE RISPOSTE ALLO STALLO DEI SOTTOTASK PARCHEGGIATI. Arrivano
-          // qui come un rifiuto che porta l'etichetta, esattamente come «Landa
-          // su main» — ma non sono né un rifiuto né un'approvazione: sono la
-          // risposta a una domanda che il SISTEMA ha fatto, e la esegue il
-          // sistema. Rimandarle all'agent (il ramo `reject` sotto) avrebbe fatto
-          // ripartire un turno per spostare due card, cioè avrebbe pagato un
-          // agente per fare un UPDATE.
-          // La TERZA uscita, che esiste perche' le prime due potevano girare a
-          // vuoto: la card torna in mano a una persona, i figli restano dove
-          // sono. Non passa da `resolveParkedChildren` — non risolve i figli,
-          // toglie il task dal giro dell'agente, che e' cio' che serve quando
-          // rimetterli in coda si e' gia' dimostrato circolare.
-          if (isTakeOverParkedLabel(comment)) {
-            const preso = svc.update({
-              taskId: bReview.taskId, actor: "human", by: HUMAN,
-              patch: { status: "in_progress", assignedTo: HUMAN },
-            });
-            broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task: preso });
-            return json(preso);
-          }
-          // LA TERZA RISPOSTA che risolve i figli, e l'unica che li rende
-          // servibili: senza `parent_task_id` la coda li prende come qualunque
-          // card, mentre «rimetti in coda» li lascia fermi in `todo` sotto un
-          // padre (il tick lista `rootsOnly`). Stessa porta delle altre due,
-          // perche' e' la stessa cosa: un UPDATE, non un turno d'agente.
-          if (isRequeueParkedLabel(comment) || isArchiveParkedLabel(comment) || isPromoteParkedLabel(comment)) {
-            const decision = isRequeueParkedLabel(comment)
-              ? "requeue" as const
-              : isPromoteParkedLabel(comment) ? "promote" as const : "archive" as const;
-            const esito = svc.resolveParkedChildren({ taskId: bReview.taskId, decision, by: HUMAN });
-            if (!esito) {
-              return json({
-                error: "questo task non ha più sottotask parcheggiati: la domanda è già stata risolta",
-                code: "no_parked_children",
-              }, 409);
-            }
-            broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task: esito.task });
-            // I figli non viaggiano nel feed della board (`rootsOnly`), ma il
-            // drawer aperto sul padre sì: senza questo, chi guarda vede il padre
-            // ripartire e i sottotask ancora parcheggiati finché non ricarica.
-            for (const c of esito.children) broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task: c });
-            if (dispatcher && esito.task.status === "todo") dispatcher.onEnterTodo(bReview.projectId, bReview.taskId);
-            // PROMUOVERE E' METTERE IN CODA, altrimenti e' solo togliere un
-            // padre: un figlio promosso e' una card come le altre, e il turno
-            // glielo deve dare qualcuno adesso, non il tick fra dieci minuti.
-            // Il broadcast qui sopra lo fa gia' comparire nel feed della board.
-            if (dispatcher && decision === "promote") {
-              for (const c of esito.children) {
-                if (c.status === "todo") dispatcher.onEnterTodo(bReview.projectId, c.id);
-              }
-            }
-            return json(esito.task);
-          }
-          if (isLandActionLabel(comment)) {
-            // The «Landa su main» quick reply arrives here as a `reject`
-            // carrying the button's text: without this line it was the gate's
-            // service door, the same merge with nobody reading the checks.
-            const gate = checksRedGate(bReview.projectId, bReview.taskId, body?.force);
-            if (gate) return gate;
-            const before = svc.get(bReview.taskId, { projectId: bReview.projectId })?.task;
-            if (!before) return json({ error: "task not found", code: "not_found" }, 404);
-            const ticket = enqueueLand(bReview.projectId, bReview.taskId);
-            const queued = svc.get(bReview.taskId, { projectId: bReview.projectId })?.task ?? before;
-            return json({ ...queued, landing: ticket }, 202);
+          // it arrives here as a reject-with-that-text. It is not a rejection and
+          // not an approval: it is the answer to a question the SYSTEM asked, and
+          // the system runs it. The five labels and what each one does live in
+          // `interceptBoardAction`, because the drawer draws the same buttons on
+          // a card that never reached review and they arrive on the comments
+          // route instead of this one.
+          {
+            const intercepted = interceptBoardAction(
+              { svc, dispatcher, broadcast: broadcastToAll, enqueueLand, checksRedGate, json, by: HUMAN },
+              { projectId: bReview.projectId, taskId: bReview.taskId },
+              comment,
+              { force: body?.force },
+            );
+            if (intercepted) return intercepted;
           }
           // The rejection text is written HERE first, so the row exists and has
           // an id before the resume that delivers it. `reviewDecision` writes
@@ -3289,6 +3236,23 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             if (pendingRoutedAsk(target) && answerRoutedAsk(askRouting, target, String(body?.content ?? ""))) {
               return json(comment);
             }
+          }
+          // A SYSTEM LABEL CLICKED FROM THE DRAWER IS AN UPDATE, NEVER A TURN.
+          // The quick replies of an open question are now drawn in every column,
+          // so «Landa su main» (and the four parked-subtask answers) can arrive
+          // on THIS route instead of the review one. Left to fall through, the
+          // block below would hand the label's text to the agent and pay a whole
+          // turn to move two cards. After `quiet` and after the routed
+          // rendez-vous, because both of those are answers to somebody waiting.
+          {
+            const root = dispatcher ? svc.boundRootOf(bComments.taskId) : null;
+            const intercepted = interceptBoardAction(
+              { svc, dispatcher, broadcast: broadcastToAll, enqueueLand, checksRedGate, json, by: HUMAN },
+              { projectId: bComments.projectId, taskId: root?.id ?? bComments.taskId },
+              typeof body?.content === "string" ? body.content : "",
+              { force: body?.force },
+            );
+            if (intercepted) return intercepted;
           }
           // Answering on a STEP is answering the agent: when the subtree's
           // dispatch root sits in review ("serve te"), a human comment anywhere
