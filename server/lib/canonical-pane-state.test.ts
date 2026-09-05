@@ -10,8 +10,8 @@ import { canonicalPaneSnapshot, projectPanesKeyRenames, projectPaneId } from "./
 import { projectPanesKey } from "../../shared/project-keys";
 import { computeCascade } from "../services/pane-retirement-cascade";
 
-const RAW = "/tmp/link/app";
-const CANON = "/private/tmp/real/app";
+const RAW = "/workspace/link/app";
+const CANON = "/workspace/real/app";
 const OTHER = "/home/x/other";
 const rawId = projectPaneId(RAW);
 const canonId = projectPaneId(CANON);
