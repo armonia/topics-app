@@ -5,6 +5,12 @@ interface ToggleRowProps {
   description?: string;
   value: boolean;
   onChange: (v: boolean) => void;
+  /** Spegne l'interruttore per davvero: fuori dall'ordine di tab, Spazio inerte,
+   *  stato esposto ad AT. Attenua anche la label perché la riga si legga spenta.
+   *  Un wrapper `opacity-50 pointer-events-none` NON basta: il bottone resta
+   *  focusabile e commutabile da tastiera, e `aria-checked` cambia senza dire
+   *  che è disabilitato. */
+  disabled?: boolean;
 }
 
 /**
@@ -16,16 +22,16 @@ interface ToggleRowProps {
  * qui e nel modale delle impostazioni del topic, e il difetto dello stato
  * spento (bianco su bianco in tema chiaro) andava corretto in due punti.
  */
-export function ToggleRow({ label, description, value, onChange }: ToggleRowProps) {
+export function ToggleRow({ label, description, value, onChange, disabled }: ToggleRowProps) {
   return (
     <div className="flex items-start justify-between gap-3 py-2 border-b border-app-border last:border-b-0">
-      <div className="min-w-0 flex-1">
+      <div className={`min-w-0 flex-1${disabled ? ' opacity-50' : ''}`}>
         <div className="text-[12.5px] text-app-text">{label}</div>
         {description && (
           <div className="text-[11px] text-app-text-muted mt-0.5">{description}</div>
         )}
       </div>
-      <Switch checked={value} onChange={onChange} label={label} className="mt-0.5" />
+      <Switch checked={value} onChange={onChange} label={label} disabled={disabled} className="mt-0.5" />
     </div>
   );
 }
