@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Download, RefreshCw, Check, AlertCircle, Rocket, Sparkles, ChevronRight } from 'lucide-react';
-import { useUpdater } from '@/lib/updater';
+import { updateTitle, useUpdater } from '@/lib/updater';
 import { useSidecarIntegrity, shouldWarnAboutSidecars } from '@/lib/sidecarIntegrity';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
@@ -270,7 +270,7 @@ function UpdateBox({
   available, state, progress, error, newVersion, swUpdate, autoUpdate, onCheck, onDownload, onInstall,
 }: {
   available: boolean;
-  state: 'idle' | 'checking' | 'update-available' | 'downloading' | 'ready' | 'error';
+  state: 'idle' | 'checking' | 'up-to-date' | 'update-available' | 'downloading' | 'ready' | 'error';
   progress?: number;
   error?: string;
   newVersion?: string;
@@ -314,8 +314,22 @@ function UpdateBox({
     return (
       <div className="space-y-1.5">
         <div className="text-[11px] text-app-text">{tr('version.available', { v: newVersion ? ` v${newVersion}` : '' })}</div>
+        {/* One button: the shell downloads and installs in the same call, so
+            "Download" alone promised a step that ended with nothing waiting. */}
         <button onClick={onDownload} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[11px] font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors">
-          <Download size={12} /> {tr('version.download')}
+          <Download size={12} /> {tr('update.downloadInstall')}
+        </button>
+      </div>
+    );
+  }
+  if (state === 'up-to-date') {
+    // The answer to a check the user asked for. Without it the popover redrew
+    // the same "Check for updates" button and the click looked like a no-op.
+    return (
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5 text-[11px] text-app-text-muted"><Check size={12} /> {tr('update.title.upToDate')}</div>
+        <button onClick={onCheck} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[11px] font-medium hover:bg-app-hover text-app-text-secondary transition-colors">
+          <RefreshCw size={12} /> {tr('version.check')}
         </button>
       </div>
     );
@@ -336,7 +350,7 @@ function UpdateBox({
   if (state === 'error') {
     return (
       <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5 text-[11px] text-red-500"><AlertCircle size={12} /> {error || tr('version.checkFailed')}</div>
+        <div className="flex items-center gap-1.5 text-[11px] text-red-500"><AlertCircle size={12} /> {tr(updateTitle({ state: 'error', error }).key)}</div>
         <button onClick={onCheck} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[11px] font-medium hover:bg-app-hover text-app-text-secondary transition-colors">
           <RefreshCw size={12} /> {tr('common.retry')}
         </button>
