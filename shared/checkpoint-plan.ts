@@ -24,17 +24,19 @@ export interface RestorePlanEntry {
  * Two families, and the route keeps them apart (see `RestoreVerdict`):
  *  - `turn-in-progress`, `other-session-active`, `no-checkpoint`: nothing can
  *    be trusted, the whole gesture stops;
- *  - `not-a-repo`, `legacy-checkpoint`: only the FILES half cannot happen. A
- *    manual checkpoint saved before file snapshots existed has no tree to go
- *    back to, and neither has a topic outside a git repository; its
- *    conversation still rolls back.
+ *  - `not-a-repo`, `legacy-checkpoint`, `no-turn-mark`: only the FILES half
+ *    cannot happen. A manual checkpoint saved before file snapshots existed
+ *    has no tree to go back to, a topic outside a git repository has no files
+ *    to put back, and a turn whose end was never recorded has files nobody can
+ *    attribute. In all three the conversation still rolls back.
  */
 export type RestoreBlockerCode =
   | "not-a-repo"
   | "no-checkpoint"
   | "turn-in-progress"
   | "other-session-active"
-  | "legacy-checkpoint";
+  | "legacy-checkpoint"
+  | "no-turn-mark";
 
 export interface RestoreBlocker {
   code: RestoreBlockerCode;

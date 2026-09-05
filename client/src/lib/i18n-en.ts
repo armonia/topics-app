@@ -464,6 +464,7 @@ const EN = {
   'checkpoint.blocked.noCheckpoint': 'There is no file snapshot for this point.',
   'checkpoint.blocked.notARepo': 'This chat has no git folder: only the conversation goes back.',
   'checkpoint.blocked.legacy': 'This checkpoint was saved before file snapshots existed: only the conversation goes back.',
+  'checkpoint.blocked.noTurnMark': 'The end of that turn was never recorded, so Topics cannot tell which files were its own: only the conversation goes back.',
   'checkpoint.plan.conversation': 'The conversation is cut back to {n} messages and later checkpoints are removed.',
   'checkpoint.plan.restored': '{n} files come back as they were at the checkpoint.',
   'checkpoint.plan.removed': '{n} files this chat created since are deleted.',

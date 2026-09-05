@@ -467,6 +467,7 @@ const IT: Dict = {
   'checkpoint.blocked.noCheckpoint': 'Non esiste una fotografia dei file per questo punto.',
   'checkpoint.blocked.notARepo': 'Questa chat non ha una cartella git: torna indietro solo la conversazione.',
   'checkpoint.blocked.legacy': 'Questo checkpoint è stato salvato prima che esistessero le fotografie dei file: torna indietro solo la conversazione.',
+  'checkpoint.blocked.noTurnMark': 'La fine di quel turno non è mai stata registrata, quindi Topics non sa quali file fossero suoi: torna indietro solo la conversazione.',
   'checkpoint.plan.conversation': 'La conversazione viene tagliata a {n} messaggi e i checkpoint successivi rimossi.',
   'checkpoint.plan.restored': '{n} file tornano com\'erano al checkpoint.',
   'checkpoint.plan.removed': '{n} file creati da questa chat nel frattempo vengono cancellati.',

@@ -180,6 +180,19 @@ export async function buildRestorePlan(
     return new Set(r.stdout.split("\0").filter(Boolean));
   });
 
+  // THE TURN WHOSE END WAS NEVER RECORDED. A completed turn always leaves an
+  // `after` mark, identical bytes included, so a `before` as the newest
+  // snapshot with a worktree that has moved means the mark was lost: the
+  // process died between the two, or git refused the second one. The paths
+  // that moved are then unattributable, and both ways of guessing are wrong.
+  // Restoring them would take away work that may be somebody else's; leaving
+  // them would be a rewind that silently does nothing. So the plan refuses
+  // and says which of the two it cannot tell apart. A turn still running is
+  // the same state with a known cause, and it already has its own blocker.
+  if (latest.kind === "before" && changedSinceLatest.size > 0 && opts?.turnActive !== true) {
+    blockers.push({ code: "no-turn-mark", detail: `${changedSinceLatest.size} paths` });
+  }
+
   const entries: RestorePlanEntry[] = [];
   const skipped: RestorePlanEntry[] = [];
   for (const entry of manifest) {

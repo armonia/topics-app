@@ -160,12 +160,33 @@ describe("blockers refuse the whole plan", () => {
     expect(read("a.txt"), "a refused plan touches nothing").toBe("still being written\n");
   });
 
-  test("the same worktree without turnActive is not a turn in progress", async () => {
+  test("no-turn-mark: a `before` as newest, a worktree that moved, and no turn running", async () => {
+    // The end of that turn was never recorded (the process died between the
+    // two snapshots, or git refused the second): the paths that moved cannot
+    // be attributed, and both guesses are wrong. It refuses and says which.
     const before = await captureTurnCheckpoint(repo, SESSION, "the turn", "before");
-    write("a.txt", "typed by hand after an idle turn\n");
+    write("a.txt", "written by a turn whose end was never recorded\n");
+
     const plan = await buildRestorePlan(repo, SESSION, before!.commit, { turnActive: false });
+
+    expect(plan.safe).toBe(false);
+    expect(plan.blockers.map((b) => b.code)).toEqual(["no-turn-mark"]);
+    await expect(applyRestorePlan(repo, plan)).rejects.toThrow("no-turn-mark");
+    expect(read("a.txt")).toBe("written by a turn whose end was never recorded\n");
+  });
+
+  test("a closed turn that wrote nothing does NOT read as a lost mark, whatever is typed after", async () => {
+    // The mark is recorded even when the bytes did not change, which is what
+    // keeps the two states apart. Without it this case and the one above are
+    // the same refs, and one of the two verdicts is always wrong.
+    const target = await turn(() => {});
+    write("a.txt", "typed by hand after an idle turn\n");
+
+    const plan = await buildRestorePlan(repo, SESSION, target, { turnActive: false });
+
     expect(plan.blockers).toEqual([]);
     expect(plan.safe).toBe(true);
+    expect(plan.entries).toEqual([]);
   });
 
   test("other-session-active: another session's checkpoint younger than our latest", async () => {

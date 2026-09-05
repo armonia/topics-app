@@ -107,6 +107,26 @@ describe("cattura", () => {
     expect(all[0].label, "il piu' recente e' il primo").toBe(`turno ${rounds - 1}`);
     expect(all[all.length - 1].label, "i giri piu' vecchi sono stati potati").toBe(`turno ${rounds - keep}`);
   });
+
+  test("the window counts restore points, not refs, so the marks do not halve it", async () => {
+    // A turn writes two refs. Counting refs would have cut how far back the
+    // net reaches in half the day the end-of-turn mark arrived, silently.
+    const dir = repo;
+    const keep = 2;
+    const rounds = 3;
+    for (let i = 0; i < rounds; i++) {
+      await captureTurnCheckpoint(dir, SESSION, `turn ${i}`, "before", keep);
+      writeFileSync(join(dir, "f.txt"), `round ${i}\n`);
+      await captureTurnCheckpoint(dir, SESSION, `turn ${i}`, "after", keep);
+    }
+    const points = await listRestorePoints(dir, SESSION);
+    expect(points.map((p) => p.label)).toEqual([`turn ${rounds - 1}`, `turn ${rounds - 2}`]);
+    const all = await listTurnCheckpoints(dir, SESSION);
+    expect(all.length, "the marks that close the kept turns stay with them").toBe(keep * 2);
+    // Six real commits on a real repository: the default 5 s is the runner's
+    // idea of a unit test, not of a git one, and this file is full of the
+    // second kind.
+  }, 20_000);
 });
 
 describe("kinds", () => {
@@ -130,10 +150,17 @@ describe("kinds", () => {
     expect(c.kind).toBe("before");
   });
 
-  test("an `after` with the same bytes as the newest snapshot is not recorded", async () => {
+  test("an `after` with the same bytes IS recorded: it is a mark, not a snapshot", async () => {
+    // A turn that wrote nothing still ended, and the mark is what says so. Drop
+    // it as a duplicate and a later restore can no longer tell "that turn wrote
+    // nothing" from "that turn wrote and its end was never recorded".
     await captureTurnCheckpoint(repo, SESSION, "turn 1", "before");
-    expect(await captureTurnCheckpoint(repo, SESSION, "turn 1", "after"), "the turn wrote nothing").toBeNull();
-    expect((await listTurnCheckpoints(repo, SESSION)).length).toBe(1);
+    const mark = await captureTurnCheckpoint(repo, SESSION, "turn 1", "after");
+    expect(mark, "the turn wrote nothing, and that is exactly what has to be on record").not.toBeNull();
+    expect(mark!.kind).toBe("after");
+    const all = await listTurnCheckpoints(repo, SESSION);
+    expect(all.length).toBe(2);
+    expect(await listRestorePoints(repo, SESSION), "still one place to go back to").toHaveLength(1);
   });
 
   test("a `before` IS recorded on top of an identical `after`: the restore point must exist", async () => {

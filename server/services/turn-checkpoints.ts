@@ -316,9 +316,18 @@ export async function withWorktreeIndex<T>(
  * change something.
  *
  * THE DEDUP RULE DEPENDS ON THE KIND, and the asymmetry is the point:
- *   - an `after` is skipped whenever the tree equals the newest snapshot,
- *     whatever that snapshot's kind: nothing happened during the turn, so
- *     there is nothing to record;
+ *   - an `after` is ALWAYS recorded, identical bytes included. It is not a
+ *     snapshot, it is a MARK: "the turn ended here, and what the tree holds
+ *     now is what this session left". Skipping the ones that changed nothing
+ *     looked free and was not: with the mark missing, the newest snapshot of
+ *     the session stays the `before` of a turn that is over, and a restore can
+ *     no longer tell "that turn wrote nothing" from "that turn wrote and its
+ *     end was never recorded". The first is an empty undo, the second is a
+ *     refusal (`no-turn-mark` in `checkpoint-restore-plan.ts`), and guessing
+ *     between them either loses somebody's work or refuses for no reason. The
+ *     cost of the mark is one commit object pointing at a tree that already
+ *     exists, and the pruning counts restore points, not refs, so the depth of
+ *     the net does not shrink;
  *   - a `before` or `manual` is skipped only when the newest snapshot has the
  *     same bytes AND is itself a restore point. A restore point must exist for
  *     the turn that is starting; the newest snapshot having the same bytes is
@@ -349,7 +358,7 @@ export async function captureTurnCheckpoint(
     if (latest) {
       const lastTree = await runGit(["rev-parse", `${latest.commit}^{tree}`], projectPath);
       const sameBytes = lastTree.code === 0 && lastTree.stdout === tree;
-      if (sameBytes && (kind === "after" || latest.kind !== "after")) return null;
+      if (sameBytes && kind !== "after" && latest.kind !== "after") return null;
     }
 
     // Parent = HEAD when there is one, so `git diff HEAD <checkpoint>` reads
@@ -378,13 +387,26 @@ export async function captureTurnCheckpoint(
   });
 }
 
-/** Drop everything past the newest `keep`, which is `KEEP_PER_SESSION` unless
- *  a caller says otherwise. */
+/**
+ * Drop everything past the newest `keep` RESTORE POINTS, which is
+ * `KEEP_PER_SESSION` unless a caller says otherwise.
+ *
+ * Restore points, not refs: a turn now writes two refs, and counting refs
+ * would have halved how far back the net reaches the day the end-of-turn mark
+ * arrived. Everything younger than the oldest kept restore point stays, marks
+ * included, because a restore point without the mark that closes its turn is
+ * a point nobody can rewind to.
+ */
 export async function pruneTurnCheckpoints(
   projectPath: string, sessionKey: string, keep: number = KEEP_PER_SESSION,
 ): Promise<number> {
   const all = await listTurnCheckpoints(projectPath, sessionKey);
-  const doomed = all.slice(keep);
+  const kept = all.filter((c) => c.kind !== "after").slice(0, keep);
+  // No restore point at all means nothing to anchor the window on, so nothing
+  // is dropped: deleting the marks would leave a session with no history and
+  // no way to have got one.
+  const floor = kept.length > 0 ? kept[kept.length - 1].seq : -Infinity;
+  const doomed = all.filter((c) => c.seq < floor);
   for (const c of doomed) await runGit(["update-ref", "-d", c.ref, c.commit], projectPath);
   return doomed.length;
 }

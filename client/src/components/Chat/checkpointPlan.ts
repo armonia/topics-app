@@ -8,7 +8,10 @@
 import type { Checkpoint } from '../../../../shared/types';
 import type { RestoreBlockerCode, RestorePlan, RestoreVerdict } from '../../../../shared/checkpoint-plan';
 
-export type Translate = (key: string, vars?: Record<string, string | number>) => string;
+// The same signature the queue copy already uses, declared once in shared/:
+// two identical `Translate` on the two sides is a mirror, and the gate that
+// forbids mirrors is right that they drift.
+import type { Translate } from '../../../../shared/queue-reason-text';
 
 /** The manual-checkpoint preflight, as `POST /checkpoints/:idx/plan` answers it. */
 export interface CheckpointPreflight extends RestoreVerdict {
@@ -22,6 +25,7 @@ export const BLOCKER_KEY: Record<RestoreBlockerCode, string> = {
   'no-checkpoint': 'checkpoint.blocked.noCheckpoint',
   'not-a-repo': 'checkpoint.blocked.notARepo',
   'legacy-checkpoint': 'checkpoint.blocked.legacy',
+  'no-turn-mark': 'checkpoint.blocked.noTurnMark',
 };
 
 /** How many skipped paths the dialog names before folding the rest. */

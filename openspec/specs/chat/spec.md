@@ -359,6 +359,20 @@ A rollback SHALL touch only the files THIS chat changed since the checkpoint, de
 - **AND** nothing on disk is touched
 - **AND** the plan preflight answers `canProceed: true, filesRestorable: false` with the blocker `legacy-checkpoint` (or `not-a-repo`), so the button stays enabled and the dialog says in one line that the files cannot come back
 
+#### Scenario: A turn whose end was never recorded is refused, not guessed
+- **GIVEN** a turn took its `before` snapshot and its end-of-turn mark was never written (the process died between the two)
+- **AND** the working tree has changed since that snapshot, with no turn running now
+- **WHEN** the plan is built for that checkpoint
+- **THEN** it carries the blocker `no-turn-mark` and restores nothing
+- **AND** the reason shown says the files of that turn cannot be told apart from anybody else's
+
+#### Scenario: A turn that wrote nothing still records its end
+- **GIVEN** a turn that changed no file
+- **WHEN** the turn ends
+- **THEN** an end-of-turn mark is recorded anyway, with the same tree as the snapshot before it
+- **AND** a later edit by hand does NOT make that checkpoint look like a turn whose end was lost: its plan is empty and safe
+- **AND** the checkpoint window counts restore points, so the marks do not halve how far back a chat can go
+
 #### Scenario: Cancelling rollback preserves current state
 - **GIVEN** the rollback confirmation dialog is displayed
 - **WHEN** the user cancels the dialog
