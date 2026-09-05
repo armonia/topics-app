@@ -1,5 +1,5 @@
 /**
- * Regression for card c2984ce2 "Ripristino dello split interno ai progetti":
+ * Regression for card c2984ce2 "Ripristino dello split interno ai progetti": allow-italian: the card title, quoted
  * the split inside a project was gone, while it still worked outside.
  *
  * ROOT CAUSE (confirmed): commit ec3110f0b (2026-09-02) made the server store a
@@ -15,8 +15,8 @@
  * tombstoned, and the per-project `topics-project-panes-<hash>` row following
  * the pane. So a client that hydrates a RAW pane sees the CANONICAL one.
  *
- * On macOS /tmp is a symlink to /private/tmp, so /tmp/<x> reproduces the exact
- * mismatch a symlinked real project hits.
+ * The test builds the mismatch itself: a directory and a symlink pointing at
+ * it, which is the shape a real project takes when it is reached through a link.
  *
  *  - RAW:   seed the project pane and its inner chat under the RAW /tmp path →
  *           the client must see the canonical pane only, its child chat as an
@@ -35,22 +35,28 @@ import {
   seedProjectInnerChats,
   resetProjectPanes,
 } from "./helpers/api-fixtures";
-import { mkdirSync, rmSync, writeFileSync, realpathSync } from "fs";
+import { mkdirSync, rmSync, symlinkSync, writeFileSync, realpathSync } from "fs";
 import { hermetic } from "./fixtures/hermetic";
 
 hermetic(test);
 
 let childChatId: string | null = null;
-const RAW_PATH = `/tmp/e2e-prj-split-single-${Date.now()}`;
-// The canonical form the server stores the topic under (macOS: /private/tmp/...).
+// The mismatch is BUILT, not borrowed from the platform: a real directory and a
+// symlink pointing at it, so the raw path differs from the canonical one on
+// every OS (on macOS /tmp is itself a link to /private/tmp, which only adds to it).
+const BASE = `/tmp/e2e-prj-split-single-${Date.now()}`;
+const REAL_PATH = `${BASE}-real`;
+const RAW_PATH = `${BASE}-link`;
+// The canonical form the server stores the topic under.
 let CANON_PATH = RAW_PATH;
 
 const paneId = (path: string) => `project:${encodeURIComponent(path)}`;
 
 test.describe("In-project split (card c2984ce2)", () => {
   test.beforeAll(async ({ request }) => {
-    mkdirSync(RAW_PATH, { recursive: true });
-    writeFileSync(`${RAW_PATH}/package.json`, JSON.stringify({ name: "e2e-prj-split-single" }, null, 2));
+    mkdirSync(REAL_PATH, { recursive: true });
+    writeFileSync(`${REAL_PATH}/package.json`, JSON.stringify({ name: "e2e-prj-split-single" }, null, 2));
+    symlinkSync(REAL_PATH, RAW_PATH);
     CANON_PATH = realpathSync(RAW_PATH);
     // Server canonicalises projectPath on create → topic stored under CANON_PATH.
     childChatId = (await createTopic(request, "E2E-SplitChild", { projectPath: RAW_PATH })).id;
@@ -58,7 +64,8 @@ test.describe("In-project split (card c2984ce2)", () => {
 
   test.afterAll(async ({ request }) => {
     if (childChatId) await deleteTopic(request, childChatId).catch(() => {});
-    rmSync(RAW_PATH, { recursive: true, force: true });
+    rmSync(RAW_PATH, { force: true });
+    rmSync(REAL_PATH, { recursive: true, force: true });
   });
 
   function projectWindow(page: import("@playwright/test").Page) {
@@ -97,13 +104,17 @@ test.describe("In-project split (card c2984ce2)", () => {
     await expect
       .poll(() => projectBars.count(), { timeout: 6000, message: "'Dividi a destra' must carve a second inner group" })
       .toBe(before + 1);
-    await page.waitForTimeout(1200);
-    expect(await projectBars.count(), "the second inner group must not collapse back").toBe(before + 1);
+    // What used to swallow the second group was the persistence round trip, not
+    // the passing of time: wait for the pane-store write the split triggers and
+    // check the group is still there once it landed.
+    await page
+      .waitForResponse((r) => r.url().includes("/api/ui-state") && r.request().method() === "PUT", { timeout: 8000 })
+      .catch(() => {});
+    await expect(projectBars, "the second inner group must not collapse back").toHaveCount(before + 1);
   }
 
   test("PRJ-SPLIT-CHAT-RAW: a chat project persisted by its raw path is served canonical, renders its chat and splits", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "PROJ-ID-04" });
-    test.skip(CANON_PATH === RAW_PATH, "no symlink on this platform: RAW already is canonical");
     await resetPaneStore(page.request, []);
     // Only the RAW per-project row is reset: with the fix an EXISTING canonical
     // row wins over the raw one, so pre-creating an empty canonical row here
@@ -122,7 +133,6 @@ test.describe("In-project split (card c2984ce2)", () => {
 
   test("PRJ-SPLIT-CHAT-CANON: the same project opened by its canonical path renders its chat and splits", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "PROJ-ID-04" });
-    test.skip(CANON_PATH === RAW_PATH, "no symlink on this platform: RAW already is canonical");
     await resetPaneStore(page.request, []);
     await resetProjectPanes(page.request, RAW_PATH).catch(() => {});
     await resetProjectPanes(page.request, CANON_PATH).catch(() => {});

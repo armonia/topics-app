@@ -44,7 +44,7 @@ export interface ProjectPathPair {
 }
 
 export interface CanonicalPaneSnapshotResult {
-  /** The snapshot to serve. The SAME reference as the input when nothing changed. */
+  /** What the reader gets back: the very same object when nothing had to change. */
   value: unknown;
   /** Every raw path found, with the canonical path it resolves to. Empty = untouched. */
   pairs: ProjectPathPair[];
