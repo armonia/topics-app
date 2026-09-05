@@ -3,6 +3,8 @@ import { Clock, RotateCcw, Plus } from 'lucide-react';
 import { useCheckpoints, type Checkpoint } from '../../hooks/useCheckpoints';
 import { useToast } from '../Shared/Toast';
 import { useConfirm } from '../../hooks/useConfirm';
+import { useT } from '../../hooks/useT';
+import { BLOCKER_KEY, rollbackButtonState, rollbackDialogText } from './checkpointPlan';
 
 interface CheckpointTimelineProps {
   topicId: string;
@@ -20,12 +22,13 @@ function formatTimeAgo(ts: string): string {
 }
 
 export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelineProps) {
-  const { checkpoints, loading: _loading, error, load, create, rollback } = useCheckpoints(topicId);
+  const { checkpoints, loading: _loading, error, load, create, rollback, fetchPlan, plans } = useCheckpoints(topicId);
   const [expanded, setExpanded] = useState(false);
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const [rollingBack, setRollingBack] = useState(false);
   const toast = useToast();
   const confirm = useConfirm();
+  const tr = useT();
 
   useEffect(() => { load(); }, [load]);
 
@@ -34,14 +37,23 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
   }, [create]);
 
   const handleRollback = useCallback(async (checkpoint: Checkpoint) => {
+    // The dialog says what the PLAN says: how many files come back, how many
+    // the chat created and will be deleted, which paths somebody else changed
+    // and are left alone. It used to promise a git checkout to a hash, which
+    // is not what happens any more and never quite was.
+    const preflight = (await fetchPlan(checkpoint.idx)) ?? plans[checkpoint.idx] ?? null;
+    const text = rollbackDialogText(checkpoint, preflight, tr);
     const confirmed = await confirm({
-      title: `Roll back to "${checkpoint.description}"?`,
-      confirmLabel: 'Roll back',
+      title: tr('checkpoint.rollback.confirmTitle', { name: checkpoint.description }),
+      confirmLabel: tr('checkpoint.rollback.confirm'),
       body: (
         <div className="space-y-2">
-          <p>This will truncate messages to {checkpoint.messageCount} and remove later checkpoints.</p>
-          {checkpoint.gitHash && (
-            <p>Git will be checked out to <span className="font-mono">{checkpoint.gitHash.slice(0, 7)}</span>.</p>
+          {text.lines.map((line) => <p key={line}>{line}</p>)}
+          {text.skippedPaths.length > 0 && (
+            <ul className="font-mono text-[11px] pl-3 list-disc">
+              {text.skippedPaths.map((path) => <li key={path}>{path}</li>)}
+              {text.more && <li className="list-none">{text.more}</li>}
+            </ul>
           )}
         </div>
       ),
@@ -57,13 +69,16 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
     // streaming, terminali e pane accanto finche' non lo chiudi a mano. Un
     // esito di rollback non vale il blocco di tutta l'app.
     if (result.ok) {
-      if (result.warning) toast.warning(`Rolled back. Note: ${result.warning}`);
-      else toast.success('Rolled back.');
+      const leftAlone = result.outcome?.files?.skipped.length ?? 0;
+      if (leftAlone > 0) toast.warning(tr('checkpoint.plan.skipped', { n: leftAlone }));
+      else toast.success(tr('checkpoint.rollback.done'));
       onRollback?.();
+    } else if (result.blockedBy) {
+      toast.error(tr('checkpoint.rollback.refused', { reason: tr(BLOCKER_KEY[result.blockedBy]) }));
     } else {
-      toast.error(`Rollback failed: ${result.warning || 'Unknown error'}`);
+      toast.error(tr('checkpoint.rollback.failed', { error: result.warning || tr('checkpoint.rollback.unknownError') }));
     }
-  }, [rollback, onRollback, toast, confirm]);
+  }, [rollback, onRollback, toast, confirm, fetchPlan, plans, tr]);
 
   if (checkpoints.length === 0) return null;
 
@@ -93,27 +108,32 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
 
       {/* Expanded timeline */}
       {expanded && (
-        <div className="px-3 py-2 border-t border-app-border bg-surface max-h-[200px] overflow-y-auto">
+        <div data-testid="checkpoint-panel" className="px-3 py-2 border-t border-app-border bg-surface max-h-[200px] overflow-y-auto">
           {error && <p className="text-red-500 text-[11px] mb-2">{error}</p>}
 
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] font-medium text-app-text-secondary">Checkpoints</span>
             <button
               onClick={handleCreate}
+              data-testid="checkpoint-save"
               className="flex items-center gap-1 text-[11px] text-primary hover:underline"
             >
               <Plus size={10} />
-              Save
+              {tr('checkpoint.save')}
             </button>
           </div>
 
           {checkpoints.length === 0 ? (
             <p className="text-[11px] text-app-placeholder py-2 text-center">
-              No checkpoints yet. Create one to save conversation state.
+              {tr('checkpoint.empty')}
             </p>
           ) : (
             <div className="space-y-1">
-              {checkpoints.map((cp) => (
+              {checkpoints.map((cp) => {
+                // The preflight decides the button: disabled, with the reason
+                // as its title, only when the route said the gesture stops.
+                const button = rollbackButtonState(plans[cp.idx], tr);
+                return (
                 <div
                   key={cp.idx}
                   // Appiglio stabile per chi cerca UNA voce della timeline.
@@ -127,7 +147,7 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
                   className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-[11px] transition-colors ${
                     hoveredIdx === cp.idx ? 'bg-app-hover' : ''
                   }`}
-                  onMouseEnter={() => setHoveredIdx(cp.idx)}
+                  onMouseEnter={() => { setHoveredIdx(cp.idx); void fetchPlan(cp.idx); }}
                   onMouseLeave={() => setHoveredIdx(null)}
                 >
                   <div className={`w-2 h-2 rounded-full flex-shrink-0 ${cp.gitHash ? 'bg-primary' : 'bg-app-placeholder'}`} />
@@ -138,18 +158,29 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
                       {cp.gitHash && <span className="ml-1 text-primary">{cp.gitHash.slice(0, 7)}</span>}
                     </div>
                   </div>
+                  {/* The reason, INLINE and not only in the tooltip: a greyed
+                      button with no visible words is a button that looks
+                      broken. `rollbackButtonState` already chose the sentence;
+                      the component only shows it. */}
+                  {hoveredIdx === cp.idx && button.disabled && (
+                    <span data-testid="checkpoint-blocked-reason" className="text-[11px] text-amber-600 truncate max-w-[60%]" title={button.title}>
+                      {button.title}
+                    </span>
+                  )}
                   {hoveredIdx === cp.idx && (
                     <button
                       onClick={() => handleRollback(cp)}
-                      disabled={rollingBack}
+                      data-testid="checkpoint-rollback"
+                      disabled={rollingBack || button.disabled}
                       className="p-1 rounded hover:bg-amber-100 dark:hover:bg-amber-900/30 text-app-text-tertiary hover:text-amber-600 transition-colors disabled:opacity-40"
-                      title="Roll back to this checkpoint"
+                      title={button.title}
                     >
                       <RotateCcw size={12} />
                     </button>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

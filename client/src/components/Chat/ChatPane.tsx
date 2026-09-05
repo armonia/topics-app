@@ -21,7 +21,8 @@ import { MessageList } from './MessageList';
 import { SLASH_COMMANDS } from './slashCommands';
 import { ChatInput } from './ChatInput';
 import { CheckpointTimeline } from './CheckpointTimeline';
-import { restoreLastTurnCheckpoint } from '../../hooks/useCheckpoints';
+import { restoreLastTurnCheckpoint, RestoreRefusedError } from '../../hooks/useCheckpoints';
+import { BLOCKER_KEY } from './checkpointPlan';
 import { TodoStrip } from './TodoStrip';
 import { GoalBar } from './GoalBar';
 import { PlanApprovalBar } from './PlanApprovalBar';
@@ -942,11 +943,15 @@ function ChatPaneComponent({
           ].join('\n'),
         });
       } catch (e) {
+        // A refusal carries a blocker code; the sentence is ours, in the
+        // user's language. The generic hint below is for everything else.
+        const refused = e instanceof RestoreRefusedError && e.blockedBy ? tr(BLOCKER_KEY[e.blockedBy]) : null;
         setCommandResult({
           type: 'error',
-          message:
-            errMessage(e) +
-            '\nI checkpoint automatici per turno sono spenti finché non li accendi in Impostazioni.',
+          message: refused
+            ? tr('checkpoint.rollback.refused', { reason: refused })
+            : errMessage(e) +
+              '\nI checkpoint automatici per turno sono spenti finché non li accendi in Impostazioni.',
         });
       } finally {
         setCommandLoading(false);

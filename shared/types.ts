@@ -1181,6 +1181,10 @@ export interface Checkpoint {
   description: string;
   gitHash?: string;
   gitBranch?: string;
+  /** The checkpoint snapshot of the worktree (`refs/topics/checkpoints/...`),
+   *  taken when the checkpoint was saved. Absent on checkpoints saved before
+   *  file snapshots existed: their rollback touches the conversation only. */
+  treeCommit?: string;
 }
 
 // `BoardMemory` e `AgentActionLog` stavano qui: le forme client di
