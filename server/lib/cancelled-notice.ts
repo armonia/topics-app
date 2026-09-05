@@ -189,6 +189,22 @@ export function eCartelloDiInterruzione(testo: string | null | undefined): boole
 export const CAUSE_NOSTRE = ["server-shutdown", "watchdog", "wall-clock"] as const;
 
 /**
+ * Is this stop cause one the machine owns, i.e. one the resume may act on?
+ * Our three cuts, plus the two ends that are not deterministic faults: an API
+ * limit that frees itself (`rate-limit`) and OUR budget of tool rounds
+ * (`tool-budget`, whose live resume is in services/goal-continuation.ts; this
+ * covers the row when a restart lands between the cut and that resume).
+ *
+ * Read off the block's `cause` FIELD, next to the text: the sentences change
+ * wording (four different ones say "the server restarted"), the cause does not.
+ * A `cancelled` with no cause stays out: you do not guess who cancelled.
+ */
+export function isResumableCause(cause: unknown): boolean {
+  return typeof cause === "string"
+    && ((CAUSE_NOSTRE as readonly string[]).includes(cause) || cause === "rate-limit" || cause === "tool-budget");
+}
+
+/**
  * The notice for a turn that died with the API's limit still saturated after
  * every retry. Written by `avvisoPerTurno` in place of the raw "API 429 ..."
  * text (which stays in the server log), and recognised below so the resume
@@ -245,4 +261,12 @@ const CARTELLI_RIPRENDIBILI = [
   // From 2026-09-04: the API's rate limit exhausted every retry. The turn is
   // resumable BECAUSE the failure is not deterministic - see `RATE_LIMIT_NOTICE`.
   "Turno interrotto: il limite di richieste dell'API",
+  // The stale-stream sweeper's own notice (`INTERRUPTED_MARKER` in
+  // lib/stale-stream-sweep.ts): the one cut that is entirely ours and was NEVER
+  // resumed, because this list did not know its opening words. Measured
+  // 05/09/2026: every chat the sweeper closed sat under the retry button until
+  // somebody clicked. Rows written before this date carry only the text (the
+  // `cause` field on the block exists since 2026-09-03), so the prefix is what
+  // reaches them; newer rows are also recognised by cause (`isResumableCause`).
+  "Risposta interrotta: nessuna attività per",
 ] as const;

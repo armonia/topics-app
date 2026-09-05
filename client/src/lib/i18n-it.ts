@@ -1269,6 +1269,7 @@ const IT: Dict = {
   'chat.turnInterrupted.superseded': 'un turno più recente ha preso il suo posto',
   'chat.turnInterrupted.providerError': 'il provider ha risposto con un errore',
   'chat.turnInterrupted.rateLimit': "il limite di richieste dell'API è rimasto saturo per tutti i tentativi; riprende da solo",
+  'chat.turnInterrupted.toolBudget': 'il turno ha esaurito i giri di tool concessi dal server; riprende da solo una volta',
   'git.noRepoInitialized': 'Nessun repository git inizializzato',
   'git.noRepo': 'Nessun repository git',
   'git.cleanTree': 'Albero di lavoro pulito',
