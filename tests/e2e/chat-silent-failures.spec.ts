@@ -5,23 +5,23 @@ import { createTopic, deleteTopic, patchTopic, resetPaneStore } from "./helpers/
 import { seedMessage } from "./helpers/seed-messages";
 import { hermetic } from "./fixtures/hermetic";
 
-// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
-// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+// Hermetic boundary: this file restarts from the globalSetup baseline, not from
+// the state the previous specs left behind. See fixtures/hermetic.ts.
 hermetic(test);
 
 /**
- * QUATTRO AZIONI DELLA CHAT CHE FALLIVANO IN SILENZIO.
+ * FOUR CHAT ACTIONS THAT USED TO FAIL IN SILENCE.
  *
- * Ogni scenario rompe UNA rotta e guarda lo schermo. Prima di questo giro lo
- * schermo era identico a quello di un successo: `catch {}`, `console.warn`, o un
- * `void` su una promessa che nessuno guardava. Il toast è la sola prova che
- * conta, e ci si legge dentro la frase del server («boom»), non una nostra copia
- * tradotta: così l'asserzione non congela un testo dell'interfaccia.
+ * Each scenario breaks ONE route and looks at the screen. Before this round the
+ * screen was identical to a success: `catch {}`, `console.warn`, or a `void` on
+ * a promise nobody watched. The toast is the only proof that counts, and what is
+ * read inside it is the server's own sentence ("boom"), not a copy of ours: that
+ * way the assertion does not freeze a piece of interface copy.
  *
- * Sulla rinomina dell'obiettivo la prova è doppia: il toast E il campo di
- * modifica ancora aperto col testo digitato. Chiuderlo prima della risposta
- * rimetteva a schermo il titolo vecchio, che è esattamente il disegno del
- * successo, e il testo appena scritto spariva.
+ * On the goal rename the proof is double: the toast AND the edit field still
+ * open with the typed text. Closing it before the answer put the OLD title back
+ * on screen, which is exactly how a success looks, and the text just typed was
+ * gone.
  *
  * @covers CHAT-FAIL-01
  */
@@ -41,8 +41,8 @@ test.describe("Errori silenziosi nelle azioni della chat", () => {
     if (topicId) await deleteTopic(request, topicId);
   });
 
-  // `chatPage.messageInput` è STRICT (nessun `.first()`): basta una pane chat
-  // lasciata aperta da un'altra spec per far fallire tutto il file.
+  // `chatPage.messageInput` is STRICT (no `.first()`): one chat pane left open by
+  // another spec is enough to fail this whole file.
   test.beforeEach(async ({ request }) => {
     await resetPaneStore(request, [topicId]);
   });
@@ -54,7 +54,7 @@ test.describe("Errori silenziosi nelle azioni della chat", () => {
     await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
   }
 
-  /** Il toast di errore a schermo, col testo che il server ha davvero mandato. */
+  /** The error toast on screen, carrying the text the server really sent. */
   function errorToast(page: Page) {
     return page.getByTestId("toast").filter({ hasText: "boom" });
   }
@@ -75,7 +75,7 @@ test.describe("Errori silenziosi nelle azioni della chat", () => {
       route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "boom" }) }),
     );
 
-    // La barra azioni compare all'hover della bolla.
+    // The action bar shows up on bubble hover.
     await bubble.hover();
     await bubble.getByRole("button", { name: "Save to memory" }).click();
 
@@ -90,8 +90,8 @@ test.describe("Errori silenziosi nelle azioni della chat", () => {
     const bar = page.getByTestId("goal-bar");
     await expect(bar).toContainText("Obiettivo di partenza", { timeout: 15_000 });
 
-    // Solo la SCRITTURA: la GET del goal deve continuare a rispondere, altrimenti
-    // la barra sparisce e il test proverebbe un'altra cosa.
+    // The WRITE only: the goal GET has to keep answering, otherwise the bar
+    // disappears and the test would be proving something else.
     await page.route("**/api/topics/*/goal", async (route) => {
       if (route.request().method() !== "PUT") return route.fallback();
       await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "boom" }) });
@@ -104,8 +104,8 @@ test.describe("Errori silenziosi nelle azioni della chat", () => {
     await field.press("Enter");
 
     await expect(errorToast(page)).toBeVisible({ timeout: 10_000 });
-    // Il campo è ancora lì, e dentro c'è quello che la persona ha scritto: non
-    // il titolo vecchio, che sarebbe indistinguibile da un salvataggio riuscito.
+    // The field is still there, holding what the person typed: not the old title,
+    // which would be indistinguishable from a write that went through.
     await expect(field).toBeVisible();
     await expect(field).toHaveValue("Obiettivo riscritto");
 
@@ -129,8 +129,8 @@ test.describe("Errori silenziosi nelle azioni della chat", () => {
     await pill.click();
 
     await expect(errorToast(page)).toBeVisible({ timeout: 10_000 });
-    // Nessun aggiornamento ottimistico: il file è ancora nel contesto, e la
-    // pastiglia lo dice restando accesa.
+    // No optimistic update: the file is still in the context, and the pill says so
+    // by staying lit.
     await expect(pill).not.toHaveAttribute("title", /excluded/);
   });
 
@@ -138,9 +138,9 @@ test.describe("Errori silenziosi nelle azioni della chat", () => {
     test.info().annotations.push({ type: "spec", description: "CHAT-FAIL-01" });
     await openChat(page, chatPage);
 
-    // Un PNG vero da 1x1 e una manciata di byte che nessun decodificatore
-    // accetta: `img.onerror` scatta sulla seconda, e prima si portava via anche
-    // la prima insieme al testo del composer.
+    // A real 1x1 PNG and a handful of bytes no decoder accepts: `img.onerror`
+    // fires on the second one, and it used to take the first one with it, along
+    // with the composer's text.
     const readable =
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
     await page.evaluate((pngBase64) => {
@@ -152,9 +152,10 @@ test.describe("Errori silenziosi nelle azioni della chat", () => {
       target?.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
     }, readable);
 
-    // Quella leggibile è entrata nel composer.
+    // The readable one made it into the composer.
     await expect(page.getByTestId("composer-attachment")).toHaveCount(1, { timeout: 10_000 });
-    // E lo scarto ha un nome: senza, l'unico segno era un'anteprima in meno.
+    // And the dropped one has a name: without it the only sign was one preview
+    // fewer.
     await expect(page.getByTestId("toast").filter({ hasText: "rotta.png" })).toBeVisible({ timeout: 10_000 });
   });
 });
