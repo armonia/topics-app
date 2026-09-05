@@ -10,6 +10,11 @@
  *
  * Silent by construction: a topic that wrote nothing renders nothing, so the
  * chip is a signal and not decoration.
+ *
+ * WHERE IT HANGS. Above the tab bar, mounted by `Layout/TopicStatusStrip`, not
+ * inside the transcript: what the topic touched is state of the topic, and
+ * state lives in the chrome. Full width and not on the chat measure, because
+ * up there it is a bar of the surface, not a block of the conversation.
  */
 import { useCallback, useState } from 'react';
 import { FileDiff, Terminal } from 'lucide-react';
@@ -72,7 +77,7 @@ export function ChangedFilesStrip({ topicId, projectPath, onWSMessage }: Changed
   if (!files.length) return null;
 
   return (
-    <div data-testid="chat-changes-strip" className="chat-measure flex-shrink-0 border-b border-app-border">
+    <div data-testid="chat-changes-strip" className="flex-shrink-0 border-b border-app-border">
       <div className="flex items-center gap-2 px-3 py-1.5">
         <button
           type="button"
