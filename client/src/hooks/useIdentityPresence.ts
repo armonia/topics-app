@@ -26,6 +26,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { peopleApi, type PersonWithProfile } from '@/lib/api';
+import { BOOT_READ_TTL_MS, coalescedFetch } from '../lib/coalesceFetch';
 import {
   facceOnline, presentiOra, gentePresenza,
   type PresenceFace, type MembroPresenza, type PresenceRow,
@@ -84,7 +85,9 @@ export function useIdentityPresence(enabled = true, intervalMs = INTERVAL_MS): P
     // no reason at all.
     const [rubricaRes, orgsRes] = await Promise.allSettled([
       peopleApi.list(),
-      fetch('/api/auth/orgs', { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : null)),
+      // The sharing store asks the same list at boot: one GET between the two.
+      coalescedFetch('/api/auth/orgs', { credentials: 'same-origin' }, { ttlMs: BOOT_READ_TTL_MS })
+        .then((r) => (r.ok ? r.json() : null)),
     ]);
 
     const rubrica: PersonWithProfile[] = rubricaRes.status === 'fulfilled' ? rubricaRes.value.people : [];

@@ -15,7 +15,7 @@
  * mirroring the project-window's inner state (panes/groups/rows).
  */
 import { getTabId } from '../middleware/syncCrossTab';
-import { subscribeFrames, subscribeLifecycle } from '../../../lib/wsFrameBus';
+import { subscribeFrames, subscribeLifecycle, subscribeReconnect } from '../../../lib/wsFrameBus';
 import { backoff } from './syncBackoff';
 import {
   PROJECT_PANES_PREFIX,
@@ -158,9 +158,8 @@ function ensureWsWired(): void {
     },
     { types: ['ui-state:init', 'ui-state:updated', 'ui-state:patch'] },
   );
-  // On reconnect the server replays ui-state:init at current seqs.
-  subscribeLifecycle((event) => {
-    if (event !== 'open') return;
+  // On RE-connect the server replays ui-state:init at current seqs.
+  subscribeReconnect(() => {
     // Drop the per-key monotonic gate so a server-restart (server_seq reset)
     // re-applies cleanly. ALSO drop the last-synced-JSON guard: after a server
     // DB wipe the fresh server holds no record for the key, and without
@@ -168,12 +167,20 @@ function ensureWsWired(): void {
     // server (and peers) showing empty tabs until the user next changes the
     // set. The server re-broadcasts our own re-seed write, which repopulates
     // both maps, so echo-suppression stays intact.
+    //
+    // Not on the FIRST open of the page: nothing was synced through a previous
+    // socket, and clearing the guard there made the very next save re-PUT the
+    // layout the boot had just written, byte-identical (measured 2026-09-05).
     lastAppliedSeqByKey.clear();
     lastSyncedJsonByKey.clear();
+  });
+  subscribeLifecycle((event) => {
+    if (event !== 'open') return;
     // Retry any write that never got acked before the socket dropped — a PUT
     // that raced the server restart (16:23) would otherwise stay lost, leaving
     // the project channel pointed at a dead terminal id. We snapshot first
-    // because putWithRetry mutates the map on success.
+    // because putWithRetry mutates the map on success. Every open, the first
+    // included: a PUT that failed while the server was coming up has no other retry.
     if (unackedJsonByKey.size > 0) {
       for (const [key, json] of [...unackedJsonByKey]) void putWithRetry(key, json);
     }

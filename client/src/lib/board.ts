@@ -57,6 +57,7 @@ export { attemptHasWork } from '../../../shared/task-attempt';
 // da lì che lo importa chi lo usa (il servizio lato server).
 export type { TaskAttempt } from '../../../shared/task-attempt';
 import type { TaskAttempt } from '../../../shared/task-attempt';
+import { BOOT_READ_TTL_MS, coalescedFetch } from './coalesceFetch';
 
 /**
  * Reserved board id for tasks created WITHOUT a project (work spanning several
@@ -647,11 +648,19 @@ export interface TaskWithThread {
  */
 export { projectIdForPath as boardIdForPath } from '../../../shared/board';
 
-async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const resp = await fetch(`/api${path}`, {
+/**
+ * `read` routes a GET through the app-wide coalescer: a read the boot asks
+ * from several places (the global feed: useGlobalBoard's mount read and its
+ * WebSocket-open re-read, 84 KB each) becomes one request within the window.
+ */
+async function req<T>(path: string, init?: RequestInit, read?: { ttlMs: number }): Promise<T> {
+  const fullInit: RequestInit = {
     ...init,
     headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
-  });
+  };
+  const resp = read
+    ? await coalescedFetch(`/api${path}`, fullInit, read)
+    : await fetch(`/api${path}`, fullInit);
   const text = await resp.text().catch(() => '');
   let parsed: unknown;
   try { parsed = text ? JSON.parse(text) : undefined; } catch { parsed = undefined; }
@@ -905,7 +914,11 @@ export const boardApi = {
    * through the normal project-scoped endpoints via that id.
    */
   listAll: (status?: TaskStatus) =>
-    req<{ tasks: BoardTask[] }>(`/all-boards/tasks${status ? `?status=${status}` : ''}`).then(r => r.tasks),
+    req<{ tasks: BoardTask[] }>(
+      `/all-boards/tasks${status ? `?status=${status}` : ''}`,
+      undefined,
+      { ttlMs: BOOT_READ_TTL_MS },
+    ).then(r => r.tasks),
   /**
    * LA PORTA UNICA «da un id al suo task, a qualunque profondità».
    *

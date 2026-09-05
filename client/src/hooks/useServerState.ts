@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { WSMessage } from '../types';
+import { BOOT_READ_TTL_MS, coalescedFetch } from '../lib/coalesceFetch';
 
 interface UseServerStateOptions {
   /** localStorage key for fast-paint cache */
@@ -83,7 +84,9 @@ export function useServerState<T>(
     // Fotografia del contatore PRIMA della fetch: se al ritorno è cambiato,
     // l'utente ha scelto qualcosa nel frattempo e la sua scelta vince.
     const writesAtStart = localWritesRef.current;
-    fetch(`/api/ui-state/${encodeURIComponent(key)}`) // PANE-01-ALLOWED: generic non-pane key supplied by caller
+    // Coalesced: `claude-prefs-skip` is read by App, every project window and
+    // the add-menu, all mounting in the same frame — five GETs of one value.
+    coalescedFetch(`/api/ui-state/${encodeURIComponent(key)}`, undefined, { ttlMs: BOOT_READ_TTL_MS }) // PANE-01-ALLOWED: generic non-pane key supplied by caller
       .then(r => r.ok ? r.json() : null)
       .then(envelope => {
         // PANE-01-ALLOWED: unwrap v2 envelope { value, payload_version, server_seq }

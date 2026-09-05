@@ -27,6 +27,7 @@ import type { Pane, PaneType, Topic, WSMessage } from '../../../types';
 import { getTerminalSessionFromPaneId, getTerminalTombstones } from '../../../state/pane/adapters';
 import { normalizeTerminalAgent, TERMINAL_AGENT_LABELS } from '../../../lib/terminalAgents';
 import { createDormantTerminalGuard } from '../../../lib/dormantTerminalGuard';
+import { BOOT_READ_TTL_MS, coalescedFetch } from '../../../lib/coalesceFetch';
 import { decideRestoredTerminalPane } from './terminalReconcile';
 
 interface TerminalRosterEntry { id: string; cwd: string; name: string; type: string }
@@ -207,7 +208,10 @@ export function useProjectTerminalSync({
       // diventa una tab tenuta (parcheggiata) o potata (sparita davvero).
       onUpdate: () => syncTerminals(lastRosterRef.current),
     });
-    fetch('/api/terminal/sessions').then(r => r.json()).then(syncTerminals).catch(() => {});
+    // Coalesced with the App-level roster read (useTerminalLifecycle) and with
+    // every other project window mounting in the same frame: one GET, not N+1.
+    coalescedFetch('/api/terminal/sessions', undefined, { ttlMs: BOOT_READ_TTL_MS })
+      .then(r => r.json()).then(syncTerminals).catch(() => {});
 
     // Prima lettura: finché non risponde, `guard.loaded` è false e il prune non
     // toglie niente. Alla risposta il guard richiama `onUpdate`, quindi questa è

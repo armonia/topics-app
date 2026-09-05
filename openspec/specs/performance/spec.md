@@ -755,3 +755,37 @@ banco della fluidità, e produce il numero su cui il cancello decide.
 #### Scenario: uno scorrimento su un trascritto lungo
 - **GIVEN** un trascritto caricato
 - **THEN** SHALL essere prodotto il conteggio dei fotogrammi persi
+
+### Requirement: BOOT-NET-01 — Ogni lettura di boot parte UNA volta
+
+Al ricarico della app, una stessa lettura (`GET` dello stesso URL) chiesta da
+più componenti che montano nello stesso istante SHALL partire UNA volta sola:
+chi la chiede mentre è in volo riceve la stessa risposta, e per una finestra
+breve (≤ 2 s) anche chi la chiede subito dopo. Un errore o una risposta non-2xx
+NON SHALL essere memorizzati: il chiamante successivo richiede alla rete.
+
+Il motivo è la coda: il browser tiene sei connessioni per host, e al ricarico
+partivano 90 richieste `/api/*` (misurato il 05/09/2026), fino a 53 insieme —
+`claude-prefs-skip` cinque volte, il roster dei terminali cinque, il feed
+globale della board due, a 84 KB l'una. La `POST` della storia della chat
+visibile aspettava dietro a tutte e il sipario restava su per 1,2 s.
+
+Le scritture che ri-seminano il server alla riconnessione del socket NON SHALL
+scattare alla PRIMA connessione della pagina: non è una riconnessione, e la
+ri-semina ripeteva la PUT del boot, byte per byte.
+
+Un «senza icona» verificato e persistito SHALL rinfrescare la propria data a
+ogni riconferma: prima la data non si aggiornava mai, quindi dopo dodici ore
+ogni ricarico ri-sondava tutti i progetti senza icona, per sempre.
+
+#### Scenario: cinque componenti chiedono lo stesso URL nello stesso frame
+- **GIVEN** cinque chiamate allo stesso `GET` prima che la prima risponda
+- **THEN** SHALL partire UNA sola richiesta di rete, e ognuna delle cinque SHALL ricevere un corpo leggibile
+
+#### Scenario: la risposta è un errore
+- **GIVEN** una lettura coalescente fallita (rete o non-2xx)
+- **THEN** la chiamata successiva SHALL richiedere alla rete, non ricevere l'errore memorizzato
+
+#### Scenario: la prima connessione del socket
+- **GIVEN** la pagina appena caricata che ha già scritto il proprio layout
+- **THEN** l'apertura del socket NON SHALL far riscrivere lo stesso layout

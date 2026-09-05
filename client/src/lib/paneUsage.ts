@@ -15,6 +15,7 @@
  */
 
 import { getSessionMessagesFromStore } from '../state/messageStore';
+import { BOOT_READ_TTL_MS, coalescedFetch } from './coalesceFetch';
 import { isTauri } from './shell';
 import { tauriInvoke } from './shell/tauri';
 
@@ -111,7 +112,8 @@ interface ShellWebview {
 
 async function fetchFleet(): Promise<FleetPayload | null> {
   try {
-    const res = await fetch('/api/system/status');
+    // The same endpoint useSystemStatus reads at boot: one GET between them.
+    const res = await coalescedFetch('/api/system/status', { priority: 'low' }, { ttlMs: BOOT_READ_TTL_MS });
     if (!res.ok) return null;
     return (await res.json())?.server?.fleet ?? null;
   } catch {

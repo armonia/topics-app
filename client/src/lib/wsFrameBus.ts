@@ -125,6 +125,8 @@ export type WSLifecycleEvent = 'open' | 'close';
 type LifecycleHandler = (event: WSLifecycleEvent) => void;
 
 const lifecycleHandlers = new Set<LifecycleHandler>();
+/** How many times the socket has opened in this page's life. */
+let opens = 0;
 
 export function subscribeLifecycle(handler: LifecycleHandler): () => void {
   lifecycleHandlers.add(handler);
@@ -133,7 +135,27 @@ export function subscribeLifecycle(handler: LifecycleHandler): () => void {
   };
 }
 
+/**
+ * Only the RE-opens: an `open` that follows a previous open of this page.
+ *
+ * The writers that re-seed the server on reconnect (tombstoneSync,
+ * projectLayoutSync) used `subscribeLifecycle('open')` and therefore also fired
+ * on the FIRST connection of the page — which is not a reconnect: nothing was
+ * synced through a previous socket, no `server_seq` can be stale, and the
+ * re-seed only repeated the PUT of the boot (measured 2026-09-05: the same
+ * project layout written twice, byte-identical, 700 ms apart). Counting the
+ * opens on the bus, and not in the subscriber, is what makes this right for a
+ * subscriber that registers AFTER the first open (a project window opened later
+ * in the session): for it too the next open is a reconnect.
+ */
+export function subscribeReconnect(handler: () => void): () => void {
+  return subscribeLifecycle((event) => {
+    if (event === 'open' && opens > 1) handler();
+  });
+}
+
 export function dispatchLifecycle(event: WSLifecycleEvent): void {
+  if (event === 'open') opens += 1;
   for (const handler of lifecycleHandlers) {
     try {
       handler(event);
