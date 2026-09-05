@@ -6,10 +6,10 @@
  * l'implementazione vecchia (`while (busyCount() > 0)`) per costruzione — con
  * `cards: 0` quel predicato usciva subito, cioè `null`, cioè «riavvia pure».
  *
- * @covers HOLD-05
+ * @covers HOLD-05, RGATE-01, RGATE-02, RGATE-03
  */
 import { test, expect, describe } from "bun:test";
-import { describeInFlight, unadoptableStreams, providerSurvivesRestart, quiescenceVerdict, reloadHeldNotice } from "./quiescence";
+import { describeInFlight, unadoptableStreams, unfinishedStreams, providerSurvivesRestart, quiescenceVerdict, reloadHeldNotice } from "./quiescence";
 
 const nothing = { cards: 0, streamKeys: [], brokerOpenKeys: [] };
 
@@ -120,6 +120,55 @@ describe("unadoptableStreams — quali chat NON tornano dopo un riavvio", () => 
 });
 
 /**
+ * RGATE-03 - A DEAD STREAM HELD THE RESTART LIKE A LIVE ONE.
+ *
+ * On 2026-09-03 `restart-when-idle` waited 2160 seconds on `topic:6b9605e5`,
+ * whose turn had already ended with a `400 prompt is too long`: the entry had
+ * stayed in the in-memory register, and the gate counted the entry instead of
+ * the turn. A restart held for nobody is the worst shape of this gate's
+ * failure: there is nothing to save, and the person who could unblock it has
+ * nothing to stop.
+ *
+ * The question goes to the ROW (finalized or not), not to the register.
+ */
+describe("unfinishedStreams - the register can lie, a finalized row cannot", () => {
+  const s = (sessionKey: string, messageId: string) => ({ sessionKey, messageId });
+  const finished = (...ids: string[]) => (id: string) => ids.includes(id);
+
+  test("a stream whose row is finalized stops counting", () => {
+    const out = unfinishedStreams([s("topic:6b9605e5", "m1")], finished("m1"));
+    expect(out).toEqual([]);
+  });
+
+  test("a live stream stays, and stays WHOLE (`survivesRestart` is read later)", () => {
+    const live = { sessionKey: "topic:aaa", messageId: "m2", survivesRestart: false };
+    expect(unfinishedStreams([live], finished("m1"))).toEqual([live]);
+  });
+
+  test("the dead one goes and the live one stays, in the same pass", () => {
+    const out = unfinishedStreams([s("topic:morto", "m1"), s("topic:vivo", "m2")], finished("m1"));
+    expect(out.map((x) => x.sessionKey)).toEqual(["topic:vivo"]);
+  });
+
+  /**
+   * WHICH WAY THE DOUBT FALLS. A row that cannot be read leaves its stream
+   * COUNTING: here the doubt protects a live turn from being cut. The other
+   * direction (a broken read that empties the count) would turn a database
+   * fault into a restart over everybody's turns.
+   */
+  test("a read that throws does not drop the stream", () => {
+    const out = unfinishedStreams([s("topic:aaa", "m1")], () => { throw new Error("db chiuso"); });
+    expect(out.map((x) => x.sessionKey)).toEqual(["topic:aaa"]);
+  });
+
+  test("no streams, no reads", () => {
+    let reads = 0;
+    expect(unfinishedStreams([], () => { reads += 1; return true; })).toEqual([]);
+    expect(reads).toBe(0);
+  });
+});
+
+/**
  * IL PREDICATO A MONTE: chi decide `survivesRestart` quando lo stream nasce.
  *
  * Si chiede al provider e non al suo NOME. Un elenco di nomi ("topics" e' fragile,
@@ -176,7 +225,7 @@ describe("providerSurvivesRestart — la domanda si fa al provider, non al nome"
 describe("quiescenceVerdict — il tetto dell'attesa e' un tetto vero", () => {
   const CAP = 25 * 60_000;
   const CHAT = 60_000;
-  const base = { startedAt: 0, capMs: CAP, chatCapMs: CHAT };
+  const base = { startedAt: 0, chatCapMs: CHAT };
 
   /**
    * The cap is real - the verdict changes when promised - but it is not a
@@ -207,9 +256,19 @@ describe("quiescenceVerdict — il tetto dell'attesa e' un tetto vero", () => {
     }
   });
 
-  test("prima del tetto si aspetta, anche a lungo", () => {
-    expect(quiescenceVerdict({ ...base, busy: "1 card", unrecoverable: 1, now: CAP - 1 }))
-      .toBe("aspetta");
+  /**
+   * RGATE-01. This used to read "before the cap it waits, however long", and
+   * that was the old rule: twenty-five minutes in which the deferral was
+   * already decided and nobody said so. For a card the verdict is a deferral
+   * before the cap and a deferral after it, so those minutes changed no
+   * outcome - only who knew, and that is `touchReloadDeferred()`, which sits on
+   * the deferral branch and is what holds off the SIGTERM of `start-prod.sh`.
+   */
+  test("a card in flight DEFERS from the first loop, not after a cap", () => {
+    for (const now of [0, 1, 500, CHAT, CAP - 1]) {
+      expect(quiescenceVerdict({ ...base, busy: "1 card", unrecoverable: 1, now }))
+        .toBe("rinvia");
+    }
   });
 
   test("niente in volo: si procede subito, senza aspettare nessun tetto", () => {
@@ -225,18 +284,19 @@ describe("quiescenceVerdict — il tetto dell'attesa e' un tetto vero", () => {
   test("una chat riadottabile ha il tetto CORTO", () => {
     expect(quiescenceVerdict({ ...base, busy: "1 chat", unrecoverable: 0, now: CHAT + 1 }))
       .toBe("scaduto");
-    // Alla stessa ora, una card starebbe ancora aspettando.
+    // At the same instant a card has not expired: it is deferred, and it never
+    // will expire.
     expect(quiescenceVerdict({ ...base, busy: "1 card", unrecoverable: 1, now: CHAT + 1 }))
-      .toBe("aspetta");
+      .toBe("rinvia");
     // The difference is not only duration: a re-adoptable chat gets cut, a
     // card does not. What comes back on its own may be interrupted.
   });
 
-  test("il confine e' incluso: AL tetto il verdetto cambia, non un giro dopo", () => {
-    expect(quiescenceVerdict({ ...base, busy: "1 card", unrecoverable: 1, now: CAP - 1 }))
+  test("il confine e' incluso: AL tetto corto il verdetto cambia, non un giro dopo", () => {
+    expect(quiescenceVerdict({ ...base, busy: "1 chat", unrecoverable: 0, now: CHAT - 1 }))
       .toBe("aspetta");
-    expect(quiescenceVerdict({ ...base, busy: "1 card", unrecoverable: 1, now: CAP }))
-      .toBe("rinvia");
+    expect(quiescenceVerdict({ ...base, busy: "1 chat", unrecoverable: 0, now: CHAT }))
+      .toBe("scaduto");
   });
 
   /**
@@ -276,7 +336,7 @@ describe("quiescenceVerdict — il tetto dell'attesa e' un tetto vero", () => {
    * test non terminava (la scadenza scappava in avanti a ogni giro); ora
    * l'attesa finisce, e finisce QUANDO promesso.
    */
-  test("un loop con lavoro sempre presente ARRIVA a scadenza", () => {
+  test("a loop with work always present declares the deferral, AT ONCE", () => {
     let now = 0;
     let giri = 0;
     for (;;) {
@@ -285,9 +345,19 @@ describe("quiescenceVerdict — il tetto dell'attesa e' un tetto vero", () => {
       now += 500;
       if (++giri > 10_000) throw new Error("l'attesa non e' mai scaduta: il rinnovo e' tornato");
     }
-    // 25 minuti a mezzo secondo per giro.
-    expect(giri).toBe(CAP / 500);
-    expect(now).toBeGreaterThanOrEqual(CAP);
+    // First loop: a deferral is not earned with time, it is declared.
+    expect(giri).toBe(0);
+  });
+
+  /**
+   * AND A RE-ADOPTABLE CHAT DOES NOT INHERIT THE DEFERRAL. The new branch reads
+   * `unrecoverable`, not "something is in flight": reading the second would
+   * kill hot reload for everybody, which is the defect measured on 2026-08-19
+   * by raising the chat cap.
+   */
+  test("the immediate deferral does NOT extend to what comes back by itself", () => {
+    expect(quiescenceVerdict({ ...base, busy: "1 chat", unrecoverable: 0, now: 0 }))
+      .toBe("aspetta");
   });
 });
 
@@ -318,7 +388,7 @@ describe("il cancello, in tempo reale", () => {
       const busy = cards > 0 ? `${cards} turno/i di card della board` : null;
       const verdetto = quiescenceVerdict({
         busy, unrecoverable: cards,
-        now: Date.now(), startedAt: inizio, capMs: CAP, chatCapMs: CHAT,
+        now: Date.now(), startedAt: inizio, chatCapMs: CHAT,
       });
       if (verdetto === "procedi") return { exit: "quiescente", deferrals, waited, ms: Date.now() - inizio };
       if (verdetto === "scaduto") return { exit: "tagliato", deferrals, waited, ms: Date.now() - inizio };
@@ -366,7 +436,7 @@ describe("il cancello, in tempo reale", () => {
     for (;;) {
       const verdetto = quiescenceVerdict({
         busy: "1 chat in streaming", unrecoverable: 0,
-        now: Date.now(), startedAt: inizio, capMs: CAP, chatCapMs: CHAT,
+        now: Date.now(), startedAt: inizio, chatCapMs: CHAT,
       });
       if (verdetto === "scaduto") { uscita = "tagliato"; break; }
       if (Date.now() - inizio > 6_000) { uscita = "MAI USCITO"; break; }
@@ -388,7 +458,7 @@ describe("il cancello, in tempo reale", () => {
  */
 describe("reloadHeldNotice — oltre il tetto il cancello parla", () => {
   const CAP = 25 * 60_000;
-  const base = { capMs: CAP, busy: "1 chat in streaming (topic:0299ac2d)", waitId: "w1" };
+  const base = { noticeAfterMs: CAP, busy: "1 chat in streaming (topic:0299ac2d)", waitId: "w1" };
 
   test("prima del tetto non dice niente: l attesa e ancora normale", () => {
     expect(reloadHeldNotice({ ...base, waitedMs: 0 })).toBeNull();
@@ -429,7 +499,7 @@ describe("reloadHeldNotice — oltre il tetto il cancello parla", () => {
  */
 describe("reloadHeldNotice - domanda o turno, due gesti diversi", () => {
   const CAP = 25 * 60_000;
-  const base = { capMs: CAP, busy: "1 chat ferma su una domanda (topic:abc)", waitId: "w9", waitedMs: CAP };
+  const base = { noticeAfterMs: CAP, busy: "1 chat ferma su una domanda (topic:abc)", waitId: "w9", waitedMs: CAP };
 
   test("con un holder di tipo domanda chiede di RISPONDERE, non di fermare", () => {
     const n = reloadHeldNotice({ ...base, holderKind: "question" })!;
@@ -441,5 +511,44 @@ describe("reloadHeldNotice - domanda o turno, due gesti diversi", () => {
     const n = reloadHeldNotice({ ...base, holderKind: "turn" })!;
     expect(n.body).toContain("fermalo dalla chat");
     expect(reloadHeldNotice({ ...base })!.body).toBe(n.body);
+  });
+});
+
+/**
+ * RGATE-02 - THE PERSON IS TOLD WHEN THE DECISION IS MADE, NOT WHEN A CAP RUNS
+ * OUT.
+ *
+ * On 2026-09-04 a native turn was holding `restart-when-idle` and the notice
+ * was due after fifteen minutes, while the fate of that wait had been settled
+ * at second sixty: that is where the gate picks who lives, and from there on
+ * the wait has no end of its own. A CARD is the other case and keeps the long
+ * threshold: its turn has a bound of its own (`dispatchTimeoutMin`), so that
+ * wait ends without waking anybody.
+ */
+describe("reloadHeldNotice - the threshold says WHO is holding", () => {
+  const CHAT = 60_000, CAP = 25 * 60_000;
+  const base = { busy: "1 chat in streaming (topic:a4d19786)", waitId: "w1", holderKind: "turn" as const };
+
+  test("a chat: at the minute the person already knows", () => {
+    expect(reloadHeldNotice({ ...base, noticeAfterMs: CHAT, waitedMs: CHAT - 1 })).toBeNull();
+    const n = reloadHeldNotice({ ...base, noticeAfterMs: CHAT, waitedMs: CHAT });
+    expect(n).not.toBeNull();
+    expect(n!.body).toContain("topic:a4d19786");
+  });
+
+  /** "da 1 minuti" was the text at the minute: the singular is now ordinary. */
+  test("at the minute the sentence is written in proper Italian", () => {
+    const n = reloadHeldNotice({ ...base, noticeAfterMs: CHAT, waitedMs: CHAT })!;
+    expect(n.body).toContain("da un minuto");
+    expect(n.body).not.toContain("1 minuti");
+  });
+
+  test("a card: at the minute NOBODY is woken, that wait ends by itself", () => {
+    expect(reloadHeldNotice({
+      ...base, busy: "2 turno/i di card della board", noticeAfterMs: CAP, waitedMs: CHAT,
+    })).toBeNull();
+    expect(reloadHeldNotice({
+      ...base, busy: "2 turno/i di card della board", noticeAfterMs: CAP, waitedMs: CAP,
+    })).not.toBeNull();
   });
 });
