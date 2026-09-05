@@ -24,3 +24,25 @@ export function isDispatchedEnvelope(blocks: ContentBlock[] | undefined | null):
   if (!blocks || blocks.length === 0) return false;
   return blocks.some((b) => b.kind === 'dispatched-envelope');
 }
+
+/**
+ * WHICH CARD COMMENTS THIS ENVELOPE CARRIED, by id.
+ *
+ * A resume envelope quotes the comments somebody wrote while the agent was
+ * busy. Naming them is what lets the card's conversation draw those words ONCE,
+ * as the comments they are, instead of twice. Empty is the honest answer for a
+ * kickoff, which delivers nothing, and for every envelope written before the
+ * ids existed: absent means "no claim", never "nothing was carried".
+ *
+ * The delivery chip of KANBAN-74 reads exactly this, at every render, so no
+ * process ever has to WRITE that a message was delivered.
+ */
+export function envelopeCommentIds(blocks: ContentBlock[] | undefined | null): string[] {
+  if (!blocks || blocks.length === 0) return [];
+  const out: string[] = [];
+  for (const b of blocks) {
+    if (b.kind !== 'dispatched-envelope') continue;
+    for (const id of b.commentIds ?? []) if (typeof id === 'string' && id) out.push(id);
+  }
+  return out;
+}

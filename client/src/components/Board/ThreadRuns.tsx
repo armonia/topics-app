@@ -66,15 +66,13 @@ export function ServiceFold({ count, children }: { count: number; children: Reac
  * list, which is what the caller needs to find the session steps belonging in the
  * gap above it.
  *
- * `breaksRun` forces a cut before a row even when both sides are bookkeeping:
- * the caller passes "something of mine is drawn in the gap above this row", and
- * a fold that swallowed that gap would hide it. The drawer no longer needs it
- * (the agent's steps moved into their own pane); it stays because it is the
- * contract of `groupServiceRuns`, which the server shares.
+ * There is no cut rule any more. It existed for a drawer that drew the agent's
+ * steps in the GAP above a row, which a fold could then swallow: the steps are
+ * rows of this same list now, so there is no gap left to protect.
+ * `groupServiceRuns` still takes one, because the server shares it.
  */
-export function ThreadRuns<T extends ThreadRunsRow>({ comments, breaksRun, renderRow, renderStatusRun, isService }: {
+export function ThreadRuns<T extends ThreadRunsRow>({ comments, renderRow, renderStatusRun, isService }: {
   comments: readonly T[];
-  breaksRun?: (comment: T, index: number) => boolean;
   /** What folds. Absent = the thread's own rule (`isServiceComment`). */
   isService?: (comment: T) => boolean;
   renderRow: (comment: T, index: number) => ReactNode;
@@ -93,24 +91,22 @@ export function ThreadRuns<T extends ThreadRunsRow>({ comments, breaksRun, rende
     // along because the runs partition it in order and nothing is dropped.
     const out: Array<{ service: boolean; comments: T[]; start: number }> = [];
     let start = 0;
-    for (const run of groupServiceRuns(comments, breaksRun, isService)) {
+    for (const run of groupServiceRuns(comments, undefined, isService)) {
       out.push({ ...run, start });
       start += run.comments.length;
     }
     return out;
-  }, [comments, breaksRun, isService]);
+  }, [comments, isService]);
   /**
    * A run's children. Without `renderStatusRun` this is the row-per-comment it
    * has always been; with it, adjacent transitions hand themselves to the strip
-   * renderer as a group. The cut rule is the SAME `breaksRun` the outer split
-   * uses, so a gap the caller marked splits the strip too — the alternative is
-   * a chip strip that quietly spans over whatever sits in that gap.
+   * renderer as a group.
    */
   const bodyOf = (run: { comments: T[]; start: number }): ReactNode[] => {
     if (!renderStatusRun) return run.comments.map((c, k) => renderRow(c, run.start + k));
     const out: ReactNode[] = [];
     let at = run.start;
-    for (const stretch of groupStatusRuns(run.comments, (c, i) => !!breaksRun?.(c, run.start + i))) {
+    for (const stretch of groupStatusRuns(run.comments)) {
       if (stretch.status) out.push(
         <div key={`status-${(stretch.comments[0] as ThreadRunsRow).id}`}>{renderStatusRun(stretch.comments, at)}</div>,
       );

@@ -747,7 +747,6 @@ const IT: Dict = {
   'board.task.pdfPreviewTitle': 'anteprima PDF',
   'board.task.serviceNotes': 'righe di servizio',
   'board.task.serviceNotesTitle': 'Contabilità del dispatcher (riavvii, attese in coda, tentativi). Apri per leggerle tutte, in ordine.',
-  'board.task.streamPreviewTitle': 'Anteprima live di ciò che sta streammando ora',
   'board.task.recapturePreview': 'Ricattura evidenza',
   'board.task.recapturePreviewTitle': "Rifà l'anteprima di questa card: riavvia il server dal suo worktree e la rifotografa. NON sveglia l'agent e non consuma un tentativo. Se non è possibile, il motivo arriva nel thread.",
   // I DUE GESTI DELLA CARD IN REVIEW, detti prima che uno scriva.
@@ -780,15 +779,15 @@ const IT: Dict = {
   'board.task.steerPlaceholder': "Scrivi all'agent mentre lavora. Lo riceve al prossimo turno.",
   'board.task.commentPlaceholder': 'Commenta…',
   'board.task.workspaceLabel': 'Spazio di lavoro',
-  // Two surfaces, two names. `sessionLabel` is the TAB holding what the agent
-  // did; `threadLabel` is the column where you read and write to it. They used
-  // to share the word "Sessione", and side by side that told the reader nothing
-  // about which of the two they were looking at.
-  'board.task.sessionLabel': 'Sessione',
-  'board.task.threadLabel': 'Discussione',
-  'board.task.sessionReplied': 'qui ha risposto',
-  'board.task.sessionEmpty': 'Ancora nessun passaggio in questa sessione.',
-  'board.task.openSessionPane': 'Apri la sessione nello spazio di lavoro',
+  // ONE surface, one name. There were two (the "Sessione" tab with the agent's
+  // steps, the "Discussione" column where you write): the steps and the words
+  // are one list now, and the right word is the one that says what it is - a
+  // conversation, not a log.
+  'board.task.threadLabel': 'Conversazione',
+  // Where what you wrote got to, derived from the envelopes at every read:
+  // nothing writes it into the thread.
+  'board.task.delivered': 'consegnato',
+  'board.task.queuedForTurn': 'in coda',
   // «Consegna» e non «Anteprima»: è la cosa CONSEGNATA, la sezione in cima al
   // brief per cui il drawer si apre (e che ora si chiude da sé).
   'board.task.deliveryLabel': 'Consegna',
