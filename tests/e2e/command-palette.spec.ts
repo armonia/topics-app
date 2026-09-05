@@ -709,4 +709,32 @@ test.describe("Command Palette", () => {
     // No pane closed by the reset.
     expect(await page.locator('[role="main"] [draggable="true"]').count()).toBe(tabsBefore);
   });
+
+  // CMD-01: a search that DID NOT ANSWER must not read like a search that
+  // found nothing. With `/api/search` aborted the palette used to draw the very
+  // same empty-results line as a word that is truly in no topic, which is the
+  // worst lie a search can tell: it teaches the reader their data is gone.
+  test("PALETTE-ERR: a failed message search says so, it does not say 'no results'", async ({
+    commandPalettePage,
+    page,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "CMD-01" });
+    await goToApp(page);
+    // The network drops under the palette, exactly as a 500 or a dead server
+    // would look to the client.
+    await page.route("**/api/search", (route) => route.abort());
+
+    await commandPalettePage.search("E2E-Cmd");
+
+    const error = commandPalettePage.overlay.getByTestId("palette-search-error");
+    await expect(error).toBeVisible({ timeout: 10_000 });
+    // The wording is read in whichever catalogue the app is running: both say
+    // FAILED, neither says empty.
+    await expect(commandPalettePage.overlay).toContainText(
+      /non è stato possibile|search failed/i,
+    );
+
+    await page.unroute("**/api/search");
+    await commandPalettePage.close();
+  });
 });

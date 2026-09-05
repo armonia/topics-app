@@ -6,15 +6,25 @@ import { useRefMirror } from './useRefMirror';
 import {
   fetchNotificationHistory,
   markNotificationsSeen,
+  mergeNotificationPage,
   mergeNotificationRow,
   type NotificationHistoryPage,
 } from '../lib/notify/history';
+import { NOTIFICATION_MAX_ROWS, NOTIFICATION_PAGE_SIZE } from '../../../shared/notification-log';
 import { openDeepLinkInApp } from '../lib/deepLinkEntry';
 
 export interface NotificationHistoryState {
   rows: NotificationRow[];
   unseen: number;
   loading: boolean;
+  /** There may be OLDER rows than the ones in hand: the registry keeps up to
+   *  `NOTIFICATION_MAX_ROWS` and a page is `NOTIFICATION_PAGE_SIZE` long. */
+  hasMore: boolean;
+  /** An older page is on its way. */
+  loadingMore: boolean;
+  /** Ask for the page BEFORE the oldest row in hand. Idempotent while in
+   *  flight, a no-op when there is nothing older. */
+  loadMore: () => void;
   /**
    * APRIRE la cronologia: rileggere l'elenco e segnare viste le righe che si
    * stanno guardando. È UNA azione sola, e va chiesta così — vedi il commento
@@ -50,6 +60,8 @@ export function useNotificationHistory(
   // notifica» per un istante prima dell'elenco è una bugia breve ma è una bugia
   // — proprio sulla schermata che deve dire la verità sul registro vuoto.
   const [loading, setLoading] = useState(true);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   // La lettura IN VOLO, se c'è. Una alla volta — due aperture rapide non devono
   // poter consegnare due elenchi in ordine invertito — ma in CODA, non scartate:
   // è una promessa su cui chi chiede può aspettare.
@@ -94,15 +106,22 @@ export function useNotificationHistory(
         // Da QUI in poi si conta: se il numero cambia prima che la risposta
         // torni, è passata di mezzo una verità più fresca.
         const startedAt = liveTick.current;
-        return fetchNotificationHistory().then((page) => ({ page, startedAt }));
+        // The limit is asked for, not inherited: the panel decides how long a
+        // page is, and `hasMore` below is read off that same number.
+        return fetchNotificationHistory({ limit: NOTIFICATION_PAGE_SIZE }).then((page) => ({ page, startedAt }));
       })
       .then(({ page, startedAt }) => {
         // La pagina si RESTITUISCE comunque (chi ha chiesto la lettura ha
         // diritto alla sua risposta), ma non si SCRIVE sopra a un fronte.
         if (liveTick.current === startedAt) {
-          setRows(page.rows);
+          // MERGE, not replace: the newest page must not throw away the older
+          // pages the reader asked for, nor the live rows arrived since.
+          setRows((prev) => mergeNotificationPage(prev, page.rows));
           setUnseen(page.unseen);
         }
+        // A full page back means the registry has more than a page. Read off
+        // the page LENGTH and not off a total, because the route returns rows.
+        setHasMore(page.rows.length >= NOTIFICATION_PAGE_SIZE);
         return page;
       })
       .catch(() => {
@@ -128,7 +147,7 @@ export function useNotificationHistory(
     // fronte è in ritardo: la riga si mostra (spenta, com'è davvero), ma il suo
     // `unseen` è un numero vecchio e non deve toccare il contatore.
     const covered = !!seenUpTo.current && row.createdAt <= seenUpTo.current;
-    setRows((prev) => mergeNotificationRow(prev, covered ? { ...row, seenAt: row.seenAt ?? seenUpTo.current } : row));
+    setRows((prev) => mergeNotificationRow(prev, covered ? { ...row, seenAt: row.seenAt ?? seenUpTo.current } : row, NOTIFICATION_MAX_ROWS));
     if (!covered) setUnseen(msg.unseen ?? 0);
   });
 
@@ -185,6 +204,30 @@ export function useNotificationHistory(
       .catch(() => {});
   }, [load, rowsRef]);
 
+  /**
+   * The page BEFORE the oldest row in hand.
+   *
+   * `before` has existed on both sides since the registry was born and nobody
+   * passed it: the panel drew fifty rows out of a log of five hundred and said
+   * nothing about the other four hundred and fifty.
+   */
+  const loadMore = useCallback(() => {
+    if (loadingMore || !hasMore) return;
+    const oldest = rowsRef.current[rowsRef.current.length - 1]?.createdAt;
+    if (!oldest) return;
+    setLoadingMore(true);
+    void fetchNotificationHistory({ limit: NOTIFICATION_PAGE_SIZE, before: oldest })
+      .then((page) => {
+        setRows((prev) => mergeNotificationPage(prev, page.rows));
+        setHasMore(page.rows.length >= NOTIFICATION_PAGE_SIZE);
+      })
+      .catch(() => {
+        /* unreachable server: keep what is on screen, and keep the control
+           offered - the next click is the retry */
+      })
+      .finally(() => setLoadingMore(false));
+  }, [hasMore, loadingMore, rowsRef]);
+
   const openRow = useCallback((row: NotificationRow): boolean => {
     void markNotificationsSeen({ ids: [row.id] })
       .then((n) => setUnseen(n))
@@ -202,5 +245,5 @@ export function useNotificationHistory(
     return row.targetUrl ? openDeepLinkInApp(row.targetUrl) : false;
   }, []);
 
-  return { rows, unseen, loading, openAndMarkSeen, openRow };
+  return { rows, unseen, loading, hasMore, loadingMore, loadMore, openAndMarkSeen, openRow };
 }

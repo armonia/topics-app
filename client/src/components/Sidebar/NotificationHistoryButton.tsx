@@ -53,7 +53,16 @@ export function NotificationHistoryButton({
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const { rows, unseen, loading, openAndMarkSeen, openRow } = useNotificationHistory(onWSMessage);
+  const { rows, unseen, loading, hasMore, loadingMore, loadMore, openAndMarkSeen, openRow } =
+    useNotificationHistory(onWSMessage);
+
+  /** Reaching the bottom IS the request for the next page: the panel scrolls,
+   *  so the gesture already exists and does not need a second name. The button
+   *  below stays for the keyboard and for a list too short to scroll. */
+  const onScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 48) loadMore();
+  }, [loadMore]);
 
   useDismissable({ open, onClose: () => setOpen(false), refs: [triggerRef, panelRef] });
 
@@ -137,7 +146,7 @@ export function NotificationHistoryButton({
             </button>
           </div>
 
-          <div className="overflow-y-auto min-h-0">
+          <div className="overflow-y-auto min-h-0" onScroll={onScroll} data-testid="notification-history-scroll">
             {rows.length === 0 ? (
               <div className="px-3 py-6 text-center" data-testid="notification-history-empty">
                 <Inbox size={18} className="mx-auto mb-2 text-app-text-muted" aria-hidden="true" />
@@ -190,6 +199,23 @@ export function NotificationHistoryButton({
                   );
                 })}
               </ul>
+            )}
+            {rows.length > 0 && hasMore && (
+              // The end of the list is not the end of the registry, and saying
+              // nothing here is what made fifty rows look like all of them.
+              <button
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="w-full px-3 py-2 text-[11px] text-app-text-secondary hover:bg-app-hover transition-colors cursor-pointer disabled:cursor-default"
+                data-testid="notification-history-more"
+              >
+                {loadingMore ? tr('notifications.loadingMore') : tr('notifications.loadMore')}
+              </button>
+            )}
+            {rows.length > 0 && !hasMore && (
+              <div className="px-3 py-2 text-[11px] text-app-text-muted text-center" data-testid="notification-history-end">
+                {tr('notifications.allLoaded')}
+              </div>
             )}
           </div>
         </div>,

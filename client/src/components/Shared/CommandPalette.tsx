@@ -173,6 +173,11 @@ export function CommandPalette({
   const [fileList, setFileList] = useState<string[]>([]);
   const [searchResults, setSearchResults] = useState<CommandAction[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
+  // A FAILED search is not an empty one. Without this flag a 500, a timeout or
+  // a dropped network rendered the very same "no results" as a word that truly
+  // is not there, which teaches the reader the wrong thing about their own
+  // data. `FileSearch` already draws the two apart; this is the same shape.
+  const [searchFailed, setSearchFailed] = useState(false);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Debounced message search
@@ -182,9 +187,11 @@ export function CommandPalette({
     if (q.length < 2) {
       setSearchResults([]);
       setSearchLoading(false);
+      setSearchFailed(false);
       return;
     }
     setSearchLoading(true);
+    setSearchFailed(false);
     searchTimeout.current = setTimeout(async () => {
       try {
         const data = await searchApi.search(q, 20);
@@ -217,6 +224,7 @@ export function CommandPalette({
         );
       } catch {
         setSearchResults([]);
+        setSearchFailed(true);
       } finally {
         setSearchLoading(false);
       }
@@ -711,7 +719,15 @@ export function CommandPalette({
               </section>
               {/* Right: other results (Actions, Topics, Files, Messages) */}
               <section className={`min-w-0 py-1 ${isMobile ? 'flex-none' : 'overflow-y-auto'}`} role="listbox" aria-label={t('palette.results')}>
-                {allItems.length === 0 && !searchLoading ? (
+                {/* The search DID NOT ANSWER: say so, above whatever local rows
+                    are still valid. Saying "no results" here would blame the
+                    query for a failure of the server. */}
+                {searchFailed && (
+                  <div data-testid="palette-search-error" className="px-3 py-4 text-center text-red-400 text-xs">
+                    {t('palette.searchFailed')}
+                  </div>
+                )}
+                {allItems.length === 0 && !searchLoading && !searchFailed ? (
                   <EmptyState variant="panel" title={t('palette.noResults')} />
                 ) : (
                   <>
