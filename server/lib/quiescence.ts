@@ -119,6 +119,40 @@ export function unadoptableStreams(
 }
 
 /**
+ * Of the entries in the register, the ones whose TURN is still open.
+ *
+ * THE REGISTER IS THE ONE THAT LIES. `activeStreams` is in-memory bookkeeping:
+ * every path that ends a turn is supposed to remove its entry, and on
+ * 2026-09-03 one did not. `topic:6b9605e5` had died of a `400 prompt is too
+ * long` and its entry stayed, so `restart-when-idle` waited 2160 s for a turn
+ * that had been over for most of that time. Counting a dead entry is the worst
+ * shape of this gate's failure: it holds a restart for nobody, and the person
+ * who could end it has nothing to end.
+ *
+ * So the question is asked of the ROW, not of the register. An assistant row
+ * carries `partial = 1` while its turn is running and 0 once it has been
+ * finalized (well, with a provider error, or by a watchdog): a finished row is
+ * the same fact every other boot-time sweep already reads.
+ *
+ * WHICH WAY THE DOUBT FALLS: a row that cannot be read leaves its stream
+ * COUNTING. Here the doubt protects a live turn from being cut, the same
+ * direction as the rest of this file (and the opposite of the broker probe,
+ * where the doubt must not wedge every restart on a broken bridge).
+ */
+export function unfinishedStreams<T extends { sessionKey: string; messageId: string }>(
+  streams: Iterable<T>,
+  turnFinished: (messageId: string) => boolean,
+): T[] {
+  const out: T[] = [];
+  for (const s of streams) {
+    let finished = false;
+    try { finished = turnFinished(s.messageId); } catch { finished = false; }
+    if (!finished) out.push(s);
+  }
+  return out;
+}
+
+/**
  * L'attesa è finita?
  *
  * PERCHÉ È UNA FUNZIONE. La regola viveva dentro il `for(;;)` di
@@ -160,6 +194,17 @@ export function unadoptableStreams(
  * its short deadline: that turn restarts by itself and the reader sees a
  * pause, while waiting for it like a card would kill hot reload for anyone
  * with a conversation open.
+ *
+ * AND THE LONG CAP IS GONE FROM HERE (2026-09-04, RGATE-01). It survived as the
+ * moment the deferral was DECLARED, and that made it a cap over nothing: the
+ * verdict for unrecoverable work is a deferral before it and a deferral after
+ * it, so twenty-five minutes changed no outcome. What those minutes did change
+ * is who knew. `touchReloadDeferred()` lives on the deferral branch, so until
+ * the cap the heartbeat was not written and `start-prod.sh` was free to fire
+ * its own SIGTERM on exactly the turn this gate exists not to cut; and the
+ * notice to the one person who can end the wait was held back with it. So
+ * unrecoverable work now defers on the FIRST loop, like an open question, and
+ * the only cap left in here is the short one, which decides a real fate.
  */
 export function quiescenceVerdict(args: {
   /** Che cosa trattiene, o `null` se niente. */
@@ -167,10 +212,8 @@ export function quiescenceVerdict(args: {
   /** Chi non torna dopo un riavvio: card in volo + chat non riadottabili. */
   unrecoverable: number;
   now: number;
-  /** Quando è cominciata l'attesa. I tetti si contano da QUI. */
+  /** When the wait began. The short cap is counted from HERE. */
   startedAt: number;
-  /** Tetto per ciò che non sopravvive al riavvio. */
-  capMs: number;
   /** Tetto per una chat che verrà riadottata: la sua pausa è visibile, non persa. */
   chatCapMs: number;
   /**
@@ -191,10 +234,13 @@ export function quiescenceVerdict(args: {
   // get ahead of. The loop re-reads the sources twice a second, so the instant
   // the answer lands this stops holding anything.
   if ((args.parkedAsks ?? 0) > 0) return "rinvia";
-  const unrecoverable = args.unrecoverable > 0;
-  const tetto = unrecoverable ? args.capMs : args.chatCapMs;
-  if (args.now - args.startedAt < tetto) return "aspetta";
-  return unrecoverable ? "rinvia" : "scaduto";
+  // NEITHER CAN A TURN THAT WILL NOT COME BACK. Same question, same answer: a
+  // card turn or a native chat turn does not finish sooner because a clock is
+  // running on it, and no expiry of ours will ever cut it. Deferring on the
+  // first loop is the same decision, declared while it can still be acted on.
+  if (args.unrecoverable > 0) return "rinvia";
+  if (args.now - args.startedAt < args.chatCapMs) return "aspetta";
+  return "scaduto";
 }
 
 /**
@@ -212,9 +258,19 @@ export function quiescenceVerdict(args: {
  * finish either. The one person who could end it in five seconds had no way to
  * know, because the only trace was a line in a file nobody tails.
  *
- * So past the cap the gate stops being silent and ASKS. It still does not cut:
- * it says who is holding the restart and lets the person decide. Once per wait,
- * because a decision repeated every minute is noise, not information.
+ * So past that wait the gate stops being silent and ASKS. It still does not
+ * cut: it says who is holding the restart and lets the person decide. Once per
+ * wait, because a decision repeated every minute is noise, not information.
+ *
+ * WHEN TO ASK IS NOT ONE NUMBER (2026-09-04, RGATE-02). Fifteen minutes of
+ * silence was measured on a native chat turn holding `restart-when-idle`, and
+ * the wait it was measuring had already been decided at second sixty: that is
+ * where the gate chooses who lives, and from there on the wait has no end of
+ * its own. A CARD is the other case and it keeps the long wait: a card turn has
+ * an upper bound of its own (`dispatchTimeoutMin`, twenty minutes), so that
+ * wait ends without anybody being woken, and waking them at minute one would be
+ * noise. Hence `noticeAfterMs` instead of `capMs`: the caller says which of the
+ * two is holding, and the name no longer pretends to be a deadline.
  *
  * A time cap on the tool itself was measured and rejected: over 10.887 real
  * tool calls (14 days) the median is 1,6 s and p99.9 is 10,8 minutes, but the
@@ -232,8 +288,8 @@ export interface ReloadHeldNotice {
 export function reloadHeldNotice(args: {
   /** How long this wait has been going. */
   waitedMs: number;
-  /** The long cap: past it the wait has no end of its own. */
-  capMs: number;
+  /** Past this the wait has no end of its own, so a person is told. */
+  noticeAfterMs: number;
   /** What is holding, already worded by `describeInFlight`. */
   busy: string;
   /** Readable name of the holding chat, when it is known. */
@@ -250,13 +306,16 @@ export function reloadHeldNotice(args: {
   /** Identifies THIS wait, so the next one may speak again. */
   waitId: string;
 }): ReloadHeldNotice | null {
-  if (args.waitedMs < args.capMs) return null;
+  if (args.waitedMs < args.noticeAfterMs) return null;
+  // At the minute the notice read "da 1 minuti": the chat threshold is one
+  // minute now, so the singular is the ORDINARY case, not an edge.
   const min = Math.round(args.waitedMs / 60_000);
+  const da = min <= 1 ? "da un minuto" : `da ${min} minuti`;
   const chi = args.holderName?.trim() ? `«${args.holderName.trim()}»` : args.busy;
   const body = args.holderKind === "question"
-    ? `${chi} aspetta una tua risposta da ${min} minuti, e il riavvio non taglia una domanda a schermo. `
+    ? `${chi} aspetta una tua risposta ${da}, e il riavvio non taglia una domanda a schermo. `
       + "Aprila e rispondi alla domanda: il riavvio parte da solo subito dopo."
-    : `${chi} ha un turno in corso da ${min} minuti, e il riavvio non taglia un turno che non tornerebbe. `
+    : `${chi} ha un turno in corso ${da}, e il riavvio non taglia un turno che non tornerebbe. `
       + "Se e' piantato, fermalo dalla chat: il riavvio parte da solo subito dopo.";
   return {
     title: "Un riavvio del server sta aspettando",
