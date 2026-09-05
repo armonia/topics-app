@@ -31,25 +31,38 @@ let invoked: string[];
 /** What the next `invoke` does: resolve with this, or throw when it is an Error. */
 let nextResult: unknown = null;
 
-const realWindow = (globalThis as unknown as { window?: unknown }).window;
-
 async function loadUpdater() {
   const { getUpdaterApi, updateTitle, updateErrorKey, shouldShowUpdaterToast } = await import('./updater');
   return { getUpdaterApi, updateTitle, updateErrorKey, shouldShowUpdaterToast };
 }
 let updater: Awaited<ReturnType<typeof loadUpdater>>;
 
+/**
+ * The IPC the adapter calls, replaced with a spy.
+ *
+ * Mocking `./shell/tauri` instead of planting `window.__TAURI_INTERNALS__` is
+ * not a preference: `mock.module` is process-wide and `browserClaimHeartbeat`
+ * already replaces that very module for the whole run, so a fake window would
+ * be bypassed and `updater_install` would silently "succeed" without being
+ * called - which is how these two tests passed alone and failed in the suite.
+ * `afterAll` puts the real module back.
+ */
+type TauriShell = typeof import('./shell/tauri');
+/** All three exports, by hand: the restore in `afterAll` would leave out
+ *  whatever is missing here, undefined for every file that runs after. */
+let realTauri: Pick<TauriShell, 'tauriInvoke' | 'currentWindowLabel' | 'releaseNativeFocus'>;
+
 beforeAll(async () => {
   invoked = [];
-  (globalThis as unknown as { window?: unknown }).window = {
-    __TAURI_INTERNALS__: {
-      invoke: (cmd: string) => {
-        invoked.push(cmd);
-        return nextResult instanceof Error ? Promise.reject(nextResult) : Promise.resolve(nextResult);
-      },
+  const { tauriInvoke, currentWindowLabel, releaseNativeFocus } = await import('./shell/tauri');
+  realTauri = { tauriInvoke, currentWindowLabel, releaseNativeFocus };
+  mock.module('./shell/tauri', () => ({
+    ...realTauri,
+    tauriInvoke: (cmd: string) => {
+      invoked.push(cmd);
+      return nextResult instanceof Error ? Promise.reject(nextResult) : Promise.resolve(nextResult);
     },
-    localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
-  };
+  }));
   const { isTauri, isDesktop, shellKind, detectShell } = await import('./shell/index');
   realIndex = { isTauri, isDesktop, shellKind, detectShell };
   mock.module('./shell/index', () => ({
@@ -67,7 +80,7 @@ beforeAll(async () => {
 
 afterAll(() => {
   mock.module('./shell/index', () => realIndex);
-  (globalThis as unknown as { window?: unknown }).window = realWindow;
+  mock.module('./shell/tauri', () => realTauri);
 });
 
 describe('a check that finds nothing has something to say', () => {
