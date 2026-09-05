@@ -40,12 +40,25 @@ import { touchReloadDeferred, RELOAD_DEFERRED_FILE } from "../../server/lib/relo
 
 const TEST_HOME = testTmpDir("restart-gate");
 
+/**
+ * THE GLOBAL GOES BACK WHERE IT WAS. `touchReloadDeferred` resolves the Topics
+ * home from the environment at call time, so this file has to move it, and
+ * `bun test` runs every file in one process: a `TOPICS_HOME` left pointing at a
+ * scratch directory that `afterAll` then deletes takes down whoever runs next
+ * and reads the home for something else (the git identity, the runtime
+ * registry, the MCP config). Measured here on 2026-09-04: 28 unrelated tests
+ * red in the full suite, all green on their own.
+ */
+const HOME_BEFORE = process.env.TOPICS_HOME;
+
 beforeAll(() => {
   process.env.TOPICS_HOME = TEST_HOME;
   fs.mkdirSync(TEST_HOME, { recursive: true });
 });
 
 afterAll(() => {
+  if (HOME_BEFORE === undefined) delete process.env.TOPICS_HOME;
+  else process.env.TOPICS_HOME = HOME_BEFORE;
   fs.rmSync(TEST_HOME, { recursive: true, force: true });
 });
 
