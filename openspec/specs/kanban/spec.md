@@ -532,6 +532,13 @@ implementa solo al resume con l'approvazione.
 - **AND** il thread mostra "l'agent continua sulla stessa sessione (tentativo n/cap)"
 - **AND** solo a cap esaurito il task è parcheggiato in backlog
 
+#### Scenario: un turno fallito su una card spostata a mano non si azzera
+- **GIVEN** un task `in_progress` con un turno vivo, che l'umano sposta a mano in `backlog` (o `todo`) mentre il turno gira
+- **WHEN** quel turno finisce MALE (errore, contesto pieno, watchdog: uno degli esiti che consumano un tentativo)
+- **THEN** la card SHALL portare il chip `failed` con il motivo in `dispatch_error` e un commento di sistema nel thread
+- **AND** un turno finito BENE (`end_turn`) SHALL invece spegnere il chip e basta: la card è dell'umano e non c'è niente da annunciare
+- **AND** ciò che `consumesAttempt` considera gratuito (stop a mano, riavvio del server, sessione persa, API satura) NON SHALL lasciare chip: quei turni ripartono
+
 #### Scenario: la sessione agent non apre tab da sola
 - **GIVEN** un dispatch che crea il topic dell'agent
 - **WHEN** il topic nasce

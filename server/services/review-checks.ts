@@ -162,6 +162,24 @@ export function tailOf(text: string, lines = TAIL_LINES): string {
   return rows.slice(Math.max(0, rows.length - lines)).join("\n");
 }
 
+/**
+ * A bun test run ends with a wall of `(pass)` and `(skip)` lines, and the tail
+ * is a fixed number of lines: on a suite with dozens of skips the wall is the
+ * only thing that survives, so the report names the counts and never the test
+ * that went red. Measured on card ca44c550, twice in a row: "1 tests failed:"
+ * arrived with an empty list under it and nothing to act on.
+ * So the noise is dropped BEFORE tailing. Nothing else is: a line that is not a
+ * green result stays, in order, because we cannot tell in advance which one
+ * carries the reason.
+ */
+const TEST_NOISE = /^\s*\((?:pass|skip)\)/;
+export function failureTail(text: string, lines = TAIL_LINES): string {
+  const kept = text.replace(/\s+$/, "").split("\n").filter((r) => !TEST_NOISE.test(r));
+  const dropped = text.replace(/\s+$/, "").split("\n").length - kept.length;
+  const body = kept.slice(Math.max(0, kept.length - lines)).join("\n");
+  return dropped > 0 ? `[${dropped} righe (pass)/(skip) omesse]\n${body}` : body;
+}
+
 interface RunOpts {
   cwd: string;
   timeoutMs?: number;
@@ -351,7 +369,7 @@ async function runOne(
       // c'e' sarebbe una bugia, e il testo del commento la ripeterebbe.
       notMeasured: code === NOT_MEASURED_EXIT,
       ...(queuedMs !== null ? { queuedMs } : {}),
-      tail: tailOf(combined) || (timedOut ? "(nessun output prima del timeout)" : "(nessun output)"),
+      tail: failureTail(combined) || (timedOut ? "(nessun output prima del timeout)" : "(nessun output)"),
     };
   } catch (e) {
     // Non è partito proprio: cwd sparita, /bin/sh assente. Rosso, ma con il
