@@ -75,8 +75,59 @@
 
 import { readFileSync, existsSync, writeFileSync, mkdtempSync, rmSync } from "fs";
 import { resolve, join } from "path";
-import { tmpdir } from "os";
+import { tmpdir, loadavg, cpus } from "os";
 import { GATE_HELD_ENV } from "./gate-slot.ts";
+
+/**
+ * How many shards, and how long a test may take, on THIS machine right now.
+ *
+ * WHY THE PLAN LOOKS AT THE LOAD. The bar is sized for a quiet box: four shards
+ * on twelve cores, 30 s per test. Under a fleet it is not quiet: on 05/09/2026
+ * the load sat at 46 on 12 cores (four agents, three gate slots each running
+ * four shards, typecheck and lint beside them). At that pressure every test
+ * runs ~4x slower, the 30 s cap turns into a clock, and two cards parked
+ * themselves within an hour on "test:unit red, no red test in the report" -
+ * a shard killed by timeouts on a branch identical to main. A gate that goes
+ * red with the load measures the machine, not the code.
+ *
+ * So above a pressure of 1.25 (load per core) the run adds fewer processes
+ * (shards divided by the pressure, never below two) and gives each test more
+ * time (the cap multiplied by the pressure, at most 4x). Explicit env values
+ * are respected: whoever set TOPICS_UNIT_SHARDS or TOPICS_TEST_TIMEOUT_MS
+ * made a choice, and the plan does not overrule a person.
+ */
+export interface LoadPlan {
+  shards: number;
+  timeoutMs: number;
+  /** load / cores, the number the two adjustments are driven by. */
+  pressure: number;
+  /** One line for the output when the plan changed; null on a quiet machine. */
+  note: string | null;
+}
+export const LOAD_PRESSURE_FLOOR = 1.25;
+export const LOAD_TIMEOUT_CAP = 4;
+export function planUnderLoad(input: {
+  load: number;
+  cores: number;
+  shards: number;
+  timeoutMs: number;
+  shardsExplicit?: boolean;
+  timeoutExplicit?: boolean;
+}): LoadPlan {
+  const cores = Math.max(1, input.cores);
+  const pressure = Math.max(0, input.load) / cores;
+  if (!Number.isFinite(pressure) || pressure <= LOAD_PRESSURE_FLOOR) {
+    return { shards: input.shards, timeoutMs: input.timeoutMs, pressure, note: null };
+  }
+  const shards = input.shardsExplicit ? input.shards : Math.max(2, Math.min(input.shards, Math.floor(input.shards / pressure)));
+  const factor = Math.min(LOAD_TIMEOUT_CAP, pressure);
+  const timeoutMs = input.timeoutExplicit ? input.timeoutMs : Math.round(input.timeoutMs * factor);
+  const changed = shards !== input.shards || timeoutMs !== input.timeoutMs;
+  const note = changed
+    ? `carico ${input.load.toFixed(1)} su ${cores} core (pressione ${pressure.toFixed(2)}): ${shards} shard invece di ${input.shards}, timeout per test ${timeoutMs} ms invece di ${input.timeoutMs}`
+    : null;
+  return { shards, timeoutMs, pressure, note };
+}
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const DURATIONS_PATH = resolve(import.meta.dir, "test-unit-durations.json");
@@ -313,8 +364,17 @@ async function runBunTest(
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
 if (import.meta.main) {
-  const shardsN = Math.max(1, Number(process.env.TOPICS_UNIT_SHARDS) || 4);
-  const timeoutMs = Number(process.env.TOPICS_TEST_TIMEOUT_MS) || 30000;
+  const plan = planUnderLoad({
+    load: loadavg()[0] ?? 0,
+    cores: cpus().length || 1,
+    shards: Math.max(1, Number(process.env.TOPICS_UNIT_SHARDS) || 4),
+    timeoutMs: Number(process.env.TOPICS_TEST_TIMEOUT_MS) || 30000,
+    shardsExplicit: Number(process.env.TOPICS_UNIT_SHARDS) > 0,
+    timeoutExplicit: Number(process.env.TOPICS_TEST_TIMEOUT_MS) > 0,
+  });
+  if (plan.note) console.error(`test-unit-shards: ${plan.note}`);
+  const shardsN = plan.shards;
+  const timeoutMs = plan.timeoutMs;
 
   const files = enumerateTestFiles(SUITE_ROOTS, REPO_ROOT);
   if (files.length === 0) {
