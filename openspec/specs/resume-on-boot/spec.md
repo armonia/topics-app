@@ -153,6 +153,18 @@ sweep di ripresa NON SHALL rimandare niente, e ogni client SHALL vederlo (anche
 chi si connette dopo). Una richiesta accettata dal provider SHALL sciogliere
 l'hold prima dell'ora.
 
+L'hold SHALL sopravvivere a un riavvio del server: il memo SHALL essere
+specchiato su disco nella cartella di stato e riadottato al boot se non è
+ancora scaduto (un memo scaduto o illeggibile SHALL essere rimosso, non
+adottato). Fino al 05/09/2026 era solo in memoria: un hot-reload a metà di una
+finestra esaurita lo dimenticava, e il processo nuovo ripartiva con le card e
+lo sweep dritto nello stesso muro, pagando di nuovo i ritentativi prima di
+imparare ciò che il processo precedente sapeva già.
+
+#### Scenario: riavvio a metà di una finestra esaurita
+- **GIVEN** un hold in forza fino alle 20:49 e un riavvio del server alle 19:30
+- **THEN** il processo nuovo SHALL ripartire con lo stesso hold, e dispatcher e sweep SHALL aspettare fino alle 20:49
+
 #### Scenario: 429 per tutti i tentativi, finestra non esaurita
 - **GIVEN** un turno che finisce con il testo del rate limit dell'API dopo i ritentativi
 - **THEN** in chat SHALL comparire il cartello ⚠️ riconosciuto dalla ripresa, e il turno SHALL essere ripreso
