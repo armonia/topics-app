@@ -1,6 +1,8 @@
+import { X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useModalDialog } from '../../hooks/useModalDialog';
+import { useT } from '../../hooks/useT';
 import { MODAL_LAYER } from '../../lib/modalStyles';
 
 /**
@@ -26,6 +28,7 @@ export function ImageLightbox({ src, alt, onClose }: { src: string; alt: string;
   // marker, so `hasOpenModalSurface` could not see it). `role="dialog"` below
   // makes it visible to that gate.
   const panelRef = useRef<HTMLDivElement>(null);
+  const tr = useT();
   useModalDialog({ onClose, panelRef });
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -83,7 +86,7 @@ export function ImageLightbox({ src, alt, onClose }: { src: string; alt: string;
       ref={panelRef}
       role="dialog"
       aria-modal="true"
-      aria-label={alt || 'Immagine'}
+      aria-label={alt || tr('lightbox.image')}
       data-testid="image-lightbox"
       // `MODAL_LAYER` and not `z-[9999]`: 9999 is not "above the popovers",
       // it is the SAME plane (Z_POPOVER / Z_CONTEXT_MENU). At equal z the DOM
@@ -107,14 +110,15 @@ export function ImageLightbox({ src, alt, onClose }: { src: string; alt: string;
       />
       <button
         data-testid="lightbox-close"
-        className="absolute top-4 right-4 text-white text-2xl bg-black/50 rounded-full w-10 h-10 flex items-center justify-center"
+        className="absolute top-4 right-4 text-white bg-black/50 rounded-full w-10 h-10 flex items-center justify-center"
         onClick={(e) => { e.stopPropagation(); onClose(); }}
-      >×</button>
+        aria-label={tr('lightbox.close')}
+      ><X className="w-5 h-5" aria-hidden="true" /></button>
       {scale > 1 && (
         <button
           className="absolute bottom-8 left-1/2 -translate-x-1/2 text-white text-xs bg-black/50 rounded-full px-3 py-1"
           onClick={(e) => { e.stopPropagation(); setScale(1); setOffset({ x: 0, y: 0 }); }}
-        >Reset zoom</button>
+        >{tr('lightbox.resetZoom')}</button>
       )}
     </div>,
     document.body

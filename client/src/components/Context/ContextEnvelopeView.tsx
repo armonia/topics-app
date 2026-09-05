@@ -12,6 +12,7 @@
  */
 
 import { useMemo, useState } from 'react';
+import { TriangleAlert } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import {
   useContextPreview,
@@ -161,7 +162,8 @@ function HistoryTab({ entries, dropped }: { entries: EnvelopeHistoryEntry[]; dro
     <div className="px-3 space-y-1 text-xs max-h-72 overflow-auto">
       {dropped > 0 && (
         <div className="text-amber-700 dark:text-amber-300 mb-2">
-          ⚠ {dropped} older turn(s) dropped due to history limit
+          <TriangleAlert className="w-3.5 h-3.5 inline-block align-[-2px] mr-1" aria-hidden="true" />
+          {dropped} older turn(s) dropped due to history limit
         </div>
       )}
       {entries.length === 0 && (

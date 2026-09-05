@@ -15,6 +15,7 @@
  */
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { CircleCheck, CircleDot, Circle, Check, X } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import type { ReactNode } from 'react';
 import type { Components } from 'react-markdown';
@@ -295,7 +296,7 @@ export function TodoCard({ items }: { items: Array<{ content: string; status: 'p
       {items.map((t, i) => (
         <li key={i} className="flex items-start gap-2 text-[12px]">
           <span className="mt-0.5 text-[12px] flex-shrink-0">
-            {t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '◐' : '○'}
+            {t.status === 'completed' ? <CircleCheck size={13} aria-hidden="true" /> : t.status === 'in_progress' ? <CircleDot size={13} aria-hidden="true" /> : <Circle size={13} aria-hidden="true" />}
           </span>
           <span className={
             t.status === 'completed' ? 'text-app-text-muted line-through' :
@@ -356,8 +357,8 @@ export function SubAgentCard({ subAgentType, description, actions, result, isRun
                 <span className="flex-1 min-w-0 text-app-text-secondary truncate">{a.summary ?? ''}</span>
                 <span className="flex-shrink-0">
                   {a.status === 'running' && <span className="text-app-text-muted">·</span>}
-                  {a.status === 'success' && <span className="text-green-500">✓</span>}
-                  {a.status === 'error' && <span className="text-red-500">✗</span>}
+                  {a.status === 'success' && <Check className="w-3.5 h-3.5 text-green-500" aria-hidden="true" />}
+                  {a.status === 'error' && <X className="w-3.5 h-3.5 text-red-500" aria-hidden="true" />}
                 </span>
               </li>
             ))}

@@ -81,7 +81,7 @@ const CLAUDE_CODE_IDENTITY = "You are Claude Code, Anthropic's official CLI for 
  * fondo alla corsa: 3 finestre da 300 sono 900 giri prima che una card paghi
  * qualcosa. Regolabile senza ricompilare per il caso raro che sfora davvero.
  */
-const MAX_ITERATIONS = Number(process.env.TOPICS_MAX_TOOL_ROUNDS) || 300;
+export const MAX_ITERATIONS = Number(process.env.TOPICS_MAX_TOOL_ROUNDS) || 300;
 
 export interface Block {
   type: string;
@@ -800,8 +800,12 @@ export async function runAgentTurn(
   // budget di giri, il lavoro è salvo, e la ripresa continua la stessa sessione.
   const detail =
     `il turno ha esaurito i ${MAX_ITERATIONS} giri di tool a disposizione (non è un guasto: ` +
-    `il lavoro resta, la ripresa continua la stessa sessione). Se questo compito ne serve di più, ` +
-    `alza TOPICS_MAX_TOOL_ROUNDS`;
+    `il lavoro resta nella sessione e il server lo riprende da solo, una volta; se anche la ripresa ` +
+    `esaurisce i giri si ferma e lo scrive qui). Se questo compito ne serve di più, alza TOPICS_MAX_TOOL_ROUNDS`;
   handler.onError(detail);
-  return { turnEnd: { end: "error", cause: "provider-error", detail }, text: finalText, usage: total };
+  // `tool-budget`, not `provider-error`: the cause is what lets the goal loop
+  // and the one-shot resume (`services/goal-continuation.ts`) tell OUR ceiling
+  // from a fault. The dispatcher still reads it as a provider error for its
+  // free retries (`end === "error"`), so a card loses nothing.
+  return { turnEnd: { end: "error", cause: "tool-budget", detail }, text: finalText, usage: total };
 }

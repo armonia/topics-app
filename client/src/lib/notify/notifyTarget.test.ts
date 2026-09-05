@@ -101,6 +101,9 @@ describe('openNotifyToken: il click che torna dal guscio', () => {
   // here would answer for every file that runs after this one.
   afterEach(() => {
     (globalThis as unknown as { fetch: unknown }).fetch = realFetch;
+    // Same for the stub window: bun has none, and a partial one left behind
+    // flips the `typeof window` guards of the next file in this process.
+    delete (globalThis as { window?: unknown }).window;
   });
 
   test('token di TOPIC: apre la tab della conversazione', async () => {

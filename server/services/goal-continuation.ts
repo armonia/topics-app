@@ -37,13 +37,18 @@ type ChatRouteLike = (
 import { closeGoal, getActiveGoal, setGoalLoop } from "./goals";
 import {
   GOAL_JUDGE_PROMPT,
+  TOOL_BUDGET_RESUME_TEXT,
   goalLoopStep,
   goalNudgeText,
   goalStopNotice,
   parseGoalVerdict,
+  toolBudgetResumeStep,
+  toolBudgetStopNotice,
   turnCanContinueGoal,
   type FinishedTurn,
 } from "./goal-loop";
+import { insertRestartNotification, type PartialSweepDb } from "../lib/boot-partial-sweep";
+import { MAX_ITERATIONS } from "../providers/native/agent-loop";
 
 export interface GoalContinuationDeps {
   db: Database;
@@ -59,7 +64,17 @@ export interface GoalContinuationDeps {
    * turn it started is over: the loop is sequential by construction, so a
    * continuation can never overlap the turn it continues.
    */
-  resend: (input: { sessionKey: string; text: string; attempt: number }) => Promise<void>;
+  resend: (input: {
+    sessionKey: string;
+    text: string;
+    attempt: number;
+    /**
+     * How the row is marked. `goal-nudge` (default) is the loop chasing an
+     * objective; `ripresa` is the one-shot resume after OUR tool budget, drawn
+     * by the client as a resume line, not as a goal continuation it never had.
+     */
+    mark?: "goal-nudge" | "ripresa";
+  }) => Promise<void>;
   /** Push the topic's current goal to every client (`goal:updated`). */
   announce: (topicId: string) => void;
   broadcast: (msg: OutboundMessage) => void;
@@ -127,8 +142,17 @@ function writeStopNotice(
  */
 export function createGoalContinuation(deps: GoalContinuationDeps) {
   const log = deps.log ?? (() => {});
+  /**
+   * Sessions whose last turn was already the one-shot resume after OUR tool
+   * budget. In memory on purpose: a restart forgets it, and the worst that
+   * buys is one more resume on one chat, not a loop. Cleared by any turn that
+   * ends on a decision (`end_turn`), so the next budget on that chat gets its
+   * one resume again.
+   */
+  const resumedAfterBudget = new Set<string>();
 
   return async function onTurnEnd(info: TurnEndInfo): Promise<string> {
+    if (info.end === "end_turn") resumedAfterBudget.delete(info.sessionKey);
     let goal;
     try {
       goal = getActiveGoal(deps.db, info.topicId);
@@ -136,7 +160,32 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
       log(`goal-loop: cannot read the goal (${err instanceof Error ? err.message : String(err)})`);
       return "error";
     }
-    if (!turnCanContinueGoal(info, goal)) return "skipped";
+    if (!turnCanContinueGoal(info, goal)) {
+      // No goal driving (or its loop stopped), but the turn was cut by OUR
+      // budget of tool rounds: the work is saved and nobody asked to stop, so
+      // it resumes ONCE. Measured 05/09/2026: a chat left mute for six hours
+      // under a notice that promised "la ripresa continua".
+      const step = toolBudgetResumeStep(info, resumedAfterBudget.has(info.sessionKey));
+      if (step === "none") return "skipped";
+      if (step === "stop") {
+        resumedAfterBudget.delete(info.sessionKey);
+        try {
+          insertRestartNotification(deps.db as unknown as PartialSweepDb, info.sessionKey, { text: toolBudgetStopNotice(MAX_ITERATIONS) });
+        } catch (err) {
+          log(`goal-loop: ${info.sessionKey}: cannot write the tool-budget stop notice (${err instanceof Error ? err.message : String(err)})`);
+        }
+        log(`goal-loop: ${info.sessionKey}: tool budget hit twice in a row, handing over to the human`);
+        return "tool-budget-stopped";
+      }
+      resumedAfterBudget.add(info.sessionKey);
+      log(`goal-loop: ${info.sessionKey}: turn cut by the tool budget, resuming once`);
+      try {
+        await deps.resend({ sessionKey: info.sessionKey, text: TOOL_BUDGET_RESUME_TEXT, attempt: 1, mark: "ripresa" });
+      } catch (err) {
+        log(`goal-loop: the tool-budget resume did not go through (${err instanceof Error ? err.message : String(err)})`);
+      }
+      return "tool-budget-resumed";
+    }
     const active = goal!;
 
     // The judge is the only cost of this file, and it is paid once per turn.
@@ -262,17 +311,20 @@ export function goalContinuationForChatRoute(deps: {
       const answer = await provider.complete([{ role: "user", content: prompt }], cheap);
       return answer.content ?? "";
     },
-    resend: async ({ sessionKey, text, attempt }) => {
+    resend: async ({ sessionKey, text, attempt, mark }) => {
       if (!route) return;
       const url = new URL("http://localhost/api/chat");
+      // The mark is what keeps the row honest: the message has to be a `user`
+      // one (the only role a provider answers) and the block is what stops the
+      // transcript from showing the human saying it. `goalNudge` draws the
+      // objective's continuation; `ripresa` draws the same resume line the boot
+      // uses, because a turn cut by our tool budget IS a resume, not a goal.
+      const marks = mark === "ripresa" ? { ripresa: attempt } : { goalNudge: attempt };
       const resp = await route(
         new Request(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          // `goalNudge` is what marks the row: the message has to be a `user`
-          // one (the only role a provider answers) and the block is what stops
-          // the transcript from showing the human saying it.
-          body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: text }], goalNudge: attempt }),
+          body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: text }], ...marks }),
         }),
         url, "/api/chat", "POST",
       );
