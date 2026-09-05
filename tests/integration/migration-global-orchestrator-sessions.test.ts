@@ -15,11 +15,17 @@
  * changes underneath these cases.
  * @covers GLOBAL-ORCHESTRATOR-REGISTRY-01
  */
-import { describe, expect, test, beforeAll } from "bun:test";
+import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
 import * as fs from "node:fs";
 import path from "node:path";
-import { setupTestDataDir, createTestAppContext, PROJECT_ROOT, testTmpDir } from "./helpers";
+import {
+  setupTestDataDir,
+  cleanupTestDataDir,
+  createTestAppContext,
+  PROJECT_ROOT,
+  testTmpDir,
+} from "./helpers";
 import { EMBEDDED_MIGRATIONS } from "../../server/db/migrations-embedded";
 
 const TEST_DATA = testTmpDir("migration-global-orchestrator-data");
@@ -32,6 +38,15 @@ const MIGRATION_SQL = fs.readFileSync(
 );
 
 beforeAll(() => setupTestDataDir(TEST_DATA));
+/**
+ * Not decoration, and not symmetry for its own sake: `server/db.ts` keeps the
+ * handle in a PROCESS singleton, and a shard runs hundreds of files in one
+ * process. Leaving it open hands the next file this database instead of its
+ * own, and the two `topics` rows seeded below become rows that file never
+ * created. Measured: it turned `topics-list-weight` red, which counts the boot
+ * list exactly, while both files passed when run alone.
+ */
+afterAll(() => cleanupTestDataDir(TEST_DATA));
 
 /**
  * A synthetic database with just enough of the real schema to hold the foreign
