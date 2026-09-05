@@ -265,6 +265,7 @@ function JobRow({ job, ranAt, onToggle, onRun, onDelete }: JobRowProps) {
 
   return (
     <div
+      data-testid={`cron-job-${job.id}`}
       className={`flex items-center gap-1.5 px-2 py-1.5 rounded group cursor-pointer ${
         job.enabled
           ? 'bg-primary/5 hover:bg-primary/10'

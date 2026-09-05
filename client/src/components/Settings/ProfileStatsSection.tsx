@@ -149,7 +149,7 @@ export function ProfileStatsSection() {
     } finally {
       setTokenBusy(null);
     }
-  }, [tokenBusy]);
+  }, [t, tokenBusy]);
 
   /** Revoca il token: il vecchio URL diventa 404 immediatamente. */
   const handleRevoke = useCallback(async () => {
@@ -167,7 +167,7 @@ export function ProfileStatsSection() {
     } finally {
       setTokenBusy(null);
     }
-  }, [tokenBusy]);
+  }, [t, tokenBusy]);
 
   if (errore) {
     return (

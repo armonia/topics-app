@@ -328,3 +328,39 @@ SCONOSCIUTO SHALL essere VISTO: il controllo SHALL sapere fallire.
 #### Scenario: un codice non dichiarato
 - **GIVEN** un codice fuori vocabolario
 - **THEN** SHALL essere segnalato
+
+### Requirement: ACCOUNT-04 — Uno scollegamento rifiutato non si può leggere come riuscito
+
+La riga che dice PERCHÉ viveva dentro il blocco «nessun account agganciato»,
+cioè esisteva solo nel caso in cui non serviva: dopo uno scollegamento fallito
+l'utente è ancora agganciato per definizione, quindi il motivo non era mai reso.
+
+Il motivo di un rifiuto SHALL essere reso indipendentemente dallo stato del
+collegamento.
+
+La superficie che lo porta SHALL sopravvivere alla conferma: il `pointerdown` in
+capture che chiude il popover non SHALL poter far sparire l'unico posto in cui
+la frase esiste.
+
+#### Scenario: la rotta di scollegamento rifiuta
+- **GIVEN** un account agganciato e la rotta che risponde con un rifiuto
+- **WHEN** si conferma «Scollega»
+- **THEN** il motivo SHALL essere visibile all'utente
+
+### Requirement: ORG-INST-03 — Un gruppo rifiutato non porta via il nome digitato
+
+`const b = r.ok ? await r.json() : null` leggeva il corpo e buttava via il
+rifiuto, e il `finally` chiudeva comunque il modulo: il server rifiuta con
+`name_required`, `no_person_for_org` o `db_unavailable`, e tutti e tre
+arrivavano come un modulo che si chiude da solo.
+
+Un rifiuto SHALL essere mostrato accanto al modulo che lo ha prodotto.
+
+Il modulo NON SHALL chiudersi su un rifiuto: il nome digitato resta, così
+riprovare non vuol dire riscrivere.
+
+#### Scenario: la creazione viene rifiutata
+- **GIVEN** il modulo del nuovo gruppo con un nome scritto dentro
+- **WHEN** il server rifiuta la creazione
+- **THEN** SHALL comparire il motivo
+- **AND** il campo SHALL essere ancora lì, col nome dentro

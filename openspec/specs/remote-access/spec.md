@@ -374,3 +374,23 @@ Un aggiornamento a socket da un'origine estranea SHALL essere rifiutato.
 #### Scenario: una lettura da un'altra origine
 - **GIVEN** una richiesta di sola lettura cross-origine
 - **THEN** NON SHALL ricevere il permesso di leggerne la risposta
+
+### Requirement: DEVICEUI-01 — Una revoca che non è passata non somiglia a una revoca riuscita
+
+È la superficie di sicurezza: esiste perché «authorization is per device and can
+be revoked at any time» sia vero anche per chi non usa `curl`. Revoca e
+rinomina non leggevano mai `r.ok`, e il rifiuto scritto nella stessa banda del
+caricamento veniva cancellato entro un secondo dal giro di ricarica che segue
+ogni gesto.
+
+Un gesto rifiutato SHALL lasciare il blocco d'errore del pannello, con il suo
+«Riprova», e quel blocco SHALL sopravvivere alla ricarica che il gesto stesso
+scatena.
+
+Una rinomina rifiutata NON SHALL chiudere il campo: il nome digitato resta.
+
+#### Scenario: la revoca viene rifiutata
+- **GIVEN** un dispositivo in elenco e la rotta che risponde con un rifiuto
+- **WHEN** si conferma il cestino
+- **THEN** SHALL comparire il blocco d'errore con «Riprova»
+- **AND** SHALL essere ancora lì dopo la ricarica dell'elenco
