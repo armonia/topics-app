@@ -3084,3 +3084,114 @@ invariato e verde.
 - **THEN** `task_comments` contiene UNA sola riga con quel testo (dedupe autore+testo)
 - **AND** `review_comment` è conservato
 - **AND** la busta di ripresa porta l'id di quella riga
+
+### Requirement: KANBAN-73 — La conversazione è UNA proiezione: ordine per istante, strip per ancora, mai una riga nascosta
+
+La conversazione della card SHALL essere una funzione PURA dei commenti del filo e
+dei messaggi della sessione (`mergeTaskTimeline(comments, msgs, {status,
+pinnedDeliveryId}, prev)`), testata senza DOM, senza nessun predicato testuale sul
+contenuto. Le regole SHALL essere applicate in quest'ordine:
+
+1. Una riga `user` con blocco busta E `commentIds` → NASCOSTA. Una busta senza
+   `commentIds` → riga collassata. Un `user` senza busta → bolla della persona.
+2. Una tool call specchiata (`mcp__topics__comment_task`,
+   `mcp__topics__update_task`, `mcp__topics__ask_user_question`) SHALL essere
+   tolta dalla riga SOLO se esiste un commento con `messageId === msg.id`. Senza
+   ancora la tool row SHALL restare: una domanda `ask_user_question` non
+   instradata SHALL vedersi e rispondersi dal suo modulo nella conversazione. Una
+   riga rimasta senza contenuto, ragionamento e tool SHALL essere scartata.
+3. Le corse di tool consecutive SHALL essere fuse («N azioni») prima della
+   fusione con i commenti.
+4. L'ordine SHALL essere per istante; a parità SHALL venire prima il commento; un
+   commento con `messageId` SHALL essere disegnato SUBITO DOPO quel messaggio,
+   qualunque sia l'orologio. La riga `partial` SHALL essere l'ULTIMO MESSAGGIO
+   della sessione; i commenti ancorati a lei SHALL seguirla, subito dopo; la riga
+   live (`task-session-live`) SHALL venire dopo di loro.
+5. Su una card `done` la `delivery` appuntata nella banda SHALL essere ESCLUSA
+   dall'elenco. La nota con le «Ultime parole dell'agent» SHALL restare in elenco e
+   NON SHALL piegarsi.
+6. Un item il cui commento o messaggio è lo stesso riferimento di prima SHALL
+   essere lo stesso oggetto.
+
+Il modo di sbagliare SHALL essere una riga in più, MAI una riga nascosta. La lista
+vuota SHALL mostrare la frase di EMPTYTHREAD-01 per lo stato della card, anche se
+la card ha un topic.
+
+MISURA: `bun test client/src/components/Board` — `taskTimeline.test.ts` copre le
+regole 1-6 e il chip derivato (KANBAN-74); `dispatchedEnvelope.test` copre
+`envelopeCommentIds`; ThreadRuns.test.tsx:132-140 resta verde. e2e DRAWER-05: un
+commento agente seminato con `messageId` sta subito sotto il suo messaggio e la
+tool row `comment_task` non è disegnata; un messaggio con `ask_user_question` in
+`waiting_for_input` SENZA commento instradato mostra il `ToolInputForm` nella
+colonna; la busta con `commentIds` NON compare. BOARD-03b (`board.spec.ts`) resta
+verde.
+
+#### Scenario: il commento ancorato si disegna una volta, subito dopo il suo passo
+- **GIVEN** un messaggio assistant `m1` con una tool call `mcp__topics__comment_task`
+- **AND** un commento `c1` con `messageId = 'm1'` e `createdAt` più vecchio di `m1`
+- **THEN** la conversazione ha `m1` senza la tool row e `c1` subito dopo `m1`
+
+#### Scenario: il commento ancorato alla riga in streaming la segue, e la riga live viene dopo
+- **GIVEN** una riga assistant `partial` `m9` e un commento `c9` con `messageId = 'm9'`
+- **THEN** l'ordine è `m9`, `c9`, riga live
+
+#### Scenario: senza ancora restano entrambe le righe
+- **GIVEN** un messaggio assistant `m2` con `mcp__topics__comment_task`
+- **AND** un commento `c2` con `messageId = null`
+- **THEN** la tool row di `m2` resta e `c2` è ordinato per istante
+
+#### Scenario: la domanda non instradata si risponde dalla conversazione
+- **GIVEN** un messaggio con `ask_user_question` in `waiting_for_input` e nessun commento con quell'ancora
+- **THEN** la conversazione mostra il modulo della domanda
+- **AND** rispondere lì chiude il rendez-vous senza un reject
+
+#### Scenario: la busta con id non si vede, quella senza è una riga collassata
+- **GIVEN** una riga `user` busta con `commentIds: ['c1']` e una riga `user` busta di kickoff senza id
+- **THEN** la prima non compare
+- **AND** la seconda è una `DispatchEnvelopeRow` collassata
+
+#### Scenario: la delivery appuntata non si dipinge due volte
+- **GIVEN** una card `done` con una riga `delivery` `d1` appuntata nella banda
+- **THEN** `d1` non è nell'elenco della conversazione
+
+#### Scenario: stabilità per riferimento
+- **GIVEN** una proiezione precedente `prev` e gli stessi oggetti commento/messaggio
+- **THEN** ogni item invariato è lo stesso oggetto di `prev`
+
+### Requirement: KANBAN-74 — «Consegnato» e «in coda» si DERIVANO dalla busta, mai si scrivono
+
+Lo stato di consegna di un messaggio umano SHALL essere derivato a ogni lettura
+dalle buste della sessione, e SHALL essere mostrato come chip sotto la bolla della
+persona:
+
+- **consegnato** — esiste una busta che porta il suo id in `commentIds`; il chip
+  SHALL portare il link al messaggio;
+- **in coda** — nessuna busta porta il suo id, nessuna busta è più recente del
+  commento, e la card è `in_progress` o `todo`;
+- **niente** — altrimenti.
+
+Nessun processo SHALL scrivere questo stato nel filo (KANBAN-36). Un riavvio che
+perde il buffer NON SHALL lasciare una promessa: la busta di continuazione, più
+recente del commento, fa cadere il chip da sola.
+
+MISURA: `taskTimeline.test.ts` copre i tre casi e il riavvio (busta più recente
+senza l'id → nessun chip). e2e DRAWER-05: steer scritto nel composer durante un
+turno vivo → bolla grigia con chip «in coda»; dopo `stream:end` e la ripresa il
+chip dice «consegnato». i18n `board.task.delivered` / `board.task.queuedForTurn`
+in it/en.
+
+#### Scenario: in coda, poi consegnato
+- **GIVEN** un turno vivo su una card `in_progress`
+- **WHEN** la persona scrive nel composer
+- **THEN** la bolla porta il chip «in coda»
+- **WHEN** il turno finisce e la busta di ripresa porta il suo id
+- **THEN** il chip dice «consegnato» e punta al messaggio
+
+#### Scenario: il riavvio non promette niente
+- **GIVEN** un commento `c1` mai portato da una busta
+- **AND** una busta di continuazione con `timestamp > c1.createdAt` senza `commentIds`
+- **THEN** `c1` non porta nessun chip
+
+#### Scenario: una card done non ha code
+- **GIVEN** un commento umano su una card `done` senza busta
+- **THEN** nessun chip

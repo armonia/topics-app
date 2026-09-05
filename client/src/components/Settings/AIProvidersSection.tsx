@@ -3,6 +3,7 @@ import { useT } from '../../hooks/useT';
 import { X, Cpu, Check, ChevronDown, ChevronRight, RefreshCw, Copy, AlertCircle } from 'lucide-react';
 import type { ProviderSnapshotEntry } from '../../types';
 import { providersApi, appSettingsApi, type AppBehaviorSettings } from '../../lib/api';
+import { copyText } from '../../lib/clipboard';
 import { enabledToSelect, selectToEnabled } from './behaviorDefaults';
 import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from '../../../../shared/effort';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
@@ -700,18 +701,14 @@ function UnregisteredClaudeCode({
 function RequirementRow({ req }: { req: { key: string; label: string; present: boolean; hint?: string } }) {
   const [copied, setCopied] = useState(false);
 
-  const copy = () => {
+  const copy = async () => {
     if (!req.hint) return;
     const cmd = req.hint.match(/Run [^:]*:\s*(.+)/)?.[1]
       ?? req.hint.match(/→\s*(.+)/)?.[1]
       ?? req.hint;
-    navigator.clipboard.writeText(cmd.trim()).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    }).catch(() => {
-      // Clipboard write can be rejected (no permission / insecure context) —
-      // swallow it so it doesn't surface as an unhandled rejection.
-    });
+    if (!(await copyText(cmd.trim()))) return;
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
   };
 
   return (

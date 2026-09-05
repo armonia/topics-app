@@ -26,7 +26,12 @@ interface Props {
   /** Ripiego quando il goal non ha passi suoi: l'ultimo TodoWrite del turno. */
   fallback?: TodoSnapshot;
   onClose: (status: 'achieved' | 'abandoned') => void;
-  onEdit: (content: string) => void;
+  /**
+   * Renames the goal. If the promise REJECTS the field stays open with the typed
+   * text: whoever passes it shows the error and then re-throws, because this
+   * field is the only copy of that text.
+   */
+  onEdit: (content: string) => void | Promise<void>;
   /** Stop the auto-continuation, leaving the objective alive. */
   onStopLoop?: () => void;
   /** The person adopts a goal the agent proposed. Absent = no button. */
@@ -46,6 +51,10 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote
   const [manualExpand, setManualExpand] = useState<boolean | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(goal.content);
+  // The write is in flight. Two jobs: no second write (Enter and then the blur
+  // of a click elsewhere called `commit` twice), and no closing the field before
+  // the server has answered.
+  const [saving, setSaving] = useState(false);
 
   const own = goal.steps.length > 0;
   const rows: Row[] = own
@@ -69,14 +78,31 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote
   const chasing = goal.loopState === 'running' && goal.continuations > 0;
   const waiting = goal.loopState === 'blocked';
 
-  function commit() {
+  // THE FIELD CLOSES AFTER THE SERVER, NOT BEFORE.
+  //
+  // `setEditing(false)` used to sit above `onEdit`: with the write refused the
+  // field vanished and the OLD title came back on screen, which is exactly how a
+  // success looks, and the text just typed was gone. The write is awaited now:
+  // on success the field closes, on a rejection it stays open with what the
+  // person typed, ready for a retry (the toast comes from whoever passes
+  // `onEdit`).
+  async function commit() {
+    if (saving) return;
     const next = draft.trim();
-    setEditing(false);
     if (!next || next === goal.content) {
       setDraft(goal.content);
+      setEditing(false);
       return;
     }
-    onEdit(next);
+    setSaving(true);
+    try {
+      await onEdit(next);
+      setEditing(false);
+    } catch {
+      // Stay in edit mode: the typed text is the only copy there is.
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (editing) {
@@ -90,9 +116,9 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote
           autoFocus
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
+          onBlur={() => { void commit(); }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') commit();
+            if (e.key === 'Enter') void commit();
             if (e.key === 'Escape') {
               setDraft(goal.content);
               setEditing(false);
@@ -174,6 +200,7 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote
         )}
         <button
           type="button"
+          data-testid="goal-edit"
           onClick={() => {
             setDraft(goal.content);
             setEditing(true);

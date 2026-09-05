@@ -106,7 +106,7 @@ sola con la sua barra.
 
 ## 3. T3 — Una colonna: la proiezione e il drawer che la disegna; via la scheda Sessione
 
-- [ ] 3.1 `client/src/components/Board/taskTimeline.ts` + `taskTimeline.test.ts`:
+- [x] 3.1 `client/src/components/Board/taskTimeline.ts` + `taskTimeline.test.ts`:
   `TimelineItem`, `mergeTaskTimeline(comments, msgs, {status, pinnedDeliveryId}, prev?)`
   con le regole (a) busta con `commentIds` nascosta / senza → `envelope` / user
   senza busta → umano; (b) strip di `mcp__topics__comment_task`/`update_task`/
@@ -119,26 +119,26 @@ sola con la sua barra.
   riga live (`task-session-live`) viene dopo di loro; (f) `pinnedDeliveryId`
   esclusa; (g) stabilità per riferimento; (h) chip `delivered`/`pending`
   derivato. Un test per regola. Nessun predicato testuale.
-- [ ] 3.2 `client/src/components/Chat/dispatchedEnvelope.ts`:
+- [x] 3.2 `client/src/components/Chat/dispatchedEnvelope.ts`:
   `envelopeCommentIds(blocks): string[]` (+ test).
-- [ ] 3.3 `DispatchEnvelopeRow` estratta da `MessageBubble.tsx:253-270` in
+- [x] 3.3 `DispatchEnvelopeRow` estratta da `MessageBubble.tsx:253-270` in
   `client/src/components/Chat/DispatchEnvelopeRow.tsx`, usata da entrambe le
   superfici.
-- [ ] 3.4 Render in `TaskDetail.tsx` `renderThread` (1685-1755):
+- [x] 3.4 Render in `TaskDetail.tsx` `renderThread` (1685-1755):
   `<ThreadRuns comments={timeline} …>` con `renderRow` che smista su `source`
   (comment → `CommentBubble` + chip `board.task.delivered`/`board.task.queuedForTurn`
   sotto la bolla propria; session assistant → `SessionItem` = `MessageContent`
   dentro `COMPACT_MD_CLS` senza `usage*`/`costCents`; session user → bolla grigia;
   envelope → `DispatchEnvelopeRow`).
-- [ ] 3.5 UNA `SessionLiveRow` (spostata con `Ticker` in
+- [x] 3.5 UNA `SessionLiveRow` (spostata con `Ticker` in
   `client/src/components/Board/SessionLiveRow.tsx`, senza `preview`/`onOpenPane`)
   sotto la riga `partial` quando `agentBusy`; `task-stream-preview` sparisce.
-- [ ] 3.6 Stick-to-bottom entro 80 px (regola di SessionPane.tsx:139-150) sul solo
+- [x] 3.6 Stick-to-bottom entro 80 px (regola di SessionPane.tsx:139-150) sul solo
   scroller (1710), via lo `scrollIntoView` su `comments.length` (935).
-- [ ] 3.7 Vuoto: `task-thread-empty` quando `timeline.length === 0` (cade
+- [x] 3.7 Vuoto: `task-thread-empty` quando `timeline.length === 0` (cade
   `!task.assignedTopicId`, 1716-1720). Banda della consegna su done tenuta, riga
   esclusa. Etichetta `board.task.threadLabel` → «Conversazione»/«Conversation».
-- [ ] 3.8 Cancellare: `sessionBuckets.ts` (+test), `SessionPane.tsx`,
+- [x] 3.8 Cancellare: `sessionBuckets.ts` (+test), `SessionPane.tsx`,
   `renderSessionPane` (1766-1782), ramo `session:` di `renderSurface` (1787),
   `bucketsRef`/`sessionBuckets`/`boundaryIds` (1668-1683), la mappa temporanea di
   T2; in `useTaskBrowserGroupLayout.tsx` `sessionActive`/`sessionTitle`/
@@ -146,7 +146,7 @@ sola con la sua barra.
   di `ThreadRuns.tsx:75-79` (+ riga in ThreadRuns.test.tsx:45-49); i18n
   `board.task.sessionLabel/sessionReplied/sessionEmpty/openSessionPane/streamPreviewTitle`
   (i18n-it.ts:732, 769-773; i18n-en).
-- [ ] 3.9 e2e in `tests/e2e/board-drawer-scroll.spec.ts`: DRAWER-04 riscritto
+- [x] 3.9 e2e in `tests/e2e/board-drawer-scroll.spec.ts`: DRAWER-04 riscritto
   («il passo sta dentro `task-session-column` e non esiste `pane-tab-session:*`»);
   DRAWER-03b senza l'asserzione sulla tab; DRAWER-05 (estende 05a): passo vivo
   nella colonna; steer dal composer → bolla con chip «in coda» → dopo
@@ -157,7 +157,7 @@ sola con la sua barra.
   Il passo assistant si semina con `POST /api/topics/:topicId/system-message`
   (board-drawer-scroll.spec.ts:152), il seme che i test già usano.
   Registrare il `.webm` di DRAWER-05.
-- [ ] 3.10 Barra T3: `bun test client/src/components/Board client/src/components/Chat`
+- [x] 3.10 Barra T3: `bun test client/src/components/Board client/src/components/Chat`
   verde; `bun run typecheck` e `bun run check:deadcode` verdi;
   `bunx playwright test tests/e2e/board-drawer-scroll.spec.ts tests/e2e/board.spec.ts
   tests/e2e/board-card-vs-session.spec.ts tests/e2e/board-review-quiet-note.spec.ts`

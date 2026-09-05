@@ -10,6 +10,7 @@ import {
   clearRing,
   type MutationLogEntry,
 } from '../middleware/mutationLog';
+import { copyText } from '../../../lib/clipboard';
 import { useKeyChord } from './useKeyChord';
 
 const MAX_RENDER = 500;
@@ -81,11 +82,7 @@ export function MutationLogOverlay(): JSX.Element | null {
     const ndjson = getRing()
       .map((e) => JSON.stringify(e))
       .join('\n');
-    try {
-      await navigator.clipboard.writeText(ndjson);
-    } catch {
-      // Silent fail — dev tool; user can retry.
-    }
+    await copyText(ndjson); // dev tool: best-effort, boolean swallowed
   };
 
   const buttonStyle = {

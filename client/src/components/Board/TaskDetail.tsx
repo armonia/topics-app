@@ -19,7 +19,7 @@ import { dragCarriesFiles, filesFromDrop, imagesFromClipboard, uploadAttachment,
 import { isImagePath, isPdfPath, isVideoPath } from '../../lib/mediaKind';
 import { isSupersededPreviewNote } from '../../../../shared/preview-retirement';
 import { isResolvedParkedQuestion } from '../../../../shared/parked-question';
-import { isDoneThreadService } from '../../../../shared/task-comment-service';
+import { isDoneThreadService, isServiceComment } from '../../../../shared/task-comment-service';
 import { questionToProse } from '../../../../shared/question-prose';
 import { ThreadRuns } from './ThreadRuns';
 import { copyText } from '../../lib/clipboard';
@@ -54,19 +54,21 @@ import { formatReviewNotes } from './reviewNotes';
 import { COMPACT_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, mediaPaneIdFor, type TaskSurface } from './constants';
 import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtTok, fmtUpdatedAt, autoGrow, attemptStat, taskCopyText, descSummary, fmtCount } from './format';
 import { StatusIcon, DispatchChip, QueueReasonChip } from './atoms';
-import { bucketSessionMsgs, EMPTY_SESSION_BUCKETS, type SessionBuckets, type SessionMsg } from './sessionBuckets';
 import { getSessionMessagesFromStore, subscribeSession } from '../../state/messageStore';
-import type { ChatMessage } from '../../types';
+import { MessageContent } from '../MessageContent';
+import type { ChatMessage, WSMessage } from '../../types';
 import { holdTopic } from '../../state/topicSubscriptions';
 
 /** One shared empty array: a new one per read would loop `useSyncExternalStore`. */
 const EMPTY_CHAT_MESSAGES: ChatMessage[] = [];
-import { SessionPane, SessionLiveRow } from './SessionPane';
+import { SessionLiveRow } from './SessionLiveRow';
+import { mergeTaskTimeline, type TimelineItem } from './taskTimeline';
+import { DispatchEnvelopeRow } from '../Chat/DispatchEnvelopeRow';
 import { usePaneAlive } from '../../state/paneLiveness';
 import { ProjectPickerBody } from './ProjectPicker';
 import { addBoardProject, projectNameFromId, useBoardProjects, UNKNOWN_PROJECT_NAME } from '../../lib/boardProjectsStore';
 import { GroupLayout } from '../Layout/GroupLayout';
-import { useTaskBrowserGroupLayout, sessionPaneId, type TaskBrowserGroupLayout, type RenderSurface } from './useTaskBrowserGroupLayout';
+import { useTaskBrowserGroupLayout, type TaskBrowserGroupLayout, type RenderSurface } from './useTaskBrowserGroupLayout';
 import { POPOVER_DIVIDER, POPOVER_ITEM } from '@/lib/popoverStyles';
 
 /** Feature flag (per-client kill-switch): the task's browser lives as a
@@ -849,7 +851,18 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // Piano + media as panes → the app's real PaneTabBar). `wide` is now a pure
   // width preference (more room for the native tiling), no side-panel fold.
   const rootRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  /**
+   * FOLLOW THE AGENT, BUT ONLY IF THE READER IS ALREADY AT THE BOTTOM.
+   *
+   * The conversation used to jump to the end on every change of
+   * `comments.length`, through a `scrollIntoView` on a sentinel: that scrolls
+   * every ANCESTOR too, and now that the agent's steps stream into this same
+   * list a new row arrives several times a second. Scrolling up to re-read what
+   * the agent said two minutes ago must not be undone by the next token.
+   * `scrollTop` on the one scroller, and an 80px grace band for "at the bottom".
+   */
+  const threadScrollRef = useRef<HTMLDivElement>(null);
+  const stickRef = useRef(true);
 
   // Swipe-to-close (mobile full-screen overlay only). Track the first touch and
   // lock onto a horizontal drag (dominant X vs Y) so a vertical scroll inside the
@@ -946,7 +959,6 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       window.removeEventListener('focus', onWake);
     };
   }, [load]);
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [comments.length]);
 
   // A human comment on an agent-delivered review IS the answer — same
   // semantics as the card's quick-reply: reject carries the text and resumes
@@ -1671,97 +1683,125 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   }, [refreshSession]);
 
   /**
-   * The temporary bridge to `SessionPane`, which still speaks `SessionMsg`.
-   * T3 of this change deletes both this map and the pane; until then the
-   * drawer draws exactly what it drew before, from a different source.
-   */
-  const sessionMsgs = useMemo<SessionMsg[] | null>(() => {
-    if (!sessionKey) return null;
-    return storeMessages
-      // Thinking-only rows count: mid-stream the newest message may have
-      // reasoning and no prose yet, and that IS the live preview.
-      .filter((m) => (m.content ?? '').trim() || (m.thinking ?? '').trim())
-      .map((m) => ({ role: m.role ?? 'assistant', content: m.content ?? '', timestamp: m.timestamp ?? '', thinking: m.thinking }));
-  }, [sessionKey, storeMessages]);
-
-  /**
-   * Tail of the live turn: the "how is it going" glance without opening
-   * anything. It is the last assistant row still `partial` — the streaming one
-   * — and nothing else: a finished turn has no preview to show. T3 removes it
-   * along with the pane that draws it.
-   */
-  const streamPreview = useMemo(() => {
-    if (!agentBusy) return null;
-    let last: ChatMessage | undefined;
-    for (let i = storeMessages.length - 1; i >= 0; i--) {
-      const m = storeMessages[i];
-      if (m.role !== 'user') { last = m; break; }
-    }
-    if (!last?.partial) return null;
-    const text = (last.thinking?.trim() || (last.content ?? '').trim()).replace(/\s+/g, ' ');
-    return text ? text.slice(-280) : null;
-  }, [agentBusy, storeMessages]);
-
-  /**
-   * The session cut at the comment boundaries, ONE pass per update.
+   * THE CARD'S CONVERSATION, as one list.
    *
-   * The cut no longer decides WHERE the steps are drawn (the session pane draws
-   * them whole); it decides where the pane puts a "replied here" mark, which is
-   * the one thing the old interleaved slices carried that a flat transcript
-   * would lose. Unchanged buckets keep their array, so a session that did not
-   * move between two polls hands the pane the same rows and it skips its
-   * render. `bucketsRef` carries the previous result in: the memo cannot read
-   * its own output.
+   * The thread and the session were two lists of the same turn, side by side,
+   * and the reader did the join by hand across two scrollers. `mergeTaskTimeline`
+   * does it here, purely (see `taskTimeline.ts` and KANBAN-73): the envelopes
+   * the dispatcher wrote fold out of the way, a mirrored `comment_task` tool row
+   * disappears only where the comment it produced is already on screen, and a
+   * comment anchored to a message sits right under it whatever the two clocks
+   * say. `timelineRef` carries the previous result in, so an unchanged row comes
+   * back as the same object: the memo cannot read its own output.
    */
-  const bucketsRef = useRef<SessionBuckets>(EMPTY_SESSION_BUCKETS);
-  const sessionBuckets = useMemo(
-    () => bucketSessionMsgs(sessionMsgs, threadComments, bucketsRef.current),
-    [sessionMsgs, threadComments],
+  const deliveryWord = useMemo(
+    () => [...threadComments].reverse().find((c) => c.kind === 'delivery') ?? null,
+    [threadComments],
   );
-  useEffect(() => { bucketsRef.current = sessionBuckets; }, [sessionBuckets]);
-  /** The thread's comment ids in order: the boundaries the session pane draws
-   *  its "replied here" marks against. */
-  const boundaryIds = useMemo(() => threadComments.map((c) => c.id), [threadComments]);
+  const pinnedDeliveryId = task?.status === 'done' ? deliveryWord?.id ?? null : null;
+  const timelineRef = useRef<TimelineItem[]>([]);
+  const timeline = useMemo(
+    () => mergeTaskTimeline(threadComments, storeMessages, { status: task?.status ?? '', pinnedDeliveryId }, timelineRef.current),
+    [threadComments, storeMessages, task?.status, pinnedDeliveryId],
+  );
+  useEffect(() => { timelineRef.current = timeline; }, [timeline]);
+  useEffect(() => {
+    const el = threadScrollRef.current;
+    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
+  }, [timeline]);
 
   // ── Drawer body = ONE task-scoped GroupLayout ─────────────────────────────
   // Thread, live browser tabs, Piano and each media attachment are all PANES of
   // the app's REAL PaneTabBar (a single tab bar; native split/resize/drag). The
-  // hook owns identity + tiling; the derived (thread/session/plan/media) pane
+  // hook owns identity + tiling; the derived (thread/plan/media) pane
   // bodies render through `renderSurface`. Defined here (after the thread deps:
-  // sessionBuckets/agentBusy/streamPreview…) so every dep array is in scope.
+  // `timeline`, `agentBusy`…) so every dep array is in scope.
   const browserRef = useRef<TaskBrowserGroupLayout | null>(null);
   const renderThread = useCallback((): React.ReactNode => {
     if (!task) return null;
-    // ONE row = one comment. The agent's steps used to be interleaved above
-    // every row as a collapsed slice; they live in the Session pane now, whole
-    // and open, so the thread is the conversation and nothing else. Nothing is
-    // drawn in the gap above a row any more, which is also why the wall of
-    // bookkeeping no longer needs a cut rule (`breaksRun`).
-    const row = (c: TaskComment) => (
-      <CommentBubble
-        key={c.id}
-        comment={c}
+    /**
+     * ONE ROW OF THE CONVERSATION, whichever list it came from.
+     *
+     * The three shapes are not three styles of the same thing: a card comment
+     * is a bubble with an author and a time, a step of the session is drawn by
+     * the SAME `MessageContent` the topic chat uses (so a tool row, a question
+     * form, a reasoning fold look and behave identically on both surfaces), and
+     * a dispatcher envelope is one collapsed service line. What decides is
+     * `source`, never the text.
+     */
+    const row = (item: TimelineItem) => {
+      if (item.source === 'comment') {
+        const chip = item.delivery;
+        return (
+          <div key={item.id} className="space-y-0.5">
+            <CommentBubble
+              comment={item.comment}
+              ownerName={ownerName}
+              resolvedParked={isResolvedParkedQuestion(item.comment, children)}
+              onPreview={(p) => browserRef.current?.focusPane(`media:${p}`)}
+            />
+            {/* WHERE YOUR MESSAGE GOT TO, derived from the envelopes at every
+                read and never written into the thread (KANBAN-74). It sits
+                under the person's own bubble, on their side. */}
+            {chip && (
+              <p
+                data-testid={chip === 'delivered' ? 'task-comment-delivered' : 'task-comment-queued'}
+                className="pr-1 text-right text-[10px] text-app-text-faint"
+              >{tr(chip === 'delivered' ? 'board.task.delivered' : 'board.task.queuedForTurn')}</p>
+            )}
+          </div>
+        );
+      }
+      if (item.envelope) return <DispatchEnvelopeRow key={item.id} messageId={item.msg.id} content={item.msg.content} />;
+      if (item.msg.role === 'user') {
+        // Something typed into the topic itself rather than into the card. The
+        // same grey bubble a comment of yours gets: it is the same voice, and
+        // two greys for one person would be a difference that means nothing.
+        return (
+          <div key={item.id} className="flex justify-end">
+            <div className="user-bubble max-w-[88%] rounded-lg bg-app-user-bubble px-2.5 py-1.5 text-sm text-app-text">
+              <div className={COMPACT_MD_CLS}><ChatMarkdown components={{}}>{item.msg.content}</ChatMarkdown></div>
+            </div>
+          </div>
+        );
+      }
+      return <SessionItem key={item.id} msg={item.msg} sessionKey={sessionKey} onMessage={onMessage} />;
+    };
+    // Adjacent status transitions are ONE chip strip. Only comments carry a
+    // status, so the cast back is total.
+    const statusRun = (items: TimelineItem[]) => (
+      <StatusTrail
+        comments={items.flatMap((i) => (i.source === 'comment' ? [i.comment] : []))}
         ownerName={ownerName}
-        resolvedParked={isResolvedParkedQuestion(c, children)}
-        onPreview={(p) => browserRef.current?.focusPane(`media:${p}`)}
       />
     );
-    // Adjacent status transitions are ONE chip strip.
-    const statusRun = (cs: TaskComment[]) => (
-      <StatusTrail comments={cs} ownerName={ownerName} />
-    );
-    // The declared delivery (`kind: 'delivery'`), latest one: the row the
-    // closed card is pinned on. Null when nobody declared one.
-    const deliveryWord = [...threadComments].reverse().find((c) => c.kind === 'delivery') ?? null;
+    /**
+     * WHAT FOLDS, and the guard that matters: a row of the SESSION never does.
+     * The fold's rule was written for the thread's bookkeeping; run over a
+     * transcript it would start classifying the agent's own steps, and a fold
+     * that swallows the work is exactly the silent failure this projection
+     * exists to avoid.
+     */
+    const folds = task.status === 'done' ? isDoneThreadService : isServiceComment;
+    const isService = (item: TimelineItem) => item.source === 'comment' && folds(item);
     return (
-      <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
+      <div
+        ref={threadScrollRef}
+        onScroll={() => {
+          const el = threadScrollRef.current;
+          if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+        }}
+        className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-3"
+      >
         {/* IL VUOTO DICE COSA SUCCEDERA', non che e' vuoto. «Nessun commento»
             constatava un'assenza che si vede gia' da sola; questa riga e'
             l'unico posto in cui dire DOVE arriveranno la consegna e le domande
             dell'agente, e a chi tocca la mossa. Cambia con lo stato, perche' un
             task in coda e uno in backlog aspettano cose diverse: il secondo
-            aspetta te. */}
-        {threadComments.length === 0 && !task.assignedTopicId && (
+            aspetta te. Ora la condizione e' la LISTA vuota e basta: da quando
+            la sessione e' nella stessa lista, "ha un topic" non dice piu'
+            niente su quello che c'e' da leggere. */}
+        {timeline.length === 0 && (
           <p data-testid="task-thread-empty" className="text-xs text-app-text-muted">
             {tr(emptyThreadKey(task.status))}
           </p>
@@ -1769,69 +1809,40 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
         {/* THE DELIVERY, PINNED, on a closed card. Whoever opens a done task
             without having followed the chat read four lines of land plumbing
             before finding what changed and why. The declared delivery is the
-            one anchor the thread has; up here it is the first thing read. */}
+            one anchor the thread has; up here it is the first thing read. It is
+            excluded from the list below, so it is painted once. */}
         {task.status === 'done' && deliveryWord && (
           <div data-testid="task-delivery-band" className="rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 pb-1 pt-1.5">
             <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-emerald-300">{tr('board.task.deliveryBand')}</div>
-            {row(deliveryWord)}
+            <CommentBubble
+              comment={deliveryWord}
+              ownerName={ownerName}
+              onPreview={(p) => browserRef.current?.focusPane(`media:${p}`)}
+            />
           </div>
         )}
         <ThreadRuns
-          comments={threadComments} renderRow={row} renderStatusRun={statusRun}
-          // On a closed card the land's hygiene notes fold with the bookkeeping:
-          // the outcome they report is the column the card sits in.
-          isService={task.status === 'done' ? isDoneThreadService : undefined}
+          comments={timeline} renderRow={row} renderStatusRun={statusRun}
+          isService={isService}
         />
-        {/* THE LIVE ROW STAYS HERE even though the steps left. "How is it
-            going" is asked where you write, and a composer with no sign of life
-            above it reads as an agent that stopped. The preview is one line,
-            not the steps: pressing it brings the Session tab forward, which is
-            where the steps went. */}
+        {/* THE LIVE ROW, at the tail: "how is it going" is asked where you
+            write, and a composer with no sign of life above it reads as an
+            agent that stopped. No preview any more, because the streaming row
+            itself is right above this one now. */}
         {agentBusy && (
           <SessionLiveRow
             phase={task.dispatchState === 'queued' ? tr('board.task.dispatch.queued') : task.dispatchState === 'starting' ? tr('board.task.dispatch.starting') : tr('board.task.dispatch.working')}
             since={task.dispatchState === 'working' ? task.inProgressAt : null}
             stopping={busy}
-            preview={streamPreview}
             onStop={() => { void stopAgent(); }}
-            onOpenPane={() => { browserRef.current?.focusPane(sessionPaneId(taskId)); }}
           />
         )}
-        <div ref={bottomRef} />
       </div>
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- stopAgent/bottomRef are stable enough; the meaningful inputs are listed
-  }, [task, threadComments, agentBusy, streamPreview, busy, tr, ownerName, taskId]);
-
-  /**
-   * The agent session, WHOLE, as the leftmost tab of the task's workspace.
-   *
-   * The live row is repeated here rather than shared with the thread by a ref:
-   * both surfaces can be on screen at once (two columns), and a Stop button
-   * that exists in only one of them is a Stop button you cannot reach from
-   * where you happen to be looking.
-   */
-  const renderSessionPane = useCallback((): React.ReactNode => (
-    <SessionPane
-      buckets={sessionBuckets}
-      boundaryIds={boundaryIds}
-      live={agentBusy && task ? (
-        <SessionLiveRow
-          phase={task.dispatchState === 'queued' ? tr('board.task.dispatch.queued') : task.dispatchState === 'starting' ? tr('board.task.dispatch.starting') : tr('board.task.dispatch.working')}
-          since={task.dispatchState === 'working' ? task.inProgressAt : null}
-          stopping={busy}
-          preview={streamPreview}
-          onStop={() => { void stopAgent(); }}
-        />
-      ) : null}
-    />
     // eslint-disable-next-line react-hooks/exhaustive-deps -- stopAgent is stable enough; the meaningful inputs are listed
-  ), [sessionBuckets, boundaryIds, agentBusy, task, tr, busy, streamPreview]);
+  }, [task, timeline, deliveryWord, agentBusy, busy, tr, ownerName, children, sessionKey, onMessage]);
 
   const renderSurface = useCallback<RenderSurface>((pane, _isVisible) => {
-    // Session first: it is the task's main surface, and the prefixes are
-    // disjoint, so the order is the statement rather than the routing.
-    if (pane.id.startsWith('session:')) return renderSessionPane();
     if (pane.id.startsWith('thread:')) return renderThread();
     if (pane.id.startsWith('plan:') && planComment)
       return <SurfaceContent surface={{ id: pane.id, kind: 'plan', label: 'Piano', content: planComment.content }} taskId={taskId} />;
@@ -1840,23 +1851,17 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       return <SurfaceContent surface={{ id: pane.id, kind: 'media', label: pane.title || 'Allegato', url: getMediaUrl(p), path: p }} taskId={taskId} />;
     }
     return null;
-  }, [renderSessionPane, renderThread, planComment, taskId]);
+  }, [renderThread, planComment, taskId]);
 
   // The single GroupLayout that IS the drawer body's tab system.
   //
-  // `threadInline` stays on: the THREAD (the conversation, with the composer
-  // under it) keeps its own column and never goes back into the tab group.
-  // What the agent DID is a different thing from what you say to it, and it is
-  // the half you look at: `sessionActive` gives it a tab of its own, next to
-  // the browser tabs, the plan and the attachments.
-  //
-  // No topic, no session, no tab: a task that was never dispatched has nothing
-  // to show, and an empty "Sessione" tab would be a surface repeating what the
-  // empty thread already says.
+  // `threadInline` stays on: the CONVERSATION (with the composer under it)
+  // keeps its own column and never goes back into the tab group. There is no
+  // Session tab any more: what the agent did is not a second surface next to
+  // what it said, it is the same list, and the tab group is left to the things
+  // you look AT while you read it (browser tabs, the plan, the attachments).
   const browser = useTaskBrowserGroupLayout(taskId, {
     planActive: !!planComment,
-    sessionActive: !!task?.assignedTopicId,
-    sessionTitle: tr('board.task.sessionLabel'),
     mediaPaths,
     renderSurface,
     threadInline: true,
@@ -1864,8 +1869,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   });
   // How many panes the group has. Zero means a task with nothing to look at,
   // and the two layouts say so in two different ways (empty state on the right,
-  // a single disabled row in one column). A dispatched task is never zero any
-  // more: the session alone fills it.
+  // a single disabled row in one column).
   const workspacePaneCount = browser.groupLayoutProps.panes.length;
   const hasWorkspacePanes = workspacePaneCount > 0;
   // Apertura mirata. Va riprovata: al primo render i commenti (e quindi i media,
@@ -3362,14 +3366,45 @@ export function MediaStrip({ media, onPreview }: { media?: string[]; onPreview?:
 }
 
 /**
- * One thread message. Only the HUMAN's messages are chat bubbles (right,
- * accent tint); agent and system output is bare text on the left — no card, no
- * author title (for dispatched agents the raw author is the topic name = the
- * task title, so any label would read like a bogus username; it survives only
- * in the tooltip). System notes are dimmed.
+ * ONE STEP OF THE AGENT, drawn exactly as the topic chat draws it.
+ *
+ * `MessageContent` and nothing else: the reasoning fold, the tool rows, the
+ * media, and the `ToolInputForm` a paused `ask_user_question` puts on screen
+ * all come for free, and they BEHAVE the same on both surfaces. The drawer used
+ * to have its own miniature renderer for this (thinking, then prose, and that
+ * was all), which is why a question the agent asked was answerable in the chat
+ * and dead in the card.
+ *
+ * What is deliberately NOT passed is the accounting: `usage*` and `costCents`
+ * draw a per-turn footer that belongs to the chat, not to a 22rem column where
+ * the reader is following a decision. `sessionKey` IS passed, because it is
+ * what lets the question form POST its answer.
  */
-// `SessionMsg` lives in `./sessionBuckets` now, next to the code that places
-// the messages between the comments.
+function SessionItem({ msg, sessionKey, onMessage }: {
+  msg: ChatMessage;
+  sessionKey: string | null;
+  /** The drawer's own subscription, typed loosely on the way in. Narrowed here
+   *  because `MessageContent` reads real WS payloads. */
+  onMessage?: (handler: (m: unknown) => void) => () => void;
+}) {
+  return (
+    <div className={`text-sm text-app-text ${COMPACT_MD_CLS}`} data-testid="task-session-item" data-message-id={msg.id}>
+      <MessageContent
+        content={msg.content ?? ''}
+        role="assistant"
+        thinking={msg.thinking}
+        toolCalls={msg.toolCalls}
+        blocks={msg.blocks}
+        partial={msg.partial}
+        isLast={msg.partial}
+        turnStartedAt={msg.timestamp ? Date.parse(msg.timestamp) : undefined}
+        sessionKey={sessionKey ?? undefined}
+        messageId={msg.id}
+        onMessage={onMessage as ((h: (m: WSMessage) => void) => () => void) | undefined}
+      />
+    </div>
+  );
+}
 
 /**
  * Un passaggio di stato: un CHIP, non un paragrafo.

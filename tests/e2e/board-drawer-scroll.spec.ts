@@ -95,8 +95,8 @@ let sessionTopicId: string | null = null;
 let liveTopicId: string | null = null;
 const createdTasks: string[] = [];
 
-async function api(request: import("@playwright/test").APIRequestContext, method: "post" | "patch", path: string, data: unknown) {
-  const res = await request[method](`${BASE}${path}`, { data });
+async function api(request: import("@playwright/test").APIRequestContext, method: "get" | "post" | "patch", path: string, data?: unknown) {
+  const res = await request[method](`${BASE}${path}`, data === undefined ? {} : { data });
   expect(res.ok(), `${method.toUpperCase()} ${path} → ${res.status()}`).toBe(true);
   return res.json();
 }
@@ -141,11 +141,11 @@ async function seedWorstCaseTask(request: import("@playwright/test").APIRequestC
  * clears `assigned_topic_id`, so binding first would measure a task that lost
  * its agent on the way.
  */
-async function seedDispatchedTask(request: import("@playwright/test").APIRequestContext, topicId: string, step: string) {
+async function seedDispatchedTask(request: import("@playwright/test").APIRequestContext, topicId: string, step: string, status: "review" | "todo" = "review") {
   const text = `Drawer sessione ${Date.now()}`;
   const task = (await api(request, "post", `/api/boards/${PROJECT_ID}/tasks`, { text })) as { id: string };
   createdTasks.push(`${PROJECT_ID}:${task.id}`);
-  await api(request, "patch", `/api/boards/${PROJECT_ID}/tasks/${task.id}`, { status: "review" });
+  await api(request, "patch", `/api/boards/${PROJECT_ID}/tasks/${task.id}`, { status });
   const bind = await request.post(`${BASE}/api/test/tasks/${task.id}/bind-topic`, { data: { topicId } });
   expect(bind.ok(), `bind-topic → ${bind.status()}`).toBe(true);
   // One agent step in the topic's session (`role: assistant`): it is what the
@@ -156,8 +156,8 @@ async function seedDispatchedTask(request: import("@playwright/test").APIRequest
 }
 
 /** Apre il drawer cliccando la card per TESTO (come board.spec.ts). */
-async function openTaskDrawer(page: Page, text: string) {
-  await page.getByTestId("kanban-column-review").getByText(text).click({ timeout: 15000 });
+async function openTaskDrawer(page: Page, text: string, column = "review") {
+  await page.getByTestId(`kanban-column-${column}`).getByText(text).click({ timeout: 15000 });
   await expect(page.getByTestId("task-detail-drawer")).toBeVisible({ timeout: 10000 });
 }
 
@@ -197,6 +197,10 @@ async function expandEverySection(page: Page) {
   for (const label of [/^Consegna$/, /^Descrizione$/, /^Sottotask/, /^Spazio di lavoro$/]) {
     const btn = drawer.getByRole("button", { name: label });
     if ((await btn.count()) === 0) continue;
+    // A DISABLED accordion does not open, and that is not a fault: now that the
+    // session is not a pane, a dispatched card with no tab, no plan and no
+    // attachment has an empty workspace, and the handle says so by going dim.
+    if (!(await btn.first().isEnabled())) continue;
     // L'accordion è aperto quando il suo chevron guarda in giù: qui basta
     // controllare che il corpo ci sia, e se non c'è cliccare una volta sola.
     const open = await btn.first().locator("svg.lucide-chevron-down").count();
@@ -473,18 +477,13 @@ test.describe("Drawer del task — un solo scroll", () => {
     // Sorelle e non annidate: la sessione comincia dove finisce l'output, ed è
     // lei quella attaccata al composer.
     expect(sessionBox.y).toBeGreaterThanOrEqual(bodyBox.y + bodyBox.height - 2);
-    // The THREAD left the tabs: the column with the composer is not a pane.
+    // The CONVERSATION left the tabs: the column with the composer is not a pane.
     expect(await body.getByTestId("task-session-column").count()).toBe(0);
-    // And a task that was NEVER dispatched has no Session tab: the tab does not
-    // exist empty, because a surface saying "nothing here" repeats what the
-    // empty thread already says.
-    await expect(drawer.getByTestId(`pane-tab-session:${task.id}`)).toHaveCount(0);
 
-    // With the workspace closed the THREAD stays: it is the one zone of the
-    // drawer that does not close, and it is the point of the whole layout. What
-    // the handle CAN now hide is the Session tab (the agent's steps), never the
-    // conversation nor the composer, and the live row (phase, ticker, Stop)
-    // lives on this side.
+    // With the workspace closed the CONVERSATION stays: it is the one zone of
+    // the drawer that does not close, and it is the point of the whole layout.
+    // The handle hides what you look AT (browser tabs, plan, attachments),
+    // never the conversation nor the composer.
     await drawer.getByTestId("task-workspace-toggle").click();
     await expect(body).toHaveCount(0);
     await expect(session).toBeVisible();
@@ -492,14 +491,17 @@ test.describe("Drawer del task — un solo scroll", () => {
   });
 
   /**
-   * DRAWER-04 — the agent's session IS a tab of the workspace.
+   * DRAWER-04 - the agent's steps are IN THE CONVERSATION, and there is no
+   * second surface holding them.
    *
-   * It used to exist only in slivers: a collapsed toggle above every thread
-   * row, re-shut on every 3s poll. The session was in the drawer and unreadable
-   * all the same. This measures the thing that was not there before: a tab in
-   * the bar with the steps inside it, not a screenshot of the drawer.
+   * They lived in a tab of their own for one release, and before that in a
+   * collapsed sliver above every thread row. Both shapes made the reader do the
+   * same join by hand: what the agent DID on one side, what it SAID on the
+   * other, and the wall clock as the only thing relating them. One list now,
+   * and this measures both halves of that sentence - the step is inside the
+   * column you write in, and the tab that used to hold it does not exist.
    */
-  test("DRAWER-04: la sessione dell'agente e' una tab, con dentro i passaggi", async ({ page }) => {
+  test("DRAWER-04: il passo dell'agente sta nella conversazione, e la scheda Sessione non c'e' piu'", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
     const topic = await createTopic(page.request, `E2E-Drawer-Session-${Date.now()}`);
     sessionTopicId = topic.id;
@@ -513,26 +515,21 @@ test.describe("Drawer del task — un solo scroll", () => {
     const drawer = page.getByTestId("task-detail-drawer");
     await expandEverySection(page);
 
-    // The tab is there, and it is THIS task's: the id is the persistence key,
-    // so a change of scheme would leave every saved layout pointing at a pane
-    // that no longer exists.
-    const tab = drawer.getByTestId(`pane-tab-session:${task.id}`);
-    await expect(tab).toBeVisible({ timeout: 10000 });
-    await tab.click();
+    // The step is in the column with the composer, not behind a tab.
+    const session = drawer.getByTestId("task-session-column");
+    await expect(session).toBeVisible();
+    await expect(session.getByText(step)).toBeVisible({ timeout: 15000 });
 
-    // …and the session is inside it, not an empty state.
-    const pane = drawer.getByTestId("task-session-pane");
-    await expect(pane).toBeVisible();
-    await expect(pane.getByTestId("task-session-empty")).toHaveCount(0);
-    await expect(pane.getByText(step)).toBeVisible({ timeout: 10000 });
-
-    // The thread stays the place you write: the column is still there, and it
-    // is not the same thing as the tab.
-    await expect(drawer.getByTestId("task-session-column")).toBeVisible();
+    // And the tab is GONE. The id was the persistence key of the old pane, so
+    // this is also the assertion that no saved layout resurrects it.
+    await expect(drawer.getByTestId(`pane-tab-session:${task.id}`)).toHaveCount(0);
+    await expect(drawer.getByTestId("task-session-pane")).toHaveCount(0);
   });
 
   /**
-   * DRAWER-05a — a live turn arrives on the WIRE, not from a poll.
+   * DRAWER-05 — a live turn arrives on the WIRE, and the conversation is ONE
+   * list: the agent's step, the reader's steer with where it got to, the
+   * comment the agent wrote drawn ONCE, and a question answerable on the spot.
    *
    * The drawer used to ask for 200 rows of history every 3 seconds to notice a
    * token. It now reads the same store the chat reduces every frame into, and
@@ -546,12 +543,22 @@ test.describe("Drawer del task — un solo scroll", () => {
    *    mount on purpose: mount, wake-up and `stream:end` are the three reads
    *    that survive, and none of them falls inside the window measured here.
    */
-  test("DRAWER-05a: il turno vivo arriva dal filo, e la cronologia non si rilegge", async ({ page }) => {
+  test("DRAWER-05: il turno vivo, lo steer in coda e la parola dell'agente disegnata una volta sola", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1280, height: 720 });
     const topic = await createTopic(page.request, `E2E-Drawer-Live-${Date.now()}`);
     liveTopicId = topic.id;
     const seeded = `Passo seminato ${Date.now()}`;
-    const task = await seedDispatchedTask(page.request, topic.id, seeded);
+    // `todo`, and the global auto-dispatch off for the length of the test.
+    // "Queued" is a state of a card that still OWES a turn (KANBAN-74 lists
+    // `in_progress` and `todo`), and `todo` is the one a test can hold still:
+    // on `in_progress` the comment route resumes the agent for real, so the
+    // chip would be racing the envelope that its own resume writes - a race
+    // whose two outcomes are both correct, which is the definition of a test
+    // that will flake.
+    const settings = (await api(page.request, "get", "/api/all-boards/settings")) as { autoDispatch: boolean };
+    await api(page.request, "patch", "/api/all-boards/settings", { autoDispatch: false });
+    await api(page.request, "post", "/api/test/dispatch-hold", { ms: 180_000 });
+    const task = await seedDispatchedTask(page.request, topic.id, seeded, "todo");
 
     const list = await page.request.get(`${BASE}/api/topics`, { ignoreHTTPSErrors: true });
     const topics = (await list.json()) as { topics: Record<string, { id: string; sessionKey: string }> };
@@ -573,11 +580,11 @@ test.describe("Drawer del task — un solo scroll", () => {
 
     await page.goto("/");
     await openProjectBoard(page);
-    await openTaskDrawer(page, task.text);
+    await openTaskDrawer(page, task.text, "todo");
     const drawer = page.getByTestId("task-detail-drawer");
     await expandEverySection(page);
-    await drawer.getByTestId(`pane-tab-session:${task.id}`).click();
-    const pane = drawer.getByTestId("task-session-pane");
+    // No tab to click: the steps are in the column you write in.
+    const pane = drawer.getByTestId("task-session-column");
     // The mount read has happened: the seeded step is on screen. Everything
     // after this line is what the wire alone can do.
     await expect(pane.getByText(seeded)).toBeVisible({ timeout: 15_000 });
@@ -633,5 +640,134 @@ test.describe("Drawer del task — un solo scroll", () => {
     send({ type: "stream:end", messageId: MSG, completed: true, latencyMs: 900 });
     await expect(pane).toContainText(written.trim());
     expect(historyReads, "the turn ended, and still no poll behind it").toBe(0);
+
+    // ── WHERE WHAT YOU WROTE GOT TO ───────────────────────────────────────
+    // The steer goes in through the composer, like a person's does. The card
+    // is `in_progress` and no envelope has gone out since, so the bubble says
+    // "queued" - a state DERIVED from the envelopes at every read, which is
+    // why nothing had to write it into the thread.
+    const steer = `Guarda anche il caso vuoto ${Date.now()}`;
+    const composer = drawer.locator("textarea").last();
+    await composer.fill(steer);
+    await composer.press("Enter");
+    await expect(pane.getByText(steer)).toBeVisible({ timeout: 15_000 });
+    await expect(pane.getByTestId("task-comment-queued").last()).toBeVisible({ timeout: 15_000 });
+
+    // ── THE RESUME CARRIES IT, AND THE ENVELOPE DOES NOT SHOW ─────────────
+    // The dispatcher's resume is a `user` row naming the comment ids it
+    // delivered. Seeded here with the shape the server writes (T1 proves the
+    // server writes it); what is measured is the projection: the row does not
+    // appear, and the chip on the human bubble flips to "delivered".
+    const withComments = (await (await page.request.get(
+      `${BASE}/api/boards/${PROJECT_ID}/tasks/${task.id}`,
+    )).json()) as { comments?: Array<{ id: string; content: string }> };
+    const steerId = withComments.comments?.find((c) => c.content.includes(steer))?.id;
+    expect(steerId, "lo steer deve essere una riga del filo").toBeTruthy();
+    const ENVELOPE = "Riprendi il lavoro sulla card.";
+    await api(page.request, "post", `/api/test/topics/${topic.id}/session-row`, {
+      role: "user",
+      content: ENVELOPE,
+      blocks: [{ kind: "dispatched-envelope", commentIds: [steerId] }],
+    });
+
+    // ── THE AGENT'S WORD, DRAWN ONCE ──────────────────────────────────────
+    // An assistant row that called `comment_task`, and the comment that came
+    // out of it, anchored by `messageId`. Two lists said this twice; here the
+    // comment sits right under its step and the mirrored tool row is gone.
+    const spoken = `Ho chiuso il caso vuoto ${Date.now()}`;
+    const COMMENT_TOOL_ID = `tc-comment-${Date.now()}`;
+    const step2 = (await api(page.request, "post", `/api/test/topics/${topic.id}/session-row`, {
+      role: "assistant",
+      content: "Chiuso.",
+      blocks: [
+        { kind: "text", text: "Chiuso." },
+        { kind: "tool", toolCall: { id: COMMENT_TOOL_ID, name: "mcp__topics__comment_task", args: { content: spoken }, status: "success" } },
+      ],
+    })) as { message: { id: string } };
+    await api(page.request, "post", `/api/test/tasks/${task.id}/anchored-comment`, {
+      content: spoken, author: "agent", messageId: step2.message.id,
+    });
+
+    // ── A QUESTION NOBODY ROUTED IS ANSWERED HERE ─────────────────────────
+    // Same tool family, no comment anchored to it: the row stays, and with it
+    // the form. Before the conversation was one list this question was
+    // answerable in the chat and dead in the card.
+    const ASK_ID = `tc-ask-${Date.now()}`;
+    await api(page.request, "post", `/api/test/topics/${topic.id}/session-row`, {
+      role: "assistant",
+      content: "",
+      blocks: [{
+        kind: "tool",
+        toolCall: {
+          id: ASK_ID,
+          name: "mcp__topics__ask_user_question",
+          args: {},
+          status: "waiting_for_input",
+          userInputSchema: {
+            kind: "questions",
+            questions: [{ question: "Tengo il caso vuoto fuori dallo scope?", options: [{ label: "Si" }, { label: "No" }] }],
+          },
+        },
+      }],
+    });
+
+    // Nothing above went over the socket: those rows are in the transcript, and
+    // the drawer reads it back at the END OF A TURN. So the end of the turn is
+    // what gets asked for, again, until the projection has caught up. Asking
+    // (rather than sleeping) is the point: `loadHistory` drops a re-read that
+    // lands within 5 seconds of the last one, so a fixed wait here would be
+    // measuring the dedup.
+    const again = pane;
+    await expect.poll(
+      async () => {
+        send({ type: "stream:end", messageId: MSG, completed: true, latencyMs: 900 });
+        return again.getByTestId("task-comment-delivered").count();
+      },
+      { timeout: 40_000, intervals: [1_000, 2_000, 3_000, 3_000, 3_000] },
+    ).toBeGreaterThan(0);
+
+    // The envelope is not on screen, and the chip says it arrived.
+    await expect(again.getByTestId("task-comment-delivered").last()).toBeVisible({ timeout: 20_000 });
+    await expect(again.getByTestId("dispatch-envelope-row")).toHaveCount(0);
+    await expect(again.getByText(ENVELOPE)).toHaveCount(0);
+
+    // The agent's words: ONCE, right under the step they came out of, and the
+    // mirrored tool row is not drawn. Counted on the text of the column rather
+    // than on matching elements, because a bubble nests: two nodes carrying one
+    // sentence is one drawing, and it is the DRAWINGS that must not be two.
+    await expect(again.getByTestId(`tool-call-row-${COMMENT_TOOL_ID}`)).toHaveCount(0);
+    const drawn = await again.evaluate((el, arg: { id: string; needle: string }) => {
+      const step = el.querySelector(`[data-message-id="${arg.id}"]`);
+      const leaf = [...el.querySelectorAll("*")].find((n) => n.children.length === 0 && (n.textContent ?? "").includes(arg.needle));
+      return {
+        times: (el.textContent ?? "").split(arg.needle).length - 1,
+        order: step && leaf
+          ? (step.compareDocumentPosition(leaf) & Node.DOCUMENT_POSITION_FOLLOWING ? "after" : "before")
+          : "missing",
+      };
+    }, { id: step2.message.id, needle: spoken });
+    expect(drawn.times, "la parola dell'agente e' disegnata una volta sola").toBe(1);
+    expect(drawn.order, "il commento ancorato segue il suo passo").toBe("after");
+
+    // …and the unrouted question is answerable right here.
+    await expect(again.getByTestId(`tool-input-form-${ASK_ID}`)).toBeVisible({ timeout: 20_000 });
+
+    // THE PICTURE OF THE THING, at the size the reviewer looks at it: the wide
+    // mode, both columns, and the one list holding the agent's step, the human
+    // bubble with its chip and the question waiting to be answered. Attached to
+    // the run rather than written into the repo.
+    await page.setViewportSize({ width: 1600, height: 900 });
+    const widen = drawer.getByTitle(/Allarga il drawer/);
+    if (await widen.count()) await widen.click();
+    await expect(drawer.getByTestId("task-drawer-right")).toBeVisible({ timeout: 10_000 });
+    await testInfo.attach("conversazione-unica-1600x900", {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    });
+
+    // Back to whatever it was, not to `true`: the switch is GLOBAL and the DB
+    // is shared, so a test that hands it back changed is a test that breaks the
+    // next one (BOARD-01 reads it).
+    await api(page.request, "patch", "/api/all-boards/settings", { autoDispatch: settings.autoDispatch });
   });
 });
