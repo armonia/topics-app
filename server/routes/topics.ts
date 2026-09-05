@@ -1,5 +1,6 @@
 import { rowsCarryAsk, type AskHaystackRow } from "../lib/ask-answer-routing";
 import { canonicalProjectPath } from "../lib/canonical-project-path";
+import { clientProjectPathRefused, CLIENT_PROJECT_PATH_ERROR } from "../lib/client-project-path";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
 import { join, resolve, dirname } from "path";
 import { detectProjectPath } from "../lib/detect-project-path";
@@ -1201,6 +1202,12 @@ export function createTopicsRouter(
       // CANONICO: la stessa cartella raggiunta da un link non deve diventare un
       // secondo progetto (due board, due voci in sidebar). Vedi canonical-project-path.
       if (body.projectPath) {
+        // Same gate as PATCH below: `topic.projectPath` is source 2 of the
+        // allowlist (`services/known-project-dirs.ts`), so a topic created
+        // rooted at `~/.ssh` opens the file routes on it.
+        if (clientProjectPathRefused(req, body.projectPath, ctx)) {
+          return json({ error: CLIENT_PROJECT_PATH_ERROR }, 400);
+        }
         (topic as any).projectPath = canonicalProjectPath(body.projectPath);
       }
       // Optional binding to a Worktree (Phase A · TOPIC-WT-01).
@@ -1464,6 +1471,15 @@ export function createTopicsRouter(
           return json({ error: "usa DELETE /api/topics/:id con {archived:true|false}", code: "wrong_route" }, 400);
         }
         if (body.projectPath !== undefined) {
+          // A project path from a PAIRED DEVICE becomes a root of the
+          // file-route allowlist (source 2), and `canonicalProjectPath` only
+          // expands `~` and resolves symlinks: it judges nothing. Without this
+          // a phone binds a topic to `~/.ssh` and reads it back from
+          // `/api/files/content`, which is the hole the terminal cwd already
+          // had closed.
+          if (body.projectPath && clientProjectPathRefused(req, body.projectPath, ctx)) {
+            return json({ error: CLIENT_PROJECT_PATH_ERROR }, 400);
+          }
           topic.projectPath = body.projectPath ? canonicalProjectPath(body.projectPath) : undefined;
         }
         // Provider/model are spawn-time flags for the claude-code CLI (same

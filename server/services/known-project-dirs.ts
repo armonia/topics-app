@@ -16,6 +16,13 @@ import { isBroadCwd } from "../lib/broad-cwd";
  * CHIAMANDO l'endpoint che si sta proteggendo — per questo l'unione è un
  * confine vero e non input del client travestito.
  *
+ * Vero alla lettera e per un po' falso nella sostanza: quattro sorgenti su sei
+ * si scrivono da un'ALTRA rotta (cwd del terminale, `POST /api/projects`,
+ * `topic.projectPath`, i token `project:` in `ui_state`), quindi da un
+ * dispositivo appaiato bastavano DUE chiamate per mettere `~/.ssh` qui dentro
+ * e rileggerlo da `/api/files/content`. Ora quelle quattro porte chiedono lo
+ * stesso permesso: `server/lib/client-project-path.ts`.
+ *
  * Estratta da `GET /api/projects/icon` (`server/routes/projects.ts`), dove
  * viveva in linea con tutte le sue cicatrici — e dove per un po' è RIMASTA in
  * linea, copiata: l'estrazione aveva convertito le rotte dei file e lasciato
@@ -55,6 +62,30 @@ function defaultWorkspaceDir(): string {
   const openclaw =
     process.env.APP_DATA_DIR || process.env.OPENCLAW_DIR || `${process.env.HOME}/.openclaw`;
   return join(openclaw, "workspace");
+}
+
+/**
+ * Every project path a `ui_state` value carries, in both encodings.
+ *
+ * Exported because it is READ here (source 5) and WRITTEN by
+ * `PUT /api/ui-state/:key`, which refuses a value naming a directory the
+ * device may not reach. Two copies of this regex would be a boundary that
+ * drifts: the write gate would guard tokens the read side does not collect,
+ * or the other way round, which is the hole reopening on its own.
+ */
+export function projectPathTokensIn(value: unknown): string[] {
+  if (typeof value !== "string" || !value.includes("project:")) return [];
+  // Both encodings circulate: the pane id percent-encodes the path
+  // (`project:%2FUsers%2F…`), the sidebar keeps it raw (`project:/Users/…`).
+  const projTokenRe = /project:((?:%2[Ff]|\/)[^"\\]*)/g;
+  const out: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = projTokenRe.exec(value)) !== null) {
+    let p = m[1];
+    try { p = decodeURIComponent(p); } catch { /* raw token */ }
+    out.push(p);
+  }
+  return out;
 }
 
 /** Le dir note al server, realpath'd. Set vuoto = nessun accesso concesso. */
@@ -104,19 +135,11 @@ export function knownProjectDirs(ctx: KnownProjectDirsCtx): Set<string> {
   //    negli snapshot di UI persistiti (pane id + expandedNodes della sidebar).
   //    Senza questa sorgente il cancello escludeva ogni progetto aperto col
   //    picker — la regressione «le icone dei progetti non si vedono più».
-  //    Entrambe le codifiche circolano: il pane id percent-encoda il path
-  //    (`project:%2FUsers%2F…`), la sidebar lo tiene grezzo (`project:/Users/…`).
+  //    L'estrazione sta in `projectPathTokensIn`, condivisa con il cancello in
+  //    scrittura di `PUT /api/ui-state/:key`.
   try {
-    const projTokenRe = /project:((?:%2[Ff]|\/)[^"\\]*)/g;
     for (const row of ctx.db.query("SELECT value FROM ui_state").all() as Array<{ value?: string }>) {
-      const v = row.value;
-      if (typeof v !== "string" || !v.includes("project:")) continue;
-      let m: RegExpExecArray | null;
-      while ((m = projTokenRe.exec(v)) !== null) {
-        let p = m[1];
-        try { p = decodeURIComponent(p); } catch { /* token grezzo */ }
-        add(p);
-      }
+      for (const p of projectPathTokensIn(row.value)) add(p);
     }
   } catch { /* tabella assente */ }
   // 6. I progetti che il server ENUMERA nel workspace di OpenClaw — figli

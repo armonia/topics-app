@@ -25,7 +25,8 @@ import { classifyFrame, countsAsActivity, isInputEcho, isResizeRepaint } from ".
 // pong is not a dead daemon if bytes are still arriving. See `startBridgeWatchdog`.
 import { bridgeWatchdogStep } from "../lib/bridge-watchdog";
 import { createIdempotencyCache } from "../lib/idempotency-cache";
-import { isClientCwdAccepted } from "../lib/broad-cwd";
+import { agentAuthOk } from "../lib/agent-auth";
+import { clientProjectPathRefused } from "../lib/client-project-path";
 import { registerFleetSocket, registerFleetSessionSource } from "../lib/fleet-usage";
 import { listSessionCliPids } from "../providers/session-pids";
 import { decidePark, idleParkThresholdMs, summarizeRefusals } from "../lib/terminal-idle-park";
@@ -2130,46 +2131,6 @@ function resolveOwnedChild(parentSessionKey: string, agentId: string): TerminalS
   return child;
 }
 
-/** Hard-gate the /agents/* routes and the raw terminal send/buffer routes.
- *  spawn_agent launches `claude --dangerously-skip-permissions` with a
- *  caller-supplied prompt — arbitrary code execution — and the server binds
- *  0.0.0.0, so an UNGUARDED route would be unauthenticated RCE for any LAN
- *  peer / local process.
- *
- *  Two credentials are accepted, either one suffices:
- *   1. The DAEMON token (`Authorization: Bearer <64-hex>` or `X-Daemon-Token`),
- *      the same 32-byte secret `~/.topics/daemon-state.json` hands to
- *      `/__daemon/*` — the PRIMARY path. It is Topics' own credential: written
- *      by the running server, readable only by the user who owns the file, and
- *      re-read on every call so a rotation takes effect at once.
- *      It replaced the old per-agent `X-Agent-Token` (a pbkdf2 hash column on
- *      `agent_profiles`) when the named-agent roster was removed: nothing could
- *      mint one any more, so keeping it would have been a gate with no key.
- *   2. The shared GATEWAY_TOKEN (`x-gateway-token`) — kept for backward
- *      compatibility with the MCP bridge, but no longer REQUIRED. OpenClaw is
- *      dismissed; we must not depend on its secret for a core function.
- *
- *  The ownership guard on send/read/stop is defence-in-depth ON TOP of this,
- *  never instead of it. */
-function agentAuthOk(req: Request): boolean {
-  // Native daemon auth (Topics-owned). Read fresh so a rotated state file
-  // applies immediately, exactly like the /__daemon/* gate in server.ts.
-  try {
-    const state = readState();
-    if (state?.token) {
-      const bearer = req.headers.get("authorization")?.match(/^Bearer\s+([0-9a-f]{64})$/i)?.[1] ?? "";
-      const header = req.headers.get("x-daemon-token") || "";
-      if (timingSafeEqualStr(bearer, state.token) || timingSafeEqualStr(header, state.token)) return true;
-    }
-  } catch {}
-  // Legacy gateway token (retro-compat; unset ⇒ this path simply doesn't match).
-  const expected = process.env.GATEWAY_TOKEN;
-  if (expected && timingSafeEqualStr(req.headers.get("x-gateway-token") || "", expected)) {
-    return true;
-  }
-  return false;
-}
-
 /** Kill every live child of a parent that just exited/was deleted. Children are
  *  model-spawned ephemerals, so orphaning them (leaving drivable PTYs with a
  *  dead owner) is worse than reaping them. */
@@ -2679,12 +2640,10 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       // the broad default). The cwd of every terminal session becomes a root
       // of the file-route allowlist (`services/known-project-dirs.ts`, source
       // 4), so without this a phone with an owner cookie could open a shell in
-      // `~/.ssh` and read it back through `/api/files/content`. Loopback is
-      // exempt: it already holds a shell over the terminal socket, so a
-      // refusal here would take nothing from it. Agents carry the daemon
-      // token and are exempt for the same reason (they may pass `command`).
-      if (suppliedCwd && ctx.requestIdentity?.(req)?.deviceId && !agentAuthOk(req)
-        && !isClientCwdAccepted(suppliedCwd, ctx.resolveProjectPath)) {
+      // `~/.ssh` and read it back through `/api/files/content`. The exemptions
+      // (loopback, agents with the daemon token) live in the predicate, which
+      // the three other doors into the same allowlist share.
+      if (suppliedCwd && clientProjectPathRefused(req, suppliedCwd, ctx)) {
         return errorResponse(400, "cwd must be inside a known project");
       }
       const cwd = suppliedCwd || process.env.HOME || "/";

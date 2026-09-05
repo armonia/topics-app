@@ -357,6 +357,28 @@ discendenti sì, un fratello che ne condivide il prefisso del nome NO.
 Senza uno spazio di lavoro dichiarato SHALL essere dedotto dall'ambiente: le porte
 dei file non lo ricevono.
 
+Le sorgenti che si SCRIVONO con una richiesta — la cartella di un terminale, un
+progetto registrato, il progetto di un discorso, un riferimento nello stato
+dell'interfaccia — SHALL accettare da un dispositivo APPAIATO solo un percorso
+già DENTRO un progetto conosciuto (o il valore predefinito troppo ampio, che il
+confine scarta comunque). Altrimenti bastano DUE chiamate: si nomina la cartella
+delle chiavi come progetto, e la si rilegge dalla porta dei file. Il permesso
+SHALL essere lo STESSO per tutte e quattro, e NON SHALL valere per chi è già
+sulla macchina (nessun dispositivo) né per un agente col proprio gettone: a loro
+non toglierebbe niente.
+
+Un riferimento a una cartella SPARITA NON SHALL far fallire la scrittura: non
+aggiunge nessuna radice, e rifiutarlo bloccherebbe la sincronizzazione di un
+dispositivo per una fotografia vecchia.
+
+#### Scenario: un dispositivo appaiato registra la cartella delle chiavi
+- **GIVEN** un percorso fuori da ogni progetto conosciuto
+- **THEN** SHALL essere rifiutato, e il file dentro quella cartella SHALL restare irraggiungibile
+
+#### Scenario: la stessa richiesta da chi è sulla macchina
+- **GIVEN** nessun dispositivo appaiato
+- **THEN** SHALL passare
+
 #### Scenario: una cartella diventata progetto dopo un diniego
 - **GIVEN** un secondo tentativo
 - **THEN** SHALL essere accettata

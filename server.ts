@@ -48,7 +48,7 @@ import { sondaPorta, messaggioEsito, sondaRealeDeps } from "./server/lib/port-sq
 import { giroIdleGc, IDLE_GC_EVERY_MS } from "./server/lib/idle-gc";
 import { configureNativeHistorySource } from "./server/providers/native/history-rehydrate";
 import { createVoiceRouter } from "./server/routes/voice";
-import { createMediaRouter } from "./server/routes/media";
+import { createMediaRouter, activeContentGuardHeaders, PREVIEW_SANDBOX_FLAGS } from "./server/routes/media";
 import { createBranchesRouter } from "./server/routes/branches";
 import { createFilesRouter } from "./server/routes/files";
 import { createBrowserRouter } from "./server/routes/browser";
@@ -3274,7 +3274,22 @@ const opzioniServer = {
       try {
         const file = Bun.file(resolved);
         if (await file.exists()) {
-          return new Response(file, { headers: { "Content-Type": getMimeType(resolved), "Cache-Control": "no-cache" } });
+          // THE OTHER DOOR ONTO THE SAME BYTES. This route serves ANY file
+          // inside a project directory, which is exactly where the `.html` and
+          // `.svg` an agent writes (or `POST /api/files/upload` accepts) land,
+          // and it used to send them with a bare `Content-Type`: a `<script>`
+          // in one of them ran on our origin with the session cookie. The
+          // sandboxed iframe on the client was the only guard, and pasting the
+          // URL into a pane walked around it. Same composer as `/api/media`,
+          // so the two cannot drift apart again.
+          const contentType = getMimeType(resolved);
+          return new Response(file, {
+            headers: {
+              ...activeContentGuardHeaders(contentType, { sandboxFlags: PREVIEW_SANDBOX_FLAGS }),
+              "Content-Type": contentType,
+              "Cache-Control": "no-cache",
+            },
+          });
         }
       } catch {}
       return new Response("Not Found", { status: 404 });
