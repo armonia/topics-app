@@ -1449,6 +1449,13 @@ export interface CheckRun {
    * che non esiste sarebbe una bugia, e il testo del commento la ripeterebbe.
    */
   notMeasured?: boolean;
+  /**
+   * Time the command spent queueing for a gate slot before it started (read
+   * from the line `slot.ts` prints, see shared/slot-acquired.ts). Not counted
+   * against the check's cap; shown so a slow verdict names the queue, not the
+   * code.
+   */
+  queuedMs?: number;
   tail: string;
   /** Valorizzato solo se il comando non è nemmeno partito (binario assente, cwd sparita). */
   spawnError?: string;

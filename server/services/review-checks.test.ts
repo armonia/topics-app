@@ -6,6 +6,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { readFileSync } from "fs";
+import { slotAcquiredLine } from "../../shared/slot-acquired";
 import {
   formatChecksComment,
   formatChecksWait,
@@ -125,6 +126,27 @@ describe("runReviewChecks", () => {
     expect(runs[0].timedOut).toBe(true);
     expect(runs[0].code).toBeNull();
   }, 15_000);
+
+  test("the slot line restarts the cap: queueing for a gate slot is not the command's time", async () => {
+    // 1.5 s of "queue", the line slot.ts prints, then 1.5 s of "command": 3 s
+    // in all against a 2 s cap. Without the line the check is killed (control
+    // below); with it the cap restarts when the command starts, and the 1.5 s
+    // of real work fit. The queue time is reported apart.
+    const line = slotAcquiredLine("test:unit", 1500);
+    const runs = await runReviewChecks(
+      [{ name: "in coda", cmd: `sleep 1.5; echo '${line}' 1>&2; sleep 1.5` }],
+      { cwd, timeoutMs: 2000 },
+    );
+    expect(runs[0].timedOut).toBe(false);
+    expect(runs[0].ok).toBe(true);
+    expect(runs[0].queuedMs).toBe(2000);
+  }, 20_000);
+
+  test("without the slot line the same 3 s against a 2 s cap is a timeout (control)", async () => {
+    const runs = await runReviewChecks([{ name: "senza riga", cmd: "sleep 1.5; sleep 1.5" }], { cwd, timeoutMs: 2000 });
+    expect(runs[0].timedOut).toBe(true);
+    expect(runs[0].queuedMs).toBeUndefined();
+  }, 20_000);
 
   // The cap is six and the repo has ten gates: the four missing from the
   // board's slots on 2026-09-03 went in as ONE chained slot. What makes a chain

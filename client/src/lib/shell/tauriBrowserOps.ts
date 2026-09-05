@@ -117,25 +117,46 @@ function absolutizeMediaRef(url: string): string {
  * then sleeps, so an already-settled page returns immediately; a mid-navigation
  * eval failure just retries. Best-effort: on timeout the caller proceeds anyway
  * (mirrors the server's catch-and-continue around goto).
+ *
+ * Returns whether the document really settled: a caller that reports readiness
+ * to an agent must be able to tell "loaded" from "gave up waiting".
  */
 async function waitForPaneLoad(
   id: string,
   invoke: Invoke,
   origin: string | null,
   timeoutMs: number,
-): Promise<void> {
+): Promise<boolean> {
   const probeJs = 'JSON.stringify({origin:location.origin,ready:document.readyState})';
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     try {
       const raw = await invoke<string>('browser_eval_js', { id, js: probeJs });
       const s = JSON.parse(raw || '{}') as { origin?: string; ready?: string };
-      if ((!origin || s.origin === origin) && s.ready && s.ready !== 'loading') return;
+      if ((!origin || s.origin === origin) && s.ready && s.ready !== 'loading') return true;
     } catch {
       /* execution context mid-swap — retry */
     }
-    if (Date.now() >= deadline) return;
+    if (Date.now() >= deadline) return false;
     await new Promise((r) => setTimeout(r, 250));
+  }
+}
+
+/** How long `browser_open` waits for the pane's document before answering. */
+const NAV_SETTLE_MS = 8_000;
+
+/**
+ * The origin to match while waiting for a navigation, or null when matching it
+ * would be meaningless. Only http(s) pages have a stable origin to compare:
+ * about:/data:/blob: report "null" and a media ref can redirect, so for those
+ * we wait on readyState alone instead of on an origin that will never arrive.
+ */
+function originOf(url: string): string | null {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.origin : null;
+  } catch {
+    return null;
   }
 }
 
@@ -193,7 +214,19 @@ export async function executeNativeBrowserOp(
         await invoke('browser_navigate', { id, url });
         // Page navigated → any cached refs are stale.
         clearNativeSnapshotCache(id);
-        return { result: { ok: true, url } };
+        // AND THEN WAIT FOR IT, like the Playwright side already does.
+        // `browser_navigate` returns as soon as WKWebView accepts the request,
+        // so this op used to answer `ok` on a pane that was still blank. Every
+        // tool the agent fires next inherits that: observe sees no elements,
+        // get_text reads nothing, and read_screen sends an EMPTY frame to the
+        // vision model - which does not answer "I see nothing", it invents a
+        // plausible page. A confident wrong answer is worse than a slow one, so
+        // the op does not return until the document is past 'loading'.
+        // Best-effort and bounded: on timeout we answer anyway (same contract
+        // as the server's catch-and-continue around goto), with `ready` saying
+        // which of the two happened instead of hiding it.
+        const ready = await waitForPaneLoad(id, invoke, originOf(url), NAV_SETTLE_MS);
+        return { result: { ok: true, url, ready } };
       }
       case 'browser_observe': {
         const max =
