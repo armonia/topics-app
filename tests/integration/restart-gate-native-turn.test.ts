@@ -1,25 +1,25 @@
 /**
- * IL CANCELLO DEL RIAVVIO SOPRA UN TURNO NATIVO FINTO.
+ * THE RESTART GATE OVER A FAKE NATIVE TURN.
  *
- * I test unitari di `server/lib/quiescence.ts` provano le regole una per una.
- * Qui si mette insieme la catena intera come la usa `waitForDispatcherQuiescent`
- * — il registro degli stream, la riga sul disco che dice se il turno e' finito,
- * il verdetto, il battito su file che tiene a bada il SIGTERM di
- * `start-prod.sh`, la notifica — perche' i difetti misurati non stavano in una
- * regola sbagliata: stavano in COSA il giro faceva con la regola giusta.
+ * The unit tests of `server/lib/quiescence.ts` prove the rules one at a time.
+ * Here the whole chain runs the way `waitForDispatcherQuiescent` uses it: the
+ * stream register, the row on disk that says whether the turn is over, the
+ * verdict, the heartbeat file that holds off the SIGTERM of `start-prod.sh`,
+ * the notice. The measured defects were never a wrong rule: they were in WHAT
+ * the loop did with the right one.
  *
- * Due misure che questo file fissa:
- *   · 2026-09-04 00:12 — un turno nativo su topic:a4d19786 trattiene
- *     `restart-when-idle`. Il rinvio esiste dal primo istante, ma veniva
- *     dichiarato solo dopo il tetto lungo: fino a li' nessun battito (quindi lo
- *     script poteva sparare il SIGTERM sul turno che il cancello proteggeva) e
- *     nessuna notifica alla sola persona che poteva finire l'attesa.
- *   · 2026-09-03 — 2160 secondi di attesa su topic:6b9605e5, il cui turno era
- *     gia' morto di `400 prompt is too long`: la voce era rimasta nel registro
- *     in memoria, e il cancello contava la voce invece del turno.
+ * Two measures this file pins down:
+ *   · 2026-09-04 00:12, a native turn on topic:a4d19786 holds
+ *     `restart-when-idle`. The deferral is a fact from the first instant, but
+ *     it was declared only past the long cap: until then no heartbeat (so the
+ *     script was free to SIGTERM the very turn the gate was protecting) and no
+ *     notice to the one person who could end the wait.
+ *   · 2026-09-03, 2160 seconds of waiting on topic:6b9605e5, whose turn had
+ *     already died of a `400 prompt is too long`: the entry had stayed in the
+ *     in-memory register, and the gate counted the entry instead of the turn.
  *
- * Il db e' vero (bun:sqlite), il file del battito e' vero, l'orologio no: un
- * tetto si prova facendolo scadere, non aspettando un minuto.
+ * The database is real (bun:sqlite) and the heartbeat file is real; the clock
+ * is not. A cap is proven by making it expire, not by waiting a minute.
  *
  * @covers RGATE-01, RGATE-02, RGATE-03
  */
@@ -58,34 +58,34 @@ interface FakeStream {
   survivesRestart: boolean;
 }
 
-/** Una riga di risposta come la scrive un turno: `partial` e' il perno. */
+/** An assistant row as a turn writes it: `partial` is the pivot. */
 function makeDb(rows: Array<{ id: string; partial: number }>): Database {
   const db = new Database(":memory:");
   db.run("CREATE TABLE messages (id TEXT PRIMARY KEY, partial INTEGER)");
-  const ins = db.prepare("INSERT INTO messages (id, partial) VALUES (?, ?)");
-  for (const r of rows) ins.run(r.id, r.partial);
+  const insert = db.prepare("INSERT INTO messages (id, partial) VALUES (?, ?)");
+  for (const r of rows) insert.run(r.id, r.partial);
   return db;
 }
 
 /**
- * La forma esatta del giro di `waitForDispatcherQuiescent`, con l'orologio in
- * mano al test. Torna cosa e' successo: quando il primo battito e' stato
- * scritto, quando (e quante volte) e' partita la notifica, e come e' finita.
+ * The exact shape of the `waitForDispatcherQuiescent` loop, with the clock in
+ * the test's hands. Returns what happened: when the first heartbeat was
+ * written, when (and how often) the notice fired, and how the wait ended.
  */
 function runGate(opts: {
   db: Database;
   streams: FakeStream[];
   cards?: number;
-  /** Quanti millisecondi dura la prova, a giri da 500 ms come in produzione. */
+  /** How many milliseconds the run lasts, in 500 ms loops as in production. */
   forMs: number;
-  /** Il turno smette da solo a questo istante (la riga viene finalizzata). */
+  /** The turn ends by itself at this instant (its row gets finalized). */
   finishAt?: number;
 }) {
   const { db, streams } = opts;
   const cards = opts.cards ?? 0;
-  const stmt = db.prepare("SELECT partial FROM messages WHERE id = ?");
+  const statement = db.prepare("SELECT partial FROM messages WHERE id = ?");
   const turnFinished = (messageId: string): boolean => {
-    const row = stmt.get(messageId) as { partial?: number } | undefined;
+    const row = statement.get(messageId) as { partial?: number } | undefined;
     return row ? row.partial === 0 : false;
   };
 
@@ -95,7 +95,7 @@ function runGate(opts: {
   let firstHeartbeatAt: number | null = null;
   let notice: { at: number; value: ReloadHeldNotice } | null = null;
   let notices = 0;
-  let esito: "procedi" | "tagliato" | "ancora in attesa" = "ancora in attesa";
+  let outcome: "procedi" | "tagliato" | "ancora in attesa" = "ancora in attesa";
   let notified = false;
 
   for (let now = 0; now <= opts.forMs; now += 500) {
@@ -106,45 +106,45 @@ function runGate(opts: {
     const streamKeys = live.map((s) => s.sessionKey);
     const unadoptable = unadoptableStreams(live).length;
     const busy = describeInFlight({ cards, streamKeys, brokerOpenKeys: [] });
-    const verdetto = quiescenceVerdict({
+    const verdict = quiescenceVerdict({
       busy, unrecoverable: cards + unadoptable,
       now, startedAt: 0, chatCapMs: CHAT_CAP_MS,
     });
-    if (verdetto === "procedi") { esito = "procedi"; break; }
-    if (verdetto === "scaduto") { esito = "tagliato"; break; }
-    if (verdetto === "rinvia") {
-      // Il battito vero: e' il file che `start-prod.sh` legge per non sparare
-      // il proprio SIGTERM al posto nostro.
+    if (verdict === "procedi") { outcome = "procedi"; break; }
+    if (verdict === "scaduto") { outcome = "tagliato"; break; }
+    if (verdict === "rinvia") {
+      // The real heartbeat: the file `start-prod.sh` reads so it does not fire
+      // its own SIGTERM in our place.
       touchReloadDeferred();
       if (firstHeartbeatAt === null && fs.existsSync(heartbeatFile)) firstHeartbeatAt = now;
       const noticeAfterMs = cards > 0 ? CAP_MS : CHAT_CAP_MS;
       if (!notified && now >= noticeAfterMs) {
-        const avviso = reloadHeldNotice({
+        const held = reloadHeldNotice({
           waitedMs: now, noticeAfterMs, busy: busy ?? "",
           holderName: null, holderKind: "turn", waitId: "w-test",
         });
-        if (avviso) {
+        if (held) {
           notified = true;
           notices += 1;
-          notice = { at: now, value: avviso };
+          notice = { at: now, value: held };
         }
       }
     }
   }
-  return { firstHeartbeatAt, notice, notices, esito };
+  return { firstHeartbeatAt, notice, notices, outcome };
 }
 
 describe("restart-when-idle sopra un turno nativo (RGATE-01, RGATE-02)", () => {
-  const nativo: FakeStream = { sessionKey: "topic:a4d19786", messageId: "m-nativo", survivesRestart: false };
+  const nativeTurn: FakeStream = { sessionKey: "topic:a4d19786", messageId: "m-nativeTurn", survivesRestart: false };
 
   test("il rinvio e' dichiarato al PRIMO giro, non dopo il tetto lungo", () => {
-    const out = runGate({ db: makeDb([{ id: "m-nativo", partial: 1 }]), streams: [nativo], forMs: 5_000 });
+    const out = runGate({ db: makeDb([{ id: "m-nativeTurn", partial: 1 }]), streams: [nativeTurn], forMs: 5_000 });
     expect(out.firstHeartbeatAt).toBe(0);
-    expect(out.esito).toBe("ancora in attesa");
+    expect(out.outcome).toBe("ancora in attesa");
   });
 
   test("la notifica arriva al minuto, una sola volta, e nomina il topic", () => {
-    const out = runGate({ db: makeDb([{ id: "m-nativo", partial: 1 }]), streams: [nativo], forMs: 5 * 60_000 });
+    const out = runGate({ db: makeDb([{ id: "m-nativeTurn", partial: 1 }]), streams: [nativeTurn], forMs: 5 * 60_000 });
     expect(out.notice?.at).toBe(CHAT_CAP_MS);
     expect(out.notices).toBe(1);
     expect(out.notice?.value.body).toContain("topic:a4d19786");
@@ -152,26 +152,25 @@ describe("restart-when-idle sopra un turno nativo (RGATE-01, RGATE-02)", () => {
   });
 
   test("e il turno non viene MAI tagliato, per quanto si aspetti", () => {
-    const out = runGate({ db: makeDb([{ id: "m-nativo", partial: 1 }]), streams: [nativo], forMs: 60 * 60_000 });
-    expect(out.esito).not.toBe("tagliato");
+    const out = runGate({ db: makeDb([{ id: "m-nativeTurn", partial: 1 }]), streams: [nativeTurn], forMs: 60 * 60_000 });
+    expect(out.outcome).not.toBe("tagliato");
   });
 
   /**
-   * L'altra meta', o sarebbe un blocco invece di un rinvio: appena il turno
-   * finisce, il riavvio parte da solo.
+   * The other half, or this would be a block instead of a deferral: the moment
+   * the turn ends, the restart goes by itself.
    */
   test("finito il turno, il riavvio parte da solo", () => {
     const out = runGate({
-      db: makeDb([{ id: "m-nativo", partial: 1 }]), streams: [nativo],
+      db: makeDb([{ id: "m-nativeTurn", partial: 1 }]), streams: [nativeTurn],
       forMs: 10 * 60_000, finishAt: 2 * 60_000,
     });
-    expect(out.esito).toBe("procedi");
+    expect(out.outcome).toBe("procedi");
   });
 
   /**
-   * Una CARD trattiene allo stesso modo, ma al minuto non sveglia nessuno: il
-   * suo turno ha gia' un limite proprio (`dispatchTimeoutMin`), quindi
-   * quell'attesa finisce da sola.
+   * A CARD holds the same way, but at the minute it wakes nobody: its turn has
+   * a bound of its own (`dispatchTimeoutMin`), so that wait ends by itself.
    */
   test("una card rinvia subito ma avvisa tardi", () => {
     const out = runGate({ db: makeDb([]), streams: [], cards: 1, forMs: 5 * 60_000 });
@@ -182,14 +181,14 @@ describe("restart-when-idle sopra un turno nativo (RGATE-01, RGATE-02)", () => {
 
 describe("un turno morto non trattiene niente (RGATE-03)", () => {
   test("lo stream di un turno gia' finalizzato non conta come in streaming", () => {
-    // topic:6b9605e5, morto di «prompt is too long»: la riga e' finalizzata,
-    // la voce nel registro e' rimasta. allow-italian: cita il messaggio di errore
+    // topic:6b9605e5, dead of "prompt is too long": the row is finalized, the
+    // entry in the register stayed behind.
     const out = runGate({
       db: makeDb([{ id: "m-morto", partial: 0 }]),
       streams: [{ sessionKey: "topic:6b9605e5", messageId: "m-morto", survivesRestart: false }],
       forMs: 5_000,
     });
-    expect(out.esito).toBe("procedi");
+    expect(out.outcome).toBe("procedi");
     expect(out.firstHeartbeatAt).toBeNull();
   });
 
@@ -202,7 +201,7 @@ describe("un turno morto non trattiene niente (RGATE-03)", () => {
       ],
       forMs: 2 * 60_000,
     });
-    expect(out.esito).toBe("ancora in attesa");
+    expect(out.outcome).toBe("ancora in attesa");
     expect(out.notice?.value.body).toContain("topic:a4d19786");
     expect(out.notice?.value.body).not.toContain("topic:6b9605e5");
   });
