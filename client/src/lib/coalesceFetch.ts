@@ -29,9 +29,9 @@
  *    refetch of the roster lands ~700 ms after the mount fetch). Keep it SHORT:
  *    this is not a cache, it is a window in which "the same question" is still
  *    the same question.
- *  · ERRORS ARE NOT REMEMBERED: a rejected fetch (network) or a non-2xx answer
- *    releases the key at once. Callers already in flight all see it; the next
- *    caller asks the network again.
+ *  · ERRORS ARE NOT REMEMBERED: a failed request (network) or a status outside
+ *    2xx releases the key at once. Callers already in flight all see it; the
+ *    next caller asks the network again.
  *  · AN ANSWER BELONGS TO THE `fetch` THAT GAVE IT. The desktop shell swaps
  *    `window.fetch` for an origin-rewriting shim at boot (lib/shell/net.ts), and
  *    the unit tests swap it for a stub per case: an answer obtained through a
