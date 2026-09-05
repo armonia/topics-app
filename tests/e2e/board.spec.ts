@@ -349,6 +349,67 @@ test.describe("Kanban board", () => {
     await expect(drawer.getByText("```question")).not.toBeVisible();
   });
 
+  /**
+   * BOARD-08b — a question asked MID-TURN is answerable from the card.
+   *
+   * The quick replies used to hang off "the card is in review": a task the agent
+   * kept working on while asking (`ask_user_question` routed into the thread by
+   * `board-ask-routing`) showed the question and no buttons, so the only way to
+   * answer was to open the session tab and find the panel. The rule is the
+   * server's own: the last word of the thread is a question, so it is waiting
+   * for a person - in any column but `done`.
+   *
+   * What is measured is the RENDEZ-VOUS closing: the in-flight leg of
+   * `POST /api/sessions/:sk/ask-user` comes back with the answer, and the card
+   * stays `in_progress` - no reject, no second turn to say a word that was
+   * already delivered.
+   */
+  test("BOARD-08b: una domanda a meta' turno si risponde dalla card, e chiude il rendez-vous", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-71" });
+    const text = `Question mid turn ${Date.now()}`;
+    const task = await apiCreateTask(page.request, { text, status: "in_progress" });
+    // Bound to a topic like the dispatcher does it: without the binding the
+    // question would never leave the session tab.
+    const bind = await page.request.post(`${BASE}/api/test/tasks/${task.id}/bind-topic`, {
+      data: { topicId: projectTopicId },
+    });
+    expect(bind.ok(), `bind-topic → ${bind.status()}`).toBe(true);
+
+    const topics = (await (await page.request.get(`${BASE}/api/topics`)).json()) as {
+      topics: Record<string, { id: string; sessionKey: string }>;
+    };
+    const sessionKey = Object.values(topics.topics).find((t) => t.id === projectTopicId)?.sessionKey;
+    expect(sessionKey, "the bound topic must carry a sessionKey").toBeTruthy();
+
+    // The leg of the rendez-vous, NOT awaited: this is the agent standing still
+    // waiting for an answer while its card says `in_progress`.
+    const leg = page.request.post(`${BASE}/api/sessions/${encodeURIComponent(sessionKey!)}/ask-user`, {
+      data: {
+        questions: [{ key: "scope", question: "Tengo il caso vuoto fuori dallo scope?", options: [{ label: "Tienilo fuori" }, { label: "Mettilo dentro" }] }],
+        legMs: 30_000,
+      },
+    });
+
+    await page.goto("/");
+    await openProjectBoard(page);
+    await page.getByTestId("kanban-column-in_progress").getByText(text).click();
+    const drawer = page.getByTestId("task-detail-drawer");
+    await expect(drawer.getByText("Tengo il caso vuoto fuori dallo scope?")).toBeVisible({ timeout: 15000 });
+
+    // The buttons are above the composer, in the column that is not review.
+    const options = drawer.getByTestId("task-question-options");
+    await expect(options).toBeVisible({ timeout: 15000 });
+    await options.getByRole("button", { name: "Tienilo fuori" }).click();
+
+    // The leg comes back with the answer: the tool that was waiting is closed.
+    const answered = (await (await leg).json()) as { answers?: Record<string, string> };
+    expect(answered.answers).toEqual({ scope: "Tienilo fuori" });
+
+    // …and nobody rejected anything: the card never left In Progress.
+    const after = (await (await page.request.get(`${BASE}/api/boards/${PROJECT_ID}/tasks/${task.id}`)).json()) as { task?: { status: string }; status?: string };
+    expect(after.task?.status ?? after.status).toBe("in_progress");
+  });
+
   // ONE row, not two: the board has a dedicated top-of-tree row (with the open
   // task count), so buildSidebarItems no longer also emits a generic utility row
   // for it — opening the board used to produce two identical "Board generale"

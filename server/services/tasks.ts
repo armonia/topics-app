@@ -104,8 +104,7 @@ export const AUTO_PROJECT_ID = "_auto";
  */
 export {
   ARCHIVE_PARKED_LABEL, LAND_ACTION_LABEL, PROMOTE_PARKED_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL,
-  isArchiveParkedLabel, isLandActionLabel, isPromoteParkedLabel, isPublishActionLabel, isRequeueParkedLabel,
-  isTakeOverParkedLabel,
+  isLandActionLabel, isPublishActionLabel,
 } from "../../shared/board";
 
 /**

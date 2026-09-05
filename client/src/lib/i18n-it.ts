@@ -376,6 +376,7 @@ const IT: Dict = {
   'task.drawer.narrow': 'Riduci il drawer (vedi la board)',
   'task.drawer.widen': 'Allarga il drawer (più spazio per il tiling)',
   'task.comment.toAgent': "Invia all'agent. Lo riceve al prossimo turno (come Claude Code)",
+  'task.comment.answer': "Rispondi alla domanda aperta: l'agent riparte da questa riga",
   'task.comment': 'Commenta',
   'common.collapse': 'Chiudi',
   'common.expand': 'Espandi',
@@ -790,7 +791,12 @@ const IT: Dict = {
   'board.task.quietNote': 'Nota',
   'board.task.quietNoteTitle': "Salva la nota sulla card. L'agent non riparte e il task resta in Review.",
   'board.task.steerPlaceholder': "Scrivi all'agent mentre lavora. Lo riceve al prossimo turno.",
-  'board.task.commentPlaceholder': 'Commenta…',
+  /**
+   * The agent asked and is standing still: that text is not one more direction
+   * to read next turn, it is the line the turn restarts from.
+   */
+  'board.task.answerPlaceholder': "Rispondi alla domanda: l'agent riparte da qui.",
+  'board.task.commentPlaceholder': 'Commenta: resta sulla card.',
   'board.task.workspaceLabel': 'Spazio di lavoro',
   // ONE surface, one name. There were two (the "Sessione" tab with the agent's
   // steps, the "Discussione" column where you write): the steps and the words
