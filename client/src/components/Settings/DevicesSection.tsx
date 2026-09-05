@@ -72,6 +72,14 @@ export function DevicesSection() {
   const [devices, setDevices] = useState<Device[] | null>(null);
   const [computer, setComputer] = useState<{ name: string; current: boolean } | null>(null);
   const [errore, setErrore] = useState<string | null>(null);
+  /**
+   * A REFUSED GESTURE, which is not a failed LOAD, and the two cannot share one
+   * state: the loader clears the load error on every success and a loop
+   * retries it four times, so a refusal written there was wiped within a
+   * second. It is drawn in the same band, because for whoever is reading there
+   * is one question («what went wrong») and it deserves one place.
+   */
+  const [refusal, setRefusal] = useState<string | null>(null);
   const [conferma, setConferma] = useState<string | null>(null);
   const [inCorso, setInCorso] = useState<string | null>(null);
   const [rinomina, setRinomina] = useState<{ id: string; valore: string } | null>(null);
@@ -131,22 +139,51 @@ export function DevicesSection() {
     };
   }, [carica]);
 
+  /**
+   * ONE gesture, and the refusal SURVIVES the reload that follows it.
+   *
+   * Two traps, both already paid for here. The loader clears the error band on
+   * every success and there is a loop that retries it, so a refusal stored in
+   * that state was erased within a second: this one goes into `refusal`, which
+   * only a new gesture or the retry button clears. And a fetch that THROWS used
+   * to skip the reload entirely, leaving the list exactly as it was and nothing
+   * to read: the reload now happens either way.
+   */
+  const ask = async (id: string, init: RequestInit): Promise<boolean> => {
+    let refused: string | null = null;
+    try {
+      const r = await fetch(`/api/auth/devices/${encodeURIComponent(id)}`, { credentials: 'same-origin', ...init });
+      // The server sends a CODE (`shared/auth-codes.ts`) and the sentence is
+      // picked here: these handlers used to print its prose verbatim, in the
+      // wrong language, when they printed anything at all.
+      if (!r.ok) refused = t(chiaveErroreAuth(((await r.json().catch(() => null)) as { error?: string } | null)?.error));
+    } catch {
+      // No answer at all. Not «the load failed»: what did not happen is the
+      // gesture, and the generic auth phrase is the one that says so.
+      refused = t(chiaveErroreAuth(undefined));
+    }
+    setRefusal(refused);
+    await carica();
+    return refused === null;
+  };
+
   const salvaNome = async () => {
     if (!rinomina) return;
     const nome = rinomina.valore.trim();
     if (!nome) { setRinomina(null); return; }
     setInCorso(rinomina.id);
     try {
-      await fetch(`/api/auth/devices/${encodeURIComponent(rinomina.id)}`, {
+      const ok = await ask(rinomina.id, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
         body: JSON.stringify({ name: nome }),
       });
-      await carica();
+      // The field keeps what was typed when the server says no: closing it
+      // threw the new name away and put the old one back, so a refused rename
+      // and a rename nobody attempted looked the same.
+      if (ok) setRinomina(null);
     } finally {
       setInCorso(null);
-      setRinomina(null);
     }
   };
 
@@ -166,16 +203,11 @@ export function DevicesSection() {
   const moveOn = async (id: string, personId: string | null) => {
     setInCorso(id);
     try {
-      const r = await fetch(`/api/auth/devices/${encodeURIComponent(id)}`, {
+      await ask(id, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
         body: JSON.stringify({ personId }),
       });
-      // Il server manda un CODICE (`shared/auth-codes.ts`); prima questa riga
-      // stampava la sua prosa italiana tale e quale.
-      if (!r.ok) setErrore(t(chiaveErroreAuth(((await r.json()) as { error?: string }).error)));
-      await carica();
     } finally {
       setInCorso(null);
       setSposta(null);
@@ -185,10 +217,11 @@ export function DevicesSection() {
   const revoca = async (id: string) => {
     setInCorso(id);
     try {
-      await fetch(`/api/auth/devices/${encodeURIComponent(id)}`, {
-        method: 'DELETE', credentials: 'same-origin',
-      });
-      await carica();
+      // THE SECURITY SURFACE, so silence here is worse than elsewhere: the
+      // docblock above promises that «revocable at any time» is true without
+      // curl, and a revoke that failed without saying so is that promise
+      // broken while looking kept.
+      await ask(id, { method: 'DELETE' });
     } finally {
       setInCorso(null);
       setConferma(null);
@@ -207,11 +240,11 @@ export function DevicesSection() {
         </p>
       </div>
 
-      {errore && (
-        <div className="flex items-center gap-2 rounded-lg border border-app-border bg-app-hover/30 px-3 py-2">
-          <p className="flex-1 text-[12px] text-app-text-secondary">{errore}</p>
+      {(refusal ?? errore) && (
+        <div data-testid="devices-error" className="flex items-center gap-2 rounded-lg border border-app-border bg-app-hover/30 px-3 py-2">
+          <p className="flex-1 text-[12px] text-app-text-secondary">{refusal ?? errore}</p>
           <button
-            onClick={() => { setErrore(null); void carica(); }}
+            onClick={() => { setRefusal(null); setErrore(null); void carica(); }}
             className="rounded-md border border-app-border px-2 py-1 text-[11px] text-app-text hover:bg-app-hover"
           >
             {t('devices.retry')}

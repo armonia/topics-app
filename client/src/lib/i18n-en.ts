@@ -1269,6 +1269,7 @@ const EN = {
   'profile.public.revoke': 'Revoke',
   'profile.public.publishing': 'Publishing…',
   'profile.public.revoking': 'Revoking…',
+  'profile.public.failed': 'The server did not answer. The link is unchanged.',
   'profile.public.notPublished': 'Not published. Click «Publish» to generate a link.',
   'profile.public.showCost': 'Also show spend in dollars',
   'profile.public.showCostHint': 'Spend is personal. It does not appear on the public page by default.',

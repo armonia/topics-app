@@ -6,6 +6,9 @@ import { hermetic } from "./fixtures/hermetic";
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
 hermetic(test);
 
+/** Where the screenshots of the refusals go: they are the card's evidence. */
+const SHOTS = "test-results/refusals";
+
 test.describe("Cron Jobs Panel", () => {
   test("CRON-01: Panel renders job list with enabled/disabled sections", async ({
     page,
@@ -113,6 +116,66 @@ test.describe("Cron Jobs Panel", () => {
     await infraPage.openCronPanel();
 
     await expect(page.getByText("No cron jobs")).toBeVisible();
+  });
+
+  /**
+   * THE THREE COMMANDS USED TO ANSWER INTO A CONSOLE.
+   *
+   * `toggleJob`, `runJob` and `deleteJob` each ended in a `console.error`: on a
+   * refusal the icon stayed put, the row did not move, and the only trace was
+   * somewhere nobody looks. The two tests below are the two halves of the same
+   * question: a refused command has to show, and a run that WORKED has to show
+   * too, otherwise the absence of a mark cannot mean failure.
+   */
+  test("CRONUI-01: a refused run leaves the reason on the panel", async ({
+    page,
+    infraPage,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "CRONUI-01" });
+    await infraPage.mockCronJobs();
+
+    // Registered AFTER the fixture: in Playwright the last matching route wins,
+    // so this is the refusal the panel meets.
+    await page.route("**/api/cron/jobs/*/run", async (route) => {
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Gateway error: 500" }),
+      });
+    });
+
+    await page.goto("/");
+    await infraPage.openCronPanel();
+
+    await page.getByText("Daily backup").hover();
+    await page.locator('button[title="Run now"]').first().click();
+
+    const band = page.getByTestId("cron-error");
+    await expect(band).toBeVisible();
+    await expect(band).toContainText("Gateway error: 500");
+    await page.screenshot({ path: `${SHOTS}/cronui-01-run-refused.png` });
+  });
+
+  test("CRONUI-01b: a run that works marks its row", async ({
+    page,
+    infraPage,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "CRONUI-01b" });
+    await infraPage.mockCronJobs();
+    await page.goto("/");
+    await infraPage.openCronPanel();
+
+    // «Nightly sync» has no `lastRunAt` in the fixture, which is what makes the
+    // assertion mean something: the mark cannot already be there.
+    const row = page.getByTestId("cron-job-cron-2");
+    await expect(row).toBeVisible();
+    await expect(row.getByTestId("cron-job-ran")).toHaveCount(0);
+
+    await page.getByText("Nightly sync").hover();
+    await row.locator('button[title="Run now"]').click();
+
+    await expect(row.getByTestId("cron-job-ran")).toBeVisible();
+    await page.screenshot({ path: `${SHOTS}/cronui-01b-run-marked.png` });
   });
 });
 

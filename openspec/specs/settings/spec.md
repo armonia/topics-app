@@ -270,3 +270,20 @@ qualcuno, questo stesso progetto.
 #### Scenario: nessun consiglio senza dati
 - **GIVEN** un'installazione senza progetti dell'organizzazione
 - **THEN** il pannello NON SHALL inventare suggerimenti
+
+### Requirement: APPSET-07 — La pagina pubblica non si può credere chiusa mentre risponde
+
+«Pubblica» e «Revoca» finivano in due `catch` vuoti. Sulla revoca è il silenzio
+che costa di più: l'utente crede di aver chiuso un URL pubblico che invece resta
+vivo, e non c'è nessun secondo posto in cui accorgersene.
+
+Un rifiuto SHALL comparire accanto ai due bottoni che lo hanno prodotto.
+
+Lo stato del link SHALL cambiare solo quando il server lo ha confermato: una
+revoca fallita SHALL lasciare il link esattamente com'era.
+
+#### Scenario: la revoca viene rifiutata
+- **GIVEN** un profilo pubblicato e la rotta del token che rifiuta
+- **WHEN** si preme «Revoca»
+- **THEN** SHALL comparire il motivo accanto al bottone
+- **AND** il link SHALL essere ancora in elenco
