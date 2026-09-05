@@ -13,6 +13,7 @@ import { findPendingPlan } from './planDetection';
 import { PLAN_APPROVAL_QUESTION, PLAN_APPROVE_LABEL, PLAN_REJECT_LABEL } from '../../../../shared/plan-decision';
 import { useConfirm } from '../../hooks/useConfirm';
 import { DND_TYPES } from '../../lib/dndTypes';
+import { errMessage } from '../../lib/errMessage';
 import { sendFocusTopic } from '../../lib/focusMessaging';
 import type { MentionedFile } from './FileMentionMenu';
 import { PinnedMessages } from './PinnedMessages';
@@ -64,16 +65,6 @@ import { loadDraftAttachments, saveDraftAttachments } from '../../state/draftAtt
  */
 const slashCommandsHelp = (tr: (key: string) => string) =>
   SLASH_COMMANDS.map((c) => `${c.cmd}: ${tr(c.descriptionKey)}`);
-
-/** Extract a human-readable message from an unknown thrown value. */
-function errMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === 'string') return err;
-  if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
-    return (err as { message: string }).message;
-  }
-  return String(err);
-}
 
 export interface ChatPaneProps {
   topic: Topic;
@@ -1196,6 +1187,46 @@ function ChatPaneComponent({
     }
   }, [isDraftTopic, topic.id, topic.autonomyLevel, toast]);
 
+  // THE GOAL BAR'S ACTIONS SPEAK.
+  //
+  // `useGoal` does no optimistic update (a decision, see its docstring): with no
+  // error on screen a refusal from the server drew the bar IDENTICAL to before,
+  // which is also how a success draws it. A failed write now says so, and on the
+  // rename the error is RE-THROWN towards `GoalBar`, because the edit field
+  // stays open only if it sees the rejection.
+  const handleGoalClose = useCallback(async (status: 'achieved' | 'abandoned') => {
+    try {
+      await closeGoal(status);
+    } catch (err) {
+      toast.error(errMessage(err) || tr('goal.closeFailed'));
+    }
+  }, [closeGoal, toast, tr]);
+
+  const handleGoalEdit = useCallback(async (content: string) => {
+    try {
+      await declareGoal(content);
+    } catch (err) {
+      toast.error(errMessage(err) || tr('goal.editFailed'));
+      throw err;
+    }
+  }, [declareGoal, toast, tr]);
+
+  const handleGoalStopLoop = useCallback(async () => {
+    try {
+      await stopGoalLoop();
+    } catch (err) {
+      toast.error(errMessage(err) || tr('goal.actionFailed'));
+    }
+  }, [stopGoalLoop, toast, tr]);
+
+  const handleGoalPromote = useCallback(async () => {
+    try {
+      await promoteGoal();
+    } catch (err) {
+      toast.error(errMessage(err) || tr('goal.actionFailed'));
+    }
+  }, [promoteGoal, toast, tr]);
+
   const handleRetry = useCallback(() => {
     const lastUserMsg = [...currentMessages].reverse().find(m => m.role === 'user');
     if (!lastUserMsg) return;
@@ -1207,10 +1238,19 @@ function ChatPaneComponent({
     sendMessage(topic.sessionKey, lastUserMsg.content, Object.keys(opts).length ? opts : undefined);
   }, [currentMessages, sendMessage, topic.sessionKey, providerOverride]);
 
+  // The brain button has no spinner and no "saved" state, so a swallowed 500
+  // drew exactly the same screen as a success: the person believed the snippet
+  // was in memory and it was nowhere. Both outcomes speak now, and the server's
+  // own sentence wins over the fallback.
   const handleRememberMessage = useCallback(async (msg: ChatMessage) => {
     const snippet = msg.content.length > 300 ? msg.content.slice(0, 300) + '...' : msg.content;
-    try { await memoryApi.appendToTopic(topic.id, snippet); } catch {}
-  }, [topic.id]);
+    try {
+      await memoryApi.appendToTopic(topic.id, snippet);
+      toast.success(tr('chat.remember.saved'));
+    } catch (err) {
+      toast.error(errMessage(err) || tr('chat.remember.failed'));
+    }
+  }, [topic.id, toast, tr]);
 
   // Regenerate: fork a sibling assistant branch under the same user message
   // and re-stream (the general "try again", not just the ⚠️-error retry). The
@@ -1379,9 +1419,22 @@ function ChatPaneComponent({
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     const items = Array.from(e.clipboardData.items); const imgs: File[] = [], others: File[] = [];
     for (const item of items) { if (item.kind === 'file') { const f = item.getAsFile(); if (f) { if (f.type.startsWith('image/')) { imgs.push(f); } else { others.push(f); } } } }
-    if (imgs.length > 0) { e.preventDefault(); Promise.all(imgs.map(f => resizeImageToBase64(f))).then(r => setPendingImages(prev => [...prev, ...r])).catch(() => {}); }
+    if (imgs.length > 0) {
+      e.preventDefault();
+      // `allSettled` and not `all`: the default is already prevented, so the
+      // clipboard has nowhere else to land. With `all`, a single image the
+      // decoder refuses (`img.onerror`) rejected the whole batch into an empty
+      // catch, and the paste left NOTHING on screen: not the other images, not
+      // the text. The readable ones go in, and the toast names what was dropped.
+      void Promise.allSettled(imgs.map(f => resizeImageToBase64(f))).then(results => {
+        const ready = results.flatMap(r => (r.status === 'fulfilled' ? [r.value] : []));
+        if (ready.length > 0) setPendingImages(prev => [...prev, ...ready]);
+        const dropped = imgs.filter((_, i) => results[i]?.status === 'rejected').map(f => f.name || f.type);
+        if (dropped.length > 0) toast.error(tr('chat.paste.imageFailed', { files: dropped.join(', ') }));
+      });
+    }
     if (others.length > 0) { e.preventDefault(); setPendingFiles(prev => [...prev, ...others]); }
-  }, [resizeImageToBase64]);
+  }, [resizeImageToBase64, toast, tr]);
 
   const handleFileDragOver = useCallback((e: React.DragEvent) => { if (e.dataTransfer.types.includes(DND_TYPES.PANEL_ID)) return; e.preventDefault(); e.stopPropagation(); setFileDragOver(true); }, []);
   const handleFileDragLeave = useCallback((e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); if (!e.currentTarget.contains(e.relatedTarget as Node)) setFileDragOver(false); }, []);
@@ -1534,10 +1587,10 @@ function ChatPaneComponent({
           <GoalBar
             goal={goal}
             fallback={latestTodo ?? undefined}
-            onClose={(status) => { void closeGoal(status); }}
-            onEdit={(content) => { void declareGoal(content); }}
-            onStopLoop={() => { void stopGoalLoop(); }}
-            onPromote={() => { void promoteGoal(); }}
+            onClose={(status) => { void handleGoalClose(status); }}
+            onEdit={handleGoalEdit}
+            onStopLoop={() => { void handleGoalStopLoop(); }}
+            onPromote={() => { void handleGoalPromote(); }}
           />
         ) : (
           latestTodo && <TodoStrip snapshot={latestTodo} />

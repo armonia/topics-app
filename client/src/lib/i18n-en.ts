@@ -1944,6 +1944,15 @@ const EN = {
   'chat.goal.achieved': 'Goal reached: {goal}',
   'chat.goal.abandoned': 'Goal abandoned: {goal}',
 
+  'chat.remember.failed': 'Could not save it to memory.',
+  'chat.remember.saved': 'Saved to this topic memory',
+  'goal.closeFailed': 'Could not close the goal.',
+  'goal.editFailed': 'Could not change the goal.',
+  'goal.actionFailed': 'Could not update the goal.',
+  'context.toggleFailed': 'Could not change this context source.',
+  'context.removeFailed': 'Could not remove the file from the context.',
+  'chat.paste.imageFailed': 'Unreadable image, dropped: {files}',
+
   'stt.rejectedKey': '{provider} refused the key (HTTP {status})',
   'stt.fellBackTo': 'Transcribed with {provider} ({model}) in {seconds}s because {because}.',
   'stt.emptyNote': 'Empty voice note: {chunks} chunks, {bytes} bytes in {format}. Nothing to transcribe.',
