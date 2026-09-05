@@ -1438,6 +1438,7 @@ const EN = {
   'common.close': 'Close',
   'common.retry': 'Retry',
   'common.loading': 'Loading…',
+  'common.resetZoom': 'Reset zoom',
   // ── Editor: the tabs and the file that did not load.
   'editor.tab.close': 'Close {name}',
   'editor.loadFailed': 'The file did not load, so it cannot be edited here.',

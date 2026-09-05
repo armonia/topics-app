@@ -1681,6 +1681,7 @@ const IT: Dict = {
   'common.close': 'Chiudi',
   'common.retry': 'Riprova',
   'common.loading': 'Carico…',
+  'common.resetZoom': 'Azzera lo zoom',
   // ── Editor: le schede e il file che non si è caricato.
   'editor.tab.close': 'Chiudi {name}',
   'editor.loadFailed': 'Il file non è stato caricato, quindi non è modificabile da qui.',
