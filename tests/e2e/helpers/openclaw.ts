@@ -91,7 +91,14 @@ export async function openAddMenuPane(
 ) {
   // By TESTID: the title contains the shortcut, which changes with the platform
   // (⌘N on a Mac, Ctrl+N elsewhere). See the note in dashboard.spec.ts.
-  await page.getByTestId("pane-add-menu-trigger").click();
+  //
+  // `.first()` IS THE SIDEBAR'S TRIGGER, and it is not a tolerance for a stray
+  // duplicate. Once ANY pane is open the tab bar grows a second «+» carrying
+  // the same testid, so from the second test of a file onwards - the pane store
+  // survives between tests in the same worker - strict mode found two and threw
+  // before the menu ever opened. The one that always exists, open panes or not,
+  // is the one in the column.
+  await page.getByTestId("pane-add-menu-trigger").first().click();
   const row = page.getByTestId(`pane-add-menu-${type}`);
   await row.waitFor({ state: "visible", timeout: 5000 });
   await row.click();
