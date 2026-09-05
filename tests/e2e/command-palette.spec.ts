@@ -753,11 +753,11 @@ test.describe("Command Palette", () => {
     // A PROJECT shows in the left column; it is derived from a topic's
     // projectPath (CommandPalette.tsx:275), whose basename shares the "E2E-Cmd"
     // prefix with the seeded topics — so one query lights up BOTH columns.
-    const projHost = await createTopic(request, `E2E-CmdProjHost-${TS}`, {
+    const projectHost = await createTopic(request, `E2E-CmdProjHost-${TS}`, {
       projectPath: `/tmp/E2E-CmdProj-${TS}`,
     });
-    topicIds.push(projHost.id);
-    await resetPaneStore(request, [...seededPaneIds, projHost.id]);
+    topicIds.push(projectHost.id);
+    await resetPaneStore(request, [...seededPaneIds, projectHost.id]);
 
     await goToApp(page);
     await commandPalettePage.open();
