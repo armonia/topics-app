@@ -6,6 +6,8 @@ import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { PaneTabBar } from './PaneTabBar';
 import { ChatPanel } from './ChatPanel';
 import { LazyPane } from './LazyPane';
+import { lazyWarm } from '../../lib/lazyWarm';
+import { loadBoard, loadBrowser, loadDashboard, loadTerminal } from '../../state/pane/panePreload';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { DND_TYPES, STANDALONE_SCOPE } from '../../lib/dndTypes';
 import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_ROW_ACTION_INSET_LEFT, CHROME_ROW_ACTION_RESERVE_LEFT, RAISED_CONTROL, TAB_LABEL } from '../../lib/selectionStyles';
@@ -42,12 +44,15 @@ import { isTauri } from '../../lib/shell';
 import { currentWindowLabel } from '../../lib/shell/tauri';
 import type { SendMessageOptions } from '@/hooks/useChat';
 
-const RemoteBrowserPanel = lazy(() => import('../Browser/RemoteBrowserPanel').then(m => ({ default: m.RemoteBrowserPanel })));
-const SingleTerminalPane = lazy(() => import('../Terminal/SingleTerminalPane').then(m => ({ default: m.SingleTerminalPane })));
+// `lazyWarm`, not `lazy`, for the pane bodies: their chunks are asked for at
+// boot from the local pane-store snapshot (`state/pane/panePreload`), and a
+// warm chunk renders in the same pass as the group, with no spinner.
+const RemoteBrowserPanel = lazyWarm(loadBrowser, (m) => m.RemoteBrowserPanel);
+const SingleTerminalPane = lazyWarm(loadTerminal, (m) => m.SingleTerminalPane);
 
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
-const DashboardPane = lazy(() => import('../Dashboard/DashboardPane').then(m => ({ default: m.DashboardPane })));
-const KanbanBoardPane = lazy(() => import('../Board/KanbanBoardPane').then(m => ({ default: m.KanbanBoardPane })));
+const DashboardPane = lazyWarm(loadDashboard, (m) => m.DashboardPane);
+const KanbanBoardPane = lazyWarm(loadBoard, (m) => m.KanbanBoardPane);
 const CronJobsPanel = lazy(() => import('../Sidebar/CronJobsPanel').then(m => ({ default: m.CronJobsPanel })));
 // The destructured `await` form, and not `import().then(m => ...)`: with the
 // `.then` shape knip cannot see through the module, every export inside it

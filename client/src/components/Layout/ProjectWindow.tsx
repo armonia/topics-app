@@ -3,6 +3,8 @@ import { pinKeyFromPaneId } from '../../state/pane/adapters/paneConfig';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, CompactionMarker } from '../../types';
 import { LazyPane } from './LazyPane';
+import { lazyWarm } from '../../lib/lazyWarm';
+import { loadBoard, loadBrowser, loadDashboard, loadFileExplorer, loadFilePane, loadGitChanges, loadProcessLog, loadTerminal } from '../../state/pane/panePreload';
 import { useTopics } from '../../contexts/TopicsContext';
 import { ProjectSidebar } from '../Project/ProjectSidebar';
 import { GroupLayout } from './GroupLayout';
@@ -26,15 +28,18 @@ import type { SendMessageOptions } from '@/hooks/useChat';
 import { missionPrompt, type Mission } from '../../lib/missions';
 import { pickMissionSession } from '../../lib/missionTarget';
 
-const RemoteBrowserPanel = lazy(() => import('../Browser/RemoteBrowserPanel').then(m => ({ default: m.RemoteBrowserPanel })));
-const SingleTerminalPane = lazy(() => import('../Terminal/SingleTerminalPane').then(m => ({ default: m.SingleTerminalPane })));
-const FileExplorer = lazy(() => import('../Project/FileExplorer').then(m => ({ default: m.FileExplorer })));
-const FilePane = lazy(() => import('../Editor/FilePane').then(m => ({ default: m.FilePane })));
-const GitChanges = lazy(() => import('../Project/GitChanges').then(m => ({ default: m.GitChanges })));
-const DashboardPane = lazy(() => import('../Dashboard/DashboardPane').then(m => ({ default: m.DashboardPane })));
-const KanbanBoardPane = lazy(() => import('../Board/KanbanBoardPane').then(m => ({ default: m.KanbanBoardPane })));
+// The tiles are `lazyWarm`, not `lazy`: their chunks are asked for at boot from
+// the project's local tab record (`state/pane/panePreload`), and a warm chunk
+// renders in the same pass as the window, with no spinner. See `lib/lazyWarm`.
+const RemoteBrowserPanel = lazyWarm(loadBrowser, (m) => m.RemoteBrowserPanel);
+const SingleTerminalPane = lazyWarm(loadTerminal, (m) => m.SingleTerminalPane);
+const FileExplorer = lazyWarm(loadFileExplorer, (m) => m.FileExplorer);
+const FilePane = lazyWarm(loadFilePane, (m) => m.FilePane);
+const GitChanges = lazyWarm(loadGitChanges, (m) => m.GitChanges);
+const DashboardPane = lazyWarm(loadDashboard, (m) => m.DashboardPane);
+const KanbanBoardPane = lazyWarm(loadBoard, (m) => m.KanbanBoardPane);
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
-const ProcessLogPane = lazy(() => import('../Project/ProcessLogPane').then(m => ({ default: m.ProcessLogPane })));
+const ProcessLogPane = lazyWarm(loadProcessLog, (m) => m.ProcessLogPane);
 
 
 // --- ProjectWindowPane: self-contained project content (no header/chrome) ---
