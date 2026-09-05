@@ -26,6 +26,7 @@
  * does not resolve the `@/` alias, so the drawer does not mount here. What
  * happens on the wire during a live turn is E2E's job (DRAWER-05a).
  * @covers KANBAN-52
+ * @covers KANBAN-73
  */
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
@@ -84,15 +85,32 @@ describe('la vivezza della pane', () => {
   });
 });
 
-describe('il taglio della sessione fra i commenti', () => {
-  test('è UNA passata, non un filtro per riga', () => {
-    expect(src).toContain('bucketSessionMsgs(');
-    // `sliceBetween` was the per-row filter: 200 messages for every comment,
-    // on every update.
-    expect(src.includes('sliceBetween')).toBe(false);
+describe('la conversazione e\' UNA lista', () => {
+  test('la proiezione la fa `mergeTaskTimeline`, non il drawer a mano', () => {
+    expect(src).toContain('mergeTaskTimeline(threadComments, storeMessages');
+    expect(src).toContain("from './taskTimeline'");
+    // The cut into buckets and the pane that drew them are gone: there is no
+    // second surface to keep in sync with this one any more.
+    expect(src.includes('bucketSessionMsgs(')).toBe(false);
+    expect(src.includes('SessionPane')).toBe(false);
   });
 
   test('porta dentro il risultato di prima, o niente resta stabile', () => {
-    expect(src).toContain('bucketsRef.current');
+    expect(src).toContain('timelineRef.current');
+  });
+
+  test('segue il fondo solo se ci sei gia\': niente scrollIntoView', () => {
+    // A `scrollIntoView` on a sentinel scrolls every ANCESTOR too, and now that
+    // the agent's tokens land in this list it would fire several times a
+    // second while somebody is reading further up.
+    expect(src.includes('scrollIntoView({')).toBe(false);
+    expect(src).toContain('stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80');
+  });
+
+  test('il passo dell\'agent lo disegna `MessageContent`, quello della chat', () => {
+    // The drawer's own miniature renderer is what made a question the agent
+    // asked answerable in the chat and dead in the card.
+    expect(src).toContain('<MessageContent');
+    expect(src).toContain('data-testid="task-session-item"');
   });
 });

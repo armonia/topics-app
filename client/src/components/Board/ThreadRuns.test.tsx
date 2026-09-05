@@ -42,11 +42,10 @@ const speech = (id: string, author = 'agent'): ThreadRunsRow =>
   ({ id, author, kind: 'comment', content: `speech ${id}` });
 
 /** Render a thread the way the drawer does: one paragraph per row, tagged with its id. */
-function draw(rows: ThreadRunsRow[], breaksRun?: (c: ThreadRunsRow, i: number) => boolean): string {
+function draw(rows: ThreadRunsRow[]): string {
   return renderToStaticMarkup(
     <ThreadRuns
       comments={rows}
-      breaksRun={breaksRun}
       renderRow={(c) => <p key={c.id} data-row={c.id}>{c.content}</p>}
     />,
   );
@@ -109,18 +108,6 @@ describe('the thread folds the bookkeeping and keeps every row', () => {
     // The agent's words never went inside a fold.
     expect(blocks.join('')).not.toContain('data-row="s1"');
     expect(blocks.join('')).not.toContain('data-row="s2"');
-  });
-
-  test('a wall BREAKS where the agent spoke in the gap, so the session steps stay outside', () => {
-    const rows = [service('a1'), service('a2'), service('a3'), service('a4')];
-    // "The caller draws something of its own in the gap before a3" - whatever
-    // it is, it would otherwise be swallowed whole by the fold above it.
-    const html = draw(rows, (_c, i) => i === 2);
-    const blocks = folds(html);
-    expect(blocks).toHaveLength(2);
-    expect(drawnRows(blocks[0]!)).toEqual(['a1', 'a2']);
-    expect(drawnRows(blocks[1]!)).toEqual(['a3', 'a4']);
-    expect(drawnRows(html)).toEqual(['a1', 'a2', 'a3', 'a4']);
   });
 
   test('a thread with no bookkeeping at all draws exactly as it did before', () => {

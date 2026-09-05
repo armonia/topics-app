@@ -1,6 +1,6 @@
 import { memo, useState, useCallback, useEffect, useRef } from 'react';
 import { useT } from '../../hooks/useT';
-import { Bot, Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight, RotateCw, Target, Trash2 } from 'lucide-react';
+import { Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight, RotateCw, Target, Trash2 } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage } from '../../types';
 import { MessageMetaFooter } from './MessageMetaFooter';
 import { isWorkOnlyAssistant } from './coalesceToolRun';
@@ -8,6 +8,7 @@ import { MessageContent } from '../MessageContent';
 import { turnIsOnlyError } from './turnError';
 import { goalLoopRowOf } from './goalLoopRow';
 import { isDispatchedEnvelope } from './dispatchedEnvelope';
+import { DispatchEnvelopeRow } from './DispatchEnvelopeRow';
 import { useMobile } from '../../hooks/useMobile';
 import { hoverRevealClass } from '../../lib/hoverReveal';
 import { useLongPress } from '../../hooks/useLongPress';
@@ -152,8 +153,7 @@ export const MessageBubble = memo(function MessageBubble({
   // Collapsed by default: the envelope is three hundred lines of instructions,
   // and it is machinery. Open on demand because a resume envelope quotes the
   // human's own message inside it.
-  const [envelopeOpen, setEnvelopeOpen] = useState(false);
-
+  
   // Two-click delete confirm: first click arms (button turns red "Delete?"),
   // second click within the window fires. Auto-disarms after 3s so a stray
   // click can't linger as a loaded gun.
@@ -242,41 +242,12 @@ export const MessageBubble = memo(function MessageBubble({
     );
   }
 
-  // THE BOARD'S ENVELOPE TALKS, IT DOES NOT IMPERSONATE.
-  //
-  // Same rule as the goal loop, for the same reason and one column over: the
-  // kickoff, the resume and the nudge are `user` rows because that is the only
-  // role a provider answers, and drawn as bubbles they put words in the
-  // person's mouth - with an "edit" button on them. One service line, openable,
-  // because the resume envelope carries the human's own message inside it.
-  // See `dispatchedEnvelope.ts` and server/routes/chat.ts.
+  // THE BOARD'S ENVELOPE TALKS, IT DOES NOT IMPERSONATE. The row itself lives
+  // in `DispatchEnvelopeRow`, shared with the card's conversation: two surfaces
+  // draw it, and a service line that looks different in each is a second thing
+  // to learn. See `dispatchedEnvelope.ts` for the rule that recognises it.
   if (isDispatchedEnvelope(msg.blocks)) {
-    return (
-      <div
-        data-testid="dispatch-envelope-row"
-        data-message-id={msg.id}
-        data-open={envelopeOpen || undefined}
-        className="my-1 px-2 text-[11px] text-app-text-muted"
-      >
-        <div className="flex items-center justify-center gap-1.5">
-          <Bot size={11} className="flex-shrink-0" />
-          <span className="truncate" title={tr('chat.dispatchEnvelope.title')}>{tr('chat.dispatchEnvelope.line')}</span>
-          <button
-            type="button"
-            data-testid="dispatch-envelope-toggle"
-            onClick={() => setEnvelopeOpen((v) => !v)}
-            className="shrink-0 underline-offset-2 hover:text-app-text hover:underline"
-          >
-            {envelopeOpen ? tr('chat.dispatchEnvelope.hide') : tr('chat.dispatchEnvelope.show')}
-          </button>
-        </div>
-        {envelopeOpen && (
-          <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded bg-app-inset p-2 text-[11px] leading-relaxed text-app-text-secondary">
-            {msg.content}
-          </pre>
-        )}
-      </div>
-    );
+    return <DispatchEnvelopeRow messageId={msg.id} content={msg.content} />;
   }
 
   return (
