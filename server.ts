@@ -40,7 +40,7 @@ import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { timelineWithInterruptedVerdict } from "./server/lib/interrupted-turn-block";
 import type { ContentBlock } from "./shared/types";
-import { describeInFlight, unadoptableStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
+import { describeInFlight, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
 import { dispatchReconcileHeld } from "./server/lib/e2e-dispatch-hold";
 import { chatsParkedOnQuestion } from "./server/lib/parked-asks";
 import { touchReloadDeferred, clearReloadDeferred } from "./server/lib/reload-deferred";
@@ -5414,6 +5414,32 @@ async function openBrokerChatTurns(): Promise<string[]> {
 
 let brokerProbeCache: { at: number; open: string[] } = { at: 0, open: [] };
 
+/**
+ * IL TURNO DI QUESTA RIGA E' GIA' FINITO?
+ *
+ * `partial` e' il perno che ogni setaccio di boot gia' legge: vale 1 mentre il
+ * turno scrive e 0 quando qualcuno lo ha finalizzato - bene, con un errore del
+ * fornitore, o per mano di un cane da guardia. E' l'unico fatto su cui il
+ * registro in memoria non ha voce, ed e' il registro ad aver mentito: il
+ * 2026-09-03 `topic:6b9605e5` teneva il riavvio da 2160 secondi con un turno
+ * morto da un pezzo di `400 prompt is too long`.
+ *
+ * Costo: una SELECT su chiave primaria per stream vivo, e gli stream vivi si
+ * contano su una mano. Direzione del dubbio in `unfinishedStreams`: quello che
+ * non si riesce a leggere continua a contare.
+ */
+let turnFinishedStmt: ReturnType<typeof ctx.db.prepare> | null = null;
+function turnAlreadyFinished(messageId: string): boolean {
+  if (!messageId) return false;
+  turnFinishedStmt ??= ctx.db.prepare("SELECT partial FROM messages WHERE id = ?");
+  const row = turnFinishedStmt.get(messageId) as { partial?: number } | undefined;
+  // Riga assente: si continua a trattenere. Qui il dubbio protegge un turno
+  // vivo dall'essere tagliato, e un riavvio in piu' che aspetta lo dichiara
+  // subito e chiama una persona al minuto.
+  if (!row) return false;
+  return row.partial === 0;
+}
+
 let askProbeCache: { at: number; parked: string[] } = { at: 0, parked: [] };
 
 /**
@@ -5437,7 +5463,11 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
   // A land in flight is a card turn for this purpose: it rewrites main and
   // the card, and a restart in the middle of it forgets the delivery branch.
   const cards = taskDispatcher.busyCount() + landingQueue.inFlight();
-  const streamKeys = [...activeStreams.keys()];
+  // NON LE CHIAVI DEL REGISTRO: quelle il cui TURNO e' ancora aperto. Una voce
+  // rimasta dietro a un turno gia' finalizzato trattiene un riavvio per
+  // nessuno, e nessuno puo' nemmeno sbloccarlo (vedi `turnAlreadyFinished`).
+  const liveStreams = unfinishedStreams(activeStreams.values(), turnAlreadyFinished);
+  const streamKeys = liveStreams.map((s) => s.sessionKey);
   // La sonda del broker si paga, e si paga solo quando serve: se una fonte più
   // economica ha già detto «occupato», la risposta non cambia.
   let brokerOpen = brokerProbeCache.open;
@@ -5463,7 +5493,7 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
   // che il cancello manda oltre il tetto: un avviso che dice «una chat» manda a
   // cercare, uno che dice quale porta dove si decide (il click apre il topic).
   // Le non riadottabili per prime: sono quelle il cui lavoro non torna.
-  const unadoptableKeys = unadoptableStreams(activeStreams.values());
+  const unadoptableKeys = unadoptableStreams(liveStreams);
   const unadoptable = unadoptableKeys.length;
   // THE FOURTH SOURCE: whoever is waiting for a PERSON. The three above answer
   // "who is WORKING", and a chat parked on a question is not working, so it
@@ -5556,7 +5586,7 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
     const verdetto = quiescenceVerdict({
       busy, unrecoverable: cards + unadoptable,
       now: Date.now(), startedAt: inizio,
-      capMs, chatCapMs: QUIESCENCE_CHAT_CAP_MS,
+      chatCapMs: QUIESCENCE_CHAT_CAP_MS,
       parkedAsks,
     });
     // DUE ATTESE, PERCHE' SONO DUE DANNI DIVERSI.
@@ -5590,35 +5620,41 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
     //     25 min         84/94  (89%)                   7.6 min
     //
     // Col minuto di prima, QUATTRO TURNI NATIVI SU CINQUE venivano tagliati:
-    // non era un caso sfortunato, era la norma. Si riusa `capMs` — lo stesso
-    // numero delle card — invece di introdurre una terza soglia: fra 15 e 25
-    // minuti ballano tre punti di turni salvati contro 1,3 minuti di attesa in
-    // piu', una differenza che non vale un secondo numero da tenere allineato
-    // a mano (e' la stessa ragione per cui `start-prod.sh` deriva la sua
-    // finestra da qui invece di riscriverla).
+    // non era un caso sfortunato, era la norma. Quei numeri hanno smesso di
+    // essere un tetto da scegliere e sono diventati la ragione per cui un turno
+    // nativo non si taglia affatto: la colonna «arrivano in fondo» dice quanti
+    // turni un orologio avrebbe ucciso, non quanto conviene aspettarli.
     //
-    // E CHI SFONDA ANCHE QUELLO NON VIENE TAGLIATO. Qui c'era scritto che
-    // «prende comunque il cartello», e non e' vero: per un turno che non torna
+    // E CHI ASPETTA NON VIENE MAI TAGLIATO. Per un turno che non torna
     // `quiescenceVerdict` non restituisce MAI "scaduto" — e' l'invariante del
-    // 28/08, con un test che la fissa fino a `CAP * 10_000`. Il commento
-    // sbagliato e' costato un'ora di indagine il 30/08, quando il codice
-    // sembrava rotto perche' contraddiceva la riga sopra di se'.
+    // 28/08, con un test che la fissa fino a `CAP * 10_000`. Qui c'era scritto
+    // il contrario, e il commento sbagliato e' costato un'ora di indagine il
+    // 30/08, quando il codice sembrava rotto perche' contraddiceva la riga
+    // sopra di se'.
     //
-    // Quello che il tetto fa davvero, adesso: smette di tacere. Oltre la
-    // scadenza il cancello manda UNA notifica che nomina la chat che trattiene
-    // (`reloadHeldNotice`), e la decisione resta a una persona. Il 30/08 un
-    // riavvio e' rimasto in attesa 4599 secondi con la sola traccia in un log
-    // che nessuno guardava; saputolo, l'utente l'ha sbloccato in cinque
-    // secondi. Un'attesa senza fine e' accettabile, un'attesa MUTA no.
+    // IL TETTO LUNGO NON DECIDE PIU' NIENTE, E NON DEVE FINGERE DI FARLO
+    // (2026-09-04). Restava come l'istante in cui il rinvio veniva DICHIARATO,
+    // e siccome il verdetto era un rinvio prima e un rinvio dopo, quei
+    // venticinque minuti non cambiavano un esito: cambiavano solo chi lo
+    // sapeva. Il battito `touchReloadDeferred()` sta sul ramo del rinvio,
+    // quindi fino al tetto non veniva scritto e `start-prod.sh` era libero di
+    // sparare il proprio SIGTERM sul turno che questo cancello esiste per non
+    // tagliare; e con lui restava ferma la notifica all'unica persona che puo'
+    // finire l'attesa. Ora il rinvio si dichiara dal PRIMO giro, e `capMs`
+    // sopravvive per una cosa sola: e' la soglia oltre cui si avvisa quando a
+    // trattenere e' una CARD (vedi sotto).
     //
-    // La scadenza NON si rinnova più a ogni giro: si sceglie fra due tetti
-    // fissi, calcolati all'inizio dell'attesa (vedi in cima alla funzione). Il
-    // rinnovo sembrava generoso — «una card che parte mentre aspetto ha diritto
-    // all'attesa lunga» — ma era la ragione per cui questo cancello non è mai
-    // scaduto una sola volta, e per cui a decidere finiva il SIGTERM dello
-    // script. Una card che parte mentre stiamo già uscendo prende il tempo che
-    // resta e poi, se non basta, muore DICENDOLO: è meglio di un'attesa che non
-    // finisce e di un taglio che nessuno annuncia.
+    // Quello che il cancello fa quando l'attesa non ha fine: smette di tacere.
+    // Manda UNA notifica che nomina la chat che trattiene (`reloadHeldNotice`),
+    // e la decisione resta a una persona. Il 30/08 un riavvio e' rimasto in
+    // attesa 4599 secondi con la sola traccia in un log che nessuno guardava;
+    // saputolo, l'utente l'ha sbloccato in cinque secondi. Un'attesa senza fine
+    // e' accettabile, un'attesa MUTA no.
+    //
+    // La scadenza corta NON si rinnova a ogni giro: si conta dall'inizio
+    // dell'attesa. Il rinnovo sembrava generoso — «una card che parte mentre
+    // aspetto ha diritto all'attesa lunga» — ma era la ragione per cui questo
+    // cancello non è mai scaduto una sola volta.
     if (verdetto === "rinvia") {
       // NON SI TAGLIA CHI NON TORNA. Si rinvia, e lo si dichiara: allo script,
       // con un battito su file, perche' altrimenti manda il SIGTERM al posto
@@ -5631,10 +5667,24 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
       // sola traccia in un file che nessuno guardava, e l'utente l'ha sbloccato
       // in cinque secondi appena l'ha saputo. Best-effort: un registro che non
       // scrive non deve fermare l'attesa.
-      if (!avvisato) {
+      // QUANDO AVVISARE DIPENDE DA CHI TRATTIENE, e sono due attese diverse.
+      // Un turno di CARD ha gia' un limite suo (`dispatchTimeoutMin`, venti
+      // minuti) oltre il quale e' il dispatcher a chiuderlo: quell'attesa
+      // finisce da sola, e svegliare qualcuno al primo minuto sarebbe rumore.
+      // Una CHAT no: il turno nativo non ha nessun limite superiore, e a
+      // finirlo puo' essere solo una persona - che al minuto sessanta e' gia'
+      // l'unica cosa che puo' succedere, perche' e' li' che il cancello ha
+      // deciso di non tagliare. Il 2026-09-04 quella notizia arrivava dopo
+      // quindici minuti.
+      //
+      // La soglia si guarda PRIMA di comporre l'avviso: adesso il rinvio parte
+      // dal primo giro, e cercare il nome del topic due volte al secondo per
+      // tutta l'attesa sarebbe una lettura pagata per niente.
+      const noticeAfterMs = cards > 0 ? capMs : QUIESCENCE_CHAT_CAP_MS;
+      if (!avvisato && Date.now() - inizio >= noticeAfterMs) {
         const avviso = reloadHeldNotice({
           waitedMs: Date.now() - inizio,
-          capMs,
+          noticeAfterMs,
           busy,
           holderName: holder ? (ctx.getTopicBySessionKey(holder)?.name ?? null) : null,
           holderKind,

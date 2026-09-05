@@ -3593,9 +3593,6 @@
       "uscita",
       "verdetto"
     ],
-    "server/lib/quiescence.ts": [
-      "tetto"
-    ],
     "server/lib/recipients.test.ts": [
       "MIGRAZIONI",
       "RADICE",

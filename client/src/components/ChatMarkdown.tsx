@@ -19,7 +19,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { PluggableList } from 'unified';
-import { openExternalOnce } from '../lib/openExternal';
+import { openLink, isExternalLinkGesture } from '../lib/openLink';
 import { openTaskInApp } from '../lib/openTaskLink';
 import { deepLinkClickRoute, openTabInApp } from '../lib/tabLink';
 import { openDeepLinkFromClick } from '../lib/deepLinkClick';
@@ -45,8 +45,8 @@ import { useToast } from './Shared/Toast';
  *      volante);
  *   2. `selfTabLinkTarget` — TUTTO il resto della grammatica `/tab/…`, alias
  *      `/topic/<id>` compreso, instradato dall'unica porta (`openTabInApp`);
- *   3. `openExternalOnce`, che dedupa il doppio-click e sceglie il canale giusto
- *      per host.
+ *   3. `openLink`, che apre una TAB del browser di Topics (e il browser di
+ *      sistema solo su gesto esplicito).
  *
  * La decisione sta tutta in `deepLinkClickRoute`, che è anche l'unico posto che
  * sa dire «questa FINESTRA non può instradare». Serve per le pop-out STACCATE
@@ -83,13 +83,25 @@ function DeepLinkAnchor({ href, children }: { href?: string; children?: ReactNod
       onClick={(e) => {
         if (!href) return;
         e.preventDefault();
+        // The last branch of the router used to hand the link to the SYSTEM
+        // browser, which in an app that has a browser of its own meant leaving
+        // it. It now opens a tab here; Cmd/Ctrl-click and the middle button
+        // still mean "out of the app", as they do in every browser.
+        const external = isExternalLinkGesture(e);
         openDeepLinkFromClick(href, {
           route: deepLinkClickRoute,
           openTask: openTaskInApp,
           openTab: openTabInApp,
-          openExternal: openExternalOnce,
+          openExternal: (u) => openLink(u, { external, origin: e.target }),
           warn: (message) => toast.warning(message),
         });
+      }}
+      onAuxClick={(e) => {
+        // Middle click: the anchor's own `target="_blank"` would ask the shell
+        // for a detached window, which is the thing this whole change removes.
+        if (!href || e.button !== 1) return;
+        e.preventDefault();
+        openLink(href, { external: true, origin: e.target });
       }}
     >{children}</a>
   );

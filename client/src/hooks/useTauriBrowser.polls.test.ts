@@ -31,11 +31,11 @@ import { join } from 'node:path';
 const SOURCE = readFileSync(join(import.meta.dir, 'useTauriBrowser.ts'), 'utf8');
 
 describe('useTauriBrowser: i poll periodici', () => {
-  test('i cinque poll sono armati dal cancello condiviso', () => {
+  test('i sei poll sono armati dal cancello condiviso', () => {
     const armed = SOURCE.match(/startVisibilityGatedPoll\(\{/g) ?? [];
-    // Se ne nasce un sesto questo numero lo fa notare — ed è l'unico posto in
+    // Se ne nasce un settimo questo numero lo fa notare — ed è l'unico posto in
     // cui aggiungerlo costa una riga di test invece di una regressione muta.
-    expect(armed.length).toBe(5);
+    expect(armed.length).toBe(6);
   });
 
   test('nessun intervallo aperto a mano di fianco al cancello', () => {
