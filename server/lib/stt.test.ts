@@ -292,6 +292,23 @@ describe("dettagli dei provider", () => {
     expect(chiamate[1].form!.get("prompt")).toBeNull();
   });
 
+  // Measured 2026-09-05 with `scripts/bench/stt-prompt-bench.ts`: on a silent
+  // clip with the prompt active, Groq answers «Teechnical dictation.» and
+  // whisper.cpp «Andres, open, and the web.». Neither is in the silence
+  // artifact list, so the filter would not stop them: the only defence is that
+  // the prompt never leaves. This test is red the day it leaves again, by any
+  // route, `STT_PROMPT` included.
+  it("clip muto con prompt attivo: la richiesta Whisper resta senza prompt e la trascrizione è vuota", async () => {
+    const { impl, chiamate } = fakeFetch([
+      // What Groq answers on a silent clip when no prompt is steering it.
+      { match: "groq.com", body: { text: "Thank you." } },
+    ]);
+    const env = emptyEnv({ GROQ_API_KEY: "k", STT_PROMPT: "git rebase Tauri bun WebSocket" });
+    const out = await transcribe(AUDIO, { env, fetchImpl: impl });
+    expect(chiamate[0].form!.get("prompt")).toBeNull();
+    expect(out.transcript).toBe("");
+  });
+
   it("STT_PROMPT vuota spegne il suggerimento anche su OpenAI", async () => {
     const { impl, chiamate } = fakeFetch([{ match: "api.openai.com", body: { text: "x" } }]);
     await transcribe(AUDIO, { env: emptyEnv({ OPENAI_API_KEY: "k", STT_PROMPT: "" }), fetchImpl: impl });
