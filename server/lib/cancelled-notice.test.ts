@@ -35,7 +35,7 @@
  * @covers INTERRUPT-03
  */
 import { test, expect, describe } from "bun:test";
-import { avvisoPerTurno, cancelledNotice, abortLogTitle, eCartelloDiInterruzione, CAUSE_NOSTRE } from "./cancelled-notice";
+import { avvisoPerTurno, cancelledNotice, abortLogTitle, eCartelloDiInterruzione, isResumableCause, CAUSE_NOSTRE } from "./cancelled-notice";
 import type { TurnEndInfo } from "../providers/stop-reason";
 
 describe("cancelledNotice — chi merita una spiegazione in chat", () => {
@@ -322,5 +322,22 @@ describe("il limite dell'API", () => {
     expect(avvisoPerTurno({ end: "error", cause: "provider-error", detail: "API 400" }, { haProdotto: true })).toBeNull();
     // And the raw API text is NOT an interruption of ours: never resumed by itself.
     expect(eCartelloDiInterruzione('API 429: {"type":"error"} (retried 27 times over 1655s without success)')).toBe(false);
+  });
+});
+
+describe("il taglio dello sweeper e la causa sul blocco: entrambi si riprendono", () => {
+  test("il cartello dello sweeper è riconosciuto dal testo, con o senza il prefisso", () => {
+    expect(eCartelloDiInterruzione("⚠️ Risposta interrotta: nessuna attività per 3 minuti (il processo potrebbe essersi bloccato o disconnesso). Riprende da solo entro pochi minuti.")).toBe(true);
+    expect(eCartelloDiInterruzione("Risposta interrotta: nessuna attività per 3 minuti.")).toBe(true);
+  });
+
+  test("le cause nostre, il limite dell'API e il tetto dei tool si riprendono; l'umano e un guasto no", () => {
+    for (const c of CAUSE_NOSTRE) expect(isResumableCause(c)).toBe(true);
+    expect(isResumableCause("rate-limit")).toBe(true);
+    expect(isResumableCause("tool-budget")).toBe(true);
+    expect(isResumableCause("user")).toBe(false);
+    expect(isResumableCause("provider-error")).toBe(false);
+    expect(isResumableCause("process-died")).toBe(false);
+    expect(isResumableCause(undefined)).toBe(false);
   });
 });
