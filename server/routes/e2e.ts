@@ -14,6 +14,22 @@
  * Più un verbo di SETUP, per lo stesso motivo (arrivare a uno stato che le API
  * pubbliche non sanno costruire):
  *
+ *   POST /api/test/topics/:id/session-row  writes ONE row into a topic's
+ *                              transcript with the shape a provider gives it:
+ *                              a role, and optionally `blocks` (a tool call, a
+ *                              dispatcher envelope). The public
+ *                              `system-message` verb writes assistant prose and
+ *                              nothing else, so the two rows a card's
+ *                              conversation is BUILT on - the envelope that
+ *                              carries comment ids, the paused
+ *                              `ask_user_question` - had no way of existing
+ *                              without a live agent behind them.
+ *   POST /api/test/tasks/:id/anchored-comment  writes a thread comment WITH its
+ *                              `message_id`. Only `comment_task` from a live
+ *                              session sets that column, so without this verb
+ *                              the anchor - the thing that lets the card draw
+ *                              the agent's words once instead of twice - is
+ *                              unreachable from a test.
  *   POST /api/test/tasks/:id/bind-topic   lega un task alla topic dell'agente
  *                                         (+ `dispatchState` opzionale),
  *                              come il dispatcher — così si può testare la
@@ -306,6 +322,55 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
       const body = (await req.json().catch(() => null)) as { ms?: number } | null;
       const until = holdDispatchReconcile(typeof body?.ms === "number" ? body.ms : 0);
       return json({ ok: true, until });
+    }
+
+    // POST /api/test/topics/:topicId/session-row {role, content, blocks?}
+    //
+    // ONE row of a transcript, as a provider would have left it. `blocks` is
+    // the point: an envelope row (`dispatched-envelope` with the ids it
+    // carried) and an assistant row holding a tool call paused on
+    // `waiting_for_input` are both states only a live agent produces, and both
+    // are what the card's conversation is a projection OF. Written through the
+    // real `appendLocalMessage`, so the row lands in the transcript the way
+    // every other row does and a history read gives it straight back.
+    const sessionRow = /^\/api\/test\/topics\/([^/]+)\/session-row$/.exec(pathname);
+    if (method === "POST" && sessionRow) {
+      const body = (await req.json().catch(() => null)) as
+        { role?: string; content?: string; blocks?: unknown[] } | null;
+      const role = body?.role === "user" ? "user" : "assistant";
+      const topic = ctx.getTopicById(decodeURIComponent(sessionRow[1]));
+      if (!topic) return json({ error: "Topic not found" }, 404);
+      const stored = ctx.appendLocalMessage(
+        topic.sessionKey, role, body?.content ?? "",
+        undefined,
+        Array.isArray(body?.blocks) && body.blocks.length ? (body.blocks as never) : undefined,
+      );
+      return json({ ok: true, message: stored });
+    }
+
+    // POST /api/test/tasks/:taskId/anchored-comment {content, author?, messageId}
+    //
+    // A thread row that KNOWS which message of the session it was said in. The
+    // public comments route never writes that column: the anchor is stamped by
+    // `comment_task` from inside a live turn, which is precisely the agent this
+    // kind of test does not have. Through the real service, same as everything
+    // else here.
+    const anchored = /^\/api\/test\/tasks\/([^/]+)\/anchored-comment$/.exec(pathname);
+    if (method === "POST" && anchored) {
+      const body = (await req.json().catch(() => null)) as
+        { content?: string; author?: string; messageId?: string } | null;
+      if (!body?.content || !body?.messageId) return json({ error: "content and messageId required" }, 400);
+      try {
+        const comment = createTaskService(db).addComment({
+          taskId: decodeURIComponent(anchored[1]),
+          author: body.author ?? "agent",
+          content: body.content,
+          messageId: body.messageId,
+        });
+        return json({ ok: true, comment });
+      } catch (e) {
+        return json({ error: (e as Error).message }, 400);
+      }
     }
 
     // POST /api/test/tasks/:taskId/bind-topic {topicId} — lega un task alla

@@ -18,7 +18,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { isDispatchedEnvelope } from './dispatchedEnvelope';
+import { envelopeCommentIds, isDispatchedEnvelope } from './dispatchedEnvelope';
 import { MessageBubble } from './MessageBubble';
 import type { ChatMessage, Topic } from '../../types';
 
@@ -33,6 +33,25 @@ describe('isDispatchedEnvelope', () => {
 
   test('it survives beside another mark: the goal loop can send an envelope too', () => {
     expect(isDispatchedEnvelope([{ kind: 'goal-nudge', attempt: 2 }, { kind: 'dispatched-envelope' }])).toBe(true);
+  });
+});
+
+describe('envelopeCommentIds', () => {
+  test('answers empty when nothing was carried: no envelope, or a kickoff', () => {
+    expect(envelopeCommentIds(undefined)).toEqual([]);
+    expect(envelopeCommentIds([])).toEqual([]);
+    expect(envelopeCommentIds([{ kind: 'text', text: 'hello' }])).toEqual([]);
+    expect(envelopeCommentIds([{ kind: 'dispatched-envelope' }])).toEqual([]);
+    expect(envelopeCommentIds([{ kind: 'dispatched-envelope', commentIds: [] }])).toEqual([]);
+  });
+
+  test('reads the ids a resume carried, across blocks, dropping empty entries', () => {
+    expect(envelopeCommentIds([{ kind: 'dispatched-envelope', commentIds: ['c1', 'c2'] }])).toEqual(['c1', 'c2']);
+    expect(envelopeCommentIds([
+      { kind: 'dispatched-envelope', commentIds: ['c1'] },
+      { kind: 'text', text: 'x' },
+      { kind: 'dispatched-envelope', commentIds: ['', 'c2'] },
+    ])).toEqual(['c1', 'c2']);
   });
 });
 

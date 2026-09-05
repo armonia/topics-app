@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
+import { copyText } from '../../lib/clipboard';
 import { GitBranch, WrapText, Eye, Code, Copy, Check } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -287,9 +288,9 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
 
 function CopyPathBtn({ filePath, projectPath }: { filePath: string; projectPath: string }) {
   const [copied, setCopied] = useState(false);
-  const copyPath = () => {
+  const copyPath = async () => {
     const rel = filePath.replace(projectPath, '').replace(/^\//, '');
-    navigator.clipboard.writeText(rel);
+    if (!(await copyText(rel))) return;
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
