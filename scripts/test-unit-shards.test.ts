@@ -16,8 +16,42 @@ import {
   planShards,
   parseJunitDurations,
   parseJunitFailures,
+  planUnderLoad,
   aggregateVerdict,
 } from "./test-unit-shards.ts";
+
+describe("planUnderLoad", () => {
+  test("a quiet machine keeps the plan as it is", () => {
+    const p = planUnderLoad({ load: 6, cores: 12, shards: 4, timeoutMs: 30000 });
+    expect(p).toEqual({ shards: 4, timeoutMs: 30000, pressure: 0.5, note: null });
+  });
+
+  test("load 46 on 12 cores (measured 05/09/2026): two shards, the cap scaled by the pressure, and it says so", () => {
+    const p = planUnderLoad({ load: 46, cores: 12, shards: 4, timeoutMs: 30000 });
+    expect(p.shards).toBe(2);
+    expect(p.timeoutMs).toBe(Math.round(30000 * (46 / 12)));
+    expect(p.note).toContain("46.0 su 12 core");
+  });
+
+  test("the timeout never grows past 4x, whatever the load", () => {
+    const p = planUnderLoad({ load: 120, cores: 12, shards: 4, timeoutMs: 30000 });
+    expect(p.timeoutMs).toBe(120000);
+    expect(p.shards).toBe(2);
+  });
+
+  test("moderate pressure: the shards shrink in proportion, the timeout grows in proportion", () => {
+    const p = planUnderLoad({ load: 24, cores: 12, shards: 4, timeoutMs: 30000 });
+    expect(p.shards).toBe(2);
+    expect(p.timeoutMs).toBe(60000);
+  });
+
+  test("explicit env choices are respected", () => {
+    const p = planUnderLoad({ load: 46, cores: 12, shards: 8, timeoutMs: 10000, shardsExplicit: true, timeoutExplicit: true });
+    expect(p.shards).toBe(8);
+    expect(p.timeoutMs).toBe(10000);
+    expect(p.note).toBeNull();
+  });
+});
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 
