@@ -1,7 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId, useMemo, lazy, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
-import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, Plus, Zap, Download } from 'lucide-react';
+import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, Plus, Zap, Download, RotateCw } from 'lucide-react';
 import { decideComposerAction } from './composerAction';
 import { SLASH_COMMANDS } from './slashCommands';
 import { canAnswerWithText, findPendingAsk } from '../../state/pendingAsk';
@@ -1049,7 +1049,7 @@ export function ChatInput({
               onClick={() => { void sendMessageDirect(lastUserText); }}
               className="px-3 py-1.5 text-[11px] rounded-md transition-colors flex items-center gap-1 bg-amber-500 text-white hover:bg-amber-600"
             >
-              <span>↻</span> {tr('chat.turnInterrupted.retry')}
+              <RotateCw className="w-3.5 h-3.5 shrink-0" aria-hidden="true" /> {tr('chat.turnInterrupted.retry')}
             </button>
           )}
         </div>
@@ -1108,7 +1108,7 @@ export function ChatInput({
                 : 'bg-amber-500 text-white hover:bg-amber-600'
             }`}
           >
-            <span>↻</span> {stoppedByUser ? 'Riprendi' : 'Riprova'}
+            <RotateCw className="w-3.5 h-3.5 shrink-0" aria-hidden="true" /> {stoppedByUser ? 'Riprendi' : 'Riprova'}
           </button>
         </div>
       )}
@@ -1234,7 +1234,7 @@ export function ChatInput({
                       data-testid="composer-image-remove"
                       onClick={() => setPendingImages(prev => prev.filter((_, i) => i !== index))}
                       className="tap-expand absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 coarse:w-6 coarse:h-6 flex items-center justify-center text-xs hover:bg-red-600"
-                    >×</button>
+                    ><X className="w-3 h-3" aria-hidden="true" /></button>
                   </div>
                 ))}
                 {pendingFiles.map((file, index) => (
@@ -1256,7 +1256,7 @@ export function ChatInput({
                           data-testid="composer-file-remove"
                           onClick={() => removePendingFile(index)}
                           className="tap-expand-y ml-0.5 inline-flex items-center justify-center text-red-400 hover:text-red-500 font-bold text-xs coarse:h-6 coarse:w-6"
-                        >×</button>
+                        ><X className="w-3 h-3" aria-hidden="true" /></button>
                       </div>
                     )}
                   </div>

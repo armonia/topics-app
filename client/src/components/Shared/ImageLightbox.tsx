@@ -1,3 +1,4 @@
+import { X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useModalDialog } from '../../hooks/useModalDialog';
@@ -107,9 +108,9 @@ export function ImageLightbox({ src, alt, onClose }: { src: string; alt: string;
       />
       <button
         data-testid="lightbox-close"
-        className="absolute top-4 right-4 text-white text-2xl bg-black/50 rounded-full w-10 h-10 flex items-center justify-center"
+        className="absolute top-4 right-4 text-white bg-black/50 rounded-full w-10 h-10 flex items-center justify-center"
         onClick={(e) => { e.stopPropagation(); onClose(); }}
-      >×</button>
+      ><X className="w-5 h-5" aria-hidden="true" /></button>
       {scale > 1 && (
         <button
           className="absolute bottom-8 left-1/2 -translate-x-1/2 text-white text-xs bg-black/50 rounded-full px-3 py-1"
