@@ -835,6 +835,94 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
       return Number.isFinite(n) && n > mine ? n - mine : 0;
     }
 
+    /**
+     * Are the FOREIGN commits - the ones `pickOwnCommits` would leave out -
+     * already on main by CONTENT?
+     *
+     * WHY THE QUESTION EXISTS. "Reachable from another local branch" says the
+     * commit is not this card's; it does not say main lacks it. On 05/09/2026
+     * a `git pull --rebase` on the shared checkout rewrote the morning's
+     * unpushed land merges into linear copies with new shas. Every card
+     * branch that had realigned on the old main kept the ORIGINALS: 34 of
+     * cozy-vine's 40 commits ahead were shared with five other branches, so
+     * `mine < total`, the land cherry-picked the six own commits onto a main
+     * whose context had moved, and reported a conflict - on a branch whose
+     * plain merge was clean. Three cards in a row bounced back to their agents
+     * for a conflict none of them had written.
+     *
+     * Two tests, cheapest first.
+     *
+     * 1. The PATCH. A replayed commit - a rebase, a `cherry-pick` that met no
+     *    conflict - carries the same diff as its original, line numbers apart.
+     *    Measured on that branch: original 555ea2616 and its copy 8b733b1fb on
+     *    main have the same patch-id. So the diffs of what main gained since
+     *    the foreign history left it are fingerprinted once, and a foreign
+     *    commit whose fingerprint is among them is on main. `git cherry` cannot
+     *    answer this here: the branch has already merged main, so the range it
+     *    compares against is empty.
+     * 2. The STAGE, for the rest: apply the commit without committing and look
+     *    at the index, as `pickOwnCommits` does. Nothing staged = the content
+     *    is on main however it got there.
+     *
+     * A foreign commit that passes neither - a pick that stages something, or
+     * fails - is not proven to be on main, and the selective path stays, since
+     * it is the one that knows how to name a missing dependency. Note the
+     * ORDER matters: on that branch six of the seventeen foreign commits
+     * failed the pick (main's context had moved) and all six matched by patch.
+     *
+     * `cwd` must be a clean checkout of main: the probe resets it after every
+     * pick, exactly as the selective landing does.
+     */
+    const FOREIGN_PROBE_CAP = 200;
+    const MAIN_FINGERPRINT_CAP = 400;
+    async function foreignAlreadyOnMain(cwd: string, own: { others: string[] }): Promise<boolean> {
+      const all = await runGit(cwd, ["rev-list", "--reverse", "--no-merges", `${defaultBranch}..${branch}`]);
+      const mine = await runGit(cwd, ["rev-list", "--no-merges", `${defaultBranch}..${branch}`, "--not", ...own.others]);
+      if (all.code !== 0 || mine.code !== 0) return false;
+      const ownSet = new Set(mine.stdout.split("\n").map((s) => s.trim()).filter(Boolean));
+      const foreign = all.stdout.split("\n").map((s) => s.trim()).filter((s) => s && !ownSet.has(s));
+      if (foreign.length === 0 || foreign.length > FOREIGN_PROBE_CAP) return false;
+
+      // 1. Fingerprints of what main gained since the oldest foreign commit left it.
+      const onMain = new Set<string>();
+      const base = await runGit(cwd, ["merge-base", defaultBranch, foreign[0]!]);
+      if (base.code === 0 && base.stdout.trim()) {
+        const since = await runGit(cwd, ["rev-list", "--no-merges", `${base.stdout.trim()}..${defaultBranch}`]);
+        const shas = since.code === 0 ? since.stdout.split("\n").map((s) => s.trim()).filter(Boolean) : [];
+        if (shas.length <= MAIN_FINGERPRINT_CAP) {
+          for (const sha of shas) {
+            const fp = await patchFingerprint(cwd, sha);
+            if (fp) onMain.add(fp);
+          }
+        }
+      }
+
+      let byPatch = 0;
+      for (const sha of foreign) {
+        const fp = await patchFingerprint(cwd, sha);
+        if (fp && onMain.has(fp)) { byPatch++; continue; }
+        // 2. The stage.
+        const r = await runGit(cwd, ["cherry-pick", "-n", "--allow-empty", sha]);
+        const staged = r.code === 0 ? await runGit(cwd, ["diff", "--cached", "--quiet", "HEAD"]) : null;
+        await runGit(cwd, ["cherry-pick", "--quit"]).catch(() => undefined);
+        await runGit(cwd, ["reset", "--hard", "HEAD"]).catch(() => undefined);
+        if (r.code !== 0 || staged === null || staged.code !== 0) return false;
+      }
+      log(`[automerge] ${taskId}: ${foreign.length} foreign commit(s) on '${branch}' are already on '${defaultBranch}' (${byPatch} by patch, ${foreign.length - byPatch} by content): plain merge, no selective pick`);
+      return true;
+    }
+
+    /**
+     * The diff of one commit with what a replay changes stripped: blob ids and
+     * hunk line numbers. Same idea as `git patch-id`, which cannot be used
+     * through `runGit` because it reads its input from stdin.
+     */
+    async function patchFingerprint(cwd: string, sha: string): Promise<string | null> {
+      const r = await runGit(cwd, ["show", "--format=", "--no-color", "--no-ext-diff", sha]);
+      if (r.code !== 0) return null;
+      return normalizePatch(r.stdout);
+    }
+
     async function pickOwnCommits(
       cwd: string,
       own: { others: string[] },
@@ -1183,6 +1271,8 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           if (st.stdout.trim() !== "") {
             return { status: "skipped", code: "dirty-checkout", reason: `il checkout è su '${defaultBranch}' con WIP non committata. Mergia a mano o pulisci il checkout` };
           }
+          // Mixed by ancestry is not mixed by content: see `foreignAlreadyOnMain`.
+          if (onlyOwn && await foreignAlreadyOnMain(repoPath, onlyOwn)) onlyOwn = null;
           if (onlyOwn) {
             const picked = await pickOwnCommits(repoPath, onlyOwn);
             if (picked.ok) return finishMerged(repoPath, /*live*/ true, cur);
@@ -1212,6 +1302,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           return { status: "skipped", code: "worktree-add-failed", reason: `impossibile creare il worktree di land su '${defaultBranch}': ${(add.stderr || add.stdout).trim().slice(-200) || "git worktree add fallito"}` };
         }
         try {
+          if (onlyOwn && await foreignAlreadyOnMain(wtPath, onlyOwn)) onlyOwn = null;
           if (onlyOwn) {
             const picked = await pickOwnCommits(wtPath, onlyOwn);
             if (picked.ok) return await finishMerged(wtPath, /*live*/ false, cur || "detached HEAD");
@@ -1347,6 +1438,35 @@ export async function worktreeDirtProbe(
   }
   if (st.code !== 0) return { ok: false, paths: [] };
   return { ok: true, paths: parseDirtLines(st.stdout) };
+}
+
+/**
+ * A commit's diff with what a clean replay changes removed: the `index` blob
+ * ids and the line numbers in hunk headers. Two commits with the same
+ * normalised diff carry the same change (the `git patch-id` idea, in-process).
+ *
+ * The sections of GENERATED baselines are dropped as well. They are derived
+ * files rewritten by a script, so they carry no work of their own, and they
+ * are exactly what a replay changes: on 05/09/2026 commit 147a805ce and its
+ * copy on main differed in nothing but `identifier-language-baseline.json`,
+ * whose hunk the rebase had folded into a regenerated file - and that one
+ * mismatch would have sent the whole branch back down the selective path.
+ *
+ * Empty diffs return null: an empty commit proves nothing about main.
+ */
+export function normalizePatch(diff: string): string | null {
+  const out: string[] = [];
+  let skipping = false;
+  for (const l of diff.split("\n")) {
+    if (l.startsWith("diff --git ")) {
+      const path = /^diff --git a\/(.+?) b\//.exec(l)?.[1] ?? "";
+      skipping = path in GENERATED_BASELINES;
+    }
+    if (skipping || l.startsWith("index ")) continue;
+    out.push(l.startsWith("@@") ? "@@" : l);
+  }
+  const text = out.join("\n").trim();
+  return text ? text : null;
 }
 
 function parseDirtLines(stdout: string): string[] {

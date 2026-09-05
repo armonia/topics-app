@@ -45,6 +45,9 @@ const IT: Dict = {
   'compaction.summaryTitle': 'Riassunto del contesto compattato',
   'settings.close': 'Chiudi le impostazioni',
   'toast.close': 'Chiudi la notifica',
+  'lightbox.close': "Chiudi l'immagine",
+  'lightbox.resetZoom': 'Azzera lo zoom',
+  'lightbox.image': 'Immagine',
   'activity.runningFor': 'In esecuzione da {label}{approx}',
   'activity.atLeast': " (almeno: il turno era già in corso all'ultimo riavvio del server)",
 
@@ -1279,6 +1282,7 @@ const IT: Dict = {
   'chat.turnInterrupted.superseded': 'un turno più recente ha preso il suo posto',
   'chat.turnInterrupted.providerError': 'il provider ha risposto con un errore',
   'chat.turnInterrupted.rateLimit': "il limite di richieste dell'API è rimasto saturo per tutti i tentativi; riprende da solo",
+  'chat.turnInterrupted.toolBudget': 'il turno ha esaurito i giri di tool concessi dal server; riprende da solo una volta',
   'git.noRepoInitialized': 'Nessun repository git inizializzato',
   'git.noRepo': 'Nessun repository git',
   'git.cleanTree': 'Albero di lavoro pulito',
