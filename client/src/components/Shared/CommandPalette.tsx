@@ -478,8 +478,12 @@ export function CommandPalette({
 
   // Flat order for keyboard nav, matching the render order in each mode:
   //  · projects scope:   Projects only (⌘F — jump to a project)
-  //  · empty (no query): Projects column → Recently-closed column
-  //  · query:            Projects → Actions → Topics → Recently-closed → Files → Messages
+  //  · empty (no query): Create → Projects → Recently-closed (Create on top by design)
+  //  · query:            left column (Projects) THEN right column, top to bottom
+  //                      (Create → Actions → Topics → Recently-closed → Files → Messages).
+  //                      The render is two columns: Projects on the left, everything
+  //                      else on the right. Enumerating Create first put index 0 on
+  //                      the top-RIGHT row, so ↑↓ zig-zagged between columns.
   const allItems = useMemo(() => {
     if (scope === 'projects') return filteredProjects;
     // History is one single list: no projects, no actions, no topics. You get
@@ -491,7 +495,7 @@ export function CommandPalette({
     // le frecce ci arrivino sopra (prima era una barra di pill, fuori dalla
     // navigazione da tastiera).
     if (!query.trim()) return [...filteredCreate, ...filteredProjects, ...recentFiltered];
-    return [...filteredCreate, ...filteredProjects, ...filteredActions, ...filteredMain, ...recentFiltered, ...searchFileItems, ...searchResults];
+    return [...filteredProjects, ...filteredCreate, ...filteredActions, ...filteredMain, ...recentFiltered, ...searchFileItems, ...searchResults];
   }, [scope, query, filteredProjects, filteredCreate, filteredActions, recentFiltered, filteredMain, searchFileItems, searchResults]);
 
   // O(1) id→index lookup, built once per `allItems` change. Rendering each

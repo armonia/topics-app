@@ -18,6 +18,7 @@ import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";
 import { seedFileProject, cleanupFileProject, type FileProject } from "./helpers/file-project";
+import { createTopic, resetPaneStore, cleanupAll } from "./helpers/api-fixtures";
 
 hermetic(test);
 
@@ -138,5 +139,27 @@ test.describe("sidebar: the name column", () => {
           "the empty leading box must be gone.",
       ).toBeLessThan(glyphStarts[0]!);
     }
+  });
+
+  // ROWNAME-TITLE: a truncated chat name has to stay READABLE on hover. The
+  // name span (`data-row-name="chat"`) carries `title={topic.name}`; without it
+  // TooltipDelegate (which reads the nearest `[title]`) had nothing to show and
+  // a long name clipped by the column was simply lost.
+  test("ROWNAME-TITLE: a chat name exposes its full text via title", async ({ request, page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-27" });
+    const longName = `E2E-VeryLongTopicNameThatCertainlyTruncatesInTheSidebar-${Date.now()}`;
+    const topic = await createTopic(request, longName);
+    // A chat row renders in the sidebar only with an open tab.
+    await resetPaneStore(request, [topic.id]);
+    await goToApp(page);
+
+    const nameSpan = page
+      .locator('[data-row-name="chat"]')
+      .filter({ hasText: /E2E-VeryLongTopicName/ })
+      .first();
+    await expect(nameSpan).toBeVisible({ timeout: 15000 });
+    await expect(nameSpan).toHaveAttribute("title", longName);
+
+    await cleanupAll(request, { topics: [topic.id] });
   });
 });
