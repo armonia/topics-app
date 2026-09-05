@@ -1,44 +1,46 @@
 #!/usr/bin/env bun
 /**
- * CHI LASCIA UN GLOBALE DOM FINTO AL FILE DOPO.
+ * WHO LEAVES A FAKE DOM GLOBAL TO THE NEXT FILE.
  *
- * IL GUASTO. `bun test` fa girare tutti i file della corsa in UN processo: un
- * `globalThis.window = { localStorage }` installato da un test e mai tolto resta
- * lì per ogni file successivo. Un componente renderizzato dopo passa la guardia
- * `typeof window !== "undefined"`, chiama `getComputedStyle` e il globale non
- * c'è: `ReferenceError`. Misurato il 05/09/2026: 10 file su 1149 lasciavano
- * `window`/`localStorage`/`requestAnimationFrame`, e `dispatchedEnvelope.test.tsx`
- * usciva rosso SOLO quando il raggruppamento dello shard lo metteva dopo uno di
- * loro — un rosso che il triage sul singolo file non riproduce mai.
+ * THE FAULT. `bun test` runs every file of a run in ONE process: a
+ * `globalThis.window = { localStorage }` installed by a test and never removed
+ * stays there for every file after it. A component rendered later passes the
+ * `typeof window !== "undefined"` guard, calls `getComputedStyle`, and the
+ * global is not there: `ReferenceError`. Measured on 05/09/2026: 10 files out
+ * of 1149 left `window`/`localStorage`/`requestAnimationFrame` behind, and
+ * `dispatchedEnvelope.test.tsx` went red ONLY when the shard's grouping placed
+ * it after one of them: a red the triage on the single file never reproduces.
  *
- * COSA FA. Lancia OGNI file di test da solo, con lo stesso preload della suite
- * (`tests/setup/bun-test-preload.ts`), la cui guardia di fine corsa esce rossa
- * se un globale DOM è comparso e non è stato tolto. Un file da solo = la corsa
- * contiene solo lui = il colpevole è lui. Riporta la lista con i globali lasciati.
+ * WHAT IT DOES. It runs EVERY test file on its own, under the suite's own
+ * preload (`tests/setup/bun-test-preload.ts`), whose end-of-run guard exits red
+ * when a DOM global appeared and was not removed. A file alone = the run holds
+ * only that file = the culprit is that file. It reports the list with the
+ * globals each one left behind.
  *
- * QUANDO USARLO. Quando la guardia del preload ha fatto uscire rosso uno shard
- * o la suite intera («globali DOM residui»): la guardia dice CHE qualcuno ha
- * perso, non CHI; questo dice chi. Con un sospetto in mano basta anche
- * `bun test <file>` da solo: la stessa guardia gira lì.
+ * WHEN TO USE IT. When the preload guard turned a shard or the whole suite red
+ * ("leaked DOM globals"): the guard says THAT somebody leaked, not WHO; this
+ * says who. With a suspect in hand, `bun test <file>` on its own is enough:
+ * the same guard runs there.
  *
- *   bun run check:test-globals              # tutta la suite (~80s, 6 processi)
- *   bun run check:test-globals a.test.ts …  # solo quei file
+ *   bun run check:test-globals              # the whole suite (~80s, 6 processes)
+ *   bun run check:test-globals a.test.ts …  # only those files
  *
- * NON è un cancello: è triage. Non passa dal semaforo (`TOPICS_GATE_HELD` sui
- * figli) perché i suoi processi sono brevi e la scansione si lancia a mano.
+ * It is NOT a gate: it is triage. It does not go through the semaphore
+ * (`TOPICS_GATE_HELD` on the children) because its processes are short and the
+ * scan is launched by hand.
  */
 import { enumerateTestFiles, SUITE_ROOTS } from "./test-unit-shards.ts";
 import { GATE_HELD_ENV } from "./gate-slot.ts";
 import { resolve } from "path";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
-/** La firma che la guardia del preload stampa (`DOM_LEAK_MARKER`): cambiarla lì vuol dire cambiarla qui. */
+/** The signature the preload guard prints (`DOM_LEAK_MARKER`): changing it there means changing it here. */
 const LEAK_MARKER = /leaked DOM globals: (\S+)/;
 
 const requested = process.argv.slice(2);
 const files = requested.length ? requested : enumerateTestFiles(SUITE_ROOTS, REPO_ROOT);
 const parallel = Math.max(1, Number(process.env.TOPICS_CHECK_GLOBALS_PARALLEL) || 6);
-console.error(`check:test-globals: ${files.length} file, ${parallel} alla volta`);
+console.error(`check:test-globals: ${files.length} file(s), ${parallel} at a time`);
 
 const leaks: Array<{ file: string; keys: string }> = [];
 const otherReds: string[] = [];
@@ -68,14 +70,14 @@ await Promise.all(
 );
 
 if (leaks.length) {
-  console.log(`\n${leaks.length} file lasciano globali DOM al file dopo:`);
+  console.log(`\n${leaks.length} file(s) leave DOM globals to the next file:`);
   for (const { file, keys } of leaks.sort((a, b) => a.file.localeCompare(b.file))) console.log(`  ${file}  →  ${keys}`);
-  console.log("\nRimedio: ripristina in `afterAll`/`afterEach` quello che il file ha trovato (`delete globalThis.window`, ecc.).");
+  console.log("\nFix: in `afterAll`/`afterEach` put back what the file found (`delete globalThis.window`, etc.).");
 } else {
-  console.log(`\nnessun file lascia globali DOM (${files.length} controllati)`);
+  console.log(`\nno file leaves DOM globals (${files.length} checked)`);
 }
 if (otherReds.length) {
-  console.log(`\n${otherReds.length} file rossi per altri motivi (non di questa scansione):`);
+  console.log(`\n${otherReds.length} file(s) red for other reasons (not this scan's business):`);
   for (const r of otherReds) console.log(`  ${r}`);
 }
 console.log(`\n${((Date.now() - started) / 1000).toFixed(0)}s`);

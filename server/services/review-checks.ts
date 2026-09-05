@@ -390,6 +390,39 @@ export function checksVerdict(runs: CheckRun[], expected?: number): "pass" | "fa
   return runs.some((r) => !r.ok && !r.timedOut && !r.notMeasured) ? "fail" : "unknown";
 }
 
+/**
+ * The line the CHAT shows inside the running `update_task` tool while the
+ * checks grind. The card already says «2/5» (`checksProgress`); the chat did
+ * not: the tool spun mute for the whole bar, and from the thread the topic
+ * looked stuck: on 05/09/2026 the person asked three times why the topics were
+ * still, while three card turns sat 20-60 minutes in that very wait. Names come from the declared
+ * list, in execution order: passed, running, then queued. `done === null` is
+ * the queue behind another card's run, before this card's own bar starts.
+ */
+export function formatChecksWait(args: {
+  done: number | null;
+  total: number;
+  names: string[];
+  elapsedMs: number;
+}): string {
+  const mins = Math.floor(Math.max(0, args.elapsedMs) / 60_000);
+  const secs = Math.floor((Math.max(0, args.elapsedMs) % 60_000) / 1000);
+  const elapsed = mins ? `${mins}m${String(secs).padStart(2, "0")}s` : `${secs}s`;
+  const footer = "È il cancello della board che misura, non l'agente: a verde la card passa in review da sola, a rosso torna qui con l'output.";
+  if (args.done === null) {
+    return `Check pre-review in coda dietro un'altra card (${elapsed}): la barra parte appena si libera un posto. ${footer}`;
+  }
+  const done = Math.max(0, Math.min(args.done, args.total));
+  const parts = [`Check pre-review ${done}/${args.total} (${elapsed})`];
+  const passed = args.names.slice(0, done);
+  const current = args.names[done];
+  const queued = args.names.slice(done + 1);
+  if (passed.length) parts.push(`verdi: ${passed.join(", ")}`);
+  if (current) parts.push(`in corso: ${current}`);
+  if (queued.length) parts.push(`poi: ${queued.join(", ")}`);
+  return `${parts.join(" · ")}. ${footer}`;
+}
+
 export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string | null }): string {
   if (!runs.length) return "Checks pre-review: nessun comando dichiarato.";
   const failed = runs.find((r) => !r.ok);

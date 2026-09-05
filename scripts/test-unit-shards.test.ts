@@ -25,11 +25,11 @@ describe("planShards (LPT)", () => {
     const files = ["a", "b", "c", "d"];
     const durations = { a: 10, b: 7, c: 2, d: 1 };
     const buckets = planShards(files, durations, 2);
-    // LPT: a(10)→s0, b(7)→s1, c(2)→s1(=9), d(1)→s0(=11)... o simmetrico.
+    // LPT: a(10)->s0, b(7)->s1, c(2)->s1(=9), d(1)->s0(=11)... or the mirror image.
     const totals = buckets.map((x) => x.seconds).sort((x, y) => x - y);
-    // scarto minimo: 10+1=11 vs 7+2=9 → max 11. Non ammucchia tutto in uno.
+    // Smallest gap: 10+1=11 vs 7+2=9 -> max 11. It does not pile everything into one.
     expect(Math.max(...totals)).toBeLessThan(20 * 0.75);
-    // ogni file compare esattamente una volta, in totale
+    // every file shows up exactly once, overall
     const all = buckets.flatMap((b) => b.files).sort();
     expect(all).toEqual([...files].sort());
   });
@@ -109,16 +109,16 @@ describe("enumerateTestFiles (parità con bun test)", () => {
     expect(files.length).toBeGreaterThan(500);
     expect(files.every((f) => f.endsWith(".test.ts") || f.endsWith(".test.tsx"))).toBe(true);
     expect(files.every((f) => SUITE_ROOTS.some((r) => f.startsWith(r + "/")))).toBe(true);
-    // include se stesso (scripts/ è una radice) e nessun duplicato
+    // includes itself (scripts/ is a root) and holds no duplicate
     expect(files).toContain("scripts/test-unit-shards.test.ts");
     expect(new Set(files).size).toBe(files.length);
   });
 
   test("SUITE_ROOTS coincide con le radici di `test:unit` in package.json", () => {
-    // Il cancello shardato (`test:unit:shards`) e quello seriale (`test:unit`,
-    // autorevole in CI) devono coprire GLI STESSI file: una radice aggiunta a uno
-    // solo dei due rende il pre-review più permissivo della CI senza che nessuno
-    // se ne accorga. Le radici del seriale sono i token `./x` dello script.
+    // The sharded gate (`test:unit:shards`) and the serial one (`test:unit`,
+    // authoritative in CI) must cover THE SAME files: a root added to only one
+    // of the two makes the pre-review more permissive than CI without anybody
+    // noticing. The serial roots are the `./x` tokens of the script.
     const pkg = JSON.parse(readFileSync(resolve(REPO_ROOT, "package.json"), "utf8"));
     const script: string = pkg.scripts["test:unit"];
     const serialRoots = [...script.matchAll(/\.\/([\w./-]+?)\/?(?=[\s'])/g)].map((m) => m[1]);

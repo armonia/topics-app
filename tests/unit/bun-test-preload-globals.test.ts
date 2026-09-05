@@ -30,7 +30,7 @@ function runAlone(source: string): { code: number; stderr: string } {
   try {
     const r = Bun.spawnSync(["bun", "test", "--timeout", "30000", file], {
       cwd: REPO_ROOT,
-      // `process.env` porta `TOPICS_GATE_HELD`: il figlio non si mette in coda al semaforo.
+      // `process.env` carries `TOPICS_GATE_HELD`: the child does not queue for the semaphore.
       env: { ...process.env, CI: "1" },
     });
     return { code: r.exitCode, stderr: new TextDecoder().decode(r.stderr) };

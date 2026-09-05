@@ -8,6 +8,7 @@ import { join } from "path";
 import { readFileSync } from "fs";
 import {
   formatChecksComment,
+  formatChecksWait,
   parseReviewChecks,
   runReviewChecks,
   serializeReviewChecks,
@@ -457,3 +458,31 @@ describe("uscita 97: non misurato, e si legge diverso da scaduto", () => {
   });
 });
 
+
+describe("formatChecksWait: la riga che la chat mostra mentre i check girano", () => {
+  const names = ["typecheck", "lint", "check:deadcode", "static-rails", "test:unit"];
+
+  test("a metà barra dice quanti sono passati, quale gira e quali aspettano", () => {
+    const line = formatChecksWait({ done: 2, total: 5, names, elapsedMs: 71_000 });
+    expect(line).toContain("Check pre-review 2/5 (1m11s)");
+    expect(line).toContain("verdi: typecheck, lint");
+    expect(line).toContain("in corso: check:deadcode");
+    expect(line).toContain("poi: static-rails, test:unit");
+    // The reader is the person in the thread: they must see the wait is not the agent's.
+    expect(line).toContain("non l'agente");
+  });
+
+  test("in coda dietro un'altra card lo dice, senza inventare un comando in corso", () => {
+    const line = formatChecksWait({ done: null, total: 5, names, elapsedMs: 9_000 });
+    expect(line).toContain("in coda dietro un'altra card (9s)");
+    expect(line).not.toContain("in corso:");
+  });
+
+  test("all'ultimo comando non resta niente «poi», e un done oltre il totale non sfonda", () => {
+    const last = formatChecksWait({ done: 4, total: 5, names, elapsedMs: 600_000 });
+    expect(last).toContain("4/5 (10m00s)");
+    expect(last).toContain("in corso: test:unit");
+    expect(last).not.toContain("poi:");
+    expect(formatChecksWait({ done: 9, total: 5, names, elapsedMs: 0 })).toContain("5/5 (0s)");
+  });
+});

@@ -1,75 +1,75 @@
 #!/usr/bin/env bun
 /**
- * Esegue la suite `test:unit` COMPLETA in DUE FASI, mantenendo ESATTAMENTE la
- * copertura della corsa seriale (gli stessi 1148 file) in una frazione del
- * wall-clock.
+ * Runs the COMPLETE `test:unit` suite in TWO PHASES, keeping EXACTLY the
+ * coverage of the serial run (the same files) in a fraction of the wall-clock.
  *
- * IL PROBLEMA (misurato 05/09/2026). `bun test` non ha parallelismo a livello di
- * file: esegue i file in sequenza in un solo processo. La barra di pre-review
- * gira `test:unit` a OGNI card, e serialmente costa ~462s nominali (~7,7 min) e
- * ~18 min sotto carico. Ma il grosso di quel tempo NON è CPU: sono ~121s di CPU
- * reale annegati in ~340s di attesa idle (i test client aspettano timer, gli
- * integration spawnano server e DB e aspettano I/O). Un solo processo lascia
- * 11 core fermi a guardare.
+ * THE PROBLEM (measured 05/09/2026). `bun test` has no file-level parallelism:
+ * it runs the files one after the other in a single process. The pre-review
+ * bar runs `test:unit` on EVERY card, and serially it costs ~462s nominal
+ * (~7.7 min) and ~18 min under load. Most of that time is NOT CPU: ~121s of
+ * real CPU drowned in ~340s of idle waiting (client tests wait on timers,
+ * integration tests spawn servers and DBs and wait on I/O). One process leaves
+ * 11 cores watching.
  *
- * PERCHÉ DUE FASI E NON UN POOL UNICO. `bun test` non isola i file dentro un
- * processo: singleton di modulo (`server/db` `_db`), `process.env`, e i global
- * DOM finti installati dai test PERDONO da un file all'altro. La suite è verde
- * solo nell'ORDINE seriale canonico; qualunque ri-raggruppamento espone quelle
- * perdite latenti. Due classi ci hanno morso davvero:
- *   1. ORDINE-DIPENDENZA — un fake `window`/`localStorage`/`document` parziale
- *      lasciato su `globalThis` ribalta le guardie `typeof window` dei file
- *      successivi (es. `useMobile` → `getComputedStyle is not defined`); un `_db`
- *      lasciato aperto fa no-op a `initDatabase` e salta le migration (→ "no
- *      such table"). Nel tier PARALLELO questa classe è stata chiusa alla radice:
- *      ogni test che monta un global lo smonta in `afterAll` (baseline di bun =
- *      nessun global DOM).
- *   2. RACE PER RISORSE OS — i test che spawnano daemon e corrono per un socket
- *      libero (`ai-bridge`) vanno in timeout sotto contesa CPU: 5 daemon che si
- *      contendono una porta con 4 shard che martellano i core non è più il test
- *      che volevi. Questa classe NON si "isola": è racing per costruzione.
+ * WHY TWO PHASES AND NOT ONE POOL. `bun test` does not isolate files inside a
+ * process: module singletons (`server/db` `_db`), `process.env` and the fake
+ * DOM globals installed by tests LEAK from one file to the next. The suite is
+ * green only in the canonical serial ORDER; any regrouping exposes those latent
+ * leaks. Two classes really bit us:
+ *   1. ORDER DEPENDENCE: a partial fake `window`/`localStorage`/`document` left
+ *      on `globalThis` flips the `typeof window` guards of the files after it
+ *      (e.g. `useMobile` -> `getComputedStyle is not defined`); a `_db` left
+ *      open turns `initDatabase` into a no-op and skips the migrations ("no
+ *      such table"). In the PARALLEL tier this class was closed at the root:
+ *      every test that mounts a global unmounts it in `afterAll` (bun's baseline
+ *      = no DOM globals), and the preload guard keeps it that way.
+ *   2. RACES FOR OS RESOURCES: tests that spawn daemons and race for a free
+ *      socket (`ai-bridge`) time out under CPU contention: 5 daemons fighting
+ *      over a port while 4 shards hammer the cores is no longer the test you
+ *      wanted. This class is not "isolated" away: it is racing by construction.
  *
- * COSA FA.
- *   FASE 1 (parallela) — QUASI TUTTA la suite (tutto tranne i pochi racer OS
- *   della fase 2), divisa in N worker `bun test` CONCORRENTI bilanciati per
- *   durata (LPT). Misurato ordine-indipendente: 12 raggruppamenti shuffle × 4
- *   shard, 0 rossi, sia sul tier client sia su `server/**`+`tests/integration`.
- *   Il verdetto non dipende dal raggruppamento.
- *   FASE 2 (seriale) — SOLO i racer con asserzioni di tempistica (`ai-bridge*`,
- *   vedi SERIAL_GLOBS), in UN `bun test` DOPO la fase 1 così girano senza
- *   contesa CPU. Sono un pugno di file: la coda costa poco.
+ * WHAT IT DOES.
+ *   PHASE 1 (parallel): ALMOST THE WHOLE suite (everything but the few OS racers
+ *   of phase 2), split into N CONCURRENT `bun test` workers balanced by
+ *   duration (LPT). Measured order-independent: 12 shuffled groupings x 4
+ *   shards, 0 reds, both on the client tier and on `server/**` +
+ *   `tests/integration`. The verdict does not depend on the grouping.
+ *   PHASE 2 (serial): ONLY the racers with timing assertions (`ai-bridge*`, see
+ *   SERIAL_GLOBS), in ONE `bun test` AFTER phase 1, so they run without CPU
+ *   contention. A handful of files: the tail costs little.
  *
- * IL VERDETTO è l'aggregato: verde solo se OGNI worker della fase 1 E la fase 2
- * sono verdi. Lo stdout/stderr di ogni fase rossa viene ristampato per intero,
- * così la barra vede QUALI test sono falliti.
+ * THE VERDICT is the aggregate: green only if EVERY phase-1 worker AND phase 2
+ * are green. The stdout/stderr of every red phase is reprinted in full, so the
+ * bar sees WHICH tests failed.
  *
- * LE DURATE (`test-unit-durations.json`, tracciato in git come `e2e-durations.json`)
- * si riscrivono SOLO con `--record` (`bun run test:unit:durations`). Il cancello
- * puro le legge e basta: se le riscrivesse a ogni corsa, ogni worktree di agente
- * uscirebbe dal gate con un file modificato — e il controllo «tree pulito» o il
- * land se lo porterebbero dietro. Un file nuovo senza durata pesa la mediana.
+ * THE DURATIONS (`test-unit-durations.json`, tracked in git like
+ * `e2e-durations.json`) are rewritten ONLY with `--record`
+ * (`bun run test:unit:durations`). The bare gate only reads them: if it
+ * rewrote them on every run, every agent worktree would leave the gate with a
+ * modified file, and the "clean tree" check or the land would carry it along.
+ * A new file with no duration weighs the median.
  *
- * PERCHÉ È SICURO. (1) Gira dentro l'UNICO slot di `slot.ts` (label `test:unit`):
- * setta `TOPICS_GATE_HELD` sui worker, così il preload di bun (`bun-test-preload`)
- * NON li ri-accoda per un secondo slot — sono un solo slot logico, non N. (2) I
- * test integration che aprono porte reali usano porte libere + `APP_DATA_DIR`
- * isolate (guardia `global-setup-no-prod-paths.test.ts`), quindi due shard che
- * ne aprono insieme non collidono. (3) La rete di sicurezza resta la CI, che
- * gira `bun test:unit` SERIALE su main: questo script accorcia la corsa, non
- * allarga la fiducia — un raro flake da raggruppamento che sfuggisse ai 12
- * gruppi provati lo prende comunque la CI.
+ * WHY IT IS SAFE. (1) It runs inside the ONE slot of `slot.ts` (label
+ * `test:unit`): it sets `TOPICS_GATE_HELD` on the workers, so bun's preload
+ * (`bun-test-preload`) does NOT queue them for a second slot: they are one
+ * logical slot, not N. (2) The integration tests that open real ports use free
+ * ports plus isolated `APP_DATA_DIR`s (guard `global-setup-no-prod-paths.test.ts`),
+ * so two shards opening them together do not collide. (3) The safety net is
+ * still CI, which runs the SERIAL `bun test:unit` on main: this script shortens
+ * the run, it does not widen the trust. A rare grouping flake that escaped the
+ * 12 groupings tried is still caught by CI.
  *
- * QUANDO AGGIUNGERE UN FILE ALLA FASE 2. Solo se diventa flaky sotto parallelo
- * per una risorsa OS reale con asserzioni di tempistica (come `ai-bridge*`): si
- * aggiunge a `SERIAL_GLOBS`, la denylist è l'unica leva, il resto non cambia.
- * NON serializzare per prudenza: la fase 2 è wall-clock seriale, ogni file lì
- * allunga la corsa. La prova che un file NON serve in fase 2 è il repro
- * shuffle × shard verde (vedi la testata).
+ * WHEN TO ADD A FILE TO PHASE 2. Only when it becomes flaky under parallelism
+ * because of a real OS resource with timing assertions (like `ai-bridge*`): add
+ * it to `SERIAL_GLOBS`, the denylist is the only lever, nothing else changes. Do
+ * NOT serialize out of prudence: phase 2 is serial wall-clock, every file there
+ * lengthens the run. The proof that a file does NOT belong in phase 2 is the
+ * green shuffle x shard repro (see the header).
  *
- * USO
- *   bun run scripts/test-unit-shards.ts            # N = TOPICS_UNIT_SHARDS o 4
+ * USAGE
+ *   bun run scripts/test-unit-shards.ts            # N = TOPICS_UNIT_SHARDS or 4
  *   TOPICS_UNIT_SHARDS=6 bun run scripts/test-unit-shards.ts
- * In produzione entra dalla barra come:
+ * In production it enters from the bar as:
  *   bun run scripts/slot.ts test:unit -- 'bun run scripts/test-unit-shards.ts'
  */
 
@@ -82,10 +82,10 @@ const REPO_ROOT = resolve(import.meta.dir, "..");
 const DURATIONS_PATH = resolve(import.meta.dir, "test-unit-durations.json");
 
 /**
- * Le radici che `test:unit` esegue (package.json). L'enumerazione DEVE combaciare
- * con quello che `bun test <root>` raccoglierebbe, o la corsa shardata coprirebbe
- * meno della seriale. Sotto queste radici esistono solo `*.test.ts`/`*.test.tsx`
- * (verificato: 1132 + 16), niente `.spec`/`.js`/`_test` — quindi il glob combacia.
+ * The roots `test:unit` runs (package.json). The enumeration MUST match what
+ * `bun test <root>` would collect, or the sharded run covers less than the
+ * serial one. Under these roots only `*.test.ts`/`*.test.tsx` exist (verified:
+ * 1132 + 16), no `.spec`/`.js`/`_test`, so the glob matches.
  */
 export const SUITE_ROOTS = [
   "client/src",
@@ -99,22 +99,22 @@ export const SUITE_ROOTS = [
 ] as const;
 
 /**
- * I file che DEVONO girare seriali in fase 2 (glob relativi a `cwd`). NON è più
- * "tutto il tier pesante": misurato il 05/09/2026, `server/**` +
- * `tests/integration/**` girano ordine-INDIPENDENTI su 12 raggruppamenti
- * shuffle × 4 shard (0 rossi) — la gran parte dei test server apre un
- * `new Database(":memory:")` proprio, non tocca il singleton `_db`. Quindi il
- * tier pesante va in fase 1 (parallela) come tutto il resto.
+ * The files that MUST run serially in phase 2 (globs relative to `cwd`). No
+ * longer "the whole heavy tier": measured on 05/09/2026, `server/**` +
+ * `tests/integration/**` run order-INDEPENDENT across 12 shuffled groupings x 4
+ * shards (0 reds). Most server tests open their own `new Database(":memory:")`
+ * and never touch the `_db` singleton. So the heavy tier goes to phase 1
+ * (parallel) like everything else.
  *
- * Resta in fase 2 SOLO chi corre per una risorsa OS reale con asserzioni di
- * TEMPISTICA: `ai-bridge-singleton` spawna 5 daemon che si contendono un socket
- * e verifica che ne resti UNO solo in ascolto entro un deadline; sotto la
- * contesa CPU di N shard quel deadline salta (misurato: timeout a 15221ms >
- * 15s). Il socket è pid-scoped, quindi NON è una race cross-shard — è
- * real-time-sensibile. In fase 2, senza contesa, la tempistica tiene.
- * `ai-bridge` è la stessa famiglia (spawna il daemon mjs) e costa poco: sta con
- * lei. Chi diventa flaky sotto parallelo si aggiunge qui; il resto del codice
- * non cambia.
+ * Only whoever races for a real OS resource with TIMING assertions stays in
+ * phase 2: `ai-bridge-singleton` spawns 5 daemons fighting over a socket and
+ * checks that exactly ONE is left listening within a deadline; under the CPU
+ * contention of N shards that deadline slips (measured: timeout at 15221ms >
+ * 15s). The socket is pid-scoped, so it is NOT a cross-shard race: it is
+ * real-time-sensitive. In phase 2, with no contention, the timing holds.
+ * `ai-bridge` is the same family (it spawns the mjs daemon) and is cheap: it
+ * stays with it. Whoever turns flaky under parallelism is added here; the rest
+ * of the code does not change.
  */
 export const SERIAL_GLOBS = [
   "server/ai-bridge-singleton.test.ts",
@@ -123,7 +123,7 @@ export const SERIAL_GLOBS = [
 
 const TEST_GLOBS = ["**/*.test.ts", "**/*.test.tsx"] as const;
 
-/** I file di test sotto le radici, come path relativi a `cwd`, ordinati e unici. */
+/** The test files under the roots, as paths relative to `cwd`, sorted and unique. */
 export function enumerateTestFiles(roots: readonly string[], cwd: string): string[] {
   const seen = new Set<string>();
   for (const root of roots) {
@@ -138,9 +138,9 @@ export function enumerateTestFiles(roots: readonly string[], cwd: string): strin
 }
 
 /**
- * Divide i file nei due tier: `serial` (combacia una `SERIAL_GLOBS`) e `parallel`
- * (tutti gli altri). L'unione è esattamente `files`, così la copertura non cambia
- * mai per colpa della partizione.
+ * Splits the files into the two tiers: `serial` (matches one of `SERIAL_GLOBS`)
+ * and `parallel` (everything else). The union is exactly `files`, so coverage
+ * never changes because of the partition.
  */
 export function partitionTiers(
   files: string[],
@@ -156,7 +156,7 @@ export function partitionTiers(
   return { parallel, serial };
 }
 
-/** Durate note (secondi per file), scritte dalla corsa precedente. {} se assenti. */
+/** Known durations (seconds per file), written by a previous run. {} when absent. */
 export function loadDurations(): Record<string, number> {
   if (!existsSync(DURATIONS_PATH)) return {};
   try {
@@ -166,7 +166,7 @@ export function loadDurations(): Record<string, number> {
   }
 }
 
-/** LPT: dal più lento al più veloce, ognuno nel secchio finora meno carico. */
+/** LPT: slowest to fastest, each into the bucket with the least load so far. */
 export function planShards(
   files: string[],
   durations: Record<string, number>,
@@ -182,21 +182,21 @@ export function planShards(
 
   const buckets = Array.from({ length: Math.max(1, shards) }, () => ({ files: [] as string[], seconds: 0 }));
   for (const { file, seconds } of weighted) {
-    let lightest = 0;
+    let least = 0;
     for (let i = 1; i < buckets.length; i++) {
-      if (buckets[i].seconds < buckets[lightest].seconds) lightest = i;
+      if (buckets[i].seconds < buckets[least].seconds) least = i;
     }
-    buckets[lightest].files.push(file);
-    buckets[lightest].seconds += seconds;
+    buckets[least].files.push(file);
+    buckets[least].seconds += seconds;
   }
   return buckets;
 }
 
 /**
- * Somma il `time` (secondi) di ogni `<testcase>` per `file`. Il `<testsuite file>`
- * ha `time="0"` a livello di file in bun, quindi la durata vera è la somma dei
- * testcase. Gli attributi possono essere in qualunque ordine (`time` prima di
- * `file`), quindi si estraggono indipendentemente dal tag.
+ * Sums the `time` (seconds) of every `<testcase>` per `file`. The
+ * `<testsuite file>` carries `time="0"` at file level in bun, so the real
+ * duration is the sum of the testcases. Attributes can come in any order
+ * (`time` before `file`), so they are extracted independently of the tag.
  */
 export function parseJunitDurations(xml: string): Record<string, number> {
   const out: Record<string, number> = {};
@@ -212,13 +212,13 @@ export function parseJunitDurations(xml: string): Record<string, number> {
   return out;
 }
 
-/** Verde (0) solo se OGNI worker è verde; altrimenti il primo codice non-zero. */
+/** Green (0) only if EVERY worker is green; otherwise the first non-zero code. */
 export function aggregateVerdict(exitCodes: number[]): number {
   const failed = exitCodes.find((c) => c !== 0);
   return failed ?? 0;
 }
 
-// ── esecuzione di un gruppo di file in un processo `bun test` ─────────────────
+// ── running one group of files in one `bun test` process ─────────────────────
 interface RunResult {
   code: number;
   stdout: string;
@@ -228,7 +228,7 @@ interface RunResult {
   measured: Record<string, number>;
 }
 
-/** Lancia UN processo `bun test` sui `files` dati e ne raccoglie esito+durate. */
+/** Launches ONE `bun test` process on the given `files` and collects verdict + durations. */
 async function runBunTest(
   files: string[],
   xmlPath: string,
@@ -242,8 +242,8 @@ async function runBunTest(
       env: {
         ...process.env,
         CI: "1",
-        // Copre i figli con lo slot già tenuto da questo processo: il preload
-        // di bun vede il marcatore e NON ri-accoda per un secondo slot.
+        // Covers the children with the slot this process already holds: bun's
+        // preload sees the marker and does NOT queue for a second slot.
         [GATE_HELD_ENV]: process.env[GATE_HELD_ENV] ?? "test-unit-shards",
       },
       stdout: "pipe",
@@ -259,7 +259,7 @@ async function runBunTest(
   try {
     if (existsSync(xmlPath)) measured = parseJunitDurations(readFileSync(xmlPath, "utf8"));
   } catch {
-    /* xml incompleto: si tengono le durate vecchie per quei file */
+    /* incomplete xml: the old durations are kept for those files */
   }
   return { code, stdout, stderr, wallS: (Date.now() - t0) / 1000, fileCount: files.length, measured };
 }
@@ -271,7 +271,7 @@ if (import.meta.main) {
 
   const files = enumerateTestFiles(SUITE_ROOTS, REPO_ROOT);
   if (files.length === 0) {
-    console.error("test-unit-shards: nessun file di test trovato sotto", SUITE_ROOTS.join(", "));
+    console.error("test-unit-shards: no test file found under", SUITE_ROOTS.join(", "));
     process.exit(2);
   }
 
@@ -280,22 +280,34 @@ if (import.meta.main) {
   const xmlDir = mkdtempSync(join(tmpdir(), "topics-unit-shards-"));
   const started = Date.now();
 
-  // ── FASE 1: quasi tutta la suite in N shard concorrenti ─────────────────────
+  // ── PHASE 1: almost the whole suite in N concurrent shards ──────────────────
   const N = Math.min(shardsN, Math.max(1, parallel.length));
   const buckets = planShards(parallel, durations, N).filter((b) => b.files.length > 0);
   const phase1 = await Promise.all(
     buckets.map((bucket, i) => runBunTest(bucket.files, join(xmlDir, `p1-shard-${i}.xml`), timeoutMs)),
   );
 
-  // ── FASE 2: i racer ai-bridge seriali (dopo la fase 1: nessuna contesa CPU) ──
-  const phase2 = serial.length
+  // ── PHASE 2: the serial ai-bridge racers (after phase 1: no CPU contention) ──
+  // "No contention" holds for THIS run: the semaphore (`gate-slot.ts`, cores/4
+  // slots) lets up to three bars run together, and another card's phase 1 can
+  // hammer the cores while the ai-bridge singleton measures its 15 s deadline
+  // here (measured 15.2 s under 4 workers). A clock red on a card that never
+  // touched ai-bridge costs an agent turn: phase 2 is retried ONCE, and says
+  // so. Phase 1 is not: a red there belongs to the code.
+  let phase2 = serial.length
     ? await runBunTest(serial, join(xmlDir, "p2-serial.xml"), timeoutMs)
     : null;
+  if (phase2 && phase2.code !== 0) {
+    console.error(`\n───── fase2 seriale rossa (exit ${phase2.code}): i racer ai-bridge sono sensibili alla contesa CPU, riprovo una volta ─────`);
+    if (phase2.stderr.trim()) console.error(phase2.stderr.trimEnd());
+    phase2 = await runBunTest(serial, join(xmlDir, "p2-serial-retry.xml"), timeoutMs);
+    console.error(`───── fase2 seriale, secondo tentativo: ${phase2.code === 0 ? "verde" : `ancora rossa (exit ${phase2.code})`} ─────`);
+  }
 
   const totalWallS = (Date.now() - started) / 1000;
 
-  // Ristampa per intero l'output di ogni fase rossa: la barra deve vedere QUALI
-  // test sono falliti, non solo che una fase è rossa.
+  // Reprint the whole output of every red phase: the bar must see WHICH tests
+  // failed, not only that a phase is red.
   const reds: Array<{ label: string; r: RunResult; files: readonly string[] }> = [];
   phase1.forEach((r, i) => { if (r.code !== 0) reds.push({ label: `fase1 shard ${i}`, r, files: buckets[i].files }); });
   if (phase2 && phase2.code !== 0) reds.push({ label: "fase2 seriale", r: phase2, files: serial });
@@ -303,15 +315,15 @@ if (import.meta.main) {
     console.error(`\n───── ${label} FALLITO (exit ${r.code}, ${r.fileCount} file, ${r.wallS.toFixed(1)}s) ─────`);
     if (r.stderr.trim()) console.error(r.stderr.trimEnd());
     if (r.stdout.trim()) console.error(r.stdout.trimEnd());
-    // Un rosso che dipende dal RAGGRUPPAMENTO (un file che lascia un globale
-    // sporco a quello dopo) si riproduce solo con la stessa lista nello stesso
-    // ordine: il piano cambia a ogni corsa, quindi la lista si stampa qui o si
-    // perde. Il 05/09 uno shard è uscito rosso su `getComputedStyle` e la
-    // composizione dello shard non era più ricostruibile.
+    // A red that depends on the GROUPING (a file leaving a dirty global to the
+    // next one) reproduces only with the same list in the same order: the plan
+    // changes on every run, so the list is printed here or it is lost. On
+    // 05/09 a shard went red on `getComputedStyle` and the shard's composition
+    // could no longer be rebuilt.
     console.error(`\nriproduci: bun test --timeout ${timeoutMs} ${shardFiles.join(" ")}`);
   }
 
-  // Riepilogo.
+  // Summary.
   console.log("\n── test:unit shards (ibrido: fase1 parallela + fase2 seriale) ──");
   phase1.forEach((r, i) => {
     console.log(`  fase1 shard ${i}: ${r.code === 0 ? "ok " : "RED"}  ${r.fileCount} file  ${r.wallS.toFixed(1)}s`);
@@ -326,8 +338,8 @@ if (import.meta.main) {
       (verdict === 0 ? "" : `  (exit ${verdict})`),
   );
 
-  // Riscrive le durate misurate solo su richiesta (merge sulle vecchie: un file
-  // mai raggiunto da questa corsa mantiene la stima precedente invece di sparire).
+  // Rewrite the measured durations only on request (merged over the old ones: a
+  // file this run never reached keeps its previous estimate instead of vanishing).
   if (process.argv.includes("--record")) {
     const merged: Record<string, number> = { ...durations };
     for (const r of [...phase1, ...(phase2 ? [phase2] : [])]) {
@@ -337,7 +349,7 @@ if (import.meta.main) {
       writeFileSync(DURATIONS_PATH, JSON.stringify(sortKeys(merged), null, 0) + "\n");
       console.log(`  durate aggiornate: ${Object.keys(merged).length} file → ${DURATIONS_PATH}`);
     } catch {
-      /* durate non critiche: la prossima corsa userà la mediana */
+      /* durations are not critical: the next run uses the median */
     }
   }
 
@@ -345,7 +357,7 @@ if (import.meta.main) {
   process.exit(verdict);
 }
 
-/** Chiavi ordinate: il json delle durate resta un diff pulito fra le corse. */
+/** Sorted keys: the durations json stays a clean diff between runs. */
 function sortKeys(obj: Record<string, number>): Record<string, number> {
   const out: Record<string, number> = {};
   for (const k of Object.keys(obj).sort()) out[k] = obj[k];

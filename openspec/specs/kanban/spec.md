@@ -1023,6 +1023,12 @@ incoerenti SHALL essere scartati invece che mostrati.
 Una configurazione illeggibile SHALL spegnere il cancello, non sollevare un
 errore.
 
+#### Scenario: mentre i comandi girano, la chat dell'agente lo dice
+- **GIVEN** una consegna a cui il cancello ha risposto «in corso» e un tool `update_task` ancora aperto nel turno dell'agente
+- **WHEN** il client richiama e il cancello risponde di nuovo «in corso»
+- **THEN** il tool in corso SHALL mostrare quanti comandi sono passati, quale gira, quali aspettano e da quanto, e SHALL dire che l'attesa è del cancello e non dell'agente
+- **AND** in coda dietro un'altra card SHALL dirlo, senza inventare un comando in corso
+
 #### Scenario: un comando che non è mai partito
 - **GIVEN** un worktree in cui un comando non può nemmeno avviarsi
 - **THEN** l'esito SHALL essere `unknown`, non `fail`
