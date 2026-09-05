@@ -951,10 +951,10 @@ interface MessageContentProps {
   sessionKey?: string;
   /**
    * The DB id of this message. Threaded down to `<ToolCallRow>` so that
-   * rows with stripped detail (`toolCall.detailBytes > 0`) can fetch the
-   * full text lazily on first open via
-   * `GET /api/messages/:messageId/tool/:toolCallId/detail`. Absent for
-   * streaming messages (they never have stripped detail).
+   * rows trimmed by the history wire (`toolCall.detailBytes > 0` or
+   * `toolCall.argsBytes > 0`) can fetch the full text lazily on first open
+   * via `GET /api/messages/:messageId/tool/:toolCallId/detail`. Absent for
+   * streaming messages (they never arrive trimmed).
    */
   messageId?: string;
   // WebSocket message subscription

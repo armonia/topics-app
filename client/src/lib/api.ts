@@ -354,16 +354,18 @@ export const chatApi = {
   },
 
   /**
-   * Recupera il `detail` completo di una singola chiamata tool.
+   * The whole `detail` and the whole `args` of one tool call.
    *
-   * La rotta `/api/history` spedisce i detail CON i campi di testo grossi
-   * (`output`, `content`, `result`) svuotati, e mette sul toolCall il contatore
-   * dei byte tolti (`detailBytes`). Questa chiamata li recupera la prima volta
-   * che la riga viene APERTA: la risposta resta in uno stato locale della riga
-   * e non rientra nello store. Niente si perde, si paga solo quando serve.
+   * `/api/history` ships every tool call in its closed-row form: the big text
+   * fields of `detail` (`output`, `content`, `result`) blank, every other long
+   * string of `detail` or `args` cut to its head, and the count of what was
+   * removed on the call (`detailBytes`, `argsBytes`). This call brings the
+   * whole thing back the first time the row is OPENED: the answer stays in the
+   * row's local state and never enters the store. Nothing is lost, it is only
+   * paid for when it is looked at.
    */
-  async fetchToolDetail(messageId: string, toolCallId: string): Promise<{ detail: unknown }> {
-    return request<{ detail: unknown }>(
+  async fetchToolDetail(messageId: string, toolCallId: string): Promise<{ detail: unknown; args: unknown }> {
+    return request<{ detail: unknown; args: unknown }>(
       `/messages/${encodeURIComponent(messageId)}/tool/${encodeURIComponent(toolCallId)}/detail`,
     );
   },

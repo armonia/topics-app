@@ -4,7 +4,7 @@ import type { AppContext, RouteHandler, StoredMessage } from "../types";
 import type { ContentBlock } from "../../shared/types";
 import type { AIProvider } from "../providers";
 import { getCompactionMarkersBySession } from "../db/compaction-markers";
-import { leanMessagesForWire, stripToolDetailText } from "../../shared/lean-tool-call";
+import { leanMessagesForWire, leanMessagesForHistory } from "../../shared/lean-tool-call";
 import { isTurnStillLive, shouldConsultBroker, type BrokerTurnState } from "./historyCleanupPolicy";
 
 export interface HistoryDeps {
@@ -177,12 +177,16 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
       // are left alone, because `/api/topics/:id/messages` has to apply it too.
       // Gate: tests/integration/history-payload-weight.test.ts.
       const lean = leanMessagesForWire(result);
-      // Strip large text blobs from CLOSED tool detail: output, content, result.
-      // The client fetches the full detail lazily on first expand via
+      // A tool call carries only what its CLOSED row draws: the three text
+      // blobs of `detail` (output, content, result) go blank, and every other
+      // string of `detail` or `args` longer than WIRE_STRING_PREVIEW_CHARS
+      // travels as its head. `detailBytes` / `argsBytes` on the call say how
+      // much was cut; the client fetches the whole thing on first expand via
       // GET /api/messages/:msgId/tool/:toolCallId/detail. plan.text is
       // intentionally left — it drives the closed-row summary label.
-      // Gate: tests/integration/history-payload-weight.test.ts.
-      const stripped = stripToolDetailText(lean);
+      // Gates: tests/integration/history-payload-weight.test.ts and
+      // tests/integration/history-args-weight.test.ts.
+      const stripped = leanMessagesForHistory(lean);
       // Compaction dividers (CHAT-COMPACT-01) — display-only, folded into the
       // timeline client-side by `afterMessageId`. Cheap query; empty for the
       // vast majority of sessions.
@@ -256,22 +260,24 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
 }
 
 /**
- * GET /api/messages/:messageId/tool/:toolCallId/detail — the FULL detail of one
- * tool call, read fresh from the DB.
+ * GET /api/messages/:messageId/tool/:toolCallId/detail — the FULL detail and
+ * the FULL args of one tool call, read fresh from the DB.
  *
- * The other half of the strip done by `stripToolDetailText` in the history
+ * The other half of the trim done by `leanMessagesForHistory` in the history
  * route above. A closed tool row does not read `detail.output` /
- * `detail.content` / `detail.result`, so the history payload ships them blank
- * and the row learns from `toolCall.detailBytes` that a body exists. The first
- * time the user actually expands that row, the client comes here and gets the
- * text back. Nothing is lost, it is only paid for when it is looked at.
+ * `detail.content` / `detail.result`, nor anything past the head of a long
+ * string in `detail` or `args`, so the history payload ships them blank or
+ * cut and the row learns from `toolCall.detailBytes` / `argsBytes` that a
+ * body exists. The first time the user actually expands that row, the client
+ * comes here and gets the text back. Nothing is lost, it is only paid for
+ * when it is looked at.
  *
  * No migration and no new column: the text is already in `blocks` on the stored
  * message, exactly as the provider persisted it. This route only reads it.
  *
- * It answers with `{ detail }` and nothing else. Returning the whole message
- * would put back on the wire precisely what the strip took off, one row at a
- * time.
+ * It answers with `{ detail, args }` and nothing else. Returning the whole
+ * message would put back on the wire precisely what the trim took off, one
+ * row at a time.
  *
  * Guests never get here, and that is the existing gate doing its job rather
  * than a check of ours: `server.ts` reads the first segment after
@@ -302,6 +308,6 @@ export function createToolDetailRouter(ctx: AppContext): RouteHandler {
     const tc = fromBlocks ?? (msg.toolCalls ?? []).find((c) => c.id === params.toolCallId);
     if (!tc) return json({ error: "tool call not found" }, 404);
 
-    return json({ detail: tc.detail ?? null });
+    return json({ detail: tc.detail ?? null, args: tc.args ?? null });
   };
 }
