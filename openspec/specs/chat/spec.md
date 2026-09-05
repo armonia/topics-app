@@ -362,19 +362,22 @@ descrivono il lavoro di QUESTA conversazione, non lo sporco dell'intero reposito
 un repository la risposta SHALL restare utile (i path e il tipo dedotto dalle tool call) con
 `git: null`.
 
-Nell'intestazione della chat il sistema SHALL mostrare un chip con il numero dei file; il
-chip SHALL essere assente quando la conversazione non ha scritto nulla. L'elenco SHALL
+SOPRA la barra delle tab della superficie che ospita il topic - nel chrome, non dentro il
+transcript - il sistema SHALL mostrare un chip con il numero dei file del topic attivo; il
+chip SHALL essere assente quando la conversazione non ha scritto nulla, e in quel caso la
+barra delle tab SHALL restare all'altezza che aveva. Il contenuto delle tab (transcript e
+altre pane) SHALL restare sotto la barra. L'elenco SHALL
 aggiornarsi a fine turno (`stream:end`), non a ogni token.
 
 #### Scenario: il chip compare dopo un turno che ha scritto
 - **GIVEN** un topic la cui conversazione contiene una tool call `write` su un file
-- **WHEN** l'utente guarda l'intestazione della chat
+- **WHEN** l'utente guarda la riga sopra la barra delle tab
 - **THEN** vede un chip con il conteggio dei file toccati
 - **AND** cliccandolo si apre l'elenco con il path relativo e lo stato del file
 
 #### Scenario: una conversazione che non ha scritto niente non mostra il chip
 - **GIVEN** un topic le cui tool call sono solo letture, ricerche e comandi
-- **WHEN** l'utente guarda l'intestazione della chat
+- **WHEN** l'utente guarda la riga sopra la barra delle tab
 - **THEN** non c'e' nessun chip dei file modificati
 
 #### Scenario: i conteggi vengono da git e riguardano solo i file del topic
@@ -389,7 +392,7 @@ aggiornarsi a fine turno (`stream:end`), non a ogni token.
 - **GIVEN** l'elenco dei file modificati e' aperto
 - **WHEN** l'utente clicca su una riga
 - **THEN** il diff di quel file si apre nella pane editor
-- **AND** un'azione dell'intestazione apre un terminale nella cartella del topic
+- **AND** un'azione della riga apre un terminale nella cartella del topic
 
 ### Requirement: CHAT-TOOL-01 — Lo stato "running" copre l'utilizzo reale del tool
 
