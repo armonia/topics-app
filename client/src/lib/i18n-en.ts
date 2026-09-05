@@ -45,6 +45,9 @@ const EN = {
   'compaction.summaryTitle': 'Summary of the compacted context',
   'settings.close': 'Close the settings',
   'toast.close': 'Dismiss the notification',
+  'lightbox.close': 'Close the image',
+  'lightbox.resetZoom': 'Reset zoom',
+  'lightbox.image': 'Image',
   'activity.runningFor': 'Running for {label}{approx}',
   'activity.atLeast': ' (at least: the turn was already going at the last server restart)',
 

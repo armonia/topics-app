@@ -148,3 +148,33 @@ turno: se la riga non si riesce a leggere, lo stream CONTA ancora.
 - **GIVEN** uno stream la cui riga è già finalizzata con un errore del fornitore
 - **THEN** il cancello NON SHALL contarlo fra le chat in streaming
 - **AND** se non trattiene altro, il riavvio SHALL procedere
+
+### Requirement: RGATE-04 — La porta del dispatch si chiude solo quando l'attesa è delimitata
+
+Un riavvio pianificato chiude la porta del dispatcher (`drain`) perché, con una
+coda dietro un tetto pieno, un turno nuovo parte appena uno finisce e l'attesa
+non arriva mai (04/09/2026, 18.482 s). Quella chiusura ha senso finché ad
+attendere sono CARD: un turno di card ha un limite suo (`dispatchTimeoutMin`),
+quindi porta chiusa vuol dire «il riavvio è a minuti».
+
+Non ha senso finché ad attendere è una CHAT. Un turno nativo non si taglia e
+non ha un limite nostro: il 05/09/2026 un turno a 211 giri di tool su 300 ha
+trattenuto `restart-when-idle` per più di un'ora, e dietro la porta chiusa sei
+agenti di card sono rimasti «in attesa di uno slot» per tutto il tempo, con
+altre sette card in todo. La porta chiusa non comprava niente al riavvio, che
+non aspettava card: congelava la board per la durata della chat di una persona.
+
+La porta SHALL seguire chi trattiene: APERTA finché trattiene almeno una chat
+(le card scorrono: ognuna è delimitata, e il riavvio comunque non arrivava),
+CHIUSA appena a trattenere restano solo card, o niente. Prima di procedere col
+riavvio la porta SHALL essere chiusa e le fonti rilette una volta ancora, così
+nessuna card parte nel varco fra «niente trattiene» e lo spegnimento. Il
+dispatcher SHALL dire nel log quando la porta si riapre e perché.
+
+#### Scenario: trattiene una chat nativa
+- **GIVEN** un riavvio in attesa, nessuna card in volo, una chat del runtime nativo in streaming
+- **THEN** la porta SHALL essere aperta e le card in coda SHALL partire
+
+#### Scenario: la chat finisce, restano card
+- **GIVEN** la stessa attesa dopo la fine della chat, con due card in volo
+- **THEN** la porta SHALL richiudersi, e il riavvio SHALL seguire la fine di quelle due card

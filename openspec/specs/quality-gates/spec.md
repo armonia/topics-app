@@ -559,6 +559,20 @@ SHALL dirlo, non tacere.
 - **GIVEN** uno shard che esce 1 con un test case che porta `<failure>`
 - **THEN** il sommario SHALL chiudersi con il nome di quel test, file e titolo
 
+Il piano SHALL guardare il CARICO della macchina prima di partire. La misura è
+tarata su una macchina scarica (quattro shard, 30 s per test); sotto una flotta
+non lo è: il 05/09/2026 il carico stava a 46 su 12 core e due card si sono
+parcheggiate in un'ora su «test:unit rosso senza test rossi nel referto», cioè
+uno shard ucciso dai timeout su un ramo identico a main. Sopra una pressione
+di 1,25 (carico per core) la corsa SHALL usare meno shard (divisi per la
+pressione, mai sotto due) e SHALL dare a ogni test più tempo (il tetto per la
+pressione, al più 4×), e SHALL scriverlo nell'output. Un valore scelto a mano
+via ambiente NON SHALL essere sovrascritto.
+
+#### Scenario: macchina satura
+- **GIVEN** carico 46 su 12 core, nessuna scelta esplicita via ambiente
+- **THEN** la corsa SHALL usare due shard e un tetto per test di circa 115 s, e la prima riga dell'output SHALL dirlo
+
 #### Scenario: il file più lento va nel secchio più leggero
 - **GIVEN** durate note e N secchi
 - **THEN** ogni file SHALL comparire in un solo secchio, e il più lento nel secchio con meno carico

@@ -1410,7 +1410,7 @@ export function ImageThumbnail({ file, onRemove }: { file: File; onRemove: () =>
   return (
     <div className="relative inline-block">
       <ZoomableImage src={src} alt={file.name} className="w-16 h-16 object-cover rounded-lg border border-app-border-light" />
-      <button type="button" onClick={onRemove} aria-label={tr('chat.attachments.removeImage')} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center hover:bg-red-600"><X className="w-3 h-3" aria-hidden="true" /></button>
+      <button type="button" onClick={onRemove} aria-label={tr('chat.attachments.removeFile', { name: file.name })} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center hover:bg-red-600"><X className="w-3 h-3" aria-hidden="true" /></button>
     </div>
   );
 }
