@@ -319,6 +319,11 @@ export const chatApi = {
     return request<HistoryResponse>(`/history/${encodeURIComponent(sessionKey)}`, {
       method: 'POST',
       body: JSON.stringify(data),
+      // The visible chat's skeleton comes down when THIS answers. At boot it
+      // queued behind ~90 other /api requests on the six connections the browser
+      // allows per host (measured 2026-09-05: 1.2 s of skeleton): the priority
+      // hint tells Chromium to send it first. WebKit ignores it, harmlessly.
+      priority: 'high',
     });
   },
 

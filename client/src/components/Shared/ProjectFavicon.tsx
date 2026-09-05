@@ -108,6 +108,9 @@ export function ProjectFavicon({
       height={size}
       alt=""
       draggable={false}
+      // A project icon never decides a layout (the slot is reserved before it
+      // lands): it must not take a connection from the chat history at boot.
+      fetchPriority="low"
       className={`rounded-[3px] object-contain flex-shrink-0 ${className}`}
       style={{
         // LA SCATOLA VA IMPOSTA DALLO STILE, non dagli attributi.

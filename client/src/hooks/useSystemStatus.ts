@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { BOOT_READ_TTL_MS, coalescedFetch } from '../lib/coalesceFetch';
 
 export type GatewayStatus = "online" | "offline" | "timeout" | "connection_refused" | "server_error" | "auth_error";
 
@@ -108,7 +109,10 @@ export function useSystemStatus(enabled = true, intervalMs = 30000) {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch('/api/system/status');
+      // Several surfaces mount this hook at boot (the load dot, the system
+      // menu): one GET for all of them, and a low one — the `ps` scan behind
+      // it is not what the first paint waits for.
+      const res = await coalescedFetch('/api/system/status', { priority: 'low' }, { ttlMs: BOOT_READ_TTL_MS });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setStatus(data);

@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TerminalSessionInfo, WSMessage } from '../types';
 import type { TerminalOps } from './appHookTypes';
 import { createDormantTerminalGuard, type DormantKnowledge } from '../lib/dormantTerminalGuard';
+import { BOOT_READ_TTL_MS, coalescedFetch } from '../lib/coalesceFetch';
 import { decideRosterTrust } from './rosterTrust';
 import { useRefMirror } from './useRefMirror';
 
@@ -183,7 +184,10 @@ export function useTerminalLifecycle(args: UseTerminalLifecycleArgs): UseTermina
     //  · l'ORDINE    — la bandiera si alzava PRIMA di applicare il roster, e
     //                  restava alzata anche quando `decideRosterTrust` lo
     //                  RIFIUTAVA. Un vuoto sospetto non e' una conoscenza.
-    fetch('/api/terminal/sessions')
+    //
+    // Coalesced: the mount read, the WebSocket-open read (~700 ms later) and
+    // every project window's own roster read are the same question at boot.
+    coalescedFetch('/api/terminal/sessions', undefined, { ttlMs: BOOT_READ_TTL_MS })
       .then(r => {
         if (!r.ok) throw new Error(`roster ${r.status}`);
         return r.json();

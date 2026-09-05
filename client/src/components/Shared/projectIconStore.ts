@@ -82,9 +82,31 @@ function cachedStatus(path: string): IconStatus | 'unknown' {
 }
 function remember(path: string, s: IconStatus, verified = true): void {
   const c = cache();
-  if (c[path]?.s === s && c[path]?.v === verified) return;
+  // A 'has' is timeless (it never expires), so re-confirming it is a no-op. A
+  // 'none' is NOT: its date is what the TTL reads, and the re-probe that lands
+  // on the same answer must refresh it. Until 2026-09-05 this returned early
+  // for both, so a verified 'none' kept its ORIGINAL date forever: past twelve
+  // hours every reload re-probed every project without an icon (22 requests
+  // measured, two per project — the <img> lane and then the fetch lane), and
+  // the entry stayed expired no matter how many times the answer came back.
+  if (s === 'has' && c[path]?.s === 'has') return;
   c[path] = { s, t: Date.now(), v: verified };
   persist();
+}
+/**
+ * A TRANSIENT answer — a transport error, a 403 while the allowlist warms up
+ * after a restart — teaches nothing about the icon. It gets the short-lived
+ * unverified marker only where nothing better is known: a verified 'none'
+ * already on disk stays. Writing the unverified one over it REPLACED the
+ * verified entry, and `persist` drops unverified entries, so the answer the
+ * server had given vanished from disk and the next boot re-probed the project
+ * from scratch (measured 2026-09-06: at boot the probes queue behind ~60 other
+ * requests, and a ⌘R aborts them all — every reload emptied the cache).
+ */
+function rememberTransientNone(path: string): void {
+  const e = cache()[path];
+  if (e?.s === 'none' && e.v === true) return;
+  remember(path, 'none', false);
 }
 
 // ── Shared reactive resolver (module store) ─────────────────────────────
@@ -172,7 +194,10 @@ function getSnapshot(path: string): Resolved {
  *  split varies per window — so a 200 here is served to every surface from a
  *  blob URL, bypassing the broken transport for the rest of the session. */
 function settleViaFetch(path: string): void {
-  fetch(endpointUrl(path))
+  // Low priority: an icon never decides a layout (the slot is reserved before
+  // it lands, a 'none' draws nothing), so it must not take one of the six
+  // connections from the chat history at boot.
+  fetch(endpointUrl(path), { priority: 'low' })
     .then(async (r) => {
       // 204 = "il progetto non ha un'icona", ed è una risposta RIUSCITA (prima
       // era un 404, il 4xx più rumoroso a ogni load). Va intercettata PRIMA di
@@ -193,12 +218,13 @@ function settleViaFetch(path: string): void {
         setResolved(path, NONE);
       } else {
         // 403 during allowlist warm-up / restart — transient, short TTL.
-        remember(path, 'none', false);
+        rememberTransientNone(path);
         setResolved(path, NONE);
       }
     })
     .catch(() => {
-      remember(path, 'none', false);
+      // The common transient: a probe still in flight when the page reloads.
+      rememberTransientNone(path);
       setResolved(path, NONE);
     })
     .finally(() => { inflight.delete(path); });
@@ -223,11 +249,23 @@ function ensureProbe(path: string): void {
   // would reopen the 18 px slot every 12 hours for the sake of a question
   // whose answer is almost always the same.
   if (!cur || (cur.s !== 'probing' && cur.s !== 'none')) setResolved(path, PROBING);
+  // Re-asking past a verified 'none' goes straight to the fetch lane. For a
+  // project without an icon the <img> lane can only fail (a 204 fires onerror)
+  // and then fall through to the fetch anyway: two requests per project, every
+  // twelve hours, for an answer the fetch alone gives in one. The <img> lane
+  // stays for the unknown case, where the likely answer is an icon and the
+  // image cache is the cheapest way to get it.
+  if (cur?.s === 'none') {
+    settleViaFetch(path);
+    return;
+  }
   // Probe with a detached Image(): the natural, cache-friendly path. On error
   // fall through to fetch, which distinguishes "no icon" (204 — un'immagine
   // vuota fa comunque scattare onerror) da un trasporto immagini rotto
   // (200 → recover via blob).
   const img = new Image();
+  // Same reason as the fetch lane: nothing on screen waits for a probe.
+  img.fetchPriority = 'low';
   // A probe that never answers is a slot that never closes: in the desktop
   // shell an <img> to the self-signed server can neither load nor error, and
   // every row of that project kept 22px of placeholder for the whole session
