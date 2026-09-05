@@ -6,10 +6,22 @@
  * l'implementazione vecchia (`while (busyCount() > 0)`) per costruzione — con
  * `cards: 0` quel predicato usciva subito, cioè `null`, cioè «riavvia pure».
  *
- * @covers HOLD-05, RGATE-01, RGATE-02, RGATE-03
+ * @covers HOLD-05, RGATE-01, RGATE-02, RGATE-03, RGATE-04
  */
 import { test, expect, describe } from "bun:test";
-import { describeInFlight, unadoptableStreams, unfinishedStreams, providerSurvivesRestart, quiescenceVerdict, reloadHeldNotice } from "./quiescence";
+import { describeInFlight, dispatchDoor, unadoptableStreams, unfinishedStreams, providerSurvivesRestart, quiescenceVerdict, reloadHeldNotice } from "./quiescence";
+
+describe("dispatchDoor: the door follows who is holding the restart (RGATE-04)", () => {
+  test("a chat holds: open, whatever the cards - refusing card turns buys the restart nothing", () => {
+    expect(dispatchDoor({ cards: 0, chatsHolding: 1 })).toBe("open");
+    expect(dispatchDoor({ cards: 3, chatsHolding: 1 })).toBe("open");
+  });
+
+  test("only cards hold, or nothing: closed - that wait is bounded, the restart is minutes away", () => {
+    expect(dispatchDoor({ cards: 2, chatsHolding: 0 })).toBe("closed");
+    expect(dispatchDoor({ cards: 0, chatsHolding: 0 })).toBe("closed");
+  });
+});
 
 const nothing = { cards: 0, streamKeys: [], brokerOpenKeys: [] };
 

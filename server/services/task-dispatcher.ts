@@ -537,6 +537,14 @@ export interface TaskDispatcher {
    * the landed server fixes and a migration sat on disk unapplied.
    */
   drain(reason: string): void;
+  /**
+   * Reopen the door closed by `drain` while the restart is still waiting: the
+   * holder is a chat, not a card, and the wait has no bound of ours, so
+   * refusing card turns would freeze the board for as long as that chat runs
+   * (`lib/quiescence.ts`, `dispatchDoor`). The caller closes it again the
+   * moment only cards hold.
+   */
+  undrain(reason: string): void;
 }
 
 /**
@@ -4514,6 +4522,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     drain: (reason) => {
       if (draining !== reason) log(`drain: nessun turno nuovo fino al riavvio (${reason}); ${inFlight.size} in volo`);
       draining = reason;
+    },
+    undrain: (reason) => {
+      if (!draining) return;
+      log(`drain tolto (${reason}): il riavvio aspetta solo chat, che non hanno un limite nostro; le card ripartono, la porta si richiude appena a trattenere restano solo card`);
+      draining = null;
     },
   };
 }

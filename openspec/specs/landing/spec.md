@@ -212,6 +212,27 @@ portare» e «il codice è fuori da `main`» NON SHALL essere la stessa risposta
 
 Il land NON SHALL fare `push`: è un'operazione locale.
 
+«Misto» SHALL volere dire misto per CONTENUTO, non solo per discendenza. Un
+commit raggiungibile da un altro ramo locale può essere già su `main` sotto un
+altro sha: il 05/09/2026 un `pull --rebase` sul checkout condiviso ha riscritto
+i merge di land non ancora pushati, ogni ramo di card che aveva riallineato
+sul vecchio `main` ha tenuto gli originali, e il land ha cherry-pickato i soli
+commit propri su un `main` dal contesto spostato — conflitto su tre card di
+fila, mentre la fusione semplice era pulita. Prima di scegliere la via del
+cherry-pick, il land SHALL provare che i commit estranei portino qualcosa che
+`main` non ha: per patch (stesso diff a meno di blob e numeri di riga, con le
+baseline generate fuori dal conto) oppure per stage (applicato senza
+committare, niente in stage). Se nessuno porta niente, il ramo SHALL essere
+fuso con `--no-ff` come un ramo pulito.
+
+#### Scenario: misto per discendenza, non per contenuto
+- **GIVEN** un ramo i cui commit estranei hanno tutti una copia su `main` (stesso diff) o non mettono niente in stage
+- **THEN** il land SHALL fondere il ramo con `--no-ff`, senza cherry-pick dei commit propri
+
+#### Scenario: un commit estraneo porta contenuto
+- **GIVEN** un ramo con un commit estraneo che, applicato su `main`, mette qualcosa in stage
+- **THEN** il land SHALL pubblicare per cherry-pick i soli commit propri, come prima
+
 #### Scenario: fusione pulita
 - **GIVEN** un ramo avanti rispetto a `main`, senza conflitti
 - **THEN** il land SHALL usare `--no-ff`, e il risultato SHALL essere `merged`

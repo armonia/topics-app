@@ -3178,6 +3178,27 @@ tetto che si azzera al riavvio non è un tetto.
 - **THEN** nessun turno nuovo parte
 - **AND** l'obiettivo resta attivo, in attesa
 
+Il tetto dei giri di tool per turno è una fine della MACCHINA, non del modello:
+il turno che lo raggiunge SHALL finire con la causa `tool-budget`, e NON SHALL
+essere trattato come un guasto del provider. Con un obiettivo attivo il giudice
+SHALL essere interrogato come dopo un `end_turn`; senza obiettivo il server
+SHALL riprendere da solo UNA volta, con la riga di ripresa marcata, e se anche
+la ripresa esaurisce i giri SHALL fermarsi e scriverlo in chat. Misurato il
+05/09/2026: un topic con obiettivo attivo e passo in corso è rimasto muto sei
+ore perché il tetto arrivava come `provider-error` e il ciclo lo saltava.
+
+#### Scenario: Il tetto dei giri di tool non ferma l'obiettivo
+- **GIVEN** un topic con un obiettivo attivo
+- **WHEN** il turno finisce perché ha esaurito i giri di tool del server
+- **THEN** il giudice viene interrogato come dopo un `end_turn`
+- **AND** un guasto vero del provider continua a non essere un candidato
+
+#### Scenario: Senza obiettivo, il tetto riprende una volta e poi si ferma
+- **GIVEN** un topic senza obiettivo, non dispatchato e senza domande in sospeso
+- **WHEN** il turno finisce per il tetto dei giri di tool
+- **THEN** il server rimanda da solo UN messaggio di ripresa, marcato come ripresa
+- **AND** se anche quel turno finisce per il tetto, nessun altro parte e in chat compare l'avviso che la ripresa automatica è sospesa
+
 #### Scenario: Il tetto si ferma e lo scrive
 - **GIVEN** un goal che ha già speso tutte le continuazioni consecutive previste
 - **WHEN** un turno finisce e il giudice risponde `continue`

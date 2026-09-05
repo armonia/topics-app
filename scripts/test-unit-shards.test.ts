@@ -15,8 +15,43 @@ import {
   partitionTiers,
   planShards,
   parseJunitDurations,
+  parseJunitFailures,
+  planUnderLoad,
   aggregateVerdict,
 } from "./test-unit-shards.ts";
+
+describe("planUnderLoad", () => {
+  test("a quiet machine keeps the plan as it is", () => {
+    const p = planUnderLoad({ load: 6, cores: 12, shards: 4, timeoutMs: 30000 });
+    expect(p).toEqual({ shards: 4, timeoutMs: 30000, pressure: 0.5, note: null });
+  });
+
+  test("load 46 on 12 cores (measured 05/09/2026): two shards, the cap scaled by the pressure, and it says so", () => {
+    const p = planUnderLoad({ load: 46, cores: 12, shards: 4, timeoutMs: 30000 });
+    expect(p.shards).toBe(2);
+    expect(p.timeoutMs).toBe(Math.round(30000 * (46 / 12)));
+    expect(p.note).toContain("46.0 su 12 core");
+  });
+
+  test("the timeout never grows past 4x, whatever the load", () => {
+    const p = planUnderLoad({ load: 120, cores: 12, shards: 4, timeoutMs: 30000 });
+    expect(p.timeoutMs).toBe(120000);
+    expect(p.shards).toBe(2);
+  });
+
+  test("moderate pressure: the shards shrink in proportion, the timeout grows in proportion", () => {
+    const p = planUnderLoad({ load: 24, cores: 12, shards: 4, timeoutMs: 30000 });
+    expect(p.shards).toBe(2);
+    expect(p.timeoutMs).toBe(60000);
+  });
+
+  test("explicit env choices are respected", () => {
+    const p = planUnderLoad({ load: 46, cores: 12, shards: 8, timeoutMs: 10000, shardsExplicit: true, timeoutExplicit: true });
+    expect(p.shards).toBe(8);
+    expect(p.timeoutMs).toBe(10000);
+    expect(p.note).toBeNull();
+  });
+});
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 
@@ -56,6 +91,36 @@ describe("planShards (LPT)", () => {
     const all = buckets.flatMap((b) => b.files);
     expect(new Set(all).size).toBe(200);
     expect(all.length).toBe(200);
+  });
+});
+
+describe("parseJunitFailures", () => {
+  test("names only the test cases that carry a failure or error child, decoding the title", () => {
+    // Bun's own shape (measured 05/09/2026): green cases are self-closing,
+    // red ones wrap a `<failure>`; names are XML-escaped.
+    const xml = `<?xml version="1.0"?>
+      <testsuites>
+        <testsuite name="red.test.ts" file="red.test.ts">
+          <testsuite name="gruppo" file="red.test.ts">
+            <testcase name="verde" classname="gruppo" time="0" file="red.test.ts" line="2" assertions="1" />
+            <testcase name="rosso &quot;a&quot; &amp; b" classname="gruppo" time="0.0003" file="red.test.ts" line="2">
+              <failure type="AssertionError" />
+            </testcase>
+            <testcase name="esplode" classname="gruppo" file="red.test.ts">
+              <error type="Error" message="boom" />
+            </testcase>
+          </testsuite>
+        </testsuite>
+      </testsuites>`;
+    expect(parseJunitFailures(xml)).toEqual([
+      { file: "red.test.ts", test: "gruppo › rosso \"a\" & b" },
+      { file: "red.test.ts", test: "gruppo › esplode" },
+    ]);
+  });
+
+  test("a report with no red case gives an empty list, so the summary can say the red is a hook or a crash", () => {
+    expect(parseJunitFailures(`<testsuites><testcase name="x" file="a.ts" time="1" /></testsuites>`)).toEqual([]);
+    expect(parseJunitFailures("")).toEqual([]);
   });
 });
 

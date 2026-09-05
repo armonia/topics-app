@@ -45,6 +45,9 @@ const EN = {
   'compaction.summaryTitle': 'Summary of the compacted context',
   'settings.close': 'Close the settings',
   'toast.close': 'Dismiss the notification',
+  'lightbox.close': 'Close the image',
+  'lightbox.resetZoom': 'Reset zoom',
+  'lightbox.image': 'Image',
   'activity.runningFor': 'Running for {label}{approx}',
   'activity.atLeast': ' (at least: the turn was already going at the last server restart)',
 
@@ -1075,6 +1078,7 @@ const EN = {
   'chat.turnInterrupted.superseded': 'a newer turn took its place',
   'chat.turnInterrupted.providerError': 'the provider answered with an error',
   'chat.turnInterrupted.rateLimit': 'the API stayed rate-limited through every retry; it resumes on its own',
+  'chat.turnInterrupted.toolBudget': 'the turn used up the server budget of tool rounds; it resumes once by itself',
   'git.noRepoInitialized': 'No git repository initialized',
   'git.noRepo': 'No git repository',
   'git.cleanTree': 'Clean working tree',

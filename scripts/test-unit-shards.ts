@@ -75,8 +75,59 @@
 
 import { readFileSync, existsSync, writeFileSync, mkdtempSync, rmSync } from "fs";
 import { resolve, join } from "path";
-import { tmpdir } from "os";
+import { tmpdir, loadavg, cpus } from "os";
 import { GATE_HELD_ENV } from "./gate-slot.ts";
+
+/**
+ * How many shards, and how long a test may take, on THIS machine right now.
+ *
+ * WHY THE PLAN LOOKS AT THE LOAD. The bar is sized for a quiet box: four shards
+ * on twelve cores, 30 s per test. Under a fleet it is not quiet: on 05/09/2026
+ * the load sat at 46 on 12 cores (four agents, three gate slots each running
+ * four shards, typecheck and lint beside them). At that pressure every test
+ * runs ~4x slower, the 30 s cap turns into a clock, and two cards parked
+ * themselves within an hour on "test:unit red, no red test in the report" -
+ * a shard killed by timeouts on a branch identical to main. A gate that goes
+ * red with the load measures the machine, not the code.
+ *
+ * So above a pressure of 1.25 (load per core) the run adds fewer processes
+ * (shards divided by the pressure, never below two) and gives each test more
+ * time (the cap multiplied by the pressure, at most 4x). Explicit env values
+ * are respected: whoever set TOPICS_UNIT_SHARDS or TOPICS_TEST_TIMEOUT_MS
+ * made a choice, and the plan does not overrule a person.
+ */
+export interface LoadPlan {
+  shards: number;
+  timeoutMs: number;
+  /** load / cores, the number the two adjustments are driven by. */
+  pressure: number;
+  /** One line for the output when the plan changed; null on a quiet machine. */
+  note: string | null;
+}
+export const LOAD_PRESSURE_FLOOR = 1.25;
+export const LOAD_TIMEOUT_CAP = 4;
+export function planUnderLoad(input: {
+  load: number;
+  cores: number;
+  shards: number;
+  timeoutMs: number;
+  shardsExplicit?: boolean;
+  timeoutExplicit?: boolean;
+}): LoadPlan {
+  const cores = Math.max(1, input.cores);
+  const pressure = Math.max(0, input.load) / cores;
+  if (!Number.isFinite(pressure) || pressure <= LOAD_PRESSURE_FLOOR) {
+    return { shards: input.shards, timeoutMs: input.timeoutMs, pressure, note: null };
+  }
+  const shards = input.shardsExplicit ? input.shards : Math.max(2, Math.min(input.shards, Math.floor(input.shards / pressure)));
+  const factor = Math.min(LOAD_TIMEOUT_CAP, pressure);
+  const timeoutMs = input.timeoutExplicit ? input.timeoutMs : Math.round(input.timeoutMs * factor);
+  const changed = shards !== input.shards || timeoutMs !== input.timeoutMs;
+  const note = changed
+    ? `carico ${input.load.toFixed(1)} su ${cores} core (pressione ${pressure.toFixed(2)}): ${shards} shard invece di ${input.shards}, timeout per test ${timeoutMs} ms invece di ${input.timeoutMs}`
+    : null;
+  return { shards, timeoutMs, pressure, note };
+}
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const DURATIONS_PATH = resolve(import.meta.dir, "test-unit-durations.json");
@@ -212,6 +263,46 @@ export function parseJunitDurations(xml: string): Record<string, number> {
   return out;
 }
 
+/** One red test case as the junit report names it. */
+export interface JunitFailure {
+  file: string;
+  /** `classname › name`, i.e. the describe path and the test title. */
+  test: string;
+}
+
+/**
+ * The test cases that carry a `<failure>` or `<error>` child.
+ *
+ * WHY THE SUMMARY NEEDS THEM. The whole output of a red shard is reprinted
+ * above the summary, `(fail)` lines included, but the board keeps only the
+ * TAIL of a check's output in the card comment: on 05/09/2026 the agent of
+ * card 7bbefd9e read "test:unit exit 1" plus the reproduce line and had to
+ * rerun the shard just to learn which test was red. The names go in the last
+ * lines, where the comment keeps them. A hook timeout or a crashed process
+ * leaves no red test case in the report: the summary says so instead of
+ * printing nothing.
+ */
+export function parseJunitFailures(xml: string): JunitFailure[] {
+  const out: JunitFailure[] = [];
+  const caseRe = /<testcase\b([^>]*?)(?<!\/)>([\s\S]*?)<\/testcase>/g;
+  let m: RegExpExecArray | null;
+  while ((m = caseRe.exec(xml)) !== null) {
+    const attrs = m[1] ?? "";
+    const body = m[2] ?? "";
+    if (!/<(failure|error)\b/.test(body)) continue;
+    const file = /\bfile="([^"]*)"/.exec(attrs)?.[1] ?? "?";
+    const name = decodeXmlAttr(/\bname="([^"]*)"/.exec(attrs)?.[1] ?? "?");
+    const describePath = decodeXmlAttr(/\bclassname="([^"]*)"/.exec(attrs)?.[1] ?? "");
+    out.push({ file, test: describePath ? `${describePath} › ${name}` : name });
+  }
+  return out;
+}
+
+function decodeXmlAttr(s: string): string {
+  return s
+    .replace(/&quot;/g, "\"").replace(/&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+}
+
 /** Green (0) only if EVERY worker is green; otherwise the first non-zero code. */
 export function aggregateVerdict(exitCodes: number[]): number {
   const failed = exitCodes.find((c) => c !== 0);
@@ -226,6 +317,8 @@ interface RunResult {
   wallS: number;
   fileCount: number;
   measured: Record<string, number>;
+  /** Red test cases named by the junit report; empty on a hook timeout or a crash. */
+  failures: JunitFailure[];
 }
 
 /** Launches ONE `bun test` process on the given `files` and collects verdict + durations. */
@@ -256,18 +349,32 @@ async function runBunTest(
     proc.exited,
   ]);
   let measured: Record<string, number> = {};
+  let failures: JunitFailure[] = [];
   try {
-    if (existsSync(xmlPath)) measured = parseJunitDurations(readFileSync(xmlPath, "utf8"));
+    if (existsSync(xmlPath)) {
+      const xml = readFileSync(xmlPath, "utf8");
+      measured = parseJunitDurations(xml);
+      failures = parseJunitFailures(xml);
+    }
   } catch {
     /* incomplete xml: the old durations are kept for those files */
   }
-  return { code, stdout, stderr, wallS: (Date.now() - t0) / 1000, fileCount: files.length, measured };
+  return { code, stdout, stderr, wallS: (Date.now() - t0) / 1000, fileCount: files.length, measured, failures };
 }
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
 if (import.meta.main) {
-  const shardsN = Math.max(1, Number(process.env.TOPICS_UNIT_SHARDS) || 4);
-  const timeoutMs = Number(process.env.TOPICS_TEST_TIMEOUT_MS) || 30000;
+  const plan = planUnderLoad({
+    load: loadavg()[0] ?? 0,
+    cores: cpus().length || 1,
+    shards: Math.max(1, Number(process.env.TOPICS_UNIT_SHARDS) || 4),
+    timeoutMs: Number(process.env.TOPICS_TEST_TIMEOUT_MS) || 30000,
+    shardsExplicit: Number(process.env.TOPICS_UNIT_SHARDS) > 0,
+    timeoutExplicit: Number(process.env.TOPICS_TEST_TIMEOUT_MS) > 0,
+  });
+  if (plan.note) console.error(`test-unit-shards: ${plan.note}`);
+  const shardsN = plan.shards;
+  const timeoutMs = plan.timeoutMs;
 
   const files = enumerateTestFiles(SUITE_ROOTS, REPO_ROOT);
   if (files.length === 0) {
@@ -330,6 +437,21 @@ if (import.meta.main) {
   });
   if (phase2) {
     console.log(`  fase2 seriale : ${phase2.code === 0 ? "ok " : "RED"}  ${phase2.fileCount} file  ${phase2.wallS.toFixed(1)}s`);
+  }
+  // The red tests BY NAME, last, and on STDERR: the board's check runner
+  // concatenates stdout then stderr and keeps the tail, so the last lines of
+  // stderr are the only lines an agent is sure to read (measured 05/09/2026 on
+  // card ca44c550: the comment ended with the reproduce line and bun's own
+  // "exited with code 1", the names printed on stdout never reached it).
+  const MAX_NAMED = 12;
+  for (const { label, r } of reds) {
+    if (r.failures.length === 0) {
+      console.error(`${label}: nessun test rosso nel referto junit — il rosso e' un hook scaduto, un crash o un timeout di processo: leggi l'output del shard qui sopra`);
+      continue;
+    }
+    console.error(`${label}, test rossi (${r.failures.length}):`);
+    for (const f of r.failures.slice(0, MAX_NAMED)) console.error(`  ✗ ${f.file} › ${f.test}`);
+    if (r.failures.length > MAX_NAMED) console.error(`  … e altri ${r.failures.length - MAX_NAMED}`);
   }
   const codes = [...phase1.map((r) => r.code), ...(phase2 ? [phase2.code] : [])];
   const verdict = aggregateVerdict(codes);

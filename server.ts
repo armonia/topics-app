@@ -40,7 +40,7 @@ import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { timelineWithInterruptedVerdict } from "./server/lib/interrupted-turn-block";
 import type { ContentBlock } from "./shared/types";
-import { describeInFlight, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
+import { describeInFlight, dispatchDoor, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
 import { dispatchReconcileHeld } from "./server/lib/e2e-dispatch-hold";
 import { chatsParkedOnQuestion } from "./server/lib/parked-asks";
 import { touchReloadDeferred, clearReloadDeferred } from "./server/lib/reload-deferred";
@@ -4377,7 +4377,7 @@ const staleStreamTimer = setInterval(() => {
   // "extend" were unreachable and three minutes of silence were enough to close
   // it. The dispatcher had already been fixed with `resolveTurnAlive` (see
   // above); the sweeper, ten lines further down, had not.
-  sweepStaleStreams({
+  const sweepOutcomes = sweepStaleStreams({
     now: () => Date.now(),
     timeoutMs: STALE_STREAM_TIMEOUT_MS,
     askTtlMs: ASK_TTL_MS,
@@ -4440,6 +4440,9 @@ const staleStreamTimer = setInterval(() => {
     warn: (msg) => console.warn(msg),
     info: (msg) => console.log(msg),
   });
+  // A cut just happened, and its notice says "riprende da solo entro pochi
+  // minuti": the resume sweep must not wait for its five-minute tick.
+  if ([...sweepOutcomes.values()].includes("finalized")) nudgeResumeSweep();
 }, STALE_STREAM_CHECK_INTERVAL_MS);
 
 // Task auto-dispatch reconciliation: on boot, requeue any in-progress task whose
@@ -4951,6 +4954,27 @@ reattachSurvivingChatTurns()
 // answer after it, so a sweep never resends twice. Chained, not on an
 // interval: one sweep can wait up to fifteen minutes on a stream.
 const RESUME_SWEEP_MS = 5 * 60_000;
+
+/**
+ * THE SWEEP RUNS EARLY WHEN A CUT JUST HAPPENED. The periodic tick is what
+ * makes "riprende da solo" true at all; this is what makes it true within
+ * seconds instead of within five minutes. One pending nudge at a time, and a
+ * hold in force still wins: a resend into a spent usage window is a 429 and
+ * one of the chain's attempts burnt for nothing.
+ */
+const RESUME_NUDGE_MS = 20_000;
+let resumeNudge: ReturnType<typeof setTimeout> | null = null;
+function nudgeResumeSweep(): void {
+  if (resumeNudge) return;
+  resumeNudge = setTimeout(() => {
+    resumeNudge = null;
+    if (providerHold()) return;
+    riprendiTurniInterrotti(ctx, topicsRouter)
+      .catch((err) => console.error("[ripresa] nudged sweep failed", err));
+  }, RESUME_NUDGE_MS);
+  resumeNudge.unref?.();
+}
+
 function scheduleResumeSweep(): void {
   const t = setTimeout(() => {
     // The plan's usage window is spent: a resend now would end on the same
@@ -5459,7 +5483,7 @@ let askProbeCache: { at: number; parked: string[] } = { at: 0, parked: [] };
  * adottati che vivono solo nel broker. Le prime due sono gratis e si guardano a
  * ogni giro; la terza si paga, e si guarda ogni QUIESCENCE_BROKER_PROBE_MS.
  */
-async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; parkedAsks: number; holder: string | null; holderKind: "turn" | "question" }> {
+async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; parkedAsks: number; chats: number; holder: string | null; holderKind: "turn" | "question" }> {
   // A land in flight is a card turn for this purpose: it rewrites main and
   // the card, and a restart in the middle of it forgets the delivery branch.
   const cards = taskDispatcher.busyCount() + landingQueue.inFlight();
@@ -5515,6 +5539,10 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
     cards,
     unadoptable,
     parkedAsks: parked.length,
+    // Every holder that is NOT a card: the streams of this process, the turns
+    // the broker keeps, the chats parked on a question. `dispatchDoor` reads
+    // this to decide whether refusing card turns buys the restart anything.
+    chats: streamKeys.length + brokerOpen.length + parked.length,
     // STESSA PRIORITA' di `describeInFlight`, o la notifica nomina un soggetto
     // che non e' quello che trattiene: quando a trattenere e' una card la frase
     // parla di card, e qui non c'e' un topic da nominare — meglio `null` e il
@@ -5576,9 +5604,30 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
   // invece di tagliare (vedi `reloadHeldNotice`). Ripeterlo ogni minuto sarebbe
   // rumore, e il log gia' lo fa per chi lo legge.
   let avvisato = false;
+  // The door starts closed (`drain` above) and follows who is holding: see
+  // `dispatchDoor`. Reopened while a chat holds, closed again the moment only
+  // cards do - and closed before the final `break`, with one more look, so a
+  // card cannot start in the gap between "nothing holds" and the shutdown.
+  let doorClosed = true;
   for (;;) {
-    const { busy, cards, unadoptable, parkedAsks, holder, holderKind } = await whatIsStillWorking();
-    if (!busy) break;
+    const { busy, cards, unadoptable, parkedAsks, chats, holder, holderKind } = await whatIsStillWorking();
+    if (!busy) {
+      if (!doorClosed) {
+        taskDispatcher.drain(label);
+        doorClosed = true;
+        await new Promise((r) => setTimeout(r, 500));
+        continue;
+      }
+      break;
+    }
+    const door = dispatchDoor({ cards, chatsHolding: chats });
+    if (door === "open" && doorClosed) {
+      taskDispatcher.undrain(label);
+      doorClosed = false;
+    } else if (door === "closed" && !doorClosed) {
+      taskDispatcher.drain(label);
+      doorClosed = true;
+    }
     // La REGOLA sta in `lib/quiescence.ts`, pura e provata: qui si applica.
     // Viveva dentro questo loop, e li' dentro nessun test poteva raggiungerla
     // senza avviare un server — che e' il motivo per cui il difetto del

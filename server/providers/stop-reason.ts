@@ -97,6 +97,17 @@ export type StopCause =
    * `TurnEndInfo` at all, the turn just keeps running.
    */
   | "stall"
+  /**
+   * OUR per-turn budget of tool rounds ran out (`MAX_ITERATIONS` in
+   * `native/agent-loop.ts`). The model did not decide to stop and nothing
+   * broke: the work is saved in the session and a resume continues it. It used
+   * to travel as a generic `provider-error`, and that word did two wrong things
+   * at once: it sent people hunting a network fault that was not there, and it
+   * made the goal loop skip the turn ("an error did not decide to stop") on the
+   * one cut that is entirely ours. Measured 05/09/2026 on topic:514354ce: goal
+   * active, step 3 in progress, 300 rounds spent, silence for six hours.
+   */
+  | "tool-budget"
   /** La sessione `--resume` non esisteva più: reset trasparente, si rispawna. */
   | "session-reset"
   /** Il processo figlio è uscito con codice diverso da zero. */
