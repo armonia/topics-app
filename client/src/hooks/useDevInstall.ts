@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { BOOT_READ_TTL_MS, coalescedFetch } from '../lib/coalesceFetch';
 
 /**
  * «Questa è un'installazione di SVILUPPO» — il cancello delle superfici che
@@ -21,7 +22,9 @@ let devInstallProbe: Promise<boolean> | null = null;
 
 function probeDevInstall(): Promise<boolean> {
   if (!devInstallProbe) {
-    devInstallProbe = fetch('/api/system/status')
+    // Shared with useSystemStatus / paneUsage, which ask the same endpoint at
+    // boot; low priority because nothing on screen waits for this answer.
+    devInstallProbe = coalescedFetch('/api/system/status', { priority: 'low' }, { ttlMs: BOOT_READ_TTL_MS })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => !!d?.server?.devReload)
       // Nel dubbio NO: il verso giusto in cui sbagliare è non mostrare una

@@ -3165,7 +3165,6 @@
       "vecchia"
     ],
     "server/lib/empty-turn-headstone.ts": [
-      "isReusableHeadstone",
       "nata",
       "soloIlBloccoDErrore"
     ],
@@ -4793,7 +4792,6 @@
     ],
     "server/services/preview-manager.ts": [
       "nostro",
-      "reusable",
       "spegniAlbero"
     ],
     "server/services/profile-banner.test.ts": [

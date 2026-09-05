@@ -3,6 +3,7 @@ import { parseBrowserWsMessage, type BrowserWsMessage } from '../../../shared/br
 import type { ElementDescription } from '../../../shared/element-describe';
 import type { RemoteField } from '../../../shared/browser-keyboard-field';
 import { serverWsBase } from '@/lib/shell/net';
+import { BOOT_READ_TTL_MS, coalescedFetch } from '../lib/coalesceFetch';
 import { attachViewerChannel, pushViewerCount } from '../lib/viewerCountBus';
 import { mapCoordinates } from './browserCoords';
 
@@ -1088,10 +1089,11 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
 
   // Engine capability (task 54601eeb): does the server offer the Native↔Chromium
   // toggle (un vero Chromium installato sulla macchina), and how many
-  // extensions would load? Fetched once — the toggle stays hidden unless enabled.
+  // extensions would load? Fetched once per pane — and coalesced across the
+  // browser panes that mount together at boot: one GET, not one per pane.
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/browsers/engines')
+    coalescedFetch('/api/browsers/engines', undefined, { ttlMs: BOOT_READ_TTL_MS })
       .then(r => (r.ok ? r.json() : null))
       .then((d: { enabled?: boolean; chromium?: { available?: boolean; extensions?: number } } | null) => {
         if (cancelled) return;

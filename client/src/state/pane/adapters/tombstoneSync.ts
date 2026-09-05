@@ -23,7 +23,7 @@
  * redundant PUT (or re-apply) of a value we already hold.
  */
 import { getTabId } from '../middleware/syncCrossTab';
-import { subscribeFrames, subscribeLifecycle } from '../../../lib/wsFrameBus';
+import { subscribeFrames, subscribeLifecycle, subscribeReconnect } from '../../../lib/wsFrameBus';
 import { backoff } from './syncBackoff';
 import { usePaneStore, findPaneLocation } from '../store';
 import {
@@ -258,14 +258,20 @@ export function initTombstoneSync(): void {
     if (document.visibilityState === 'hidden') flushPendingOnTeardown();
   });
   subscribeFrames(handleFrame, { types: ['ui-state:init', 'ui-state:updated', 'ui-state:patch'] });
-  subscribeLifecycle((event) => {
-    if (event !== 'open') return;
-    // Server restart may reset server_seq; drop the monotonic + dedupe guards so
-    // our re-seed writes through, then retry anything left unacked.
+  // A RE-connect, not the first connection of the page: a server restart may
+  // have reset server_seq, so drop the monotonic + dedupe guards and re-seed.
+  // On the FIRST open there is nothing stale to drop, and re-seeding only
+  // repeated the boot PUT of both keys (measured 2026-09-05).
+  subscribeReconnect(() => {
     lastAppliedSeq.clear();
     lastSyncedJson.clear();
     publish('terminal');
     publish('browser');
+  });
+  // Whatever never got acked is retried on EVERY open, the first included: a
+  // PUT that failed while the server was still coming up has no other retry.
+  subscribeLifecycle((event) => {
+    if (event !== 'open') return;
     for (const [uiKey, json] of [...unackedJson]) void putWithRetry(uiKey, json);
   });
   // Initial seed of the current local sets.

@@ -24,6 +24,8 @@
  * would then have pruned.
  */
 
+import { BOOT_READ_TTL_MS, coalescedFetch } from './coalesceFetch';
+
 /** Answers with the ids the server currently lists as parked. */
 export type DormantIdsFetcher = () => Promise<readonly string[]>;
 
@@ -42,7 +44,8 @@ export interface DormantTerminalGuard {
 }
 
 async function fetchDormantIds(): Promise<readonly string[]> {
-  const res = await fetch('/api/terminal/sessions/dormant');
+  // One guard per project window, all loading at boot: coalesced into one GET.
+  const res = await coalescedFetch('/api/terminal/sessions/dormant', undefined, { ttlMs: BOOT_READ_TTL_MS });
   if (!res.ok) throw new Error(`dormant list: HTTP ${res.status}`);
   const body: unknown = await res.json();
   if (!Array.isArray(body)) throw new Error('dormant list: not an array');

@@ -24,6 +24,7 @@
  * the one that failed, and without them there would be no second.
  */
 import { useSyncExternalStore } from 'react';
+import { BOOT_READ_TTL_MS, coalescedFetch } from './coalesceFetch';
 import { subscribeFrames } from './wsFrameBus';
 import { sharedWith, type OrgRef, type ProjectSharing } from './projectSharing';
 
@@ -64,7 +65,9 @@ async function fetchOnce(): Promise<void> {
     // on the slower of two round trips for no reason.
     const [pRes, oRes] = await Promise.allSettled([
       fetch('/api/projects', { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : null)),
-      fetch('/api/auth/orgs', { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : null)),
+      // useIdentityPresence asks the same list at boot: one GET between the two.
+      coalescedFetch('/api/auth/orgs', { credentials: 'same-origin' }, { ttlMs: BOOT_READ_TTL_MS })
+        .then((r) => (r.ok ? r.json() : null)),
     ]);
 
     const pBody = pRes.status === 'fulfilled' ? (pRes.value as { projects?: ProjectRow[] } | null) : null;
