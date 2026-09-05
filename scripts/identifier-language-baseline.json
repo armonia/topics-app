@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-09-04",
+  "generated": "2026-09-05",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -3595,9 +3595,6 @@
       "inizio",
       "uscita",
       "verdetto"
-    ],
-    "server/lib/quiescence.ts": [
-      "tetto"
     ],
     "server/lib/recipients.test.ts": [
       "MIGRAZIONI",
