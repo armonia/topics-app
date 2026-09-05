@@ -23,6 +23,7 @@ import {
   startUiStateBackupTicker, snapshotUiStateNow,
 } from "./server/services/ui-state-backup";
 import { purgeOrphanTopicRefs } from "./server/services/ui-state-orphan-cleanup";
+import { repairCanonicalPaneState } from "./server/services/ui-state-canonical-repair";
 import {
   sweepArchivedTaskBrowserState,
   teardownArchivedTaskBrowserState,
@@ -398,6 +399,26 @@ try {
   // Non-fatal: log loudly but don't abort boot — the runtime guard in
   // PURGE_ORPHAN_PANE will still catch any orphan that slips through.
   console.error("[Startup] ui_state orphan cleanup failed:", err);
+}
+
+// Boot-time repair of project panes saved with a raw (symlinked) path: the
+// pane store and its per-project rows move under the canonical path, so the
+// window they open finds the chats the topics are filed under
+// (`services/ui-state-canonical-repair.ts`). Idempotent: no-op when clean.
+try {
+  const canonical = repairCanonicalPaneState(db);
+  if (canonical.pairs.length > 0) {
+    console.log(
+      `[Startup] ui_state canonical repair: ${canonical.pairs.length} project pane(s) resolved, ` +
+        `${canonical.renamed.length} per-project row(s) renamed, ${canonical.dropped.length} dropped`,
+      canonical.pairs,
+    );
+  } else {
+    console.log("[Startup] ui_state canonical repair: clean (every project pane already canonical)");
+  }
+} catch (err) {
+  // Non-fatal: the read path in routes/ui-state.ts still serves the value canonical.
+  console.error("[Startup] ui_state canonical repair failed:", err);
 }
 
 // Ripasso al boot delle tab dei task ARCHIVIATI (`services/task-tab-teardown.ts`).
