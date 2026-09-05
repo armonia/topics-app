@@ -83,6 +83,44 @@ The system SHALL load within acceptable time thresholds and SHALL NOT block the 
 - **WHEN** user interacts
 - **THEN** no long tasks (>50ms) block the main thread during normal interaction
 
+Il codice di una pane APERTA non è un chunk pigro. Ogni corpo di pane è un
+`React.lazy`, giusto per una pane mai aperta; per quella che si sta guardando al
+ricarico il chunk SHALL essere chiesto al boot, dallo snapshot locale, prima che
+React monti — e questo SHALL valere anche per i TILE di un project window
+(terminale, browser, albero dei file, git, dashboard, log di processo), che il
+pane-store non elenca: stanno nel record locale del progetto
+(`topics-project-panes-<hash>`). Misurato il 05/09/2026 sullo stato reale del
+desktop: ogni tile di ogni project window disegnava uno spinner per 220-240 ms a
+ogni ricarico, perché nessuno aveva chiesto il suo chunk. Il ripiego HTTP dello
+snapshot del pane-store SHALL leggere la SOLA chiave che gli serve
+(`/api/ui-state/pane-store-v2`), non l'intero store (413 chiavi, 276 KB).
+
+Un chunk già CALDO SHALL renderizzare senza confine di Suspense: `React.lazy`
+sospende al primo montaggio anche quando il modulo è in cache (l'`import()`
+della factory si risolve in un microtask, il confine committa il fallback, il
+corpo arriva al giro dopo). Misurato: chunk chiesti a 110 ms e in cache, primo
+frame del guscio a 224 ms, e i tile disegnavano comunque lo spinner per 136 ms.
+Il preload SHALL ricordare il modulo risolto per identità del loader, e il
+wrapper (`lazyWarm`) SHALL leggerlo al montaggio: caldo → corpo nello stesso
+passaggio; freddo → `React.lazy` come prima. La scelta SHALL essere presa una
+volta per istanza montata, per non rimontare una pane quando il chunk si scalda.
+Poiché un chunk in cache si risolve comunque in un task SUCCESSIVO al primo
+render di React, il primo render SHALL aspettare che i chunk caldi si risolvano,
+con un tetto (300 ms): oltre il tetto l'app renderizza lo stesso e i confini
+fanno il loro mestiere. Senza snapshot locale non c'è niente da aspettare.
+
+#### Scenario: i tile di un project window non mostrano lo spinner al ricarico
+- **GIVEN** un project window con un terminale e un browser nel suo record locale
+- **WHEN** la pagina si ricarica
+- **THEN** i chunk del terminale e del browser sono chiesti al boot, insieme a quelli delle pane del pane-store
+- **AND** un record locale illeggibile lascia il project window ai suoi chunk pigri, senza fermare il boot
+
+#### Scenario: un chunk caldo non passa dal fallback
+- **GIVEN** un chunk di pane già risolto dal preload
+- **WHEN** la pane monta
+- **THEN** il corpo è nel primo passaggio di render, senza fallback
+- **AND** un chunk freddo passa ancora da `React.lazy` e il confine mostra il suo fallback
+
 ### Requirement: LEAK-01 — Una sessione lunga non accumula, e c'è un cancello che se ne accorge
 
 Topics è una sessione lunga per costruzione: resta aperta per giorni, le pane si

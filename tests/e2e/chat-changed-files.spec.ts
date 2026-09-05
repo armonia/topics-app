@@ -120,11 +120,13 @@ test.describe("I file che questa conversazione ha toccato", () => {
   });
   /**
    * WHERE the strip hangs, which is the half a screenshot cannot prove: it is
-   * chrome now, above the tab bar, and the transcript stays under the bar. Two
-   * topics in the same window, one that wrote and one that only read, so the
-   * silence is measured against a bar that does not move.
+   * part of the bottom block now, above the composer and on its column, not in
+   * the chrome above the tabs. Two topics in the same window, one that wrote
+   * and one that only read, so the silence is measured against a composer that
+   * does not move. Neither topic is bound to a worktree, so the strip names
+   * no branch, and there is no terminal action to find.
    */
-  test("la barretta sta SOPRA la barra delle tab, e il topic che non ha scritto non la mostra", async ({ request }) => {
+  test("la barretta sta SOPRA il composer, senza terminale ne' branch, e il topic che non ha scritto non la mostra", async ({ request }) => {
     // Two mounted transcripts, a dedicated browser and three read beats: the
     // 30s default is the suite's, not this test's.
     test.setTimeout(120_000);
@@ -153,17 +155,20 @@ test.describe("I file che questa conversazione ha toccato", () => {
     });
     await resetPaneStore(request, [written.id, readOnly.id]);
 
-    /** The bar the strip has to stay above: the one chrome row of this surface. */
-    const chromeBar = (p: Page) => p.locator(".pane-chrome-bar").first();
+    /** The composer of ONE topic. Both chats stay MOUNTED behind the tabs, so
+     *  the bare testid resolves to two textareas: the accessible name carries
+     *  the topic's name and tells them apart. */
+    const composerOf = (p: Page, name: string) =>
+      p.getByRole("textbox", { name: new RegExp(`Message input for ${name}`) });
 
-    async function topOf(locator: ReturnType<Page["locator"]>): Promise<{ top: number; bottom: number }> {
+    async function boxOf(locator: ReturnType<Page["locator"]>): Promise<{ top: number; bottom: number; left: number; right: number }> {
       const box = await locator.boundingBox();
       expect(box, "the element has to be on screen to be measured").not.toBeNull();
-      return { top: box!.y, bottom: box!.y + box!.height };
+      return { top: box!.y, bottom: box!.y + box!.height, left: box!.x, right: box!.x + box!.width };
     }
 
     const clip = await clipDiConsegna({
-      nome: "topic-status-strip",
+      nome: "changed-files-strip",
       context: {
         baseURL: E2E_BASE,
         locale: "it-IT",
@@ -179,41 +184,51 @@ test.describe("I file che questa conversazione ha toccato", () => {
         await p.goto("/");
         await p.getByTestId(`pane-tab-${written.id}`).click();
 
-        // FIRST STATE: the topic that wrote. The strip is up in the chrome and
-        // the bar sits under it, not on it.
+        // FIRST STATE: the topic that wrote. The strip is INSIDE the bottom
+        // block of its chat (the `filter` is the containment assertion: one
+        // input area holds the strip) and sits above the textarea, on the
+        // composer's column.
         const strip = p.getByTestId("chat-changes-strip");
         await expect(strip).toBeVisible({ timeout: 20000 });
-        await didascalia(p, "Un topic che ha scritto: la barretta sopra la barra delle tab");
-        const stripBox = await topOf(strip);
-        const barBox = await topOf(chromeBar(p));
-        expect(stripBox.bottom).toBeLessThanOrEqual(barBox.top + 1);
+        await didascalia(p, "Un topic che ha scritto: la barretta sopra il composer");
+        const inputArea = p.getByTestId("chat-input-area").filter({ has: strip });
+        await expect(inputArea).toHaveCount(1);
+        const composer = composerOf(p, `strip-written-${stamp}`);
+        await expect(composer).toBeVisible();
+        const stripBox = await boxOf(strip);
+        const composerBox = await boxOf(composer);
+        const areaBox = await boxOf(inputArea);
+        expect(stripBox.bottom).toBeLessThanOrEqual(composerBox.top + 1);
+        expect(stripBox.top).toBeGreaterThanOrEqual(areaBox.top - 1);
+        expect(stripBox.left).toBeGreaterThanOrEqual(areaBox.left - 1);
+        expect(stripBox.right).toBeLessThanOrEqual(areaBox.right + 1);
 
-        // The invariant of the move: the tab content stays under the bar.
-        // Scoped by topic: both chats stay MOUNTED behind the tabs, so the bare
-        // testid resolves to two transcripts.
-        const transcript = p.getByRole("log", { name: new RegExp(`strip-written-${stamp}`) }).getByTestId("chat-message-list");
-        await expect(transcript).toBeVisible();
-        const transcriptBox = await topOf(transcript);
-        expect(transcriptBox.top).toBeGreaterThanOrEqual(barBox.top);
+        // What is NOT there: the terminal action is gone for good, and a topic
+        // that is not bound to a worktree names no branch even though the
+        // count is up. `toHaveCount(0)` counts hidden nodes too, so the second
+        // mounted chat cannot hide either.
+        await expect(p.getByTestId("chat-changes-terminal")).toHaveCount(0);
+        await expect(p.getByTestId("chat-changes-branch")).toHaveCount(0);
         await beat(p, 1200);
 
-        // The list opens from up there, and the rows are the topic's files.
+        // The list opens from down there, and the rows are the topic's files.
         await p.getByTestId("chat-changes-chip").click();
         await expect(p.getByTestId("chat-changes-row")).toHaveCount(2);
         await didascalia(p, "Il chip apre l'elenco dei file di QUESTO topic");
         await beat(p, 1600);
 
-        // SECOND STATE: a topic that only read. No strip, and the bar goes back
-        // to the top of the surface instead of leaving an empty band.
+        // SECOND STATE: a topic that only read. No strip in ITS bottom block,
+        // and its composer is not pushed up by an empty band. Scoped to that
+        // chat's input area on purpose: the chat that wrote stays mounted
+        // behind its tab, strip included, so a bare count would find it.
         await p.getByTestId(`pane-tab-${readOnly.id}`).click();
         await expect(p.getByText("ho solo guardato").first()).toBeVisible({ timeout: 20000 });
-        await expect(p.getByTestId("chat-changes-strip")).toHaveCount(0);
-        const barAlone = await topOf(chromeBar(p));
-        expect(barAlone.top).toBeLessThanOrEqual(barBox.top);
-        const transcriptAlone = await topOf(
-          p.getByRole("log", { name: new RegExp(`strip-read-${stamp}`) }).getByTestId("chat-message-list"),
-        );
-        expect(transcriptAlone.top).toBeGreaterThanOrEqual(barAlone.top);
+        const areaAlone = p.getByTestId("chat-input-area").filter({ has: composerOf(p, `strip-read-${stamp}`) });
+        await expect(areaAlone).toHaveCount(1);
+        await expect(areaAlone.getByTestId("chat-changes-strip")).toHaveCount(0);
+        await expect(p.getByTestId("chat-changes-strip")).toBeHidden();
+        const composerAlone = await boxOf(composerOf(p, `strip-read-${stamp}`));
+        expect(composerAlone.bottom).toBeGreaterThanOrEqual(composerBox.bottom - 1);
         await didascalia(p, "Un topic che non ha scritto: nessuna barretta, nessuno spazio vuoto");
         await beat(p, 1600);
       },

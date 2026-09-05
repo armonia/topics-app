@@ -29,6 +29,7 @@ import { PlanApprovalBar } from './PlanApprovalBar';
 import { useGoal } from '@/hooks/useGoal';
 import { SubAgentsStrip } from './SubAgentsStrip';
 import { TaskCardStrip } from './TaskCardStrip';
+import { ChangedFilesStrip } from './ChangedFilesStrip';
 import { selectLatestTodo } from './selectLatestTodo';
 import { useVoiceRecording } from './useVoiceRecording';
 import { usePaneStore } from '../../state/pane/store';
@@ -1556,9 +1557,10 @@ function ChatPaneComponent({
           altra chat. */}
       <TaskCardStrip topicId={topic.id} />
       {/* The strip of what this topic touched used to sit here, between the
-          task card and the transcript. It now lives above the tab bar
-          (`Layout/TopicStatusStrip`): per-topic state is chrome, not a
-          message. */}
+          task card and the transcript, and for a while above the tab bar. It
+          now lives in the bottom block, right above the composer
+          (`ChangedFilesStrip` below): what the topic wrote is read where the
+          next message is written. */}
       <PinnedMessages show={showPinned} pinnedMessages={pinnedMessages} />
       <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} onPlanDecision={handlePlanDecision} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onRegenerate={regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onDeleteMessage={deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} composerCentered={composerCentered} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} queuedTurns={messageQueue} onUpdateQueued={handleUpdateQueueItem} onRemoveQueued={handleRemoveQueueItem} onClearQueue={handleClearQueue} onSendQueueNow={handleSendQueueNow} queueBusy={currentStreaming} />
       {/* The composer docks at the bottom with only its natural margin — no
@@ -1611,6 +1613,9 @@ function ChatPaneComponent({
         <SubAgentsStrip topicSessionKey={topic.sessionKey} />
         {aboveInputSlot}
         <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />
+        {/* What the agent wrote in this conversation, counted from its own
+            write tool calls: silent in a chat that wrote nothing. */}
+        <ChangedFilesStrip key={topic.id} topic={topic} onWSMessage={onWSMessage} />
         <ChatInput autonomy={autonomy} onAutonomyChange={handleAutonomyChange} isMobile={isMobile} isFocused={isFocused} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} stoppedByUser={currentStoppedByUser} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { void stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError[topic.sessionKey] ?? null} sendMessageDirect={async (c: string) => {
           // Passa dall'imbuto degli slash: il bottone «Compact now» e
           // l'azione dell'anello mandavano `/compact` come messaggio nudo,

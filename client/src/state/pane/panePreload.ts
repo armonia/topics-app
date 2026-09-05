@@ -20,44 +20,118 @@
  * boundary is reached the promise is already settled and `React.lazy` resolves
  * in the same tick - no fallback is ever shown.
  *
+ * A PROJECT WINDOW IS A HOST, AND ITS TILES ARE PANES TOO. The pane store only
+ * says "project": the terminal, the browser and the file tree tiled inside it
+ * live in the project's own tab record (`topics-project-panes-<hash>`, see
+ * `Layout/hooks/projectPersistence`). Measured 2026-09-05 on the desktop's real
+ * state: every tile of every project window drew a spinner for 220-240 ms
+ * after the shell had painted, on every reload, because nobody had asked for
+ * their chunks. `paneTypesToWarm` reads those records too.
+ *
  * This warms the module cache and nothing else: the imports are the exact ones
  * the lazy wrappers use, so the second `import()` is a cache hit rather than a
  * second download. A failure is swallowed on purpose - the lazy boundary is
  * still there and will report it properly if the chunk is genuinely broken.
  */
-import type { PaneType } from './types';
+import type { Pane, PaneType } from './types';
+import { projectPanesKey } from '../../../../shared/project-keys';
+import { warm } from '../../lib/lazyWarm';
+
+type Loader = () => Promise<unknown>;
 
 /**
- * The chunk each pane type lives in. Only the types with a heavy lazy body:
+ * THE loaders, one object each, shared with the `lazyWarm` wrappers in the
+ * layout components: `warm` remembers a module by the identity of the function
+ * that loaded it, so the wrapper and the preload have to hold the same one.
+ */
+export const loadBoard = () => import('../../components/Board/KanbanBoardPane');
+export const loadTerminal = () => import('../../components/Terminal/SingleTerminalPane');
+export const loadBrowser = () => import('../../components/Browser/RemoteBrowserPanel');
+export const loadFilePane = () => import('../../components/Editor/FilePane');
+export const loadFileExplorer = () => import('../../components/Project/FileExplorer');
+export const loadGitChanges = () => import('../../components/Project/GitChanges');
+export const loadDashboard = () => import('../../components/Dashboard/DashboardPane');
+export const loadProcessLog = () => import('../../components/Project/ProcessLogPane');
+
+/**
+ * The chunks each pane type lives in. Only the types with a heavy lazy body:
  * a chat pane is in the main bundle, so there is nothing to warm.
  */
-const LOADERS: Partial<Record<PaneType, () => Promise<unknown>>> = {
-  board: () => import('../../components/Board/KanbanBoardPane'),
-  kanban: () => import('../../components/Board/KanbanBoardPane'),
-  terminal: () => import('../../components/Terminal/SingleTerminalPane'),
-  browser: () => import('../../components/Browser/RemoteBrowserPanel'),
-  files: () => import('../../components/Editor/FilePane'),
-  file: () => import('../../components/Editor/FilePane'),
-  editor: () => import('../../components/Editor/FilePane'),
+const LOADERS: Partial<Record<PaneType, Loader[]>> = {
+  board: [loadBoard],
+  kanban: [loadBoard],
+  terminal: [loadTerminal],
+  browser: [loadBrowser],
+  // "files" is the tree in a project window and the file pane elsewhere: both
+  // are cheap to warm, and guessing wrong costs a spinner.
+  files: [loadFileExplorer, loadFilePane],
+  file: [loadFilePane],
+  editor: [loadFilePane],
+  git: [loadGitChanges],
+  dashboard: [loadDashboard],
+  'process-log': [loadProcessLog],
   // A project window is a host: what it tiles inside is a file tree and the
-  // editor next to it, so its chunk is theirs.
-  project: () => import('../../components/Editor/FilePane'),
+  // editor next to it, so its chunk is theirs. The tiles it persisted are
+  // added by `paneTypesToWarm`.
+  project: [loadFilePane, loadFileExplorer],
 };
 
+/** The shape of a project's local tab record, as far as warming is concerned. */
+interface ProjectTabRecord {
+  nonChatPanes?: Array<{ type?: unknown }>;
+}
+
 /**
- * Asks for the chunks of `types`, once each.
+ * Which pane types are on screen, tiles of project windows included.
  *
- * Not awaited by the caller: the point is that the requests are IN FLIGHT while
- * the app boots. Whoever needs the module waits on the same promise.
+ * `readLocal` is the local record reader (localStorage in the app, a map in
+ * tests): a project pane names its folder, the folder names the record, and
+ * the record lists the tiles. An unreadable record warms nothing for that
+ * window - the tiles still load lazily, as they always did.
  */
-export function preloadPaneChunks(types: Iterable<PaneType>): void {
-  const seen = new Set<PaneType>();
-  for (const type of types) {
-    if (seen.has(type)) continue;
-    seen.add(type);
-    const load = LOADERS[type];
-    if (!load) continue;
-    // The lazy boundary stays the place where a broken chunk is reported.
-    void load().catch(() => {});
+export function paneTypesToWarm(
+  panes: Iterable<Pick<Pane, 'type' | 'projectPath'>>,
+  readLocal: (key: string) => string | null,
+): PaneType[] {
+  const out = new Set<PaneType>();
+  for (const pane of panes) {
+    out.add(pane.type);
+    if (pane.type !== 'project' || !pane.projectPath) continue;
+    const raw = readLocal(projectPanesKey(pane.projectPath));
+    if (!raw) continue;
+    try {
+      const record = JSON.parse(raw) as ProjectTabRecord;
+      for (const tile of record.nonChatPanes ?? []) {
+        if (typeof tile?.type === 'string') out.add(tile.type as PaneType);
+      }
+    } catch {
+      // A record that does not parse is not a reason to fail the boot.
+    }
   }
+  return [...out];
+}
+
+/**
+ * Asks for the chunks of `types`, once each, through `warm` so that the
+ * `lazyWarm` wrappers can render them without a boundary once they settle.
+ *
+ * The requests are IN FLIGHT while the app boots; the returned promise settles
+ * when every chunk has been evaluated (or failed), and never rejects. The first
+ * render waits for it, up to a cap: see `main.tsx`. A cached chunk still lands
+ * in a later task than React's first render, so without that wait the wrappers
+ * found nothing warm and the tiles drew the fallback anyway (measured: 240 ms
+ * of spinner with every chunk cached at 110 ms).
+ */
+export function preloadPaneChunks(types: Iterable<PaneType>): Promise<void> {
+  const seen = new Set<Loader>();
+  const pending: Promise<unknown>[] = [];
+  for (const type of types) {
+    for (const load of LOADERS[type] ?? []) {
+      if (seen.has(load)) continue;
+      seen.add(load);
+      // The lazy boundary stays the place where a broken chunk is reported.
+      pending.push(warm(load).catch(() => {}));
+    }
+  }
+  return Promise.all(pending).then(() => {});
 }

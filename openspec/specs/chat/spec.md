@@ -409,23 +409,41 @@ descrivono il lavoro di QUESTA conversazione, non lo sporco dell'intero reposito
 un repository la risposta SHALL restare utile (i path e il tipo dedotto dalle tool call) con
 `git: null`.
 
-SOPRA la barra delle tab della superficie che ospita il topic - nel chrome, non dentro il
-transcript - il sistema SHALL mostrare un chip con il numero dei file del topic attivo; il
-chip SHALL essere assente quando la conversazione non ha scritto nulla, e in quel caso la
-barra delle tab SHALL restare all'altezza che aveva. Il contenuto delle tab (transcript e
-altre pane) SHALL restare sotto la barra. L'elenco SHALL
-aggiornarsi a fine turno (`stream:end`), non a ogni token.
+SOPRA IL COMPOSER della chat - nel blocco di fondo della pane, sulla colonna della chat,
+insieme alle altre strisce che stanno sopra l'input (todo, sotto-agenti, checkpoint) - il
+sistema SHALL mostrare un chip con il numero dei file del topic; il chip SHALL essere assente
+quando la conversazione non ha scritto nulla, e in quel caso il blocco di fondo SHALL restare
+all'altezza che aveva. La striscia non SHALL stare nel chrome sopra la barra delle tab ne'
+dentro il transcript. L'elenco SHALL aggiornarsi a fine turno (`stream:end`), non a ogni
+token.
+
+Il nome del branch SHALL comparire nella striscia SOLO quando il topic e' legato a un
+worktree isolato (`worktreeId` non nullo) e il topic lavora dentro un repository: e' il ramo
+del topic, che nessun'altra parte dello schermo dice. Per un topic senza worktree la striscia
+SHALL mostrare solo il chip dei file, anche quando git ha risposto: il branch e' quello del
+progetto, che la sidebar mostra gia'.
 
 #### Scenario: il chip compare dopo un turno che ha scritto
 - **GIVEN** un topic la cui conversazione contiene una tool call `write` su un file
-- **WHEN** l'utente guarda la riga sopra la barra delle tab
-- **THEN** vede un chip con il conteggio dei file toccati
+- **WHEN** l'utente guarda il blocco sopra il composer della chat
+- **THEN** vede un chip con il conteggio dei file toccati, sopra l'input e sulla sua stessa colonna
 - **AND** cliccandolo si apre l'elenco con il path relativo e lo stato del file
 
 #### Scenario: una conversazione che non ha scritto niente non mostra il chip
 - **GIVEN** un topic le cui tool call sono solo letture, ricerche e comandi
-- **WHEN** l'utente guarda la riga sopra la barra delle tab
+- **WHEN** l'utente guarda il blocco sopra il composer della chat
 - **THEN** non c'e' nessun chip dei file modificati
+
+#### Scenario: un topic senza worktree non mostra il branch
+- **GIVEN** un topic non legato a un worktree, la cui conversazione ha scritto dei file
+- **WHEN** l'utente guarda la striscia sopra il composer
+- **THEN** vede il chip con il conteggio dei file
+- **AND** non vede nessun nome di branch, nemmeno se il topic lavora dentro un repository
+
+#### Scenario: un topic legato a un worktree mostra il suo branch
+- **GIVEN** un topic con `worktreeId` non nullo, che lavora dentro un repository e ha scritto dei file
+- **WHEN** l'utente guarda la striscia sopra il composer
+- **THEN** accanto al chip vede il nome del branch del worktree, con la root del repository come titolo
 
 #### Scenario: i conteggi vengono da git e riguardano solo i file del topic
 - **GIVEN** un topic dentro un repository con due `write` su file nuovi e un `edit` su un file gia' committato
@@ -439,7 +457,6 @@ aggiornarsi a fine turno (`stream:end`), non a ogni token.
 - **GIVEN** l'elenco dei file modificati e' aperto
 - **WHEN** l'utente clicca su una riga
 - **THEN** il diff di quel file si apre nella pane editor
-- **AND** un'azione della riga apre un terminale nella cartella del topic
 
 ### Requirement: CHAT-TOOL-01 — Lo stato "running" copre l'utilizzo reale del tool
 
