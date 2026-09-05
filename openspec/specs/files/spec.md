@@ -727,6 +727,27 @@ quando viene servito SHALL essere SABBIATO e dichiarato non interpretabile per
 indovinare il tipo. Le stesse guardie SHALL valere sulla risposta PARZIALE, o
 basta chiedere un intervallo per aggirarle.
 
+Le guardie SHALL essere le stesse su OGNI porta che restituisce quel file
+sull'origine dell'app, e SHALL essere composte in un posto solo: due porte sugli
+stessi byte con due elenchi divergono, e quella dimenticata è dove il difetto
+vive. La porta dell'ANTEPRIMA, che serve qualunque file dentro una cartella di
+progetto, PUÒ concedere dentro la sabbia gli stessi permessi del riquadro in cui
+il client la disegna — mai l'origine: senza quella, ciò che gira nella pagina non
+vede né la sessione né l'API.
+
+Il nome della cartella di destinazione di un caricamento SHALL essere UN
+segmento, giudicato PRIMA di toccare il disco: unire un percorso con `..` dentro
+collassa i passi indietro e porta la CARTELLA fuori dal confine, anche quando il
+nome del file è già ripulito.
+
+#### Scenario: un'anteprima e un media sullo stesso file
+- **GIVEN** lo stesso file di progetto chiesto alle due porte
+- **THEN** SHALL tornare con le stesse guardie, e nessuna delle due SHALL concedere l'origine
+
+#### Scenario: un identificativo con `..` dentro
+- **GIVEN** un caricamento che nomina la cartella con dei passi indietro
+- **THEN** SHALL essere rifiutato, e NON SHALL essere scritto niente fuori dal confine
+
 #### Scenario: un allegato di testo con il parametro di codifica
 - **GIVEN** un tipo con il parametro attaccato
 - **THEN** SHALL essere normalizzato e ammesso

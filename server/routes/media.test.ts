@@ -38,6 +38,8 @@ import {
   normalizeMime,
   ACTIVE_CONTENT_MIMES,
   ACTIVE_CONTENT_EXTENSIONS,
+  activeContentGuardHeaders,
+  PREVIEW_SANDBOX_FLAGS,
 } from "./media";
 import type { AppContext } from "../types";
 import { closeDatabase } from "../db";
@@ -382,6 +384,21 @@ describe("/api/context-upload · la SECONDA porta, stessa regola", () => {
     expect(contextFiles()).toHaveLength(0);
   });
 
+  test("il `topicId` è UN segmento: con `..` dentro non si scrive niente, e non fuori dalla cartella", async () => {
+    // `join(CONTEXT_DIR, topicId)` collapses `..`, so only the file NAME was
+    // sanitized while the FOLDER walked out of the boundary: measured with
+    // `topicId=../../../../tmp/topics-escape`, which really wrote there.
+    const escape = join(tmpRoot, "context-escape");
+    const upward = "../".repeat(6) + escape.replace(/^\//, "");
+    for (const bad of [upward, "../evasione", "a/b", "", "."]) {
+      const r = await contextUpload(new File(["x"], "note.txt"), bad);
+      expect(`${bad}→${r.status}`).toBe(`${bad}→400`);
+    }
+    expect(existsSync(escape)).toBe(false);
+    expect(existsSync(join(contextDir, ".."))).toBe(true); // the root is still there
+    expect(readdirSync(contextDir)).toHaveLength(0);
+  });
+
   test("i file di contesto veri passano, estensione ignota compresa", async () => {
     for (const name of ["appunti.txt", "dati.json", "schema.sql", "senzaestensione"]) {
       const r = await contextUpload(new File(["x"], name));
@@ -431,6 +448,30 @@ describe("/api/media · come torna indietro ciò che è stato caricato", () => {
     expect(res.status).toBe(206);
     expect(res.headers.get("content-security-policy")).toBe("sandbox");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+});
+
+describe("activeContentGuardHeaders · la funzione che compone quelle guardie", () => {
+  // `/preview/` (server.ts) serves the SAME files as `/api/media` and carried
+  // neither nosniff nor sandbox: a project `.html` ran on our own origin with
+  // the session cookie. Both doors now call this, so they can no longer drift
+  // apart; the parameter is the only thing that tells them apart.
+  test("il contenuto attivo prende la sandbox, l'inerte no, il nosniff sempre", () => {
+    expect(activeContentGuardHeaders("text/html")).toEqual({
+      "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy": "sandbox",
+    });
+    expect(activeContentGuardHeaders("image/svg+xml;charset=utf-8")["Content-Security-Policy"]).toBe("sandbox");
+    expect(activeContentGuardHeaders("image/png")).toEqual({ "X-Content-Type-Options": "nosniff" });
+  });
+
+  test("l'anteprima concede gli stessi permessi dell'iframe del client, mai `allow-same-origin`", () => {
+    // The preview must keep RUNNING a page an agent wrote (the client already
+    // renders it in an iframe with these very flags); what closes the hole is
+    // the directive neither door grants.
+    const policy = activeContentGuardHeaders("text/html", { sandboxFlags: PREVIEW_SANDBOX_FLAGS })["Content-Security-Policy"];
+    expect(policy).toBe("sandbox allow-scripts allow-forms allow-popups");
+    expect(policy).not.toContain("allow-same-origin");
   });
 });
 

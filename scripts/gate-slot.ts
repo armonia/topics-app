@@ -51,10 +51,11 @@ export function slotDir(): string {
 export const GATE_HELD_ENV = "TOPICS_GATE_HELD";
 
 // The line `slot.ts` prints when it holds a slot, read by the board's check
-// runner to restart its cap: see shared/slot-acquired.ts.
-// Only the writer passes through here: the board's check runner reads the line
-// straight from `shared/slot-acquired.ts`, so re-exporting the prefix and the
-// parser too left two exports nobody imports, and the dead-code gate says so.
+// runner to restart its cap: see shared/slot-acquired.ts. Only the writing side
+// travels through here, because only `slot.ts` sits below this module; the
+// readers (`review-checks.ts`, the tests) take the prefix and the parser from
+// `shared/slot-acquired` directly, so re-exporting those two here left them
+// with no caller at all.
 export { slotAcquiredLine } from "../shared/slot-acquired";
 
 /**

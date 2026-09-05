@@ -24,6 +24,8 @@ import type { AppContext, RouteHandler } from "../types";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { projectPathTokensIn } from "../services/known-project-dirs";
+import { clientProjectPathRefused, CLIENT_PROJECT_PATH_ERROR } from "../lib/client-project-path";
 
 type UiStateMeta = { payload_version: number; server_seq: number };
 type UiStateEnvelope = { data: Record<string, unknown>; meta: Record<string, UiStateMeta> };
@@ -267,6 +269,29 @@ function assertMigration012(row: { payload_version: unknown; server_seq: unknown
 export function createUiStateRouter(ctx: AppContext, opts?: UiStateRouterOptions): RouteHandler {
   const { db, json, broadcastToAll } = ctx;
 
+  /**
+   * A `project:` token this device may not turn into an allowlist root, or
+   * null when the value is fine.
+   *
+   * `ui_state` is source 5 of `services/known-project-dirs.ts`: every
+   * `project:` token in a stored value becomes one more directory the file
+   * routes will hand out. The endpoint takes ARBITRARY JSON, so without this a
+   * paired device writes `{"a":"project:/…/.ssh"}` under any key and reads
+   * that directory back from `/api/files/content` on the next call.
+   *
+   * Only tokens that EXIST on disk are judged: `knownProjectDirs` realpaths
+   * every entry and drops what is gone, so a pane still naming a project
+   * directory that was deleted adds no root, and refusing that write would
+   * jam a device's whole UI sync over a stale snapshot.
+   */
+  function refusedProjectToken(req: Request, serialized: string): string | null {
+    for (const token of projectPathTokensIn(serialized)) {
+      if (!existsSync(token)) continue;
+      if (clientProjectPathRefused(req, token, ctx)) return token;
+    }
+    return null;
+  }
+
   /** Il valore attuale di una chiave, gia' parsato. `null` = non c'era. */
   function readUiStateValue(key: string): unknown {
     const row = db.query("SELECT value FROM ui_state WHERE key = ?").get(key) as { value: string } | null;
@@ -381,6 +406,9 @@ export function createUiStateRouter(ctx: AppContext, opts?: UiStateRouterOptions
       const sanitized = dropVanishedProjectPanes(stripDeviceLocalFields(body, key), key);
       const value = JSON.stringify(sanitized);
 
+      const refused = refusedProjectToken(req, value);
+      if (refused) return json({ error: CLIENT_PROJECT_PATH_ERROR, path: refused }, 400);
+
       // Size cap: measured on the serialized-to-be-stored payload.
       if (value.length > MAX_UI_STATE_BYTES) {
         return json({ error: `Payload exceeds ${MAX_UI_STATE_BYTES} bytes`, limit: MAX_UI_STATE_BYTES, size: value.length }, 413);
@@ -491,6 +519,8 @@ export function createUiStateRouter(ctx: AppContext, opts?: UiStateRouterOptions
         if (serialized.length > MAX_UI_STATE_BYTES) {
           return json({ error: `Payload for key "${k}" exceeds ${MAX_UI_STATE_BYTES} bytes`, limit: MAX_UI_STATE_BYTES, size: serialized.length, key: k }, 413);
         }
+        const refusedInBulk = refusedProjectToken(req, serialized);
+        if (refusedInBulk) return json({ error: CLIENT_PROJECT_PATH_ERROR, path: refusedInBulk, key: k }, 400);
         totalSize += serialized.length;
         if (totalSize > MAX_UI_STATE_BYTES) {
           return json({ error: `Total bulk payload exceeds ${MAX_UI_STATE_BYTES} bytes`, limit: MAX_UI_STATE_BYTES, size: totalSize }, 413);
