@@ -19,6 +19,7 @@ import { FileMentionMenu, FilePill, type MentionedFile } from './FileMentionMenu
 import { ContextPills } from './ContextPills';
 import { useContextFileTokens } from './useContextFileTokens';
 import { basename } from '../../lib/path-utils';
+import { errMessage } from '../../lib/errMessage';
 import { topicsApi, uploadApi, slashCommandsApi, type CustomSlashCommand } from '../../lib/api';
 import { SessionConfigPopover } from './SessionConfigPopover';
 import { ProviderModelPicker } from './ProviderModelPicker';
@@ -561,16 +562,21 @@ export function ChatInput({
       : [...current, sourceId];
     // Persist through the topic PATCH — the topic:updated broadcast flows the
     // new state back into this prop (and every other window/inspector).
+    //
+    // A refusal used to end in a `console.warn`: the pill went back to its old
+    // look on the next broadcast and the file KEPT being injected, which is the
+    // one thing the click was about. `ContextInspector` already says it out
+    // loud on the same call; this surface now does too.
     topicsApi.update(topic.id, { disabledContextSources: next }).catch(err => {
-      console.warn('[ChatInput] toggle context source failed:', err);
+      toast.error(errMessage(err) || tr('context.toggleFailed'));
     });
-  }, [topic.id, topic.disabledContextSources]);
+  }, [topic.id, topic.disabledContextSources, toast, tr]);
 
   const handleRemoveContext = useCallback((path: string) => {
     uploadApi.deleteContextFile(topic.id, path).catch(err => {
-      console.warn('[ChatInput] remove context file failed:', err);
+      toast.error(errMessage(err) || tr('context.removeFailed'));
     });
-  }, [topic.id]);
+  }, [topic.id, toast, tr]);
 
   // Slash command menu state
   const [showSlashMenu, setShowSlashMenu] = useState(false);

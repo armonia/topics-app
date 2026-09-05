@@ -2261,6 +2261,17 @@ const IT: Dict = {
   'chat.goal.achieved': 'Obiettivo raggiunto: {goal}',
   'chat.goal.abandoned': 'Obiettivo abbandonato: {goal}',
 
+  // Fallbacks for when the server refuses without a message of its own: the
+  // server's own sentence always wins (`errMessage(err) || tr(...)`).
+  'chat.remember.failed': 'Non sono riuscito a salvarlo nella memoria.',
+  'chat.remember.saved': 'Salvato nella memoria del topic',
+  'goal.closeFailed': 'Non sono riuscito a chiudere l\u2019obiettivo.',
+  'goal.editFailed': 'Non sono riuscito a cambiare l\u2019obiettivo.',
+  'goal.actionFailed': 'Non sono riuscito ad aggiornare l\u2019obiettivo.',
+  'context.toggleFailed': 'Non sono riuscito a cambiare questa fonte di contesto.',
+  'context.removeFailed': 'Non sono riuscito a togliere il file dal contesto.',
+  'chat.paste.imageFailed': 'Immagine non leggibile, scartata: {files}',
+
   'stt.rejectedKey': '{provider} ha rifiutato la chiave (HTTP {status})',
   'stt.fellBackTo': 'Trascritto con {provider} ({model}) in {seconds}s perché {because}.',
   'stt.emptyNote': 'Nota vocale vuota: {chunks} spezzoni, {bytes} byte in {format}. Niente da trascrivere.',
