@@ -326,15 +326,18 @@ describe("il server si spegne sopra un turno vivo", () => {
  * «Riprova rimanda il tuo messaggio»: premendolo partivano due turni, entrambi
  * a pagamento.
  *
- * E LA CAUSA RIPRENDIBILE È UNA SOLA DELLE TRE. `riprendiTurniInterrotti` è una
- * funzione di BOOT (`server.ts`, in coda al giro di riadozione):
+ * AND THE PROMISE NOW HOLDS FOR ALL THREE OF OUR CAUSES. It did not always:
+ * `riprendiTurniInterrotti` used to run only at BOOT, so `server-shutdown` was
+ * the one cause that could promise anything (a boot follows by definition), and
+ * a turn cut by `watchdog` or `wall-clock` on a server that stayed up was never
+ * resumed. Saying "non serve che tu faccia niente" there would have lost the
+ * turn in SILENCE, which is worse than wasting one visibly.
  *
- *  · `server-shutdown` → un boot segue per definizione, il processo sta morendo
- *    mentre scriviamo il cartello. La promessa si mantiene da sé.
- *  · `watchdog` / `wall-clock` → il server RESTA SU: quella funzione non gira,
- *    e nessuno riprende niente. Prometterlo qui sarebbe il verso peggiore
- *    dell'errore — oggi si spreca un turno in modo VISIBILE, con la promessa si
- *    perderebbe il turno in SILENZIO.
+ * That gap was closed: `server.ts` chains the same sweep every five minutes
+ * (`scheduleResumeSweep`, plus a 20s nudge right after a cut), so the resume no
+ * longer needs a restart to happen. `isResumableCause` is the single predicate
+ * the notice and the sweep share, which is what keeps the sentence honest: the
+ * card promises exactly what the sweep goes on to do.
  */
 describe("la promessa di ripresa sul cartello", () => {
   test("spegnimento del server: la card dice che non serve fare niente", async () => {
@@ -352,7 +355,7 @@ describe("la promessa di ripresa sul cartello", () => {
     expect(testo).not.toContain("«Riprova»");
   });
 
-  test("watchdog e limite di tempo: resta «Riprova», perché nessuno riprende", async () => {
+  test("watchdog e limite di tempo: la sweep periodica riprende, quindi lo promette", async () => {
     for (const cause of ["watchdog", "wall-clock"] as const) {
       const h = await harness(`topic:ripresa-${cause}`);
       const handler = await h.startTurn();
@@ -362,8 +365,8 @@ describe("la promessa di ripresa sul cartello", () => {
       const m = h.ctx.loadLocalMessages(`topic:ripresa-${cause}`).filter((x) => x.role === "assistant").pop()!;
       const cartello = (m.blocks ?? []).find((b) => b.kind === "error");
       const testo = cartello && cartello.kind === "error" ? cartello.text : "";
-      expect(testo, cause).toContain("«Riprova»");
-      expect(testo, cause).not.toContain("Riprendo da solo");
+      expect(testo, cause).toContain("Riprendo da solo");
+      expect(testo, cause).not.toContain("«Riprova»");
     }
   });
 });
