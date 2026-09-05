@@ -84,6 +84,11 @@ const MOTIVI: Record<string, string> = {
     "data/topics.db e ~/.openclaw/media/task-previews, che su un checkout di CI non esistono. " +
     "Il nome dice check: ma e' un referto — se un giorno si tocca quello script, il prefisso " +
     "e' la prima cosa da correggere.",
+  "check:test-globals":
+    "e' il TRIAGE, non il cancello. Il cancello e' la guardia dentro tests/setup/bun-test-preload.ts, " +
+    "che fa uscire rosso OGNI `bun test` (CI compresa) se un file lascia un globale DOM finto al " +
+    "file dopo; questo script rilancia ogni file da solo (1149 processi, ~80 s) per dire QUALE " +
+    "ha perso, e si lancia a mano quando la guardia ha gridato.",
 };
 
 /** Gli script di package.json, per nome. */

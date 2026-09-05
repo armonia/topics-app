@@ -4,6 +4,7 @@ import { contextBits } from './emptyStateContext';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { resolveEffectiveProvider } from '../../lib/effortTiers';
 import { shortcut } from '../../lib/shortcutLabel';
+import { ClipboardList, RefreshCw, Bug, Lightbulb, PenLine, Search, Sparkles } from 'lucide-react';
 
 /**
  * Il vuoto di una chat: il nome, l'invito, quattro spunte da cui partire.
@@ -22,15 +23,15 @@ import { shortcut } from '../../lib/shortcutLabel';
  */
 
 const PROJECT_STARTERS = [
-  { label: '📋 Describe this project', msg: 'Give me a brief overview of this project: what it does, the tech stack, and the main files.' },
-  { label: '🔄 Recent changes', msg: 'Show me the recent git changes in this project and summarize what was modified.' },
-  { label: '🐛 Find issues', msg: 'Review this project for potential bugs, code smells, or improvements.' },
+  { icon: ClipboardList, label: 'Describe this project', msg: 'Give me a brief overview of this project: what it does, the tech stack, and the main files.' },
+  { icon: RefreshCw, label: 'Recent changes', msg: 'Show me the recent git changes in this project and summarize what was modified.' },
+  { icon: Bug, label: 'Find issues', msg: 'Review this project for potential bugs, code smells, or improvements.' },
 ];
 
 const PLAIN_STARTERS = [
-  { label: '💡 Brainstorm ideas', msg: 'Help me brainstorm some ideas.' },
-  { label: '📝 Write something', msg: 'Help me write ' },
-  { label: '🔍 Research a topic', msg: 'Research ' },
+  { icon: Lightbulb, label: 'Brainstorm ideas', msg: 'Help me brainstorm some ideas.' },
+  { icon: PenLine, label: 'Write something', msg: 'Help me write ' },
+  { icon: Search, label: 'Research a topic', msg: 'Research ' },
 ];
 
 /**
@@ -99,7 +100,7 @@ export function ChatEmptyState({
           is one. The direct field stays as the answer for a single topic. */}
       {(topic.hasSystemPrompt || topic.systemPrompt) && (
         <p className="text-[11px] text-purple-400 mt-1 flex items-center justify-center gap-1">
-          <span>✨</span> Custom system prompt active
+          <Sparkles className="w-4 h-4" aria-hidden="true" /> Custom system prompt active
         </p>
       )}
       {!topic.projectPath && (
@@ -126,8 +127,9 @@ export function ChatEmptyState({
               key={q.label}
               type="button"
               onClick={() => onPick(q.msg)}
-              className="px-3 py-1.5 text-[12px] rounded-full border border-app-border-light text-app-text-secondary hover:bg-app-hover hover:border-primary hover:text-primary transition-all hover-lift"
+              className="px-3 py-1.5 text-[12px] rounded-full border border-app-border-light text-app-text-secondary hover:bg-app-hover hover:border-primary hover:text-primary transition-all hover-lift flex items-center gap-1.5"
             >
+              <q.icon className="w-4 h-4 shrink-0" aria-hidden="true" />
               {q.label}
             </button>
           ))}

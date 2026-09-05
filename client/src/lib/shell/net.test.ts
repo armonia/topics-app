@@ -50,6 +50,9 @@ beforeEach(() => {
 afterEach(() => {
   __resetNetShimForTests();
   if (originalFetch) (globalThis as unknown as { fetch: unknown }).fetch = originalFetch;
+  // The stub window too: bun has none, and a partial one left behind flips the
+  // `typeof window` guards of the next file in this process.
+  delete (globalThis as { window?: unknown }).window;
 });
 
 describe('installNetShim · gate (web)', () => {

@@ -19,7 +19,7 @@
  * di questo test, non l'eccezione. È previsto: vedi `findNumberCollisions`.
   * @covers SCHEMA-05
  */
-import { describe, it, expect, afterEach } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { execFileSync } from "child_process";
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
@@ -31,6 +31,14 @@ import { STAMP_FILE, freeStamp, stampOf } from "../../scripts/new-migration";
 
 const REPO_ROOT = join(import.meta.dir, "../..");
 const daPulire: string[] = [];
+
+// Defence against a singleton left open by an upstream file: initDatabase is
+// idempotent and does not create the dataDir when `_db` is already open, so the
+// test would die with "unable to open database file" purely because of the
+// shard's order. See the same guard in migration-registry-by-name.test.ts.
+beforeEach(() => {
+  closeDatabase();
+});
 
 afterEach(() => {
   closeDatabase();

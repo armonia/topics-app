@@ -1,7 +1,7 @@
 /**
  * @covers BROWSER-STATE-02
  */
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterAll } from "bun:test";
 import {
   recordBrowserOrigin,
   getBrowserOrigin,
@@ -40,6 +40,12 @@ class MemoryStorage {
 
 beforeEach(() => {
   (globalThis as unknown as { localStorage: MemoryStorage }).localStorage = new MemoryStorage();
+});
+
+// Restore bun's baseline (no global localStorage): do not leave it mounted for
+// the later files of the same sharded process.
+afterAll(() => {
+  delete (globalThis as unknown as { localStorage?: unknown }).localStorage;
 });
 
 describe("recordBrowserOrigin / getBrowserOrigin", () => {
