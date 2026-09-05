@@ -27,7 +27,7 @@ import type { Checkpoint } from "../../shared/types";
 
 const SESSION = "topic:aaaaaaaa";
 const TOPIC = "t1";
-const FOLDERLESS = "t2";
+const NO_FOLDER_TOPIC = "t2";
 
 let repo: string;
 let stateDir: string;
@@ -123,7 +123,7 @@ beforeEach(() => {
     loadTopics: () => ({
       topics: {
         [TOPIC]: { id: TOPIC, sessionKey: SESSION, projectPath: repo },
-        [FOLDERLESS]: { id: FOLDERLESS, sessionKey: "topic:bbbbbbbb" },
+        [NO_FOLDER_TOPIC]: { id: NO_FOLDER_TOPIC, sessionKey: "topic:bbbbbbbb" },
       },
     }),
     loadLocalMessages,
@@ -187,8 +187,8 @@ describe("the plan preflight of a manual checkpoint", () => {
   });
 
   test("a topic without a folder: the same, with not-a-repo", async () => {
-    writeCheckpoints([{ idx: 0, messageCount: 1, timestamp: "2026-09-05T00:00:00Z", description: "cp" }], FOLDERLESS);
-    const r = await call("POST", `/api/topics/${FOLDERLESS}/checkpoints/0/plan`, {});
+    writeCheckpoints([{ idx: 0, messageCount: 1, timestamp: "2026-09-05T00:00:00Z", description: "cp" }], NO_FOLDER_TOPIC);
+    const r = await call("POST", `/api/topics/${NO_FOLDER_TOPIC}/checkpoints/0/plan`, {});
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ canProceed: true, filesRestorable: false, blockedBy: "not-a-repo" });
   });
@@ -282,8 +282,8 @@ describe("rolling back a manual checkpoint", () => {
 
   test("a topic without a folder rolls the conversation back, as it always did", async () => {
     for (const id of ["x1", "x2", "x3"]) message(id, "topic:bbbbbbbb");
-    writeCheckpoints([{ idx: 0, messageCount: 1, timestamp: "2026-09-05T00:00:00Z", description: "cp" }], FOLDERLESS);
-    const r = await call("POST", `/api/topics/${FOLDERLESS}/checkpoints/0/rollback`);
+    writeCheckpoints([{ idx: 0, messageCount: 1, timestamp: "2026-09-05T00:00:00Z", description: "cp" }], NO_FOLDER_TOPIC);
+    const r = await call("POST", `/api/topics/${NO_FOLDER_TOPIC}/checkpoints/0/rollback`);
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ ok: true, canProceed: true, filesRestorable: false, blockedBy: "not-a-repo", files: null });
     expect(messageIds("topic:bbbbbbbb")).toEqual(["x1"]);
