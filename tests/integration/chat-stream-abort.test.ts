@@ -326,15 +326,18 @@ describe("il server si spegne sopra un turno vivo", () => {
  * «Riprova rimanda il tuo messaggio»: premendolo partivano due turni, entrambi
  * a pagamento.
  *
- * NOW ALL THREE OF `CAUSE_NOSTRE` KEEP THE PROMISE, and the reason the other
- * two used to be excluded is gone. The exclusion rested on `riprendiTurniInterrotti`
- * being a BOOT function only: with the server still up nobody would have run it,
- * so promising a resume for `watchdog` / `wall-clock` would have lost the turn in
- * SILENCE instead of wasting it visibly. Since the sweeper landed its own resume
- * round, which fires while the process is alive, a cut with one of our causes is
- * picked up by `isResumableCause` and started again without a boot. So the sign
- * says the true thing for all three, and this test guards that they agree: the
- * flag on the notice and the list that actually resumes are the same list.
+ * AND THE PROMISE HOLDS FOR ALL THREE CAUSES OF OURS, since the resume stopped
+ * being a boot-only function. Until 04/09 `riprendiTurniInterrotti` ran once,
+ * after the reattach round: `server-shutdown` kept the promise by itself (a
+ * boot follows by definition), `watchdog` and `wall-clock` did not, because the
+ * server stayed up and nobody resumed anything, so this file demanded the
+ * retry button for them. The same sweep now runs every five minutes and is
+ * pulled forward to twenty seconds when a stream is cut (`server.ts`,
+ * `scheduleResumeSweep` / `nudgeResumeSweep`), and it recognises the cut from
+ * the notice text AND from the block's cause (`isResumableCause`). The promise
+ * follows that rule: `riprendeDaSolo` in `routes/chat.ts` IS
+ * `isResumableCause(cause)`, the very reading the sweep makes, so the two
+ * cannot drift apart. If a cause stops being resumed, this is where it shows.
  */
 describe("la promessa di ripresa sul cartello", () => {
   test("spegnimento del server: la card dice che non serve fare niente", async () => {
@@ -352,7 +355,7 @@ describe("la promessa di ripresa sul cartello", () => {
     expect(testo).not.toContain("«Riprova»");
   });
 
-  test("watchdog e limite di tempo: anche loro dicono «Riprendo da solo», perché ora qualcuno riprende", async () => {
+  test("watchdog e limite di tempo: promettono la ripresa, perché lo sweep li riprende", async () => {
     for (const cause of ["watchdog", "wall-clock"] as const) {
       const h = await harness(`topic:ripresa-${cause}`);
       const handler = await h.startTurn();
@@ -367,16 +370,17 @@ describe("la promessa di ripresa sul cartello", () => {
     }
   });
 
-  // The guard that keeps the two lists from drifting apart: a cause that is NOT
-  // ours gets no promise, because nothing resumes it.
-  test("una causa che non è nostra non promette niente: resta «Riprova»", async () => {
-    const h = await harness("topic:ripresa-utente");
+  test("fermato da una persona: nessuna promessa, e nemmeno il bottone che rimanda", async () => {
+    // `user` is not a cause of ours: the sweep never resumes it (RESUME-01),
+    // and the notice must not say otherwise.
+    const h = await harness("topic:ripresa-user");
     const handler = await h.startTurn();
-    handler.onAborted?.({ result: "", turnEnd: { end: "cancelled" } });
+    handler.onAborted?.({ result: "", turnEnd: { end: "cancelled", cause: "user" } });
     await new Promise((r) => setTimeout(r, 50));
-
-    const m = h.ctx.loadLocalMessages("topic:ripresa-utente").filter((x) => x.role === "assistant").pop()!;
-    const cartello = (m.blocks ?? []).find((b) => b.kind === "error");
+    // A turn a person stopped may leave no assistant row at all (nothing was
+    // produced): that is fine, what must not exist is a promise to resume.
+    const m = h.ctx.loadLocalMessages("topic:ripresa-user").filter((x) => x.role === "assistant").pop();
+    const cartello = (m?.blocks ?? []).find((b) => b.kind === "error");
     const testo = cartello && cartello.kind === "error" ? cartello.text : "";
     expect(testo).not.toContain("Riprendo da solo");
   });

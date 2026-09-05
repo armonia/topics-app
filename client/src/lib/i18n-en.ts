@@ -45,6 +45,9 @@ const EN = {
   'compaction.summaryTitle': 'Summary of the compacted context',
   'settings.close': 'Close the settings',
   'toast.close': 'Dismiss the notification',
+  'lightbox.close': 'Close the image',
+  'lightbox.resetZoom': 'Reset zoom',
+  'lightbox.image': 'Image',
   'activity.runningFor': 'Running for {label}{approx}',
   'activity.atLeast': ' (at least: the turn was already going at the last server restart)',
 
@@ -1438,7 +1441,6 @@ const EN = {
   'common.close': 'Close',
   'common.retry': 'Retry',
   'common.loading': 'Loading…',
-  'common.resetZoom': 'Reset zoom',
   // ── Editor: the tabs and the file that did not load.
   'editor.tab.close': 'Close {name}',
   'editor.loadFailed': 'The file did not load, so it cannot be edited here.',

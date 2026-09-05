@@ -45,6 +45,9 @@ const IT: Dict = {
   'compaction.summaryTitle': 'Riassunto del contesto compattato',
   'settings.close': 'Chiudi le impostazioni',
   'toast.close': 'Chiudi la notifica',
+  'lightbox.close': "Chiudi l'immagine",
+  'lightbox.resetZoom': 'Azzera lo zoom',
+  'lightbox.image': 'Immagine',
   'activity.runningFor': 'In esecuzione da {label}{approx}',
   'activity.atLeast': " (almeno: il turno era già in corso all'ultimo riavvio del server)",
 
@@ -1681,7 +1684,6 @@ const IT: Dict = {
   'common.close': 'Chiudi',
   'common.retry': 'Riprova',
   'common.loading': 'Carico…',
-  'common.resetZoom': 'Azzera lo zoom',
   // ── Editor: le schede e il file che non si è caricato.
   'editor.tab.close': 'Chiudi {name}',
   'editor.loadFailed': 'Il file non è stato caricato, quindi non è modificabile da qui.',
