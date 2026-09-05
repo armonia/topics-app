@@ -2,10 +2,10 @@
  * useTaskBrowserGroupLayout — drive the app's real layout engine (`GroupLayout`)
  * for the WHOLE task drawer body, task-scoped and OUTSIDE `pane-store-v2`.
  *
- * The drawer's surfaces are ONE tab group of the app's real `PaneTabBar`: a
- * always-present Thread pane, the agent session (only when the task HAS one),
- * the task's live browser tabs, an optional Piano pane, and one pane per media
- * attachment. Thread/session/plan/media are DERIVED from task data (not
+ * The drawer's surfaces are ONE tab group of the app's real `PaneTabBar`: an
+ * always-present Thread pane, the task's live browser tabs, an optional Piano
+ * pane, and one pane per media attachment. Thread/plan/media are DERIVED from
+ * task data (not
  * persisted identities), so they're composed into the pane list at render-time
  * here; only the browser tabs have a persisted identity store
  * (`taskBrowserTabs`). The tiling descriptor (`taskBrowserLayout`) is pane-id
@@ -48,27 +48,12 @@ const planPaneId = (taskId: string) => `plan:${taskId}`;
 const mediaPaneId = mediaPaneIdFor;
 const isBrowserPane = (paneId: string) => paneId.startsWith('browser:');
 
-/**
- * The agent session's pane id. Keyed on the TASK, never on the topic it was
- * dispatched to: a redispatch moves `assignedTopicId` but must not mint a new
- * pane identity, or the layout persisted for this task (and synced to every
- * other device) would lose the tab's place and re-append it at the end.
- */
-export const sessionPaneId = (taskId: string) => `session:${taskId}`;
-
 /** How TaskDetail renders the body of a non-browser (thread/plan/media) pane. */
 export type RenderSurface = (pane: Pane, isVisible: boolean) => React.ReactNode;
 
 export interface TaskDrawerLayoutInput {
   /** True when the task has a plan-first plan to surface (planComment != null). */
   planActive: boolean;
-  /** True when the task has a topic assigned: without one there is no agent
-   *  session to show, and the tab must not exist at all — an empty session tab
-   *  would be one more surface saying nothing the drawer doesn't already say. */
-  sessionActive: boolean;
-  /** Translated label for the session tab. The hook has no `useT`, so the
-   *  drawer hands it the word it puts on the tab. */
-  sessionTitle?: string;
   /** Attachment paths, already deduped/ordered by TaskDetail. */
   mediaPaths: string[];
   /** Renders thread/plan/media pane bodies (closure from TaskDetail). */
@@ -155,7 +140,7 @@ export interface TaskBrowserGroupLayout {
 }
 
 export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayoutInput): TaskBrowserGroupLayout {
-  const { planActive, sessionActive, sessionTitle, mediaPaths, renderSurface, threadInline = false, openPaneInProject } = input;
+  const { planActive, mediaPaths, renderSurface, threadInline = false, openPaneInProject } = input;
   const tabsState = useTaskBrowserTabs(taskId);
   // Pending "the agent re-opened this tab elsewhere" navigations (transient).
   const navigates = useTaskTabNavigate();
@@ -166,19 +151,10 @@ export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayou
   // The derived (non-browser) surface panes. Stable ids so GroupLayout's
   // keep-alive never remounts the Thread subtree across tab switches.
   // The Thread pane's title is vestigial: `threadInline` takes it out of the
-  // view, so no bar ever paints it. It still must not read "Sessione" — that
-  // word now names the tab NEXT to it, and a title that lies is worse than one
-  // nobody sees.
+  // view, so no bar ever paints it.
   const threadPane = useMemo<Pane>(() => ({
     id: threadPaneId(taskId), type: 'chat', title: 'Thread', stableKey: threadPaneId(taskId),
   }), [taskId]);
-  // No `topicId` on the session pane on purpose: it would switch PaneTabBar
-  // onto the topic's own icon/colour and into the attention/seen machinery,
-  // which is a different behaviour (and a different decision) from showing the
-  // task's session as one more tab.
-  const sessionPane = useMemo<Pane | null>(() => (sessionActive
-    ? { id: sessionPaneId(taskId), type: 'chat', title: sessionTitle ?? 'Session', stableKey: sessionPaneId(taskId) }
-    : null), [taskId, sessionActive, sessionTitle]);
   const planPane = useMemo<Pane | null>(() => (planActive
     ? { id: planPaneId(taskId), type: 'plan', title: 'Piano', stableKey: planPaneId(taskId) }
     : null), [taskId, planActive]);
@@ -186,18 +162,13 @@ export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayou
     id: mediaPaneId(p), type: 'file', title: p.split('/').pop() || 'Allegato', stableKey: mediaPaneId(p),
   })), [mediaPaths]);
 
-  // Composed pane list: Thread, then the agent session, then live browsers,
-  // then Piano, then media. The session's place is load-bearing twice over: the
-  // thread pane is filtered out of the view, so it is the LEFTMOST tab in the
-  // bar; and reconcile activates the LAST orphan that qualifies, so a browser
-  // tab born in the same pass still wins the active slot over it.
+  // Composed pane list: Thread, then live browsers, then Piano, then media.
   const panes = useMemo<Pane[]>(() => [
     threadPane,
-    ...(sessionPane ? [sessionPane] : []),
     ...live.map(tabToPane),
     ...(planPane ? [planPane] : []),
     ...mediaPanes,
-  ], [threadPane, sessionPane, live, planPane, mediaPanes]);
+  ], [threadPane, live, planPane, mediaPanes]);
   const livePaneIds = useMemo(() => panes.map((p) => p.id), [panes]);
   const nonClosablePaneIds = useMemo(
     () => new Set(panes.filter((p) => !isBrowserPane(p.id)).map((p) => p.id)),
@@ -222,9 +193,8 @@ export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayou
   // `thread:` pane steps out of it (TaskDetail mounts the thread in a column of
   // its own). Derived on every render, NEVER persisted: see `threadInline`.
   //
-  // ONLY `thread:` leaves the view. The session pane is a tab like any other:
-  // filtering "everything that isn't a browser" here would delete it from the
-  // bar the moment it was born.
+  // ONLY `thread:` leaves the view: filtering "everything that isn't a browser"
+  // here would delete the Piano and the attachments from the bar.
   //
   // Un gruppo rimasto senza pane sparisce dalla vista, e con lui la sua cella:
   // se spariscono tutti la colonna di destra resta senza gruppi — caso reale su

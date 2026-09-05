@@ -168,9 +168,6 @@
       "isCommentable",
       "longest"
     ],
-    "client/src/components/Board/sessionBuckets.test.ts": [
-      "boundaries"
-    ],
     "client/src/components/Board/taskActionError.test.ts": [
       "detto"
     ],
