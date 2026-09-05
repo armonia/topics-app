@@ -81,8 +81,8 @@ test.describe("In-project split (card c2984ce2)", () => {
   }
 
   async function splitFirstInnerTab(page: import("@playwright/test").Page) {
-    const finestra = projectWindow(page);
-    const projectBars = finestra.locator('[data-testid="panel-tab-bar"][data-group-id^="group:"]');
+    const projectPane = projectWindow(page);
+    const projectBars = projectPane.locator('[data-testid="panel-tab-bar"][data-group-id^="group:"]');
     await expect(projectBars.first()).toBeVisible({ timeout: 10000 });
     const before = await projectBars.count();
 

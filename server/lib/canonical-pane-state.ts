@@ -43,7 +43,7 @@ export interface ProjectPathPair {
   canon: string;
 }
 
-export interface CanonicalizedPaneSnapshot {
+export interface CanonicalPaneSnapshotResult {
   /** The snapshot to serve. The SAME reference as the input when nothing changed. */
   value: unknown;
   /** Every raw path found, with the canonical path it resolves to. Empty = untouched. */
@@ -88,7 +88,7 @@ export function canonicalPaneSnapshot(
   value: unknown,
   canon: (p: string) => string,
   now: number = Date.now(),
-): CanonicalizedPaneSnapshot {
+): CanonicalPaneSnapshotResult {
   if (!isPlainObject(value) || !isPlainObject(value.panes)) return { value, pairs: [] };
 
   const pairs: ProjectPathPair[] = [];
@@ -137,12 +137,12 @@ export function canonicalPaneSnapshot(
   // A pane may live in ONE group. After the remap, a raw pane in group A and
   // its canonical twin in group B would put the same id in two tab strips.
   if (isPlainObject(out.groups)) {
-    const remapped = new Set(pairs.map((p) => projectPaneId(p.canon)));
+    const canonicalIds = new Set(pairs.map((p) => projectPaneId(p.canon)));
     const claimed = new Set<string>();
     for (const g of Object.values(out.groups)) {
       if (!isPlainObject(g) || !Array.isArray(g.paneIds)) continue;
       g.paneIds = g.paneIds.filter((id) => {
-        if (typeof id !== "string" || !remapped.has(id)) return true;
+        if (typeof id !== "string" || !canonicalIds.has(id)) return true;
         if (claimed.has(id)) return false;
         claimed.add(id);
         return true;
