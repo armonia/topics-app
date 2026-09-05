@@ -6,6 +6,7 @@ import { getMediaUrl } from '../../lib/api';
 import { isVideoPath, isPreviewablePath } from '../../lib/mediaKind';
 import { MODAL_LAYER } from '../../lib/modalStyles';
 import { useModalDialog } from '../../hooks/useModalDialog';
+import { openLink, isExternalLinkGesture } from '../../lib/openLink';
 
 /** Full-window overlay (portal, over the app — NOT a separate OS window) showing
  *  the evidence at large size. Close on Esc, click-outside, or the X. A video
@@ -394,7 +395,14 @@ export function PreviewMedia({ path, paths, variant, onOpenTab }: {
       href={url}
       target="_blank"
       rel="noreferrer"
-      onClick={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        // A tab here, not a window outside: `target="_blank"` is a silent no-op
+        // inside the desktop shell's webview, so the anchor never opened
+        // anything at all on the desktop.
+        e.stopPropagation();
+        e.preventDefault();
+        openLink(url, { external: isExternalLinkGesture(e), origin: e.target });
+      }}
       title={corrente}
       data-testid="preview-unrenderable"
       className={`flex items-center gap-2 px-2.5 py-2 text-left text-xs ${
