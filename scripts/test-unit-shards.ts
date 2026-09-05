@@ -378,16 +378,20 @@ if (import.meta.main) {
   if (phase2) {
     console.log(`  fase2 seriale : ${phase2.code === 0 ? "ok " : "RED"}  ${phase2.fileCount} file  ${phase2.wallS.toFixed(1)}s`);
   }
-  // The red tests BY NAME, last: the card comment keeps the tail of this output.
+  // The red tests BY NAME, last, and on STDERR: the board's check runner
+  // concatenates stdout then stderr and keeps the tail, so the last lines of
+  // stderr are the only lines an agent is sure to read (measured 05/09/2026 on
+  // card ca44c550: the comment ended with the reproduce line and bun's own
+  // "exited with code 1", the names printed on stdout never reached it).
   const MAX_NAMED = 12;
   for (const { label, r } of reds) {
     if (r.failures.length === 0) {
-      console.log(`  ${label}: nessun test rosso nel referto junit — il rosso e' un hook scaduto, un crash o un timeout di processo: leggi l'output del shard qui sopra`);
+      console.error(`${label}: nessun test rosso nel referto junit — il rosso e' un hook scaduto, un crash o un timeout di processo: leggi l'output del shard qui sopra`);
       continue;
     }
-    console.log(`  ${label}, test rossi (${r.failures.length}):`);
-    for (const f of r.failures.slice(0, MAX_NAMED)) console.log(`    ✗ ${f.file} › ${f.test}`);
-    if (r.failures.length > MAX_NAMED) console.log(`    … e altri ${r.failures.length - MAX_NAMED}`);
+    console.error(`${label}, test rossi (${r.failures.length}):`);
+    for (const f of r.failures.slice(0, MAX_NAMED)) console.error(`  ✗ ${f.file} › ${f.test}`);
+    if (r.failures.length > MAX_NAMED) console.error(`  … e altri ${r.failures.length - MAX_NAMED}`);
   }
   const codes = [...phase1.map((r) => r.code), ...(phase2 ? [phase2.code] : [])];
   const verdict = aggregateVerdict(codes);
