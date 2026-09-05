@@ -5,7 +5,7 @@ import { describe, test, expect } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { chooseMergeTarget, createTaskAutoMerge, landFallout, worktreeDirtProbe, worktreeRealDirt, type GitRunResult, type LandSkipCode, type TaskMergeTarget } from "./task-automerge";
+import { chooseMergeTarget, createTaskAutoMerge, landFallout, normalizePatch, worktreeDirtProbe, worktreeRealDirt, type GitRunResult, type LandSkipCode, type TaskMergeTarget } from "./task-automerge";
 import { worktreeRegistrationLost } from "./worktree-registration";
 
 /**
@@ -161,6 +161,99 @@ describe("task-automerge", () => {
     expect(calls.some((c) => c[0] === "cherry-pick" && c.includes("aaa111"))).toBe(true);
     expect(calls.some((c) => c[0] === "commit" && c.includes("-C") && c.includes("aaa111"))).toBe(true);
     expect(calls.some((c) => c[0] === "merge")).toBe(false);
+  });
+
+  test("foreign commits already on main by content: the branch is not mixed, it is MERGED, not picked", async () => {
+    // 05/09/2026: a `pull --rebase` on the shared checkout rewrote the unpushed
+    // land merges; every card branch kept the originals, so `mine < total` and
+    // the land cherry-picked the own commits onto a moved main and reported a
+    // conflict the agent had not written. Ancestry said mixed, content said not.
+    const calls: string[][] = [];
+    let lastPick = "";
+    const run = async (_cwd: string, args: string[]) => {
+      calls.push(args);
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "main\n", stderr: "" };
+      if (key === "status --porcelain") return { code: 0, stdout: "", stderr: "" };
+      if (key === "for-each-ref --format=%(refname)") {
+        return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/altra\nrefs/heads/topics/t1\n", stderr: "" };
+      }
+      if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "1\n" : "3\n", stderr: "" };
+      // The probe's lists: every non-merge commit ahead, the own ones, and what
+      // main gained since the foreign history left it (one replayed copy).
+      if (key === "rev-list --reverse") return { code: 0, stdout: "fff111\nfff222\naaa111\n", stderr: "" };
+      if (key === "rev-list --no-merges") return { code: 0, stdout: args.includes("--not") ? "aaa111\n" : "ccc111\n", stderr: "" };
+      if (args[0] === "merge-base") return { code: 0, stdout: "base000\n", stderr: "" };
+      // fff111's copy on main is ccc111: same diff, other blob ids and line numbers.
+      if (key === "show --format=") {
+        const sha = args[args.length - 1];
+        if (sha === "ccc111") return { code: 0, stdout: "diff --git a/x b/x\nindex 1111..2222 100644\n@@ -10,2 +10,3 @@\n+riga\n", stderr: "" };
+        if (sha === "fff111") return { code: 0, stdout: "diff --git a/x b/x\nindex 3333..4444 100644\n@@ -4,2 +4,3 @@\n+riga\n", stderr: "" };
+        return { code: 0, stdout: `diff --git a/${sha} b/${sha}\n+${sha}\n`, stderr: "" };
+      }
+      if (args[0] === "cherry-pick" && args[1] === "-n") { lastPick = args[args.length - 1]!; return { code: 0, stdout: "", stderr: "" }; }
+      // Nothing staged for the foreign commit the patch did not match: its content is on main too.
+      if (key === "diff --cached") return { code: 0, stdout: "", stderr: "" };
+      if (key === "merge --no-ff") return { code: 0, stdout: "", stderr: "" };
+      if (key === "rev-parse --short") return { code: 0, stdout: "abc1234\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    const res = await am.tryMerge("t1", "x");
+    expect(res.status).toBe("merged");
+    // fff111 was recognised by its patch (no pick), fff222 by its stage (one pick);
+    // the own commit was never picked, the branch was merged.
+    expect(calls.filter((c) => c[0] === "cherry-pick" && c[1] === "-n").map((c) => c[c.length - 1])).toEqual(["fff222"]);
+    expect(lastPick).toBe("fff222");
+    expect(calls.some((c) => c[0] === "merge" && c.includes("--no-ff"))).toBe(true);
+    expect(calls.some((c) => c[0] === "commit" && c.includes("-C"))).toBe(false);
+    // And the probe left the checkout as it found it after the pick.
+    expect(calls.filter((c) => c[0] === "reset" && c.includes("--hard")).length).toBe(1);
+  });
+
+  test("a foreign commit that DOES bring content keeps the selective pick", async () => {
+    const calls: string[][] = [];
+    const run = async (_cwd: string, args: string[]) => {
+      calls.push(args);
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "main\n", stderr: "" };
+      if (key === "status --porcelain") return { code: 0, stdout: "", stderr: "" };
+      if (key === "for-each-ref --format=%(refname)") {
+        return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/altra\nrefs/heads/topics/t1\n", stderr: "" };
+      }
+      if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "1\n" : "3\n", stderr: "" };
+      // The probe (no --not) lists all; the selective pick (with --not) lists the own one.
+      if (key === "rev-list --reverse") return { code: 0, stdout: args.includes("--not") ? "aaa111\n" : "fff111\nfff222\naaa111\n", stderr: "" };
+      if (key === "rev-list --no-merges") return { code: 0, stdout: args.includes("--not") ? "aaa111\n" : "", stderr: "" };
+      if (key === "show --format=") return { code: 0, stdout: `diff --git a/${args[args.length - 1]} b/x\n+x\n`, stderr: "" };
+      if (args[0] === "cherry-pick" && args[1] === "-n") return { code: 0, stdout: "", stderr: "" };
+      // fff111 stages something: main lacks it, the branch IS mixed.
+      if (key === "diff --cached") return { code: 1, stdout: "", stderr: "" };
+      if (key === "rev-parse --short") return { code: 0, stdout: "abc1234\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    const res = await am.tryMerge("t1", "x");
+    expect(res.status).toBe("merged");
+    // The probe stopped at the first foreign commit that brought content...
+    expect(calls.filter((c) => c[0] === "cherry-pick" && c[1] === "-n").map((c) => c[c.length - 1])).toEqual(["fff111", "aaa111"]);
+    // ...and the own commit was picked and committed, the branch never merged.
+    expect(calls.some((c) => c[0] === "commit" && c.includes("-C") && c.includes("aaa111"))).toBe(true);
+    expect(calls.some((c) => c[0] === "merge")).toBe(false);
+  });
+
+  test("normalizePatch: blob ids and hunk line numbers do not count, the change does", () => {
+    const a = "diff --git a/x b/x\nindex 1111..2222 100644\n--- a/x\n+++ b/x\n@@ -10,2 +10,3 @@\n ctx\n+riga\n";
+    const b = "diff --git a/x b/x\nindex 3333..4444 100644\n--- a/x\n+++ b/x\n@@ -4,2 +4,3 @@\n ctx\n+riga\n";
+    const c = "diff --git a/x b/x\nindex 3333..4444 100644\n--- a/x\n+++ b/x\n@@ -4,2 +4,3 @@\n ctx\n+altra riga\n";
+    expect(normalizePatch(a)).toBe(normalizePatch(b));
+    expect(normalizePatch(a)).not.toBe(normalizePatch(c));
+    expect(normalizePatch("")).toBeNull();
+    // A generated baseline's section does not count: 147a805ce and its copy on
+    // main differed only there (05/09/2026), and they are the same change.
+    const baseline = "diff --git a/scripts/identifier-language-baseline.json b/scripts/identifier-language-baseline.json\nindex 5..6 100644\n--- a/scripts/identifier-language-baseline.json\n+++ b/scripts/identifier-language-baseline.json\n@@ -1,2 +1,2 @@\n-  \"generated\": \"2026-09-04\",\n+  \"generated\": \"2026-09-05\",\n";
+    expect(normalizePatch(a + baseline)).toBe(normalizePatch(b));
+    expect(normalizePatch(baseline)).toBeNull();
   });
 
   test("un commit che non porta NIENTE in stage è già landato: si salta, niente commit vuoto", async () => {
