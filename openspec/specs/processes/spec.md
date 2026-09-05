@@ -381,6 +381,14 @@ ascolti.
 Una SONDA che si connette e chiude NON SHALL rinnovare la licenza. Con il padre
 VIVO SHALL restare su.
 
+Alla scadenza con qualcuno attaccato da poco SHALL esserci UNA proroga, lunga
+quanto serve a un server appena riagganciato per contare come tale: la soglia
+del client vero più un tick del monitor, non il doppio della soglia. Oltre
+quello la proroga non compra niente, e il suo costo si paga a ogni corsa del
+test: con il doppio il ritiro impiegava ~7,9 s contro un budget di 8, e sotto
+carico (23 su 12 core) sforava (card 16d07948); con soglia più tick impiega
+~5,5 s.
+
 **E SHALL esserci un secondo freno, indipendente dal padre**: senza client e
 senza sessioni figlie SHALL ritirarsi ANCHE con il padre vivo — è il caso dei
 quindici che puntavano al nulla. Con un client attaccato NON SHALL ritirarsi: il

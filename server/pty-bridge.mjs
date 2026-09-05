@@ -541,8 +541,16 @@ async function start() {
       // sta appena riagganciando. Gli si regala UNA proroga, lunga abbastanza da
       // farlo diventare `settled` — poi si chiude comunque, altrimenti bastano
       // sonde che si sovrappongono per tenere in vita l'orfano per sempre.
+      //
+      // QUANTO LUNGA: la soglia più un tick, non il doppio della soglia. Un
+      // client attaccato in questo istante diventa `settled` fra REAL_CLIENT_MS,
+      // e il tick successivo lo vede: oltre quello la proroga non compra
+      // niente. In produzione (5 s + 5 s) sono gli stessi dieci secondi di
+      // prima; nel test (3 s + 0,5 s) sono 3,5 s invece di 6, e il ritiro passa
+      // da ~7,9 s a ~5,5 s contro un budget di 8: il margine da 40 ms diventava
+      // un rosso sotto carico (card 16d07948, load 23 su 12 core, 8.396 ms).
       orphanExtended = true;
-      orphanDeadline = now + REAL_CLIENT_MS * 2;
+      orphanDeadline = now + REAL_CLIENT_MS + MONITOR_TICK_MS;
       return;
     }
     console.error('[PTY Bridge] No server reconnected within grace window — app likely quit, shutting down.');

@@ -23,6 +23,7 @@
 // anche il client per renderizzare il gate. Qui resta l'esecuzione.
 export type { ReviewCheck, CheckRun } from "../../shared/board";
 import type { ReviewCheck, CheckRun } from "../../shared/board";
+import { parseSlotAcquired } from "../../shared/slot-acquired";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { killProcessTree } from "../lib/process-tree";
@@ -310,10 +311,32 @@ async function runOne(
     });
     timer = setTimeout(() => { timedOut = true; killTree(); }, opts.timeoutMs);
     opts.signal?.addEventListener("abort", onAbort, { once: true });
-    const [out, err] = await Promise.all([
-      new Response(proc.stdout as ReadableStream<Uint8Array>).text(),
-      new Response(proc.stderr as ReadableStream<Uint8Array>).text(),
-    ]);
+    // stdout is collected whole; stderr is read as it arrives, because one of
+    // its lines moves the clock: `slot.ts` prints `SLOT_ACQUIRED_PREFIX` the
+    // moment the command really starts, and the cap is restarted from there.
+    // Queueing for a slot is not the command's time (shared/slot-acquired.ts).
+    const outP = new Response(proc.stdout as ReadableStream<Uint8Array>).text();
+    let err = "";
+    let queuedMs: number | null = null;
+    const reader = (proc.stderr as ReadableStream<Uint8Array>).getReader();
+    const decoder = new TextDecoder();
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      err += decoder.decode(value, { stream: true });
+      if (queuedMs === null) {
+        const q = parseSlotAcquired(err);
+        if (q !== null) {
+          queuedMs = q;
+          if (timer && !timedOut) {
+            clearTimeout(timer);
+            timer = setTimeout(() => { timedOut = true; killTree(); }, opts.timeoutMs);
+          }
+        }
+      }
+    }
+    err += decoder.decode();
+    const out = await outP;
     const code = await proc.exited;
     const combined = [out, err].filter((s) => s.trim()).join("\n");
     return {
@@ -327,6 +350,7 @@ async function runOne(
       // `timedOut`: dire «fermato oltre il tempo massimo» di un binario che non
       // c'e' sarebbe una bugia, e il testo del commento la ripeterebbe.
       notMeasured: code === NOT_MEASURED_EXIT,
+      ...(queuedMs !== null ? { queuedMs } : {}),
       tail: tailOf(combined) || (timedOut ? "(nessun output prima del timeout)" : "(nessun output)"),
     };
   } catch (e) {
@@ -427,7 +451,13 @@ export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string |
   if (!runs.length) return "Checks pre-review: nessun comando dichiarato.";
   const failed = runs.find((r) => !r.ok);
   const where = opts?.commit ? ` su \`${opts.commit.slice(0, 8)}\`` : "";
-  const line = (r: CheckRun) => `${r.ok ? "✓" : "✗"} \`${r.name}\` (${fmtMs(r.ms)})`;
+  // The run time is the command's own; the queue for a gate slot is named
+  // apart, so a slow verdict points at the machine and not at the code.
+  const line = (r: CheckRun) => {
+    const queued = r.queuedMs ?? 0;
+    const run = fmtMs(Math.max(0, r.ms - queued));
+    return `${r.ok ? "✓" : "✗"} \`${r.name}\` (${run}${queued > 0 ? `, dopo ${fmtMs(queued)} in coda per lo slot` : ""})`;
+  };
   if (!failed) {
     return `**Checks pre-review verdi**${where}: ${runs.map(line).join(", ")}.`;
   }

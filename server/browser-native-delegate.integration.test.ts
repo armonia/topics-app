@@ -33,9 +33,17 @@ test('browser_eval round-trips from agent dispatch to native result', async () =
 
 test('browser_open round-trips and the native navigate is invoked', async () => {
   const calls: string[] = [];
-  const invoke: Invoke = async (cmd) => { calls.push(cmd); return '' as never; };
+  // The open op now waits for the pane's document before answering, so the
+  // fake pane has to report a readyState the way the real probe reads it.
+  const invoke: Invoke = async (cmd) => {
+    calls.push(cmd);
+    return (cmd === 'browser_eval_js'
+      ? JSON.stringify({ origin: 'https://x.com', ready: 'complete' })
+      : '') as never;
+  };
   const reg = wired(invoke);
-  expect(await reg.delegateOp('ctx', 'browser_open', { url: 'https://x.com' })).toEqual({ ok: true, url: 'https://x.com' });
+  expect(await reg.delegateOp('ctx', 'browser_open', { url: 'https://x.com' }))
+    .toEqual({ ok: true, url: 'https://x.com', ready: true });
   expect(calls).toContain('browser_navigate');
 });
 
