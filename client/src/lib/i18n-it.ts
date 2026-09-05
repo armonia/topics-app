@@ -747,7 +747,6 @@ const IT: Dict = {
   'board.task.pdfPreviewTitle': 'anteprima PDF',
   'board.task.serviceNotes': 'righe di servizio',
   'board.task.serviceNotesTitle': 'Contabilità del dispatcher (riavvii, attese in coda, tentativi). Apri per leggerle tutte, in ordine.',
-  'board.task.streamPreviewTitle': 'Anteprima live di ciò che sta streammando ora',
   'board.task.recapturePreview': 'Ricattura evidenza',
   'board.task.recapturePreviewTitle': "Rifà l'anteprima di questa card: riavvia il server dal suo worktree e la rifotografa. NON sveglia l'agent e non consuma un tentativo. Se non è possibile, il motivo arriva nel thread.",
   // I DUE GESTI DELLA CARD IN REVIEW, detti prima che uno scriva.
@@ -780,15 +779,15 @@ const IT: Dict = {
   'board.task.steerPlaceholder': "Scrivi all'agent mentre lavora. Lo riceve al prossimo turno.",
   'board.task.commentPlaceholder': 'Commenta…',
   'board.task.workspaceLabel': 'Spazio di lavoro',
-  // Two surfaces, two names. `sessionLabel` is the TAB holding what the agent
-  // did; `threadLabel` is the column where you read and write to it. They used
-  // to share the word "Sessione", and side by side that told the reader nothing
-  // about which of the two they were looking at.
-  'board.task.sessionLabel': 'Sessione',
-  'board.task.threadLabel': 'Discussione',
-  'board.task.sessionReplied': 'qui ha risposto',
-  'board.task.sessionEmpty': 'Ancora nessun passaggio in questa sessione.',
-  'board.task.openSessionPane': 'Apri la sessione nello spazio di lavoro',
+  // ONE surface, one name. There were two (the "Sessione" tab with the agent's
+  // steps, the "Discussione" column where you write): the steps and the words
+  // are one list now, and the right word is the one that says what it is - a
+  // conversation, not a log.
+  'board.task.threadLabel': 'Conversazione',
+  // Where what you wrote got to, derived from the envelopes at every read:
+  // nothing writes it into the thread.
+  'board.task.delivered': 'consegnato',
+  'board.task.queuedForTurn': 'in coda',
   // «Consegna» e non «Anteprima»: è la cosa CONSEGNATA, la sezione in cima al
   // brief per cui il drawer si apre (e che ora si chiude da sé).
   'board.task.deliveryLabel': 'Consegna',
@@ -1707,6 +1706,7 @@ const IT: Dict = {
   'palette.noHistory': 'Ancora niente in cronologia',
   'palette.searchHistory': 'Cerca nella cronologia: tab chiuse e pagine viste',
   'palette.noResults': 'Nessun risultato',
+  'palette.searchFailed': 'Non è stato possibile cercare nei messaggi. Riprova.',
   'palette.results': 'Risultati',
   // ── Altre superfici condivise.
   'shortcuts.close': 'Chiudi le scorciatoie da tastiera',
@@ -1724,6 +1724,7 @@ const IT: Dict = {
   'fileSearch.placeholderOpen': 'Apri un file in {scope}…',
   'fileSearch.placeholderSearch': 'Cerca in {scope}…',
   'fileSearch.failed': 'Ricerca non riuscita. Il progetto è ancora raggiungibile?',
+  'fileSearch.partialFailure': 'Nessuna risposta da {projects}: questi risultati non li comprendono.',
   'fileSearch.noResults': 'Nessun risultato',
   'fileSearch.truncated': 'Ricerca interrotta al tempo massimo, i risultati sono parziali',
   'fileSearch.first100': 'Primi 100 risultati',
@@ -2016,6 +2017,9 @@ const IT: Dict = {
   'notifications.settings': 'Impostazioni notifiche',
   'notifications.empty': 'Nessuna notifica',
   'notifications.logStartsHere': 'Da qui in poi ogni notifica mandata lascia una riga.',
+  'notifications.loadMore': 'Carica altre notifiche',
+  'notifications.loadingMore': 'Carico…',
+  'notifications.allLoaded': 'Sei arrivato in fondo al registro.',
   // ── Barra dei progetti sotto la board.
   'board.projects.more': 'Altri {n} progetti con task aperti',
   // ── Righe della barra laterale.
@@ -2255,6 +2259,17 @@ const IT: Dict = {
   'chat.goal.current': 'Obiettivo: {goal}',
   'chat.goal.achieved': 'Obiettivo raggiunto: {goal}',
   'chat.goal.abandoned': 'Obiettivo abbandonato: {goal}',
+
+  // Fallbacks for when the server refuses without a message of its own: the
+  // server's own sentence always wins (`errMessage(err) || tr(...)`).
+  'chat.remember.failed': 'Non sono riuscito a salvarlo nella memoria.',
+  'chat.remember.saved': 'Salvato nella memoria del topic',
+  'goal.closeFailed': 'Non sono riuscito a chiudere l\u2019obiettivo.',
+  'goal.editFailed': 'Non sono riuscito a cambiare l\u2019obiettivo.',
+  'goal.actionFailed': 'Non sono riuscito ad aggiornare l\u2019obiettivo.',
+  'context.toggleFailed': 'Non sono riuscito a cambiare questa fonte di contesto.',
+  'context.removeFailed': 'Non sono riuscito a togliere il file dal contesto.',
+  'chat.paste.imageFailed': 'Immagine non leggibile, scartata: {files}',
 
   'stt.rejectedKey': '{provider} ha rifiutato la chiave (HTTP {status})',
   'stt.fellBackTo': 'Trascritto con {provider} ({model}) in {seconds}s perché {because}.',

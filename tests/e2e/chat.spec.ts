@@ -371,6 +371,10 @@ test.describe("Chat — Rich Content Rendering", () => {
 
     // CHAT-RND-03 — mermaid fence becomes an SVG diagram (lazy chunk)
     await expect(page.locator('[data-testid="mermaid-diagram"] svg').first()).toBeVisible({ timeout: 20_000 });
+
+    await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined }));
+    await page.locator(".code-block-wrapper").getByRole("button", { name: "Copia" }).click();
+    await expect(page.getByTestId("toast").filter({ hasText: "Non è stato possibile copiare" })).toBeVisible();
   });
 
   test("renders diff block with file path and code", async ({ page }) => {
@@ -457,6 +461,19 @@ test.describe("Message Action Toolbar", () => {
     await copyBtn.click();
     const clipboard = await page.evaluate(() => navigator.clipboard.readText());
     expect(clipboard.length).toBeGreaterThan(0);
+  });
+
+  test("message copy reports an unavailable clipboard", async ({ page }) => {
+    await goToApp(page);
+    await openTopic(page, /Web Search Test/);
+
+    const firstMessage = page.locator(".message-content").first();
+    await expect(firstMessage).toBeVisible({ timeout: 15_000 });
+    await firstMessage.hover();
+    await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined }));
+
+    await page.getByRole("button", { name: "Copy message" }).first().click();
+    await expect(page.getByTestId("toast").filter({ hasText: "Non è stato possibile copiare" })).toBeVisible();
   });
 
   test("pin action toggles pin state on message", async ({ page, request }) => {

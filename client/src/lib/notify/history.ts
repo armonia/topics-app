@@ -10,6 +10,7 @@ import type {
   NotificationRecordInput,
   NotificationRow,
 } from '../../../../shared/notification-log';
+import { NOTIFICATION_MAX_ROWS } from '../../../../shared/notification-log';
 
 export interface NotificationHistoryPage {
   rows: NotificationRow[];
@@ -93,6 +94,29 @@ export async function markNotificationsSeen(body: { ids?: string[]; upTo?: strin
 export function mergeNotificationRow(rows: NotificationRow[], row: NotificationRow, cap = 200): NotificationRow[] {
   const without = rows.filter((r) => r.id !== row.id);
   return [row, ...without].slice(0, cap);
+}
+
+/**
+ * Merge a PAGE into the list already in hand, instead of replacing it.
+ *
+ * Replacing is what the panel used to do, and it undid its own paging: every
+ * open re-read the newest page and threw away both the older pages the reader
+ * had asked for and the live rows accumulated since. Same id, the server copy
+ * wins (it carries the authoritative `seenAt`); order is by time, newest first,
+ * because that is the order the panel reads in and a page fetched with `before`
+ * arrives after the rows it belongs under.
+ */
+export function mergeNotificationPage(
+  prev: NotificationRow[],
+  incoming: NotificationRow[],
+  cap = NOTIFICATION_MAX_ROWS,
+): NotificationRow[] {
+  const byId = new Map<string, NotificationRow>();
+  for (const r of prev) byId.set(r.id, r);
+  for (const r of incoming) byId.set(r.id, r);
+  return [...byId.values()]
+    .sort((a, b) => (a.createdAt === b.createdAt ? a.id.localeCompare(b.id) : a.createdAt < b.createdAt ? 1 : -1))
+    .slice(0, cap);
 }
 
 /**

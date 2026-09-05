@@ -171,7 +171,12 @@ test.describe("Copia task · il contenuto della card negli appunti", () => {
 
     const card = page.locator(`[data-task-card="${task.id}"]`);
     await expect(card).toBeVisible({ timeout: 10000 });
+    const fullTask = page.waitForResponse((response) =>
+      response.request().method() === "GET" && response.url().endsWith(`/tasks/${task.id}`),
+    );
     await card.click({ button: "right" });
+    await fullTask;
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     const voce = page.getByRole("menuitem", { name: "Copia task" });
     await expect(voce).toBeVisible({ timeout: 5000 });
     await beat(page, 1600);
@@ -180,5 +185,53 @@ test.describe("Copia task · il contenuto della card negli appunti", () => {
     expect(await clipboard(page)).toBe(ATTESO);
     await expect(page.getByTestId("task-detail-drawer")).toHaveCount(0);
     await beat(page, 1400);
+  });
+
+  test("card copy warns while the full description is still loading", async ({ page, request }) => {
+    const task = await createTask(request, { text: TITOLO, description: DESCRIZIONE, status: "todo" });
+    let releasePrefetch: (() => void) | null = null;
+
+    await page.route(new RegExp(`/api/boards/.*/tasks/${task.id}$`), async (route) => {
+      await new Promise<void>((resolve) => { releasePrefetch = resolve; });
+      await route.continue();
+    });
+
+    await page.goto("/");
+    await openProjectBoard(page);
+
+    const card = page.locator(`[data-task-card="${task.id}"]`);
+    await card.click({ button: "right" });
+    await expect.poll(() => releasePrefetch !== null).toBe(true);
+    await page.getByRole("menuitem", { name: "Copia task" }).click();
+    await expect(page.getByTestId("toast").filter({ hasText: "Non è stato possibile copiare" })).toBeVisible();
+
+    const fullTask = page.waitForResponse((response) =>
+      response.request().method() === "GET" && response.url().endsWith(`/tasks/${task.id}`),
+    );
+    releasePrefetch!();
+    await fullTask;
+  });
+
+  test("copy actions report an unavailable clipboard", async ({ page, request }) => {
+    const task = await createTask(request, { text: TITOLO, description: null, status: "todo" });
+
+    await page.goto("/");
+    await openProjectBoard(page);
+    await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined }));
+
+    const card = page.locator(`[data-task-card="${task.id}"]`);
+    await card.click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Copia task" }).click();
+    const failedToasts = page.getByTestId("toast").filter({ hasText: "Non è stato possibile copiare" });
+    await expect(failedToasts.first()).toBeVisible();
+
+    await card.click();
+    const drawer = page.getByTestId("task-detail-drawer");
+    await expect(drawer).toBeVisible({ timeout: 10000 });
+    await drawer.getByTestId("share-control").click();
+    const link = page.getByTestId("share-copy-link");
+    await expect(link).toBeVisible({ timeout: 5000 });
+    await link.click();
+    await expect(failedToasts.nth(1)).toBeVisible();
   });
 });

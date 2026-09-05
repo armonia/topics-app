@@ -27,9 +27,13 @@ hermetic(test);
 
 const PROJECT_DIR = "/tmp/e2e-search-shortcuts";
 const PROJECT_PANE = `project:${encodeURIComponent(PROJECT_DIR)}`;
+/** The second project: it exists only for the PARTIAL results case. */
+const PROJECT_DIR_B = "/tmp/e2e-search-shortcuts-b";
+const PROJECT_PANE_B = `project:${encodeURIComponent(PROJECT_DIR_B)}`;
 
 test.describe.serial("Ricerca — mappa dei tasti", () => {
   let topicId: string | null = null;
+  let topicIdB: string | null = null;
 
   test.beforeAll(async ({ request }) => {
     mkdirSync(PROJECT_DIR, { recursive: true });
@@ -38,10 +42,16 @@ test.describe.serial("Ricerca — mappa dei tasti", () => {
     // cartella nota al server (allowlist di `known-project-dirs`).
     const topic = await createTopic(request, "E2E-SearchShortcuts", { projectPath: PROJECT_DIR });
     topicId = topic.id;
+
+    mkdirSync(PROJECT_DIR_B, { recursive: true });
+    writeFileSync(`${PROJECT_DIR_B}/marcatore-univoco.txt`, "parolachiavecercabile\n");
+    const topicB = await createTopic(request, "E2E-SearchShortcutsB", { projectPath: PROJECT_DIR_B });
+    topicIdB = topicB.id;
   });
 
   test.afterAll(async ({ request }) => {
     if (topicId) await deleteTopic(request, topicId);
+    if (topicIdB) await deleteTopic(request, topicIdB);
   });
 
   test("SRC-01: ⌘⇧P trova un PROGETTO", async ({ page, request }) => {
@@ -149,5 +159,41 @@ test.describe.serial("Ricerca — mappa dei tasti", () => {
     await page.waitForTimeout(500);
     await expect(page.getByTestId("file-search")).toHaveCount(0);
     await expect(page.getByTestId("command-palette")).toHaveCount(0);
+  });
+
+  test("SRC-06: un progetto che non risponde viene NOMINATO sopra i risultati parziali", async ({ page, request }) => {
+    // Two projects open, one answers and one does not. `Promise.allSettled`
+    // kept the results of whoever answered and threw away the fact that the
+    // other one was gone: partial results with the air of being all of them,
+    // since a group header only names the projects that ARE there.
+    await resetPaneStore(request, [PROJECT_PANE, PROJECT_PANE_B]);
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+
+    await page.route("**/api/files/search?*", async (route) => {
+      const path = new URL(route.request().url()).searchParams.get("path") ?? "";
+      if (path === PROJECT_DIR_B) {
+        await route.fulfill({ status: 500, contentType: "application/json", body: '{"error":"boom"}' });
+        return;
+      }
+      await route.continue();
+    });
+
+    const projectTab = page.locator(`[data-pane-id="${PROJECT_PANE}"]`).first();
+    await expect(projectTab).toBeVisible({ timeout: 15_000 });
+    await projectTab.click({ force: true });
+    await expect(projectTab).toHaveAttribute("data-active", "true", { timeout: 10_000 });
+
+    await page.keyboard.press("Meta+f");
+    const panel = page.getByTestId("file-search");
+    await expect(panel).toBeVisible({ timeout: 15_000 });
+    await panel.locator("input").fill("parolachiavecercabile");
+
+    // The silent project is named, above the other one's results.
+    await expect(panel.getByTestId("file-search-partial")).toBeVisible({ timeout: 15_000 });
+    await expect(panel).toContainText(/e2e-search-shortcuts-b/);
+
+    await page.unroute("**/api/files/search?*");
+    await page.keyboard.press("Escape");
   });
 });
