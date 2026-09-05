@@ -13,6 +13,7 @@ import {
   parseReviewChecks,
   runReviewChecks,
   serializeReviewChecks,
+  failureTail,
   tailOf,
   MAX_CHECKS,
   NOT_MEASURED_EXIT,
@@ -76,6 +77,35 @@ describe("tailOf", () => {
 
   test("output corto resta intero", () => {
     expect(tailOf("solo questa\n", 10)).toBe("solo questa");
+  });
+});
+
+describe("failureTail", () => {
+  // The shape that made this necessary: a red run whose last lines are all
+  // skips, so the plain tail reported the counts and never the reason.
+  const run = [
+    "(fail) qualcosa > il caso che conta",
+    "error: boom",
+    ...Array.from({ length: 30 }, (_, i) => `(skip) rumore ${i} > sotto-caso`),
+    "1 tests failed:",
+    " 10 pass",
+    " 1 fail",
+  ].join("\n");
+
+  test("the reason survives a wall of skipped tests", () => {
+    const tail = failureTail(run, 6);
+    expect(tail).toContain("(fail) qualcosa > il caso che conta");
+    expect(tail).toContain("error: boom");
+    expect(tail.split("\n").slice(1).join("\n")).not.toContain("(skip)");
+  });
+
+  test("it says how many green lines it dropped, so the tail is not a lie", () => {
+    expect(failureTail(run, 6)).toContain("30 righe (pass)/(skip) omesse");
+  });
+
+  test("with no noise it behaves exactly like the plain tail", () => {
+    const text = Array.from({ length: 100 }, (_, i) => `riga ${i}`).join("\n");
+    expect(failureTail(text, 3)).toBe(tailOf(text, 3));
   });
 });
 
