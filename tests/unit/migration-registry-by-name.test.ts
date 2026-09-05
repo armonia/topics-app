@@ -14,7 +14,7 @@
  * tests/unit/migration-number-collision.test.ts.
   * @covers SCHEMA-05
  */
-import { describe, it, expect, afterEach } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -22,6 +22,16 @@ import { join } from "path";
 import { initDatabase, closeDatabase } from "../../server/db";
 
 const daPulire: string[] = [];
+
+// initDatabase is idempotent (`if (_db) return _db`) and runs `mkdirSync(dataDir)`
+// ONLY when it really opens. If an earlier file in the same process leaves the
+// singleton open, our initDatabase becomes a no-op and the dataDir is never
+// born: "unable to open database file". Resetting BEFORE every test makes this
+// file robust to any upstream leaker (the convention of every other db test in
+// the repo). Serial order used to hide it; sharded order does not.
+beforeEach(() => {
+  closeDatabase();
+});
 
 afterEach(() => {
   closeDatabase();

@@ -1969,9 +1969,6 @@
       "loc",
       "unackedJson"
     ],
-    "client/src/state/pane/bootstrap.test.ts": [
-      "uninstallFakeWindow"
-    ],
     "client/src/state/pane/devOverlay/MutationLogOverlay.tsx": [
       "ndjson"
     ],
@@ -1979,12 +1976,6 @@
       "applicato",
       "ordine",
       "unsubscribe"
-    ],
-    "client/src/state/pane/middleware/syncCrossTab.test.ts": [
-      "uninstallFakeWindow"
-    ],
-    "client/src/state/pane/middleware/syncServer.test.ts": [
-      "uninstallFakeWindow"
     ],
     "client/src/state/pane/middleware/syncServer.ts": [
       "armaSpinta",
@@ -2221,9 +2212,6 @@
     "scripts/changelog-lib.test.ts": [
       "boundaries"
     ],
-    "scripts/check-any-budget.ts": [
-      "GLOBS"
-    ],
     "scripts/check-any.test.ts": [
       "truncating"
     ],
@@ -2242,7 +2230,6 @@
     ],
     "scripts/check-deadcode-blindspots.ts": [
       "KnipJsonIssue",
-      "WorkspaceGlobs",
       "knipPath",
       "readKnipWorkspaces",
       "stdout",
@@ -2496,8 +2483,7 @@
       "pausa"
     ],
     "scripts/install-claude-hooks.ts": [
-      "__dirname",
-      "uninstall"
+      "__dirname"
     ],
     "scripts/job-quota-live-demo.ts": [
       "AMBIENTE",
@@ -3678,14 +3664,11 @@
       "Chiamata",
       "chiamate",
       "esito",
-      "ffmpeg",
       "rotta"
     ],
     "server/lib/stt.ts": [
       "ELEVENLABS_FALLBACK_MODEL",
-      "FFMPEG_TIMEOUT_MS",
       "OPENAI_FALLBACK_MODEL",
-      "ffmpeg",
       "grezzo",
       "lang",
       "motivo",
@@ -3823,8 +3806,7 @@
       "AcpProvider",
       "AcpSessionState",
       "AcpSessionUpdate",
-      "AcpTranslateState",
-      "ENV_ALLOWLIST"
+      "AcpTranslateState"
     ],
     "server/providers/acp/agents.ts": [
       "AcpAgentSpec",
@@ -3906,7 +3888,6 @@
     "server/providers/claude-code.ts": [
       "ClaudeCliCompat",
       "DEFAULT_ONESHOT_MODEL",
-      "ENV_ALLOWLIST",
       "ENV_BLOCKLIST_EXCEPTIONS",
       "ENV_BLOCKLIST_PATTERNS",
       "certsDir",
@@ -3964,7 +3945,6 @@
       "ricordaMonitor"
     ],
     "server/providers/codex.ts": [
-      "ENV_ALLOWLIST",
       "errObj",
       "obj",
       "stderr",

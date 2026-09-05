@@ -1,6 +1,6 @@
 import { BrowserToolbar } from './BrowserToolbar';
 import { createPortal } from 'react-dom';
-import { Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw, Puzzle, Boxes, MonitorPlay, CaseSensitive } from 'lucide-react';
+import { Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw, Puzzle, Boxes, MonitorPlay, CaseSensitive, Bot } from 'lucide-react';
 import { lazy, Suspense } from 'react';
 import { useRemoteBrowser } from '../../hooks/useRemoteBrowser';
 import { useTauriBrowser } from '../../hooks/useTauriBrowser';
@@ -1403,7 +1403,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           >
             <div className="flex flex-col items-center gap-3 bg-surface/90 px-6 py-4 rounded-lg shadow-xl border border-app-border">
               <div className="flex items-center gap-2 text-app-text">
-                <span className="text-xl">🤖</span>
+                <Bot className="w-5 h-5 shrink-0" aria-hidden="true" />
                 <span className="text-[14px] font-medium">
                   {browser.agentAction ? `L'agente: ${browser.agentAction}` : "L'agente sta controllando…"}
                 </span>

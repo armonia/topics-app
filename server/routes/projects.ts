@@ -32,6 +32,7 @@ import { knownProjectDirs } from "../services/known-project-dirs";
 import { osservatoreDaDispositivo, vedeProgetto, visibilitaDi } from "../lib/project-visibility";
 import { resolveOsOpenPath, fsProbe } from "../lib/os-open-path";
 import { installationOrgId, actingPersonId } from "../lib/orgs";
+import { clientProjectPathRefused, CLIENT_PROJECT_PATH_ERROR } from "../lib/client-project-path";
 
 const NAME_MAX = 200;
 const SLUG_REGEX = /^[a-z][a-z0-9-]{0,63}$/;
@@ -270,6 +271,13 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
       if (!path.startsWith("/")) return errorResponse(400, "path must be absolute");
       if (!existsSync(path)) return errorResponse(400, `path does not exist: ${path}`);
       if (!statSync(path).isDirectory()) return errorResponse(400, `path is not a directory: ${path}`);
+      // Registering a project ADDS a root to the allowlist every path-taking
+      // route trusts (source 1 of `services/known-project-dirs.ts`), so a
+      // paired device could register `~/.ssh` here and read it back from
+      // `/api/files/content` on the next call. Loopback and agents pass.
+      if (clientProjectPathRefused(req, path, ctx)) {
+        return errorResponse(400, CLIENT_PROJECT_PATH_ERROR);
+      }
 
       let slug = stripCtrl(body.slug);
       if (!slug) slug = projectStore.slugify(name);

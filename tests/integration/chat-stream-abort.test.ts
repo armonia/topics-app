@@ -326,15 +326,18 @@ describe("il server si spegne sopra un turno vivo", () => {
  * «Riprova rimanda il tuo messaggio»: premendolo partivano due turni, entrambi
  * a pagamento.
  *
- * E LA CAUSA RIPRENDIBILE È UNA SOLA DELLE TRE. `riprendiTurniInterrotti` è una
- * funzione di BOOT (`server.ts`, in coda al giro di riadozione):
- *
- *  · `server-shutdown` → un boot segue per definizione, il processo sta morendo
- *    mentre scriviamo il cartello. La promessa si mantiene da sé.
- *  · `watchdog` / `wall-clock` → il server RESTA SU: quella funzione non gira,
- *    e nessuno riprende niente. Prometterlo qui sarebbe il verso peggiore
- *    dell'errore — oggi si spreca un turno in modo VISIBILE, con la promessa si
- *    perderebbe il turno in SILENZIO.
+ * AND THE PROMISE HOLDS FOR ALL THREE CAUSES OF OURS, since the resume stopped
+ * being a boot-only function. Until 04/09 `riprendiTurniInterrotti` ran once,
+ * after the reattach round: `server-shutdown` kept the promise by itself (a
+ * boot follows by definition), `watchdog` and `wall-clock` did not, because the
+ * server stayed up and nobody resumed anything, so this file demanded the
+ * retry button for them. The same sweep now runs every five minutes and is
+ * pulled forward to twenty seconds when a stream is cut (`server.ts`,
+ * `scheduleResumeSweep` / `nudgeResumeSweep`), and it recognises the cut from
+ * the notice text AND from the block's cause (`isResumableCause`). The promise
+ * follows that rule: `riprendeDaSolo` in `routes/chat.ts` IS
+ * `isResumableCause(cause)`, the very reading the sweep makes, so the two
+ * cannot drift apart. If a cause stops being resumed, this is where it shows.
  */
 describe("la promessa di ripresa sul cartello", () => {
   test("spegnimento del server: la card dice che non serve fare niente", async () => {
@@ -352,7 +355,7 @@ describe("la promessa di ripresa sul cartello", () => {
     expect(testo).not.toContain("«Riprova»");
   });
 
-  test("watchdog e limite di tempo: resta «Riprova», perché nessuno riprende", async () => {
+  test("watchdog e limite di tempo: promettono la ripresa, perché lo sweep li riprende", async () => {
     for (const cause of ["watchdog", "wall-clock"] as const) {
       const h = await harness(`topic:ripresa-${cause}`);
       const handler = await h.startTurn();
@@ -362,8 +365,23 @@ describe("la promessa di ripresa sul cartello", () => {
       const m = h.ctx.loadLocalMessages(`topic:ripresa-${cause}`).filter((x) => x.role === "assistant").pop()!;
       const cartello = (m.blocks ?? []).find((b) => b.kind === "error");
       const testo = cartello && cartello.kind === "error" ? cartello.text : "";
-      expect(testo, cause).toContain("«Riprova»");
-      expect(testo, cause).not.toContain("Riprendo da solo");
+      expect(testo, cause).toContain("Riprendo da solo");
+      expect(testo, cause).not.toContain("«Riprova»");
     }
+  });
+
+  test("fermato da una persona: nessuna promessa, e nemmeno il bottone che rimanda", async () => {
+    // `user` is not a cause of ours: the sweep never resumes it (RESUME-01),
+    // and the notice must not say otherwise.
+    const h = await harness("topic:ripresa-user");
+    const handler = await h.startTurn();
+    handler.onAborted?.({ result: "", turnEnd: { end: "cancelled", cause: "user" } });
+    await new Promise((r) => setTimeout(r, 50));
+    // A turn a person stopped may leave no assistant row at all (nothing was
+    // produced): that is fine, what must not exist is a promise to resume.
+    const m = h.ctx.loadLocalMessages("topic:ripresa-user").filter((x) => x.role === "assistant").pop();
+    const cartello = (m?.blocks ?? []).find((b) => b.kind === "error");
+    const testo = cartello && cartello.kind === "error" ? cartello.text : "";
+    expect(testo).not.toContain("Riprendo da solo");
   });
 });

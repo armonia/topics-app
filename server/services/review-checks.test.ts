@@ -6,8 +6,10 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { readFileSync } from "fs";
+import { slotAcquiredLine } from "../../shared/slot-acquired";
 import {
   formatChecksComment,
+  formatChecksWait,
   parseReviewChecks,
   runReviewChecks,
   serializeReviewChecks,
@@ -124,6 +126,27 @@ describe("runReviewChecks", () => {
     expect(runs[0].timedOut).toBe(true);
     expect(runs[0].code).toBeNull();
   }, 15_000);
+
+  test("the slot line restarts the cap: queueing for a gate slot is not the command's time", async () => {
+    // 1.5 s of "queue", the line slot.ts prints, then 1.5 s of "command": 3 s
+    // in all against a 2 s cap. Without the line the check is killed (control
+    // below); with it the cap restarts when the command starts, and the 1.5 s
+    // of real work fit. The queue time is reported apart.
+    const line = slotAcquiredLine("test:unit", 1500);
+    const runs = await runReviewChecks(
+      [{ name: "in coda", cmd: `sleep 1.5; echo '${line}' 1>&2; sleep 1.5` }],
+      { cwd, timeoutMs: 2000 },
+    );
+    expect(runs[0].timedOut).toBe(false);
+    expect(runs[0].ok).toBe(true);
+    expect(runs[0].queuedMs).toBe(2000);
+  }, 20_000);
+
+  test("without the slot line the same 3 s against a 2 s cap is a timeout (control)", async () => {
+    const runs = await runReviewChecks([{ name: "senza riga", cmd: "sleep 1.5; sleep 1.5" }], { cwd, timeoutMs: 2000 });
+    expect(runs[0].timedOut).toBe(true);
+    expect(runs[0].queuedMs).toBeUndefined();
+  }, 20_000);
 
   // The cap is six and the repo has ten gates: the four missing from the
   // board's slots on 2026-09-03 went in as ONE chained slot. What makes a chain
@@ -457,3 +480,31 @@ describe("uscita 97: non misurato, e si legge diverso da scaduto", () => {
   });
 });
 
+
+describe("formatChecksWait: la riga che la chat mostra mentre i check girano", () => {
+  const names = ["typecheck", "lint", "check:deadcode", "static-rails", "test:unit"];
+
+  test("a metà barra dice quanti sono passati, quale gira e quali aspettano", () => {
+    const line = formatChecksWait({ done: 2, total: 5, names, elapsedMs: 71_000 });
+    expect(line).toContain("Check pre-review 2/5 (1m11s)");
+    expect(line).toContain("verdi: typecheck, lint");
+    expect(line).toContain("in corso: check:deadcode");
+    expect(line).toContain("poi: static-rails, test:unit");
+    // The reader is the person in the thread: they must see the wait is not the agent's.
+    expect(line).toContain("non l'agente");
+  });
+
+  test("in coda dietro un'altra card lo dice, senza inventare un comando in corso", () => {
+    const line = formatChecksWait({ done: null, total: 5, names, elapsedMs: 9_000 });
+    expect(line).toContain("in coda dietro un'altra card (9s)");
+    expect(line).not.toContain("in corso:");
+  });
+
+  test("all'ultimo comando non resta niente «poi», e un done oltre il totale non sfonda", () => {
+    const last = formatChecksWait({ done: 4, total: 5, names, elapsedMs: 600_000 });
+    expect(last).toContain("4/5 (10m00s)");
+    expect(last).toContain("in corso: test:unit");
+    expect(last).not.toContain("poi:");
+    expect(formatChecksWait({ done: 9, total: 5, names, elapsedMs: 0 })).toContain("5/5 (0s)");
+  });
+});

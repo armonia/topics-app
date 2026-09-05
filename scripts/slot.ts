@@ -45,7 +45,7 @@
  *         TOPICS_GATE_KILL_GRACE_MS  SIGTERM → SIGKILL window (default 10s)
  */
 import { spawn } from "node:child_process";
-import { acquireSlot, slotCount, GATE_HELD_ENV } from "./gate-slot.ts";
+import { acquireSlot, slotCount, GATE_HELD_ENV, slotAcquiredLine } from "./gate-slot.ts";
 
 /**
  * THE LOCK PROTOCOL LIVES IN `gate-slot.ts`, not here any more: the same
@@ -81,7 +81,11 @@ if (!cmd) {
 
 const slots = slotCount();
 let release: (() => void) | null = null;
+const queuedSince = Date.now();
 if (slots > 0) release = acquireSlot(slots, label);
+// Said even when the slot came at once (0 s): whoever times the command from
+// outside needs the line to exist, not only when the queue was long.
+console.error(slotAcquiredLine(label, Date.now() - queuedSince));
 
 // `-c`, NOT `-lc`. A login shell sources the user's profile, and this machine's
 // profile exports a NODE_OPTIONS that eslint refuses to start under

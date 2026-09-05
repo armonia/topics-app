@@ -37,7 +37,7 @@
  *     in mente.
  */
 import type { ContentBlock } from "../types";
-import { eCartelloDiInterruzione } from "./cancelled-notice";
+import { eCartelloDiInterruzione, isResumableCause } from "./cancelled-notice";
 
 /** Quanto indietro si va a riprendere. Oltre, è storia. */
 // 24 hours, not 30 minutes (2026-09-04, asked out loud: every interrupted
@@ -163,8 +163,14 @@ export function resumeVerdict(r: RigaDaValutare, oraMs: number): ResumeVerdict {
   // dove le frasi vivono: cosi' chi ne cambia una vede subito chi la legge.
   // The cap notice below is written with the same ⚠️ shape and is NOT in that
   // list: that is what keeps it from being resumed in turn.
-  const interrupted = r.blocks.some((b) => b?.kind === "error" && eCartelloDiInterruzione(
-    typeof (b as { text?: unknown }).text === "string" ? (b as { text: string }).text : "",
+  // Text OR cause. The text is what reaches rows written before the block
+  // carried a `cause` (2026-09-03) and the notices whose wording is stable; the
+  // cause is what reaches every cut of ours whatever sentence it wore. The
+  // sweeper's cut (`INTERRUPTED_MARKER` in lib/stale-stream-sweep.ts) was
+  // recognised by neither until 05/09/2026: no chat it closed was ever resumed.
+  const interrupted = r.blocks.some((b) => b?.kind === "error" && (
+    eCartelloDiInterruzione(typeof (b as { text?: unknown }).text === "string" ? (b as { text: string }).text : "")
+    || isResumableCause((b as { cause?: unknown }).cause)
   ));
   if (!interrupted) return "no";
   // Resumed TOO MANY times, on the CHAIN. The trace is written BEFORE the

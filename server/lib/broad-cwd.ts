@@ -24,20 +24,26 @@ export function isBroadCwd(cwd: string, home: string = process.env.HOME || ""): 
 }
 
 /**
- * May a paired device open a terminal in `cwd`?
+ * May a paired device name `path` as a project directory?
  *
  * Two shapes are accepted, and a third is refused:
  * - the broad default (HOME, its ancestors, `/`): harmless, because
- *   `isBroadCwd` keeps it out of every allowlist that reads cwds back;
+ *   `isBroadCwd` keeps it out of every allowlist that reads these paths back;
  * - a directory inside a project the server already knows (`inProject` is
  *   `resolveProjectPath`, the same boundary the file routes enforce);
  * - anything else: `~/.ssh` is neither broad nor a project, and accepting it
- *   would let the terminal route feed the allowlist the file routes trust.
+ *   would let the caller feed the allowlist the file routes trust.
  *
  * `~` expands to HOME first, as `resolveProjectPath` does, so a client sending
  * `~` is treated exactly like one sending the home path.
+ *
+ * It was written for the terminal cwd (source 4 of the allowlist) and it is
+ * named after the path, not after that route, because the other three
+ * client-writable sources reach the same allowlist by other doors: a project
+ * created via `POST /api/projects`, a `topic.projectPath`, a `project:` token
+ * inside a `ui_state` value. The predicate is the same; who asks is not.
  */
-export function isClientCwdAccepted(
+export function isClientProjectPathAccepted(
   cwd: string,
   inProject: (path: string) => string | null,
   home: string = process.env.HOME || "",

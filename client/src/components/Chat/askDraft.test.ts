@@ -1,7 +1,7 @@
 /**
  * @covers ASK-07
  */
-import { beforeEach, describe, expect, test } from 'bun:test';
+import { beforeEach, afterAll, describe, expect, test } from 'bun:test';
 import { clearAskDraft, isEmptyDraft, readAskDraft, sweepAskDrafts, writeAskDraft } from './askDraft';
 
 /** localStorage finto: bun:test gira senza DOM. */
@@ -20,6 +20,14 @@ const store = new MemStorage();
 globalThis.window = { localStorage: store };
 
 beforeEach(() => store.clear());
+
+// window is a PARTIAL fake (localStorage only): leaving it behind lets a later
+// file of the same sharded process pass its `typeof window === 'undefined'`
+// guard and then blow up on getComputedStyle & co. Restore the pre-file state
+// (no ambient window under bun).
+afterAll(() => {
+  delete (globalThis as { window?: unknown }).window;
+});
 
 const T0 = 1_800_000_000_000;
 

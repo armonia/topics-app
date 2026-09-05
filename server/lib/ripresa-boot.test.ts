@@ -607,3 +607,15 @@ describe("resumeAttemptOf", () => {
     expect(resumeAttemptOf({ ripresa: "2" })).toBe(0);
   });
 });
+
+describe("la causa sul blocco basta, qualunque frase porti", () => {
+  test("un taglio del watchdog con una frase che la lista non conosce si riprende lo stesso", () => {
+    const byCause: ContentBlock = { kind: "error", text: "una frase nuova che nessuna lista conosce", cause: "watchdog" } as ContentBlock;
+    expect(chatDaRiprendere({ ...base, blocks: [prosa, byCause] }, ORA)).toBe(true);
+  });
+
+  test("lo stop dell'umano non si riprende, nemmeno con un testo che sembra un cartello", () => {
+    const stop: ContentBlock = { kind: "error", text: "fermato", cause: "user" } as ContentBlock;
+    expect(chatDaRiprendere({ ...base, blocks: [prosa, stop] }, ORA)).toBe(false);
+  });
+});

@@ -9,7 +9,7 @@
  */
 
 import { useState } from 'react';
-import { ListChecks, ChevronRight } from 'lucide-react';
+import { ListChecks, ChevronRight, CircleCheck, CircleDot, Circle } from 'lucide-react';
 import type { TodoSnapshot } from './selectLatestTodo';
 import { CHAT_STRIP_NEUTRAL, CHAT_STRIP_ROW } from '../../lib/chatStripStyles';
 
@@ -44,7 +44,13 @@ export function TodoStrip({ snapshot }: { snapshot: TodoSnapshot }) {
           {items.map((t, i) => (
             <li key={i} className="flex items-start gap-2 text-[12px]">
               <span className="mt-0.5 flex-shrink-0">
-                {t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '◐' : '○'}
+                {t.status === 'completed' ? (
+                  <CircleCheck size={13} className="text-green-500" aria-hidden="true" />
+                ) : t.status === 'in_progress' ? (
+                  <CircleDot size={13} className="text-app-text" aria-hidden="true" />
+                ) : (
+                  <Circle size={13} className="text-app-text-muted" aria-hidden="true" />
+                )}
               </span>
               <span
                 className={

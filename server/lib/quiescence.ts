@@ -244,6 +244,32 @@ export function quiescenceVerdict(args: {
 }
 
 /**
+ * THE DOOR OF THE DISPATCHER WHILE A RESTART WAITS.
+ *
+ * A planned restart closes the door first (`drain`): with a queue behind a full
+ * cap a new card turn starts the second one ends, and the wait never comes
+ * (2026-09-04, 18,482 s). That is right while the wait is on CARDS: a card
+ * turn has a bound of its own (`dispatchTimeoutMin`), so a closed door means
+ * "the restart is minutes away".
+ *
+ * It is wrong while the wait is on a CHAT. A native chat turn is never cut
+ * and has no bound of ours: on 2026-09-05 one such turn (211 tool rounds in,
+ * of 300) held `restart-when-idle` for over an hour, and behind the closed
+ * door six card agents sat waiting for a slot the whole time, seven more
+ * cards in todo behind them. Closing the door bought nothing, because the
+ * restart was not waiting on cards; it froze the board for as long as a
+ * person's chat ran.
+ *
+ * So the door follows who is holding: OPEN while any chat holds (cards may
+ * flow; each is bounded, and the restart was not coming anyway), CLOSED the
+ * moment only cards hold or nothing does. Between a chat ending and the cards
+ * in flight finishing the door is shut again, so that tail is bounded too.
+ */
+export function dispatchDoor(args: { cards: number; chatsHolding: number }): "open" | "closed" {
+  return args.chatsHolding > 0 ? "open" : "closed";
+}
+
+/**
  * WHAT THE CAP IS FOR, now that it does not cut.
  *
  * `quiescenceVerdict` never returns "scaduto" for work that will not come back:

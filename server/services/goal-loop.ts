@@ -26,7 +26,13 @@
  *   · never on a DISPATCHED turn: board cards already have the dispatcher's own
  *     loop, and two loops on the same session buy the same work twice;
  *   · only on a clean `end_turn`: a turn killed by a timeout, an abort or an
- *     error did not decide to stop, so there is nothing to overrule;
+ *     error did not decide to stop, so there is nothing to overrule. ONE
+ *     exception, and it is ours: a turn that ran out of OUR budget of tool
+ *     rounds (`tool-budget`) did not decide to stop either, but nothing broke
+ *     and the work is saved, so it is judged like an `end_turn`. Without a goal
+ *     the same cut gets ONE automatic resume and no more (`toolBudgetResumeStep`):
+ *     a second budget in a row is a turn that does not converge, and buying a
+ *     third would be the runaway the budget exists to stop;
  *   · never when the turn is parked on a question to the human
  *     (`ask_user_question`, a plan waiting for approval): continuing there
  *     answers a question the human never saw;
@@ -90,6 +96,8 @@ export interface FinishedTurn {
   dispatched: boolean;
   /** The provider's stop reason. Only `end_turn` is a decision to stop. */
   end: string;
+  /** The stop cause when `end` is not a decision: `tool-budget` is OUR ceiling. */
+  cause?: string;
   /** The turn left no row (empty placeholder discarded). */
   discarded: boolean;
   /** The turn is parked on a question to the human. */
@@ -112,10 +120,49 @@ export function turnCanContinueGoal(turn: FinishedTurn, goal: TopicGoal | null):
   if (!goal || goal.status !== "active") return false;
   if (goal.loopState !== "running") return false;
   if (turn.dispatched) return false;
-  if (turn.end !== "end_turn") return false;
+  if (turn.end !== "end_turn" && !endedOnOurToolBudget(turn)) return false;
   if (turn.discarded) return false;
   if (turn.pendingAsk) return false;
   return true;
+}
+
+/**
+ * The turn stopped because OUR budget of tool rounds ran out: neither the
+ * model's decision nor a fault. It is the only end other than `end_turn` that
+ * the loop treats as a turn which may go on.
+ */
+export function endedOnOurToolBudget(turn: Pick<FinishedTurn, "end" | "cause">): boolean {
+  return turn.end === "error" && turn.cause === "tool-budget";
+}
+
+/** What the end of a turn cut by our tool budget does when NO goal is driving. */
+export type ToolBudgetResume = "resume" | "stop" | "none";
+
+/**
+ * ONE automatic resume, then the human. `resumedAlready` is whether the turn
+ * that just ended was itself the resume: a second budget in a row says the work
+ * does not converge in two full turns, and the honest move is to stop and say
+ * so, not to buy a third. Anything that is not our budget, a board turn (the
+ * dispatcher owns those), a turn parked on a question or one that left no row
+ * is `none`: this rule speaks only about the cut it exists for.
+ */
+export function toolBudgetResumeStep(turn: FinishedTurn, resumedAlready: boolean): ToolBudgetResume {
+  if (!endedOnOurToolBudget(turn)) return "none";
+  if (turn.dispatched || turn.pendingAsk || turn.discarded) return "none";
+  return resumedAlready ? "stop" : "resume";
+}
+
+/** The `user` row that resumes a turn cut by our budget; English, like every text the model reads. */
+export const TOOL_BUDGET_RESUME_TEXT =
+  "The previous turn stopped because the server's budget of tool rounds for one turn ran out, not by your choice. " +
+  "Carry on from where you were without redoing what is already done; if the remaining work is large, say what is left before continuing.";
+
+/** The notice written in the chat when the resume itself ran out of rounds: the human takes over. */
+export function toolBudgetStopNotice(maxRounds: number): string {
+  return (
+    `⚠️ Ripresa automatica sospesa: due turni di fila hanno esaurito i ${maxRounds} giri di tool a disposizione. ` +
+    `Il lavoro fatto resta nella sessione; per continuare scrivi qui, oppure alza TOPICS_MAX_TOOL_ROUNDS.`
+  );
 }
 
 /**

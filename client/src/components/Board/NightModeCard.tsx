@@ -16,6 +16,7 @@
  * interrogare più spesso aggiungerebbe carico proprio a ciò che sta misurando.
  */
 import { useEffect, useState } from 'react';
+import { Moon } from 'lucide-react';
 import { useT, useLocale } from '../../hooks/useT';
 import { boardApi } from '../../lib/board';
 // Il testo sta in un modulo suo: e' la parte pura, e tenerla qui spegneva il
@@ -101,7 +102,7 @@ export function NightModeCard({ projectId, enabled, until, onChange, fetchStatus
     >
       <label className="flex cursor-pointer items-center justify-between gap-2">
         <span className="flex items-center gap-1.5">
-          <span aria-hidden>🌙</span>
+          <Moon className="w-4 h-4" aria-hidden />
           <span className="font-medium">{tr('board.night.title')}</span>
         </span>
         <input

@@ -1011,6 +1011,25 @@ core.
 Il verdetto SHALL sopravvivere alla richiesta che l'ha chiesto per una finestra
 dichiarata.
 
+Il tetto di tempo di un comando SHALL contare dal momento in cui il comando
+PARTE, non da quando è stato lanciato: i comandi passano da `scripts/slot.ts`,
+che prima aspetta uno slot libero della macchina (core/4), e quell'attesa non
+è tempo del comando. Fino al 05/09/2026 il board la contava: sotto una flotta
+la sola coda superava i dieci minuti, `test:unit` veniva ucciso mentre ancora
+aspettava di partire, e la card leggeva «timeout» di una suite che non aveva
+eseguito un test. `slot.ts` SHALL scrivere su stderr una riga riconoscibile
+quando ottiene lo slot, con i secondi di coda; il runner dei check SHALL
+leggere stderr man mano e da quella riga far ripartire il tetto; il commento
+sulla card SHALL dire il tempo di esecuzione e, a parte, quello di coda.
+
+#### Scenario: la coda per lo slot non consuma il tetto
+- **GIVEN** un comando che aspetta 1,5 s uno slot, stampa la riga di `slot.ts` e poi lavora 1,5 s, sotto un tetto di 2 s
+- **THEN** il comando SHALL finire verde, non ucciso, e l'esito SHALL riportare il tempo di coda
+
+#### Scenario: senza la riga il tetto conta dal lancio
+- **GIVEN** lo stesso comando senza la riga di `slot.ts`
+- **THEN** SHALL essere ucciso al tetto, come prima
+
 Sulla card SHALL essere scritto lo stato, gli esiti parziali e il commit
 misurato. Il commento del VERDE SHALL essere una riga sola e di specie servizio:
 l'elenco completo su ogni consegna verde erano 92 copie identiche in sette
@@ -1022,6 +1041,12 @@ incoerenti SHALL essere scartati invece che mostrati.
 
 Una configurazione illeggibile SHALL spegnere il cancello, non sollevare un
 errore.
+
+#### Scenario: mentre i comandi girano, la chat dell'agente lo dice
+- **GIVEN** una consegna a cui il cancello ha risposto «in corso» e un tool `update_task` ancora aperto nel turno dell'agente
+- **WHEN** il client richiama e il cancello risponde di nuovo «in corso»
+- **THEN** il tool in corso SHALL mostrare quanti comandi sono passati, quale gira, quali aspettano e da quanto, e SHALL dire che l'attesa è del cancello e non dell'agente
+- **AND** in coda dietro un'altra card SHALL dirlo, senza inventare un comando in corso
 
 #### Scenario: un comando che non è mai partito
 - **GIVEN** un worktree in cui un comando non può nemmeno avviarsi

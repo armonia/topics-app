@@ -98,6 +98,10 @@ export const PROJECT_WORDS = new Set([
   // and `perf` are the units this codebase measures in, and `strongest` is a
   // regular superlative the 1934 list simply does not carry.
   "online", "primaries", "fps", "perf", "strongest",
+  // The name of the tool this codebase shells out to for every audio
+  // conversion. A variable holding its path can only be called this: any
+  // synonym would hide which binary is being run.
+  "ffmpeg",
   // A dictionary hole, not jargon. `/usr/share/dict/words` is a 1934 legacy and
   // does not carry words today's English uses without thinking: `entries`
   // (Object.entries) is as English as `entry`, which it does carry. Same for
@@ -146,6 +150,8 @@ export const PROJECT_WORDS = new Set([
   // in `state-dir-single-door.test.ts`, where the whole point of the constant is
   // to name the SHAPE of a read the gate must catch.
   "destructure",
+  "uninstall", // plain English the Webster list predates; `hooks:uninstall`, `uninstallFakeWindow`
+  "glob", "globs", // the file-pattern term (`SERIAL_GLOBS`), older than any dictionary that would carry it
   // Same hole again: `exec` is how every programmer says "execute" (exec,
   // execSync, execve) and the 1934 list has none of them. It arrived with
   // `onToolExecStart`, the signal that tells a tool ANNOUNCED apart from a
@@ -162,6 +168,13 @@ export const PROJECT_WORDS = new Set([
   // `lifecycle` is the standard word for the mount/unmount arc - it already
   // names `useTerminalLifecycle.ts`. Neither is in the 1934 list.
   "dialog", "lifecycle",
+  // The boundary this repository defends and the directory it defends it
+  // against. `allowlist` is the word every comment in
+  // `services/known-project-dirs.ts` already uses for the set of project
+  // directories a client path is judged against, and `ssh` names the folder
+  // (`~/.ssh`) the gate exists to keep out: a fixture called anything else
+  // would stop naming the case it reproduces.
+  "allowlist", "ssh",
 
   // the product and its parts. "org" is the schema's own word, not an
   // abbreviation someone chose in passing: the tables are `orgs` and

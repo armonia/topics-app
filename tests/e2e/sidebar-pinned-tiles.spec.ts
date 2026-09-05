@@ -62,11 +62,26 @@ async function gotoSidebar(page: Page): Promise<void> {
  *  sulla stessa macchina e legge lo stesso disco, quindi un endpoint apposta
  *  sarebbe superficie in produzione che esiste solo per i test. Un PNG 1×1
  *  basta — il server serve il file, non lo giudica. */
-function mkdirWithIcon(dir: string): void {
+/** IT RETURNS THE PATH THE SERVER WILL USE, which is not always the one asked
+ *  for. `POST /api/topics` runs the incoming `projectPath` through
+ *  `canonicalProjectPath` (server/lib/canonical-project-path.ts, 02/09), and on
+ *  macOS `/tmp` is a symlink to `/private/tmp`: the directory only gets
+ *  resolved once it EXISTS, which is exactly what this helper just did. So a
+ *  topic created here lands under `/private/tmp/<dir>` while a pin key written
+ *  as `project:/tmp/<dir>` names a project that owns nothing.
+ *
+ *  That mismatch is not visible on screen: the pinned block SEEDS a row for any
+ *  pinned project key, the name is the basename and the favicon is fetched by
+ *  path, so the tile looks right and simply never opens. It cost TILE-32 a red
+ *  on a clean tree (`pinned-expand-hint` expected 1, found 0, card
+ *  b5bdd770): the tile had no children because the chat was hanging off the
+ *  other spelling of the same directory. Callers pin what comes back. */
+function mkdirWithIcon(dir: string): string {
   const PNG_1x1 =
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(`${dir}/favicon.png`, Buffer.from(PNG_1x1, "base64"));
+  return fs.realpathSync(dir);
 }
 
 const section = (page: Page): Locator => page.getByTestId("sidebar-pinned-section");
@@ -2166,8 +2181,7 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     // distinguibili. Che il titolo se ne vada quando la tessera si stringe fino
     // a diventare un quadrato lo difende TILE-26: la regola e' la forma della
     // tessera, non la presenza dell'icona.
-    const conIcona = "/tmp/e2e-tile-favicon";
-    mkdirWithIcon(conIcona);
+    const conIcona = mkdirWithIcon("/tmp/e2e-tile-favicon");
     const proj = await createTopic(request, `E2E-Fit-Proj-${Date.now()}`, { projectPath: conIcona });
     created.push(proj.id);
     await setPins(page, [pin.id, `project:${conIcona}`]);
@@ -2246,8 +2260,7 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     // identica tessera torna una riga e il titolo si legge. Si misura la
     // STESSA cosa nelle due forme, cambiando solo quante ne stanno in riga:
     // cosi' il test parla della soglia e non di due tessere diverse.
-    const conIcona = "/tmp/e2e-tile-soglia";
-    mkdirWithIcon(conIcona);
+    const conIcona = mkdirWithIcon("/tmp/e2e-tile-soglia");
     const proj = await createTopic(request, `E2E-Soglia-Proj-${Date.now()}`, { projectPath: conIcona });
     created.push(proj.id);
     const chiaveProj = `project:${conIcona}`;
@@ -2313,8 +2326,7 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     // due messi insieme, e l'icona finiva fuori asse di mezzo chevron piu'
     // mezzo spazio — misurati 8px su una tessera larga 56,5. Qui si misura la
     // sola cosa che conta: il centro dell'icona contro il centro della tessera.
-    const conIcona = "/tmp/e2e-tile-centro";
-    mkdirWithIcon(conIcona);
+    const conIcona = mkdirWithIcon("/tmp/e2e-tile-centro");
     const chat = await createTopic(request, `E2E-Centro-Chat-${Date.now()}`, { projectPath: conIcona });
     created.push(chat.id);
     const chiaveProj = `project:${conIcona}`;
@@ -2468,8 +2480,7 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     // Non si campiona UN istante — un lampo di un frame passerebbe liscio. Si
     // registra ogni frame dall'inizio del documento e si guarda l'INSIEME degli
     // stati attraversati: se e' uno solo, non c'e' stato nessun salto.
-    const conIcona = "/tmp/e2e-tile-lampo";
-    mkdirWithIcon(conIcona);
+    const conIcona = mkdirWithIcon("/tmp/e2e-tile-lampo");
     const proj = await createTopic(request, `E2E-Lampo-Proj-${Date.now()}`, { projectPath: conIcona });
     created.push(proj.id);
     const chiaveProj = `project:${conIcona}`;

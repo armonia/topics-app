@@ -5,10 +5,10 @@ interface ToggleRowProps {
   description?: string;
   value: boolean;
   onChange: (v: boolean) => void;
-  /** Turns the switch off for real: out of the tab order, Space inert, state
-   *  exposed to assistive tech. It also dims the label so the row reads as off.
-   *  An `opacity-50 pointer-events-none` wrapper is NOT enough: the button stays
-   *  focusable and keyboard-toggleable, and `aria-checked` changes without ever
+  /** Switches the toggle off for real: out of the tab order, Space inert, state
+   *  exposed to AT. It also dims the label so the row reads as off. A wrapper
+   *  `opacity-50 pointer-events-none` is NOT enough: the button stays focusable
+   *  and switchable from the keyboard, and `aria-checked` changes without
    *  saying it is disabled. */
   disabled?: boolean;
 }

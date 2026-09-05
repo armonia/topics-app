@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { clearAskDraft, readAskDraft, writeAskDraft } from './askDraft';
-import { HelpCircle, Send, Loader2, ChevronRight } from 'lucide-react';
+import { HelpCircle, Send, Loader2, ChevronRight, ArrowRight } from 'lucide-react';
 import type { ToolUserResponse, UserInputSchema, AskUserQuestionItem } from '../../types';
 import { isPlanApprovalSchema } from '../../../../shared/plan-decision';
 import { Select } from '../Shared/Select';
@@ -269,7 +269,7 @@ function QuestionsForm({
           {questions.slice(0, step).map((q, i) => (
             <div key={`${toolCallId}-recap-${i}`} className="truncate">
               <span className="uppercase tracking-wide">{q.header || `Domanda ${i + 1}`}</span>
-              <span className="mx-1.5">→</span>
+              <ArrowRight className="mx-1.5 inline-block w-3 h-3 align-[-2px]" aria-hidden="true" />
               <span className="text-app-text">{resolveAnswerFor(q) || '-'}</span>
             </div>
           ))}
