@@ -111,3 +111,34 @@ The system SHALL provide a cron jobs panel in the sidebar that lists scheduled j
 - **THEN** the system SHALL NOT send any requests to the cron jobs API
 - **AND** the auto-refresh interval SHALL NOT be started
 
+
+### Requirement: CRONUI-01 — I tre comandi di riga rispondono sullo schermo
+
+Accendere, eseguire e cancellare un job finivano tutti e tre in un
+`console.error`: su un rifiuto l'icona restava dov'era, la riga non si muoveva,
+e l'unica traccia era in una console che nessuno ha aperta. Chi ha premuto non
+poteva distinguere «è andata» da «il server ha detto di no», e le due mosse
+successive sono opposte.
+
+Un comando rifiutato SHALL lasciare sul pannello una superficie d'errore
+visibile, con la frase che il server ha mandato quando c'è.
+
+#### Scenario: la rotta di esecuzione rifiuta
+- **GIVEN** un job in elenco e la rotta `run` che risponde con un errore
+- **WHEN** si preme «Esegui adesso»
+- **THEN** SHALL comparire la banda d'errore del pannello
+
+### Requirement: CRONUI-01b — Un'esecuzione riuscita lascia un segno sulla riga
+
+`lastRunAt` arrivava dal server e veniva buttato via: la riga non aveva nessuno
+stato «eseguito», quindi un Play riuscito e un Play rifiutato lasciavano la
+stessa riga identica. È l'altra metà di CRONUI-01: senza un segno per il
+successo, l'assenza di segno non può significare fallimento.
+
+La riga di un job eseguito SHALL dire che è stato eseguito, e SHALL dirlo subito
+dopo il gesto e non al giro di aggiornamento successivo.
+
+#### Scenario: l'esecuzione riesce
+- **GIVEN** un job senza esecuzioni precedenti e la rotta `run` che accetta
+- **WHEN** si preme «Esegui adesso»
+- **THEN** la riga SHALL mostrare che il job è stato eseguito
