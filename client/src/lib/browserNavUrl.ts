@@ -109,8 +109,8 @@ export function toNavigableUrl(input: string): string {
 export function displayUrl(raw: string): string {
   const i = raw.indexOf('/api/media?path=');
   if (i === -1) return raw;
-  // Solo se `/api/media` è la ROTTA, non un pezzo di query di un altro sito:
-  // `https://tizio.it/x?u=/api/media?path=…` non è roba nostra.
+  // Only when `/api/media` IS the route, not a query fragment of some other
+  // site: `https://elsewhere.test/x?u=/api/media?path=…` is not ours.
   // The origin can be the server (`http://127.0.0.1:13333`) or the desktop
   // shell itself: `tauri://localhost` on macOS, `http://tauri.localhost` on
   // Windows and Linux. Read on 2026-09-04: the bar showed

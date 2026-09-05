@@ -69,6 +69,8 @@ import { startVisibilityGatedPoll } from '../lib/shell/visibilityPoll';
 import { NO_FAULT, recordPaneOk, recordPaneError, recreatePane, STRUCTURAL_COMMANDS, type FaultState } from '../lib/shell/browserPaneFault';
 import { attemptNativeOpen } from '../lib/shell/nativeBrowserOpen';
 import { normalizeUrl } from '@/lib/browserNavUrl';
+import { openLink } from '../lib/openLink';
+import { createPaneId } from '../state/pane/adapters';
 
 /** Off-screen X for parking a hidden native view far outside any display — keeps
  *  the webview alive (no reload) while hidden. We park at the last REAL size (not
@@ -1170,6 +1172,36 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         .catch(() => {});
     };
     const stopPoll = startVisibilityGatedPoll({ intervalMs: 1000, tick });
+    return () => {
+      stop = true;
+      stopPoll();
+    };
+  }, [id, ready]);
+
+  // A page asked for a new tab (`window.open`, `target="_blank"`). The Rust side
+  // no longer navigates this pane in place for it: that made the page the user
+  // was reading vanish, which `_blank` has never meant anywhere. It queues the
+  // request instead, and this drain turns it into what Chrome does: a SECOND tab
+  // in the same strip, beside the pane that asked for it.
+  //
+  // Same shape as the nav-error drain above: a pure mutex drain, no page eval,
+  // so it also works on a page that never finished loading. `openLink` does the
+  // rest, including deciding which surface hosts the tab.
+  useEffect(() => {
+    if (!ready) return;
+    let stop = false;
+    const tick = () => {
+      if (stop) return;
+      void tauriInvoke<Array<{ url: string }>>('browser_take_new_tabs', { id })
+        .then((events) => {
+          if (stop) return;
+          for (const e of events) {
+            if (e?.url) openLink(e.url, { nearPaneId: createPaneId('browser', id) });
+          }
+        })
+        .catch(() => {});
+    };
+    const stopPoll = startVisibilityGatedPoll({ intervalMs: 500, tick });
     return () => {
       stop = true;
       stopPoll();

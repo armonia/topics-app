@@ -9,7 +9,8 @@ import { enqueueFit, cancelFit } from '../../lib/staggeredFit';
 import { serverWsBase } from '../../lib/shell/net';
 import { isTauri } from '../../lib/shell';
 import { tauriInvoke } from '../../lib/shell/tauri';
-import { registerWrappedLinkProvider, openLinkExternally } from './wrappedLinkProvider';
+import { registerWrappedLinkProvider, openTerminalLink } from './wrappedLinkProvider';
+import { createPaneId } from '../../state/pane/adapters';
 import { signalsActions, useTerminalFinished, useTerminalReloading } from '../../state/signals';
 import { useTerminalRosterAuthoritative, useTerminalSessions } from '../../contexts/TopicsContext';
 import { shouldDeclareExpired } from '../../hooks/rosterTrust';
@@ -426,7 +427,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
         .catch(() => { /* DOM fallback */ });
     }
 
-    registerWrappedLinkProvider(term, openLinkExternally);
+    registerWrappedLinkProvider(term, (uri, ev) => openTerminalLink(uri, createPaneId('terminal', sessionId), ev));
 
     // Cmd+C (mac) or Ctrl+Shift+C: copy selection without sending SIGINT
     term.attachCustomKeyEventHandler((e: KeyboardEvent) => {

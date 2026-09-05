@@ -11,6 +11,7 @@
  * JSON. See `PARITY-01`.
  */
 import { ClampedPre, ResultPre } from './ToolCards';
+import { openLink, isExternalLinkGesture } from '../../lib/openLink';
 
 /** `SendMessage`: who wrote to whom. The body sits below, like every long row;
  *  the recipient goes on top, because that is what you scan for when rereading. */
@@ -59,6 +60,13 @@ export function ArtifactCard({ action, title, url, filePath, result }: {
       </div>
       {url && (
         <a href={url} target="_blank" rel="noreferrer"
+           onClick={(e) => {
+             // The published page opens as a tab of the Topics browser: it is
+             // the thing the reader wants to look at, and looking at it should
+             // not mean leaving the app.
+             e.preventDefault();
+             openLink(url, { external: isExternalLinkGesture(e), origin: e.target });
+           }}
            className="block break-all font-mono text-[11px] text-app-accent hover:underline">{url}</a>
       )}
       {result && <ResultPre text={result} />}
