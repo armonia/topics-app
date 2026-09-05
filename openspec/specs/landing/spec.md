@@ -209,6 +209,12 @@ SHALL decidere dove torna la card: i codici che descrivono una colpa del ramo
 un'istruzione di `git rebase main` — mai `git merge main` —; ogni altro codice,
 compreso uno sconosciuto, la lascia all'umano in `review`. «Non c'era niente da
 portare» e «il codice è fuori da `main`» NON SHALL essere la stessa risposta.
+Un ramo che non esiste più SHALL contare come «niente da portare» quando la card
+non ha MAI consegnato un commit: il 05/09/2026 la card 89a87bbf (un'analisi, il
+referto nel thread, ramo identico a `main` e potato dopo il primo land a vuoto)
+girava done → land → «ramo non confrontabile» → review a ogni approvazione, e
+nessuno poteva chiuderla. Con un commit di consegna registrato il ramo mancante
+SHALL restare un fallimento: è codice che può essere andato perso.
 
 Il land NON SHALL fare `push`: è un'operazione locale.
 
