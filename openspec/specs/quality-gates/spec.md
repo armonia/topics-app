@@ -548,6 +548,17 @@ Uno shard rosso SHALL stampare il comando che lo riproduce con la stessa lista
 nello stesso ordine: il piano cambia a ogni corsa, e un rosso che dipende dal
 raggruppamento senza la sua lista non si ricostruisce più.
 
+Le ULTIME righe del sommario SHALL nominare i test rossi (file e titolo, letti
+dal referto junit): il commento sulla card tiene solo la coda dell'output, e il
+05/09/2026 l'agente della card 7bbefd9e leggeva «test:unit exit 1» e doveva
+rifare lo shard per sapere quale test fosse rosso. Quando il referto non porta
+nessun test rosso — hook scaduto, crash, timeout di processo — il sommario
+SHALL dirlo, non tacere.
+
+#### Scenario: un test rosso in uno shard
+- **GIVEN** uno shard che esce 1 con un test case che porta `<failure>`
+- **THEN** il sommario SHALL chiudersi con il nome di quel test, file e titolo
+
 #### Scenario: il file più lento va nel secchio più leggero
 - **GIVEN** durate note e N secchi
 - **THEN** ogni file SHALL comparire in un solo secchio, e il più lento nel secchio con meno carico
