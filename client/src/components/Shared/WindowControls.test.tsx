@@ -27,7 +27,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { ComponentType } from 'react';
-import { TOPICS_LABEL_MIN_PX, TOPICS_LABEL_MIN_W_WINDOWS } from '../../lib/shell/windowControlsGeometry';
+import { TITLE_INSET_PX, TITLE_INSET_WITH_CONTROLS } from '../../lib/shell/windowControlsGeometry';
 
 // ONE EXPORT IS OVERRIDDEN, and the rest of the facade is left ALONE. Faking the
 // host is not enough: `isTauriWindows` is a module CONSTANT, computed the first
@@ -99,7 +99,7 @@ describe('where they are mounted', () => {
   test('inside the Topics button wrapper, which is the positioning context', () => {
     const s = app();
     const wrapper = s.indexOf('ref={topicsMenuRef}');
-    const mount = s.indexOf('<WindowControls visible={showTopicsMenu} />');
+    const mount = s.indexOf('<WindowControls visible />');
     expect(wrapper).toBeGreaterThan(-1);
     expect(mount).toBeGreaterThan(wrapper);
     // The wrapper closes right after the mount: no other block between them, so
@@ -119,8 +119,8 @@ describe('where they are mounted', () => {
     for (const c of ['app-no-drag', 'relative', 'min-w-0']) expect(tag).toContain(c);
   });
 
-  test('the "Topics" label makes room for them, as it does for the traffic lights', () => {
-    expect(app()).toContain("(isTauriMac || isTauriWindows) && showTopicsMenu ? 'invisible' : ''");
+  test('the "Topics" label sits next to them, on both systems', () => {
+    expect(app()).toContain('isTauriMac || isTauriWindows ? TITLE_INSET_WITH_CONTROLS');
   });
 });
 
@@ -135,8 +135,8 @@ describe('where they are mounted', () => {
  * the anchor and the arithmetic has to be redone here first.
  */
 describe('the reserved room', () => {
-  test('the minimum width and its class say the same number', () => {
-    expect(TOPICS_LABEL_MIN_W_WINDOWS).toBe(`min-w-[${TOPICS_LABEL_MIN_PX}px]`);
+  test('the inset and its class say the same number', () => {
+    expect(TITLE_INSET_WITH_CONTROLS).toBe(`pl-[${TITLE_INSET_PX}px]`);
   });
 
   test('cells and anchor are the ones the arithmetic assumes', () => {
@@ -144,15 +144,13 @@ describe('the reserved room', () => {
     // 3 cells of 18 anchored at 6 = the group ends at 60 inside the wrapper.
     expect((html.match(/h-\[18px\] w-\[18px\]/g) || []).length).toBe(3);
     expect(html).toContain('left-[6px]');
-    expect(TOPICS_LABEL_MIN_PX).toBe(60);
+    expect(TITLE_INSET_PX).toBe(72);
   });
 
-  test('the label reserves it on Windows, and in BOTH states of the menu', () => {
+  test('the title wrapper reserves it whenever the commands are on screen', () => {
     const s = readFileSync(join(import.meta.dir, '..', '..', 'App.tsx'), 'utf8');
-    const label = s.slice(s.indexOf('>Topics</span>') - 400, s.indexOf('>Topics</span>'));
-    expect(label).toContain('isTauriWindows ? TOPICS_LABEL_MIN_W_WINDOWS');
-    // Not conditioned on the menu being open: a width that appears with the
-    // menu moves the chevron under the pointer that has just clicked it.
-    expect(label).not.toContain('showTopicsMenu ? TOPICS_LABEL_MIN_W_WINDOWS');
+    expect(s).toContain('isTauriMac || isTauriWindows ? TITLE_INSET_WITH_CONTROLS');
+    // Not conditioned on a menu: the commands are permanent now, so is the room.
+    expect(s).not.toContain('showTopicsMenu ? TITLE_INSET_WITH_CONTROLS');
   });
 });

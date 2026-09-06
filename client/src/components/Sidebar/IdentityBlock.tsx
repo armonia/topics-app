@@ -1,244 +1,215 @@
 /**
- * THE IDENTITY BLOCK, at the bottom of the column: three questions, one block.
+ * THE FOOT OF THE COLUMN: who is here, and one card that is you.
  *
- *   1. ME      who I am, what machine I am on, what is working right now
- *   2. ORGS    who I am with: one chip per organisation, with who is inside it
- *   3. FRIENDS who is around me: the faces of whoever is online now
+ * ── WHAT IT WAS, AND WHY IT CHANGED ─────────────────────────────────────────
+ * Three chips on one line, always the same three: me, my groups, my people.
+ * Each opened a dropdown of its own. It was a good answer to "what am I part
+ * of" and a poor one to what a person actually does with that corner of the
+ * screen, for two reasons that both come down to the same thing - it spent
+ * permanent room on answers that never change, and none on the one that does.
  *
- * NO ROWS, ONE BLOCK.
- * They used to be three strips with a grey thread between them and a fixed
- * height each. Three borders inside twenty pixels of height draw three boxes,
- * and three boxes stacked at the bottom of a column read as the status bars of
- * three different applications: the thread separated things that are already
- * separated by being on different lines, and in exchange it cut the bottom of
- * the column into slices.
+ *   · WHICH GROUPS I BELONG TO changes twice a year. It was holding a third of
+ *     the band's width to say "one", every day.
+ *   · WHO IS AROUND changes all morning, and it was compressed into a count
+ *     and two overlapped faces: a number cannot be greeted and cannot be
+ *     clicked, so the only thing to do with it was open a panel and read the
+ *     list underneath.
  *
- * Now there is no separator and the block sits immersed in the chrome: what
- * tells the three questions apart is the FIRST GLYPH of each one (your face,
- * the group logos, the people glyph), which is a stronger signal than a line
- * because it also says WHAT the row is about, not just where the previous one
- * ended.
+ * So the band is now the other way round: PEOPLE ARE CHIPS, one per person who
+ * is here (`friendChips`), on a row that scrolls sideways and DISAPPEARS when
+ * nobody is around; and everything that is stable - the account, the groups,
+ * the friends you have and the ones waiting for an answer, the commands of the
+ * column, the machine's own numbers - lives behind the USER CARD, which is the
+ * single door of this chrome (`ProfileMenu`).
  *
- * ONE LINE, THREE CHIPS, ALWAYS THE SAME THREE.
- * The three subjects are not three rows, and they are not a wrapping flow
- * either: they are three mini-cards on ONE line, at every sidebar width. The
- * wrapping flow was better than the three fixed rows it replaced, but it made
- * the band's own shape depend on the data: the same installation showed one
- * line or three depending on how many groups you had joined that week, and a
- * place whose SHAPE changes is a place you have to re-read every time instead
- * of glancing at. One line is what makes the band a place.
+ * ── THE CARD SHOWS WHAT THE MACHINE IS SPENDING ─────────────────────────────
+ * The card carries your face, your FIRST NAME and the load: megabytes, CPU, and
+ * the dot whose colour is the verdict. The surname is dropped on purpose - it
+ * is the half that truncates anyway in a 240px column, and it is on the account
+ * block one click away. The numbers are the ones that used to sit next to the
+ * word «Topics» at the top of the column and, before that, in a strip of
+ * eleven-pixel digits down here: they come back to the foot of the column
+ * because this is the card you glance at, and «is it fine» is the question that
+ * gets asked all day.
  *
- * The line holds because each subject knows what to give up: the name of
- * whoever is logged in truncates (it is the only elastic thing here), and the
- * groups are ONE card however many they are. Nothing is hidden without a mark
- * saying so.
- *
- * IT DOES NOT WRAP AND IT DOES NOT SCROLL.
- * The organisation chips used to sit on a row that scrolled sideways, then on
- * one that wrapped, then on one that showed two of them and a `+n`. A
- * horizontal scroll inside a 240px column is content hidden with nothing to say
- * so: the fourth group exists only if it occurs to you to drag. The `+n` said
- * so out loud and still left the subject changing width with the data. The
- * answer is the single card: it says how many groups are behind it, and it
- * opens all of them in one panel.
- *
- * AND THE THREE CARDS ARE AS BIG AS THE TABS ABOVE THEM.
- * The band used to be built on a 24px floor of its own while a pinned tile one
- * row up is 34. Ten pixels of difference between the last row of the column and
- * the rows above it is what made the band read as a strip glued underneath
- * rather than as the foot of the same column. The measure now comes from the
- * same constant the tiles use (`ROW_H`, via `identityChip.ts`).
- *
- * FULL AND EMPTY ARE TOLD APART BY THE CHIP, NOT BY ABSENCE.
- * A subject with nothing in it is drawn as an outlined chip instead of
- * disappearing (`identityChip.ts` holds the recipe). The groups chip used to
- * not render at all at zero, which is how "which groups am I in" ended up
- * unanswerable for whoever was in none. Three slots, always three, and one
- * glance counts the filled ones.
- *
- * EVERY THING OPENS ITS OWN PANEL.
- * Each chip opens a dropdown (`PresencePopover`) instead of jumping straight to
- * a page. The immediate jump forced a whole screen change to answer small
- * questions ("who is in this group?", "how many machines have I authorised?")
- * and then a trip back. The panel answers on the spot and keeps the link to the
- * page at its bottom, for when the question really is a big one: the shortcut
- * survives, it just stops being the only road.
- *
- * FRIENDS IS ALWAYS THERE, EVEN AT ZERO.
- * It used to disappear when you knew nobody. A row that exists only when it has
- * good news is a row whose place nobody learns, and above all it leaves "but
- * where is this friends thing?" unanswered for the very person who has nobody
- * yet, that is, the only one who needs to get in to begin. Now it stays, it
- * says zero, and its panel explains where the people come from.
+ * The work signals (agents running, turns waiting) went the other way, INTO the
+ * menu: two families of digits in one 240px row is the pile this redesign was
+ * called in to undo, and the sentence that explains them was always in the
+ * panel anyway.
  */
-import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
-import { Bot, Building2, ChevronRight, Hourglass, ListChecks, MessagesSquare, Monitor, Smartphone, UserRound, Users } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Monitor, Smartphone } from 'lucide-react';
 import { getSession, subscribeSession, type SessionState } from '@/lib/auth/session';
 import { etichettaIdentita } from './identityLabel';
-import { useIdentityPresence, type OrgWithPresence } from '@/hooks/useIdentityPresence';
+import { useIdentityPresence } from '@/hooks/useIdentityPresence';
 import { usePresenceSummary } from '@/hooks/usePresenceSummary';
-import { apriProfilo, openPersonProfile } from '@/state/profileTarget';
-import { mergeFaces, mergePeople, type PresenceFace, type PresenceRow } from './orgPresence';
-import { IDENTITY_GLYPH_BOX, IDENTITY_GLYPH_INK, ROW_INSET, TIER_DONE_TEXT } from '@/lib/selectionStyles';
-import { CHIP_INK_DIM, ORG_MARKS_IN_CHIP, SUBJECT_FLOOR, chipClass } from './identityChip';
-import { PALLINO_OK, SEGNALE_ATTESA, SEGNALE_OK } from './chromeSignals';
-import { POPOVER_ITEM } from '@/lib/popoverStyles';
-import { PresencePopover } from './PresencePopover';
-// THE ACCOUNT PANEL IS LAZY: it is the content of a popover that opens on a
-// click, so nothing of it is on screen at first paint, yet as a static import
-// it sat in the eager entry with `useAccountLink` and the account state behind
-// it (measured 2026-09-03: 6.9 KB raw of the entry chunk, paid by every
-// session, including the ones that never open the chip). The named re-export
-// keeps `check:deadcode-blindspots` able to see which export is used; the
-// prefetch on hover/focus is the same trick the system status panel used, so
-// the popover still opens full on the first click instead of empty.
-const importAccountPanel = async () => {
-  const { AccountPanel: Component } = await import('./AccountPanel');
-  return { default: Component };
-};
-const AccountPanel = lazy(importAccountPanel);
-let accountPanelPrefetched = false;
-function prefetchAccountPanel(): void {
-  if (accountPanelPrefetched) return;
-  accountPanelPrefetched = true;
-  importAccountPanel().catch(() => { accountPanelPrefetched = false; });
-}
+import { openPersonProfile } from '@/state/profileTarget';
+import { IDENTITY_GLYPH_BOX, IDENTITY_GLYPH_INK, ROW_INSET } from '@/lib/selectionStyles';
+import { chipClass } from './identityChip';
+import { PALLINO_OK } from './chromeSignals';
+import { ProfileMenu, type SidebarCommands } from './ProfileMenu';
+import { prefetchAccountPanel } from './accountPanelLazy';
+import { TopicsLoadDot } from './TopicsLoadDot';
+import { friendChips, firstName } from './friendChips';
 import { useFriendPresence } from '@/hooks/useFriendPresence';
-import { workSignals, type SignalKind } from './workSignals';
+import { workSignals } from './workSignals';
 import { useAgentActivityCounts } from '@/state/signals';
 import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
-import { openSettings } from '@/lib/openSettings';
+import { useLoad } from '@/state/systemLoad';
 import { useT } from '@/hooks/useT';
 
-/**
- * A subject on the line.
- *
- * The default is `flex: 0 1 auto` (grow no, shrink yes): a subject asks for
- * exactly its content and gives room back only when the line runs out. Who
- * gives it back FIRST is decided per subject, and the order matters:
- *
- *   1. "me" (`flex-1 basis-0`) asks for nothing and takes the leftover, so it
- *      is the first to yield and the name truncates;
- *   2. "people" yields next, and what it drops is its own word, not its count;
- *   3. the groups (`flex-none`) never yield: a squashed logo is not a smaller
- *      logo, it is an unrecognisable one.
- *
- * YIELDING STOPS AT THE CHIP'S OWN FLOOR. `min-w-0` says "shrink to nothing",
- * and a subject that takes that literally hands its chip a box smaller than
- * the chip's `min-width`: the chip then paints the difference over its
- * neighbour. So every subject that yields carries {@link SUBJECT_FLOOR}, which
- * is the chip's floor and not a second number. See the constant for the case
- * that proved it.
- */
-const SUBJECT = 'flex min-w-0 items-center';
-
-/** How many faces are shown before switching to a number. Past four they are
- *  indistinguishable dots, each as wide as the word that would count them. */
-const MAX_FACCE = 4;
-
-/** In the group chip the faces share a line with two other subjects now, so
- *  the six that fitted while the chip could wrap became the reason the row
- *  could not hold. Two faces and a count: the count is the part that stays
- *  true past two anyway. */
-const MAX_FACCE_ORG = 2;
-
-export function IdentityBlock({ onOpenDevices }: { onOpenDevices?: () => void }) {
-  const presenza = useIdentityPresence();
+export function IdentityBlock({ onOpenDevices, commands, alarm = false }: {
+  onOpenDevices?: () => void;
+  commands: SidebarCommands;
+  /** Something that cannot wait behind a gesture: the websocket is down, or
+   *  there is a notice on the data. It rides on the card's dot. */
+  alarm?: boolean;
+}) {
+  const presence = useIdentityPresence();
+  const friends = useFriendPresence();
+  const chips = friendChips(friends.rows);
   return (
-    // `flex-nowrap` is the whole promise of the band, and `overflow-hidden` is
-    // what makes it a promise instead of a hope: if a subject ever refuses to
-    // shrink, the column must not grow a horizontal scrollbar to accommodate
-    // it. The e2e measures both (same top within 1px, scrollWidth == clientWidth).
-    //
-    // ONE INSET ON ALL THREE SIDES. The band is the last thing in the column,
-    // so its bottom gap is read against its own left and right gaps, side by
-    // side, and any difference shows. It used to be `pb-1` (4px) plus the
-    // inset of the wrapper in `SidebarStatusBar`, and a wrapper's padding
-    // stacks on the child's: measured 2026-08-31, 6px at the sides against
-    // 10px underneath. `ROW_INSET` is that one number, and it lives here so
-    // nothing can add a second one on top of it.
+    // ONE INSET ON ALL THREE SIDES. This is the last thing in the column, so
+    // its bottom gap is read against its own left and right gaps, side by side,
+    // and any difference shows. `ROW_INSET` is that one number, and it lives
+    // here so nothing can add a second one on top of it.
     <div
       data-testid="identity-block"
-      className="@container/identity flex flex-nowrap items-center gap-1 overflow-hidden text-[11px]"
+      className="flex flex-col gap-1 text-[11px]"
       style={{ paddingInline: ROW_INSET, paddingBottom: ROW_INSET }}
     >
-      <RigaIo presenza={presenza} onOpenDevices={onOpenDevices} />
-      <RowOrgs orgs={presenza.orgs} />
-      <RigaAmici />
+      <FriendChipsRow chips={chips} />
+      <UserCard
+        presence={presence}
+        friends={friends}
+        commands={commands}
+        onOpenDevices={onOpenDevices}
+        alarm={alarm}
+      />
     </div>
   );
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
- * 1. IO
+ * 1. WHO IS HERE
  * ────────────────────────────────────────────────────────────────────────── */
 
 /**
- * EVERYTHING ABOUT ME, in one chip.
+ * ONE CHIP PER PERSON WHO IS AROUND, and the row scrolls.
  *
- * The face and the name are the subject; the machine is the detail; what is
- * running closes the chip as GLYPHS AND DIGITS, not as a sentence. The phrase
- * ("3 al lavoro / 12 aperte" allow-italian: it is the string the bar showed)
- * said the same three words every day and pushed
- * the name into an ellipsis to do it: the digits are the part that changes, and
- * they arrived last, so they were the first to be cut. Now the sentence is the
- * tooltip and the panel, and the chip carries the numbers.
+ * A horizontal scroll normally hides content with nothing to say so, which is
+ * the exact argument that took the organisation chips off a scrolling row a
+ * month ago. It is the right shape HERE because the subject is different: the
+ * groups were a CLOSED set that had to be countable at a glance (a fourth group
+ * you only find by dragging is a group you do not know you are in), while the
+ * people around you are an open, changing list whose first faces are the answer
+ * and whose tail is "and some others". The same list, complete and named, is
+ * one click below in the menu.
  *
- * THESE NUMBERS ARE THE ONES THE STATUS BAR USED TO SHOW. The robot and the
- * hourglass were down there, one strip below, next to the megabytes: two places
- * counting the same fleet, and neither of them next to the person the fleet
- * belongs to. They moved up here, and the bar below lost them for good rather
- * than keeping a second copy.
- *
- * The device count is not on the chip: it lives in the panel, because "2/3"
- * next to a phone glyph was the piece that had to be explained every time.
+ * IT IS NOT THERE WHEN NOBODY IS. The old chips stayed at zero so their place
+ * could be learned; this row is not the only way in, so a permanent strip
+ * saying "nobody" would be reserving daily space for the emptiest sentence in
+ * the app.
  */
-function RigaIo({ presenza, onOpenDevices }: {
-  presenza: ReturnType<typeof useIdentityPresence>;
+function FriendChipsRow({ chips }: { chips: ReturnType<typeof friendChips> }) {
+  if (chips.length === 0) return null;
+  return (
+    <div
+      data-testid="friend-chips"
+      // `overflow-x-auto` with `scrollbar-hide`: the bar itself would be a
+      // permanent grey line under the last row of the column, and the content
+      // it would describe is faces that are already cut in half at the edge.
+      className="flex flex-nowrap items-center gap-1 overflow-x-auto scrollbar-hide"
+    >
+      {chips.map((c) => (
+        <button
+          key={c.id}
+          type="button"
+          data-testid="friend-chip"
+          onClick={() => openPersonProfile(c.id)}
+          className={`${chipClass(true)} flex-none max-w-[120px]`}
+          title={c.fullName}
+          aria-label={c.fullName}
+        >
+          <span className={`relative flex ${IDENTITY_GLYPH_BOX} flex-shrink-0 items-center justify-center`}>
+            {c.avatarUrl
+              ? <img src={c.avatarUrl} alt="" className="h-full w-full rounded-full object-cover" />
+              : <span className="flex h-full w-full items-center justify-center rounded-full bg-primary/20 text-[7px] font-semibold leading-none text-app-text">
+                  {c.initials}
+                </span>}
+            {/* THE STATE, on the face and not beside it: everybody on this row
+                is here, so the dot is not distinguishing one chip from
+                another - it is saying what the row MEANS, and it has to be
+                readable on a chip that is otherwise just a face and a name. */}
+            <span className={`absolute -bottom-px -right-px h-1.5 w-1.5 rounded-full ring-1 ring-app-chrome ${PALLINO_OK}`} />
+          </span>
+          <span className="truncate text-app-text">{c.name}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * 2. YOU, AND EVERYTHING BEHIND YOU
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * THE CARD: your face, your name, what the machine is spending.
+ *
+ * It is the only permanent control of this chrome, so it holds the three things
+ * that have to be true without opening anything - you are signed in, as whom,
+ * and the machine is fine - and it opens the one menu that holds the rest.
+ */
+function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
+  presence: ReturnType<typeof useIdentityPresence>;
+  friends: ReturnType<typeof useFriendPresence>;
+  commands: SidebarCommands;
   onOpenDevices?: () => void;
+  alarm: boolean;
 }) {
   const tr = useT();
   // `getSession`, not «loading»: the store may already know (last answer kept
-  // on this device), and a first frame without the chip is the shift the
-  // cache exists to remove.
+  // on this device), and a first frame without the card is the shift the cache
+  // exists to remove.
   const [session, setSession] = useState<SessionState>(getSession);
-  const [ferri, setFerri] = useState<{ connessi: number; totali: number } | null>(null);
-  const [aperto, setAperto] = useState(false);
-  const [chip, setChip] = useState<HTMLButtonElement | null>(null);
+  const [devices, setDevices] = useState<{ connected: number; total: number } | null>(null);
+  const [open, setOpen] = useState(false);
+  const [card, setCard] = useState<HTMLButtonElement | null>(null);
   const { counts, summary } = usePresenceSummary();
   const agentCounts = useAgentActivityCounts(useTerminalSessions(), useTopics());
+  const load = useLoad();
   useEffect(() => subscribeSession(setSession), []);
 
-  const chi = etichettaIdentita(presenza.io, session);
+  const who = etichettaIdentita(presence.io, session);
 
-  const caricaFerri = useCallback(async () => {
+  const readDevices = useCallback(async () => {
     try {
       const r = await fetch('/api/auth/devices', { credentials: 'same-origin' });
       if (!r.ok) return;
       const b = await r.json() as { devices: Array<{ connected: boolean; revokedAt: number | null }> };
-      const vivi = (b.devices ?? []).filter((d) => d.revokedAt === null);
-      setFerri({ connessi: vivi.filter((d) => d.connected).length, totali: vivi.length });
-    } catch { /* transient: the row keeps no count rather than lie about one */ }
+      const live = (b.devices ?? []).filter((d) => d.revokedAt === null);
+      setDevices({ connected: live.filter((d) => d.connected).length, total: live.length });
+    } catch { /* transient: the card keeps no count rather than lie about one */ }
   }, []);
 
   useEffect(() => {
-    const chiedi = () => { void caricaFerri(); };
+    const ask = () => { void readDevices(); };
     // After the first paint: nobody needs the device count in the first frame,
-    // and a synchronous state write on mount is exactly what
-    // `set-state-in-effect` flags.
-    const first = setTimeout(chiedi, 0);
-    window.addEventListener('topics:auth-pair-resolved', chiedi);
-    window.addEventListener('topics:auth-device-revoked', chiedi);
+    // and a synchronous state write on mount is what `set-state-in-effect` flags.
+    const first = setTimeout(ask, 0);
+    window.addEventListener('topics:auth-pair-resolved', ask);
+    window.addEventListener('topics:auth-device-revoked', ask);
     return () => {
       clearTimeout(first);
-      window.removeEventListener('topics:auth-pair-resolved', chiedi);
-      window.removeEventListener('topics:auth-device-revoked', chiedi);
+      window.removeEventListener('topics:auth-pair-resolved', ask);
+      window.removeEventListener('topics:auth-device-revoked', ask);
     };
-  }, [caricaFerri]);
+  }, [readDevices]);
 
   if (session.status !== 'paired') return null;
-  const locale = session.as === 'loopback';
-  const Ferro = locale ? Monitor : Smartphone;
+  const local = session.as === 'loopback';
+  const DeviceIcon = local ? Monitor : Smartphone;
 
   const awaitingDone = agentCounts ? agentCounts.awaiting - agentCounts.awaitingInput : 0;
   const signals = workSignals({
@@ -248,736 +219,80 @@ function RigaIo({ presenza, onOpenDevices }: {
     awaitingInput: agentCounts?.awaitingInput ?? 0,
     awaitingDone: awaitingDone > 0 ? awaitingDone : 0,
   });
-  // The whole story stays reachable on hover: the chip is the headline, this is
-  // the paragraph, and the panel below is the page.
-  const workStory = [
-    summary ?? '',
-    agentCounts && agentCounts.awaitingInput > 0 ? tr('statusBar.agents.awaitingInput', { n: agentCounts.awaitingInput }) : '',
+  const waiting = [
+    agentCounts && agentCounts.awaitingInput > 0
+      ? tr('statusBar.agents.awaitingInput', { n: agentCounts.awaitingInput }) : '',
     awaitingDone > 0 ? tr('statusBar.agents.toLookAt', { n: awaitingDone }) : '',
-  ].filter(Boolean).join('\n');
+  ].filter(Boolean);
 
   return (
-    // THE ONE ELASTIC SUBJECT. Everything on this line has a size it will not
-    // give up (a glyph, two faces, a digit) except the name, which is also the
-    // only thing here that reads fine half-shown. So "me" takes the leftover
-    // width and yields it back, in that order: `flex-1` with `basis-0` and
-    // `min-w-0`, i.e. it asks for nothing and accepts what is left. That is
-    // what keeps the other two on the line at 180px instead of pushing them off.
-    // `min-w-6` IS THE 24px TARGET, PUT ON THE PART THAT ACTUALLY SHRINKS.
-    // The floor was on the button alone, and a floor under the wrong box is not
-    // a floor: `basis-0` let THIS span be squeezed to nothing by the groups,
-    // while the button inside kept its 24px and simply painted outside its
-    // parent, straight over the next chip. Measured at 180px with four groups:
-    // the row was ~4px wide, the button drew 6..30, the groups opened at 10.
-    // An overlap reads as a pile, which is the exact failure the redesign was
-    // called in to fix, so the constraint belongs to the flex item that yields.
-    <span data-testid="identity-row-me" className={`${SUBJECT} ${SUBJECT_FLOOR} flex-1 basis-0`}>
+    <>
       <button
-        ref={setChip}
+        ref={setCard}
         data-testid="identity-me-profile"
-        onClick={() => setAperto((v) => !v)}
+        onClick={() => setOpen((v) => !v)}
         onPointerEnter={prefetchAccountPanel}
         onFocus={prefetchAccountPanel}
         aria-haspopup="dialog"
-        aria-expanded={aperto}
-        // NO negative margin. `-mx-1` cancelled the chip's own padding, so this
-        // subject started four pixels to the LEFT of the others. The hover
-        // surface it widened is worth less than the one edge every subject
-        // mark shares.
-        // Always FULL: if this chip is drawn at all you are paired, so this
-        // subject is never the empty one.
-        className={`${chipClass(true)} min-w-0 flex-1 text-left`}
-        title={[`${chi.nome}${chi.dettaglio ? ` \u00b7 ${chi.dettaglio}` : ''}`, workStory].filter(Boolean).join('\n')}
+        aria-expanded={open}
+        aria-label={who.nome}
+        // Always FULL: if this card is drawn at all you are paired.
+        className={`${chipClass(true)} w-full min-w-0 text-left`}
+        title={[`${who.nome}${who.dettaglio ? ` \u00b7 ${who.dettaglio}` : ''}`, summary ?? '', ...waiting].filter(Boolean).join('\n')}
       >
         {/* THE FACE, and only when there is a person: a disc holding the
-            initial of "This computer" would be a fake avatar.
-            THE SAME BOX AS THE OTHER TWO SUBJECTS: it was `h-4` against their
-            10px marks, which is three left edges instead of one. The box is
-            shared, the ink inside it is not. */}
+            initial of "This computer" would be a fake avatar. */}
         <span data-testid="identity-glyph" className={`flex ${IDENTITY_GLYPH_BOX} flex-shrink-0 items-center justify-center`}>
-          {chi.personale
-            ? (chi.avatarUrl
-                ? <img src={chi.avatarUrl} alt="" className="h-full w-full rounded-full object-cover" />
-                : <span className="flex h-full w-full items-center justify-center rounded-full bg-primary text-[7px] font-semibold leading-none text-white">{chi.iniziali}</span>)
-            : <Ferro size={IDENTITY_GLYPH_INK} className="text-app-text-secondary" />}
+          {who.personale
+            ? (who.avatarUrl
+                ? <img src={who.avatarUrl} alt="" className="h-full w-full rounded-full object-cover" />
+                : <span className="flex h-full w-full items-center justify-center rounded-full bg-primary text-[7px] font-semibold leading-none text-white">{who.iniziali}</span>)
+            : <DeviceIcon size={IDENTITY_GLYPH_INK} className="text-app-text-secondary" />}
         </span>
-        <span className="truncate text-app-text">{chi.nome}</span>
-        {/* WHAT IS RUNNING, in glyphs. `workSignals` decides which three:
-            what is alive first, the inventory last, zeros never. */}
-        {signals.length > 0 && (
-          // WHAT YIELDS WHEN THE COLUMN IS NARROW. The glyph and these signals
-          // are the only parts of the chip that refuse to shrink, so on a 180px
-          // column they kept drawing their full width straight over the groups
-          // chip: 84px of spill, measured. The name truncating is not enough
-          // give, because the floor is the chip's own 24px target.
-          // The threshold is the band's own width, not the window's, and 300 is
-          // measured rather than chosen: the band is the sidebar less the 6px
-          // inset each side, so the three test widths give 168, 244 and 388. At
-          // 244 the chip is still 10px short of holding glyph, a name clipped
-          // to its ellipsis, the signals and the two other subjects. 388 has
-          // the room with a margin. Anything under 300 is the narrow case.
-          // So below a band of 300px the signals go, and they are the right
-          // thing to lose: the subject of this chip is WHO you are, the numbers
-          // are what is running, and they are already in the tooltip and in the
-          // panel the chip opens. Losing them costs a hover; losing the line
-          // costs the glance the whole band exists for.
-          <span
-            data-testid="presence-summary"
-            className="ml-auto hidden flex-shrink-0 items-center gap-1.5 tabular-nums @[300px]/identity:flex"
-          >
-            {signals.map((s) => <Signal key={s.kind} kind={s.kind} n={s.n} />)}
-          </span>
-        )}
+        {/* THE FIRST NAME. The whole name is on the tooltip, on the accessible
+            name and in the account block: what the card gives up is the half a
+            240px column truncates anyway. */}
+        <span data-testid="identity-name" className="truncate text-app-text">
+          {who.personale ? firstName(who.nome) : who.nome}
+        </span>
+        {/* WHAT THE MACHINE IS SPENDING, and the dot that judges it. The dot
+            owns the sampling (it is the single publisher of the load) and
+            carries the alarm when the transport is down. */}
+        <span
+          data-testid="metrics-total"
+          className="ml-auto flex flex-shrink-0 items-center gap-1 text-app-text-secondary tabular-nums"
+        >
+          {load?.totalMB != null && <span>{load.partial ? '~' : ''}{formatMB(load.totalMB)}</span>}
+          {load?.totalCpu != null && <span>{Math.round(load.totalCpu)}%</span>}
+        </span>
+        <TopicsLoadDot alarm={alarm} />
       </button>
 
-      {aperto && (
-        <PresencePopover
-          anchorEl={chip}
-          onClose={() => setAperto(false)}
-          testId="identity-me-panel"
-          // WIDER THAN ITS SIBLINGS, and only this one. The other two panels
-          // hold a list of names; this one holds an email field and a code
-          // field, and at 244px an address types itself into a two-word
-          // window. The width is the panel's own argument, not a new number
-          // for the band.
-          width={288}
-          titolo={
-            <>
-              <UserRound size={12} className="flex-shrink-0 text-app-text-muted" />
-              {/* THE PANEL SAYS ITS SUBJECT, not the name that is already on
-                  the chip that opened it and on the card right below. A title
-                  bar repeating the row underneath is the "text for the sake of
-                  text" this redesign was called in to remove. */}
-              <span className="truncate">{tr('statusBar.account.title')}</span>
-            </>
-          }
-        >
-          <Suspense fallback={null}>
-            <AccountPanel
-              who={chi}
-              DeviceIcon={Ferro}
-              facts={{
-                device: chi.dettaglio,
-                now: summary ?? null,
-                devices: ferri ? { connected: ferri.connessi, total: ferri.totali } : null,
-                waiting: [
-                  agentCounts && agentCounts.awaitingInput > 0
-                    ? tr('statusBar.agents.awaitingInput', { n: agentCounts.awaitingInput }) : '',
-                  awaitingDone > 0 ? tr('statusBar.agents.toLookAt', { n: awaitingDone }) : '',
-                ].filter(Boolean),
-              }}
-              doors={
-                <>
-                  <Azione onClick={() => { setAperto(false); apriProfilo('profile'); }} testId="identity-me-open-profile">
-                    {tr('statusBar.me.openProfile')}
-                  </Azione>
-                  {onOpenDevices && (
-                    <Azione onClick={() => { setAperto(false); onOpenDevices(); }} testId="identity-me-devices">
-                      {tr('statusBar.devicesTitle')}
-                    </Azione>
-                  )}
-                </>
-              }
-            />
-          </Suspense>
-        </PresencePopover>
-      )}
-    </span>
-  );
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
- * 2. ORGANIZZAZIONI
- * ────────────────────────────────────────────────────────────────────────── */
-
-/**
- * THE GROUPS ARE ONE CARD, whatever their number.
- *
- * There used to be ONE CHIP PER GROUP, up to two, and a `+n` chip for the rest.
- * The argument for it was presence: with two organisations "3 online" does not
- * say which group those three are in, and that is the first thing anyone wants
- * to know. The argument still holds, and it was answered in the wrong place.
- * Putting it on the LINE made this subject the only one whose width depends on
- * the data: one card, two cards, two cards and a counter, three different feet
- * of the column for the same installation on three different weeks. The band
- * exists to be glanced at, and you cannot glance at a shape that moves.
- *
- * So: one slot for the subject "the groups I am in", exactly like the one slot
- * for "me" and the one slot for "my people". The marks stack inside it, the
- * number rides along, and WHICH group each person belongs to is answered by the
- * panel, one section per group. That answer got better in the move: it used to
- * take one click per chip to compare two groups, and the chips past the second
- * did not have a panel of their own at all.
- *
- * AND IT IS THERE AT ZERO. It used to return null with no groups, which made
- * the band two chips wide and left the third question unasked. Now the subject
- * holds its slot as an outlined chip that opens the panel explaining what an
- * organisation is and how you end up in one: same reason the people chip stays
- * at zero, and the same person is the one who needs it.
- */
-function RowOrgs({ orgs }: { orgs: OrgWithPresence[] }) {
-  // No leading glyph any more: it was there to tell one ROW from the next, and
-  // there are no rows left. Alignment survives without it: every subject now
-  // opens with a mark of the same IDENTITY_GLYPH_BOX size (the face, a group
-  // logo, the people sign) sitting inside a chip with the same padding, so
-  // the left edges agree by construction instead of by hand-tuned margins.
-  return (
-    <span data-testid="identity-row-orgs" className={`${SUBJECT} flex-none`}>
-      {orgs.length === 0 ? <EmptyOrgChip /> : <OrgsChip orgs={orgs} />}
-    </span>
-  );
-}
-
-/**
- * NO GROUPS: the slot stays, drawn as an outline, and it is the only place in
- * the product that answers "what is an organisation" to somebody who is in
- * none. Before, it answered by not being there.
- */
-function EmptyOrgChip() {
-  const tr = useT();
-  const [aperto, setAperto] = useState(false);
-  const [chip, setChip] = useState<HTMLButtonElement | null>(null);
-  return (
-    <>
-      <button
-        ref={setChip}
-        data-testid="org-chip-empty"
-        onClick={() => setAperto((v) => !v)}
-        aria-haspopup="dialog"
-        aria-expanded={aperto}
-        className={`${chipClass(false)} justify-center text-app-text-secondary`}
-        title={tr('statusBar.orgs.noneTitle')}
-      >
-        <span data-testid="identity-glyph" className={`flex ${IDENTITY_GLYPH_BOX} flex-shrink-0 items-center justify-center`}>
-          <Building2 size={IDENTITY_GLYPH_INK} />
-        </span>
-        <span className="flex-shrink-0 tabular-nums">0</span>
-      </button>
-
-      {aperto && (
-        <PresencePopover
-          anchorEl={chip}
-          onClose={() => setAperto(false)}
-          testId="org-empty-panel"
-          titolo={
-            <>
-              <Building2 size={12} className="flex-shrink-0 text-app-text-muted" />
-              <span className="truncate">{tr('statusBar.orgs.noneTitle')}</span>
-            </>
-          }
-        >
-          <div className="px-3 py-2 text-[11px] text-app-text-secondary">
-            {tr('statusBar.orgs.noneHint')}
-          </div>
-          <div className="border-t border-app-border py-1">
-            <Azione onClick={() => { setAperto(false); openSettings('organization'); }} testId="org-empty-manage">
-              {tr('statusBar.orgs.manageAll')}
-            </Azione>
-          </div>
-        </PresencePopover>
+      {open && (
+        <ProfileMenu
+          anchorEl={card}
+          onClose={() => setOpen(false)}
+          who={who}
+          DeviceIcon={DeviceIcon}
+          facts={{
+            device: who.dettaglio,
+            now: summary ?? null,
+            devices,
+            waiting,
+          }}
+          orgs={presence.orgs}
+          friends={friends}
+          signals={signals}
+          commands={commands}
+          onOpenDevices={onOpenDevices}
+        />
       )}
     </>
   );
 }
 
-/**
- * EVERY GROUP YOU ARE IN, in one card.
- *
- * What the card carries, in order of how much it changes: the marks (two, then
- * the count), and the faces of whoever is around ACROSS the groups. The faces
- * are deduplicated by `unisciFacce`, because the same colleague in two of your
- * organisations is one person online, not two, and a band that counts them
- * twice is a band whose numbers you stop trusting.
- *
- * The count of the groups is drawn only past one: `1` next to a single logo is
- * a digit that answers a question nobody asked, and the logo is already the
- * whole answer at that size.
- */
-function OrgsChip({ orgs }: { orgs: OrgWithPresence[] }) {
-  const tr = useT();
-  const [aperto, setAperto] = useState(false);
-  const [chip, setChip] = useState<HTMLButtonElement | null>(null);
-  const faces = mergeFaces(orgs.map((o) => o.faces));
-  const people = mergePeople(orgs.map((o) => o.people));
-  const online = people.filter((p) => p.presente).length;
-  const sola = orgs.length === 1 ? orgs[0] : null;
-  return (
-    <>
-      <button
-        ref={setChip}
-        data-testid="org-chip"
-        onClick={() => setAperto((v) => !v)}
-        aria-haspopup="dialog"
-        aria-expanded={aperto}
-        // A group you are in is a FULL chip even with nobody online: what the
-        // fill answers is "am I in a group", and the faces answer the other
-        // question inside it.
-        className={`${chipClass(true)} justify-center text-app-text-secondary`}
-        title={[
-          orgs.map((o) => o.nome).join('\n'),
-          online > 0 ? tr('statusBar.orgs.presence', { n: online, tot: people.length }) : '',
-        ].filter(Boolean).join('\n')}
-      >
-        {/* The marks, stacked the way the faces are: past the second they
-            would be discs nobody can tell apart, and the count says the same
-            thing in less room. */}
-        <span className="flex flex-shrink-0 items-center">
-          {orgs.slice(0, ORG_MARKS_IN_CHIP).map((o, i) => (
-            <span key={o.id} className={i > 0 ? '-ml-1.5 rounded-full ring-1 ring-app-chrome' : ''}>
-              <Logo org={o} size={3.5} />
-            </span>
-          ))}
-        </span>
-        {orgs.length > 1 && (
-          <span data-testid="org-chip-count" className="flex-shrink-0 tabular-nums">{orgs.length}</span>
-        )}
-        {/* Only the faces, and only when there are any. Nobody online is said
-            by the chip being just its marks: an empty chip is already the
-            answer, and it costs no word to read.
-            Below `@[300px]` the faces go, at the SAME width where the "me" chip
-            drops its work signals. One threshold, not two: both are presence
-            DETAIL on top of an identity that has to stay readable, so they
-            leave together, and the band narrows by losing one class of thing
-            instead of fraying a bit everywhere. What goes is never lost: the
-            popover this chip opens lists the people by name. */}
-        {online > 0 && (
-          <span data-testid="org-chip-online" className={`hidden flex-none items-center @[300px]/identity:flex ${SEGNALE_OK}`}>
-            <Facce faces={faces} max={MAX_FACCE_ORG} totale={online} />
-          </span>
-        )}
-      </button>
-
-      {aperto && (
-        <PresencePopover
-          anchorEl={chip}
-          onClose={() => setAperto(false)}
-          testId="org-panel"
-          titolo={
-            <>
-              {sola
-                ? <Logo org={sola} size={5} />
-                : <Building2 size={12} className="flex-shrink-0 text-app-text-muted" />}
-              <span className="truncate">{sola ? sola.nome : tr('statusBar.orgs.title')}</span>
-              <span className="ml-auto flex-shrink-0 font-normal text-app-text-muted tabular-nums">
-                {tr('statusBar.orgs.presence', { n: online, tot: people.length })}
-              </span>
-            </>
-          }
-        >
-          {/* ONE GROUP READS AS IT ALWAYS DID: its people, straight away. A
-              section header repeating the name that is already in the title
-              would be the panel saying the same word twice to make room for a
-              structure that has nothing to hold. */}
-          {sola
-            ? <Elenco people={sola.people} vuoto={tr('statusBar.orgs.alone')} />
-            : (
-              <div className="max-h-[240px] overflow-y-auto">
-                {orgs.map((o) => (
-                  <div key={o.id} data-testid="org-section">
-                    <div className="flex items-center gap-2 px-3 pb-0.5 pt-1.5 text-[10px] uppercase tracking-wide text-app-text-muted">
-                      <Logo org={o} size={3.5} />
-                      <span className="min-w-0 flex-1 truncate normal-case">{o.nome}</span>
-                      <span className={`flex-shrink-0 tabular-nums ${o.online > 0 ? SEGNALE_OK : CHIP_INK_DIM}`}>
-                        {tr('statusBar.friends.count', { n: o.online, tot: o.membri })}
-                      </span>
-                    </div>
-                    <Elenco people={o.people} vuoto={tr('statusBar.orgs.alone')} />
-                  </div>
-                ))}
-              </div>
-            )}
-          {/* The door to management hangs on the card the people came from, so
-              it is never a link you have to guess the target of: with one group
-              it manages THAT group, with several it opens the list. */}
-          <div className="border-t border-app-border py-1">
-            <Azione onClick={() => { setAperto(false); openSettings('organization'); }} testId="org-open-manage">
-              {sola ? tr('statusBar.orgs.manageOne') : tr('statusBar.orgs.manageAll')}
-            </Azione>
-          </div>
-        </PresencePopover>
-      )}
-    </>
-  );
-}
-
-/**
- * A group's logo, and in the band it IS that subject's opening mark: same
- * IDENTITY_GLYPH_BOX as the face and the people sign, so the three subjects
- * agree on one left edge without a margin tuned by hand. That is why it
- * carries the `identity-glyph` marker only at the band size: the popover uses
- * the bigger one, which opens nothing.
- */
-function Logo({ org, size }: { org: OrgWithPresence; size: 3.5 | 5 }) {
-  const inBanda = size !== 5;
-  const cls = inBanda ? `${IDENTITY_GLYPH_BOX} text-[7px]` : 'h-5 w-5 text-[9px]';
-  const marker = inBanda ? 'identity-glyph' : undefined;
-  return org.logoUrl
-    ? <img
-        src={org.logoUrl}
-        alt=""
-        data-testid={marker}
-        className={`${cls} flex-shrink-0 rounded-full object-cover`}
-        onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-      />
-    // THE INITIALS ARE THE LOGO when there is no image, so they are content and
-    // they have to READ. One indigo for both themes did not: `indigo-400` on
-    // the tinted disc measured 4.46:1 in dark, which is a fail by four
-    // hundredths and exactly the kind of miss an eye ratifies and a meter
-    // catches. One step out per theme, away from the ground each sits on.
-    : <span data-testid={marker} className={`${cls} flex flex-shrink-0 items-center justify-center rounded-full bg-indigo-500/20 font-bold text-indigo-700 dark:text-indigo-300`}>
-        {org.nome.slice(0, 2).toUpperCase()}
-      </span>;
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
- * 3. AMICI
- * ────────────────────────────────────────────────────────────────────────── */
-
-/**
- * YOUR FRIENDS, AND WHO OF THEM IS AROUND RIGHT NOW.
- *
- * ── IT USED TO SAY "PEOPLE", AND THAT WAS THE DEFECT ────────────────────────
- * This subject was fed by the ORGANISATION ADDRESS BOOK: everybody who happens
- * to share a group with you. A list nobody chose, that fills up the day you
- * join a group and empties the day you leave it, and that the panel then
- * offered to "manage" on a page about followers. The app has had a real
- * friendship graph since the friendships routes landed, and the corner of the
- * screen that asks "who do I know" was the one place still answering with
- * something else. Now it reads the graph (`useFriendship`), and the word on
- * the chip is the word for the relation it draws.
- *
- * THE ROW STAYS AT ZERO, unchanged: a row that shows up only with good news is
- * a row nobody learns the place of, and the person with no friends yet is the
- * only one who needs the way in. With nobody around the chip carries its own
- * name instead of announcing an absence.
- *
- * ── A REQUEST WAITING FOR YOU CHANGES THE INK, NOT THE WIDTH ────────────────
- * Somebody asking to be your friend is the only thing in this subject that
- * needs an answer, so it has to be visible with the panel closed. It is said
- * by TINTING THE GLYPH with the same amber the waiting agents use, and by the
- * tooltip: not by a fifth child in the chip. The chip already has four
- * incompressible children against the group chip's two, and it is the one that
- * runs out of room first at a 180px column, measured. A badge would have
- * bought one signal by breaking the line the whole band exists for.
- *
- * ── AND THE REQUESTS ARE ANSWERED IN THE PANEL ──────────────────────────────
- * Accept and decline live at the top of the dropdown, above the list. Sending
- * a person to a page to press "accept" is the round trip the panel was built
- * to remove, and the hook already refreshes the three lists after the gesture.
- */
-function RigaAmici() {
-  const tr = useT();
-  const [aperto, setAperto] = useState(false);
-  const [chip, setChip] = useState<HTMLButtonElement | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-  const { friends, incoming, accept, decline, rows: tutti, faces: online } = useFriendPresence();
-  const total = friends.length;
-  const ci_sono = online.length > 0;
-  const pending = incoming.length;
-
-  const answer = useCallback(async (id: string, si: boolean) => {
-    setBusy(id);
-    try {
-      await (si ? accept(id) : decline(id));
-    } catch {
-      // The rule refused it (the request was withdrawn while the panel held
-      // it). The hook reloads on its own tick and the row corrects itself.
-    }
-    setBusy(null);
-  }, [accept, decline]);
-
-  const chipTitle = pending > 0
-    ? tr('statusBar.friends.pending', { n: pending })
-    : ci_sono ? online.map((f) => f.nome).join(', ') : tr('statusBar.friends.title');
-
-  return (
-    <span data-testid="identity-row-friends" className={`${SUBJECT} ${SUBJECT_FLOOR}`}>
-      <button
-        ref={setChip}
-        data-testid="identity-friends-chip"
-        onClick={() => setAperto((v) => !v)}
-        aria-haspopup="dialog"
-        aria-expanded={aperto}
-        // FULL when somebody is around, OUTLINED when nobody is: this is the
-        // subject the whole "which of the three exist" question was about, and
-        // it is now answered by the chip's own body instead of by a zero you
-        // have to go and read.
-        // `overflow-hidden` is not cosmetics: without it this chip's contents
-        // are laid out at full size even when the chip is squeezed to its 24px
-        // floor, and they land on the card next door. Measured in CI at 180px
-        // with four groups: 2px past its own right edge. This chip has FOUR
-        // incompressible children (glyph, faces, count, total) against the org
-        // chip's two, so it is the one of the three that actually runs out of
-        // room. The box can be innocent while the ink is not, so clip the ink.
-        className={`${chipClass(ci_sono)} min-w-0 justify-center overflow-hidden text-left`}
-        title={chipTitle}
-      >
-        {/* The glyph carries THREE states in one box and no extra width: amber
-            when somebody is waiting for your answer, lit when friends are
-            around, dim otherwise. */}
-        <span
-          data-testid="identity-glyph"
-          data-pending={pending > 0 ? 'true' : 'false'}
-          className={`flex ${IDENTITY_GLYPH_BOX} flex-shrink-0 items-center justify-center ${
-            pending > 0 ? SEGNALE_ATTESA : ci_sono ? SEGNALE_OK : CHIP_INK_DIM
-          }`}
-        >
-          <Users size={IDENTITY_GLYPH_INK} />
-        </span>
-        {/* Faces give way FIRST: they are the only repeated child, hence the
-            only one that can shrink without erasing information available
-            nowhere else. The numbers beside them already say how many there
-            are, and one face fewer still reads in the `+N`. */}
-        {ci_sono && <Facce faces={online} totale={online.length} />}
-        {/* With people around the faces ARE the answer, so the chip drops the
-            words and keeps two numbers: how many are here, out of how many you
-            know. Alone, the chip says its own name instead, because a chip that
-            is only a glyph and a zero is a door nobody recognises. */}
-        {!ci_sono && (
-          <span className={`truncate ${CHIP_INK_DIM}`}>{tr('statusBar.friends.title')}</span>
-        )}
-        {ci_sono && (
-          <span className="flex-shrink-0 text-app-text-secondary tabular-nums">{online.length}</span>
-        )}
-        <span data-testid="identity-friends-total" className={`flex-shrink-0 ${CHIP_INK_DIM} tabular-nums`}>
-          {ci_sono ? `/${total}` : total}
-        </span>
-      </button>
-
-      {aperto && (
-        <PresencePopover
-          anchorEl={chip}
-          onClose={() => setAperto(false)}
-          testId="friends-panel"
-          titolo={
-            <>
-              <Users size={12} className="flex-shrink-0 text-app-text-muted" />
-              <span className="truncate">{tr('statusBar.friends.title')}</span>
-              <span className="ml-auto flex-shrink-0 font-normal text-app-text-muted tabular-nums">
-                {tr('statusBar.friends.count', { n: online.length, tot: total })}
-              </span>
-            </>
-          }
-        >
-          {pending > 0 && (
-            <div data-testid="friends-requests" className="border-b border-app-border py-1">
-              <div className="px-3 pb-0.5 pt-1 text-[10px] uppercase tracking-wide text-app-text-muted">
-                {tr('profile.friend.incoming')}
-              </div>
-              {incoming.map((p) => (
-                <div key={p.id} className="flex items-center gap-2 px-3 py-1">
-                  <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded-full">
-                    {p.github?.avatarUrl
-                      ? <img src={p.github.avatarUrl} alt="" className="h-full w-full object-cover" />
-                      : <span className="flex h-full w-full items-center justify-center bg-primary/20 text-[8px] font-semibold leading-none text-app-text">
-                          {p.displayName.slice(0, 1).toUpperCase()}
-                        </span>}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-[11px] text-app-text">{p.displayName}</span>
-                  <button
-                    type="button"
-                    disabled={busy === p.id}
-                    onClick={() => void answer(p.id, true)}
-                    data-testid={`friend-accept-${p.id}`}
-                    title={tr('profile.friend.accept')}
-                    className="flex-shrink-0 rounded border border-primary px-1.5 py-0.5 text-[10.5px] text-primary hover:bg-primary/10 disabled:opacity-50"
-                  >
-                    {tr('profile.friend.accept')}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy === p.id}
-                    onClick={() => void answer(p.id, false)}
-                    data-testid={`friend-decline-${p.id}`}
-                    title={tr('profile.friend.decline')}
-                    className="flex-shrink-0 rounded px-1.5 py-0.5 text-[10.5px] text-app-text-tertiary hover:bg-app-hover disabled:opacity-50"
-                  >
-                    {tr('profile.friend.decline')}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          <Elenco people={tutti} vuoto={tr('statusBar.friends.none')} suggerimento={tr('statusBar.friends.noneHint')} />
-          <div className="border-t border-app-border py-1">
-            <Azione onClick={() => { setAperto(false); apriProfilo('followers'); }} testId="friends-open-all">
-              {tr('statusBar.friends.manage')}
-            </Azione>
-          </div>
-        </PresencePopover>
-      )}
-    </span>
-  );
-}
-
-/* ────────────────────────────────────────────────────────────────────────── */
-
-/**
- * ONE SIGNAL: a glyph and a number, and the colour of its tier.
- *
- * The glyph is the noun ("sessions", "turns", "tasks") drawn instead of spelled:
- * in a chip that shares a 240px line with a name, a word costs six times what
- * the icon costs and says exactly the same thing. The `title` gives the word
- * back to whoever hovers, and to whoever reads with a screen reader.
- */
-function Signal({ kind, n }: { kind: SignalKind; n: number }) {
-  const tr = useT();
-  const { Icon, tint, label, alive } = SIGNALS[kind];
-  return (
-    <span className={`flex items-center gap-0.5 ${tint}`} title={tr(label, { n })}>
-      <Icon size={11} className={alive ? 'animate-pulse' : undefined} />
-      <span>{n}</span>
-    </span>
-  );
-}
-
-/** Glyph, tier colour and sentence for each signal. One table, so a new signal
- *  is a line here and not a fourth place to keep in sync. */
-const SIGNALS: Record<SignalKind, {
-  Icon: typeof Bot;
-  tint: string;
-  label: string;
-  alive?: boolean;
-}> = {
-  // The only pulsing one: it is the only one where something is happening
-  // while you look at it.
-  working: { Icon: Bot, tint: SEGNALE_OK, label: 'statusBar.signals.working', alive: true },
-  awaitingInput: { Icon: Hourglass, tint: SEGNALE_ATTESA, label: 'statusBar.signals.awaitingInput' },
-  done: { Icon: Hourglass, tint: TIER_DONE_TEXT, label: 'statusBar.signals.done' },
-  tasks: { Icon: ListChecks, tint: 'text-app-text-secondary', label: 'statusBar.signals.tasks' },
-  open: { Icon: MessagesSquare, tint: CHIP_INK_DIM, label: 'statusBar.signals.open' },
-};
-
-/**
- * THE LIST OF PEOPLE inside a panel: present on top, absent below.
- *
- * The two groups are separated by a label and not only by the colour of the
- * dot: the colour states one ROW, the label states where the group you are
- * scrolling ends, which is the information you need when the rows are twenty
- * and the first three are green.
- *
- * A CAP AND A SCROLL, not the whole list: an organisation with forty people
- * would make the panel taller than the window, and `computeMenuPosition` would
- * glue it to the edge. Seven rows and a half is the point where you can see
- * there is more below without the panel turning into a page.
- */
-function Elenco({ people, vuoto, suggerimento }: {
-  people: PresenceRow[];
-  vuoto: string;
-  suggerimento?: string;
-}) {
-  const tr = useT();
-  if (people.length === 0) {
-    return (
-      <div className="px-3 py-3 text-[11px] text-app-text-muted">
-        <div>{vuoto}</div>
-        {suggerimento && <div className="mt-0.5 text-app-text-muted/80">{suggerimento}</div>}
-      </div>
-    );
-  }
-  const presenti = people.filter((p) => p.presente);
-  const assenti = people.filter((p) => !p.presente);
-  return (
-    <div className="max-h-[188px] overflow-y-auto py-1">
-      {presenti.map((p) => <Persona key={p.id} p={p} />)}
-      {assenti.length > 0 && (
-        <>
-          {presenti.length > 0 && (
-            <div className="px-3 pb-0.5 pt-1.5 text-[10px] uppercase tracking-wide text-app-text-muted">
-              {tr('statusBar.presence.offlineGroup')}
-            </div>
-          )}
-          {assenti.map((p) => <Persona key={p.id} p={p} />)}
-        </>
-      )}
-    </div>
-  );
-}
-
-/**
- * A PERSON IN A PANEL, and the panel is not where the story about them ends.
- *
- * This row used to be a `div`: a face, a name and a dot, and no way to get from
- * any of the three to the person. Every place a person appears has to open
- * their profile, otherwise there are faces the app shows you and refuses to
- * tell you anything about, and the profile page might as well not exist.
- */
-function Persona({ p }: { p: PresenceRow }) {
-  return (
-    <button
-      type="button"
-      onClick={() => openPersonProfile(p.id)}
-      data-testid="presence-person"
-      data-online={p.presente ? 'true' : 'false'}
-      className="flex w-full items-center gap-2 px-3 py-1 text-left text-[11px] hover:bg-app-hover coarse:min-h-11"
-      title={p.nome}
-    >
-      <span className={`flex h-5 w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded-full ${p.presente ? '' : 'opacity-50'}`}>
-        {p.avatarUrl
-          ? <img src={p.avatarUrl} alt="" className="h-full w-full object-cover" />
-          : <span className="flex h-full w-full items-center justify-center bg-primary/20 text-[8px] font-semibold leading-none text-app-text">
-              {p.iniziali}
-            </span>}
-      </span>
-      <span className={`truncate ${p.presente ? 'text-app-text' : 'text-app-text-muted'}`}>{p.nome}</span>
-      <span
-        className={`ml-auto h-1.5 w-1.5 flex-shrink-0 rounded-full ${p.presente ? PALLINO_OK : 'bg-app-text-muted/40'}`}
-      />
-    </button>
-  );
-}
-
-/** The action row at the bottom of a panel: the link to the page that governs
- *  what the panel shows. The chevron says you are leaving here. */
-function Azione({ onClick, children, testId }: {
-  onClick: () => void;
-  children: React.ReactNode;
-  testId?: string;
-}) {
-  return (
-    <button data-testid={testId} onClick={onClick} className={POPOVER_ITEM}>
-      <span className="truncate">{children}</span>
-      <ChevronRight size={12} className="ml-auto flex-shrink-0 text-app-text-muted" />
-    </button>
-  );
-}
-
-/**
- * The faces, overlapped the way a participant list does it.
- *
- * ONLY THE FIRST FEW, then a number. Past the cap they are twelve-pixel discs
- * nobody can tell apart, each as wide as the digit that would count them; the
- * `+N` says the same thing in less room and stays readable.
- */
-function Facce({ faces, max = MAX_FACCE, totale }: {
-  faces: PresenceFace[];
-  max?: number;
-  /** How many are online in total: the `+N` counts the ones with no face too. */
-  totale?: number;
-}) {
-  if (faces.length === 0) return null;
-  const oltre = (totale ?? faces.length) - Math.min(faces.length, max);
-  return (
-    <span className="flex flex-shrink-0 items-center">
-      {faces.slice(0, max).map((f, i) => (
-        <span
-          key={f.id}
-          data-testid="presence-face"
-          // The chrome-coloured ring is what keeps two overlapping faces apart:
-          // without it, at twelve pixels they read as a single smudge.
-          className={`flex h-3.5 w-3.5 items-center justify-center overflow-hidden rounded-full ring-1 ring-app-chrome ${i > 0 ? '-ml-1' : ''}`}
-          title={f.nome}
-        >
-          {f.avatarUrl
-            ? <img src={f.avatarUrl} alt="" className="h-full w-full object-cover" />
-            : <span className="flex h-full w-full items-center justify-center bg-primary/20 text-[7px] font-semibold leading-none text-app-text">
-                {f.iniziali}
-              </span>}
-        </span>
-      ))}
-      {oltre > 0 && (
-        <span data-testid="presence-faces-more" className="ml-0.5 tabular-nums">+{oltre}</span>
-      )}
-    </span>
-  );
+/** Gigabytes past a thousand: the card has one line, and four digits of memory
+ *  next to a name read as a phone number. */
+function formatMB(mb: number): string {
+  return mb >= 1024 ? `${(mb / 1024).toFixed(1)}GB` : `${mb}MB`;
 }

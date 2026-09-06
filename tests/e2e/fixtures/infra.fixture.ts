@@ -1,5 +1,6 @@
 import { test as base, type Page } from "@playwright/test";
 import { mockOpenClawAvailable, openAddMenuPane } from "../helpers/openclaw";
+import { openPerfPanel } from "../helpers/open-perf-panel";
 
 /**
  * Mock data for infrastructure panel E2E tests.
@@ -100,14 +101,11 @@ export class InfraPage {
 
   async openSystemStatusPanel() {
     // TWO STEPS, because the status bar is no longer at the foot of the column:
-    // it lives inside the «Topics» menu (SIDEBAR-STATUS-01), and it is three
-    // rows there rather than one dense strip. The row that opens this panel is
-    // «Prestazioni e sistema».
-    const menu = this.page.getByTestId("sidebar-topics-menu");
-    await menu.waitFor({ state: "visible", timeout: 15_000 });
-    const row = this.page.getByTestId("menu-system-status");
-    if ((await row.count()) === 0) await menu.click();
-    await row.first().click();
+    // it lives behind the one door of the chrome (SIDEBAR-STATUS-01), and it
+    // is three rows there rather than one dense strip. Which trigger opens
+    // that door (the user card on the desktop, the title on the phone) is the
+    // helper's business: this fixture only knows the row it wants.
+    await openPerfPanel(this.page);
     await this.page
       .locator("text=Gateway")
       .first()

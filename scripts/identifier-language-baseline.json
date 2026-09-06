@@ -829,23 +829,6 @@
       "CronJobsPanel",
       "CronJobsPanelProps"
     ],
-    "client/src/components/Sidebar/IdentityBlock.tsx": [
-      "Azione",
-      "Elenco",
-      "Facce",
-      "Ferro",
-      "MAX_FACCE",
-      "MAX_FACCE_ORG",
-      "RigaAmici",
-      "RigaIo",
-      "assenti",
-      "chiedi",
-      "ci_sono",
-      "oltre",
-      "presenti",
-      "presenza",
-      "vivi"
-    ],
     "client/src/components/Sidebar/MobileChromeBar.tsx": [
       "ALTEZZA",
       "BottoneFila",
@@ -955,8 +938,7 @@
       "gentePresenza",
       "gia",
       "gruppo",
-      "presentiOra",
-      "visti"
+      "presentiOra"
     ],
     "client/src/components/Sidebar/pinnedLayout.test.ts": [
       "anteprima",
@@ -6818,7 +6800,6 @@
       "testo"
     ],
     "tests/e2e/org-presence.spec.ts": [
-      "amici",
       "membro"
     ],
     "tests/e2e/pane-over-pane-group.spec.ts": [

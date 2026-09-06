@@ -5,90 +5,115 @@ import { hermetic } from "./fixtures/hermetic";
 hermetic(test);
 
 /**
- * The status bar moved INTO the «Topics» menu, and what stayed outside.
+ * The state lives behind ONE door, and what stays outside.
  *
- * Asked for on 2026-08-31: «it has to go inside the topics dropdown menu». It is
- * the same place the phone has had it since 07/08, so the two populations stop
- * carrying two different maps of the same app.
+ * Asked for on 2026-08-31: «it has to go inside the topics dropdown menu». For
+ * a month that door was the title «Topics» at the top of the column; it is the
+ * USER CARD at the foot now (STATUSLINE-04), and the reason is not a change of
+ * mind about the place: the doors had become five, three chips at the foot
+ * and a dropdown at the top, all leading into the same house. The desktop
+ * title is a word again, no chevron and no dot; the phone keeps its title
+ * button because there the column is a drawer and the card does not exist.
  *
  * The cut is not "everything inside". An ALARM is not a statistic: how much
  * memory you are using is something you look at when you go looking for it, but
  * "you are offline" behind a gesture means the app is disconnected and whoever
- * is watching does not know until they open a menu. So one lamp stays in the
- * title row — and it stays in the DOM at all times, because half the suite uses
- * that testid to know the app is up, and a handle that exists only when things
- * go wrong is a handle that never exists.
- *
- * The identity band did NOT travel with it, and that is the deliberate half.
- * Its contract is responsive — the three subjects hold one line at sidebar
- * widths 180, 256 and 400 (CHIPS-01) — and the desktop dropdown has a width of
- * its own that does not follow the column: moving the band in would not have
- * relocated it, it would have deleted the contract it exists to satisfy. It is
- * also the half that sent the bar back to the foot on 07/08 — «where did the
- * accounts go?» — so leaving it there settles two things with one decision.
+ * is watching does not know until they open a menu. So one dot stays on the
+ * card, always in the DOM (half the suite uses that testid to know the app is
+ * up), painted with the load and DECLARING the alarm when there is one.
  *
  * @covers SIDEBAR-STATUS-01
  */
-test.describe("Lo stato vive nel menu «Topics»", () => {
-  test("la colonna non ha più una barra in fondo, e la spia è fuori", async ({ page }) => {
+test.describe("Lo stato vive dietro la card dell'utente", () => {
+  test("in fondo solo le chip e la card, in alto solo la parola Topics, e la spia sulla card", async ({ page }) => {
     await goToApp(page);
 
-    // 1) NO STRIP OF NUMBERS in the column. Not "invisible": actually absent.
-    //    Named by what it showed rather than by the container's testid, which
-    //    no longer exists anywhere — a locator for a deleted testid passes for
-    //    the wrong reason forever.
-    await expect(page.locator('[data-testid="metrics-total"]')).toHaveCount(0);
-    await expect(page.locator('[data-version-anchor]')).toHaveCount(0);
+    // 1) THE CARD IS THE FOOT OF THE COLUMN, and the one `metrics-total` on
+    //    screen is ON it: not a strip of digits under the tree, the glance
+    //    the card exists for (STATUSLINE-04). The menu's own copy is not in
+    //    the DOM while the menu is closed.
+    const card = page.getByTestId("identity-me-profile");
+    await expect(card).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('[data-testid="metrics-total"]')).toHaveCount(1);
+    await expect(card.getByTestId("metrics-total")).toBeVisible();
+    await expect(page.locator("[data-version-anchor]")).toHaveCount(0);
+    await expect(page.getByTestId("sidebar-system-menu")).toHaveCount(0);
 
-    // 2) THE LAMP IS THERE with the menu closed, and it is the readiness
-    //    handle layout.fixture / multi-client / tab-sync have always used.
-    const lamp = page.locator('[data-testid="connection-status"]');
-    await expect(lamp).toBeVisible({ timeout: 15_000 });
-    // And it is in the title row, not a leftover at the foot: measured, not
-    // inferred — it must sit in the UPPER half of the column.
-    const dove = await page.evaluate(() => {
+    // 2) THE TITLE IS A WORD. No button, no chevron, no dot: the trigger and
+    //    its panel exist only on the phone, and a desktop that still had them
+    //    would have two doors again.
+    const title = page.getByTestId("sidebar-topics-title");
+    await expect(title).toBeVisible();
+    await expect(title).toHaveText("Topics");
+    await expect(page.getByTestId("sidebar-topics-menu")).toHaveCount(0);
+    await expect(page.getByTestId("sidebar-topics-menu-panel")).toHaveCount(0);
+    const titleShape = await title.evaluate((el) => ({
+      tag: el.tagName.toLowerCase(),
+      buttons: el.querySelectorAll("button").length,
+      svgs: el.querySelectorAll("svg").length,
+      dots: el.querySelectorAll('[data-testid="connection-status"]').length,
+      haspopup: el.getAttribute("aria-haspopup"),
+    }));
+    expect(titleShape, `the title is ${JSON.stringify(titleShape)}`).toEqual({ tag: "span", buttons: 0, svgs: 0, dots: 0, haspopup: null });
+
+    // 3) THE DOT IS ON THE CARD, in the LOWER half of the column: measured,
+    //    not inferred. It moved with the door: it used to sit on the title
+    //    because the title was the only thing always on screen.
+    const lamp = page.getByTestId("connection-status");
+    await expect(lamp).toBeVisible();
+    await expect(card.getByTestId("connection-status")).toHaveCount(1);
+    const where = await page.evaluate(() => {
       const s = document.querySelector('[data-testid="connection-status"]')!.getBoundingClientRect();
+      const c = document.querySelector('[data-testid="identity-me-profile"]')!.getBoundingClientRect();
       const col = document.querySelector('[aria-label="Topics sidebar"]')!.getBoundingClientRect();
-      return { spiaY: Math.round(s.y), metaColonna: Math.round(col.y + col.height / 2) };
+      return { lampY: Math.round(s.y), cardY: Math.round(c.y), halfway: Math.round(col.y + col.height / 2) };
     });
-    expect(dove.spiaY, `la spia è a ${dove.spiaY}, la metà colonna a ${dove.metaColonna}`).toBeLessThan(dove.metaColonna);
+    expect(where.lampY, `the dot is at ${where.lampY}, the column's halfway at ${where.halfway}`).toBeGreaterThan(where.halfway);
+    expect(where.cardY, `the card is at ${where.cardY}, the column's halfway at ${where.halfway}`).toBeGreaterThan(where.halfway);
 
-    // 3) IT DOES NOT SHOUT WHEN ALL IS WELL: no alarm declared.
+    // 4) IT DOES NOT SHOUT WHEN ALL IS WELL: no alarm declared, no pulse.
     await expect(lamp).not.toHaveAttribute("data-alarm", "true");
+    await expect(lamp).not.toHaveClass(/animate-pulse/);
+    await expect(page.getByTestId("ws-connection-status")).toHaveCount(0);
   });
 
-  test("aprendo il menu ci sono i numeri e la versione; l'identità resta in colonna", async ({ page }) => {
+  test("aprendo la card ci sono i numeri e la versione; la card resta in colonna", async ({ page }) => {
     await goToApp(page);
-    await page.getByTestId("sidebar-topics-menu").click();
+    const card = page.getByTestId("identity-me-profile");
+    await expect(card).toBeVisible({ timeout: 15_000 });
+    await card.click();
 
-    // The state is IN HERE, and it is ROWS. Asked for on 31/08: the stats had
-    // to look like the dropdowns above them, one fact per row. On the desktop
-    // they were still one horizontal strip of digits while the phone already
-    // had the rows — the same three facts written twice, once per screen.
-    await expect(page.getByTestId("sidebar-system-menu")).toBeVisible({ timeout: 10_000 });
+    // ONE MENU, and the state is IN IT, as ROWS. Asked for on 31/08: the stats
+    // had to look like the dropdowns above them, one fact per row.
+    const menu = page.getByTestId("profile-menu");
+    await expect(menu).toBeVisible({ timeout: 10_000 });
+    await expect(menu.getByTestId("sidebar-system-menu")).toBeVisible();
     // The numbers read without expanding the panel (PERFPANEL-01).
-    await expect(page.locator('[data-testid="metrics-total"]')).toBeVisible();
-    // The identity did NOT: it stayed at the foot of the column, outside the
-    // menu, because its contract is the column's width (CHIPS-01) and the menu
-    // does not follow it. Both where it is NOT and where it IS are asserted:
-    // without the second check this would pass with the band gone entirely.
-    const insideTheMenu = page.locator('[data-testid="sidebar-system-menu"], [role="menu"]').locator('[data-testid="identity-row-me"]');
-    await expect(insideTheMenu).toHaveCount(0);
-    await expect(page.locator('[data-testid="identity-row-me"]')).toBeVisible();
+    await expect(menu.getByTestId("metrics-total")).toBeVisible();
+    await expect(menu.locator("[data-version-anchor]")).toBeVisible();
+    // The card did NOT move into its own menu: it is the door, and a door
+    // inside the room it opens is the shape that closes on itself. Both where
+    // it is NOT and where it IS are asserted: without the second check this
+    // would pass with the card gone entirely.
+    await expect(menu.locator('[data-testid="identity-me-profile"]')).toHaveCount(0);
+    await expect(card).toBeVisible();
+    // And it is the only popover on screen: one door, one panel.
+    await expect(page.locator('[role="dialog"]')).toHaveCount(1);
   });
 
-  test("il trigger ha UNA spia sola, e non cambia misura al click", async ({ page }) => {
+  test("la card ha UNA spia sola, e non cambia misura al click", async ({ page }) => {
     await goToApp(page);
-    const trigger = page.getByTestId("sidebar-topics-menu");
-    await expect(trigger).toBeVisible({ timeout: 15_000 });
+    const card = page.getByTestId("identity-me-profile");
+    await expect(card).toBeVisible({ timeout: 15_000 });
 
     // 1) ONE. Reported from the real UI: «I now see two dots in the trigger».
     //    There were two because the alarm lamp had been added NEXT TO
     //    `TopicsLoadDot`, which already did that job. Two dots 4px apart are not
     //    two signals: they are one signal that looks broken. Small ROUND things
     //    are counted, not testids, because the defect was precisely having two
-    //    different elements that look alike.
-    const round = await trigger.evaluate((el) =>
+    //    different elements that look alike. The face is round too, but it is
+    //    14px, above the 12px a dot can be.
+    const round = await card.evaluate((el) =>
       Array.from(el.querySelectorAll("*")).filter((n) => {
         const r = n.getBoundingClientRect();
         if (r.width === 0 || r.width > 12 || Math.abs(r.width - r.height) > 1) return false;
@@ -101,21 +126,21 @@ test.describe("Lo stato vive nel menu «Topics»", () => {
         return pct || radius >= r.width / 2 - 0.5;
       }).map((n) => `${n.tagName.toLowerCase()}[${n.getAttribute("data-testid") ?? "-"}] ${Math.round(n.getBoundingClientRect().width)}px`),
     );
-    expect(round, `round things in the trigger: ${JSON.stringify(round)}`).toHaveLength(1);
+    expect(round, `round things in the card: ${JSON.stringify(round)}`).toHaveLength(1);
 
-    // 2) IT DOES NOT RESIZE. «it should not resize on click»: the lamp was
-    //    UNMOUNTED when the menu opened, so the row narrowed under the finger
-    //    that had just clicked it — measured 93.8px -> 79.8px. It now goes
-    //    `invisible`, like the title beside it: same space, not shown.
-    const before = (await trigger.boundingBox())!;
-    await trigger.click();
+    // 2) IT DOES NOT RESIZE. «it should not resize on click»: the old trigger
+    //    narrowed under the finger that had just clicked it (measured 93.8px
+    //    to 79.8px) because the dot was unmounted with the menu open. The
+    //    card spans the column and keeps its size either way.
+    const before = (await card.boundingBox())!;
+    await card.click();
     await expect(page.getByTestId("sidebar-system-menu")).toBeVisible({ timeout: 10_000 });
-    const after = (await trigger.boundingBox())!;
+    const after = (await card.boundingBox())!;
     expect(Math.round(after.width), `width ${before.width} -> ${after.width}`).toBe(Math.round(before.width));
     expect(Math.round(after.height), `height ${before.height} -> ${after.height}`).toBe(Math.round(before.height));
   });
 
-  test("i pannelli dello stato si aprono COME dropdown, e la colonna non tocca il bordo", async ({ page }) => {
+  test("i pannelli dello stato restano a schermo, e la colonna non tocca il bordo", async ({ page }) => {
     await goToApp(page);
 
     const rect = (sel: string) => page.evaluate((q) => {
@@ -130,62 +155,69 @@ test.describe("Lo stato vive nel menu «Topics»", () => {
     //    bottom inset; it moved into the menu and took the padding with it,
     //    leaving the identity band flush against the edge — reported as the
     //    spacing being wrong down there. One inset on every sidebar axis.
-    //    Measured on a CHIP, not on the band: the band's box now runs all the
+    //    Measured on the CARD, not on the band: the band's box runs all the
     //    way to the column edge and holds the gap INSIDE itself, as padding,
     //    so its rect touches the bottom while the ink is 6px above it. Asking
     //    the box would report zero breathing on a foot that breathes.
+    await page.getByTestId("identity-me-profile").waitFor({ state: "visible", timeout: 15_000 });
     const column = (await rect('[aria-label="Topics sidebar"]'))!;
-    const band = (await rect('[data-testid="identity-row-me"]'))!;
-    const breathing = column.bottom - band.bottom;
-    expect(breathing, `the chip ends at ${band.bottom} in a column ending at ${column.bottom}`)
+    const card = (await rect('[data-testid="identity-me-profile"]'))!;
+    const breathing = column.bottom - card.bottom;
+    expect(breathing, `the card ends at ${card.bottom} in a column ending at ${column.bottom}`)
       .toBeGreaterThanOrEqual(4);
 
-    // 2) THE PANELS OPEN AS DROPDOWNS: below their anchor, and on screen. They
-    //    were hard-wired to grow UPWARD, which was right at the foot of a column
-    //    and wrong under a menu near the top — measured with the chip at y=234,
-    //    the 226px panel landed at y=2, two pixels from the ceiling.
-    await page.getByTestId("sidebar-topics-menu").click();
-    const chip = (await rect("[data-version-anchor]"))!;
+    // 2) THE PANELS STAY ON SCREEN. The menu hangs off a card at the very
+    //    foot of the window, so it has to flip ABOVE its anchor; the version
+    //    popover opens from a row inside that menu. Neither may leave the
+    //    viewport: a panel against the ceiling or past the floor is the
+    //    defect measured on 31/08 (a 226px panel landing at y=2).
+    await page.getByTestId("identity-me-profile").click();
+    const menu = (await rect('[data-testid="profile-menu"]'))!;
+    expect(menu.bottom, `the menu ends at ${menu.bottom}, the card starts at ${card.top}`).toBeLessThanOrEqual(card.top);
+    expect(menu.top).toBeGreaterThanOrEqual(0);
+    expect(menu.left).toBeGreaterThanOrEqual(0);
+    expect(menu.right).toBeLessThanOrEqual(menu.vw);
     await page.locator("[data-version-anchor]").click();
-    const popover = (await rect('[role="dialog"]'))!;
-    expect(popover.top, `version popover at ${popover.top}, chip ends at ${chip.bottom}`)
-      .toBeGreaterThanOrEqual(chip.bottom);
-    expect(popover.top).toBeGreaterThan(0);
+    // The version popover is the LAST dialog on screen: it is portalled after
+    // the menu it was opened from.
+    const popover = (await page.locator('[role="dialog"]').last().evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return { top: Math.round(r.top), bottom: Math.round(r.bottom), left: Math.round(r.left),
+               right: Math.round(r.right), vh: window.innerHeight, vw: window.innerWidth };
+    }))!;
+    expect(await page.locator('[role="dialog"]').count(), "the version popover opens on top of the menu").toBe(2);
+    expect(popover.top).toBeGreaterThanOrEqual(0);
     expect(popover.bottom).toBeLessThanOrEqual(popover.vh);
     expect(popover.left).toBeGreaterThanOrEqual(0);
     expect(popover.right).toBeLessThanOrEqual(popover.vw);
   });
 
   test("SIDEBAR-STATUS-01d: il fondo della colonna respira quanto i lati", async ({ page }) => {
-    // THE FOOT IS READ AGAINST ITS OWN SIDES. The identity band is the last
-    // thing in the column, so the gap under it sits next to the gap to its
-    // left and to its right, and any difference between the three is visible
-    // without measuring. It was 10px underneath against 6px at the sides:
-    // the band's own `pb-1` plus the inset of the wrapper that holds it, one
-    // padding stacked on the other. Measured on the chips, not on the block:
-    // the block spans the full width, so only the chips carry the real gap.
+    // THE FOOT IS READ AGAINST ITS OWN SIDES. The card is the last thing in
+    // the column, so the gap under it sits next to the gap to its left and to
+    // its right, and any difference between the three is visible without
+    // measuring. It was 10px underneath against 6px at the sides: the band's
+    // own `pb-1` plus the inset of the wrapper that holds it, one padding
+    // stacked on the other. Measured on the card, not on the block: the block
+    // spans the full width, so only the card carries the real gap.
     await goToApp(page);
-    await page.getByTestId("identity-block").waitFor({ state: "visible", timeout: 20_000 });
+    await page.getByTestId("identity-me-profile").waitFor({ state: "visible", timeout: 20_000 });
 
     const gaps = await page.evaluate(() => {
       const col = document.querySelector('[aria-label="Topics sidebar"]')!.getBoundingClientRect();
-      const chips = Array.from(document.querySelectorAll('[data-testid^="identity-row-"]'))
-        .map((el) => el.getBoundingClientRect())
-        .filter((r) => r.width > 0);
+      const r = document.querySelector('[data-testid="identity-me-profile"]')!.getBoundingClientRect();
       return {
-        n: chips.length,
-        left: Math.min(...chips.map((r) => r.left - col.left)),
-        right: Math.min(...chips.map((r) => col.right - r.right)),
-        bottom: Math.min(...chips.map((r) => col.bottom - r.bottom)),
+        left: r.left - col.left,
+        right: col.right - r.right,
+        bottom: col.bottom - r.bottom,
       };
     });
 
-    expect(gaps.n).toBeGreaterThan(0);
     expect(gaps.bottom).toBeGreaterThan(0);
     // Sub-pixel tolerance only: this is one CSS number on three axes, not
     // three numbers that happen to be close.
-    expect(Math.abs(gaps.bottom - gaps.left)).toBeLessThanOrEqual(1);
-    expect(Math.abs(gaps.bottom - gaps.right)).toBeLessThanOrEqual(1);
+    expect(Math.abs(gaps.bottom - gaps.left), `bottom ${gaps.bottom} vs left ${gaps.left}`).toBeLessThanOrEqual(1);
+    expect(Math.abs(gaps.bottom - gaps.right), `bottom ${gaps.bottom} vs right ${gaps.right}`).toBeLessThanOrEqual(1);
   });
 
   test("SIDEBAR-STATUS-01e: le stats sono righe, una per fatto, e si vede che si aprono", async ({ page }) => {
@@ -196,7 +228,7 @@ test.describe("Lo stato vive nel menu «Topics»", () => {
     // each row spans the menu's width and starts where the others start, which
     // is what "one per row" means when you look at it.
     await goToApp(page);
-    await page.getByTestId("sidebar-topics-menu").click();
+    await page.getByTestId("identity-me-profile").click();
     await expect(page.getByTestId("sidebar-system-menu")).toBeVisible({ timeout: 10_000 });
 
     const rows = await page.evaluate(() => {
@@ -252,8 +284,12 @@ test.describe("Lo stato vive nel menu «Topics»", () => {
     const lamp = page.getByTestId("connection-status");
     await expect(lamp).toBeVisible({ timeout: 20_000 });
     // 1) THE DOT DECLARES IT, as an attribute: reading a hue back out of a
-    //    pixel means asserting the palette instead of the state.
+    //    pixel means asserting the palette instead of the state. And it is
+    //    the dot ON THE CARD, with the menu closed: nobody opened anything.
     await expect(lamp).toHaveAttribute("data-alarm", "true", { timeout: 20_000 });
+    await expect(lamp).toHaveClass(/animate-pulse/);
+    await expect(page.getByTestId("identity-me-profile").getByTestId("connection-status")).toHaveCount(1);
+    await expect(page.getByTestId("profile-menu")).toHaveCount(0);
     // 2) AND THE ROW NAMES IT, at the foot of the column, without opening
     //    anything — the scenario in openspec/specs/topics whose own title is
     //    «l'allarme si legge senza aprire niente». allow-italian: quoted title.
