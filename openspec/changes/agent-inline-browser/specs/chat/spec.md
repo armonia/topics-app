@@ -1,6 +1,6 @@
 ## ADDED Requirements
 
-### Requirement: CHAT-TOOL-05 — Il browser dell'agent è una card inline, non una pane
+### Requirement: CHAT-TOOL-07 — Il browser dell'agent è una card inline, non una pane
 
 Un'apertura browser `inline` fatta dall'agent (BROWSER-03) SHALL essere rappresentata
 nel thread da una **card di tool browser** al posto della riga muta odierna. La card

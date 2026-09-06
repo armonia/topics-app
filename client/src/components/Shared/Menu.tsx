@@ -41,6 +41,11 @@ export interface MenuProps {
   children: React.ReactNode;
   /** Which trigger edge the menu aligns to (default 'left'). */
   align?: 'left' | 'right';
+  /** Which side of the trigger the panel opens on: 'bottom' (dropdown, default)
+   *  or 'right' (submenu: beside the trigger, top edges aligned, flipping left). */
+  side?: 'bottom' | 'right';
+  /** Gap in px between trigger and panel (default 4). */
+  gap?: number;
   /** Container role — 'menu' for action menus, 'listbox' for pickers. Default 'menu'. */
   role?: 'menu' | 'listbox';
   /** Desktop min panel width in px (default 150). */
@@ -70,6 +75,8 @@ export function Menu({
   onClose,
   children,
   align = 'left',
+  side = 'bottom',
+  gap,
   role = 'menu',
   minWidth = 150,
   className = '',
@@ -104,9 +111,9 @@ export function Menu({
     if (!anchor || !panel) return;
     const a = anchor.getBoundingClientRect();
     const p = panel.getBoundingClientRect();
-    const next = computeMenuPosition(a, { width: p.width, height: p.height }, { align });
+    const next = computeMenuPosition(a, { width: p.width, height: p.height }, { align, side, gap });
     setPos({ top: next.top, left: next.left });
-  }, [anchorRef, align]);
+  }, [anchorRef, align, side, gap]);
 
   // Measure the real panel and place it BEFORE paint; keep it placed while open.
   useLayoutEffect(() => {
@@ -128,10 +135,18 @@ export function Menu({
 
   // Move focus INTO the menu on open (container, tabIndex=-1) so Arrow keys work
   // and screen readers announce it — no per-item ring for mouse users.
+  //
+  // ONLY ONCE THE PANEL IS PLACED. On the first commit the panel is still
+  // `visibility: hidden` (the layout effect above has yet to measure it), and a
+  // hidden element silently refuses `focus()`: the call ran, nothing happened,
+  // and a submenu opened from the keyboard left the focus on its trigger. So
+  // the effect waits for the position, which flips from null exactly once per
+  // open (it is cleared on close), and does not fire again on reposition.
+  const placed = pos !== null;
   useEffect(() => {
-    if (!open || unmanagedFocus || isMobile) return;
+    if (!open || unmanagedFocus || isMobile || !placed) return;
     panelRef.current?.focus({ preventScroll: true });
-  }, [open, unmanagedFocus, isMobile]);
+  }, [open, unmanagedFocus, isMobile, placed]);
 
   const onKeyDown = useMenuKeyboard({ panelRef, enabled: !unmanagedFocus });
 

@@ -16,6 +16,7 @@
 import { test, expect } from '@playwright/test';
 import { hermetic } from './fixtures/hermetic';
 import { openProfileMenu } from './helpers/open-perf-panel';
+import { goToApp, openTestChat } from './helpers';
 
 hermetic(test);
 
@@ -234,5 +235,54 @@ test.describe('il tooltip e\' quello dell\'app, non quello del sistema', () => {
     // Ed e' PROSA, non una chiave i18n rimasta grezza — il difetto che una
     // traduzione mancante produce, invisibile a un test di funzione.
     expect(righe.join(' ')).not.toMatch(/\b(statusBar|perf|board)\.[a-zA-Z.]+/);
+  });
+
+  /**
+   * THE HOLE: A CONTROL THAT IS TURNED OFF.
+   *
+   * A disabled form control dispatches no mouse events at all, so the
+   * `mouseover` the delegate listens for arrives with the CONTAINER as its
+   * target and `closest('[title]')` walks straight past the button the pointer
+   * is really on. The attribute stayed where it was and the system drew its
+   * own tooltip: measured on this tree, 30 places in `client/src` put a
+   * `title` on a control that is disabled some of the time, and they are the
+   * ones where the sentence matters most, because it says why the button is
+   * off.
+   *
+   * Only a real browser can show this: no DOM emulator reproduces the
+   * "disabled controls receive nothing" rule, which is the whole defect.
+   */
+  test('un controllo DISABILITATO non ha piu\' il tooltip di sistema', async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "TOOLTIP-01" });
+    await goToApp(page);
+    // The send button of the composer with nothing typed: disabled by its own
+    // rule, and carrying a `title`. A chat has to be open for a composer to
+    // exist at all, which is why this case needs the chat and the others do not.
+    await openTestChat(page);
+    const offButton = page.locator('[data-composer-action]:disabled[title], [data-composer-action]:disabled[data-tip]').first();
+    await expect(offButton).toBeVisible({ timeout: 20_000 });
+
+    await expect
+      .poll(
+        async () => {
+          const already = await offButton.getAttribute('data-tip');
+          if (already !== null) return already;
+          await page.mouse.move(0, 0);
+          await offButton.hover();
+          return await offButton.getAttribute('data-tip', { timeout: 2_000 }).catch(() => null);
+        },
+        {
+          message: 'il delegato non prende i controlli disabilitati: `data-tip` mai scritto',
+          timeout: 20_000,
+        },
+      )
+      .not.toBeNull();
+
+    // And the app's own tooltip is the one on screen.
+    await expect(page.locator('[data-testid="app-tooltip"]')).toBeVisible({ timeout: 5_000 });
+    // Leaving gives the attribute back: a `title` taken and not returned is a
+    // silent accessibility regression, and it holds for this branch too.
+    await page.mouse.move(5, 5);
+    await expect.poll(async () => (await offButton.getAttribute('title')) ?? '', { timeout: 5_000 }).not.toBe('');
   });
 });

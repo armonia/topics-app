@@ -560,7 +560,7 @@ export function ChatInput({
       if (!anchor || !panel) return;
       const rect = anchor.getBoundingClientRect();
       panel.style.bottom = `${window.innerHeight - rect.top + 6}px`;
-      panel.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - 396))}px`;
+      panel.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - 380 - 8))}px`;
       panel.style.visibility = 'visible';
     };
     place();
