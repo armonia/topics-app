@@ -46,7 +46,7 @@ const SHOTS = 'test-results/git-rows';
 const PROJECT_ID = projectIdForPath(PROJECT_PATH);
 /** The two files both surfaces have to agree on: one added, one modified. */
 const ADDED = 'src/added.ts';
-const MODIFIED = 'src/base.ts';
+const EDITED = 'src/base.ts';
 
 let topicId = '';
 let taskId = '';
@@ -60,7 +60,7 @@ test.beforeAll(async ({ request }) => {
   // an honest "no files" and prove nothing.
   mkdirSync(`${PROJECT_PATH}/src`, { recursive: true });
   writeFileSync(`${PROJECT_PATH}/package.json`, JSON.stringify({ name: 'e2e-git-rows' }));
-  writeFileSync(`${PROJECT_PATH}/${MODIFIED}`, 'export const one = 1;\n');
+  writeFileSync(`${PROJECT_PATH}/${EDITED}`, 'export const one = 1;\n');
   git('init', '-q', '-b', 'main');
   git('config', 'user.email', 't@t.t');
   git('config', 'user.name', 't');
@@ -71,7 +71,7 @@ test.beforeAll(async ({ request }) => {
   // then honestly says "no files": measured, and it proves nothing about the
   // rows.
   git('checkout', '-q', '-b', BRANCH);
-  writeFileSync(`${PROJECT_PATH}/${MODIFIED}`, 'export const one = 1;\nexport const two = 2;\n');
+  writeFileSync(`${PROJECT_PATH}/${EDITED}`, 'export const one = 1;\nexport const two = 2;\n');
   writeFileSync(`${PROJECT_PATH}/${ADDED}`, 'export const three = 3;\n');
   git('add', '-A');
   git('commit', '-q', '-m', 'the delivery');
@@ -93,7 +93,7 @@ test.beforeAll(async ({ request }) => {
     content: 'fatto',
     toolCalls: [
       { id: 'tc-a', name: 'Write', args: { file_path: `${PROJECT_PATH}/${ADDED}` }, status: 'success' },
-      { id: 'tc-m', name: 'Edit', args: { file_path: `${PROJECT_PATH}/${MODIFIED}` }, status: 'success' },
+      { id: 'tc-m', name: 'Edit', args: { file_path: `${PROJECT_PATH}/${EDITED}` }, status: 'success' },
     ],
   });
 
@@ -115,12 +115,12 @@ test.beforeAll(async ({ request }) => {
   const changes = await request.get(`${E2E_BASE}/api/topics/${topicId}/changes`);
   const body = (await changes.json()) as { files: Array<{ path: string }>; git: unknown };
   expect(body.files.map((f) => f.path).sort(), `the changes route sees: ${JSON.stringify(body)}`)
-    .toEqual([ADDED, MODIFIED]);
+    .toEqual([ADDED, EDITED]);
 
   const diff = await request.get(`${E2E_BASE}/api/boards/${PROJECT_ID}/tasks/${taskId}/diff`);
   const bundle = (await diff.json()) as { stat?: Array<{ path: string }>; code?: string };
   expect((bundle.stat ?? []).map((f) => f.path).sort(), `the diff route sees: ${JSON.stringify(bundle.stat ?? bundle.code)}`)
-    .toEqual([ADDED, MODIFIED]);
+    .toEqual([ADDED, EDITED]);
 });
 
 test.afterAll(async ({ request }) => {
@@ -163,7 +163,7 @@ test.describe('la stessa lista di file su due superfici', () => {
     const chatRows = await rowsOf(chatList);
     // The mark is the shared component's, and it says WHAT happened: the file
     // the turn created is an `A`, the one it edited an `M`.
-    expect(chatRows).toEqual([`A ${ADDED}`, `M ${MODIFIED}`]);
+    expect(chatRows).toEqual([`A ${ADDED}`, `M ${EDITED}`]);
     // The frame of each surface, side by side in the review: two lists that
     // LOOK the same is the claim, and only a picture carries it.
     await page.screenshot({ path: `${SHOTS}/chat-strip.png` });

@@ -10,7 +10,7 @@
  *    it with `dir="rtl"` and bidi isolates, the project panel with
  *    `.path-elide-left`. Three answers to one question, and one of them wrong.
  *  · WHAT SAYS WHAT HAPPENED. A coloured letter in the chat, a coloured badge
- *    in the panel, an Italian word (`nuovo` / `mod` / `del`) in the diff
+ *    in the panel, an Italian word (`nuovo` / `mod` / `del`) in the diff // allow-italian: the labels that were REPLACED are the subject
  *    header, and NOTHING at all in the delivery chip, which showed `+/-` for a
  *    file it never said was deleted.
  *
@@ -61,7 +61,7 @@ function markOf(row: ChangedFileRow): { letter: string; tone: string } {
  * would be invisible, and an invisible character survives copy, search and
  * review badly -- nobody sees it disappear.
  */
-const LRM = '\u200E';
+const LEFT_TO_RIGHT_MARK = '\u200E';
 
 /** How wide the mark column is, so every row's name starts on the same pixel. */
 const MARK_CELL = 'w-4 shrink-0 text-center font-mono text-[10px] font-bold leading-none';
@@ -91,7 +91,7 @@ export function ChangedFilePath({ row }: { row: ChangedFileRow }) {
       <span className="max-w-[70%] flex-shrink-0 truncate text-app-text-body">{name}</span>
       {dir && (
         <span className="path-elide-left min-w-0 flex-1 text-[11px] text-app-text-muted">
-          {LRM + dir.slice(0, -1)}
+          {LEFT_TO_RIGHT_MARK + dir.slice(0, -1)}
         </span>
       )}
     </span>
