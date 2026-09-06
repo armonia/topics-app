@@ -21,7 +21,7 @@
  * @covers KANBAN-01
  */
 import { describe, expect, test, afterAll } from 'bun:test';
-import { PoliteKeyboardSensor, PoliteMouseSensor, PoliteTouchSensor } from './dndSensors';
+import { PoliteKeyboardSensor, PoliteMouseSensor, PoliteTouchSensor, releaseTouchDrag } from './dndSensors';
 
 /**
  * Sotto `bun test` non c'è un DOM, e i sensori chiedono due cose sole al
@@ -95,5 +95,20 @@ describe('i sensori non partono da un campo di testo', () => {
       preventDefault() {},
     };
     expect(h(evento as never, {} as never, { active: { activatorNode: { current: null } } } as never)).toBe(true);
+  });
+});
+
+describe('the long press that wins the finger releases the drag', () => {
+  test('releaseTouchDrag sends the touchcancel the sensor listens for to the touched node, and it does not bubble', () => {
+    // The sensor keeps its end-of-gesture listeners on the `touchstart`
+    // target (`getEventListenerTarget`), not on the document: measured on
+    // 2026-09-06, a `touchcancel` on the document left the card lifted under
+    // the open menu. And it must not bubble: React delivers `onTouchCancel`
+    // from the root, and the long press's own handler would forget the
+    // gesture and let the synthetic click through. The test pins both.
+    const seen: Array<{ type: string; bubbles: boolean }> = [];
+    const touched = { dispatchEvent: (e: Event) => { seen.push({ type: e.type, bubbles: e.bubbles }); return true; } };
+    releaseTouchDrag(touched as unknown as EventTarget);
+    expect(seen).toEqual([{ type: 'touchcancel', bubbles: false }]);
   });
 });

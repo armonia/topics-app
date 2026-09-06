@@ -28,7 +28,7 @@ import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, deleteTask, holdDispatchReconcile, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
 import { projectRow } from "./helpers/project-row";
 import { grabPoint, measureTargets, touchDrag } from "./helpers/hit-area";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
@@ -36,7 +36,14 @@ import { projectIdForPath as boardIdForPath } from "../../shared/board";
 hermetic(test);
 
 const BASE = E2E_BASE;
-const PROJECT_PATH = `/tmp/e2e-touchdrag-${Date.now()}`;
+/**
+ * THE REAL PATH, not `/tmp`: the server stores a topic's `projectPath` canonical
+ * (`canonicalProjectPath`, realpath) and the board id is a hash of that STRING.
+ * On macOS `/tmp` is a symlink to `/private/tmp`, so a spec hashing the
+ * symlinked name creates its tasks on one board and the client opens another:
+ * the card is never in the DOM. On Linux (CI) the two are the same string.
+ */
+const PROJECT_PATH = `${realpathSync("/tmp")}/e2e-touchdrag-${Date.now()}`;
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 
 let projectTopicId: string | null = null;

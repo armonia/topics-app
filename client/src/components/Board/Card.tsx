@@ -15,8 +15,9 @@ import { STATUS_LABEL, blockedByChip, boardApi, commentAuthorLabel, isAgentWorki
 import { columnSlice, COLUMN_PAGE } from '../../lib/boardOrder';
 import { cardCommentsFromRow, cardDetailNeed, isMachineVoice, selectCardComments, showsCardThread, type CardComments } from './cardComments';
 import { useConfirm } from '../../hooks/useConfirm';
-import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
+import { useLongPress, openContextMenuAt, type LongPressTarget } from '../../hooks/useLongPress';
 import { useMobile } from '../../hooks/useMobile';
+import { releaseTouchDrag } from './dndSensors';
 import { MorphText } from '../Shared/MorphText';
 import { PreviewMedia } from './PreviewMedia';
 import type { DraftPreview } from './draftPreview';
@@ -238,6 +239,18 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   );
 }
 
+/**
+ * The long press on a card: the SAME menu the right button opens, and the
+ * finger is the menu's from here on — the drag the board's `TouchSensor`
+ * armed on that touch is released first, or it eats the tap on the menu item
+ * (see `releaseTouchDrag`). Module-level on purpose: it closes over nothing,
+ * so `useLongPress` keeps one callback for the life of the card.
+ */
+function openCardMenuAt(target: LongPressTarget): void {
+  releaseTouchDrag(target.touched);
+  openContextMenuAt(target);
+}
+
 // ── Card ──────────────────────────────────────────────────────────────────
 // Memoized: the board re-renders every 4s as the live-usage ticker rebuilds
 // `liveById`. Without memo every card re-renders on each tick; with it only the
@@ -314,7 +327,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // (KanbanBoardPane), quindi qui i due gesti convivono: vedi
   // `onCardTouchStart`, che e' il punto in cui si spartiscono il dito.
   const { isTouch } = useMobile();
-  const cardLongPress = useLongPress(openContextMenuAt, { enabled: isTouch });
+  const cardLongPress = useLongPress(openCardMenuAt, { enabled: isTouch });
   /**
    * THE ONE TOUCH, SHARED BY HAND between the two gestures that want it.
    *
@@ -329,9 +342,11 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
    * Composing them is enough because the two gestures exclude each other by
    * MOVEMENT, not by luck: past the 10px slop the long press cancels its own
    * timer and only the drag is left; on a still finger the menu opens at 500ms
-   * and the drop that follows lands on the card itself, which `planDrop` reads
-   * as a no-op (`overId === task.id`). The other three touch handlers exist on
-   * one side only, so their spread is not a collision.
+   * and TAKES the finger — `openCardMenuAt` releases the drag the sensor had
+   * armed on it at 200ms. Left alone, that drag outlived the menu: the card
+   * stayed lifted until the finger came off, and dnd-kit's click guard ate a
+   * tap for 50ms after the lift (see `releaseTouchDrag`). The other three
+   * touch handlers exist on one side only, so their spread is not a collision.
    */
   const dragTouchStart = listeners?.onTouchStart;
   const onCardTouchStart = useCallback((e: React.TouchEvent<HTMLElement>) => {
