@@ -96,6 +96,10 @@
         // non puo' essere un test — il test legge il JSON che questo ha scritto.
         "scripts/build-review-queue-fixture.ts!",
         "scripts/watch-board-tasks.ts!",  // CLI tool for the Monitor loop, run by hand
+        // `bun run scripts/boot-sweep-probe.ts [db]` — read-only probe that
+        // replays the three boot-sweep SELECTs with and without the archived
+        // filter. Run by hand against a copy of a database; imported by nobody.
+        "scripts/boot-sweep-probe.ts!",
         // Le tre sonde di performance CITATE in `docs/perf-map.md`: si lanciano
         // per path (`bun run scripts/layer-growth.ts`), non da package.json,
         // quindi per knip erano file morti e tenevano `check:deadcode` rosso su
