@@ -79,7 +79,10 @@ export interface ExpiryInput {
   sessionListed: boolean;
   /** Il roster è stato confermato almeno una volta? Vedi `decideRosterTrust`. */
   rosterAuthoritative: boolean;
-  /** Chiusure anomale consecutive. Azzerato da ogni `ws.onopen` riuscito. */
+  /** Consecutive abnormal closes. Reset at `replay-end` - the first frame only
+   *  a live session sends - and NOT at `ws.onopen`: the server accepts the
+   *  upgrade for any id and refuses only afterwards, so an open followed by a
+   *  refusal is one more failed attach, not a fresh start. */
   retryCount: number;
   /** Ritenti concessi anche a roster che dice "assente" (corsa boot/reconcile). */
   graceRetries: number;

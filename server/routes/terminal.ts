@@ -1,6 +1,6 @@
 import type { AppContext, RouteHandler } from "../types";
 import type { TerminalSessionType } from "../../shared/terminal-session-types";
-import { STANDALONE_NO_PTY_CODE, TERMINAL_INPUT_DROPPED } from "../../shared/terminal-messages";
+import { STANDALONE_NO_PTY_CODE, TERMINAL_INPUT_DROPPED, TERMINAL_WS_CLOSE_DORMANT } from "../../shared/terminal-messages";
 import { spawn } from "child_process";
 import { resolve, basename, dirname, join } from "path";
 import { createInterface } from "readline";
@@ -2548,6 +2548,37 @@ export function parkOrphanSessions(ids: readonly string[], thresholdMs: number):
   return { parked, skipped };
 }
 
+/**
+ * Park ONE live session the way a restart does when the bridge no longer holds
+ * its PTY (`reconcileSessions` -> `decideOnRestart` -> `park`): the live entry
+ * goes, the PTY is killed, the row STAYS with `status = 'dormant'`.
+ *
+ * No gate, on purpose: this is not the idle sweep (`tryParkSession` asks
+ * `decidePark`, and a shell never passes it). It exists for the e2e seam
+ * `POST /api/test/terminal/:id/park`, which needs the STATE a restart leaves
+ * behind without restarting the server - the bridge is a separate daemon that
+ * survives a restart, so a restart inside a test would REATTACH the shell, not
+ * park it. The live entry is removed BEFORE the kill goes out: the bridge's
+ * `exit` handler deletes the row of a shell it still finds in the map, and a
+ * deleted row is a different state from a dormant one (1008, not the verdict).
+ *
+ * Returns `false` when there was nothing live to park.
+ */
+export function parkTerminalSession(id: string): boolean {
+  if (!sessions.has(id)) return false;
+  sessions.delete(id);
+  const sockets = sessionSockets.get(id);
+  if (sockets) {
+    for (const ws of sockets) { try { ws.close(1000, "Session parked"); } catch {} }
+    sessionSockets.delete(id);
+  }
+  clearTerminalActivity(id);
+  try { getDatabase().run("UPDATE terminal_sessions SET status = 'dormant' WHERE id = ?", [id]); } catch {}
+  try { sendToBridge({ type: "kill", id }); } catch { /* bridge down: the PTY is already gone */ }
+  broadcastTerminalSessions();
+  return true;
+}
+
 export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTracker): RouteHandler {
   const { json, readJSON, errorResponse, matchRoute } = ctx;
   _broadcastToAll = ctx.broadcastToAll;
@@ -3144,7 +3175,22 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
 export function handleTerminalWebSocket(ws: any, sessionId: string) {
   const session = sessions.get(sessionId);
   if (!session) {
-    ws.close(1008, "Session not found");
+    // Two different answers for two different absences. A PARKED row (the
+    // reaper, a `/exit`, a restart that found no PTY in the bridge) is a
+    // verdict: the PTY will not come back on its own, only a revive brings it.
+    // Everything else stays 1008 - a row the reconcile is about to reattach,
+    // or no row at all - and for that the client keeps its grace. Without the
+    // distinction the pane looped forever on a dormant id: open, resize (404),
+    // close, 500 ms, again (see TERMINAL_WS_CLOSE_DORMANT).
+    let dormant = false;
+    try {
+      const row = getDatabase()
+        .query("SELECT status FROM terminal_sessions WHERE id = ?")
+        .get(sessionId) as { status?: string } | null;
+      dormant = row?.status === "dormant";
+    } catch { /* no row readable: the not-found answer below is still right */ }
+    if (dormant) ws.close(TERMINAL_WS_CLOSE_DORMANT, "Session dormant");
+    else ws.close(1008, "Session not found");
     return;
   }
 
