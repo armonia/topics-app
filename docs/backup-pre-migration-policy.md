@@ -54,10 +54,32 @@ ha verificato la migration. A quel punto:
 Non implementare una scadenza automatica (cron, script): la verifica prima
 della cancellazione e' intenzionale e richiede un occhio umano.
 
+## Come si copia
+
+Non con `cp`: una copia del file mentre il server scrive prende il DB a meta'
+di un checkpoint, obbliga a copiare anche il `-wal` a mano, e porta con se' le
+pagine libere (il 2026-09-07 il DB vivo ne aveva 28.273, cioe' 116 MB di
+niente ripetuti in ognuna delle nove copie trovate in `data/`). SQLite ha il
+comando fatto per questo:
+
+```bash
+sqlite3 data/topics.db "VACUUM INTO 'data/topics.db.bak-pre-<slug>'"
+```
+
+Snapshot consistente anche a server acceso, WAL gia' incluso, freelist a zero:
+un solo file, grande quanto i dati e non quanto il file. Verifica:
+`sqlite3 'file:data/topics.db.bak-pre-<slug>?mode=ro' 'PRAGMA freelist_count'`
+deve dare 0.
+
+Niente `VACUUM` sul DB vivo per «recuperare» quelle pagine: le riusa da solo
+(~3.800 al giorno con i nuovi blocchi) e in una settimana la freelist e' a
+zero senza fermare il server.
+
 ## Cosa fare con i WAL
 
-Ogni backup puo' avere un `-wal` accanto. Va trattato come il backup stesso:
-cancellato insieme, con `trash`.
+Ogni backup puo' avere un `-wal` accanto (solo se copiato con `cp`: `VACUUM
+INTO` non ne produce). Va trattato come il backup stesso: cancellato insieme,
+con `trash`.
 
 ## Riferimento
 

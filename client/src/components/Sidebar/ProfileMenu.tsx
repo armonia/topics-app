@@ -17,13 +17,20 @@
  * last. Above the things that do something, below the things that say something
  * - the same order the «Topics» menu already had internally, kept in the move.
  *
- * ── WHY SECTIONS THAT EXPAND, AND NOT SUBMENUS ──────────────────────────────
- * Friends and groups are lists, and a list of people inside a flyout that opens
- * off the side of another flyout is the shape that breaks first: two popovers
- * on screen at once, the second one against the window edge, and the pointer
- * having to cross the first to reach it. The design line for this chrome is one
- * popover at a time, so the lists expand IN PLACE, the way the performance rows
- * already did in the system menu. The panel gets taller; nothing new floats.
+ * ── WHY SUBMENUS, AND NOT SECTIONS THAT EXPAND ──────────────────────────────
+ * Friends, groups and the running agents are lists, and for a while they were
+ * accordions: a chevron turning ninety degrees and the list unfolding inside
+ * the same panel. That shape has a cost the first open pays and every open
+ * after it repeats: an accordion pushes every row below it down, so the
+ * commands and the system rows jump, and a two level menu turns into a
+ * scrolling column you have to hunt through. A submenu opens its level beside
+ * the row, where the eye already is, and the host panel does not move. The
+ * shared `SubmenuItem` (on the `Menu` primitive) owns the placement, the flip
+ * at the window edge, the dismissal contract and the occlusion of a native
+ * browser pane, so this file only says what goes in each level.
+ *
+ * The panel therefore reads as FIVE groups, hairline between each: the
+ * account, the people, the agents, the commands of the column, the app.
  *
  * ── AND THE MENU DOES NOT REPEAT THE CARD ───────────────────────────────────
  * The card that opens it already says your name and what the machine is
@@ -32,11 +39,11 @@
  * behind the chips, the exact numbers behind the dot.
  */
 import { Suspense, useCallback, useState } from 'react';
-import { Bot, Building2, ChevronRight, Hourglass, ListChecks, MessagesSquare, UserRound, Users } from 'lucide-react';
+import { Bot, Building2, Hourglass, ListChecks, MessagesSquare, UserRound, Users } from 'lucide-react';
+import { SubmenuItem } from '../Shared/SubmenuItem';
 import { PresencePopover } from './PresencePopover';
 import { FaceStack, MenuAction, PresenceList } from './PresenceList';
 import { TopicsMenuItems, type TopicsMenuItemsProps } from './TopicsMenuItems';
-import { menuRowClass } from './menuRow';
 import { AccountPanel } from './accountPanelLazy';
 import { SidebarSystemMenu } from './SidebarSystemMenu';
 import { CHIP_INK_DIM, ORG_MARKS_IN_CHIP } from './identityChip';
@@ -51,6 +58,8 @@ import type { SignalKind, WorkSignal } from './workSignals';
 import { apriProfilo } from '@/state/profileTarget';
 import { openSettings } from '@/lib/openSettings';
 import { useT } from '@/hooks/useT';
+import { useActiveAgentRows, type ActiveAgentRow } from '@/state/signals';
+import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
 
 /** A glyph component, taken as a prop: which device you are on was decided by
  *  the card, and deciding it twice is how the two disagree. */
@@ -95,24 +104,13 @@ export function ProfileMenu({
         <>
           <UserRound size={12} className="flex-shrink-0 text-app-text-muted" />
           <span className="truncate">{tr('statusBar.account.title')}</span>
-          {/* WHAT IS RUNNING, in glyphs: the numbers that used to ride on the
-              chip at the foot of the column. They left the card because the
-              card now answers "what is this machine spending", and two
-              families of digits in one 240px row is the pile the redesign was
-              called in to undo. Here they have a header to sit on and a
-              tooltip with the sentence. */}
-          {signals.length > 0 && (
-            <span data-testid="presence-summary" className="ml-auto flex flex-shrink-0 items-center gap-1.5 tabular-nums">
-              {signals.map((s) => <Signal key={s.kind} kind={s.kind} n={s.n} />)}
-            </span>
-          )}
         </>
       }
     >
       {/* THE PANEL SCROLLS, THE WINDOW DOES NOT. Everything the chrome knows is
-          in here now, and two expanded sections plus the performance panel is
-          taller than a laptop screen. The popover flips above the card by
-          itself; what it cannot do is shrink, so the cap lives here. */}
+          in here now, and the account block plus the performance panel opened
+          is taller than a small laptop screen. The popover flips above the card
+          by itself; what it cannot do is shrink, so the cap lives here. */}
       <div className="max-h-[min(70vh,560px)] overflow-y-auto">
         <Suspense fallback={null}>
           <AccountPanel
@@ -139,6 +137,9 @@ export function ProfileMenu({
         <OrgsSection orgs={orgs} />
 
         <div className="border-t border-app-border" />
+        <AgentsRow signals={signals} />
+
+        <div className="border-t border-app-border" />
         <TopicsMenuItems
           isMobile={false}
           {...commands}
@@ -155,35 +156,67 @@ export function ProfileMenu({
 }
 
 /**
- * A SECTION THAT EXPANDS: the row is the headline, what opens under it is the
- * list. Same row shape as the commands below, so the menu reads as one list
- * and not as two menus stacked.
+ * WHAT IS RUNNING, as a row that opens onto WHO.
+ *
+ * The glyphs (agents working, turns waiting, tasks, open sessions) used to sit
+ * in the header of this panel, where they were a number with no way to ask
+ * "which ones". They are the tail of this row now, and the level beside it
+ * names each agent at work and each one parked on a question.
+ *
+ * TWO SCOPES, AND THEY ARE NOT THE SAME QUESTION. The rows and the badge on
+ * the card are what THIS window's signals can see, from one derivation
+ * (`useActiveAgentRows`), so a row cannot exist without being counted. The
+ * glyphs in the tail are the INSTALLATION's own counts, served by
+ * `/api/system/presence` (see `usePresenceSummary`: the server counts once so
+ * that this row and the published presence cannot drift). A machine with
+ * sessions running behind another window will therefore show a tail digit
+ * larger than the badge, and that is the honest reading of both.
+ *
+ * Read-only rows: there is no shared helper to jump from a row to its session
+ * yet, and a row that looks like a button and does nothing is worse than text.
  */
-function Section({ icon: Icon, label, tail, testId, children }: {
-  icon: Glyph;
-  label: string;
-  /** The count, the badge, whatever the row says with the section closed. */
-  tail?: React.ReactNode;
-  testId: string;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(false);
+function AgentsRow({ signals }: { signals: WorkSignal[] }) {
+  const tr = useT();
+  const { working, awaitingInput } = useActiveAgentRows(useTerminalSessions(), useTopics());
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        data-testid={testId}
-        className={menuRowClass(false)}
-      >
-        <Icon size={14} className="flex-shrink-0" />
-        <span className="flex-1 text-left">{label}</span>
-        {tail}
-        <ChevronRight size={14} className={`flex-shrink-0 text-app-text-tertiary transition-transform ${open ? 'rotate-90' : ''}`} />
-      </button>
-      {open && <div className="border-y border-app-border">{children}</div>}
-    </>
+    <SubmenuItem
+      icon={Bot}
+      label={tr('statusBar.agents.title')}
+      testId="profile-menu-agents"
+      minWidth={220}
+      tail={signals.length > 0 ? (
+        <span data-testid="presence-summary" className="flex flex-shrink-0 items-center gap-1.5 tabular-nums">
+          {signals.map((s) => <Signal key={s.kind} kind={s.kind} n={s.n} />)}
+        </span>
+      ) : undefined}
+    >
+      <div className="max-h-[240px] overflow-y-auto py-1">
+        {working.map((r) => <AgentLine key={`${r.kind}:${r.id}`} row={r} testId="active-agent-row" alive />)}
+        {awaitingInput.length > 0 && (
+          <>
+            <div className={`px-3 pb-0.5 pt-1.5 text-[10px] uppercase tracking-wide ${SEGNALE_ATTESA}`}>
+              {tr('statusBar.agents.awaitingHeading')}
+            </div>
+            {awaitingInput.map((r) => <AgentLine key={`${r.kind}:${r.id}`} row={r} testId="awaiting-agent-row" />)}
+          </>
+        )}
+        {working.length === 0 && awaitingInput.length === 0 && (
+          <div className="px-3 py-2 text-[11px] text-app-text-secondary">{tr('statusBar.agents.none')}</div>
+        )}
+      </div>
+    </SubmenuItem>
+  );
+}
+
+/** One agent, one line: the glyph says what kind of thing it is, the label
+ *  says which. The working glyph pulses, like its digit in the tail. */
+function AgentLine({ row, testId, alive = false }: { row: ActiveAgentRow; testId: string; alive?: boolean }) {
+  const Icon = row.kind === 'terminal' ? Bot : MessagesSquare;
+  return (
+    <div data-testid={testId} data-kind={row.kind} className="flex items-center gap-2 px-3 py-1 text-[11px] text-app-text" title={row.label}>
+      <Icon size={12} className={`flex-shrink-0 ${alive ? `animate-pulse ${SEGNALE_OK}` : SEGNALE_ATTESA}`} />
+      <span className="min-w-0 flex-1 truncate">{row.label}</span>
+    </div>
   );
 }
 
@@ -216,10 +249,11 @@ function FriendsSection({ friends, onClose }: { friends: FriendPresence; onClose
   }, [accept, decline]);
 
   return (
-    <Section
+    <SubmenuItem
       icon={Users}
       label={tr('statusBar.friends.title')}
       testId="profile-menu-friends"
+      minWidth={244}
       tail={
         <span
           data-testid="friends-count"
@@ -276,7 +310,7 @@ function FriendsSection({ friends, onClose }: { friends: FriendPresence; onClose
           {tr('statusBar.friends.manage')}
         </MenuAction>
       </div>
-    </Section>
+    </SubmenuItem>
   );
 }
 
@@ -299,10 +333,11 @@ function OrgsSection({ orgs }: { orgs: OrgWithPresence[] }) {
   const only = orgs.length === 1 ? orgs[0] : null;
 
   return (
-    <Section
+    <SubmenuItem
       icon={Building2}
       label={only ? only.nome : tr('statusBar.orgs.title')}
       testId="profile-menu-orgs"
+      minWidth={244}
       tail={
         <span data-testid="orgs-count" className={`flex-shrink-0 tabular-nums ${online > 0 ? SEGNALE_OK : CHIP_INK_DIM}`}>
           {orgs.length === 0 ? '0' : tr('statusBar.orgs.presence', { n: online, tot: people.length })}
@@ -335,7 +370,7 @@ function OrgsSection({ orgs }: { orgs: OrgWithPresence[] }) {
           {only ? tr('statusBar.orgs.manageOne') : tr('statusBar.orgs.manageAll')}
         </MenuAction>
       </div>
-    </Section>
+    </SubmenuItem>
   );
 }
 

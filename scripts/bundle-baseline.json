@@ -362,9 +362,19 @@
     "apre al click su un'immagine e vive nello stesso file di ZoomableImage, che",
     "e' inline: separarli e' un giro di sei import. DictationStrip (2.173)",
     "compare solo col microfono aperto, ma e' l'UNICO segnale visibile di quello",
-    "stato: un chunk che non arriva lascerebbe il microfono invisibile, resta."
+    "stato: un chunk che non arriva lascerebbe il microfono invisibile, resta.",
+    "",
+    "2026-09-07, total_assets SCENDE a 8.848.497 (misurato dopo `build:client` a",
+    "04bba19bb + il plugin `dropLegacyKatexFonts` di vite.config.ts): KaTeX",
+    "emetteva ogni font tre volte (woff2, woff, ttf) e nessuna WebView di",
+    "destinazione chiede mai le ultime due, 40 file per 816.780 byte che",
+    "finivano anche dentro il binario Tauri. Il tetto segue la misura verso il",
+    "basso, come vuole la regola: una release che li riportasse dentro esce",
+    "rossa qui. Nello stesso giro entry_eager resta al suo tetto: la misura e'",
+    "1.424.209 (+10.388 dai land del menu utente e dell'isolamento runtime,",
+    "dentro la tolleranza del 2%), non si alza."
   ],
-  "updated": "2026-09-06",
+  "updated": "2026-09-07",
   "tolerance_pct": 2,
   "entry_eager": {
     "raw": 1413821,
@@ -376,6 +386,6 @@
     "files": 5
   },
   "total_assets": {
-    "raw": 8917963
+    "raw": 8848497
   }
 }

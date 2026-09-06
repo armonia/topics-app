@@ -401,6 +401,9 @@ const EN = {
 
   'tab.openedBrowser': 'This tab opened a browser',
   'tab.cloudSession': 'Cloud session (OpenClaw)',
+  'tab.stopTurn': 'Stop the turn',
+  'tab.stopTurnOn': 'Stop the turn on {name}',
+  'tab.menu.stopTurn': 'Stop the turn',
   'tab.restartSession': 'Restart the session (Claude/codex resume via --resume)',
   'tab.restartSessionFailed': 'Restart failed: the server refused',
   'tab.restartSessionUnreachable': 'Restart failed: the server did not answer',
@@ -1780,6 +1783,11 @@ const EN = {
   'statusBar.signals.done': '{n} finished turns you have not looked at',
   'statusBar.signals.tasks': '{n} board tasks running',
   'statusBar.signals.open': '{n} open sessions',
+  // THE ACTIVE AGENTS ROW and the level it opens: who is working, who is
+  // parked on a question, and the sentence for when nobody is.
+  'statusBar.agents.title': 'Active agents',
+  'statusBar.agents.awaitingHeading': 'Waiting for your answer',
+  'statusBar.agents.none': 'No agent is working right now',
   'statusBar.me.panel': 'Your profile',
   'statusBar.me.machine': 'From this device',
   'statusBar.me.devicesRow': 'Authorised devices',

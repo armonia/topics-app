@@ -54,11 +54,60 @@ export const MANIFESTS = [
  * a seconda dello script legge un `node_modules` diverso o non parte proprio.
  * Il lock è la dichiarazione più affidabile che un progetto abbia.
  */
-export function pickPackageManager(presenti: (f: string) => boolean): "bun" | "pnpm" | "yarn" | "npm" {
+export type PackageManager = "bun" | "pnpm" | "yarn" | "npm";
+
+export function pickPackageManager(presenti: (f: string) => boolean): PackageManager {
   if (presenti("bun.lock") || presenti("bun.lockb")) return "bun";
   if (presenti("pnpm-lock.yaml")) return "pnpm";
   if (presenti("yarn.lock")) return "yarn";
   return "npm";
+}
+
+/** The package manager of the project in `dir`, read from its lockfiles. */
+export function packageManagerFor(dir: string): PackageManager {
+  return pickPackageManager(rel => existsSync(join(dir, rel)));
+}
+
+/**
+ * The argv that installs `dir`'s dependencies WITHOUT touching its lockfile.
+ *
+ * The manager comes from the project, never from what Topics happens to be
+ * built with: an installed Topics.app runs on machines where `bun` is not on
+ * PATH, and a pnpm or npm project would not want it anyway. Each manager
+ * spells "do not rewrite the lockfile" differently.
+ */
+export function installArgv(dir: string): string[] {
+  const pm = packageManagerFor(dir);
+  // runtime-dep-ok: the package manager of the USER's project, resolved from its lockfile, not a tool Topics assumes
+  switch (pm) {
+    case "yarn": return ["yarn", "install", "--immutable"];
+    case "npm": return ["npm", "ci"];
+    default: return [pm, "install", "--frozen-lockfile"];
+  }
+}
+
+/** The argv that runs a `package.json` script (`args[0]`, plus its arguments) in `dir`. */
+export function runScriptArgv(dir: string, args: string[]): string[] {
+  const pm = packageManagerFor(dir);
+  // runtime-dep-ok: the package manager of the USER's project, resolved from its lockfile, not a tool Topics assumes
+  return pm === "yarn" ? ["yarn", ...args] : [pm, "run", ...args];
+}
+
+/**
+ * Why `dir`'s package manager cannot be spawned, or `null` when it can.
+ *
+ * No silent fallback to another manager: a project locked with pnpm and
+ * installed with npm gets a different `node_modules` and a rewritten tree, and
+ * nobody asked for that. The message names the missing tool so the failure
+ * reaches the person instead of ending as a swallowed spawn error.
+ */
+export function missingPackageManager(
+  dir: string,
+  which: (cmd: string) => string | null = (cmd) => Bun.which(cmd),
+): string | null {
+  const pm = packageManagerFor(dir);
+  if (which(pm)) return null;
+  return `${pm} is not installed (not on PATH): the dependencies and scripts of ${dir} cannot be run. Install ${pm} or run the project with the package manager its lockfile declares.`;
 }
 
 export function parsePackageScripts(text: string): { name: string; detail: string }[] {

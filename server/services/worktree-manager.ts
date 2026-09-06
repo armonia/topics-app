@@ -43,6 +43,7 @@ import { existsSync, mkdirSync, statSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { topicsHome } from "./daemon-state";
+import { installArgv, missingPackageManager } from "../lib/project-scripts";
 import type { LifecycleHookRunner } from "./lifecycle-hooks";
 import { join, resolve } from "node:path";
 import type { OwnedScript } from "../lib/ghost-script";
@@ -503,8 +504,15 @@ export function createWorktreeManager(
     let ok = 0;
     for (const dir of [absPath, join(absPath, "client")]) {
       if (!existsSync(join(dir, "package.json"))) continue;
+      // The manager is the PROJECT's (from its lockfile), and when it is not on
+      // PATH we say so instead of spawning into an ENOENT nobody reads.
+      const missing = missingPackageManager(dir);
+      if (missing) {
+        console.warn(`[WorktreeManager] deps NON installate in ${dir}: ${missing}`);
+        continue;
+      }
       try {
-        const proc = Bun.spawn(["bun", "install", "--frozen-lockfile"], {
+        const proc = Bun.spawn(installArgv(dir), { // runtime-dep-ok: the package manager of the USER's project, resolved from its lockfile, not a tool Topics assumes
           cwd: dir, stdout: "pipe", stderr: "pipe",
         });
         if ((await proc.exited) === 0) ok += 1;

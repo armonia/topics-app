@@ -778,3 +778,53 @@ schermo anche sotto i 768px SENZA aprire il cassetto; l'identita' no.
 - **GIVEN** un desktop
 - **THEN** la card dell'identita' e' in fondo alla colonna, non in alto
 - **AND** e' lei ad aprire il menu che tiene stato, comandi e persone
+
+### Requirement: STATUSLINE-05 — I livelli del menu utente si aprono DI LATO, e gli agenti in corso si contano dal pulsante
+
+Le voci del menu della card SHALL essere raggruppate per gerarchia, separate da
+una riga sottile, ciascuna con la sua icona: account, persone, agenti, comandi
+della colonna, app.
+
+Un livello annidato NON SHALL aprirsi ad accordion. Un accordion spinge in giu'
+tutte le righe sotto di se': con tre sezioni il menu diventa una colonna da
+scorrere e la voce che si e' appena premuta non e' piu' dove la si era lasciata.
+Il livello SHALL aprirsi come un secondo pannello ACCANTO alla riga, a destra, e
+a sinistra quando a destra non c'e' spazio. SHALL essere lo STESSO componente di
+menu di tutta l'app (una seconda implementazione di tendina diverge il giorno
+dopo su posizione, chiusura e occlusione della pane browser nativa), quindi il
+pannello ospite NON SHALL cambiare altezza quando un livello si apre.
+
+Il livello SHALL aprirsi al passaggio del puntatore e da tastiera con la freccia
+DESTRA; la freccia SINISTRA SHALL chiuderlo e riportare il fuoco sulla riga da
+cui e' partito. Escape SHALL chiudere UN livello per volta: il primo il livello,
+il secondo il menu.
+
+Gli agenti attivi SHALL essere UNA riga di riepilogo col conteggio, e l'elenco
+SHALL stare nel livello che quella riga apre.
+
+Il pulsante che apre il menu SHALL portare, gia' a menu chiuso, il numero degli
+agenti che stanno lavorando, come pastiglia numerica dello stesso stile dei badge
+di notifica. Quel numero e la lista SHALL venire dalla STESSA derivazione: un
+badge che conta con una regola sua e' un badge che un giorno dice due mentre la
+lista ne mostra tre, e chi guarda crede al badge.
+
+#### Scenario: un gruppo con sottolivello
+- **GIVEN** un desktop col menu della card aperto
+- **WHEN** si preme una riga che ha un sottolivello
+- **THEN** il pannello del livello SHALL cominciare al bordo destro del menu che
+  lo possiede, o oltre
+- **AND** il menu che lo possiede NON SHALL diventare piu' alto
+- **AND** il livello NON SHALL essere un discendente del pannello ospite
+
+#### Scenario: dalla tastiera
+- **GIVEN** il fuoco su una riga con sottolivello
+- **WHEN** si preme la freccia destra
+- **THEN** il livello SHALL aprirsi
+- **AND** la freccia sinistra SHALL richiuderlo col fuoco di nuovo sulla riga
+- **AND** Escape SHALL chiudere prima il livello e poi il menu
+
+#### Scenario: due agenti al lavoro
+- **GIVEN** due sessioni che stanno rispondendo
+- **THEN** il pulsante in fondo alla colonna SHALL mostrare 2 a menu chiuso
+- **AND** il livello degli agenti SHALL elencare quelle due sessioni
+- **AND** il numero sul pulsante SHALL essere esattamente quante righe elenca

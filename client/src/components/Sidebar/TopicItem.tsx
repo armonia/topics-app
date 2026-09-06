@@ -14,6 +14,7 @@ import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { TopicSubline } from '@/components/Shared/SessionActivity';
 import { RelativeTime } from '@/components/Shared/RelativeTime';
 import { TopicStreamingSpinner } from '@/components/Layout/StreamingIndicator';
+import { rowCommandSequence } from '@/lib/rowCommandOrder';
 import { sidebarRowCard, ROW_PX, ROW_GAP, ROW_H, ROW_INSET, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_CHEVRON, ROW_CHEVRON_SLOT, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, ARCHIVED_ROW, TAB_LABEL_TYPE, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT } from '@/lib/selectionStyles';
 import { RowSplitMap } from './RowSplitMap';
 import { useMobile } from '@/hooks/useMobile';
@@ -427,48 +428,34 @@ export const TopicItem = memo(function TopicItem({
           lands at the row's trailing edge (see below). */}
       <RowSplitMap paneId={topic.id} onFill={onFill} />
 
-      {/* Lo spinner sta FUORI dal binario quieto, ed è l'unica eccezione del
-          contratto (vedi ROW_TRAIL in selectionStyles): fermare un turno e
-          archiviare la chat sono due azioni diverse nello stesso istante, e
-          sbiadire la prima per far posto alla seconda toglierebbe l'unico modo
-          di fermare un turno vivo dalla colonna.
+      {/* THE QUIET RAIL: badge, pinned, window, time, and LAST the spinner.
+          A fixed order, IDENTICAL to the tab's in the bar (see PaneTabBar):
+          count, pin, time, loading last. A new signal joins HERE, it does not
+          invent a slot of its own (ruling 3.1). The glyphs inherit the on-fill
+          treatment through ON_FILL_TEXT_SOFT, never a fixed colour on an
+          attention fill.
 
-          The SAME shared loader the tab bar renders (OrbitLoader + hover-stop via
-          LoaderSlot), just a bigger 28px box for the sidebar hit target — so the
-          sidebar chat row and its tab can't drift in glyph, animation, or stop
-          affordance. */}
-      {isStreaming && (
-        <TopicStreamingSpinner
-          topicId={topic.id}
-          onStop={onStopStreaming}
-          size={28}
-          variant="labeled"
-          lastActivity={new Date(topic.updatedAt || topic.createdAt).getTime()}
-          // La durata del turno la dice già `SessionActivity` sotto al nome. Qui
-          // resta il solo campanello dello STALLO — vedi `quiet`.
-          quiet
-          className="flex-shrink-0"
-        />
-      )}
+          THE SPINNER USED TO SIT OUTSIDE, and the contract called it its one
+          exception: stopping a turn and archiving the chat are two different
+          actions in the same instant, and fading the first to make room for the
+          second would take the only way to stop a live turn out of the column.
+          That held while stopping was possible ONLY by hovering the glyph.
+          Stopping is a real command in the rail now, before Archive (see
+          rowCommandSequence), so the exception is spent: the glyph is a signal
+          again and fades with the others, under the commands that take its
+          place. The pin, which used to sit between the loader and the time, no
+          longer does.
 
-      {/* IL BINARIO QUIETO — ora, fissata, finestra, badge. Ordine fisso; un
-          nuovo segnale in coda entra QUI, non inventa uno slot (ruling 3.1).
-          I glifi ereditano il trattamento su fill via ON_FILL_TEXT_SOFT — mai un
-          colore fisso su un fill di attenzione.
-
-          Questi quattro NON si spostano e non spariscono a turno: sbiadiscono
-          insieme sotto il comando, che ci passa sopra. Prima il timestamp era
-          `group-hover:hidden` DENTRO lo stesso span del comando — quattro
-          occupanti per una posizione, e lo slot cambiava larghezza a ogni stato
-          (l'inchiostro dell'ora, poi 36, poi 28), cioè il tasto compariva ogni
-          volta in una x diversa. */}
+          These do NOT move and do not take turns disappearing: they fade
+          together under the command that passes over them. The timestamp used
+          to be `group-hover:hidden` INSIDE the command's own span, four
+          occupants for one position, and the slot changed width with every
+          state (the ink of the time, then 36, then 28), so the button turned up
+          at a different x every time. */}
       <div className={`${ROW_TRAIL} flex items-center ${ROW_GAP} flex-shrink-0`}>
-        {!isStreaming && (
-          <RelativeTime
-            at={topic.updatedAt}
-            className={cn('flex-shrink-0 text-[11px] tabular-nums', onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary')}
-          />
-        )}
+        {/* Notification badge — hidden when focused so the user doesn't see a
+            count for the topic they're actively looking at. */}
+        {!isFocused && <NotificationBadge count={notificationCount} variant={onFill ? 'onFill' : 'default'} />}
         {pinned && (
           <span
             className={cn('flex-shrink-0 flex items-center', onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary')}
@@ -494,25 +481,64 @@ export const TopicItem = memo(function TopicItem({
             <AppWindow size={12} />
           </span>
         )}
-        {/* Notification badge — hidden when focused so the user doesn't see a
-            count for the topic they're actively looking at. */}
-        {!isFocused && <NotificationBadge count={notificationCount} variant={onFill ? 'onFill' : 'default'} />}
+        {!isStreaming && (
+          <RelativeTime
+            at={topic.updatedAt}
+            className={cn('flex-shrink-0 text-[11px] tabular-nums', onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary')}
+          />
+        )}
+        {/* The SAME shared loader the tab bar renders, in the same 16px slot —
+            so the sidebar chat row and its tab can't drift in glyph, animation
+            or size. Read-only on both: stopping is a command now, not a hover
+            state of a status glyph. */}
+        {isStreaming && (
+          <TopicStreamingSpinner
+            topicId={topic.id}
+            variant="labeled"
+            lastActivity={new Date(topic.updatedAt || topic.createdAt).getTime()}
+            // La durata del turno la dice già `SessionActivity` sotto al nome. Qui
+            // resta il solo campanello dello STALLO — vedi `quiet`.
+            quiet
+            className="flex-shrink-0"
+          />
+        )}
       </div>
 
-      {/* IL COMANDO, ULTIMO NEL DOM E SEMPRE ALLA STESSA x.
-          ○ vuoto = aperta, un clic archivia (3 s per ripensarci) · ◉ pieno =
-          archiviata, un clic ripristina. Niente `Archive` e niente
-          `ArchiveRestore`: quei due glifi restano nel MENU, dove accompagnano
-          un'etichetta scritta invece di dover dire uno stato da soli.
+      {/* THE COMMANDS, LAST IN THE DOM AND ALWAYS AT THE SAME x.
+          An empty ○ = open, one click archives (3 s to change your mind); a
+          filled ◉ = archived, one click restores. No `Archive` and no
+          `ArchiveRestore`: those two glyphs stay in the MENU, where they come
+          with a written label instead of having to say a state on their own.
+
+          AND WHILE A TURN IS WORKING, THE STOP COMES FIRST. Same order as the tab
+          in the bar, out of the same function (`rowCommandSequence`): you stop,
+          then you decide whether to archive. The command is the composer's own,
+          `stopSession`, which the row already receives as `onStopStreaming`.
 
           `data-pending` tiene acceso il comando mentre il conto scorre: un'azione
           ancora annullabile deve restare annullabile anche se sposti il mouse. */}
-      {onArchive && !topic.isGlobalOrchestrator && (
+      {(onArchive || (isStreaming && onStopStreaming)) && !topic.isGlobalOrchestrator && (
         <span
-          className={`${ROW_ACTIONS} ${ROW_ACTION_BOX}`}
+          className={`${ROW_ACTIONS} ${isStreaming && onStopStreaming && onArchive ? 'h-9 md:h-7 w-auto' : ROW_ACTION_BOX}`}
           data-pending={pendingArchiveStatus ? 'true' : undefined}
         >
+          {rowCommandSequence(isStreaming && !!onStopStreaming, !!onArchive).map((command) => command === 'stop' ? (
+            <button
+              key="stop"
+              onClick={(e) => { e.stopPropagation(); onStopStreaming!(); }}
+              className={`${ROW_ACTION_BOX} tap-expand-y flex-shrink-0 inline-flex items-center justify-center rounded-full hover:bg-black/10 dark:hover:bg-white/10 transition-colors cursor-pointer`}
+              title={tr('tab.stopTurn')}
+              aria-label={tr('tab.stopTurnOn', { name: topic.name })}
+              data-testid="topic-row-stop"
+            >
+              {/* The filled square is the very sign the loader glyph used to
+                  show on hover: the affordance moved, the sign did not. */}
+              <span className="bg-app-text rounded-[2px]" style={{ width: 8, height: 8 }} />
+            </button>
+          ) : (
           <PendingActionRing
+            key="close"
+            testId="topic-row-archive"
             status={pendingArchiveStatus}
             done={archived}
             size={ROW_ACTION_GLYPH}
@@ -526,6 +552,7 @@ export const TopicItem = memo(function TopicItem({
             doneTitle="Ripristina"
             doneAriaLabel={`Ripristina ${topic.name}`}
           />
+          ))}
         </span>
       )}
     </div>
