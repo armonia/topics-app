@@ -17,7 +17,7 @@
 import { expect, type Page } from '@playwright/test';
 import { test } from './fixtures/chat.fixture';
 import { hermetic } from './fixtures/hermetic';
-import { createTopic, deleteTopic } from './helpers/api-fixtures';
+import { createTopic, deleteTopic, resetPaneStore } from './helpers/api-fixtures';
 import { seedMessage } from './helpers/seed-messages';
 import { projectRow } from './helpers/project-row';
 import { E2E_BASE } from './helpers/test-server';
@@ -131,12 +131,20 @@ test.describe('la stessa lista di file su due superfici', () => {
     // topic bound to a project is nested under it, so its pane lives in the
     // project's own store and neither its `treeitem` nor its `pane-tab`
     // resolves in the main window (measured: three runs waiting 30s each).
+    // The topic has to be IN the sidebar before it can be nested under the
+    // project: a topic created through the API is not there until the pane
+    // store names it.
+    await resetPaneStore(page.request, [topicId]);
     await openProjectWindow(page);
 
     // ── SURFACE ONE: the strip above the composer.
-    const topicRow = page.getByRole('treeitem', { name: new RegExp(`git-rows-${STAMP}`) });
-    await expect(topicRow.first()).toBeVisible({ timeout: 20_000 });
-    await topicRow.first().click();
+    const topicRow = page.getByRole('treeitem', { name: new RegExp(`git-rows-${STAMP}`) }).first();
+    // The sidebar's own text goes into the failure: "not visible" alone does
+    // not tell a topic that is missing from a topic that is nested in a
+    // collapsed project.
+    const visible = await topicRow.waitFor({ state: 'visible', timeout: 20_000 }).then(() => true, () => false);
+    expect(visible, `the topic is not in the sidebar. It reads: ${await page.locator('[aria-label="Topics sidebar"]').first().innerText()}`).toBe(true);
+    await topicRow.click();
 
     const chip = page.getByTestId('chat-changes-chip');
     await expect(chip).toBeVisible({ timeout: 20_000 });
