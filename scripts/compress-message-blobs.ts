@@ -2,11 +2,15 @@
 /**
  * COMPRIMERE LE RIGHE CHE IL CODEC NON HA MAI VISTO.
  *
- * PERCHE' ESISTE. `shared/message-blob.ts` comprime `blocks` e `tool_calls` con
- * zstd da quando e' stato scritto, e ogni lettore passa gia' da `decodeCol`
- * (verificato: tutti e cinque i file che fanno SELECT su quelle colonne). Ma il
- * codec agisce in SCRITTURA, quindi ha toccato solo le righe scritte dopo di
- * lui. Misurato sul DB di produzione il 2026-08-19:
+ * WHY IT EXISTS. `shared/message-blob.ts` knows how to compress `blocks` and
+ * `tool_calls` with zstd, and every reader already goes through `decodeCol`
+ * (checked: all five files that SELECT those columns). But for a long while the
+ * codec was wired on the READ side only: `encodeCol` sat on none of the writers
+ * of `messages`, so every new row was born in plaintext and this script was the
+ * only thing that ever compressed anything. `blocks` now goes through
+ * `encodeCol` on write too (`metaParams` in server/utils.ts), so this backfill
+ * is for the rows written BEFORE that, and for `tool_calls`, which is still
+ * born in plaintext. Measured on the production database on 2026-08-19:
  *
  *     blocks      273 righe compresse (4 MB)  ·  4.131 in chiaro (481 MB)
  *     tool_calls  291 righe compresse (4 MB)  ·  8.762 in chiaro (288 MB)

@@ -768,7 +768,15 @@ export function createAppContext(baseDir: string): AppContext {
       // copia e' il 30% del payload misurato (shared/lean-tool-call.ts). Qui si
       // scarta prima che tocchi il disco; quando la copia non c'e', il testo
       // passa intero.
-      $blocks: blocksForDisk(msg.blocks),
+      //
+      // Then `encodeCol`: above 512 bytes the timeline goes to disk as zstd,
+      // which is what every reader already expects (`decodeCol` in
+      // `parseBlocksCol` and friends). The codec was written for this column
+      // but never sat on the writer, so only the 2026-08-20 backfill had ever
+      // compressed anything and the table went back to growing in plaintext at
+      // ~13 MB a day. Under a streaming turn `persistBlocks` rewrites this row
+      // dozens of times, so the saving is on the WAL too, not just on the file.
+      $blocks: encodeCol(blocksForDisk(msg.blocks)) ?? null,
     };
   }
 
@@ -1604,7 +1612,10 @@ export function createAppContext(baseDir: string): AppContext {
             role: String(row.role ?? ""),
             content: String(row.content ?? ""),
             toolCallsJson: row.tool_calls == null ? null : String(row.tool_calls),
-            blocksJson: row.blocks == null ? null : String(row.blocks),
+            // `decodeCol` and not `String`: since the writer compresses this
+            // column, `String(blob)` would hand the headstone rule a comma
+            // separated list of byte values instead of JSON.
+            blocksJson: decodeCol(row.blocks),
             timestamp: String(row.timestamp ?? ""),
             partial: row.partial === 1 || row.partial === true,
           }
@@ -1872,7 +1883,10 @@ export function createAppContext(baseDir: string): AppContext {
       $streamed_at: msg.streamedAt || null,
       $plan_status: msg.planStatus || null,
       ...metaParams({}),
-      $blocks: blocksForDisk(nextBlocks),
+      // Same codec as `metaParams`: this writer overrides `$blocks`, so without
+      // `encodeCol` here the pending-permission path would put the timeline
+      // back in plaintext on a row the stream had just compressed.
+      $blocks: encodeCol(blocksForDisk(nextBlocks)) ?? null,
     });
     return msg;
   }
@@ -2612,8 +2626,10 @@ export function createAppContext(baseDir: string): AppContext {
     // in shared/empty-turn.ts — quindi qui si va a prendere la colonna e gliela
     // si dà. Costa una lettura mirata, e solo su una riga già dichiarata vuota.
     if (presence?.has_blocks) {
-      const row = stmts.getMessageBlocks.get(msg.id) as { blocks?: string | null } | undefined;
-      if (!isEmptyAssistantTurn({ role: "assistant", blocks: row?.blocks ?? null })) return null;
+      const row = stmts.getMessageBlocks.get(msg.id) as { blocks?: unknown } | undefined;
+      // Through `decodeCol`, like every other reader of this column: the writer
+      // stores it as zstd above 512 bytes, and the predicate wants the JSON.
+      if (!isEmptyAssistantTurn({ role: "assistant", blocks: decodeCol(row?.blocks) })) return null;
     }
     return deleteMessageSubtree(sessionKey, msg.id) ? msg.id : null;
   }
