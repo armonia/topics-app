@@ -45,7 +45,12 @@ import { goToApp } from "./helpers";
 import { resetPaneStore } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
 import { AA_TESTO } from "./helpers/contrast";
-import { BACKDROP_SPREAD_FLOOR, setTheme, sweepChromeLabels } from "./helpers/chrome-contrast";
+import {
+  BACKDROP_SPREAD_FLOOR,
+  TAB_LABELS,
+  setTheme,
+  sweepChromeLabels,
+} from "./helpers/chrome-contrast";
 import { CHROME_BAR_SURFACES } from "../../client/src/lib/chromeBarSurfaces";
 
 hermetic(test);
@@ -66,6 +71,57 @@ const cell = (page: Page) => page.locator('[data-pane-shell][data-pane-visible="
  * (terminal 81, browser 49, dashboard 136) and far above an empty shell.
  */
 const MOUNTED_NODES = 20;
+
+/**
+ * A BLANK BROWSER PANE ASKS ITS TAB FOR THE ADDRESS EDITOR, and the label is an
+ * empty input until it is dismissed.
+ *
+ * `RemoteBrowserPanel` auto-focuses the address of a pane that has nowhere to
+ * go, 50 ms after the pane becomes visible (`RemoteBrowserPanel.tsx`, the
+ * `setTimeout(() => focusUrlBar(), 50)` guarded by `empty`), and the tab answers
+ * by swapping its label for the input (`BrowserTabAddress`). A label with no
+ * text is skipped by the sweep, so on the browser rows of run ecbc4cd44 the
+ * sweep collected nothing at all and failed with "no reading collected"
+ * (helpers/chrome-contrast.ts) on a bar that was perfectly visible.
+ *
+ * The previous version of this dismissal read the editor ONCE, right after the
+ * pane mounted, which is a beat before the effect that opens it: the count was
+ * zero, nothing was dismissed, and the editor opened into the sweep. So the
+ * editor is WAITED FOR and then dismissed, and the post-condition asserted is
+ * the one the sweep actually needs: every label has ink. The wait is bounded
+ * and its absence is not an error, because a pane that never asks for the
+ * editor is already in the state we want.
+ */
+async function labelsAtRest(page: Page, probe: string): Promise<void> {
+  const editor = page.getByTestId("browser-tab-address-input");
+  if (probe.startsWith("browser:")) {
+    await editor.waitFor({ state: "attached", timeout: 5_000 }).catch(() => {});
+  }
+  if ((await editor.count()) > 0) {
+    await editor.press("Escape");
+    await expect(editor).toHaveCount(0);
+  }
+
+  const labels = page.locator(TAB_LABELS);
+  await expect
+    .poll(
+      async () => {
+        const total = await labels.count();
+        let blank = 0;
+        for (let i = 0; i < total; i++) {
+          if (!((await labels.nth(i).textContent()) ?? "").trim()) blank++;
+        }
+        return blank;
+      },
+      {
+        timeout: 10_000,
+        message:
+          "un'etichetta della barra e' senza testo: la sweep la salta, e se sono tutte cosi' non raccoglie " +
+          "nessuna lettura (di solito e' l'editor dell'indirizzo rimasto aperto sopra la label)",
+      },
+    )
+    .toBe(0);
+}
 
 /**
  * Open the app on the seeded probe pane, and make sure it is really THAT pane
@@ -96,6 +152,24 @@ const MOUNTED_NODES = 20;
  * past the 8). Now a shell that is there is waited for, and a reseed is only
  * written once the old page has LEFT, so its flush is already on the server
  * when the seed lands instead of a beat behind it.
+ *
+ * AND THE RETRY LOOP HAD NO BUDGET TO RETRY WITH, which is what made the red of
+ * run 34035981200 permanent instead of merely slow. `Received: 0` in that
+ * failure is not a subtree that measured zero: it is THIS loop's own reseed
+ * branch returning 0, i.e. "no shell, I have re-seeded, look again". Reading it
+ * as an empty pane sends you hunting a rendering bug that is not there.
+ *
+ * The arithmetic is the whole story. `evaluate` on an absent shell used to wait
+ * for the ACTION TIMEOUT (15 s, playwright.config.ts) before the branch could
+ * even run, and the branch then pays `about:blank` + reseed + a full cold boot.
+ * One attempt is therefore ~20 s of a 40 s budget: two tries, and on a loaded
+ * shard the first cold load eats most of the first. The loop was not converging
+ * on the race, it was timing out inside its own first attempt.
+ *
+ * So the probe waits FIVE seconds, not fifteen. The budget is unchanged and the
+ * assertion is unchanged; what changes is that the same 40 s now buys about
+ * seven attempts at the race instead of two, which is the difference between a
+ * retry loop and a decorative one.
  */
 async function openProbePane(page: Page, request: APIRequestContext, probe: string): Promise<void> {
   // The probe's OWN shell, visible. Any visible shell would be satisfied by
@@ -106,11 +180,11 @@ async function openProbePane(page: Page, request: APIRequestContext, probe: stri
   await expect
     .poll(
       async () => {
-        // `evaluate` waits for the shell to attach (up to the action timeout):
-        // that wait is the boot. A shell that is there answers with its
-        // subtree, small or not, and the poll comes back for the rest.
+        // `evaluate` waits for the shell to attach: that wait is the boot. A
+        // shell that is there answers with its subtree, small or not, and the
+        // poll comes back for the rest.
         const nodes = await shell
-          .evaluate((el) => el.querySelectorAll("*").length)
+          .evaluate((el) => el.querySelectorAll("*").length, undefined, { timeout: 5_000 })
           .catch(() => -1);
         if (nodes >= 0) return nodes;
         // No shell: the seed was lost. The old page goes away FIRST, so that
@@ -129,17 +203,10 @@ async function openProbePane(page: Page, request: APIRequestContext, probe: stri
     )
     .toBeGreaterThan(MOUNTED_NODES);
 
-  // A LABEL BEING EDITED HAS NO INK. A browser pane with nowhere to go asks its
-  // tab for the address editor (`BrowserTabAddress`): the label is an empty
-  // input until Escape, or leaving it, gives the label back. The sweep reads
-  // labels at rest - that is what sits over the glass while a page is used -
-  // so the editor is dismissed here. It is not a way past an empty label: a
-  // row whose label has no text after this still fails the sweep, by name.
-  const editor = page.getByTestId("browser-tab-address-input");
-  if ((await editor.count()) > 0) {
-    await editor.press("Escape");
-    await expect(editor).toHaveCount(0);
-  }
+  // The sweep reads labels AT REST, which is what sits over the glass while a
+  // pane is used: `labelsAtRest` puts the tab back in that state and refuses to
+  // go on while a label has no ink.
+  await labelsAtRest(page, probe);
 }
 
 /**
