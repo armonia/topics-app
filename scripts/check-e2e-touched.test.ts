@@ -11,7 +11,7 @@
  * one that had actually gone red.
  */
 import { describe, expect, test } from "bun:test";
-import { areaTokens, ownBundleDir, selectSpecs, testIdsOf } from "./check-e2e-touched.ts";
+import { areaTokens, childEnv, nodeIsRecentEnough, ownBundleDir, parseNodeVersion, pickNodeBin, selectSpecs, testIdsOf } from "./check-e2e-touched.ts";
 
 const spec = (file: string, text: string) => ({ file: `tests/e2e/${file}`, text });
 
@@ -65,6 +65,31 @@ describe("selectSpecs", () => {
     // only the area can link it, and it has to come first.
     const picked = selectSpecs(["client/src/components/Sidebar/TopicItem.tsx"], all);
     expect(picked[0]?.file).toBe("tests/e2e/sidebar-chevron-column.spec.ts");
+  });
+});
+
+describe("the Node the gate runs on", () => {
+  test("versions parse, and the floor is Vite's", () => {
+    expect(parseNodeVersion("v25.9.0\n")).toEqual({ major: 25, minor: 9 });
+    expect(parseNodeVersion("")).toBeNull();
+    expect(nodeIsRecentEnough({ major: 18, minor: 14 })).toBe(false);
+    expect(nodeIsRecentEnough({ major: 20, minor: 18 })).toBe(false);
+    expect(nodeIsRecentEnough({ major: 20, minor: 19 })).toBe(true);
+    expect(nodeIsRecentEnough({ major: 25, minor: 0 })).toBe(true);
+    expect(nodeIsRecentEnough(null)).toBe(false);
+  });
+
+  test("a fine PATH is left alone; an old one is replaced by the first fallback that is new enough", () => {
+    const table = (m: Record<string, string | null>) => (bin: string) => m[bin] ?? null;
+    expect(pickNodeBin(table({ node: "v25.9.0" }), ["/x/node"])).toBeNull();
+    expect(pickNodeBin(table({ node: "v18.14.0", "/old/node": "v18.14.0", "/new/node": "v22.12.0" }), ["/old/node", "/new/node"])).toBe("/new/node");
+    expect(pickNodeBin(table({ node: "v18.14.0" }), ["/missing/node"])).toBeNull();
+  });
+
+  test("the children never inherit NODE_OPTIONS", () => {
+    const env = childEnv({ PATH: "/usr/bin", NODE_OPTIONS: "--disable-warning=ExperimentalWarning" });
+    expect(env.NODE_OPTIONS).toBeUndefined();
+    expect(env.PATH).toBe("/usr/bin");
   });
 });
 
