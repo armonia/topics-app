@@ -20,7 +20,7 @@
  * @covers CHAT-GOALLOOP-01
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
-import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
+import { cleanupTestDataDir, setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
 import { createChatRouter } from "../../server/routes/chat";
 import { registerProvider, removeProvider } from "../../server/providers";
 import type { AIProvider, StreamHandler } from "../../server/providers/types";
@@ -31,6 +31,12 @@ beforeAll(() => setupTestDataDir(TEST_DATA));
 
 registerProvider({ type: "openai", apiKey: "" } as never);
 afterAll(() => { try { removeProvider("openai"); } catch { /* already gone */ } });
+// The database CLOSES here, and without this line the leak is not this file's:
+// `setupTestDataDir` only moves DATA_DIR, so the next file in the same process
+// finds `_db` still open on THIS directory and inherits its topics. That is how
+// `topics-list-weight` counted four live topics instead of three, red only in
+// the groupings where it follows this file.
+afterAll(() => cleanupTestDataDir(TEST_DATA));
 
 const KICKOFF = "You are the exclusive owner of task 4a554ee3 on this Kanban board.";
 
