@@ -71,7 +71,7 @@ import { createOpenClawContextRouter } from "./server/routes/openclaw-context";
 import { createContextPreviewRouter } from "./server/routes/context-preview";
 import { createTaskService, projectIdForPath } from "./server/services/tasks";
 import { createExternalSessionsService } from "./server/services/external-sessions";
-import { resolveWorktreeBaseRef } from "./server/services/worktree-base-ref";
+import { createAgentWorktree, type AgentWorktreeDeps } from "./server/services/worktree-for-agent";
 import { createExternalSessionsRouter } from "./server/routes/external-sessions";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
@@ -1316,6 +1316,21 @@ function isChecksHold(sessionKey: string): boolean {
   }
 }
 
+/**
+ * Il manager e lo store, vestiti come li chiede `worktree-for-agent.ts`. Un
+ * solo posto in cui questo cablaggio esiste, cosi' la nascita del worktree di
+ * una card e quella di un sotto-agente isolato non possono divergere; l'unica
+ * differenza e' l'etichetta con cui il ripiego su HEAD si annuncia nei log.
+ */
+function agentWorktreeDeps(label: string): AgentWorktreeDeps {
+  return {
+    projectPath: (projectStoreId) => ctx.projectStore.get(projectStoreId)?.path,
+    create: (input) => ctx.worktreeManager.create(input),
+    awaitMaterialisation: (id, timeoutMs) => ctx.worktreeManager.awaitMaterialisation(id, timeoutMs),
+    warn: (reason) => console.warn(`[${label}] ${reason}`),
+  };
+}
+
 const taskAttemptStore = createTaskAttemptStore(ctx.db);
 const taskDispatcher = createTaskDispatcher({
   captureDelivery: (taskId) => capturaConsegna ? capturaConsegna(taskId) : Promise.resolve(false),
@@ -1502,21 +1517,12 @@ const taskDispatcher = createTaskDispatcher({
       undefined,
       resolveAgentRuntime() === "cli",
     ),
-  createWorktree: async (projectStoreId) => {
-    // Il ramo di una card nasce da MAIN, non dall'HEAD del checkout condiviso:
-    // con `HEAD` il worktree ereditava il ramo di chi stava lavorando qui, e da
-    // lì arrivavano collisioni di migration, consegne su commit mai landati e
-    // land che pubblicavano lavoro di terzi. Il perché per esteso, e il ripiego
-    // su HEAD quando `main` non c'è, stanno in `worktree-base-ref.ts`.
-    const base = await resolveWorktreeBaseRef(ctx.projectStore.get(projectStoreId)?.path);
-    if (base.fallback) console.warn(`[dispatch] ${base.reason}: il worktree parte da HEAD`);
-    const wt = await ctx.worktreeManager.create({ projectId: projectStoreId, mode: "branch", baseRef: base.baseRef });
-    const ready = await ctx.worktreeManager.awaitMaterialisation(wt.id, WORKTREE_READY_MS);
-    if (ready.status !== "ready") {
-      throw new Error(`worktree ${wt.id}: ${ready.status}${ready.errorMessage ? " " + ready.errorMessage : ""}`);
-    }
-    return ready.id;
-  },
+  // Il ramo di una card nasce da MAIN, non dall'HEAD del checkout condiviso, e
+  // da qui in poi la stessa nascita la usa anche un sotto-agente isolato
+  // (WORKTREE-14): il corpo sta in `worktree-for-agent.ts`, il perché del
+  // ripiego su HEAD in `worktree-base-ref.ts`.
+  createWorktree: (projectStoreId) =>
+    createAgentWorktree(agentWorktreeDeps("dispatch"), projectStoreId, WORKTREE_READY_MS),
   deleteWorktree: async (worktreeId) => { await ctx.worktreeManager.delete(worktreeId); },
   // C'e' qualcosa da perdere in questo worktree? Serve al dispatcher per NON
   // cancellare il branch di un tentativo rimesso in coda che pero' aveva gia'
