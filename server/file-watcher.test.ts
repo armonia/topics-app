@@ -24,7 +24,17 @@ import type { AppContext } from "./types";
 
 type Frame = { type: string; projectPath?: string };
 
-async function until(cond: () => boolean, budgetMs = 6000): Promise<boolean> {
+/**
+ * THE BUDGET IS A GUARD AGAINST A WATCHER THAT NEVER FIRES, not a measure of
+ * how fast one fires. Six seconds were enough on an idle machine and not on a
+ * loaded one: the pre-review checks run at nice 15 by design (KANBAN-78), and
+ * on 2026-09-06 at 17:40, with load 20 on twelve cores, twenty-five recursive
+ * watchers took longer than that to hand over one event - both cases red on a
+ * card that had not touched the watcher. A condition wait costs nothing when
+ * the event is quick, so the ceiling is set where only a real hang reaches it,
+ * under the 40 s the shard runner gives a test.
+ */
+async function until(cond: () => boolean, budgetMs = 30_000): Promise<boolean> {
   const deadline = Date.now() + budgetMs;
   while (Date.now() < deadline) {
     if (cond()) return true;
