@@ -6804,7 +6804,6 @@
       "testo"
     ],
     "tests/e2e/org-presence.spec.ts": [
-      "amici",
       "membro"
     ],
     "tests/e2e/pane-over-pane-group.spec.ts": [

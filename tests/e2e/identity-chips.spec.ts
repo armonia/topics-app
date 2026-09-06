@@ -1,36 +1,48 @@
 /**
- * THE IDENTITY CHIPS, MEASURED: one line, readable ink, pressable targets.
+ * THE FOOT OF THE COLUMN, MEASURED: chips that scroll, one card that fits.
  *
- * The band at the foot of the column stopped being a wrapping flow of
- * borderless chips (8f58d75). Three things were decided there, and each one is
- * a number this file reads off the screen rather than a sentence in a docstring:
+ * The band used to be three mini-cards on one line (me, my groups, my
+ * friends), each a door to a panel of its own. It is now two things and no
+ * more (STATUSLINE-04): a row of CHIPS, one per friend who is here right now,
+ * that scrolls sideways and is not drawn at all when nobody is around; and ONE
+ * CARD that is you, as wide as the column, carrying your face, your first
+ * name and what the machine is spending. Everything else is behind the card.
  *
- *  1. ONE LINE, AT EVERY WIDTH. The band used to take one line or three
- *     depending on how many groups you had joined that week, so its own shape
- *     moved with the data. It is now three mini-cards on a single row at 180,
- *     256 and 400, which are the real minimum, default and maximum of the
- *     column (`useSidebarAndLayout` clamps the drag to `max(180, min(400, x))`,
- *     and `DEFAULT_SETTINGS.sidebarWidth` is 256). The width is seeded through
- *     the same key the app persists it under and then VERIFIED on the sidebar
- *     box: a test that measures a 256px column three times measures nothing.
+ * Each of those decisions is a number this file reads off the screen rather
+ * than a sentence in a docstring:
  *
- *  2. THE INK STILL READS OVER THE NEW VEIL. A filled chip is a background
- *     change under text whose tokens were tuned against the BARE chrome, so
- *     those tokens have to be re-measured against what the eye now sees:
- *     `helpers/contrast.ts` composites the ancestors up to the first opaque
- *     background instead of trusting the declared colour of the node. The empty
- *     states are measured too, and on purpose: they are the muted ones.
- *     axe-core runs on the same band, scoped, as the second opinion.
+ *  1. THE CARD FITS, AT EVERY WIDTH. The column can be 180, 256 or 400 wide
+ *     (`useSidebarAndLayout` clamps the drag to `max(180, min(400, x))`, and
+ *     `DEFAULT_SETTINGS.sidebarWidth` is 256). At each of them the band does
+ *     not overflow its box and the card does not overflow its own: a name that
+ *     does not fit truncates, it does not push the numbers off the edge. The
+ *     width is seeded through the key the app persists it under and then
+ *     VERIFIED on the sidebar box: a test that measures a 256px column three
+ *     times measures nothing.
  *
- *  3. EVERY CHIP IS STILL A TARGET. `CHIP_TARGET_PX` is imported rather than
- *     spelled out here, so the floor and the assertion cannot drift apart.
+ *  2. THE CHIPS SCROLL, THEY DO NOT WRAP. Three people at 180 do not fit on
+ *     one line, and the answer is a row that scrolls, not a band that grows a
+ *     second line: the ONLY box in the band allowed to hold more than it
+ *     shows is the chip row. `flex-wrap` is read from the computed style and
+ *     the chips are checked to share one top.
+ *
+ *  3. EVERY CHIP AND THE CARD ARE STILL TARGETS. `CHIP_TARGET_PX` is imported
+ *     rather than spelled out here, so the floor and the assertion cannot
+ *     drift apart.
+ *
+ *  4. THE INK STILL READS OVER THE VEIL. A filled chip is a background change
+ *     under text whose tokens were tuned against the BARE chrome, so those
+ *     tokens are re-measured against what the eye sees: `helpers/contrast.ts`
+ *     composites the ancestors up to the first opaque background instead of
+ *     trusting the declared colour of the node. axe-core runs on the same
+ *     band, scoped, as the second opinion.
  *
  * BOTH THEMES, because they lose in opposite directions: the veil is black over
  * a light chrome (which darkens the ground under dark ink) and white over a
  * dark one (which lifts it). Switching costs one `emulateMedia` and a reload,
  * so there is no reason to pick one and argue about the other.
  *
- * @covers STATUSLINE-01
+ * @covers STATUSLINE-04, STATUSLINE-01
  */
 import { test, expect, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -40,12 +52,14 @@ import { AA_TESTO, contrastOf } from "./helpers/contrast";
 import { clipDiConsegna } from "./helpers/clip";
 import { beat } from "./helpers/evidence";
 import { E2E_BASE } from "./helpers/test-server";
-import { CHIP_TARGET_PX, ORG_MARKS_IN_CHIP } from "../../client/src/components/Sidebar/identityChip";
+import { CHIP_TARGET_PX } from "../../client/src/components/Sidebar/identityChip";
 
 hermetic(test);
 
 /** Everything this file produces goes in one place, evidence included. */
 const SHOTS = "test-results/identity-chips";
+/** The two delivery shots the card asks for, by name, in their own folder. */
+const REDESIGN_SHOTS = "test-results/sidebar-redesign";
 /** `__dirname` and not `import.meta.url`: Playwright transpiles specs to CJS. */
 const AXE_PATH = resolve(__dirname, "../../node_modules/axe-core/axe.min.js");
 const BAND = '[data-testid="identity-block"]';
@@ -57,36 +71,28 @@ const BAND = '[data-testid="identity-block"]';
  */
 const WIDTHS = [180, 256, 400] as const;
 
-/** The three subjects, in the order they sit on the line. */
-const SUBJECTS: string[] = ["identity-row-me", "identity-row-orgs", "identity-row-friends"];
-
-/** Every chip the band can draw, so a run that finds fewer says so instead of
- *  reporting a green measurement of an empty band. */
-const FILLED_CHIPS = ["identity-me-profile", "org-chip", "identity-friends-chip"];
-const EMPTY_CHIPS = ["identity-me-profile", "org-chip-empty", "identity-friends-chip"];
-
 /** A member as the route sends it: raw milliseconds, not a boolean. */
 function member(id: string, name: string, lastSeenAt: number | null) {
   return { id, name, email: `${id}@example.test`, role: "member", lastSeenAt };
 }
 
 interface Population {
-  /** What `/api/auth/orgs` answers. Empty is the state the outlined chip is for. */
+  /** What `/api/auth/orgs` answers. */
   orgs: Array<{ id: string; name: string }>;
   /** What every organisation answers for its members. */
   members: ReturnType<typeof member>[];
   /** The address book: this is where the client learns who YOU are. */
   people: Array<{ id: string; displayName: string; isMe: boolean }>;
-  /** Your FRIENDS, which is what the third subject draws since the friendship
-   *  graph replaced the organisation address book behind it. `lastSeenAt` is
-   *  what makes a face appear on the closed chip. */
+  /** Your FRIENDS, which is what the chips draw: the friendship graph, not
+   *  the organisation address book. `lastSeenAt` is what puts a person on the
+   *  row, and takes them off it. */
   friends: Array<{ id: string; displayName: string; lastSeenAt: number | null }>;
 }
 
 /**
  * The minimum identity data needed for the band to be drawn at all.
  *
- * Copied in shape from `org-presence.spec.ts`, and the shapes are the REAL ones
+ * Shared in shape with `org-presence.spec.ts`, and the shapes are the REAL ones
  * of the routes rather than something already chewed. `/api/auth/session` has
  * to say `paired`: the whole band sits behind `session.status !== 'paired'`, so
  * an invented stub leaves it unmounted and the red blames the layout instead of
@@ -112,27 +118,37 @@ async function stubIdentity(page: Page, population: Population): Promise<void> {
       body: JSON.stringify({ members: population.members }) }));
   // The WHOLE shape of a person, `stats` and the follow fields included: a half
   // stub is not a smaller stub, it is a different server.
+  const person = (p: { id: string; displayName: string; isMe: boolean }) => ({
+    email: null,
+    githubLogin: null,
+    github: null,
+    stats: { prompts: 0, inputTokens: 0, outputTokens: 0, costCents: 0, ultimoPrompt: null },
+    counts: { followers: 0, following: 0 },
+    viewerFollows: false,
+    followsViewer: false,
+    lastSeenAt: null,
+    ...p,
+  });
   await page.route("**/api/people", (r) =>
     r.fulfill({ status: 200, contentType: "application/json",
-      body: JSON.stringify({
-        people: population.people.map((p) => ({
-          email: null,
-          githubLogin: null,
-          github: null,
-          stats: { prompts: 0, inputTokens: 0, outputTokens: 0, costCents: 0, ultimoPrompt: null },
-          counts: { followers: 0, following: 0 },
-          viewerFollows: false,
-          followsViewer: false,
-          lastSeenAt: null,
-          ...p,
-        })),
-      }) }));
+      body: JSON.stringify({ people: population.people.map(person) }) }));
   await page.route("**/api/people/*/follow*", (r) =>
     r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ people: [] }) }));
+  // A chip is a door to ONE person, and that person's page asks for them by
+  // id. Unrouted it would reach the real server, which knows none of these
+  // ids, and the pane would open on an error screen while the test believed
+  // it was looking at a person.
+  await page.route(/\/api\/people\/[^/?]+$/, (r) => {
+    const id = new URL(r.request().url()).pathname.split("/").pop() ?? "";
+    const p = population.people.find((x) => x.id === id);
+    return p
+      ? r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(person(p)) })
+      : r.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ error: "not found" }) });
+  });
   // The friendship graph: three lists from one read, the shape `friendsApi`
   // expects. Unrouted it would reach the real server, which knows none of
-  // these ids, and the third subject would measure an empty chip while the
-  // test believed it was measuring a full one.
+  // these ids, and the row would be measured empty while the test believed it
+  // was measuring three people.
   await page.route("**/api/friendships", (r) =>
     r.fulfill({ status: 200, contentType: "application/json",
       body: JSON.stringify({
@@ -151,19 +167,50 @@ async function stubIdentity(page: Page, population: Population): Promise<void> {
         incoming: [],
         outgoing: [],
       }) }));
-  // THE WORST CASE FOR THE LINE, not a quiet machine. Three signals is the cap
-  // `workSignals` enforces, so this is the widest the "me" chip can ever get,
-  // which is exactly the pressure the 180px column has to survive.
+  // THE WORST CASE FOR THE MENU HEADER, not a quiet machine. Three signals is
+  // the cap `workSignals` enforces; they ride on the menu's title now, not on
+  // the card, and the card has to stay the same width either way.
   await page.route("**/api/system/presence", (r) =>
     r.fulfill({ status: 200, contentType: "application/json",
       body: JSON.stringify({ openSessions: 12, workingSessions: 3, activeTasks: 2, focusProject: null }) }));
 }
 
-/** Groups you are in, with two colleagues seen a moment ago and one who is not.
- *  The display name is a placeholder on purpose and stays one: the repository
- *  is public, and a plausible first-name-plus-surname in a tracked file is what
+/**
+ * THE MACHINE'S NUMBERS, so the card has something to say. The shell command
+ * the dot samples is `perf_metrics`, and without a shell (plain Chromium) the
+ * card would show no memory and no CPU: a green on an empty span would prove
+ * the layout of nothing.
+ */
+async function withMachineNumbers(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
+      metadata: { currentWindow: { label: "main" } },
+      invoke: async (cmd: string) => {
+        if (cmd !== "perf_metrics") throw new Error(`unmocked command: ${cmd}`);
+        return {
+          version: "e2e", total_mb: 1989, resident_mb: 594,
+          renderer_mb: 1400, gpu_mb: 130, other_mb: 459,
+          cpu_percent: 8, cpu_renderer: 4, cpu_gpu: 1,
+          cpu_sampled: 3, cpu_pids: 3, process_count: 8, partial: false,
+        };
+      },
+    };
+  });
+}
+
+/** The address book every population shares. The display names are
+ *  placeholders on purpose and stay ones: the repository is public, and a
+ *  plausible first-name-plus-surname in a tracked file is what
  *  `tests/unit/no-personal-data-tracked.test.ts` exists to refuse. */
-function populated(orgCount: number): Population {
+const PEOPLE = [
+  { id: "io", displayName: "Utente Locale", isMe: true },
+  { id: "a", displayName: "Anna Prova", isMe: false },
+  { id: "b", displayName: "Bruno Prova", isMe: false },
+  { id: "c", displayName: "Carla Prova", isMe: false },
+];
+
+/** Two friends here now and one who is not: the ordinary morning. */
+function populated(orgCount = 1): Population {
   const now = Date.now();
   return {
     orgs: Array.from({ length: orgCount }, (_, i) => ({ id: `org${i + 1}`, name: `Gruppo ${i + 1}` })),
@@ -173,28 +220,47 @@ function populated(orgCount: number): Population {
       member("b", "Bruno", now - 60_000),
       member("c", "Carla", now - 3_600_000), // an hour ago: past the threshold
     ],
-    people: [
-      { id: "io", displayName: "Utente Locale", isMe: true },
-      { id: "a", displayName: "Anna", isMe: false },
-      { id: "b", displayName: "Bruno", isMe: false },
-      { id: "c", displayName: "Carla", isMe: false },
-    ],
-    // Two friends here now and one who is not: the same pressure the chip used
-    // to get from the organisation members, on the relation it actually names.
+    people: PEOPLE,
     friends: [
-      { id: "a", displayName: "Anna", lastSeenAt: now - 30_000 },
-      { id: "b", displayName: "Bruno", lastSeenAt: now - 60_000 },
-      { id: "c", displayName: "Carla", lastSeenAt: now - 3_600_000 },
+      { id: "a", displayName: "Anna Prova", lastSeenAt: now - 30_000 },
+      { id: "b", displayName: "Bruno Prova", lastSeenAt: now - 60_000 },
+      { id: "c", displayName: "Carla Prova", lastSeenAt: now - 3_600_000 },
     ],
   };
 }
 
-/** In no group and knowing nobody: the two subjects that used to vanish. */
+/** Three friends here at once: more chips than a 180px row can show. */
+function crowd(): Population {
+  const now = Date.now();
+  return {
+    ...populated(),
+    friends: [
+      { id: "a", displayName: "Anna Prova", lastSeenAt: now - 30_000 },
+      { id: "b", displayName: "Bruno Prova", lastSeenAt: now - 60_000 },
+      { id: "c", displayName: "Carla Prova", lastSeenAt: now - 90_000 },
+    ],
+  };
+}
+
+/** Friends, none of whom is here: the row must not be drawn, the menu must
+ *  still list them. */
+function friendsAway(): Population {
+  const now = Date.now();
+  return {
+    ...populated(),
+    friends: [
+      { id: "a", displayName: "Anna Prova", lastSeenAt: now - 3_600_000 },
+      { id: "b", displayName: "Bruno Prova", lastSeenAt: null },
+    ],
+  };
+}
+
+/** In no group and knowing nobody: the card alone. */
 function alone(): Population {
   return {
     orgs: [],
     members: [],
-    people: [{ id: "io", displayName: "Utente Locale", isMe: true }],
+    people: [PEOPLE[0]!],
     friends: [],
   };
 }
@@ -223,70 +289,71 @@ async function setSidebarWidth(page: Page, width: number): Promise<number> {
   await page.reload();
   const column = page.locator('[aria-label="Topics sidebar"]');
   await expect(column).toBeVisible({ timeout: 20000 });
-  await expect(page.getByTestId("identity-block")).toBeVisible({ timeout: 20000 });
+  await expect(page.getByTestId("identity-me-profile")).toBeVisible({ timeout: 20000 });
   const box = await column.boundingBox();
   return Math.round(box?.width ?? 0);
 }
 
+interface Box { top: number; bottom: number; left: number; right: number; width: number; height: number }
+
 interface BandGeometry {
-  /** One entry per subject: its box, rounded to whole pixels. */
-  subjects: Array<{ id: string; top: number; bottom: number; left: number; width: number; height: number }>;
-  /**
-   * The chips themselves, which is NOT the same measurement as the subjects.
-   * A subject is elastic and may be squeezed to zero width; the chip inside it
-   * carries `min-w-[24px]` and therefore keeps its size, spilling out of a
-   * parent that has none. Only the chip boxes can say whether the three cards
-   * are side by side or on top of one another.
-   *
-   * `spill` is how far the chip's own CONTENT is painted past its right edge.
-   * It is a third measurement again, and the one the pixels agree with: a chip
-   * squeezed to its floor still lays its glyph, its name and its signals out at
-   * full size, and with nothing clipping them they land on the neighbour. The
-   * box can be innocent while the ink is not.
-   */
-  chips: Array<{ id: string; left: number; right: number; spill: number }>;
   /** The band's own overflow budget. Equal means nothing is cropped sideways. */
-  scrollWidth: number;
-  clientWidth: number;
+  band: Box & { scrollWidth: number; clientWidth: number; innerWidth: number };
+  /** The card: its box, and whether its CONTENT fits in it. */
+  card: Box & { scrollWidth: number; clientWidth: number };
+  /** The chip row, or `null` when nobody is here and the row is not drawn. */
+  row: (Box & { scrollWidth: number; clientWidth: number; flexWrap: string }) | null;
+  /**
+   * Every button in the band, chips and card alike.
+   *
+   * `spill` is how far a button's own CONTENT is painted past its right edge.
+   * It is a measurement of ink, not of boxes, and it is the one the pixels
+   * agree with: a box can be innocent while the glyph, the name and the
+   * numbers inside it are laid out at full size over the neighbour.
+   */
+  buttons: Array<{ id: string; label: string } & Box & { spill: number }>;
 }
 
-/** The band's geometry, read in one round trip so the three subjects cannot be
- *  measured a frame apart from each other. */
+/** The band's geometry, read in one round trip so no two boxes are measured a
+ *  frame apart from each other. */
 async function bandGeometry(page: Page): Promise<BandGeometry> {
-  return page.evaluate((wanted) => {
-    const band = document.querySelector('[data-testid="identity-block"]');
+  return page.evaluate(() => {
+    const band = document.querySelector<HTMLElement>('[data-testid="identity-block"]');
     if (!band) throw new Error("no identity band on screen");
+    const box = (el: Element): Box => {
+      const r = el.getBoundingClientRect();
+      return {
+        top: Math.round(r.top), bottom: Math.round(r.bottom),
+        left: Math.round(r.left), right: Math.round(r.right),
+        width: Math.round(r.width), height: Math.round(r.height),
+      };
+    };
+    const card = band.querySelector<HTMLElement>('[data-testid="identity-me-profile"]');
+    if (!card) throw new Error("no user card in the band");
+    const row = band.querySelector<HTMLElement>('[data-testid="friend-chips"]');
+    const bandStyle = getComputedStyle(band);
     return {
-      subjects: wanted.map((id) => {
-        const el = band.querySelector(`[data-testid="${id}"]`);
-        if (!el) throw new Error(`subject ${id} is not on the line`);
-        const r = el.getBoundingClientRect();
-        return {
-          id,
-          top: Math.round(r.top),
-          bottom: Math.round(r.bottom),
-          left: Math.round(r.left),
-          width: Math.round(r.width),
-          height: Math.round(r.height),
-        };
-      }),
-      chips: Array.from(band.querySelectorAll<HTMLElement>("button")).map((b) => {
+      band: {
+        ...box(band),
+        scrollWidth: band.scrollWidth,
+        clientWidth: band.clientWidth,
+        innerWidth: band.clientWidth - parseFloat(bandStyle.paddingLeft) - parseFloat(bandStyle.paddingRight),
+      },
+      card: { ...box(card), scrollWidth: card.scrollWidth, clientWidth: card.clientWidth },
+      row: row
+        ? { ...box(row), scrollWidth: row.scrollWidth, clientWidth: row.clientWidth, flexWrap: getComputedStyle(row).flexWrap }
+        : null,
+      buttons: Array.from(band.querySelectorAll<HTMLElement>("button")).map((b) => {
         const r = b.getBoundingClientRect();
         let far = r.right;
         for (const child of Array.from(b.querySelectorAll<HTMLElement>("*"))) {
           const c = child.getBoundingClientRect();
           if (c.width <= 0) continue;
-          // A CLIPPED CHILD DOES NOT PAINT. This measures ink, not layout, and
-          // the two stopped agreeing the day a chip got `overflow-hidden`: a
+          // A CLIPPED CHILD DOES NOT PAINT. This measures ink, not layout: a
           // clipped box still reports its full geometric rect, so the raw
-          // `right` reads a spill that nothing ever draws. Clamping to every
-          // clipping ancestor up to the chip is what makes the number mean
-          // what the assertion says it means.
-          //
-          // The gate does NOT get weaker: a chip that lets its contents out
-          // still fails, and the overlap check next door still refuses two
-          // boxes sharing pixels. What goes away is a red about paint that
-          // does not exist.
+          // `right` would read a spill that nothing ever draws. Clamping to
+          // every clipping ancestor up to the button is what makes the number
+          // mean what the assertion says it means.
           let right = c.right;
           for (let a = child.parentElement; a; a = a.parentElement) {
             const cs = getComputedStyle(a);
@@ -299,15 +366,13 @@ async function bandGeometry(page: Page): Promise<BandGeometry> {
         }
         return {
           id: b.getAttribute("data-testid") ?? "(unnamed button)",
-          left: Math.round(r.left),
-          right: Math.round(r.right),
+          label: b.getAttribute("aria-label") ?? "",
+          ...box(b),
           spill: Math.round(far - r.right),
         };
       }),
-      scrollWidth: band.scrollWidth,
-      clientWidth: band.clientWidth,
     };
-  }, SUBJECTS);
+  });
 }
 
 /**
@@ -399,33 +464,29 @@ async function shootColumn(page: Page, file: string): Promise<void> {
   });
 }
 
-/** The chips actually on screen, with their boxes. */
-async function chipTargets(page: Page): Promise<Array<{ testid: string; width: number; height: number }>> {
-  return page.evaluate(() => {
-    const band = document.querySelector('[data-testid="identity-block"]');
-    if (!band) throw new Error("no identity band on screen");
-    return Array.from(band.querySelectorAll<HTMLElement>("button")).map((b) => {
-      const r = b.getBoundingClientRect();
-      return {
-        testid: b.getAttribute("data-testid") ?? "(unnamed button)",
-        width: Math.round(r.width * 100) / 100,
-        height: Math.round(r.height * 100) / 100,
-      };
-    });
-  });
+/** Open the one door of the chrome and hand back the menu. */
+async function openMenu(page: Page) {
+  await page.getByTestId("identity-me-profile").click();
+  const menu = page.getByTestId("profile-menu");
+  await expect(menu).toBeVisible({ timeout: 10_000 });
+  return menu;
 }
 
-test.describe("identity chips", () => {
-  test("CHIPS-01: the three subjects hold one line at 180, 256 and 400", async ({ page }) => {
-    test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
-    // TWO POPULATIONS, because the failure modes are opposite: one group is the
-    // ordinary case, four is the one that stacks marks and adds a count inside
-    // the single card, and is therefore the widest that subject can get.
+test.describe("the foot of the column", () => {
+  test("CHIPS-01: the card fits and the chips scroll, at 180, 256 and 400", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "STATUSLINE-04" });
+    // TWO POPULATIONS, because the failure modes are opposite: two chips is
+    // the ordinary morning and fits at every width, three is the one that
+    // does not fit at 180 and has to SCROLL rather than wrap. The machine's
+    // numbers are on for both, because the card with memory, CPU and a dot is
+    // the widest the card ever gets, and that is the pressure the 180px column
+    // has to survive.
+    await withMachineNumbers(page);
     const cases = [
-      { name: "one-group", population: populated(1), mark: "org-chip" },
-      { name: "four-groups", population: populated(4), mark: "org-chip-count" },
+      { name: "two-here", population: populated(), chips: 2 },
+      { name: "three-here", population: crowd(), chips: 3 },
     ];
-    const measures: Array<{ case: string; asked: number; column: number } & BandGeometry> = [];
+    const measures: Array<{ case: string; asked: number; column: number; chips: number } & BandGeometry> = [];
 
     await stubIdentity(page, cases[0]!.population);
     await page.goto("/");
@@ -433,12 +494,13 @@ test.describe("identity chips", () => {
       await stubIdentity(page, c.population);
       for (const width of WIDTHS) {
         const column = await setSidebarWidth(page, width);
-        await expect(page.getByTestId(c.mark).first()).toBeVisible({ timeout: 20000 });
-        measures.push({ case: c.name, asked: width, column, ...(await bandGeometry(page)) });
-        await shootColumn(page, c.name === "one-group" ? `after-${width}.png` : `after-${width}-four-groups.png`);
+        await expect(page.getByTestId("friend-chip")).toHaveCount(c.chips, { timeout: 20000 });
+        await expect(page.getByTestId("identity-me-profile").getByTestId("metrics-total")).toContainText("%", { timeout: 20000 });
+        measures.push({ case: c.name, asked: width, column, chips: c.chips, ...(await bandGeometry(page)) });
+        await shootColumn(page, c.name === "two-here" ? `after-${width}.png` : `after-${width}-three-here.png`);
       }
     }
-    persist("one-line", measures);
+    persist("band-geometry", measures);
 
     for (const m of measures) {
       const where = `${m.case} at ${m.asked}px`;
@@ -446,90 +508,107 @@ test.describe("identity chips", () => {
       // pass three times over the same 256px band and prove nothing.
       expect(m.column, `${where}: sidebar measured ${m.column}px`).toBe(m.asked);
 
-      const tops = m.subjects.map((s) => s.top);
-      const bottoms = m.subjects.map((s) => s.bottom);
-      const say = m.subjects.map((s) => `${s.id} top=${s.top} h=${s.height}`).join(", ");
-      // ONE LINE: same top AND same bottom. Tops alone would still agree if a
-      // subject grew a second row downwards, which is exactly how the group
-      // chips broke the band before their faces were capped at two.
-      expect(Math.max(...tops) - Math.min(...tops), `${where}: tops disagree (${say})`)
-        .toBeLessThanOrEqual(1);
-      expect(Math.max(...bottoms) - Math.min(...bottoms), `${where}: bottoms disagree (${say})`)
-        .toBeLessThanOrEqual(1);
-      // AND NOTHING IS PUSHED OUT SIDEWAYS. `overflow-hidden` is what stops the
-      // column growing a scrollbar; it is also what would hide a subject in
-      // silence if one of them refused to shrink. The two numbers agreeing is
-      // the difference between "it fits" and "it is cropped".
-      expect(m.scrollWidth, `${where}: band overflows, ${m.scrollWidth} > ${m.clientWidth}`)
-        .toBeLessThanOrEqual(m.clientWidth + 1);
+      // THE BAND HOLDS NOTHING IT DOES NOT SHOW. The only box allowed to
+      // scroll is the chip row, and its overflow is its own: the band's
+      // budget has to balance regardless.
+      expect(m.band.scrollWidth, `${where}: band overflows, ${m.band.scrollWidth} > ${m.band.clientWidth}`)
+        .toBeLessThanOrEqual(m.band.clientWidth + 1);
 
-      // AND THE THREE CARDS ARE SIDE BY SIDE, not stacked.
-      //
-      // "One line" and "no overflow" can both hold while the band is broken,
-      // and this is the case that proves it: the "me" subject is the elastic
-      // one, so when the other two want more than the column has, it is handed
-      // a width of ZERO. Its chip does not shrink with it (the width floor in
-      // `identityChip.ts` is the pointer target), so it keeps painting those
-      // pixels inside a parent that occupies none, on top of whatever comes
-      // next. The band still reports
-      // one line and a scrollWidth that fits, because the spill is INTERNAL.
-      const spread = [...m.chips].sort((a, b) => a.left - b.left);
+      // THE CARD IS AS WIDE AS THE COLUMN, AND NO WIDER. A card narrower than
+      // the column is a chip again; a card wider than it is cropped.
+      expect(Math.abs(m.card.width - m.band.innerWidth), `${where}: card is ${m.card.width}px in a ${m.band.innerWidth}px band`)
+        .toBeLessThanOrEqual(1);
+      // AND ITS CONTENT FITS IN IT: the name truncates, the numbers stay.
+      expect(m.card.scrollWidth, `${where}: card content ${m.card.scrollWidth} > box ${m.card.clientWidth}`)
+        .toBeLessThanOrEqual(m.card.clientWidth + 1);
+
+      // THE ROW IS THERE (somebody is here), ON ONE LINE, AND IT SCROLLS.
+      expect(m.row, `${where}: no chip row with ${m.chips} friends here`).not.toBeNull();
+      const row = m.row!;
+      expect(row.flexWrap, `${where}: the chip row wraps`).toBe("nowrap");
+      // Above the card, not beside it and not under it.
+      expect(row.bottom, `${where}: row ends at ${row.bottom}, card starts at ${m.card.top}`)
+        .toBeLessThanOrEqual(m.card.top);
+      const chips = m.buttons.filter((b) => b.id === "friend-chip");
+      expect(chips, `${where}: ${chips.length} chips on the row`).toHaveLength(m.chips);
+      const tops = chips.map((c) => c.top);
+      expect(Math.max(...tops) - Math.min(...tops), `${where}: chip tops disagree (${tops.join(", ")})`)
+        .toBeLessThanOrEqual(1);
+      // SIDE BY SIDE, not stacked: each one starts where the previous ended.
+      const spread = [...chips].sort((a, b) => a.left - b.left);
       for (let i = 1; i < spread.length; i++) {
         const before = spread[i - 1]!;
         const after = spread[i]!;
         expect(
           after.left,
-          `${where}: ${before.id} (${before.left}..${before.right}) overlaps ${after.id} (${after.left}..${after.right})`,
+          `${where}: ${before.label} (${before.left}..${before.right}) overlaps ${after.label} (${after.left}..${after.right})`,
         ).toBeGreaterThanOrEqual(before.right);
       }
-      // AND NO CHIP PAINTS OUTSIDE ITSELF. Nothing clips a chip's contents, so
-      // a chip pressed down to its width floor keeps drawing its full width of
-      // glyph, name and signals straight over the next card. This is the one
-      // that matches the screenshot: the box measurements above can all be
-      // clean while the band reads as a pile.
-      for (const chip of m.chips) {
-        expect(chip.spill, `${where}: ${chip.id} paints ${chip.spill}px past its own right edge`)
+      // AND WHEN THEY DO NOT FIT, THE ROW SCROLLS. This is the case that
+      // separates "scrolls" from "happened to fit": three chips at 180 are
+      // wider than the row, and the row has to say so in its own budget.
+      const chipsWidth = spread[spread.length - 1]!.right - spread[0]!.left;
+      if (chipsWidth > row.clientWidth) {
+        expect(row.scrollWidth, `${where}: ${chipsWidth}px of chips in a ${row.clientWidth}px row that does not scroll`)
+          .toBeGreaterThan(row.clientWidth);
+      }
+
+      // AND NO BUTTON PAINTS OUTSIDE ITSELF: a chip pressed to its floor still
+      // clips its name, the card still clips its name, and neither draws over
+      // the neighbour.
+      for (const b of m.buttons) {
+        expect(b.spill, `${where}: ${b.id} "${b.label}" paints ${b.spill}px past its own right edge`)
           .toBeLessThanOrEqual(1);
       }
     }
+    // THE SCROLL ACTUALLY HAPPENED SOMEWHERE. If every case fitted, the "when
+    // they do not fit" branch above never ran and the claim is untested.
+    const scrolled = measures.filter((m) => m.row && m.row.scrollWidth > m.row.clientWidth + 1);
+    expect(scrolled.map((m) => `${m.case}@${m.asked}`), "no width ever made the chip row scroll").not.toHaveLength(0);
   });
 
-  test("CHIPS-02: every chip is at least CHIP_TARGET_PX on both sides", async ({ page }) => {
-    test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
-    // Measured at 180: the narrowest column is where a chip would be squeezed
-    // under its floor, and the outlined ones are the smallest of the set
-    // because they carry a glyph and a digit instead of a name and faces.
+  test("CHIPS-02: every chip and the card are at least CHIP_TARGET_PX on both sides", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "STATUSLINE-04" });
+    // Measured at 180: the narrowest column is where a button would be
+    // squeezed under its floor.
     const cases = [
-      { name: "populated", population: populated(4), expected: FILLED_CHIPS },
-      { name: "alone", population: alone(), expected: EMPTY_CHIPS },
+      { name: "populated", population: crowd(), expected: ["friend-chip", "friend-chip", "friend-chip", "identity-me-profile"] },
+      { name: "alone", population: alone(), expected: ["identity-me-profile"] },
     ];
-    const targets: Array<{ case: string; testid: string; width: number; height: number }> = [];
+    const targets: Array<{ case: string; id: string; width: number; height: number }> = [];
 
     await stubIdentity(page, cases[0]!.population);
     await page.goto("/");
     for (const c of cases) {
       await stubIdentity(page, c.population);
       await setSidebarWidth(page, 180);
-      await expect(page.getByTestId(c.expected[1]!).first()).toBeVisible({ timeout: 20000 });
-      const seen = await chipTargets(page);
+      await expect(page.getByTestId("friend-chip")).toHaveCount(c.expected.length - 1, { timeout: 20000 });
+      const seen = (await bandGeometry(page)).buttons;
       // The whole set, not "some buttons": a band that lost a chip would
       // otherwise report a green measurement of what is left.
-      expect(seen.map((s) => s.testid).sort(), `${c.name}: chips on screen`)
+      expect(seen.map((s) => s.id).sort(), `${c.name}: buttons on screen`)
         .toEqual([...c.expected].sort());
-      for (const s of seen) targets.push({ case: c.name, ...s });
+      for (const s of seen) targets.push({ case: c.name, id: s.id, width: s.width, height: s.height });
     }
     persist("targets", { floor: CHIP_TARGET_PX, targets });
 
     for (const t of targets) {
-      expect(t.height, `${t.case}/${t.testid} is ${t.height}px tall`).toBeGreaterThanOrEqual(CHIP_TARGET_PX);
-      expect(t.width, `${t.case}/${t.testid} is ${t.width}px wide`).toBeGreaterThanOrEqual(CHIP_TARGET_PX);
+      expect(t.height, `${t.case}/${t.id} is ${t.height}px tall`).toBeGreaterThanOrEqual(CHIP_TARGET_PX);
+      expect(t.width, `${t.case}/${t.id} is ${t.width}px wide`).toBeGreaterThanOrEqual(CHIP_TARGET_PX);
     }
   });
 
   for (const scheme of ["dark", "light"] as const) {
     test(`CHIPS-03 (${scheme}): the ink reads over the chip's real background`, async ({ page }) => {
-      test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
+      test.info().annotations.push({ type: "spec", description: "STATUSLINE-04" });
       await page.emulateMedia({ colorScheme: scheme });
+      // NO SHELL MOCK HERE, on purpose. Faking the Tauri bridge on a Mac host
+      // adds `native-frost` to the document, which makes the chrome
+      // translucent: the real ground is then the desktop behind the window,
+      // and a DOM walk composites it over white and measures a grey that
+      // nobody sees. The web ground is opaque and is what this gate reads;
+      // the card still shows memory and CPU there, from the server's own
+      // figures, so the numbers' ink is in the measurement all the same.
       await stubIdentity(page, populated(4));
       await page.goto("/");
       await setSidebarWidth(page, 256);
@@ -539,7 +618,8 @@ test.describe("identity chips", () => {
       await expect
         .poll(() => page.evaluate(() => document.documentElement.classList.contains("dark")))
         .toBe(scheme === "dark");
-      await expect(page.getByTestId("org-chip").first()).toBeVisible({ timeout: 20000 });
+      await expect(page.getByTestId("friend-chip")).toHaveCount(2, { timeout: 20000 });
+      await expect(page.getByTestId("identity-me-profile").getByTestId("metrics-total")).toContainText(/MB|GB/, { timeout: 20000 });
 
       const readings: Array<{ state: string; label: string; ratio: number; color: string; bg: string }> = [];
       const read = async (state: string) => {
@@ -555,18 +635,29 @@ test.describe("identity chips", () => {
         }
       };
       await read("populated");
-      // Then the outlined states, which is where the muted tokens live: muted
-      // ink over a veil is the losing combination, so it is the one that has to
-      // be in the measurement rather than reasoned about.
+      // Then the card alone: the same ink with no chips above it, which is
+      // the state most installations spend the day in.
       await stubIdentity(page, alone());
       await page.reload();
-      await expect(page.getByTestId("org-chip-empty")).toBeVisible({ timeout: 20000 });
+      await expect(page.getByTestId("identity-me-profile")).toBeVisible({ timeout: 20000 });
+      await expect(page.getByTestId("friend-chips")).toHaveCount(0);
       await read("alone");
 
       const violations = await runAxe(page);
       persist(`contrast-${scheme}`, { floor: AA_TESTO, readings, axe: violations });
 
-      expect(readings.length, "nothing was measured: the band painted no text").toBeGreaterThanOrEqual(6);
+      // EVERY SUBJECT WAS MEASURED, named rather than counted: a band that
+      // painted no chip name, or no card name, would otherwise pass on
+      // whatever text was left. A reading is labelled by the NEAREST testid
+      // of the text it measured, so the card's name reads as `identity-name`
+      // and its numbers as `metrics-total`, not as the card itself.
+      const measured = (state: string, id: string) =>
+        readings.some((r) => r.state === state && r.label.startsWith(id));
+      expect(measured("populated", "friend-chip"), "no chip ink was measured").toBe(true);
+      expect(measured("populated", "identity-name"), "no card name was measured with chips above it").toBe(true);
+      expect(measured("populated", "metrics-total"), "the machine's numbers were not measured").toBe(true);
+      expect(measured("alone", "identity-name"), "no card name was measured alone").toBe(true);
+      expect(measured("alone", "metrics-total"), "the machine's numbers were not measured alone").toBe(true);
       for (const r of readings) {
         expect(
           r.ratio,
@@ -577,57 +668,96 @@ test.describe("identity chips", () => {
     });
   }
 
-  test("CHIPS-04: in no group at all, the slot stays and opens its panel", async ({ page }) => {
-    test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
-    // The subject used to return null at zero, which made the band two chips
-    // wide and left "which groups am I in" unanswered for the only person who
-    // needed the answer.
-    await stubIdentity(page, alone());
+  test("CHIPS-04: with nobody here there is no row, and the menu still lists the friends", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "STATUSLINE-04" });
+    // The opposite of the rule the three old chips followed (they stayed at
+    // zero so their place could be learned): this row is not the only way in,
+    // so a permanent strip saying "nobody" would be reserving daily space for
+    // the emptiest sentence in the app. The same people are one click away.
+    await stubIdentity(page, friendsAway());
     await page.goto("/");
     await setSidebarWidth(page, 256);
-    const empty = page.getByTestId("org-chip-empty");
-    await expect(empty).toBeVisible({ timeout: 20000 });
-    await expect(page.getByTestId("org-chip")).toHaveCount(0);
-    await shootColumn(page, "after-alone.png");
-    // Still a door, not a placeholder.
-    await empty.click();
-    await expect(page.getByTestId("org-empty-panel")).toBeVisible();
-  });
-
-  test("CHIPS-05: four groups are ONE card, and the panel has all four", async ({ page }) => {
-    test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
-    await stubIdentity(page, populated(4));
-    await page.goto("/");
-    await setSidebarWidth(page, 256);
-    const card = page.getByTestId("org-chip");
+    const card = page.getByTestId("identity-me-profile");
     await expect(card).toBeVisible({ timeout: 20000 });
-    // ONE SLOT, WHATEVER THE COUNT. This is the assertion the previous shape
-    // could not make: the subject used to be one chip, or two, or two and a
-    // counter, so its width moved with the data and the band changed shape
-    // between two installations that differ only in how many groups they joined.
-    expect(await card.count()).toBe(1);
-    // The marks stack inside it, bounded, and the number carries the rest:
-    // nothing is hidden without something saying how much.
-    expect(await page.getByTestId("identity-row-orgs").getByTestId("identity-glyph").count())
-      .toBeLessThanOrEqual(ORG_MARKS_IN_CHIP);
-    await expect(page.getByTestId("org-chip-count")).toHaveText("4");
+    await expect(page.getByTestId("friend-chips")).toHaveCount(0);
+    await expect(page.getByTestId("friend-chip")).toHaveCount(0);
+    await shootColumn(page, "nobody-here.png");
 
-    const geometry = await bandGeometry(page);
-    const tops = geometry.subjects.map((s) => s.top);
-    expect(Math.max(...tops) - Math.min(...tops), `tops ${tops.join(", ")}`).toBeLessThanOrEqual(1);
-    expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth + 1);
-
-    // AND ALL FOUR ARE BEHIND IT, one section each. The old `+n` panel listed
-    // only the groups that had not fitted: the two on the line had a panel
-    // apiece, so comparing four groups took three clicks and two of the panels
-    // did not exist.
-    await card.click();
-    await expect(page.getByTestId("org-panel")).toBeVisible();
-    await expect(page.getByTestId("org-section")).toHaveCount(4);
+    // The card is still the door, and the friends are behind it: both of
+    // them, present or not, which is what "the menu lists them" means.
+    const menu = await openMenu(page);
+    await menu.getByTestId("profile-menu-friends").click();
+    await expect(menu.getByTestId("presence-person")).toHaveCount(2);
+    await expect(menu.locator('[data-testid="presence-person"][data-online="true"]')).toHaveCount(0);
+    await expect(menu).toContainText("Anna Prova");
+    await expect(menu).toContainText("Bruno Prova");
   });
 
-  test("CHIPS-06: the delivery clip, the band at the three widths", async () => {
-    test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
+  test("CHIPS-05: three friends here are three chips, and a chip is a door to that person", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "STATUSLINE-04" });
+    await stubIdentity(page, crowd());
+    await page.goto("/");
+    await setSidebarWidth(page, 180);
+    const chips = page.getByTestId("friend-chip");
+    await expect(chips).toHaveCount(3, { timeout: 20000 });
+    // ONE PER PERSON, with the first name on the chip and the whole name on
+    // the accessible name: short by design, and shortening must not make a
+    // person unnameable. The name is the LAST span of the chip: the first is
+    // the face, which spells the initials when there is no picture.
+    const nameOf = (i: number) => chips.nth(i).locator("span").last();
+    await expect(nameOf(0)).toHaveText("Anna");
+    await expect(chips.nth(0)).toHaveAttribute("aria-label", "Anna Prova");
+    await expect(nameOf(1)).toHaveText("Bruno");
+    await expect(nameOf(2)).toHaveText("Carla");
+    // AND THE ROW SCROLLS, at 180 with three names: this is the shape the
+    // requirement names, read from the row's own budget.
+    const row = (await bandGeometry(page)).row!;
+    expect(row.flexWrap).toBe("nowrap");
+    expect(row.scrollWidth, `three chips in a ${row.clientWidth}px row: scrollWidth ${row.scrollWidth}`)
+      .toBeGreaterThan(row.clientWidth);
+    await shootColumn(page, "three-here-180.png");
+
+    // A chip leads to THAT person: a count could only lead to a list.
+    await chips.nth(0).click();
+    const pane = page.getByTestId("profile-pane");
+    await expect(pane).toBeVisible({ timeout: 20000 });
+    await expect(pane).toContainText("Anna Prova", { timeout: 20000 });
+  });
+
+  test("CHIPS-06: the card says the first name, and keeps the whole one within reach", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "STATUSLINE-04" });
+    // The surname is the half a 240px column truncates anyway: it stays on
+    // the tooltip, on the accessible name and in the account block, so
+    // nothing is lost, it is just not shouted.
+    await stubIdentity(page, populated());
+    await page.goto("/");
+    const card = page.getByTestId("identity-me-profile");
+    await expect(card).toBeVisible({ timeout: 20000 });
+    await expect(card.getByTestId("identity-name")).toHaveText("Utente", { timeout: 20000 });
+    await expect(card).toHaveAttribute("aria-label", "Utente Locale");
+    await expect.poll(() => card.getAttribute("title")).toContain("Utente Locale");
+  });
+
+  test("CHIPS-07: memory and CPU are on the card, without opening anything", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "STATUSLINE-04" });
+    await withMachineNumbers(page);
+    await stubIdentity(page, populated());
+    await page.goto("/");
+    const card = page.getByTestId("identity-me-profile");
+    await expect(card).toBeVisible({ timeout: 20000 });
+    const numbers = card.getByTestId("metrics-total");
+    // Megabytes (or gigabytes past a thousand) and a percentage, on the card,
+    // with the menu closed: "is it fine" is the question that gets asked all
+    // day, and it must not cost a gesture.
+    await expect(numbers).toContainText(/\d+(\.\d+)?\s?(MB|GB)/, { timeout: 20000 });
+    await expect(numbers).toContainText(/\d+%/);
+    await expect(page.getByTestId("profile-menu")).toHaveCount(0);
+    // And the dot, whose tint is the verdict, is on the same card.
+    await expect(card.getByTestId("connection-status")).toBeVisible();
+  });
+
+  test("CHIPS-08: the delivery clip, the band at the three widths", async () => {
+    test.info().annotations.push({ type: "spec", description: "STATUSLINE-04" });
     // No video outside `E2E_CLIP=1`: the same code path runs either way, so the
     // clip never proves a road the gate does not walk.
     await clipDiConsegna({
@@ -639,25 +769,72 @@ test.describe("identity chips", () => {
         viewport: { width: 1180, height: 760 },
         reducedMotion: "reduce",
       },
-      // Reaching a paired app with four groups is setup: it runs on a page
-      // whose video is thrown away.
+      // Reaching a paired app with three friends here is setup: it runs on a
+      // page whose video is thrown away.
       prologo: async (p) => {
-        await stubIdentity(p, populated(4));
+        await stubIdentity(p, crowd());
         await p.goto("/");
-        await expect(p.getByTestId("org-chip")).toBeVisible({ timeout: 20000 });
+        await expect(p.getByTestId("friend-chip")).toHaveCount(3, { timeout: 20000 });
       },
       scena: async (p) => {
-        await stubIdentity(p, populated(4));
+        await stubIdentity(p, crowd());
         await p.goto("/");
         await expect(p.getByTestId("identity-block")).toBeVisible({ timeout: 20000 });
         for (const width of WIDTHS) {
           await setSidebarWidth(p, width);
           await beat(p, 1300);
         }
-        await p.getByTestId("org-chip").click();
-        await expect(p.getByTestId("org-panel")).toBeVisible();
+        await p.getByTestId("identity-me-profile").click();
+        await expect(p.getByTestId("profile-menu")).toBeVisible();
         await beat(p, 2200);
       },
+    });
+  });
+});
+
+/**
+ * THE TWO DELIVERY SHOTS, at the sizes the card asks for: a desktop at
+ * 1440x900 with the chips and the card (and once more with the menu open),
+ * and a phone at 390x844. They are evidence, not measurements: the numbers
+ * are read above, these are what a reviewer looks at.
+ */
+test.describe("delivery shots", () => {
+  test.describe("desktop", () => {
+    test.use({ viewport: { width: 1440, height: 900 } });
+    test("desktop-1440: chips and card, then the menu open", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "STATUSLINE-04" });
+      // No shell mock: on a Mac host it would frost the chrome (see CHIPS-03)
+      // and the shot would show a glass nobody asked for. The server's own
+      // figures put memory and CPU on the card anyway.
+      await stubIdentity(page, crowd());
+      await page.goto("/");
+      await expect(page.getByTestId("friend-chip")).toHaveCount(3, { timeout: 20000 });
+      await expect(page.getByTestId("identity-me-profile").getByTestId("metrics-total")).toContainText(/MB|GB/, { timeout: 20000 });
+      mkdirSync(REDESIGN_SHOTS, { recursive: true });
+      await page.screenshot({ path: join(REDESIGN_SHOTS, "desktop-1440.png") });
+      await openMenu(page);
+      await page.screenshot({ path: join(REDESIGN_SHOTS, "desktop-1440-menu-open.png") });
+    });
+  });
+
+  test.describe("phone", () => {
+    test.use({ viewport: { width: 390, height: 844 } });
+    test("mobile-390: the column is a drawer, the title is the door", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "SIDEBAR-STATUS-01" });
+      await stubIdentity(page, crowd());
+      await page.goto("/");
+      const column = page.locator('[aria-label="Topics sidebar"]');
+      await column.waitFor({ state: "attached", timeout: 20_000 });
+      // The drawer opens with the shortcut when it is not already open: the
+      // button that opens it sits inside the closed column, off screen.
+      const open = async () => Math.round((await column.boundingBox())?.x ?? -999) === 0;
+      if (!(await open())) await page.keyboard.press("ControlOrMeta+b");
+      await expect.poll(open, { timeout: 5_000 }).toBe(true);
+      // No identity band on the phone: the door is the title.
+      await expect(page.getByTestId("identity-me-profile")).toHaveCount(0);
+      await expect(page.getByTestId("sidebar-topics-menu")).toBeVisible({ timeout: 10_000 });
+      mkdirSync(REDESIGN_SHOTS, { recursive: true });
+      await page.screenshot({ path: join(REDESIGN_SHOTS, "mobile-390.png") });
     });
   });
 });
