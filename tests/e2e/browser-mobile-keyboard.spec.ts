@@ -238,6 +238,15 @@ test.describe("Browser da telefono — la tastiera segue il campo", () => {
 
       const video = page.locator('[data-testid="browser-webrtc-video"]').first();
       await expect(video).toBeVisible({ timeout: 10000 });
+      // "Visible" is not enough: the <video> mounts BEFORE ICE is connected, at
+      // `opacity-0 pointer-events-none` (useRemoteBrowser: `webrtcMounted`
+      // first, `webrtcActive` later), and to Playwright an element at opacity
+      // zero is visible. A tap in that window lands on the element underneath
+      // and `onVideoClick` never sees it: on the Mac the window closes before
+      // the tap, on the Linux runner it does not - and with the fake ICE walk
+      // delayed by 400 ms it reproduces here too. The real precondition is the
+      // INTERACTIVE surface, that is the stream being active.
+      await expect(video).toHaveCSS("pointer-events", "auto", { timeout: 10000 });
       const box = await video.boundingBox();
       expect(box, "il flusso video deve avere un rettangolo").not.toBeNull();
       const tapVideo = () => page.touchscreen.tap(box!.x + box!.width / 2, box!.y + box!.height / 2);

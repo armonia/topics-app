@@ -12,6 +12,7 @@ import {
   PermissionWaitError,
   resolvePendingPermission,
   sessionHasPendingPermission,
+  takeBufferedDecision,
   waitForDecision,
 } from "./permission-bridge";
 
@@ -41,6 +42,20 @@ describe("il giro normale", () => {
     expect(deliverDecision(SK, T1, "allow_always")).toBe(true);
     expect(await waitForDecision(SK, T1, { timeoutMs: 2000 })).toBe("allow_always");
     cleanup();
+  });
+
+  it("la dispensa si legge in cima alla gamba, e si svuota: una volta sola", () => {
+    cleanup();
+    // The route reads the pantry BEFORE the grant check: a click between two
+    // legs must come back as the person's word, not as whatever rule that
+    // click just wrote. And it comes back once - the next read finds nothing.
+    beginPermission(SK, T1);
+    expect(deliverDecision(SK, T1, "allow_always")).toBe(true);
+    expect(hasPendingPermission(SK, T1)).toBe(false);
+    expect(takeBufferedDecision(SK, T1)).toBe("allow_always");
+    expect(takeBufferedDecision(SK, T1)).toBeUndefined();
+    // Nothing in the pantry for a request nobody decided.
+    expect(takeBufferedDecision(SK, T2)).toBeUndefined();
   });
 
   it("una gamba scaduta è normale amministrazione, non una fine", async () => {

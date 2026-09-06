@@ -2,7 +2,7 @@
  * @covers PERM-02
  */
 import { describe, it, expect } from "bun:test";
-import { decidePermissionPaint } from "./permission-paint";
+import { decidePermissionPaint, toolNameOnRow } from "./permission-paint";
 
 const REQ = { toolName: "Bash", input: {}, requestedAt: 1 };
 
@@ -134,5 +134,46 @@ describe("decidePermissionPaint — nel dubbio si ridipinge", () => {
 
   it("campi vuoti: si ridipinge", () => {
     expect(decidePermissionPaint({ tool_calls: null, blocks: null }, "tu_1", "Bash").alreadyPainted).toBe(false);
+  });
+});
+
+describe("toolNameOnRow — il pattern che «Consenti sempre» scrive", () => {
+  const MCP = "mcp__gateway__kiwi__search-flight";
+
+  // THE 2026-09-06 CASE: a row with blocks has `tool_calls = '[]'` on disk
+  // (toolCallsColumnForRow). Reading only the column gave null, hence no rule,
+  // hence the panel reopened on the next request.
+  it("riga con blocchi e colonna vuota: il nome si legge dai BLOCCHI", () => {
+    const row = {
+      tool_calls: "[]",
+      blocks: JSON.stringify([{ kind: "text", text: "Cerco i voli:" }, toolBlock("tu_1", { name: MCP })]),
+    };
+    expect(toolNameOnRow(row, "tu_1")).toBe(MCP);
+  });
+
+  it("riga senza blocchi: la colonna resta il ripiego", () => {
+    const row = { tool_calls: JSON.stringify([{ id: "tu_1", name: MCP, status: "running" }]), blocks: null };
+    expect(toolNameOnRow(row, "tu_1")).toBe(MCP);
+  });
+
+  it("i blocchi battono la colonna quando dicono cose diverse", () => {
+    const row = {
+      tool_calls: JSON.stringify([{ id: "tu_1", name: "Read", status: "running" }]),
+      blocks: JSON.stringify([toolBlock("tu_1", { name: MCP })]),
+    };
+    expect(toolNameOnRow(row, "tu_1")).toBe(MCP);
+  });
+
+  it("id che non c'è su nessuna delle due: null, non il nome di un'altra chiamata", () => {
+    const row = {
+      tool_calls: JSON.stringify([{ id: "altro", name: "Read", status: "running" }]),
+      blocks: JSON.stringify([toolBlock("altro", { name: MCP })]),
+    };
+    expect(toolNameOnRow(row, "tu_mai_visto")).toBeNull();
+  });
+
+  it("riga assente o illeggibile: null, senza esplodere", () => {
+    expect(toolNameOnRow(undefined, "tu_1")).toBeNull();
+    expect(toolNameOnRow({ tool_calls: "{non json", blocks: "]]non json" }, "tu_1")).toBeNull();
   });
 });
