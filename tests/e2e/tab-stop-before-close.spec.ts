@@ -11,7 +11,7 @@ import { hermetic } from "./fixtures/hermetic";
 hermetic(test);
 
 /**
- * "PRIMA SI FERMA, POI SI CHIUDE."
+ * "STOP FIRST, CLOSE AFTER."
  *
  * A tab with a turn running used to offer exactly one command under the
  * pointer, the X. Stopping the turn was possible only by hovering the LOADER,
