@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-09-05",
+  "generated": "2026-09-06",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -2884,7 +2884,6 @@
       "arr"
     ],
     "server/db.ts": [
-      "REGISTRY_DDL",
       "normalizzate"
     ],
     "server/db/activity-log.test.ts": [
@@ -2906,16 +2905,8 @@
     ],
     "server/db/test-schema.test.ts": [
       "attese",
-      "ddlColumns",
       "dichiarate",
       "stmt"
-    ],
-    "server/db/test-schema.ts": [
-      "APP_SETTINGS_DDL",
-      "TASKS_DDL",
-      "TASKS_FK_STUBS_DDL",
-      "TASK_LABELS_DDL",
-      "TERMINAL_SESSIONS_DDL"
     ],
     "server/file-watcher.ts": [
       "unwatchProjectFiles"
@@ -3028,7 +3019,6 @@
       "blocchi"
     ],
     "server/lib/boot-partial-sweep.test.ts": [
-      "DDL",
       "figli",
       "notif",
       "percorso",
@@ -5115,7 +5105,6 @@
       "tokenize"
     ],
     "server/services/task-merge.test.ts": [
-      "DDL",
       "altrove",
       "dipendente",
       "esito",
@@ -7781,7 +7770,6 @@
       "vecchio"
     ],
     "tests/integration/shared-inventory-principals.test.ts": [
-      "DDL_TASKS",
       "MIGRAZIONI",
       "RADICE",
       "chiama",

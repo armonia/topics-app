@@ -94,6 +94,11 @@ export const PROJECT_WORDS = new Set([
   // (`navigator.clipboard`, `ClipboardEvent`), so renaming around it would make
   // the code read worse than the platform it calls.
   "clipboard",
+  // `ddl` is what the SQL standard calls the half of itself that creates
+  // tables, and it is how the test schemas of this repo are already named
+  // (`TASKS_DDL`, `APP_SETTINGS_DDL`). Spelling it out in an identifier would
+  // be longer and less recognisable than the acronym everybody reads.
+  "ddl",
   // Same hole, five more: `online` and `primaries` are everyday English, `fps`
   // and `perf` are the units this codebase measures in, and `strongest` is a
   // regular superlative the 1934 list simply does not carry.
