@@ -2,7 +2,7 @@ import { useDashboard } from '../../hooks/useDashboard';
 import { KPICardGrid } from './KPICardGrid';
 import { TimeSeriesChart } from './TimeSeriesChart';
 import { RangeSelector } from './RangeSelector';
-import { Loader2, RefreshCw, BarChart3 } from 'lucide-react';
+import { RefreshCw, BarChart3 } from 'lucide-react';
 import type { WSMessage } from '../../types';
 
 const METRIC_OPTIONS = [
@@ -28,23 +28,15 @@ export function DashboardPane({ onMessage }: DashboardPaneProps) {
     setRange,
   } = useDashboard(onMessage);
 
-  // First load spinner
-  if (loading && !kpis) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <Loader2 size={20} className="animate-spin text-app-text-muted" />
-      </div>
-    );
-  }
-
-  if (error && !kpis) {
-    return (
-      <div className="flex-1 flex items-center justify-center text-red-500 text-[12px]">
-        {error}
-      </div>
-    );
-  }
-
+  // NO FIRST-LOAD SPINNER, AND NO FULL-PANE ERROR SCREEN.
+  //
+  // Both used to replace the whole body, so the pane was one small glyph in an
+  // empty rectangle until two fetches answered and then grew nine KPI cards and
+  // a 200px chart in a single frame. The layout is now always the same layout:
+  // the cards draw the dash that `KPICard` already means by "no source", the
+  // chart box keeps its height, and the numbers land inside a geometry that
+  // never moved. `useDashboard` seeds them from the local snapshot, so on a
+  // return they are there on the first frame.
   return (
     <div data-testid="dashboard-pane" className="flex-1 flex flex-col min-h-0 overflow-auto">
       {/* Header */}
@@ -54,23 +46,29 @@ export function DashboardPane({ onMessage }: DashboardPaneProps) {
           <span className="text-[13px] font-semibold text-app-text">Dashboard</span>
         </div>
         <div className="flex items-center gap-1.5">
-          {loading && (
-            <RefreshCw size={12} className="animate-spin text-app-text-muted" />
-          )}
+          {/* The refresh glyph keeps its box when it is not spinning. Mounting
+              it only while loading pushed the label sideways every 60 seconds,
+              and again on every WS update: a shift the size of an icon,
+              repeated for as long as the pane stays open. */}
+          <RefreshCw
+            size={12}
+            aria-hidden={!loading}
+            className={`text-app-text-muted ${loading ? 'animate-spin' : 'opacity-0'}`}
+          />
           <span className="text-[11px] text-app-text-muted">Auto-refresh 60s</span>
         </div>
       </div>
 
       <div className="flex flex-col gap-4 p-4">
-        {/* Error banner (shown even after prior successful load) */}
-        {error && kpis && (
+        {/* The one banner, whether or not numbers had landed before the failure. */}
+        {error && (
           <div className="text-[11px] text-red-400 bg-red-500/10 border border-red-500/20 rounded px-3 py-1.5">
-            Refresh failed: {error}
+            {kpis ? `Refresh failed: ${error}` : error}
           </div>
         )}
 
         {/* KPI Cards */}
-        {kpis && <KPICardGrid kpis={kpis} />}
+        <KPICardGrid kpis={kpis} />
 
         {/* Time Series Chart */}
         <div data-testid="dashboard-chart" className="bg-surface border border-app-border rounded-lg p-3">

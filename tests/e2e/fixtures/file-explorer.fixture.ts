@@ -1,6 +1,22 @@
 import { test as base, type Page } from "@playwright/test";
+import { realpathSync } from "fs";
 import { goToApp } from "../helpers";
 import { resetPaneStore, resetProjectPanes, seedProjectPane } from "../helpers/api-fixtures";
+
+/** The canonical spelling of a path, or the path itself when it cannot be resolved. */
+export function canonicalPath(p: string): string {
+  try { return realpathSync(p); } catch { return p; }
+}
+
+/**
+ * The project row, under either spelling. Exported because the CLS spec drives
+ * the same row to open the "+" menu on it, and two copies of this selector
+ * would drift the way the two copies of the path spelling already did.
+ */
+export function projectRowSelector(projectPath: string): string {
+  const spellings = [...new Set([projectPath, canonicalPath(projectPath)])];
+  return spellings.map((p) => `button[title="${p}"], button[data-tip="${p}"]`).join(", ");
+}
 
 export class FileExplorerPage {
   constructor(private page: Page) {}
@@ -48,9 +64,16 @@ export class FileExplorerPage {
     }
 
     // Find the project header and click to open
-    const projectHeader = this.page.locator(
-      `button[title="${projectPath}"]`
-    );
+    // BOTH SPELLINGS OF THE PATH. Since 7cd202448 the server serves the
+    // project pane under the CANONICAL path (realpath), and on macOS the
+    // realpath of `/tmp/x` is `/private/tmp/x`: the row on screen carries the
+    // canonical spelling while the seed hands this method the one it wrote.
+    // A locator on the seed's spelling alone waited ten seconds for a row that
+    // was on screen the whole time, under the other name (FILES + OPEN in
+    // pane-return-cls, red since that commit). `data-tip` next to `title`:
+    // TooltipDelegate moves the label between the two while the pointer is
+    // over the row, and the pointer stays wherever the last hover left it.
+    const projectHeader = this.page.locator(projectRowSelector(projectPath)).first();
     await projectHeader.waitFor({ state: "visible", timeout: 10000 });
     await projectHeader.click();
 
