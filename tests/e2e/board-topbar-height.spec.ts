@@ -217,10 +217,10 @@ test.describe("Top bar della kanban — una sola altezza", () => {
     await page.goto("/");
     await openProjectBoard(page);
 
-    const misure: Record<string, ControlBox[]> = {};
+    const readings: Record<string, ControlBox[]> = {};
     for (const [etichetta, width] of [["larga", 1440], ["stretta", 390]] as const) {
       await page.setViewportSize({ width, height: 900 });
-      misure[etichetta] = await assertOneHeight(page, etichetta, 6);
+      readings[etichetta] = await assertOneHeight(page, etichetta, 6);
     }
 
     // AND THE OTHER HALF OF THE BAR. "All projects" mode swaps the archive
@@ -229,11 +229,11 @@ test.describe("Top bar della kanban — una sola altezza", () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.getByRole("button", { name: "Tutti i progetti" }).click();
     await expect(page.getByTestId("filter-project-chip")).toBeVisible({ timeout: 10000 });
-    misure["tutti-i-progetti"] = await assertOneHeight(page, "tutti-i-progetti", 6);
+    readings["tutti-i-progetti"] = await assertOneHeight(page, "tutti-i-progetti", 6);
 
     test.info().attach("altezze-controlli", {
       contentType: "application/json",
-      body: JSON.stringify(misure, null, 2),
+      body: JSON.stringify(readings, null, 2),
     });
   });
 });
