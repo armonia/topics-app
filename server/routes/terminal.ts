@@ -9,7 +9,8 @@ import { shouldCompressFrame } from "../lib/ws-compression";
 import { createHash } from "crypto";
 import net from "net";
 import fs from "fs";
-import { tmpdir } from "os";
+import { homedir, tmpdir } from "os";
+import { isAgentWorkspace, lowerPriority } from "../lib/low-priority";
 import { augmentPath, realHome } from "../utils/path-env";
 import { timingSafeEqualStr } from "../utils";
 import { readState } from "../services/daemon-state";
@@ -1812,6 +1813,12 @@ async function createSession(id: string, name: string, cwd: string, command?: st
     pendingCreates.delete(id);
     throw err;
   }
+
+  // An agent's PTY is demoted at birth (nice 15, `utility` QoS on macOS), and
+  // everything the CLI forks from it inherits the demotion: the fleet yields
+  // to the owner's own windows. The owner's shells keep their priority. See
+  // server/lib/low-priority.ts.
+  if (ptyPid && isAgentWorkspace(cwd, parentSessionKey, homedir())) lowerPriority(ptyPid);
 
   // A plain shell born with the generic add-menu label ("Shell") or "Terminal N"
   // gets a more useful default: the working directory's basename (e.g. the repo
