@@ -288,17 +288,24 @@ export function useDictation(opts: {
         // entry as a static import). Nothing waits for it, see above; and a
         // chunk that fails to arrive is the same event as a socket that
         // does — the batch upload behind the recorder is the safety net.
-        void import('../lib/stt-realtime').then(({ startRealtimeDictation }) => startRealtimeDictation({
-          sampleRate: probe.sampleRate(),
-          language: languageHint,
-          onPartial: setPartial,
-          onCommitted: (text) => {
-            committedRef.current += 1;
-            setPartial('');
-            onTextRef.current(text);
-          },
-          onFail: fellBack,
-        }), (err: unknown) => { fellBack(errMessage(err)); return null; }).then((session) => {
+        // `const { x } = await import(…)`, not `import(…).then(({ x }) => …)`:
+        // the `.then` form is opaque to knip and would blind
+        // `check:deadcode-blindspots` on stt-realtime. A failed chunk and a
+        // failed session open are the same event here: both fall back.
+        void (async () => {
+          const { startRealtimeDictation } = await import('../lib/stt-realtime');
+          return startRealtimeDictation({
+            sampleRate: probe.sampleRate(),
+            language: languageHint,
+            onPartial: setPartial,
+            onCommitted: (text) => {
+              committedRef.current += 1;
+              setPartial('');
+              onTextRef.current(text);
+            },
+            onFail: fellBack,
+          });
+        })().catch((err: unknown) => { fellBack(errMessage(err)); return null; }).then((session) => {
           if (!session) return;
           // Stopped or cancelled while the token was in flight: a session opened
           // over a closed microphone would transcribe silence and bill for it.

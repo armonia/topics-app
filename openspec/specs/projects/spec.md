@@ -505,7 +505,11 @@ intestazione non è condizionata (decisione del 06/09/2026, quando il test della
 cronologia «ad albero pulito» è stato ristretto al caso «pulito ma avanti al remoto»).
 
 La condizione SHALL essere VIVA: la sezione torna da sola alla prima modifica, senza
-riaprire il progetto.
+riaprire il progetto. Perché lo sia, il progetto deve avere il suo watcher: i posti
+sono 24, e il venticinquesimo progetto aperto SHALL sfrattare il meno recente invece
+di restare muto per tutta la vita del server (misurato in CI il 06/09/2026: uno shard
+apre una trentina di progetti temporanei, e la spec «la prima modifica la fa tornare»
+aspettava un push che non partiva).
 
 Sulla card della board la pastiglia delle modifiche git SHALL sparire quando il
 conteggio letto è zero. Un conteggio ANCORA NON MISURATO non è uno zero: durante un

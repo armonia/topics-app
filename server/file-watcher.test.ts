@@ -11,6 +11,9 @@
  * Real watchers on real folders, because the promise is that a write to the
  * newest project reaches the broadcast even when older projects filled the cap.
  * The debounce is 300 ms; the waits are on a condition, never on the clock.
+ *
+ * @covers PROJECT-12 — "the condition is LIVE": the section comes back on the
+ * first change, which needs the watcher of that project to exist at all.
  */
 import { describe, test, expect, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";

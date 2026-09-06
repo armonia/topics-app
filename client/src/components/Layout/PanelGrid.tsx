@@ -18,7 +18,12 @@ import { detachPaneToNewSpace } from '../../lib/popOutSpace';
 // it and its grouping sat in the eager entry for every boot (3 KB raw,
 // measured 2026-09-06). Its first mount is an event, not a paint: a fallback
 // frame there costs nobody anything.
-const UnsentBanner = lazy(async () => ({ default: (await import('./UnsentBanner')).UnsentBanner }));
+// `const { X } = await import(…)`, not `(await import(…)).X`: the second form
+// is opaque to knip and would blind `check:deadcode-blindspots` on the module.
+const UnsentBanner = lazy(async () => {
+  const { UnsentBanner: Body } = await import('./UnsentBanner');
+  return { default: Body };
+});
 import { DetachedWindowMarker } from './DetachedWindowMarker';
 import { usePaneStore } from '../../state/pane/store';
 import { useServerHydrated } from '../../hooks/useServerHydrated';

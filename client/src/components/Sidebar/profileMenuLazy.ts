@@ -22,7 +22,13 @@
 import { lazyWarm, warm } from '@/lib/lazyWarm';
 import { prefetchAccountPanel } from './accountPanelLazy';
 
-const loadProfileMenu = () => import('./ProfileMenu');
+// Destructured on purpose, not `() => import('./ProfileMenu')`: knip reads a
+// bare `import()` as opaque and every export of the module counts as used, so
+// a dead export in ProfileMenu.tsx would go blind (`check:deadcode-blindspots`).
+const loadProfileMenu = async () => {
+  const { ProfileMenu: Body } = await import('./ProfileMenu');
+  return { ProfileMenu: Body };
+};
 
 export const ProfileMenu = lazyWarm(loadProfileMenu, (m) => m.ProfileMenu);
 
