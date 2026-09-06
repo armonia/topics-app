@@ -51,7 +51,8 @@ import {
   shouldResume,
   type TurnEndInfo,
 } from "../providers/stop-reason";
-import { providerHold, holdUntilLabel } from "../lib/provider-hold";
+import { providerHold, holdUntilLabel, planUsage } from "../lib/provider-hold";
+import { PLAN_DISPATCH_HOLD_AT } from "../../shared/provider-hold";
 import { languageDirective } from "../lib/topics-agent-prompt";
 import { resolveOutputLanguage } from "./app-settings";
 import { OUTPUT_LANGUAGES, type OutputLanguage } from "../../shared/types";
@@ -1058,6 +1059,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   const providerErrors = new Map<string, number>();
   /** The `sinceMs` of the provider hold already logged by `tick`: once per hold. */
   let holdAnnounced = 0;
+  /** The reset instant of the plan window already logged by `tick`: once per window. */
+  let planWindowAnnounced = 0;
 
   /**
    * One in-flight run: a turn being set up, running, or winding down.
@@ -3437,6 +3440,25 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         holdAnnounced = hold.sinceMs;
         log(`dispatch fermo: ${hold.reason}, riparte alle ${holdUntilLabel(hold)}`);
       }
+      return;
+    }
+    // NEARLY spent is not spent, and it is the state that matters on a
+    // subscription: the hold above only fires at the wall, when the window is
+    // already gone and every card in flight has died into it. Above the
+    // threshold the queue stops STARTING cards - the running ones and the
+    // person's own chats keep the rest of the window, which is what it is worth
+    // more to. With no reading at all nothing brakes: "I do not know" is not
+    // "you are at the limit". The five-hour window only: a nearly full week
+    // does not stop today's queue, it stops nothing anybody can wait out.
+    const window = planUsage()?.fiveHour;
+    if (window && window.utilization >= PLAN_DISPATCH_HOLD_AT && window.resetsAtMs != null && window.resetsAtMs > Date.now()) {
+      const pct = Math.round(window.utilization);
+      const at = holdUntilLabel({ untilMs: window.resetsAtMs });
+      if (planWindowAnnounced !== window.resetsAtMs) {
+        planWindowAnnounced = window.resetsAtMs;
+        log(`dispatch waiting: five-hour window at ${pct}%, resumes at ${at}`);
+      }
+      publishDispatchBlock(null, null, null, `Finestra di 5 ore del piano al ${pct}%: non parte niente di nuovo fino al reset delle ${at}.`);   // allow-italian: the sentence shown on the card
       return;
     }
     // IL FRENO DI QUESTA BOARD, e viene dopo il globale di proposito: puo' solo
