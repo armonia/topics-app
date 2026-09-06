@@ -498,6 +498,12 @@ SHALL comparire solo quando il repository ha qualcosa da dire: file non committa
 oppure commit avanti o indietro rispetto al remoto. I commit non spinti restano dentro
 perché sono lavoro in volo, non pulizia.
 
+Con la sezione se ne va anche il bottone della cronologia, che vive nella sua
+intestazione: su un repository pulito e allineato la cronologia dei commit non ha un
+ingresso nella sidebar. Resta raggiungibile dal pannello git aperto come pane, la cui
+intestazione non è condizionata (decisione del 06/09/2026, quando il test della
+cronologia «ad albero pulito» è stato ristretto al caso «pulito ma avanti al remoto»).
+
 La condizione SHALL essere VIVA: la sezione torna da sola alla prima modifica, senza
 riaprire il progetto.
 

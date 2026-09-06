@@ -224,11 +224,15 @@ test.describe("cronologia dei commit", () => {
   });
 
 
-  test("con l'albero PULITO la cronologia resta raggiungibile, e l'icona git non e' accesa", async ({ page, request }) => {
+  test("con l'albero PULITO ma avanti al remoto la cronologia resta raggiungibile dalla sidebar, e l'icona git non e' accesa", async ({ page, request }) => {
     // Clean but not aligned: two commits ahead of the remote (see `REMOTE`).
     // Since PROJECT-12 it is the only state in which the sidebar shows the
     // section with no file to stage — hence the only one in which the "clean
     // working tree" message and the history button are on screen together.
+    // On a clean repo ALIGNED with its upstream the sidebar has no git section
+    // by design, so no history button either: there the history lives in the
+    // git pane, whose header is not gated (ProjectSidebar.tsx is the only
+    // caller of hasGitStateToShow). That state is PROJECT-12's, not this test's.
     await resetPaneStore(request, []);
     await seedProjectPane(request, PROJ);
     await waitForPaneStoreQuiet(request);
