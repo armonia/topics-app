@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.267 — 2026-09-06
+
+### Sotto il cofano
+- Ciò che Topics lancia per un agente gira a priorità bassa: la macchina non rallenta per colpa sua
+- Un permalink a un terminale parcheggiato riceve un verdetto, non un ciclo di 500 ms
+
 ## 2.2.266 — 2026-09-06
 
 ### Correzioni

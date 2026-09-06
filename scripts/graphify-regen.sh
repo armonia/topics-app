@@ -59,7 +59,13 @@ echo "$token" >"$req" 2>/dev/null || exit 0
 
   {
     echo "=== graphify update @ $(date '+%Y-%m-%d %H:%M:%S') (${repo}) ==="
-    graphify update "$repo"
+    # At agent priority (KANBAN-78): the hook fires after EVERY commit of EVERY
+    # agent worktree, and a full AST re-extraction at normal priority was one of
+    # the loads that made the desktop crawl on 2026-09-06 (four of them at once,
+    # 30 % CPU each). nice everywhere, plus the macOS QoS clamp where it exists.
+    lowprio="nice -n 15"
+    command -v taskpolicy >/dev/null 2>&1 && lowprio="taskpolicy -c utility $lowprio"
+    $lowprio graphify update "$repo"
 
     # Retention. A full `/graphify` run drops a dated YYYY-MM-DD/ snapshot next
     # to the live outputs, ~20 MB each. Nothing reads them — the server resolves

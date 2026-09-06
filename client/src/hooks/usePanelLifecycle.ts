@@ -2376,6 +2376,17 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     }
     const paneId = createPaneId('terminal', sessionId);
     if (!openPanels.includes(paneId)) {
+      // The entity FIRST, as `openPanel`'s own terminal branch does: Effect B
+      // turns this `setOpenPanels` into a REORDER_PANES, whose reducer drops
+      // any id without a pane entity, and Effect A then reverts the list. On a
+      // fresh profile (a permalink opened in a new tab, a device that never
+      // held this terminal) the click did nothing - measured on
+      // `/tab/terminal/<id>` for a parked session, whose row passes the
+      // resolver but which no roster lists: no tab, no toast, nothing.
+      ensurePaneRegistered(
+        { id: paneId, type: 'terminal', terminalSessionId: sessionId },
+        { groupId: 'group:default' },
+      );
       setOpenPanels(prev => [...prev, paneId]);
     }
     setFocusedPanelId(paneId);

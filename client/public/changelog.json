@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.267",
+    "date": "2026-09-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Ciò che Topics lancia per un agente gira a priorità bassa: la macchina non rallenta per colpa sua",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un permalink a un terminale parcheggiato riceve un verdetto, non un ciclo di 500 ms",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.266",
     "date": "2026-09-06",
     "sections": {
