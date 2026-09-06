@@ -1,19 +1,19 @@
 /**
- * Le due migration che rendono possibile la corsa su un secondo nodo:
- * `20260906115130-task-machine-id.sql` e `20260906115131-machine-base-url.sql`.
+ * The two migrations that make a run on a second node possible:
+ * `20260906115130-task-machine-id.sql` and `20260906115131-machine-base-url.sql`.
  *
- * ── Perche' un test su due ADD COLUMN ───────────────────────────────────────
- * Perche' quello che conta non e' la colonna, e' cosa succede alle righe che
- * c'erano gia'. Ogni card che esiste oggi deve continuare a voler dire «qui»:
- * se l'aggiunta arrivasse con un default diverso da NULL, l'installazione
- * intera si troverebbe le card puntate a una macchina, e sarebbe un guasto
- * silenzioso — nessun errore, solo card che non partono piu'.
+ * WHY A TEST ON TWO ADD COLUMN.
+ * Because what matters is not the column, it is what happens to the rows that
+ * were already there. Every card that exists today has to keep meaning "here":
+ * if the column arrived with anything other than NULL, the whole installation
+ * would find its cards pointed at a machine, and it would be a SILENT failure,
+ * no error, just cards that stop starting.
  *
- * E il legame deve SCIOGLIERSI, non spezzarsi: cancellare una macchina porta
- * la card a NULL (cioe' locale), mai a un id che non esiste piu'. E' lo stesso
- * degrado gentile della 021 sui discorsi.
+ * And the link has to COME UNDONE, not break: deleting a machine takes the
+ * card back to NULL, which is local, never to an id that is gone. It is the
+ * same gentle degradation the 021 gives topics.
  *
- * Il test esegue i FILE delle migration, non una loro copia.
+ * The test runs the migration FILES, not a copy of them.
  *
  * @covers MACHINE-02
  * @covers SCHEMA-07
@@ -27,7 +27,7 @@ const DIR = resolve(import.meta.dir, "../../server/db/migrations");
 const TASK_MACHINE_ID = readFileSync(resolve(DIR, "20260906115130-task-machine-id.sql"), "utf8");
 const MACHINE_BASE_URL = readFileSync(resolve(DIR, "20260906115131-machine-base-url.sql"), "utf8");
 
-/** Lo scheletro minimo che le due migration presuppongono. */
+/** The smallest schema the two migrations presume. */
 function seed(): Database {
   const db = new Database(":memory:");
   db.exec("PRAGMA foreign_keys = ON");

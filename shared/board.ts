@@ -816,6 +816,7 @@ export type QueueReasonKind =
   | 'resource_floor' // the machine is under the RAM/disk floor: no agent is admitted at all
   | 'resource_pressure' // «per risorse»: the machine is over the chosen load/memory threshold
   | 'spend_cap'      // the 24h spend cap is reached: the queue holds until it scrolls or you raise it
+  | 'node_unreachable' // the card names a paired node and the node did not answer: it waits THERE, never here
   | 'checklist_frozen' // in review senza domande aperte, ma con la checklist aperta: approvarla non la chiude
   | 'children_parked' // sta CHIEDENDO cosa fare dei suoi step fermi: il chip ne porta il numero
   | 'parked'         // in backlog: il dispatcher non guarda questa colonna
@@ -874,7 +875,7 @@ export interface QueueReason {
 export const QUEUE_REASON_KINDS: QueueReasonKind[] = [
   'slot', 'blocked', 'deferred', 'attempts', 'dispatch_off', 'no_project',
   'parent_review', 'parent_turn', 'parent_idle', 'heavy_hold', 'heavy_busy',
-  'resource_floor', 'resource_pressure', 'spend_cap',
+  'resource_floor', 'resource_pressure', 'spend_cap', 'node_unreachable',
   'checklist_frozen', 'children_parked', 'parked', 'no_agent', 'unknown',
 ];
 
@@ -901,6 +902,7 @@ export const QUEUE_REASON_MESSAGE_KEYS: Record<QueueReasonKind, string[]> = {
   resource_floor: ['board.queue.resourceFloor'],
   resource_pressure: ['board.queue.resourcePressure'],
   spend_cap: ['board.queue.spendCap'],
+  node_unreachable: ['board.queue.nodeUnreachable'],
   checklist_frozen: ['board.queue.checklistFrozen.one', 'board.queue.checklistFrozen.many'],
   children_parked: ['board.queue.childrenParked.one', 'board.queue.childrenParked.many'],
   parked: [
@@ -916,12 +918,25 @@ export function queueReasonKeys(kind: QueueReasonKind): string[] {
   return QUEUE_REASON_MESSAGE_KEYS[kind].flatMap((base) => [`${base}.head`, `${base}.detail`, `${base}.title`]);
 }
 
+/**
+ * The `dispatch_error` a silent node writes on the card. A SENTINEL, not prose:
+ * the branch that reads it must not depend on the wording of a message, which
+ * is the kind of predicate that goes quietly false the day somebody rewords it.
+ */
+export const NODE_UNREACHABLE_ERROR = 'node_unreachable';
+
 /** Il contesto che la ragione non può leggere dalla riga del task. */
 export interface QueueContext {
   /** Adesso, in ISO — la finestra di rinvio si misura da qui. */
   now: string;
   /** L'interruttore di dispatch della board (o quello globale). */
   autoDispatch: boolean;
+  /**
+   * The NAME of the node the card names, when the caller could resolve it. The
+   * chip names the node, and an id in that sentence would name nothing to
+   * whoever reads it.
+   */
+  nodeName?: string | null;
   /** Il tetto dei tentativi della board (`BoardSettings.dispatchRetryCap`). */
   retryCap: number;
   /**
@@ -1125,6 +1140,14 @@ export function deriveQueueReason(
      * sarebbe un allarme su qualcuno che sta lavorando.
      */
     assignedTo?: string | null;
+    /**
+     * The paired node this card was chosen to run on, when there is one. It
+     * changes ONE branch: a deferral whose cause is a silent node is not the
+     * generic "it starts again at 06:52", it is "the machine you picked did
+     * not answer". The two ask different things of whoever reads them: one
+     * waits, the other goes and looks at the node.
+     */
+    machineId?: string | null;
   },
   ctx: QueueContext,
 ): QueueReason | null {
@@ -1236,6 +1259,18 @@ export function deriveQueueReason(
 
   if (ctx.projectless) {
     return { kind: 'no_project', tone: 'stalled', key: 'board.queue.noProject' };
+  }
+
+  // BEFORE the generic deferral, and that is the whole point. A card held back
+  // because its node is silent carries a deferral like any other, so the
+  // generic branch would swallow it and print a clock. The card would then
+  // look about to restart by itself, which is exactly what it is not doing:
+  // nothing on this side fixes a machine that is off (KANBAN-76).
+  if (task.machineId && task.dispatchError === NODE_UNREACHABLE_ERROR) {
+    return {
+      kind: 'node_unreachable', tone: 'stalled', key: 'board.queue.nodeUnreachable',
+      params: { node: ctx.nodeName ?? task.machineId },
+    };
   }
 
   const until = task.dispatchDeferredUntil;

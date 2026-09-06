@@ -175,6 +175,7 @@ import { createProjectsRouter } from "./server/routes/projects";
 import { createWorktreeGcRunner } from "./server/services/worktree-gc-runner";
 import { createWorktreesRouter } from "./server/routes/worktrees";
 import { createMachinesRouter } from "./server/routes/machines";
+import { createNodesRouter } from "./server/routes/nodes";
 import { initVapid } from "./server/push-service";
 import { startDevBundleReload, readBundleRev, stampBundleRev } from "./server/lib/dev-bundle-reload";
 import { startBundleProbe } from "./server/lib/bundle-probe";
@@ -2393,6 +2394,16 @@ const worktreesRouter = createWorktreesRouter(ctx, {
   runGc: () => worktreeGc.runWorktreeGc(),
 });
 const machinesRouter = createMachinesRouter(ctx);
+// The ingress of a card mirrored from another machine (KANBAN-76). The DELETE
+// goes through the board's own route so "stop the agent, then archive" has one
+// implementation: a second copy here would be the one that forgets the stop.
+const nodesRouter = createNodesRouter(ctx, {
+  deleteBoardTask: (projectId, taskId) => {
+    const url = new URL(`http://localhost/api/boards/${projectId}/tasks/${taskId}`);
+    return tasksRouter(new Request(url, { method: "DELETE" }), url, url.pathname, "DELETE");
+  },
+  onEnterTodo: (projectId, taskId) => taskDispatcher.onEnterTodo(projectId, taskId),
+});
 
 // Phase D — heartbeat ticker. Upserts the local machine row every 30 s
 // and flips other machines that haven't checked in for 5 minutes to
@@ -3365,6 +3376,7 @@ const opzioniServer = {
         || await projectsRouter(req, url, pathname, method)
         || await worktreesRouter(req, url, pathname, method)
         || await machinesRouter(req, url, pathname, method)
+        || await nodesRouter(req, url, pathname, method)
         || await filesRouter(req, url, pathname, method)
         || await browserRouter(req, url, pathname, method)
         || await cronRouter(req, url, pathname, method)
