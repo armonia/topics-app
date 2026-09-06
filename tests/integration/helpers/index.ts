@@ -20,6 +20,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import path from "node:path";
 import type { AppContext } from "../../../server/types";
+import { closeDatabase } from "../../../server/db";
 
 /**
  * Absolute path to the topics-app repo root, computed once from this
@@ -95,6 +96,18 @@ export function setupTestDataDir(testDataDir: string): void {
   }
   fs.rmSync(testDataDir, { recursive: true, force: true });
   process.env.DATA_DIR = testDataDir;
+  // AND the handle of whoever came before is closed here, not only in their
+  // own afterAll. `initDatabase` returns the cached `_db` WITHOUT looking at
+  // DATA_DIR, so a file that opened the database and never closed it hands the
+  // next one its own rows: the boot list of a file that seeded three topics
+  // answers with somebody else's. That is not a hypothesis, it is what turned
+  // `topics-list-weight` red twice on 2026-09-06 (first assertion, wrong topic
+  // count) while it stayed green alone and green in shard order: which files
+  // share a shard changes from run to run, so the pollution is a lottery.
+  // Closing on SETUP makes the isolation the file's own business instead of
+  // depending on the discipline of whoever ran before it. `closeDatabase` is
+  // idempotent.
+  closeDatabase();
 }
 
 /**
