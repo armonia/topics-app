@@ -17,6 +17,10 @@ export interface SubAgentExitInfo {
    *  the child produced no assistant text or exited before writing one). */
   result: string;
   exitCode: number | null;
+  /** The branch of the worktree the child worked in, when it had one of its own
+   *  (WORKTREE-14). Absent for a child that inherited the parent's directory,
+   *  which is exactly the case where the report must not change by a byte. */
+  branch?: string | null;
 }
 
 /** The body of the chat message that reports a sub-agent's exit. Prefers the
@@ -33,7 +37,11 @@ export function formatSubAgentExitBody(info: Pick<SubAgentExitInfo, 'result' | '
 }
 
 /** Full assistant-message content for a sub-agent exit: a bold header naming the
- *  sub-agent, then its result body. */
-export function formatSubAgentExitMessage(info: Pick<SubAgentExitInfo, 'name' | 'result' | 'exitCode'>): string {
-  return `🤖 **Sotto-agente "${info.name}", esito:**\n\n${formatSubAgentExitBody(info)}`;
+ *  sub-agent, then its result body, and, for a child that worked in a worktree
+ *  of its own, the line saying WHERE that work is. The parent no longer has the
+ *  files under its hand: the branch is all it has left to read. */
+export function formatSubAgentExitMessage(info: Pick<SubAgentExitInfo, 'name' | 'result' | 'exitCode' | 'branch'>): string {
+  const head = `🤖 **Sotto-agente "${info.name}", esito:**\n\n${formatSubAgentExitBody(info)}`;
+  if (!info.branch) return head;
+  return `${head}\n\nRamo: \`${info.branch}\`. Per leggerlo: \`git log main..${info.branch}\`.`;
 }

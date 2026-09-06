@@ -24,6 +24,7 @@ import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync } from "fs
 import { resolve, relative, isAbsolute, dirname } from "path";
 import { spawn } from "child_process";
 import { killProcessTree } from "../../lib/process-tree";
+import { lowPriorityArgv } from "../../lib/low-priority";
 import { readSlashCommandSource } from "../../lib/slash-command-source";
 import { htmlToMarkdown } from "../../lib/html-to-markdown";
 
@@ -262,7 +263,11 @@ async function runCommand(
   // fretta. Si risponde subito, e con la ragione.
   if (signal?.aborted) return { out: MOTIVO_ANNULLATO, code: null, annullato: true };
   return new Promise((res) => {
-    const child = spawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    // An agent's command runs at agent priority (nice 15, `utility` QoS on
+    // macOS): its bun/vite/git yield to whatever the owner is doing. See
+    // server/lib/low-priority.ts.
+    const argv = lowPriorityArgv([cmd, ...args]);
+    const child = spawn(argv[0]!, argv.slice(1), { cwd, stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
     let annullato = false;
     const cap = (d: Buffer) => {

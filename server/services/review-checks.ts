@@ -28,6 +28,7 @@ import { parseGateSlowdown } from "../../shared/gate-slowdown";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { killProcessTree } from "../lib/process-tree";
+import { lowPriorityArgv } from "../lib/low-priority";
 
 /**
  * Quanti check al massimo: oltre, la "verifica" diventa una pipeline CI travestita.
@@ -327,7 +328,10 @@ async function runOne(
   };
   const onAbort = () => { killTree(); };
   try {
-    proc = Bun.spawn(["/bin/sh", "-lc", check.cmd], {
+    // At agent priority (nice 15, `utility` QoS on macOS): five tsc, an
+    // eslint, four unit shards and a Chromium per delivery must never outrank
+    // the person using this machine. See server/lib/low-priority.ts.
+    proc = Bun.spawn(lowPriorityArgv(["/bin/sh", "-lc", check.cmd]), {
       cwd: opts.cwd,
       stdout: "pipe",
       // stderr NELLO stesso flusso di stdout: il messaggio di un compilatore sta

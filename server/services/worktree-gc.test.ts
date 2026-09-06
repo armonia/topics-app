@@ -3,7 +3,7 @@
  * destructive action when there is anything to lose; the sweep must honour a
  * live turn and degrade to keep on a landing that can't complete.
  *
- * @covers WORKTREE-09
+ * @covers WORKTREE-09, WORKTREE-14
  */
 import { describe, test, it, expect } from "bun:test";
 import { decideGhostRow, decidePostLandReap, decideWorktreeReap, normalizeKeepReason, shouldSlimOnKeep, sweepWorktrees, type GcWorktree, type WorktreeGcDeps } from "./worktree-gc";
@@ -82,6 +82,48 @@ describe("decideWorktreeReap — safety contract", () => {
 
   test("dirt beats merged: closed task with dirt is kept", () => {
     expect(decideWorktreeReap({ ...base, hasRealDirt: true }).action).toBe("keep");
+  });
+});
+
+describe("sweepWorktrees — a live session inside the folder", () => {
+  test("keeps an orphan worktree while somebody is standing in it", async () => {
+    // The exact shape of a sub-agent's worktree seconds after birth: no task,
+    // clean, branch identical to main. Without this guard the first sweep
+    // (boot + 2 minutes) reaps the directory under a child still working.
+    const reaped: string[] = [];
+    const s = await sweepWorktrees(makeDeps({
+      listWorktrees: () => [wt("kid")],
+      resolveTask: () => ({ taskId: null }),
+      liveInside: (w) => w.id === "kid",
+      reap: async (id) => { reaped.push(id); return true; },
+    }));
+    expect(reaped).toEqual([]);
+    expect(s.kept).toBe(1);
+    expect(Object.keys(s.keptReasons)).toEqual(["sessione viva nella cartella"]);
+  });
+
+  test("with nobody inside, the same worktree is judged as it always was", async () => {
+    // The guard adds no leniency of its own: the moment the child is gone the
+    // ordinary rules (WORKTREE-09/10) decide, and an orphan clean worktree
+    // whose branch is on main is still reaped.
+    const reaped: string[] = [];
+    const s = await sweepWorktrees(makeDeps({
+      listWorktrees: () => [wt("kid")],
+      resolveTask: () => ({ taskId: null }),
+      liveInside: () => false,
+      reap: async (id) => { reaped.push(id); return true; },
+    }));
+    expect(reaped).toEqual(["kid"]);
+  });
+
+  test("the question comes before the task lookup", async () => {
+    let asked = 0;
+    await sweepWorktrees(makeDeps({
+      listWorktrees: () => [wt("kid")],
+      resolveTask: () => { asked += 1; return { taskId: null }; },
+      liveInside: () => true,
+    }));
+    expect(asked).toBe(0);
   });
 });
 
