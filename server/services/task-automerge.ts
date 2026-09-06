@@ -30,6 +30,7 @@ import { commitIsIn, countOwnCommits, otherLocalBranches } from "./own-commits";
 import { commitStatusFromRepo } from "./branch-status";
 import { landedMergeRange } from "./task-diff-range";
 import { gitEnvFor } from "../lib/git-identity";
+import { missingPackageManager, runScriptArgv } from "../lib/project-scripts";
 import { MIGRATIONS_DIR, findNumberCollisions } from "../../shared/migration-numbers";
 import { makeSerialQueue } from "../lib/serial-queue";
 import { bundleBreakageReason } from "../lib/client-bundle";
@@ -352,20 +353,8 @@ const MISSING_BASE = /modify\/delete|deleted in|does not exist|no such file/i;
 
 const BUILD_TIMEOUT_MS = 5 * 60_000;
 
-async function defaultRunBuild(cwd: string): Promise<GitRunResult> {
-  try {
-    const proc = Bun.spawn(["bun", "run", "build:client"], { cwd, stdout: "pipe", stderr: "pipe" });
-    const timer = setTimeout(() => { try { proc.kill(); } catch { /* already gone */ } }, BUILD_TIMEOUT_MS);
-    const [stdout, stderr] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ]);
-    const code = await proc.exited;
-    clearTimeout(timer);
-    return { code, stdout, stderr };
-  } catch (e) {
-    return { code: 1, stdout: "", stderr: e instanceof Error ? e.message : String(e) };
-  }
+function defaultRunBuild(cwd: string): Promise<GitRunResult> {
+  return runRepoScript(cwd, ["build:client"]);
 }
 
 /**
@@ -385,10 +374,19 @@ const GENERATED_BASELINES: Record<string, string> = {
   "scripts/comment-language-baseline.json": "scripts/check-comment-language.ts",
 };
 
-/** `bun run <script> ...` in `cwd`, with the build's kill switch; never throws. */
+/**
+ * `<pm> run <script> ...` in `cwd`, with the build's kill switch; never throws.
+ *
+ * `<pm>` is the package manager of the repo being landed, read from its
+ * lockfile: an installed Topics.app must not assume `bun` is on the user's
+ * PATH. When the manager is missing the answer is a failed result whose
+ * stderr names the tool, on the same channel a failed build would use.
+ */
 async function runRepoScript(cwd: string, args: string[]): Promise<GitRunResult> {
+  const missing = missingPackageManager(cwd);
+  if (missing) return { code: 1, stdout: "", stderr: missing };
   try {
-    const proc = Bun.spawn(["bun", "run", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+    const proc = Bun.spawn(runScriptArgv(cwd, args), { cwd, stdout: "pipe", stderr: "pipe" }); // runtime-dep-ok: the package manager of the USER's project, resolved from its lockfile, not a tool Topics assumes
     const timer = setTimeout(() => { try { proc.kill(); } catch { /* already gone */ } }, BUILD_TIMEOUT_MS);
     const [stdout, stderr] = await Promise.all([
       new Response(proc.stdout).text(),

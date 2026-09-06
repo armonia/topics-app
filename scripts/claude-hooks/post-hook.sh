@@ -6,8 +6,10 @@
 # to Topics App's local hook endpoint. The exit code is ALWAYS 0 — a failing
 # POST must NEVER block Claude's interactive loop.
 #
-# Token: read from ~/.claude/topics-hook-token (mode 0600). Created by the
-# Topics App server on first boot.
+# Token: read from ${TOPICS_HOME:-$HOME/.topics}/claude-hooks/hook-token
+# (mode 0600), created by the Topics App server on first boot. A token left
+# at the legacy ~/.claude/topics-hook-token by a previous version is the
+# fallback; the server never writes there any more.
 #
 # Transport: the server (server.ts → Bun.serve) listens HTTPS-ONLY on :3333
 # with a self-signed cert — there is NO plain-HTTP listener on that port. So we
@@ -23,7 +25,8 @@ set -e
 
 EVENT_NAME="${1:-Unknown}"
 URL_BASE="${TOPICS_APP_URL:-https://127.0.0.1:3333}"
-TOKEN_FILE="${HOME}/.claude/topics-hook-token"
+TOKEN_FILE="${TOPICS_HOME:-$HOME/.topics}/claude-hooks/hook-token"
+[ -r "$TOKEN_FILE" ] || TOKEN_FILE="${HOME}/.claude/topics-hook-token"
 
 [ -r "$TOKEN_FILE" ] || exit 0   # silently no-op if not installed
 
