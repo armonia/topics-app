@@ -6,8 +6,10 @@
  * tab. That is only a good trade if everything the bar used to hold is still
  * reachable from the tab, so the assertions here are the four pieces of it:
  *
- *   1. the tab is LABELLED with the page TITLE, and the address it used to
- *      write is a click away (the dropdown under the tab) instead of gone;
+ *   1. the tab is LABELLED with the page title, falling back to the address
+ *      when the page cannot name itself (which is this site's case: see the
+ *      fixture below), and that address is also a click away, in the dropdown
+ *      the tab opens under itself;
  *   2. the address bar is GONE once the page is loaded (that is the space we
  *      were buying);
  *   3. the icon slot swaps the favicon for RELOAD under the pointer;
@@ -52,21 +54,20 @@ hermetic(test);
 const HOST = "127.0.0.1";
 
 /**
- * The pages the pane will show, BY PATH, because the tab now writes the page
- * title and a title is the thing that has to differ. Three shapes: a titled
- * page (the tab writes that title), a SECOND titled page (so a navigation is
- * observable on the tab), and a page with no `<title>` at all (the tab falls
- * back to the address). Every one of them keeps the declared favicon (the icon
- * slot has a real image to swap out) and the two console errors (the red cue).
+ * The site the pane will show. Three things matter for the assertions: a path
+ * (so the tab label has something to shorten), a declared favicon (the icon
+ * slot has a real image to swap out), and two console errors (the red cue).
+ *
+ * IT DECLARES A `<title>` AND THE TAB STILL WRITES THE ADDRESS, which is not a
+ * contradiction: this site is framable, so on the web the pane renders it in a
+ * cross-origin `<iframe>` (`useIframe` in `RemoteBrowserPanel`) and no
+ * server-side page ever loads it. There is no title to read from a cross-origin
+ * document, and the address is exactly the fallback the rule prescribes for a
+ * page that cannot name itself. The title half of the rule is proved by
+ * BROWSER-TAB-LABEL-01, on a pane whose title is known.
  */
-const PAGE_TITLES: Record<string, string | null> = {
-  "/rapporto": "Rapporto",
-  "/report-two": "Second report",
-  "/no-title": null,
-};
-
-function pagina(pageTitle: string | null): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8">${pageTitle ? `<title>${pageTitle}</title>` : ""}
+function pagina(): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Rapporto</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%233fb984'/%3E%3Ctext x='16' y='23' font-size='20' font-family='sans-serif' text-anchor='middle' fill='%23fff'%3ER%3C/text%3E%3C/svg%3E">
 <style>
  html,body{height:100%;margin:0}
@@ -76,7 +77,7 @@ function pagina(pageTitle: string | null): string {
  h1{font-size:52px;margin:0 0 14px;letter-spacing:-.02em}
  p{margin:0;font-size:20px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;opacity:.75}
 </style></head><body>
- <div class="scheda"><h1>${pageTitle ?? "Untitled"}</h1><p>una pagina qualunque</p></div>
+ <div class="scheda"><h1>Rapporto</h1><p>una pagina qualunque</p></div>
  <script>
   console.error('inventario non raggiungibile');
   console.error('due tentativi falliti');
@@ -85,13 +86,12 @@ function pagina(pageTitle: string | null): string {
 }
 
 async function startSite(): Promise<{ server: Server; origin: string }> {
-  const server = createServer((req, res) => {
-    const path = new URL(req.url ?? "/", "http://site.invalid").pathname;
+  const server = createServer((_req, res) => {
     res.writeHead(200, {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
     });
-    res.end(pagina(path in PAGE_TITLES ? PAGE_TITLES[path] ?? null : "Rapporto"));
+    res.end(pagina());
   });
   await new Promise<void>((ok) => server.listen(0, HOST, ok));
   return { server, origin: `http://${HOST}:${(server.address() as AddressInfo).port}` };
@@ -136,9 +136,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     const topic = await createTopic(request, `E2E-TABCHROME-${Date.now()}`);
     topicId = topic.id;
     const host = new URL(origin).host;
-    // The tab writes the page TITLE now; the host is what it must NOT write.
-    const label = /Rapporto/;
-    const hostPattern = new RegExp(host.replace(/\./g, "\\."));
+    const label = new RegExp(host.replace(/\./g, "\\."));
 
     await clipDiConsegna({
       nome: "browser-tab-chrome",
@@ -169,12 +167,11 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
         await mountPane(page, topicId, `${origin}/rapporto`);
         const tab = tabDelBrowser(page);
 
-        // 1. WHAT PAGE THIS IS, written on the tab: the page title, the way
-        //    every browser writes it. The address is not on the label any more
-        //    - it is on the hover card and in the dropdown the tab opens under
-        //    itself - so the host must NOT be there.
+        // 1. WHERE WE ARE is written on the tab. The rule is "page title, then
+        //    the address": an iframed cross-origin page has no title anyone can
+        //    read, so the address is what the tab has to say.
         await expect(tab).toContainText(label, { timeout: 60_000 });
-        await expect(tab, "the host is not the tab's label any more").not.toContainText(hostPattern);
+        await expect(tab).toContainText(/rapporto/);
         await beat(page, 1400);
 
         // 2. …and precisely because the address is on the tab, the bar is no
@@ -239,7 +236,8 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     await resetPaneStore(request, []);
     const topic = await createTopic(request, `E2E-TABCHROME-DEBT-${Date.now()}`);
     topicId = topic.id;
-    const label = /Rapporto/;
+    const host = new URL(origin).host;
+    const label = new RegExp(host.replace(/\./g, "\\."));
 
     await goToApp(page);
     await waitForTopicVisible(page, topic.id);
@@ -295,7 +293,8 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     await resetPaneStore(request, []);
     const topic = await createTopic(request, `E2E-TABCHROME-HYDRATE-${Date.now()}`);
     topicId = topic.id;
-    const label = /Rapporto/;
+    const host = new URL(origin).host;
+    const label = new RegExp(host.replace(/\./g, "\\."));
 
     await goToApp(page);
     await waitForTopicVisible(page, topic.id);
@@ -379,7 +378,8 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
       const projectTab = page.getByTestId(`pane-tab-project:${encodeURIComponent(project)}`);
       await expect(projectTab).toBeVisible({ timeout: 15000 });
       await projectTab.click();
-      // The seeded pane carries its title, so the tab names the page at once.
+      // The pane was seeded with `title: "Rapporto"`, so here the tab names the
+      // PAGE rather than the address: the same rule, the other branch of it.
       await expect(tabDelBrowser(page)).toContainText(/Rapporto/, { timeout: 60_000 });
       // The claim is a negative one - the URL row must NOT come back on its own
       // once the store has spoken - and `toHaveCount(0)` is true the instant it
@@ -439,15 +439,13 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     const topic = await createTopic(request, `E2E-TABCHROME-INLINE-${Date.now()}`);
     topicId = topic.id;
     const host = new URL(origin).host;
+    const label = new RegExp(host.replace(/\./g, "\\."));
     await goToApp(page);
     await waitForTopicVisible(page, topic.id);
     await mountPane(page, topic.id, `${origin}/rapporto`);
 
-    // (a) A PAGE WITH A TITLE: the ACTIVE tab writes the title, not the host.
     const tab = tabDelBrowser(page);
-    await expect(tab).toContainText(/Rapporto/, { timeout: 60_000 });
-    await expect(tab, "the active tab must not be labelled with the host")
-      .not.toContainText(new RegExp(host.replace(/\./g, "\\.")));
+    await expect(tab).toContainText(label, { timeout: 60_000 });
     await expect(page.getByTestId("browser-url-input")).toHaveCount(0, { timeout: 30_000 });
 
     // (b) The click on the tab you are ALREADY in opens the dropdown, seeded
@@ -455,7 +453,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     await tab.getByTestId("pane-tab-label").click();
     const dropdown = page.getByTestId("browser-address-dropdown");
     await expect(dropdown, "the dropdown opens under the tab").toBeVisible({ timeout: 10_000 });
-    await expect(tab, "the label is not replaced by the field").toContainText(/Rapporto/);
+    await expect(tab, "the label is not replaced by the field").toContainText(label);
     const editor = page.getByTestId("browser-tab-address-input");
     await expect(editor).toHaveValue(`${origin}/rapporto`);
 
@@ -479,37 +477,68 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     // Escape closes it and gives nothing back but the label.
     await editor.press("Escape");
     await expect(dropdown).toHaveCount(0);
-    await expect(tab).toContainText(/Rapporto/);
+    await expect(tab).toContainText(label);
 
-    // Enter navigates. The second page has a title of its own, which is the
-    // only way to observe the navigation on a tab that writes titles.
+    // Enter navigates, and the tab follows.
     await tab.getByTestId("pane-tab-label").click();
     await expect(dropdown).toBeVisible({ timeout: 10_000 });
-    await editor.fill(`${origin}/report-two`);
+    await editor.fill(`${origin}/seconda-pagina`);
     await editor.press("Enter");
-    await expect(tab, "the tab writes the new page's title").toContainText(/Second report/, { timeout: 60_000 });
+    await expect(tab, "the tab writes where it went").toContainText(/seconda-pagina/, { timeout: 60_000 });
     await expect(page.getByTestId("browser-tab-address-input")).toHaveCount(0);
     await expect(page.getByTestId("browser-url-input")).toHaveCount(0);
   });
 
   /**
-   * A PAGE WITH NO TITLE IS THE ONE CASE WHERE THE ADDRESS IS THE LABEL.
+   * (a) A PAGE THAT HAS A NAME IS CALLED BY IT, on the ACTIVE tab too.
    *
-   * It is the fallback, not the rule, and it is worth its own case because it
-   * is the half of the old behaviour that survives: a tab with nothing to name
-   * itself with still has to say something, and the address is the only thing
-   * left that identifies the page.
+   * This is the half of the rule the scenes above cannot show: their site is
+   * framable, so the pane iframes it cross-origin and no page title ever
+   * reaches the client (see the site fixture at the top). Here the pane is seeded
+   * the way a load leaves it - `title` + `titleSource: 'auto'`, which is what
+   * `persistBrowserPaneTitle` writes - and the claim is the one that changed on
+   * 2026-09-06: the tab you are working in says WHICH PAGE it is, not where it
+   * is. Until then the selected tab swapped its label for the address, so the
+   * page with a perfectly good name was the one tab that would not use it.
+   *
+   * The second pane in the same bar has no title, and answers the other half:
+   * the address is the FALLBACK, not the rule.
    */
-  test("BROWSER-TAB-LABEL-01: a page with no title falls back to the address", async ({ page, request }) => {
+  test("BROWSER-TAB-LABEL-01: the active tab writes the page title, and only a nameless page shows the address", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "BROWSER-TAB-LABEL-01" });
     const origin = site!.origin;
-    await resetPaneStore(request, []);
-    const topic = await createTopic(request, `E2E-TABCHROME-NOTITLE-${Date.now()}`);
-    topicId = topic.id;
+    const host = new URL(origin).host;
+    const openedAt = Date.now();
+    const named = `browser:named-${openedAt}`;
+    const nameless = `browser:nameless-${openedAt}`;
+    await seedPaneStore(request, () => ({
+      panes: {
+        [named]: { id: named, type: "browser", title: "Rapporto", titleSource: "auto", url: `${origin}/rapporto`, openedAt },
+        [nameless]: { id: nameless, type: "browser", url: `${origin}/unnamed-page`, openedAt },
+      },
+      groups: {
+        "group:default": { id: "group:default", paneIds: [named, nameless], splitRatio: 1, splitAxis: "horizontal" },
+      },
+      projects: {},
+      groupOrder: ["group:default"],
+      closedStack: [],
+    }));
     await goToApp(page);
-    await waitForTopicVisible(page, topic.id);
-    await mountPane(page, topic.id, `${origin}/no-title`);
-    await expect(tabDelBrowser(page)).toContainText(/no-title/, { timeout: 60_000 });
+
+    const namedTab = page.locator(`[data-pane-id="${named}"]`);
+    const namelessTab = page.locator(`[data-pane-id="${nameless}"]`);
+    await expect(namedTab).toBeVisible({ timeout: 30_000 });
+
+    // The tab that has a name uses it - including while it is the ACTIVE one,
+    // which is the case that used to write the address instead.
+    await namedTab.click();
+    await expect(namedTab).toHaveAttribute("data-active", "true", { timeout: 15_000 });
+    await expect(namedTab).toContainText(/Rapporto/, { timeout: 30_000 });
+    await expect(namedTab, "the active tab must not be labelled with the host")
+      .not.toContainText(new RegExp(host.replace(/\./g, "\\.")));
+
+    // The tab that has none falls back to the address.
+    await expect(namelessTab).toContainText(/unnamed-page/, { timeout: 30_000 });
   });
 
   /**
@@ -563,6 +592,14 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     ).toHaveCount(0);
 
     // The SECOND click, on the tab you are now in, is the one that opens it.
+    //
+    // The pane has to be MOUNTED first, and this is not a decorative wait: the
+    // label asks the pane for `commands.editAddress`, which the pane publishes
+    // from an effect on mount (`useBrowserChromeBridge`), and a click that
+    // arrives before that finds no command and does nothing. The tab has only
+    // just been brought to the front, so the panel behind it is still coming
+    // up. Measured: one run in two red here without it, green on retry.
+    await expect(page.locator(`[data-browser-pane="${ctx}"]`)).toBeVisible({ timeout: 30_000 });
     await browserTab.getByTestId("pane-tab-label").click();
     await expect(page.getByTestId("browser-address-dropdown")).toBeVisible({ timeout: 15_000 });
   });

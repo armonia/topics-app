@@ -10,10 +10,11 @@
 import { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { usePaneStore } from './store';
-// Re-exported so browser-pane consumers get the hostname helper from the same
-// module as the title/url helpers; the canonical definition is the pure one in
-// lib/path-utils (no store dependency, safe for the sidebar's unit test).
-export { tryHostname } from '../../lib/path-utils';
+// `tryHostname` was re-exported from here for the tab bar, which used it to
+// collapse a title-less browser pane down to its hostname before the label rule
+// ever saw it. The rule owns that fallback now (`lib/browserTabLabel`), and it
+// prefers the whole address, so the only consumer left is the sidebar - which
+// imports the canonical pure one from `lib/path-utils` directly.
 
 /** A URL worth persisting/restoring: not blank, not the empty page, not a
  *  failed-navigation error page (`chrome-error:`). Exported so every persist
@@ -64,10 +65,14 @@ export function useBrowserPaneUrl(paneId: string): string | undefined {
   return initialUrlSeeds.get(paneId);
 }
 
-/** What a browser tab is labelled from: the page's address and its title. */
+/** What a browser tab is labelled from: the page's address, its title, and who
+ *  DECIDED that title. The third field is not decoration: `browserTabLabel`
+ *  needs it to tell a page title (which the next navigation replaces) from a
+ *  name a person or an agent chose (which it must not). */
 export interface BrowserPaneFacts {
   url?: string;
   title: string;
+  titleSource?: 'auto' | 'agent' | 'user';
 }
 
 /**
@@ -90,14 +95,19 @@ export interface BrowserPaneFacts {
  */
 export function useBrowserPaneFacts(paneIds: readonly string[]): ReadonlyMap<string, BrowserPaneFacts> {
   const flat = usePaneStore(useShallow((s) =>
-    paneIds.flatMap((id) => [s.panes[id]?.url ?? '', s.panes[id]?.title ?? ''])));
+    paneIds.flatMap((id) => [s.panes[id]?.url ?? '', s.panes[id]?.title ?? '', s.panes[id]?.titleSource ?? ''])));
   return useMemo(() => {
     const facts = new Map<string, BrowserPaneFacts>();
     paneIds.forEach((id, i) => {
-      const stored = flat[i * 2];
+      const stored = flat[i * 3];
+      const source = flat[i * 3 + 2];
       // Same fallback as `useBrowserPaneUrl`: a force-opened pane knows its
       // address from the seed before the store does.
-      facts.set(id, { url: isRealUrl(stored) ? stored : initialUrlSeeds.get(id), title: flat[i * 2 + 1] });
+      facts.set(id, {
+        url: isRealUrl(stored) ? stored : initialUrlSeeds.get(id),
+        title: flat[i * 3 + 1]!,
+        titleSource: source ? (source as 'auto' | 'agent' | 'user') : undefined,
+      });
     });
     return facts;
   }, [flat, paneIds]);

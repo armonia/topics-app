@@ -23,7 +23,8 @@ import {
   getBrowserContextFromPaneId,
   isDraftPaneId,
 } from '../../state/pane/adapters';
-import { persistBrowserPaneUrl, persistBrowserPaneTitle, setBrowserPaneUserTitle, tryHostname, useBrowserPaneFacts } from '../../state/pane/browserPaneUrl';
+import { persistBrowserPaneUrl, persistBrowserPaneTitle, setBrowserPaneUserTitle, useBrowserPaneFacts } from '../../state/pane/browserPaneUrl';
+import { browserTabLabel } from '../../lib/browserTabLabel';
 import { TERMINAL_AGENT_LABELS, normalizeTerminalAgent } from '../../lib/terminalAgents';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
@@ -267,9 +268,16 @@ export function StandaloneChatGroup({
   // SUBSCRIBED here rather than sampled with `getState()` inside the memo: read
   // that way they were as fresh as the render that happened to rebuild the
   // list, and after a navigation the tab kept the previous address (see
-  // `useBrowserPaneFacts`). Resolution order matches the sidebar
-  // (buildSidebarItems): live/persisted page title → hostname of the real URL
-  // → "Browser".
+  // `useBrowserPaneFacts`).
+  //
+  // THE FACTS TRAVEL RAW. Until 2026-09-06 this collapsed them here, into
+  // `title || tryHostname(url) || 'Browser'`, and that collapse decided the
+  // label before the one function whose job it is ever saw the pane: a page
+  // with no title reached `browserTabLabel` already renamed to "127.0.0.1",
+  // which is strictly less than the address it was supposed to fall back to,
+  // and a blank pane arrived as "Browser" so "New tab" could never be reached.
+  // `titleSource` was not carried at all, so a DECIDED name was
+  // indistinguishable from a page title. The chain now lives in one place.
   const browserPaneIds = useMemo(() => validatedOrderedIds.filter(isBrowserPaneId), [validatedOrderedIds]);
   const browserFacts = useBrowserPaneFacts(browserPaneIds);
 
@@ -283,7 +291,8 @@ export function StandaloneChatGroup({
         return {
           id,
           type: 'browser' as PaneType,
-          title: facts?.title || tryHostname(bUrl) || 'Browser',
+          title: facts?.title,
+          titleSource: facts?.titleSource,
           preview: false,
           // Seed the persisted URL from the store so renderPaneBody passes it
           // as initialUrl → the tab reopens to its page after a restart instead
@@ -350,7 +359,13 @@ export function StandaloneChatGroup({
   // prop `mobile`). Viene dalla STESSA lista da cui nascono le tab, così il
   // nome in cima e quello nella colonna non possono divergere: sono la stessa
   // stringa passata per due strade.
-  const titleSurface = panes.find((p) => p.id === activePaneId)?.title ?? '';
+  const surfaceInFront = panes.find((p) => p.id === activePaneId);
+  // A browser pane's `title` is now the RAW page title, so the same rule the
+  // tab applies has to be applied here too, or the phone's header would go
+  // blank on a page that declares no title.
+  const titleSurface = (surfaceInFront?.type === 'browser'
+    ? browserTabLabel({ title: surfaceInFront.title, titleSource: surfaceInFront.titleSource, url: surfaceInFront.url })
+    : surfaceInFront?.title) ?? '';
 
   // Build tab notification badge map from context. Project tabs inherit their
   // children's badges via the central rollup (getProjectBadgeCount); other
