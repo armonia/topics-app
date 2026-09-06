@@ -2095,6 +2095,56 @@ cioe' sotto il puntatore che l'ha appena cliccato.
 - **WHEN** si misura fra il gruppo dei comandi e il chevron del bottone
 - **THEN** la distanza SHALL essere di almeno 12px
 
+### Requirement: WINCTL-02 — Le tre pastiglie del Mac hanno una geometria dichiarata, e il contenuto la rispetta a ogni fotogramma
+
+Su macOS le tre pastiglie sono native: le dipinge AppKit sopra la webview e il
+guscio Tauri ne fissa le cornici (`apply_traffic_lights`, `lib.rs`). Lo standard
+del sistema e' tre cerchi da 12px con 8px fra loro, cioe' un passo di 20px fra
+le origini e un gruppo largo 52px, ancorato a x=12 nella finestra: il gruppo
+occupa 12..64. Quei numeri SHALL vivere in UN posto solo lato client
+(`windowControlsGeometry.ts`), derivati e non ripetuti, e il Rust SHALL fissare
+lo stesso passo e la stessa ancora.
+
+La geometria SHALL essere misurabile: la sidebar SHALL montare, solo quando il
+chrome e' quello del Mac, un rettangolo `data-testid="traffic-lights-box"`
+largo 52px nel punto esatto in cui il guscio dipinge le pastiglie. Non
+dipinge, non intercetta e non si legge ad alta voce: esiste perche' un test
+possa chiedere dove sono le luci. Quale chrome sia in uso SHALL essere un
+valore solo (`windowChrome`: mac, windows, none), calcolato da guscio e
+piattaforma, con un unico override `?windowChrome=` che esiste soltanto per
+misurare la geometria da un browser normale.
+
+Il passo della riga SHALL essere uno: fra le pastiglie e la parola «Topics»,
+fra la parola e la campanella, fra Cerca e «+» ci SHALL essere lo stesso
+`ROW_INSET` (6px). Su Windows le celle restano 18px perche' sono bersagli.
+
+QUANDO LA SIDEBAR SI CHIUDE la barra in cima al contenuto diventa il bordo
+della finestra e le pastiglie restano dove sono, sopra i suoi primi 64px. La
+riga che possiede il comando di riapertura SHALL riservare 12 + 52 + 6 = 70px
+a sinistra, solo su Mac, solo a sidebar chiusa, solo su desktop; e SHALL
+riservarli con la STESSA durata e la STESSA curva della scorrevolezza della
+sidebar (200ms ease), perche' e' quell'uguaglianza a garantire che il primo
+elemento della barra non attraversi mai le pastiglie durante il movimento:
+left(t) = 256(1-e) + 70e e' monotona e non scende sotto 70. Il bottone
+galleggiante mostrato senza pane SHALL spostarsi della stessa quantita'.
+
+#### Scenario: il riquadro delle pastiglie e' largo quanto le pastiglie
+- **GIVEN** la app caricata con il chrome del Mac
+- **WHEN** si misura `traffic-lights-box`
+- **THEN** SHALL essere largo 52px, a meno di un pixel
+
+#### Scenario: un passo solo lungo la testata
+- **GIVEN** la testata della sidebar su desktop
+- **WHEN** si misurano i vuoti pastiglie/parola, parola/campanella, Cerca/«+»
+- **THEN** SHALL essere uguali fra loro entro un pixel
+
+#### Scenario: la barra del contenuto non attraversa le pastiglie
+- **GIVEN** una pane aperta e la sidebar aperta
+- **WHEN** la sidebar si chiude, campionando ogni fotogramma
+- **THEN** il primo elemento della barra SHALL stare a destra delle pastiglie piu' il passo, a ogni fotogramma
+- **AND** l'ultimo fotogramma animato SHALL distare al massimo un pixel da quello di riposo
+- **AND** riaprendo SHALL valere il vincolo simmetrico
+
 ### Requirement: WINMENU-01 — Su Windows la finestra NON SHALL avere una barra dei menu
 
 Il menu nativo (Topics / Edit / View / Window / Help) su macOS e' la striscia in
