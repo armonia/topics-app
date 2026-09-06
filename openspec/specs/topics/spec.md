@@ -252,6 +252,32 @@ A topic MAY optionally be bound to a single worktree through the `worktree_id` f
 - **AND** its `worktreeId` SHALL be null
 - **AND** its `projectPath` SHALL be unchanged
 
+### Requirement: TOPIC-WT-02 — Il worktree di un topic si vede nella sidebar
+
+> Il legame è `topic.worktreeId`, la stessa fonte che la striscia dei file modificati usa per decidere se nominare un ramo (`client/src/lib/changesStripBranch.ts`): la sidebar e la striscia non possono dire due cose diverse sullo stesso topic. Nome e ramo vengono dall'entità `Worktree`; il chip compare anche prima che la lista risponda, senza nome.
+
+La sidebar DEVE mostrare, sulla riga di un topic legato a un worktree, un chip con l'icona `GitBranch` e il nome del worktree. Quando i topic vivi di un progetto stanno su PIÙ DI UN worktree, la sezione del progetto DEVE raggruppare quelle righe in una sotto-sezione per worktree — intestazione con nome e ramo, topic sotto di un passo — lasciando i topic senza worktree, i terminali e i browser nella lista base; con un solo worktree la sotto-sezione NON si disegna e resta il chip. Dall'intestazione di una sotto-sezione DEVE partire «Nuovo topic in questo worktree», che apre la stessa finestra di creazione del progetto con quel worktree già selezionato: la scelta del worktree resta nella finestra di creazione e nelle impostazioni del topic, non nasce un secondo selettore.
+
+#### Scenario: Chip sul topic legato a un worktree
+- **GIVEN** un progetto con un topic legato a un worktree pronto e un topic senza worktree, entrambi aperti dentro il progetto
+- **WHEN** l'utente apre la sezione del progetto nella sidebar
+- **THEN** la riga del topic legato DEVE portare un chip con il nome del worktree
+- **AND** la riga del topic senza worktree NON DEVE portarlo
+- **AND** nessuna sotto-sezione DEVE comparire, perché il worktree è uno solo
+
+#### Scenario: Sotto-sezioni quando i worktree sono più di uno
+- **GIVEN** un progetto con topic aperti su due worktree diversi e un topic senza worktree
+- **WHEN** l'utente apre la sezione del progetto nella sidebar
+- **THEN** la sezione DEVE contenere una sotto-sezione per ciascun worktree, con nome e ramo nell'intestazione
+- **AND** ogni topic legato DEVE stare sotto l'intestazione del suo worktree
+- **AND** il topic senza worktree DEVE restare nella lista base, fuori da ogni sotto-sezione
+
+#### Scenario: Nuovo topic dall'intestazione della sotto-sezione
+- **GIVEN** la sezione di un progetto mostra una sotto-sezione per worktree
+- **WHEN** l'utente attiva «Nuovo topic in questo worktree» sull'intestazione
+- **THEN** DEVE aprirsi la finestra di creazione del topic per quel progetto
+- **AND** il selettore del worktree DEVE essere già su «scegli un worktree esistente» con quel worktree selezionato
+
 ### Requirement: TOPIC-09 — Project folder expand and collapse
 
 The system SHALL give a project row in the sidebar a chevron control, separate from the

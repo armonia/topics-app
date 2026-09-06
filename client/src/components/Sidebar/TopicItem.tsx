@@ -20,6 +20,8 @@ import { useMobile } from '@/hooks/useMobile';
 import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
 import { useTouchDrag } from '@/hooks/useTouchDrag';
 import { useT } from '@/hooks/useT';
+import { WorktreeChip } from './WorktreeChip';
+import type { WorktreeLabel } from '@/lib/sidebarWorktrees';
 
 /* L'altezza della riga NON è più dichiarata qui: è {@link ROW_H} in
  * `lib/selectionStyles`, importata sopra. Stava in questo file come costante di
@@ -78,6 +80,11 @@ interface TopicItemProps {
     onDrop?: (paneId: string, x: number, y: number) => void;
     onCancel?: () => void;
   };
+  /** The worktree this topic works in, as a chip beside the name. Resolved by
+   *  the tree (`worktreeChipFor`, keyed on `topic.worktreeId`), and left out
+   *  on a row drawn INSIDE its own worktree section, where the header already
+   *  says it. Null/absent = the topic works in the project's own checkout. */
+  worktree?: WorktreeLabel | null;
   /* `hideIcon` non c'è più: il suo unico compito era spegnere il glifo
      `Archive` sulle sotto-righe di un progetto, e quel glifo non esiste più
      (vedi ARCHIVED_ROW). Una prop che governa una cosa sparita è zavorra in due
@@ -104,6 +111,7 @@ export const TopicItem = memo(function TopicItem({
   pinned,
   detachedWindowLabel,
   touchDrag,
+  worktree,
 }: TopicItemProps) {
   // Depth indent lives on the LEFT MARGIN, not padding — so a sub-tab's CARD
   // shifts right (leaving an empty gutter) instead of just indenting its text
@@ -398,6 +406,11 @@ export const TopicItem = memo(function TopicItem({
         </span>
         <TopicSubline topicId={topic.id} onFill={onFill} />
       </div>
+
+      {/* The worktree this topic works in — an attribute of the row, beside
+          the cloud glyph and outside the quiet rail. Same source of truth as
+          the changed-files strip: `topic.worktreeId`, resolved by the tree. */}
+      {worktree && <WorktreeChip worktree={worktree} onFill={onFill} />}
 
       {/* Cloud (OpenClaw) attribute — a quiet glyph marking this row as a cloud
           session, not a local one. Muted tone (not the attention axis). */}

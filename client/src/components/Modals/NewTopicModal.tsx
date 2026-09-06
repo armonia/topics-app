@@ -54,6 +54,13 @@ interface NewTopicModalProps {
   onCreate: (data: CreateTopicRequest) => Promise<Topic | null>;
   projectPath?: string;
   /**
+   * A worktree of `projectPath` to preselect: the dialog opens in
+   * `pick-existing` mode with this one chosen. Set by "New topic in this
+   * worktree" on a sidebar worktree section; the picker stays the one and
+   * only place where the choice can be changed.
+   */
+  worktreeId?: string;
+  /**
    * Pass `useWebSocket().onMessage` for live worktree status updates.
    * Optional — without it the picker still works, but the
    * `pending → ready` flip during create-new requires a manual refresh
@@ -62,7 +69,7 @@ interface NewTopicModalProps {
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
 }
 
-export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, onMessage }: NewTopicModalProps) {
+export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, worktreeId, onMessage }: NewTopicModalProps) {
   const [name, setName] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState<TopicTemplate | null>(null);
   const [showTemplates, setShowTemplates] = useState(true);
@@ -101,13 +108,14 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, onMessag
       setSubmitError(null);
       setSubmitting(false);
       setInitialMessage('');
-      setWtMode('default');
-      setPickedWorktreeId('');
+      // Opened from a worktree section: that worktree is already the choice.
+      setWtMode(worktreeId ? 'pick-existing' : 'default');
+      setPickedWorktreeId(worktreeId ?? '');
       setNewWtMode('branch');
       setNewWtBaseRef('main');
       setNewWtName('');
     }
-  }, [isOpen]);
+  }, [isOpen, worktreeId]);
 
   // Resolve the Project record for the projectPath (if any). When a row
   // exists we surface the worktree picker; otherwise the modal behaves

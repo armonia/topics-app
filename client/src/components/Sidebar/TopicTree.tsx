@@ -21,7 +21,9 @@ import { PinnedTiles, type PinnedExternalTouch, type PinnedTileMeta } from './Pi
 import type { PinnedRow } from './pinnedLayout';
 import { draggedPaneId, rememberDraggedPane } from '@/lib/dragPayload';
 import { DND_TYPES } from '@/lib/dndTypes';
-import type { Topic, UnreadData, PaneType, TerminalSessionInfo } from '@/types';
+import type { Topic, UnreadData, PaneType, TerminalSessionInfo, Worktree } from '@/types';
+import { groupProjectChildrenByWorktree, worktreeChipFor, type WorktreeLabel } from '@/lib/sidebarWorktrees';
+import { WorktreeSection } from './WorktreeSection';
 import { useTabNotifications } from '@/hooks/useTabNotifications';
 import { ClaudeIcon } from '@/components/Shared/ClaudeIcon';
 import { CodexIcon } from '@/components/Shared/CodexIcon';
@@ -367,6 +369,13 @@ export interface TopicTreeProps {
   /** In quale gruppo vive ciascuna pane aperta. Chi non è qui dentro non è la
    *  tab di nessun gruppo e finisce fuori dalle card. */
   paneSpaceById?: ReadonlyMap<string, string>;
+  /** Every worktree the workspace knows (App keeps the list live over WS).
+   *  Gives a bound topic's chip its name and a project's worktree sections
+   *  their header; the BINDING itself is read off `topic.worktreeId`. */
+  worktrees?: readonly Worktree[];
+  /** "New topic in this worktree" from a worktree section header: opens the
+   *  creation dialog with that project and worktree preselected. */
+  onNewTopicInWorktree?: (projectPath: string, worktreeId: string) => void;
 }
 
 // ── Main Component ─────────────────────────────────────────────────────────────
@@ -421,6 +430,8 @@ export function TopicTree({
   onOpenBoard,
   spaceScoped = false,
   paneSpaceById,
+  worktrees = [],
+  onNewTopicInWorktree,
 }: TopicTreeProps) {
   const tr = useT();
   const toast = useToast();
@@ -506,6 +517,13 @@ export function TopicTree({
   // Pinned ids as React state through props (NOT a localStorage read inside
   // the builder) so pin toggles repaint — pinnedIds joins the memo deps.
   const pinnedIds = useMemo(() => new Set(pinnedItems), [pinnedItems]);
+  // The worktree list by id, for the chip on a bound topic's row and the
+  // header of a worktree section. Only name and branch are read from it.
+  const worktreesById = useMemo(() => {
+    const m = new Map<string, WorktreeLabel>();
+    for (const wt of worktrees) m.set(wt.id, wt);
+    return m;
+  }, [worktrees]);
   // Topics open in ANOTHER window (pop-out presence). A zustand hook = React
   // state, so this memo re-fires when a window detaches/closes.
   const detachedTopicIds = useDetachedTopicMap();
@@ -872,9 +890,17 @@ export function TopicTree({
     [onTopicClick],
   );
 
-  const renderChatItem = (item: SidebarItem, depth = 0) => {
+  /**
+   * `chip: false` for a row drawn INSIDE its own worktree section: the header
+   * already names the worktree, and repeating it on every row beneath is the
+   * same noise the changed-files strip refuses (`changesStripBranch.ts`).
+   * Everywhere else — base list, standalone, state view, pinned tile — the
+   * chip is the only thing that says the topic has a branch of its own.
+   */
+  const renderChatItem = (item: SidebarItem, depth = 0, opts?: { chip?: boolean }) => {
     const topic = item.topic!;
     const isOpen = openPanels.includes(topic.id);
+    const worktree = opts?.chip === false ? null : worktreeChipFor(topic, worktreesById);
     // Focused directly, OR the active inner chat of the focused project.
     const isFocused = focusedTopicId === topic.id
       || isActiveInnerChild(topic.projectPath, createPaneId('chat', topic.id));
@@ -919,6 +945,7 @@ export function TopicTree({
         isArchived={item.archived}
         pinned={!!item.pinned}
         detachedWindowLabel={item.detachedWindowLabel}
+        worktree={worktree}
         /* Niente `onTogglePin`: la riga chat non ha più un menu suo dove
            metterlo — il «...» apre il menu del tasto destro, che il «Fissa» ce
            l'ha già (glielo passa App). Continuare a passarla la teneva viva
@@ -1007,6 +1034,40 @@ export function TopicTree({
           ? () => (item.pinned ? sfissaConRete(paneId, onTogglePin) : onTogglePin(paneId))
           : undefined}
       />
+    );
+  };
+
+  // ── Project children, split by worktree ──────────────────────────────────
+  //
+  // ONE renderer for the rows under a project, wherever the project is drawn
+  // (the accordion in the tree, the strip of a pinned tile): the base rows
+  // first, then one section per worktree when live topics sit on more than
+  // one. Two call sites and one function, so the tile cannot show a flat list
+  // where the tree shows sections.
+  const renderProjectChildren = (children: SidebarItem[], pp: string, depth: number) => {
+    const { base, sections } = groupProjectChildrenByWorktree(children, worktreesById);
+    const row = (child: SidebarItem, d: number, inSection: boolean) => {
+      if (child.type === 'chat') return renderChatItem(child, d, { chip: !inSection });
+      if (child.type === 'terminal') return renderTerminalItem(child, d);
+      if (child.type === 'browser') return renderBrowserItem(child, d);
+      return null;
+    };
+    return (
+      <>
+        {base.map(child => row(child, depth, false))}
+        {sections.map(section => (
+          <WorktreeSection
+            key={`worktree:${section.worktreeId}`}
+            worktreeId={section.worktreeId}
+            name={section.worktree?.name ?? ''}
+            branchName={section.worktree?.branchName ?? null}
+            depth={depth}
+            onNewTopic={onNewTopicInWorktree ? () => onNewTopicInWorktree(pp, section.worktreeId) : undefined}
+          >
+            {section.items.map(child => row(child, depth + 1, true))}
+          </WorktreeSection>
+        ))}
+      </>
     );
   };
 
@@ -1289,12 +1350,7 @@ export function TopicTree({
                 sub-agents of a terminal pay 16. Two of the three surfaces that
                 draw the SAME nesting disagreed, and the extra step read as air
                 nobody had asked for on the left of the names. */}
-            {children.map(child => {
-              if (child.type === 'chat') return renderChatItem(child, 1);
-              if (child.type === 'terminal') return renderTerminalItem(child, 1);
-              if (child.type === 'browser') return renderBrowserItem(child, 1);
-              return null;
-            })}
+            {renderProjectChildren(children, pp, 1)}
           </div>
         )}
 
@@ -1626,7 +1682,7 @@ export function TopicTree({
         // Depth 1, non 0: dentro la fascia il progetto È il contenitore, e le
         // sue tab stanno un livello dentro — lo stesso passo che hanno
         // nell'albero e sotto un terminale orchestratore.
-        return <div className="py-1">{children.map(child => renderItem(child, 1))}</div>;
+        return <div className="py-1">{renderProjectChildren(children, item.projectPath ?? '', 1)}</div>;
       }}
     />
   );
