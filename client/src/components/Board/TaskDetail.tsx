@@ -56,6 +56,8 @@ import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtTok, fmtUpdatedAt,
 import { StatusIcon, DispatchChip, QueueReasonChip } from './atoms';
 import { getSessionMessagesFromStore, subscribeSession } from '../../state/messageStore';
 import { MessageContent } from '../MessageContent';
+import { isMachineWork } from '../Chat/taskWorkFold';
+import { TaskWorkAccordion } from '../Chat/TaskWorkAccordion';
 import type { ChatMessage, WSMessage } from '../../types';
 import { holdTopic } from '../../state/topicSubscriptions';
 
@@ -3435,21 +3437,28 @@ function SessionItem({ msg, sessionKey, onMessage }: {
    *  because `MessageContent` reads real WS payloads. */
   onMessage?: (handler: (m: unknown) => void) => () => void;
 }) {
+  // Same rule as the chat of a task, and for the same reader: a step that is
+  // only machine work goes behind one summary row, opened on demand. The card
+  // is 22rem of column where a decision is being taken, so the proof of the
+  // work belongs one click away, not in the way.
+  const content = (
+    <MessageContent
+      content={msg.content ?? ''}
+      role="assistant"
+      thinking={msg.thinking}
+      toolCalls={msg.toolCalls}
+      blocks={msg.blocks}
+      partial={msg.partial}
+      isLast={msg.partial}
+      turnStartedAt={msg.timestamp ? Date.parse(msg.timestamp) : undefined}
+      sessionKey={sessionKey ?? undefined}
+      messageId={msg.id}
+      onMessage={onMessage as ((h: (m: WSMessage) => void) => () => void) | undefined}
+    />
+  );
   return (
     <div className={`text-sm text-app-text ${COMPACT_MD_CLS}`} data-testid="task-session-item" data-message-id={msg.id}>
-      <MessageContent
-        content={msg.content ?? ''}
-        role="assistant"
-        thinking={msg.thinking}
-        toolCalls={msg.toolCalls}
-        blocks={msg.blocks}
-        partial={msg.partial}
-        isLast={msg.partial}
-        turnStartedAt={msg.timestamp ? Date.parse(msg.timestamp) : undefined}
-        sessionKey={sessionKey ?? undefined}
-        messageId={msg.id}
-        onMessage={onMessage as ((h: (m: WSMessage) => void) => () => void) | undefined}
-      />
+      {isMachineWork(msg) ? <TaskWorkAccordion msg={msg}>{content}</TaskWorkAccordion> : content}
     </div>
   );
 }

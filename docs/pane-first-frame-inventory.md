@@ -30,12 +30,14 @@ it is exactly the boot the reader was not supposed to watch.
 | Board / kanban (all projects) | **was:** empty columns until the feed answered | `GET /api/all-boards/tasks` | **added:** `board-rows-cache:all` | fixed |
 | Open file (text, code, markdown) | **was:** a centred spinner, then the text | `GET /api/files/content` | **added:** `file-content-cache` (12 files, 128 KB each) | fixed |
 | Open file (image, video, PDF) | The viewer chrome, then the media inside a fixed box | `/preview/<path>` | none: the box is sized by the container, not by the media | green on the container, the media itself still arrives when it arrives |
+| Git changes | The list from the session copy, rows a fixed height | `GET /api/git/status` | `git-status-cache:<path>` in `sessionStorage` | green (measured 2026-09-06: CLS 0.0000, full 1 ms) |
 | Browser pane | URL bar, title and favicon from the pane record; the frame is a stream | pane store (local), then the stream | `pane-store-v2` + `browser-history-<topicId>` | not measured here (a server-side Chromium makes it a nightly-only case) |
 | Project window tiles (terminal, browser, tree, git, dashboard) | **was:** a spinner per tile for 220-240 ms after the shell, on every reload, on the desktop's real state (2026-09-05) | none: it was their CODE, the pane store only says "project" | **added:** `paneTypesToWarm` reads `topics-project-panes-<hash>` and warms the tiles' chunks at boot | fixed |
 | Any lazy pane body, chunk already warm | **was:** `React.lazy` still committed the fallback on the first mount (136 ms measured with every chunk cached at 110 ms) | none: a microtask and the boot's own render work | **added:** `lib/lazyWarm` renders a warm module in the same pass, no boundary; `main.tsx` waits for the warm chunks up to 300 ms before the first render (`lib/firstFrameGate`) | fixed: zero tile spinners on the desktop's real state (`videos/clip/reload-real-state-{before,after}.webm`) |
 | Chat inside a project window, cache present | Skeleton curtain until the server history lands (544-1195 ms measured, cap 1200) | `POST /api/history` - 2.6 MB for 17 messages, 98% in `blocks[].toolCall.args/detail` | `messages-cache-<sessionKey>` holds a 256 KB tail (2 of 17 messages) | open: the history wire is being made lean (args/detail on demand); the curtain then lifts when the lean history lands |
 | Pane-store HTTP fallback | - | **was:** `GET /api/ui-state`, 413 keys / 276 KB, queued next to the chat history | **now:** `GET /api/ui-state/pane-store-v2`, 70 KB | fixed |
-| Dashboard (KPI, charts) | Nulls, then the numbers | `GET /api/dashboard/*` | none | open: not a pane a reload lands on by default, left out of this pass |
+| Dashboard (KPI, charts) | **was:** a centred spinner until BOTH `/dashboard/kpis` and `/dashboard/timeseries` answered, then nine cards and a 200px chart in one frame | `GET /api/dashboard/kpis`, `GET /api/dashboard/timeseries` | **added:** `dashboard-snapshot-cache` (numbers plus the metric and range they belong to) | fixed |
+| Process log | **was:** a "Streaming output..." strip UNDER the log, mounted only while the process ran: it unmounted the moment the process ended, and the `pre` grew by its height | `GET /api/scripts/*` | none: the log is a server-side ring buffer, refetched from offset 0 | fixed: the liveness dot moved into the header, after the spacer, where nothing follows it |
 | Notifications | Empty, filled by the socket | WS | none | out: it is an overlay, it decides no layout under it |
 
 ## The rule, in one line
@@ -56,6 +58,8 @@ of the reload. Same machine, same seeded project, idle both times.
 | File tree | 331 ms | 2 ms | 0.0000 |
 | Open file (text) | spinner, then the text | 30 ms | 0.0001 |
 | Terminal | 365 ms | 41 ms | 0.0001 |
+| Dashboard 390 px (fetches held 300 ms) | 309 ms | 0 ms | 0.0000 |
+| Dashboard 1440 px (fetches held 300 ms) | 310 ms | 0 ms | 0.0000 |
 | Opening a file already seen | - | 7-29 ms from the click | 0.0001 |
 
 The "before" column is the same figure on four unrelated surfaces, which is
@@ -66,7 +70,13 @@ only left after React had mounted and hit the suspense boundary. See
 
 Reproduce: `E2E_CLS_LABEL=<label> npx playwright test pane-return-cls`, which
 writes one JSON per surface under `test-results/cls/` so two runs compare line
-by line. The spec is nightly-tier: the CLS half is stable anywhere, the
+by line.
+
+THE DASHBOARD CASE HOLDS ITS OWN FETCHES for 300 ms, and without that it proves
+nothing: on the e2e server `/dashboard/kpis` answers in 0-8 ms, so even the
+version with no local copy at all reads 15-17 ms and passes. With the hold, the
+same two numbers are 309-320 ms (empty) against 0 ms (drawn from the copy). A
+gate that is green on both sides of the fix is not measuring the fix. The spec is nightly-tier: the CLS half is stable anywhere, the
 milliseconds half counts real frames on a real CPU, and on a loaded machine the
 same case reads 365 ms instead of 24.
 
@@ -79,5 +89,8 @@ same case reads 365 ms instead of 24.
 - **Browser pane.** Its content is a stream from a server-side Chromium; the
   specs that mount one are nightly-only for that reason. Its chrome (URL,
   title, favicon) already comes from the local pane record.
-- **Dashboard.** No local snapshot today. It is a surface you open, not one a
-  reload lands on, so it is named here rather than fixed in this pass.
+- **Process log.** Not reachable from a test: it is not in the "+" menu, it
+  opens only by clicking a RUNNING script in the Processes section, and the pane
+  carries no testid. Its shift was removed by construction instead (the
+  liveness strip under the log moved into the header, where nothing follows it),
+  so there is a fix without a gate on it. Naming it is the honest half.

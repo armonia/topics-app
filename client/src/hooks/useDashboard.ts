@@ -1,16 +1,30 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { dashboardApi, type DashboardKPIs, type TimeSeriesPoint } from '../lib/api';
+import { readDashboardSnapshot, writeDashboardSnapshot } from '../lib/dashboardSnapshotCache';
 import type { WSMessage } from '../types';
 
 const REFRESH_INTERVAL_MS = 60_000;
 
+/** What the pane shows before anyone has ever opened it. */
+const DEFAULT_METRIC = 'throughput';
+const DEFAULT_RANGE = '7d';
+
 export function useDashboard(onMessage?: (handler: (msg: WSMessage) => void) => () => void) {
-  const [kpis, setKpis] = useState<DashboardKPIs | null>(null);
-  const [timeSeries, setTimeSeries] = useState<TimeSeriesPoint[]>([]);
+  // Read ONCE, in the initialiser of the first state: a second read after the
+  // first fetch has landed would restore stale numbers over fresh ones.
+  const seedRef = useRef<ReturnType<typeof readDashboardSnapshot> | undefined>(undefined);
+  if (seedRef.current === undefined) seedRef.current = readDashboardSnapshot();
+  const seed = seedRef.current;
+
+  const [kpis, setKpis] = useState<DashboardKPIs | null>(seed?.kpis ?? null);
+  const [timeSeries, setTimeSeries] = useState<TimeSeriesPoint[]>(seed?.points ?? []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedMetric, setSelectedMetric] = useState('throughput');
-  const [range, setRange] = useState('7d');
+  // The selection travels with the numbers: a seeded series belongs to the
+  // metric and range it was drawn for, and restoring one without the other
+  // would label the chart with something it does not show.
+  const [selectedMetric, setSelectedMetric] = useState(seed?.metric ?? DEFAULT_METRIC);
+  const [range, setRange] = useState(seed?.range ?? DEFAULT_RANGE);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
 
@@ -24,6 +38,7 @@ export function useDashboard(onMessage?: (handler: (msg: WSMessage) => void) => 
       setKpis(kpiData);
       setTimeSeries(tsData);
       setError(null);
+      writeDashboardSnapshot({ metric: selectedMetric, range, kpis: kpiData, points: tsData });
     } catch (err: unknown) {
       if (!mountedRef.current) return;
       console.error('[Dashboard] Fetch error:', err);

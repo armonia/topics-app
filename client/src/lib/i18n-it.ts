@@ -739,6 +739,12 @@ const IT: Dict = {
   'chat.session.taskLabel': 'Task',
   'chat.session.openTaskCard': 'Apri la scheda',
   'chat.session.openTaskCardTitle': 'Torna alla scheda del task: descrizione, checklist, consegna, thread',
+  'chat.taskWork.action': '{n} azione',
+  'chat.taskWork.actions': '{n} azioni',
+  'chat.taskWork.reasoning': 'Ragionamento',
+  'chat.taskWork.failed': '{n} fallite',
+  'chat.taskWork.files': '{n} file',
+  'chat.taskWork.summaryTitle': 'Il lavoro dell\'agente in questo turno. Clic per aprirlo.',
   // The turn queue, seen where it happens: the "to send" bubbles in the
   // transcript (`components/Chat/QueuedTurns`). It used to be drawn by a badge
   // above the composer as well, with these very words: two copies of the same
