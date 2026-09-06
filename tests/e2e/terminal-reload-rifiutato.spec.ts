@@ -146,6 +146,19 @@ test.describe.serial("Ricarica di una tab terminale · il rifiuto si vede", () =
     const tab = page.locator(`[data-testid="pane-tab-terminal:${sessionId}"]`);
     await expect(tab).toBeVisible();
     await expect(tab).toContainText(session.name);
+    // The «resume …» on the overlay comes from a snapshot the PANE takes of its
+    // own roster entry while the session is still listed (`lastInfoRef` in
+    // SingleTerminalPane), and the pane is a code-split chunk: the tab above is
+    // on screen before the chunk has landed, and on a loaded runner the gap is
+    // long enough for the empty roster below to be applied first. An instance
+    // mounted after that never sees the session, and its overlay can only say
+    // «id …» — the flake seen on CI, reproduced on demand by holding the chunk
+    // for three seconds. So the precondition is spelled out: the pane is
+    // mounted BEFORE its session leaves the roster.
+    await expect(
+      page.getByTestId("single-terminal-pane"),
+      "the terminal pane must be mounted while the roster still lists its session",
+    ).toBeAttached({ timeout: 15_000 });
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     inject!(JSON.stringify({ type: "terminal:sessions", sessions: [], reconciled: true }));
     await expect(page.getByTestId("terminal-stale-overlay")).toBeVisible({ timeout: 15_000 });
