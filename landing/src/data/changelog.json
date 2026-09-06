@@ -1,5 +1,23 @@
 [
   {
+    "version": "2.2.266",
+    "date": "2026-09-06",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "route clipboard actions through copyText",
+          "scope": null
+        },
+        {
+          "text": "files under a symlinked path were shown as outside the repository",
+          "scope": null
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.197",
     "date": "2026-08-28",
     "sections": {

@@ -2,6 +2,451 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.266 — 2026-09-06
+
+### Correzioni
+- route clipboard actions through copyText
+- files under a symlinked path were shown as outside the repository
+
+### Sotto il cofano
+- WIP salvato dal master alle 03:56 del 2026-09-04: lavoro del tentativo precedente, non ancora consegnato
+- Marca le buste del dispatcher e fa portare loro i commenti che consegnano
+- Test paid in commits and in history walks, not in flakes
+- Sblocca check:bloat: una scansione di template literal, non due
+- Un link a un soggetto eliminato non conia piu' una tab fantasma
+- Ancora un commento di sessione al messaggio in cui e' stato detto
+- Il coordinatore Kanban globale e' una riga di registro, non un titolo: tabella, marcatore di trasporto, contesto volatile della board e spec
+- Il coordinatore entra dal Kanban, gira solo su Codex e ogni superficie generica gli chiude la porta: rotte, provider, contesto e strumenti globali sui task
+- I test del coordinatore: registro, rotta d'ingresso, solo Codex, isolamento delle superfici, snapshot volatile, consegna che si completa da sola e nessun hint sui goal
+- Il client toglie al coordinatore i comandi che non gli spettano: apertura dal Kanban, niente archivio, allegati, provider o slash; badge e blocco delle impostazioni in i18n
+- I cancelli statici registrano cio' che il coordinatore ha comprato: dizionario con coordinator/denied, bloat aggiornato nello stesso giro, e un motivo su due eslint-disable orfani
+- Un solo osservatore per i turni headless: la copia in runHeadlessReattach riportava il gate bloat sopra il tetto
+- Il drawer segue il turno dal filo, non da un poll ogni 3 secondi
+- L'hold del provider si scioglie da solo: ricontrollo periodico dell'utilizzo con la credenziale corrente, cosi' un cambio account non congela la flotta fino al reset del vecchio piano
+- I mock del barrel dei provider delegano al modulo vero: in bun sono globali al processo e uno stub che lancia rendeva rosso topics-abort-turnend nella suite intera
+- Zero modifiche git: nessuna sezione, non una che dice «0»
+- Il giornale di localStorage cresce con le RISCRITTURE, non con cio' che tieni: topics-cache passa da una scrittura per cambiamento a una per raffica
+- nomi inglesi nel test della sezione git vuota
+- Le tre sonde dev condividono il loro protocollo invece di copiarselo
+- commenti in inglese nel test della sezione git vuota
+- Live dictation with Scribe v2 Realtime, batch as the safety net
+- La porta unica dei deep-link e' un modulo suo: niente cicli di import
+- `wav` is a word this repo knows, next to `pcm`
+- I commenti del modulo nuovo in inglese
+- I test rimettono a posto i globali che stubbano
+- Il riavvio trattenuto lo dice subito, e chiama una persona al minuto
+- Nomi e commenti inglesi nel test del cancello, come chiede il repo
+- Il test del cancello rimette a posto TOPICS_HOME quando ha finito
+- Un link cliccato apre una TAB del browser di Topics, non una finestra fuori
+- il link della chat apre la tab, il Cmd-click esce; spec LINK-TAB-01
+- Il sesto poll e la sua operazione sono dichiarati, e la spec copre dove atterra la tab
+- La card ha UNA conversazione, non due liste da correlare a mano
+- Il rimando alla spec punta al requisito, non alla cartella della change
+- Un'azione della chat che fallisce lo dice
+- Un rifiuto che nessuno stampa e' un clic che non ha fatto niente
+- Search and notifications: stop passing silence off as an answer
+- I commenti della spec nuova sono in inglese, come il resto del repo
+- Sei spec che pretendono di leggere il motivo, una per superficie
+- migra gli ultimi 4 call-site raw a copyText
+- Il «+» della colonna e' quello che c'e' sempre, aperta o no una pane
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-05 [skip ci]
+- Correzioni minori UI: ordine palette, tooltip nomi, toggle disabilitati
+- Lo stato per-topic sale nel chrome, sopra la barra delle tab
+- Commenti in inglese in due file che avevano fatto rosso il cancello lingua
+- Lo stato della consegna e' un chip, non due note; e una domanda si risponde in ogni colonna
+- I quattro riesporti rimasti senza lettori: il modulo delle azioni legge shared/board
+- L'attesa dell'orfano misurava il carico della suite, non il monitor
+- un controllo chiesto ha una risposta, e «scarica» scarica
+- Text tokens: 4.5:1 on the desktop too, computed on the real surfaces
+- Allowlist dei progetti: chiuse le tre scritture dal client, gli header di /preview/ e l'evasione di context-upload
+- Il test dell'adapter mocka l'IPC, non la finestra: un'altra suite lo aveva gia' sostituito
+- Le tessere fissate dei test puntano alla cartella che il server usa davvero
+- I due cancelli di lingua tornano verdi: erano rossi prima di questa card
+- Il banco della sicurezza non muore piu' quando la macchina e' carica
+- Prompt di dominio ai provider Whisper: misurato, resta fuori
+- Banco STT: nomi inglesi, e ffmpeg entra fra le parole del progetto
+- read-screen diceva «gateway» mentre a rifiutare era la chiave della vision
+- Le emoji nella UI diventano icone lucide
+- unit da 18 minuti a due: shard bilanciati, e i globali DOM finti non escono più dal loro file
+- La chat vede l'attesa dei check, e la coda seriale dello sharder si riprova una volta
+- I glifi testuali usati come icone diventano icone lucide
+- Two icon-only buttons get an accessible name
+- Due bottoni di sola icona ritrovano il nome che il glifo gli dava
+- Il tetto dei giri di tool e il taglio dello sweeper si riprendono da soli
+- La ripresa riconosce il tetto dei giri di tool scritto prima della causa; la copia del banco di sicurezza esce dall'hook
+- Two guards left red by today's main: a stale resume invariant and two unnamed icon buttons
+- Il sommario degli shard nomina i test rossi, in coda, dove il commento della card li tiene
+- Il conto delle righe torna dopo il rientro di main
+- Il land distingue «misto per discendenza» da «misto per contenuto» prima di cherry-pickare
+- Due bottoni di sola icona ottengono un nome: chiudi lightbox, togli immagine
+- Il cartello del watchdog promette la ripresa: il test si allinea a chi riprende
+- Main torna verde sul cancello unit: la promessa di ripresa vale per tutte le cause nostre, e due bottoni di sola icona hanno un nome
+- Due bottoni di sola icona dicono il proprio nome, e il lightbox parla la lingua scelta
+- Il cancello unit guarda il carico prima di partire: meno shard e più tempo per test quando la macchina è satura
+- La porta del dispatch segue chi trattiene il riavvio: aperta finché trattiene una chat, chiusa quando restano solo card
+- Il tetto dei check del board conta da quando il comando parte, non dalla coda per lo slot
+- Il bottone di chiusura del lightbox ha un solo nome accessibile
+- La proroga dell'orfano del pty-bridge dura soglia più un tick, non il doppio della soglia
+- Il semaforo dei cancelli ri-esporta solo cio' che qualcuno importa
+- gate-slot: re-export only the writing side of the slot line
+- Il ponte dello slot ri-esporta solo la riga che scrive
+- gate-slot re-exports only the name someone reaches through it
+- Un turno fallito su una card spostata a mano non si azzera piu' in silenzio
+- La coda di un check rosso non e' piu' un muro di test saltati
+- Una card senza commit di consegna e col ramo potato si accetta, non rimbalza in review
+- Pane di progetto servite col percorso canonico: la finestra ritrova le chat
+- identifier-language: nomi inglesi per il risultato canonico e il locatore della spec
+- il symlink lo costruisce il test, e l'attesa e' la scrittura non l'orologio
+- le costanti del modulo canonico non nominano /tmp (gate GATE-09)
+- L'hold del piano sopravvive al riavvio: specchiato su disco e riadottato al boot
+- I due cancelli statici del coordinatore: cinque `any` tipizzati e il barrel dei provider che torna visibile a knip
+- Le quattro porte socchiuse del coordinatore, piu' i commenti di tasks.ts che il merge ha reso visibili
+- La migration del registro rientra nell'ordine e ha un test che la esegue davvero
+- Il topicId illegale e' un 400, non un 404: il caso «topic che non esiste» prende un id ben formato
+- Il ripristino di un checkpoint tocca solo i file del turno
+- `skipped` entra fra le parole del progetto, `FOLDERLESS` sparisce
+- Il banco della memoria crea i topic che indirizza: un URL non conia un file
+- I tile dei project window non mostrano lo spinner al ricarico: i chunk si chiedono al boot dal record locale, e il ripiego del pane-store legge una chiave sola
+- La barretta dei file scende sopra il composer, senza terminale e col branch solo nei worktree
+- Un chunk già caldo renderizza senza fallback: lazyWarm al posto di React.lazy per i corpi dei pane
+- Il primo render aspetta i chunk caldi, con un tetto di 300 ms: niente spinner nei tile al ricarico
+- Lo scatto di fine turno si registra sempre, e senza si rifiuta invece di indovinare
+- L'inventario del primo frame registra il gate dei chunk caldi e il sipario della chat ancora aperto
+- Togli gli archiviati dalla lista di boot dei topic: 1.535 righe su 1.554 escono dal primo frame e dalla cache locale
+- La storia via wire porta di un tool call solo ciò che la riga chiusa disegna: args e detail lunghi si caricano quando la riga si apre
+- I due cancelli di lingua tornano verdi dopo il land degli archiviati: upsert entra nel dizionario, l'etichetta italiana e' dichiarata
+- Ogni lettura di boot parte una volta: coalescer condiviso, PUT non ripetute, icone che non si ri-sondano
+- I cancelli di lingua tornano verdi dopo il land del coalescer: reusable nel dizionario, un commento riscritto
+- A test file no longer inherits the database of the one before it
+- Il test dei sei commit ha il budget degli shard, non un tetto piu' basso
+- Il test del coalescer non gira piu' a vuoto: gli handler della rifiuta si attaccano con then, non con expect().rejects su una promessa pendente
+- La barra della kanban smette di essere sgranata: un'altezza sola, dichiarata una volta
+- Una sola lista dei file cambiati: quattro copie, quattro tagli del path, un componente
+- coverage of Topics against Claude Code, Codex, Cursor and Conductor
+- Il topic della prova si apre dalla sua tab: sotto un progetto il treeitem non esiste
+- La striscia si raggiunge seminando la pane store: sotto un progetto non c'e' ne' treeitem ne' tab
+- La sidebar ha una porta sola: le persone connesse sono chip, tutto il resto sta sotto la card utente
+- Il nome della mappa delle letture torna inglese: `readings`, non `misure` (cancello identifier-language)
+- La chat si apre dal permalink, e le due rotte rispondono prima del browser
+- Il progetto della prova vive sul percorso reale: /tmp e' un link e git risponde con l'altro
+- Un numero solo sul sistema operativo, e il permesso delle notifiche si concede da dentro l'app
+- Le due superfici si aprono nella finestra del progetto, dove il topic vive davvero
+- La chat di un task si legge per decidere: il lavoro macchina sta dietro una riga
+- Il topic entra nella sidebar prima di cercarlo, e il fallimento riporta cosa c'era scritto
+- identifier-language: il nome della pane di prova e' una parola inglese
+- Il progetto si apre dal suo chevron: il nome porta via dalla lista dei topic
+- La storia si chiede anche «prima di» un messaggio: cursore before su /api/history, base per la chat che si apre dalla coda
+- Il chevron si tocca solo se il progetto e' chiuso
+- I commenti della spec E2E nascono in inglese, e due nomi con loro
+- Il test aspetta il server, non l'orologio della macchina: 60 s di attesa sotto carico
+- Il fallimento elenca cosa c'e' davvero nella sidebar
+- Il controllo che l'e2e non vede mai: il bottone delle missioni indossa il token, e il numero resta scritto una volta
+- La dashboard non si guarda piu' bootare: copia locale dei numeri, e la griglia c'e' anche quando non ci sono
+- Il ritorno di ogni pane ha un cancello che sa dire di no: dashboard e git misurate, e tre casi risorti
+- Il blocco screenshot esce dal caso: la foto e' gia' stata scattata, e un'attesa a orologio dentro un cancello resta li' per sempre
+- La chat si raggiunge dal permalink: e' l'unico indirizzo che apre QUELLA chat
+- La consegna sta su un ramo suo: su main la gamma e' vuota e il menu dice il vero niente
+- La prova porta a casa i due fotogrammi: due liste che si somigliano si guardano
+- a hermetic file closes the database handle it inherited
+- Anche il ritaglio delle sole righe: a 268px una schermata intera non si legge
+- Il test dell'inviluppo dispatchato chiude il suo database
+- Chi apre un DB di test se lo chiude anche all'INIZIO: setupTestDataDir non eredita piu' la maniglia del file precedente
+- Un file di test e' ermetico anche quando quello prima non lo era: il DB si chiude anche in entrata
+- I test aprono il menu da UNA porta sola, scelta dalla viewport: la card sul desktop, il titolo sul telefono
+- Tre spec riscritti sul nuovo contratto della fascia: chip che scorrono, una card che non sborda, lo stato dietro la card
+- Il merge aveva due volte la stessa chiusura del DB: resta quella di main
+- I due cancelli di lingua tornano verdi: il marcatore ha il nome per esteso, le etichette sostituite sono dichiarate
+- Il commento della guida di ridimensionamento nomina la fascia di oggi: le chip, non il chip delle organizzazioni
+- Gli stub della fascia diventano un helper: identity-chips torna sotto la soglia
+- Il tetto agenti sa anche misurare la macchina, e i settings stanno in un dropdown
+- Il contratto «per risorse» esce da board.ts, e ddl entra nel dizionario
+- Il motivo «per risorse» ha le sue parole, e il patch del tetto smette di esistere due volte
+- Una sola chiusura del DB nel setup dei test: main ci era arrivato da solo
+- La chat si apre sulla coda: 40 messaggi dalla cache, sipario sulla prima pagina, il resto arriva solo quando nessuno guarda
+- scroller entra nel dizionario degli identificatori
+- L'inventario del primo frame chiude la riga della chat: 175 ms sullo stato reale con la coda-prima
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-06 [skip ci]
+- Il tetto pre-review segue il rallentamento dichiarato dal runner
+- La CI torna a vedere i cataloghi i18n, il Keychain si prova solo su macOS, e un SIGKILL lascia una traccia
+- Anche un worktree sotto .claude/worktrees riceve la sua porta e2e
+- Apri il menu della sidebar dalla card utente, non dal titolo che non e' piu' un bottone
+- Il cancello e2e dei file toccati costruisce il bundle da sé in un worktree
+- Mostra il worktree di un topic nella sidebar: chip e sotto-sezioni per worktree
+- ownBundleDir accetta process.env così com'è
+- Mostra la sezione git anche a zero file quando ha qualcosa da dire, e i test della cronologia stanno su un repo AVANTI al remote
+- Il feed della board rilegge il server quando un evento glielo dice, e la riga di un file si chiama col nome del file
+- Le spec dei link esterni ascoltano la porta nuova: una tab del browser, non window.open
+- Board col dito: il menu del long-press rilascia il drag armato sullo stesso tocco, e le due scene del chip di coda dichiarano il loro presupposto
+- Tre spec e2e sul contratto vero: coda-prima, dialog in italiano, pane terminale montata prima del roster vuoto
+- Tre rossi e2e con tre cause vere: il nome del tool letto da una colonna ormai vuota, la baseline del prompt mai aggiornata, un tap su un video non ancora interattivo
+- Ascolta l'errore che readline ri-emette dal socket del bridge
+- Un chunk rotto finisce nel boundary della pane, e il telefono senza rete lo dice entro otto secondi
+- Raddrizza tre import eager nell'entry e alza la baseline del bundle al valore misurato
+- La cronologia ad albero pulito: il test dice davvero cosa prova, e PROJECT-12 dice dove sta
+- I tre chunk nuovi si importano destrutturati, e il test del watcher nomina il requisito
+- Tre spec del board nominano la cartella temporanea col suo path vero
+
+## 2.2.265 — 2026-09-04
+
+### Sotto il cofano
+- La tab del browser si espande quando ci sei dentro, e a riposo dice il titolo
+- Il profilo perde le tab: una pagina sola, follower e privacy in tendina
+- L'aiuto della spec parlava ancora delle pagine del profilo, che non ci sono piu'
+- Via la seconda barra: un contatore apre la sua lista, e le persone non sono un profilo
+- La spec guarda la lista del contatore, non piu' la finestra con le tab
+- La baseline dei nomi scende con la tornata: ProfilePane porta via due identificatori italiani
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-01 [skip ci]
+- Le spec del profilo puntavano a una pagina che non esiste piu': il pannello amici ha preso il posto della tab
+- Una card ferma su una domanda lo dice, e continua a dirlo dopo un riavvio
+- Una domanda appartiene al suo turno: se ne e' ripartito un altro sopra, non trattiene piu'
+- la tab diventa l'unica chrome della pane browser
+- La scheda dice cosa e' stato fatto, e uno scatto duplicato non e' una prova
+- Due avvisi nuovi si risolvono aggiornando, non accettandoli
+- Anche gli scatti duplicati GIA' adottati vengono ritirati, e sopravvive il piu' vecchio
+- Il runtime nativo non era una sessione Claude Code: era un altro agente
+- Il modello si rilegge a ogni turno: in Impostazioni si cambia adesso, non al prossimo riavvio
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-02 [skip ci]
+- Due strade per la stessa cartella erano due progetti
+- Il nativo non sapeva dire a che punto è, né leggere una pagina
+- Il pannello di una cartella sparita tornava dal client
+- La tab doppia stava nel gruppo, non nel pannello
+- Un'archiviazione che non archivia e non protesta
+- Il pallino dei progetti senza icona non allineava piu' niente
+- Il commento del pallino passa all'inglese: la baseline scende soltanto
+- Il cancello sull'identita' proteggeva una cosa gia' pubblica
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-03 [skip ci]
+- Un livello di annidamento costa un passo di rientro, non due
+- Un task nato con l'UUID finiva su una board che nessuno legge
+- Una consegna si dichiara, non si indovina
+- Un comando uscito deve rispondere, e un tool 'running' da ore non e' lavoro
+- Il glifo del caricamento smette di essere un misuratore
+- La regola della cartella chiusa adesso ha un testimone
+- Cinque avvisi nuovi si aggiustano, non si accettano
+- Un server MCP protetto da OAuth si monta: la flotta nativa sa fare l'accesso
+- Il cancello sulla lingua dei commenti torna verde, e la baseline scende
+- La tab Piano aveva la cura e nessuno che la tenesse ferma
+- I tre cancelli che i land di oggi hanno lasciato rossi
+- TOPICUI-04b chiamava la porta sbagliata per chiudere una topic
+- Zero commit non e' zero lavoro
+- Il numero del non committato va nel chip, non in un commento
+- I cinque nomi italiani arrivati con la scheda del non committato
+- Un 529 dell'API non e' la fine del turno: il runtime nativo riprova
+- Un goal si puo' assegnare all'agente ma lui non poteva chiuderlo
+- Il watcher del server guarda il contenuto, non l'orologio; e riprova per dieci minuti
+- I 44 nomi italiani che tenevano rosso check:identifier-language
+- Baseline dei nomi riallineata: 6003 -> 5971, solo in discesa
+- Il token vive nel Keychain, e il runtime nativo ora lo legge da li'
+- Il Keychain e' acceso di serie su macOS, spento sotto bun test
+- Un nome ancora fuori dal dizionario nel test del Keychain
+- I 29 KB dell'entry avevano un nome ciascuno, e uno era un import da raddrizzare
+- Tre parole inglesi entrate nel dizionario fanno scendere la baseline dei nomi: 5971 -> 5952
+- Tre cancelli che il lavoro di oggi aveva lasciato rossi
+- Il nome parte subito dopo l'accordion, e una tessera stretta mostra solo l'icona
+- Un'immagine allegata si apre grande con un click, dovunque la si alleghi
+- La board mostra la card che il composer flottante sta per creare
+- Una chat condivisa apriva anche CLAUDE.md, ambiente e checkpoint del progetto
+- Un terminale aperto senza cwd metteva HOME nell'allowlist dei file
+- Al risveglio una socket sola, e quella aperta sulla carta si interroga
+- Otto test coprivano feature che le spec non vedevano
+- I quattro cancelli statici che i sei slot della board non avevano
+- La coda parte a ogni fine turno che il server dichiara, e l'errore resta nella sua chat
+- Il cartello «Risposta tagliata» era irraggiungibile: max_tokens esce da onDone, non da aborted
+- L'attesa di un turno (retry, slow) vive sulla voce del registro, cosi' il catchup la riporta
+- Lo spazzino chiudeva la riga e lasciava vivo il turno
+- Un secondo sendChat sulla stessa sessione nativa correva col primo
+- Un turno morto non avvisava nessuno: ora manda la push di errore
+- Il runtime nativo chiedeva meta' output della CLI e mandava un budget che la famiglia 5 rifiuta
+- La storia nativa ricostruita dal DB era solo prosa: ogni coppia tool_use/tool_result spariva
+- Il cancello di reload dice quante righe di registro ha letto quando rifiuta
+- Il conteggio spettatori si spinge sul socket invece di chiederlo ogni 2 secondi
+- Il log HTTP scrive l'esito di una richiesta, non la sua partenza
+- Lo scatto delle sessioni in streaming non idrata piu' tutte le topic
+- Lo stato git costa cinque spawn, da un posto solo, e il push riempie la cache
+- La ripresa al boot contava i tentativi sulla riga, e ogni riga ripartiva da zero
+- La prova misurata della card 058ea722, e il nome che non passa sotto l'accordion
+- Il chip vivo sa quando il turno e' morto, e cosa sta facendo adesso
+- La parola dell'agente viaggia anche in corso, e su una consegna muta diventa la delivery
+- La card dice l'attesa, il tool in corso, il motivo del parcheggio e la parola in corso
+- La cartella che git non registra piu' ha uno stato suo, e si raccoglie
+- La cartella prima della riga, e le righe pending entrano nella passata
+- Le cuciture fra i dodici rami: viewers nelle liste congelate, lightbox nel piano modale, GitStatus in shared
+- Nove parole inglesi nel dizionario dei nomi, e le due baseline di lingua scendono
+- Ogni test dei rami atterrati nomina il requisito che prova
+- Card.tsx e PinnedTile.tsx tornano sotto il tetto
+- I cinque rossi del qa-gate dopo la tornata
+- La card dice quanto e' costata, in dollari
+- Il watcher dice dove e' fermo un server che non risponde, e quale mount di rete tace
+- La spec dell'anteprima card hashava /tmp, il server registra /private/tmp
+- La pane nativa si contava come spettatore condiviso fra open e register
+- La sonda icona ha una scadenza: dopo 4s decide il fetch
+- publish-status risponde da cache per 30s, la publish la svuota
+- L'allowlist delle icone si ricalcola a un miss, non a ogni richiesta
+- La colonna dell'accordion esiste dove qualcosa si apre
+- LABELGUTTER-02 semina sul path reale di tmpdir
+- I cancelli di lingua sui commit della colonna: inglese nei commenti nuovi, xIconSlot, iconAllowedDirs
+- Atterra la card 78c3c527 (tab Piano) come un commit solo
+- L'indirizzo del drawer segue il fuoco della bacheca: il ricarico torna sulla tab su cui si era
+- La pane browser di una finestra di progetto conosce il suo indirizzo: la barra non torna sotto la tab
+- Sottoscrivi url e titolo della tab browser invece di campionarli nel memo
+- Modifica l'indirizzo dentro la tab: la riga sotto non compare piu' al focus
+- Tipizza replaceState nel finto history del test di riflessione
+- Il sipario della chat aspetta la storia del server, il primo item dipinto e le immagini in vista
+- Il primo frame dopo il ricarico legge dal dispositivo: sessione, goal, unread, conteggi board, presenza
+- Persisti il «senza icona» verificato: la tessera non ri-sonda a ogni boot e il nome sta fermo
+- Il banner «nessuna risposta» tace finché il registro del server non ha risposto
+- Togli le due righe di diagnostica rimaste nella pane browser condivisa
+- Il reaper di inattivita' non uccide un figlio che sta streammando, e «vivo» vuol dire «il turno e' vivo»
+- Inglese nei commenti nuovi del reaper
+- Una chiave STT presente non e' una chiave: si verifica, un rifiuto toglie il provider, e il risultato dice chi e' caduto
+- La striscia della dettatura dice il tempo, il segnale e il motore vero; la lingua dell'interfaccia va al modello
+- Il test della coda ferma segue CHAT-QUEUE-04: «invia subito» resta e fa partire la coda
+- Nome inglese per il frame di animazione in DictationStrip
+- La tab riaperta torna nel suo posto, non in fondo alla barra
+- Due test rossi che non parlavano del prodotto: la guardia del Piano e lo slug
+- Il banco torna verde: uno stub di fetch che non si toglieva, e una guardia rimasta a un indirizzo vecchio
+- La barra del browser mostra il file anche dentro il guscio desktop, non la rotta che lo serve
+- deadcode torna verde: via getBrowserPaneTitle, una sola useServerHydrated
+- I tooltip contano come overlay: sopra una pane browser nativa si vedono
+- Un permalink /tab/... è una pagina, mai un file da scaricare
+- Il giudice del silenzio non ricicla un agente che aspetta i NOSTRI check, e il poll non finge un riavvio
+- Niente parole italiane nel commento di displayUrl: il cancello della lingua le contava
+- L'envelope dice anche QUANDO non si bumpa la versione: mai da una card
+- Il test del checker di sicurezza ha un paracadute contro il blocco, non un cronometro
+- Il contesto pieno non uccide più la chat: il runtime nativo compatta davvero e si riprende dal 400
+- Lo schema condiviso non conosceva le domande all'utente, e l'idratazione le cancellava
+- I commenti del test del contesto pieno passano il cancello della lingua
+- Il test dell'idratazione smette di provare una copia della funzione e prova quella vera
+- Il freeze del contratto WS sapeva 19 varianti: additive, restano compatibili
+- Un rifiuto su una card senza sessione la rimette in coda, non la lascia in lavorazione senza nessuno
+- Il caso verde di check:security non pretende piu' che il registro risponda
+- Il cancello della sicurezza smette di far decidere al registro quanto dura
+- security non resta appeso al registro, e il suo banco di prova non chiede la rete
+- Commento in inglese nel test del rifiuto senza sessione: il cancello della lingua lo contava
+- Commento in inglese sulla regola del bump: il cancello della lingua lo contava
+- Un obiettivo aperto a fine turno si persegue da solo
+- Il cablaggio del ciclo esce dalla route, che era gia' il file piu' lungo
+- I commenti dei due test nuovi in inglese, come vuole il cancello
+- Due nomi che il cancello degli identificatori non conosce: rinominati
+- La domanda si rendeva sotto due nomi su tre: il terzo e' quello che Topics usa davvero
+- La gestione della finestra esce dal ciclo del turno e sta in un file suo
+- L'agente si dà l'obiettivo: set_goal e update_goal_steps
+- Evidenza della barra a larghezza stretta: leggibile anche a 268px
+- Il ciclo di continuazione non guarda chi ha scritto l'obiettivo
+- Il ratchet anti-bloat registra i due tool MCP nuovi
+- La chat sapeva gia' quali file aveva scritto, ma non lo diceva a nessuno
+- L'E2E del chip apriva la chat dal pane store, e il pane store apre il progetto
+- Un turno interrotto dice perche', e offre una via d'uscita
+- Anche il reaper dice perche': il cammino vero del referto
+- Il download si annuncia, e le superfici smettono di mostrare il trasporto
+- check:ui-language reads the strings it was walking past
+- Il banner compare ANCHE dal vivo, che e' la scena del referto
+- La x di un allegato toglie l'allegato, non spedisce il messaggio
+- Share-project panel obeys the modal contract
+- the permission panel and the queue chip stop being Italian by construction
+- crash screen, destructive dialogs, language selector, guest view
+- i quattro rifiuti che nessuno vedeva ora si leggono
+- Una consegna non si rifiuta da sola: il feedback a turno finito resta nel thread
+- code blocks, terminal, browser pane
+- WIP salvato dal master alle 09:00: terzo scenario E2E (immagine incollata) non ancora finito
+- Terzo scenario: la x di un'immagine INCOLLATA, e il fix che il salvataggio aveva revertito
+- the chat surface, and the gate goes green on a lowered baseline
+- Un avviso di errore non si tronca a meta' frase
+- split the scanner out, and record what the catalogues bought
+- Una tab terminale sparita non e' morta finche' non lo si e' richiesto
+- Il gate pre-review vale su tutte e due le porte, e il land manda la ricevuta
+- Il drawer del task dice quando non ha letto, e offre Riprova
+- The envelope names the identifier-language gate: thirty-five Italian names landed green through six gates
+- A planned restart drains the fleet, and a restart keeps every bound session
+- A single launch's attempt row is history, not a fan-out round to close at boot
+- A parent in the queue is not a stall: its sub-cards wait for the agent it is about to get
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-04 [skip ci]
+- The delivery verifier asks the card's repository, not this server's checkout
+- The quiescence wait names the cards it is waiting for
+- The queue note is one slot per card, not a pile
+- the two quoted-Italian comments follow the scanner into its new file
+- the board drag gets its onTouchStart back, and the queued bubble its X
+- One layout predicate for the shell, and the transport alarm reaches the phone
+- A land in flight holds the restart, the post-land rebuild is for this server's app only, and the verifier knows a reaped worktree's repository
+- targets under threshold get a finger-sized area
+- Spec e2e of the four proofs, and the requirement they answer to
+- The human protocol names the seventh gate
+- the carousel gets a swipe, the lightbox its arrows, the player a name
+- the board dragged with a real finger, plus a shared hit-area probe
+- The new comments in English, as the ratchet asks
+- Five holes the refuters found in today's restart work, closed
+- The new spec's comments in English, as the ratchet requires
+- A turn cut by a server restart does not consume a dispatch attempt
+- Record the dispatcher growth that landed on main without its baseline
+- A card whose model is codex runs on the Codex provider
+- The watcher re-reads the source fingerprint at every server boot
+- Bloat baseline: the dispatcher test file grew by the six restart tests
+- Names in English again, so the identifier gate can be run at all
+- Il turno smette di riscrivere se stesso a ogni evento di tool
+- Il link «pubblico» sotto il guscio non usciva dal computer, e i consigli erano di qualcun altro
+- Say "resuming" while the boot is resending, instead of offering Retry
+- Le nove attese a tempo diventano le condizioni che stavano aspettando
+- Le card dicono perché la coda è ferma, e una card chiusa non finge di essersi rotta
+- Un riavvio non aspetta una domanda che nessuno puo' piu' vedere
+- Every pane draws its first frame from the local copy, not from a fetch
+- Chi scrive la timeline lo DICHIARA, invece di farlo indovinare alla riga
+- I test nuovi passano anche i due cancelli di lingua, non solo il verde
+- Four blocking SQLite reads stop paying for what nobody reads
+- I tre numeri del cruscotto che descrivevano una popolazione inesistente
+- Take main's bloat baseline: this branch was judged against the day before
+- Every interrupted chat resumes: 24-hour window, four attempts, and a sweep every five minutes
+- Three test files that prove something the specs never heard of
+- The transport band's crash headline is an i18n key, like its neighbours
+- Registra nel baseline del bloat due crescite che sono gia' su main
+- Il cancello anti-bloat torna verde, e le mie righe se ne vanno da due file rossi
+- Record the size the dispatcher already had, so the gate can be read again
+- Lo spazzino non chiude una consegna in attesa dei NOSTRI check: quel tool non è piantato, aspetta noi
+- Tre requisiti che i test dichiaravano e le spec non avevano: I18N-04, PUBLIC-PROFILE-URL-01, ORG-PROJECTS-NO-HARDCODE-01
+- Tre nomi di git nel vocabolario del cancello: numstat, pathspec, stat sono le sue flag, non traduzioni mancate
+- Il land risolve da sé un conflitto che sta SOLO in una baseline generata: i tetti di main, poi lo script che la scrive
+- Name the two E2E identifiers in English (marker, WIDE)
+- An English name for the resumed answer's opening line, like its neighbours
+- Baseline identificatori: fissato il debito sceso in OrgProjectsSection (tre nomi in meno)
+- L'envelope non fa più lanciare all'agente la suite unit intera: la fa la board alla consegna, nel suo worktree
+- La ripresa non legge più «l'ultima parola è dell'utente» come «ha ripreso lui»: un messaggio senza risposta si riprende, dopo il cartello
+- The pane you are looking at is not a lazy chunk
+- The two gates that were red: one any of mine, two sizes not mine
+- I check pre-review misurano l'albero che atterra: main entra nel ramo prima dei comandi, una volta per consegna
+- Write the resume banner into the chat spec, as CHAT-INT-02
+- Una consegna il cui client smette di richiamare si completa da sola: il server riemette a se stesso il PATCH ricordato quando i check finiscono
+- Il cancello della taglia registra le quattro righe cresciute, e solo quelle
+- Il file della chat resta sotto il tetto di check-bloat
+- la conversazione unica della card (proposal, design, delta kanban/chat/thread, tasks)
+- Follow main's rename of the two spec helpers into the new scenarios
+- Regenerate the migrations manifest, which two migrations landed without
+- Il manifesto delle migration torna in ordine dopo la fusione di main
+- Il riallineamento rigenera il manifest delle migration quando il merge le ha toccate: una card non deve più farlo a mano
+- Regenerate the migration manifest, which main left out of order
+- Manifest delle migration rigenerato: le due migration di stamattina erano in ordine di arrivo, non di versione
+- Rigenera il manifesto delle migration: due versioni erano fuori ordine
+- Due corsie per i check pre-review su una macchina a dodici core
+- Il banner dei messaggi non inviati dice quale chat, e ci porta
+- Record the before/after numbers next to the inventory that explains them
+- Il limite del piano e' un'interruzione nostra, con un'ora: hold condiviso, cartello riconosciuto, nessun retry cieco
+- Il protocollo della board dice che il tetto vero e' il piano: hold sulle finestre esaurite e test dell'API vera opt-in
+- L'hold si scioglie quando le finestre lo dicono, non al primo turno passato: al bordo di una finestra le richieste piccole passano e le grandi no
+- Gli screenshot della spec restano negli artefatti, non nella home di chi esegue
+- I tre cancelli statici tornano a zero senza alzare le baseline
+- L'hold del provider si spegne da se' allo scadere, senza leggere l'orologio in render
+- Via il varco di prova dell'hold: non lo usa nessun test
+- Il cartello del limite di piano scade da se': la scadenza e' un evento, non una lettura durante il rendering
+- Il frame nuovo entra nel registro e il tipo dell'hold smette di essere in doppia copia
+- Main torna verde su tutti i cancelli: registro outbound, tipo condiviso dell'hold, watchdog che annuncia il tool aperto, tracce di spec sui test landati
+- Main verde anche sui cancelli statici dopo il land del banner: errori della board via i18n, etichette di layout con chiave, tracce di spec sul banner
+- Un tool riparato alla chiusura del turno viene anche ANNUNCIATO, non solo riscritto
+- Il riallineamento prima dei check vale per ogni CONSEGNA, non per ogni chiave nota al gate
+- Il tipo del traduttore in taskActionError resta locale, come negli altri moduli del client: il test degli specchi conta gli export
+- Il nome della bandiera del banner passa al dizionario del gate: resuming non e' una parola che conosce
+- Un lancio singolo chiude il tentativo rimasto «running» dalla sessione che sostituisce
+- Il land non sottrae i rami dei tentativi precedenti della stessa card
+- The observation ends when the page is quiet, not when six seconds are up
+- Il drain headless finisce quando la fine del turno e' depositata, non quando il body si chiude
+- Versione 2.2.265
+
 ## 2.2.264 — 2026-09-01
 
 ### Sotto il cofano
@@ -25,6 +470,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.2.260 — 2026-08-31
 
 ### Sotto il cofano
+- Il primo chip della fascia diventa Account, il terzo diventa Amici
+- Il pannello si rimisura quando cresce, e le due prove portano via una foto
+- Rimetto «pannello» nei titoli delle prove: la rinomina degli identificatori aveva toccato anche le frasi italiane
 - Le guardie che non potevano fallire adesso falliscono, e il manifesto si apre
 
 ## 2.2.259 — 2026-08-31

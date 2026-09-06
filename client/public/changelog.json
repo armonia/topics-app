@@ -1,5 +1,2237 @@
 [
   {
+    "version": "2.2.266",
+    "date": "2026-09-06",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "route clipboard actions through copyText",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "files under a symlinked path were shown as outside the repository",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "WIP salvato dal master alle 03:56 del 2026-09-04: lavoro del tentativo precedente, non ancora consegnato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Marca le buste del dispatcher e fa portare loro i commenti che consegnano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test paid in commits and in history walks, not in flakes",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sblocca check:bloat: una scansione di template literal, non due",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un link a un soggetto eliminato non conia piu' una tab fantasma",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ancora un commento di sessione al messaggio in cui e' stato detto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il coordinatore Kanban globale e' una riga di registro, non un titolo: tabella, marcatore di trasporto, contesto volatile della board e spec",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il coordinatore entra dal Kanban, gira solo su Codex e ogni superficie generica gli chiude la porta: rotte, provider, contesto e strumenti globali sui task",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I test del coordinatore: registro, rotta d'ingresso, solo Codex, isolamento delle superfici, snapshot volatile, consegna che si completa da sola e nessun hint sui goal",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il client toglie al coordinatore i comandi che non gli spettano: apertura dal Kanban, niente archivio, allegati, provider o slash; badge e blocco delle impostazioni in i18n",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I cancelli statici registrano cio' che il coordinatore ha comprato: dizionario con coordinator/denied, bloat aggiornato nello stesso giro, e un motivo su due eslint-disable orfani",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un solo osservatore per i turni headless: la copia in runHeadlessReattach riportava il gate bloat sopra il tetto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il drawer segue il turno dal filo, non da un poll ogni 3 secondi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'hold del provider si scioglie da solo: ricontrollo periodico dell'utilizzo con la credenziale corrente, cosi' un cambio account non congela la flotta fino al reset del vecchio piano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I mock del barrel dei provider delegano al modulo vero: in bun sono globali al processo e uno stub che lancia rendeva rosso topics-abort-turnend nella suite intera",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Zero modifiche git: nessuna sezione, non una che dice «0»",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il giornale di localStorage cresce con le RISCRITTURE, non con cio' che tieni: topics-cache passa da una scrittura per cambiamento a una per raffica",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "nomi inglesi nel test della sezione git vuota",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Le tre sonde dev condividono il loro protocollo invece di copiarselo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "commenti in inglese nel test della sezione git vuota",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Live dictation with Scribe v2 Realtime, batch as the safety net",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La porta unica dei deep-link e' un modulo suo: niente cicli di import",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "`wav` is a word this repo knows, next to `pcm`",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I commenti del modulo nuovo in inglese",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I test rimettono a posto i globali che stubbano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il riavvio trattenuto lo dice subito, e chiama una persona al minuto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nomi e commenti inglesi nel test del cancello, come chiede il repo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test del cancello rimette a posto TOPICS_HOME quando ha finito",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un link cliccato apre una TAB del browser di Topics, non una finestra fuori",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "il link della chat apre la tab, il Cmd-click esce; spec LINK-TAB-01",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Il sesto poll e la sua operazione sono dichiarati, e la spec copre dove atterra la tab",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La card ha UNA conversazione, non due liste da correlare a mano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il rimando alla spec punta al requisito, non alla cartella della change",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un'azione della chat che fallisce lo dice",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un rifiuto che nessuno stampa e' un clic che non ha fatto niente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Search and notifications: stop passing silence off as an answer",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I commenti della spec nuova sono in inglese, come il resto del repo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sei spec che pretendono di leggere il motivo, una per superficie",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "migra gli ultimi 4 call-site raw a copyText",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Il «+» della colonna e' quello che c'e' sempre, aperta o no una pane",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-05 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Correzioni minori UI: ordine palette, tooltip nomi, toggle disabilitati",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo stato per-topic sale nel chrome, sopra la barra delle tab",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Commenti in inglese in due file che avevano fatto rosso il cancello lingua",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo stato della consegna e' un chip, non due note; e una domanda si risponde in ogni colonna",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I quattro riesporti rimasti senza lettori: il modulo delle azioni legge shared/board",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'attesa dell'orfano misurava il carico della suite, non il monitor",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "un controllo chiesto ha una risposta, e «scarica» scarica",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Text tokens: 4.5:1 on the desktop too, computed on the real surfaces",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Allowlist dei progetti: chiuse le tre scritture dal client, gli header di /preview/ e l'evasione di context-upload",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test dell'adapter mocka l'IPC, non la finestra: un'altra suite lo aveva gia' sostituito",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le tessere fissate dei test puntano alla cartella che il server usa davvero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I due cancelli di lingua tornano verdi: erano rossi prima di questa card",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il banco della sicurezza non muore piu' quando la macchina e' carica",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Prompt di dominio ai provider Whisper: misurato, resta fuori",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Banco STT: nomi inglesi, e ffmpeg entra fra le parole del progetto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "read-screen diceva «gateway» mentre a rifiutare era la chiave della vision",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le emoji nella UI diventano icone lucide",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "unit da 18 minuti a due: shard bilanciati, e i globali DOM finti non escono più dal loro file",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "La chat vede l'attesa dei check, e la coda seriale dello sharder si riprova una volta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I glifi testuali usati come icone diventano icone lucide",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Two icon-only buttons get an accessible name",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due bottoni di sola icona ritrovano il nome che il glifo gli dava",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tetto dei giri di tool e il taglio dello sweeper si riprendono da soli",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La ripresa riconosce il tetto dei giri di tool scritto prima della causa; la copia del banco di sicurezza esce dall'hook",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Two guards left red by today's main: a stale resume invariant and two unnamed icon buttons",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il sommario degli shard nomina i test rossi, in coda, dove il commento della card li tiene",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il conto delle righe torna dopo il rientro di main",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il land distingue «misto per discendenza» da «misto per contenuto» prima di cherry-pickare",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due bottoni di sola icona ottengono un nome: chiudi lightbox, togli immagine",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cartello del watchdog promette la ripresa: il test si allinea a chi riprende",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Main torna verde sul cancello unit: la promessa di ripresa vale per tutte le cause nostre, e due bottoni di sola icona hanno un nome",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due bottoni di sola icona dicono il proprio nome, e il lightbox parla la lingua scelta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello unit guarda il carico prima di partire: meno shard e più tempo per test quando la macchina è satura",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La porta del dispatch segue chi trattiene il riavvio: aperta finché trattiene una chat, chiusa quando restano solo card",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tetto dei check del board conta da quando il comando parte, non dalla coda per lo slot",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il bottone di chiusura del lightbox ha un solo nome accessibile",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La proroga dell'orfano del pty-bridge dura soglia più un tick, non il doppio della soglia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il semaforo dei cancelli ri-esporta solo cio' che qualcuno importa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "gate-slot: re-export only the writing side of the slot line",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il ponte dello slot ri-esporta solo la riga che scrive",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "gate-slot re-exports only the name someone reaches through it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un turno fallito su una card spostata a mano non si azzera piu' in silenzio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La coda di un check rosso non e' piu' un muro di test saltati",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una card senza commit di consegna e col ramo potato si accetta, non rimbalza in review",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Pane di progetto servite col percorso canonico: la finestra ritrova le chat",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "identifier-language: nomi inglesi per il risultato canonico e il locatore della spec",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "il symlink lo costruisce il test, e l'attesa e' la scrittura non l'orologio",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "le costanti del modulo canonico non nominano /tmp (gate GATE-09)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "L'hold del piano sopravvive al riavvio: specchiato su disco e riadottato al boot",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I due cancelli statici del coordinatore: cinque `any` tipizzati e il barrel dei provider che torna visibile a knip",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le quattro porte socchiuse del coordinatore, piu' i commenti di tasks.ts che il merge ha reso visibili",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La migration del registro rientra nell'ordine e ha un test che la esegue davvero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il topicId illegale e' un 400, non un 404: il caso «topic che non esiste» prende un id ben formato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il ripristino di un checkpoint tocca solo i file del turno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "`skipped` entra fra le parole del progetto, `FOLDERLESS` sparisce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il banco della memoria crea i topic che indirizza: un URL non conia un file",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I tile dei project window non mostrano lo spinner al ricarico: i chunk si chiedono al boot dal record locale, e il ripiego del pane-store legge una chiave sola",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La barretta dei file scende sopra il composer, senza terminale e col branch solo nei worktree",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un chunk già caldo renderizza senza fallback: lazyWarm al posto di React.lazy per i corpi dei pane",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il primo render aspetta i chunk caldi, con un tetto di 300 ms: niente spinner nei tile al ricarico",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo scatto di fine turno si registra sempre, e senza si rifiuta invece di indovinare",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'inventario del primo frame registra il gate dei chunk caldi e il sipario della chat ancora aperto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togli gli archiviati dalla lista di boot dei topic: 1.535 righe su 1.554 escono dal primo frame e dalla cache locale",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La storia via wire porta di un tool call solo ciò che la riga chiusa disegna: args e detail lunghi si caricano quando la riga si apre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I due cancelli di lingua tornano verdi dopo il land degli archiviati: upsert entra nel dizionario, l'etichetta italiana e' dichiarata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ogni lettura di boot parte una volta: coalescer condiviso, PUT non ripetute, icone che non si ri-sondano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I cancelli di lingua tornano verdi dopo il land del coalescer: reusable nel dizionario, un commento riscritto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A test file no longer inherits the database of the one before it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test dei sei commit ha il budget degli shard, non un tetto piu' basso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test del coalescer non gira piu' a vuoto: gli handler della rifiuta si attaccano con then, non con expect().rejects su una promessa pendente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La barra della kanban smette di essere sgranata: un'altezza sola, dichiarata una volta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una sola lista dei file cambiati: quattro copie, quattro tagli del path, un componente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "coverage of Topics against Claude Code, Codex, Cursor and Conductor",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Il topic della prova si apre dalla sua tab: sotto un progetto il treeitem non esiste",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La striscia si raggiunge seminando la pane store: sotto un progetto non c'e' ne' treeitem ne' tab",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La sidebar ha una porta sola: le persone connesse sono chip, tutto il resto sta sotto la card utente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il nome della mappa delle letture torna inglese: `readings`, non `misure` (cancello identifier-language)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La chat si apre dal permalink, e le due rotte rispondono prima del browser",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il progetto della prova vive sul percorso reale: /tmp e' un link e git risponde con l'altro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un numero solo sul sistema operativo, e il permesso delle notifiche si concede da dentro l'app",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le due superfici si aprono nella finestra del progetto, dove il topic vive davvero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La chat di un task si legge per decidere: il lavoro macchina sta dietro una riga",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il topic entra nella sidebar prima di cercarlo, e il fallimento riporta cosa c'era scritto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "identifier-language: il nome della pane di prova e' una parola inglese",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il progetto si apre dal suo chevron: il nome porta via dalla lista dei topic",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La storia si chiede anche «prima di» un messaggio: cursore before su /api/history, base per la chat che si apre dalla coda",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il chevron si tocca solo se il progetto e' chiuso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I commenti della spec E2E nascono in inglese, e due nomi con loro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test aspetta il server, non l'orologio della macchina: 60 s di attesa sotto carico",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il fallimento elenca cosa c'e' davvero nella sidebar",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il controllo che l'e2e non vede mai: il bottone delle missioni indossa il token, e il numero resta scritto una volta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La dashboard non si guarda piu' bootare: copia locale dei numeri, e la griglia c'e' anche quando non ci sono",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il ritorno di ogni pane ha un cancello che sa dire di no: dashboard e git misurate, e tre casi risorti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il blocco screenshot esce dal caso: la foto e' gia' stata scattata, e un'attesa a orologio dentro un cancello resta li' per sempre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La chat si raggiunge dal permalink: e' l'unico indirizzo che apre QUELLA chat",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La consegna sta su un ramo suo: su main la gamma e' vuota e il menu dice il vero niente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La prova porta a casa i due fotogrammi: due liste che si somigliano si guardano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "a hermetic file closes the database handle it inherited",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Anche il ritaglio delle sole righe: a 268px una schermata intera non si legge",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test dell'inviluppo dispatchato chiude il suo database",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chi apre un DB di test se lo chiude anche all'INIZIO: setupTestDataDir non eredita piu' la maniglia del file precedente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un file di test e' ermetico anche quando quello prima non lo era: il DB si chiude anche in entrata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I test aprono il menu da UNA porta sola, scelta dalla viewport: la card sul desktop, il titolo sul telefono",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tre spec riscritti sul nuovo contratto della fascia: chip che scorrono, una card che non sborda, lo stato dietro la card",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il merge aveva due volte la stessa chiusura del DB: resta quella di main",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I due cancelli di lingua tornano verdi: il marcatore ha il nome per esteso, le etichette sostituite sono dichiarate",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il commento della guida di ridimensionamento nomina la fascia di oggi: le chip, non il chip delle organizzazioni",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Gli stub della fascia diventano un helper: identity-chips torna sotto la soglia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tetto agenti sa anche misurare la macchina, e i settings stanno in un dropdown",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il contratto «per risorse» esce da board.ts, e ddl entra nel dizionario",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il motivo «per risorse» ha le sue parole, e il patch del tetto smette di esistere due volte",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una sola chiusura del DB nel setup dei test: main ci era arrivato da solo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La chat si apre sulla coda: 40 messaggi dalla cache, sipario sulla prima pagina, il resto arriva solo quando nessuno guarda",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "scroller entra nel dizionario degli identificatori",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'inventario del primo frame chiude la riga della chat: 175 ms sullo stato reale con la coda-prima",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-06 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Il tetto pre-review segue il rallentamento dichiarato dal runner",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La CI torna a vedere i cataloghi i18n, il Keychain si prova solo su macOS, e un SIGKILL lascia una traccia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Anche un worktree sotto .claude/worktrees riceve la sua porta e2e",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Apri il menu della sidebar dalla card utente, non dal titolo che non e' piu' un bottone",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello e2e dei file toccati costruisce il bundle da sé in un worktree",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mostra il worktree di un topic nella sidebar: chip e sotto-sezioni per worktree",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ownBundleDir accetta process.env così com'è",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mostra la sezione git anche a zero file quando ha qualcosa da dire, e i test della cronologia stanno su un repo AVANTI al remote",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il feed della board rilegge il server quando un evento glielo dice, e la riga di un file si chiama col nome del file",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le spec dei link esterni ascoltano la porta nuova: una tab del browser, non window.open",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Board col dito: il menu del long-press rilascia il drag armato sullo stesso tocco, e le due scene del chip di coda dichiarano il loro presupposto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tre spec e2e sul contratto vero: coda-prima, dialog in italiano, pane terminale montata prima del roster vuoto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tre rossi e2e con tre cause vere: il nome del tool letto da una colonna ormai vuota, la baseline del prompt mai aggiornata, un tap su un video non ancora interattivo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ascolta l'errore che readline ri-emette dal socket del bridge",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un chunk rotto finisce nel boundary della pane, e il telefono senza rete lo dice entro otto secondi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Raddrizza tre import eager nell'entry e alza la baseline del bundle al valore misurato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La cronologia ad albero pulito: il test dice davvero cosa prova, e PROJECT-12 dice dove sta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I tre chunk nuovi si importano destrutturati, e il test del watcher nomina il requisito",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tre spec del board nominano la cartella temporanea col suo path vero",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.265",
+    "date": "2026-09-04",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La tab del browser si espande quando ci sei dentro, e a riposo dice il titolo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il profilo perde le tab: una pagina sola, follower e privacy in tendina",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'aiuto della spec parlava ancora delle pagine del profilo, che non ci sono piu'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Via la seconda barra: un contatore apre la sua lista, e le persone non sono un profilo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La spec guarda la lista del contatore, non piu' la finestra con le tab",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La baseline dei nomi scende con la tornata: ProfilePane porta via due identificatori italiani",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-01 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Le spec del profilo puntavano a una pagina che non esiste piu': il pannello amici ha preso il posto della tab",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una card ferma su una domanda lo dice, e continua a dirlo dopo un riavvio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una domanda appartiene al suo turno: se ne e' ripartito un altro sopra, non trattiene piu'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "la tab diventa l'unica chrome della pane browser",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "La scheda dice cosa e' stato fatto, e uno scatto duplicato non e' una prova",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due avvisi nuovi si risolvono aggiornando, non accettandoli",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Anche gli scatti duplicati GIA' adottati vengono ritirati, e sopravvive il piu' vecchio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il runtime nativo non era una sessione Claude Code: era un altro agente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il modello si rilegge a ogni turno: in Impostazioni si cambia adesso, non al prossimo riavvio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-02 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Due strade per la stessa cartella erano due progetti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il nativo non sapeva dire a che punto è, né leggere una pagina",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pannello di una cartella sparita tornava dal client",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La tab doppia stava nel gruppo, non nel pannello",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un'archiviazione che non archivia e non protesta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pallino dei progetti senza icona non allineava piu' niente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il commento del pallino passa all'inglese: la baseline scende soltanto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello sull'identita' proteggeva una cosa gia' pubblica",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-03 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Un livello di annidamento costa un passo di rientro, non due",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un task nato con l'UUID finiva su una board che nessuno legge",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una consegna si dichiara, non si indovina",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un comando uscito deve rispondere, e un tool 'running' da ore non e' lavoro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il glifo del caricamento smette di essere un misuratore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La regola della cartella chiusa adesso ha un testimone",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cinque avvisi nuovi si aggiustano, non si accettano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un server MCP protetto da OAuth si monta: la flotta nativa sa fare l'accesso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello sulla lingua dei commenti torna verde, e la baseline scende",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La tab Piano aveva la cura e nessuno che la tenesse ferma",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I tre cancelli che i land di oggi hanno lasciato rossi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "TOPICUI-04b chiamava la porta sbagliata per chiudere una topic",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Zero commit non e' zero lavoro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il numero del non committato va nel chip, non in un commento",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I cinque nomi italiani arrivati con la scheda del non committato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un 529 dell'API non e' la fine del turno: il runtime nativo riprova",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un goal si puo' assegnare all'agente ma lui non poteva chiuderlo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il watcher del server guarda il contenuto, non l'orologio; e riprova per dieci minuti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I 44 nomi italiani che tenevano rosso check:identifier-language",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Baseline dei nomi riallineata: 6003 -> 5971, solo in discesa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il token vive nel Keychain, e il runtime nativo ora lo legge da li'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il Keychain e' acceso di serie su macOS, spento sotto bun test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un nome ancora fuori dal dizionario nel test del Keychain",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I 29 KB dell'entry avevano un nome ciascuno, e uno era un import da raddrizzare",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tre parole inglesi entrate nel dizionario fanno scendere la baseline dei nomi: 5971 -> 5952",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tre cancelli che il lavoro di oggi aveva lasciato rossi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il nome parte subito dopo l'accordion, e una tessera stretta mostra solo l'icona",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un'immagine allegata si apre grande con un click, dovunque la si alleghi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La board mostra la card che il composer flottante sta per creare",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una chat condivisa apriva anche CLAUDE.md, ambiente e checkpoint del progetto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un terminale aperto senza cwd metteva HOME nell'allowlist dei file",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Al risveglio una socket sola, e quella aperta sulla carta si interroga",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Otto test coprivano feature che le spec non vedevano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I quattro cancelli statici che i sei slot della board non avevano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La coda parte a ogni fine turno che il server dichiara, e l'errore resta nella sua chat",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cartello «Risposta tagliata» era irraggiungibile: max_tokens esce da onDone, non da aborted",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'attesa di un turno (retry, slow) vive sulla voce del registro, cosi' il catchup la riporta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo spazzino chiudeva la riga e lasciava vivo il turno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un secondo sendChat sulla stessa sessione nativa correva col primo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un turno morto non avvisava nessuno: ora manda la push di errore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il runtime nativo chiedeva meta' output della CLI e mandava un budget che la famiglia 5 rifiuta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La storia nativa ricostruita dal DB era solo prosa: ogni coppia tool_use/tool_result spariva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello di reload dice quante righe di registro ha letto quando rifiuta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il conteggio spettatori si spinge sul socket invece di chiederlo ogni 2 secondi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il log HTTP scrive l'esito di una richiesta, non la sua partenza",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo scatto delle sessioni in streaming non idrata piu' tutte le topic",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo stato git costa cinque spawn, da un posto solo, e il push riempie la cache",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La ripresa al boot contava i tentativi sulla riga, e ogni riga ripartiva da zero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La prova misurata della card 058ea722, e il nome che non passa sotto l'accordion",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il chip vivo sa quando il turno e' morto, e cosa sta facendo adesso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La parola dell'agente viaggia anche in corso, e su una consegna muta diventa la delivery",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La card dice l'attesa, il tool in corso, il motivo del parcheggio e la parola in corso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La cartella che git non registra piu' ha uno stato suo, e si raccoglie",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La cartella prima della riga, e le righe pending entrano nella passata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le cuciture fra i dodici rami: viewers nelle liste congelate, lightbox nel piano modale, GitStatus in shared",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nove parole inglesi nel dizionario dei nomi, e le due baseline di lingua scendono",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ogni test dei rami atterrati nomina il requisito che prova",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Card.tsx e PinnedTile.tsx tornano sotto il tetto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I cinque rossi del qa-gate dopo la tornata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La card dice quanto e' costata, in dollari",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il watcher dice dove e' fermo un server che non risponde, e quale mount di rete tace",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La spec dell'anteprima card hashava /tmp, il server registra /private/tmp",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La pane nativa si contava come spettatore condiviso fra open e register",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La sonda icona ha una scadenza: dopo 4s decide il fetch",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "publish-status risponde da cache per 30s, la publish la svuota",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'allowlist delle icone si ricalcola a un miss, non a ogni richiesta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La colonna dell'accordion esiste dove qualcosa si apre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "LABELGUTTER-02 semina sul path reale di tmpdir",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I cancelli di lingua sui commit della colonna: inglese nei commenti nuovi, xIconSlot, iconAllowedDirs",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Atterra la card 78c3c527 (tab Piano) come un commit solo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'indirizzo del drawer segue il fuoco della bacheca: il ricarico torna sulla tab su cui si era",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La pane browser di una finestra di progetto conosce il suo indirizzo: la barra non torna sotto la tab",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sottoscrivi url e titolo della tab browser invece di campionarli nel memo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Modifica l'indirizzo dentro la tab: la riga sotto non compare piu' al focus",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tipizza replaceState nel finto history del test di riflessione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il sipario della chat aspetta la storia del server, il primo item dipinto e le immagini in vista",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il primo frame dopo il ricarico legge dal dispositivo: sessione, goal, unread, conteggi board, presenza",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Persisti il «senza icona» verificato: la tessera non ri-sonda a ogni boot e il nome sta fermo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il banner «nessuna risposta» tace finché il registro del server non ha risposto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togli le due righe di diagnostica rimaste nella pane browser condivisa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il reaper di inattivita' non uccide un figlio che sta streammando, e «vivo» vuol dire «il turno e' vivo»",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Inglese nei commenti nuovi del reaper",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una chiave STT presente non e' una chiave: si verifica, un rifiuto toglie il provider, e il risultato dice chi e' caduto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La striscia della dettatura dice il tempo, il segnale e il motore vero; la lingua dell'interfaccia va al modello",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test della coda ferma segue CHAT-QUEUE-04: «invia subito» resta e fa partire la coda",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nome inglese per il frame di animazione in DictationStrip",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La tab riaperta torna nel suo posto, non in fondo alla barra",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due test rossi che non parlavano del prodotto: la guardia del Piano e lo slug",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il banco torna verde: uno stub di fetch che non si toglieva, e una guardia rimasta a un indirizzo vecchio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La barra del browser mostra il file anche dentro il guscio desktop, non la rotta che lo serve",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "deadcode torna verde: via getBrowserPaneTitle, una sola useServerHydrated",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "I tooltip contano come overlay: sopra una pane browser nativa si vedono",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un permalink /tab/... è una pagina, mai un file da scaricare",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il giudice del silenzio non ricicla un agente che aspetta i NOSTRI check, e il poll non finge un riavvio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Niente parole italiane nel commento di displayUrl: il cancello della lingua le contava",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'envelope dice anche QUANDO non si bumpa la versione: mai da una card",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test del checker di sicurezza ha un paracadute contro il blocco, non un cronometro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il contesto pieno non uccide più la chat: il runtime nativo compatta davvero e si riprende dal 400",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo schema condiviso non conosceva le domande all'utente, e l'idratazione le cancellava",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I commenti del test del contesto pieno passano il cancello della lingua",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test dell'idratazione smette di provare una copia della funzione e prova quella vera",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il freeze del contratto WS sapeva 19 varianti: additive, restano compatibili",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un rifiuto su una card senza sessione la rimette in coda, non la lascia in lavorazione senza nessuno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il caso verde di check:security non pretende piu' che il registro risponda",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello della sicurezza smette di far decidere al registro quanto dura",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "security non resta appeso al registro, e il suo banco di prova non chiede la rete",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Commento in inglese nel test del rifiuto senza sessione: il cancello della lingua lo contava",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Commento in inglese sulla regola del bump: il cancello della lingua lo contava",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un obiettivo aperto a fine turno si persegue da solo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cablaggio del ciclo esce dalla route, che era gia' il file piu' lungo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I commenti dei due test nuovi in inglese, come vuole il cancello",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due nomi che il cancello degli identificatori non conosce: rinominati",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La domanda si rendeva sotto due nomi su tre: il terzo e' quello che Topics usa davvero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La gestione della finestra esce dal ciclo del turno e sta in un file suo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'agente si dà l'obiettivo: set_goal e update_goal_steps",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Evidenza della barra a larghezza stretta: leggibile anche a 268px",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il ciclo di continuazione non guarda chi ha scritto l'obiettivo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il ratchet anti-bloat registra i due tool MCP nuovi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La chat sapeva gia' quali file aveva scritto, ma non lo diceva a nessuno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'E2E del chip apriva la chat dal pane store, e il pane store apre il progetto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un turno interrotto dice perche', e offre una via d'uscita",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Anche il reaper dice perche': il cammino vero del referto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il download si annuncia, e le superfici smettono di mostrare il trasporto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "check:ui-language reads the strings it was walking past",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Il banner compare ANCHE dal vivo, che e' la scena del referto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La x di un allegato toglie l'allegato, non spedisce il messaggio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Share-project panel obeys the modal contract",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "the permission panel and the queue chip stop being Italian by construction",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "crash screen, destructive dialogs, language selector, guest view",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "i quattro rifiuti che nessuno vedeva ora si leggono",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Una consegna non si rifiuta da sola: il feedback a turno finito resta nel thread",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "code blocks, terminal, browser pane",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "WIP salvato dal master alle 09:00: terzo scenario E2E (immagine incollata) non ancora finito",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Terzo scenario: la x di un'immagine INCOLLATA, e il fix che il salvataggio aveva revertito",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "the chat surface, and the gate goes green on a lowered baseline",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Un avviso di errore non si tronca a meta' frase",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "split the scanner out, and record what the catalogues bought",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Una tab terminale sparita non e' morta finche' non lo si e' richiesto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il gate pre-review vale su tutte e due le porte, e il land manda la ricevuta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il drawer del task dice quando non ha letto, e offre Riprova",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The envelope names the identifier-language gate: thirty-five Italian names landed green through six gates",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A planned restart drains the fleet, and a restart keeps every bound session",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A single launch's attempt row is history, not a fan-out round to close at boot",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A parent in the queue is not a stall: its sub-cards wait for the agent it is about to get",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-04 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "The delivery verifier asks the card's repository, not this server's checkout",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The quiescence wait names the cards it is waiting for",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The queue note is one slot per card, not a pile",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "the two quoted-Italian comments follow the scanner into its new file",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "the board drag gets its onTouchStart back, and the queued bubble its X",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "One layout predicate for the shell, and the transport alarm reaches the phone",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A land in flight holds the restart, the post-land rebuild is for this server's app only, and the verifier knows a reaped worktree's repository",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "targets under threshold get a finger-sized area",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Spec e2e of the four proofs, and the requirement they answer to",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The human protocol names the seventh gate",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "the carousel gets a swipe, the lightbox its arrows, the player a name",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "the board dragged with a real finger, plus a shared hit-area probe",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "The new comments in English, as the ratchet asks",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Five holes the refuters found in today's restart work, closed",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The new spec's comments in English, as the ratchet requires",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A turn cut by a server restart does not consume a dispatch attempt",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Record the dispatcher growth that landed on main without its baseline",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A card whose model is codex runs on the Codex provider",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The watcher re-reads the source fingerprint at every server boot",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Bloat baseline: the dispatcher test file grew by the six restart tests",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Names in English again, so the identifier gate can be run at all",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il turno smette di riscrivere se stesso a ogni evento di tool",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il link «pubblico» sotto il guscio non usciva dal computer, e i consigli erano di qualcun altro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Say \"resuming\" while the boot is resending, instead of offering Retry",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le nove attese a tempo diventano le condizioni che stavano aspettando",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le card dicono perché la coda è ferma, e una card chiusa non finge di essersi rotta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un riavvio non aspetta una domanda che nessuno puo' piu' vedere",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Every pane draws its first frame from the local copy, not from a fetch",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chi scrive la timeline lo DICHIARA, invece di farlo indovinare alla riga",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I test nuovi passano anche i due cancelli di lingua, non solo il verde",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Four blocking SQLite reads stop paying for what nobody reads",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I tre numeri del cruscotto che descrivevano una popolazione inesistente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Take main's bloat baseline: this branch was judged against the day before",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Every interrupted chat resumes: 24-hour window, four attempts, and a sweep every five minutes",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Three test files that prove something the specs never heard of",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The transport band's crash headline is an i18n key, like its neighbours",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra nel baseline del bloat due crescite che sono gia' su main",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello anti-bloat torna verde, e le mie righe se ne vanno da due file rossi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Record the size the dispatcher already had, so the gate can be read again",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo spazzino non chiude una consegna in attesa dei NOSTRI check: quel tool non è piantato, aspetta noi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tre requisiti che i test dichiaravano e le spec non avevano: I18N-04, PUBLIC-PROFILE-URL-01, ORG-PROJECTS-NO-HARDCODE-01",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tre nomi di git nel vocabolario del cancello: numstat, pathspec, stat sono le sue flag, non traduzioni mancate",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il land risolve da sé un conflitto che sta SOLO in una baseline generata: i tetti di main, poi lo script che la scrive",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Name the two E2E identifiers in English (marker, WIDE)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "An English name for the resumed answer's opening line, like its neighbours",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Baseline identificatori: fissato il debito sceso in OrgProjectsSection (tre nomi in meno)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'envelope non fa più lanciare all'agente la suite unit intera: la fa la board alla consegna, nel suo worktree",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La ripresa non legge più «l'ultima parola è dell'utente» come «ha ripreso lui»: un messaggio senza risposta si riprende, dopo il cartello",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The pane you are looking at is not a lazy chunk",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The two gates that were red: one any of mine, two sizes not mine",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I check pre-review misurano l'albero che atterra: main entra nel ramo prima dei comandi, una volta per consegna",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Write the resume banner into the chat spec, as CHAT-INT-02",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una consegna il cui client smette di richiamare si completa da sola: il server riemette a se stesso il PATCH ricordato quando i check finiscono",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello della taglia registra le quattro righe cresciute, e solo quelle",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il file della chat resta sotto il tetto di check-bloat",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "la conversazione unica della card (proposal, design, delta kanban/chat/thread, tasks)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Follow main's rename of the two spec helpers into the new scenarios",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Regenerate the migrations manifest, which two migrations landed without",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il manifesto delle migration torna in ordine dopo la fusione di main",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il riallineamento rigenera il manifest delle migration quando il merge le ha toccate: una card non deve più farlo a mano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Regenerate the migration manifest, which main left out of order",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Manifest delle migration rigenerato: le due migration di stamattina erano in ordine di arrivo, non di versione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rigenera il manifesto delle migration: due versioni erano fuori ordine",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due corsie per i check pre-review su una macchina a dodici core",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il banner dei messaggi non inviati dice quale chat, e ci porta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Record the before/after numbers next to the inventory that explains them",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il limite del piano e' un'interruzione nostra, con un'ora: hold condiviso, cartello riconosciuto, nessun retry cieco",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il protocollo della board dice che il tetto vero e' il piano: hold sulle finestre esaurite e test dell'API vera opt-in",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'hold si scioglie quando le finestre lo dicono, non al primo turno passato: al bordo di una finestra le richieste piccole passano e le grandi no",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Gli screenshot della spec restano negli artefatti, non nella home di chi esegue",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I tre cancelli statici tornano a zero senza alzare le baseline",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'hold del provider si spegne da se' allo scadere, senza leggere l'orologio in render",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Via il varco di prova dell'hold: non lo usa nessun test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cartello del limite di piano scade da se': la scadenza e' un evento, non una lettura durante il rendering",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il frame nuovo entra nel registro e il tipo dell'hold smette di essere in doppia copia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Main torna verde su tutti i cancelli: registro outbound, tipo condiviso dell'hold, watchdog che annuncia il tool aperto, tracce di spec sui test landati",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Main verde anche sui cancelli statici dopo il land del banner: errori della board via i18n, etichette di layout con chiave, tracce di spec sul banner",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un tool riparato alla chiusura del turno viene anche ANNUNCIATO, non solo riscritto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il riallineamento prima dei check vale per ogni CONSEGNA, non per ogni chiave nota al gate",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tipo del traduttore in taskActionError resta locale, come negli altri moduli del client: il test degli specchi conta gli export",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il nome della bandiera del banner passa al dizionario del gate: resuming non e' una parola che conosce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un lancio singolo chiude il tentativo rimasto «running» dalla sessione che sostituisce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il land non sottrae i rami dei tentativi precedenti della stessa card",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The observation ends when the page is quiet, not when six seconds are up",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il drain headless finisce quando la fine del turno e' depositata, non quando il body si chiude",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Versione 2.2.265",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.264",
     "date": "2026-09-01",
     "sections": {
@@ -71,6 +2303,21 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "Il primo chip della fascia diventa Account, il terzo diventa Amici",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pannello si rimisura quando cresce, e le due prove portano via una foto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rimetto «pannello» nei titoli delle prove: la rinomina degli identificatori aveva toccato anche le frasi italiane",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "Le guardie che non potevano fallire adesso falliscono, e il manifesto si apre",
           "en": "",
