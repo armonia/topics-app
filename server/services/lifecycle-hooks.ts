@@ -164,8 +164,8 @@ export function runHookCommand(
   return new Promise<HookOutcome>((resolve) => {
     let settled = false;
     let timedOut = false;
-    let stderr = "";
-    let stdout = "";
+    let errText = "";
+    let outText = "";
     let timer: ReturnType<typeof setTimeout> | undefined;
     let graceTimer: ReturnType<typeof setTimeout> | undefined;
     const finish = (outcome: HookOutcome) => {
@@ -190,8 +190,8 @@ export function runHookCommand(
       return;
     }
     const capture = (sink: "out" | "err") => (d: Buffer) => {
-      if (sink === "err") { if (stderr.length < MAX_CAPTURE_CHARS) stderr += d.toString(); }
-      else if (stdout.length < MAX_CAPTURE_CHARS) stdout += d.toString();
+      if (sink === "err") { if (errText.length < MAX_CAPTURE_CHARS) errText += d.toString(); }
+      else if (outText.length < MAX_CAPTURE_CHARS) outText += d.toString();
     };
     child.stdout?.on("data", capture("out"));
     child.stderr?.on("data", capture("err"));
@@ -206,7 +206,7 @@ export function runHookCommand(
         return;
       }
       if (code === 0) { finish({ ok: true }); return; }
-      const reason = stderr.trim() || stdout.trim() || `${label} exited ${code === null ? "by signal" : code} with no message`;
+      const reason = errText.trim() || outText.trim() || `${label} exited ${code === null ? "by signal" : code} with no message`;
       finish({ ok: false, reason });
     });
     // The payload goes in and the pipe closes: a command that reads stdin to

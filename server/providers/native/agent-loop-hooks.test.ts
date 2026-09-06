@@ -46,7 +46,7 @@ function bashRound(): string {
   ]);
 }
 
-const closingRound = sse([
+const lastRound = sse([
   { type: "message_start", message: { usage: { input_tokens: 10 } } },
   { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
   { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "fatto" } },
@@ -130,7 +130,7 @@ describe("the pre-tool hook in the native loop", () => {
         return { ok: false, reason: "no bash on fridays" };
       },
     };
-    scriptFetch([bashRound(), closingRound], reg);
+    scriptFetch([bashRound(), lastRound], reg);
     const out = await turn(reg, hooks);
 
     expect(reg.toolResults).toEqual([["t1", "no bash on fridays", true]]);
@@ -158,7 +158,7 @@ describe("the pre-tool hook in the native loop", () => {
 
   test("without `hooks` the round is what it was: the command runs and the result is not an error", async () => {
     const reg = fresh();
-    scriptFetch([bashRound(), closingRound], reg);
+    scriptFetch([bashRound(), lastRound], reg);
     await turn(reg);
 
     expect(existsSync(join(ws, MARKER))).toBe(true);
@@ -170,7 +170,7 @@ describe("the pre-tool hook in the native loop", () => {
     // model receives is byte-identical between the two runs.
     const control = fresh();
     ws = mkdtempSync(join(tmpdir(), "native-hooks-ws-"));
-    scriptFetch([bashRound(), closingRound], control);
+    scriptFetch([bashRound(), lastRound], control);
     await turn(control, { run: async () => ({ ok: true }) });
     expect(existsSync(join(ws, MARKER))).toBe(true);
     expect(control.bodies[1]).toBe(reg.bodies[1]);
