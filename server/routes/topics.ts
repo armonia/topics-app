@@ -2867,8 +2867,6 @@ export function createTopicsRouter(
       } catch (err: any) { return json({ error: `Command failed: ${err.message}` }, 500); }
     }
 
-    // Remote-access tunnel endpoints (/api/remote/*) live in server/routes/remote.ts now.
-
     // --- Processes API ---
     if (method === "GET" && pathname === "/api/processes") {
       const topicId = url.searchParams.get("topicId");

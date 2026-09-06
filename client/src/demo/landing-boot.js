@@ -505,11 +505,10 @@
    * The mascot is the REAL Claude Code logo (v2.1.x): three rows of block-art
    * in brand orange (#D97757 foreground), the exact glyphs the CLI paints —
    * full block U+2588, right/left half U+2590/U+258C, quadrant blocks
-   * U+259B–U+259D. These are SUB-CELL glyphs that only tile seam-free when the
-   * renderer draws them itself; the demo loads xterm's Canvas renderer
-   * (customGlyphs) for exactly this — see SingleTerminalPane, gated on the
-   * `__TOPICS_DEMO_CANVAS__` flag set below. Each row is padded to 9 cells so
-   * the trailing text aligns across all three lines. */
+   * U+259B–U+259D. These are SUB-CELL glyphs drawn by xterm's DOM renderer, the
+   * same one the app uses (the Canvas renderer and its `__TOPICS_DEMO_CANVAS__`
+   * flag are gone: see the note at the top of this file). Each row is padded to
+   * 9 cells so the trailing text aligns across all three lines. */
   var CC_FG = "\x1b[38;2;217;119;87m", CC_RST = "\x1b[0m";
   var M1 = CC_FG + " ▐▛███▜▌ " + CC_RST; //  ▐▛███▜▌
   var M2 = CC_FG + "▝▜█████▛▘" + CC_RST; // ▝▜█████▛▘

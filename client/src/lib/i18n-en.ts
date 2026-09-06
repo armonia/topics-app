@@ -988,7 +988,7 @@ const EN = {
   'board.publish.confirmBodyStart': 'Push {n} commits to ',
   'board.publish.confirmBodyEnd': '. It starts the deploy wherever one is configured.',
   'board.publish.andMore': '…and {n} more',
-  'board.publish.done': '{name}: published ✓',
+  'board.publish.done': '{name}: published',
   'board.publish.error': 'error',
   'board.publish.truncated': '…truncated at 50',
   'board.delivery.unlandedTitle': '{n} closed tasks whose work is not on main',

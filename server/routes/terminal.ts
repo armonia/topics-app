@@ -910,7 +910,10 @@ function setupSocketReader(socket: net.Socket) {
       ensureBridge()
         .then(() => reconcileSessions())
         .then(() => broadcastTerminalSessions())
-        .catch(() => {});
+        // Not swallowed: a bridge that cannot be respawned here (ENOENT, EACCES,
+        // a dead sidecar) is otherwise the one failure with no line in the log,
+        // and nothing retries until a route calls ensureBridge again.
+        .catch((e: unknown) => console.warn("[Terminal] reconnect after bridge close failed:", e instanceof Error ? e.message : String(e)));
     }, 500);
   });
 
