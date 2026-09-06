@@ -1256,6 +1256,10 @@ const IT: Dict = {
   'board.toolbar.thisProject': 'Questo progetto',
   'board.toolbar.allProjects': 'Tutti i progetti',
   'board.toolbar.dispatchSettings': 'Impostazioni auto-dispatch',
+  'board.orchestrator.open': 'Apri orchestratore',
+  'board.orchestrator.opening': 'Apro…',
+  'board.orchestrator.openTitle': 'Apri la conversazione persistente che coordina i task tra le board',
+  'board.orchestrator.openError': "Non riesco ad aprire la conversazione dell'orchestratore.",
   'board.composer.placeholder': "Descrivi un task per l'agent…",
   'board.composer.subtaskOf': 'Sottotask di',
   'board.composer.chainedStart': 'Parte quando chiude',
@@ -2353,6 +2357,11 @@ const IT: Dict = {
   'chat.clear.body': 'Una copia di sicurezza viene salvata.',
   'chat.clear.confirm': 'Svuota',
   'chat.clear.done': 'Conversazione svuotata',
+  'chat.orchestrator.slashBlocked': 'Il coordinatore Kanban usa richieste in linguaggio naturale e gli strumenti globali gestiti dal server; i comandi slash generici non sono disponibili.',
+  'topic.orchestrator.badge': 'Coordinatore Kanban',
+  'topic.orchestrator.lockTitle': 'Conversazione globale gestita',
+  'topic.orchestrator.lockBody': 'Questa chat persistente coordina tutto il Kanban. Topics tiene bloccati il provider (solo Codex), gli strumenti globali sui task e le istruzioni del server; puoi comunque rinominarla, sceglierne il colore e silenziare le notifiche.',
+  'topic.orchestrator.voiceExternal': 'Codex Voice resta esterna a questa conversazione di Topics.',
 
 };
 

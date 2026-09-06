@@ -203,6 +203,16 @@ export const topicsApi = {
   },
 };
 
+// Server-owned global orchestration conversation. The returned topic is still
+// an ordinary Topic; this endpoint only resolves the durable singleton.
+export const orchestratorSessionsApi = {
+  ensureGlobal(): Promise<{ topicId: string; topic: Topic }> {
+    return request<{ topicId: string; topic: Topic }>('/orchestrator-sessions/global/ensure', {
+      method: 'POST',
+    });
+  },
+};
+
 // Chat API
 export const chatApi = {
   async sendMessage(data: ChatRequest, signal?: AbortSignal): Promise<ReadableStream<Uint8Array> | null> {
@@ -1768,4 +1778,3 @@ export const worktreesApi = {
     return request<{ ok: boolean }>(`/worktrees/${id}`, { method: 'DELETE' });
   },
 };
-

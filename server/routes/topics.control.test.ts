@@ -51,8 +51,30 @@ mock.module("./terminal", () => ({
  */
 function makeUiStateDb() {
   const rows = new Map<string, { value: string; server_seq: number }>();
+  const globalOrchestratorTopicIds = new Set<string>();
+  const globalOrchestratorSessionKeys = new Map<string, string>();
+  const eligibleGlobalOrchestratorSessionKeys = new Set<string>();
   const db = {
     query(sql: string) {
+      if (/global_orchestrator_sessions/.test(sql)) {
+        return {
+          get: (_scope: string, key: string) => {
+            const bySession = sql.includes("topics.session_key");
+            const topicId = bySession ? globalOrchestratorSessionKeys.get(key) : key;
+            const raw = !!topicId && globalOrchestratorTopicIds.has(topicId);
+            const requiresEligibleRow = sql.includes("topics.project_path IS NULL");
+            const eligible = bySession && eligibleGlobalOrchestratorSessionKeys.has(key);
+            return raw && (!requiresEligibleRow || eligible)
+              ? {
+                scope: "global",
+                topic_id: topicId,
+                created_at: "2026-09-04T00:00:00.000Z",
+                updated_at: "2026-09-04T00:00:00.000Z",
+              }
+              : null;
+          },
+        };
+      }
       if (/MAX\(server_seq\)/.test(sql)) {
         return {
           get: () => {
@@ -63,7 +85,7 @@ function makeUiStateDb() {
         };
       }
       // SELECT value FROM ui_state WHERE key = ?
-      return { get: (key: string) => rows.get(key) };
+      return { get: (key: string) => rows.get(key), all: () => [] };
     },
     run(_sql: string, params: unknown[]) {
       const [key, value, seq] = params as [string, string, number];
@@ -75,7 +97,7 @@ function makeUiStateDb() {
       return runner as (() => T) & { immediate: () => T };
     },
   };
-  return { db, rows };
+  return { db, rows, globalOrchestratorTopicIds, globalOrchestratorSessionKeys, eligibleGlobalOrchestratorSessionKeys };
 }
 
 function makeTopic(overrides: Partial<Topic> & { id: string }): Topic {
@@ -102,7 +124,13 @@ function makeHarness() {
 
   const topics = new Map<string, Topic>();
   const broadcasts: Array<{ type: string } & Record<string, unknown>> = [];
-  const { db, rows: uiState } = makeUiStateDb();
+  const {
+    db,
+    rows: uiState,
+    globalOrchestratorTopicIds,
+    globalOrchestratorSessionKeys,
+    eligibleGlobalOrchestratorSessionKeys,
+  } = makeUiStateDb();
 
   const ctx = {
     OPENCLAW_DIR: openclawDir,
@@ -129,6 +157,8 @@ function makeHarness() {
       [...topics.values()].find((t) => t.sessionKey === key) ?? null,
     loadTopics: () => ({ topics: Object.fromEntries(topics) }),
     saveSingleTopic: (t: Topic) => { topics.set(t.id, t); },
+    loadUnread: () => ({}),
+    saveUnread: () => {},
     projectStore: {
       list: () => [],
       getByPath: () => null,
@@ -154,7 +184,24 @@ function makeHarness() {
     try { return JSON.parse(row.value) as Record<string, unknown>; } catch { return null; }
   };
 
-  return { topics, broadcasts, workspaceDir, call, cleanup, uiState, readUi, projectHash };
+  return {
+    topics,
+    broadcasts,
+    workspaceDir,
+    call,
+    cleanup,
+    uiState,
+    readUi,
+    projectHash,
+    registerGlobalOrchestratorTopic: (topicId: string, eligible = false) => {
+      globalOrchestratorTopicIds.add(topicId);
+      const sessionKey = topics.get(topicId)?.sessionKey;
+      if (sessionKey) {
+        globalOrchestratorSessionKeys.set(sessionKey, topicId);
+        if (eligible) eligibleGlobalOrchestratorSessionKeys.add(sessionKey);
+      }
+    },
+  };
 }
 
 // Terminal sessions live in a module-level Map behind the mock; reset it so one
@@ -648,6 +695,161 @@ describe("PATCH /api/topics/:id — archived", () => {
       expect(resp.status).toBe(400);
       expect((await resp.json()).error).toContain("DELETE");
       expect(h.topics.get("t1")!.archived).toBe(false);
+    } finally { h.cleanup(); }
+  });
+});
+
+describe("PATCH /api/topics/:id — global coordinator invariants", () => {
+  test("refuses provider fallback or replacement for the registered Codex-only coordinator", async () => {
+    const h = makeHarness();
+    try {
+      h.topics.set("coordinator", makeTopic({ id: "coordinator", provider: "codex" }));
+      h.registerGlobalOrchestratorTopic("coordinator", true);
+
+      for (const provider of [null, "openclaw", "claude", "openai"]) {
+        const response = (await h.call("PATCH", "/api/topics/coordinator", { provider }))!;
+        expect(response.status).toBe(403);
+        expect(await response.json()).toMatchObject({ code: "orchestrator_topic_invariant" });
+        expect(h.topics.get("coordinator")?.provider).toBe("codex");
+      }
+    } finally { h.cleanup(); }
+  });
+
+  test("a raw corrupted coordinator cannot refresh a foreign provider through model, effort, or autonomy PATCHes", async () => {
+    const h = makeHarness();
+    try {
+      const topic = makeTopic({
+        id: "coordinator",
+        provider: "openclaw",
+        projectPath: "/corrupt",
+        model: "old-model",
+        effort: "low",
+        autonomyLevel: "ask",
+      });
+      h.topics.set(topic.id, topic);
+      h.registerGlobalOrchestratorTopic(topic.id);
+
+      for (const body of [
+        { model: "new-model" },
+        { effort: "high" },
+        { autonomyLevel: "yolo" },
+        { disabledContextSources: ["prompt:system"] },
+      ]) {
+        const response = (await h.call("PATCH", `/api/topics/${topic.id}`, body))!;
+        expect(response.status).toBe(409);
+        expect(await response.json()).toMatchObject({ code: "orchestrator_topic_invariant" });
+      }
+
+      expect(h.topics.get(topic.id)).toMatchObject({
+        provider: "openclaw",
+        projectPath: "/corrupt",
+        model: "old-model",
+        effort: "low",
+        autonomyLevel: "ask",
+      });
+      expect(h.broadcasts).toEqual([]);
+    } finally { h.cleanup(); }
+  });
+
+  test("attached context files are refused here too, not only on the upload route", async () => {
+    // `/api/context-upload` and `/api/context-file` already answer 403 for the
+    // coordinator, and this PATCH wrote the same list straight onto the row:
+    // one guard was doing the work of two, and the second entrance was open.
+    const h = makeHarness();
+    try {
+      h.topics.set("coordinator", makeTopic({ id: "coordinator", provider: "codex" }));
+      h.registerGlobalOrchestratorTopic("coordinator", true);
+
+      const response = (await h.call("PATCH", "/api/topics/coordinator", {
+        contextFiles: ["/tmp/anything.md"],
+      }))!;
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({ code: "orchestrator_topic_invariant" });
+      expect(h.topics.get("coordinator")?.contextFiles).toBeUndefined();
+      expect(h.broadcasts).toEqual([]);
+    } finally { h.cleanup(); }
+  });
+});
+
+describe("POST /api/topics/adopt — the coordinator is not an adoptable session", () => {
+  test("refuses the registered session key instead of turning it into a cloud chat", async () => {
+    // Adopting means "make this an ordinary interactive chat", and the branch
+    // that returns an existing Topic also binds it to a project on the way out.
+    const h = makeHarness();
+    try {
+      const topic = makeTopic({ id: "coordinator", provider: "codex" });
+      h.topics.set(topic.id, topic);
+      h.registerGlobalOrchestratorTopic(topic.id, true);
+
+      const response = (await h.call("POST", "/api/topics/adopt", { sessionKey: topic.sessionKey }))!;
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({ code: "orchestrator_topic_invariant" });
+      expect(h.broadcasts).toEqual([]);
+    } finally { h.cleanup(); }
+  });
+
+  test("an ordinary adopted session leaves without a forged role marker", async () => {
+    const h = makeHarness();
+    try {
+      const response = (await h.call("POST", "/api/topics/adopt", {
+        sessionKey: "topic:ordinary-cloud",
+        isGlobalOrchestrator: true,
+      }))!;
+      expect(response.status).toBe(201);
+      const body = await response.json() as Record<string, unknown>;
+      expect(body.isGlobalOrchestrator).toBeUndefined();
+    } finally { h.cleanup(); }
+  });
+});
+
+describe("global coordinator direct-route invariants", () => {
+  test("a raw corrupted coordinator cannot send a slash command through the gateway", async () => {
+    const h = makeHarness();
+    try {
+      h.topics.set("coordinator", makeTopic({ id: "coordinator", provider: "openclaw", projectPath: "/corrupt" }));
+      h.registerGlobalOrchestratorTopic("coordinator");
+      const response = (await h.call("POST", "/api/command", {
+        command: "reasoning",
+        sessionKey: "topic:coordinator",
+        args: { level: "on" },
+      }))!;
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ code: "orchestrator_topic_invariant" });
+    } finally { h.cleanup(); }
+  });
+
+  test("a raw corrupted coordinator cannot resume a generic tool or abort through its stored provider", async () => {
+    const h = makeHarness();
+    try {
+      h.topics.set("coordinator", makeTopic({ id: "coordinator", provider: "openclaw", projectPath: "/corrupt" }));
+      h.registerGlobalOrchestratorTopic("coordinator");
+
+      const toolResponse = (await h.call("POST", "/api/chat/tool-response", {
+        sessionKey: "topic:coordinator",
+        toolCallId: "tool-1",
+        response: { kind: "raw", text: "continue" },
+      }))!;
+      expect(toolResponse.status).toBe(403);
+      expect(await toolResponse.json()).toMatchObject({ code: "orchestrator_topic_invariant" });
+
+      const abort = (await h.call("POST", "/api/chat/abort", { sessionKey: "topic:coordinator" }))!;
+      expect(abort.status).toBe(409);
+      expect(await abort.json()).toMatchObject({ code: "orchestrator_topic_invariant" });
+    } finally { h.cleanup(); }
+  });
+
+  test("bulk project unarchive skips a raw coordinator with a corrupt matching project path", async () => {
+    const h = makeHarness();
+    try {
+      const projectPath = "/corrupt-project";
+      h.topics.set("coordinator", makeTopic({ id: "coordinator", provider: "codex", projectPath, archived: true }));
+      h.topics.set("ordinary", makeTopic({ id: "ordinary", projectPath, archived: true }));
+      h.registerGlobalOrchestratorTopic("coordinator");
+
+      const response = (await h.call("POST", "/api/topics/bulk-archive", { projectPath, archived: false }))!;
+      expect(response.status).toBe(200);
+      expect(h.topics.get("ordinary")?.archived).toBe(false);
+      expect(h.topics.get("coordinator")?.archived).toBe(true);
     } finally { h.cleanup(); }
   });
 });

@@ -13,7 +13,7 @@ import { Database } from "bun:sqlite";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { createGoalsRouter } from "./goals";
-import { getActiveGoal, setGoal } from "../services/goals";
+import { closeGoal, getActiveGoal, getGoal, setGoal } from "../services/goals";
 
 let db: Database;
 let broadcasts: Array<Record<string, unknown>>;
@@ -43,8 +43,16 @@ beforeEach(() => {
   db = new Database(":memory:");
   db.run("PRAGMA foreign_keys = ON");
   db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, session_key TEXT)");
+  db.run(`CREATE TABLE global_orchestrator_sessions (
+    scope TEXT PRIMARY KEY,
+    topic_id TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`);
   db.run(readFileSync(join(import.meta.dir, "..", "db", "migrations", "064-topic-goals.sql"), "utf-8"));
-  db.run("INSERT INTO topics (id, session_key) VALUES ('t1', 'topic:aaaaaaaa'), ('t2', 'topic:bbbbbbbb')");
+  db.run("INSERT INTO topics (id, session_key) VALUES ('t1', 'topic:aaaaaaaa'), ('t2', 'topic:bbbbbbbb'), ('global', 'topic:global')");
+  db.run(`INSERT INTO global_orchestrator_sessions (scope, topic_id, created_at, updated_at)
+    VALUES ('global', 'global', '2026-09-04T00:00:00.000Z', '2026-09-04T00:00:00.000Z')`);
   broadcasts = [];
   const ctx = {
     db,
@@ -53,6 +61,10 @@ beforeEach(() => {
     matchRoute,
     errorResponse: (status: number, error: string) => new Response(JSON.stringify({ error }), { status }),
     broadcast: (msg: Record<string, unknown>) => { broadcasts.push(msg); },
+    getTopicById: (id: string) => {
+      const row = db.query("SELECT id, session_key FROM topics WHERE id = ?").get(id) as { id: string; session_key: string } | null;
+      return row ? { id: row.id, sessionKey: row.session_key } : null;
+    },
     getTopicBySessionKey: (key: string) => {
       const row = db.query("SELECT id FROM topics WHERE session_key = ?").get(key) as { id: string } | null;
       return row ? { id: row.id, sessionKey: key } : null;
@@ -211,5 +223,69 @@ describe("POST /api/goals/:id/promote", () => {
 
   test("an unknown goal is 404", async () => {
     expect((await call("POST", "/api/goals/nope/promote")).status).toBe(404);
+  });
+});
+
+describe("global coordinator goal isolation", () => {
+  test("raw registry role cannot read, create, or close generic topic goals by topic or self session", async () => {
+    const goal = setGoal(db, { topicId: "global", content: "Must remain inaccessible" });
+
+    const byTopicGet = await call("GET", "/api/topics/global/goal");
+    const byTopicPut = await call("PUT", "/api/topics/global/goal", { content: "Create an escape" });
+    const byTopicDelete = await call("DELETE", "/api/topics/global/goal", { status: "achieved" });
+    const bySessionGet = await call("GET", "/api/sessions/topic%3Aglobal/goal");
+    const bySessionDelete = await call("DELETE", "/api/sessions/topic%3Aglobal/goal", { status: "achieved" });
+
+    for (const response of [byTopicGet, byTopicPut, byTopicDelete, bySessionGet, bySessionDelete]) {
+      expect(response.status).toBe(403);
+      expect(response.body).toMatchObject({ code: "orchestrator_topic_invariant" });
+    }
+    expect(getActiveGoal(db, "global")?.id).toBe(goal.id);
+    expect(broadcasts).toEqual([]);
+  });
+
+  test("raw registry role cannot reopen a coordinator goal or replace its steps by goal id", async () => {
+    const goal = setGoal(db, { topicId: "global", content: "Do not mutate this goal" });
+    closeGoal(db, goal.id, "achieved");
+
+    const reopen = await call("POST", `/api/goals/${goal.id}/reopen`);
+    const steps = await call("PUT", `/api/goals/${goal.id}/steps`, {
+      steps: [{ content: "Mutate through the id route", status: "completed" }],
+    });
+
+    for (const response of [reopen, steps]) {
+      expect(response.status).toBe(403);
+      expect(response.body).toMatchObject({ code: "orchestrator_topic_invariant" });
+    }
+    expect(getGoal(db, goal.id)).toMatchObject({ status: "achieved", steps: [] });
+    expect(broadcasts).toEqual([]);
+  });
+
+  test("ordinary Topics retain their direct goal API", async () => {
+    const created = await call("PUT", "/api/topics/t1/goal", { content: "Ship the normal Topic" });
+    const read = await call("GET", "/api/topics/t1/goal");
+
+    expect(created.status).toBe(201);
+    expect(read.status).toBe(200);
+    expect(read.body.goal.content).toBe("Ship the normal Topic");
+  });
+
+  test("the coordinator is refused on the loop, the session steps and promote routes too", async () => {
+    // Goals live on the coordinator row only when planted directly in SQL:
+    // every HTTP door, including the three added on main after the feature
+    // branched, must stay shut.
+    const goal = setGoal(db, { topicId: "global", content: "Planted directly", createdBy: "agent" });
+
+    const loop = await call("POST", "/api/topics/global/goal/loop", { state: "stopped" });
+    const sessionPut = await call("PUT", "/api/sessions/topic%3Aglobal/goal", { content: "Escape by session" });
+    const sessionSteps = await call("PUT", "/api/sessions/topic%3Aglobal/goal/steps", { steps: [{ content: "p1" }] });
+    const promote = await call("POST", `/api/goals/${goal.id}/promote`);
+
+    for (const response of [loop, sessionPut, sessionSteps, promote]) {
+      expect(response.status).toBe(403);
+      expect(response.body).toMatchObject({ code: "orchestrator_topic_invariant" });
+    }
+    expect(getGoal(db, goal.id)).toMatchObject({ createdBy: "agent", status: "active", steps: [] });
+    expect(broadcasts).toEqual([]);
   });
 });

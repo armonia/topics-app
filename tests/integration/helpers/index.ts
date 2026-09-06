@@ -19,6 +19,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import path from "node:path";
+import { closeDatabase } from "../../../server/db";
 import type { AppContext } from "../../../server/types";
 import { closeDatabase } from "../../../server/db";
 
@@ -94,6 +95,15 @@ export function setupTestDataDir(testDataDir: string): void {
         `Usa: const ROOT = testTmpDir("<label>")`,
     );
   }
+  // Hand back the previous file's handle BEFORE moving DATA_DIR. `server/db.ts`
+  // keeps `_db` in a PROCESS singleton and a shard runs hundreds of files in
+  // one process, so an open handle survives the file that opened it: the next
+  // `createTestAppContext` gets THAT database, under this file's name, with the
+  // previous file's rows still in it. Until now the isolation this helper
+  // promises rested on every previous file remembering `cleanupTestDataDir`,
+  // and 18 of the 46 files that use it do not. Closing here makes the promise
+  // hold whatever the neighbours do, and closing is idempotent.
+  closeDatabase();
   fs.rmSync(testDataDir, { recursive: true, force: true });
   process.env.DATA_DIR = testDataDir;
   // AND the handle of whoever came before is closed here, not only in their

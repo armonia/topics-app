@@ -75,6 +75,8 @@ interface HarnessOpts {
    * out of scope for the check anyway) stay a silent no-op.
    */
   portOwnerDeps?: PortOwnerDeps;
+  /** Raw registry role used to prove direct browser routes fail closed. */
+  globalCoordinatorTopicIds?: string[];
 }
 
 function harness(opts: HarnessOpts = {}) {
@@ -103,6 +105,7 @@ function harness(opts: HarnessOpts = {}) {
   /** Su quali contextId la rotta ha chiesto «c'è una pane viva?». */
   const attachChecks: string[] = [];
   const evaluations: Array<{ contextId: string; expression: string }> = [];
+  const globalCoordinatorTopicIds = new Set(opts.globalCoordinatorTopicIds ?? []);
 
   const page = (contextId: string) => ({
     replEvaluate: async (expression: string) => {
@@ -137,6 +140,23 @@ function harness(opts: HarnessOpts = {}) {
   } as unknown as BrowserService;
 
   const ctx = {
+    db: {
+      query: (sql: string) => ({
+        get: (_scope: string, value: string) => {
+          const topicId = sql.includes("topics.session_key")
+            ? [...topics.values()].find((topic) => topic.sessionKey === value)?.id
+            : value;
+          return topicId && globalCoordinatorTopicIds.has(topicId)
+            ? {
+                scope: "global",
+                topic_id: topicId,
+                created_at: "2026-09-04T00:00:00.000Z",
+                updated_at: "2026-09-04T00:00:00.000Z",
+              }
+            : null;
+        },
+      }),
+    },
     json: (data: unknown, status = 200) =>
       new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } }),
     readJSON: async (req: Request) => { try { return await req.json(); } catch { return null; } },
@@ -213,6 +233,21 @@ afterEach(() => {
 // La risoluzione del contesto: topic, task, terminale, niente.
 // ---------------------------------------------------------------------------
 describe("risoluzione del contesto — le tre provenienze di un contextId", () => {
+  test("il coordinatore registrato non può aggirare il profilo MCP tramite le route browser dirette", async () => {
+    const h = harness({ globalCoordinatorTopicIds: ["global"] });
+    h.addTopic("global", { projectPath: "/corrupt-binding" });
+
+    const bySession = await h.post("/api/sessions/topic%3Aglobal/browser/open-pane", { url: "https://example.com/" });
+    const byTopic = await h.post("/api/topics/global/browser/focus-pane");
+
+    expect(bySession!.status).toBe(403);
+    expect(byTopic!.status).toBe(403);
+    expect(await bySession!.json()).toMatchObject({ code: "orchestrator_topic_invariant" });
+    expect(await byTopic!.json()).toMatchObject({ code: "orchestrator_topic_invariant" });
+    expect(h.navigations).toEqual([]);
+    expect(h.broadcasts).toEqual([]);
+  });
+
   test("chat topic: l'indirizzo per :id e quello per :sessionKey portano allo STESSO pannello", async () => {
     const h = harness();
     h.addTopic("t1");

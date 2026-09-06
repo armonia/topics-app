@@ -19,6 +19,7 @@ import {
 } from "../lib/process-wait";
 import { registerFleetScriptSource } from "../lib/fleet-usage";
 import { isBroadCwd } from "../lib/broad-cwd";
+import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 
 interface ScriptProcess {
   processId: string;
@@ -1482,6 +1483,18 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
 
   /** Resolve a sessionKey to its topic's working directory, or an error Response. */
   function resolveSessionCwd(sessionKey: string): { path: string } | { error: Response } {
+    // The registered board coordinator deliberately has no project authority.
+    // This must use the raw registry predicate, rather than its usable global
+    // capability: a manually corrupted/bound coordinator must not fall through
+    // to ordinary topic or terminal cwd resolution and gain script authority.
+    if (isGlobalOrchestratorSession(ctx.db, sessionKey)) {
+      return {
+        error: json({
+          error: "the global coordinator cannot access project scripts",
+          code: "orchestrator_topic_invariant",
+        }, 403),
+      };
+    }
     const topic = ctx.getTopicBySessionKey(sessionKey);
     if (topic) {
       const path = ctx.resolveTopicCwd(topic);

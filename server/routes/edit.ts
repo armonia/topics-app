@@ -5,6 +5,7 @@ import { autoreDaIdentita } from "../lib/message-author";
 import { makeGatewaySseProcessor } from "../lib/gateway-sse-consumer";
 import { regenerationPromptBlock, type EvidenceToolCall } from "./regenerate-evidence";
 import { providerSurvivesRestart } from "../lib/quiescence";
+import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 
 export interface EditDeps {
   resolveProvider: (topic?: Topic | null) => AIProvider;
@@ -240,6 +241,16 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
 
       const sessionKey = getMessageSessionKey(params.id);
       if (!sessionKey) return json({ error: "session not found" }, 404);
+      // Edit/regenerate uses a generic one-shot provider path rather than the
+      // coordinator's constrained Codex session profile. Reject the raw role
+      // before creating a sibling message so a corrupt registry row cannot
+      // reach a fallback provider or mutate the transcript half-way.
+      if (isGlobalOrchestratorSession(ctx.db, sessionKey)) {
+        return json({
+          error: "editing and regeneration are unavailable for the global coordinator",
+          code: "orchestrator_topic_invariant",
+        }, 403);
+      }
 
       // L'autore (095). Questa rotta è la SECONDA porta da cui un prompt umano
       // entra — la prima è `POST /api/chat` — e riscrivere una domanda invece di
@@ -303,6 +314,12 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
       if (msg.role !== "assistant") return json({ error: "only assistant messages can be regenerated" }, 400);
       const sessionKey = getMessageSessionKey(regenParams.id);
       if (!sessionKey) return json({ error: "session not found" }, 404);
+      if (isGlobalOrchestratorSession(ctx.db, sessionKey)) {
+        return json({
+          error: "editing and regeneration are unavailable for the global coordinator",
+          code: "orchestrator_topic_invariant",
+        }, 403);
+      }
       if (isStreaming(sessionKey)) return json({ error: "a response is already streaming for this session" }, 409);
       const anchorId = msg.parentId;
       if (!anchorId) return json({ error: "message has no parent user message" }, 400);

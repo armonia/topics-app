@@ -22,6 +22,14 @@ export interface CodexExecArgsOptions {
   model?: string | null;
   /** `full-access` opta per il bypass; qualunque altra cosa resta sandboxata. */
   approvalMode?: string | null;
+  /** Narrow sessions may be read-only even when the app default is workspace-write. */
+  sandbox?: "workspace-write" | "read-only";
+  /**
+   * Do not merge user config/rules into a registry-owned narrow profile.
+   * Authentication still uses CODEX_HOME; explicit `-c mcp_servers.*` values
+   * below remain the only configured operational tools.
+   */
+  isolated?: boolean;
   /**
    * Il bridge MCP di Topics, o null quando non si è potuto montare. Codex legge
    * `mcp_servers.*` dal config: si inietta per-invocazione con `-c`, e il valore
@@ -37,13 +45,14 @@ export function buildCodexArgs(opts: CodexExecArgsOptions): string[] {
   // `codex exec --json` è l'ingresso non interattivo canonico. Il prompt entra
   // da stdin, non da argv, per non incontrare il limite di lunghezza.
   const args = ["exec", "--json", "--skip-git-repo-check"];
+  if (opts.isolated) args.push("--ignore-user-config", "--ignore-rules");
   if (opts.model) args.push("--model", opts.model);
   // `--approval` non è una flag valida di `codex exec` nelle versioni correnti:
   // la sandbox si sceglie così.
   if (opts.approvalMode === "full-access") {
     args.push("--dangerously-bypass-approvals-and-sandbox");
   } else {
-    args.push("--sandbox", "workspace-write");
+    args.push("--sandbox", opts.sandbox ?? "workspace-write");
   }
   if (opts.bridge) {
     args.push("-c", `mcp_servers.topics.command=${JSON.stringify(opts.bridge.command)}`);

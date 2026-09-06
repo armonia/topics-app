@@ -30,8 +30,10 @@ import {
   teardownArchivedTaskBrowserState,
 } from "./server/services/task-tab-teardown";
 import { createTopicsRouter, purgeTopicFromUiState } from "./server/routes/topics";
+import { createOrchestratorSessionsRouter } from "./server/routes/orchestrator-sessions";
 import { archiveTopicFully } from "./server/services/archive-topic";
-import { applyPaneCascade, reconcile, recordRetirement, retiredIds, type ReconcileDeps } from "./server/services/retirement";
+import { applyPaneCascade, clearRetirement, reconcile, recordRetirement, retiredIds, type ReconcileDeps } from "./server/services/retirement";
+import { isGlobalOrchestratorTopic } from "./server/services/global-orchestrator-session";
 import { computeCascade } from "./server/services/pane-retirement-cascade";
 import { createOpenRouter } from "./server/routes/open";
 import { configureSessionParkingForTracker, parkTopicSession } from "./server/lib/session-parking";
@@ -654,6 +656,7 @@ const paneAttachedTo = (contextId: string): boolean => {
   return false;
 };
 const topicsRouter = createTopicsRouter(ctx, browserService, paneAttachedTo);
+const orchestratorSessionsRouter = createOrchestratorSessionsRouter(ctx);
 const filesRouter = createFilesRouter(ctx);
 const voiceRouter = createVoiceRouter(ctx);
 const mediaRouter = createMediaRouter(ctx);
@@ -1188,6 +1191,13 @@ const DISPATCH_AUTONOMY = DETACHED_TOPIC_AUTONOMY;
  */
 const retirementConsequences: ReconcileDeps = {
   archiveTopic: (topicId) => {
+    // The singleton has a durable transcript and must survive closing its
+    // ordinary ChatPanel. Keep the raw registry identity here: even a damaged
+    // backing Topic must never fall back into generic cleanup/archival.
+    if (isGlobalOrchestratorTopic(ctx.db, topicId)) {
+      clearRetirement(ctx.db, "topic", topicId);
+      return;
+    }
     const res = archiveTopicFully({
       getTopicById: ctx.getTopicById,
       saveSingleTopic: ctx.saveSingleTopic,
@@ -1203,6 +1213,19 @@ const retirementConsequences: ReconcileDeps = {
     if (res.purgeError) {
       console.error(`[archive] purge di ui_state fallita per topicId=${topicId}:`, res.purgeError);
     }
+  },
+  shouldRetireTopic: (topicId) => !isGlobalOrchestratorTopic(ctx.db, topicId),
+  restoreTopic: (topicId) => {
+    if (!isGlobalOrchestratorTopic(ctx.db, topicId)) return;
+    const topic = ctx.getTopicById(topicId);
+    if (!topic) return;
+    clearRetirement(ctx.db, "topic", topicId);
+    if (!topic.archived) return;
+    topic.archived = false;
+    topic.updatedAt = new Date().toISOString();
+    ctx.saveSingleTopic(topic);
+    ctx.broadcastToAll({ type: "topic:archived", topic });
+    ctx.broadcastToAll({ type: "topic:updated", topic });
   },
   retireTerminal: (sessionId) => { retireTerminalSession(sessionId); },
 };
@@ -3326,6 +3349,7 @@ const opzioniServer = {
     // Route through handlers
     if (isApiRequest) {
       const response = await topicsRouter(req, url, pathname, method)
+        || await orchestratorSessionsRouter(req, url, pathname, method)
         || await voiceRouter(req, url, pathname, method)
         || await mediaRouter(req, url, pathname, method)
         || await branchesRouter(req, url, pathname, method)

@@ -104,6 +104,10 @@ import { toolOutcomeAtTurnEnd } from "../lib/tool-finalize-status";
 import { providerSurvivesRestart } from "../lib/quiescence";
 import { toolsSuspendSoftTimer } from "../lib/soft-timer-suspension";
 import { appendInterruptedVerdict } from "../lib/interrupted-turn-block";
+import {
+  isEligibleGlobalOrchestratorSession,
+  isGlobalOrchestratorTopic,
+} from "../services/global-orchestrator-session";
 
 /**
  * Le chiavi dei messaggi gia' presi, per riconoscere una ripetizione.
@@ -354,6 +358,42 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       // exactly them. Recomputing the label from "the last user message" at
       // the end would read a message that may no longer be the last one.
       let turnCheckpointMark: { projectPath: string; label: string } | null = null;
+      // This is an exact registry lookup, never a title/provider/MCP-policy
+      // inference. It also fences generic chat side-effect handlers so a
+      // provider regression cannot broaden the focused board profile.
+      const globalOrchestrator = !!matchedTopic && isGlobalOrchestratorTopic(ctx.db, matchedTopic.id);
+      const overrideProvider = typeof body.provider === "string" && body.provider.trim()
+        ? body.provider.trim()
+        : null;
+      // Keep raw identity and usable capability distinct. A damaged registry
+      // Topic never degrades into an ordinary chat: it has no project/file
+      // authority, and it must not recover a default provider through fallback.
+      if (globalOrchestrator && !isEligibleGlobalOrchestratorSession(ctx.db, sessionKey)) {
+        return json({
+          error: "global coordinator integrity is invalid; reopen it from the Kanban",
+          code: "orchestrator_topic_invariant",
+        }, 409);
+      }
+      if (globalOrchestrator && overrideProvider && overrideProvider !== "codex") {
+        return json({
+          error: "the global coordinator is Codex-only",
+          code: "orchestrator_provider_required",
+        }, 400);
+      }
+      // Resolve Codex before the user message is persisted. If it is not
+      // available, fail explicitly rather than recording a turn that could
+      // later be sent through a default/foreign provider.
+      let forcedGlobalProvider: AIProvider | null = null;
+      if (globalOrchestrator) {
+        try {
+          forcedGlobalProvider = getProvider("codex");
+        } catch {
+          return json({
+            error: "Codex is unavailable for the global coordinator",
+            code: "codex_unavailable",
+          }, 503);
+        }
+      }
       // Reset browser navigate tracking for this topic so new URLs can trigger
       if (matchedTopic) browserNavigatedTopics.delete(matchedTopic.id);
       // Il piano ha UNA leva sola, ed è l'autonomia della chat.
@@ -512,55 +552,63 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
 
             try {
               if (cmd === "project") {
-                const subMatch = rest.match(/^(\w+)\s*(.*)/);
-                const sub = subMatch ? subMatch[1] : "";
-                const arg = subMatch ? subMatch[2].trim() : "";
-
-                if (sub === "create" && arg) {
-                  // Sanitize name: only alphanumeric, hyphens, underscores
-                  const safeName = arg.replace(/[^a-zA-Z0-9_-]/g, "");
-                  if (!safeName) {
-                    response = `Invalid project name. Use alphanumeric characters, hyphens, and underscores.`;
-                  } else {
-                    const targetDir = join(WORKSPACE_DIR, safeName);
-                    if (existsSync(targetDir)) {
-                      response = `Project **${safeName}** already exists at \`${targetDir}\`. Use \`/project open ${safeName}\` to bind it.`;
-                    } else {
-                      mkdirSync(targetDir, { recursive: true });
-                      writeFileSync(join(targetDir, "CLAUDE.md"), `# ${safeName}\n`);
-                      // Bind to current topic + open the project window.
-                      if (matchedTopic) bindTopicToProject(matchedTopic.id, targetDir, { focus: true });
-                      response = `Created project **${safeName}** at \`${targetDir}\` and bound to this topic.`;
-                    }
-                  }
-                } else if (sub === "open" && arg) {
-                  // Resolve against the user's real Topics projects, not just the workspace.
-                  // Explicit local user command → raw absolute/~ paths are trusted.
-                  const targetDir = resolveProjectRef(arg, { trustRawPaths: true });
-                  if (!targetDir) {
-                    response = `Project not found: \`${arg}\``;
-                  } else {
-                    const projectName = targetDir.split("/").pop() || arg;
-                    if (matchedTopic) bindTopicToProject(matchedTopic.id, targetDir, { focus: true });
-                    response = `Opened project **${projectName}**. It is now bound to this topic.`;
-                  }
+                // The registered global coordinator is deliberately an
+                // unbound Topic. Do this at the chat-command boundary too:
+                // this legacy interceptor creates directories before it tries
+                // to bind, and a failed bind must not become a false success.
+                if (matchedTopic && isGlobalOrchestratorTopic(ctx.db, matchedTopic.id)) {
+                  response = "Project controls are unavailable in the global Kanban coordinator. It remains unbound and coordinates work through the global board tools.";
                 } else {
-                  // No subcommand: show current + list
-                  const lines: string[] = [];
-                  if (matchedTopic?.projectPath) {
-                    lines.push(`**Current project:** \`${matchedTopic.projectPath}\``);
-                  } else {
-                    lines.push("No project bound to this topic.");
-                  }
-                  const wsProjects = getWorkspaceProjects();
-                  if (wsProjects.length > 0) {
-                    lines.push("", "**Workspace projects:**");
-                    for (const p of wsProjects) {
-                      const name = p.split("/").pop();
-                      lines.push(`- \`${name}\` · ${p}`);
+                  const subMatch = rest.match(/^(\w+)\s*(.*)/);
+                  const sub = subMatch ? subMatch[1] : "";
+                  const arg = subMatch ? subMatch[2].trim() : "";
+
+                  if (sub === "create" && arg) {
+                    // Sanitize name: only alphanumeric, hyphens, underscores
+                    const safeName = arg.replace(/[^a-zA-Z0-9_-]/g, "");
+                    if (!safeName) {
+                      response = `Invalid project name. Use alphanumeric characters, hyphens, and underscores.`;
+                    } else {
+                      const targetDir = join(WORKSPACE_DIR, safeName);
+                      if (existsSync(targetDir)) {
+                        response = `Project **${safeName}** already exists at \`${targetDir}\`. Use \`/project open ${safeName}\` to bind it.`;
+                      } else {
+                        mkdirSync(targetDir, { recursive: true });
+                        writeFileSync(join(targetDir, "CLAUDE.md"), `# ${safeName}\n`);
+                        // Bind to current topic + open the project window.
+                        if (matchedTopic) bindTopicToProject(matchedTopic.id, targetDir, { focus: true });
+                        response = `Created project **${safeName}** at \`${targetDir}\` and bound to this topic.`;
+                      }
                     }
+                  } else if (sub === "open" && arg) {
+                    // Resolve against the user's real Topics projects, not just the workspace.
+                    // Explicit local user command → raw absolute/~ paths are trusted.
+                    const targetDir = resolveProjectRef(arg, { trustRawPaths: true });
+                    if (!targetDir) {
+                      response = `Project not found: \`${arg}\``;
+                    } else {
+                      const projectName = targetDir.split("/").pop() || arg;
+                      if (matchedTopic) bindTopicToProject(matchedTopic.id, targetDir, { focus: true });
+                      response = `Opened project **${projectName}**. It is now bound to this topic.`;
+                    }
+                  } else {
+                    // No subcommand: show current + list
+                    const lines: string[] = [];
+                    if (matchedTopic?.projectPath) {
+                      lines.push(`**Current project:** \`${matchedTopic.projectPath}\``);
+                    } else {
+                      lines.push("No project bound to this topic.");
+                    }
+                    const wsProjects = getWorkspaceProjects();
+                    if (wsProjects.length > 0) {
+                      lines.push("", "**Workspace projects:**");
+                      for (const p of wsProjects) {
+                        const name = p.split("/").pop();
+                        lines.push(`- \`${name}\` · ${p}`);
+                      }
+                    }
+                    response = lines.join("\n");
                   }
-                  response = lines.join("\n");
                 }
               }
             } catch (err: any) {
@@ -667,8 +715,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
 
       // ─── Resolve provider for this topic (with optional per-message override) ───
       let topicProvider: AIProvider;
-      const overrideProvider = typeof body.provider === "string" && body.provider.trim() ? body.provider.trim() : null;
-      if (overrideProvider) {
+      if (forcedGlobalProvider) {
+        topicProvider = forcedGlobalProvider;
+      } else if (overrideProvider) {
         try {
           topicProvider = getProvider(overrideProvider);
         } catch (err: any) {
@@ -2065,7 +2114,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             topicProvider.unregisterStreamHandler?.(sessionKey, handler);
 
             // Detect sub-agent launches
-            if (matchedTopic && /sub.?agent|subagent|lanciato|spawned|sessions_spawn/i.test(fullContent)) {
+            if (!globalOrchestrator && matchedTopic && /sub.?agent|subagent|lanciato|spawned|sessions_spawn/i.test(fullContent)) {
               watchSessionForSubagents(matchedTopic.id, sessionKey);
             }
 
@@ -2199,7 +2248,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               } catch {}
             }, 1000);
 
-            if (matchedTopic && !matchedTopic.projectPath) {
+            if (matchedTopic && !matchedTopic.projectPath && !globalOrchestrator) {
               setTimeout(() => {
                 try {
                   autoBindProject(matchedTopic!);
@@ -2264,7 +2313,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // Scan only the new delta plus a small carry-over tail (a URL can
                 // straddle two chunks) — not the whole accumulated fullContent.
                 const localhostScanWindow = localhostScanCarry + newText;
-                detectLocalhostAutoNav(localhostScanWindow, matchedTopic);
+                if (!globalOrchestrator) detectLocalhostAutoNav(localhostScanWindow, matchedTopic);
                 // Keep enough trailing context for a `localhost:PORT` split across
                 // the boundary (`http://localhost:65535` ≈ 22 chars).
                 localhostScanCarry = localhostScanWindow.slice(-24);
@@ -2351,7 +2400,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ id: toolCallId, function: { name, arguments: JSON.stringify(args || {}) }, contentOffset: fullContent.length }] } }] }));
 
               // Track sessions_spawn
-              if (name === 'sessions_spawn' && matchedTopic) {
+              if (name === 'sessions_spawn' && matchedTopic && !globalOrchestrator) {
                 watchSessionForSubagents(matchedTopic.id, sessionKey);
                 console.log(`[SubagentPoll] sessions_spawn detected via WS in topic ${matchedTopic.id.slice(0,8)}`);
               }
@@ -2363,7 +2412,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // (try/finally guaranteed unlock even if it throws). Result is fed back
               // through the same onToolResult update path used by every other tool, so
               // the chat UI shows identical lifecycle (running -> success/error).
-              if (name.startsWith('browser_') && matchedTopic && browserService) {
+              if (name.startsWith('browser_') && matchedTopic && browserService && !globalOrchestrator) {
                 // The route runs it itself: here announcing and starting ARE the
                 // same instant, so the suspension is earned.
                 markToolExecuting(toolCallId);
@@ -2425,7 +2474,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // shared onToolResult update path so the chat UI shows the normal
               // running→success/error lifecycle. Fire-and-forget: single-turn SDK
               // providers don't need the result back to continue.
-              if (isControlTool(name) && matchedTopic) {
+              if (isControlTool(name) && matchedTopic && !globalOrchestrator) {
                 markToolExecuting(toolCallId);
                 dispatchControlToolCall(name, args || {}, matchedTopic, controlDispatchDeps)
                   .then((confirmation) => {
@@ -3200,7 +3249,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // spec: replace-markers-with-tools). Unlike browserTools these don't need
             // browserService, so a passthrough provider always gets AI-initiated
             // control even in a build without the browser pane.
-            if (isPassthroughProvider(topicProvider.name)) {
+            if (isPassthroughProvider(topicProvider.name) && !globalOrchestrator) {
               sendOptions.tools = [
                 ...(browserService ? browserTools : []),
                 ...controlTools,
@@ -3412,7 +3461,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           if (contentType.includes("application/json")) {
             const data = await resp.json() as any;
             const content = data?.choices?.[0]?.message?.content || "";
-            detectLocalhostAutoNav(content, matchedTopic);
+            if (!globalOrchestrator) detectLocalhostAutoNav(content, matchedTopic);
             if (data?.usage) {
               const model = data.model || "unknown";
               const inputTokens = data.usage.prompt_tokens || 0;
@@ -3433,7 +3482,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: storedJsonAssistant.id, content, preview: content.slice(0, 100) });
               finalizeTurnActivity(matchedTopic);
             }
-            if (matchedTopic && !matchedTopic.projectPath) setTimeout(() => autoBindProject(matchedTopic!), 100);
+            if (matchedTopic && !matchedTopic.projectPath && !globalOrchestrator) setTimeout(() => autoBindProject(matchedTopic!), 100);
             const ssePayload = `data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}\n\ndata: {"choices":[{"index":0,"delta":{"content":${JSON.stringify(content)}},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n`;
             return new Response(ssePayload, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } });
           }

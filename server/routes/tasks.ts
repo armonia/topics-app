@@ -58,6 +58,10 @@ import { makeSheetWriter } from "../services/delivery-sheet";
 import { resolveTaskDiffRange } from "../services/task-diff-range";
 import { isTaskLabel, normalizeLabels, type TaskFile } from "../../shared/task-labels";
 import { probeUrl, invalidateProbeCache } from "../services/url-probe-cache";
+import {
+  getEligibleGlobalOrchestratorSessionBySessionKey,
+  isGlobalOrchestratorSession,
+} from "../services/global-orchestrator-session";
 
 /**
  * How many CLOSED cards the global feed carries.
@@ -81,17 +85,17 @@ const ERROR_STATUS: Record<string, number> = {
   agent_cannot_complete: 409,
   open_subtasks: 409,
   review_needs_summary: 409,
-  // Il task e stato tolto all'agente (park/requeue): 409 come gli altri rifiuti
-  // di proprieta, non 403 — non e un problema di permessi, e uno stato che nel
-  // frattempo e cambiato sotto.
+  // The task was taken away from the agent (park/requeue): 409 like the other
+  // ownership refusals, not 403. This is not a permissions problem, it is a
+  // state that changed underneath in the meantime.
   task_not_yours: 409,
-  // La card era chiusa da un umano: riaprirla e' scavalcare quella decisione.
-  // 409 come gli altri rifiuti di stato, non 403 — non e un permesso mancante,
-  // e una decisione che esiste gia sulla card.
+  // The card was closed by a human: reopening it would override that decision.
+  // 409 like the other state refusals, not 403. It is not a missing permission,
+  // it is a decision that already exists on the card.
   reopen_needs_human: 409,
-  // 403 e non 409: qui NON è uno stato cambiato sotto, è un permesso che non
-  // esiste e non esisterà al prossimo tentativo. Un agente non marca
-  // `invisibile` il proprio lavoro, punto.
+  // 403 and not 409: here it is NOT a state that changed underneath, it is a
+  // permission that does not exist and will not exist on the next attempt. An
+  // agent does not mark its own work `invisibile`, full stop.
   label_forbidden: 403,
 };
 
@@ -111,30 +115,30 @@ export function emitReviewReadyEdge(
   prevStatus: string | undefined,
   reason?: string,
   /**
-   * Il thread del task, PIGRO: chiamato solo quando il fronte scatta davvero.
-   * Serve a sapere se l'ultima parola dell'agente è una domanda, perché le sue
-   * opzioni diventano i tasti del banner. Pigro e non un parametro già
-   * risolto perché questa funzione la chiama ogni PATCH del task — leggere il
-   * thread a ogni salvataggio di priorità per un fronte che scatta una volta
-   * sola sarebbe una query per niente.
+   * The task's thread, LAZY: called only when the edge actually fires. It
+   * tells us whether the agent's last word is a question, because its options
+   * become the banner's buttons. Lazy rather than an already-resolved
+   * parameter because every PATCH of the task calls this function: reading the
+   * thread on every priority save, for an edge that fires exactly once, would
+   * be a query for nothing.
    */
   resolveComments?: () => readonly PendingQuestionComment[] | null | undefined,
 ): void {
   if (task && task.status === "review" && prevStatus !== "review") {
     let question: { text: string; options: string[] } | null = null;
-    // Best-effort: una lettura del thread che fallisce non deve mangiarsi il
-    // fronte (il banner senza tasti resta molto meglio di nessun banner).
+    // Best-effort: a thread read that fails must not swallow the edge (a banner
+    // without buttons is still far better than no banner at all).
     let isAsk = false;
     try {
       const comments = resolveComments?.();
       question = pendingQuestion(comments);
-      // `question` porta anche le opzioni di una CONSEGNA (l'envelope ordina
-      // di allegare `options=["Landa su main"]` a ogni consegna, e il server
-      // le avvolge nella stessa fence ```question): non basta a dire se
-      // l'ultima parola dell'agente sta chiedendo qualcosa. `isAsk` guarda lo
-      // stesso ultimo commento con `commentAsksHuman` (legge le OPZIONI, non
-      // la fence), cosi il banner puo' scegliere il titolo giusto senza
-      // perdere il tasto "Landa su main" che vive in `question.options`.
+      // `question` also carries the options of a DELIVERY (the envelope tells
+      // the agent to attach `options=["Landa su main"]` to every delivery, and
+      // the server wraps them in the same ```question fence): it is not enough
+      // to tell whether the agent's last word is asking something. `isAsk`
+      // looks at the same last comment with `commentAsksHuman` (it reads the
+      // OPTIONS, not the fence), so the banner can pick the right title without
+      // losing the "Landa su main" button that lives in `question.options`.
       const speech = (comments ?? []).filter(isThreadSpeech);
       const last = speech[speech.length - 1];
       isAsk = commentAsksHuman(last?.content);
@@ -145,25 +149,25 @@ export function emitReviewReadyEdge(
       taskId: task.id,
       taskTitle: task.text || "Task",
       ...(reason ? { reason } : {}),
-      // SEMPRE presente, `null` compreso — ed è il punto. Il client decide da
-      // qui se il banner porta "Approva" o le risposte alla domanda, e i due
-      // lati del filo si aggiornano separatamente (il guscio desktop si porta
-      // dietro il suo client, il server è il demone). Con il campo OMESSO
-      // quando non c'è domanda, un client nuovo su un server vecchio leggerebbe
-      // "nessuna domanda" e metterebbe un tasto "Approva" su un task che sta
-      // aspettando una risposta: un click, e il task è chiuso invece di
-      // risposto. `null` esplicito rende distinguibile «non c'è» da «questo
-      // server non lo sa dire».
+      // ALWAYS present, `null` included, and that is the point. The client
+      // decides from here whether the banner carries "Approva" or the answers
+      // to the question, and the two ends of the wire update separately (the
+      // desktop shell ships its own client, the server is the daemon). With the
+      // field OMITTED when there is no question, a new client on an old server
+      // would read "no question" and put an "Approva" button on a task that is
+      // waiting for an answer: one click, and the task is closed instead of
+      // answered. An explicit `null` keeps "there is none" distinguishable from
+      // "this server cannot say".
       question,
       isAsk,
     });
   }
 }
 
-// `pendingQuestion` vive in `shared/board.ts`: i lettori sono tre e stanno su
-// due lati del filo (questo emettitore, il ripiego del client su un server che
-// il campo non lo manda, e concettualmente la quick-reply della card).
-// Ri-esportato perché i test di questo modulo lo importano da qui, dov'era.
+// `pendingQuestion` lives in `shared/board.ts`: it has three readers on two
+// sides of the wire (this emitter, the client's fallback on a server that does
+// not send the field, and conceptually the card's quick-reply).
+// Re-exported because this module's tests import it from here, where it was.
 export { pendingQuestion, type PendingQuestionComment };
 
 /**
@@ -1356,27 +1360,28 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           });
         }
         svc.addComment({ taskId, author: "system", kind: "service", content: `Mergiato su main (commit ${res.commit}).` });
-        // È QUI che finisce la vita di review della card, non all'inizio del
-        // land: l'anteprima si smonta quando il merge è confermato. Smontarla
-        // prima di provare a fondere toglieva al reviewer la pagina viva anche
-        // quando il land poi falliva e la card gli tornava in mano (idempotente).
+        // THIS is where the card's review life ends, not at the start of the
+        // land: the preview is torn down once the merge is confirmed. Tearing it
+        // down before attempting the merge took the live page away from the
+        // reviewer even when the land then failed and the card came back to
+        // them (idempotent).
         try { await opts?.teardownPreview?.(taskId); } catch { /* best-effort */ }
-        // L'ALTRO verso dello stesso difetto. Il land promuoveva a `done` solo
-        // passando da `review` (`POST …/land` lo fa prima di chiamare qui): da
-        // ogni altro stato mergiava e lasciava la card dov'era. Misurato l'11/08
-        // su `4ec47331` — lavoro su main (`a5f83e0e`), card `in_progress` con il
-        // chip `working`, e un agente che ha speso un turno intero a rifarlo.
-        // Un merge riuscito è l'affermazione più forte che il lavoro è finito:
-        // lo stato la deve dire, da qualunque stato si arrivi. Idempotente sulle
-        // card già chiuse e ferme (il caso normale), quindi non aggiunge righe
-        // di storico al percorso che funzionava.
+        // The OTHER side of the same defect. The land promoted to `done` only
+        // when coming from `review` (`POST …/land` does that before calling
+        // here): from every other state it merged and left the card where it
+        // was. Measured on 11/08 on `4ec47331`: work on main (`a5f83e0e`), card
+        // `in_progress` with the `working` chip, and an agent that spent a whole
+        // turn redoing it. A successful merge is the strongest possible claim
+        // that the work is finished: the status must say so, whatever state we
+        // came from. Idempotent on cards already closed and still (the normal
+        // case), so it adds no history rows to the path that already worked.
         const closed = svc.settleLanded({ taskId, by: "system", reason: `landed: the code is on main (${res.commit})` });
-        // IL MERGE È AVVENUTO ANCHE QUANDO LA CARD NON SI CHIUDE. `settleLanded`
-        // rifiuta di chiudere un padre che ha ancora step aperti (chiuderlo li
-        // renderebbe irraggiungibili: il feed è `rootsOnly`), e senza questa riga
-        // chi ha cliccato «Landa su main» leggerebbe «Mergiato su main» sopra una
-        // card che resta in review, senza sapere perché. Si nominano i passi:
-        // sono quelli da chiudere o archiviare prima di approvarla.
+        // THE MERGE HAPPENED EVEN WHEN THE CARD DOES NOT CLOSE. `settleLanded`
+        // refuses to close a parent that still has open steps (closing it would
+        // make them unreachable: the feed is `rootsOnly`), and without this line
+        // whoever clicked "Landa su main" would read "Mergiato su main" above a
+        // card that stays in review, with no idea why. The steps are named: they
+        // are the ones to close or archive before approving the card.
         if (closed && closed.status !== "done") {
           const aperti = (svc.get(taskId, { projectId })?.children ?? [])
             .filter((c) => c.status !== "done")
@@ -1390,19 +1395,21 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             });
           }
         }
-        // Chi ASPETTAVA questa card lo scopre qui, non più all'approvazione:
-        // adesso è questa la porta da cui una card landata arriva in `done`.
+        // Whoever was WAITING on this card finds out here, no longer at
+        // approval: this is now the door through which a landed card reaches
+        // `done`.
         if (closed && closed.status === "done") dispatcher?.onBlockerDone(taskId);
-        // …e se un agente stava LAVORANDO su quella card, lo si ferma. Chiudere
-        // la card lo toglie dalla coda ma non taglia il turno già partito, ed è
-        // lì che vanno i soldi: misurato l'11/08 su due land di fila, $5,64
-        // (`4ec47331`) e $8,24 (`56677242`, fermata entro un minuto) spesi a
-        // rifare lavoro che era già su main. Non è un caso limite — è successo a
-        // due land su due, e il conto sale a ogni land.
+        // ...and if an agent was still WORKING on that card, it gets stopped.
+        // Closing the card removes it from the queue but does not cut the turn
+        // already under way, and that is where the money goes: measured on
+        // 11/08 on two consecutive lands, $5,64 (`4ec47331`) and $8,24
+        // (`56677242`, stopped within a minute) spent redoing work that was
+        // already on main. Not an edge case: it happened on two lands out of
+        // two, and the bill grows with every land.
         //
-        // DOPO `settleLanded`, mai prima: la fine del turno passa da `onTurnEnd`,
-        // che su una card ancora `in_progress` RIPRENDE l'agente. Tagliare prima
-        // di chiudere la card la farebbe ripartire.
+        // AFTER `settleLanded`, never before: the end of the turn goes through
+        // `onTurnEnd`, which RESUMES the agent on a card still `in_progress`.
+        // Cutting before closing the card would make it start again.
         if (closed && cutLiveTurn(closed, "il lavoro di questa card è atterrato su main: il turno non serve più")) {
           svc.addComment({
             taskId, author: "system",
@@ -1533,21 +1540,22 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           }
         }
       }
-      // ── L'esito si REGISTRA adesso, non si ricostruisce dopo ────────────
+      // ── The outcome is RECORDED now, not reconstructed later ─────────────
       //
-      // `landingState` lo scriveva solo una passata ogni 30 minuti che, dato il
-      // commit di consegna, prova a DEDURRE se il suo contenuto è su main. Due
-      // guai: il verdetto arrivava fino a mezz'ora tardi (rosso su lavoro appena
-      // atterrato), e la deduzione sbaglia — provate a mano su 108 card, la
-      // patch inversa dà 20 falsi allarmi, la riga distintiva 5, e il messaggio
-      // «NON su main» nel thread ce l'hanno anche le card atterrate bene perché
-      // è emesso alla CONSEGNA. L'unica prova che regge vale finché il ramo
-      // esiste, cioè ADESSO.
+      // `landingState` used to be written only by a pass every 30 minutes that,
+      // given the delivery commit, tries to INFER whether its content is on
+      // main. Two problems: the verdict arrived up to half an hour late (red on
+      // work that had just landed), and the inference is wrong. Tried by hand
+      // on 108 cards: the reverse patch gives 20 false alarms, the distinctive
+      // line 5, and the "NON su main" message in the thread is there on cards
+      // that landed fine too, because it is emitted at DELIVERY. The only proof
+      // that holds is valid as long as the branch exists, that is, NOW.
       //
-      // Quindi qui si scrive ciò che il land HA VISTO — `merged` = atterrato,
-      // fallito = non atterrato — e lo si marca testimoniato, così la passata
-      // periodica lo salta invece di sovrascriverlo con la sua deduzione. Solo
-      // dove il land non sa (nessun ramo da guardare, o «non c'era niente da
+      // So here we write what the land HAS SEEN (`merged` = landed, failed =
+      // not landed) and mark it witnessed, so the periodic pass skips it
+      // instead of overwriting it with its inference. Only where the land does
+      // not know (no branch to look at, or "there was nothing to bring over")
+      // do we ask the repo.
       // portare») si chiede al repo.
       const verdict: LandingState | "ask" =
         res.status === "merged" ? (proof === true ? "landed" : "unverifiable")
@@ -1557,15 +1565,16 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       try { await opts?.stampLanding?.(taskId, verdict); } catch { /* la spia non fa fallire un land */ }
       const updated = svc.get(taskId, { projectId })?.task;
       if (updated) broadcastToAll({ type: "task:updated", projectId, task: updated });
-      // Restituisce l'esito al ticket della coda: GET /land lo riporta subito,
-      // senza dover rileggere il task da un secondo GET.
-      // `verdict === "ask"` copre i casi in cui il land non sa (nessun ramo, o
-      // il ramo era gia' su main): li mappa su "skipped" per il chiamante MCP.
+      // Hands the outcome back to the queue ticket: GET /land reports it right
+      // away, without having to re-read the task through a second GET.
+      // `verdict === "ask"` covers the cases where the land does not know (no
+      // branch, or the branch was already on main): they map to "skipped" for
+      // the MCP caller.
       const ticketOutcome: LandOutcomeResult['outcome'] =
         verdict === "ask" ? "skipped" : verdict;
-      // La ragione e' utile solo quando il merge e' stato rifiutato: e' quella
-      // che l'MCP riporta direttamente invece di lasciare che chi chiama apra
-      // il thread della card.
+      // The reason is only useful when the merge was refused: it is what the
+      // MCP reports directly instead of leaving the caller to open the card's
+      // thread.
       const ticketReason: string | null =
         verdict === "unlanded"
           ? (res.status === "conflict"
@@ -1576,19 +1585,20 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           : null;
       return { outcome: ticketOutcome, reason: ticketReason };
     } catch (e) {
-      // ── Il percorso che produceva «zero commenti, zero ragione» ─────────────
+      // ── The path that produced "zero comments, zero reason" ────────────────
       //
-      // Questo `catch` copriva git, i commenti, la potatura del worktree e il
-      // rebuild — e li copriva con un `console.error`. Il risultato per chi
-      // guarda la board è una card in Done col codice sul suo ramo e un thread
-      // che non dice niente: lo stesso stato che il land fallito «rumoroso»
-      // (`skipped`) ha imparato a evitare, raggiunto dalla porta di servizio.
+      // This `catch` covered git, the comments, the worktree pruning and the
+      // rebuild, and it covered them with a `console.error`. What whoever looks
+      // at the board got was a card in Done with the code on its branch and a
+      // thread that says nothing: the very state the "noisy" failed land
+      // (`skipped`) learned to avoid, reached through the back door.
       //
-      // Adesso un'eccezione dice tre cose, nell'ordine in cui servono: la riga
-      // nel thread, il verdetto `unlanded` sulla card, e il ritiro da Done —
-      // perché una card chiusa su lavoro non atterrato è quella che il GC dei
-      // worktree può potare. Poi RILANCIA: il ticket in coda è l'unico posto
-      // dove chi ha premuto «Landa» può ancora leggere com'è andata.
+      // Now an exception says three things, in the order they are needed: the
+      // line in the thread, the `unlanded` verdict on the card, and the
+      // withdrawal from Done, because a card closed on work that has not landed
+      // is the one the worktree GC may prune. Then it RETHROWS: the queue
+      // ticket is the only place where whoever pressed "Landa" can still read
+      // how it went.
       const msg = e instanceof Error ? e.message : String(e);
       console.error("[land] failed for", taskId, e);
       try {
@@ -1814,6 +1824,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * the label is derived when it is read (`shared/comment-author.ts`).
    */
   function resolveSession(sessionKey: string): { projectId: string; actor: string; topicId: string | null } | null {
+    // The registry-backed coordinator never gains the ordinary session surface,
+    // even if a stale/manual data mutation managed to add a project path. Its
+    // only cross-board authority is the narrow wrapper below; this prevents a
+    // special session from becoming a second project-scoped task principal.
+    if (isGlobalOrchestratorSession(db, sessionKey)) return null;
     const topic = getTopicBySessionKey(sessionKey);
     if (topic?.projectPath) {
       // A dispatched agent's board is the board of the task bound to its topic,
@@ -1839,6 +1854,73 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       };
     }
     return null;
+  }
+
+  /**
+   * The global board coordinator is an ordinary, unbound Topic. Its cross-board
+   * authority does not come from its title, path, or an MCP policy: this
+   * registry lookup is the sole role gate. Keep this separate from
+   * `resolveSession`, which intentionally remains project-bound for every
+   * ordinary session route below.
+   */
+  function resolveGlobalOrchestratorSession(sessionKey: string): { actor: string; topicId: string } | null {
+    // The raw registry identity deliberately still blocks ordinary session
+    // routes above. This *capability* route is stricter: a manually corrupted
+    // bound/non-Codex row must not retain cross-board authority either.
+    const registered = getEligibleGlobalOrchestratorSessionBySessionKey(db, sessionKey);
+    if (!registered) return null;
+    return {
+      actor: `${AGENT_AUTHOR_PREFIX}${registered.topicId}`,
+      topicId: registered.topicId,
+    };
+  }
+
+  /**
+   * Global reads/mutations start from the task id and discover its board in
+   * storage. A caller never supplies a project id for this path, so it cannot
+   * turn a task id into cross-board authority by changing a request field.
+   */
+  function resolveGlobalTask(taskId: string) {
+    const got = svc.get(taskId);
+    return got ? { got, projectId: got.task.projectId } : null;
+  }
+
+  /**
+   * The only caller-selected board is the target for a new task. Accept a
+   * board id only when it is the id derived from one of this host's known
+   * project directories. In particular, do not route through the historical
+   * auto/catch-all resolver: a coordinator must name a real board explicitly.
+   */
+  function resolveExplicitGlobalBoard(rawBoardId: unknown): string | null {
+    if (typeof rawBoardId !== "string") return null;
+    const boardId = rawBoardId.trim();
+    if (!boardId || boardId === AUTO_PROJECT_ID || boardId === UNASSIGNED_PROJECT_ID) return null;
+
+    let dirs: string[] = [];
+    try { dirs = opts?.listProjectDirs?.() ?? []; } catch { return null; }
+    for (const rawPath of dirs) {
+      if (typeof rawPath !== "string" || !rawPath.startsWith("/")) continue;
+      const projectPath = rawPath.replace(/\/+$/, "") || "/";
+      // `generale` is the old catch-all, not an explicit durable board target.
+      if (basename(projectPath).toLowerCase() === "generale") continue;
+      const knownBoardId = projectIdForPath(projectPath);
+      if (knownBoardId === boardId) return knownBoardId;
+    }
+    return null;
+  }
+
+  /** Reject fields outside the focused global tool contract instead of ignoring them. */
+  function rejectUnexpectedGlobalFields(
+    body: unknown,
+    allowed: readonly string[],
+  ): Response | null {
+    if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+    const unexpected = Object.keys(body as Record<string, unknown>).filter((key) => !allowed.includes(key));
+    if (!unexpected.length) return null;
+    return json({
+      error: `global orchestrator does not accept: ${unexpected.join(", ")}`,
+      code: "invalid_input",
+    }, 400);
   }
 
   /**
@@ -1940,6 +2022,184 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     }, 409);
   }
 
+  /**
+   * The two structural gates a DELIVERY passes before the store sees the
+   * PATCH, shared by the session route and the global coordinator route so
+   * they cannot drift: (1) the worktree must be clean, or unreachable-but-
+   * branchless; (2) the board's review checks must be green, with the 202
+   * "still running" leg remembered in `pendingDeliveries` so the server can
+   * re-issue THIS request on `pathname` when the run ends.
+   *
+   * The probe's `null` answer ("no branch worktree found") is refused when the
+   * task has, or had, a branch: a worktree deleted before review or a topic
+   * link broken by the release both mean "do not know", and in a gate that
+   * means "no". A task that never had a branch (in-place work) passes.
+   *
+   * Questions are exempt: an agent asking mid-work legitimately has a dirty
+   * worktree. "Is it a question" is `commentAsksHuman`, NOT the presence of
+   * the ```question fence, which the server wraps around every options list
+   * (measured 13/08: 331 of 437 fenced comments were deliveries).
+   *
+   * Returns the refusal (or the 202) to send, `null` when the PATCH may go on.
+   */
+  async function reviewDeliveryGate(
+    taskId: string,
+    projectId: string,
+    body: Record<string, unknown> | null,
+    legMs: number,
+    pathname: string,
+    chat: { sessionKey: string; topicId: string | null },
+  ): Promise<Response | null> {
+    if (body?.status !== "review") return null;
+    let isDelivery = false;
+    let reviewGateTask: ReturnType<typeof svc.get> | null = null;
+    try {
+      reviewGateTask = svc.get(taskId, { projectId });
+      const lastOwn = reviewGateTask ? [...reviewGateTask.comments].reverse().find(
+        (comment) => comment.author !== "user" && comment.author !== "system" && comment.kind === "comment",
+      ) : null;
+      const isQuestion = commentAsksHuman(lastOwn?.content);
+      isDelivery = !!reviewGateTask && reviewGateTask.task.status !== "review" && !isQuestion;
+    } catch { /* best-effort: a store hiccup must never block a delivery */ }
+    if (!isDelivery) return null;
+
+    if (opts?.taskWorktreeDirtProbe) {
+      try {
+        const probe = await opts.taskWorktreeDirtProbe(taskId);
+        if (probe === null) {
+          const hasBranch =
+            !!reviewGateTask?.task.deliveryBranch ||
+            opts.taskHasBranchAttempt?.(taskId) === true;
+          if (hasBranch) {
+            return json({
+              error:
+                "cannot verify the worktree state: the branch worktree is no longer " +
+                "reachable (the slot was released before review). " +
+                "commit your work and ensure the worktree is still linked, " +
+                "THEN set status='review'",
+              code: "review_needs_commit",
+            }, 409);
+          }
+        } else if (!probe.ok || probe.paths.length > 0) {
+          const dirt = probe.paths;
+          if (!probe.ok) {
+            return json({
+              error:
+                "cannot read the worktree status (git status failed). " +
+                "make sure your worktree has no uncommitted changes, " +
+                "THEN set status='review'",
+              code: "review_needs_commit",
+            }, 409);
+          }
+          return json({
+            error:
+              `your worktree has ${dirt.length} uncommitted change${dirt.length === 1 ? "" : "s"} ` +
+              `(${dirt.slice(0, 3).join(", ")}${dirt.length > 3 ? ", …" : ""}). ` +
+              "commit them on your branch (or discard leftovers), THEN set status='review'",
+            code: "review_needs_commit",
+          }, 409);
+        }
+      } catch { /* best-effort: a git/store hiccup must never block a delivery */ }
+    }
+
+    // Second gate, AFTER the commit one: the commands run on committed code,
+    // so it only makes sense once there is some. A red goes back to the agent
+    // with the command output, the real reason, so the repair starts there.
+    //
+    // In LEGS, not in one breath: the run lives in the registry and this
+    // request waits at most `legMs`. The 202 is not a verdict, it is "call
+    // again": the task does not move until there is one, and the MCP client
+    // (callUpdateTask) is the one that polls.
+    const outcome = await runChecksGate(taskId, projectId, legMs).catch(() => null);
+    if (outcome && "pending" in outcome) {
+      // Remembered with the body as sent: the server re-issues THIS request
+      // on the same path when the run ends, should the client stop polling.
+      if (body && typeof body === "object") pendingDeliveries.set(taskId, { pathname, body: body as Record<string, unknown> });
+      const task = svc.get(taskId, { projectId })?.task;
+      tellChatAboutChecksWait(chat.sessionKey, chat.topicId, taskId, projectId, task);
+      return json({
+        pending: true,
+        code: "review_checks_running",
+        legMs,
+        status: task?.status ?? null,
+        checksState: task?.checksState ?? "running",
+      }, 202);
+    }
+    pendingDeliveries.delete(taskId);
+    checksWaitSince.delete(taskId);
+    if (outcome && !outcome.ok) {
+      return json({ error: outcome.comment, code: "review_needs_green_checks" }, 409);
+    }
+    return null;
+  }
+
+  /**
+   * The global coordinator uses the same agent transition path as a normal
+   * Topic session. It only differs in how the board and actor were resolved
+   * (both server-side above), so review/done gates, delivery capture, checks,
+   * and broadcasts cannot silently diverge from the ordinary task surface.
+   */
+  async function patchGlobalOrchestratorTask(
+    taskId: string,
+    projectId: string,
+    session: { actor: string; sessionKey: string; topicId: string },
+    body: Record<string, unknown> | null,
+    pathname: string,
+  ): Promise<Response> {
+    const noDelivery = rejectDeliveryPatch(body);
+    if (noDelivery) return noDelivery;
+    const unexpected = rejectUnexpectedGlobalFields(
+      body,
+      ["status", "priority", "assignee", "text", "description", "summary", "legMs"],
+    );
+    if (unexpected) return unexpected;
+    // `legMs` is transport for the review-check polling loop, not a persisted
+    // task field. Strip it before the normal agent patch parser sees the body.
+    const legMs = clampLegMs(body?.legMs);
+    if (body && typeof body === "object") delete body.legMs;
+
+    const gatedDelivery = await reviewDeliveryGate(taskId, projectId, body, legMs, pathname, {
+      sessionKey: session.sessionKey,
+      topicId: session.topicId,
+    });
+    if (gatedDelivery) return gatedDelivery;
+
+    const parsed = parseTaskPatch(body, "agent", acceptPreview);
+    if (!parsed.ok) return json(unapplicableFieldsBody(parsed.errors), 400);
+    try {
+      // Re-read immediately before mutation. The project id used here came from
+      // the task row, never from the caller, and this guard also handles a
+      // concurrent removal/move as a normal not-found result.
+      const prevStatus = svc.get(taskId, { projectId })?.task.status;
+      let task = svc.update({
+        taskId,
+        actor: "agent",
+        by: session.actor,
+        projectId,
+        // Deliberately no `agentTopicId`: that ordinary dispatched-agent
+        // ownership carve-out would make a registry-authorized cross-board
+        // coordinator depend on whichever task happens to own its Topic.
+        patch: parsed.patch,
+      });
+      task = await captureDelivery(task, prevStatus);
+      broadcastToAll({ type: "task:updated", projectId, task });
+      // A registry-backed update changes a normal board card, not a parallel
+      // status model. Preserve the board's queue accounting exactly: entering
+      // Todo may be picked up by that board's configured dispatcher, while
+      // leaving it cancels a queued grace timer. This is lifecycle accounting,
+      // not a direct spawn/send/stop capability for the coordinator.
+      if (dispatcher && prevStatus !== task.status) {
+        if (task.status === "todo") dispatcher.onEnterTodo(projectId, taskId);
+        else if (prevStatus === "todo") dispatcher.onLeaveTodo(taskId);
+        if (task.status === "done") dispatcher.onBlockerDone(taskId);
+      }
+      emitReviewReadyEdge(broadcastToAll, projectId, task, prevStatus, undefined,
+        () => svc.get(task.id)?.comments);
+      triggerUrlProbe(taskId, task.outputUrl ?? null, projectId);
+      return json(task);
+    } catch (e) { return fail(e); }
+  }
+
   const tasksRouter = async function tasksRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
     // Fast reject: only task paths — agent (session-scoped) or human (board-scoped),
     // plus the machine-wide dispatch-capacity probe (a /api/system/ path that this
@@ -1960,6 +2220,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     const miePath = pathname.startsWith("/api/tasks/")
       || pathname.startsWith("/api/all-boards/")
       || pathname.startsWith("/api/boards/")
+      || pathname.startsWith("/api/orchestrator-sessions/")
       || pathname === "/api/system/dispatch-capacity";
     if (identita?.role === "guest" && miePath) {
       const deviceId = identita.deviceId;
@@ -1997,10 +2258,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     }
 
     const isSession = pathname.startsWith("/api/sessions/");
+    const isOrchestratorSession = pathname.startsWith("/api/orchestrator-sessions/");
     const isBoard = pathname.startsWith("/api/boards/");
     const isAllBoards = pathname.startsWith("/api/all-boards/");
     const isCapacity = pathname === "/api/system/dispatch-capacity";
-    if (!isSession && !isBoard && !isAllBoards && !isCapacity) return null;
+    if (!isSession && !isOrchestratorSession && !isBoard && !isAllBoards && !isCapacity) return null;
 
     // GET /api/all-boards/tasks — the global cross-project feed (human overview).
     // Read-only: per-task mutations still go to /api/boards/:projectId/... using
@@ -3393,6 +3655,171 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       return null;
     }
 
+    // The global coordinator is intentionally a separate, registry-gated
+    // surface. Do not add these cross-board powers to `/api/sessions`: ordinary
+    // Topic sessions remain bound to their own project by `resolveSession`.
+
+    // POST/GET /api/orchestrator-sessions/:sessionKey/tasks
+    const globalCollection = matchRoute(pathname, "/api/orchestrator-sessions/:sessionKey/tasks");
+    if (globalCollection) {
+      const sk = decodeURIComponent(globalCollection.sessionKey);
+      const globalSession = resolveGlobalOrchestratorSession(sk);
+      if (!globalSession) {
+        return json({ error: "global orchestrator session required", code: "global_orchestrator_required" }, 403);
+      }
+
+      if (method === "GET") {
+        const status = new URL(req.url).searchParams.get("status") || undefined;
+        try {
+          // This is a real cross-board read, not a client-side union of
+          // project-scoped calls. Detail actions below re-read their task.
+          const tasks = svc.list({ scope: "all", status: asTaskStatus(status) });
+          return json({ tasks });
+        } catch (e) { return fail(e); }
+      }
+
+      if (method === "POST") {
+        const body = (await readJSON(req)) as {
+          board_id?: unknown;
+          text?: unknown;
+          description?: unknown;
+          priority?: unknown;
+          assignee?: unknown;
+          idempotency_key?: unknown;
+          allow_duplicate?: unknown;
+        } | null;
+        const unexpected = rejectUnexpectedGlobalFields(
+          body,
+          ["board_id", "text", "description", "priority", "assignee", "idempotency_key", "allow_duplicate"],
+        );
+        if (unexpected) return unexpected;
+        if (typeof body?.board_id !== "string" || !body.board_id.trim()) {
+          return json({ error: "board_id is required", code: "invalid_input" }, 400);
+        }
+        const projectId = resolveExplicitGlobalBoard(body.board_id);
+        if (!projectId) {
+          return json({
+            error: "board_id must name a known explicit board; auto, unassigned, and catch-all boards are not valid targets",
+            code: "invalid_input",
+          }, 400);
+        }
+
+        // Same duplicate gate as the ordinary agent surface. A global task is
+        // still a normal task on one real board, so collision detection belongs
+        // to that board and an explicit override remains auditable in the body.
+        if (body?.allow_duplicate !== true && typeof body?.text === "string" && body.text.trim()) {
+          const twins = svc
+            .findDuplicates({ projectId, text: body.text, limit: 3, rootsOnly: true })
+            .filter((near) => near.duplicate);
+          if (twins.length > 0) {
+            return json({
+              error: `a card already says it: "${twins[0]!.task.text}". Read that one and comment on it with comment_global_task; if it really is different work, create again with allow_duplicate: true.`,
+              code: "duplicate",
+              duplicates: twins.map((near) => ({
+                id: near.task.id,
+                text: near.task.text,
+                score: Number(near.score.toFixed(3)),
+              })),
+            }, 409);
+          }
+        }
+
+        try {
+          const task = svc.create({
+            projectId,
+            // Narrated here rather than cast: the service is the one that
+            // says "task text is required", and an empty string is how a
+            // missing (or non-string) field asks it that question.
+            text: typeof body?.text === "string" ? body.text : "",
+            description: typeof body?.description === "string" ? body.description : null,
+            priority: typeof body?.priority === "number" ? body.priority : undefined,
+            assignedTo: typeof body?.assignee === "string" ? body.assignee : null,
+            // A coordinator records work; a human still decides when a card is
+            // runnable. This preserves normal board lifecycle accounting.
+            status: "backlog",
+            idempotencyKey: typeof body?.idempotency_key === "string" ? body.idempotency_key : null,
+            createdByTopicId: globalSession.topicId,
+          });
+          broadcastToAll({ type: "task:created", projectId, task });
+          titoloInSottofondo(task, projectId);
+          return json(task, 201);
+        } catch (e) { return fail(e); }
+      }
+      return null;
+    }
+
+    // POST /api/orchestrator-sessions/:sessionKey/tasks/:taskId/comments
+    const globalCommentsRoute = matchRoute(pathname, "/api/orchestrator-sessions/:sessionKey/tasks/:taskId/comments");
+    if (globalCommentsRoute && method === "POST") {
+      const sk = decodeURIComponent(globalCommentsRoute.sessionKey);
+      const globalSession = resolveGlobalOrchestratorSession(sk);
+      if (!globalSession) {
+        return json({ error: "global orchestrator session required", code: "global_orchestrator_required" }, 403);
+      }
+      const gated = fanOutGate(globalCommentsRoute.taskId, "do NOT write in the shared thread");
+      if (gated) return gated;
+      const body = (await readJSON(req)) as { content?: unknown; options?: unknown } | null;
+      const unexpected = rejectUnexpectedGlobalFields(body, ["content", "options"]);
+      if (unexpected) return unexpected;
+      if (typeof body?.content === "string" && body.content.length > AGENT_COMMENT_MAX_CHARS) {
+        return json({
+          error: `comment too long (${body.content.length} chars, max ${AGENT_COMMENT_MAX_CHARS}). Summarize: 1-2 short sentences, no logs or code dumps`,
+          code: "comment_too_long",
+        }, 400);
+      }
+      // Resolve the target's board at the point of mutation. No project id in
+      // the payload is used or accepted by this focused surface.
+      const target = resolveGlobalTask(globalCommentsRoute.taskId);
+      if (!target) return json({ error: "task not found", code: "not_found" }, 404);
+      try {
+        const comment = svc.addComment({
+          taskId: globalCommentsRoute.taskId,
+          author: globalSession.actor,
+          content: typeof body?.content === "string" ? body.content : "",
+          projectId: target.projectId,
+          questionOptions: Array.isArray(body?.options)
+            ? body.options.filter((option: unknown): option is string => typeof option === "string")
+            : undefined,
+        });
+        const task = svc.get(globalCommentsRoute.taskId, { projectId: target.projectId })?.task;
+        broadcastToAll({ type: "task:updated", projectId: target.projectId, task });
+        return json(comment, 201);
+      } catch (e) { return fail(e); }
+    }
+
+    // GET/PATCH /api/orchestrator-sessions/:sessionKey/tasks/:taskId
+    const globalItem = matchRoute(pathname, "/api/orchestrator-sessions/:sessionKey/tasks/:taskId");
+    if (globalItem) {
+      const sk = decodeURIComponent(globalItem.sessionKey);
+      const globalSession = resolveGlobalOrchestratorSession(sk);
+      if (!globalSession) {
+        return json({ error: "global orchestrator session required", code: "global_orchestrator_required" }, 403);
+      }
+
+      if (method === "GET") {
+        const target = resolveGlobalTask(globalItem.taskId);
+        if (!target) return json({ error: "task not found", code: "not_found" }, 404);
+        return json(target.got);
+      }
+      if (method === "PATCH") {
+        const gated = fanOutGate(globalItem.taskId, "do NOT change the task's status, title or assignee");
+        if (gated) return gated;
+        const body = (await readJSON(req)) as Record<string, unknown> | null;
+        // Re-read from storage for every detailed mutation, then pass the
+        // server-resolved board id into the ordinary agent lifecycle gates.
+        const target = resolveGlobalTask(globalItem.taskId);
+        if (!target) return json({ error: "task not found", code: "not_found" }, 404);
+        return patchGlobalOrchestratorTask(
+          globalItem.taskId,
+          target.projectId,
+          { ...globalSession, sessionKey: sk },
+          body,
+          pathname,
+        );
+      }
+      return null;
+    }
+
     // POST/GET /api/sessions/:sessionKey/tasks
     const collection = matchRoute(pathname, "/api/sessions/:sessionKey/tasks");
     if (collection) {
@@ -3458,8 +3885,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         try {
           const task = svc.create({
             projectId: sess.projectId,
-            text: body?.text,
-            description: body?.description ?? null,
+            // Narrated here rather than cast: the service is the one that
+            // says "task text is required", and an empty string is how a
+            // missing (or non-string) field asks it that question.
+            text: typeof body?.text === "string" ? body.text : "",
+            description: typeof body?.description === "string" ? body.description : null,
             priority: typeof body?.priority === "number" ? body.priority : undefined,
             assignedTo: typeof body?.assignee === "string" ? body.assignee : null,
             // Agents/MCP always create into `backlog` (intake), never straight into
@@ -3658,99 +4088,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // check. Measured on 13/08 against the live board db: of the 437 agent
         // comments carrying that fence, 331 are deliveries, not questions —
         // three exemptions out of four went to the very shape being gated.
-        if (body?.status === "review") {
-          let isDelivery = false;
-          let reviewGateTask: ReturnType<typeof svc.get> | null = null;
-          try {
-            reviewGateTask = svc.get(item.taskId, { projectId: sess.projectId });
-            const lastOwn = reviewGateTask ? [...reviewGateTask.comments].reverse().find(
-              (c) => c.author !== "user" && c.author !== "system" && c.kind === "comment",
-            ) : null;
-            const isQuestion = commentAsksHuman(lastOwn?.content);
-            isDelivery = !!reviewGateTask && reviewGateTask.task.status !== "review" && !isQuestion;
-          } catch { /* gate is best-effort: a git/store hiccup must never block a delivery */ }
-
-          if (isDelivery && opts?.taskWorktreeDirtProbe) {
-            try {
-              const probe = await opts.taskWorktreeDirtProbe(item.taskId);
-              if (probe === null) {
-                // La sonda non ha trovato nessun worktree di ramo per questo
-                // task. Se il task ha (o ha avuto) un ramo, la risposta giusta
-                // e' «non so» — che in un cancello vale «rifiuta». Un worktree
-                // eliminato prima della review, un legame topic spezzato dal
-                // release: in entrambi i casi lasciare passare sarebbe aprire
-                // il cancello per ignoranza.
-                //
-                // Regola: se il task ha un delivery_branch o un tentativo con
-                // worktree registrato, rifiuta con ragione leggibile. Se davvero
-                // non ha MAI avuto un ramo, lascia passare (task in-place).
-                const hasBranch =
-                  !!reviewGateTask?.task.deliveryBranch ||
-                  opts.taskHasBranchAttempt?.(item.taskId) === true;
-                if (hasBranch) {
-                  return json({
-                    error:
-                      "cannot verify the worktree state: the branch worktree is no longer " +
-                      "reachable (the slot was released before review). " +
-                      "commit your work and ensure the worktree is still linked, " +
-                      "THEN set status='review'",
-                    code: "review_needs_commit",
-                  }, 409);
-                }
-              } else if (!probe.ok || probe.paths.length > 0) {
-                const dirt = probe.paths;
-                if (!probe.ok) {
-                  return json({
-                    error:
-                      "cannot read the worktree status (git status failed). " +
-                      "make sure your worktree has no uncommitted changes, " +
-                      "THEN set status='review'",
-                    code: "review_needs_commit",
-                  }, 409);
-                }
-                return json({
-                  error:
-                    `your worktree has ${dirt.length} uncommitted change${dirt.length === 1 ? "" : "s"} ` +
-                    `(${dirt.slice(0, 3).join(", ")}${dirt.length > 3 ? ", …" : ""}). ` +
-                    "commit them on your branch (or discard leftovers), THEN set status='review'",
-                  code: "review_needs_commit",
-                }, 409);
-              }
-            } catch { /* gate is best-effort: a git/store hiccup must never block a delivery */ }
-          }
-
-          // Secondo gate, DOPO quello sul commit: i comandi girano sul codice
-          // committato, quindi ha senso solo una volta che c'è. Un rosso torna
-          // all'agente con l'output del comando — non "consegna rifiutata", il
-          // motivo vero, così la riparazione parte da lì e non da un'indagine.
-          //
-          // A GAMBE, non in un fiato: la corsa vive nel registro e questa
-          // richiesta aspetta al massimo `legMs`. Il 202 non è un esito, è
-          // "richiama": lo stato del task non si muove finché non c'è un
-          // verdetto, e chi ricicla è il client MCP (callUpdateTask).
-          if (isDelivery) {
-            const outcome = await runChecksGate(item.taskId, sess.projectId, legMs).catch(() => null);
-            if (outcome && "pending" in outcome) {
-              // Remembered with the body as sent: the server re-issues THIS
-              // request when the run ends, should the client stop polling.
-              if (body && typeof body === "object") pendingDeliveries.set(item.taskId, { pathname, body: body as Record<string, unknown> });
-              const t = svc.get(item.taskId, { projectId: sess.projectId })?.task;
-              tellChatAboutChecksWait(sk, sess.topicId, item.taskId, sess.projectId, t);
-              return json({
-                pending: true,
-                code: "review_checks_running",
-                legMs,
-                status: t?.status ?? null,
-                checksState: t?.checksState ?? "running",
-              }, 202);
-            }
-            pendingDeliveries.delete(item.taskId);
-            checksWaitSince.delete(item.taskId);
-            if (outcome && !outcome.ok) {
-              return json({ error: outcome.comment, code: "review_needs_green_checks" }, 409);
-            }
-          }
-        }
+        const gatedDelivery = await reviewDeliveryGate(item.taskId, sess.projectId, body, legMs, pathname, {
+          sessionKey: sk,
+          topicId: sess.topicId,
+        });
+        if (gatedDelivery) return gatedDelivery;
         // La superficie AGENTE ha meno campi di quella umana (ordine in colonna,
         // modello, dipendenze e annidamento sono leve dell'umano): finivano
         // scartati in silenzio, il che li faceva sembrare disponibili. Ora sono

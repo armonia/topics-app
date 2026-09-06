@@ -1852,8 +1852,7 @@
       "EMA_ALPHA"
     ],
     "client/src/lib/updater.ts": [
-      "isAclDenial",
-      "tauriUpdaterDenied"
+      "isAclDenial"
     ],
     "client/src/lib/vad.ts": [
       "AudioCtor",
@@ -2127,7 +2126,6 @@
       "cieco",
       "conDesc",
       "corretto",
-      "denied",
       "idNoti",
       "ingenuo",
       "pricey",
@@ -2646,8 +2644,7 @@
       "righe"
     ],
     "scripts/thread-vs-work.ts": [
-      "coord",
-      "runCoordinator"
+      "coord"
     ],
     "scripts/token-live.ts": [
       "preCell"
@@ -6391,10 +6388,6 @@
       "dentro",
       "dettagli",
       "interruttore"
-    ],
-    "tests/e2e/context-settings.spec.ts": [
-      "deniedMsg",
-      "deniedVisible"
     ],
     "tests/e2e/cross-feature.spec.ts": [
       "campione",

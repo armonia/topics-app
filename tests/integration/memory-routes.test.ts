@@ -47,9 +47,21 @@ async function call(router: Router, method: string, path: string, body?: unknown
   return res;
 }
 
-async function banco(): Promise<Router> {
+/**
+ * The router derives no path from the URL alone: a memory file belongs to a
+ * Topic that EXISTS, otherwise a request would be enough to mint one. So the
+ * bench creates the Topic rows it is about to address, exactly as the app does
+ * before it has any memory to write.
+ */
+async function banco(...topicIds: string[]): Promise<Router> {
   const { createMemoryRouter } = await import("../../server/routes/memory");
-  return createMemoryRouter(await createTestAppContext());
+  const ctx = await createTestAppContext();
+  const insert = ctx.db.prepare(
+    `INSERT INTO topics (id, name, slug, session_key, created_at, updated_at)
+     VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))`,
+  );
+  for (const id of topicIds) insert.run(id, id, id, `topic:${id}`);
+  return createMemoryRouter(ctx);
 }
 
 const readTopic = async (router: Router, id: string) =>
@@ -60,8 +72,8 @@ const readGlobal = async (router: Router) =>
 
 describe("aggiungere alla memoria di un topic", () => {
   test("l'aggiunta si aggiunge: quello che c'era resta", async () => {
-    const router = await banco();
     const id = `t-append-${Date.now()}`;
+    const router = await banco(id);
 
     await call(router, "PUT", `/api/memory/${id}`, { content: "La prima cosa detta." });
     expect(await readTopic(router, id)).toBe("La prima cosa detta.");
@@ -78,8 +90,8 @@ describe("aggiungere alla memoria di un topic", () => {
   });
 
   test("aggiungere due volte lascia due righe, in ordine", async () => {
-    const router = await banco();
     const id = `t-ordine-${Date.now()}`;
+    const router = await banco(id);
     await call(router, "POST", `/api/memory/${id}/append`, { content: "uno" });
     await call(router, "POST", `/api/memory/${id}/append`, { content: "due" });
 
@@ -89,8 +101,8 @@ describe("aggiungere alla memoria di un topic", () => {
   });
 
   test("senza contenuto e' 400, e non crea niente", async () => {
-    const router = await banco();
     const id = `t-vuoto-${Date.now()}`;
+    const router = await banco(id);
     expect((await call(router, "POST", `/api/memory/${id}/append`, {})).status).toBe(400);
     expect(await readTopic(router, id)).toBe("");
   });
@@ -99,8 +111,8 @@ describe("aggiungere alla memoria di un topic", () => {
     // The case that counts: the check sits BETWEEN the read and the write. If it
     // slipped below the `saveMemory`, the request that is refused would also be
     // the one that truncates - that is, the 413 would arrive AFTER the damage.
-    const router = await banco();
     const id = `t-tetto-${Date.now()}`;
+    const router = await banco(id);
     const precious = "Questo non deve sparire.";
     await call(router, "PUT", `/api/memory/${id}`, { content: precious });
 
@@ -115,8 +127,8 @@ describe("aggiungere alla memoria di un topic", () => {
 
 describe("le due memorie sono due cose separate", () => {
   test("cancellare la globale non tocca quella del topic", async () => {
-    const router = await banco();
     const id = `t-scope-a-${Date.now()}`;
+    const router = await banco(id);
     await call(router, "PUT", "/api/memory", { content: "memoria globale" });
     await call(router, "PUT", `/api/memory/${id}`, { content: "memoria del topic" });
 
@@ -128,9 +140,9 @@ describe("le due memorie sono due cose separate", () => {
   });
 
   test("cancellare quella di un topic non tocca la globale ne' gli altri topic", async () => {
-    const router = await banco();
     const first = `t-scope-b-${Date.now()}`;
     const second = `t-scope-c-${Date.now()}`;
+    const router = await banco(first, second);
     await call(router, "PUT", "/api/memory", { content: "globale intatta" });
     await call(router, "PUT", `/api/memory/${first}`, { content: "primo topic" });
     await call(router, "PUT", `/api/memory/${second}`, { content: "secondo topic" });
@@ -149,8 +161,8 @@ describe("le due memorie sono due cose separate", () => {
     // them is the only thing keeping them distinct. If the first started
     // accepting the second too, an `append` would become a read: 200, no error,
     // and nothing written.
-    const router = await banco();
     const id = `t-rotta-${Date.now()}`;
+    const router = await banco(id);
     await call(router, "POST", `/api/memory/${id}/append`, { content: "arrivata a destinazione" });
     expect(await readTopic(router, id)).toContain("arrivata a destinazione");
   });

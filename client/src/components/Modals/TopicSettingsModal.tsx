@@ -67,8 +67,54 @@ export function TopicShareAction({ topicId }: { topicId: string }) {
   return <ShareControl resourceType="topic" resourceId={topicId} deepLink={() => buildTabLinkForTarget({ kind: 'chat', key: topicId })} />;
 }
 
+/**
+ * Build the only PATCH shape this settings surface may send for a Topic.
+ *
+ * The global coordinator is still a real, persistent Topic, but its
+ * operational identity belongs to the server-owned registry.  Keeping this
+ * pure makes it impossible for an unchanged hidden field (provider, prompt,
+ * project binding, context files, autonomy) to leak back into a generic save.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- pure serializer is exported for no-DOM contract coverage.
+export function buildTopicSettingsUpdate(
+  topic: Topic,
+  values: {
+    name: string;
+    color: string;
+    projectPath: string;
+    systemPrompt: string;
+    /**
+     * Whether the single-topic read that carries the prompt has landed. The
+     * list shape omits `systemPrompt`, so until then the textarea holds a
+     * value nobody typed: the field is left out of the PATCH rather than
+     * erasing the prompt of every topic whose settings were merely opened.
+     */
+    promptLoaded: boolean;
+    contextFiles: string[];
+    provider: string | null;
+    muted: boolean;
+    autonomy: AutonomyLevel | null;
+  },
+): UpdateTopicRequest {
+  const presentation: UpdateTopicRequest = {
+    name: values.name,
+    color: values.color,
+    muted: values.muted,
+  };
+  if (topic.isGlobalOrchestrator) return presentation;
+  return {
+    ...presentation,
+    projectPath: values.projectPath.trim() || undefined,
+    ...(values.autonomy ? { autonomyLevel: values.autonomy } : {}),
+    ...(values.promptLoaded ? { systemPrompt: values.systemPrompt } : {}),
+    contextFiles: values.contextFiles,
+    provider: values.provider,
+  };
+}
+
 export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSettingsModalProps) {
   const confirm = useConfirm();
+  const isGlobalOrchestrator = topic.isGlobalOrchestrator === true;
   const [projectPath, setProjectPath] = useState(topic.projectPath || '');
   const [topicName, setTopicName] = useState(topic.name);
   const [topicColor, setTopicColor] = useState(topic.color);
@@ -100,12 +146,12 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
     let cancelled = false;
     // external-data sync: clear stale worktree before the async re-fetch on (re)open
     setWorktree(null);
-    if (!isOpen || !topic.worktreeId) return;
+    if (!isOpen || isGlobalOrchestrator || !topic.worktreeId) return;
     worktreesApi.get(topic.worktreeId)
       .then((wt) => { if (!cancelled) setWorktree(wt); })
       .catch(() => { /* swallow — leave the section hidden if it 404s */ });
     return () => { cancelled = true; };
-  }, [isOpen, topic.worktreeId]);
+  }, [isOpen, isGlobalOrchestrator, topic.worktreeId]);
 
   useEffect(() => {
     // one-shot sync of controlled form fields from the topic prop on open / topic change
@@ -118,6 +164,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
     setNewContextFile('');
     setProvider(topic.provider ?? null);
     setMuted(!!topic.muted);
+    setAutonomy(topic.autonomyLevel ?? null);
     setSaved(false);
     // Keyed on topic.id, NOT the topic object: every `topic:updated` WS
     // broadcast mints a fresh object reference (applyTopicFromWS), and with
@@ -133,6 +180,9 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   useEffect(() => {
     let cancelled = false;
     if (!isOpen) return;
+    // The coordinator's prompt is server-owned and its prompt surface is
+    // denied: nothing to fetch, nothing to edit.
+    if (isGlobalOrchestrator) return;
     if (topic.systemPrompt !== undefined) {
       setPromptLoaded(true);
       setLoadedPrompt(topic.systemPrompt);
@@ -150,28 +200,34 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
       })
       .catch(() => { /* leave it read-only: better empty than a prompt overwritten by a failed read */ });
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on topic.id like the seeding effect above: a WS-minted topic object must not re-fetch and wipe the prompt being edited
   }, [topic.id, isOpen]);
 
   // Fetch available providers
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || isGlobalOrchestrator) {
+      setProviders([]);
+      return;
+    }
     fetch('/api/providers')
       .then(r => r.json())
       .then(data => setProviders(data.providers || []))
       .catch(() => setProviders([]));
-  }, [isOpen]);
+  }, [isOpen, isGlobalOrchestrator]);
 
   // Dirty state is pure derived data (current form vs. the topic prop), so we
   // compute it during render instead of mirroring it into state via an effect.
-  const isDirty =
-    projectPath !== (topic.projectPath || '') ||
+  const presentationDirty =
     topicName !== topic.name ||
     topicColor !== topic.color ||
+    muted !== !!topic.muted;
+  const isDirty = presentationDirty || (!isGlobalOrchestrator && (
+    projectPath !== (topic.projectPath || '') ||
     (promptLoaded && systemPrompt !== loadedPrompt) ||
     JSON.stringify(contextFilesList) !== JSON.stringify(topic.contextFiles || []) ||
     provider !== (topic.provider ?? null) ||
-    muted !== !!topic.muted;
+    autonomy !== (topic.autonomyLevel ?? null)
+  ));
 
   const handleClose = async () => {
     if (isDirty && !await confirm({ title: tr('topic.unsaved.title'), body: tr('topic.unsaved.body'), confirmLabel: tr('topic.unsaved.confirm') })) {
@@ -183,21 +239,17 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   const handleSave = async () => {
     // updateTopic swallows request errors and resolves null rather than
     // throwing, so an unguarded await always looked like a successful save.
-    const result = await onUpdate(topic.id, {
+    const result = await onUpdate(topic.id, buildTopicSettingsUpdate(topic, {
       name: topicName,
       color: topicColor,
-      projectPath: projectPath.trim() || undefined,
-      // Il livello di autonomia ora si sceglie da qui, quindi si manda. Se non
-      // è mai stato scelto resta `undefined` e la PATCH parziale non tocca la
-      // colonna — un topic che non ha deciso continua a comportarsi come prima.
-      ...(autonomy ? { autonomyLevel: autonomy } : {}),
-      // Omitted while the single-topic read is in flight: a partial PATCH that
-      // does not carry the field leaves the column alone.
-      ...(promptLoaded ? { systemPrompt } : {}),
+      projectPath,
+      systemPrompt,
+      promptLoaded,
       contextFiles: contextFilesList,
       provider,
       muted,
-    });
+      autonomy,
+    }));
     if (!result) {
       toast.error('Failed to save settings');
       return;
@@ -207,6 +259,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   };
 
   const handleUnlinkProject = async () => {
+    if (isGlobalOrchestrator) return;
     const previousProjectPath = projectPath;
     setProjectPath('');
     const result = await onUpdate(topic.id, { projectPath: '' });
@@ -260,6 +313,11 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
         <div className="flex items-center justify-between px-5 py-4 border-b border-app-border">
           <div className="flex items-center gap-2">
             <h2 className="text-[15px] font-semibold text-app-text">{topic.name} Settings</h2>
+            {isGlobalOrchestrator && (
+              <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                {tr('topic.orchestrator.badge')}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1">
             {/* Condividere una CHAT, con lo stesso controllo con cui si condivide
@@ -307,6 +365,24 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
             </div>
           </div>
 
+          {isGlobalOrchestrator && (
+            <div
+              data-testid="global-orchestrator-settings-lock"
+              className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3"
+            >
+              <div className="flex items-center gap-1.5 text-[12px] font-medium text-app-text">
+                <ShieldCheck size={14} className="text-primary" />
+                {tr('topic.orchestrator.lockTitle')}
+              </div>
+              <p className="mt-1 text-[12px] leading-relaxed text-app-text-secondary">
+                {tr('topic.orchestrator.lockBody')}
+              </p>
+              <p className="mt-1 text-[11px] text-app-text-muted">
+                {tr('topic.orchestrator.voiceExternal')}
+              </p>
+            </div>
+          )}
+
           {/* Mute notifications (per-topic — migration 073) */}
           <div>
             <label className="block text-[13px] font-medium text-app-text mb-2">
@@ -331,6 +407,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
             </button>
           </div>
 
+          {!isGlobalOrchestrator && <>
           {/* Link Project */}
           <div>
             <label className="block text-[13px] font-medium text-app-text mb-2">
@@ -591,6 +668,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
               Memory and advanced context settings are also available in the <strong className="text-app-text">Context Inspector</strong> panel. Click the <span className="inline-flex items-center gap-0.5 px-1 py-0.5 bg-primary/10 rounded text-primary text-[11px] font-medium">Layers</span> button in the header to open it.
             </p>
           </div>
+          </>}
         </div>
 
         {/* Footer */}

@@ -1,5 +1,6 @@
 import type { AppContext, RouteHandler, Topic } from "../types";
 import type { AIProvider } from "../providers";
+import { isGlobalOrchestratorTopic } from "../services/global-orchestrator-session";
 
 export interface AutoNameDeps {
   resolveProvider: (topic?: Topic | null) => AIProvider;
@@ -23,12 +24,22 @@ export function createAutoNameRouter(ctx: AppContext, deps: AutoNameDeps): Route
     if (params && method === "POST") {
       const topic = getTopicById(params.id);
       if (!topic) return json({ error: "not found" }, 404);
+      // The coordinator has a server-owned durable identity.  Auto-naming
+      // would use the generic one-shot provider path, so it must neither infer
+      // a project nor resolve a mutable/default provider for this Topic.
+      if (isGlobalOrchestratorTopic(ctx.db, topic.id)) {
+        return json({ title: topic.name, icon: topic.icon, suggestedProject: null });
+      }
       const localMsgs = loadLocalMessages(topic.sessionKey);
       if (localMsgs.length < 2) return json({ error: "Not enough messages yet" }, 400);
 
       // Detect project path from messages
       let suggestedProject: string | null = null;
       const detectedPath = detectProjectPathFromMessages(localMsgs);
+      // Auto-naming is allowed—the Topic is still ordinary—but automatic
+      // project inference would turn the registry-backed global session into
+      // an ordinary project-scoped task authority. Keep its board role
+      // unbound, independent of messages that mention a project path.
       if (detectedPath && !topic.projectPath) suggestedProject = detectedPath;
 
       if (suggestedProject) {
@@ -36,7 +47,7 @@ export function createAutoNameRouter(ctx: AppContext, deps: AutoNameDeps): Route
         // don't both decide they need to write — whichever lands first
         // sets projectPath, the loser sees the field already populated.
         const freshTopic = getTopicById(params.id);
-        if (freshTopic && !freshTopic.projectPath) {
+        if (freshTopic && !freshTopic.projectPath && !isGlobalOrchestratorTopic(ctx.db, freshTopic.id)) {
           freshTopic.projectPath = suggestedProject;
           freshTopic.updatedAt = new Date().toISOString();
           saveSingleTopic(freshTopic);
