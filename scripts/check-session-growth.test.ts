@@ -95,7 +95,9 @@ describe("judge", () => {
   it("goes red on DOM nodes alone: a subtree that outlived its owner", () => {
     // The shape the injected leak produces, and the one a pane that does not
     // unmount cleanly produces too: the heap can stay flat if the nodes are small.
-    const o = judge(with_({ ratio: { dom_nodes: 1.4 } }), RECORDED);
+    // Above the recorded budget (1.40 since 2026-09-06, raised over the bench's
+    // own noise band): the shape of an orphan subtree over 45 cycles.
+    const o = judge(with_({ ratio: { dom_nodes: 1.6 } }), RECORDED);
     expect(o.code).toBe(1);
     expect(o.over[0]).toContain("dom_nodes");
   });
