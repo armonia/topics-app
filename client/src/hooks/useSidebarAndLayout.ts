@@ -14,9 +14,10 @@
  *    on mobile, visualViewport tracking, traffic-light visibility,
  *    cross-tab settings sync.
  *
- * NOT owned: showTopicsMenu lives in App (modal state stays per
- * CRITIQUE C10), but is passed in here so the traffic-light effect can
- * react to it without exporting an electron-API call into App's render.
+ * NOT owned: the menu state lives in App (modal state stays per CRITIQUE C10).
+ * It used to be passed in here for the traffic-light effect to follow; the
+ * lights are permanent now (the title is not a trigger any more), so the effect
+ * fires once and this hook no longer needs to know about any menu.
  */
 
 import { useCallback, useEffect, useRef, useState, startTransition, type Dispatch, type SetStateAction } from 'react';
@@ -27,7 +28,7 @@ import { loadSettings, saveSettings, SETTINGS_CHANGED_EVENT } from '../lib/setti
 import { generateUUID } from '../utils/uuid';
 import { DRAG_SLOP_PX } from './useGridResize';
 import { isDesktop } from '../lib/shell';
-import { showTrafficLights, hideTrafficLights } from '../lib/shell/window';
+import { showTrafficLights } from '../lib/shell/window';
 import { usePaneStore } from '../state/pane/store';
 import { hasVisiblePane } from '../state/pane/selectors';
 import { mediaQueryMatches } from '../lib/mediaQuery';
@@ -68,7 +69,6 @@ const getWindowId = (): string => {
 export interface UseSidebarAndLayoutArgs {
   isDetached: boolean;
   /** App owns the topics-menu modal state; passed in for the traffic-light effect. */
-  showTopicsMenu: boolean;
 }
 
 export interface UseSidebarAndLayoutReturn {
@@ -95,7 +95,7 @@ export interface UseSidebarAndLayoutReturn {
 }
 
 export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAndLayoutReturn {
-  const { isDetached, showTopicsMenu } = args;
+  const { isDetached } = args;
 
   // Unique ID for this window (for cross-window drag coordination)
   const windowId = getWindowId();
@@ -155,15 +155,19 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
     };
   }, [isMobile]);
 
-  // Show/hide macOS traffic lights with Topics dropdown (Electron + Tauri).
+  // THE macOS TRAFFIC LIGHTS ARE ALWAYS OUT NOW (Electron + Tauri).
+  //
+  // They used to appear with the «Topics» dropdown and hide with it: the word
+  // was the trigger, the lights came out over it, and the label went invisible
+  // underneath. That dropdown is gone from the desktop - the whole submenu
+  // lives under the user card at the foot of the column (card 022db87b) - so
+  // there is nothing left to reveal them, and a window whose close button
+  // needs a menu that no longer exists is a window you cannot close.
+  //
   useEffect(() => {
     if (!isDesktop) return;
-    if (showTopicsMenu) {
-      showTrafficLights();
-    } else {
-      hideTrafficLights();
-    }
-  }, [showTopicsMenu]);
+    showTrafficLights();
+  }, []);
 
   // App settings + cross-tab sync
   const [appSettings, setAppSettings] = useState<AppSettings>(loadSettings);

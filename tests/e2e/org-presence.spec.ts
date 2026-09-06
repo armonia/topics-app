@@ -8,10 +8,18 @@
  * the same. That is the commonest way a feature comes out "done" and is not
  * there.
  *
- * Here we look at the pixel: the row exists, it shows the right people, and it
- * says nothing when there is nobody.
+ * Here we look at the pixel: the people are listed, the right ones are marked
+ * as here, and nothing is said when there is nobody.
  *
- * @covers STATUSLINE-01
+ * WHERE THE PIXEL IS NOW. The groups used to be a chip on the band at the foot
+ * of the column, with faces on it and a panel of their own. The band is two
+ * things now, the friends who are here and ONE card (STATUSLINE-04), and the
+ * groups are a section of the menu that card opens: the row says how many are
+ * online, expanding it lists who, and the door to managing the group is at the
+ * bottom of the section. The truths this file checks did not move; the place
+ * they are read from did.
+ *
+ * @covers STATUSLINE-01, STATUSLINE-04
  */
 import { test, expect, type Page } from "@playwright/test";
 import { join } from "node:path";
@@ -30,9 +38,9 @@ function membro(id: string, name: string, lastSeenAt: number | null) {
 }
 
 /**
- * The minimum identity data needed for the row to be drawn at all.
+ * The minimum identity data needed for the card to be drawn at all.
  *
- * `/api/auth/session` has to say `paired`: the whole row sits behind
+ * `/api/auth/session` has to say `paired`: the whole band sits behind
  * `session.status !== 'paired'`, which returns null, so on an installation with
  * no pairing there is no presence regardless of the members.
  */
@@ -45,7 +53,7 @@ async function stubIdentity(
 ) {
   // The shape is the REAL one of the route (`refreshSession` in
   // lib/auth/session.ts): `paired` plus `as` plus `name`, not an already chewed
-  // `status`. An invented stub would have left the row unmounted and the red
+  // `status`. An invented stub would have left the card unmounted and the red
   // would have blamed the presence instead of the fake server.
   await page.route("**/api/auth/session", (r) =>
     r.fulfill({ status: 200, contentType: "application/json",
@@ -90,8 +98,8 @@ async function stubIdentity(
   await page.route("**/api/auth/orgs/*/members", (r) =>
     r.fulfill({ status: 200, contentType: "application/json",
       body: JSON.stringify({ members: membri }) }));
-  // THE FRIENDS SUBJECT READS THE GRAPH, not these members any more. It used
-  // to be computed from the organisation address book, which is why it was
+  // THE CHIPS READ THE GRAPH, not these members. The friends used to be
+  // computed from the organisation address book, which is why they were
   // labelled "People": the two are stubbed apart here because they are two
   // different questions, and a test that fed one from the other could no
   // longer tell them apart.
@@ -115,8 +123,34 @@ async function stubIdentity(
       }) }));
 }
 
+/** Open the one door of the chrome and hand back the menu. */
+async function openMenu(page: Page) {
+  const card = page.getByTestId("identity-me-profile");
+  await expect(card).toBeVisible({ timeout: 20000 });
+  await card.click();
+  const menu = page.getByTestId("profile-menu");
+  await expect(menu).toBeVisible({ timeout: 10000 });
+  return menu;
+}
+
+/** Open the menu and expand the organisations section. */
+async function openOrgs(page: Page) {
+  const menu = await openMenu(page);
+  await menu.getByTestId("profile-menu-orgs").click();
+  await expect(menu.getByTestId("profile-menu-orgs")).toHaveAttribute("aria-expanded", "true");
+  return menu;
+}
+
+/** Open the menu and expand the friends section. */
+async function openFriends(page: Page) {
+  const menu = await openMenu(page);
+  await menu.getByTestId("profile-menu-friends").click();
+  await expect(menu.getByTestId("profile-menu-friends")).toHaveAttribute("aria-expanded", "true");
+  return menu;
+}
+
 /**
- * A SHOT OF THE PANEL AND OF THE BAND THAT OPENED IT, and nothing else.
+ * A SHOT OF THE MENU AND OF THE CARD THAT OPENED IT, and nothing else.
  *
  * A full-page screenshot of a panel 288px wide is 95% of a window nobody is
  * looking at, and at card size it becomes an unreadable grey rectangle. The
@@ -126,22 +160,24 @@ async function stubIdentity(
 async function clipShot(page: Page, panel: ReturnType<Page["getByTestId"]>, path: string) {
   const box = await panel.boundingBox();
   expect(box).not.toBeNull();
+  const vh = page.viewportSize()?.height ?? 800;
+  // THE PANEL IS ON SCREEN. It flips above the card by itself and caps its own
+  // height; a panel past either edge is a wrong panel, and the shot would be
+  // a picture of the wrong panel.
+  expect(box!.y, `the menu starts at ${box!.y}`).toBeGreaterThanOrEqual(0);
+  expect(box!.y + box!.height, `the menu ends at ${box!.y + box!.height} in a ${vh}px window`).toBeLessThanOrEqual(vh);
   const width = Math.min(760, Math.max(660, Math.round(box!.x + box!.width + 40)));
-  // Landscape on purpose: a card crops the excess off the BOTTOM, so a shot
-  // taller than 0.70 of its width loses the part that was the point.
-  const height = Math.round(width * 0.66);
-  // The panel sits against the bottom of the window, so the clip is anchored to
-  // its lower edge and grows upwards. Anchoring it to the top would cut the
-  // actions off exactly when the panel is at its tallest.
+  // Landscape when the panel allows it (a card crops the excess off the
+  // BOTTOM), and as tall as the panel when it does not: the menu holds the
+  // account, the people and the commands, and cropping the actions off the
+  // foot of it would cut exactly the part the shot is for.
+  const height = Math.min(vh, Math.max(Math.round(width * 0.66), Math.round(box!.height + 40)));
   const y = Math.max(0, Math.round(box!.y + box!.height + 20 - height));
-  // The whole point of the shot is the panel: if it does not fit, the numbers
-  // are wrong and the test says so instead of writing a cropped picture.
-  expect(box!.height + 40).toBeLessThanOrEqual(height);
   await page.screenshot({ path, clip: { x: 0, y, width, height } });
 }
 
 test.describe("presence dell'organizzazione, a schermo", () => {
-  test("PRESENCE-01: due colleghi visti ora diventano due facce sul chip dell'org", async ({ page }) => {
+  test("PRESENCE-01: due colleghi visti ora sono «2 di 3» sulla riga, e due persone accese nella lista", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
     const ora = Date.now();
     await stubIdentity(page, [
@@ -152,27 +188,34 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     ]);
     await page.goto("/");
 
-    const chip = page.getByTestId("org-chip");
-    await expect(chip).toBeVisible({ timeout: 20000 });
-    // Presence lives INSIDE the group chip: with two organisations a single
-    // count would not say which group those people belong to.
-    await expect(chip.getByTestId("presence-face")).toHaveCount(2);
-    // And the group name is NOT on screen: the chip holds the logo and the
-    // faces, the full name lives in the panel the chip opens.
-    await expect(chip).not.toContainText("Acme Group");
-    await page.screenshot({ path: join(SHOTS, "presence-due.png") });
+    const menu = await openMenu(page);
+    // The row is the headline: how many of the group are here, WITHOUT
+    // counting you. Four members, three that are not you, two of them here.
+    const row = menu.getByTestId("profile-menu-orgs");
+    await expect(row.getByTestId("orgs-count")).toContainText("2 di 3");
+    // With one organisation the row wears its name, so the count says which
+    // group those people belong to.
+    await expect(row).toContainText("Acme Group");
+    // Expanded, the list marks the two who are here and lists the third.
+    await row.click();
+    await expect(menu.getByTestId("presence-person")).toHaveCount(3);
+    await expect(menu.locator('[data-testid="presence-person"][data-online="true"]')).toHaveCount(2);
+    await expect(menu.getByTestId("presence-person")).not.toContainText(["Io"]);
+    await clipShot(page, menu, join(SHOTS, "presence-due.png"));
   });
 
-  test("PRESENCE-02: da solo, il chip resta ed è il solo logo", async ({ page }) => {
+  test("PRESENCE-02: da solo, la riga resta e dice zero senza rumore", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
-    // "0 online" is noise you learn to skip: with nobody around the chip is
-    // just the logo, and the emptiness is already the answer. The chip stays,
-    // though, because it is also the door to managing THAT organisation.
+    // "0 online" is what the row says when nobody is around, and it stays,
+    // because it is also the door to managing THAT organisation. What must
+    // not happen is a person being counted: you are the only member, and the
+    // list under the row is empty rather than a list of one.
     await stubIdentity(page, [membro("io", "Io", Date.now())]);
     await page.goto("/");
-    await expect(page.getByTestId("identity-row-me")).toBeVisible({ timeout: 20000 });
-    await expect(page.getByTestId("org-chip")).toBeVisible({ timeout: 20000 });
-    await expect(page.getByTestId("org-chip-online")).toHaveCount(0);
+    const menu = await openOrgs(page);
+    await expect(menu.getByTestId("orgs-count")).toContainText("0 di 0");
+    await expect(menu.getByTestId("presence-person")).toHaveCount(0);
+    await expect(menu.locator('[data-testid="presence-person"][data-online="true"]')).toHaveCount(0);
   });
 
   test("PRESENCE-03: un membro senza dispositivi vivi vale null, non il 1970", async ({ page }) => {
@@ -186,30 +229,28 @@ test.describe("presence dell'organizzazione, a schermo", () => {
       membro("a", "Anna", null),
     ]);
     await page.goto("/");
-    await expect(page.getByTestId("identity-row-me")).toBeVisible({ timeout: 20000 });
-    await expect(page.getByTestId("org-chip-online")).toHaveCount(0);
+    const menu = await openOrgs(page);
+    await expect(menu.getByTestId("orgs-count")).toContainText("0 di 1");
+    await expect(menu.getByTestId("presence-person")).toHaveCount(1);
+    await expect(menu.locator('[data-testid="presence-person"][data-online="true"]')).toHaveCount(0);
   });
 
-  test("PRESENCE-04: il chip dell'org apre il pannello, e il pannello la gestione", async ({ page }) => {
-    // The chip no longer jumps to a page: it opens its panel, which answers
-    // "who is in this group" on the spot. The door to management survives, at
-    // the bottom of the panel, for when the question really is a big one.
+  test("PRESENCE-04: la sezione dell'org apre la gestione", async ({ page }) => {
+    // The section answers "who is in this group" on the spot. The door to
+    // management survives, at the bottom of the section, for when the
+    // question really is a big one.
     await stubIdentity(page, [membro("io", "Io", Date.now())]);
     await page.goto("/");
-    const chip = page.getByTestId("org-chip");
-    await expect(chip).toBeVisible({ timeout: 20000 });
-    await chip.click();
-    await expect(page.getByTestId("org-panel")).toBeVisible();
-    await page.getByTestId("org-open-manage").click();
-    // NOT the profile tab any more: the group is not part of your personal
-    // page, so "manage this group" lands in Settings, on the organisation
-    // page. The door is the same one, the room behind it changed.
+    const menu = await openOrgs(page);
+    await menu.getByTestId("org-open-manage").click();
+    // NOT the profile tab: the group is not part of your personal page, so
+    // "manage this group" lands in Settings, on the organisation page.
     await expect(page.getByTestId("settings-page-organization")).toBeVisible({ timeout: 20000 });
   });
 
-  test("PRESENCE-06: il pannello dell'org elenca ANCHE chi non è online", async ({ page }) => {
-    // It is half the reason the panel gets opened: looking for somebody who is
-    // not here right now. The closed chip shows the present, the list does not
+  test("PRESENCE-06: la lista dell'org elenca ANCHE chi non è online", async ({ page }) => {
+    // It is half the reason the section gets opened: looking for somebody who
+    // is not here right now. The row counts the present, the list does not
     // stop there.
     const ora = Date.now();
     await stubIdentity(page, [
@@ -222,16 +263,14 @@ test.describe("presence dell'organizzazione, a schermo", () => {
       { id: "c", displayName: "Carla Bianchi", isMe: false },
     ]);
     await page.goto("/");
-    await page.getByTestId("org-chip").click();
-    const panel = page.getByTestId("org-panel");
-    await expect(panel).toBeVisible();
-    await expect(panel.getByTestId("presence-person")).toHaveCount(2);
-    await expect(panel.locator('[data-testid="presence-person"][data-online="true"]')).toHaveCount(1);
-    await expect(panel).toContainText("Carla Bianchi");
+    const menu = await openOrgs(page);
+    await expect(menu.getByTestId("presence-person")).toHaveCount(2);
+    await expect(menu.locator('[data-testid="presence-person"][data-online="true"]')).toHaveCount(1);
+    await expect(menu).toContainText("Carla Bianchi");
   });
 
-  test("PRESENCE-05: la riga degli amici mostra chi è online e apre gli amici", async ({ page }) => {
-    test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
+  test("PRESENCE-05: un amico online è una chip in fondo, e il menu apre gli amici", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "STATUSLINE-04" });
     const ora = Date.now();
     await stubIdentity(page, [
       membro("io", "Io", ora),
@@ -240,19 +279,25 @@ test.describe("presence dell'organizzazione, a schermo", () => {
       { id: "io", displayName: "Io", isMe: true },
       { id: "a", displayName: "Anna Rossi", isMe: false },
     ], [
-      // A FRIEND, and not merely a colleague: since the subject reads the
-      // friendship graph, sharing a group with somebody no longer puts their
-      // face on this chip. That is the whole point of the change.
+      // A FRIEND, and not merely a colleague: the chips read the friendship
+      // graph, so sharing a group with somebody does not put their face on
+      // the band. That is the whole point of the change.
       { id: "a", displayName: "Anna Rossi", lastSeenAt: ora - 30_000 },
     ]);
     await page.goto("/");
 
-    const amici = page.getByTestId("identity-row-friends");
-    await expect(amici).toBeVisible({ timeout: 20000 });
-    await expect(amici).toContainText("1");
-    await page.getByTestId("identity-friends-chip").click();
-    await expect(page.getByTestId("friends-panel")).toBeVisible();
-    await page.getByTestId("friends-open-all").click();
+    // ONE CHIP, HER NAME ON IT: a person who is here is drawn, not counted.
+    const chips = page.getByTestId("friend-chips");
+    await expect(chips).toBeVisible({ timeout: 20000 });
+    await expect(chips.getByTestId("friend-chip")).toHaveCount(1);
+    // The name is the last span of the chip: the first is the face, which
+    // spells her initials when there is no picture.
+    await expect(chips.getByTestId("friend-chip").locator("span").last()).toHaveText("Anna");
+    await expect(chips.getByTestId("friend-chip")).toHaveAttribute("aria-label", "Anna Rossi");
+    // And the menu says the same number, and keeps the door to the page.
+    const menu = await openFriends(page);
+    await expect(menu.getByTestId("friends-count")).toContainText("1 di 1");
+    await menu.getByTestId("friends-open-all").click();
     await expect(page.getByTestId("profile-pane")).toBeVisible({ timeout: 20000 });
     // The profile pane stopped being a tab strip: "manage friends" opens the
     // friends DROPDOWN on the single profile page, so the surviving property is
@@ -262,45 +307,24 @@ test.describe("presence dell'organizzazione, a schermo", () => {
   });
 
   /**
-   * THE BAND IS ONE BAND, MEASURED.
+   * THE BAND IS TWO THINGS, MEASURED: the chips above, the card below, and the
+   * card as wide as the column.
    *
-   * What tells the three subjects apart is the first glyph of each, so the
-   * three glyphs have to agree on one box and one line. They did not: on the
-   * delivery screenshot of 2026-08-21 the three rows measured 16px, 8px and
-   * 11px tall with the left edge jumping between x=6 and x=10, and that shot
-   * was attached to the card as its evidence.
+   * This test used to pin three glyphs to one box and one line, because the
+   * band was three subjects and the fault it caught (2026-08-21) was three
+   * rows of three different heights. There is one subject at the foot now,
+   * the card, and the thing worth pinning is what STATUSLINE-04 says about
+   * it: it spans the column (a narrower card is a chip again), the chips sit
+   * ABOVE it on a single line (a chip beside the card is the old band coming
+   * back), and the two do not overlap.
    *
-   * WHAT CHANGED SINCE, AND WHY THIS TEST NOW ASSERTS THE OPPOSITE OF ONE LINE.
-   * Until 8f58d75 the band was a WRAPPING inline flow, so the number of lines
-   * was decided by the data: one line on a wide column with one group, three on
-   * a narrow one with four. This test therefore checked the only edge that
-   * survives a wrap, the left one, and it had to refuse to run below two lines
-   * because with a single line there is no second start to compare. That
-   * "collapsed onto one line" guard was correct then and is exactly what the
-   * redesign reversed on purpose: the three subjects are now three mini-cards
-   * on ONE line at every sidebar width (the name truncates, the groups past the
-   * second collapse into a `+n` chip). A place whose shape moves with the data
-   * is a place you re-read instead of glancing at.
-   *
-   * So the left-edge promise becomes a TOP promise: one line, one top. The box
-   * assertion is untouched, because "same slot for every subject" is what made
-   * the left edges agree by construction in the first place. The widths at
-   * which the line has to hold, the contrast over the new chip veil and the
-   * pointer targets are measured in `identity-chips.spec.ts`.
-   *
-   * It is measured on a populated app on purpose. That screenshot was taken on
-   * an EMPTY one — welcome screen, sidebar blank from y=122 to y=686 — so the
-   * band hung off nothing and the presence, which was the whole point, was not
-   * in the picture at all.
+   * It is measured on a populated app on purpose. The earlier evidence was
+   * withdrawn because it showed the empty state of the app, column blank from
+   * y=122 to y=686 and the band hanging off nothing. A band photographed over
+   * a deserted column does not show the work.
    */
-  test("PRESENCE-08: i tre glifi della fascia stanno sulla stessa riga, nella stessa scatola", async ({ page, request }) => {
-    test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
-    // SOMETHING ABOVE THE BAND. It is not needed for the measurement - the
-    // glyphs sit at the bottom and do not move - but it is needed for the
-    // EVIDENCE: the earlier shot was withdrawn by the verifier because it
-    // showed the empty state of the app, column blank from y=122 to y=686 and
-    // the band hanging off nothing. A band photographed over a deserted column
-    // does not show the work.
+  test("PRESENCE-08: le chip stanno sopra la card, e la card è larga quanto la colonna", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "STATUSLINE-04" });
     const seeded: string[] = [];
     for (const nome of ["Rilascio", "Anteprime", "Presenza"]) {
       const t = await createTopic(request, `${nome} ${Date.now()}`);
@@ -316,63 +340,43 @@ test.describe("presence dell'organizzazione, a schermo", () => {
       { id: "io", displayName: "Io", isMe: true },
       { id: "a", displayName: "Anna", isMe: false },
       { id: "b", displayName: "Bruno", isMe: false },
+    ], [
+      { id: "a", displayName: "Anna", lastSeenAt: ora - 30_000 },
+      { id: "b", displayName: "Bruno", lastSeenAt: ora - 60_000 },
     ]);
     await page.goto("/");
 
     const fascia = page.getByTestId("identity-block");
     await expect(fascia).toBeVisible({ timeout: 20000 });
-    await expect(page.getByTestId("org-chip")).toBeVisible({ timeout: 20000 });
+    await expect(page.getByTestId("friend-chip")).toHaveCount(2, { timeout: 20000 });
 
-    // The first glyph of each subject: the face, the group mark, the people
-    // mark. Their BOX is what has to match, not the ink inside it.
-    const glyphs = await fascia.evaluate((el) => {
-      // `identity-glyph` marks the BOX, not the ink: what has to match is the
-      // slot the glyph sits in, and a stroke mark drawn at 10 inside a 14px box
-      // is exactly the case a query for "the first svg" would get wrong.
-      const firstGlyph = (testId: string): { x: number; y: number; w: number; h: number } | null => {
-        const row = el.querySelector(`[data-testid="${testId}"]`);
-        const g = row?.querySelector('[data-testid="identity-glyph"]');
-        if (!g) return null;
-        const r = g.getBoundingClientRect();
-        return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
+    const geometry = await fascia.evaluate((el) => {
+      const rect = (q: string) => {
+        const r = el.querySelector(q)?.getBoundingClientRect();
+        return r ? { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height), bottom: Math.round(r.bottom) } : null;
       };
+      const cs = getComputedStyle(el);
       return {
-        io: firstGlyph("identity-row-me"),
-        org: firstGlyph("identity-row-orgs"),
-        amici: firstGlyph("identity-row-friends"),
+        inner: el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight),
+        row: rect('[data-testid="friend-chips"]'),
+        card: rect('[data-testid="identity-me-profile"]'),
+        chips: Array.from(el.querySelectorAll('[data-testid="friend-chip"]')).map((c) => {
+          const r = c.getBoundingClientRect();
+          return { x: Math.round(r.x), y: Math.round(r.y) };
+        }),
       };
     });
 
-    expect(glyphs.io).not.toBeNull();
-    expect(glyphs.org).not.toBeNull();
-    expect(glyphs.amici).not.toBeNull();
-
-    // ONE box. Sub-pixel layout rounding is the only slack allowed: anything
-    // bigger is a second measurement, which is the fault this pins.
-    const boxes = [glyphs.io!, glyphs.org!, glyphs.amici!];
-    for (const s of boxes) {
-      expect(s.w, `box width ${s.w}`).toBe(boxes[0]!.w);
-      expect(s.h, `box height ${s.h}`).toBe(boxes[0]!.h);
-    }
-
-    // ONE LINE, SO ONE TOP.
-    //
-    // This used to read "one left edge, for whoever OPENS a line", and it
-    // counted the lines first because a wrapping band could have two or three
-    // of them. There is one now, by construction, so the thing worth pinning is
-    // that there STILL is one: a second `y` in this set means the band went
-    // back to wrapping, which is the regression the redesign was for.
-    //
-    // The left edge is not lost, it moved into the box assertion above: three
-    // marks of the same size, opened by chips with the same padding, agree on
-    // one edge without a margin tuned by hand. That is what the `-mx-1` on the
-    // "me" chip used to break, starting the subject you read first at x=6
-    // against everyone else's x=10.
-    const tops = boxes.map((s) => s.y);
-    expect(
-      Math.max(...tops) - Math.min(...tops),
-      `the band wrapped: glyph tops at ${tops.join(", ")}`,
-    ).toBeLessThanOrEqual(1);
+    expect(geometry.row).not.toBeNull();
+    expect(geometry.card).not.toBeNull();
+    // THE CARD SPANS THE COLUMN. Sub-pixel layout rounding is the only slack.
+    expect(Math.abs(geometry.card!.w - geometry.inner), `card ${geometry.card!.w}px in a ${geometry.inner}px band`).toBeLessThanOrEqual(1);
+    // THE CHIPS ARE ABOVE IT, on one line.
+    expect(geometry.row!.bottom, `row ends at ${geometry.row!.bottom}, card starts at ${geometry.card!.y}`).toBeLessThanOrEqual(geometry.card!.y);
+    const tops = geometry.chips.map((c) => c.y);
+    expect(Math.max(...tops) - Math.min(...tops), `the chip row wrapped: tops at ${tops.join(", ")}`).toBeLessThanOrEqual(1);
+    // AND THEY START WHERE THE CARD STARTS: one left edge for the whole band.
+    expect(Math.abs(geometry.row!.x - geometry.card!.x), `row at x=${geometry.row!.x}, card at x=${geometry.card!.x}`).toBeLessThanOrEqual(1);
 
     const box = await fascia.boundingBox();
     if (box) {
@@ -395,12 +399,14 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     for (const id of seeded) await deleteTopic(request, id).catch(() => {});
   });
 
-  test("PRESENCE-09: la chip dell'identita' porta i NUMERI, non la frase", async ({ page }) => {
+  test("PRESENCE-09: il menu porta i NUMERI del lavoro, non la frase", async ({ page }) => {
     // The presence phrase ("3 al lavoro, 12 aperte" allow-italian: the exact
-    // string the bar used to print) repeated the same three
-    // words every day and truncated the name to fit them. The chip now carries
-    // the digits, each behind its own glyph, and the sentence stays in the
-    // tooltip: this checks the digits are the ones on screen.
+    // string the bar used to print) repeated the same three words every day
+    // and truncated the name to fit them. The digits ride on the menu's title
+    // now, each behind its own glyph, and the sentence stays in the tooltip:
+    // this checks the digits are the ones on screen. They left the card
+    // because the card answers "what is this machine spending", and two
+    // families of digits in one 240px row is the pile the redesign undid.
     const ora = Date.now();
     await stubIdentity(page, [
       membro("io", "Io", ora),
@@ -414,21 +420,14 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await page.route("**/api/system/presence", (r) =>
       r.fulfill({ status: 200, contentType: "application/json",
         body: JSON.stringify({ openSessions: 12, workingSessions: 3, activeTasks: 2, focusProject: null }) }));
-    // THE SIDEBAR HAS TO BE WIDE, and that is not a bench detail: since
-    // 6615e9eeb the presence signals live behind `@[300px]/identity`, i.e. they
-    // appear only once the column has room for them. Without seeding the width
-    // the test starts from the default sidebar, the box stays `hidden` by
-    // design, and the red would claim "the numbers are missing" when the truth
-    // is "there was no room" — two different things.
-    await page.addInitScript(() => {
-      const raw = localStorage.getItem("app-settings");
-      const base: Record<string, unknown> = raw ? JSON.parse(raw) : {};
-      localStorage.setItem("app-settings", JSON.stringify({
-        ...base, sidebarWidth: 360, sidebarWidthExpanded: 360, sidebarCollapsed: false,
-      }));
-    });
     await page.goto("/");
-    const signals = page.getByTestId("presence-summary");
+    // NOT on the card: the card carries the machine's numbers and nothing
+    // else. Asserted before opening, because after opening the menu's copy
+    // is on screen and a stray one on the card would hide behind it.
+    await expect(page.getByTestId("identity-me-profile")).toBeVisible({ timeout: 20000 });
+    await expect(page.getByTestId("presence-summary")).toHaveCount(0);
+    const menu = await openMenu(page);
+    const signals = menu.getByTestId("presence-summary");
     await expect(signals).toBeVisible({ timeout: 20000 });
     await expect(signals).toContainText("3");
     await expect(signals).toContainText("12");
@@ -436,52 +435,46 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await expect(signals).not.toContainText("aperte");
     await expect(signals).not.toContainText("lavoro");
     await page.screenshot({ path: join(SHOTS, "segnali-chip.png") });
-    // The review evidence, cropped to the foot of the column: a full 1280px
-    // shot shown on a 268px card turns the whole band into four grey pixels.
-    // The clip keeps the last rows and the bar above, which is what makes the
-    // band readable as a PLACE and not as a floating widget.
-    const box = await page.getByTestId("identity-block").boundingBox();
-    if (box) {
-      await page.screenshot({
-        path: join(SHOTS, "fascia-identita.png"),
-        clip: { x: 0, y: Math.max(0, box.y - 96), width: Math.round(box.width + 24), height: Math.round(box.height + 112) },
-      });
-    }
+    // The review evidence, cropped to the foot of the column and the menu
+    // above it: a full 1280px shot shown on a 268px card turns the whole band
+    // into four grey pixels.
+    await clipShot(page, menu, join(SHOTS, "fascia-identita.png"));
   });
 
-  test("PRESENCE-07: senza nessuno la riga amici resta, dice «Amici» e zero", async ({ page }) => {
-    test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
-    // It used to disappear. A row that exists only when it has good news
-    // leaves "but where are the friends?" unanswered for the very person who
-    // has nobody yet, the only one who needs to get in to begin.
+  test("PRESENCE-07: senza nessuno non c'è la riga delle chip, e il menu spiega da dove vengono gli amici", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "STATUSLINE-04" });
+    // The row is NOT drawn at zero: it is not the only way in, so a strip
+    // saying "nobody" would reserve daily space for the emptiest sentence in
+    // the app. The section in the menu is where "but where are the friends?"
+    // gets answered, for the very person who has nobody yet.
     await stubIdentity(page, [membro("io", "Io", Date.now())], "io", [
       { id: "io", displayName: "Io", isMe: true },
     ]);
     await page.goto("/");
-    const amici = page.getByTestId("identity-row-friends");
-    await expect(amici).toBeVisible({ timeout: 20000 });
-    await expect(page.getByTestId("identity-friends-total")).toHaveText("0");
-    // But it does not say so with bad news: at zero the row carries its own
-    // name, not "nobody online".
-    await expect(amici).toContainText("Amici");
-    await expect(amici).not.toContainText("Nessuno online");
-    // And the panel explains where friends come from, instead of being empty.
-    await page.getByTestId("identity-friends-chip").click();
-    // The panel still answers "where do these people come from", which is the
-    // point of the assertion; it answers it in the friendship model now, where
-    // the copy used to talk about followers.
-    await expect(page.getByTestId("friends-panel")).toContainText("chiedile l’amicizia");
+    await expect(page.getByTestId("identity-me-profile")).toBeVisible({ timeout: 20000 });
+    await expect(page.getByTestId("friend-chips")).toHaveCount(0);
+    const menu = await openMenu(page);
+    const row = menu.getByTestId("profile-menu-friends");
+    // The row carries its own name and a zero, not bad news.
+    await expect(row).toContainText("Amici");
+    await expect(row.getByTestId("friends-count")).toContainText("0 di 0");
+    await expect(row).not.toContainText("Nessuno online");
+    // And expanded it explains where friends come from, instead of being empty.
+    await row.click();
+    await expect(menu).toContainText("chiedile l’amicizia");
   });
+
   /**
-   * A COLLEAGUE IS NOT A FRIEND, and the chip has to know the difference.
+   * A COLLEAGUE IS NOT A FRIEND, and the band has to know the difference.
    *
-   * This is the regression the whole change is about: before it, the third
-   * subject was fed by the organisation address book, so anybody sharing a
+   * This is the regression the whole change is about: before it, the people at
+   * the foot were fed by the organisation address book, so anybody sharing a
    * group with you appeared as one of "your people". The stub here gives an
-   * organisation with a member who is online and NO friendship at all: the
-   * chip must say zero and show no face.
+   * organisation with a member who is online and NO friendship at all: no chip
+   * on the band, zero friends in the menu, and the colleague counted where
+   * they belong, under the group.
    */
-  test("BAND-01: un collega online non è un amico, e il chip non lo conta", async ({ page }) => {
+  test("BAND-01: un collega online non è un amico, e non è una chip", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
     const ora = Date.now();
     await stubIdentity(page, [
@@ -493,22 +486,23 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     ], []);
     await page.goto("/");
 
-    const amici = page.getByTestId("identity-row-friends");
-    await expect(amici).toBeVisible({ timeout: 20000 });
-    await expect(page.getByTestId("identity-friends-total")).toHaveText("0");
-    await expect(amici.getByTestId("presence-face")).toHaveCount(0);
-    // The colleague is still there, in the subject that is about groups.
-    await expect(page.getByTestId("org-chip").getByTestId("presence-face")).toHaveCount(1);
+    await expect(page.getByTestId("identity-me-profile")).toBeVisible({ timeout: 20000 });
+    await expect(page.getByTestId("friend-chips")).toHaveCount(0);
+    const menu = await openMenu(page);
+    await expect(menu.getByTestId("friends-count")).toContainText("0 di 0");
+    // The colleague is still there, in the section that is about groups.
+    await expect(menu.getByTestId("orgs-count")).toContainText("1 di 1");
   });
 
   /**
    * A REQUEST WAITING FOR YOU IS ANSWERED WHERE YOU SEE IT.
    *
-   * Sending somebody to a page to press "accept" is the round trip the panel
-   * exists to remove. Closed, the chip says it with the ink of its glyph,
-   * which is the only signal that costs no width on a line that has none.
+   * Sending somebody to a page to press "accept" is the round trip the menu
+   * exists to remove. Closed, the friends row says it with the ink of its
+   * count and a declared attribute; open, the request is a row with two
+   * buttons.
    */
-  test("BAND-02: una richiesta di amicizia si vede sul chip e si accetta dal pannello", async ({ page }) => {
+  test("BAND-02: una richiesta di amicizia si vede sulla riga e si accetta dal menu", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
     const ora = Date.now();
     await stubIdentity(page, [membro("io", "Io", ora)], "io", [
@@ -533,24 +527,23 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     });
     await page.goto("/");
 
-    const glyph = page.getByTestId("identity-row-friends").getByTestId("identity-glyph");
-    await expect(glyph).toHaveAttribute("data-pending", "true", { timeout: 20000 });
-
-    await page.getByTestId("identity-friends-chip").click();
-    await expect(page.getByTestId("friends-requests")).toContainText("Bruno Verdi");
-    await clipShot(page, page.getByTestId("friends-panel"), join(SHOTS, "pannello-amici.png"));
-    await page.getByTestId("friend-accept-b").click();
+    const menu = await openMenu(page);
+    await expect(menu.getByTestId("friends-count")).toHaveAttribute("data-pending", "true", { timeout: 20000 });
+    await menu.getByTestId("profile-menu-friends").click();
+    await expect(menu.getByTestId("friends-requests")).toContainText("Bruno Verdi");
+    await clipShot(page, menu, join(SHOTS, "pannello-amici.png"));
+    await menu.getByTestId("friend-accept-b").click();
     await expect.poll(() => accepted).toBe(true);
   });
 
   /**
-   * THE ACCOUNT PANEL, on an installation that has a service and no link.
+   * THE ACCOUNT BLOCK, on an installation that has a service and no link.
    *
-   * The two steps happen inside the dropdown: this is the whole point of the
+   * The two steps happen inside the menu: this is the whole point of the
    * change, and until it landed the only way in was three clicks deep in
    * Settings, on a page you had to already know about.
    */
-  test("BAND-03: il pannello del primo chip è l'account, e da lì si accede", async ({ page }) => {
+  test("BAND-03: in testa al menu c'è l'account, e da lì si accede", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
     await stubIdentity(page, [membro("io", "Io", Date.now())], "io", [
       { id: "io", displayName: "Io", isMe: true },
@@ -568,33 +561,31 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     });
     await page.goto("/");
 
-    await page.getByTestId("identity-me-profile").click();
-    const panel = page.getByTestId("identity-me-panel");
-    await expect(panel).toBeVisible({ timeout: 20000 });
-    // The panel says its subject, and says that nobody is signed in.
+    const panel = await openMenu(page);
+    // The menu says its subject, and says that nobody is signed in.
     await expect(panel).toContainText("Account");
     await expect(panel.getByTestId("account-line")).toContainText("Nessun account");
 
     await panel.getByTestId("account-email").fill("qualcuno@example.test");
     await panel.getByTestId("account-send-code").click();
     await expect.poll(() => asked).toBe("qualcuno@example.test");
-    // Second step, in the same panel: the code field replaces the address one
-    // and the panel never closed.
+    // Second step, in the same menu: the code field replaces the address one
+    // and the menu never closed.
     await expect(panel.getByTestId("account-code")).toBeVisible();
     // Back to step one for the shot: the address field is the state that shows
-    // what the panel now offers, and the code step only makes sense after it.
+    // what the menu now offers, and the code step only makes sense after it.
     await panel.getByText("Annulla").click();
     await expect(panel.getByTestId("account-email")).toBeVisible();
     await clipShot(page, panel, join(SHOTS, "pannello-account.png"));
   });
 
   /**
-   * AND WITH NO ACCOUNT SERVICE THE PANEL DOES NOT MENTION ACCOUNTS.
+   * AND WITH NO ACCOUNT SERVICE THE MENU DOES NOT MENTION ACCOUNTS.
    *
    * The free plan is the product, not a mutilated version to apologise for in
    * a dropdown: no form, and no "not available here" either.
    */
-  test("BAND-04: senza servizio degli account il pannello non ne parla", async ({ page }) => {
+  test("BAND-04: senza servizio degli account il menu non ne parla", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "STATUSLINE-01" });
     await stubIdentity(page, [membro("io", "Io", Date.now())], "io", [
       { id: "io", displayName: "Io", isMe: true },
@@ -607,14 +598,12 @@ test.describe("presence dell'organizzazione, a schermo", () => {
         }) }));
     await page.goto("/");
 
-    await page.getByTestId("identity-me-profile").click();
-    const panel = page.getByTestId("identity-me-panel");
-    await expect(panel).toBeVisible({ timeout: 20000 });
+    const panel = await openMenu(page);
     // The way to your own profile stays, which is what the panel had before.
-    // Asserted FIRST: the panel body is a lazy chunk, so right after the
-    // popover opens it can still be empty, and a "no sign-in form" check on
-    // an empty panel passes without looking. Once the profile door is there
-    // the body has rendered, and the absence below is a real absence.
+    // Asserted FIRST: the account block is a lazy chunk, so right after the
+    // menu opens it can still be empty, and a "no sign-in form" check on an
+    // empty block passes without looking. Once the profile door is there the
+    // block has rendered, and the absence below is a real absence.
     await expect(panel.getByTestId("identity-me-open-profile")).toBeVisible();
     await expect(panel.getByTestId("account-signin")).toHaveCount(0);
   });

@@ -786,12 +786,14 @@ test.describe("Sidebar col dito — audit misurato", () => {
     expect(Math.round(titolo.x - colonna.x), "il titolo non parte dal rientro della colonna").toBe(6);
     expect(Math.round(titolo.height), `il titolo è alto ${titolo.height}px: sotto la soglia del dito`).toBeGreaterThanOrEqual(44);
 
-    // No numbers, no version, no identity row: they are in the menu. (The
+    // No numbers, no version, no user card: they are in the menu. (The
     // container `sidebar-status-bar` no longer exists: what gets named is the
-    // content, which does exist and could come back where it must not be.)
+    // content, which does exist on the desktop and could come back where it
+    // must not be. `identity-me-profile` is the card that carries the numbers
+    // down there, STATUSLINE-04, and the identity is desktop-only.)
     await expect(page.locator(`${SIDEBAR} [data-testid="metrics-total"]`)).toHaveCount(0);
     await expect(page.locator(`${SIDEBAR} [data-version-anchor]`)).toHaveCount(0);
-    await expect(page.locator(`${SIDEBAR} [data-testid="device-identity"]`)).toHaveCount(0);
+    await expect(page.locator(`${SIDEBAR} [data-testid="identity-me-profile"]`)).toHaveCount(0);
 
     // I comandi stanno in fondo allo SCHERMO, sotto l'albero. Erano tre il
     // 12/08 (cerca · aggiungi · board); dal 14/08 sono QUATTRO — la quarta è il

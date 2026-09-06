@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense, type ComponentType } from 'react';
 import { sweepAskDrafts } from './components/Chat/askDraft';
 import { createPortal } from 'react-dom';
-import { Settings as SettingsIcon, ChevronDown, Search, Archive, List, RotateCcw, Grid2x2, Hourglass, History } from 'lucide-react';
+import { ChevronDown, Search } from 'lucide-react';
 import { useGlobalBoard } from './hooks/useGlobalBoard';
 import { useTaskTopicIndex } from './hooks/useTaskTopicIndex';
 import { openTaskInApp } from './lib/openTaskLink';
@@ -14,7 +14,6 @@ import { TooltipDelegate } from './components/Shared/TooltipDelegate';
 import { UpdaterToast } from './components/UpdaterToast';
 import type { PaneType } from './types';
 import { useTopics } from './hooks/useTopics';
-import { useT } from './hooks/useT';
 import { useChat } from './hooks/useChat';
 import { useWebSocket } from './hooks/useWebSocket';
 import { TabNotificationProvider } from './hooks/useTabNotifications';
@@ -24,7 +23,7 @@ import { TopicsProvider } from './contexts/TopicsContext';
 import { useOpenClawAvailable } from './hooks/useOpenClawAvailable';
 import { useSplitLayoutAvailable } from './hooks/useSplitLayoutAvailable';
 import { useClaudeSkipPermissions } from './hooks/useClaudePrefs';
-import { useSidebarState, nextSidebarViewMode } from './hooks/useSidebarState';
+import { useSidebarState } from './hooks/useSidebarState';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { useSidebarAndLayout } from './hooks/useSidebarAndLayout';
 import { useFloatingVibrancy } from './hooks/useFloatingVibrancy';
@@ -33,7 +32,7 @@ import { useSidebarFlipPush } from './hooks/useSidebarFlipPush';
 import { useSidebarSwipe, mobileDrawerStyle } from './hooks/useSidebarSwipe';
 import { isDesktop, isTauri, isTauriWindows } from './lib/shell';
 import { selectDirectory } from './lib/shell/app';
-import { TOPICS_LABEL_MIN_W_WINDOWS } from './lib/shell/windowControlsGeometry';
+import { TITLE_INSET_WITH_CONTROLS } from './lib/shell/windowControlsGeometry';
 import { initDevBundleReload } from './lib/devBundleReload';
 import { initDevLayoutProbe } from './lib/devLayoutProbe';
 import { initDevHeapProbe } from './lib/devHeapProbe';
@@ -55,6 +54,7 @@ import { useSheetDrag } from './hooks/useSheetDrag';
 import { SheetGrabber } from './components/Shared/SheetGrabber';
 import { POPOVER_SURFACE, POPOVER_MARGIN, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from './lib/popoverStyles';
 import { SidebarSystemMenu } from './components/Sidebar/SidebarSystemMenu';
+import { TopicsMenuItems } from './components/Sidebar/TopicsMenuItems';
 import { TopicsLoadDot } from './components/Sidebar/TopicsLoadDot';
 import { ChangelogModal } from './components/ChangelogModal';
 
@@ -210,7 +210,6 @@ function App() {
   // out of the production graph entirely (PANE-05 strip contract). The static
   // import was fragile: Vite minification could flatten the path string and
   // the strip-assert script would false-green.
-  const tr = useT();
   const [DevOverlay, setDevOverlay] = useState<ComponentType | null>(null);
   useEffect(() => {
     if (import.meta.env.DEV) {
@@ -335,7 +334,7 @@ function App() {
   const [showChangelogFromMenu, setShowChangelogFromMenu] = useState<string | null>(null);
 
   // Sidebar + layout chrome (Phase 3 hook 1)
-  const layout = useSidebarAndLayout({ isDetached, showTopicsMenu });
+  const layout = useSidebarAndLayout({ isDetached });
   const {
     appSettings,
     sidebarWidth,
@@ -1490,7 +1489,33 @@ function App() {
                 receiving its own clicks, and the wrapper measured 119px inside
                 a row of 117 (overflow 38). Truncate on the label alone does
                 NOTHING while a link in this chain says `auto`. */}
-            <div className="app-no-drag relative min-w-0" {...NO_DRAG_REGION} ref={topicsMenuRef}>
+            {/* THE TITLE IS NOT A MENU ANY MORE, ON THE DESKTOP.
+                Asked for on card 022db87b: at the top only «Topics», next to
+                the window commands, with no accordion and no dot of its own.
+                The submenu it used to open - archived, view, panels, history,
+                settings, performance - moved UNDER THE USER CARD at the foot of
+                the column, which is now the single door of this chrome.
+                That dropdown was also the only reason the Mac's traffic lights
+                stayed hidden until a click: they are permanent now, and the
+                word sits to their right (`TITLE_INSET_WITH_CONTROLS`).
+                ON THE PHONE THE MENU STAYS: down there the column is a drawer,
+                the identity band does not exist (width contract,
+                SIDEBAR-STATUS-01) and this button is the only way to archived,
+                view and settings. The rows are the SAME ones though, one
+                component (`TopicsMenuItems`), never a copy. */}
+            <div
+              className={`app-no-drag relative min-w-0 ${isTauriMac || isTauriWindows ? TITLE_INSET_WITH_CONTROLS : ''}`}
+              {...NO_DRAG_REGION}
+              ref={topicsMenuRef}
+            >
+              {!isMobile ? (
+                <span
+                  data-testid="sidebar-topics-title"
+                  className={`flex min-h-7 items-center ${ROW_PX} py-0.5 font-semibold text-app-text tracking-[-0.01em] truncate text-[15px]`}
+                >
+                  Topics
+                </span>
+              ) : (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -1538,9 +1563,11 @@ function App() {
                 // di progetto hanno `project-toggle-*`.
                 data-testid="sidebar-topics-menu"
               >
-                {/* Room for the window commands on Windows. Why it is declared
-                    and not inherited from a glyph: `windowControlsGeometry.ts`. */}
-                <span className={`font-semibold text-app-text tracking-[-0.01em] truncate ${isMobile ? 'text-[17px]' : 'text-[15px]'} ${isTauriWindows ? TOPICS_LABEL_MIN_W_WINDOWS : ''} ${(isTauriMac || isTauriWindows) && showTopicsMenu ? 'invisible' : ''}`}>Topics</span>
+                {/* The room for the window commands is on the WRAPPER now
+                    (`TITLE_INSET_WITH_CONTROLS`), not on this label: the
+                    commands no longer come out over the word, they sit to its
+                    left and stay there. */}
+                <span className="font-semibold text-app-text tracking-[-0.01em] truncate text-[17px]">Topics</span>
                 {/* HOW HEAVY THE MACHINE IS, right next to its name. This is
                     what stayed on screen when the numbers at the foot of the
                     column moved into this menu: the exact figures are one click
@@ -1562,10 +1589,7 @@ function App() {
                     ONE dot, not two. The alarm rides on THIS one instead of a
                     second lamp beside it: two dots 4px apart are not two
                     signals, they are one signal that looks broken. */}
-                <TopicsLoadDot
-                  hidden={(isTauriMac || isTauriWindows) && showTopicsMenu}
-                  alarm={wsStatus !== 'connected' || !!topicsError}
-                />
+                <TopicsLoadDot alarm={wsStatus !== 'connected' || !!topicsError} />
                 {/* 14, come il glifo di «Cerca» e del «+» che gli stanno accanto sulla
                     STESSA riga — misurato: era 12 contro i loro 14, e il raggio
                     6 contro 8. Tre elementi affiancati con tre forme diverse
@@ -1573,6 +1597,7 @@ function App() {
                     il riferimento (Attilio, 08/08). */}
                 <ChevronDown size={14} className={`text-app-text-secondary transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
               </button>
+              )}
               {/* The window commands, and ONLY on Windows: there the system frame
                   is off (the app draws its own) and without these there would be
                   no way left to minimise, maximise or close except through the
@@ -1583,7 +1608,13 @@ function App() {
                   A SIBLING of the button and not a child: a button inside a
                   button is invalid HTML, and the browser would take the nesting
                   apart on its own. */}
-              <WindowControls visible={showTopicsMenu} />
+              {/* ALWAYS LIT, now that the title is not a trigger. They used to
+                  appear with the Topics menu, mirroring the Mac's traffic
+                  lights, which appeared with it too; the menu is gone from the
+                  desktop and a window with no way to close it is not an
+                  option, so both sets are permanent and the title sits to
+                  their right. */}
+              <WindowControls visible />
             </div>
             {/* COL MOUSE STA ACCANTO A TOPICS, e non in coda alla riga con
                 Cerca e «+»: quei due sono comandi che CREANO o CERCANO, questo
@@ -1759,6 +1790,20 @@ function App() {
             wsStatus={wsStatus}
             dataNotice={topicsError}
             onOpenDevices={() => { setSettingsSection('devices'); setShowSettings(true); }}
+            // THE COMMANDS OF THE COLUMN COME DOWN HERE. On the desktop the
+            // user card is the only door of the chrome: archived, view,
+            // panels, history, settings and the state of the machine live in
+            // its menu, not in a dropdown hanging off the title.
+            commands={{
+              showArchived: sidebar.showArchived,
+              onToggleArchived: () => { sidebar.toggleShowArchived(); },
+              viewMode: sidebar.viewMode,
+              onToggleViewMode: () => { sidebar.toggleViewMode(); },
+              splitLayoutAvailable,
+              onOpenHistory: () => { setSearchScope('history'); setShowSearch(true); },
+              onOpenSettings: () => { setShowSettings(true); },
+              onOpenChangelog: (version) => setShowChangelogFromMenu(version),
+            }}
           />
         </ErrorBoundary>
         )}
@@ -2023,120 +2068,28 @@ function App() {
           }
         >
           {isMobile && <SheetGrabber />}
-          {/* Sidebar controls relocated from the old <SidebarControls> row. */}
-          <button
-            onClick={() => { sidebar.toggleShowArchived(); }}
-            className={`w-full flex items-center gap-2 px-3 ${isMobile ? 'py-3 min-h-11 text-[14px]' : 'py-1.5 text-[12px] coarse:py-3 coarse:text-[14px]'} hover:bg-app-hover transition-colors ${sidebar.showArchived ? 'text-primary' : 'text-app-text'}`}
-          >
-            <Archive size={isMobile ? 18 : 14} className={sidebar.showArchived ? 'text-primary' : ''} />
-            <span className="flex-1 text-left">{tr('app.showArchived')}</span>
-          </button>
-          <button
-            onClick={() => { sidebar.toggleViewMode(); }}
-            className={`w-full flex items-center gap-2 px-3 ${isMobile ? 'py-3 min-h-11 text-[14px]' : 'py-1.5 text-[12px] coarse:py-3 coarse:text-[14px]'} text-app-text hover:bg-app-hover transition-colors`}
-          >
-            {/* Icona ed etichetta descrivono il modo SUCCESSIVO — cosa fa il
-                click — e lo chiedono a `nextSidebarViewMode`, la stessa funzione
-                che il toggle usa per muoversi: due liste di casi scritte a mano
-                divergerebbero al primo modo che si aggiunge o si toglie. */}
-            {(() => {
-              const next = nextSidebarViewMode(sidebar.viewMode);
-              const Icon = next === 'state' ? Hourglass : List;
-              return <Icon size={isMobile ? 18 : 14} />;
-            })()}
-            <span className="flex-1 text-left">{
-              nextSidebarViewMode(sidebar.viewMode) === 'state' ? 'Vista per stato' : 'Vista timeline'
-            }</span>
-          </button>
-          {/* I due comandi sui pannelli compaiono SOLO dove i pannelli esistono
-              — vedi `useSplitLayoutAvailable`. Sotto i 768px PanelGrid rende una
-              colonna di celle senza divisori e senza larghezze salvate: lì
-              «Reimposta pannelli» e «Disponi automaticamente» non fallivano, non
-              facevano niente, ed erano le due voci che dal telefono facevano
-              sembrare complicato un menu che non lo è. */}
-          {splitLayoutAvailable && <>
-          {/* "Reimposta pannelli" — same per-window action the ⌘K palette and
-              the tab-bar context menu expose (the shared 'topics:reset-split-
-              layout' CustomEvent bus). The standalone grid COLLAPSES every split
-              — columns and stacks — into the single 'standalone' pool cell, where
-              panes live as tabs; nothing is closed and it's ⌘Z-undoable. Always
-              offered (like the palette); no-ops when already a single pane. */}
-          <button
-            onClick={() => {
-              window.dispatchEvent(new CustomEvent('topics:reset-split-layout'));
-              setShowTopicsMenu(false);
-            }}
-            className={`w-full flex items-center gap-2 px-3 ${isMobile ? 'py-3 min-h-11 text-[14px]' : 'py-1.5 text-[12px] coarse:py-3 coarse:text-[14px]'} text-app-text hover:bg-app-hover transition-colors`}
-            title={tr('app.mergePanels')}
-          >
-            <RotateCcw size={isMobile ? 18 : 14} />
-            <span className="flex-1 text-left">Reimposta pannelli</span>
-          </button>
-          {/* "Disponi automaticamente" — the inverse of Reimposta pannelli: auto-tile
-              every open standalone pane into its own cell in a balanced grid (the
-              shared 'topics:auto-tile-layout' bus; PanelGrid handles it). Always
-              offered; no-ops when fewer than two panes are open. ⌘Z-undoable. */}
-          <button
-            onClick={() => {
-              window.dispatchEvent(new CustomEvent('topics:auto-tile-layout'));
-              setShowTopicsMenu(false);
-            }}
-            className={`w-full flex items-center gap-2 px-3 ${isMobile ? 'py-3 min-h-11 text-[14px]' : 'py-1.5 text-[12px] coarse:py-3 coarse:text-[14px]'} text-app-text hover:bg-app-hover transition-colors`}
-            title={tr('app.tileAll')}
-          >
-            <Grid2x2 size={isMobile ? 18 : 14} />
-            <span className="flex-1 text-left">Disponi automaticamente</span>
-          </button>
-          </>}
-          {/* HISTORY LIVES HERE, on the button that gives the column its name.
-              It is where a browser keeps it (the application menu), and it is the
-              only place in the app you look at when you are after something you
-              had open and no longer know where. It opens the palette in its one
-              and only perimeter: closed tabs and visited pages, mixed by time. */}
-          <button
-            onClick={() => { setSearchScope('history'); setShowSearch(true); setShowTopicsMenu(false); }}
-            className={`w-full flex items-center gap-2 px-3 ${isMobile ? 'py-3 min-h-11 text-[14px]' : 'py-1.5 text-[12px] coarse:py-3 coarse:text-[14px]'} text-app-text hover:bg-app-hover transition-colors`}
-            data-testid="topics-menu-history"
-          >
-            <History size={isMobile ? 18 : 14} />
-            <span className="flex-1 text-left">{tr('palette.history')}</span>
-          </button>
-          {/* Board / Dashboard / Cron stavano qui e ora stanno nel «+» (⌘N) —
-              vedi il commento al posto di TOPICS_MENU_PAGES, in testa al file.
-              Settings invece RESTA: è raggiungibile anche da ⌘K e da ⌘, ma
-              sono tre porte per la stessa stanza, non tre stanze. */}
-          <button
-            onClick={() => { setShowSettings(true); setShowTopicsMenu(false); }}
-            className={`w-full flex items-center gap-2 px-3 ${isMobile ? 'py-3 min-h-11 text-[14px]' : 'py-1.5 text-[12px] coarse:py-3 coarse:text-[14px]'} text-app-text hover:bg-app-hover transition-colors`}
-          >
-            <SettingsIcon size={isMobile ? 18 : 14} />
-            <span className="flex-1 text-left">Settings</span>
-          </button>
-          {/* THE STATE SITS AT THE BOTTOM, under the commands. Asked for on
-              31/08: «we can put the stats at the bottom of the dropdown». It is
-              also the right reading order: above are the things that DO
-              something (show archived, change view, arrange, history,
-              settings), below the things that SAY — who you are, how it is
-              going, which version. A menu that opens with a report makes you
-              hunt for the commands underneath the report. */}
+          {/* THE ROWS ARE A COMPONENT, not a copy. The same ones sit in the
+              user card's menu at the foot of the column, which on the desktop
+              is the only door of this chrome: two hand-written lists are two
+              lists that one day answer differently - the same rule
+              SIDEBAR-STATUS-01 writes for the status rows. */}
+          <TopicsMenuItems
+            isMobile={isMobile}
+            showArchived={sidebar.showArchived}
+            onToggleArchived={() => { sidebar.toggleShowArchived(); }}
+            viewMode={sidebar.viewMode}
+            onToggleViewMode={() => { sidebar.toggleViewMode(); }}
+            splitLayoutAvailable={splitLayoutAvailable}
+            onOpenHistory={() => { setSearchScope('history'); setShowSearch(true); setShowTopicsMenu(false); }}
+            onOpenSettings={() => { setShowSettings(true); setShowTopicsMenu(false); }}
+            onClose={() => setShowTopicsMenu(false)}
+          />
+          {/* THE STATE SITS AT THE BOTTOM, under the commands: above the things
+              that DO something, below the things that SAY something. Same
+              component on both screens, never a second copy counting the same
+              memory. The alarms are NOT in here: they stay at the foot of the
+              column, visible without opening anything (`SidebarStatusBar`). */}
           <div className="my-1 border-t border-app-border" />
-          {/* ONE ROW PER FACT, and the same rows on every screen. Asked for on
-              31/08: put the stats at the foot of the dropdown and let them look
-              like dropdowns, one per row. On the desktop they were still a
-              single horizontal strip of eleven-pixel digits — «2.28B −7%
-              v2.2.257 dev» run together — while the phone already had three
-              rows with a chevron, like history and settings just above. Now it
-              is those, on both.
-
-              AND NOT A SECOND COPY WRITTEN BY HAND: the desktop mounted
-              `SidebarStatusBar variant="menu"`, a second place counting the
-              same memory, the same CPU and the same version as the phone's
-              menu. Two places saying the same thing are two places that one day
-              say it differently, and the wrong one is always the one under your
-              eyes. The alarms are NOT in here: they stay at the foot of the
-              column where they are visible without opening anything
-              (`SidebarStatusBar`), and the dot next to «Topics» pulses when
-              there is one. */}
           <SidebarSystemMenu
             isMobile={isMobile}
             onOpenChangelog={(version) => { setShowTopicsMenu(false); setShowChangelogFromMenu(version); }}
