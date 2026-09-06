@@ -10,7 +10,8 @@ import { lazyWarm } from '../../lib/lazyWarm';
 import { loadBoard, loadBrowser, loadDashboard, loadTerminal } from '../../state/pane/panePreload';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { DND_TYPES, STANDALONE_SCOPE } from '../../lib/dndTypes';
-import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_ROW_ACTION_INSET_LEFT, CHROME_ROW_ACTION_RESERVE_LEFT, RAISED_CONTROL, TAB_LABEL } from '../../lib/selectionStyles';
+import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_ROW_ACTION_RESERVE_LEFT, RAISED_CONTROL, ROW_INSET, TAB_LABEL } from '../../lib/selectionStyles';
+import { CONTENT_CHROME_INSET_PROPERTY } from '../../lib/shell/windowControlsGeometry';
 import { isUtilityPanelId, parseUtilityPanelType } from './UtilityPanel';
 import {
   PANE_CONFIG,
@@ -863,7 +864,20 @@ export function StandaloneChatGroup({
             Previously every pane-type branch rendered its own copy of
             this header; consolidating it lets the body switch underneath
             without re-mounting the tab bar / re-running its hooks. */}
-        <div className={`${CHROME_BAR} pr-0 select-none app-drag-region`} {...DRAG_REGION}>
+        {/* THE ROOM FOR THE NATIVE LIGHTS, only in the cell that owns the
+            sidebar toggle: PanelGrid hands `onToggleSidebar` to the top-left
+            cell alone, and that cell is the one whose bar becomes the window's
+            top edge when the sidebar collapses. Every cell inherits the custom
+            property (it is set on #main-content), so the padding must be
+            gated on the prop, not on the variable: a nested cell reading it
+            would indent for lights that are not over it. `content-chrome-inset`
+            (index.css) eases the padding on the same 200ms as the slide, which
+            is what keeps the strip clear of the lights on every frame. */}
+        <div
+          className={`${CHROME_BAR} pr-0 select-none app-drag-region ${onToggleSidebar ? 'content-chrome-inset' : ''}`}
+          style={onToggleSidebar ? { paddingLeft: `var(${CONTENT_CHROME_INSET_PROPERTY}, 0px)` } : undefined}
+          {...DRAG_REGION}
+        >
           {mobile ? (
             // Il nome della superficie al posto della striscia. Stesso corpo
             // della tab che c'era qui (`TAB_LABEL`) e stessa riserva a sinistra
@@ -884,7 +898,14 @@ export function StandaloneChatGroup({
             // (`ROW_ACTION_BOX`), stesso incasso derivato, stessa scatola
             // rialzata, e `raised-control-overlay` perché anche questo sta
             // SOPRA la strip delle tab, che gli scorre sotto.
-            <div className={`raised-control-overlay absolute ${CHROME_ROW_ACTION_INSET_LEFT} top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10`} {...NO_DRAG_REGION}>
+            // Absolute, so the bar's padding does not move it: `left` is its
+            // own inset (ROW_INSET, the number behind CHROME_ROW_ACTION_INSET_LEFT)
+            // plus the same variable, with the same transition.
+            <div
+              className="content-chrome-inset raised-control-overlay absolute top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10"
+              style={{ left: `calc(${ROW_INSET}px + var(${CONTENT_CHROME_INSET_PROPERTY}, 0px))` }}
+              {...NO_DRAG_REGION}
+            >
               <SidebarToggleButton onClick={onToggleSidebar} size="action" className={`edge-lit ${RAISED_CONTROL} rounded-lg`} />
             </div>
           )}
