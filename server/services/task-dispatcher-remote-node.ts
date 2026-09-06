@@ -11,7 +11,7 @@
  * NOTHING HERE CHANGES BEHAVIOUR. The dispatcher keeps the decisions that are
  * its own (when to launch, when to sweep, when to reconcile) and calls this
  * lane at the five points where the remote answer differs from the local one:
- * `launchIfRemote`, `sweepVerdict`, `buryRun`, `poll`, `requeueAfterRestart`.
+ * `remoteLaunch`, `sweepVerdict`, `buryRun`, `poll`, `queueAfterRestart`.
  *
  * Everything it touches is injected through `RemoteNodeHost` — the same
  * discipline as `DispatcherDeps`, and for the same reason: the lane is tested
@@ -178,7 +178,7 @@ export interface RemoteNodeLane {
    * The restart orphan pass, for a card that names a node: `true` requeued,
    * `false` tried and failed, `null` not this lane's card.
    */
-  requeueAfterRestart(task: Task): boolean | null;
+  queueAfterRestart(task: Task): boolean | null;
 }
 
 export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
@@ -316,7 +316,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
             `Questa card gira sul nodo «${name}» (corsa \`${runId.slice(0, 8)}\`). ` +
             "Stato e commenti di servizio arrivano qui a ogni giro; il ramo torna a consegna fatta.",
         });
-      } catch { /* best-effort: la nota non blocca il dispatch */ }
+      } catch { /* best-effort: the note never blocks the dispatch */ }
     } catch (err) {
       host.endRun(task.id, runNo);
       if (nodeFailureReason(err) === "no_such_repo") {
@@ -517,7 +517,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         // card has no worktree here, which is a remote card by definition:
         // harmless, and it keeps the two lanes on one road.
         if (host.captureDelivery) {
-          try { await host.captureDelivery(taskId); } catch { /* mai bloccare la consegna su git */ }
+          try { await host.captureDelivery(taskId); } catch { /* never block the delivery on git */ }
         }
       }
     }
@@ -584,7 +584,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    * re-dispatches it to the node, and that dispatch cancels the old run
    * before creating a new one (KANBAN-77).
    */
-  function requeueAfterRestart(task: Task): boolean | null {
+  function queueAfterRestart(task: Task): boolean | null {
     if (!task.machineId || !host.client) return null;
     try {
       svc.claimInterruption({
@@ -601,5 +601,5 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     }
   }
 
-  return { remoteLaunch, sweepVerdict, buryRun, poll, requeueAfterRestart };
+  return { remoteLaunch, sweepVerdict, buryRun, poll, queueAfterRestart };
 }
