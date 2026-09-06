@@ -169,3 +169,22 @@ export function livePressureBand(value: number, threshold: number): ThresholdBan
   if (value >= threshold) return "red";
   return value >= threshold * 0.75 ? "amber" : "green";
 }
+
+/**
+ * WHAT A WRITER MAY CHANGE about the machine-wide cap: every field of the '*'
+ * row, each optional, so a slider that moves one threshold does not have to
+ * re-send the other four.
+ *
+ * It lives here because BOTH sides need it and both wrote it once already: the
+ * client store that calls `setGlobalCap` and the task service that applies it.
+ * Two identical copies is exactly the mirror `tests/unit/no-type-mirrors.test.ts`
+ * exists to catch, and the day one of the two grows a field the other silently
+ * drops it.
+ */
+export interface GlobalCapPatch {
+  auto?: boolean;
+  max?: number;
+  mode?: DispatchCapMode;
+  maxLoadRatio?: number;
+  maxMemRatio?: number;
+}

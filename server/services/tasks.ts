@@ -57,19 +57,10 @@ import { EFFORT_TIERS } from "../../shared/effort";
 // dichiarazione, letta anche dal client e dalla derivazione alla consegna.
 import { CLOSER_LABELS, KIND_LABELS, deriveCloser, deriveKind, isCloserLabel, isKindLabel, isTaskLabel, normalizeLabels, type LabelSource, type TaskFile, type TaskLabel, type TaskLabelRow } from "../../shared/task-labels";
 import { findNeighbours, type Neighbour } from "../../shared/task-similarity";
-import type { TaskStatus, TaskComment, CardComment, BoardSettings, BoardSettingsPatch, BlockerRef, QueueReason, SubtaskWork, TaskWeight, GlobalDispatchCap, DispatchCapMode } from "../../shared/board";
+import type { TaskStatus, TaskComment, CardComment, BoardSettings, BoardSettingsPatch, BlockerRef, QueueReason, SubtaskWork, TaskWeight, GlobalDispatchCap, GlobalCapPatch } from "../../shared/board";
 import { capThresholds } from "../../shared/board";
 import type { Task, CreateTaskInput, UpdateTaskPatch, ListTasksInput } from "./task-shapes";
 
-/** What `setGlobalCap` accepts: every field of the '*' row, each optional, so
- *  a slider that moves one threshold does not have to re-send the other four. */
-export type GlobalCapPatch = {
-  auto?: boolean;
-  max?: number;
-  mode?: DispatchCapMode;
-  maxLoadRatio?: number;
-  maxMemRatio?: number;
-};
 import { markTargetSeenAndAnnounce } from "../notification-registry";
 
 export type Actor = "human" | "agent";

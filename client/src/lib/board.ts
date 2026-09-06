@@ -28,7 +28,7 @@ export {
   LOAD_RATIO_MIN, LOAD_RATIO_MAX, LOAD_RATIO_DEFAULT,
   MEM_RATIO_MIN, MEM_RATIO_MAX, MEM_RATIO_DEFAULT,
 } from '../../../shared/board';
-export type { DispatchCapMode, ThresholdBand } from '../../../shared/board';
+export type { DispatchCapMode, ThresholdBand, GlobalCapPatch } from '../../../shared/board';
 // The comparison the SERVER matches a picked option with, and the one reserved
 // label the client has to recognise by name. The board de-duplicates an agent's
 // quick reply against the button beside it, and once the buttons became
@@ -49,7 +49,7 @@ export type { TaskLabel, TaskLabelRow } from '../../../shared/task-labels';
 import type { TaskLabel, TaskLabelRow } from '../../../shared/task-labels';
 import type {
   TaskStatus, TaskComment, CardComment, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef, LandingTicket, SubtaskWork,
-  QueueReason, DispatchCapMode,
+  QueueReason, DispatchCapMode, GlobalCapPatch,
 } from '../../../shared/board';
 // Who spoke on a comment. The stored `author` is an identity, so the label a
 // person reads is derived from it, on the same rule the server uses. Keeping a
@@ -746,15 +746,6 @@ export interface UpdateTaskBody {
   planFirst?: boolean;
 }
 
-/** What a client may change about the machine-wide cap, in the client's own
- *  words; `setGlobalCap` translates it to the wire names. */
-export interface GlobalCapPatch {
-  auto?: boolean;
-  max?: number;
-  mode?: DispatchCapMode;
-  maxLoadRatio?: number;
-  maxMemRatio?: number;
-}
 
 /** Machine-wide dispatch settings (server: reserved board_settings row '*'). */
 export interface GlobalSettings {

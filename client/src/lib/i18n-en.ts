@@ -1865,6 +1865,12 @@ const EN = {
   'board.queue.resourceFloor.head': 'stopped',
   'board.queue.resourceFloor.detail': 'the machine is out of room',
   'board.queue.resourceFloor.title': 'Dispatch is held for the whole machine: no agent is admitted until disk or memory comes back above the floor. No slot is missing and none is going to free up. {reason}',
+  // The machine is over the threshold chosen in "by resources" mode. Tone is
+  // `waiting` and not `stalled`, and the words follow: nobody has to do
+  // anything, the load drops on its own the moment whatever is busy stops.
+  'board.queue.resourcePressure.head': 'waiting',
+  'board.queue.resourcePressure.detail': 'the machine is busy',
+  'board.queue.resourcePressure.title': 'The cap is set by resources and the machine is over the threshold you chose, so no new agent starts. It restarts on its own as soon as the load or the memory comes back under it, and you can move the threshold in the board settings. {reason}',
   'board.queue.spendCap.head': 'stopped',
   'board.queue.spendCap.detail': 'daily spend cap reached',
   'board.queue.spendCap.title': 'The 24h spend cap is reached, so nothing starts on any board. It restarts on its own when the window scrolls past the oldest turns, or right away if you raise the cap in the board settings. {reason}',
