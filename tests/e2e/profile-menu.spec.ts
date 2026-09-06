@@ -67,7 +67,7 @@ test.describe("il menu utente apre i livelli di lato", () => {
     await expect(level).toBeVisible({ timeout: 10_000 });
     await expect(row).toHaveAttribute("aria-expanded", "true");
 
-    // A DESTRA, misurato. The 4px slack is the gap the placement leaves
+    // TO THE RIGHT, and measured rather than assumed. The 4px slack is the gap the placement leaves
     // between the trigger and the panel: without it this would be an assertion
     // about a constant instead of about a side.
     const parent = await box(menu);
@@ -117,23 +117,23 @@ test.describe("il menu utente apre i livelli di lato", () => {
 
   test("il pulsante mostra quanti agenti stanno lavorando, ed è il numero della lista", async ({ page, request }) => {
     // Two chats mid-reply, said by the route the app polls for exactly this.
-    const uno = await createTopic(request, "E2E Agent Uno");
-    const due = await createTopic(request, "E2E Agent Due");
+    const first = await createTopic(request, "E2E Agent One");
+    const second = await createTopic(request, "E2E Agent Two");
     await page.route("**/api/topics/streaming", (r) =>
       r.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
           sessions: [
-            { topicId: uno.id, sessionKey: `k-${uno.id}`, state: "streaming" },
-            { topicId: due.id, sessionKey: `k-${due.id}`, state: "streaming" },
+            { topicId: first.id, sessionKey: `k-${first.id}`, state: "streaming" },
+            { topicId: second.id, sessionKey: `k-${second.id}`, state: "streaming" },
           ],
         }),
       }));
 
     await goToApp(page);
 
-    // IN ANTEPRIMA: the number is on the closed card, before any gesture.
+    // IN PREVIEW: the number is on the closed card, before any gesture.
     const badge = page.getByTestId("identity-agents-badge").locator("[data-notification-count]");
     await expect(badge).toBeVisible({ timeout: 20_000 });
     await expect(badge).toHaveAttribute("data-notification-count", "2", { timeout: 20_000 });
