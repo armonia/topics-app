@@ -124,7 +124,6 @@ export function setupTestDataDir(testDataDir: string): void {
  * anche se un test lo aveva gia' chiuso per conto suo.
  */
 export async function cleanupTestDataDir(dir: string): Promise<void> {
-  const { closeDatabase } = await import("../../../server/db");
   closeDatabase();
   fs.rmSync(dir, { recursive: true, force: true });
 }
@@ -175,3 +174,95 @@ export async function createTestAppContext(): Promise<AppContext> {
  * non era sotto typecheck. Chi ne ha bisogno chiami il router con la firma
  * vera, come fa board-jump-to-tab.test.ts.
  */
+
+// ── The REAL server as a child process ───────────────────────────────────────
+
+/** A port nobody holds: bind on 0, read what the kernel gave, release it. */
+export function freePort(): number {
+  const probe = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
+  const p = probe.port;
+  probe.stop(true);
+  return p;
+}
+
+export interface RealServer {
+  port: number;
+  baseUrl: string;
+  /** SIGTERM the child and wait for it to exit. Call from `afterAll`. */
+  stop(): Promise<void>;
+}
+
+/**
+ * Boot `server.ts` as a child process on a free port, isolated from the app the
+ * developer has open, and resolve once it answers `GET /api/system/status`.
+ *
+ * Extracted from `leak-ws-registries.test.ts`, which documents every line of the
+ * environment below and still carries its own copy: a test needs the real
+ * process (not the in-process router with a no-op broadcast) whenever what it
+ * proves is a frame on a WebSocket. The env is built from scratch and NOT spread
+ * from `process.env`, so an inherited port or data dir cannot make the child
+ * touch the live app; the PTY bridge is disabled because a server booted from
+ * this cwd with the default socket would attach to the PRODUCTION bridge and
+ * its startup reconcile would kill every session missing from its empty DB.
+ *
+ * `root` must come from `testTmpDir`.
+ */
+export async function spawnRealServer(root: string): Promise<RealServer> {
+  if (!isUnderTestTmp(root)) {
+    throw new Error(`spawnRealServer: "${root}" does not come from testTmpDir(); a fixed path is not hermetic.`);
+  }
+  const port = freePort();
+  const dataDir = path.join(root, "data");
+  const home = path.join(root, "home");
+  const openclaw = path.join(root, "openclaw");
+  const topicsHome = path.join(root, "topics-home");
+  const publicDir = path.join(root, "public");
+  for (const d of [dataDir, home, openclaw, topicsHome, publicDir]) fs.mkdirSync(d, { recursive: true });
+
+  const child = Bun.spawn(["bun", "run", "server.ts"], {
+    cwd: PROJECT_ROOT,
+    env: {
+      PATH: process.env.PATH ?? "",
+      // Plain HTTP: the server turns TLS on by itself when an untracked
+      // `certs/fullchain.pem` exists next to it, and the probe below is `http://`.
+      NO_TLS: "1",
+      BUN_PORT: String(port),
+      PORT: String(port),
+      DATA_DIR: dataDir,
+      TOPICS_DATA_DIR: dataDir,
+      HOME: home,
+      OPENCLAW_DIR: openclaw,
+      TOPICS_HOME: topicsHome,
+      TOPICS_PUBLIC_DIR: publicDir,
+      TOPICS_BROWSER_SWEEP: "0",
+      TOPICS_DISABLE_PTY_BRIDGE: "1",
+      TOPICS_PTY_SOCKET: path.join(root, "pty.sock"),
+      TOPICS_AI_BRIDGE: "0",
+      TOPICS_AI_BRIDGE_SOCKET: path.join(root, "ai.sock"),
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  const baseUrl = `http://127.0.0.1:${port}`;
+  // 60 s of readiness polling, not 15: under a loaded fleet (measured at load
+  // 25 on 12 cores) the child needs well past fifteen seconds to answer, and a
+  // ceiling that expires there reports the machine instead of the code.
+  for (let i = 0; i < 1200; i++) {
+    if (child.exitCode !== null) break;
+    try {
+      const res = await fetch(`${baseUrl}/api/system/status`);
+      if (res.ok) {
+        return {
+          port,
+          baseUrl,
+          async stop() { child.kill("SIGTERM"); await child.exited; },
+        };
+      }
+    } catch { /* not listening yet */ }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  child.kill("SIGKILL");
+  const errorOutput = await new Response(child.stderr as ReadableStream).text().catch(() => "");
+  throw new Error(`the spawned server never answered on ${port}\n${errorOutput.slice(-2000)}`);
+}
