@@ -18,8 +18,13 @@ export type { Machine } from "../../shared/types";
 import type { Machine } from "../../shared/types";
 
 export class MachineInUseError extends Error {
-  constructor(public readonly topicCount: number) {
-    super(`Machine has ${topicCount} topic(s). Clear or reassign them first.`);
+  constructor(
+    public readonly topicCount: number,
+    public readonly taskCount: number = 0,
+  ) {
+    super(
+      `Machine has ${topicCount} topic(s) and ${taskCount} task(s). Clear or reassign them first.`,
+    );
     this.name = "MachineInUseError";
   }
 }
@@ -33,6 +38,13 @@ export interface MachineStore {
   getByHostname(host: string): Machine | null;
   list(): Machine[];
   rename(id: string, name: string): Machine | null;
+  /**
+   * Insert-or-refresh a PAIRED node row, keyed by hostname like the local one.
+   * `baseUrl` is where it answers; the device token never comes through here.
+   */
+  upsertNode(input: { hostname: string; name: string; baseUrl: string }): Machine;
+  /** How many tasks still name this machine. Feeds the MACHINE-01 conflict. */
+  countTasks(id: string): number;
   delete(id: string): boolean;
 }
 
@@ -77,7 +89,24 @@ export function createMachineStore(db: Database, baseDir: string): MachineStore 
       SELECT * FROM machines WHERE updated_at = $now AND status = 'offline' AND id != $localId
     `),
     rename: db.prepare(`UPDATE machines SET name = ?, updated_at = ? WHERE id = ?`),
+    insertNode: db.prepare(`
+      INSERT INTO machines
+        (id, name, hostname, arch, platform, daemon_version, status,
+         last_heartbeat_at, last_seen_at, acknowledged_warnings, base_url,
+         created_at, updated_at)
+      VALUES
+        ($id, $name, $hostname, '', '', '0.0.0', 'online',
+         $now, $now, NULL, $base_url,
+         $now, $now)
+    `),
+    refreshNode: db.prepare(`
+      UPDATE machines SET
+        name = $name, base_url = $base_url, status = 'online',
+        last_heartbeat_at = $now, last_seen_at = $now, updated_at = $now
+      WHERE id = $id
+    `),
     countTopics: db.prepare(`SELECT COUNT(*) as n FROM topics WHERE machine_id = ?`),
+    countTasks: db.prepare(`SELECT COUNT(*) as n FROM tasks WHERE machine_id = ?`),
     delete: db.prepare(`DELETE FROM machines WHERE id = ?`),
   };
 
@@ -97,6 +126,7 @@ export function createMachineStore(db: Database, baseDir: string): MachineStore 
       lastHeartbeatAt: row.last_heartbeat_at,
       lastSeenAt: row.last_seen_at,
       acknowledgedWarnings: warnings,
+      baseUrl: row.base_url ?? null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -155,14 +185,33 @@ export function createMachineStore(db: Database, baseDir: string): MachineStore 
     list() {
       return (stmts.list.all() as any[]).map(rowToMachine);
     },
+    upsertNode({ hostname: host, name, baseUrl }) {
+      const now = new Date().toISOString();
+      const existing = stmts.getByHostname.get(host) as { id: string } | null;
+      const id = existing?.id ?? randomUUID();
+      if (existing) {
+        stmts.refreshNode.run({ $id: id, $name: name, $base_url: baseUrl, $now: now });
+      } else {
+        stmts.insertNode.run({
+          $id: id, $name: name, $hostname: host, $base_url: baseUrl, $now: now,
+        });
+      }
+      const row = stmts.getById.get(id);
+      if (!row) throw new Error("upsertNode: row missing after write");
+      return rowToMachine(row);
+    },
+    countTasks(id) {
+      return (stmts.countTasks.get(id) as { n: number } | null)?.n ?? 0;
+    },
     rename(id, name) {
       stmts.rename.run(name, new Date().toISOString(), id);
       const row = stmts.getById.get(id);
       return row ? rowToMachine(row) : null;
     },
     delete(id) {
-      const count = (stmts.countTopics.get(id) as { n: number } | null)?.n ?? 0;
-      if (count > 0) throw new MachineInUseError(count);
+      const topics = (stmts.countTopics.get(id) as { n: number } | null)?.n ?? 0;
+      const tasks = (stmts.countTasks.get(id) as { n: number } | null)?.n ?? 0;
+      if (topics > 0 || tasks > 0) throw new MachineInUseError(topics, tasks);
       const result = stmts.delete.run(id);
       return result.changes > 0;
     },

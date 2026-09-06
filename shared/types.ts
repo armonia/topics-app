@@ -1178,6 +1178,13 @@ export interface Machine {
   lastHeartbeatAt: string;
   lastSeenAt: string;
   acknowledgedWarnings: Record<string, string>;
+  /**
+   * Where a PAIRED node answers: the HTTPS base URL this machine calls to
+   * mirror a card onto it (MACHINE-02). `null` on the local row, which is
+   * nobody's node. The credential is deliberately NOT here: the device token
+   * lives in a 0600 file under the state dir and never reaches the client.
+   */
+  baseUrl: string | null;
   createdAt: string;
   updatedAt: string;
 }

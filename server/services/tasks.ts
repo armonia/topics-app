@@ -2303,6 +2303,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // `tasks.model` può essere nullo («auto») anche dopo il dispatch, ma il
       // TOPIC dell'agente è stato creato col modello risolto.
       model: r.model ?? topic?.model ?? null,
+      // WHERE it runs. `null` is «this machine», which is what every card
+      // written before the column existed says (KANBAN-76).
+      machineId: r.machine_id ?? null,
       // Non c'è una colonna `tasks.effort` e non serve: l'autorità è il TOPIC,
       // che è ciò che viene davvero passato allo spawn. Duplicarla su `tasks`
       // creerebbe due verità libere di divergere.
@@ -3118,8 +3121,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (input.blockedByTaskId) assertBlockerValid(id, input.blockedByTaskId);
 
       db.prepare(
-        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto, machine_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id, input.projectId, text, input.description ?? null, status, priority, order,
         input.assignedTo ?? null, input.chatId ?? null, ts, ts, input.idempotencyKey ?? null,
@@ -3129,6 +3132,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // "Priorità automatica": no explicit choice at creation = the
         // dispatched agent evaluates and sets one at kickoff.
         input.priority === undefined ? 1 : 0,
+        input.machineId ?? null,
       );
       return rowToTask(getTaskRow(id));
     },
@@ -3418,6 +3422,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.model !== undefined) {
         const m = (patch.model ?? "").trim();
         put("model", m || null);
+      }
+      // WHERE it runs. Empty string and null both mean «this machine»: the
+      // picker clears the choice by sending the empty value, and a card with
+      // no node is the ordinary case, not a missing one (KANBAN-76).
+      if (patch.machineId !== undefined) {
+        const node = (patch.machineId ?? "").trim();
+        put("machine_id", node || null);
       }
       if (patch.blockedByTaskId !== undefined) {
         if (patch.blockedByTaskId) assertBlockerValid(taskId, patch.blockedByTaskId);

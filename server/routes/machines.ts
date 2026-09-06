@@ -48,10 +48,7 @@ export function createMachinesRouter(ctx: AppContext): RouteHandler {
             return json({ ok: true });
           } catch (err: any) {
             if (err instanceof MachineInUseError) {
-              return errorResponse(
-                409,
-                `Machine has ${err.topicCount} topic(s). Clear or reassign them first.`,
-              );
+              return errorResponse(409, err.message);
             }
             throw err;
           }

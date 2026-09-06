@@ -145,7 +145,11 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   -- when the delivery happens. The three delivery_* numbers above count commits
   -- only, so a turn that ended before committing left them at zero and the card
   -- read as "nothing was produced". NULL = never measured, 0 = measured clean.
-  delivery_uncommitted_files INTEGER
+  delivery_uncommitted_files INTEGER,
+  -- 20260906115130: WHERE the card runs. NULL = this machine, which is every
+  -- card written before the column existed. A non-null id names a paired node
+  -- and the dispatcher mirrors the card onto it (KANBAN-76).
+  machine_id TEXT REFERENCES machines(id) ON DELETE SET NULL
 )`;
 
 /**
@@ -228,6 +232,7 @@ INSERT OR IGNORE INTO app_settings (id, auto_dispatch) VALUES (1, 0);`;
 
 export const TASKS_FK_STUBS_DDL = `CREATE TABLE IF NOT EXISTS agent_profiles (id TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS topics (id TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS machines (id TEXT PRIMARY KEY);
 ${APP_SETTINGS_DDL}
 ${TERMINAL_SESSIONS_DDL};
 ${AGENT_SPEND_SCHEMA_SQL}`;
