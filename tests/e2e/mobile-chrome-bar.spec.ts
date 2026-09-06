@@ -345,7 +345,7 @@ test.describe.serial("La chrome del telefono", () => {
     // guard demanding the absence of a dead testid passes forever.
     await expect(page.locator('[data-testid="metrics-total"]')).toHaveCount(0);
     await expect(page.locator('[data-version-anchor]')).toHaveCount(0);
-    await expect(page.locator('[data-testid="identity-row-me"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="identity-me-profile"]')).toHaveCount(0);
 
     // Quel che resta vive nel menu, che sul telefono è un foglio dal basso.
     await page.locator('[data-testid="sidebar-topics-menu"]').tap();

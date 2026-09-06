@@ -1,4 +1,5 @@
 import { test as base, type Page } from "@playwright/test";
+import { openProfileMenu } from "../helpers/open-perf-panel";
 
 export class SettingsPage {
   constructor(private page: Page) {}
@@ -6,29 +7,15 @@ export class SettingsPage {
   // --- Navigation ---
 
   /**
-   * Open settings via the sidebar Settings & Tools dropdown -> Settings menu item.
+   * Open settings through the one door of the chrome: the user card on the
+   * desktop, the title button on the phone (`openProfileMenu` picks). The
+   * settings row is found by testid, not by its label: the label is
+   * translated, and `TooltipDelegate` strips `title` attributes under the
+   * pointer, so neither text nor `title` is a stable handle.
    */
   async openSettings() {
-    /* Anchored on the testid, NOT on `title="Settings & Tools"`.
-     *
-     * `TooltipDelegate` (ec40c0932) strips `title` on `mouseover` and only
-     * restores it on `mouseout`. `closeSettings()` dismisses the veil by
-     * clicking (10, 10) — the viewport's top-left, which is where this very
-     * button sits — so after the click, and across the `page.reload()` that
-     * follows (Playwright does not move the pointer), the trigger is under the
-     * mouse with no `title` at all. That is why SET-03 only ever died on its
-     * SECOND `openSettings`, never the first.
-     *
-     * `App.tsx` already documents this testid as the stable anchor, for the
-     * separate reason that the button's accessible name is "Topics". */
-    const topicsBtn = this.page.getByTestId("sidebar-topics-menu");
-    await topicsBtn.click();
-
-    const settingsBtn = this.page.locator(
-      'button:has-text("Settings"):visible',
-    );
-    await settingsBtn.click();
-
+    await openProfileMenu(this.page);
+    await this.page.getByTestId("topics-menu-settings").click();
     await this.panel.waitFor({ state: "visible", timeout: 10_000 });
   }
 
