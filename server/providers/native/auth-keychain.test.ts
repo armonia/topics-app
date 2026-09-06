@@ -76,14 +76,20 @@ describe("the Keychain candidate", () => {
     expect(calls.length).toBe(0);
   });
 
-  test("on: the Keychain is the first candidate and beats a stale file (the 2026-09-03 shape)", () => {
+  // The Keychain candidate exists on macOS only (`keychainEnabled()` says no
+  // on any other platform before it looks at the flag), so the two cases that
+  // switch it ON have nothing to drive on the Linux CI runner: there the file
+  // wins, and asserting "kc-live" would only be asserting the platform.
+  const onMac = test.skipIf(process.platform !== "darwin");
+
+  onMac("on: the Keychain is the first candidate and beats a stale file (the 2026-09-03 shape)", () => {
     writeFileCredentials("file-revoked", Date.now() - 63 * 24 * 3_600_000);
     const c = readCredentials() as { accessToken: string; sourcePath?: string };
     expect(c.accessToken).toBe("kc-live");
     expect(c.sourcePath).toBe(KEYCHAIN_SOURCE);
   });
 
-  test("a 401 on the file's token: the recovery finds the Keychain's fresher one without touching the network", async () => {
+  onMac("a 401 on the file's token: the recovery finds the Keychain's fresher one without touching the network", async () => {
     writeFileCredentials("file-stale", Date.now() + 3_600_000);
     const realFetch = globalThis.fetch;
     let fetched = 0;

@@ -256,6 +256,20 @@ while [ "$SHUTTING_DOWN" != 1 ]; do
   _exit_t="$(date +%s)"
   _lived=$(( _exit_t - _boot_t ))
 
+  # Exit 137 = SIGKILL from OUTSIDE: nothing in this script or in server.ts
+  # sends it (gracefulShutdown runs on SIGTERM). Measured 2026-09-06: three
+  # such kills in one night, each cutting board turns mid-flight, and no
+  # sender found in the test teardowns, the kernel log or the code. macOS
+  # cannot say who signalled a process after the fact, so this snapshot is
+  # taken the instant the child is reaped: a killer that is still a running
+  # shell (`kill`, `pkill`, `launchctl kickstart`), and whoever else is on
+  # :3333 at that moment, are the only two clues we can still collect.
+  if [ "$code" -eq 137 ]; then
+    echo "[$(date +%H:%M:%S)] server pid $SERVER_PID got SIGKILL (exit 137) after ${_lived}s — forensic snapshot:"
+    ps -eo pid,ppid,etime,args 2>/dev/null | grep -Ei 'kill|kickstart|bootout' | grep -v grep | sed 's/^/    [ps] /' | head -20
+    lsof -nP -iTCP:3333 2>/dev/null | sed 's/^/    [3333] /' | head -12
+  fi
+
   if [ "$_lived" -lt "$BOOT_THRESHOLD" ]; then
     # Boot-failure: il server non ha raggiunto BOOT_THRESHOLD secondi di vita.
     if [ "$_backoff_cur" -lt "$BACKOFF_DELAY" ]; then
