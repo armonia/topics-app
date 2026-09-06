@@ -261,13 +261,64 @@ export function ownBundleDir(
   return join(tmp, "topics-e2e-touched", basename(resolve(gitDir)));
 }
 
+/** The lowest Node the client's Vite agrees to start on (`^20.19 || >=22.12`). */
+const MIN_NODE = { major: 20, minor: 19 };
+
+/** Node builds this gate may fall back to when the one on PATH is too old. */
+const NODE_FALLBACKS = ["/opt/homebrew/bin/node", "/opt/homebrew/opt/node/bin/node", "/usr/local/bin/node"];
+
+/** `v20.19.0` and friends to a pair; anything unreadable counts as too old. */
+export function parseNodeVersion(out: string): { major: number; minor: number } | null {
+  const m = /^v(\d+)\.(\d+)\./.exec(out.trim());
+  return m ? { major: Number(m[1]), minor: Number(m[2]) } : null;
+}
+
+/** Whether that version can run the client build at all. */
+export function nodeIsRecentEnough(v: { major: number; minor: number } | null): boolean {
+  if (!v) return false;
+  if (v.major !== MIN_NODE.major) return v.major > MIN_NODE.major;
+  return v.minor >= MIN_NODE.minor;
+}
+
+/**
+ * THE INTERPRETER IS CHOSEN, NOT INHERITED. `vite` and `playwright` start
+ * through `#!/usr/bin/env node`, so they run on whatever Node comes first in
+ * PATH. The board's check runner spawns `sh -lc`, and the login profile puts
+ * the system Node (18.14 on 2026-09-06) in front of the homebrew one: Vite
+ * refused it (`crypto.hash is not a function`), the gate said NOT MEASURED,
+ * and two green deliveries bounced for a red that belonged to the machine.
+ * So the gate probes, and only when the inherited Node is too old names a
+ * newer one explicitly. Returns null when PATH is already fine.
+ */
+export function pickNodeBin(
+  versionOf: (bin: string) => string | null = (bin) => sh([bin, "--version"]) || null,
+  candidates: readonly string[] = NODE_FALLBACKS,
+): string | null {
+  if (nodeIsRecentEnough(parseNodeVersion(versionOf("node") ?? ""))) return null;
+  for (const bin of candidates) {
+    if (nodeIsRecentEnough(parseNodeVersion(versionOf(bin) ?? ""))) return bin;
+  }
+  return null;
+}
+
+/**
+ * The environment the build and the runner get: `NODE_OPTIONS` dropped. The
+ * same login profile exports a `--disable-warning=` that an older Node
+ * rejects outright ("is not allowed in NODE_OPTIONS"), and nothing this gate
+ * runs needs any of it.
+ */
+export function childEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const out = { ...env };
+  delete out.NODE_OPTIONS;
+  return out;
+}
+
 /** Builds the client into `dir`. The build's own output is the only message. */
-function buildBundle(dir: string): boolean {
+function buildBundle(dir: string, nodeBin: string | null, env: NodeJS.ProcessEnv): boolean {
   console.log(`check:e2e-touched: linked worktree, building the bundle into ${dir}\n`);
-  const proc = Bun.spawnSync(
-    ["./node_modules/.bin/vite", "build", "--outDir", dir, "--emptyOutDir", "--logLevel", "error"],
-    { cwd: "client", stdout: "inherit", stderr: "inherit" },
-  );
+  if (nodeBin) console.log(`check:e2e-touched: the Node on PATH is too old for Vite, building with ${nodeBin}\n`);
+  const vite = ["./node_modules/.bin/vite", "build", "--outDir", dir, "--emptyOutDir", "--logLevel", "error"];
+  const proc = Bun.spawnSync(nodeBin ? [nodeBin, ...vite] : vite, { cwd: "client", stdout: "inherit", stderr: "inherit", env });
   return proc.exitCode === 0;
 }
 
@@ -316,10 +367,11 @@ function main(): number {
   }
   if (listOnly) return 0;
 
-  const env = { ...process.env };
+  const env = childEnv(process.env);
+  const nodeBin = pickNodeBin();
   const bundleDir = ownBundleDir(env, gitDir, sh(["git", "rev-parse", "--git-common-dir"]).trim(), tmpdir());
   if (bundleDir) {
-    if (!buildBundle(bundleDir)) {
+    if (!buildBundle(bundleDir, nodeBin, env)) {
       console.error("check:e2e-touched: the client bundle does not build, so the specs cannot run. NOT MEASURED.");
       return NOT_MEASURED_EXIT;
     }
@@ -327,8 +379,11 @@ function main(): number {
   }
 
   const files = run.map((p) => p.file);
-  console.log(`\n$ npx playwright test ${files.join(" ")} --reporter=line\n`);
-  const proc = Bun.spawnSync(["npx", "playwright", "test", ...files, "--reporter=line"], {
+  // Playwright through the same chosen Node, not `npx`: `npx` re-resolves
+  // `node` from PATH and would land on the old one again.
+  const playwright = ["./node_modules/.bin/playwright", "test", ...files, "--reporter=line"];
+  console.log(`\n$ ${(nodeBin ? [nodeBin, ...playwright] : playwright).join(" ")}\n`);
+  const proc = Bun.spawnSync(nodeBin ? [nodeBin, ...playwright] : playwright, {
     stdout: "inherit",
     stderr: "inherit",
     env,
