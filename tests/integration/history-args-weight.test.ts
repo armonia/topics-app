@@ -12,11 +12,14 @@
  * `detail` another 33 KB against a `detailBytes` of 174 - the strip had
  * removed 174 characters out of 66 KB.
  *
- * Three properties, in the shape of WIRE-09:
+ * The properties it holds, in the shape of WIRE-09:
  *
  *  1. WEIGHT, in bytes, on a realistic fixture: one message with 20 tool calls
  *     of 30 KB of args each (and the same text typed in `detail`) stays under
  *     a fixed ceiling. The bar is bytes, not a ratio.
+ *  1b. WHO READS WHAT: a call whose `detail` is typed ships no `args` at all
+ *     (the renderer reads `detail` in exclusive), a call without a usable
+ *     detail keeps the head of its `args` (there they are all it has).
  *  2. NOTHING WAS LOST: the detail route gives back the whole `args` and the
  *     whole `detail`, and the counters on the wire say exactly how much was
  *     cut. A trim that also trimmed the answer would pass test 1 and be a
@@ -40,6 +43,8 @@ afterAll(() => cleanupTestDataDir(ROOT));
 const TOOLS = 20;
 /** 30 KB per tool call: the size of the Bash `args` measured on the live DB. */
 const ARG_KB = 30;
+/** One more call on top of `TOOLS`: the untyped one seeded at the end. */
+const UNTYPED = 1;
 
 /** A script with a recognisable head and a recognisable tail, ~ARG_KB long. */
 function script(seed: string): string {
@@ -74,6 +79,19 @@ function toolCall(id: string, i: number): ToolCall {
   };
 }
 
+/**
+ * The other half of the fixture: a call the server could NOT type. Without a
+ * `detail` the closed row draws from `args` alone (`deriveToolDetail`), so the
+ * head of the command has to survive the trim here.
+ */
+function untypedToolCall(id: string): ToolCall {
+  return {
+    id, name: "Bash", status: "success",
+    args: { command: script(id), description: "untyped" },
+    result: "ok",
+  };
+}
+
 function seedThread(ctx: AppContext, sessionKey: string, p: string): { calls: ToolCall[]; assistantId: string } {
   const u = `${p}-u`;
   const a = `${p}-a`;
@@ -84,6 +102,9 @@ function seedThread(ctx: AppContext, sessionKey: string, p: string): { calls: To
     calls.push(tc);
     blocks.push({ kind: "tool", toolCall: tc } as ContentBlock);
   }
+  const untyped = untypedToolCall(`${p}-untyped`);
+  calls.push(untyped);
+  blocks.push({ kind: "tool", toolCall: untyped } as ContentBlock);
   blocks.push({ kind: "text", text: "done" } as ContentBlock);
   const msgs: StoredMessage[] = [
     { id: u, role: "user", content: "do twenty things", timestamp: new Date(Date.now() - 2000).toISOString(), parentId: null },
@@ -120,52 +141,66 @@ function wireToolCalls(messages: StoredMessage[]): ToolCall[] {
 }
 
 /**
- * The ceiling. Per call the wire keeps two previews of WIRE_STRING_PREVIEW_CHARS
- * (Bash: args.command + detail.command; Edit: args.new_string +
- * detail.newString), the short fields and the counters: ~1.3 KB. Twenty calls
- * plus the two messages around them: ~30 KB measured. 64 KB leaves room for a
- * field or two nobody has added yet and none at all for a single 30 KB script.
+ * The ceiling. A TYPED call keeps ONE preview of WIRE_STRING_PREVIEW_CHARS
+ * (detail.command / detail.newString), its short fields and the two counters:
+ * its `args` are gone. The untyped one keeps the preview of `args.command`
+ * instead. Twenty typed calls plus that one plus the two messages around them:
+ * 16.139 B measured on 2026-09-07 (it was ~30 KB while every typed call also
+ * shipped its `args`). 24 KB leaves room for a field or two nobody has added
+ * yet and none at all for a single 30 KB script.
  */
-const CEILING_BYTES = 64 * 1024;
+const CEILING_BYTES = 24 * 1024;
 
 describe("weight of the tool ARGUMENTS on /api/history", () => {
   test("WEIGHT: 20 tool calls with 30 KB of args each stay under the ceiling", async () => {
     const { body, json } = await historyPayload("topic:args-weight");
     const calls = wireToolCalls(json.messages);
-    expect(calls.length).toBe(TOOLS);
+    expect(calls.length).toBe(TOOLS + UNTYPED);
     expect(body.length).toBeLessThan(CEILING_BYTES);
     // Floor: twenty calls with their heads and their short fields do not fit
     // in a few KB; a payload that small would have lost the calls themselves.
     expect(body.length).toBeGreaterThan(TOOLS * WIRE_STRING_PREVIEW_CHARS);
   });
 
-  test("what the CLOSED row draws survives: the head of the command, the path, the short fields", async () => {
+  test("a TYPED detail travels alone: `args` go empty, an untyped call keeps its head", async () => {
     const { json } = await historyPayload("topic:args-head");
     const calls = wireToolCalls(json.messages);
-    for (const [i, tc] of calls.entries()) {
-      const args = tc.args as Record<string, string>;
+    for (const [i, tc] of calls.slice(0, TOOLS).entries()) {
       const detail = tc.detail as Record<string, string>;
+      // With a typed `detail` the renderer never reads `args`
+      // (`resolveToolDetail`), so on the wire they are a second copy of the
+      // same command nobody draws. The whole object still comes back from the
+      // detail route when the row opens.
+      expect(tc.args).toEqual({});
       if (i % 2 === 0) {
-        expect(args.command.startsWith(`echo head-${tc.id}`)).toBe(true);
-        expect(args.command.length).toBe(WIRE_STRING_PREVIEW_CHARS);
-        expect(args.command.includes("TAIL-")).toBe(false);
-        expect(args.description).toBe(`step ${i}`);
+        expect(detail.command.startsWith(`echo head-${tc.id}`)).toBe(true);
         expect(detail.command.length).toBe(WIRE_STRING_PREVIEW_CHARS);
+        expect(detail.command.includes("TAIL-")).toBe(false);
         expect(detail.cwd).toBe("/repo");
         expect(detail.output).toBe("");
       } else {
-        expect(args.file_path).toBe(`/repo/src/file-${i}.ts`);
-        expect(args.old_string).toBe(`old-${i}`);
-        expect(args.new_string.length).toBe(WIRE_STRING_PREVIEW_CHARS);
         expect(detail.filePath).toBe(`/repo/src/file-${i}.ts`);
+        expect(detail.oldString).toBe(`old-${i}`);
         expect(detail.newString.length).toBe(WIRE_STRING_PREVIEW_CHARS);
       }
-      // The counters declare EXACTLY what was cut.
+      // The counters declare EXACTLY what was cut, and `argsBytes` still counts
+      // the characters the preview dropped: it is what keeps the chevron on a
+      // row whose body is fetched on open.
       const full = script(tc.id);
       expect(tc.argsBytes).toBe(full.length - WIRE_STRING_PREVIEW_CHARS);
       const textBlank = i % 2 === 0 ? "ok".length : 0;
       expect(tc.detailBytes).toBe(full.length - WIRE_STRING_PREVIEW_CHARS + textBlank);
     }
+
+    // The untyped call: `args` are the only source its row has, so the head of
+    // the command and the short fields survive.
+    const untyped = calls[calls.length - 1];
+    const args = untyped.args as Record<string, string>;
+    expect(untyped.detail).toBeUndefined();
+    expect(args.command.startsWith(`echo head-${untyped.id}`)).toBe(true);
+    expect(args.command.length).toBe(WIRE_STRING_PREVIEW_CHARS);
+    expect(args.command.includes("TAIL-")).toBe(false);
+    expect(args.description).toBe("untyped");
   });
 
   test("NOTHING WAS LOST: the detail route gives back the whole args and the whole detail", async () => {

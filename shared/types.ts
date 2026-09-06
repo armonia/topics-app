@@ -810,12 +810,16 @@ export interface ToolCall {
    *
    * `args` repeats what `detail` already types (a Write's `content`, an Edit's
    * `new_string`, a script in `command`) and the renderer reads it only as a
-   * fallback when `detail` is missing or untyped. On the history wire every
-   * string inside `args` longer than `WIRE_STRING_PREVIEW_CHARS` travels as
-   * its head, and this is the count of what was cut. Absent when nothing was.
+   * fallback when `detail` is missing or untyped. On the history wire an
+   * untyped call keeps its `args` with every string longer than
+   * `WIRE_STRING_PREVIEW_CHARS` cut to its head; a call whose `detail` IS
+   * typed ships `args: {}`, because nothing reads them there. Either way this
+   * is the count of what was cut. Absent when nothing was.
    *
-   * Set by `stripArgsText` (shared/lean-tool-call.ts). The whole `args` come
-   * back from the same detail route, in the same fetch, when the row opens.
+   * Set by `stripArgsText` and kept by `leanToolCallForHistory`
+   * (shared/lean-tool-call.ts): it is also what tells a row it has a body to
+   * fetch. The whole `args` come back from the same detail route, in the same
+   * fetch, when the row opens.
    */
   argsBytes?: number;
   /** See client mirror for full semantics. Populated for tools that
