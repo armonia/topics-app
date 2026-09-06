@@ -1,5 +1,46 @@
 [
   {
+    "version": "2.2.274",
+    "date": "2026-09-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il sito framabile non ha un titolo da leggere: la tab scrive l'indirizzo, e il test smette di chiedere un nome che nessuno puo' dare",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La consegna e' un filmato: la tab tiene il nome mentre l'indirizzo si apre e si richiude sotto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il dropdown dell'indirizzo non mangia il click che lo chiude, e la tab vuota si chiama nella lingua della app",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La tab vuota si legge in entrambe le lingue nella spec, e il commento non cita l'italiano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il secondo assert della tab vuota legge entrambe le lingue; il tetto DOM del banco di crescita sale sopra il suo rumore misurato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test del giudice di crescita finge una perdita sopra il tetto nuovo, non uguale",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.273",
     "date": "2026-09-06",
     "sections": {
@@ -14,6 +55,11 @@
         },
         {
           "it": "Il modulo nuovo parla inglese come chiede il repo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La tab browser scrive il titolo e apre l'indirizzo in un dropdown sotto di se'",
           "en": "",
           "scope": null
         }

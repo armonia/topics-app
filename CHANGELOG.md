@@ -2,11 +2,22 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.274 — 2026-09-06
+
+### Sotto il cofano
+- Il sito framabile non ha un titolo da leggere: la tab scrive l'indirizzo, e il test smette di chiedere un nome che nessuno puo' dare
+- La consegna e' un filmato: la tab tiene il nome mentre l'indirizzo si apre e si richiude sotto
+- Il dropdown dell'indirizzo non mangia il click che lo chiude, e la tab vuota si chiama nella lingua della app
+- La tab vuota si legge in entrambe le lingue nella spec, e il commento non cita l'italiano
+- Il secondo assert della tab vuota legge entrambe le lingue; il tetto DOM del banco di crescita sale sopra il suo rumore misurato
+- Il test del giudice di crescita finge una perdita sopra il tetto nuovo, non uguale
+
 ## 2.2.273 — 2026-09-06
 
 ### Sotto il cofano
 - La corsia del nodo remoto esce dal dispatcher e la baseline del bloat torna quella di prima
 - Il modulo nuovo parla inglese come chiede il repo
+- La tab browser scrive il titolo e apre l'indirizzo in un dropdown sotto di se'
 
 ## 2.2.272 — 2026-09-06
 
