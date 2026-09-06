@@ -86,11 +86,6 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
-  // `renice` and `taskpolicy` are the names macOS gives two real binaries
-  // (`/usr/bin/renice`, `/usr/sbin/taskpolicy`). The constants that hold their
-  // paths have to spell them exactly: any other name would stop naming the
-  // executable the code actually spawns.
-  "renice", "taskpolicy",
   // The macOS credential store, and the plural the dictionary lacks (2026-09-03).
   "keychain", "retries", "emitted", "mkdir", "textarea",
   "img", "lightbox", "zoomable", "dist", "subroutes", "timeline", "supplied", "fmt",
@@ -123,6 +118,9 @@ export const PROJECT_WORDS = new Set([
   // bounced on them in one afternoon (06/09/2026), each adding the same words
   // on its own branch.
   "stderr", "stdout", "utils",
+  // Two Unix tools, named as identifiers in server/lib/low-priority.ts
+  // (`RENICE_BIN`, `TASKPOLICY_BIN`): the binaries this machine has, not words.
+  "renice", "taskpolicy",
   // The name of the tool this codebase shells out to for every audio
   // conversion. A variable holding its path can only be called this: any
   // synonym would hide which binary is being run.
