@@ -23,12 +23,20 @@ import { projectRow } from './helpers/project-row';
 import { E2E_BASE } from './helpers/test-server';
 import { projectIdForPath } from '../../shared/board';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 
 hermetic(test);
 
 const STAMP = Date.now();
-const PROJECT_PATH = `/tmp/e2e-git-rows-${STAMP}`;
+/**
+ * THE REAL PATH, not `/tmp`. On macOS `/tmp` is a symlink to `/private/tmp`,
+ * and `git rev-parse --show-toplevel` answers with the resolved one: a topic
+ * whose folder is the SYMLINKED name has its files read as OUTSIDE the
+ * repository, so they arrive absolute and without counts. That is a defect of
+ * its own (opened as its own card); pinning it here would make this spec
+ * measure the symlink instead of the shared row.
+ */
+const PROJECT_PATH = `${realpathSync('/tmp')}/e2e-git-rows-${STAMP}`;
 const PROJECT_ID = projectIdForPath(PROJECT_PATH);
 /** The two files both surfaces have to agree on: one added, one modified. */
 const ADDED = 'src/added.ts';
