@@ -5,7 +5,7 @@ import { test, expect } from '@playwright/test';
 import { tooltipText } from './helpers/tooltip';
 import { hermetic } from './fixtures/hermetic';
 import { createTopic } from './helpers/api-fixtures';
-import { openPerfPanel } from "./helpers/open-perf-panel";
+import { openPerfPanel, openProfileMenu } from "./helpers/open-perf-panel";
 
 /**
  * L'INVENTARIO DEL PESO, SUL PERCORSO CHE L'UTENTE PERCORRE DAVVERO.
@@ -202,9 +202,11 @@ test.describe('inventario del peso per funzionalita', () => {
     await withFleet(page);
     await page.goto('/');
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
-    await page.getByTestId('sidebar-topics-menu').click();
+    await openProfileMenu(page);
 
-    const totale = page.locator('[data-testid="metrics-total"]');
+    // Scoped to the menu: the user card carries a `metrics-total` of its own
+    // now (STATUSLINE-04), and the inventory rides on the row's tooltip.
+    const totale = page.locator('[data-testid="sidebar-system-menu"] [data-testid="metrics-total"]');
     await expect(totale).toBeVisible({ timeout: 15_000 });
 
     // PRIMA DELL'HOVER il tooltip NON porta l'inventario: si raccoglie solo

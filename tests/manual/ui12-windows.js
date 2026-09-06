@@ -49,11 +49,14 @@
   dice("UI-02 campanella cliccabile", !!bell && chiRiceve(bell, '[data-testid="notification-bell"],[aria-label*="otific"]') === "lui",
     bell ? `larghezza=${Math.round(rect(bell).width)} riceve=${chiRiceve(bell, '[data-testid="notification-bell"],[aria-label*="otific"]')}` : "assente");
 
-  // 3. The identity chip receives its own click (the resize handle covered it on
-  //    EVERY platform, and no test had ever clicked it).
-  const chip = document.querySelector('[data-testid="org-chip"],[data-testid="identity-chip"]');
-  dice("UI-03 chip identita' cliccabile", !chip || chiRiceve(chip, '[data-testid="org-chip"],[data-testid="identity-chip"]') === "lui",
-    chip ? `riceve=${chiRiceve(chip, '[data-testid="org-chip"],[data-testid="identity-chip"]')}` : "assente (non reso senza sessione)");
+  // 3. The user card receives its own click (the resize handle covered it on
+  //    EVERY platform, and no test had ever clicked it). Since the redesign of
+  //    the foot of the column it is ONE card, the only door of the chrome
+  //    (STATUSLINE-04): the three chips it replaced no longer exist.
+  const CARD = '[data-testid="identity-me-profile"]';
+  const chip = document.querySelector(CARD);
+  dice("UI-03 card utente cliccabile", !chip || chiRiceve(chip, CARD) === "lui",
+    chip ? `riceve=${chiRiceve(chip, CARD)}` : "assente (non reso senza sessione)");
 
   // 4. No sidebar row overflows: this is the Ctrl+K defect, where the wider
   //    labels stole 37px from the 255px row.
@@ -137,34 +140,35 @@
     .slice(0, 4).map((i) => i.getAttribute("src") || "senza src");
   dice("UI-12 nessuna immagine rotta", rotte.length === 0, rotte.join(", ") || `${document.images.length} immagini, nessuna rotta`);
 
-  // 13. I PULSANTI FINESTRA compaiono col menu Topics e spariscono con lui.
-  //     Questo fix (4a206509d) era arrivato su main dichiarando esso stesso
-  //     «la prova sulla macchina vera resta da fare», e nessun test lo copriva:
-  //     e' un feedback esplicito dell'utente misurato finora solo a occhio.
-  const menu = document.querySelector('[data-testid="sidebar-topics-menu"]');
+  // 13. THE WINDOW BUTTONS ARE ALWAYS LIT. They used to appear with the
+  //     «Topics» menu (4a206509d) and hide with it; the title is no longer a
+  //     trigger on the desktop (SIDEBAR-STATUS-01), and a window with no way
+  //     to close it is not an option, so the group is permanent: opacity 1
+  //     and pointer events on, with nothing open.
   const wc = document.querySelector('[data-testid="win-minimize"]');
   const gruppo = wc ? wc.closest("div") : null;
   const opacita = (el) => (el ? getComputedStyle(el).opacity : "assente");
   const primaDelMenu = opacita(gruppo);
-  if (menu && gruppo) {
-    menu.click();
+  dice("UI-13 pulsanti finestra sempre accesi",
+    !!wc && primaDelMenu === "1" && getComputedStyle(gruppo).pointerEvents !== "none",
+    wc ? `opacita' ${primaDelMenu} (attesa 1), pointer-events=${getComputedStyle(gruppo).pointerEvents}` : "pulsanti assenti");
+
+  // 14. AND THEY STAY LIT WITH THE PROFILE MENU OPEN: the one door of the
+  //     chrome is the user card now, and opening it must not paint over the
+  //     title row the way the old dropdown did.
+  if (chip && gruppo) {
+    chip.click();
     await new Promise((r) => setTimeout(r, 700));
   }
   const dopoIlMenu = opacita(gruppo);
-  dice("UI-13 pulsanti finestra col menu Topics",
-    !!wc && primaDelMenu === "0" && dopoIlMenu === "1",
-    wc ? `opacita' ${primaDelMenu} -> ${dopoIlMenu} (attesa 0 -> 1)` : "pulsanti assenti");
-
-  // 14. E chiusi i pulsanti tornano non cliccabili: `pointer-events: none`,
-  //     senno' resterebbero bersagli invisibili sopra la barra del titolo.
-  if (menu && gruppo) {
-    menu.click();
-    await new Promise((r) => setTimeout(r, 700));
+  const menuAperto = !!document.querySelector('[data-testid="profile-menu"]');
+  dice("UI-14 pulsanti finestra accesi col menu del profilo",
+    !!wc && dopoIlMenu === "1" && (!chip || menuAperto),
+    wc ? `opacita' ${dopoIlMenu} (attesa 1), menu=${menuAperto ? "aperto" : "chiuso"}` : "pulsanti assenti");
+  if (chip && menuAperto) {
+    chip.click();
+    await new Promise((r) => setTimeout(r, 300));
   }
-  const eventiDopoChiusura = gruppo ? getComputedStyle(gruppo).pointerEvents : "assente";
-  dice("UI-14 pulsanti finestra spenti alla chiusura",
-    eventiDopoChiusura === "none",
-    `pointer-events=${eventiDopoChiusura} (atteso none)`);
 
   const rossi = prove.filter((p) => !p.ok);
   return JSON.stringify({

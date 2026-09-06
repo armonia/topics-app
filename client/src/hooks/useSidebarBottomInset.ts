@@ -6,8 +6,9 @@ import { useEffect, useState } from 'react';
  * The handle is a 10px band biased INTO the sidebar (native panes sit flush on
  * the content side and would eat anything past the edge), and it used to run the
  * full height. At the bottom that put it on top of the identity block, whose
- * rightmost control ends exactly under it: measured 2026-08-26, `org-chip` could
- * not be clicked at all — on macOS as much as elsewhere — with Playwright naming
+ * rightmost control ends exactly under it: measured 2026-08-26, the last chip of
+ * the band could not be clicked at all - on macOS as much as elsewhere - with
+ * Playwright naming
  * the culprit, "`div.cursor-col-resize` intercepts pointer events". Nothing had
  * caught it because no test ever clicked that chip.
  *
@@ -24,8 +25,9 @@ export function useSidebarBottomInset(): number {
       setInset(block ? Math.max(0, Math.round(window.innerHeight - block.getBoundingClientRect().top)) : 0);
     };
     misura();
-    // The block grows with what it has to say (a second org, a longer name) and
-    // the window changes height: both move the boundary.
+    // The block grows with what it has to say (the chip row appearing when
+    // somebody turns up, a longer name) and the window changes height: both
+    // move the boundary.
     const ro = new ResizeObserver(misura);
     const block = document.querySelector('[data-testid="identity-block"]');
     if (block) ro.observe(block);

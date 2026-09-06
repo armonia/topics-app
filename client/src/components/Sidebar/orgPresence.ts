@@ -188,26 +188,6 @@ export function mergePeople(gruppi: readonly PresenceRow[][]): PresenceRow[] {
     || a.nome.localeCompare(b.nome));
 }
 
-/**
- * The faces of several organisations in a single list, with no repeats.
- *
- * Someone who shares two groups with you is ONE person, not two: the friends
- * row answers "who is here", and the same face showing twice is the most
- * visible mistake that row can possibly make.
- */
-export function mergeFaces(gruppi: readonly PresenceFace[][]): PresenceFace[] {
-  const visti = new Set<string>();
-  const out: PresenceFace[] = [];
-  for (const gruppo of gruppi) {
-    for (const f of gruppo) {
-      if (visti.has(f.id)) continue;
-      visti.add(f.id);
-      out.push(f);
-    }
-  }
-  return out;
-}
-
 /** Seen within the threshold. A `lastSeenAt` in the future counts as present. */
 function online(m: MembroPresenza, adesso: number, sogliaMs: number): boolean {
   return m.lastSeenAt !== null

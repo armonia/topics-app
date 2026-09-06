@@ -3,7 +3,7 @@
  */
 import { test, expect } from '@playwright/test';
 import { hermetic } from './fixtures/hermetic';
-import { openPerfPanel } from "./helpers/open-perf-panel";
+import { openPerfPanel, openProfileMenu } from "./helpers/open-perf-panel";
 
 /**
  * IL PANNELLO PRESTAZIONI, SUL PERCORSO CHE L'UTENTE PERCORRE DAVVERO.
@@ -34,6 +34,20 @@ import { openPerfPanel } from "./helpers/open-perf-panel";
 hermetic(test);
 
 test.describe('pannello prestazioni', () => {
+  // THE DOOR ONLY EXISTS WHEN PAIRED. The panel opens from the user card
+  // (SIDEBAR-STATUS-01), and the card is drawn only for a paired session.
+  // Under the shell mock these tests install, the client rewrites every
+  // `/api` call to the desktop server's loopback port, where the E2E server
+  // is not: the session would come back unpaired and the door would not be
+  // there. So the session is answered here, with the same stub every
+  // identity spec uses. Nothing else in the file cares who is signed in.
+  test.beforeEach(async ({ page }) => {
+    await page.route('**/api/auth/session', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify({ paired: true, as: 'loopback', name: 'Questo computer',
+                               role: 'owner', personId: 'io' }) }));
+  });
+
   test('si apre dalla barra di stato e mostra numeri, non chiavi', async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "PERFPANEL-01" });
     await page.goto('/');
@@ -172,10 +186,12 @@ test.describe('pannello prestazioni', () => {
     await page.goto('/');
     await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
     // ONE gesture: open the menu. The panel stays closed — that is the point.
-    await page.getByTestId('sidebar-topics-menu').click();
+    await openProfileMenu(page);
     // The TOTAL's tooltip, the big number on the row: read by hovering it,
-    // without expanding the panel.
-    const totale = page.locator('[data-testid="metrics-total"]');
+    // without expanding the panel. Scoped to the menu, because the user card
+    // now carries a `metrics-total` of its own (STATUSLINE-04) and that one
+    // has no tooltip: it IS the glance.
+    const totale = page.locator('[data-testid="sidebar-system-menu"] [data-testid="metrics-total"]');
     await expect(totale).toBeVisible({ timeout: 15_000 });
     await expect.poll(async () => (await totale.getAttribute('title')) ?? '', { timeout: 10_000 })
       .toContain('594');

@@ -15,7 +15,7 @@
  * @covers STATUSLINE-01
  */
 import { describe, it, expect } from 'bun:test';
-import { presentiOra, facceOnline, mergeFaces, gentePresenza, mergePeople, PRESENZA_MS } from './orgPresence';
+import { presentiOra, facceOnline, gentePresenza, mergePeople, PRESENZA_MS } from './orgPresence';
 
 const ADESSO = 1_700_000_000_000;
 const poco = ADESSO - 60_000;
@@ -71,13 +71,6 @@ describe('facceOnline', () => {
   });
 });
 
-describe('unisciFacce', () => {
-  it('la stessa persona in due organizzazioni resta una faccia sola', () => {
-    const a = { id: 'a', nome: 'Anna Rossi', avatarUrl: null, iniziali: 'AR' };
-    const b = { id: 'b', nome: 'Bruno Verdi', avatarUrl: null, iniziali: 'BV' };
-    expect(mergeFaces([[a, b], [a]]).map((f) => f.id)).toEqual(['a', 'b']);
-  });
-});
 
 /**
  * THE OPEN LIST has a contract DIFFERENT from the closed row, and that is where

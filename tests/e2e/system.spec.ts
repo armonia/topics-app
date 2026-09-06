@@ -9,6 +9,7 @@ import { test, expect } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { mockOpenClawAvailable } from "./helpers/openclaw";
+import { openPerfPanel, openProfileMenu } from "./helpers/open-perf-panel";
 import { hermetic } from "./fixtures/hermetic";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
@@ -28,8 +29,8 @@ test.describe("System & Infrastructure", () => {
     // WHERE THE CONNECTION STATE LIVES NOW. It used to be a word — «Online» —
     // on a strip at the foot of the column, printed all day to say that
     // nothing was wrong. The strip is gone (SIDEBAR-STATUS-01) and the state
-    // reads in two places instead: a lamp next to «Topics» that is always in
-    // the DOM and declares an alarm only when there is one, and the system
+    // reads in two places instead: the dot on the user card, always in the
+    // DOM, which declares an alarm only when there is one, and the system
     // panel, one gesture in, which names the gateway in words.
     await mockOpenClawAvailable(page);
     await goToApp(page);
@@ -37,8 +38,7 @@ test.describe("System & Infrastructure", () => {
     const lamp = page.getByTestId("connection-status");
     await expect(lamp).toBeVisible({ timeout: 15000 });
 
-    await page.getByTestId("sidebar-topics-menu").click();
-    await page.getByTestId("menu-system-status").click();
+    await openPerfPanel(page);
     const panel = page.getByTestId("system-status-panel");
     await expect(panel).toBeVisible({ timeout: 15000 });
     // Accept "Online", "Connecting", or "Offline" — the gateway may not be
@@ -50,11 +50,13 @@ test.describe("System & Infrastructure", () => {
   test("status bar shows system info", async ({ page }) => {
     await mockOpenClawAvailable(page);
     await goToApp(page);
-    await page.getByTestId("sidebar-topics-menu").click();
+    await openProfileMenu(page);
 
     // The headline reads WITHOUT opening the panel: memory and CPU on the row
-    // itself, with the whole breakdown in its tooltip (PERFPANEL-01).
-    const total = page.getByTestId("metrics-total");
+    // itself, with the whole breakdown in its tooltip (PERFPANEL-01). Scoped
+    // to the menu: the user card carries a `metrics-total` of its own now
+    // (STATUSLINE-04), and the row is the one with the tooltip.
+    const total = page.getByTestId("sidebar-system-menu").getByTestId("metrics-total");
     await expect(total).toBeVisible({ timeout: 15000 });
 
     await page.getByTestId("menu-system-status").click();

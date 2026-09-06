@@ -25,6 +25,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
+import { openProfileMenu } from "./helpers/open-perf-panel";
 import { beat, didascalia, isEvidenceRun } from "./helpers/evidence";
 import { readFileSync } from "fs";
 import { join } from "path";
@@ -56,7 +57,10 @@ const AUDIT_JS = readFileSync(join(__dirname, "helpers", "ui-audit.js"), "utf8")
  */
 async function apriImpostazioni(page: Page) {
   await page.getByTestId("sidebar-topics-menu").click();
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  // By testid, not by the word: the row is one component shared with the
+  // desktop's user-card menu (`TopicsMenuItems`) and its label goes through
+  // the dictionary, so under it-IT it reads «Impostazioni». allow-italian: quoted label
+  await page.getByTestId("topics-menu-settings").click();
   const pannello = page.getByTestId("settings-panel");
   await expect(pannello).toBeVisible({ timeout: 10_000 });
   await expect
@@ -251,7 +255,7 @@ test("i comandi sui pannelli non compaiono dove non ci sono pannelli", async ({ 
   // A 390px: assenti. Non grigi — ASSENTI: la condizione che li sbloccherebbe
   // è lo schermo, e non c'è niente da sbloccare.
   await menu.click();
-  const openMenu = page.getByRole("button", { name: "Settings", exact: true });
+  const openMenu = page.getByTestId("topics-menu-settings");
   await expect(openMenu).toBeVisible();
   await expect(page.getByRole("button", { name: "Reimposta pannelli" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Disponi automaticamente" })).toHaveCount(0);
@@ -262,7 +266,10 @@ test("i comandi sui pannelli non compaiono dove non ci sono pannelli", async ({ 
   // A 1280px: tornano, perché lì i pannelli esistono davvero. Senza questo la
   // spec proverebbe solo che qualcosa è sparito, che è metà del fatto.
   await page.setViewportSize({ width: 1280, height: 800 });
-  await menu.click();
+  // Not the title any more: at desktop width the door is the user card at
+  // the foot of the column (SIDEBAR-STATUS-01), and the helper picks the
+  // trigger from the viewport.
+  await openProfileMenu(page);
   await expect(page.getByRole("button", { name: "Reimposta pannelli" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Disponi automaticamente" })).toBeVisible();
   await didascalia(page, "1280px: ci sono, perché lì hanno effetto");

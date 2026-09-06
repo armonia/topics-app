@@ -272,82 +272,129 @@ it is expanded, with `aria-expanded` reporting the current state.
 - **WHEN** the user clicks the chevron again
 - **THEN** `aria-expanded` returns to `"true"` and the child's row is visible again
 
-### Requirement: STATUSLINE-01 — La fascia in fondo alla sidebar è UNA fascia, e dice la verità su chi c'è
+### Requirement: STATUSLINE-01 — La fascia in fondo alla sidebar dice la verità su chi c'è, e non conta chi guarda
 
 Claude Code ha una status line configurabile; l'equivalente in Topics è la fascia
-in fondo alla sidebar (`SidebarStatusBar.tsx`). È coperta da otto file di test —
-e fino al 25/08/2026 **nessun requisito la nominava**. È il caso peggiore da
-trovare: la copertura c'è e il documento di riferimento tace, così chi legge le
-spec crede che la funzionalità non esista e chi guarda i test crede che sia
-descritta.
+in fondo alla sidebar. È coperta da otto file di test — e fino al 25/08/2026
+**nessun requisito la nominava**. È il caso peggiore da trovare: la copertura c'è
+e il documento di riferimento tace, così chi legge le spec crede che la
+funzionalità non esista e chi guarda i test crede che sia descritta.
 
 Il sistema DEVE:
 
-1. **tenere la fascia leggibile come UNA fascia.** I tre soggetti che ci stanno
-   (io, le mie organizzazioni, chi è in giro) si distinguono per il **primo
-   glifo** di ciascuno, non per una riga di separazione;
-2. **non contare sé stessi.** La riga di presenza risponde a «chi ALTRO c'è»:
-   chi lavora da solo su due macchine deve leggere «nessuno», non «1 online»;
-3. **non dire il ferro al posto della persona.** Con una persona nota su una
-   sessione loopback la riga nomina la persona, non «Questo computer»;
-4. **lasciare fuori qualcosa quando i posti finiscono.** Il chip dei segnali ha
-   tre posti e cinque candidati: uno zero non occupa mai un posto, perché è il
-   modo più largo di non dire niente;
-5. **dichiarare le soglie del verdetto come decisioni di prodotto**, fuori dalla
+1. **non contare sé stessi.** La presenza risponde a «chi ALTRO c'è»: chi lavora
+   da solo su due macchine deve leggere «nessuno», non «1 online»;
+2. **non dire il ferro al posto della persona.** Con una persona nota su una
+   sessione loopback la card nomina la persona, non «Questo computer»;
+3. **lasciare fuori qualcosa quando i posti finiscono.** I segnali del lavoro
+   hanno tre posti e cinque candidati: uno zero non occupa mai un posto, perché
+   è il modo più largo di non dire niente;
+4. **dichiarare le soglie del verdetto come decisioni di prodotto**, fuori dalla
    JSX, dove possano essere contraddette da un test;
-6. **chiamare le cose col nome della relazione che disegnano.** Il terzo
-   soggetto sono gli AMICI, cioè il grafo delle amicizie (FRIEND-01), non la
-   rubrica di chi divide con te un'organizzazione: quella è una lista che
+5. **chiamare le cose col nome della relazione che disegnano.** Le persone in
+   fondo alla colonna sono gli AMICI, cioè il grafo delle amicizie (FRIEND-01),
+   non la rubrica di chi divide con te un'organizzazione: quella è una lista che
    nessuno ha scelto, e chiamarla «Persone» era onesto sul dato e muto sulla
-   domanda. Una richiesta di amicizia che aspetta una risposta si vede a
-   pannello chiuso e si risponde nel pannello;
-7. **rispondere a «con quale account sono entrato».** Il primo soggetto apre un
-   pannello ACCOUNT: dice l'indirizzo con cui si è collegati e, quando non c'è
-   nessun collegamento e l'installazione ha un servizio a cui chiedere
+   domanda. Una richiesta di amicizia che aspetta una risposta si risponde nel
+   menu, senza passare da una pagina;
+6. **rispondere a «con quale account sono entrato».** Il menu della card apre in
+   testa un blocco ACCOUNT: dice l'indirizzo con cui si è collegati e, quando non
+   c'è nessun collegamento e l'installazione ha un servizio a cui chiedere
    (ACCOUNT-01), permette di accedere o registrarsi lì dentro, senza passare
    dalle impostazioni. Dove un servizio degli account non c'è, il pannello non
    ne parla affatto: il piano gratuito non è una versione mutilata di cui
    scusarsi in un menu a tendina.
 
-> Nota: i punti da 1 a 5 NON introducono comportamento nuovo. Descrivono ciò che
+> Nota: i punti da 1 a 4 NON introducono comportamento nuovo. Descrivono ciò che
 > otto file di test già verificano, e li legano a un id perché la copertura sia
 > auditabile invece che solo presente.
-
-#### Scenario: la fascia si spezza in due
-
-- **GIVEN** i tre soggetti della fascia
-- **WHEN** si distinguono per una riga di separazione invece che per il glifo
-- **THEN** il vincolo è violato
 
 #### Scenario: la presenza conta chi guarda
 
 - **GIVEN** una persona sola collegata da due macchine
-- **WHEN** la riga di presenza mostra «1 online»
+- **WHEN** la presenza mostra «1 online»
 - **THEN** il vincolo è violato: doveva dire «nessuno»
 
-#### Scenario: la riga nomina la macchina invece della persona
+#### Scenario: la card nomina la macchina invece della persona
 
 - **GIVEN** una persona nota su una sessione loopback
-- **WHEN** la riga dice «Questo computer»
+- **WHEN** la card dice «Questo computer»
 - **THEN** il vincolo è violato
 
-#### Scenario: uno zero occupa un posto nel chip
+#### Scenario: uno zero occupa un posto fra i segnali
 
-- **GIVEN** il chip dei segnali con più candidati che posti
+- **GIVEN** i segnali del lavoro con più candidati che posti
 - **WHEN** un conteggio a zero prende un posto
 - **THEN** il vincolo è violato
 
-#### Scenario: il terzo soggetto mostra i colleghi al posto degli amici
+#### Scenario: le persone in fondo sono i colleghi al posto degli amici
 
 - **GIVEN** una persona che divide un'organizzazione con te e non è tua amica
-- **WHEN** la sua faccia compare sul chip degli amici
-- **THEN** il vincolo è violato: quel chip disegna il grafo delle amicizie
+- **WHEN** la sua faccia compare fra le chip degli amici
+- **THEN** il vincolo è violato: quelle chip disegnano il grafo delle amicizie
 
 #### Scenario: nessun account collegato e nessun modo di entrare
 
 - **GIVEN** un'installazione con un servizio degli account e nessun collegamento
-- **WHEN** il pannello del primo soggetto non offre nessun modo di accedere
+- **WHEN** il menu della card non offre nessun modo di accedere
 - **THEN** il vincolo è violato
+
+### Requirement: STATUSLINE-04 — In fondo alla colonna ci sono le PERSONE e UNA card: tutto il resto sta dietro quella card
+
+La fascia in fondo alla sidebar SHALL essere fatta di due cose sole: le CHIP
+delle persone connesse e la CARD dell'utente. Le tre pastiglie di prima — io, le
+mie organizzazioni, i miei amici, ciascuna con un pannello suo — erano cinque
+porte del chrome (queste tre più il menu «Topics» in alto) che portavano tutte
+nella stessa casa: chi usa l'app non ha cinque identità.
+
+**UNA CHIP PER PERSONA CONNESSA.** Le persone SHALL essere disegnate una per
+una, con la faccia (o le iniziali) e il nome, su una riga che SCORRE in
+orizzontale quando non ci stanno. Un conteggio non si può salutare e non si può
+cliccare: «2 di 7 online» obbligava ad aprire un pannello per fare qualunque
+cosa con quel due. La chip SHALL portare a quella persona.
+
+La riga SHALL esistere solo quando c'è qualcuno: NON SHALL essere disegnata a
+zero. È l'opposto della regola che valeva per le tre pastiglie (restavano a zero
+perché il loro posto si imparasse) ed è coerente col motivo di quella regola: le
+pastiglie erano l'unica via d'accesso, questa riga no — le stesse persone, e
+anche quelle non connesse, stanno a un click nel menu della card.
+
+**LA CARD È L'UNICA PORTA.** SHALL portare la faccia, il NOME SENZA COGNOME e il
+CONSUMO della macchina (memoria, CPU, e il pallino la cui tinta è il verdetto).
+Il cognome è la metà che una colonna da 240px tronca comunque, e resta nel
+tooltip, nel nome accessibile e nel blocco account. Aprendola SHALL comparire un
+menu solo, che tiene: account, amici, organizzazioni, i comandi della colonna e
+lo stato della macchina.
+
+**LE LISTE SI APRONO DENTRO IL MENU**, non in un secondo pannello che esce di
+fianco al primo: la regola del chrome è un popover per volta, e una lista di
+persone dentro un flyout appeso a un altro flyout è la forma che si rompe per
+prima (due pannelli a video, il secondo contro il bordo della finestra).
+
+Ogni chip e la card SHALL avere un nome accessibile, e ogni stringa SHALL passare
+dal dizionario.
+
+#### Scenario: nessuno è connesso
+
+- **GIVEN** una persona con amici, nessuno dei quali online
+- **THEN** la riga delle chip NON esiste
+- **AND** la card è comunque lì, e il menu elenca gli amici
+
+#### Scenario: tre persone connesse
+
+- **GIVEN** tre amici online
+- **THEN** ci sono tre chip, una per persona, e la riga scorre in orizzontale
+
+#### Scenario: la card non dice il cognome
+
+- **GIVEN** una persona che si chiama «Nome Cognome»
+- **THEN** la card scrive solo «Nome»
+- **AND** il nome intero resta leggibile (tooltip o nome accessibile)
+
+#### Scenario: il consumo è sulla card
+
+- **GIVEN** un desktop con le misure disponibili
+- **THEN** la card mostra memoria e CPU senza aprire niente
 
 ### Requirement: TOPIC-PREVIEW-01 — Le due gemelle della potatura hanno UNA testata sola
 
@@ -607,12 +654,18 @@ controllo SHALL essere tolti, e gli a-capo e le tabulazioni CONSERVATI.
 - **GIVEN** un testo con caratteri non stampabili
 - **THEN** SHALL essere ripulito, conservando a-capo e tabulazioni
 
-### Requirement: SIDEBAR-STATUS-01 — Lo stato sta nel menu «Topics»; fuori resta solo ciò che non può aspettare un gesto
+### Requirement: SIDEBAR-STATUS-01 — Lo stato sta dietro UNA porta; fuori resta solo cio' che non puo' aspettare un gesto
 
-La colonna dei topic SHALL NOT tenere una barra di stato in fondo. Ciò che quella
-barra diceva — chi sei, come va la macchina, che versione è — SHALL vivere nel
-menu che si apre dal titolo «Topics», che è dove lo si va a cercare e dove sul
-telefono sta già dal 7 agosto.
+La colonna dei topic SHALL NOT tenere una barra di stato in fondo. Cio' che quella
+barra diceva — come va la macchina, che versione e', come si riavvia — SHALL
+vivere dietro UN GESTO SOLO.
+
+Quel gesto SHALL essere la CARD DELL'UTENTE in fondo alla colonna (STATUSLINE-04).
+Per un mese e' stato il titolo «Topics» in alto, e la ragione per cui non lo e'
+piu' non e' un ripensamento sul posto: e' che le porte erano diventate cinque —
+tre pastiglie in fondo e un menu in alto — e portavano tutte nella stessa casa.
+In alto SHALL restare la sola parola «Topics», accanto ai comandi della finestra:
+NON SHALL essere un accordion e NON SHALL portare un pallino suo.
 
 Dentro il menu le statistiche SHALL essere RIGHE, una per fatto — prestazioni,
 versione, riavvio — larghe quanto le voci che stanno sopra (cronologia,
@@ -620,14 +673,18 @@ impostazioni) e con lo stesso attacco a sinistra. NON SHALL essere una striscia
 orizzontale di cifre: una striscia dice le stesse cose in un carattere che si
 legge solo avvicinandosi, e in un menu fatto di righe si legge come un residuo.
 E SHALL essere la STESSA implementazione su desktop e su telefono: due copie
-della stessa risposta sono due copie che un giorno rispondono diverso.
+della stessa risposta sono due copie che un giorno rispondono diverso. Sul
+telefono il menu resta appeso al titolo — la' la colonna e' un cassetto e la
+fascia dell'identita' non esiste — ma le voci SHALL essere quelle, non una copia.
 
-Il taglio non è «tutto dentro». Un ALLARME non è una statistica: dire «sei
-offline» o «mi sto riconnettendo» dietro un gesto significa che l'app è scollegata
-e chi la guarda non lo sa finché non apre un menu. Quindi la riga del titolo SHALL
-portare un pallino — piccolo, senza testo, senza costare altezza — che SHALL
-DICHIARARE l'allarme quando c'è qualcosa che non può aspettare: WebSocket non
-connesso, avvio degradato, avviso sui dati.
+Il taglio non e' «tutto dentro». Un ALLARME non e' una statistica: dire «sei
+offline» o «mi sto riconnettendo» dietro un gesto significa che l'app e'
+scollegata e chi la guarda non lo sa finche' non apre un menu. Quindi la fascia
+in fondo SHALL portare un pallino — piccolo, senza testo, senza costare altezza —
+che SHALL DICHIARARE l'allarme quando c'e' qualcosa che non puo' aspettare:
+WebSocket non connesso, avvio degradato, avviso sui dati. E le righe che NOMINANO
+il guasto SHALL comparire in fondo alla colonna, sopra la fascia, senza aprire
+niente.
 
 E' UN PALLINO SOLO, e risponde a due domande diverse. Il testo di questo
 requisito ne pretendeva uno che a tutto a posto fosse INVISIBILE, e per due
@@ -636,31 +693,23 @@ seconda spia accanto, accesa solo in allarme. Segnalato dal vivo il 31/08 —
 «ora vedo due pallini nel trigger» — e la lettura era giusta: due tondi a
 quattro pixel di distanza non sono due segnali, sono un segnale che sembra
 rotto. Sono stati fusi. Quindi il pallino SHALL essere sempre dipinto (la sua
-tinta è il carico: risponde a «quanto»), e l'allarme SHALL essere una
-DICHIARAZIONE su di lui — un attributo che un test può leggere, più la
-pulsazione — che SHALL scavalcare la tinta del carico: «sei offline» conta più
-di «la macchina è impegnata», e dipingere le due cose sullo stesso tondo
+tinta e' il carico: risponde a «quanto»), e l'allarme SHALL essere una
+DICHIARAZIONE su di lui — un attributo che un test puo' leggere, piu' la
+pulsazione — che SHALL scavalcare la tinta del carico: «sei offline» conta piu'
+di «la macchina e' impegnata», e dipingere le due cose sullo stesso tondo
 vorrebbe dire non dirne nessuna. A tutto a posto il pallino NON SHALL dichiarare
-nessun allarme e NON SHALL pulsare, perché una spia sempre accesa non è una
-spia.
+nessun allarme e NON SHALL pulsare, perche' una spia sempre accesa non e' una
+spia. Il pallino sta sulla CARD, che e' l'elemento sempre montato del chrome:
+prima stava sul titolo perche' il titolo era l'unica cosa sempre a video, e
+quella ragione si e' spostata insieme alla porta.
 
-L'identità (persona, organizzazioni, amici) NON SHALL seguire lo stato nel menu:
-resta in fondo alla colonna, dove sta. Non è inerzia, è il suo contratto — la
-fascia SHALL tenere i tre soggetti su UNA riga alle larghezze di colonna 180,
-256 e 400 (CHIPS-01), e il menu del desktop ha una larghezza sua che non segue
-la colonna. Portarla dentro non l'avrebbe spostata: avrebbe cancellato il
-contratto per cui è stata costruita. Ed è anche la metà che il 7 agosto riportò
-la barra in fondo — «gli account che fine hanno fatto?» — quindi lasciarla lì
-risolve due cose con lo stesso gesto.
-
-Gli scenari di questo requisito cominciavano TUTTI con «GIVEN un desktop», e
-intanto quelle righe erano le uniche superfici dell'app che nominano lo stato
-della connessione: sul telefono non esisteva nessun elemento che dicesse
-«Offline» o «Reconnecting…», e il pallino del titolo — l'unico residuo — a
-cassetto chiuso è largo zero e fuori schermo. Il telefono è il dispositivo che
-la rete la perde davvero. Quindi l'allarme del trasporto SHALL essere a schermo
-anche sotto i 768px SENZA aprire il cassetto; l'identità no, che resta il pezzo
-desktop-only per il contratto di larghezza qui sopra.
+L'identita' resta desktop-only. Gli scenari di questo requisito cominciavano
+TUTTI con «GIVEN un desktop», e intanto quelle righe erano le uniche superfici
+dell'app che nominano lo stato della connessione: sul telefono non esisteva
+nessun elemento che dicesse «Offline» o «Reconnecting…», e il pallino — a
+cassetto chiuso — e' largo zero e fuori schermo. Il telefono e' il dispositivo
+che la rete la perde davvero. Quindi l'allarme del trasporto SHALL essere a
+schermo anche sotto i 768px SENZA aprire il cassetto; l'identita' no.
 
 #### Scenario: il telefono perde la rete
 - **GIVEN** un telefono a 390x844 col cassetto CHIUSO e la connessione caduta
@@ -671,8 +720,9 @@ desktop-only per il contratto di larghezza qui sopra.
 #### Scenario: la colonna a tutto a posto
 - **GIVEN** un desktop con WebSocket connesso e nessun avviso
 - **WHEN** si guarda la colonna dei topic
-- **THEN** in fondo NON c'è nessuna barra di stato: solo la fascia dell'identità
-- **AND** il pallino nella riga del titolo NON dichiara nessun allarme e non pulsa
+- **THEN** in fondo NON c'e' nessuna barra di stato: solo le chip e la card
+- **AND** in alto c'e' la sola parola «Topics», senza chevron e senza pallino
+- **AND** il pallino sulla card NON dichiara nessun allarme e non pulsa
 
 #### Scenario: l'allarme si legge senza aprire niente
 - **GIVEN** un desktop col WebSocket non connesso, o un avvio degradato
@@ -682,23 +732,23 @@ desktop-only per il contratto di larghezza qui sopra.
 #### Scenario: la connessione cade
 - **GIVEN** la stessa colonna, col menu CHIUSO
 - **WHEN** il WebSocket passa a non connesso
-- **THEN** il pallino nella riga del titolo DICHIARA l'allarme e pulsa
+- **THEN** il pallino sulla card DICHIARA l'allarme e pulsa
 - **AND** in fondo alla colonna compare la riga che nomina il guasto
 - **AND** succede senza che nessuno abbia aperto niente
 
 #### Scenario: i numeri si leggono dal menu
 - **GIVEN** un desktop
-- **WHEN** si apre il menu «Topics»
-- **THEN** la prima riga dice memoria e CPU senza espandere altro
+- **WHEN** si apre il menu dalla card dell'utente
+- **THEN** la riga delle prestazioni dice memoria e CPU senza espandere altro
 - **AND** espandendola compare il pannello delle prestazioni
 
 #### Scenario: una riga per fatto, come le voci sopra
-- **GIVEN** un desktop col menu «Topics» aperto
+- **GIVEN** un desktop col menu della card aperto
 - **THEN** prestazioni, versione e riavvio sono tre righe distinte, una sotto
   l'altra
 - **AND** ciascuna attacca dove attacca «Cronologia» ed è larga quanto lei
 
-#### Scenario: l'identità non si muove
+#### Scenario: l'identita' non si muove
 - **GIVEN** un desktop
-- **THEN** la riga dell'identità è in fondo alla colonna, non nel menu
-- **AND** i tre soggetti tengono una riga sola alle tre larghezze di CHIPS-01
+- **THEN** la card dell'identita' e' in fondo alla colonna, non in alto
+- **AND** e' lei ad aprire il menu che tiene stato, comandi e persone

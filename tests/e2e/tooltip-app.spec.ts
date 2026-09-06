@@ -15,22 +15,24 @@
  */
 import { test, expect } from '@playwright/test';
 import { hermetic } from './fixtures/hermetic';
+import { openProfileMenu } from './helpers/open-perf-panel';
 
 hermetic(test);
 
-/** Un elemento che porta un `title` e sta di sicuro a schermo: la barra di
- *  stato in fondo alla sidebar, che e' montata su ogni pagina. */
-const CON_TITLE = '[data-testid="metrics-total"]';
+/** An element that carries a `title` and is surely on screen once the menu
+ *  is open: the performance row of the system menu. Scoped to the menu on
+ *  purpose, because the user card at the foot of the column carries a
+ *  `metrics-total` of its own (STATUSLINE-04) and that one has no tooltip. */
+const CON_TITLE = '[data-testid="sidebar-system-menu"] [data-testid="metrics-total"]';
 
 test.describe('il tooltip e\' quello dell\'app, non quello del sistema', () => {
   test('passando il mouse compare il nostro, e il nativo viene disinnescato', async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "TOOLTIP-01" });
     await page.goto('/');
-    // The number lives inside the «Topics» menu since the status bar moved
-    // there (SIDEBAR-STATUS-01), and the tooltip this test watches is its
-    // own: the menu has to be open before anything can hover it.
-    await page.getByTestId('sidebar-topics-menu').click();
-    await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
+    // The number lives behind the one door of the chrome since the status
+    // bar moved there (SIDEBAR-STATUS-01), and the tooltip this test watches
+    // is its own: the menu has to be open before anything can hover it.
+    await openProfileMenu(page);
 
     const el = page.locator(CON_TITLE).first();
     await expect(el).toBeVisible({ timeout: 20_000 });
@@ -134,11 +136,10 @@ test.describe('il tooltip e\' quello dell\'app, non quello del sistema', () => {
 
   test('uscendo, il `title` TORNA: i lettori di schermo non perdono il testo', async ({ page }) => {
     await page.goto('/');
-    // The number lives inside the «Topics» menu since the status bar moved
-    // there (SIDEBAR-STATUS-01), and the tooltip this test watches is its
-    // own: the menu has to be open before anything can hover it.
-    await page.getByTestId('sidebar-topics-menu').click();
-    await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
+    // The number lives behind the one door of the chrome since the status
+    // bar moved there (SIDEBAR-STATUS-01), and the tooltip this test watches
+    // is its own: the menu has to be open before anything can hover it.
+    await openProfileMenu(page);
 
     const el = page.locator(CON_TITLE).first();
     await expect(el).toBeVisible({ timeout: 20_000 });
@@ -164,11 +165,10 @@ test.describe('il tooltip e\' quello dell\'app, non quello del sistema', () => {
     // Chi preme un bottone ha finito di leggere. Un tooltip che sopravvive al
     // click resta sopra la cosa che compare dopo.
     await page.goto('/');
-    // The number lives inside the «Topics» menu since the status bar moved
-    // there (SIDEBAR-STATUS-01), and the tooltip this test watches is its
-    // own: the menu has to be open before anything can hover it.
-    await page.getByTestId('sidebar-topics-menu').click();
-    await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
+    // The number lives behind the one door of the chrome since the status
+    // bar moved there (SIDEBAR-STATUS-01), and the tooltip this test watches
+    // is its own: the menu has to be open before anything can hover it.
+    await openProfileMenu(page);
     const el = page.locator(CON_TITLE).first();
     await expect(el).toBeVisible({ timeout: 20_000 });
     await el.hover();
@@ -190,11 +190,10 @@ test.describe('il tooltip e\' quello dell\'app, non quello del sistema', () => {
      * La domanda stabile e' un'altra, ed e' quella che conta: quante righe
      * arrivano, e sono prosa o una chiave i18n non risolta? */
     await page.goto('/');
-    // The number lives inside the «Topics» menu since the status bar moved
-    // there (SIDEBAR-STATUS-01), and the tooltip this test watches is its
-    // own: the menu has to be open before anything can hover it.
-    await page.getByTestId('sidebar-topics-menu').click();
-    await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
+    // The number lives behind the one door of the chrome since the status
+    // bar moved there (SIDEBAR-STATUS-01), and the tooltip this test watches
+    // is its own: the menu has to be open before anything can hover it.
+    await openProfileMenu(page);
     const el = page.locator(CON_TITLE).first();
     await expect(el).toBeVisible({ timeout: 20_000 });
     await expect.poll(async () => (await el.getAttribute('title')) ?? '', { timeout: 15_000 }).not.toBe('');
