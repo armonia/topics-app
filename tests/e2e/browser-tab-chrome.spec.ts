@@ -542,6 +542,100 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
   });
 
   /**
+   * THE DELIVERY CLIP, and it is a film because the claim needs more than one
+   * frame: the label has to STAY the page's name while the address appears
+   * under it and then goes away again. A still picture of the open dropdown
+   * would not say whether the tab kept its name, which is the whole point.
+   *
+   * The pane is a PROJECT pane seeded with its title, the way a restart
+   * leaves it (same recipe as BROWSER-CHROME-HYDRATE-01b): it is the only
+   * setup where a title is known to the client AND the pane is a real mounted
+   * panel, because this fixture site is framable and an iframed cross-origin
+   * document has no title anyone can read.
+   */
+  test("BROWSER-TAB-LABEL-01b: the tab keeps its name while the address opens and closes under it", async ({ request }) => {
+    test.info().annotations.push({ type: "spec", description: "BROWSER-TAB-LABEL-01" });
+    const origin = site!.origin;
+    const hostPattern = new RegExp(new URL(origin).host.replace(/\./g, "\\."));
+    const project = join(realpathSync(tmpdir()), `e2e-tab-label-clip-${Date.now()}`);
+    mkdirSync(project, { recursive: true });
+    writeFileSync(join(project, "package.json"), JSON.stringify({ name: "e2e-tab-label-clip" }));
+    const ctx = `e2e-label-${Date.now()}`;
+    try {
+      await resetPaneStore(request, []);
+      await resetProjectPanes(request, project).catch(() => {});
+      await seedProjectPane(request, project);
+      const put = await request.put(`${E2E_BASE}/api/ui-state/${projectPanesKey(project)}`, {
+        data: {
+          nonChatPanes: [{ id: `browser:${ctx}`, type: "browser", title: "Rapporto", titleSource: "auto", url: `${origin}/rapporto` }],
+          openChatTopicIds: [],
+        },
+        ignoreHTTPSErrors: true,
+      });
+      expect(put.ok(), "seeding the project browser pane").toBe(true);
+
+      const openProject = async (p: Page) => {
+        await goToApp(p);
+        const projectTab = p.getByTestId(`pane-tab-project:${encodeURIComponent(project)}`);
+        await expect(projectTab).toBeVisible({ timeout: 30_000 });
+        await projectTab.click();
+        await expect(p.locator(`[data-browser-pane="${ctx}"]`)).toBeVisible({ timeout: 30_000 });
+      };
+
+      await clipDiConsegna({
+        nome: "browser-tab-dropdown",
+        context: {
+          baseURL: E2E_BASE,
+          locale: "it-IT",
+          viewport: { width: 1180, height: 760 },
+          reducedMotion: "reduce",
+        },
+        // Bringing the app up and waiting for the server-side context is setup,
+        // not scene: it runs on a page whose video is thrown away.
+        prologo: openProject,
+        scena: async (page) => {
+          await openProject(page);
+          const tab = tabDelBrowser(page);
+
+          // 1. THE TAB SAYS WHICH PAGE IT IS, and it is the active one.
+          await expect(tab).toContainText(/Rapporto/, { timeout: 60_000 });
+          await expect(tab, "the active tab is not labelled with the host").not.toContainText(hostPattern);
+          await beat(page, 1400);
+
+          // 2. THE ADDRESS AT REST: the hover card, which is where it is read
+          //    without opening anything. It is not the system tooltip
+          //    (`TooltipDelegate` redraws it), so the film can show it.
+          await tab.hover();
+          const hoverCard = page.getByTestId("app-tooltip");
+          await expect(hoverCard).toBeVisible({ timeout: 15_000 });
+          await expect(hoverCard, "the hover card carries the whole address").toContainText(hostPattern);
+          await beat(page, 1600);
+
+          // 3. THE CLICK ON THE TAB YOU ARE ALREADY IN opens the dropdown under
+          //    it, seeded with the address, and the label goes on naming the
+          //    page: it is never replaced by the field.
+          await tab.getByTestId("pane-tab-label").click();
+          const dropdown = page.getByTestId("browser-address-dropdown");
+          await expect(dropdown).toBeVisible({ timeout: 15_000 });
+          await expect(page.getByTestId("browser-tab-address-input")).toHaveValue(`${origin}/rapporto`);
+          await expect(tab, "the label is not replaced by the field").toContainText(/Rapporto/);
+          // ONE address field in the pane: the toolbar does not show a second.
+          await expect(page.getByTestId("browser-url-input")).toHaveCount(0);
+          await beat(page, 1800);
+
+          // 4. Escape gives the pane back, and the tab is where it was.
+          await page.getByTestId("browser-tab-address-input").press("Escape");
+          await expect(dropdown).toHaveCount(0);
+          await expect(tab).toContainText(/Rapporto/);
+          await beat(page, 1200);
+        },
+      });
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+    }
+  });
+
+  /**
    * (c) THE FIRST CLICK ON ANOTHER TAB ONLY BRINGS YOU THERE.
    *
    * The guard is `isFullyActive` in `PaneTabBar`: the label opens the address
