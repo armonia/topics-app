@@ -40,7 +40,7 @@ const term = (id: string): TerminalSessionInfo =>
 const card = (id: string, status: string): TrayTaskInput => ({ id, text: `task ${id}`, status, projectId: "p" });
 
 const DASHBOARD = utilityPanelId("dashboard");
-const CRON = utilityPanelId("cron");
+const SCHEDULE = utilityPanelId("cron");
 
 /** One realistic state: chats in every attention shape, two finished terminals,
  *  one badged utility pane, a board with cards in every visible column. */
@@ -175,7 +175,7 @@ describe("chromeAttentionTotal", () => {
 
   test("window-local pane badges (the notifyPane map) count once per unit, like their utility rows", () => {
     const f = fixture();
-    const panes = new Map<string, number>([[DASHBOARD, 2], [CRON, 1]]);
+    const panes = new Map<string, number>([[DASHBOARD, 2], [SCHEDULE, 1]]);
     expect(chromeOf(f, { paneCounts: panes }) - chromeOf(f, { paneCounts: new Map() })).toBe(3);
     expect(paneAttentionTotal(panes)).toBe(3);
     expect(paneAttentionTotal(new Map())).toBe(0);
