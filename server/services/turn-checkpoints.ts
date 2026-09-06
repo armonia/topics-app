@@ -7,7 +7,7 @@
  * needed. This module takes the snapshot by itself, once per turn, before the
  * agent is allowed to write anything.
  *
- * THE THREE DECISIONS behind it, because each one is a trade and none is
+ * THE FOUR DECISIONS behind it, because each one is a trade and none is
  * obvious from the code alone:
  *
  * 1. WHERE IT IS WRITTEN - a dedicated ref, `refs/topics/checkpoints/<session>/
@@ -34,7 +34,21 @@
  *    two promises and keeping one and a half is worse than making one: whoever
  *    trusts a rewind and finds out afterwards that half the state stayed behind
  *    loses trust in the tool, not in the detail. So the caller SAYS SO, in
- *    chat, every time (see `restoreTurnCheckpoint`'s return shape).
+ *    chat, every time (see `RestoreOutcome`).
+ *
+ * 4. WHAT A RESTORE MAY TOUCH - only the paths THIS SESSION'S TURN changed.
+ *    The first restore rewrote every path the checkpoint knew and deleted
+ *    every path it did not: correct on a folder nobody else is in, and a
+ *    disaster on the folder it is actually used in, where a person keeps an
+ *    editor open and a second chat may be writing too. A file the turn never
+ *    touched was rewritten to its checkpoint bytes, wiping the person's edit;
+ *    a file the person created was deleted because the checkpoint had never
+ *    seen it. So every turn now closes with an `after` snapshot, and a restore
+ *    is the diff between the target and the session's newest snapshot, path
+ *    by path, with a second check per path that the worktree still holds what
+ *    that newest snapshot recorded. Anything else is somebody else's work and
+ *    is left alone, and said so. That logic lives in
+ *    `checkpoint-restore-plan.ts`; this module only records the kinds.
  *
  * HOW THE SNAPSHOT IS TAKEN, and why it cannot disturb the user. The worktree
  * is written into a TEMPORARY index file (`GIT_INDEX_FILE`), turned into a tree
@@ -44,9 +58,10 @@
  * pure read of the worktree plus a write of loose objects.
  */
 
-import { mkdtempSync, rmSync, existsSync, unlinkSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve, sep } from "node:path";
+import { join } from "node:path";
+import type { RestorePlanEntry } from "../../shared/checkpoint-plan";
 
 /** Namespace of every automatic checkpoint. Outside `refs/heads/` on purpose. */
 export const CHECKPOINT_REF_ROOT = "refs/topics/checkpoints";
@@ -65,6 +80,15 @@ const CHECKPOINT_IDENTITY = {
   GIT_COMMITTER_EMAIL: "checkpoints@topics.local",
 };
 
+/**
+ * When in a turn the snapshot was taken. `before` is the restore point offered
+ * to the user; `after` is the end-of-turn mark that exists so a restore can
+ * tell the turn's own writes from everybody else's (decision 4) and is never
+ * offered as a restore point; `manual` is the user pressing "Save", a restore
+ * point like `before`.
+ */
+export type CheckpointKind = "before" | "after" | "manual";
+
 export interface TurnCheckpoint {
   /** Full ref name, e.g. `refs/topics/checkpoints/abc/0000000007`. */
   ref: string;
@@ -76,6 +100,10 @@ export interface TurnCheckpoint {
   label: string;
   /** ISO timestamp of when the snapshot was taken. */
   createdAt: string;
+  /** Read back from the `Topics-Kind` trailer. A ref written before kinds
+   *  existed has no trailer and reads as `before`: that is what every
+   *  checkpoint was until then. */
+  kind: CheckpointKind;
 }
 
 export interface RestoreOutcome {
@@ -89,6 +117,9 @@ export interface RestoreOutcome {
   /** Always false. Decision 3, made explicit on the wire so no caller has to
    *  guess and no UI can imply otherwise. */
   conversationRewound: false;
+  /** Paths the plan left alone because somebody else changed them after this
+   *  session's last snapshot (decision 4). Reported, never silently dropped. */
+  skipped: RestorePlanEntry[];
 }
 
 type GitResult = { code: number; stdout: string; stderr: string };
@@ -204,13 +235,19 @@ export async function listTurnCheckpoints(projectPath: string, sessionKey: strin
   if (!(await isGitRepo(projectPath))) return [];
   const prefix = sessionRefPrefix(sessionKey);
   const r = await runGit(
-    ["for-each-ref", "--format=%(refname)%09%(objectname)%09%(subject)%09%(creatordate:iso-strict)", prefix],
+    [
+      "for-each-ref",
+      "--format=%(refname)%09%(objectname)%09%(subject)%09%(creatordate:iso-strict)%09%(trailers:key=Topics-Kind,valueonly)",
+      prefix,
+    ],
     projectPath,
   );
   if (r.code !== 0 || !r.stdout) return [];
   const out: TurnCheckpoint[] = [];
+  // The trailer value keeps its own newline, so a record with a kind is
+  // followed by an empty line: the `!ref` guard below skips it.
   for (const line of r.stdout.split("\n")) {
-    const [ref, commit, subject, createdAt] = line.split("\t");
+    const [ref, commit, subject, createdAt, kindRaw] = line.split("\t");
     if (!ref || !commit) continue;
     const seq = Number.parseInt(ref.slice(prefix.length + 1), 10);
     if (!Number.isFinite(seq)) continue;
@@ -220,9 +257,52 @@ export async function listTurnCheckpoints(projectPath: string, sessionKey: strin
       seq,
       label: (subject ?? "").replace(/^topics-checkpoint:\s*/, ""),
       createdAt: createdAt ?? "",
+      kind: parseKind(kindRaw),
     });
   }
   return out.sort((a, b) => b.seq - a.seq);
+}
+
+function parseKind(raw: string | undefined): CheckpointKind {
+  const v = (raw ?? "").trim();
+  return v === "after" || v === "manual" ? v : "before";
+}
+
+/** The checkpoints a user may go back to: every kind but `after`, newest
+ *  first. An end-of-turn mark is bookkeeping for the restore, not a moment
+ *  anybody asked to return to. */
+export async function listRestorePoints(projectPath: string, sessionKey: string): Promise<TurnCheckpoint[]> {
+  return (await listTurnCheckpoints(projectPath, sessionKey)).filter((c) => c.kind !== "after");
+}
+
+/**
+ * The worktree as it stands, recorded into a TEMPORARY index, handed to `fn`
+ * as the environment that selects it. The user's real index is never read or
+ * written: this is what lets a snapshot, or a comparison against one, run
+ * while they have work staged.
+ *
+ * Shared with the restore plan on purpose. "Does the worktree still hold what
+ * the last snapshot recorded" has to be answered with the SAME reading of the
+ * worktree that took the snapshot (untracked files included, ignored files
+ * excluded), or the two disagree on exactly the files a turn creates. A plain
+ * `git diff <commit>` reads the user's real index instead and reports every
+ * untracked path as missing.
+ */
+export async function withWorktreeIndex<T>(
+  projectPath: string,
+  fn: (indexEnv: Record<string, string>) => Promise<T>,
+): Promise<T> {
+  const indexDir = mkdtempSync(join(tmpdir(), "topics-ckpt-index-"));
+  try {
+    const env = { GIT_INDEX_FILE: join(indexDir, "index") };
+    // `add -A` on a fresh index records the worktree as it stands, honouring
+    // .gitignore: tracked edits, untracked new files, and (by their absence)
+    // deletions.
+    await gitOrThrow(["add", "-A", "--", "."], projectPath, env);
+    return await fn(env);
+  } finally {
+    rmSync(indexDir, { recursive: true, force: true });
+  }
 }
 
 /**
@@ -235,6 +315,25 @@ export async function listTurnCheckpoints(projectPath: string, sessionKey: strin
  * budget of 50 on identical snapshots and prune away the one turn that did
  * change something.
  *
+ * THE DEDUP RULE DEPENDS ON THE KIND, and the asymmetry is the point:
+ *   - an `after` is ALWAYS recorded, identical bytes included. It is not a
+ *     snapshot, it is a MARK: "the turn ended here, and what the tree holds
+ *     now is what this session left". Skipping the ones that changed nothing
+ *     looked free and was not: with the mark missing, the newest snapshot of
+ *     the session stays the `before` of a turn that is over, and a restore can
+ *     no longer tell "that turn wrote nothing" from "that turn wrote and its
+ *     end was never recorded". The first is an empty undo, the second is a
+ *     refusal (`no-turn-mark` in `checkpoint-restore-plan.ts`), and guessing
+ *     between them either loses somebody's work or refuses for no reason. The
+ *     cost of the mark is one commit object pointing at a tree that already
+ *     exists, and the pruning counts restore points, not refs, so the depth of
+ *     the net does not shrink;
+ *   - a `before` or `manual` is skipped only when the newest snapshot has the
+ *     same bytes AND is itself a restore point. A restore point must exist for
+ *     the turn that is starting; the newest snapshot having the same bytes is
+ *     not enough if it is an end-of-turn mark, because the end-of-turn mark is
+ *     not offered as a restore point (see `listRestorePoints`).
+ *
  * `keep` is the pruning ceiling, and it is a parameter for the same reason
  * `runGit`'s timeout is: so the pruning can be PROVEN cheaply. Every round is a
  * real commit on a real repository, so watching the default of 50 prune costs
@@ -246,26 +345,20 @@ export async function captureTurnCheckpoint(
   projectPath: string,
   sessionKey: string,
   label: string,
+  kind: CheckpointKind = "before",
   keep: number = KEEP_PER_SESSION,
 ): Promise<TurnCheckpoint | null> {
   if (!(await isGitRepo(projectPath))) return null;
 
-  // A temporary index, so the user's staged changes are never disturbed.
-  const indexDir = mkdtempSync(join(tmpdir(), "topics-ckpt-index-"));
-  const indexFile = join(indexDir, "index");
-  try {
-    const env = { GIT_INDEX_FILE: indexFile };
-    // `add -A` on a fresh index records the worktree as it stands, honouring
-    // .gitignore: tracked edits, untracked new files, and (by their absence)
-    // deletions.
-    await gitOrThrow(["add", "-A", "--", "."], projectPath, env);
+  return withWorktreeIndex(projectPath, async (env) => {
     const tree = await gitOrThrow(["write-tree"], projectPath, env);
 
     const existing = await listTurnCheckpoints(projectPath, sessionKey);
     const latest = existing[0];
     if (latest) {
       const lastTree = await runGit(["rev-parse", `${latest.commit}^{tree}`], projectPath);
-      if (lastTree.code === 0 && lastTree.stdout === tree) return null;
+      const sameBytes = lastTree.code === 0 && lastTree.stdout === tree;
+      if (sameBytes && kind !== "after" && latest.kind !== "after") return null;
     }
 
     // Parent = HEAD when there is one, so `git diff HEAD <checkpoint>` reads
@@ -277,7 +370,8 @@ export async function captureTurnCheckpoint(
     const message =
       `topics-checkpoint: ${label}\n\n` +
       `Topics-Session: ${sessionKey}\n` +
-      `Topics-Time: ${createdAt}\n`;
+      `Topics-Time: ${createdAt}\n` +
+      `Topics-Kind: ${kind}\n`;
     const commit = await gitOrThrow(
       ["commit-tree", tree, ...parentArgs, "-m", message],
       projectPath,
@@ -289,19 +383,30 @@ export async function captureTurnCheckpoint(
     await gitOrThrow(["update-ref", ref, commit], projectPath);
 
     await pruneTurnCheckpoints(projectPath, sessionKey, keep);
-    return { ref, commit, seq, label, createdAt };
-  } finally {
-    rmSync(indexDir, { recursive: true, force: true });
-  }
+    return { ref, commit, seq, label, createdAt, kind };
+  });
 }
 
-/** Drop everything past the newest `keep`, which is `KEEP_PER_SESSION` unless
- *  a caller says otherwise. */
+/**
+ * Drop everything past the newest `keep` RESTORE POINTS, which is
+ * `KEEP_PER_SESSION` unless a caller says otherwise.
+ *
+ * Restore points, not refs: a turn now writes two refs, and counting refs
+ * would have halved how far back the net reaches the day the end-of-turn mark
+ * arrived. Everything younger than the oldest kept restore point stays, marks
+ * included, because a restore point without the mark that closes its turn is
+ * a point nobody can rewind to.
+ */
 export async function pruneTurnCheckpoints(
   projectPath: string, sessionKey: string, keep: number = KEEP_PER_SESSION,
 ): Promise<number> {
   const all = await listTurnCheckpoints(projectPath, sessionKey);
-  const doomed = all.slice(keep);
+  const kept = all.filter((c) => c.kind !== "after").slice(0, keep);
+  // No restore point at all means nothing to anchor the window on, so nothing
+  // is dropped: deleting the marks would leave a session with no history and
+  // no way to have got one.
+  const floor = kept.length > 0 ? kept[kept.length - 1].seq : -Infinity;
+  const doomed = all.filter((c) => c.seq < floor);
   for (const c of doomed) await runGit(["update-ref", "-d", c.ref, c.commit], projectPath);
   return doomed.length;
 }
@@ -312,67 +417,4 @@ export async function dropTurnCheckpoints(projectPath: string, sessionKey: strin
   const all = await listTurnCheckpoints(projectPath, sessionKey);
   for (const c of all) await runGit(["update-ref", "-d", c.ref, c.commit], projectPath);
   return all.length;
-}
-
-/** Every path the worktree currently holds that git would track, checkpoint
- *  or not: tracked files plus untracked-but-not-ignored ones. */
-async function currentWorktreePaths(projectPath: string): Promise<Set<string>> {
-  const r = await runGit(["ls-files", "--cached", "--others", "--exclude-standard", "-z"], projectPath);
-  if (r.code !== 0) return new Set();
-  return new Set(r.stdout.split("\0").filter(Boolean));
-}
-
-async function treePaths(projectPath: string, commit: string): Promise<Set<string>> {
-  const r = await runGit(["ls-tree", "-r", "--name-only", "-z", commit], projectPath);
-  if (r.code !== 0) return new Set();
-  return new Set(r.stdout.split("\0").filter(Boolean));
-}
-
-/**
- * Put the worktree back the way the checkpoint found it. Two halves, and the
- * second is the one that is easy to forget:
- *
- *   • `git restore --source=<commit> -- .` rewrites every path the checkpoint
- *     knows about. NOT `git checkout <commit>`, which moves HEAD onto the
- *     commit and leaves the repository in DETACHED HEAD - a bad trade for a
- *     gesture as small as "undo the last turn". `restore` leaves HEAD exactly
- *     where it was.
- *
- *   • files the turn CREATED are not in the checkpoint tree, so `restore` says
- *     nothing about them and they would survive the rewind. "The tree as it was
- *     before that turn" has to mean they go, so they are removed explicitly.
- *     Only non-ignored paths git already knows about are ever deleted, which
- *     keeps build outputs and local scratch out of it.
- */
-export async function restoreTurnCheckpoint(projectPath: string, commit: string): Promise<RestoreOutcome> {
-  const root = resolve(projectPath);
-  const before = await currentWorktreePaths(projectPath);
-  const inCheckpoint = await treePaths(projectPath, commit);
-
-  await gitOrThrow(["restore", "--source", commit, "--worktree", "--", "."], projectPath);
-
-  let removed = 0;
-  for (const path of before) {
-    if (inCheckpoint.has(path)) continue;
-    const abs = resolve(root, path);
-    // Never step outside the project, whatever a crafted path claims to be.
-    if (abs !== root && !abs.startsWith(root + sep)) continue;
-    try {
-      if (existsSync(abs)) {
-        unlinkSync(abs);
-        removed++;
-      }
-    } catch {
-      // A path we cannot delete is reported by omission, not by an exception:
-      // the rest of the rewind is still worth completing.
-    }
-  }
-
-  const head = await runGit(["symbolic-ref", "--short", "HEAD"], projectPath);
-  return {
-    restored: inCheckpoint.size,
-    removed,
-    branch: head.code === 0 ? head.stdout : null,
-    conversationRewound: false,
-  };
 }

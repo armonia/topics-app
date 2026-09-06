@@ -12,10 +12,11 @@
  * a small, reversible request; detached HEAD is neither small nor obvious to
  * get out of for someone who did not ask to be there.
  *
- * `git restore --source=<hash> -- .` puts the files back and leaves HEAD where
- * it was. These tests run against a REAL repository because the whole claim is
- * about git's own state, and a fake would just be me asserting my own belief
- * about what git does.
+ * `git restore --source=<hash> -- <paths>` puts the files back and leaves HEAD
+ * where it was. These tests run against a REAL repository because the whole
+ * claim is about git's own state, and a fake would just be me asserting my
+ * own belief about what git does. The route itself no longer calls git for
+ * the restore: the plan service does, path by path (see `checkpoints.test.ts`).
  *
  * @covers CHAT-05
  */
@@ -74,12 +75,16 @@ describe("il ripristino di un checkpoint", () => {
     expect(() => git("symbolic-ref", "HEAD"), "se questo NON fallisce, il difetto non esisteva").toThrow();
   });
 
-  test("il codice del ripristino non usa piu' `checkout`", () => {
-    // The tests above prove what git does; this one proves the route uses it.
-    // Without it, the two could stay green while the shipped path went back to
-    // `checkout` - which is exactly how this defect survived until now.
+  test("the route no longer runs `checkout`, a stash, or a whole-tree restore", () => {
+    // The tests above prove what git does; this one proves the route stays
+    // away from the commands that caused both defects. The files half now
+    // goes through the plan (`services/checkpoint-restore-plan.ts`, whose own
+    // tests hold the HEAD claim); the route must not grow a git call of its
+    // own around it again.
     const src = readFileSync(join(import.meta.dir, "checkpoints.ts"), "utf8");
-    expect(src).toContain('"restore", "--source"');
-    expect(src, "il ripristino e' tornato a staccare la testa").not.toMatch(/runGit\(\["checkout"/);
+    expect(src).toContain("applyRestorePlan(");
+    expect(src, "the restore went back to detaching the head").not.toMatch(/runGit\(\["checkout"/);
+    expect(src, "the auto-stash of everybody's work is back").not.toMatch(/runGit\(\["stash"/);
+    expect(src, "the whole-tree restore is back").not.toMatch(/runGit\(\["restore"/);
   });
 });

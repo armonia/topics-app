@@ -3,6 +3,11 @@ import { test } from "./fixtures/chat.fixture";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import { mkdirSync } from "fs";
+import { join } from "path";
+
+/** Where the screenshots of this file land. */
+const SHOTS = "test-results/checkpoints";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -178,7 +183,7 @@ test.describe("Chat Checkpoints (CHAT-05)", () => {
     await bar.click();
 
     // Click the Save button (contains Plus icon)
-    const saveBtn = page.locator("button", { hasText: "Save" }).last();
+    const saveBtn = page.locator('[data-testid="checkpoint-save"]').last();
     await expect(saveBtn).toBeVisible();
     await saveBtn.click();
 
@@ -235,7 +240,7 @@ test.describe("Chat Checkpoints (CHAT-05)", () => {
     await middleEntry.hover();
 
     // Click rollback button (rotate-ccw icon, shown on hover)
-    const rollbackBtn = middleEntry.locator('button[title="Roll back to this checkpoint"]');
+    const rollbackBtn = middleEntry.locator('[data-testid="checkpoint-rollback"]');
     await expect(rollbackBtn).toBeVisible({ timeout: 3_000 });
     await rollbackBtn.click();
 
@@ -245,12 +250,12 @@ test.describe("Chat Checkpoints (CHAT-05)", () => {
     // c'è nessun evento `dialog` da intercettare, c'è un `role="dialog"` da
     // leggere. Le due asserzioni di prima sul testo restano, cambiano posto:
     // il titolo porta la descrizione del checkpoint, il corpo il conteggio.
-    const confirmDialog = page.getByRole("dialog", { name: /Roll back to/ });
+    const confirmDialog = page.getByRole("dialog", { name: /Auth module done/ });
     await expect(confirmDialog).toBeVisible({ timeout: 3_000 });
     await expect(confirmDialog).toContainText("Auth module done");
     await expect(confirmDialog).toContainText("12");
 
-    await confirmDialog.getByRole("button", { name: "Roll back" }).click();
+    await confirmDialog.getByRole("button", { name: /Torna indietro|Roll back/ }).click();
 
     // Verify rollback API was called
     await expect(confirmDialog).toBeHidden({ timeout: 3_000 });
@@ -283,7 +288,7 @@ test.describe("Chat Checkpoints (CHAT-05)", () => {
     await middleEntry.hover();
 
     // Click rollback button
-    const rollbackBtn = middleEntry.locator('button[title="Roll back to this checkpoint"]');
+    const rollbackBtn = middleEntry.locator('[data-testid="checkpoint-rollback"]');
     await expect(rollbackBtn).toBeVisible({ timeout: 3_000 });
     await rollbackBtn.click();
 
@@ -292,14 +297,74 @@ test.describe("Chat Checkpoints (CHAT-05)", () => {
     // checkpoint: finché è a schermo il titolo ripete la descrizione del
     // checkpoint, e `text=Auth module done` troverebbe due elementi — la riga
     // nella lista e il titolo del dialog.
-    const confirmDialog = page.getByRole("dialog", { name: /Roll back to/ });
+    const confirmDialog = page.getByRole("dialog", { name: /Auth module done/ });
     await expect(confirmDialog).toBeVisible({ timeout: 3_000 });
-    await confirmDialog.getByRole("button", { name: "Cancel" }).click();
+    await confirmDialog.getByRole("button", { name: /Annulla|Cancel/ }).click();
     await expect(confirmDialog).toBeHidden({ timeout: 3_000 });
 
     // Verify all 3 checkpoints still present
     await expect(page.locator("text=Initial setup")).toBeVisible();
     await expect(page.locator("text=Auth module done")).toBeVisible();
     await expect(page.locator("text=Final review")).toBeVisible();
+  });
+  test("CHAT-05g-07: a refused plan disables the rollback button and names the reason", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-05" });
+
+    await page.route(`**/api/topics/${topicId}/checkpoints`, async (route) => {
+      if (route.request().method() === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ checkpoints: MOCK_CHECKPOINTS }),
+        });
+      } else {
+        await route.fallback();
+      }
+    });
+    // The preflight says a turn is still writing: the gesture must stop, and
+    // the button must say why in words, never with the code.
+    await page.route(`**/api/topics/${topicId}/checkpoints/1/plan`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          checkpoint: MOCK_CHECKPOINTS[1],
+          plan: { targetCommit: "", latestCommit: null, entries: [], skipped: [], blockers: [{ code: "turn-in-progress" }], safe: false },
+          canProceed: false,
+          blockedBy: "turn-in-progress",
+          filesRestorable: false,
+        }),
+      });
+    });
+
+    await goToApp(page);
+    await openTopic(page, new RegExp(topicName));
+
+    const bar = page.locator("button", { hasText: /3 checkpoint/ });
+    await expect(bar).toBeVisible({ timeout: 10_000 });
+    await bar.click();
+
+    const entries = page.locator('[data-testid="checkpoint-entry"]');
+    await expect(entries).toHaveCount(MOCK_CHECKPOINTS.length);
+    const middleEntry = entries.nth(1);
+    await middleEntry.hover();
+
+    const rollbackBtn = middleEntry.locator('[data-testid="checkpoint-rollback"]');
+    await expect(rollbackBtn).toBeVisible({ timeout: 3_000 });
+    await expect(rollbackBtn).toBeDisabled({ timeout: 3_000 });
+    const title = await rollbackBtn.getAttribute("title");
+    expect(title, "the title is a sentence, not the code").not.toContain("turn-in-progress");
+    expect(title?.length ?? 0).toBeGreaterThan(20);
+    // The same sentence, visible next to the greyed button: the screenshot
+    // below shows both.
+    const reason = middleEntry.locator('[data-testid="checkpoint-blocked-reason"]');
+    await expect(reason).toBeVisible();
+    await expect(reason).toHaveText(title!);
+
+    mkdirSync(SHOTS, { recursive: true });
+    await middleEntry.screenshot({ path: join(SHOTS, "entry-blocked-turn-in-progress.png") });
+    // The whole list too: a single row proves the assertion, the panel is what
+    // a person recognises when they are shown the state later.
+    await page.locator('[data-testid="checkpoint-panel"]').screenshot({ path: join(SHOTS, "panel-blocked-turn-in-progress.png") });
   });
 });
