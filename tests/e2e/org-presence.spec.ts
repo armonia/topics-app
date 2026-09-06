@@ -133,20 +133,31 @@ async function openMenu(page: Page) {
   return menu;
 }
 
-/** Open the menu and expand the organisations section. */
+/**
+ * Open the menu and its organisations LEVEL.
+ *
+ * Two locators, and it is not a convenience: since STATUSLINE-05 the level is
+ * a panel of its own, portalled beside the menu instead of unfolding inside
+ * it. So the row and its count live in `menu`, and the people live in `level`,
+ * and a locator scoped to the wrong one finds nothing.
+ */
 async function openOrgs(page: Page) {
   const menu = await openMenu(page);
   await menu.getByTestId("profile-menu-orgs").click();
   await expect(menu.getByTestId("profile-menu-orgs")).toHaveAttribute("aria-expanded", "true");
-  return menu;
+  const level = page.getByTestId("profile-menu-orgs-menu");
+  await expect(level).toBeVisible({ timeout: 10000 });
+  return { menu, level };
 }
 
-/** Open the menu and expand the friends section. */
+/** Open the menu and its friends LEVEL. Same split as `openOrgs`. */
 async function openFriends(page: Page) {
   const menu = await openMenu(page);
   await menu.getByTestId("profile-menu-friends").click();
   await expect(menu.getByTestId("profile-menu-friends")).toHaveAttribute("aria-expanded", "true");
-  return menu;
+  const level = page.getByTestId("profile-menu-friends-menu");
+  await expect(level).toBeVisible({ timeout: 10000 });
+  return { menu, level };
 }
 
 /**
@@ -196,11 +207,12 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     // With one organisation the row wears its name, so the count says which
     // group those people belong to.
     await expect(row).toContainText("Acme Group");
-    // Expanded, the list marks the two who are here and lists the third.
+    // Opened, the level marks the two who are here and lists the third.
     await row.click();
-    await expect(menu.getByTestId("presence-person")).toHaveCount(3);
-    await expect(menu.locator('[data-testid="presence-person"][data-online="true"]')).toHaveCount(2);
-    await expect(menu.getByTestId("presence-person")).not.toContainText(["Io"]);
+    const level = page.getByTestId("profile-menu-orgs-menu");
+    await expect(level.getByTestId("presence-person")).toHaveCount(3);
+    await expect(level.locator('[data-testid="presence-person"][data-online="true"]')).toHaveCount(2);
+    await expect(level.getByTestId("presence-person")).not.toContainText(["Io"]);
     await clipShot(page, menu, join(SHOTS, "presence-due.png"));
   });
 
@@ -212,10 +224,10 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     // list under the row is empty rather than a list of one.
     await stubIdentity(page, [membro("io", "Io", Date.now())]);
     await page.goto("/");
-    const menu = await openOrgs(page);
+    const { menu, level } = await openOrgs(page);
     await expect(menu.getByTestId("orgs-count")).toContainText("0 di 0");
-    await expect(menu.getByTestId("presence-person")).toHaveCount(0);
-    await expect(menu.locator('[data-testid="presence-person"][data-online="true"]')).toHaveCount(0);
+    await expect(level.getByTestId("presence-person")).toHaveCount(0);
+    await expect(level.locator('[data-testid="presence-person"][data-online="true"]')).toHaveCount(0);
   });
 
   test("PRESENCE-03: un membro senza dispositivi vivi vale null, non il 1970", async ({ page }) => {
@@ -229,10 +241,10 @@ test.describe("presence dell'organizzazione, a schermo", () => {
       membro("a", "Anna", null),
     ]);
     await page.goto("/");
-    const menu = await openOrgs(page);
+    const { menu, level } = await openOrgs(page);
     await expect(menu.getByTestId("orgs-count")).toContainText("0 di 1");
-    await expect(menu.getByTestId("presence-person")).toHaveCount(1);
-    await expect(menu.locator('[data-testid="presence-person"][data-online="true"]')).toHaveCount(0);
+    await expect(level.getByTestId("presence-person")).toHaveCount(1);
+    await expect(level.locator('[data-testid="presence-person"][data-online="true"]')).toHaveCount(0);
   });
 
   test("PRESENCE-04: la sezione dell'org apre la gestione", async ({ page }) => {
@@ -241,8 +253,8 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     // question really is a big one.
     await stubIdentity(page, [membro("io", "Io", Date.now())]);
     await page.goto("/");
-    const menu = await openOrgs(page);
-    await menu.getByTestId("org-open-manage").click();
+    const { level } = await openOrgs(page);
+    await level.getByTestId("org-open-manage").click();
     // NOT the profile tab: the group is not part of your personal page, so
     // "manage this group" lands in Settings, on the organisation page.
     await expect(page.getByTestId("settings-page-organization")).toBeVisible({ timeout: 20000 });
@@ -263,10 +275,10 @@ test.describe("presence dell'organizzazione, a schermo", () => {
       { id: "c", displayName: "Carla Bianchi", isMe: false },
     ]);
     await page.goto("/");
-    const menu = await openOrgs(page);
-    await expect(menu.getByTestId("presence-person")).toHaveCount(2);
-    await expect(menu.locator('[data-testid="presence-person"][data-online="true"]')).toHaveCount(1);
-    await expect(menu).toContainText("Carla Bianchi");
+    const { level } = await openOrgs(page);
+    await expect(level.getByTestId("presence-person")).toHaveCount(2);
+    await expect(level.locator('[data-testid="presence-person"][data-online="true"]')).toHaveCount(1);
+    await expect(level).toContainText("Carla Bianchi");
   });
 
   test("PRESENCE-05: un amico online è una chip in fondo, e il menu apre gli amici", async ({ page }) => {
@@ -295,9 +307,9 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await expect(chips.getByTestId("friend-chip").locator("span").last()).toHaveText("Anna");
     await expect(chips.getByTestId("friend-chip")).toHaveAttribute("aria-label", "Anna Rossi");
     // And the menu says the same number, and keeps the door to the page.
-    const menu = await openFriends(page);
+    const { menu, level } = await openFriends(page);
     await expect(menu.getByTestId("friends-count")).toContainText("1 di 1");
-    await menu.getByTestId("friends-open-all").click();
+    await level.getByTestId("friends-open-all").click();
     await expect(page.getByTestId("profile-pane")).toBeVisible({ timeout: 20000 });
     // The profile pane stopped being a tab strip: "manage friends" opens the
     // friends DROPDOWN on the single profile page, so the surviving property is
@@ -459,9 +471,9 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await expect(row).toContainText("Amici");
     await expect(row.getByTestId("friends-count")).toContainText("0 di 0");
     await expect(row).not.toContainText("Nessuno online");
-    // And expanded it explains where friends come from, instead of being empty.
+    // And its level explains where friends come from, instead of being empty.
     await row.click();
-    await expect(menu).toContainText("chiedile l’amicizia");
+    await expect(page.getByTestId("profile-menu-friends-menu")).toContainText("chiedile l’amicizia");
   });
 
   /**
@@ -530,9 +542,10 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     const menu = await openMenu(page);
     await expect(menu.getByTestId("friends-count")).toHaveAttribute("data-pending", "true", { timeout: 20000 });
     await menu.getByTestId("profile-menu-friends").click();
-    await expect(menu.getByTestId("friends-requests")).toContainText("Bruno Verdi");
+    const friendsLevel = page.getByTestId("profile-menu-friends-menu");
+    await expect(friendsLevel.getByTestId("friends-requests")).toContainText("Bruno Verdi");
     await clipShot(page, menu, join(SHOTS, "pannello-amici.png"));
-    await menu.getByTestId("friend-accept-b").click();
+    await friendsLevel.getByTestId("friend-accept-b").click();
     await expect.poll(() => accepted).toBe(true);
   });
 

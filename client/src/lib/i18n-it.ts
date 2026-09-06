@@ -2087,6 +2087,9 @@ const IT: Dict = {
   'statusBar.signals.done': '{n} turni finiti che non hai ancora guardato',
   'statusBar.signals.tasks': '{n} task della board in corso',
   'statusBar.signals.open': '{n} sessioni aperte',
+  'statusBar.agents.title': 'Agenti attivi',
+  'statusBar.agents.awaitingHeading': 'In attesa di una tua risposta',
+  'statusBar.agents.none': 'Nessun agente al lavoro adesso',
   // THE PANELS the three chips open. The chip gives the short answer, the
   // panel shows it in full and carries the actions: these are the only texts
   // that can afford a whole sentence, because in there the space exists.

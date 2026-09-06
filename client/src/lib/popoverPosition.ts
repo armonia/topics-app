@@ -23,6 +23,15 @@ export interface MenuSize {
 export interface ComputeMenuPositionOpts {
   /** Which trigger edge the menu's matching edge aligns to (default 'left'). */
   align?: 'left' | 'right';
+  /**
+   * Which side of the trigger the menu opens on (default 'bottom').
+   *
+   * 'bottom' is the dropdown: below the trigger, flipping above. 'right' is the
+   * SUBMENU: beside the trigger with its top on the trigger's top, flipping to
+   * the left edge when the right one would clip. `align` is a 'bottom' concept
+   * and is ignored on 'right'.
+   */
+  side?: 'bottom' | 'right';
   /** Gap in px between the trigger and the menu (default 4). */
   gap?: number;
   /** Viewport inset the menu must stay within (default 8). */
@@ -69,9 +78,11 @@ export function computeMenuPosition(
   menu: MenuSize,
   opts: ComputeMenuPositionOpts = {},
 ): MenuPosition {
-  const { align = 'left', gap = 4, margin = 8, minHeight = 160 } = opts;
+  const { align = 'left', side = 'bottom', gap = 4, margin = 8, minHeight = 160 } = opts;
   const vw = opts.viewportWidth ?? (typeof window !== 'undefined' ? window.innerWidth : 0);
   const vh = opts.viewportHeight ?? (typeof window !== 'undefined' ? window.innerHeight : 0);
+
+  if (side === 'right') return placeBeside(anchor, menu, { vw, vh, gap, margin, minHeight });
 
   // Horizontal: align the menu's left edge to the trigger's left, or its right
   // edge to the trigger's right, then clamp so it never overflows either side.
@@ -93,4 +104,38 @@ export function computeMenuPosition(
   const maxHeight = Math.max(minHeight, Math.min(spazio, vh - margin * 2));
 
   return { top, left, placement: fitsBelow ? 'below' : 'above', maxHeight };
+}
+
+/**
+ * The submenu placement: beside the trigger, top edges aligned.
+ *
+ * Horizontally it prefers the right of the trigger and flips to the left when
+ * the right would clip; when neither side has room it takes the roomier one
+ * and clamps, which is the same "least bad side" rule the vertical flip uses.
+ * Vertically nothing flips: a submenu that fits keeps its top on the trigger's
+ * top, and one that would clip the bottom edge is pushed up only as far as
+ * needed. `maxHeight` is the room from the chosen top down to the bottom
+ * margin, floored at `minHeight` so a long submenu scrolls instead of
+ * vanishing into a slit.
+ */
+function placeBeside(
+  anchor: AnchorRect,
+  menu: MenuSize,
+  { vw, vh, gap, margin, minHeight }: { vw: number; vh: number; gap: number; margin: number; minHeight: number },
+): MenuPosition {
+  const spaceRight = vw - margin - (anchor.right + gap);
+  const spaceLeft = anchor.left - gap - margin;
+  const fitsRight = menu.width <= spaceRight;
+  const fitsLeft = menu.width <= spaceLeft;
+  const openRight = fitsRight || (!fitsLeft && spaceRight >= spaceLeft);
+  let left = openRight ? anchor.right + gap : anchor.left - menu.width - gap;
+  const maxLeft = vw - menu.width - margin;
+  left = maxLeft >= margin ? Math.max(margin, Math.min(left, maxLeft)) : margin;
+
+  const maxTop = vh - margin - menu.height;
+  const top = Math.max(margin, Math.min(anchor.top, maxTop));
+  const pushedUp = top < anchor.top;
+  const maxHeight = Math.max(minHeight, Math.min(vh - margin - top, vh - margin * 2));
+
+  return { top, left, placement: pushedUp ? 'above' : 'below', maxHeight };
 }

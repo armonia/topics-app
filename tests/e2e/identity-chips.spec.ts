@@ -459,10 +459,13 @@ test.describe("the foot of the column", () => {
     // them, present or not, which is what "the menu lists them" means.
     const menu = await openMenu(page);
     await menu.getByTestId("profile-menu-friends").click();
-    await expect(menu.getByTestId("presence-person")).toHaveCount(2);
-    await expect(menu.locator('[data-testid="presence-person"][data-online="true"]')).toHaveCount(0);
-    await expect(menu).toContainText("Anna Prova");
-    await expect(menu).toContainText("Bruno Prova");
+    // The list lives in the LEVEL beside the menu now (STATUSLINE-05), not
+    // unfolded inside it.
+    const friendsLevel = page.getByTestId("profile-menu-friends-menu");
+    await expect(friendsLevel.getByTestId("presence-person")).toHaveCount(2);
+    await expect(friendsLevel.locator('[data-testid="presence-person"][data-online="true"]')).toHaveCount(0);
+    await expect(friendsLevel).toContainText("Anna Prova");
+    await expect(friendsLevel).toContainText("Bruno Prova");
   });
 
   test("CHIPS-05: three friends here are three chips, and a chip is a door to that person", async ({ page }) => {
