@@ -17,7 +17,8 @@
  *    named: `status` and `diff --numstat` both get an explicit pathspec, so
  *    the counts describe this topic and not the working tree around it.
  */
-import { isAbsolute, relative, resolve } from "path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "path";
+import { realpathSync } from "fs";
 import { gitRead, parsePorcelainZ } from "./git-porcelain";
 import { parseNumstatZ, type Numstat } from "./git-numstat";
 import type { ToolCall } from "../../shared/types";
@@ -125,12 +126,37 @@ async function git(cwd: string, args: string[]): Promise<{ code: number; text: s
   }
 }
 
+/**
+ * The same path with its symlinks resolved, without requiring it to exist.
+ *
+ * Both sides of the `relative()` below must speak the same dialect: git answers
+ * with the resolved root (`/private/tmp/x`) while a tool call carries the path
+ * the agent wrote (`/tmp/x`), and on that mismatch every file in the repository
+ * looks like it is outside it. Resolution walks up to the longest EXISTING
+ * prefix, so a file the agent deleted still lands on the right side.
+ */
+function canonicalPath(target: string): string {
+  let current = resolve(target);
+  const tail: string[] = [];
+  for (;;) {
+    try {
+      const real = realpathSync(current);
+      return tail.length ? join(real, ...tail) : real;
+    } catch {
+      const parent = dirname(current);
+      if (parent === current) return resolve(target);
+      tail.unshift(basename(current));
+      current = parent;
+    }
+  }
+}
+
 /** The repository root of `cwd`, or `null` when there is no repository. */
 async function repoRoot(cwd: string): Promise<string | null> {
   const probe = await git(cwd, ["rev-parse", "--show-toplevel"]);
   if (probe.code !== 0) return null;
   const root = probe.text.trim();
-  return root ? resolve(root) : null;
+  return root ? canonicalPath(root) : null;
 }
 
 async function currentBranch(cwd: string): Promise<string> {
@@ -179,7 +205,7 @@ export async function computeTopicChanges(
   const inside: Array<{ touched: TouchedFile; rel: string }> = [];
   const outside: TouchedFile[] = [];
   for (const file of touched) {
-    const abs = isAbsolute(file.path) ? resolve(file.path) : resolve(root, file.path);
+    const abs = canonicalPath(isAbsolute(file.path) ? file.path : resolve(root, file.path));
     const rel = relative(root, abs);
     if (!rel || rel.startsWith("..")) outside.push(file);
     else inside.push({ touched: file, rel });
