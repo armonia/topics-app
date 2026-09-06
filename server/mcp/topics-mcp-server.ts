@@ -613,13 +613,18 @@ const TOOLS = [
   {
     name: "spawn_agent",
     description:
-      "Spawn a NEW interactive Claude sub-agent and give it a task. Returns an agentId immediately; the sub-agent runs asynchronously in its own terminal pane (visible to the user, nested under this session). It inherits this session's working directory unless you pass cwd. Poll its output with read_agent(agent_id) — do NOT wait. Use this to delegate independent work; you remain in control via send_to_agent / read_agent / stop_agent.",
+      "Spawn a NEW interactive Claude sub-agent and give it a task. Returns an agentId; the sub-agent then runs asynchronously in its own terminal pane (visible to the user, nested under this session). It inherits this session's working directory unless you pass cwd, or unless you ask for isolation:\"worktree\", which gives it a git checkout and a branch of its own so two children cannot overwrite each other's files (that one answers only once the checkout is ready, which is not immediate, and the answer names the branch). Poll its output with read_agent(agent_id) — do NOT wait. Use this to delegate independent work; you remain in control via send_to_agent / read_agent / stop_agent.",
     inputSchema: {
       type: "object",
       properties: {
         prompt: { type: "string", description: "The initial task/instructions to give the sub-agent (its first message)." },
         name: { type: "string", description: "Optional short display name for the sub-agent's tab." },
         cwd: { type: "string", description: "Optional absolute working directory. Defaults to this session's cwd." },
+        isolation: {
+          type: "string",
+          enum: ["inherit", "worktree"],
+          description: "'inherit' (default) runs the child in the same directory as you. 'worktree' gives it its own checkout on its own branch, born from main: use it whenever two children could touch the same files. You read the result through the branch it returns, and nothing is merged for you.",
+        },
       },
       required: ["prompt"],
     },
@@ -1137,6 +1142,15 @@ interface CommentResp { id?: string }
  */
 const REQUEST_TIMEOUT_MS = 45_000;
 
+/**
+ * The one call that legitimately takes minutes: a spawn with `isolation:
+ * "worktree"` answers only after `git worktree add` AND the dependency install
+ * of a fresh checkout (`worktree-for-agent.ts` waits for `ready`). Under the
+ * default ceiling the call would be abandoned mid-install, and what stays
+ * behind is a live worktree with no child in it, waiting for the sweep.
+ */
+const SPAWN_WORKTREE_TIMEOUT_MS = 240_000;
+
 async function httpJson<T>(
   args: ParsedArgs,
   method: string,
@@ -1359,15 +1373,15 @@ export async function callMoveToProject(
 }
 
 // --- Sub-agent orchestration bridge ---------------------------------------
-interface SpawnAgentResp { agentId?: string; name?: string; cwd?: string }
-interface AgentRow { agentId?: string; name?: string; cwd?: string; busy?: boolean }
+interface SpawnAgentResp { agentId?: string; name?: string; cwd?: string; branch?: string | null }
+interface AgentRow { agentId?: string; name?: string; cwd?: string; branch?: string | null; busy?: boolean }
 interface ListAgentsResp { agents?: AgentRow[] }
 interface ReadAgentEvent { type?: string; text?: string; name?: string; input?: unknown }
 interface ReadAgentResp { events?: ReadAgentEvent[]; nextOffset?: number; source?: string; buffer?: string }
 
 export async function callSpawnAgent(
   args: ParsedArgs,
-  toolArgs: { prompt?: unknown; name?: unknown; cwd?: unknown },
+  toolArgs: { prompt?: unknown; name?: unknown; cwd?: unknown; isolation?: unknown },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   if (typeof toolArgs?.prompt !== "string" || !toolArgs.prompt) {
@@ -1376,10 +1390,20 @@ export async function callSpawnAgent(
   const payload: Record<string, unknown> = { prompt: toolArgs.prompt };
   if (typeof toolArgs.name === "string" && toolArgs.name) payload.name = toolArgs.name;
   if (typeof toolArgs.cwd === "string" && toolArgs.cwd) payload.cwd = toolArgs.cwd;
+  // Only when asked: the body of a plain spawn stays exactly `{prompt}` /
+  // `{prompt,name,cwd}`, which is what the route has always received.
+  const isolated = toolArgs.isolation === "worktree";
+  if (typeof toolArgs.isolation === "string" && toolArgs.isolation) payload.isolation = toolArgs.isolation;
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/agents/spawn`;
-  const body = await httpJson<SpawnAgentResp>(args, "POST", path, payload, fetchImpl);
+  // A worktree is born through a dependency install, which is minutes on a big
+  // repository: the default 45s ceiling would cut the call in half and leave a
+  // checkout alive with no child in it. The budget below stays under the
+  // tool-call ceiling of the CLI that is calling us.
+  const signal = isolated ? AbortSignal.timeout(SPAWN_WORKTREE_TIMEOUT_MS) : undefined;
+  const body = await httpJson<SpawnAgentResp>(args, "POST", path, payload, fetchImpl, signal);
   if (typeof body?.agentId !== "string") throw new Error("spawn_agent: server did not return an agentId");
-  return `spawned sub-agent "${body.name ?? body.agentId}" · agentId=${body.agentId} · cwd=${body.cwd ?? "?"} — read its output with read_agent(agent_id="${body.agentId}")`;
+  const branch = body.branch ? ` · branch=${body.branch}` : "";
+  return `spawned sub-agent "${body.name ?? body.agentId}" · agentId=${body.agentId} · cwd=${body.cwd ?? "?"}${branch} — read its output with read_agent(agent_id="${body.agentId}")`;
 }
 
 export async function callSendToAgent(
@@ -1434,7 +1458,10 @@ export async function callListAgents(
   const body = await httpJson<ListAgentsResp>(args, "GET", path, undefined, fetchImpl);
   const agents = Array.isArray(body?.agents) ? body.agents : [];
   if (!agents.length) return "No sub-agents spawned.";
-  return agents.map((a) => `${a.busy ? "[busy]" : "[idle]"} ${a.name ?? a.agentId} id=${a.agentId} cwd=${a.cwd ?? "?"}`).join("\n");
+  return agents.map((a) => {
+    const branch = a.branch ? ` branch=${a.branch}` : "";
+    return `${a.busy ? "[busy]" : "[idle]"} ${a.name ?? a.agentId} id=${a.agentId} cwd=${a.cwd ?? "?"}${branch}`;
+  }).join("\n");
 }
 
 export async function callStopAgent(
@@ -1446,7 +1473,10 @@ export async function callStopAgent(
     throw new Error("stop_agent: 'agent_id' (string) is required");
   }
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/agents/${encodeURIComponent(toolArgs.agent_id)}/stop`;
-  await httpJson<{ ok?: boolean }>(args, "POST", path, {}, fetchImpl);
+  const body = await httpJson<{ ok?: boolean; branch?: string | null }>(args, "POST", path, {}, fetchImpl);
+  // The branch outlives the child: its directory is judged later by the sweep,
+  // its commits are not. Naming it here is the only handover there is.
+  if (body?.branch) return `stopped sub-agent ${toolArgs.agent_id} · branch=${body.branch} (read it with \`git log main..${body.branch}\`)`;
   return `stopped sub-agent ${toolArgs.agent_id}`;
 }
 

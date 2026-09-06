@@ -1953,6 +1953,33 @@ describe("callSpawnAgent", () => {
     expect(JSON.parse(String(seen.init?.body))).toEqual({ prompt: "go" });
   });
 
+  test("forwards isolation only when asked, and renders the branch back", async () => {
+    const seen: { init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (_url, init) => {
+      seen.init = init;
+      return new Response(
+        JSON.stringify({ agentId: "kid1", name: "worker", cwd: "/wt/kind-tower", branch: "topics/kind-tower" }),
+        { status: 200 },
+      );
+    });
+    const text = await callSpawnAgent(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { prompt: "go", isolation: "worktree" },
+      fetchImpl,
+    );
+    expect(JSON.parse(String(seen.init?.body))).toEqual({ prompt: "go", isolation: "worktree" });
+    expect(text).toContain("branch=topics/kind-tower");
+    expect(text).toContain("cwd=/wt/kind-tower");
+  });
+
+  test("a spawn without a branch reads exactly as it did before", async () => {
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ agentId: "kid1", name: "worker", cwd: "/p" }), { status: 200 }),
+    );
+    const text = await callSpawnAgent({ baseUrl: "http://x", sessionKey: "s" }, { prompt: "go" }, fetchImpl);
+    expect(text).not.toContain("branch=");
+  });
+
   test("throws when prompt missing", async () => {
     const fetchImpl = stubFetch(async () => new Response("{}", { status: 200 }));
     await expect(
@@ -2049,6 +2076,28 @@ describe("callListAgents / callStopAgent", () => {
     expect(seen.url).toBe("http://x/api/sessions/s/agents/kid1/stop");
     expect(seen.init?.method).toBe("POST");
     expect(text).toContain("stopped sub-agent kid1");
+    expect(text).not.toContain("branch=");
+  });
+
+  test("list and stop name the branch of an isolated child", async () => {
+    const listed = await callListAgents(
+      { baseUrl: "http://x", sessionKey: "s" },
+      {},
+      stubFetch(async () => new Response(JSON.stringify({ agents: [
+        { agentId: "kid1", name: "worker", cwd: "/wt/kind-tower", branch: "topics/kind-tower", busy: false },
+      ] }), { status: 200 })),
+    );
+    expect(listed).toContain("branch=topics/kind-tower");
+
+    const stopped = await callStopAgent(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { agent_id: "kid1" },
+      stubFetch(async () => new Response(JSON.stringify({ ok: true, branch: "topics/kind-tower" }), { status: 200 })),
+    );
+    // The directory is judged later by the sweep; the commits are not, so the
+    // stop is the moment the parent has to be handed the branch.
+    expect(stopped).toContain("branch=topics/kind-tower");
+    expect(stopped).toContain("git log main..topics/kind-tower");
   });
 });
 
