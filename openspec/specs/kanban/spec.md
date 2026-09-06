@@ -3349,3 +3349,34 @@ ricarico).
 #### Scenario: una soglia fuori scala si stringe, non si rifiuta
 - **GIVEN** un valore scritto fuori dai limiti, o illeggibile
 - **THEN** vale il limite (o il default), e il numero mostrato è quello applicato
+
+### Requirement: KANBAN-78 — Ciò che Topics lancia per un agente non passa mai davanti a chi usa la macchina
+
+Tutto ciò che Topics avvia PER CONTO DI UN AGENTE SHALL girare a priorità bassa:
+`nice` 15 su ogni unix e, su macOS, la classe QoS `utility`, che lo scheduler legge
+prima ancora del nice. Vale per i check di consegna (`review_checks`), per i comandi
+che il runtime nativo esegue per un agente e per il PTY di un agente — sotto-agente
+con un padre, card in un worktree sotto `~/.topics/worktrees/`, subagent sotto
+`.claude/worktrees/` — dal momento in cui nasce, così che tutto ciò che quel PTY
+genera erediti la priorità. I terminali della persona nel repo restano a priorità
+normale: sono quelli che qualcuno sta aspettando.
+
+Il tetto «per risorse» decide se un agente NUOVO può partire; non può far scansare
+quelli che già girano. Il 06/09/2026 alle 14:00, con cinque card e i loro check
+(cinque `tsc`, un `eslint`, quattro shard unit, una build Vite e un Chromium per
+consegna), la macchina segnava carico 47 su dodici core e WindowServer al 73 %: la
+flotta e il desktop erano alla stessa priorità. Con questa regola la flotta rallenta
+quando la persona scrive, e non il contrario.
+
+Ogni demozione SHALL essere best-effort: un binario mancante non ferma il lavoro che
+doveva rallentare. Windows resta com'è.
+
+#### Scenario: un check di consegna nasce a priorità bassa
+- **GIVEN** un check di `review_checks` che parte in un worktree
+- **THEN** il suo argv è preceduto da `nice -n 15` (e da `taskpolicy -c utility` su macOS), e i suoi figli lo ereditano
+
+#### Scenario: il PTY di un agente è demotato, quello della persona no
+- **GIVEN** un PTY creato per un sotto-agente, o con cwd sotto `~/.topics/worktrees/` o `.claude/worktrees/`
+- **THEN** il suo pid viene demotato appena il bridge lo consegna
+- **GIVEN** un PTY aperto dalla persona nel repo
+- **THEN** la sua priorità non cambia
