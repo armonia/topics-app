@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-09-05",
+  "generated": "2026-09-06",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -833,23 +833,6 @@
       "CronJobsPanel",
       "CronJobsPanelProps"
     ],
-    "client/src/components/Sidebar/IdentityBlock.tsx": [
-      "Azione",
-      "Elenco",
-      "Facce",
-      "Ferro",
-      "MAX_FACCE",
-      "MAX_FACCE_ORG",
-      "RigaAmici",
-      "RigaIo",
-      "assenti",
-      "chiedi",
-      "ci_sono",
-      "oltre",
-      "presenti",
-      "presenza",
-      "vivi"
-    ],
     "client/src/components/Sidebar/MobileChromeBar.tsx": [
       "ALTEZZA",
       "BottoneFila",
@@ -959,8 +942,7 @@
       "gentePresenza",
       "gia",
       "gruppo",
-      "presentiOra",
-      "visti"
+      "presentiOra"
     ],
     "client/src/components/Sidebar/pinnedLayout.test.ts": [
       "anteprima",
