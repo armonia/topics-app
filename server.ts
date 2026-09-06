@@ -140,6 +140,7 @@ import { pickTaskPlan } from "./server/services/task-model-picker";
 import { FALLBACK_MODELS, newestOfFamily } from "./server/providers/claude-models";
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
 import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
+import { defaultLifecycleHooks } from "./server/services/lifecycle-hooks";
 import { createDeliveryCapture, type DeliveryCapture } from "./server/services/task-delivery-capture";
 import { createPushRouter } from "./server/routes/push";
 import { createNotificationsRouter } from "./server/routes/notifications";
@@ -655,7 +656,8 @@ const paneAttachedTo = (contextId: string): boolean => {
   for (const w of set) if (w.readyState === 1) return true;
   return false;
 };
-const topicsRouter = createTopicsRouter(ctx, browserService, paneAttachedTo);
+// The user's `turn-end` hook reaches the chat route from here (HOOKS-02).
+const topicsRouter = createTopicsRouter(ctx, browserService, paneAttachedTo, { hooks: defaultLifecycleHooks() });
 const orchestratorSessionsRouter = createOrchestratorSessionsRouter(ctx);
 const filesRouter = createFilesRouter(ctx);
 const voiceRouter = createVoiceRouter(ctx);
@@ -2180,6 +2182,8 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // commit su cui sta. Solo worktree di branch — un task in-place girerebbe i
   // comandi nel checkout principale, cioè su codice che non è il suo.
   taskCheckoutRef,
+  // The user's `task-deliver` hook, the first gate on the move to review (HOOKS-02).
+  hooks: defaultLifecycleHooks(),
   // Main dentro il ramo PRIMA dei check, come fa il land prima di fondere: il
   // cancello misura l'albero che atterra, non una base invecchiata.
   realignForChecks: (taskId) => taskAutoMerge.realign(taskId),
