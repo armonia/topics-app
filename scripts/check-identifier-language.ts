@@ -86,6 +86,12 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // The two macOS priority binaries this server spawns, named after the tools
+  // themselves (`/usr/bin/renice`, `/usr/sbin/taskpolicy`). A constant that
+  // holds the path of a program is called after that program: renaming around
+  // the name the operating system uses would make the code read worse than the
+  // command it runs, and neither word is in the 1934 list.
+  "renice", "taskpolicy",
   // The macOS credential store, and the plural the dictionary lacks (2026-09-03).
   "keychain", "retries", "emitted", "mkdir", "textarea",
   "img", "lightbox", "zoomable", "dist", "subroutes", "timeline", "supplied", "fmt",
