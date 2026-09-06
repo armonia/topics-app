@@ -41,6 +41,8 @@ const PROJECT_PATH = `${realpathSync('/tmp')}/e2e-git-rows-${STAMP}`;
 const PROJECT_NAME = `e2e-git-rows-${STAMP}`;
 /** The card's own branch, the shape a dispatched task really carries. */
 const BRANCH = `topics/git-rows-${STAMP}`;
+/** Where the two frames land. `test-results/` is ignored by git: evidence, not source. */
+const SHOTS = 'test-results/git-rows';
 const PROJECT_ID = projectIdForPath(PROJECT_PATH);
 /** The two files both surfaces have to agree on: one added, one modified. */
 const ADDED = 'src/added.ts';
@@ -162,6 +164,9 @@ test.describe('la stessa lista di file su due superfici', () => {
     // The mark is the shared component's, and it says WHAT happened: the file
     // the turn created is an `A`, the one it edited an `M`.
     expect(chatRows).toEqual([`A ${ADDED}`, `M ${MODIFIED}`]);
+    // The frame of each surface, side by side in the review: two lists that
+    // LOOK the same is the claim, and only a picture carries it.
+    await page.screenshot({ path: `${SHOTS}/chat-strip.png` });
 
     // ── SURFACE TWO: the delivery chip of the card, same repository.
     await openProjectWindow(page);
@@ -173,6 +178,8 @@ test.describe('la stessa lista di file su due superfici', () => {
     await toggle.click();
     const cardList = card.getByTestId('card-delivery-files-list');
     await expect(cardList.getByTestId('changed-file-row')).toHaveCount(2, { timeout: 25_000 });
+
+    await page.screenshot({ path: `${SHOTS}/card-chip.png` });
 
     // THE POINT OF THE WHOLE SPEC: byte for byte the same rows, from two
     // surfaces that read git through two different routes.
