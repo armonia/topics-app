@@ -39,6 +39,8 @@ const STAMP = Date.now();
 const PROJECT_PATH = `${realpathSync('/tmp')}/e2e-git-rows-${STAMP}`;
 /** The folder's name is the project's name in the sidebar. */
 const PROJECT_NAME = `e2e-git-rows-${STAMP}`;
+/** The card's own branch, the shape a dispatched task really carries. */
+const BRANCH = `topics/git-rows-${STAMP}`;
 const PROJECT_ID = projectIdForPath(PROJECT_PATH);
 /** The two files both surfaces have to agree on: one added, one modified. */
 const ADDED = 'src/added.ts';
@@ -62,6 +64,11 @@ test.beforeAll(async ({ request }) => {
   git('config', 'user.name', 't');
   git('add', '-A');
   git('commit', '-q', '-m', 'base');
+  // THE DELIVERY LIVES ON ITS OWN BRANCH. A card delivered on `main` has an
+  // empty range - "what is on this branch and not on main" - and the dropdown
+  // then honestly says "no files": measured, and it proves nothing about the
+  // rows.
+  git('checkout', '-q', '-b', BRANCH);
   writeFileSync(`${PROJECT_PATH}/${MODIFIED}`, 'export const one = 1;\nexport const two = 2;\n');
   writeFileSync(`${PROJECT_PATH}/${ADDED}`, 'export const three = 3;\n');
   git('add', '-A');
@@ -96,7 +103,7 @@ test.beforeAll(async ({ request }) => {
   });
   taskId = ((await created.json()) as { id: string }).id;
   const delivered = await request.post(`${E2E_BASE}/api/test/tasks/${taskId}/delivery`, {
-    data: { branch: 'main', commit, filesChanged: 2, insertions: 2, deletions: 0 },
+    data: { branch: BRANCH, commit, filesChanged: 2, insertions: 2, deletions: 0 },
   });
   expect(delivered.ok(), `delivery not recorded: ${delivered.status()} ${await delivered.text()}`).toBe(true);
 
@@ -106,6 +113,11 @@ test.beforeAll(async ({ request }) => {
   const changes = await request.get(`${E2E_BASE}/api/topics/${topicId}/changes`);
   const body = (await changes.json()) as { files: Array<{ path: string }>; git: unknown };
   expect(body.files.map((f) => f.path).sort(), `the changes route sees: ${JSON.stringify(body)}`)
+    .toEqual([ADDED, MODIFIED]);
+
+  const diff = await request.get(`${E2E_BASE}/api/boards/${PROJECT_ID}/tasks/${taskId}/diff`);
+  const bundle = (await diff.json()) as { stat?: Array<{ path: string }>; code?: string };
+  expect((bundle.stat ?? []).map((f) => f.path).sort(), `the diff route sees: ${JSON.stringify(bundle.stat ?? bundle.code)}`)
     .toEqual([ADDED, MODIFIED]);
 });
 
