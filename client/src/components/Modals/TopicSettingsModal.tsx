@@ -254,6 +254,11 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
       toast.error('Failed to save settings');
       return;
     }
+    // The prompt's baseline is `loadedPrompt`, not the topic prop: the list
+    // shape the prop comes from never carries the text, so nothing upstream
+    // refreshes it after a save. Without this line the form stayed dirty -
+    // Save enabled, "unsaved changes" on close - right after saving.
+    if (promptLoaded) setLoadedPrompt(systemPrompt);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };

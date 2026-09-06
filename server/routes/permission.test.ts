@@ -232,6 +232,30 @@ describe("POST /api/sessions/:sessionKey/permission-response", () => {
     expect(resolved).toMatchObject({ sessionKey: sk, toolCallId: "riga" });
   });
 
+  test("click FRA due gambe: la gamba dopo torna la parola dell'umano, senza riaprire né ridipingere", async () => {
+    // The bridge polls, so there is a gap between legs with no waiter. A click
+    // in that gap closes the request and buffers the decision. The next leg
+    // must hand that decision back at the TOP - before rules, before
+    // `beginPermission` - or it re-opens a decided request and repaints a
+    // panel nobody needs to press again.
+    const h = makeHarness({ tool_calls: callRow("tu_gap") });
+    const sk = "r:gap";
+    const leg1 = (await h.call("POST", `/api/sessions/${sk}/permission`, { toolName: "Bash", toolUseId: "tu_gap", legMs: 100 }))!;
+    expect(await leg1.json()).toEqual({ pending: true });
+    const paints = () => h.broadcasts.filter((b) => b.type === "stream:tool_permission_required").length;
+    expect(paints()).toBe(1);
+
+    const resp = (await h.call("POST", `/api/sessions/${sk}/permission-response`, { toolCallId: "tu_gap", decision: "allow" }))!;
+    expect(resp.status).toBe(200);
+    expect(hasPendingPermission(sk, "tu_gap")).toBe(false);
+
+    const leg2 = (await h.call("POST", `/api/sessions/${sk}/permission`, { toolName: "Bash", toolUseId: "tu_gap", legMs: 100 }))!;
+    expect(await leg2.json()).toEqual({ decision: "allow" });
+    // Decided is decided: no second panel, no request left open for the TTL.
+    expect(paints()).toBe(1);
+    expect(hasPendingPermission(sk, "tu_gap")).toBe(false);
+  });
+
   test("un DENY si consegna com'è e resta scritto sulla riga", async () => {
     const h = makeHarness({ tool_calls: callRow("tu_d") });
     const sk = "r:deny";

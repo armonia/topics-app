@@ -33,7 +33,7 @@ export interface PermissionPaintDecision {
   alreadyPainted: boolean;
 }
 
-type ShownCall = { id?: string; status?: string; permissionRequest?: unknown } | null;
+type ShownCall = { id?: string; name?: string; status?: string; permissionRequest?: unknown } | null;
 
 /** Il primo elemento dell'array JSON il cui `pick` ha l'id cercato. */
 function findPainted(
@@ -114,4 +114,25 @@ export function decidePermissionPaint(
   }
 
   return { targetId, aliasTo, alreadyPainted };
+}
+
+/**
+ * The tool NAME on the row, given the id of the call that was clicked. It is
+ * what `allow_always` writes as the rule's pattern: no name, no rule.
+ *
+ * Same precedence as guard 2 above: `blocks` FIRST, then `tool_calls` as the
+ * fallback for rows without blocks. Not a matter of style: since a row with
+ * blocks writes `tool_calls` as `[]` (`toolCallsColumnForRow`,
+ * shared/lean-tool-call.ts) the name lives ONLY in the blocks, and whoever
+ * looked it up in the column found an empty array. The effect was an "always
+ * allow" that allowed once: the rule was never written and the next request
+ * reopened the panel, with no error anywhere.
+ */
+export function toolNameOnRow(row: PermissionPaintRow | null | undefined, toolCallId: string): string | null {
+  const fromBlocks = findPainted(decodeCol(row?.blocks), toolCallId, (b) => {
+    const bb = b as { kind?: string; toolCall?: { id?: string; name?: string } };
+    return bb?.kind === "tool" ? bb.toolCall ?? null : null;
+  });
+  const found = fromBlocks ?? findPainted(decodeCol(row?.tool_calls), toolCallId, (c) => c as ShownCall);
+  return typeof found?.name === "string" && found.name ? found.name : null;
 }
