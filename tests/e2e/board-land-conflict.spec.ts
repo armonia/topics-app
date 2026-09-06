@@ -38,6 +38,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
+import { canonicalTmpRoot } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -51,7 +52,7 @@ const SU_MAIN = ["uno", "due", "TRE da main", "quattro"].join("\n") + "\n";
 
 interface WorktreeRow { id: string; status: string; absPath: string; branchName: string }
 
-const REPO = `/tmp/topics-e2e-landconflict-${Date.now()}`;
+const REPO = `${canonicalTmpRoot()}/topics-e2e-landconflict-${Date.now()}`;
 const PROJECT_ID = boardIdForPath(REPO);
 const TASK_TEXT = "Rinominare la terza riga";
 

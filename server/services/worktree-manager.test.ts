@@ -21,7 +21,7 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, existsSync, chmodSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createWorktreeManager, WorktreeOperationError, type WorktreeManagerGcDeps } from "./worktree-manager";
+import { createWorktreeManager, WorktreeOperationError, WorktreeRefusalError, type WorktreeManagerGcDeps } from "./worktree-manager";
 import type { WorktreeStore } from "./worktree-store";
 import type { ProjectStore } from "./project-store";
 import type { AppContext, Worktree } from "../types";
@@ -166,4 +166,83 @@ describe("worktree-manager.del(): la cartella prima della riga", () => {
       if (orig === undefined) delete process.env.TOPICS_WORKTREES_DIR; else process.env.TOPICS_WORKTREES_DIR = orig;
     }
   }, 20_000);
+});
+
+/**
+ * THE USER'S HOOK IS ASKED BEFORE THE ROW EXISTS.  @covers HOOKS-02
+ *
+ * A `worktree-create` hook that exits non-zero refuses the creation, and the
+ * refusal must leave nothing behind: not a folder, not a `pending` row for the
+ * GC to find later. The fake store counts its `create` calls, which is the
+ * whole assertion.
+ */
+describe("worktree-manager.create(): the worktree-create hook", () => {
+  let root: string, repo: string, wtBase: string;
+  let origDir: string | undefined;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "wt-mgr-hook-"));
+    repo = join(root, "repo");
+    repoForStore = repo;
+    wtBase = join(root, "worktrees");
+    mkdirSync(wtBase, { recursive: true });
+    git(root, "init", "--quiet", "repo");
+    git(repo, "config", "user.email", "t@t.t");
+    git(repo, "config", "user.name", "t");
+    git(repo, "symbolic-ref", "HEAD", "refs/heads/main");
+    writeFileSync(join(repo, "README.md"), "base\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "base");
+    origDir = process.env.TOPICS_WORKTREES_DIR;
+    process.env.TOPICS_WORKTREES_DIR = wtBase;
+  });
+  afterEach(() => {
+    if (origDir === undefined) delete process.env.TOPICS_WORKTREES_DIR; else process.env.TOPICS_WORKTREES_DIR = origDir;
+    try { rmSync(root, { recursive: true, force: true }); } catch { /* best-effort */ }
+  });
+
+  function managerWith(hooks: { run: (event: string, payload: Record<string, unknown>) => Promise<{ ok: true } | { ok: false; reason: string }> }) {
+    const created: unknown[] = [];
+    const m = createWorktreeManager(
+      fakeCtx(),
+      {
+        projectStore: fakeProjectStore(),
+        worktreeStore: {
+          get: () => null, delete: () => true, list: () => [], listNamesForProject: () => new Set(),
+          create: (input: unknown) => { created.push(input); return { id: "w9", status: "pending", ...(input as object) } as Worktree; },
+          update: (_id: string, patch: Partial<Worktree>) => ({ id: "w9", ...patch }) as Worktree,
+        } as unknown as WorktreeStore,
+        hooks: hooks as never,
+      },
+    );
+    return { m, created };
+  }
+
+  test("a refusing hook: WorktreeRefusalError with its reason, and no row, not even pending", async () => {
+    const seen: Array<[string, Record<string, unknown>]> = [];
+    const { m, created } = managerWith({
+      run: async (event, payload) => { seen.push([event, payload]); return { ok: false, reason: "not on this repo" }; },
+    });
+    let thrown: unknown = null;
+    try {
+      await m.create({ projectId: "proj-1", name: "refused", mode: "branch", baseRef: "main" });
+    } catch (err) { thrown = err; }
+    expect(thrown).toBeInstanceOf(WorktreeRefusalError);
+    expect((thrown as Error).message).toBe("not on this repo");
+    expect(created).toEqual([]);
+    expect(existsSync(join(wtBase, "proj", "refused"))).toBe(false);
+    // The hook saw the project as cwd and the name and branch the row would carry.
+    expect(seen).toHaveLength(1);
+    expect(seen[0]![0]).toBe("worktree-create");
+    expect(seen[0]![1]).toMatchObject({ hook_event_name: "worktree-create", cwd: repo, worktree_name: "refused", branch_name: "topics/refused" });
+  });
+
+  test("an allowing hook: the row is created as before", async () => {
+    const { m, created } = managerWith({ run: async () => ({ ok: true }) });
+    const row = await m.create({ projectId: "proj-1", name: "allowed", mode: "branch", baseRef: "main" });
+    expect(row.id).toBe("w9");
+    expect(created).toHaveLength(1);
+    // Let the deferred materialisation finish before the folder is removed.
+    for (let i = 0; i < 100 && m.isMaterialising("w9"); i++) await new Promise((r) => setTimeout(r, 20));
+  }, 10_000);
 });

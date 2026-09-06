@@ -26,6 +26,7 @@ import type {
 } from "./types";
 import { probeBinaryPath } from "../utils/executable";
 import { getDatabase } from "../db";
+import { demoteAgentCli } from "./agent-cli-priority";
 import { SidechainTracker } from "./claude/sidechain-tracker";
 import { parseCompactBoundary } from "./claude/compaction";
 import { buildClaudeArgs, buildClaudeOneshotArgs, resolveToolTrim } from "./claude/args";
@@ -43,6 +44,7 @@ import {
   readAssistantMessageId,
   readEventContent,
   readParentToolUseId,
+  readRateLimitUsage,
   readResultErrorText,
   readResultUsage,
   splitCallUsage,
@@ -50,6 +52,7 @@ import {
   type CallUsage,
 } from "./claude/events";
 import { isWokenTurnLine, bufferWoken, drainWoken, ricordaMonitor } from "./claude/woken-turn";
+import { observePlanUsage } from "./native/usage-window";
 import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeInfo, type FastModeStatus } from "./fast-mode";
 import { modelPrice } from "../usage/pricing";
 import { getSnapshotManager } from "./snapshot-manager";
@@ -2216,6 +2219,9 @@ export class ClaudeCodeProvider implements AIProvider {
         // uguale avviata altrove. Vedi `providers/session-pids.ts`.
         .then(async ({ pid, resumed }) => {
           setSessionCliPid(sessionKey, pid);
+          // A card's CLI steps aside for the person (KANBAN-78): demoted by
+          // pid because the broker spawned it, and its children inherit.
+          demoteAgentCli(sessionKey, workspace, pid);
           // `resumed` = the daemon handed us a child that was ALREADY running
           // (it outlives our restarts by design) instead of spawning one. Old
           // daemons don't attach us on that branch, so this turn's stdin write
@@ -2237,6 +2243,7 @@ export class ClaudeCodeProvider implements AIProvider {
       const rl = createInterface({ input: proc.stdout! });
       rl.on("line", onLine);
       setSessionCliPid(sessionKey, proc.pid);
+      demoteAgentCli(sessionKey, workspace, proc.pid);
       pp.proc = proc;
       pp.readline = rl;
       pp.io = directIO(proc);
@@ -2955,6 +2962,21 @@ export class ClaudeCodeProvider implements AIProvider {
     // legge PRIMA del filtro qui sotto, che scarta tutti i `system` — è l'unico
     // posto da cui quel dato passa, e perderlo significherebbe dedurlo.
     this.observeFastMode(event);
+
+    // How full the plan's five-hour window is (USAGE-21). The CLI volunteers
+    // this on every turn and Topics used to drop it with the rest of the noise,
+    // which threw away the only figure that says WHEN you will stop.
+    //
+    // Skipped during reattach replay for the same reason compaction is: the
+    // lines being re-read are the store's tail, and a percentage from an hour
+    // ago overwriting a fresh one would brake the fleet on a window that has
+    // since reset. `lastEventAt` stays untouched on purpose - the plan talking
+    // about itself is not the child process working, and the watchdog counts
+    // work.
+    if (line.kind === "rate_limit") {
+      if (!pp.replayMute && !pp.replaySilent) observePlanUsage(readRateLimitUsage(event));
+      return;
+    }
 
     // Filter noise
     if (line.kind === "noise") return;

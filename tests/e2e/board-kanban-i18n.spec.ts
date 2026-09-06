@@ -29,13 +29,14 @@ import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
+import { canonicalTmpRoot } from "./helpers/file-project";
 
 hermetic(test);
 
 const BASE = E2E_BASE;
 const API = `${BASE}/api`;
 const STAMP = Date.now();
-const REPO = `/tmp/topics-e2e-kanban-i18n-${STAMP}`;
+const REPO = `${canonicalTmpRoot()}/topics-e2e-kanban-i18n-${STAMP}`;
 
 const PROJECT_ID = boardIdForPath(REPO);
 

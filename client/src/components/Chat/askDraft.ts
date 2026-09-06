@@ -39,6 +39,12 @@ export interface AskDraft {
   values?: Record<string, unknown>;
   /** Il JSON grezzo, quando lo schema è troppo ricco per il modulo. */
   jsonText?: string;
+  /**
+   * The plan as the human is rewriting it, on a plan approval panel. Written
+   * only when it DIFFERS from what the model proposed, so an untouched panel
+   * leaves no draft behind and approving it sends the usual message.
+   */
+  planText?: string;
 }
 
 interface Stored extends AskDraft {
@@ -108,7 +114,8 @@ export function isEmptyDraft(d: AskDraft): boolean {
   const hasSelections = !!d.selections && Object.values(d.selections).some((v) => v.length > 0);
   const hasOther = !!d.otherText && Object.values(d.otherText).some((v) => v.trim().length > 0);
   const hasValues = !!d.values && Object.keys(d.values).length > 0;
-  return !hasSelections && !hasOther && !hasValues && !d.text?.trim() && !d.jsonText?.trim();
+  return !hasSelections && !hasOther && !hasValues && !d.text?.trim() && !d.jsonText?.trim()
+    && !d.planText?.trim();
 }
 
 /**

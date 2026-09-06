@@ -57,12 +57,27 @@ export function canonicalTmpDir(prefix: string): string {
 }
 
 /**
- * The temp root under the spelling the server uses (`/private/tmp` on macOS).
- * For specs that build several project folders at once and need the root
- * itself, not one named folder.
+ * The scratch ROOT, canonical: `/private/tmp` on macOS, `/tmp` on Linux.
+ *
+ * Same defect as above, seen from the other side. A board id is a hash of the
+ * project path (`projectIdForPath`), and the server hashes the CANONICAL one:
+ * a spec that seeds its cards on `boardIdForPath("/tmp/e2e-x")` and then opens
+ * the window of that folder is looking at a DIFFERENT board, empty, while its
+ * tasks sit on the id nobody asks for. It cost three cards (7cd202448,
+ * 7fdf85b2e and this one) because on the Linux runner the two spellings are
+ * the same string and the suite stays green.
+ *
+ * The whole point is to be a FUNCTION and not a constant: at module level a
+ * spec composes its path before anything is on disk, and only the root can be
+ * resolved that early. `scripts/check-tmp-canonical.ts` is what keeps the
+ * literal from coming back.
  */
 export function canonicalTmpRoot(): string {
-  try { return realpathSync("/tmp"); } catch { return "/tmp"; }
+  try {
+    return realpathSync("/tmp");
+  } catch {
+    return "/tmp";
+  }
 }
 
 /**
@@ -116,7 +131,7 @@ export async function seedFileProject(
   request: APIRequestContext,
   label: string,
 ): Promise<FileProject> {
-  const tmpDir = `/tmp/e2e-files-${label}-${Date.now()}`;
+  const tmpDir = canonicalTmpDir(`e2e-files-${label}`);
   const topicName = `e2e-file-explorer-${label}`;
 
   mkdirSync(`${tmpDir}/src`, { recursive: true });

@@ -34,6 +34,7 @@ import { projectRow } from "./helpers/project-row";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { canonicalTmpDir } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
@@ -45,7 +46,7 @@ const BASE = E2E_BASE;
 // stesso millisecondo e `Date.now()` da solo li farebbe atterrare sulla stessa
 // board — cioè sullo stesso archivio, che è proprio l'insieme che questa spec
 // conta.
-const PROJECT_PATH = `/tmp/e2e-archrestore-${process.pid}-${Date.now()}`;
+const PROJECT_PATH = canonicalTmpDir(`e2e-archrestore-${process.pid}`);
 
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 

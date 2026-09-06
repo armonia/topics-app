@@ -17,6 +17,7 @@ import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
+import { canonicalTmpRoot } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -26,7 +27,7 @@ hermetic(test);
 test.use({ viewport: { width: 1440, height: 760 } });
 
 const BASE = E2E_BASE;
-const PROJECT_PATH = `/tmp/e2e-labels-${Date.now()}`;
+const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-labels-${Date.now()}`;
 
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 

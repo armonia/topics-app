@@ -337,7 +337,14 @@ async function runOne(
       // stderr NELLO stesso flusso di stdout: il messaggio di un compilatore sta
       // di là, l'ordine fra i due conta, e due code separate lo perdono.
       stderr: "pipe",
-      env: { ...process.env, CI: "1", FORCE_COLOR: "0", NO_COLOR: "1" },
+      // ONE colour switch, not two. With `FORCE_COLOR` set as well, every Node
+      // 22+ child prints "The 'NO_COLOR' env is ignored due to the
+      // 'FORCE_COLOR' env being set" twice on stderr: a Playwright run spawns
+      // dozens of them, and on card 897f256b (2026-09-06) those warnings were
+      // the WHOLE tail - the failing spec and its error had scrolled out of the
+      // 40 lines the report keeps. `NO_COLOR` alone is the standard every tool
+      // here honours (Bun, Node, Playwright, tsc), and stdout is a pipe anyway.
+      env: { ...process.env, CI: "1", NO_COLOR: "1" },
     });
     // stdout is collected whole; stderr is read as it arrives, because two of
     // its lines move the clock. `slot.ts` prints `SLOT_ACQUIRED_PREFIX` the

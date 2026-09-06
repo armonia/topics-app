@@ -14,7 +14,7 @@ import {
   waitForPaneStoreQuiet,
 } from "./helpers/api-fixtures";
 import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
-import { initGitRepo } from "./helpers/file-project";
+import { initGitRepo, canonicalTmpRoot } from "./helpers/file-project";
 import { projectRow } from "./helpers/project-row";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath } from "../../shared/board";
@@ -54,7 +54,7 @@ const STAMP = Date.now();
 const BASE = E2E_BASE;
 
 /** Il progetto-fixture: serve alla colonna (righe 6 e 7) e all'editor (righe 8 e 9). */
-const PROJ = `/tmp/e2e-refresh-board-${STAMP}`;
+const PROJ = `${canonicalTmpRoot()}/e2e-refresh-board-${STAMP}`;
 const PROJ_ID = projectIdForPath(PROJ);
 
 /** Due card: una passa il filtro, l'altra no. E' l'unico modo di provare che il

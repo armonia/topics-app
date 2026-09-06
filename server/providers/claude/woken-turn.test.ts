@@ -53,5 +53,8 @@ describe("isWokenTurnLine", () => {
     expect(isWokenTurnLine({ ...risveglio, kind: "noise" })).toBe(false);
     expect(isWokenTurnLine({ ...risveglio, kind: "compaction" })).toBe(false);
     expect(isWokenTurnLine({ ...risveglio, kind: "unknown" })).toBe(false);
+    // A rate-limit ping is the plan talking about itself, not the model
+    // working: waking a turn on it would resurrect a session nobody prompted.
+    expect(isWokenTurnLine({ ...risveglio, kind: "rate_limit" })).toBe(false);
   });
 });

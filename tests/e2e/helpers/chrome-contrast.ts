@@ -295,6 +295,12 @@ export async function sweepChromeLabels(
 
   const samples: LabelSample[] = [];
   const bareBar: number[] = [];
+  // Why a label was skipped, so an empty sweep can say which of the two it was.
+  // "no reading collected" alone cost a CI investigation: the bar was there, the
+  // labels were there, and the one that mattered had been swapped for an empty
+  // address input by the pane underneath.
+  let skippedBlank = 0;
+  let skippedTiny = 0;
   // A slice of the bar with no card under it: to the RIGHT of the last tab,
   // where the strip runs on to the end of the row. Taken once - the cards do
   // not move during a sweep.
@@ -325,18 +331,28 @@ export async function sweepChromeLabels(
     for (let i = 0; i < howMany; i++) {
       const el = labels.nth(i);
       const box = await el.boundingBox();
-      if (!box || box.width < 4 || box.height < 4) continue;
+      if (!box || box.width < 4 || box.height < 4) {
+        skippedTiny++;
+        continue;
+      }
       // A label with no ink has no legibility to measure: its clip is a flat
       // patch of backdrop and would read as a perfect 1.00:1, which is an
       // artefact of the method and not a finding about the design.
       const text = ((await el.textContent()) ?? "").trim();
-      if (!text) continue;
+      if (!text) {
+        skippedBlank++;
+        continue;
+      }
       const r = await readLabel(page, el, box);
       samples.push({ ...r, index: i, offset: off, text });
     }
   }
 
-  expect(samples.length, "no reading collected").toBeGreaterThan(0);
+  expect(
+    samples.length,
+    `no reading collected: ${howMany} label(s) on the bar, ${skippedBlank} skipped with no text ` +
+      `(a pane that swapped its label for an address editor reads exactly like this), ${skippedTiny} with no rect`,
+  ).toBeGreaterThan(0);
   samples.sort((a, b) => a.ratio - b.ratio);
   const backdrops = samples.map((s) => s.backdrop);
   return {

@@ -122,6 +122,8 @@ import { setSessionCliPid } from "../providers/session-pids";
 import { setRouteFault } from "../lib/route-fault";
 import { envDataDir } from "../lib/data-dir";
 import { holdDispatchReconcile, releaseDispatchHold } from "../lib/e2e-dispatch-hold";
+import { clearPlanUsage, clearProviderHold } from "../lib/provider-hold";
+import { observePlanUsage } from "../providers/native/usage-window";
 
 /** Attivo solo dove `start-test-server.sh` lo dichiara. */
 export function e2eRoutesEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -348,6 +350,26 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
       const body = (await req.json().catch(() => null)) as { ms?: number } | null;
       const until = holdDispatchReconcile(typeof body?.ms === "number" ? body.ms : 0);
       return json({ ok: true, until });
+    }
+
+    // POST /api/test/plan-usage {fiveHour, sevenDay} | {clear: true}
+    //
+    // The plan's window as the CLI would have reported it, without a CLI. The
+    // reading is fed through the SAME function the provider calls
+    // (`observePlanUsage`), so a spec exercises the real path: the memo, the
+    // broadcast, and the hold that a spent window takes on its way through.
+    // `{clear: true}` drops both, because a percentage recorded here has no
+    // reset of its own to expire at within a test file.
+    if (method === "POST" && pathname === "/api/test/plan-usage") {
+      const body = (await req.json().catch(() => null)) as
+        { clear?: boolean; fiveHour?: { utilization: number; resetsAtMs: number | null } | null; sevenDay?: { utilization: number; resetsAtMs: number | null } | null } | null;
+      if (body?.clear) {
+        clearPlanUsage();
+        clearProviderHold();
+        return json({ ok: true, cleared: true });
+      }
+      observePlanUsage({ fiveHour: body?.fiveHour ?? null, sevenDay: body?.sevenDay ?? null });
+      return json({ ok: true });
     }
 
     // POST /api/test/topics/:topicId/session-row {role, content, blocks?}

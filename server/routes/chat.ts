@@ -108,6 +108,7 @@ import {
   isEligibleGlobalOrchestratorSession,
   isGlobalOrchestratorTopic,
 } from "../services/global-orchestrator-session";
+import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
 
 /**
  * Le chiavi dei messaggi gia' presi, per riconoscere una ripetizione.
@@ -144,6 +145,12 @@ export interface ChatDeps {
   updateUnreadCount: (topicId: string) => void;
   browserNavigatedTopics: Set<string>;
   WORKSPACE_DIR: string;
+  /**
+   * The user's `turn-end` hook (HOOKS-02). Fired by this route AFTER the
+   * stream is finalised, never awaited: the turn is over and the hook can
+   * only add a line to the chat. Native runtime only.
+   */
+  hooks?: LifecycleHookRunner;
 }
 
 /**
@@ -186,7 +193,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
   const {
     resolveProvider, detectLocalhostAutoNav, bindTopicToProject, resolveProjectRef,
     getProjectIdForTopic, getWorkspaceProjects, autoBindProject,
-    watchSessionForSubagents, updateUnreadCount, browserNavigatedTopics, WORKSPACE_DIR,
+    watchSessionForSubagents, updateUnreadCount, browserNavigatedTopics, WORKSPACE_DIR, hooks,
   } = deps;
 
   /**
@@ -2192,6 +2199,26 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               };
               setTimeout(() => {
                 goalLoop.onTurnEnd(goalTurn).catch((err) => console.warn("[goal] end-of-turn hook failed:", err));
+                // THE USER'S TURN-END HOOK, in the same deferred slot and for
+                // the same reason: the SSE is already closed, and nothing here
+                // waits. It cannot block (HOOKS-02): a non-zero exit only
+                // writes its stderr into the chat as an assistant line, the
+                // way the system-message verb does, so it is read where the
+                // turn was read. Native runtime alone; the CLI providers carry
+                // their own hook systems.
+                if (hooks && topicProvider?.name === "topics") {
+                  hooks.run("turn-end", {
+                    hook_event_name: "turn-end",
+                    session_id: sessionKey,
+                    cwd: matchedTopic.projectPath ?? WORKSPACE_DIR,
+                  }).then((verdict) => {
+                    if (verdict.ok) return;
+                    const stored = appendLocalMessage(sessionKey, "assistant", verdict.reason);
+                    broadcastToAll({ type: "message", sessionKey, message: { id: stored.id, role: "assistant", content: verdict.reason, timestamp: stored.timestamp } });
+                    broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: stored.id, content: verdict.reason, preview: verdict.reason.slice(0, 100) });
+                    updateUnreadCount(matchedTopic.id);
+                  }).catch((err) => console.warn("[lifecycle-hooks] turn-end hook failed:", err));
+                }
               }, 0);
             }
 

@@ -2,16 +2,58 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.270 — 2026-09-06
+
+### Sotto il cofano
+- Anche la CLI di una card si fa da parte: demotata allo spawn, i suoi Chromium ereditano
+
+## 2.2.269 — 2026-09-06
+
+### Sotto il cofano
+- Il piano si corregge prima di approvarlo, e approvare manda la correzione
+- Le variabili del runner si chiamano con parole che l'inglese conosce
+- Il piano dice quanto resta della finestra, e la coda lo ascolta
+- Il nome della promessa dice cosa contiene, non da che file viene
+- stderr, stdout e utils entrano nel dizionario degli identificatori
+- La priorità bassa usa path assoluti, e un binario che manca si salta
+- Name the two macOS priority binaries in English, and quote the spawn failure in English
+- Two board specs seed the project under the path the server actually serves
+- The two red gates on HEAD go green: the quote is marked, the binaries are named
+- renice e taskpolicy sono nomi di binari, la frase italiana e una citazione
+- Il commento sul PATH cita l'errore di Bun, non la frase italiana
+- Il cancello e2e sceglie un node che vite regge, non il primo del PATH
+- Il cancello e2e dei file toccati dice «non misurato» con il codice che il runner capisce
+- Il test della correzione al piano parla inglese come il resto del repo
+- I due bottoni Unix della priorità entrano nel dizionario dei nomi
+- The e2e gate picks a Node that Vite accepts instead of inheriting one
+- Six more board specs name the temp directory by its real path
+- Il cancello e2e dei file toccati sceglie il suo Node e non eredita NODE_OPTIONS
+- renice e taskpolicy entrano nel dizionario degli identificatori
+- Il cancello e2e e il dizionario tornano alla versione di main, non alla copia rifatta nel ramo
+- Il cancello e2e costruisce il bundle con bun, non con il node che trova nel PATH
+- Uno spec che indirizza una board semina sul /tmp canonico, e un cancello lo tiene
+- Il dizionario resta quello di main: renice e taskpolicy ci sono gia'
+- Il runner dei check accende un solo interruttore del colore: con due, Node riempiva la coda di avvisi
+
 ## 2.2.268 — 2026-09-06
 
 ### Sotto il cofano
 - La rigenerazione del grafo del codice gira a priorità bassa
+- Il buco 4 del confronto coi concorrenti si chiude, e dice a che prezzo
+- Una regola dell'utente puo' entrare fra l'agente e il repository
 
 ## 2.2.267 — 2026-09-06
 
 ### Sotto il cofano
+- Le spec dicono che un sotto-agente puo' nascere in un worktree suo
+- La nascita del worktree di una card diventa un modulo che sa servire anche un figlio
+- Uno spawn puo' chiedere una cartella sua, e il padre si sente dire quale ramo
 - Ciò che Topics lancia per un agente gira a priorità bassa: la macchina non rallenta per colpa sua
+- Il rapporto d'uscita dice dove sta il lavoro quando non e' piu' nella cartella del padre
 - Un permalink a un terminale parcheggiato riceve un verdetto, non un ciclo di 500 ms
+- Il ponte MCP sa chiedere l'isolamento e riportare il ramo
+- La scopa chiede per prima cosa se c'e' qualcuno dentro la cartella
+- Due figli scrivono lo stesso file e non si sovrascrivono: la prova su un repo vero
 
 ## 2.2.266 — 2026-09-06
 

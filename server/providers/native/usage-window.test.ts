@@ -4,8 +4,8 @@
  * @covers RESUME-04
  */
 import { describe, expect, test, beforeEach } from "bun:test";
-import { parseUsage, holdFromUsage, saturationHold, fetchUsage, releaseHoldIfFreed, EXHAUSTED_AT } from "./usage-window";
-import { providerHold, clearProviderHold } from "../../lib/provider-hold";
+import { parseUsage, holdFromUsage, saturationHold, fetchUsage, releaseHoldIfFreed, observePlanUsage, EXHAUSTED_AT } from "./usage-window";
+import { providerHold, clearProviderHold, planUsage, clearPlanUsage } from "../../lib/provider-hold";
 
 const NOW = Date.parse("2026-09-04T15:00:00Z");
 const RESET_5H = "2026-09-04T20:49:59.852026+00:00";
@@ -86,5 +86,38 @@ describe("the usage windows", () => {
     // Freed: the hold goes.
     expect(await releaseHoldIfFreed("tok", NOW, freed)).toBe(true);
     expect(providerHold(NOW)).toBeNull();
+  });
+});
+
+/**
+ * One reading, two sources: the CLI event and this endpoint write the same
+ * memo, and a spent window walks into the same hold either way.
+ *
+ * @covers USAGE-21
+ */
+describe("observePlanUsage", () => {
+  beforeEach(() => { clearProviderHold(); clearPlanUsage(); });
+
+  test("the percentage is recorded and, under the wall, no hold is taken", () => {
+    observePlanUsage({ fiveHour: { utilization: 82, resetsAtMs: NOW + 3_600_000 }, sevenDay: null }, NOW);
+    expect(planUsage(NOW)?.fiveHour?.utilization).toBe(82);
+    expect(providerHold(NOW)).toBeNull();
+  });
+
+  test("a spent window takes the same hold the endpoint would", () => {
+    observePlanUsage({ fiveHour: { utilization: 100, resetsAtMs: NOW + 3_600_000 }, sevenDay: null }, NOW);
+    expect(providerHold(NOW)?.untilMs).toBe(NOW + 3_600_000);
+    expect(providerHold(NOW)?.window).toBe("five_hour");
+  });
+
+  test("nothing read, nothing written", () => {
+    observePlanUsage(null, NOW);
+    expect(planUsage(NOW)).toBeNull();
+  });
+
+  test("the endpoint's own reads feed the memo too", async () => {
+    const ok = (async () => new Response(JSON.stringify(measured))) as unknown as typeof fetch;
+    await saturationHold("tok", NOW, ok);
+    expect(planUsage(NOW)?.sevenDay?.utilization).toBe(measured.seven_day.utilization);
   });
 });

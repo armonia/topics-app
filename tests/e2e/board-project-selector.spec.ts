@@ -25,14 +25,15 @@ import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
+import { canonicalTmpRoot } from "./helpers/file-project";
 
 hermetic(test);
 
 const BASE = E2E_BASE;
 const STAMP = Date.now();
 /** Due progetti VERI su disco: solo il primo ha una favicon. */
-const PROJ_A = `/tmp/e2e-projsel-alpha-${STAMP}`;
-const PROJ_B = `/tmp/e2e-projsel-beta-${STAMP}`;
+const PROJ_A = `${canonicalTmpRoot()}/e2e-projsel-alpha-${STAMP}`;
+const PROJ_B = `${canonicalTmpRoot()}/e2e-projsel-beta-${STAMP}`;
 
 const ID_A = boardIdForPath(PROJ_A);
 const ID_B = boardIdForPath(PROJ_B);

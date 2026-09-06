@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { findPendingPlan, isPlanResponse } from './planDetection';
+import { findPendingPlan, isPlanResponse, planApprovalMessage } from './planDetection';
 import type { ChatMessage, ToolCall } from '../../types';
 import { PLAN_APPROVAL_QUESTION, PLAN_APPROVE_LABEL } from '../../../../shared/plan-decision';
 
@@ -123,5 +123,32 @@ describe('isPlanResponse', () => {
     expect(isPlanResponse('## Plan\n\nfaccio due cose e finisco')).toBe(false);
     expect(isPlanResponse('1. uno\n2. due')).toBe(false);
     expect(isPlanResponse('')).toBe(false);
+  });
+});
+
+/**
+ * The message that restarts the work.
+ *
+ * The turn resumes on a session that still holds the plan it wrote itself: a
+ * text attached without saying WHAT it replaces can be read as an addition,
+ * and leave the old version running. That is why the correction never arrives
+ * bare.
+ *
+ * @covers PERM-09
+ */
+describe('planApprovalMessage', () => {
+  test('senza correzione resta il messaggio di sempre', () => {
+    expect(planApprovalMessage()).toBe('Piano approvato. Eseguilo.');
+    expect(planApprovalMessage('')).toBe('Piano approvato. Eseguilo.');
+    // A blank is not a correction: attaching emptiness would delete the plan.
+    expect(planApprovalMessage('  \n ')).toBe('Piano approvato. Eseguilo.');
+  });
+
+  test('con la correzione: il testo corretto, e che sostituisce il vecchio', () => {
+    const message = planApprovalMessage('# Piano\n\n1. Primo passo corretto');
+    expect(message).toContain('Primo passo corretto');
+    expect(message).toContain('SOSTITUISCE');
+    // The corrected plan arrives whole, not summarised.
+    expect(message.endsWith('# Piano\n\n1. Primo passo corretto')).toBe(true);
   });
 });
