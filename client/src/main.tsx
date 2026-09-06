@@ -48,34 +48,31 @@ document.addEventListener('drop', (e) => e.preventDefault());
 // sopra un altro browser non raggruppa niente. Vedi `lib/paneDragFlag`.
 installPaneDragFlag();
 
-// Self-heal stale bundles. build:watch rebuilds /public with NEW content hashes
-// and deletes the old chunks; a client still running against the OLD index (Mac
-// app or iPhone PWA) references dead hashes, so lazy-loading a chunk (e.g. the
-// browser pane) 404s and the pane shows broken/blank ("index non trovato"). On
-// an actual dynamic-import failure, reload ONCE to pull the fresh index + hashes.
-// Guarded (sessionStorage, 15s window) so a genuinely-missing chunk surfaces
-// instead of looping. This is DELIBERATELY NARROW — not the blanket auto-reload
-// removed in useServiceWorkerUpdate ("the app refreshes by itself"): it fires
-// only on a real chunk 404, never on a routine SW update.
-function reloadForStaleChunkOnce(): void {
-  const KEY = 'topics:chunk-reload-at';
-  try {
-    const last = Number(sessionStorage.getItem(KEY) || 0);
-    if (Date.now() - last < 15000) return; // already retried → let the error show
-    sessionStorage.setItem(KEY, String(Date.now()));
-  } catch { /* no storage → still reload once */ }
-  location.reload();
-}
-// Chromium/WKWebView: Vite fires this when a preloaded module 404s.
-window.addEventListener('vite:preloadError', (e) => { e.preventDefault(); reloadForStaleChunkOnce(); });
-// Safari/iOS PWA (no vite:preloadError): match the dynamic-import failure text.
-const DYN_IMPORT_FAIL = /dynamically imported module|module script failed|Importing a module|Failed to fetch dynamically/i;
-window.addEventListener('error', (e) => { if (e.message && DYN_IMPORT_FAIL.test(e.message)) reloadForStaleChunkOnce(); });
-window.addEventListener('unhandledrejection', (e) => {
-  const reason = e.reason as { message?: string } | string | undefined;
-  const msg = typeof reason === 'string' ? reason : reason?.message ?? '';
-  if (DYN_IMPORT_FAIL.test(msg)) reloadForStaleChunkOnce();
-});
+// A CHUNK THAT DOES NOT LOAD IS THE BOUNDARY'S BUSINESS, not this file's.
+//
+// There used to be a "self-heal" here: on `vite:preloadError` (and on the
+// matching `error` / `unhandledrejection` texts) the page called
+// `location.reload()` once, behind a 15 s sessionStorage guard, to pull a fresh
+// index after a rebuild had deleted the old hashes. Two things made it wrong
+// once the pane bodies became lazy chunks with their own error boundary:
+//
+//  - the handler called `e.preventDefault()`, and for Vite's preload helper
+//    that means "do not rethrow": the `import()` RESOLVED with `undefined`, the
+//    lazy factory read `.DashboardPane` off it, and what reached the pane's
+//    boundary was a TypeError about `undefined` instead of the fetch failure.
+//    `isChunkLoadError` could not recognise it, so the boundary drew the
+//    generic "try again" instead of the stale-bundle screen with its
+//    cache-busted reload, and `warm` remembered `undefined` as a module.
+//  - the reload itself took every pane down for the failure of one - attached
+//    terminals, streaming chats, native browser views - which is exactly what
+//    `PaneKeepAlive`'s boundary exists to prevent; and since the chunks of the
+//    open panes are asked for BEFORE the first render (`panePreload`), a missing
+//    one fired the reload at boot, before anything had been drawn.
+//
+// The stale-bundle case is handled where the error lands: the boundary
+// classifies it (`crash.staleBundle`) and offers `reloadForNewBundle`, and
+// `chunkReloadGuard` raises the DevBundleToast from the same three events.
+// The user reloads; nothing reloads under the user.
 
 bootstrapPaneStore();
 // Cross-window presence: subscribe the store to the WS frame bus so "open in

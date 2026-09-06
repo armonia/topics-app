@@ -456,13 +456,26 @@ export function useWebSocket(): UseWebSocketReturn {
       connectRef.current();
     };
     const onVisible = () => { if (!document.hidden) reconnectNow(); };
+    // THE OS SAYING «NO NETWORK» IS A QUESTION, NOT AN ANSWER. `navigator.onLine`
+    // goes false with the wifi off while a server on localhost still answers
+    // (see the note on `perdiIlFilo`), so the event declares nothing by
+    // itself: it asks the socket, and the socket answers within
+    // WAKE_PROBE_MS or gets closed - the same probe a wake-up runs, for the
+    // same reason. Without it a phone that lost the network kept «connected»
+    // on screen for up to 105 s (a 30 s pulse plus 75 s of tolerated silence),
+    // and the band that names the state on the phone never appeared while the
+    // network was actually gone. Only the probe: reconnecting here would be
+    // dialling a number the OS just said is unreachable.
+    const onOffline = () => probeRef.current();
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('online', reconnectNow);
+    window.addEventListener('offline', onOffline);
     window.addEventListener('focus', reconnectNow);
 
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('online', reconnectNow);
+      window.removeEventListener('offline', onOffline);
       window.removeEventListener('focus', reconnectNow);
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
