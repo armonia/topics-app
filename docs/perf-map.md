@@ -30,6 +30,7 @@ intentions.
 | Weight of a chat payload | anti-duplication invariant plus bytes per message | `bun test tests/integration/history-payload-weight.test.ts` | yes (`bun test:unit`) |
 | Idle frames | how many frames are requested when nothing happens | `tests/e2e/idle-frame-budget.spec.ts` | yes (E2E shard) |
 | Shift on refresh (CLS) | layout shift after a reload | `tests/e2e/refresh-cls.spec.ts` | yes (E2E shard) |
+| Return of every pane (CLS + fullness) | shift AND milliseconds the pane stays empty, per surface: board, file tree, open file, terminal, git, dashboard | `tests/e2e/pane-return-cls.spec.ts` | nightly (see `playwright.config.ts`) |
 | Pane residency cap | how many panes stay mounted | `tests/e2e/pane-residency-cap.spec.ts` | yes (E2E shard) |
 | Transcript eviction | how many chats stay hydrated | `tests/e2e/chat-transcript-residency.spec.ts` | yes (E2E shard) |
 | Browser pane streaming | fps, p95 input latency, bandwidth, first frame | `tests/e2e/browser-ws-streaming.spec.ts` plus `perf-baseline.json` | yes (E2E shard) |

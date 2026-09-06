@@ -48,7 +48,7 @@ import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsSto
 import { countsSummary, projectTaskCounts } from '../../lib/projectTaskCounts';
 import { ProjectPickerBody } from './ProjectPicker';
 import { ProjectTaskCounts } from './atoms';
-import { filterFieldClass } from './constants';
+import { filterFieldClass, TOOLBAR_CONTROL_H } from './constants';
 
 /**
  * The breathing room between the content and the shell's edge, per side (px).
@@ -302,7 +302,7 @@ export function ProjectFilterPicker({ tasks, mode, selectedIds: selectedFilterId
       </Menu>
 
       {/* THE SUGGESTIONS, in the space left over. See the `useLayoutEffect`. */}
-      <div ref={stripRef} className="relative h-6 min-w-0 grow basis-0 overflow-hidden" data-testid="project-filter-strip">
+      <div ref={stripRef} className={`relative ${TOOLBAR_CONTROL_H} min-w-0 grow basis-0 overflow-hidden`} data-testid="project-filter-strip">
         <div ref={stripRowRef} className="absolute inset-y-0 left-0 flex w-max flex-nowrap items-center gap-1.5 [&>*]:shrink-0">
           {projectOptions.map((p, i) => {
             const on = selectedRowIds.includes(p.projectId);

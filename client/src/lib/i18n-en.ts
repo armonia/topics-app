@@ -331,6 +331,8 @@ const EN = {
   'notif.focus.blurb': 'We cannot read the Focus / Do Not Disturb state, so banners arrive even while it is on: on macOS that data is protected.',
   'notif.focus.grant': 'Grant full disk access',
   'notif.focus.thenRestart': ', then restart Topics: the permission is read when the process starts.',
+  'notif.perm.request': 'Grant permission',
+  'notif.perm.openSettings': 'Open System Settings',
   'notif.muted.title': 'Muted',
   'notif.muted.blurb': 'These projects raise no banner and no sound when an agent finishes. They still count in the app badge: what goes away is the interruption, not the count.',
   'notif.muted.unmute': 'Unmute notifications for this project',
