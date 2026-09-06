@@ -4,47 +4,48 @@ import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
 import { hermetic } from "./fixtures/hermetic";
+import { HISTORY_FIRST_PAGE } from "../../shared/history-paging";
+import { VISIBLE_CHAT_SCROLLER, wheelUpUntilVisible } from "./helpers/wheel-scroll";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
 hermetic(test);
 
 /**
- * CHAT-HISTORY-WINDOW — a topic with more than the old 100-message fetch
- * window must load its ENTIRE thread, head included.
+ * CHAT-HISTORY-WINDOW — a topic longer than the old 100-message fetch window
+ * must make its ENTIRE thread reachable, head included.
  *
  * Regression for the "chat tagliata" bug: the client fetched history with
- * limit:100 while the server returns the LAST `limit` messages of the
- * linearized thread. Any topic past 100 messages therefore loaded only its
- * most recent 100 — the oldest messages (the conversation's head) silently
- * vanished and the chat rendered starting mid-conversation, with no scroll-up
- * pagination to recover them. The fetch window is now pinned to the server's
- * own ceiling (500), so every real chat loads complete.
+ * limit:100 while the server returns the LAST `limit` messages of the thread,
+ * so any topic past 100 messages lost its oldest ones — the head was missing
+ * from the APP, with no way to ask for it, and the chat began mid-conversation.
  *
- * The probe: seed 120 messages (>100 old window, <500 server clamp). The very
- * first message carries a unique HEAD marker. With the old limit the server
- * would return messages 21..120 and the HEAD marker would never enter the DOM,
- * no matter how far up you scroll. With the fix all 120 load and scrolling to
- * the top reveals it.
+ * The chat now opens TAIL-FIRST on purpose (CHAT-HIST-01, shared/history-paging.ts,
+ * chat-tail-first.spec.ts): the first request brings the last HISTORY_FIRST_PAGE
+ * messages, the rest is merged out of sight or on request through the row at
+ * the top of the loaded window. So "the head loads" no longer means "the head
+ * is in the DOM on open": the app KNOWS what is missing, names the count, and
+ * one click brings it all. The probe seeds three pages (120: >100 old window,
+ * <500 server clamp) with a unique HEAD marker on the first message: on open
+ * the tail is there and the list says partial; up top sits the row saying
+ * «(80)» and not the head; the click completes the list, the row goes, and
+ * scrolling on reaches the HEAD marker the old window could never show.
  */
 test.describe("Chat history window", () => {
-  // `chatPage.messageList` è lo scroller virtualizzato preso con `.first()`: con le
-  // pane lasciate aperte dai file precedenti (pane-store unico per la suite
-  // seriale) il primo scroller è quello di un'ALTRA chat e lo scroll-up
-  // misurerebbe il thread sbagliato. Il topic di questo test nasce dentro il
-  // test, dopo il reset, e createTopic gli apre da sé il tab.
+  // Pane-store reset: only this test's chat is on screen, so the visible scroller is its own.
   test.beforeEach(async ({ request }) => {
     await resetPaneStore(request, []);
   });
 
   test("loads the full thread head for a >100-message topic", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-01" });
-    test.setTimeout(120_000); // 120 sequential seeds + load + scroll-up poll
+    test.setTimeout(120_000); // 120 sequential seeds + load + two wheel climbs
 
     const stamp = Date.now();
     const topic = await createTopic(request, `History Window ${stamp}`);
     const sk = `topic:${topic.id.slice(0, 8)}`;
-    const TOTAL = 120; // > old 100 window, < 500 server clamp
+    const TOTAL = HISTORY_FIRST_PAGE * 3; // 120: > old 100 window, < 500 server clamp
+    const MISSING = TOTAL - HISTORY_FIRST_PAGE; // what the first page leaves above
     const HEAD_MARKER = `HISTORY-HEAD-${stamp}`;
     const TAIL_MARKER = `HISTORY-TAIL-${stamp}`;
 
@@ -75,19 +76,29 @@ test.describe("Chat history window", () => {
       await openTopic(page, new RegExp(`History Window ${stamp}`));
 
       // The tail (newest) is where the pane lands on open — proves it loaded.
+      const head = page.locator(".message-content").filter({ hasText: HEAD_MARKER });
       await expect(
         page.locator(".message-content").filter({ hasText: TAIL_MARKER })
       ).toBeVisible({ timeout: 15_000 });
+      // Partial, and honest about it: the pane is on screen, so nothing has
+      // been merged behind the reader's back.
+      const scroller = page.locator(VISIBLE_CHAT_SCROLLER);
+      await expect(scroller).toHaveAttribute("data-history", "partial");
 
-      // Scroll the Virtuoso list to the very top; the head marker (message #1,
-      // beyond the old 100-window) must materialize. Poll-scroll because
-      // Virtuoso renders progressively and the app's scroll guards may nudge.
-      const scroller = page.locator("[data-virtuoso-scroller]").first();
-      const head = page.locator(".message-content").filter({ hasText: HEAD_MARKER });
-      await expect(async () => {
-        await scroller.evaluate((el) => { el.scrollTop = 0; });
-        await expect(head).toBeVisible({ timeout: 1_000 });
-      }).toPass({ timeout: 15_000 });
+      // Up to the top of the loaded window: the row names the eighty messages
+      // it hides, and the head is among them — not in the DOM, on offer.
+      const divider = page.getByTestId("chat-load-older");
+      await wheelUpUntilVisible(page, divider);
+      await expect(divider).toContainText(`(${MISSING})`);
+      await expect(head).toHaveCount(0);
+
+      // The click is the request: the list becomes whole and the row goes.
+      await page.getByTestId("chat-load-older-button").click();
+      await expect(scroller).toHaveAttribute("data-history", "complete", { timeout: 15_000 });
+      await expect(divider).toHaveCount(0);
+
+      // And the head — message #1, beyond the old 100-window — is up there.
+      await wheelUpUntilVisible(page, head, 120);
     } finally {
       await deleteTopic(request, topic.id);
     }

@@ -7,6 +7,7 @@ import { E2E_BASE } from "./helpers/test-server";
 import { clipDiConsegna } from "./helpers/clip";
 import { beat, didascalia } from "./helpers/evidence";
 import { HISTORY_FIRST_PAGE } from "../../shared/history-paging";
+import { VISIBLE_CHAT_SCROLLER as SCROLLER, wheelUpUntilVisible } from "./helpers/wheel-scroll";
 import {
   armFullness,
   armObserver,
@@ -67,8 +68,6 @@ const SHORT = 5;
 const OLDER_DELAY_MS = 2000;
 const LABEL = process.env.E2E_CLS_LABEL || "run";
 const LIST = '[data-testid="virtuoso-item-list"]';
-/** The scroller of the pane ON SCREEN: a hidden tab keeps its own mounted. */
-const SCROLLER = '[data-testid="chat-message-list"]:visible';
 
 function seededText(n: number): string {
   return `Seeded message #${String(n).padStart(3, "0")}`;
@@ -165,27 +164,6 @@ async function probeHistoryRequests(page: Page, sessionKey: string): Promise<Pro
     await route.continue();
   });
   return probe;
-}
-
-/**
- * Scrolls the list UP with the wheel - a gesture, not a `scrollTop` write -
- * until `target` is visible. A programmatic scroll inside the opening window
- * is undone by the opening pins (a re-measure brings the list back to the
- * bottom); the wheel is what a reader does, and the first wheel closes that
- * window (`markGesture` in MessageList).
- */
-async function wheelUpUntilVisible(page: Page, target: ReturnType<Page["locator"]>, steps = 60): Promise<void> {
-  const scroller = page.locator(SCROLLER);
-  const box = await scroller.boundingBox();
-  if (!box) throw new Error("the visible scroller has no box to wheel over");
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  for (let i = 0; i < steps; i++) {
-    if (await target.isVisible()) return;
-    await page.mouse.wheel(0, -4000);
-    // Virtuoso mounts the rows it reaches on the next frame: give it one.
-    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r(null))));
-  }
-  await expect(target).toBeVisible({ timeout: 5000 });
 }
 
 test.describe("La chat si apre sulla coda", () => {

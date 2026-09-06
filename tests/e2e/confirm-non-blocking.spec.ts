@@ -97,7 +97,13 @@ test.describe("ConfirmDialog non blocca il thread", () => {
     await chatPage.messageInput.press("Enter");
 
     // Il ConfirmDialog React (role="dialog", non un modale nativo).
-    const dialog = page.getByRole("dialog", { name: "Clear conversation?" });
+    // Its accessible name is `aria-label={title}`, and the title is
+    // `chat.clear.title` from the ITALIAN catalogue: the app resolves `auto`
+    // to Italian whatever the browser speaks (`resolveLocale`, lib/i18n.ts),
+    // and the suite pins `locale: "it-IT"` anyway. "Clear conversation?" is the
+    // English catalogue's entry, which never shows here: looking for it left
+    // the dialog open and unseen.
+    const dialog = page.getByRole("dialog", { name: "Svuoto la conversazione?" });
     await expect(dialog).toBeVisible({ timeout: 10_000 });
 
     // IL CUORE DEL TEST: con il dialog aperto, il timer del turno accanto DEVE
