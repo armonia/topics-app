@@ -24,11 +24,12 @@
  *
  * `resources` is the hard floor (disk or RAM under a fixed line), `pressure`
  * is the opt-in "by resources" cap (load or memory over the threshold the
- * person chose), `spend` is the 24h bill. Two different kinds for the two
- * resource brakes on purpose: the card mapper gives them different tones,
- * because one is a wait that dissolves by itself and the other is not.
+ * person chose), `spend` is the 24h bill, `plan` is the subscription's
+ * five-hour window nearly gone. Different kinds for brakes that look alike on
+ * purpose: the card mapper gives them different tones, because one is a wait
+ * that dissolves by itself and the other is not.
  */
-export type DispatchBlockKind = "resources" | "pressure" | "spend";
+export type DispatchBlockKind = "resources" | "pressure" | "spend" | "plan";
 
 export interface DispatchBlock {
   kind: DispatchBlockKind;
@@ -83,6 +84,10 @@ export function publishDispatchBlock(
    *  (see `machinePressureMessage` in the dispatcher). Absent or `null` when
    *  the mode is off or the machine is under its thresholds. */
   pressureBlock: string | null = null,
+  /** The plan's five-hour window over the dispatch threshold, already a full
+   *  sentence with the percentage and the reset hour (see `tick`). Null when
+   *  there is no reading, or the window is under the threshold. */
+  planBlock: string | null = null,
 ): string | null {
   const spend = daySpendBlock
     ? `Tetto di spesa giornaliero raggiunto (${daySpendBlock.replace(/^spesa:\s*/, "")}). `
@@ -92,8 +97,9 @@ export function publishDispatchBlock(
   setDispatchBlock(
     resourceFloor ? { kind: "resources", reason: resourceFloor }
       : spend ? { kind: "spend", reason: spend }
-        : pressureBlock ? { kind: "pressure", reason: pressureBlock }
-          : null,
+        : planBlock ? { kind: "plan", reason: planBlock }
+          : pressureBlock ? { kind: "pressure", reason: pressureBlock }
+            : null,
   );
-  return resourceFloor ?? spend ?? pressureBlock;
+  return resourceFloor ?? spend ?? planBlock ?? pressureBlock;
 }

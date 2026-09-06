@@ -22,8 +22,12 @@
  * sapere «l'avevo già visto?», quella domanda appartiene al chiamante.
  */
 
+import type { PlanUsage, PlanUsageWindow } from "../../../shared/provider-hold";
 import type { ProviderUsage, ToolArgs } from "../types";
 import { contextTokensFromUsage } from "../../usage/usage-update";
+
+/** A reading without the instant it was taken: this module never asks a clock. */
+export type PlanUsageReading = Omit<PlanUsage, "observedAtMs">;
 
 /** Un evento NDJSON della CLI: forma libera, si legge difensivamente. */
 type RawEvent = Record<string, unknown>;
@@ -41,8 +45,10 @@ type RawEvent = Record<string, unknown>;
 export type StreamLineKind =
   /** `system/compact_boundary`: la sessione è stata compattata. */
   | "compaction"
-  /** Ogni altro `system`, e `rate_limit_event`: si scarta. */
+  /** Ogni altro `system`: si scarta. */
   | "noise"
+  /** `rate_limit_event`: how full the plan's usage windows are. */
+  | "rate_limit"
   /** `stream_event`: i blocchi parziali di `--include-partial-messages`. */
   | "partial"
   /** `result`: il turno è finito. */
@@ -58,11 +64,46 @@ export function classifyStreamLine(event: unknown): { kind: StreamLineKind; labe
   const subtype = typeof e?.subtype === "string" ? e.subtype : "";
   const label = subtype ? `${type || "?"}/${subtype}` : type || "?";
   if (type === "system" && subtype === "compact_boundary") return { kind: "compaction", label };
-  if (type === "system" || type === "rate_limit_event") return { kind: "noise", label };
+  if (type === "rate_limit_event") return { kind: "rate_limit", label };
+  if (type === "system") return { kind: "noise", label };
   if (type === "stream_event") return { kind: "partial", label };
   if (type === "result") return { kind: "result", label };
   if (type === "assistant" || type === "user") return { kind: "content", label };
   return { kind: "unknown", label };
+}
+
+/**
+ * How full the plan's windows are, out of a `rate_limit_event`.
+ *
+ * THE UNITS ARE NOT THE ONES THE REST OF THE SERVER USES, and that is the whole
+ * risk of this function. The CLI writes `utilization` as a FRACTION (0-1, and
+ * it can go past 1 on overage) and `resetsAt` as epoch SECONDS; the usage
+ * endpoint writes percent 0-100 and an ISO instant, and every reader downstream
+ * speaks the endpoint's dialect. A missed x100 reads 0.92 as 1% and never
+ * brakes; a missed x1000 puts every reset in 1970, which reads as a window that
+ * has already reset and so is dropped on sight.
+ *
+ * Null when the event carries no `unifiedWindows`: older CLIs send the same
+ * event with only `status`/`resetsAt`, and "I do not know" must not read as
+ * "empty window".
+ */
+export function readRateLimitUsage(event: unknown): PlanUsageReading | null {
+  const e = asRecord(event);
+  if (!e || e.type !== "rate_limit_event") return null;
+  const windows = asRecord(asRecord(e.rate_limit_info)?.unifiedWindows);
+  if (!windows) return null;
+  const fiveHour = readUnifiedWindow(windows.five_hour);
+  const sevenDay = readUnifiedWindow(windows.seven_day);
+  if (!fiveHour && !sevenDay) return null;
+  return { fiveHour, sevenDay };
+}
+
+function readUnifiedWindow(raw: unknown): PlanUsageWindow | null {
+  const w = asRecord(raw);
+  if (!w || typeof w.utilization !== "number" || !Number.isFinite(w.utilization)) return null;
+  const resetsAt = w.resetsAt;
+  const resetsAtMs = typeof resetsAt === "number" && Number.isFinite(resetsAt) ? resetsAt * 1_000 : null;
+  return { utilization: w.utilization * 100, resetsAtMs };
 }
 
 /**

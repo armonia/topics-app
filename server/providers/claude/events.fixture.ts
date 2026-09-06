@@ -29,7 +29,7 @@ export const COMPACT_BOUNDARY = {
   compact_metadata: { trigger: "auto", pre_tokens: 187_432 },
 };
 
-/* Noise of its own: not a `system`, discarded all the same.
+/* How full the plan's windows are, said by the CLI on its own initiative.
  *
  * THE KEY IS `rate_limit_info`, and it was `rate_limit` here until 2026-08-21.
  * Read out of the CLI binary (2.1.238), which emits
@@ -37,7 +37,13 @@ export const COMPACT_BOUNDARY = {
  * that invents a field is worse than no fixture: it is the shape everyone who
  * builds on this event will code against, and it looks measured. The test only
  * asserted `kind`, so the wrong name could never have failed anything - the
- * assertion on the field name below is the other half of the fix. */
+ * assertion on the field name below is the other half of the fix.
+ *
+ * `unifiedWindows` read out of the same binary at 2.1.263, where the zod schema
+ * is `{five_hour|seven_day|seven_day_overage_included: {utilization, resetsAt
+ * int}}` and the CLI's own readers do `utilization*100` and `resets_at*1000`.
+ * So the numbers here are a FRACTION and epoch SECONDS, deliberately: they are
+ * the trap the decoder exists to disarm. */
 export const RATE_LIMIT = {
   type: "rate_limit_event",
   rate_limit_info: {
@@ -45,6 +51,10 @@ export const RATE_LIMIT = {
     resetsAt: 1_754_600_000,
     rateLimitType: "five_hour",
     isUsingOverage: false,
+    unifiedWindows: {
+      five_hour: { utilization: 0.82, resetsAt: 1_754_600_000 },
+      seven_day: { utilization: 0.31, resetsAt: 1_755_000_000 },
+    },
   },
 };
 

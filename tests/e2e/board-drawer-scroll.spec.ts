@@ -30,15 +30,18 @@ import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { deflateSync } from "zlib";
+import { canonicalTmpDir } from "./helpers/file-project";
 import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
-import { canonicalTmpRoot } from "./helpers/file-project";
 
 hermetic(test);
 
 const BASE = E2E_BASE;
-const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-drawer-${Date.now()}`;
+// Canonical spelling (`/private/tmp` on macOS): the server resolves the topic's
+// projectPath and hashes the STRING into the board id, so a literal `/tmp`
+// seeded a board the pane never reads.
+const PROJECT_PATH = canonicalTmpDir("e2e-drawer");
 
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 

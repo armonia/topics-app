@@ -26,6 +26,7 @@ import { configureNotificationRegistry, recordAndAnnounce } from "./notification
 import { createProjectStore } from "./services/project-store";
 import { createWorktreeStore } from "./services/worktree-store";
 import { createWorktreeManager, type WorktreeManagerGcDeps } from "./services/worktree-manager";
+import { defaultLifecycleHooks } from "./services/lifecycle-hooks";
 import { createMachineStore } from "./services/machine-store";
 import { parseToolCallDetail, knownDetailTypes } from "../shared/tool-call-detail";
 import { blocksForDisk, toolCallsColumnForRow, toolCallsForDisk } from "../shared/lean-tool-call";
@@ -1026,7 +1027,7 @@ export function createAppContext(baseDir: string): AppContext {
   };
   const worktreeManager = createWorktreeManager(
     { broadcastToAll } as AppContext,
-    { projectStore, worktreeStore },
+    { projectStore, worktreeStore, hooks: defaultLifecycleHooks() },
     _worktreeGcDeps,
   );
   // Phase D — machines (heartbeat ticker is wired in server.ts).

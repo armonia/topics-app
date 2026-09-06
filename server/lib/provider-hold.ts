@@ -21,8 +21,8 @@
 
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { ProviderHold, UsageWindowKind } from "../../shared/provider-hold";
-export type { ProviderHold, UsageWindowKind };
+import type { PlanUsage, PlanUsageWindow, ProviderHold, UsageWindowKind } from "../../shared/provider-hold";
+export type { PlanUsage, ProviderHold, UsageWindowKind };
 
 let current: ProviderHold | null = null;
 const listeners = new Set<(hold: ProviderHold | null) => void>();
@@ -107,6 +107,65 @@ export function clearProviderHold(): void {
 export function onProviderHold(cb: (hold: ProviderHold | null) => void): () => void {
   listeners.add(cb);
   return () => { listeners.delete(cb); };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// HOW FULL THE WINDOW IS, which is a different question from "is it spent".
+//
+// The hold answers "the wall is here, wait until this time". This answers "how
+// close is the wall", and it is the question a subscription plan actually
+// poses: the constraint is not the dollar, it is the five-hour window. The CLI
+// publishes it on every turn (`rate_limit_event`) and the usage endpoint
+// publishes it whenever the retry loop already asks; both write here, so the
+// status bar and the dispatcher read one number instead of two.
+//
+// Not persisted, unlike the hold: a reading is re-observed within minutes of
+// any turn, and a stale percentage on disk would brake a fleet on a window that
+// has since reset.
+
+let usage: PlanUsage | null = null;
+const usageListeners = new Set<(usage: PlanUsage | null) => void>();
+
+/** A window past its own reset is not a reading any more: it drops out. */
+function live(w: PlanUsageWindow | null, nowMs: number): PlanUsageWindow | null {
+  if (!w) return null;
+  if (w.resetsAtMs != null && w.resetsAtMs <= nowMs) return null;
+  return w;
+}
+
+/** The reading in force at `nowMs`, or null once both windows have reset. */
+export function planUsage(nowMs: number = Date.now()): PlanUsage | null {
+  if (!usage) return null;
+  const fiveHour = live(usage.fiveHour, nowMs);
+  const sevenDay = live(usage.sevenDay, nowMs);
+  if (!fiveHour && !sevenDay) { usage = null; return null; }
+  if (fiveHour === usage.fiveHour && sevenDay === usage.sevenDay) return usage;
+  usage = { fiveHour, sevenDay, observedAtMs: usage.observedAtMs };
+  return usage;
+}
+
+/**
+ * Record a reading. The newest wins, whatever it says: unlike the hold there is
+ * no "longer wall wins" here, because a window that reset genuinely goes back
+ * to nearly empty and a memo that only ever climbs would brake forever.
+ */
+export function recordPlanUsage(next: Omit<PlanUsage, "observedAtMs">, nowMs: number = Date.now()): PlanUsage {
+  usage = { fiveHour: next.fiveHour, sevenDay: next.sevenDay, observedAtMs: nowMs };
+  for (const cb of usageListeners) { try { cb(usage); } catch { /* a listener's failure is its own */ } }
+  return usage;
+}
+
+/** Called on every recorded reading. */
+export function onPlanUsage(cb: (usage: PlanUsage | null) => void): () => void {
+  usageListeners.add(cb);
+  return () => { usageListeners.delete(cb); };
+}
+
+/** Tests only: the memo is process-global, so one file's reading would reach the next. */
+export function clearPlanUsage(): void {
+  if (!usage) return;
+  usage = null;
+  for (const cb of usageListeners) { try { cb(null); } catch { /* idem */ } }
 }
 
 /** The hour a hold ends, as HH:MM in the machine's local time, for logs and notices. */

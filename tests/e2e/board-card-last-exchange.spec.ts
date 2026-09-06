@@ -27,16 +27,16 @@ import { projectRow } from "./helpers/project-row";
 import { expect, type Page, type APIRequestContext } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane, deleteTask } from "./helpers/api-fixtures";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { canonicalTmpDir } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
-import { canonicalTmpRoot } from "./helpers/file-project";
 
 hermetic(test);
 
 const BASE = E2E_BASE;
 const API = `${BASE}/api`;
-const REPO = `${canonicalTmpRoot()}/e2e-scambio-${Date.now()}`;
+const REPO = canonicalTmpDir("e2e-scambio");
 const PROJECT_ID = boardIdForPath(REPO);
 
 const T_QUESTION = "Rifare la fascia della sidebar";

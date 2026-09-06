@@ -52,6 +52,7 @@ import {
   isGlobalOrchestratorSession,
 } from "../../services/global-orchestrator-session";
 import { clampMaxTokens } from "../../lib/native-parity";
+import { defaultLifecycleHooks } from "../../services/lifecycle-hooks";
 import { cancelled, stopCauseFromSignal, type StopCause, type TurnEndInfo } from "../stop-reason";
 
 /**
@@ -640,6 +641,10 @@ export class NativeProvider implements AIProvider {
           // sulla sessione: chi lo cambia in chat si aspetta che valga dal
           // messaggio dopo, non dalla prossima chat.
           autonomy: levelFor(readTopicAutonomy(sessionKey)),
+          // The user's hooks file, re-read at every event by the runner itself:
+          // no snapshot here either, for the same reason as the autonomy.
+          hooks: defaultLifecycleHooks(),
+          sessionId: sessionKey,
           signal: abort.signal,
           // L'USO SI DEPOSITA A OGNI GIRO, non a fine turno.
           //
