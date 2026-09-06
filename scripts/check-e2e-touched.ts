@@ -62,6 +62,16 @@ import { tmpdir } from "node:os";
 /** More than this many specs and it is not a gate any more, it is the suite. */
 const MAX_SPECS = 8;
 
+/**
+ * "I could not measure" is not "red". The board's check runner reads this
+ * exit code as NOT MEASURED (`NOT_MEASURED_EXIT` in server/services/
+ * review-checks.ts) and gives an `unknown` verdict instead of bouncing the
+ * card: on 2026-09-06 a transient Vite failure in an agent's worktree came
+ * back as `2`, which the runner counts as a plain failure, and a green
+ * delivery was refused for a reason that had nothing to do with its code.
+ */
+const NOT_MEASURED_EXIT = 97;
+
 const E2E_DIR = "tests/e2e";
 
 /** Files whose change says nothing about which surface moved. */
@@ -269,7 +279,7 @@ function main(): number {
   const gitDir = sh(["git", "rev-parse", "--git-dir"]).trim();
   if (!gitDir) {
     console.error("check:e2e-touched: not a git checkout, nothing to compare. NOT MEASURED.");
-    return 2;
+    return NOT_MEASURED_EXIT;
   }
   if (!sh(["git", "rev-parse", "--verify", base]).trim()) {
     console.error(`check:e2e-touched: base "${base}" does not exist here. NOT MEASURED.`);
@@ -311,7 +321,7 @@ function main(): number {
   if (bundleDir) {
     if (!buildBundle(bundleDir)) {
       console.error("check:e2e-touched: the client bundle does not build, so the specs cannot run. NOT MEASURED.");
-      return 2;
+      return NOT_MEASURED_EXIT;
     }
     env.TOPICS_E2E_BUNDLE_DIR = bundleDir;
   }
