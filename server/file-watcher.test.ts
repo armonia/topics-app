@@ -17,7 +17,7 @@
  */
 import { describe, test, expect, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
-import { tmpdir, cpus, loadavg } from "os";
+import { tmpdir } from "os";
 import { join } from "path";
 import { MAX_WATCHERS, unwatchProjectFiles, watchProjectFiles } from "./file-watcher";
 import type { AppContext } from "./types";
@@ -25,22 +25,17 @@ import type { AppContext } from "./types";
 type Frame = { type: string; projectPath?: string };
 
 /**
- * The budget STRETCHES with the machine, and that is not politeness: what this
- * waits for is an event the OS delivers, so under a fleet the wait is long for
- * a reason that has nothing to do with the code under test. `test-unit-shards`
- * already stretches the per-test timeout by the same pressure (`planUnderLoad`)
- * and the shard note says so out loud, but that ceiling never reached the
- * budget INSIDE a test: at loadavg 17 on 12 cores these two went red on a
- * branch that does not touch the watcher. Same factor, same cap.
+ * THE BUDGET IS A GUARD AGAINST A WATCHER THAT NEVER FIRES, not a measure of
+ * how fast one fires. Six seconds were enough on an idle machine and not on a
+ * loaded one: the pre-review checks run at nice 15 by design (KANBAN-78), and
+ * on 2026-09-06 at 17:40, with load 20 on twelve cores, twenty-five recursive
+ * watchers took longer than that to hand over one event - both cases red on a
+ * card that had not touched the watcher. A condition wait costs nothing when
+ * the event is quick, so the ceiling is set where only a real hang reaches it,
+ * under the 40 s the shard runner gives a test.
  */
-function loadFactor(): number {
-  const cores = Math.max(1, cpus().length);
-  const pressure = (loadavg()[0] ?? 0) / cores;
-  return Number.isFinite(pressure) ? Math.min(4, Math.max(1, pressure)) : 1;
-}
-
-async function until(cond: () => boolean, budgetMs = 6000): Promise<boolean> {
-  const deadline = Date.now() + budgetMs * loadFactor();
+async function until(cond: () => boolean, budgetMs = 30_000): Promise<boolean> {
+  const deadline = Date.now() + budgetMs;
   while (Date.now() < deadline) {
     if (cond()) return true;
     await Bun.sleep(25);

@@ -6,6 +6,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - Anche la CLI di una card si fa da parte: demotata allo spawn, i suoi Chromium ereditano
+- L'inventario della barra: il loop di retry ha un budget, e la label ha inchiostro
 
 ## 2.2.269 — 2026-09-06
 
