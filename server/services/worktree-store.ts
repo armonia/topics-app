@@ -43,6 +43,12 @@ export interface WorktreeStore {
   }): Worktree;
   get(id: string): Worktree | null;
   getByName(projectId: string, name: string): Worktree | null;
+  /** The worktree checked out AT this absolute path, if any (`abs_path` is
+   *  UNIQUE, so this is a lookup and never a choice). It is how a directory
+   *  answers "which project is this, and which branch am I on" for callers
+   *  that only ever see a cwd: a sub-agent's isolation, the branch a parent
+   *  reads back, the sweep's live-session guard. */
+  getByAbsPath(absPath: string): Worktree | null;
   list(opts?: {
     projectId?: string;
     status?: "pending" | "ready" | "error";
@@ -78,6 +84,7 @@ export function createWorktreeStore(db: Database): WorktreeStore {
     getByName: db.prepare(
       `SELECT * FROM worktrees WHERE project_id = ? AND name = ?`,
     ),
+    getByAbsPath: db.prepare(`SELECT * FROM worktrees WHERE abs_path = ?`),
     listAll: db.prepare(`SELECT * FROM worktrees ORDER BY updated_at DESC`),
     listByProject: db.prepare(
       `SELECT * FROM worktrees WHERE project_id = ? ORDER BY updated_at DESC`,
@@ -154,6 +161,10 @@ export function createWorktreeStore(db: Database): WorktreeStore {
     },
     getByName(projectId, name) {
       const row = stmts.getByName.get(projectId, name);
+      return row ? rowToWorktree(row) : null;
+    },
+    getByAbsPath(absPath) {
+      const row = stmts.getByAbsPath.get(absPath);
       return row ? rowToWorktree(row) : null;
     },
     list(opts) {
