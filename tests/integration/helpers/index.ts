@@ -16,6 +16,7 @@
  * delete the inline copies, add `import { ... } from "./helpers"`.
  */
 
+import { closeDatabase } from "../../../server/db";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import path from "node:path";
@@ -93,6 +94,17 @@ export function setupTestDataDir(testDataDir: string): void {
         `Usa: const ROOT = testTmpDir("<label>")`,
     );
   }
+  // CLOSE WHAT THE PREVIOUS FILE LEFT OPEN, first of all. `server/db` keeps a
+  // per-PROCESS `_db` singleton and `bun test` runs every file in one process:
+  // a file that ends without closing hands the next one a live handle, and
+  // `initDatabase` then returns THAT database instead of opening the one this
+  // directory just prepared. The test reads another file's rows, or a handle
+  // pointing at a directory the line below has erased. It is the twin of
+  // `cleanupTestDataDir`, which closes on the way out: closing on the way IN
+  // too means a file is hermetic even when the one before it was not, which is
+  // the difference between a suite that is green in its canonical order and one
+  // that is green in any order. `closeDatabase` is idempotent.
+  closeDatabase();
   fs.rmSync(testDataDir, { recursive: true, force: true });
   process.env.DATA_DIR = testDataDir;
 }
@@ -111,7 +123,6 @@ export function setupTestDataDir(testDataDir: string): void {
  * anche se un test lo aveva gia' chiuso per conto suo.
  */
 export async function cleanupTestDataDir(dir: string): Promise<void> {
-  const { closeDatabase } = await import("../../../server/db");
   closeDatabase();
   fs.rmSync(dir, { recursive: true, force: true });
 }
