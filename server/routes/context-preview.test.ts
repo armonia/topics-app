@@ -15,7 +15,7 @@ import { join } from "path";
 
 import type { AppContext, StoredMessage, Topic, TopicsData } from "../types";
 import type { ContextEnvelope } from "../context";
-import { clearSnapshots, pushSnapshot } from "../context";
+import { clearSnapshots, getSnapshots, pushSnapshot } from "../context";
 import { createContextPreviewRouter } from "./context-preview";
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -121,6 +121,69 @@ describe("contextPreviewRouter", () => {
     const resp = await router(new Request(url(path)), url(path), path, "GET");
     expect(resp).not.toBeNull();
     expect(resp!.status).toBe(404);
+  });
+
+  it("refuses a raw registered coordinator instead of honoring a caller-selected provider", async () => {
+    const guarded = createContextPreviewRouter({
+      ...ctx,
+      db: {
+        query: (sql: string) => ({
+          get: (_scope: string, topicId: string) =>
+            sql.includes("global_orchestrator_sessions") && topicId === topic.id
+              ? {
+                  scope: "global",
+                  topic_id: topic.id,
+                  created_at: "2026-09-04T00:00:00.000Z",
+                  updated_at: "2026-09-04T00:00:00.000Z",
+                }
+              : null,
+        }),
+      },
+    } as AppContext);
+    const path = "/api/topics/topic-1/context-preview";
+    const response = await guarded(new Request(url(path, { provider: "openclaw" })), url(path, { provider: "openclaw" }), path, "GET");
+    expect(response!.status).toBe(403);
+    expect(await response!.json()).toMatchObject({ code: "orchestrator_topic_invariant" });
+  });
+
+  it("keeps retained snapshots behind the same raw coordinator fence", async () => {
+    const guarded = createContextPreviewRouter({
+      ...ctx,
+      db: {
+        query: (sql: string) => ({
+          get: (_scope: string, topicId: string) =>
+            sql.includes("global_orchestrator_sessions") && topicId === topic.id
+              ? {
+                  scope: "global",
+                  topic_id: topic.id,
+                  created_at: "2026-09-04T00:00:00.000Z",
+                  updated_at: "2026-09-04T00:00:00.000Z",
+                }
+              : null,
+        }),
+      },
+    } as AppContext);
+    pushSnapshot({
+      topicId: topic.id,
+      sessionKey: topic.sessionKey,
+      providerName: "codex",
+      providerStrategy: "history-aware",
+      systemBlocks: [],
+      history: [],
+      userMessage: { content: "retained board data" },
+      diagnostics: {
+        totalTokens: 0, budgetLimit: 200_000, budgetPercent: 0,
+        droppedHistoryTurns: 0, historyEntries: [], warnings: [], assembledAt: 0,
+      },
+    });
+    const path = `/api/topics/${topic.id}/context-snapshots`;
+
+    for (const method of ["GET", "DELETE"] as const) {
+      const response = await guarded(new Request(url(path), { method }), url(path), path, method);
+      expect(response!.status).toBe(403);
+      expect(await response!.json()).toMatchObject({ code: "orchestrator_topic_invariant" });
+    }
+    expect(getSnapshots(topic.id)).toHaveLength(1);
   });
 
   it("GET /api/topics/:id/context-snapshots starts empty", async () => {

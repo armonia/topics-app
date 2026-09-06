@@ -1013,6 +1013,17 @@ export interface Topic {
   updatedAt: string;
   archived: boolean;
   /**
+   * Transport-only capability marker for the one registry-backed global
+   * Kanban coordinator.  It is projected by the server from
+   * `global_orchestrator_sessions`, never stored on the `topics` row and never
+   * inferred from mutable presentation fields such as name or provider.
+   *
+   * The client uses it only to remove controls that cannot apply to the
+   * coordinator (archive, project binding, provider switching).  The server
+   * still enforces every invariant independently of this display marker.
+   */
+  isGlobalOrchestrator?: boolean;
+  /**
    * ABSENT IN THE LIST. `GET /api/topics` omits it (255 KB across the topics of
    * this machine, for text no list draws) and `GET /api/topics/:id` carries it:
    * whoever EDITS or reads a prompt is looking at one topic. Use

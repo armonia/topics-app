@@ -18,6 +18,7 @@
 
 import { getDatabase } from "../db";
 import { resolveSessionEnvironment } from "../lib/session-environment";
+import { isGlobalOrchestratorTopic } from "../services/global-orchestrator-session";
 import type { AppContext, RouteHandler } from "../types";
 
 /**
@@ -48,6 +49,17 @@ export function createSessionEnvironmentRouter(ctx: AppContext): RouteHandler {
 
     const topic = ctx.getTopicById(params.id);
     if (!topic) return json({ error: "Topic not found" }, 404);
+
+    // The registry-backed coordinator has no project authority. Use the raw
+    // role lookup here (not its eligible board capability): a damaged row with
+    // a project_path must stay unable to read that project's local settings,
+    // hooks, or MCP configuration.
+    if (isGlobalOrchestratorTopic(ctx.db, topic.id)) {
+      return json({
+        error: "the global coordinator cannot inspect a project session environment",
+        code: "orchestrator_topic_invariant",
+      }, 403);
+    }
 
     return json(
       resolveSessionEnvironment({

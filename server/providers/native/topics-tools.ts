@@ -25,7 +25,12 @@
  * pagare nel contesto di ogni chiamata.
  */
 
-import { TOOL_HANDLERS, toolsForProfile, type ParsedArgs } from "../../mcp/topics-mcp-server";
+import {
+  TOOL_HANDLERS,
+  isToolAllowedForProfile,
+  toolsForProfile,
+  type ParsedArgs,
+} from "../../mcp/topics-mcp-server";
 import type { ToolSpec } from "./tools";
 import type { ToolResult } from "./tools";
 
@@ -71,6 +76,12 @@ export async function executeTopicsTool(
   input: Record<string, unknown>,
   ctx: TopicsToolContext,
 ): Promise<ToolResult> {
+  // Tool schemas are only a hint to the model. Enforce the profile again at
+  // execution time so a native runtime cannot call a hidden ordinary-session
+  // operation merely by constructing its name.
+  if (!isToolAllowedForProfile(ctx.profile, name)) {
+    return { content: `tool not available in this session profile: ${name}`, isError: true };
+  }
   const handler = TOOL_HANDLERS[name];
   if (!handler) return { content: `tool sconosciuto: ${name}`, isError: true };
 

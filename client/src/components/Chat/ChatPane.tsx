@@ -134,6 +134,7 @@ function ChatPaneComponent({
 }: ChatPaneProps) {
   const tr = useT();
   const toast = useToast();
+  const isGlobalOrchestrator = topic.isGlobalOrchestrator === true;
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   useEffect(() => { const h = () => setIsMobile(window.innerWidth < 768); window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);
 
@@ -425,13 +426,16 @@ function ChatPaneComponent({
   const latestTodo = useMemo(() => selectLatestTodo(currentMessages), [currentMessages]);
   // 3.4 — l'obiettivo della topic. Quando c'è, è LUI la superficie del piano:
   // vedi l'intestazione di GoalBar per il perché non convivono.
+  // The registry-backed coordinator intentionally has no per-topic goal or
+  // checkpoint lifecycle. Passing null prevents invisible 403 probes against
+  // routes that are correctly reserved for ordinary project conversations.
   const {
     goal,
     declare: declareGoal,
     close: closeGoal,
     promote: promoteGoal,
     stopLoop: stopGoalLoop,
-  } = useGoal(topic.id, onWSMessage);
+  } = useGoal(isGlobalOrchestrator ? null : topic.id, onWSMessage);
   const currentMarkers = getCompactionMarkers?.(topic.sessionKey);
 
   // Chiude il banner della compattazione con l'esito VERO, quando il marcatore
@@ -892,6 +896,10 @@ function ChatPaneComponent({
 
   const handleSlashCommand = useCallback(async (text: string): Promise<boolean> => {
     const cmd = text.toLowerCase().trim();
+    if (isGlobalOrchestrator && cmd.startsWith('/')) {
+      setCommandResult({ type: 'error', message: tr('chat.orchestrator.slashBlocked') });
+      return true;
+    }
     if (cmd === '/status') { setCommandLoading(true); try { const r = await commandApi.status(topic.sessionKey); setCommandResult({ type: 'success', message: r.output || 'Status retrieved' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     if (cmd === '/context') {
       setCommandLoading(true);
@@ -1075,7 +1083,7 @@ function ChatPaneComponent({
     // dispatch the original text to the chat pipeline.
 
     return false;
-  }, [topic.sessionKey, topic.id, loadHistory, goal, declareGoal, closeGoal, confirm, sendMessage, getCompactionMarkers, tr]);
+  }, [topic.sessionKey, topic.id, isGlobalOrchestrator, loadHistory, goal, declareGoal, closeGoal, confirm, sendMessage, getCompactionMarkers, tr]);
 
   // Toggle Fast Mode. Updates: (1) local state for immediate UI feedback,
   // (2) localStorage for cold-boot hydration, (3) server via PUT so other
@@ -1239,12 +1247,12 @@ function ChatPaneComponent({
     const lastUserMsg = [...currentMessages].reverse().find(m => m.role === 'user');
     if (!lastUserMsg) return;
     const opts: { provider?: string; model?: string } = {};
-    if (providerOverride) {
+    if (!isGlobalOrchestrator && providerOverride) {
       opts.provider = providerOverride.provider;
       opts.model = providerOverride.model;
     }
     sendMessage(topic.sessionKey, lastUserMsg.content, Object.keys(opts).length ? opts : undefined);
-  }, [currentMessages, sendMessage, topic.sessionKey, providerOverride]);
+  }, [currentMessages, sendMessage, topic.sessionKey, providerOverride, isGlobalOrchestrator]);
 
   // The brain button has no spinner and no "saved" state, so a swallowed 500
   // drew exactly the same screen as a success: the person believed the snippet
@@ -1323,7 +1331,28 @@ function ChatPaneComponent({
   }, [switchBranch, topic.sessionKey]);
 
   useEffect(() => { if (commandResult) { const t = setTimeout(() => setCommandResult(null), 5000); return () => clearTimeout(t); } }, [commandResult]);
-  useEffect(() => { if (!isFocused) return; const h = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key === 'u') { e.preventDefault(); fileInputRef.current?.click(); } }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [isFocused]);
+  useEffect(() => {
+    if (!isFocused || isGlobalOrchestrator) return;
+    const h = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'u') {
+        e.preventDefault();
+        fileInputRef.current?.click();
+      }
+    };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [isFocused, isGlobalOrchestrator]);
+
+  // The coordinator deliberately has no per-topic attachment or file-context
+  // surface.  Clear any transient state if a live topic projection changes
+  // into the server-registered role, instead of leaving invisible files queued
+  // for the next send.
+  useEffect(() => {
+    if (!isGlobalOrchestrator) return;
+    setPendingFiles([]);
+    setPendingImages([]);
+    setMentionedFiles([]);
+  }, [isGlobalOrchestrator]);
 
   const resizeImageToBase64 = useCallback((file: File, maxDim = 1568): Promise<{ dataUrl: string; mimeType: string }> => {
     return new Promise((resolve, reject) => {
@@ -1343,6 +1372,10 @@ function ChatPaneComponent({
    * silenzio col badge ancora accesso.
    */
   const currentSendOptions = (): SendMessageOptions | undefined => {
+    // The registry-backed coordinator's provider/profile is chosen by the
+    // server. A stale normal-topic preference must not piggyback on a global
+    // Kanban turn while the client is reconnecting or hydrating.
+    if (isGlobalOrchestrator) return undefined;
     const opts: SendMessageOptions = {};
     // Fast Mode is the per-turn signal the server uses to pick the provider's
     // native fast model (see openspec `chat-fast-mode`). We send it whenever the
@@ -1421,10 +1454,17 @@ function ChatPaneComponent({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } sendTyping(message); };
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => { const f = Array.from(e.target.files || []); if (f.length > 0) setPendingFiles(prev => [...prev, ...f]); if (fileInputRef.current) fileInputRef.current.value = ''; };
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!isGlobalOrchestrator) {
+      const f = Array.from(e.target.files || []);
+      if (f.length > 0) setPendingFiles(prev => [...prev, ...f]);
+    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
   const removePendingFile = (i: number) => setPendingFiles(prev => prev.filter((_, idx) => idx !== i));
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    if (isGlobalOrchestrator) return;
     const items = Array.from(e.clipboardData.items); const imgs: File[] = [], others: File[] = [];
     for (const item of items) { if (item.kind === 'file') { const f = item.getAsFile(); if (f) { if (f.type.startsWith('image/')) { imgs.push(f); } else { others.push(f); } } } }
     if (imgs.length > 0) {
@@ -1442,11 +1482,24 @@ function ChatPaneComponent({
       });
     }
     if (others.length > 0) { e.preventDefault(); setPendingFiles(prev => [...prev, ...others]); }
-  }, [resizeImageToBase64, toast, tr]);
+  }, [resizeImageToBase64, isGlobalOrchestrator, toast, tr]);
 
-  const handleFileDragOver = useCallback((e: React.DragEvent) => { if (e.dataTransfer.types.includes(DND_TYPES.PANEL_ID)) return; e.preventDefault(); e.stopPropagation(); setFileDragOver(true); }, []);
+  const handleFileDragOver = useCallback((e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes(DND_TYPES.PANEL_ID)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isGlobalOrchestrator) setFileDragOver(true);
+  }, [isGlobalOrchestrator]);
   const handleFileDragLeave = useCallback((e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); if (!e.currentTarget.contains(e.relatedTarget as Node)) setFileDragOver(false); }, []);
-  const handleFileDrop = useCallback((e: React.DragEvent) => { if (e.dataTransfer.types.includes(DND_TYPES.PANEL_ID)) return; e.preventDefault(); e.stopPropagation(); setFileDragOver(false); const f = Array.from(e.dataTransfer.files); if (f.length > 0) setPendingFiles(prev => [...prev, ...f]); }, []);
+  const handleFileDrop = useCallback((e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes(DND_TYPES.PANEL_ID)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setFileDragOver(false);
+    if (isGlobalOrchestrator) return;
+    const f = Array.from(e.dataTransfer.files);
+    if (f.length > 0) setPendingFiles(prev => [...prev, ...f]);
+  }, [isGlobalOrchestrator]);
 
   // Ref-stable so `MessageBubble`'s memo holds during streaming. These are
   // passed to EVERY visible bubble via MessageList → itemContent; when they were
@@ -1573,7 +1626,7 @@ function ChatPaneComponent({
           next message is written. */}
       <PinnedMessages show={showPinned} pinnedMessages={pinnedMessages} />
       <TaskWorkFoldContext.Provider value={foldTaskWork}>
-      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} onPlanDecision={handlePlanDecision} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onRegenerate={regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onDeleteMessage={deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} composerCentered={composerCentered} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} queuedTurns={messageQueue} onUpdateQueued={handleUpdateQueueItem} onRemoveQueued={handleRemoveQueueItem} onClearQueue={handleClearQueue} onSendQueueNow={handleSendQueueNow} queueBusy={currentStreaming} />
+      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} onPlanDecision={handlePlanDecision} onRemember={isGlobalOrchestrator ? undefined : handleRememberMessage} onEdit={!isGlobalOrchestrator && editMessage ? handleEditMessage : undefined} onRegenerate={!isGlobalOrchestrator && regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onDeleteMessage={!isGlobalOrchestrator && deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={!isGlobalOrchestrator && switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} composerCentered={composerCentered} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} queuedTurns={messageQueue} onUpdateQueued={handleUpdateQueueItem} onRemoveQueued={handleRemoveQueueItem} onClearQueue={handleClearQueue} onSendQueueNow={handleSendQueueNow} queueBusy={currentStreaming} />
       </TaskWorkFoldContext.Provider>
       {/* The composer docks at the bottom with only its natural margin — no
           home-indicator reservation (the user wants minimal bottom space), so it
@@ -1610,7 +1663,7 @@ function ChatPaneComponent({
             onReject={() => handlePlanChoiceFromBar(false)}
           />
         )}
-        {goal ? (
+        {!isGlobalOrchestrator && goal ? (
           <GoalBar
             goal={goal}
             fallback={latestTodo ?? undefined}
@@ -1622,12 +1675,14 @@ function ChatPaneComponent({
         ) : (
           latestTodo && <TodoStrip snapshot={latestTodo} />
         )}
-        <SubAgentsStrip topicSessionKey={topic.sessionKey} />
+        {!isGlobalOrchestrator && <SubAgentsStrip topicSessionKey={topic.sessionKey} />}
         {aboveInputSlot}
-        <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />
+        {!isGlobalOrchestrator && <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />}
         {/* What the agent wrote in this conversation, counted from its own
-            write tool calls: silent in a chat that wrote nothing. */}
-        <ChangedFilesStrip key={topic.id} topic={topic} onWSMessage={onWSMessage} />
+            write tool calls: silent in a chat that wrote nothing. Hidden for the
+            coordinator, which by invariant has no project path and no worktree:
+            its rows would have no tree to open a diff against. */}
+        {!isGlobalOrchestrator && <ChangedFilesStrip key={topic.id} topic={topic} onWSMessage={onWSMessage} />}
         <ChatInput autonomy={autonomy} onAutonomyChange={handleAutonomyChange} isMobile={isMobile} isFocused={isFocused} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} stoppedByUser={currentStoppedByUser} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { void stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError[topic.sessionKey] ?? null} sendMessageDirect={async (c: string) => {
           // Passa dall'imbuto degli slash: il bottone «Compact now» e
           // l'azione dell'anello mandavano `/compact` come messaggio nudo,

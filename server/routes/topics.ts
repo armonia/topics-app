@@ -24,6 +24,12 @@ import { markTargetNotificationsSeen, countUnseenNotifications } from "../db/not
 import { classifyContext, windowForMeasure } from "../usage/context-window";
 import { contextUpdateFromUsage } from "../usage/usage-update";
 import { createTaskService } from "../services/tasks";
+import {
+  isEligibleGlobalOrchestratorSession,
+  isGlobalOrchestratorSession,
+  isGlobalOrchestratorTopic,
+  presentGlobalOrchestratorTopic,
+} from "../services/global-orchestrator-session";
 import { persistAgentTaskTab, attachLoginHandleToTaskTab } from "../services/task-tab-persist";
 import { matchProjectRefAll, type ProjectRefCandidate } from "../lib/project-ref";
 import { shouldHonorClearMessages } from "../../shared/clear-messages-policy";
@@ -508,6 +514,13 @@ export function createTopicsRouter(
   /** Look up the topic owning a sessionKey and resolve its provider. */
   function providerForSessionKey(sessionKey: string): AIProvider {
     const topic = getTopicBySessionKey(sessionKey);
+    if (topic && isGlobalOrchestratorTopic(db, topic.id)) {
+      if (!isEligibleGlobalOrchestratorSession(db, sessionKey)) {
+        throw new Error("global coordinator topic invariant violated");
+      }
+      // The coordinator never inherits the mutable/default provider choice.
+      return getProvider("codex");
+    }
     return resolveProvider(topic);
   }
 
@@ -685,6 +698,10 @@ export function createTopicsRouter(
   function bindTopicToProject(topicId: string, targetDir: string, opts?: { focus?: boolean }): boolean {
     const t = getTopicById(topicId);
     if (!t) return false;
+    // The singleton is an ordinary Topic, but deliberately has no project
+    // authority. Keep this at the one binding gateway so a future caller
+    // cannot accidentally couple it to a selected card or board.
+    if (isGlobalOrchestratorTopic(db, t.id)) return false;
     // Un progetto e' una CARTELLA. Il cancello sta qui, alla porta, e non sugli
     // otto chiamanti: metterlo li' vorrebbe dire dimenticarne uno, e quello
     // dimenticato sarebbe il buco. Un path che non esiste passa — puo' essere
@@ -736,6 +753,10 @@ export function createTopicsRouter(
    * Runs server-side without needing a second LLM call.
    */
   function autoBindProject(topic: Topic): void {
+    // The coordinator is an intentionally unbound ordinary Topic. Its registry
+    // grants narrow global board tools; heuristic message text must never turn
+    // that into a selected-project/session authority.
+    if (isGlobalOrchestratorTopic(db, topic.id)) return;
     if (topic.projectPath) return; // already bound
     const localMsgs = loadLocalMessages(topic.sessionKey);
     if (localMsgs.length < 2) return; // need at least 1 user + 1 assistant
@@ -1252,10 +1273,24 @@ export function createTopicsRouter(
           return json({ error: "invalid sessionKey" }, 400);
         }
 
+        // Adopting means "make this an ordinary interactive chat", which is the
+        // one thing the coordinator's Topic must never become: the branch below
+        // would bind it to a project on the way out. The canonical Kanban
+        // endpoint stays the only door to that row.
+        if (isGlobalOrchestratorSession(db, sessionKey)) {
+          return json({
+            error: "the global coordinator is not an adoptable cloud session; open it from the Kanban",
+            code: "orchestrator_topic_invariant",
+          }, 403);
+        }
+
         const existing = getTopicBySessionKey(sessionKey);
         if (existing) {
           if (existing.projectPath) bindTopicToProject(existing.id, existing.projectPath, { focus: true });
-          return json(existing, 200);
+          // The role marker is server-projected on every Topic that leaves the
+          // server, this route included: an ordinary payload must not carry a
+          // stale or forged `isGlobalOrchestrator` either.
+          return json(presentGlobalOrchestratorTopic(db, existing), 200);
         }
 
         const id = crypto.randomUUID();
@@ -1292,14 +1327,14 @@ export function createTopicsRouter(
 
         if (!out.created) {
           if (out.topic.projectPath) bindTopicToProject(out.topic.id, out.topic.projectPath, { focus: true });
-          return json(out.topic, 200);
+          return json(presentGlobalOrchestratorTopic(db, out.topic), 200);
         }
 
         broadcastToAll({ type: "topic:created", topic: out.topic });
         // Scope to its project (open + nest) when one was resolved; otherwise the
         // caller opens it as a standalone cloud chat.
         if (projectDir) bindTopicToProject(out.topic.id, projectDir, { focus: true });
-        return json(out.topic, 201);
+        return json(presentGlobalOrchestratorTopic(db, out.topic), 201);
       } catch (err: any) {
         console.warn("[adopt] failed:", err);
         return json({ error: `adopt failed: ${err?.message || String(err)}` }, 500);
@@ -1432,6 +1467,47 @@ export function createTopicsRouter(
         const data = loadTopics();
         const topic = data.topics[params.id];
         if (!topic) return json({ error: "not found" }, 404);
+        const globalOrchestrator = isGlobalOrchestratorTopic(db, topic.id);
+        // A raw registry role can survive a manual/provider corruption, but it
+        // must never degrade into an ordinary mutable chat. In particular,
+        // model/effort/autonomy changes refresh a provider process below. Keep
+        // those side effects behind the usable-capability check; the canonical
+        // Kanban ensure endpoint is the sole recovery path for the role.
+        if (globalOrchestrator && !isEligibleGlobalOrchestratorSession(db, topic.sessionKey)) {
+          // Keep the same harmless presentation controls the marked client
+          // exposes even while a damaged registry Topic is awaiting canonical
+          // recovery.  In particular, Settings intentionally permits mute.
+          const benignPresentationKeys = new Set(["name", "color", "icon", "muted"]);
+          const attemptedOperationalChange = Object.keys(body).some(
+            (key) => !benignPresentationKeys.has(key),
+          );
+          if (attemptedOperationalChange) {
+            return json({
+              error: "global coordinator integrity is invalid; reopen it from the Kanban before changing its operational settings",
+              code: "orchestrator_topic_invariant",
+            }, 409);
+          }
+        }
+        if (globalOrchestrator && (
+          body.systemPrompt !== undefined
+          || body.projectPath !== undefined
+          || body.worktreeId !== undefined
+          || body.parentId !== undefined
+          // The same door the context-file routes already close. `/api/media`
+          // refuses the coordinator generic context storage with a 403, and
+          // this PATCH wrote the list straight onto the row a few lines below:
+          // one guard was doing the work of two, and the second entrance was
+          // open. An attachment is exactly the ordinary-topic capability the
+          // coordinator does not get.
+          || body.contextFiles !== undefined
+          || (body.provider !== undefined && body.provider !== "codex")
+          || (Array.isArray(body.disabledContextSources) && body.disabledContextSources.includes("prompt:system"))
+        )) {
+          return json({
+            error: "the global coordinator keeps a server-owned enabled prompt, takes no attached context files, stays Codex-only, and must remain an unbound top-level Topic",
+            code: "orchestrator_topic_invariant",
+          }, 403);
+        }
         // typeof guard: a non-string name here would set topic.name to garbage
         // and then 500 inside slugify() (.toLowerCase()), after the mutation.
         if (typeof body.name === "string" && body.name) { topic.name = body.name; topic.slug = slugify(body.name); }
@@ -1584,12 +1660,18 @@ export function createTopicsRouter(
           try { broadcastContextForModelChange(topic); }
           catch (err) { console.warn(`[topics] context re-broadcast failed for ${topic.sessionKey}:`, err); }
         }
-        return json(topic);
+        return json(presentGlobalOrchestratorTopic(db, topic));
       }
 
       if (params && method === "DELETE") {
         const topic = getTopicById(params.id);
         if (!topic) return json({ error: "not found" }, 404);
+        if (isGlobalOrchestratorTopic(db, topic.id)) {
+          return json({
+            error: "the global coordinator is a durable Topic and cannot be archived from this route",
+            code: "orchestrator_topic_invariant",
+          }, 403);
+        }
         let archive = true;
         try { const body = await req.json(); if (typeof body.archived === 'boolean') archive = body.archived; } catch {}
         if (archive) {
@@ -1633,7 +1715,7 @@ export function createTopicsRouter(
         // successivo il riconcilio richiuderebbe la chat appena riaperta —
         // con l'utente dentro.
         clearRetirement(ctx.db, "topic", params.id);
-        return json(topic);
+        return json(presentGlobalOrchestratorTopic(db, topic));
       }
     }
 
@@ -1649,6 +1731,10 @@ export function createTopicsRouter(
       const updatedTopics: Topic[] = [];
       const now = new Date().toISOString();
       for (const topic of Object.values(data.topics)) {
+        // A globally registered coordinator stays durable even if a manual DB
+        // corruption gave it a matching project path. Bulk archive is project
+        // lifecycle control, not a path around the coordinator invariant.
+        if (isGlobalOrchestratorTopic(db, topic.id)) continue;
         if (topic.projectPath === projectPath) {
           topic.archived = archived;
           topic.updatedAt = now;
@@ -1851,13 +1937,16 @@ export function createTopicsRouter(
     {
       const bySession = matchRoute(pathname, "/api/sessions/:sessionKey/move-to-project");
       if (bySession && method === "POST") {
+        const sk = decodeURIComponent(bySession.sessionKey);
+        if (isGlobalOrchestratorSession(db, sk)) {
+          return json({ error: "the global coordinator cannot be moved into a project", code: "orchestrator_topic_invariant" }, 403);
+        }
         const body = (await readJSON(req)) as { projectPath?: unknown } | null;
         const rawPath = typeof body?.projectPath === "string" ? body.projectPath : "";
         if (!rawPath) return json({ error: "projectPath (string) is required" }, 400);
         const dir = resolveProjectRef(rawPath, { trustRawPaths: true });
         if (!dir) return json({ error: "project path does not exist" }, 404);
 
-        const sk = decodeURIComponent(bySession.sessionKey);
         const term = getTerminalSessionById(sk);
         if (!term) {
           return json({ error: "move-to-project supports terminal tabs only; use bind-project for chat topics" }, 400);
@@ -1908,6 +1997,15 @@ export function createTopicsRouter(
       const newM = matchRoute(pathname, "/api/sessions/:sessionKey/new-topic");
       const createM = matchRoute(pathname, "/api/sessions/:sessionKey/create-project");
       const openM = matchRoute(pathname, "/api/sessions/:sessionKey/open-project");
+      const topicControlSession = switchM ?? newM ?? createM ?? openM;
+
+      if (topicControlSession && method === "POST"
+        && isGlobalOrchestratorSession(db, decodeURIComponent(topicControlSession.sessionKey))) {
+        return json({
+          error: "the global coordinator has no project or topic-control authority",
+          code: "orchestrator_topic_invariant",
+        }, 403);
+      }
 
       if (switchM && method === "POST") {
         const skRaw = decodeURIComponent(switchM.sessionKey);
@@ -2049,7 +2147,11 @@ export function createTopicsRouter(
       if (params && method === "GET") {
         const topic = getTopicById(params.id);
         if (!topic) return json({ error: "Topic not found" }, 404);
-        return json({ topic });
+        // `getTopicById` builds the row without relations, so the coordinator
+        // marker is projected here: the settings modal hydrates the open topic
+        // from this read, and without the marker its archive/provider/prompt
+        // controls would silently unlock.
+        return json({ topic: presentGlobalOrchestratorTopic(db, topic) });
       }
     }
 
@@ -2192,6 +2294,13 @@ export function createTopicsRouter(
       const body = await readJSON(req);
       const sessionKey = body?.sessionKey;
       if (!sessionKey) return json({ error: "sessionKey required" }, 400);
+      const rawGlobalAbort = isGlobalOrchestratorSession(db, sessionKey);
+      if (rawGlobalAbort && !isEligibleGlobalOrchestratorSession(db, sessionKey)) {
+        return json({
+          error: "the global coordinator topic invariant is violated",
+          code: "orchestrator_topic_invariant",
+        }, 409);
+      }
 
       const stream = activeStreams.get(sessionKey);
 
@@ -2199,7 +2308,15 @@ export function createTopicsRouter(
       // instead of a full topics scan per /api/chat/abort hit.
       const abortTopic = getTopicBySessionKey(sessionKey);
       const topicId: string | undefined = abortTopic?.id;
-      const abortProvider = resolveProvider(abortTopic);
+      let abortProvider: AIProvider;
+      try {
+        // A healthy coordinator may be stopped, but never through a mutable
+        // provider/default resolution. A corrupt one exited above before any
+        // provider operation could reach OpenClaw or another runtime.
+        abortProvider = rawGlobalAbort ? getProvider("codex") : resolveProvider(abortTopic);
+      } catch (err) {
+        return json({ error: `provider unavailable: ${err instanceof Error ? err.message : String(err)}` }, 503);
+      }
 
       // `clearMessages` è una PROPOSTA del client, non un ordine, e la risposta
       // — il campo `cleared` — è ciò che autorizza il client a svuotare la
@@ -2338,6 +2455,16 @@ export function createTopicsRouter(
       const response = body?.response;
       if (!sessionKey || !toolCallId || !response || typeof response.kind !== 'string') {
         return errorResponse(400, "sessionKey, toolCallId, and response{kind,...} required");
+      }
+      // The global coordinator deliberately exposes no approval/elicitation
+      // tools. Do not let a direct request reach the generic provider-resume
+      // path, especially if a raw registry row has been corrupted to another
+      // provider.
+      if (isGlobalOrchestratorSession(db, sessionKey)) {
+        return json({
+          error: "the global coordinator does not accept generic tool responses",
+          code: "orchestrator_topic_invariant",
+        }, 403);
       }
 
       // --- Bridge ask path: mcp__topics__ask_user_question ---
@@ -2572,6 +2699,13 @@ export function createTopicsRouter(
       const body = await readJSON(req);
       if (!body?.command || !body?.sessionKey) return json({ error: "command and sessionKey required" }, 400);
       const { command, sessionKey, args } = body;
+      const isGlobalCoordinatorCommand = isGlobalOrchestratorSession(db, sessionKey);
+      if (isGlobalCoordinatorCommand && !isEligibleGlobalOrchestratorSession(db, sessionKey)) {
+        return json({
+          error: "the global coordinator topic invariant is violated",
+          code: "orchestrator_topic_invariant",
+        }, 409);
+      }
       try {
         switch (command) {
           case "status": {
@@ -2610,7 +2744,7 @@ export function createTopicsRouter(
             const modelName = args?.model;
             if (!modelName) return json({ error: "model name required" }, 400);
             // Il provider DICHIARATO, non quello risolto: vedi declaredProviderName.
-            if (commandRoutesThroughGateway(sessionKey)) {
+            if (!isGlobalCoordinatorCommand && commandRoutesThroughGateway(sessionKey)) {
               const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" }, body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: `/model ${modelName}` }] }) });
               if (!resp.ok) return json({ error: "Failed to set model" }, 500);
               return json({ ok: true, command: "model", model: modelName, message: `Model set to: ${modelName}` });
@@ -2637,7 +2771,7 @@ export function createTopicsRouter(
             // `--effort`). openclaw has no effort tier → route through /reasoning.
             const tier = String(args?.level || args?.effort || "").trim().toLowerCase();
             const VALID_EFFORTS = new Set<string>(EFFORT_TIERS);
-            if (commandRoutesThroughGateway(sessionKey)) {
+            if (!isGlobalCoordinatorCommand && commandRoutesThroughGateway(sessionKey)) {
               return json({ error: "L'effort non si applica a questo provider. Usa /reasoning." }, 400);
             }
             if (!tier || !VALID_EFFORTS.has(tier)) {
@@ -2658,7 +2792,7 @@ export function createTopicsRouter(
           }
           case "reasoning": {
             const level = args?.level || "on";
-            if (commandRoutesThroughGateway(sessionKey)) {
+            if (!isGlobalCoordinatorCommand && commandRoutesThroughGateway(sessionKey)) {
               const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" }, body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: `/reasoning ${level}` }] }) });
               if (!resp.ok) return json({ error: "Failed to toggle reasoning" }, 500);
               const text = await resp.text();
@@ -2673,6 +2807,12 @@ export function createTopicsRouter(
             const value = (args?.value || "").trim();
             const topic = getTopicBySessionKey(sessionKey);
             if (!topic) return json({ error: "No topic found for this session" }, 404);
+            if (isGlobalOrchestratorTopic(db, topic.id)) {
+              return json({
+                error: "the global coordinator has no project-control authority",
+                code: "orchestrator_topic_invariant",
+              }, 403);
+            }
 
             if (sub === "create") {
               if (!value) return json({ error: "/project create <name> requires a project name" }, 400);
@@ -2729,6 +2869,12 @@ export function createTopicsRouter(
     if (method === "GET" && pathname === "/api/processes") {
       const topicId = url.searchParams.get("topicId");
       if (!topicId) return json({ error: "topicId parameter required" }, 400);
+      if (isGlobalOrchestratorTopic(db, topicId)) {
+        return json({
+          error: "the global coordinator cannot enumerate generic processes",
+          code: "orchestrator_topic_invariant",
+        }, 403);
+      }
       try {
         const procProvider = resolveProvider(getTopicById(topicId));
         let result: any;
@@ -2747,6 +2893,9 @@ export function createTopicsRouter(
     {
       const params = matchRoute(pathname, "/api/topics/:topicId/project-id");
       if (params && method === "GET") {
+        if (isGlobalOrchestratorTopic(db, params.topicId)) {
+          return json({ error: "Topic has no project" }, 400);
+        }
         const projectId = getProjectIdForTopic(params.topicId);
         if (!projectId) return json({ error: "Topic has no project" }, 400);
         return json({ projectId });

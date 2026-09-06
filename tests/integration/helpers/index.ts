@@ -19,8 +19,8 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import path from "node:path";
-import type { AppContext } from "../../../server/types";
 import { closeDatabase } from "../../../server/db";
+import type { AppContext } from "../../../server/types";
 
 /**
  * Absolute path to the topics-app repo root, computed once from this
@@ -94,20 +94,17 @@ export function setupTestDataDir(testDataDir: string): void {
         `Usa: const ROOT = testTmpDir("<label>")`,
     );
   }
+  // Hand back the previous file's handle BEFORE moving DATA_DIR. `server/db.ts`
+  // keeps `_db` in a PROCESS singleton and a shard runs hundreds of files in
+  // one process, so an open handle survives the file that opened it: the next
+  // `createTestAppContext` gets THAT database, under this file's name, with the
+  // previous file's rows still in it. Until now the isolation this helper
+  // promises rested on every previous file remembering `cleanupTestDataDir`,
+  // and 18 of the 46 files that use it do not. Closing here makes the promise
+  // hold whatever the neighbours do, and closing is idempotent.
+  closeDatabase();
   fs.rmSync(testDataDir, { recursive: true, force: true });
   process.env.DATA_DIR = testDataDir;
-  // AND the handle of whoever came before is closed here, not only in their
-  // own afterAll. `initDatabase` returns the cached `_db` WITHOUT looking at
-  // DATA_DIR, so a file that opened the database and never closed it hands the
-  // next one its own rows: the boot list of a file that seeded three topics
-  // answers with somebody else's. That is not a hypothesis, it is what turned
-  // `topics-list-weight` red twice on 2026-09-06 (first assertion, wrong topic
-  // count) while it stayed green alone and green in shard order: which files
-  // share a shard changes from run to run, so the pollution is a lottery.
-  // Closing on SETUP makes the isolation the file's own business instead of
-  // depending on the discipline of whoever ran before it. `closeDatabase` is
-  // idempotent.
-  closeDatabase();
 }
 
 /**

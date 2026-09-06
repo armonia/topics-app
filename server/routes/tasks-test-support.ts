@@ -17,7 +17,24 @@ import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schem
 export function freshDb(): Database {
   const db = new Database(":memory:");
   db.run("PRAGMA foreign_keys = ON");
-  db.run(`CREATE TABLE topics (id TEXT PRIMARY KEY)`);
+  db.run(`CREATE TABLE topics (
+    id TEXT PRIMARY KEY,
+    session_key TEXT UNIQUE,
+    project_path TEXT,
+    worktree_id TEXT,
+    parent_id TEXT,
+    provider TEXT
+  )`);
+  // The global coordinator role is deliberately table-backed. Keeping this in
+  // the shared route harness lets focused wrapper tests exercise the same
+  // session-key join used in production, without granting anything to the
+  // ordinary fake topics below.
+  db.run(`CREATE TABLE global_orchestrator_sessions (
+    scope TEXT PRIMARY KEY CHECK (scope = 'global'),
+    topic_id TEXT NOT NULL UNIQUE REFERENCES topics(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`);
   db.run(TASKS_DDL);
   db.run(TASKS_FK_STUBS_DDL);
   db.run(TASK_LABELS_DDL); // migration 100 — rowToTask la legge per OGNI task
@@ -81,14 +98,23 @@ export const SESSIONS: Record<string, { projectPath: string; name: string; topic
   sCatch: { projectPath: "/home/.openclaw/workspace/tasks/abc123", name: "generale-agent", topicId: "top-catch" },
 };
 
-export function makeCtx(db: Database, broadcasts: unknown[]) {
+export function makeCtx(
+  db: Database,
+  broadcasts: unknown[],
+  extraSessions: Record<string, { projectPath: string; name: string; topicId?: string }> = {},
+) {
   return {
     db,
     json: (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } }),
     readJSON: (req: Request) => req.json(),
     matchRoute,
     broadcastToAll: (m: unknown) => { broadcasts.push(m); },
-    getTopicBySessionKey: (sk: string) => (SESSIONS[sk] ? ({ id: SESSIONS[sk].topicId, projectPath: SESSIONS[sk].projectPath, name: SESSIONS[sk].name } as unknown as ReturnType<AppContext["getTopicBySessionKey"]>) : null),
+    getTopicBySessionKey: (sk: string) => {
+      const session = SESSIONS[sk] ?? extraSessions[sk];
+      return session
+        ? ({ id: session.topicId, projectPath: session.projectPath, name: session.name } as unknown as ReturnType<AppContext["getTopicBySessionKey"]>)
+        : null;
+    },
     // La potatura di un tentativo perdente archivia la sua chat. Qui non ci sono
     // chat vere: lo stub dice «non c'è» invece di lasciare che il `catch` di
     // `reapAttemptWorkspace` stampi un TypeError per ogni perdente.

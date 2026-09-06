@@ -44,7 +44,8 @@ export type SystemSlotId =
   | "memory"
   | "pinned"
   | "goal"
-  | "plan-mode";
+  | "plan-mode"
+  | "global-board";
 
 export interface SystemSlot {
   slot: SystemSlotId;
@@ -65,6 +66,7 @@ const SLOT_LABELS: Record<SystemSlotId, string> = {
   pinned: "pinned messages",
   goal: "goal",
   "plan-mode": "plan mode",
+  "global-board": "global board snapshot",
 };
 
 /**
@@ -72,7 +74,7 @@ const SLOT_LABELS: Record<SystemSlotId, string> = {
  * Plan mode costs a few hundred tokens and is worth restating on every turn it
  * is active, rather than trusting the model to remember it.
  */
-const VOLATILE_SLOTS: ReadonlySet<SystemSlotId> = new Set<SystemSlotId>(["plan-mode"]);
+const VOLATILE_SLOTS: ReadonlySet<SystemSlotId> = new Set<SystemSlotId>(["plan-mode", "global-board"]);
 
 /** Same estimate as the rest of the envelope (`SystemBlock.tokens`). */
 function estimateTokens(text: string): number {
@@ -402,6 +404,12 @@ export function composeSystemSlots(blocks: SystemBlock[]): SystemSlot[] {
   // ── 10. Plan mode ──
   const plan = enabled.find((b) => b.id === "synthetic:plan-mode");
   if (plan) push("plan-mode", plan.content);
+
+  // Fresh SQLite board state for the one registry-backed coordinator. It gets
+  // its own volatile slot so an inline CLI session never suppresses a new (or
+  // coincidentally same-hash) snapshot as if it were a static document.
+  const globalBoard = enabled.find((b) => b.id === "synthetic:global-board-snapshot");
+  if (globalBoard) push("global-board", globalBoard.content);
 
   return messages;
 }

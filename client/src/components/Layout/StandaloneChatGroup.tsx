@@ -27,6 +27,7 @@ import { persistBrowserPaneUrl, persistBrowserPaneTitle, setBrowserPaneUserTitle
 import { TERMINAL_AGENT_LABELS, normalizeTerminalAgent } from '../../lib/terminalAgents';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
+import { orchestratorSessionsApi } from '../../lib/api';
 import { ProjectWindowPane } from './ProjectWindow';
 import { getProjectName, hashToColor } from './projectColors';
 import { usePaneOrdering } from './hooks/usePaneOrdering';
@@ -512,6 +513,19 @@ export function StandaloneChatGroup({
     window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId } }));
   }, []);
 
+  // The global board does not own a second chat surface. It asks the server for
+  // the durable ordinary Topic, then enters it through the same app-level panel
+  // lifecycle as every other standalone chat.
+  const openGlobalOrchestrator = useCallback(async () => {
+    const { topicId, topic } = await orchestratorSessionsApi.ensureGlobal();
+    window.dispatchEvent(new CustomEvent('topics:open-topic', {
+      // Passing the returned normal Topic closes the WebSocket race: a newly
+      // created coordinator can open immediately even while this window is
+      // reconnecting and has not yet received topic:created.
+      detail: { topicId, topic, mode: 'permanent' },
+    }));
+  }, []);
+
   if (validatedOrderedIds.length === 0) return null;
   // NOTE: we deliberately do NOT bail the whole group when the ACTIVE pane is
   // unrenderable (e.g. a chat whose topic no longer resolves). That old bail —
@@ -741,7 +755,15 @@ export function StandaloneChatGroup({
         <LazyPane>
           {utilityType === 'dashboard' && <DashboardPane onMessage={onWSMessage} />}
           {utilityType === 'cron' && <CronJobsPanel />}
-          {utilityType === 'board' && <KanbanBoardPane global onMessage={onWSMessage} loadHistory={loadHistory} onOpenTopic={openTopicFromBoard} />}
+          {utilityType === 'board' && (
+            <KanbanBoardPane
+              global
+              onMessage={onWSMessage}
+              loadHistory={loadHistory}
+              onOpenTopic={openTopicFromBoard}
+              onOpenGlobalOrchestrator={openGlobalOrchestrator}
+            />
+          )}
           {utilityType === 'profile' && <ProfilePane />}
         </LazyPane>
       );

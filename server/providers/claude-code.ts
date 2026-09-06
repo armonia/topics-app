@@ -67,6 +67,7 @@ import { cancelled, classifyResultEvent } from "./stop-reason";
 import { warnThrottled } from "../lib/warn-throttled";
 import { clearSessionCliPid, setSessionCliPid } from "./session-pids";
 import { defaultChatModel, discoverClaudeModels } from "./claude-models";
+import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 
 // ============ Config ============
 
@@ -83,6 +84,26 @@ export interface ClaudeCodeProviderConfig {
  *  restano dov'erano: pagarli come una chat non serve a nessuno. */
 const DEFAULT_ONESHOT_MODEL = "claude-sonnet-5";
 const DEFAULT_PERMISSION_MODE = "bypassPermissions";
+
+/**
+ * A registry row remains meaningful even if its Topic no longer satisfies the
+ * Codex-only coordinator shape. Claude Code is never its provider, even while
+ * the Topic is otherwise healthy: otherwise a direct call could create a
+ * generic Claude process (and its MCP config/workspace) after the HTTP chat
+ * gate rejected it.
+ *
+ * Unit tests and the earliest provider bootstrap can run before the database
+ * exists; in that case there is no durable role to classify and ordinary
+ * provider behavior remains unchanged.
+ */
+function isRawGlobalCoordinator(sessionKey: string): boolean {
+  try {
+    const db = getDatabase();
+    return isGlobalOrchestratorSession(db, sessionKey);
+  } catch {
+    return false;
+  }
+}
 
 const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000;   // 15 min
 // Tetto di vita del figlio CLI. NON conta il tempo in cui la palla è
@@ -368,11 +389,24 @@ export function topicsMcpBridgeSpec(sessionKey: string, profile?: string): { com
 
 export function writeMcpConfigForSession(
   sessionKey: string,
-  opts?: { mcpPolicy?: string | null },
+  opts?: { mcpPolicy?: string | null; profile?: "global-orchestrator" },
 ): { path: string; strict: boolean } {
   try {
     mkdirSync(MCP_CONFIG_DIR, { recursive: true });
   } catch { /* race-tolerant */ }
+  // The registry-owned global coordinator is never inferred from mcp_policy.
+  // It receives just its five registry-gated board tools, and no inherited MCP
+  // fleet. The strict config is defense in depth: tool discovery cannot leak a
+  // broad capability into the coordinator's ordinary Topic conversation.
+  // Only CodexProvider asks for this profile: this provider refuses the
+  // coordinator outright (see `isRawGlobalCoordinator`).
+  if (opts?.profile === "global-orchestrator") {
+    const config = { mcpServers: { topics: topicsMcpBridgeSpec(sessionKey, "global-orchestrator") } };
+    const path = mcpConfigPathForSession(sessionKey);
+    writeFileSync(path, JSON.stringify(config, null, 2), { encoding: "utf-8", mode: 0o600 });
+    try { chmodSync(path, 0o600); } catch { /* best-effort */ }
+    return { path, strict: true };
+  }
   // 'bridge-only' (dispatched board agents, topics.mcp_policy, migration 049):
   // the session gets ONLY the topics bridge, spawned with the dispatch tool
   // profile, and strict unconditionally — the global fleet's tool schemas are
@@ -1322,6 +1356,14 @@ export class ClaudeCodeProvider implements AIProvider {
     handler: StreamHandler,
     options?: { model?: string; resetFallbackContent?: string; fastMode?: boolean },
   ): Promise<{ runId?: string }> {
+    if (isRawGlobalCoordinator(sessionKey)) {
+      // Do not enqueue or re-use a generic persistent process.  The only
+      // supported provider for this role is Codex; the explicit server-owned
+      // Kanban ensure route restores that identity if the row is damaged.
+      handler.onError("Global coordinator is Codex-only; reopen it from the Kanban.");
+      return { runId: undefined };
+    }
+
     // Serial queue: prevent concurrent stdin writes per session
     const prev = this.queues.get(sessionKey) ?? Promise.resolve();
     let resolveQueue!: () => void;
@@ -1936,6 +1978,12 @@ export class ClaudeCodeProvider implements AIProvider {
   }
 
   private spawnPersistentProcess(sessionKey: string): PersistentProcess {
+    // Defense in depth for any future/direct internal caller that bypasses
+    // `sendChat`: this provider must never create a process for the registry
+    // role, healthy or corrupt. CodexProvider is the sole execution path.
+    if (isRawGlobalCoordinator(sessionKey)) {
+      throw new Error("Global coordinator is Codex-only");
+    }
     // Per-topic overrides (model + effort) win over the global config; both
     // are spawn-time CLI flags, so the PATCH handler forces a respawn via
     // refreshSessionConfig when either changes.

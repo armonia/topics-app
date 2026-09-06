@@ -84,13 +84,33 @@ function getMimeType(p: string): string {
  *  non conosce, e sotto di essa regge solo l'asse dell'estensione. */
 const blindMimeType = () => "application/octet-stream";
 
-function router(mime: (p: string) => string = getMimeType) {
+type ContextTopic = { id: string; contextFiles?: string[]; updatedAt?: string };
+type MediaRouterOptions = {
+  topics?: Map<string, ContextTopic>;
+  rawGlobalTopicIds?: ReadonlySet<string>;
+};
+
+function router(mime: (p: string) => string = getMimeType, options: MediaRouterOptions = {}) {
+  // Context upload is intentionally Topic-bound. Keep one normal target by
+  // default so the ordinary positive upload tests exercise the real path.
+  const topics = options.topics ?? new Map<string, ContextTopic>([["t-1", { id: "t-1", contextFiles: [] }]]);
+  const rawGlobalTopicIds = options.rawGlobalTopicIds ?? new Set<string>();
   const ctx = {
+    // The registry helper only needs this raw id lookup. It deliberately does
+    // not model eligibility: a damaged global row is still a role that must be
+    // denied before this route reaches the filesystem.
+    db: {
+      query: () => ({
+        get: (_scope: string, topicId: string) => rawGlobalTopicIds.has(topicId)
+          ? { scope: "global", topic_id: topicId, created_at: "now", updated_at: "now" }
+          : null,
+      }),
+    },
     json: (data: unknown, status = 200) =>
       new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } }),
     readJSON: async (req: Request) => { try { return await req.json(); } catch { return null; } },
-    getTopicById: () => null,
-    saveSingleTopic: () => {},
+    getTopicById: (topicId: string) => topics.get(topicId) ?? null,
+    saveSingleTopic: (topic: ContextTopic) => { topics.set(topic.id, topic); },
     // `/api/media` serve solo ciò che sta nella cartella consentita del test.
     isPathAllowed: (p: string) => resolve(p).startsWith(mediaDir),
     resolveProjectPath: () => null,
@@ -120,15 +140,32 @@ async function upload(
 async function contextUpload(
   file: File,
   topicId = "t-1",
+  options?: MediaRouterOptions,
 ): Promise<{ status: number; body: { path?: string; error?: string } }> {
   const fd = new FormData();
   fd.append("file", file);
   fd.append("topicId", topicId);
   const req = new Request("http://localhost/api/context-upload", { method: "POST", body: fd });
   const url = new URL(req.url);
-  const res = await router()(req, url, url.pathname, "POST");
+  const res = await router(getMimeType, options)(req, url, url.pathname, "POST");
   if (!res) throw new Error("la rotta non ha risposto");
   return { status: res.status, body: (await res.json()) as { path?: string; error?: string } };
+}
+
+async function contextDelete(
+  topicId: string,
+  filePath: string,
+  options?: MediaRouterOptions,
+): Promise<{ status: number; body: { error?: string; code?: string } }> {
+  const req = new Request("http://localhost/api/context-file", {
+    method: "DELETE",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ topicId, filePath }),
+  });
+  const url = new URL(req.url);
+  const res = await router(getMimeType, options)(req, url, url.pathname, "DELETE");
+  if (!res) throw new Error("la rotta non ha risposto");
+  return { status: res.status, body: (await res.json()) as { error?: string; code?: string } };
 }
 
 async function fetchMedia(path: string, range?: string): Promise<Response> {
@@ -405,6 +442,66 @@ describe("/api/context-upload · la SECONDA porta, stessa regola", () => {
       expect(`${name}→${r.status}`).toBe(`${name}→200`);
     }
     expect(contextFiles()).toHaveLength(4);
+  });
+
+  test("requires an existing Topic before deriving or creating a context directory", async () => {
+    // A well-formed id that names nobody: the single-segment guard above has
+    // already answered 400 for the shapes that try to walk out, so this one is
+    // about the OTHER half of the door. No directory is created for a Topic
+    // that does not exist, which is how a phantom sibling of the context root
+    // used to appear from a multipart field alone.
+    const unknownId = "topic-that-does-not-exist";
+    const r = await contextUpload(new File(["x"], "nota.txt"), unknownId);
+
+    expect(r.status).toBe(404);
+    expect(existsSync(join(contextDir, unknownId))).toBe(false);
+    expect(contextFiles()).toHaveLength(0);
+  });
+
+  test("contains even a corrupt stored Topic id before filesystem effects", async () => {
+    const topics = new Map<string, ContextTopic>([
+      ["crafted", { id: "../outside-context-root", contextFiles: [] }],
+    ]);
+    const escaped = resolve(contextDir, "../outside-context-root");
+    const r = await contextUpload(new File(["x"], "nota.txt"), "crafted", { topics });
+
+    expect(r.status).toBe(400);
+    expect(existsSync(escaped)).toBe(false);
+  });
+
+  test("raw registered coordinator cannot upload or delete generic context files", async () => {
+    const topicId = "global-coordinator";
+    const existing = join(contextDir, topicId, "already-there.txt");
+    mkdirSync(join(contextDir, topicId), { recursive: true });
+    writeFileSync(existing, "kept");
+    const topic: ContextTopic = { id: topicId, contextFiles: [existing] };
+    const options: MediaRouterOptions = {
+      topics: new Map([[topicId, topic]]),
+      rawGlobalTopicIds: new Set([topicId]),
+    };
+
+    const upload = await contextUpload(new File(["x"], "nota.txt"), topicId, options);
+    expect(upload.status).toBe(403);
+    expect(contextFiles(topicId)).toEqual(["already-there.txt"]);
+    expect(topic.contextFiles).toEqual([existing]);
+
+    const deletion = await contextDelete(topicId, existing, options);
+    expect(deletion.status).toBe(403);
+    expect(deletion.body.code).toBe("orchestrator_topic_invariant");
+    expect(topic.contextFiles).toEqual([existing]);
+  });
+
+  test("context-file delete only changes a path contained in the target Topic directory", async () => {
+    const topicId = "ordinary-topic";
+    const outside = join(tmpRoot, "not-a-context-file.txt");
+    writeFileSync(outside, "do not detach this metadata");
+    const topic: ContextTopic = { id: topicId, contextFiles: [outside] };
+    const r = await contextDelete(topicId, outside, {
+      topics: new Map([[topicId, topic]]),
+    });
+
+    expect(r.status).toBe(400);
+    expect(topic.contextFiles).toEqual([outside]);
   });
 });
 

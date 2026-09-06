@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, writeFileSync } from "fs";
-import { join, resolve } from "path";
+import { isAbsolute, join, relative, resolve, sep } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { wantsHtml, mediaErrorHtml } from "../media-error-page";
+import { isGlobalOrchestratorTopic } from "../services/global-orchestrator-session";
 
 /**
  * Media + file/upload I/O endpoints — serving project media and handling
@@ -163,6 +164,57 @@ export function createMediaRouter(ctx: AppContext): RouteHandler {
     UPLOADS_DIR, CONTEXT_DIR,
   } = ctx;
 
+  type ContextTopic = NonNullable<ReturnType<typeof getTopicById>>;
+
+  /**
+   * Context files belong to one ordinary Topic.  Derive the directory from the
+   * loaded record, not from the multipart/JSON value, so a caller cannot turn
+   * a topic id into a filesystem path.  The registered coordinator is a
+   * special raw role even while corrupt: it never receives this generic
+   * file-context capability.
+   */
+  function resolveContextTopic(rawTopicId: unknown):
+    | { topic: ContextTopic; directory: string }
+    | { response: Response } {
+    if (typeof rawTopicId !== "string" || !rawTopicId) {
+      return { response: json({ error: "topicId required" }, 400) };
+    }
+    // A SINGLE SEGMENT, judged before anything touches the disk. The id used to
+    // go straight into `join(CONTEXT_DIR, topicId)` + `mkdirSync`, and `join`
+    // collapses `..`: only the file NAME was sanitized, so the FOLDER walked out
+    // of CONTEXT_DIR wherever the caller asked. Same character class as
+    // `getMessagesPath` (`server/utils.ts`), which is the shape a topic id
+    // really has; the twin route `POST /api/files/upload` reaches the same
+    // place with `hasDotDotSegment` + `isContained`.
+    if (!TOPIC_ID_SEGMENT.test(rawTopicId)) {
+      return { response: json({ error: "invalid topicId" }, 400) };
+    }
+    const topic = getTopicById(rawTopicId);
+    if (!topic) return { response: json({ error: "not found" }, 404) };
+    if (isGlobalOrchestratorTopic(ctx.db, topic.id)) {
+      return {
+        response: json({
+          error: "the global coordinator cannot use generic context-file storage",
+          code: "orchestrator_topic_invariant",
+        }, 403),
+      };
+    }
+
+    const root = resolve(CONTEXT_DIR);
+    const directory = resolve(root, topic.id);
+    const rel = relative(root, directory);
+    if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+      return { response: json({ error: "invalid topic storage path" }, 400) };
+    }
+    return { topic, directory };
+  }
+
+  function isContainedContextFile(directory: string, rawPath: unknown): rawPath is string {
+    if (typeof rawPath !== "string" || !rawPath) return false;
+    const rel = relative(directory, resolve(rawPath));
+    return !!rel && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+  }
+
   return async function mediaRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
     // --- Media serving ---
     if (method === "GET" && pathname === "/api/media") {
@@ -320,9 +372,12 @@ export function createMediaRouter(ctx: AppContext): RouteHandler {
     // --- Context file deletion ---
     if (method === "DELETE" && pathname === "/api/context-file") {
       const body = await readJSON(req);
-      if (!body?.topicId || !body?.filePath) return json({ error: "topicId and filePath required" }, 400);
-      const topic = getTopicById(body.topicId);
-      if (!topic) return json({ error: "not found" }, 404);
+      const target = resolveContextTopic(body?.topicId);
+      if ("response" in target) return target.response;
+      if (!isContainedContextFile(target.directory, body?.filePath)) {
+        return json({ error: "filePath must be inside this topic's context storage" }, 400);
+      }
+      const { topic } = target;
       topic.contextFiles = (topic.contextFiles || []).filter(f => f !== body.filePath);
       topic.updatedAt = new Date().toISOString();
       saveSingleTopic(topic);
@@ -334,18 +389,12 @@ export function createMediaRouter(ctx: AppContext): RouteHandler {
       try {
         const formData = await req.formData();
         const file = formData.get("file");
-        const topicId = formData.get("topicId") as string;
+        const target = resolveContextTopic(formData.get("topicId"));
         if (!file || typeof file === "string") return json({ error: "file required" }, 400);
-        if (!topicId) return json({ error: "topicId required" }, 400);
-        // A SINGLE SEGMENT, judged before anything touches the disk. `topicId`
-        // went straight into `join(CONTEXT_DIR, topicId)` + `mkdirSync`, and
-        // `join` collapses `..`: only the file NAME was sanitized, so the
-        // FOLDER walked out of CONTEXT_DIR wherever the caller asked. Same
-        // character class as `getMessagesPath` (`server/utils.ts`), which is
-        // the shape a topic id really has; the twin route
-        // `POST /api/files/upload` reaches the same place with
-        // `hasDotDotSegment` + `isContained`.
-        if (!TOPIC_ID_SEGMENT.test(topicId)) return json({ error: "invalid topicId" }, 400);
+        // Resolve the target before deriving any directory or writing bytes.
+        // A missing/crafted id must not create a context-root sibling merely
+        // because multipart parsing has already given us a string.
+        if ("response" in target) return target.response;
         const safeName = (file as File).name.replace(/[^a-zA-Z0-9._-]/g, "_");
         // La STESSA porta, la stessa regola. L'allowlist che stava qui ammetteva
         // `text/html` e `image/svg+xml` (misurato: `l.svg` → 200, scritto in
@@ -360,19 +409,16 @@ export function createMediaRouter(ctx: AppContext): RouteHandler {
         // il codice, e allinearla sarebbe un cambio di contratto travestito da
         // pulizia. Il tetto invece è lo stesso numero, dichiarato una volta.
         if ((file as File).size > MAX_UPLOAD_SIZE) return json({ error: "File too large. Maximum size is 10MB." }, 400);
-        const topicDir = join(CONTEXT_DIR, topicId);
+        const { topic, directory: topicDir } = target;
         mkdirSync(topicDir, { recursive: true });
         const filename = `${Date.now()}-${safeName}`;
         const filepath = join(topicDir, filename);
         const buffer = await (file as File).arrayBuffer();
         writeFileSync(filepath, Buffer.from(buffer));
-        const topic = getTopicById(topicId);
-        if (topic) {
-          if (!topic.contextFiles) topic.contextFiles = [];
-          topic.contextFiles.push(filepath);
-          topic.updatedAt = new Date().toISOString();
-          saveSingleTopic(topic);
-        }
+        if (!topic.contextFiles) topic.contextFiles = [];
+        topic.contextFiles.push(filepath);
+        topic.updatedAt = new Date().toISOString();
+        saveSingleTopic(topic);
         return json({ path: filepath, filename: (file as File).name, size: (file as File).size });
       } catch (err: any) { return json({ error: "Upload failed: " + err.message }, 500); }
     }

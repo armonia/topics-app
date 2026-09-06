@@ -6,6 +6,7 @@ import type { AIProvider } from "../providers";
 import { getCompactionMarkersBySession } from "../db/compaction-markers";
 import { leanMessagesForWire, leanMessagesForHistory } from "../../shared/lean-tool-call";
 import { isTurnStillLive, shouldConsultBroker, type BrokerTurnState } from "./historyCleanupPolicy";
+import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 
 export interface HistoryDeps {
   matchHistoryRoute: (pathname: string) => string | null;
@@ -105,6 +106,11 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
                 OR (tool_calls IS NOT NULL AND length(tool_calls) > 2))`,
         ).all(sessionKey) as Array<{ id: string }>).map((r) => r.id))
       : new Set<string>();
+    // The registered coordinator persists its normal Topic history locally but
+    // must never fall back into provider/gateway or legacy JSONL history. Use
+    // the raw registry role so a malformed/bound/provider-corrupt row remains
+    // local-only rather than acquiring an ordinary provider session.
+    const rawGlobalOrchestrator = isGlobalOrchestratorSession(ctx.db, sessionKey);
     // «Sta streammando?» non si chiede solo alla memoria di QUESTO processo.
     // `activeStreams` è vuota subito dopo un riavvio del server anche per una
     // sessione il cui figlio è vivo nel broker, fermo su una domanda a schermo
@@ -112,7 +118,7 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
     // reattach capisce che c'è un turno da riadottare. Un ⌘R in quella finestra
     // buttava via il turno. Vedi `historyCleanupPolicy.ts` per la regola.
     const streamInMemory = !!isStreaming(sessionKey);
-    const brokerState = shouldConsultBroker({ streamInMemory, hasPartialRows: localMsgs.some((m) => m.partial) })
+    const brokerState = !rawGlobalOrchestrator && shouldConsultBroker({ streamInMemory, hasPartialRows: localMsgs.some((m) => m.partial) })
       ? await brokerTurnStateFor(sessionKey)
       : null;
     const activeStream = isTurnStillLive({
@@ -209,6 +215,11 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
       const compactionMarkers = getCompactionMarkersBySession(ctx.db, sessionKey);
       return json({ messages: stripped, total, hasOrphanedMessage, isStreaming: !!currentStream, streamState: currentStream ? { startedAt: currentStream.startedAt, isThinking: currentStream.isThinking } : null, compactionMarkers });
     }
+
+    // A new coordinator has no local rows yet.  Return that truthful empty
+    // conversation rather than attempting provider or JSONL migration, both of
+    // which are outside its Codex-only, board-scoped contract.
+    if (rawGlobalOrchestrator) return json({ messages: [], total: 0 });
 
     // Fallback: Provider history
     try {

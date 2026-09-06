@@ -255,7 +255,7 @@ export const knownDetailTypes: ReadonlySet<string> = new Set(
   // multi-valued, hence `def.values[0]`.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ((toolCallDetailSchema as any).def?.options ?? []).map(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- zod/mini exposes no public type for the `def` tree walked here
     (opt: any) => opt.def.shape.type.def.values[0] as string,
   ),
 );

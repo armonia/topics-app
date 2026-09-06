@@ -1080,6 +1080,10 @@ const EN = {
   'board.toolbar.thisProject': 'This project',
   'board.toolbar.allProjects': 'All projects',
   'board.toolbar.dispatchSettings': 'Auto-dispatch settings',
+  'board.orchestrator.open': 'Open orchestrator',
+  'board.orchestrator.opening': 'Opening…',
+  'board.orchestrator.openTitle': 'Open the persistent conversation that coordinates tasks across boards',
+  'board.orchestrator.openError': 'The orchestrator conversation could not be opened.',
   'board.composer.placeholder': 'Describe a task for the agent…',
   'board.composer.subtaskOf': 'Subtask of',
   'board.composer.chainedStart': 'Starts when',
@@ -2062,6 +2066,11 @@ const EN = {
   'chat.clear.body': 'A backup will be saved.',
   'chat.clear.confirm': 'Clear',
   'chat.clear.done': 'Conversation cleared',
+  'chat.orchestrator.slashBlocked': 'The Kanban coordinator takes natural-language requests and the server-managed global tools; generic slash commands are not available here.',
+  'topic.orchestrator.badge': 'Kanban coordinator',
+  'topic.orchestrator.lockTitle': 'Managed global conversation',
+  'topic.orchestrator.lockBody': 'This persistent chat coordinates the whole Kanban. Topics keeps its Codex-only provider, global task tools and server-owned instructions locked; you can still rename it, choose its color and mute notifications.',
+  'topic.orchestrator.voiceExternal': 'Codex Voice remains external to this Topics conversation.',
 
 } satisfies Dict;
 
