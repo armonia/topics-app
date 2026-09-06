@@ -57,15 +57,15 @@ function hash32(s: string): number {
 }
 
 /**
- * `true` se `baseDir` è un checkout creato PER UN AGENTE, non il repo
- * dell'utente: sotto `~/.topics/worktrees/` (il dispatcher della board) oppure
- * sotto un `.claude/worktrees/` (i subagent e i workflow di Claude Code, che
- * scavano il loro worktree dentro il repo stesso).
+ * `true` when `baseDir` is a checkout created FOR AN AGENT, not the user's
+ * repo: under `~/.topics/worktrees/` (the board's dispatcher) or under a
+ * `.claude/worktrees/` (Claude Code's subagents and workflows, which dig their
+ * worktree inside the repo itself).
  *
- * La seconda radice manca dal 2026-09-06: dieci agenti di un workflow, ognuno
- * nel suo `.claude/worktrees/wf_…-N`, ricevevano tutti 13334 e il global-setup
- * di ognuno faceva piazza pulita sul server degli altri — lo stesso incidente
- * dell'intestazione, con un'altra cartella.
+ * The second root was missing until 2026-09-06: ten agents of one workflow,
+ * each in its own `.claude/worktrees/wf_…-N`, all received 13334 and each
+ * one's global-setup wiped the others' server — the incident in the header,
+ * with another folder.
  */
 export function isDispatchWorktree(baseDir: string, home: string): boolean {
   const norm = baseDir.endsWith(sep) ? baseDir : baseDir + sep;

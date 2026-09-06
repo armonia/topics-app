@@ -15,7 +15,8 @@ import {
   type SttCapabilities,
 } from '../lib/stt';
 import { ascoltaLivello, messaggioTrascrittoVuoto, type SondaLivello } from '../lib/livello-audio';
-import { startRealtimeDictation, type RealtimeSession } from '../lib/stt-realtime';
+import { errMessage } from '../lib/errMessage';
+import type { RealtimeSession } from '../lib/stt-realtime';
 import { useSpeechToText } from './useSpeech';
 import { useLocale, useT } from './useT';
 
@@ -274,7 +275,20 @@ export function useDictation(opts: {
       // and one that never arrives must not stop it either.
       const probe = sondaRef.current;
       if (wantsRealtime && probe) {
-        void startRealtimeDictation({
+        // Lost mid-sentence: what was committed stays in the field, the rest
+        // is worth a line, because the person is still speaking into a
+        // microphone that no longer shows anything.
+        const fellBack = (reason: string): void => {
+          realtimeRef.current = null;
+          setPartial('');
+          onNoticeRef.current?.(trRef.current('stt.realtimeFellBack', { reason }));
+        };
+        // The realtime machine is its own chunk: it is paid only by the
+        // session that dictates live, not by every boot (2.8 KB raw of the
+        // entry as a static import). Nothing waits for it, see above; and a
+        // chunk that fails to arrive is the same event as a socket that
+        // does — the batch upload behind the recorder is the safety net.
+        void import('../lib/stt-realtime').then(({ startRealtimeDictation }) => startRealtimeDictation({
           sampleRate: probe.sampleRate(),
           language: languageHint,
           onPartial: setPartial,
@@ -283,15 +297,8 @@ export function useDictation(opts: {
             setPartial('');
             onTextRef.current(text);
           },
-          // Lost mid-sentence: what was committed stays in the field, the rest
-          // is worth a line, because the person is still speaking into a
-          // microphone that no longer shows anything.
-          onFail: (reason) => {
-            realtimeRef.current = null;
-            setPartial('');
-            onNoticeRef.current?.(trRef.current('stt.realtimeFellBack', { reason }));
-          },
-        }).then((session) => {
+          onFail: fellBack,
+        }), (err: unknown) => { fellBack(errMessage(err)); return null; }).then((session) => {
           if (!session) return;
           // Stopped or cancelled while the token was in flight: a session opened
           // over a closed microphone would transcribe silence and bill for it.

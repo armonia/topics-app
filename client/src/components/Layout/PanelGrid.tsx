@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo, Fragment } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo, Fragment, Suspense, lazy } from 'react';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelGridRow, PanelGridCellStack, CompactionMarker } from '../../types';
 import { useTopics } from '../../contexts/TopicsContext';
@@ -14,7 +14,11 @@ import { usePanelGridPersistence } from './usePanelGridPersistence';
 import { startDragPreview } from '../../lib/dragPreview';
 import { getProjectLabel } from '../../lib/buildSidebarItems';
 import { detachPaneToNewSpace } from '../../lib/popOutSpace';
-import { UnsentBanner } from './UnsentBanner';
+// A banner for a RARE state (messages that expired unsent): as a static import
+// it and its grouping sat in the eager entry for every boot (3 KB raw,
+// measured 2026-09-06). Its first mount is an event, not a paint: a fallback
+// frame there costs nobody anything.
+const UnsentBanner = lazy(async () => ({ default: (await import('./UnsentBanner')).UnsentBanner }));
 import { DetachedWindowMarker } from './DetachedWindowMarker';
 import { usePaneStore } from '../../state/pane/store';
 import { useServerHydrated } from '../../hooks/useServerHydrated';
@@ -2869,27 +2873,29 @@ export function PanelGrid({
 
       {/* Unsent messages: one row per chat, click opens that chat. */}
       {expiredMessages && expiredMessages.length > 0 && (
-        <UnsentBanner
-          messages={expiredMessages}
-          topics={topics}
-          mobile={isMobile}
-          onRetrySession={(sessionKey) => {
-            expiredMessages
-              .filter((m) => m.sessionKey === sessionKey)
-              .forEach((m) => retryExpired?.(m));
-          }}
-          onDismissSession={dismissExpiredSession}
-          onDismissAll={clearExpired}
-          onOpenChat={(topicId) => {
-            // Same funnel as a notification click: usePanelLifecycle's
-            // `topics:open-topic` listener opens the topic through openPanel,
-            // which routes a project topic to its project pane (switching
-            // project) instead of leaving a ghost tab behind.
-            window.dispatchEvent(
-              new CustomEvent('topics:open-topic', { detail: { topicId, mode: 'permanent' } }),
-            );
-          }}
-        />
+        <Suspense fallback={null}>
+          <UnsentBanner
+            messages={expiredMessages}
+            topics={topics}
+            mobile={isMobile}
+            onRetrySession={(sessionKey) => {
+              expiredMessages
+                .filter((m) => m.sessionKey === sessionKey)
+                .forEach((m) => retryExpired?.(m));
+            }}
+            onDismissSession={dismissExpiredSession}
+            onDismissAll={clearExpired}
+            onOpenChat={(topicId) => {
+              // Same funnel as a notification click: usePanelLifecycle's
+              // `topics:open-topic` listener opens the topic through openPanel,
+              // which routes a project topic to its project pane (switching
+              // project) instead of leaving a ghost tab behind.
+              window.dispatchEvent(
+                new CustomEvent('topics:open-topic', { detail: { topicId, mode: 'permanent' } }),
+              );
+            }}
+          />
+        </Suspense>
       )}
     </div>
     </div>
