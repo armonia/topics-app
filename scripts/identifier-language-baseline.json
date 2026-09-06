@@ -290,10 +290,6 @@
       "residuo",
       "riferimento",
       "ritardo",
-      "scroller",
-      "scrollerElRef",
-      "scrollerRef",
-      "scrollerStyle",
       "teleported",
       "trascorso",
       "uguale"
@@ -5907,8 +5903,7 @@
     ],
     "tests/e2e/bench-streaming.spec.ts": [
       "handoffMs",
-      "handoffStart",
-      "scroller"
+      "handoffStart"
     ],
     "tests/e2e/board-archive-restore.spec.ts": [
       "RESTA",
@@ -6004,8 +5999,7 @@
       "crc",
       "crc32",
       "ihdr",
-      "scrollableAncestors",
-      "scroller"
+      "scrollableAncestors"
     ],
     "tests/e2e/board-drawer-truth.spec.ts": [
       "DESC_FIRST_LINE",
@@ -6255,7 +6249,6 @@
       "misure",
       "righe",
       "scarto",
-      "scroller",
       "striscia",
       "varco"
     ],
@@ -6271,7 +6264,6 @@
     ],
     "tests/e2e/chat-composer-ink-band.spec.ts": [
       "mosso",
-      "scroller",
       "sopra",
       "testimone"
     ],
@@ -6282,9 +6274,6 @@
     "tests/e2e/chat-fast-mode.spec.ts": [
       "FAST_SERVIBILE",
       "dichiaraFastMode"
-    ],
-    "tests/e2e/chat-history-window.spec.ts": [
-      "scroller"
     ],
     "tests/e2e/chat-inflight-bubble-identity.spec.ts": [
       "TESTO",
@@ -6306,18 +6295,13 @@
       "posa"
     ],
     "tests/e2e/chat-scroll.spec.ts": [
-      "Scroller",
       "assertScrollabile",
       "dopo",
       "eccedenza",
       "fermi",
       "lungo",
       "massimo",
-      "scroller",
       "stato"
-    ],
-    "tests/e2e/chat-streaming-indicator.spec.ts": [
-      "scroller"
     ],
     "tests/e2e/chat-subagent-exit-bubble.spec.ts": [
       "DOPO",
@@ -6338,12 +6322,10 @@
       "neutro",
       "rossoParziale",
       "rossoPersa",
-      "scattoDiConsegna",
-      "scroller"
+      "scattoDiConsegna"
     ],
     "tests/e2e/chat.spec.ts": [
-      "eccedenza",
-      "scroller"
+      "eccedenza"
     ],
     "tests/e2e/checklist-ui-verify.spec.ts": [
       "bordo"
@@ -6382,7 +6364,6 @@
       "campione",
       "desktopSidebarWidth",
       "scrollable",
-      "scroller",
       "treeitem"
     ],
     "tests/e2e/cross-window-topic-sync.spec.ts": [
@@ -6987,8 +6968,7 @@
       "mediana",
       "ord",
       "passata",
-      "passate",
-      "scroller"
+      "passate"
     ],
     "tests/e2e/settings-lingua-org.spec.ts": [
       "appunti",

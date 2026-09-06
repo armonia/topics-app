@@ -3,6 +3,7 @@ import { Paperclip } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, CompactionMarker } from '../../types';
 import { ScrollToBottom, NewMessageBanner } from '../Shared/ScrollToBottom';
 import { CompactionDivider } from './CompactionDivider';
+import { LoadOlderDivider } from './LoadOlderDivider';
 import { CompactionHoistContext } from './compactionHoist';
 import { splitCompactionSummary } from '../../lib/compactionSummary';
 import { partitionMarkers } from './partitionMarkers';
@@ -29,6 +30,9 @@ import {
 import { coalesceToolRuns, type CoalescedMessage } from './coalesceToolRun';
 import { SkeletonChatMessages } from '../Shared/Skeleton';
 import { listPaintedAndWhole } from './listPaintedAndWhole';
+import { decideHistoryCompletion } from './historyCompletionDecision';
+import { isHistoryIncomplete, requestHistoryCompletion, useHistoryCompleteness } from '../../state/historyCompleteness';
+import { usePaneAlive } from '../../state/paneLiveness';
 import type { QueuedTurn } from '../../state/chatQueue';
 import { QueuedTurns } from './QueuedTurns';
 
@@ -90,6 +94,8 @@ const ChatList = forwardRef<HTMLDivElement, ComponentProps<'div'>>(
 /** Identità stabile per la coda assente: un `[]` nuovo a ogni render farebbe
  *  ricostruire la mappa `components` di Virtuoso a ogni token di streaming. */
 const NO_QUEUED: QueuedTurn[] = [];
+/** The leading compaction dividers of a PARTIAL transcript: none, see `itemContent`. */
+const NO_MARKERS: CompactionMarker[] = [];
 
 interface MessageListProps {
   isMobile: boolean;
@@ -458,6 +464,47 @@ export function MessageList({
     [settledItems, liveTail],
   );
 
+  // ── THE REST OF THE HISTORY, out of sight ─────────────────────────────────
+  /**
+   * The list holds only the TAIL of the thread: a tail-first open painted the
+   * last page and the messages before it have not been merged yet
+   * (`shared/history-paging.ts`). Three things below read it: a compaction
+   * divider whose anchor is not here yet must not be drawn on top as if the
+   * chat began here; a palette jump to a message not here yet must ask for the
+   * rest instead of giving up; and the first row carries the "load the earlier
+   * messages" divider for whoever scrolls up before the rest is in.
+   */
+  const completeness = useHistoryCompleteness(topic.sessionKey);
+  const historyPartial = isHistoryIncomplete(completeness);
+  const missingAbove = isHistoryIncomplete(completeness) ? completeness.missing : 0;
+  /** The pane has a box in the layout: hidden tabs (keep-alive) are `false`. */
+  const paneAlive = usePaneAlive();
+  /** Mirrors for the closures that outlive a render (the ResizeObserver, the
+   *  completion callback): they read the latest value, not the captured one. */
+  const paneAliveRef = useRef(paneAlive);
+  paneAliveRef.current = paneAlive;
+  const streamingNowRef = useRef(_currentStreaming);
+  streamingNowRef.current = _currentStreaming;
+  const itemsRef = useRef(filteredMessages);
+  itemsRef.current = filteredMessages;
+  const carrierRef = useRef(carrierById);
+  carrierRef.current = carrierById;
+  /** The row at the top of the viewport, by index: what a reader who scrolled
+   *  up is looking at, kept for the re-anchor after a merge made while hidden. */
+  const topVisibleIndexRef = useRef(0);
+  /** How far from the bottom the viewport was at the last scroll: the only
+   *  reading available once the pane is hidden and its geometry reads zero. */
+  const lastDistanceFromBottomRef = useRef(0);
+  /**
+   * Where to put the viewport once the rest of the history is in: the row to
+   * anchor at the top, by id (its index changes by the number of rows added
+   * above it), or `null` when the bottom is where it was resting - the pins
+   * of the "pane returns visible" branch already land that.
+   */
+  const restoreAnchorRef = useRef<{ id: string } | null>(null);
+  /** The click on the divider has been made and the rest is on its way. */
+  const [olderLoading, setOlderLoading] = useState(false);
+
   // Position compaction dividers within the visible transcript (CHAT-COMPACT-01).
   // Sui messaggi VISIBILI, non sugli item: un marker ancorato a un messaggio
   // assorbito dev'essere ancora trovabile (altrimenti `partitionMarkers` lo
@@ -706,6 +753,10 @@ export function MessageList({
       // L'indice torna a potersi ri-congelare: la chat nuova avra' la sua
       // prima ondata dalla cache e poi la sua storia.
       indexRefrozenRef.current = false;
+      // An anchor remembered for the previous chat's history merge names a row
+      // of THAT chat: it must not scroll this one.
+      restoreAnchorRef.current = null;
+      lastDistanceFromBottomRef.current = 0;
       // NB: `initialTopMostIndexRef` NON si scongela qui, ed è deliberato.
       // Passando da una chat corta a una lunga il ref resta quello di prima e
       // la nuova lista monta all'indice sbagliato — un difetto vero, ma
@@ -841,6 +892,86 @@ export function MessageList({
     openVerifyTimersRef.current.forEach(window.clearTimeout);
     openVerifyTimersRef.current = [];
   }, []);
+
+  /**
+   * Ask for the rest of the thread when NOBODY is looking at this list.
+   *
+   * The merge re-indexes the rows a virtual list has on screen, so the one
+   * moment it can happen unseen is while the pane has no box in the layout
+   * (`decideHistoryCompletion` says why "anchored at the bottom" is not
+   * enough). The decision also says where to put the viewport when the pane
+   * comes back: the bottom, if that is where it was resting, or the row the
+   * reader had at the top - remembered here by id, applied in the "pane
+   * returns visible" branch of the ResizeObserver below.
+   *
+   * Runs when the thread becomes partial, when the pane hides, and from the
+   * ResizeObserver the frame the viewport goes to zero.
+   */
+  const completenessRef = useRef(completeness);
+  completenessRef.current = completeness;
+  const completeOutOfSight = useCallback(() => {
+    const known = completenessRef.current;
+    if (!isHistoryIncomplete(known)) return;
+    const el = scrollerElRef.current;
+    const decision = decideHistoryCompletion({
+      paneHidden: !paneAliveRef.current || !el || el.clientHeight === 0,
+      streaming: streamingNowRef.current,
+      userScrolled: userTouchedRef.current,
+      anchoredAtBottom: lastDistanceFromBottomRef.current <= AT_BOTTOM_TOLERANCE_PX,
+    });
+    if (decision.action !== 'complete') return;
+    // Two steps, both taken only while hidden: FETCH (the rows are held in
+    // `historyCompleteness`, not merged), then MERGE once they are here. The
+    // pane may be on screen again by the time the fetch lands; this runs again
+    // on that change of state and merges at the next hidden moment.
+    if (known.state === 'partial') {
+      void requestHistoryCompletion(topic.sessionKey, 'stage');
+      return;
+    }
+    if (decision.restore === 'top-item') {
+      const top = itemsRef.current[topVisibleIndexRef.current];
+      restoreAnchorRef.current = top?.id ? { id: top.id } : null;
+    } else {
+      restoreAnchorRef.current = null;
+    }
+    void requestHistoryCompletion(topic.sessionKey, 'apply');
+  }, [topic.sessionKey]);
+  const completeOutOfSightRef = useRef(completeOutOfSight);
+  completeOutOfSightRef.current = completeOutOfSight;
+  useEffect(() => {
+    completeOutOfSight();
+  }, [completeness, paneAlive, completeOutOfSight]);
+
+  /**
+   * The reader asked: the row at the top of the loaded window was clicked.
+   * The jump that follows is theirs, so the list re-anchors on the row that
+   * was first (the effect below, once the rows above it are in) and they keep
+   * reading upwards from where they were.
+   */
+  const loadOlder = useCallback(() => {
+    const first = itemsRef.current[0];
+    restoreAnchorRef.current = first?.id ? { id: first.id } : null;
+    setOlderLoading(true);
+    void requestHistoryCompletion(topic.sessionKey, 'apply').finally(() => setOlderLoading(false));
+  }, [topic.sessionKey]);
+  useEffect(() => {
+    const anchor = restoreAnchorRef.current;
+    if (!anchor) return;
+    const el = scrollerElRef.current;
+    // Hidden: nothing to scroll yet, the "pane returns visible" branch of the
+    // ResizeObserver applies the anchor when there is a viewport again.
+    if (!el || el.clientHeight === 0) return;
+    const target = carrierRef.current.get(anchor.id) ?? anchor.id;
+    const index = filteredMessages.findIndex((m) => m.id === target);
+    // Still first: the rows above have not landed. Gone: a whole-thread
+    // reload replaced the list, and the anchor with it.
+    if (index <= 0) {
+      if (index < 0) restoreAnchorRef.current = null;
+      return;
+    }
+    restoreAnchorRef.current = null;
+    virtuosoRef.current?.scrollToIndex({ index, align: 'start' });
+  }, [filteredMessages]);
 
   // ── IL SIPARIO ────────────────────────────────────────────────────────────
   /**
@@ -1080,6 +1211,14 @@ export function MessageList({
       // that), and a slow-machine mount window holding a non-empty STALE set
       // before loadHistory even started (CI-only). The TTL covers leaks.
       if (sawLoadCompleteRef.current && !currentLoading && filteredMessages.length > 0) {
+        // ...and only when the thread is WHOLE: after a tail-first open the
+        // target may simply be in the part that is not here yet. Ask for it
+        // (a jump is the reader's request, so the merge it causes is theirs)
+        // and let the effect on `filteredMessages` re-run this once it lands.
+        if (historyPartial) {
+          void requestHistoryCompletion(topic.sessionKey, 'apply');
+          return;
+        }
         consumeScrollToMessage(topic.id);
       }
       return;
@@ -1103,7 +1242,7 @@ export function MessageList({
     setJumpHighlightId(rowId);
     if (jumpHighlightTimer.current) clearTimeout(jumpHighlightTimer.current);
     jumpHighlightTimer.current = setTimeout(() => setJumpHighlightId(null), 2400);
-  }, [topic.id, filteredMessages, currentLoading, carrierById]);
+  }, [topic.id, topic.sessionKey, filteredMessages, currentLoading, historyPartial, carrierById]);
   useEffect(() => {
     if (!currentLoading && filteredMessages.length > 0) tryScrollToTarget();
   }, [currentLoading, filteredMessages.length, tryScrollToTarget]);
@@ -1327,6 +1466,9 @@ export function MessageList({
         }
       }
       lastScrollTopRef.current = st;
+      // Kept for `completeOutOfSight`: once the pane is hidden its geometry
+      // reads zero, and this is the last honest distance from the bottom.
+      lastDistanceFromBottomRef.current = Math.max(0, el.scrollHeight - st - el.clientHeight);
       // La freccia si ri-sincronizza QUI, dove la geometria è già sotto mano.
       syncArrow(el);
       // Fondo VERO raggiunto a mano: qui si scioglie la presa, e serve un
@@ -1372,6 +1514,22 @@ export function MessageList({
         // `shouldPin` puo' aver gia' vietato — e la chat restava dove capitava.
         // Una pane nascosta non puo' aver ricevuto gesti: se `userTouchedRef` e'
         // falso, il fondo e' ancora lo stato di riposo.
+        //
+        // Unless the rest of the history was merged while the pane was hidden
+        // and the reader had scrolled up: then the row they were reading has a
+        // new index, and the anchor remembered by `completeOutOfSight` puts it
+        // back at the top of the viewport instead of the bottom.
+        const anchor = restoreAnchorRef.current;
+        if (anchor) {
+          restoreAnchorRef.current = null;
+          const target = carrierRef.current.get(anchor.id) ?? anchor.id;
+          const index = itemsRef.current.findIndex((m) => m.id === target);
+          if (index >= 0) {
+            virtuosoRef.current?.scrollToIndex({ index, align: 'start' });
+            syncArrow(el);
+            return;
+          }
+        }
         pinToBottom({ viaVirtuoso: true, frames: 2, settleFrames: OPEN_SETTLE_FRAMES, force: !userTouchedRef.current });
         // Tornata visibile: la misura congelata mentre era nascosta non vale
         // più niente (viewport alta 0), si ricalcola.
@@ -1379,7 +1537,12 @@ export function MessageList({
         return;
       }
       wasHidden = hidden;
-      if (hidden) return;
+      if (hidden) {
+        // The viewport just went to zero: the one moment the rest of the
+        // history can be merged without anybody seeing the rows re-index.
+        completeOutOfSightRef.current();
+        return;
+      }
       syncArrow(el);
       // L'ULTIMA crescita, quella che nessuno annuncia.
       //
@@ -1695,6 +1858,10 @@ export function MessageList({
         {!listSettled && <SkeletonChatMessages isMobile={isMobile} bottomInset={inputAreaHeight + CHAT_BOTTOM_GUTTER_PX} />}
         <Virtuoso
           data-testid="chat-message-list"
+          // What the list holds of the thread (`historyCompleteness`): the one
+          // observable of a merge made while the pane is hidden, where no row
+          // is rendered to look at. Read by `chat-tail-first.spec.ts`.
+          data-history={completeness.state}
           key={topic.id}
           ref={virtuosoRef}
           scrollerRef={scrollerRef}
@@ -1828,6 +1995,13 @@ export function MessageList({
             });
           }}
           increaseViewportBy={{ top: 400, bottom: 400 }}
+          // The row at the top of the viewport, for the re-anchor after a merge
+          // made while the pane was hidden (`completeOutOfSight`). Only while
+          // there is a viewport: a hidden pane renders no range worth keeping.
+          rangeChanged={(range) => {
+            const el = scrollerElRef.current;
+            if (el && el.clientHeight > 0) topVisibleIndexRef.current = range.startIndex;
+          }}
           itemContent={(idx, msg) => {
             const prev = idx > 0 ? filteredMessages[idx - 1] : undefined;
             // Only show plan approve/reject on the last assistant message
@@ -1840,7 +2014,11 @@ export function MessageList({
             const trailingSummary = trailingMarkers?.length
               ? splitCompactionSummary(next?.content ?? '').summary
               : null;
-            const leadingSummary = idx === 0 && markerPartition.leading.length
+            // A divider whose anchor is not on screen sits on top as a safety
+            // net - unless the head of the chat is simply not here yet, in
+            // which case the anchor is on its way and the divider waits for it.
+            const leading = historyPartial ? NO_MARKERS : markerPartition.leading;
+            const leadingSummary = idx === 0 && leading.length
               ? splitCompactionSummary(msg.content ?? '').summary
               : null;
             const hoistOwnSummary = idx === 0
@@ -1848,11 +2026,14 @@ export function MessageList({
               : !!(prev && markersAfter(prev)?.length);
             return (
               <>
-              {idx === 0 && markerPartition.leading.map((mk, i) => (
+              {idx === 0 && historyPartial && (
+                <LoadOlderDivider count={missingAbove} loading={olderLoading} onLoad={loadOlder} />
+              )}
+              {idx === 0 && leading.map((mk, i) => (
                 <CompactionDivider
                   key={mk.id}
                   marker={mk}
-                  summary={i === markerPartition.leading.length - 1 ? leadingSummary ?? undefined : undefined}
+                  summary={i === leading.length - 1 ? leadingSummary ?? undefined : undefined}
                 />
               ))}
               <CompactionHoistContext.Provider value={hoistOwnSummary}>

@@ -288,6 +288,7 @@ const EN = {
 
   'chat.compact.running': 'Compacting the context… it summarises the conversation and frees room. On a long chat it can take a few tens of seconds; the outcome shows up as a separator in the thread.',
   'chat.compact.failed': 'I could not ask for the compaction.',
+  'chat.history.loadOlder': 'Load the earlier messages ({n})',
   'chat.goal.usage': 'No active goal. Usage: /goal <goal> · /goal done · /goal stop',
   'chat.goal.none': 'No active goal',
   'chat.command.dismiss': 'Dismiss the command message',

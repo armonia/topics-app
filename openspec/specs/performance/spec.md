@@ -18,7 +18,8 @@ The system SHALL maintain visual stability during all user interactions, with Cu
 #### Scenario: A reload moves nothing that was already painted
 - **GIVEN** a chat the user was reading, with its local copy of the history, and a reply that landed on the server while they were away (it carries an image)
 - **WHEN** the user reloads the app
-- **THEN** the conversation is revealed only once it is painted, authoritative and whole (server history applied, first item painted, images in view loaded), and the Cumulative Layout Shift of the return is at most 0.01
+- **THEN** the conversation is revealed only once its TAIL is painted, authoritative and whole (the first page of the server history applied - see CHAT-HIST-01 - first item painted, images in view loaded), and the Cumulative Layout Shift of the return is at most 0.01
+- **AND** the rest of the history is not merged into the list while the reader is looking at it: it waits for the pane to be hidden or for the reader to ask
 - **AND** the tab badges, the goal bar, the identity row and the pinned tiles are drawn from what the device last saw, so their first frame is their final frame
 
 #### Scenario: A pane whose numbers have not landed draws the layout they will land in

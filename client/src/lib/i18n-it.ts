@@ -288,6 +288,7 @@ const IT: Dict = {
 
   'chat.compact.running': "Compattazione del contesto in corso… riassume la conversazione e libera spazio. Su una chat lunga può richiedere qualche decina di secondi; l'esito compare come separatore nel thread.",
   'chat.compact.failed': 'Non sono riuscito a chiedere la compattazione.',
+  'chat.history.loadOlder': 'Carica i messaggi precedenti ({n})',
   'chat.goal.usage': 'Nessun obiettivo attivo. Uso: /goal <obiettivo> · /goal fatto · /goal basta',
   'chat.goal.none': 'Nessun obiettivo attivo',
   'chat.command.dismiss': 'Chiudi il messaggio del comando',

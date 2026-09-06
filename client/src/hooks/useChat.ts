@@ -12,6 +12,17 @@ import { LiveTurnIds, liveAssistantIndex, shouldFillFromBroadcast } from './live
 import { liveInterruptionBlock } from '../components/Chat/turnError';
 import { decideCacheWrite } from './messageCacheWrite';
 import { decideCachePrune } from './messageCachePrune';
+import { mergeHistoryPage, mergeOlderHistory, pageOverlapsExisting } from './historyPaging';
+import { HISTORY_FETCH_ALL, HISTORY_FIRST_PAGE } from '../../../shared/history-paging';
+import {
+  getHistoryCompleteness,
+  markHistoryComplete,
+  markHistoryPartial,
+  markHistoryStaged,
+  registerHistoryCompleter,
+  resetHistoryCompleteness,
+  type HistoryCompletionMode,
+} from '../state/historyCompleteness';
 import { useRefMirror } from './useRefMirror';
 import { reconcileMessages, mergeFetchedHistory, adoptDurableMessageId } from './reconcileMessages';
 import { buildRequestMessages } from './chatRequestPayload';
@@ -69,16 +80,21 @@ import {
 
 // --- Message cache helpers (localStorage) ---
 const CACHE_PREFIX = 'messages-cache-';
-const CACHE_MAX_MESSAGES = 50;
+// The local copy holds the FIRST PAGE of a tail-first open, message for
+// message: the frame drawn from it is the frame the server's first answer
+// confirms, so applying that answer moves nothing (`shared/history-paging.ts`).
+// It was 50 while the server sent the whole thread; a copy longer than the
+// page would shrink on the first answer, one shorter would grow.
+const CACHE_MAX_MESSAGES = HISTORY_FIRST_PAGE;
 
-// The chat pane always loads the COMPLETE thread — never a fixed window. The
-// old value here was 100: any topic past 100 messages loaded only its most
-// recent 100, its head silently vanished, and the chat rendered "tagliata"
-// (starting mid-conversation) with no way to recover the beginning. A limit of
-// 0 tells the server "no cap, return the whole conversation" (see history.ts
-// `wantsAll`); pagination (positive limit / offset) stays available for callers
-// that opt into it, but the chat never truncates.
-const HISTORY_FETCH_ALL = 0;
+// The chat still ends up holding the COMPLETE thread - never a fixed window. An
+// old fixed limit of 100 silently dropped the head of long topics and the chat
+// rendered "tagliata". The thread now arrives in two requests: the tail
+// (`HISTORY_FIRST_PAGE`) that lifts the curtain, then everything before it
+// (`HISTORY_FETCH_ALL` + `before`), merged only while nobody is looking at the
+// list or when somebody asks for it (`completeHistory` below). The paths that
+// must hold the whole thread at once (branch switch, delete, the reload after
+// an edit) keep asking for it in one go.
 
 /**
  * Ogni quanto passa lo spazzino dei trascritti. Mezzo minuto: la grazia della
@@ -2001,6 +2017,8 @@ export function useChat() {
           }));
         setMessages(prev => ({ ...prev, [sessionKey]: chatMessages }));
         hydratedSessionsRef.current.add(sessionKey);
+        // The whole thread, in one answer: nothing is missing above it.
+        markHistoryComplete(sessionKey);
       } catch {}
 
       // Turno concluso in casa (SSE locale): stessa regola dello `stream:end`
@@ -2355,6 +2373,81 @@ export function useChat() {
     return clearedByServer;
   }, [updateLastMessage, dropEmptyTurn]);
 
+  /**
+   * The second request of a tail-first open: everything BEFORE the first page,
+   * in two steps that the caller may take apart.
+   *
+   * Never fired on its own by this hook. `MessageList` asks for it when its
+   * pane is hidden (`decideHistoryCompletion`) or when the reader clicks the
+   * row at the top of the loaded window, and any surface that needs the whole
+   * thread asks through `requestHistoryCompletion`. It never touches `loading`
+   * - the curtain is already up and a skeleton over a chat you are reading is
+   * the one thing this must not do - and merges around the boundary id so the
+   * rows the pane holds are not reordered (`mergeOlderHistory`).
+   *
+   * `stage` FETCHES AND HOLDS: the rows land in `historyCompleteness`, not in
+   * the list. The hidden pane that asked may be on screen again by the time
+   * the answer arrives (0.7-1.7 s on a big chat), and merging then would
+   * re-index the rows under the reader's eyes. `apply` merges - the staged
+   * rows if they are here, otherwise it fetches first. An `apply` arriving
+   * while a `stage` is in flight upgrades it: the answer is merged on arrival.
+   *
+   * One request per session at a time; on failure the session simply stays
+   * partial and the next ask fetches again.
+   */
+  const olderInFlightRef = useRef<Map<string, { run: Promise<void>; apply: boolean }>>(new Map());
+  const applyOlderHistory = useCallback((sessionKey: string, older: ChatMessage[], boundaryId: string) => {
+    setMessages(prev => {
+      const existing = prev[sessionKey] || [];
+      const merged = mergeOlderHistory(existing, older, boundaryId);
+      if (merged === existing) return prev;
+      return { ...prev, [sessionKey]: reconcileMessages(existing, merged) };
+    });
+    // Still the same open: a whole-thread reload in the meantime has already
+    // marked the session, and a newer partial one has its own boundary.
+    const now = getHistoryCompleteness(sessionKey);
+    if ((now.state === 'partial' || now.state === 'staged') && now.boundaryId === boundaryId) {
+      markHistoryComplete(sessionKey);
+    }
+  }, []);
+  const completeHistory = useCallback((sessionKey: string, mode: HistoryCompletionMode): Promise<void> => {
+    const known = getHistoryCompleteness(sessionKey);
+    if (known.state === 'staged') {
+      if (mode === 'apply') applyOlderHistory(sessionKey, known.rows, known.boundaryId);
+      return Promise.resolve();
+    }
+    if (known.state !== 'partial') return Promise.resolve();
+    const inFlight = olderInFlightRef.current.get(sessionKey);
+    if (inFlight) {
+      if (mode === 'apply') inFlight.apply = true;
+      return inFlight.run;
+    }
+    const boundaryId = known.boundaryId;
+    const entry = { apply: mode === 'apply', run: Promise.resolve() };
+    entry.run = (async () => {
+      try {
+        const response = await chatApi.getHistory(sessionKey, { limit: HISTORY_FETCH_ALL, before: boundaryId });
+        const older: ChatMessage[] = response.messages
+          .filter(msg => !isContextMessage(msg.content))
+          .map(msg => ({
+            ...msg,
+            id: msg.id || generateMessageId(),
+            content: cleanInvisibleMarkers(msg.content || ''),
+            timestamp: msg.timestamp || new Date().toISOString(),
+          }));
+        if (entry.apply) applyOlderHistory(sessionKey, older, boundaryId);
+        else markHistoryStaged(sessionKey, boundaryId, older);
+      } catch (err) {
+        console.warn('[useChat] the messages before the first page did not arrive; the chat stays on its tail until the next request', { sessionKey, err });
+      } finally {
+        olderInFlightRef.current.delete(sessionKey);
+      }
+    })();
+    olderInFlightRef.current.set(sessionKey, entry);
+    return entry.run;
+  }, [applyOlderHistory]);
+  useEffect(() => registerHistoryCompleter(completeHistory), [completeHistory]);
+
   const loadHistory = useCallback(async (sessionKey: string): Promise<boolean> => {
     // Skip entirely if sendMessage is actively streaming via SSE — it owns the state
     if (localSSESessionsRef.current.has(sessionKey)) return true;
@@ -2381,7 +2474,18 @@ export function useChat() {
       setStreaming(prev => ({ ...prev, [sessionKey]: false }));
       setThinking(prev => ({ ...prev, [sessionKey]: false }));
       
-      const response = await chatApi.getHistory(sessionKey, { limit: HISTORY_FETCH_ALL });
+      // The TAIL first. The whole thread used to come in one answer, and the
+      // curtain waited for it: 500-1200 ms of skeleton on the desktop's own
+      // chats (200 KB-2.6 MB each). A page of the last HISTORY_FIRST_PAGE rows
+      // answers in tens of milliseconds; the rest is fetched by
+      // `completeHistory`, only while nobody is looking at the list.
+      const response = await chatApi.getHistory(sessionKey, { limit: HISTORY_FIRST_PAGE });
+      // Fewer rows than the thread has: what came is a page, not the story.
+      // Compared BEFORE the context-message filter below, which is client-side
+      // and would otherwise make a complete thread look short.
+      const total = response.total ?? response.messages.length;
+      const wholeThread = response.messages.length >= total;
+      const boundaryId = wholeThread ? null : (response.messages[0]?.id ?? null);
 
       const chatMessages: ChatMessage[] = response.messages
         .filter(msg => !isContextMessage(msg.content))
@@ -2392,12 +2496,21 @@ export function useChat() {
           timestamp: msg.timestamp || new Date().toISOString(),
         }));
 
+      // A page over a thread this page already holds WHOLE (a reconnect, a
+      // remount past the dedup window) is a refresh of its tail, not a new
+      // partial open: everything before the page is already in the store.
+      const alreadyWhole =
+        getHistoryCompleteness(sessionKey).state === 'complete' &&
+        pageOverlapsExisting(messagesRef.current[sessionKey] || [], chatMessages);
+
       // Merge with any messages that arrived via WS during the fetch (cross-window
       // sync race). Server history is the source of truth; we additively keep
-      // local-only messages whose id isn't in the fetched set.
+      // local-only messages whose id isn't in the fetched set. A PAGE merges
+      // around its pivot instead, so the local copy's rows older than the page
+      // keep their place at the front (`mergeHistoryPage`).
       setMessages(prev => {
         const existing = prev[sessionKey] || [];
-        const merged = mergeFetchedHistory(existing, chatMessages);
+        const merged = wholeThread ? mergeFetchedHistory(existing, chatMessages) : mergeHistoryPage(existing, chatMessages);
         // La storia che arriva è quasi sempre quella che è già a schermo: se lo
         // è, questa riga restituisce l'array PRECEDENTE e React salta il render
         // — niente ri-misura delle altezze, niente lista che si ri-assembla
@@ -2406,6 +2519,11 @@ export function useChat() {
         if (riconciliato === existing) return prev;
         return { ...prev, [sessionKey]: riconciliato };
       });
+      if (boundaryId && !alreadyWhole) {
+        markHistoryPartial(sessionKey, { boundaryId, missing: total - response.messages.length });
+      } else {
+        markHistoryComplete(sessionKey);
+      }
 
       // Compaction dividers (CHAT-COMPACT-01) — replace the session's set with
       // the server's authoritative list on every history load.
@@ -2546,6 +2664,7 @@ export function useChat() {
         [sessionKey]: chatMessages,
       }));
       hydratedSessionsRef.current.add(sessionKey);
+      markHistoryComplete(sessionKey);
 
       // Now process the SSE stream for the assistant response
       let reader: ReadableStreamDefaultReader<Uint8Array>;
@@ -2672,6 +2791,8 @@ export function useChat() {
         ...prev,
         [sessionKey]: chatMessages,
       }));
+      // The repaired thread comes whole: nothing is missing above it.
+      markHistoryComplete(sessionKey);
 
       cacheMessages(sessionKey, chatMessages);
       return true;
@@ -2701,6 +2822,8 @@ export function useChat() {
         ...prev,
         [sessionKey]: chatMessages,
       }));
+      // The active thread comes whole: nothing is missing above it.
+      markHistoryComplete(sessionKey);
 
       cacheMessages(sessionKey, chatMessages);
       return true;
@@ -2743,6 +2866,9 @@ export function useChat() {
     // sono più (svuotata, o sfrattata dallo spazzino), quindi quel nome non
     // indica più niente e al rientro punterebbe a una riga che non esiste.
     streamMessageIdRef.current.end(sessionKey);
+    // And what the store knew about the thread's length: with no messages
+    // here, "only the tail" and "the whole thread" both stop meaning anything.
+    resetHistoryCompleteness(sessionKey);
   }, []);
 
   const clearSession = useCallback((sessionKey: string) => {
