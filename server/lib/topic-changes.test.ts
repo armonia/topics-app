@@ -11,7 +11,11 @@
  * @covers CHAT-CHANGES-01
  */
 import { describe, test, expect } from "bun:test";
-import { aggregateTouchedFiles, refineKind } from "./topic-changes";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { aggregateTouchedFiles, computeTopicChanges, refineKind } from "./topic-changes";
 import type { ToolCall } from "../../shared/types";
 
 function call(name: string, detail: ToolCall["detail"], extra: Partial<ToolCall> = {}): ToolCall {
@@ -105,5 +109,38 @@ describe("refineKind", () => {
   test("a file git does not mention keeps what the tool calls said", () => {
     expect(refineKind("created", null)).toBe("created");
     expect(refineKind("modified", null)).toBe("modified");
+  });
+});
+
+describe("computeTopicChanges behind a symlink", () => {
+  test("a repository reached through a link is still inside the repository", async () => {
+    const base = mkdtempSync(join(realpathSync(tmpdir()), "topic-changes-"));
+    const repo = join(base, "repo");
+    mkdirSync(repo);
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: repo, stdio: "ignore" });
+    git("init", "-q", "-b", "main");
+    git("config", "user.email", "test@example.invalid");
+    git("config", "user.name", "Test");
+    writeFileSync(join(repo, "base.ts"), "one\ntwo\n");
+    git("add", "-A");
+    git("commit", "-qm", "base");
+    writeFileSync(join(repo, "base.ts"), "one\ntwo\nthree\n");
+    // The topic's cwd goes through the link, git answers with the real path:
+    // this is `/tmp` against `/private/tmp` on macOS, and a mounted home
+    // elsewhere.
+    const linked = join(base, "link");
+    symlinkSync(repo, linked);
+
+    const changes = await computeTopicChanges(linked, [
+      {
+        timestamp: "2026-01-01T10:00:00.000Z",
+        toolCalls: [call("Edit", { type: "edit", filePath: join(linked, "base.ts") })],
+      },
+    ]);
+
+    rmSync(base, { recursive: true, force: true });
+    expect(changes.files.map((f) => f.path)).toEqual(["base.ts"]);
+    expect(changes.files[0]?.added).toBe(1);
+    expect(changes.files[0]?.kind).toBe("modified");
   });
 });
