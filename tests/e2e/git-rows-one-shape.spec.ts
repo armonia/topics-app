@@ -145,8 +145,13 @@ test.describe('la stessa lista di file su due superfici', () => {
     // name button focuses the project and swaps the left column for the
     // project's own sidebar (files, git), where no topic is listed at all
     // (measured: the column read "Topics" and nothing else).
-    await page.getByRole('button', { name: `Expand ${PROJECT_NAME}` }).first().click();
     const topicRow = page.getByRole('treeitem', { name: new RegExp(`git-rows-${STAMP}`) }).first();
+    if (!(await topicRow.isVisible().catch(() => false))) {
+      // Only when it is closed: with a pane already seeded the project comes up
+      // expanded, and its chevron then reads "Collapse".
+      const chevron = page.getByRole('button', { name: `Expand ${PROJECT_NAME}` }).first();
+      if (await chevron.count()) await chevron.click();
+    }
     const visible = await topicRow.waitFor({ state: 'visible', timeout: 20_000 }).then(() => true, () => false);
     expect(visible, `the topic is not under its project. The sidebar reads: ${await page.locator('[aria-label="Topics sidebar"]').first().innerText()}`).toBe(true);
     // A chat of a project opens the project's window AND lands on it.
