@@ -114,6 +114,10 @@ export const PROJECT_WORDS = new Set([
   // (`scrollerEl`, `scrollerRef` in MessageList predate the gate); the list
   // stops at `scroll`.
   "scroller",
+  // The two standard streams and the folder every codebase has: three cards
+  // bounced on them in one afternoon (06/09/2026), each adding the same words
+  // on its own branch.
+  "stderr", "stdout", "utils",
   // The name of the tool this codebase shells out to for every audio
   // conversion. A variable holding its path can only be called this: any
   // synonym would hide which binary is being run.

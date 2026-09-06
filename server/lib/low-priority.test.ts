@@ -10,19 +10,29 @@ import { describe, expect, test } from "bun:test";
 import { AGENT_NICE, isAgentWorkspace, lowPriorityArgv } from "./low-priority";
 
 describe("lowPriorityArgv", () => {
-  test("macOS: QoS clamp first, then nice, then the command untouched", () => {
-    expect(lowPriorityArgv(["/bin/sh", "-lc", "bun run typecheck"], "darwin")).toEqual([
-      "taskpolicy", "-c", "utility", "nice", "-n", String(AGENT_NICE), "/bin/sh", "-lc", "bun run typecheck",
+  const all = { nice: true, taskpolicy: true };
+
+  test("macOS: QoS clamp first, then nice, then the command untouched — by absolute path", () => {
+    expect(lowPriorityArgv(["/bin/sh", "-lc", "bun run typecheck"], "darwin", all)).toEqual([
+      "/usr/sbin/taskpolicy", "-c", "utility", "/usr/bin/nice", "-n", String(AGENT_NICE), "/bin/sh", "-lc", "bun run typecheck",
     ]);
   });
 
   test("Linux: nice only, the command untouched", () => {
-    expect(lowPriorityArgv(["bash", "-c", "ls"], "linux")).toEqual(["nice", "-n", String(AGENT_NICE), "bash", "-c", "ls"]);
+    expect(lowPriorityArgv(["bash", "-c", "ls"], "linux", all)).toEqual(["/usr/bin/nice", "-n", String(AGENT_NICE), "bash", "-c", "ls"]);
+  });
+
+  test("a knob that is not on this machine is skipped, never searched for", () => {
+    // The server's PATH under launchd has no /usr/sbin: a bare `taskpolicy`
+    // made every check spawn fail on 2026-09-06. Missing = the plain argv.
+    expect(lowPriorityArgv(["/bin/sh", "-lc", "x"], "darwin", { nice: true, taskpolicy: false }))
+      .toEqual(["/usr/bin/nice", "-n", String(AGENT_NICE), "/bin/sh", "-lc", "x"]);
+    expect(lowPriorityArgv(["/bin/sh", "-lc", "x"], "darwin", { nice: false, taskpolicy: false })).toEqual(["/bin/sh", "-lc", "x"]);
   });
 
   test("Windows: the argv as it was, a copy", () => {
     const argv = ["cmd", "/c", "dir"];
-    const out = lowPriorityArgv(argv, "win32");
+    const out = lowPriorityArgv(argv, "win32", all);
     expect(out).toEqual(argv);
     expect(out).not.toBe(argv);
   });

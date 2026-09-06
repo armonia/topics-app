@@ -2192,7 +2192,6 @@
       "KnipJsonIssue",
       "knipPath",
       "readKnipWorkspaces",
-      "stdout",
       "sym"
     ],
     "scripts/check-done-landed.ts": [
@@ -2505,7 +2504,6 @@
       "perche",
       "primoTurno",
       "pulito",
-      "stderr",
       "tok",
       "turnConRitenti"
     ],
@@ -2654,8 +2652,7 @@
       "ver"
     ],
     "server/ai-bridge-singleton.test.ts": [
-      "srv",
-      "stderr"
+      "srv"
     ],
     "server/ai-bridge.test.ts": [
       "atteso",
@@ -3674,7 +3671,6 @@
     "server/lib/trash.ts": [
       "quando",
       "sistema",
-      "stderr",
       "tentativo"
     ],
     "server/lib/tunnel.test.ts": [
@@ -3835,9 +3831,6 @@
       "ENV_BLOCKLIST_PATTERNS",
       "certsDir",
       "oneshotKey",
-      "parseCompletionStdout",
-      "stderr",
-      "stdout",
       "useTls"
     ],
     "server/providers/claude-models.ts": [
@@ -3890,9 +3883,7 @@
     "server/providers/codex.ts": [
       "errObj",
       "obj",
-      "stderr",
-      "stderrBuf",
-      "stdout"
+      "stderrBuf"
     ],
     "server/providers/codex/args.ts": [
       "buildCodexOneshotArgs"
@@ -4242,8 +4233,6 @@
       "parseGitignoreFlat",
       "risposta",
       "scaduto",
-      "stderr",
-      "stdout",
       "toplevelProc"
     ],
     "server/routes/history.ts": [
@@ -4355,8 +4344,6 @@
       "CronJobsStatus",
       "fetchCronStatus",
       "lastCronStatus",
-      "stderr",
-      "stdout",
       "topicCountStmt",
       "uptimeMs"
     ],
@@ -5316,8 +5303,7 @@
     ],
     "server/services/worktree-manager.ts": [
       "awaitMaterialisation",
-      "materialiseOnDisk",
-      "stderr"
+      "materialiseOnDisk"
     ],
     "server/services/worktree-residue.ts": [
       "IN_CORSO",
@@ -5406,9 +5392,7 @@
       "subtree"
     ],
     "server/utils/executable.ts": [
-      "semver",
-      "stderr",
-      "stdout"
+      "semver"
     ],
     "server/utils/path-env.ts": [
       "ANSI_RE",
@@ -6414,7 +6398,6 @@
       "precedente"
     ],
     "tests/e2e/file-explorer-git.spec.ts": [
-      "STDERR",
       "cancellato",
       "modificati",
       "modifiedIndicator",
@@ -7670,8 +7653,7 @@
     ],
     "tests/integration/project-worktree-domain.test.ts": [
       "projResp",
-      "projUrl",
-      "utilsPromise"
+      "projUrl"
     ],
     "tests/integration/projects-org-visibility.test.ts": [
       "MIGRAZIONI",
@@ -7828,7 +7810,6 @@
       "FANOUT",
       "FINTA",
       "RADICE",
-      "UTILS",
       "apre",
       "colpevoli",
       "corpo",
