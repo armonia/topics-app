@@ -4,7 +4,8 @@
  * A real temporary git repository stands in for the node's checkout, with a
  * delivery branch one commit ahead of `main`, so the bundle that comes back
  * is verified by git itself and planted into a second clone: the round trip
- * of KANBAN-76 "il ramo torna come bundle", not a stub of it.
+ * of the KANBAN-76 scenario where the branch comes back as a bundle, not a
+ * stub of it.
  *
  * @covers KANBAN-76
  * @covers MACHINE-02

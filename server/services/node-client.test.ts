@@ -1,14 +1,14 @@
 /**
- * Il client verso un nodo accoppiato, con un `fetch` finto e senza rete.
+ * The client that talks to a paired node, with a fake `fetch` and no network.
  *
  * @covers MACHINE-02
  * @covers KANBAN-77
  *
- * Tre cose che il contratto pretende e che un mock generico non dimostra:
- * il gettone si legge dal `Set-Cookie` e non dal corpo, il file del gettone
- * nasce a `0600`, e i tre muri (host rifiutato, certificato, rete assente)
- * hanno tre nomi diversi. Il resto: ogni chiamata autenticata porta il cookie,
- * e il bundle vuoto si distingue dai byte.
+ * Three things the contract demands that a generic mock does not prove: the
+ * token is read from the `Set-Cookie` and not from the body, the token file is
+ * born at `0600`, and the three walls (host refused, certificate, no network)
+ * have three different names. The rest: every authenticated call carries the
+ * cookie, and an empty bundle is told apart from bytes.
  */
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, statSync, readFileSync, writeFileSync, chmodSync, rmSync } from "node:fs";

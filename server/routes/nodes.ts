@@ -32,7 +32,7 @@ export interface NodesRouterOpts {
    * that no longer exists (the defect the tasks router documents).
    */
   deleteBoardTask: (projectId: string, taskId: string) => ReturnType<RouteHandler>;
-  /** The dispatcher's "vai" signal for a card born in `todo`. */
+  /** The dispatcher go-ahead for a card that is born in `todo`. */
   onEnterTodo?: (projectId: string, taskId: string) => void;
 }
 

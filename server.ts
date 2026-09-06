@@ -176,6 +176,9 @@ import { createWorktreeGcRunner } from "./server/services/worktree-gc-runner";
 import { createWorktreesRouter } from "./server/routes/worktrees";
 import { createMachinesRouter } from "./server/routes/machines";
 import { createNodesRouter } from "./server/routes/nodes";
+import { hostname as osHostname } from "node:os";
+import { createNodeClient, readNodeToken } from "./server/services/node-client";
+import { createNodeBranchPlanter } from "./server/services/node-branch-plant";
 import { initVapid } from "./server/push-service";
 import { startDevBundleReload, readBundleRev, stampBundleRev } from "./server/lib/dev-bundle-reload";
 import { startBundleProbe } from "./server/lib/bundle-probe";
@@ -1318,6 +1321,27 @@ function isChecksHold(sessionKey: string): boolean {
 }
 
 const taskAttemptStore = createTaskAttemptStore(ctx.db);
+
+/**
+ * The two halves of the remote lane (KANBAN-76), built once.
+ *
+ * `nodeClient` is the same one the pairing routes use, with the real fetch and
+ * the wall clock. `nodeBranchPlanter` is the only thing here that runs git: it
+ * turns a node's bundle into a local branch, and it answers the ORIGIN of a
+ * project, which is how the node recognises the repository (its own project
+ * id is a hash of a path that does not exist on this machine).
+ */
+const nodeClient = createNodeClient({
+  fetch: (input, init) => fetch(input, init),
+  now: () => Date.now(),
+  wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  version: SERVER_VERSION,
+  hostname: osHostname(),
+});
+const nodeBranchPlanter = createNodeBranchPlanter({
+  repoPathOf: (projectId) => ctx.projectStore.get(projectId)?.path ?? null,
+});
+
 const taskDispatcher = createTaskDispatcher({
   captureDelivery: (taskId) => capturaConsegna ? capturaConsegna(taskId) : Promise.resolve(false),
   uncommittedInWorktree: (taskId) =>
@@ -1588,6 +1612,25 @@ const taskDispatcher = createTaskDispatcher({
   // dispacciata è di un altro provider, quindi la confusione passa da
   // impossibile a sistematica. Vedi `resolveTurnAlive`.
   isTurnAlive: (sessionKey) => resolveTurnAlive(sessionKey),
+  // THE REMOTE LANE (KANBAN-76, KANBAN-77): where a paired node answers, the
+  // device token this machine holds for it, and the branch its bundle becomes
+  // in this checkout.
+  //
+  // The token is read from disk at every call and never cached here: a machine
+  // deleted from the board, or a token file removed by hand, has to STOP being
+  // usable at once, and a copy held in a closure would keep the node reachable
+  // long after somebody decided it should not be.
+  node: {
+    createRun: (input) => nodeClient.createRun(input),
+    readRun: (input) => nodeClient.readRun(input),
+    fetchBundle: (input) => nodeClient.fetchBundle(input),
+    cancelRun: (input) => nodeClient.cancelRun(input),
+    baseUrlOf: (machineId) => ctx.machineStore.get(machineId)?.baseUrl ?? null,
+    tokenOf: (machineId) => readNodeToken(ctx.STATE_DIR, machineId),
+    nameOf: (machineId) => ctx.machineStore.get(machineId)?.name ?? null,
+    originUrlOf: (projectId) => nodeBranchPlanter.originUrlOf(projectId),
+    plantBranch: (input) => nodeBranchPlanter.plantBranch(input),
+  },
   // Usage consumed by the dispatched session so far, from its Claude Code
   // transcript (jsonl_path is kept fresh by the session tracker). The reader
   // (transcript-usage.ts) is incremental (per-path byte offset — the live

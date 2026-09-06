@@ -118,6 +118,13 @@ const HUMAN_FIELDS: Record<string, FieldSpec> = {
   output_url: { to: "outputUrl", read: asStringOrNull },
   summary: { to: "summary", read: asString },
   model: { to: "model", read: asStringOrNull },
+  // WHICH MACHINE runs this card (KANBAN-76). Empty or null means "here", and
+  // that is a value a person sets on purpose (there is no `auto` node), so it
+  // reads like a reference that can be detached. The route checks the id
+  // against `machines`: a name this board does not know would park the card on
+  // a machine that will never answer.
+  machineId: { to: "machineId", read: asRefOrNull },
+  machine_id: { to: "machineId", read: asRefOrNull },
   blockedByTaskId: { to: "blockedByTaskId", read: asRefOrNull },
   reuseBlockerContext: { to: "reuseBlockerContext", read: asBoolean },
   planFirst: { to: "planFirst", read: asBoolean },
