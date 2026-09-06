@@ -2,6 +2,20 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.272 — 2026-09-06
+
+### Sotto il cofano
+- La corsia remota pesa 529 righe sul dispatcher, e la baseline lo dice
+- La colonna del nodo entra nel cancello che pretende ogni campo pieno
+- Il test del watcher aspetta l'evento fino a 30 s: a nice 15 sotto carico, 6 s erano un rosso senza colpa
+- Il budget del watcher si allunga col carico, come gia' fa il timeout esterno
+- Il watcher non da' per caricato cio' che e' piu' nuovo del boot: il merge arrivato dopo il riavvio chiede il suo
+
+## 2.2.271 — 2026-09-06
+
+### Sotto il cofano
+- Il file temporaneo del messaggio di commit non e' parte della consegna
+
 ## 2.2.270 — 2026-09-06
 
 ### Sotto il cofano
@@ -14,6 +28,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il piano si corregge prima di approvarlo, e approvare manda la correzione
 - Le variabili del runner si chiamano con parole che l'inglese conosce
 - Il piano dice quanto resta della finestra, e la coda lo ascolta
+- La corsia remota: una card scelta per un nodo gira la', e il tetto qui non la paga
 - Il nome della promessa dice cosa contiene, non da che file viene
 - stderr, stdout e utils entrano nel dizionario degli identificatori
 - La priorità bassa usa path assoluti, e un binario che manca si salta
@@ -21,6 +36,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Two board specs seed the project under the path the server actually serves
 - The two red gates on HEAD go green: the quote is marked, the binaries are named
 - renice e taskpolicy sono nomi di binari, la frase italiana e una citazione
+- The node a card runs on is visible where it is chosen and where the board is read
+- A silent node says so on the card, and an end-to-end test can reach that state
+- The remote-lane test speaks English, comments and names included
 - Il commento sul PATH cita l'errore di Bun, non la frase italiana
 - Il cancello e2e sceglie un node che vite regge, non il primo del PATH
 - Il cancello e2e dei file toccati dice «non misurato» con il codice che il runner capisce
@@ -48,6 +66,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - Le spec dicono che un sotto-agente puo' nascere in un worktree suo
 - La nascita del worktree di una card diventa un modulo che sa servire anche un figlio
+- Una card puo' dichiarare SU QUALE macchina gira, e la macchina sa dove risponde
 - Uno spawn puo' chiedere una cartella sua, e il padre si sente dire quale ramo
 - Ciò che Topics lancia per un agente gira a priorità bassa: la macchina non rallenta per colpa sua
 - Il rapporto d'uscita dice dove sta il lavoro quando non e' piu' nella cartella del padre
@@ -55,6 +74,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il ponte MCP sa chiedere l'isolamento e riportare il ramo
 - La scopa chiede per prima cosa se c'e' qualcuno dentro la cartella
 - Due figli scrivono lo stesso file e non si sovrascrivono: la prova su un repo vero
+- Il nodo si accoppia come un dispositivo, e sa ricevere una card nata altrove
 
 ## 2.2.266 — 2026-09-06
 
