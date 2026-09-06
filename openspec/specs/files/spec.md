@@ -556,6 +556,51 @@ ricomposto: altrimenti la colonna dei numeri resta vuota per tutti.
 - **GIVEN** più file della soglia
 - **THEN** la lista SHALL restare intera e i numeri SHALL mancare
 
+### Requirement: GIT-FILELIST-01 — La lista dei file cambiati e' UNA, ovunque compaia
+
+L'elenco dei file che git ha toccato SHALL essere disegnato da un solo
+componente condiviso, montato da ogni superficie che lo mostra: la striscia
+sopra il composer della chat, il chip di consegna di una card della board,
+l'intestazione di file del diff unificato e il pannello git del progetto.
+Nessuna superficie SHALL tenere una copia propria delle righe.
+
+Le tre forme di rete che descrivono un file cambiato — `TopicChangedFile`
+(`/topics/:id/changes`), `DiffFileStat` (`/tasks/:id/diff`) e `GitStatusFile`
+(`git status --porcelain`) — SHALL essere convertite in UNA forma di
+presentazione prima di arrivare al renderer, con un adattatore per ciascuna.
+
+Ogni riga SHALL dire COSA e' successo prima di dire QUANTO: una lettera
+(`A`/`M`/`D`/`R`/`C`/`U`) con il suo colore, e per uno stato che ne chiede due —
+un conflitto, un file per meta' in stage — il CODICE grezzo (`UU`, `MM`) invece
+della lettera, che altrimenti starebbe per due cose diverse.
+
+Il percorso SHALL perdere la CARTELLA e mai il NOME: il nome del file e' cio'
+che si sta cercando, e un taglio da destra mangia esattamente quello. La
+cartella SHALL accorciarsi da sinistra.
+
+I conteggi SHALL restare assenti quando non esistono: un file senza diff (non
+tracciato, rinomina pura) NON SHALL mostrare «+0 -0», e un file binario SHALL
+dirsi tale invece di dichiarare righe che git non ha contato.
+
+La lista SHALL distinguere i suoi stati: «non ancora letta» (niente), «in
+lettura», «errore» e «letta e vuota» — e la frase del vuoto SHALL restare della
+superficie, perche' «nessun file nel commit di consegna» e «nessun file ancora
+cambiato» non sono la stessa affermazione. Oltre un tetto di righe la coda
+SHALL essere DICHIARATA («e altri N»), mai lasciata cadere in silenzio.
+
+#### Scenario: due superfici, le stesse righe
+- **GIVEN** un repository con un file aggiunto e uno modificato
+- **WHEN** si aprono la striscia dei file della chat e il chip di consegna della card che consegna quel commit
+- **THEN** le due liste portano gli stessi percorsi con le stesse lettere di stato
+
+#### Scenario: un file binario non dichiara righe
+- **GIVEN** un file che git riporta come binario (`-1` in `--numstat`)
+- **THEN** la riga SHALL dire «bin» e NON SHALL mostrare ne' `+` ne' `-`
+
+#### Scenario: un conflitto non si legge come una modifica
+- **GIVEN** un file con codice `UU`
+- **THEN** la riga SHALL mostrare `UU`, non `M`
+
 ### Requirement: GIT-COMMIT-VIEW-01 — I file di UN commit: due comandi, e il formato non è quello dello stato
 
 I file toccati da un singolo commit SHALL essere letti con DUE comandi — cosa è
