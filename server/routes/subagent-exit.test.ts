@@ -1,5 +1,5 @@
 /**
- * @covers SUBAGENT-04
+ * @covers SUBAGENT-04, WORKTREE-14
  */
 import { describe, it, expect } from "bun:test";
 import { formatSubAgentExitBody, formatSubAgentExitMessage } from "./subagent-exit";
@@ -45,5 +45,23 @@ describe("formatSubAgentExitMessage", () => {
   it("embeds the status note when there is no result", () => {
     const msg = formatSubAgentExitMessage({ name: "builder", result: "", exitCode: 2 });
     expect(msg).toBe('🤖 **Sotto-agente "builder", esito:**\n\n_(terminato con codice 2, nessun output recuperato)_');
+  });
+});
+
+describe("formatSubAgentExitMessage - the branch of an isolated child", () => {
+  it("names the branch and how to read its commits", () => {
+    const msg = formatSubAgentExitMessage({
+      name: "builder", result: "consegnato", exitCode: 0, branch: "topics/kind-tower",
+    });
+    expect(msg).toContain("Ramo: `topics/kind-tower`");
+    expect(msg).toContain("git log main..topics/kind-tower");
+  });
+
+  it("leaves the message byte-identical when the child had no worktree", () => {
+    // The line is added, it does not rewrite: a child that inherited the
+    // parent's directory must produce exactly the report it produced before.
+    const plain = formatSubAgentExitMessage({ name: "builder", result: "consegnato", exitCode: 0 });
+    expect(plain).toBe(formatSubAgentExitMessage({ name: "builder", result: "consegnato", exitCode: 0, branch: null }));
+    expect(plain).toBe('🤖 **Sotto-agente "builder", esito:**\n\nconsegnato');
   });
 });

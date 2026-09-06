@@ -341,6 +341,17 @@ export interface WorktreeGcDeps {
     | { taskId: null };
   /** True while a dispatched turn for the task is in flight — never reap under it. */
   isBusy: (taskId: string) => boolean;
+  /**
+   * IS SOMEBODY IN THERE? A live session whose working directory lies inside
+   * this worktree (WORKTREE-14).
+   *
+   * `isBusy` only shields what has a TASK. An isolated sub-agent has none: its
+   * worktree is an orphan, minutes old, with no commit and a branch already
+   * identical to main, which is exactly the shape this pass reaps on its first
+   * useful run (boot + 2 minutes). The question is asked first, and the only
+   * answer it can give is "keep it".
+   */
+  liveInside?: (wt: GcWorktree) => boolean;
   /** Whether the worktree directory still exists on disk. */
   diskPresent: (absPath: string) => boolean;
   /**
@@ -603,6 +614,12 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
 
   for (const wt of worktrees) {
     try {
+      // Before everything else, before even asking whose it is: who is standing
+      // in it right now. It holds with no task at all, and it is the only reason
+      // a sub-agent's worktree survives the pass that would find it orphaned,
+      // clean and already on main.
+      if (deps.liveInside?.(wt)) { keep("sessione viva nella cartella"); continue; }
+
       const t = deps.resolveTask(wt.id);
       const taskId = t.taskId;
 
