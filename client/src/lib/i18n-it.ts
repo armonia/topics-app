@@ -183,6 +183,8 @@ const IT: Dict = {
   'ask.recommended.hint': "È la strada che l'agente consiglia. La scelta resta tua.",
   'ask.recommended': 'consigliato',
   'ask.answerPlaceholder': 'Scrivi la tua risposta…',
+  'plan.edit.label': 'Il piano, correggibile',
+  'plan.edit.hint': "Approvare manda questa versione al posto di quella scritta dall'agente. Le correzioni restano se chiudi il pannello.",
   'appearance.chatWidth': 'Larghezza chat',
   'appearance.fullWidth': 'Piena larghezza',
   'appearance.chatWidth.aria': 'Larghezza massima della colonna di chat',

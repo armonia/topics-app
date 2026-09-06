@@ -85,3 +85,32 @@ describe('bozza del pannello di risposta', () => {
     expect(isEmptyDraft({ jsonText: '{"a":1}' })).toBe(false);
   });
 });
+
+/**
+ * The correction to a plan is a draft like every other one.
+ *
+ * @covers ASK-07, PERM-09
+ */
+describe('la correzione al piano', () => {
+  beforeEach(() => store.clear());
+
+  test('sopravvive alla chiusura del pannello, sotto la sua domanda', () => {
+    writeAskDraft('call-plan', { planText: '# Piano\n\n1. Passo corretto' }, T0);
+    expect(readAskDraft('call-plan', T0)?.planText).toBe('# Piano\n\n1. Passo corretto');
+    // PER QUESTION: the correction of one plan never shows under another.
+    expect(readAskDraft('call-altro', T0)).toBeNull();
+  });
+
+  test('conta come bozza: da sola basta a farla salvare', () => {
+    expect(isEmptyDraft({ planText: '# Piano corretto' })).toBe(false);
+    expect(isEmptyDraft({ planText: '   ' })).toBe(true);
+  });
+
+  test('scade come le altre, e rispondere la cancella', () => {
+    writeAskDraft('call-plan', { planText: 'corretto' }, T0);
+    expect(readAskDraft('call-plan', T0 + 8 * 24 * 3600_000)).toBeNull();
+    writeAskDraft('call-plan', { planText: 'corretto' }, T0);
+    clearAskDraft('call-plan');
+    expect(readAskDraft('call-plan', T0)).toBeNull();
+  });
+});

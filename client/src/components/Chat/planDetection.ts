@@ -42,6 +42,33 @@ export interface PendingPlan {
 }
 
 /**
+ * The decision on a plan, plus the plan as the human rewrote it.
+ *
+ * The correction is optional and stays optional: a plan nobody touched must
+ * restart the turn with the message it has always sent.
+ */
+export type PlanDecisionHandler = (approved: boolean, editedPlan?: string) => void;
+
+/**
+ * The message that restarts the work once a plan is approved.
+ *
+ * With a correction it is NOT enough to attach the new text: the CLI session
+ * that resumes still holds the plan it wrote itself (`~/.claude/plans/`), so a
+ * text that arrives without saying what it replaces can be read as an addition
+ * and leave the old version running. The message says it replaces, then gives
+ * the plan.
+ *
+ * Without a correction it stays the sentence it always was. Attaching a copy
+ * identical to what the model already has adds nothing and doubles the turn.
+ */
+export function planApprovalMessage(editedPlan?: string): string {
+  const edited = editedPlan?.trim();
+  if (!edited) return 'Piano approvato. Eseguilo.'; // allow-italian: prompt sent to the model, not UI copy
+  const head = 'Piano approvato, con correzioni. Questa versione SOSTITUISCE il piano che avevi scritto: ignora la precedente ed esegui questa.'; // allow-italian: prompt sent to the model, not UI copy
+  return `${head}\n\n${edited}`;
+}
+
+/**
  * C'è un piano che aspetta la tua approvazione su questa chat?
  *
  * L'ordine conta. Il blocco strutturato vince sempre: se il turno ha una

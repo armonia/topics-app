@@ -3,7 +3,7 @@ import { useT } from '../../hooks/useT';
 import { clearAskDraft, readAskDraft, writeAskDraft } from './askDraft';
 import { HelpCircle, Send, Loader2, ChevronRight, ArrowRight } from 'lucide-react';
 import type { ToolUserResponse, UserInputSchema, AskUserQuestionItem } from '../../types';
-import { isPlanApprovalSchema } from '../../../../shared/plan-decision';
+import { isPlanApprovalSchema, PLAN_EDIT_KEY } from '../../../../shared/plan-decision';
 import { Select } from '../Shared/Select';
 
 /** Extract a human-readable message from a rejected submit. `onSubmit`
@@ -28,6 +28,14 @@ interface Props {
   /** Optional toolCallId for keying — only used to scope DOM ids so two
    *  parallel forms in split panes don't collide on `radio` names. */
   toolCallId: string;
+  /**
+   * The plan as the model proposed it, on a plan approval panel.
+   *
+   * Present only there, and only once the row holds the WHOLE text: the
+   * history payload ships long strings cut to their head, so seeding the box
+   * from a trimmed copy would offer a truncated plan for approval.
+   */
+  planText?: string;
 }
 
 /**
@@ -44,7 +52,7 @@ interface Props {
  * agent) is severe, so every branch is straightforward and tested
  * separately.
  */
-export function ToolInputForm({ schema, onSubmit, toolCallId }: Props) {
+export function ToolInputForm({ schema, onSubmit, toolCallId, planText }: Props) {
   const tr = useT();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,6 +80,7 @@ export function ToolInputForm({ schema, onSubmit, toolCallId }: Props) {
       <QuestionsForm
         questions={schema.questions}
         toolCallId={toolCallId}
+        planText={planText}
         submitting={submitting}
         error={error}
         onSubmit={(response) => submitAndForget(response)}
@@ -140,13 +149,14 @@ function readRecommendation(opt: { label: string; description?: string; recommen
 }
 
 function QuestionsForm({
-  questions, toolCallId, submitting, error, onSubmit,
+  questions, toolCallId, submitting, error, onSubmit, planText,
 }: {
   questions: AskUserQuestionItem[];
   toolCallId: string;
   submitting: boolean;
   error: string | null;
   onSubmit: (response: ToolUserResponse) => Promise<void>;
+  planText?: string;
 }) {
   const tr = useT();
   // Selected option labels per question (keyed by question text). "Other" is a
@@ -169,11 +179,26 @@ function QuestionsForm({
   // sul filo. Con una domanda sola non compare nessuna impalcatura: resta
   // esattamente il pannello di prima.
   const [step, setStep] = useState(() => saved?.step ?? 0);
+  /**
+   * The plan, editable in place.
+   *
+   * A plan gets refused over two wrong lines, and refusing throws away the
+   * other forty with them. Here those two lines get fixed and approving sends
+   * the corrected text (`PLAN_EDIT_KEY`). This is not an ANSWER: the decision
+   * stays the two buttons, which is why a plan carries no free-text option
+   * at all (see the note further down).
+   */
+  const planPanel = planText !== undefined && isPlanApprovalSchema({ kind: 'questions', questions });
+  const [editedPlan, setEditedPlan] = useState(() => saved?.planText ?? planText ?? '');
+  // Only a plan that DIFFERS is a draft. Writing it at mount would persist a
+  // copy nobody touched, and on a row whose text is still the trimmed head it
+  // would persist a TRUNCATED plan that approving would then send.
+  const planDraft = planPanel && editedPlan !== planText ? editedPlan : undefined;
   // Si riscrive a ogni tocco: sono pochi byte in localStorage, e l'alternativa
   // (salvare "ogni tanto") perde esattamente l'ultima cosa che hai scritto.
   useEffect(() => {
-    writeAskDraft(toolCallId, { selections, otherText, step });
-  }, [toolCallId, selections, otherText, step]);
+    writeAskDraft(toolCallId, { selections, otherText, step, planText: planDraft });
+  }, [toolCallId, selections, otherText, step, planDraft]);
   const stepped = questions.length > 1;
   const current = questions[Math.min(step, questions.length - 1)]!;
   const isLast = step >= questions.length - 1;
@@ -248,7 +273,14 @@ function QuestionsForm({
         if (!allAnswered) return;
         const resolved: Record<string, string> = {};
         for (const q of questions) resolved[q.question] = resolveAnswerFor(q);
-        onSubmit({ kind: 'questions', answers: resolved, submittedAt: '' });
+        // The correction rides in `metadata`, never in `answers`: the row
+        // reprints every answer verbatim in its one-line recap.
+        onSubmit({
+          kind: 'questions',
+          answers: resolved,
+          ...(planDraft ? { metadata: { [PLAN_EDIT_KEY]: planDraft } } : {}),
+          submittedAt: '',
+        });
       }}
       className="space-y-3 bg-app-hover/30 border border-amber-500/25 rounded-md px-3 py-2.5 mt-1.5"
       data-testid={`tool-input-form-${toolCallId}`}
@@ -262,6 +294,29 @@ function QuestionsForm({
           </span>
         )}
       </div>
+      {/* The plan, above the two choices: read it, correct it, approve it.
+          Correcting is NOT answering: the decision stays the two buttons, and
+          Enter in here breaks the line instead of approving. */}
+      {planPanel && (
+        <div className="space-y-1">
+          <label
+            htmlFor={`${toolCallId}-plan-edit`}
+            className="block text-[11px] uppercase tracking-wide text-app-text-muted"
+          >
+            {tr('plan.edit.label')}
+          </label>
+          <textarea
+            id={`${toolCallId}-plan-edit`}
+            value={editedPlan}
+            onChange={(e) => setEditedPlan(e.target.value)}
+            disabled={submitting}
+            rows={10}
+            data-testid="plan-edit-input"
+            className="w-full text-[13px] leading-snug bg-surface border border-app-border rounded px-2 py-1.5 resize-y font-mono"
+          />
+          <div className="text-[11px] text-app-text-muted">{tr('plan.edit.hint')}</div>
+        </div>
+      )}
       {/* Le risposte già date, in una riga: si vede cosa hai scelto senza
           tornare indietro, e tornare indietro resta possibile col tasto sotto. */}
       {stepped && step > 0 && (

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo, forwardRef, type ComponentProps } from 'react';
 import { Paperclip } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, CompactionMarker } from '../../types';
+import type { PlanDecisionHandler } from './planDetection';
 import { ScrollToBottom, NewMessageBanner } from '../Shared/ScrollToBottom';
 import { CompactionDivider } from './CompactionDivider';
 import { LoadOlderDivider } from './LoadOlderDivider';
@@ -116,7 +117,7 @@ interface MessageListProps {
   onFileDragOver: (e: React.DragEvent) => void;
   onFileDragLeave: (e: React.DragEvent) => void;
   onFileDrop: (e: React.DragEvent) => void;
-  onPlanDecision?: (approved: boolean) => void;
+  onPlanDecision?: PlanDecisionHandler;
   onRemember?: (msg: ChatMessage) => void;
   onEdit?: (msg: ChatMessage) => void;
   onRegenerate?: (msg: ChatMessage) => void;

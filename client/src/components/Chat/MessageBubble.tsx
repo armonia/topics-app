@@ -2,6 +2,7 @@ import { memo, useState, useCallback, useEffect, useRef, type ReactNode } from '
 import { useT } from '../../hooks/useT';
 import { Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight, RotateCw, Target, Trash2 } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage } from '../../types';
+import type { PlanDecisionHandler } from './planDetection';
 import { MessageMetaFooter } from './MessageMetaFooter';
 import { isWorkOnlyAssistant } from './coalesceToolRun';
 import { MessageContent } from '../MessageContent';
@@ -95,7 +96,7 @@ interface MessageBubbleProps {
   onCopy: (msg: ChatMessage) => void;
   onTogglePin: (msg: ChatMessage) => void;
   /** La decisione presa su un piano proposto — arriva fino a <ToolCallRow>. */
-  onPlanDecision?: (approved: boolean) => void;
+  onPlanDecision?: PlanDecisionHandler;
   onRemember?: (msg: ChatMessage) => void;
   onEdit?: (msg: ChatMessage) => void;
   /** Regenerate this assistant reply as a sibling branch (host gates it off

@@ -2,6 +2,7 @@ import { memo, useMemo, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { ChevronDown, ChevronRight, Loader2, X, Workflow } from 'lucide-react';
 import type { ToolCall } from '../../types';
+import type { PlanDecisionHandler } from './planDetection';
 import { ToolCallRow, ElapsedTimer } from './ToolCallRow';
 import { useSettledMetricClass } from './settledMetrics';
 import {
@@ -27,7 +28,7 @@ import {
  * to tool instead of N rows flashing open and closed. On settle it collapses
  * to the single summary row.
  */
-function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools: ToolCall[]; sessionKey?: string; messageId?: string; onPlanDecision?: (approved: boolean) => void }) {
+function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools: ToolCall[]; sessionKey?: string; messageId?: string; onPlanDecision?: PlanDecisionHandler }) {
   const tr = useT();
   const settledMetricClass = useSettledMetricClass('toolgroup');
   const [open, setOpen] = useState(false);
@@ -146,7 +147,7 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
  * per-call rows below it. This is the single entry MessageContent (blocks
  * timeline + legacy bucket) uses for tool runs.
  */
-export const GroupedToolRows = memo(function GroupedToolRows({ tools, sessionKey, messageId, onPlanDecision }: { tools: ToolCall[]; sessionKey?: string; messageId?: string; onPlanDecision?: (approved: boolean) => void }) {
+export const GroupedToolRows = memo(function GroupedToolRows({ tools, sessionKey, messageId, onPlanDecision }: { tools: ToolCall[]; sessionKey?: string; messageId?: string; onPlanDecision?: PlanDecisionHandler }) {
   const segments = useMemo(() => partitionToolGroup(tools), [tools]);
   return (
     <>

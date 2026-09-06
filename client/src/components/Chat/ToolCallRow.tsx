@@ -2,6 +2,7 @@ import { createElement, memo, useEffect, useRef, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { ChevronDown, ChevronRight, HelpCircle, Loader2, ShieldOff, X } from 'lucide-react';
 import type { ToolCall, ToolUserResponse } from '../../types';
+import type { PlanDecisionHandler } from './planDetection';
 import { resolveToolDetail, buildToolDisplayLabel } from './toolDetail';
 import { ToolCardBody } from './ToolCards';
 import { toolCardHasBody } from './toolCardBody';
@@ -10,7 +11,7 @@ import { ToolInputForm } from './ToolInputForm';
 import { ToolPermissionRow } from './ToolPermissionRow';
 import { formatDurationMs, formatCostCents, formatTokensCompact } from './toolGrouping';
 import { chatApi } from '../../lib/api';
-import { planDecisionFrom } from '../../../../shared/plan-decision';
+import { editedPlanFrom, planDecisionFrom } from '../../../../shared/plan-decision';
 import { useSettledMetricClass } from './settledMetrics';
 import { isAwaitingHuman } from '../../../../shared/types';
 import { autoOpenSchedule, bodyIsOpen } from './toolRowDisclosure';
@@ -72,7 +73,7 @@ interface Props {
    * l'autonomia giusta. Quel messaggio lo manda chi possiede la sessione, non
    * questa riga: la riga si limita a dire che cosa hai scelto.
    */
-  onPlanDecision?: (approved: boolean) => void;
+  onPlanDecision?: PlanDecisionHandler;
   /**
    * The DB id of the message this toolCall belongs to. Needed for the lazy
    * load: when the history payload has blanked `output`/`content`/`result`
@@ -429,6 +430,10 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
             <ToolInputForm
               schema={toolCall.userInputSchema}
               toolCallId={toolCall.id}
+              // `detail` here is the one already merged with the lazily
+              // fetched body, so the box offers the whole plan and not the
+              // head the history payload shipped.
+              planText={detail.type === 'plan' ? detail.text : undefined}
               onSubmit={async (response: ToolUserResponse) => {
                 const decision = planDecisionFrom(response);
                 // The WS broadcast that follows will flip status →
@@ -439,7 +444,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
                 await chatApi.toolResponse(sessionKey, toolCall.id, response);
                 // Registrata la scelta, il lavoro riparte: la route ha solo
                 // preso nota, perché di tool sospesi qui non ce n'è.
-                if (decision !== null) onPlanDecision?.(decision);
+                if (decision !== null) onPlanDecision?.(decision, editedPlanFrom(response) ?? undefined);
               }}
             />
             </>

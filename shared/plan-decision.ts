@@ -12,7 +12,23 @@ export const PLAN_APPROVE_LABEL = 'Approva ed esegui';
 export const PLAN_REJECT_LABEL = 'Rifiuta e riprova';
 export const PLAN_APPROVAL_QUESTION = 'Approvo questo piano?';
 
-type AnswerLike = { kind?: string; answers?: Record<string, string> };
+/**
+ * Where the corrected plan travels, and why it is not an answer.
+ *
+ * The edited text rides in `metadata`, never in `answers`. The answer is the
+ * DECISION, and the row reprints it in full when it summarises who chose what
+ * (`Object.values(answers)` in `ToolCallRow`): a whole plan in there would be
+ * pasted into a one-line recap. `metadata` is already persisted verbatim by
+ * `POST /api/chat/tool-response`, so nothing on the server has to learn a new
+ * field.
+ */
+export const PLAN_EDIT_KEY = 'plan';
+
+type AnswerLike = {
+  kind?: string;
+  answers?: Record<string, string>;
+  metadata?: Record<string, unknown>;
+};
 
 /** `true` approvato, `false` rifiutato, `null` se non è una decisione su un piano. */
 export function planDecisionFrom(response: AnswerLike): boolean | null {
@@ -22,6 +38,18 @@ export function planDecisionFrom(response: AnswerLike): boolean | null {
   );
   if (!entry) return null;
   return entry[1]?.trim() === PLAN_APPROVE_LABEL;
+}
+
+/**
+ * The plan as the human rewrote it, or `null` when nobody touched it.
+ *
+ * An empty or blank string is nobody touching it: sending a plan that says
+ * nothing would replace the proposal with silence.
+ */
+export function editedPlanFrom(response: AnswerLike): string | null {
+  const raw = response?.metadata?.[PLAN_EDIT_KEY];
+  if (typeof raw !== 'string') return null;
+  return raw.trim().length > 0 ? raw : null;
 }
 
 /**

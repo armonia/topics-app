@@ -558,6 +558,65 @@ stato, perche' un evento che ACCUMULA raddoppierebbe.
 - **WHEN** vi si cerca un evento che porta un delta (testo, contatore)
 - **THEN** SHALL non esserci: consegnarlo due volte raddoppierebbe cio' che disegna
 
+### Requirement: PERM-09 — Il piano si corregge prima di approvarlo
+
+Un piano si respinge per due righe sbagliate. Rifiutare le rimuove insieme a
+tutto il resto: il modello riscrive da capo, e chi legge deve rispiegare a
+parole ciò che aveva già sotto gli occhi scritto bene. Correggere quelle due
+righe costa meno, e produce esattamente il piano che si voleva approvare.
+
+Il testo del piano nel pannello di approvazione SHALL quindi essere
+MODIFICABILE, e approvare SHALL far arrivare al modello la versione CORRETTA al
+posto di quella che aveva scritto.
+
+Il messaggio che riparte SHALL dire che la versione allegata SOSTITUISCE quella
+precedente. La sessione che riprende ha ancora in memoria il piano che ha
+scritto lei: un testo allegato senza quella dichiarazione può far eseguire il
+vecchio, cioè proprio ciò che la correzione voleva evitare.
+
+Il piano NON corretto SHALL far partire il messaggio di sempre. Allegare una
+copia identica a quella che il modello ha già in memoria non aggiunge niente e
+raddoppia il testo del turno.
+
+La correzione SHALL essere una BOZZA per domanda, con la stessa scadenza e la
+stessa pulizia delle altre (ASK-07): SHALL sopravvivere alla chiusura e
+riapertura del pannello, e rispondere SHALL cancellarla — anche quando la
+risposta parte dalla scelta SOPRA il campo di scrittura, che non passa dal
+pannello.
+
+Quella scelta sopra il campo di scrittura SHALL onorare la correzione scritta
+nel pannello. Due superfici che approvano lo stesso piano mandando testi diversi
+sono un modo silenzioso di eseguire la versione sbagliata.
+
+La correzione SHALL viaggiare a parte dalla risposta, non dentro di essa: la
+risposta è la DECISIONE, e la riga la ristampa per esteso quando riassume chi ha
+scelto cosa.
+
+Correggere NON SHALL essere rispondere. La casella corregge la PROPOSTA; la
+decisione restano i due tasti (PERM-05: su un piano non si offre una risposta
+libera, ASK-08: il testo scritto non vale come scelta). Approvare SHALL restare
+non preselezionato (PERM-03), e il tasto INVIO dentro la casella NON SHALL
+inviare: un'approvazione partita da un a capo non è un gesto.
+
+Rifiutare NON SHALL portare la correzione: si rifiuta una proposta, non se ne
+consegna una emendata.
+
+#### Scenario: il piano corretto e approvato
+- **GIVEN** un pannello di approvazione con il piano riscritto a mano
+- **WHEN** si approva
+- **THEN** il messaggio che riparte SHALL contenere la versione corretta, e SHALL
+  dichiarare che sostituisce quella scritta dal modello
+
+#### Scenario: il pannello chiuso e riaperto
+- **GIVEN** una correzione scritta e non ancora inviata
+- **WHEN** il pannello viene chiuso e riaperto
+- **THEN** la correzione SHALL essere ancora lì
+
+#### Scenario: il piano che nessuno ha toccato
+- **GIVEN** un pannello di approvazione lasciato com'era
+- **WHEN** si approva
+- **THEN** SHALL partire il messaggio di sempre, senza nessuna copia del piano
+
 ### Requirement: ASK-09 — Una domanda risposta SMETTE di sembrare in invio, senza ricaricare
 
 Il pannello di una domanda ha un solo interruttore per spegnersi, e sta in un
