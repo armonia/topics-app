@@ -28,7 +28,8 @@
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createTaskService, type TaskService } from "./tasks";
-import { createTaskDispatcher, type DispatcherDeps, NODE_DEAD_POLLS } from "./task-dispatcher";
+import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
+import { NODE_DEAD_POLLS } from "./task-dispatcher-remote-node";
 import { createNodeBranchPlanter } from "./node-branch-plant";
 import type { NodeRunReport } from "./node-client";
 import type { TurnEndInfo } from "../providers/stop-reason";
