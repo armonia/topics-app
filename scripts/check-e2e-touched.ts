@@ -251,11 +251,37 @@ export function ownBundleDir(
   return join(tmp, "topics-e2e-touched", basename(resolve(gitDir)));
 }
 
+/** The oldest node vite still runs on: below this its build dies on `crypto.hash`. */
+const MIN_NODE_MAJOR = 20;
+
+/**
+ * The vite shim starts with `#!/usr/bin/env node`, so it inherits whatever node
+ * comes first on PATH, which on this machine can be older than vite's floor.
+ * Pick the first candidate new enough and call it by absolute path instead.
+ */
+function pickNodeBinary(): string | null {
+  const onPath = sh(["sh", "-c", "command -v node"]).trim();
+  const candidates = [onPath, "/opt/homebrew/bin/node", "/usr/local/bin/node"];
+  for (const binary of candidates) {
+    if (!binary || !existsSync(binary)) continue;
+    const major = Number(sh([binary, "--version"]).trim().replace(/^v/, "").split(".")[0]);
+    if (Number.isFinite(major) && major >= MIN_NODE_MAJOR) return binary;
+  }
+  return null;
+}
+
 /** Builds the client into `dir`. The build's own output is the only message. */
 function buildBundle(dir: string): boolean {
   console.log(`check:e2e-touched: linked worktree, building the bundle into ${dir}\n`);
+  const node = pickNodeBinary();
+  if (!node) {
+    console.error(
+      `check:e2e-touched: no node >= ${MIN_NODE_MAJOR} on this machine, and vite does not build without one.`,
+    );
+    return false;
+  }
   const proc = Bun.spawnSync(
-    ["./node_modules/.bin/vite", "build", "--outDir", dir, "--emptyOutDir", "--logLevel", "error"],
+    [node, "./node_modules/vite/bin/vite.js", "build", "--outDir", dir, "--emptyOutDir", "--logLevel", "error"],
     { cwd: "client", stdout: "inherit", stderr: "inherit" },
   );
   return proc.exitCode === 0;
