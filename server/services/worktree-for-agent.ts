@@ -16,6 +16,27 @@
 import { resolveWorktreeBaseRef } from "./worktree-base-ref";
 import type { Worktree } from "../types";
 
+/**
+ * QUANTO SI ASPETTA CHE UN WORKTREE SIA PRONTO, E PERCHE' NON SONO DUE MINUTI.
+ *
+ * Un worktree diventa `ready` solo DOPO l'install delle dipendenze (la fine di
+ * `installDeps`, in `worktree-manager.ts`). Due minuti bastano a un repo
+ * piccolo e non bastano a uno grosso: misurato il 19/08 su dancerooms,
+ * 242 secondi. Il risultato non era «parte lento», era «NON PARTE»: chi
+ * aspettava mollava a 120s, il dispatch falliva, e la card restava ferma senza
+ * che niente dicesse che il ritardo era di `pnpm install`.
+ *
+ * Dieci minuti sono un tetto contro un install BLOCCATO (rete morta, lock di
+ * un registry), non una stima del caso normale: quando l'install va, si torna
+ * appena finisce. Regolabile per chi ha un repo piu' lento di dancerooms.
+ *
+ * Si legge alla chiamata e non al boot perche' adesso la chiedono in due, il
+ * dispatch e lo spawn isolato, e il valore deve essere lo stesso per entrambi.
+ */
+export function worktreeReadyMs(): number {
+  return Math.max(60_000, Number(process.env.TOPICS_WORKTREE_READY_MS) || 600_000);
+}
+
 /** The two collaborators the birth needs, declared so a test can stand in for
  *  both without a git repository or a server. */
 export interface AgentWorktreeDeps {
@@ -75,8 +96,8 @@ export interface AgentProjectLookup {
 }
 
 export type AgentProjectResolution =
-  | { projectStoreId: string; refusal?: undefined }
-  | { projectStoreId?: undefined; refusal: string };
+  | { ok: true; projectStoreId: string }
+  | { ok: false; refusal: string };
 
 /**
  * Which project should the child's worktree belong to?
@@ -99,10 +120,10 @@ export function resolveAgentProject(
     if (typeof candidate !== "string" || !candidate) continue;
     tried.push(candidate);
     const project = lookup.getByPath(candidate);
-    if (project) return { projectStoreId: project.id };
+    if (project) return { ok: true, projectStoreId: project.id };
     const worktree = lookup.getByAbsPath(candidate);
-    if (worktree) return { projectStoreId: worktree.projectId };
+    if (worktree) return { ok: true, projectStoreId: worktree.projectId };
   }
   const where = tried.length ? tried.join(", ") : "no known directory";
-  return { refusal: `isolation 'worktree': no project owns ${where}` };
+  return { ok: false, refusal: `isolation 'worktree': no project owns ${where}` };
 }

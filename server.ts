@@ -71,7 +71,7 @@ import { createOpenClawContextRouter } from "./server/routes/openclaw-context";
 import { createContextPreviewRouter } from "./server/routes/context-preview";
 import { createTaskService, projectIdForPath } from "./server/services/tasks";
 import { createExternalSessionsService } from "./server/services/external-sessions";
-import { createAgentWorktree, type AgentWorktreeDeps } from "./server/services/worktree-for-agent";
+import { createAgentWorktree, worktreeReadyMs, type AgentWorktreeDeps } from "./server/services/worktree-for-agent";
 import { createExternalSessionsRouter } from "./server/routes/external-sessions";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
@@ -1522,7 +1522,7 @@ const taskDispatcher = createTaskDispatcher({
   // (WORKTREE-14): il corpo sta in `worktree-for-agent.ts`, il perché del
   // ripiego su HEAD in `worktree-base-ref.ts`.
   createWorktree: (projectStoreId) =>
-    createAgentWorktree(agentWorktreeDeps("dispatch"), projectStoreId, WORKTREE_READY_MS),
+    createAgentWorktree(agentWorktreeDeps("dispatch"), projectStoreId, worktreeReadyMs()),
   deleteWorktree: async (worktreeId) => { await ctx.worktreeManager.delete(worktreeId); },
   // C'e' qualcosa da perdere in questo worktree? Serve al dispatcher per NON
   // cancellare il branch di un tentativo rimesso in coda che pero' aveva gia'
@@ -2403,20 +2403,6 @@ const machinesRouter = createMachinesRouter(ctx);
 // Phase D — heartbeat ticker. Upserts the local machine row every 30 s
 // and flips other machines that haven't checked in for 5 minutes to
 // `offline`. Cheap (one indexed UPDATE + one indexed SELECT per tick).
-// QUANTO SI ASPETTA CHE UN WORKTREE SIA PRONTO, E PERCHE' NON SONO DUE MINUTI.
-//
-// Un worktree diventa `ready` solo DOPO l'install delle dipendenze (la fine di
-// `installDeps`, in `worktree-manager.ts`). Due minuti bastano a un repo
-// piccolo e non bastano a uno grosso: misurato il 19/08 su dancerooms,
-// 242 secondi. Il risultato non era «parte lento», era «NON PARTE»: chi
-// aspettava mollava a 120s, il dispatch falliva, e la card restava ferma senza
-// che niente dicesse che il ritardo era di `pnpm install`.
-//
-// Dieci minuti sono un tetto contro un install BLOCCATO (rete morta, lock di
-// un registry), non una stima del caso normale: quando l'install va, si torna
-// appena finisce. Regolabile per chi ha un repo piu' lento di dancerooms.
-const WORKTREE_READY_MS = Math.max(60_000, Number(process.env.TOPICS_WORKTREE_READY_MS) || 600_000);
-
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const STALE_THRESHOLD_MS = 5 * 60_000;
 function tickHeartbeat() {

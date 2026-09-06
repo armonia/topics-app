@@ -59,30 +59,33 @@ describe("resolveAgentProject", () => {
 
   test("the requested cwd wins over the parent's", () => {
     const out = resolveAgentProject({ cwd: "/repo/foo", parentCwd: "/wt/foo/kind-tower" }, lookup);
-    expect(out).toEqual({ projectStoreId: "proj-foo" });
+    expect(out).toEqual({ ok: true, projectStoreId: "proj-foo" });
   });
 
   test("a parent standing inside a worktree resolves through that worktree", () => {
     // This is the common case, not the exotic one: the parent is often a card's
     // agent, whose cwd is a checkout `projects.path` has never heard of.
     const out = resolveAgentProject({ parentCwd: "/wt/foo/kind-tower" }, lookup);
-    expect(out).toEqual({ projectStoreId: "proj-foo" });
+    expect(out).toEqual({ ok: true, projectStoreId: "proj-foo" });
   });
 
   test("the topic's cwd is the last resort", () => {
     const out = resolveAgentProject({ cwd: "/elsewhere", topicCwd: "/repo/foo" }, lookup);
-    expect(out).toEqual({ projectStoreId: "proj-foo" });
+    expect(out).toEqual({ ok: true, projectStoreId: "proj-foo" });
   });
 
   test("no candidate places a project, and the refusal names the paths", () => {
     const out = resolveAgentProject({ cwd: "/elsewhere", parentCwd: "/nowhere" }, lookup);
-    expect(out.projectStoreId).toBeUndefined();
+    expect(out.ok).toBe(false);
+    if (out.ok) throw new Error("expected a refusal");
     expect(out.refusal).toContain("/elsewhere");
     expect(out.refusal).toContain("/nowhere");
   });
 
   test("with no directory at all the refusal still reads", () => {
     const out = resolveAgentProject({}, lookup);
+    expect(out.ok).toBe(false);
+    if (out.ok) throw new Error("expected a refusal");
     expect(out.refusal).toBeTruthy();
   });
 });

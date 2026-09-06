@@ -45,6 +45,7 @@ import { deriveClaudeSessionTitle } from "../lib/claude-transcript-title";
 import { parseJsonlLine, splitJsonlChunk } from "../lib/claude-session-state";
 import { topicsAgentSystemPrompt, resolveClaudeEffort, resolveCodexReasoningEffort, topicEffortFor } from "../lib/topics-agent-prompt";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
+import { createAgentWorktree, resolveAgentProject, worktreeReadyMs } from "../services/worktree-for-agent";
 import type { SubAgentExitInfo } from "./subagent-exit";
 export type { SubAgentExitInfo } from "./subagent-exit";
 
@@ -2330,6 +2331,30 @@ import type { OutboundMessage } from "../../shared/ws-outbound";
 // sessions register here so their hook-driven phase (running/tool-running)
 // becomes the solid "is it working" signal, instead of fragile pty bytes.
 let _tracker: ClaudeSessionTracker | null = null;
+/** Il ramo su cui sta un sotto-agente isolato (WORKTREE-14) si legge dalla sua
+ *  cartella, e la cartella e' l'unico legame: nessuna colonna nuova. Un
+ *  riferimento di modulo come `_tracker` perche' il risveglio di un figlio dopo
+ *  un riavvio passa da qui senza avere `ctx` sotto mano. */
+let _worktreeStore: AppContext["worktreeStore"] | null = null;
+/** Il ramo del worktree che sta esattamente in questa cartella, se ce n'e' uno. */
+function branchOfCwd(cwd: string | undefined | null): string | null {
+  if (!cwd || !_worktreeStore) return null;
+  try { return _worktreeStore.getByAbsPath(cwd)?.branchName ?? null; } catch { return null; }
+}
+
+/**
+ * Le cartelle in cui vive una sessione di terminale, per la guardia della
+ * potatura (WORKTREE-14). Nessun filtro su `ptyPid`: dopo un riavvio le
+ * sessioni rientrano da `terminal_sessions` senza pid, e una sessione senza pid
+ * e' comunque una cartella in cui qualcuno sta per tornare — la scopa qui deve
+ * poter solo TENERE, quindi il falso positivo costa una cartella e il falso
+ * negativo il lavoro di un figlio.
+ */
+export function liveTerminalCwds(): string[] {
+  const out: string[] = [];
+  for (const s of sessions.values()) if (s.cwd) out.push(s.cwd);
+  return out;
+}
 function broadcastTerminalSessions() {
   if (!_broadcastToAll) return;
   const list = Array.from(sessions.values()).map(s => ({
@@ -2544,6 +2569,7 @@ export function parkOrphanSessions(ids: readonly string[], thresholdMs: number):
 export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTracker): RouteHandler {
   const { json, readJSON, errorResponse, matchRoute } = ctx;
   _broadcastToAll = ctx.broadcastToAll;
+  _worktreeStore = ctx.worktreeStore;
   if (tracker) _tracker = tracker;
 
   // Connect to bridge and reconcile sessions (async, fire-and-forget)
@@ -3039,7 +3065,45 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           }
         }
         const parent = sessions.get(parentKey);
-        const cwd = typeof body.cwd === "string" && body.cwd ? body.cwd : (parent?.cwd || process.env.HOME || "/");
+        // WORKTREE-14, e l'opt-in e' il punto: senza `isolation` il figlio
+        // eredita la cartella del padre come ha sempre fatto. Un checkout costa
+        // ~600 MB e MAX_CHILDREN_PER_PARENT ne consente cinque: un default a
+        // worktree imporrebbe quel conto a ogni chat che delega qualcosa.
+        const isolation = body.isolation === "worktree" ? "worktree" : "inherit";
+        // Il padre di una chat non sta in `sessions` (la sua sessionKey e'
+        // `topic:<id>`): senza il cwd del topic la risoluzione del progetto
+        // finirebbe su `$HOME`, che non e' un progetto di nessuno.
+        const topicCwd = ctx.resolveTopicCwd(ctx.getTopicBySessionKey(parentKey));
+        let cwd = typeof body.cwd === "string" && body.cwd ? body.cwd : (parent?.cwd || process.env.HOME || "/");
+        let branch: string | null = null;
+        if (isolation === "worktree") {
+          const project = resolveAgentProject(
+            { cwd: typeof body.cwd === "string" ? body.cwd : null, parentCwd: parent?.cwd, topicCwd },
+            {
+              getByPath: (path) => ctx.projectStore.getByPath(path),
+              getByAbsPath: (absPath) => ctx.worktreeStore.getByAbsPath(absPath),
+            },
+          );
+          if (!project.ok) return errorResponse(400, project.refusal);
+          try {
+            const worktreeId = await createAgentWorktree(
+              {
+                projectPath: (projectStoreId) => ctx.projectStore.get(projectStoreId)?.path,
+                create: (input) => ctx.worktreeManager.create(input),
+                awaitMaterialisation: (wtId, timeoutMs) => ctx.worktreeManager.awaitMaterialisation(wtId, timeoutMs),
+                warn: (reason) => console.warn(`[spawn] ${reason}`),
+              },
+              project.projectStoreId,
+              worktreeReadyMs(),
+            );
+            const wt = ctx.worktreeStore.get(worktreeId);
+            if (!wt) return errorResponse(502, `worktree ${worktreeId} creato ma non leggibile`);
+            cwd = wt.absPath;
+            branch = wt.branchName;
+          } catch (err: any) {
+            return errorResponse(502, `Failed to create worktree for sub-agent: ${err?.message ?? err}`);
+          }
+        }
         const id = crypto.randomUUID();
         const name = typeof body.name === "string" && body.name ? body.name : `agent ${id.slice(0, 8)}`;
         try {
@@ -3059,7 +3123,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           // so the wake/read paths deliver its actual final result (not "senza
           // output") even when the orchestrator never polls it.
           scheduleClaudeSubAgentIdCapture(id);
-          return json({ agentId: id, name: session.name, cwd: session.cwd });
+          return json({ agentId: id, name: session.name, cwd: session.cwd, branch });
         } catch (err: any) {
           return errorResponse(502, `Failed to spawn sub-agent: ${err.message}`);
         }
@@ -3072,6 +3136,9 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           agentId: s.id,
           name: s.name,
           cwd: s.cwd,
+          // Il ramo di un figlio isolato, riletto dalla cartella: il padre deve
+          // poterlo nominare anche in una lista chiesta dopo un riavvio.
+          branch: branchOfCwd(s.cwd),
           claudeSessionId: s.claudeSessionId || null,
           busy: terminalActivity.get(s.id)?.busy ?? false,
         }));
@@ -3111,6 +3178,10 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         const child = resolveOwnedChild(parentKey, decodeURIComponent(stopM.agentId));
         if (!child) return errorResponse(404, "sub-agent not found");
         const childClaudeId = child.claudeSessionId;
+        // Letto PRIMA di uccidere: dopo, la sessione non c'e' piu' e il ramo
+        // sarebbe irrecuperabile per chi ha appena chiesto lo stop. La cartella
+        // NON si cancella qui: decide la potatura (WORKTREE-09/10).
+        const childBranch = branchOfCwd(child.cwd);
         sendToBridge({ type: "kill", id: child.id });
         sessions.delete(child.id);
         const sockets = sessionSockets.get(child.id);
@@ -3126,7 +3197,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         // delegated task — wake its parent chat with the result here, because the
         // pre-delete above makes the bridge `exit` frame unable to (session gone).
         wakeParentTopicOnChildExit(child, null);
-        return json({ ok: true });
+        return json({ ok: true, branch: childBranch });
       }
     }
 
