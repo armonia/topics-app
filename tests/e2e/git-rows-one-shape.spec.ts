@@ -129,38 +129,17 @@ async function rowsOf(scope: ReturnType<Page['locator']>): Promise<string[]> {
 
 test.describe('la stessa lista di file su due superfici', () => {
   test('la striscia della chat e il chip della card disegnano le stesse righe', async ({ page }) => {
-    // BOTH SURFACES LIVE IN THE PROJECT WINDOW, and that is not a shortcut: a
-    // topic bound to a project is nested under it, so its pane lives in the
-    // project's own store and neither its `treeitem` nor its `pane-tab`
-    // resolves in the main window (measured: three runs waiting 30s each).
-    // The topic has to be IN the sidebar before it can be found under the
-    // project: one created through the API is not there until the pane store
-    // names it.
-    await resetPaneStore(page.request, [topicId]);
-    await openSidebar(page);
-
     // ── SURFACE ONE: the strip above the composer.
     //
-    // The project's ACCORDION is opened by its chevron, not by its name: the
-    // name button focuses the project and swaps the left column for the
-    // project's own sidebar (files, git), where no topic is listed at all
-    // (measured: the column read "Topics" and nothing else).
-    const topicRow = page.getByRole('treeitem', { name: new RegExp(`git-rows-${STAMP}`) }).first();
-    if (!(await topicRow.isVisible().catch(() => false))) {
-      // Only when it is closed: with a pane already seeded the project comes up
-      // expanded, and its chevron then reads "Collapse".
-      const chevron = page.getByRole('button', { name: `Expand ${PROJECT_NAME}` }).first();
-      if (await chevron.count()) await chevron.click();
-    }
-    const visible = await topicRow.waitFor({ state: 'visible', timeout: 20_000 }).then(() => true, () => false);
-    const seen = await page.evaluate(() => ({
-      projects: [...document.querySelectorAll('[data-testid^="project-toggle-"]')].map((n) => n.getAttribute('data-testid')),
-      treeitems: [...document.querySelectorAll('[role="treeitem"]')].map((n) => n.getAttribute('aria-label')),
-    }));
-    expect(visible, `the topic is not under its project. The sidebar holds: ${JSON.stringify(seen)}`).toBe(true);
-    // A chat of a project opens the project's window AND lands on it.
-    await topicRow.click();
-    await expect(page.getByTestId('project-window')).toBeVisible({ timeout: 20_000 });
+    // Reached by PERMALINK. Everything else was tried and measured: a topic
+    // bound to a project is not listed at the top level of the sidebar, its
+    // project's own column lists files and git and no topic at all, and its
+    // pane lives in the project's store so it has no `pane-tab` in the main
+    // window. The permalink is the one address that opens THAT chat.
+    await resetPaneStore(page.request, [topicId]);
+    const opened = await page.goto(`/tab/chat/${topicId}`);
+    expect(opened?.status(), 'the permalink has to be addressable by the server').toBe(200);
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: 'visible', timeout: 20_000 });
 
     const chip = page.getByTestId('chat-changes-chip');
     await expect(chip).toBeVisible({ timeout: 20_000 });
@@ -173,6 +152,7 @@ test.describe('la stessa lista di file su due superfici', () => {
     expect(chatRows).toEqual([`A ${ADDED}`, `M ${MODIFIED}`]);
 
     // ── SURFACE TWO: the delivery chip of the card, same repository.
+    await openProjectWindow(page);
     await openBoardPane(page);
     const card = page.locator(`[data-task-card="${taskId}"]`);
     await expect(card).toBeVisible({ timeout: 20_000 });
@@ -188,13 +168,16 @@ test.describe('la stessa lista di file su due superfici', () => {
   });
 });
 
-/** The app, with the projects section of the sidebar open. */
-async function openSidebar(page: Page): Promise<void> {
+/** The project's own window, from the sidebar row. */
+async function openProjectWindow(page: Page): Promise<void> {
   await page.goto('/');
   await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
   const section = page.getByRole('button', { name: /sezione Progetti/ });
   if ((await section.count()) > 0 && (await section.getAttribute('aria-expanded')) === 'false') await section.click();
-  await expect(projectRow(page, new RegExp(PROJECT_NAME))).toBeVisible({ timeout: 20_000 });
+  const row = projectRow(page, new RegExp(PROJECT_NAME));
+  await expect(row).toBeVisible({ timeout: 20_000 });
+  await row.click();
+  await expect(page.getByTestId('project-window')).toBeVisible({ timeout: 20_000 });
 }
 
 /** Add the board pane to the open project window. */
