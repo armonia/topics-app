@@ -1706,6 +1706,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     /** Le altre evidenze del thread, per il carosello della card. */
     previewImages: Map<string, string[]>;
     queue: QueueRank | null;
+    /**
+     * The NAME of every node a card in this batch names. The chip has to say
+     * which machine went silent, and an id in that sentence names nothing to
+     * whoever reads it. Empty when no row names a node: a board of local cards
+     * pays no read at all.
+     */
+    nodeNames: Map<string, string>;
     autoDispatch: boolean;
     heavy: boolean;
     /**
@@ -2047,6 +2054,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       ),
       previewImages: previewImagesFor(ids),
       queue: null,
+      nodeNames: new Map(),
       autoDispatch: false,
       heavy: false,
       queueReadable: true,
@@ -2114,6 +2122,18 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             GROUP BY parent_task_id`,
         ).all(idParam(reviewIds)) as Array<{ pid: string; n: number }>) b.openChildren.set(c.pid, c.n);
       }
+      // The nodes named by these cards, in one read. Outside the `try` there is
+      // nothing to protect: a database without a `machines` table is a reduced
+      // harness schema, and there the chip falls back to the id rather than
+      // making the whole batch unreadable.
+      const machineIds = [...new Set(rows.map((r) => r.machine_id).filter(Boolean) as string[])];
+      if (machineIds.length) {
+        try {
+          for (const m of db.query(
+            "SELECT id, name FROM machines WHERE id IN (SELECT value FROM json_each(?))",
+          ).all(idParam(machineIds)) as Array<{ id: string; name: string }>) b.nodeNames.set(m.id, m.name);
+        } catch { /* no `machines` table: the chip says the id, which still points at something */ }
+      }
       const inCoda = rows.filter((r) => r.status === "todo" && !r.parent_task_id);
       if (inCoda.length) b.queue = rankQueue(b.nowIso);
       // `heavyInFlight` era in fondo a due `&&` per non pagarlo su una riga
@@ -2150,10 +2170,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           blockedByTaskId: r.blocked_by_task_id ?? null,
           blockedBy: r.blocked_by_task_id ? (b.blockers.get(r.blocked_by_task_id) ?? null) : null,
           assignedTo: r.assigned_to ?? null,
+          machineId: r.machine_id ?? null,
         },
         {
           now: b.nowIso,
           autoDispatch: b.autoDispatch,
+          // Resolved here and not in the client: the chip's sentence is composed
+          // server side, and a client that has not read `/api/machines` yet
+          // would print an id for a node it can name perfectly well.
+          nodeName: r.machine_id ? (b.nodeNames.get(r.machine_id) ?? null) : null,
           retryCap: b.retryCap.get(r.project_id) ?? 2,
           ahead: inCoda && b.queue ? b.queue.ahead(r.priority, r.created_at) : 0,
           // Un pesante trattenuto DAL CARICO è il tappo della coda, e la card lo

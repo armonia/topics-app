@@ -50,6 +50,17 @@
  *                              dispatcher (l'unico che lo scrive) — così una
  *                              card «in corso, agente al lavoro» si può vedere
  *                              senza far girare un agente vero.
+ *   POST /api/test/machines       pairs a NODE, the row a real handshake would
+ *                              leave behind. The public way there is `POST
+ *                              /api/machines/pair` plus `GET
+ *                              /api/machines/pair/:id`, and both of them talk
+ *                              to a SECOND server that a browser test does not
+ *                              have: without this verb the node picker on a
+ *                              card and the chip that names a silent node
+ *                              would only ever be testable with an empty list,
+ *                              which is the one branch where they say nothing.
+ *                              Goes through the real store (`upsertNode`), so
+ *                              the seeded row is the row pairing writes.
  *   POST /api/test/tasks/:id/attempts     semina i tentativi di un fan-out già
  *                              chiuso, come il dispatcher a fine giro — così il
  *                              pannello "Tentativi" e la scelta del vincitore si
@@ -491,6 +502,39 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
             : null,
         });
         return json({ ok: true });
+      } catch (e) {
+        return json({ error: (e as Error).message }, 400);
+      }
+    }
+
+    // POST /api/test/machines {name, baseUrl?, status?} — a PAIRED NODE, as the
+    // handshake would leave it.
+    //
+    // Same reason as `bind-topic`: the row is only born at the end of a
+    // handshake against a SECOND server (`POST /api/machines/pair`, then the
+    // poll), and an end-to-end test has one server. `upsertNode` is the real
+    // writer, so what the picker lists here is what pairing lists in
+    // production; `status` is the only thing written outside it, because a node
+    // that stopped answering is the state the picker greys out and no seeding
+    // path reaches it (the sweep needs a stale heartbeat, i.e. an hour).
+    if (method === "POST" && pathname === "/api/test/machines") {
+      const body = (await req.json().catch(() => null)) as
+        | { name?: string; baseUrl?: string; status?: string }
+        | null;
+      const name = (body?.name ?? "").trim();
+      if (!name) return json({ error: "name required" }, 400);
+      const status = body?.status ?? "online";
+      if (status !== "online" && status !== "offline") {
+        return json({ error: "status must be online | offline" }, 400);
+      }
+      try {
+        const baseUrl = (body?.baseUrl ?? "").trim() || `https://${name.toLowerCase().replace(/[^a-z0-9.-]+/g, "-")}.test:3333`;
+        const machine = ctx.machineStore.upsertNode({ hostname: new URL(baseUrl).host, name, baseUrl });
+        if (status !== machine.status) {
+          db.prepare("UPDATE machines SET status = ? WHERE id = ?").run(status, machine.id);
+        }
+        const seeded = ctx.machineStore.get(machine.id);
+        return json({ ok: true, machine: seeded });
       } catch (e) {
         return json({ error: (e as Error).message }, 400);
       }
