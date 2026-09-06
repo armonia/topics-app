@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.270",
+    "date": "2026-09-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Anche la CLI di una card si fa da parte: demotata allo spawn, i suoi Chromium ereditano",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.269",
     "date": "2026-09-06",
     "sections": {

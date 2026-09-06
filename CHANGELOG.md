@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.270 — 2026-09-06
+
+### Sotto il cofano
+- Anche la CLI di una card si fa da parte: demotata allo spawn, i suoi Chromium ereditano
+
 ## 2.2.269 — 2026-09-06
 
 ### Sotto il cofano
