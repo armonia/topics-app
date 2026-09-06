@@ -144,6 +144,13 @@ export const PROJECT_WORDS = new Set([
   // the mask in `StreamingIndicator.tsx` IS a donut, and "torus" would say it
   // to nobody who has to read that file.
   "oldest", "donut",
+  // The same hole again: the list carries `skip` and `skippable` and then
+  // stops, so the past participle every codebase uses for "we did not do this
+  // one" is missing. It names a field on the checkpoint restore wire, where
+  // the paths left alone are reported rather than silently dropped, and no
+  // synonym says it: "omitted" is what you do to a detail, "skipped" is what
+  // you do to a step you decided not to take.
+  "skipped",
   // `ttl` is time-to-live, the standard name for "how long this stays alive"
   // in caching and networking, and it is already this repository's own word:
   // `HANDOFF_TTL_MS` in `composerHandoff.ts` and `IN_APP_BANNER_TTL_MS` in

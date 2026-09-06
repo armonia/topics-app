@@ -40,6 +40,9 @@ afterAll(() => cleanupTestDataDir(ROOT));
 const git = (...a: string[]) => execFileSync("git", a, { cwd: REPO, encoding: "utf8" }).trim();
 
 function seedRepo() {
+  // Idempotent: the file has more than one test that needs the repository, and
+  // a second `git init` plus a commit with nothing to commit fails.
+  if (existsSync(join(REPO, ".git"))) return;
   mkdirSync(REPO, { recursive: true });
   git("init", "-b", "main");
   git("config", "user.email", "t@t.t");
@@ -98,6 +101,12 @@ describe("/rewind sul checkpoint automatico del turno", () => {
     mkdirSync(join(REPO, "src"), { recursive: true });
     writeFileSync(join(REPO, "src", "nato-nel-turno.ts"), "export const x = 1\n");
 
+    // AND THE TURN ENDS, which the chat route records too (`finalizeStream`).
+    // The restore is per path now: the manifest is the diff between the two
+    // marks of the turn, so a rewind of a turn whose end was never recorded
+    // refuses instead of guessing (see the third test).
+    await captureTurnCheckpoint(REPO, sessionKey, "aggiungi la feature", "after");
+
     // The automatic strip sees it.
     const list = (await (await call(router, "GET", `/api/topics/${topicId}/turn-checkpoints`)).json()) as {
       checkpoints: Array<{ commit: string; label: string }>;
@@ -125,9 +134,35 @@ describe("/rewind sul checkpoint automatico del turno", () => {
     expect(out.conversationRewound).toBe(false);
   });
 
-  test("senza checkpoint la rotta risponde 404, non un successo vuoto", async () => {
+  test("senza checkpoint la rotta rifiuta con un codice, non un successo vuoto", async () => {
+    // This was a 404. Every refusal of a restore now has the same shape, a 409
+    // carrying the plan and the blocker code, because the client translates
+    // them all the same way: a bare 404 forced a special case for the one
+    // refusal that came without a plan.
     const { router, topicId } = await banco();
     const res = await call(router, "POST", `/api/topics/${topicId}/turn-checkpoints/restore`, {});
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { blockedBy: string; canProceed: boolean };
+    expect(body.blockedBy).toBe("no-checkpoint");
+    expect(body.canProceed).toBe(false);
+  });
+
+  test("il turno di cui non si e' registrata la fine si rifiuta, e non tocca niente", async () => {
+    // The state the first test used to reach by accident: a `before` snapshot,
+    // a turn that writes, and no closing mark because the process died in
+    // between. Attributing those files to anybody would be a guess.
+    seedRepo();
+    const { router, topicId } = await banco();
+    const data = (await createTestAppContext()).loadTopics();
+    await captureTurnCheckpoint(REPO, data.topics[topicId].sessionKey, "turno interrotto");
+    writeFileSync(join(REPO, "app.ts"), "export const answer = 'a meta'\n");
+
+    const res = await call(router, "POST", `/api/topics/${topicId}/turn-checkpoints/restore`, {});
+
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { blockedBy: string }).blockedBy).toBe("no-turn-mark");
+    expect(readFileSync(join(REPO, "app.ts"), "utf8"), "un piano rifiutato non scrive").toBe(
+      "export const answer = 'a meta'\n",
+    );
   });
 });

@@ -349,6 +349,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         : [];
       // O(1) UNIQUE-index lookup — replaces a full topics scan per chat send.
       const matchedTopic = getTopicBySessionKey(sessionKey);
+      // The `before` snapshot of THIS turn, when one was taken: its label and
+      // the folder it was taken in, held so the end-of-turn `after` reuses
+      // exactly them. Recomputing the label from "the last user message" at
+      // the end would read a message that may no longer be the last one.
+      let turnCheckpointMark: { projectPath: string; label: string } | null = null;
       // Reset browser navigate tracking for this topic so new URLs can trigger
       if (matchedTopic) browserNavigatedTopics.delete(matchedTopic.id);
       // Il piano ha UNA leva sola, ed è l'autonomia della chat.
@@ -486,12 +491,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           matchedTopic?.projectPath &&
           resolveTurnCheckpointsEnabled()
         ) {
+          turnCheckpointMark = {
+            projectPath: matchedTopic.projectPath,
+            label: lastUserMsg.content.trim().slice(0, 72).replace(/\s+/g, " "),
+          };
           try {
-            await captureTurnCheckpoint(
-              matchedTopic.projectPath,
-              sessionKey,
-              lastUserMsg.content.trim().slice(0, 72).replace(/\s+/g, " "),
-            );
+            await captureTurnCheckpoint(turnCheckpointMark.projectPath, sessionKey, turnCheckpointMark.label);
           } catch (err) {
             console.warn(`[Chat] automatic checkpoint failed for ${sessionKey}:`, err);
           }
@@ -2207,6 +2212,30 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // Close SSE response
             await writeSSE("[DONE]");
             await closeClient();
+
+            // THE END-OF-TURN MARK, the other half of the automatic checkpoint.
+            //
+            // A restore touches only the paths THIS turn changed, and it learns
+            // them from `git diff <before> <after>` (see
+            // services/checkpoint-restore-plan.ts). Without the `after` the
+            // session's newest snapshot IS the `before`, the manifest is empty,
+            // and a rewind cannot tell the turn's own writes from everybody
+            // else's: it would restore nothing and say nothing. So every turn
+            // that took a `before` closes with an `after`, on `done`, `error`
+            // AND `aborted` alike: a turn that died halfway still wrote files.
+            //
+            // Once per turn: `finalizeStream` already returns early when the
+            // stream is finalized, and the mark is consumed here so a second
+            // pass has nothing to snapshot. After the SSE is closed and NOT
+            // awaited, so a slow git never delays the teardown; its failure is
+            // logged and touches nothing of the stream's outcome.
+            if (turnCheckpointMark && resolveTurnCheckpointsEnabled()) {
+              const mark = turnCheckpointMark;
+              turnCheckpointMark = null;
+              captureTurnCheckpoint(mark.projectPath, sessionKey, mark.label, "after").catch((err: unknown) => {
+                console.warn(`[Chat] end-of-turn checkpoint failed for ${sessionKey}:`, err);
+              });
+            }
           };
 
           // Register event handler for this session

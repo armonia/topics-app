@@ -558,7 +558,6 @@
       "multiSelectCount",
       "quanti",
       "sel",
-      "skippedFolders",
       "stato"
     ],
     "client/src/components/Project/FileSearch.tsx": [
@@ -2117,8 +2116,7 @@
       "makeRng",
       "meds",
       "quantile",
-      "rng",
-      "skipped"
+      "rng"
     ],
     "scripts/board-cases.ts": [
       "assenti",
@@ -2154,7 +2152,6 @@
       "shaDaChiedere",
       "shaRivendicati",
       "shq",
-      "skipped",
       "tok"
     ],
     "scripts/board-duplicates.ts": [
@@ -2423,8 +2420,7 @@
       "slowest"
     ],
     "scripts/e2e-shards-summary.ts": [
-      "perMotivo",
-      "skipped"
+      "perMotivo"
     ],
     "scripts/event-loop-lag.ts": [
       "SONDA",
@@ -2764,7 +2760,6 @@
       "effectiveDsf",
       "handoff",
       "screencastSessions",
-      "skipped",
       "txt"
     ],
     "server/browser-session-handoff.heavy.test.ts": [
@@ -2843,7 +2838,6 @@
     "server/context/adapt.ts": [
       "CLI_BUILTINS",
       "isCliBuiltin",
-      "skipped",
       "sys",
       "tmplFiles"
     ],
@@ -3681,8 +3675,7 @@
     "server/lib/transcript-fork.test.ts": [
       "asst",
       "jline",
-      "molto",
-      "skipped"
+      "molto"
     ],
     "server/lib/transcript-fork.ts": [
       "buf"
@@ -3777,8 +3770,7 @@
       "AcpAgentSpec",
       "KNOWN_ACP_AGENTS",
       "mergeAcpAgents",
-      "parseAcpAgentsEnv",
-      "skipped"
+      "parseAcpAgentsEnv"
     ],
     "server/providers/acp/config-options.test.ts": [
       "CATALOGO"
@@ -4449,7 +4441,6 @@
       "cbs",
       "idemKey",
       "idempotencyCache",
-      "skipped",
       "sweepAutoNameOpencodeSessions"
     ],
     "server/routes/topics.ts": [
@@ -4572,8 +4563,7 @@
       "corsa"
     ],
     "server/services/claude-tasks-sync.ts": [
-      "projDir",
-      "skipped"
+      "projDir"
     ],
     "server/services/daemon-state.ts": [
       "obj",
