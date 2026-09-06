@@ -315,6 +315,7 @@ const IT: Dict = {
   'diff.showAll': 'Mostra tutte le {total} righe (altre {more})',
   'diff.cutHere': "…il patch si interrompe qui: oltre c'è il tetto del payload, non la fine del file.",
   'diff.noChanges': 'Nessuna modifica.',
+  'diff.pendingNotes': '{n} note in sospeso',
   'diff.truncated': 'Diff troncato (molto grande){rest}: apri il progetto per vederlo intero.',
   'diff.truncated.countOnly': ': di {n} file resta solo il conteggio',
 
@@ -735,7 +736,6 @@ const IT: Dict = {
   'chat.empty.project': 'nel progetto {name}',
   'chat.changes.chip': '{n} file',
   'chat.changes.chipTitle': 'I file che questa conversazione ha scritto o modificato',
-  'chat.changes.binary': 'binario',
   'chat.session.taskLabel': 'Task',
   'chat.session.openTaskCard': 'Apri la scheda',
   'chat.session.openTaskCardTitle': 'Torna alla scheda del task: descrizione, checklist, consegna, thread',
@@ -1162,10 +1162,7 @@ const IT: Dict = {
   'board.card.reviewAge': 'in attesa da {t}',
   'board.card.reviewAgeTitle': 'E\' in review dal {when}, e nessuno ha ancora deciso.',
   'board.card.deliveryFiles': '{n} file',
-  'board.card.deliveryFilesLoading': 'leggo i file...',
-  'board.card.deliveryFilesError': 'i file non si sono potuti leggere',
   'board.card.deliveryFilesEmpty': 'nessun file nel commit di consegna',
-  'board.card.deliveryFilesMore': 'e altri {n}',
   'board.card.deliveryStatTitle': '{files} file, +{add} -{del} righe nel commit {commit}. E\' cio\' che approvare farebbe entrare.',
   // The turn is still running: the delivery counters do not exist, and what
   // you read is the worktree as it stands right now.
@@ -1720,6 +1717,14 @@ const IT: Dict = {
   'git.hunk.discardConfirmTitle': 'Scarta il blocco',
   'git.hunk.discardConfirmLabel': 'Scarta',
   'git.hunk.discardConfirmBody': 'Le righe di questo blocco tornano com’erano nell’indice. Non è recuperabile.',
+  // ── Git: the shared list of changed files (chat strip, card chip, panel, diff).
+  'git.files.binary': 'bin',
+  'git.files.binaryTitle': 'File binario: git non conta le righe',
+  'git.files.countsTitle': '{add} aggiunte, {del} rimosse',
+  'git.files.loading': 'leggo i file…',
+  'git.files.error': 'non sono riuscito a leggere i file',
+  'git.files.empty': 'nessun file cambiato',
+  'git.files.more': 'e altri {n}',
   // ── Palette dei comandi.
   'palette.searchProjects': 'Cerca progetti…',
   'palette.searchWithFiles': 'Cerca file, topic, messaggi…',
@@ -1755,7 +1760,6 @@ const IT: Dict = {
   'fileSearch.truncated': 'Ricerca interrotta al tempo massimo, i risultati sono parziali',
   'fileSearch.first100': 'Primi 100 risultati',
   // ── Modifiche git.
-  'git.binaryNoLines': 'File binario: git non conta le righe',
   'git.history.title': 'Cronologia dei commit',
   'git.commitMsg.nothingStaged': 'Niente in stage da descrivere',
   'git.commitMsg.writeFromStaged': 'Scrivi il messaggio dalle modifiche in stage',

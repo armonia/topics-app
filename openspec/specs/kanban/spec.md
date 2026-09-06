@@ -1877,6 +1877,12 @@ pannello.
 - **GIVEN** un ramo già fuso e la copia di lavoro rimossa
 - **THEN** il pannello SHALL restare, dichiarando da dove legge
 
+Le RIGHE dell'elenco — sul chip di consegna della card e nell'intestazione di
+file del diff — non sono della board: sono il componente condiviso descritto da
+`GIT-FILELIST-01`, lo stesso che monta la striscia della chat. Un file
+cancellato SHALL portare la sua `D` anche qui, che è la cosa che il chip non
+diceva mentre mostrava i suoi `+/-`.
+
 ### Requirement: KANBAN-44 — Il riferimento a un task è un GLIFO, con un bersaglio da dito
 
 Il riferimento a un task sulla card SHALL essere un GLIFO COMPATTO, non

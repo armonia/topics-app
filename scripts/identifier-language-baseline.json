@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-09-05",
+  "generated": "2026-09-06",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -61,9 +61,7 @@
     ],
     "client/src/components/Board/DeliveryFiles.tsx": [
       "apri",
-      "mostrati",
-      "prossimo",
-      "resto"
+      "prossimo"
     ],
     "client/src/components/Board/FloatingTaskComposer.tsx": [
       "prioBtnRef",
@@ -567,8 +565,6 @@
       "multi"
     ],
     "client/src/components/Project/GitChanges.tsx": [
-      "LRM",
-      "basename",
       "handleBatchUnstage",
       "handleUnstage",
       "handleUnstageAll",

@@ -10,6 +10,8 @@ import type { GitStatus as _GitStatus, GitFile } from '../../types';
 import { gitApi, filesApi } from '../../lib/api';
 import { basename as pathBasename } from '../../lib/path-utils';
 import { BranchList } from '../Git/BranchList';
+import { ChangedFileCounts, ChangedFileMark, ChangedFilePath } from '../Git/ChangedFileList';
+import { rowFromGitFile } from '../Git/changedFiles';
 import { CommitHistory } from '../Git/CommitHistory';
 import { HunkActions } from '../Git/HunkActions';
 import { DiffViewer } from '../Editor/DiffViewer';
@@ -72,94 +74,6 @@ function fileTitle(file: { path: string; origPath?: string }): string {
 }
 
 /**
- * Quante righe, accanto al nome.
- *
- * Senza, una virgola corretta e un file riscritto da capo arrivano alla lista
- * identici, e per sapere quale sia quale bisogna aprire il diff di ognuno. È il
- * numero che ogni client git mostra in lista.
- *
- * Si legge il lato del gruppo in cui la riga sta: lo stesso file staged a metà
- * ha conteggi diversi nell'indice e nell'albero, e mostrare la somma da tutt'e
- * due le parti direbbe che le righe sono il doppio.
- *
- * Silenzio quando non c'è niente da dire: un file non tracciato non compare in
- * nessun diff (nessun numero, non zero), e un rename puro è `0/0` — «+0 -0» è
- * rumore che occupa lo spazio di un'informazione.
- */
-function LineStat({ file, group }: { file: GitFile; group: 'staged' | 'unstaged' | 'conflicted' }) {
-  const tr = useT();
-  const s = group === 'staged' ? file.staged : file.unstaged;
-  if (!s) return null;
-  if (s.binary) {
-    return <span className="text-[10px] text-app-text-muted flex-shrink-0 tabular-nums" title={tr('git.binaryNoLines')}>bin</span>;
-  }
-  if (!s.added && !s.removed) return null;
-  return (
-    <span
-      className="text-[10px] flex-shrink-0 tabular-nums leading-none"
-      title={`${s.added} aggiunte, ${s.removed} rimosse`}
-    >
-      {s.added > 0 && <span className="text-green-500">+{s.added}</span>}
-      {s.added > 0 && s.removed > 0 && ' '}
-      {s.removed > 0 && <span className="text-red-500">-{s.removed}</span>}
-    </span>
-  );
-}
-
-/**
- * Il nome del file e la cartella che lo contiene, su una riga sola.
- *
- * Il vincolo: nella barra laterale ci sono ~250px e un percorso vero
- * (`client/src/components/Project/GitChanges.tsx`) non ci sta a nessuna misura
- * di carattere. Qualcosa si perde per forza — la scelta è COSA.
- *
- * Prima si perdeva la coda. Nome e cartella stavano dentro un unico `truncate`,
- * che taglia da destra: quando la riga era stretta spariva prima la cartella,
- * poi la fine del nome, e restava `GitChang…` — cioè si perdeva esattamente la
- * parte che identifica il file. Da lì il tooltip come unico modo per sapere che
- * file fosse.
- *
- * Ora: il nome non si taglia mai (è la cosa che stai cercando), e la cartella
- * si accorcia da SINISTRA — `…/components/Project`. La radice è la stessa per
- * ogni riga della lista, quindi è la parte che non distingue niente; le
- * cartelle vicine al file sono quelle che rispondono a «quale dei tre
- * `index.ts`?». Vedi `.path-elide-left` in index.css, incluso il perché del
- * marcatore U+200E.
- *
- * Il tetto al 70% sul nome è per il caso patologico (un nome più lungo della
- * riga intera): senza, spingerebbe la cartella fuori dal contenitore invece di
- * cedere lui.
- */
-/**
- * LEFT-TO-RIGHT MARK. Va in testa a ogni testo messo in `.path-elide-left`.
- *
- * Scritto come sequenza di escape e mai come carattere: nel sorgente sarebbe
- * invisibile, e un carattere invisibile sopravvive male a copia, ricerca e
- * revisione — nessuno lo vede sparire.
- */
-const LRM = '\u200E';
-
-function FileLabel({ file, basename, dir }: { file: GitFile; basename: string; dir: string }) {
-  return (
-    <span className="flex items-baseline gap-1 min-w-0 flex-1">
-      {file.origPath && (
-        // Il vecchio nome, barrato, PRIMA del nuovo: senza, un rename si
-        // presenta come un file comparso dal nulla.
-        <span className="text-app-text-muted line-through flex-shrink-0 truncate max-w-[40%]">
-          {pathBasename(file.origPath) || file.origPath}
-        </span>
-      )}
-      <span className="text-app-text-body flex-shrink-0 truncate max-w-[70%]">{basename}</span>
-      {dir && (
-        <span className="path-elide-left text-app-text-muted text-[11px] min-w-0 flex-1">
-          {LRM + dir}
-        </span>
-      )}
-    </span>
-  );
-}
-
-/**
  * I path da passare a git per agire su questi file.
  *
  * Un rename in stage sono DUE voci nell'indice: la cancellazione del vecchio e
@@ -177,31 +91,6 @@ function withOrigPaths(
     if (f?.origPath) out.add(f.origPath);
   }
   return [...out];
-}
-
-function statusLabel(status: string): { text: string; color: string; bg: string } {
-  // `status` is the raw 2-char XY porcelain code (e.g. " M", "M ", "MM", "??").
-  // The staged/unstaged predicates read it positionally; for the label we
-  // collapse the padding so " M"/"M " both render as "M".
-  const s = status.trim();
-  switch (s) {
-    case 'M': return { text: 'M', color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-100 dark:bg-amber-900/30' };
-    case 'A': return { text: 'A', color: 'text-green-600 dark:text-green-400', bg: 'bg-green-100 dark:bg-green-900/30' };
-    case 'D': return { text: 'D', color: 'text-red-600 dark:text-red-400', bg: 'bg-red-100 dark:bg-red-900/30' };
-    case 'R': return { text: 'R', color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-100 dark:bg-blue-900/30' };
-    case '??': return { text: 'U', color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-100 dark:bg-purple-900/30' };
-    case 'MM': return { text: 'MM', color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-100 dark:bg-amber-900/30' };
-    case 'AM': return { text: 'AM', color: 'text-green-600 dark:text-green-400', bg: 'bg-green-100 dark:bg-green-900/30' };
-    case 'C': return { text: 'C', color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-100 dark:bg-blue-900/30' };
-    default:
-      // I conflitti cadevano qui, in grigio, indistinguibili da un codice
-      // sconosciuto: l'unico stato che CHIEDE di fare qualcosa era anche
-      // l'unico senza colore.
-      if (isConflicted(status)) {
-        return { text: s || status, color: 'text-red-600 dark:text-red-400', bg: 'bg-red-100 dark:bg-red-900/30' };
-      }
-      return { text: s || status, color: 'text-gray-500 dark:text-gray-400', bg: 'bg-gray-100 dark:bg-gray-800' };
-  }
 }
 
 export function GitChanges({ projectPath, compact = false, expanded = true, onToggle }: GitChangesProps) {
@@ -1079,9 +968,10 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               const conflictedFiles = gitStatus!.files.filter(f => isConflicted(f.status));
 
               const renderFileRow = (file: GitFile, group: 'staged' | 'unstaged' | 'conflicted') => {
-                const st = statusLabel(file.status);
-                const basename = pathBasename(file.path) || file.path;
-                const dir = file.path.includes('/') ? file.path.substring(0, file.path.lastIndexOf('/')) : '';
+                // The row itself is the shared component (`Git/ChangedFileList`):
+                // what stays here is the gesture and the commands, which are
+                // this panel's own.
+                const row = rowFromGitFile(file, group);
                 const isSelected = selectedFiles.has(file.path);
                 return (
                   <div
@@ -1107,10 +997,8 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                     // dentro e in controlli che appaiono solo all'hover.
                     onContextMenu={(e) => handleContextMenu(e, file.path, group === 'conflicted' ? 'unstaged' : group)}
                   >
-                    <span className={`${st.color} ${st.bg} text-[8px] font-bold px-0.5 py-[1px] rounded leading-none flex-shrink-0 min-w-[14px] text-center`}>
-                      {st.text}
-                    </span>
-                    <FileLabel file={file} basename={basename} dir={dir} />
+                    <ChangedFileMark row={row} />
+                    <ChangedFilePath row={row} />
                     {/* Conteggio e azioni nello STESSO posto, impilati in una
                         cella di griglia: la colonna e larga quanto il piu largo
                         dei due e al passaggio del mouse si scambiano SENZA
@@ -1120,7 +1008,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                         pannello. */}
                     <span className="ml-auto flex-shrink-0 grid grid-cols-1 grid-rows-1 items-center justify-items-end">
                       <span className="col-start-1 row-start-1 group-hover/file:invisible">
-                        <LineStat file={file} group={group} />
+                        <ChangedFileCounts row={row} />
                       </span>
                       <span className="col-start-1 row-start-1 invisible group-hover/file:visible flex items-center gap-0.5">
                         {group === 'unstaged' && (
@@ -1350,7 +1238,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   const fullConflictedFiles = gitStatus.files.filter(f => isConflicted(f.status));
 
   const renderFullModeFileRow = (file: GitFile, group: 'staged' | 'unstaged') => {
-    const st = statusLabel(file.status);
+    const row = rowFromGitFile(file, group);
     const isMultiSelected = selectedFiles.has(file.path);
     // Aperto QUI, non da qualche altra parte con lo stesso path: un file
     // aperto dalla cronologia accendeva la sua riga nella lista dei
@@ -1361,8 +1249,6 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     const isDiffOpen = selectedFile === file.path
       && diffSource?.kind === 'worktree'
       && diffSource.group === group;
-    const basename = pathBasename(file.path) || file.path;
-    const dir = file.path.includes('/') ? file.path.substring(0, file.path.lastIndexOf('/')) : '';
     return (
       <div
         key={`${group}-${file.path}`}
@@ -1382,16 +1268,14 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         // dentro e in controlli che appaiono solo all'hover.
         onContextMenu={(e) => handleContextMenu(e, file.path, group)}
       >
-        <span className={`${st.color} ${st.bg} text-[11px] font-bold px-1 py-0.5 rounded leading-none flex-shrink-0 min-w-[18px] text-center`}>
-          {st.text}
-        </span>
-        <FileLabel file={file} basename={basename} dir={dir} />
+        <ChangedFileMark row={row} />
+        <ChangedFilePath row={row} />
         {/* Stessa cella condivisa della lista compatta: il conteggio lascia il
             posto alle azioni al passaggio del mouse, senza riservare spazio
             vuoto e senza far ballare la riga. */}
         <span className="ml-auto flex-shrink-0 grid grid-cols-1 grid-rows-1 items-center justify-items-end">
           <span className="col-start-1 row-start-1 group-hover:invisible">
-            <LineStat file={file} group={group} />
+            <ChangedFileCounts row={row} />
           </span>
           <span className="col-start-1 row-start-1 invisible group-hover:visible flex items-center gap-0.5">
             {group === 'unstaged' && (

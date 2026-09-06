@@ -1,7 +1,9 @@
 import { useState, useCallback, useMemo } from 'react';
 import { ChevronDown, FileDiff } from 'lucide-react';
-import { boardApi } from '../../lib/board';
+import { boardApi, type DiffFileStat } from '../../lib/board';
 import { useT } from '../../hooks/useT';
+import { ChangedFileList } from '../Git/ChangedFileList';
+import { rowFromDiffStat } from '../Git/changedFiles';
 import { showsGitChangesChip } from '../../lib/gitVisibility';
 
 /**
@@ -32,14 +34,12 @@ import { showsGitChangesChip } from '../../lib/gitVisibility';
  * counters only) and come from `/tasks/:id/diff`, which reads git: asking for
  * every card of a board would be one repository read per row. Once loaded they
  * stay, as long as the card is mounted.
+ *
+ * THE ROWS ARE NOT DRAWN HERE. They are the shared list every git surface of
+ * the app mounts (`Git/ChangedFileList`): same letter, same colours, same place
+ * where the path is cut. What used to be here showed `+/-` and never said
+ * whether the file had been added or deleted.
  */
-
-/** How many files show before saying "and N more". A longer list than this
- *  inside a card does not get read: the whole one is in the drawer, next to
- *  the diff. */
-const MAX_FILE = 12;
-
-interface FileStat { path: string; additions: number; deletions: number; status: string }
 
 export function DeliveryFiles({ projectId, taskId, files, insertions, deletions, commit, live }: {
   projectId: string;
@@ -55,7 +55,7 @@ export function DeliveryFiles({ projectId, taskId, files, insertions, deletions,
 }) {
   const tr = useT();
   const [aperto, setAperto] = useState(false);
-  const [stat, setStat] = useState<FileStat[] | null>(null);
+  const [stat, setStat] = useState<DiffFileStat[] | null>(null);
   /** An error is SAID: an empty list after a click reads as a delivery with
    *  no files, which is a different statement. */
   const [errore, setErrore] = useState<string | null>(null);
@@ -75,7 +75,7 @@ export function DeliveryFiles({ projectId, taskId, files, insertions, deletions,
     setErrore(null);
     try {
       const d = await boardApi.taskDiff(projectId, taskId);
-      setStat(Array.isArray(d?.stat) ? (d.stat as FileStat[]) : []);
+      setStat(Array.isArray(d?.stat) ? (d.stat as DiffFileStat[]) : []);
     } catch (err) {
       setErrore(err instanceof Error ? err.message : String(err));
     } finally {
@@ -83,8 +83,7 @@ export function DeliveryFiles({ projectId, taskId, files, insertions, deletions,
     }
   }, [aperto, stat, caricando, live, projectId, taskId]);
 
-  const mostrati = stat?.slice(0, MAX_FILE) ?? [];
-  const resto = (stat?.length ?? 0) - mostrati.length;
+  const rows = useMemo(() => stat?.map(rowFromDiffStat) ?? null, [stat]);
   /** On a running turn the numbers do NOT come from the task (they do not
    *  exist yet): they are summed from what was just read. Before the first
    *  open there is no number to show, and that is the honest state. */
@@ -147,36 +146,15 @@ export function DeliveryFiles({ projectId, taskId, files, insertions, deletions,
              controls down every time someone glanced at the files. */
           className="absolute left-0 top-full z-20 mt-1 max-h-40 w-64 max-w-[calc(100vw-4rem)] overflow-y-auto rounded border border-app-border bg-app-bg px-1.5 py-1 shadow-lg scrollbar-standard"
         >
-          {caricando && <div className="px-0.5 py-1 text-[10px] text-app-text-muted">{tr('board.card.deliveryFilesLoading')}</div>}
-          {errore && <div className="px-0.5 py-1 text-[10px] text-rose-300">{tr('board.card.deliveryFilesError')}</div>}
-          {!caricando && !errore && stat?.length === 0 && (
-            <div className="px-0.5 py-1 text-[10px] text-app-text-muted">
-              {tr(live ? 'board.card.gitChangesEmpty' : 'board.card.deliveryFilesEmpty')}
-            </div>
-          )}
-          {mostrati.map((f) => (
-            <div key={f.path} className="flex items-center gap-1.5 py-0.5 text-[10px] leading-tight">
-              {/* THE PATH IS CUT ON THE LEFT, not on the right: of
-                  `client/src/components/Board/Card.tsx` the part that names the
-                  file is the END, and `truncate` eats exactly that one.
-                  `dir="rtl"` with the text isolated flips the cut without
-                  flipping the letters. */}
-              <span
-                dir="rtl"
-                className="truncate text-app-text-secondary"
-                title={f.path}
-              >&#x2066;{f.path}&#x2069;</span>
-              <span className="ml-auto shrink-0 tabular-nums text-emerald-400">+{f.additions}</span>
-              <span className="shrink-0 tabular-nums text-rose-400">-{f.deletions}</span>
-            </div>
-          ))}
-          {resto > 0 && (
-            // The tail is DECLARED instead of vanishing: a list truncated in
-            // silence makes you believe you saw everything.
-            <div className="px-0.5 pt-1 text-[10px] text-app-text-muted">
-              {tr('board.card.deliveryFilesMore', { n: resto })}
-            </div>
-          )}
+          {/* The empty state is the one sentence that stays per-surface: on a
+              stopped delivery it names the commit, on a live worktree it says
+              "not yet". */}
+          <ChangedFileList
+            rows={rows}
+            loading={caricando}
+            error={!!errore}
+            emptyLabel={tr(live ? 'board.card.gitChangesEmpty' : 'board.card.deliveryFilesEmpty')}
+          />
         </div>
       )}
     </div>

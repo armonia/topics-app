@@ -91,7 +91,7 @@ test.describe("I file che questa conversazione ha toccato", () => {
     await expect(chip).toContainText("2");
 
     await chip.click();
-    const rows = page.getByTestId("chat-changes-row");
+    const rows = page.getByTestId("changed-file-row");
     await expect(rows).toHaveCount(2);
     const list = page.getByTestId("chat-changes-list");
     await expect(list).toContainText("nuovo.ts");
@@ -213,7 +213,7 @@ test.describe("I file che questa conversazione ha toccato", () => {
 
         // The list opens from down there, and the rows are the topic's files.
         await p.getByTestId("chat-changes-chip").click();
-        await expect(p.getByTestId("chat-changes-row")).toHaveCount(2);
+        await expect(p.getByTestId("changed-file-row")).toHaveCount(2);
         await didascalia(p, "Il chip apre l'elenco dei file di QUESTO topic");
         await beat(p, 1600);
 
