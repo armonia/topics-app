@@ -3,7 +3,7 @@ import { readFileSync } from "fs";
 import { resolve } from "path";
 import { goToApp } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";
-import { FileExplorerPage } from "./fixtures/file-explorer.fixture";
+import { FileExplorerPage, projectRowSelector } from "./fixtures/file-explorer.fixture";
 import { E2E_BASE } from "./helpers/test-server";
 import { projectIdForPath } from "../../shared/board";
 import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
@@ -314,6 +314,122 @@ test.describe("TERMINAL - the shell returns without moving", () => {
         expectQuietAndFull(
           await measureReturn(page, '[data-testid="terminal-text"], .xterm-rows', `terminal-${vp.name}`),
         );
+      });
+    });
+  }
+});
+
+test.describe("DASHBOARD - the KPI grid returns without moving", () => {
+  for (const vp of VIEWPORTS) {
+    test.describe(`viewport ${vp.name}`, () => {
+      test.use({ viewport: { width: vp.width, height: vp.height } });
+      test(`a return does not move the dashboard (${vp.name})`, async ({ page, request }) => {
+        test.info().annotations.push({ type: "spec", description: "PERF-01" });
+        await resetPaneStore(request, []);
+        // THE TWO DASHBOARD FETCHES ARE HELD FOR 300 ms. On the e2e server they
+        // answer in 0-8 ms (measured: `GET /api/dashboard/kpis 200 0ms`), so a
+        // pane that draws nothing until they land is empty for ONE frame and
+        // reads 15-17 ms after the shell: inside the budget, and the gate
+        // could not tell a pane drawn from the local copy from one waiting on
+        // the wire. 300 ms is a real network's answer, and it is what the
+        // reader on a phone sees. A pane that reads its local copy does not
+        // notice the hold; one that waits for the wire is empty for all of it.
+        await page.route("**/api/dashboard/**", async (route) => {
+          await new Promise((r) => setTimeout(r, 300));
+          await route.continue();
+        });
+        await goToApp(page);
+        // Standalone scope, same gesture as the board: the sidebar's "+".
+        await page.getByTestId("pane-add-menu-trigger").first().click();
+        await page.getByTestId("pane-add-menu-dashboard").click();
+        await expect(page.getByTestId("kpi-card-grid")).toBeVisible({ timeout: 15000 });
+        // The copy the next frame has to draw from. A bundle that never writes
+        // it is not stopped here: the fullness gate below is the verdict for
+        // that case, and it reads the whole 300 ms hold as an empty pane.
+        await waitForLocalCopy(page, "dashboard-snapshot-cache").catch(() => {});
+        await waitForPaneStoreQuiet(request);
+        // The KPI grid, not the pane's frame: the frame can be on screen with
+        // nothing in it, the grid only exists once there are numbers to show.
+        const report = await measureReturn(page, '[data-testid="kpi-card-grid"]', `dashboard-${vp.name}`);
+        // THE PICTURE FOR THE RECORD, on request only (`E2E_CLS_SHOT=<file>`):
+        // the dashboard pane's rectangle 150 ms after `DOMContentLoaded` of one
+        // more reload, with the fetches still held. Run once per bundle and the
+        // two files show the same instant: a spinner in an empty frame, or the
+        // grid already drawn. A second reload and not the measured one, so the
+        // screenshot's own paint never enters the numbers above.
+        if (process.env.E2E_CLS_SHOT && vp.name === WIDE.name) {
+          const clip = await page.getByTestId("dashboard-pane").boundingBox();
+          await page.reload({ waitUntil: "domcontentloaded" });
+          await page.waitForTimeout(150);
+          await page.screenshot({ path: process.env.E2E_CLS_SHOT, clip: clip ?? undefined });
+          console.log(`[cls:${LABEL}:shot] -> ${process.env.E2E_CLS_SHOT}`);
+        }
+        expectQuietAndFull(report);
+      });
+    });
+  }
+});
+
+/**
+ * The "+" on the project row, then one typed row of the add menu: the gesture
+ * `clickAddShell` performs for a shell, for any project-scoped pane type.
+ *
+ * The row is found by `projectRowSelector`, which knows that a project answers
+ * to two spellings of its path, and that is not a detail of this file: since
+ * 7cd202448 the server serves the project pane under the CANONICAL path, and on
+ * macOS the realpath of `/tmp/x` is `/private/tmp/x`.
+ */
+async function clickAddToProject(page: Page, projectPath: string, type: string): Promise<void> {
+  const row = page.locator(projectRowSelector(projectPath)).first();
+  await row.waitFor({ state: "visible", timeout: 10000 });
+  await row.hover();
+  const addBtn = row
+    .locator("..")
+    .locator('button[title="Add to project"], button[data-tip="Add to project"]')
+    .first();
+  await addBtn.waitFor({ state: "visible", timeout: 5000 });
+  await addBtn.click();
+  const item = page.getByTestId(`pane-add-menu-${type}`);
+  await item.waitFor({ state: "visible", timeout: 5000 });
+  await item.click();
+}
+
+/**
+ * The git PANE, not the git SECTION. Both carry `data-testid="git-changes"`
+ * (`GitChanges` draws the sidebar's compact strip and the full pane from the
+ * same component), and the compact strip is mounted in every project window,
+ * so a bare testid would read "full" before the pane had drawn a single row.
+ * The pane lives in the tiles column, the sibling of the project sidebar.
+ */
+const GIT_PANE =
+  '[data-testid="project-window"] > div:not([data-testid="project-sidebar"]) [data-testid="git-changes"]';
+
+test.describe("GIT - the changes pane returns without moving", () => {
+  let project: FileProject | undefined;
+
+  test.beforeAll(async ({ request }) => {
+    project = await seedFileProject(request, "git");
+  });
+  test.afterAll(async ({ request }) => {
+    await cleanupFileProject(request, project);
+  });
+
+  for (const vp of PROJECT_VIEWPORTS) {
+    test.describe(`viewport ${vp.name}`, () => {
+      test.use({ viewport: { width: vp.width, height: vp.height } });
+      test(`a return does not move the git pane (${vp.name})`, async ({ page, request }) => {
+        test.info().annotations.push({ type: "spec", description: "PERF-01" });
+        const explorer = new FileExplorerPage(page);
+        await explorer.gotoProject(project!.tmpDir, project!.topicName);
+        await clickAddToProject(page, project!.tmpDir, "git");
+        const pane = page.locator(GIT_PANE).first();
+        await expect(pane).toBeVisible({ timeout: 15000 });
+        // The seed leaves one modified, one deleted and one untracked file: the
+        // list has rows to draw. An empty status could not shift, and could not
+        // prove anything.
+        await expect(pane).toContainText("newfile.txt", { timeout: 15000 });
+        await waitForPaneStoreQuiet(request);
+        expectQuietAndFull(await measureReturn(page, GIT_PANE, `git-${vp.name}`));
       });
     });
   }
