@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compile the Bun server (server.ts) into a self-contained sidecar binary for the
+# Compile the Bun server into a self-contained sidecar binary for the
 # Tauri bundle, named with the Rust target triple Tauri's externalBin expects:
 #   desktop-tauri/src-tauri/binaries/topics-server-<triple>[.exe]
 #
@@ -27,7 +27,11 @@ OUT_DIR="desktop-tauri/src-tauri/binaries"
 mkdir -p "$OUT_DIR"
 
 EXTERNALS=(--external playwright-core --external chromium-bidi --external electron)
-ENTRY="./server.ts"
+# NOT server.ts: the entry is a two-branch shim (server/sidecar-entry.ts) so the
+# SAME binary can also be the detached ai-bridge daemon when it is spawned with
+# `--ai-bridge-daemon`. Without it the installed app has no runtime to run the
+# daemon script with, and the old argv started a second server instead.
+ENTRY="./server/sidecar-entry.ts"
 
 # Keep the embedded migrations manifest current before compiling — a stale manifest
 # would ship an out-of-date schema into the sidecar.

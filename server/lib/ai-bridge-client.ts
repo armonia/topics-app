@@ -13,10 +13,11 @@ import fs from "node:fs";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { createHash } from "node:crypto";
-import { resolve, join } from "node:path";
+import { join } from "node:path";
 import { augmentPath } from "../utils/path-env";
 import { envDataDir, resolveStateDir } from "./data-dir";
 import { registerFleetSocket } from "./fleet-usage";
+import { aiBridgeDaemonLaunch } from "./ai-bridge-daemon-argv";
 
 export interface SpawnOpts {
   cliPath: string;
@@ -269,10 +270,16 @@ export class AiBridgeClient {
       // does). Without it the daemon's orphan monitor is dead code and every
       // abandoned daemon lives forever — 28 of them, up to 3 days old, were
       // found on one machine. See the monitor in ai-bridge.mjs.
+      // Our OWN executable, never a runtime off PATH: in a checkout that is the
+      // Bun running the server plus the sibling script, in the installed app it
+      // is the compiled binary answering `--ai-bridge-daemon`. The old form
+      // (execPath + a path that only exists in a checkout) started a second
+      // TOPICS SERVER once bundled. See ai-bridge-daemon-argv.ts.
+      const launch = aiBridgeDaemonLaunch();
       const child = spawn(
-        process.execPath,
+        launch.cmd,
         [
-          resolve(import.meta.dir, "../ai-bridge.mjs"),
+          ...launch.args,
           "--socket", this.socketPath,
           "--store-dir", this.storeDir,
           "--parent-pid", String(process.pid),
