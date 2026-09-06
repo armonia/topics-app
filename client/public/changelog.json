@@ -11,6 +11,11 @@
           "it": "Anche la CLI di una card si fa da parte: demotata allo spawn, i suoi Chromium ereditano",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "L'inventario della barra: il loop di retry ha un budget, e la label ha inchiostro",
+          "en": "",
+          "scope": null
         }
       ]
     }
