@@ -17,21 +17,21 @@ import { resolveWorktreeBaseRef } from "./worktree-base-ref";
 import type { Worktree } from "../types";
 
 /**
- * QUANTO SI ASPETTA CHE UN WORKTREE SIA PRONTO, E PERCHE' NON SONO DUE MINUTI.
+ * HOW LONG A WORKTREE IS GIVEN TO BECOME READY, AND WHY IT IS NOT TWO MINUTES.
  *
- * Un worktree diventa `ready` solo DOPO l'install delle dipendenze (la fine di
- * `installDeps`, in `worktree-manager.ts`). Due minuti bastano a un repo
- * piccolo e non bastano a uno grosso: misurato il 19/08 su dancerooms,
- * 242 secondi. Il risultato non era «parte lento», era «NON PARTE»: chi
- * aspettava mollava a 120s, il dispatch falliva, e la card restava ferma senza
- * che niente dicesse che il ritardo era di `pnpm install`.
+ * A worktree turns `ready` only AFTER the dependency install finishes
+ * (`installDeps`, in `worktree-manager.ts`). Two minutes are enough for a small
+ * repository and not enough for a large one: measured on 2026-08-19 at 242
+ * seconds. The result was not "it starts slowly", it was "it does NOT start":
+ * whoever waited gave up at 120s, the dispatch failed, and the card sat still
+ * with nothing saying the delay belonged to a package install.
  *
- * Dieci minuti sono un tetto contro un install BLOCCATO (rete morta, lock di
- * un registry), non una stima del caso normale: quando l'install va, si torna
- * appena finisce. Regolabile per chi ha un repo piu' lento di dancerooms.
+ * Ten minutes are a ceiling against a STUCK install (dead network, a registry
+ * lock), not an estimate of the normal case: when the install works, the answer
+ * comes as soon as it ends. Tunable for a repository slower than that one.
  *
- * Si legge alla chiamata e non al boot perche' adesso la chiedono in due, il
- * dispatch e lo spawn isolato, e il valore deve essere lo stesso per entrambi.
+ * Read at call time and not at boot because two callers now ask for it, the
+ * dispatch and the isolated spawn, and the value has to be the same for both.
  */
 export function worktreeReadyMs(): number {
   return Math.max(60_000, Number(process.env.TOPICS_WORKTREE_READY_MS) || 600_000);
@@ -71,7 +71,7 @@ export async function createAgentWorktree(
 ): Promise<string> {
   const warn = deps.warn ?? ((reason: string) => console.warn(`[worktree] ${reason}`));
   const base = await resolveWorktreeBaseRef(deps.projectPath(projectStoreId));
-  if (base.fallback) warn(`${base.reason}: il worktree parte da HEAD`);
+  if (base.fallback) warn(`${base.reason}: the worktree starts from HEAD`);
   const wt = await deps.create({ projectId: projectStoreId, mode: "branch", baseRef: base.baseRef });
   const ready = await deps.awaitMaterialisation(wt.id, readyMs);
   if (ready.status !== "ready") {

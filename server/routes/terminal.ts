@@ -264,7 +264,12 @@ function wakeParentTopicOnChildExit(child: TerminalSession, exitCode: number | n
   void (async () => {
     const result = await readSubAgentFinalResult(child);
     try {
-      subAgentExitHandler?.({ parentSessionKey, childId: child.id, name: child.name, result, exitCode });
+      subAgentExitHandler?.({
+        parentSessionKey, childId: child.id, name: child.name, result, exitCode,
+        // WORKTREE-14: a child that worked in a worktree of its own leaves the
+        // parent nothing but a branch, so the report has to name it.
+        branch: branchOfCwd(child.cwd),
+      });
     } catch (err) {
       console.warn(`[Terminal] subAgentExitHandler failed for ${child.id}:`, err);
     }
@@ -2331,24 +2336,24 @@ import type { OutboundMessage } from "../../shared/ws-outbound";
 // sessions register here so their hook-driven phase (running/tool-running)
 // becomes the solid "is it working" signal, instead of fragile pty bytes.
 let _tracker: ClaudeSessionTracker | null = null;
-/** Il ramo su cui sta un sotto-agente isolato (WORKTREE-14) si legge dalla sua
- *  cartella, e la cartella e' l'unico legame: nessuna colonna nuova. Un
- *  riferimento di modulo come `_tracker` perche' il risveglio di un figlio dopo
- *  un riavvio passa da qui senza avere `ctx` sotto mano. */
+/** The branch an isolated sub-agent stands on (WORKTREE-14) is read from its
+ *  directory, and the directory is the only binding there is: no new column. A
+ *  module-level reference like `_tracker` because the wake of a child after a
+ *  restart goes through here without `ctx` at hand. */
 let _worktreeStore: AppContext["worktreeStore"] | null = null;
-/** Il ramo del worktree che sta esattamente in questa cartella, se ce n'e' uno. */
+/** The branch of the worktree checked out at exactly this path, if there is one. */
 function branchOfCwd(cwd: string | undefined | null): string | null {
   if (!cwd || !_worktreeStore) return null;
   try { return _worktreeStore.getByAbsPath(cwd)?.branchName ?? null; } catch { return null; }
 }
 
 /**
- * Le cartelle in cui vive una sessione di terminale, per la guardia della
- * potatura (WORKTREE-14). Nessun filtro su `ptyPid`: dopo un riavvio le
- * sessioni rientrano da `terminal_sessions` senza pid, e una sessione senza pid
- * e' comunque una cartella in cui qualcuno sta per tornare — la scopa qui deve
- * poter solo TENERE, quindi il falso positivo costa una cartella e il falso
- * negativo il lavoro di un figlio.
+ * The directories a terminal session lives in, for the sweep's guard
+ * (WORKTREE-14). No filter on `ptyPid`: after a restart sessions come back from
+ * `terminal_sessions` with no pid, and a session with no pid is still a
+ * directory somebody is about to return to. This answer can only ever KEEP, so
+ * a false positive costs one directory and a false negative costs a child's
+ * work.
  */
 export function liveTerminalCwds(): string[] {
   const out: string[] = [];
@@ -3065,14 +3070,14 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           }
         }
         const parent = sessions.get(parentKey);
-        // WORKTREE-14, e l'opt-in e' il punto: senza `isolation` il figlio
-        // eredita la cartella del padre come ha sempre fatto. Un checkout costa
-        // ~600 MB e MAX_CHILDREN_PER_PARENT ne consente cinque: un default a
-        // worktree imporrebbe quel conto a ogni chat che delega qualcosa.
+        // WORKTREE-14, and the opt-in IS the point: without `isolation` the
+        // child inherits the parent's directory exactly as it always has. A
+        // checkout is ~600 MB and MAX_CHILDREN_PER_PARENT allows five of them,
+        // so a worktree default would bill that to every chat that delegates.
         const isolation = body.isolation === "worktree" ? "worktree" : "inherit";
-        // Il padre di una chat non sta in `sessions` (la sua sessionKey e'
-        // `topic:<id>`): senza il cwd del topic la risoluzione del progetto
-        // finirebbe su `$HOME`, che non e' un progetto di nessuno.
+        // A chat parent is not in `sessions` (its sessionKey is `topic:<id>`):
+        // without the topic's cwd the project lookup would land on `$HOME`,
+        // which is nobody's project.
         const topicCwd = ctx.resolveTopicCwd(ctx.getTopicBySessionKey(parentKey));
         let cwd = typeof body.cwd === "string" && body.cwd ? body.cwd : (parent?.cwd || process.env.HOME || "/");
         let branch: string | null = null;
@@ -3097,7 +3102,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
               worktreeReadyMs(),
             );
             const wt = ctx.worktreeStore.get(worktreeId);
-            if (!wt) return errorResponse(502, `worktree ${worktreeId} creato ma non leggibile`);
+            if (!wt) return errorResponse(502, `worktree ${worktreeId} created but not readable`);
             cwd = wt.absPath;
             branch = wt.branchName;
           } catch (err: any) {
@@ -3136,8 +3141,8 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           agentId: s.id,
           name: s.name,
           cwd: s.cwd,
-          // Il ramo di un figlio isolato, riletto dalla cartella: il padre deve
-          // poterlo nominare anche in una lista chiesta dopo un riavvio.
+          // An isolated child's branch, re-read from its directory: the parent
+          // must be able to name it in a list asked for after a restart too.
           branch: branchOfCwd(s.cwd),
           claudeSessionId: s.claudeSessionId || null,
           busy: terminalActivity.get(s.id)?.busy ?? false,
@@ -3178,9 +3183,9 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         const child = resolveOwnedChild(parentKey, decodeURIComponent(stopM.agentId));
         if (!child) return errorResponse(404, "sub-agent not found");
         const childClaudeId = child.claudeSessionId;
-        // Letto PRIMA di uccidere: dopo, la sessione non c'e' piu' e il ramo
-        // sarebbe irrecuperabile per chi ha appena chiesto lo stop. La cartella
-        // NON si cancella qui: decide la potatura (WORKTREE-09/10).
+        // Read BEFORE the kill: afterwards the session is gone and the branch
+        // would be unrecoverable for whoever just asked for the stop. The
+        // directory is NOT deleted here: the sweep decides (WORKTREE-09/10).
         const childBranch = branchOfCwd(child.cwd);
         sendToBridge({ type: "kill", id: child.id });
         sessions.delete(child.id);
