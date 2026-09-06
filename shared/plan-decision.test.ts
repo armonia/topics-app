@@ -1,10 +1,10 @@
 /**
- * La correzione al piano, letta da chi deve mandarla al modello.
+ * The correction to the plan, read by whoever has to send it to the model.
  *
- * Sta accanto alla decisione perché viaggia sulla stessa risposta, ma su un
- * canale diverso: la decisione è in `answers`, la correzione in `metadata`. Se
- * finisse in `answers` la riga la ristamperebbe per esteso nel riassunto di
- * cosa hai scelto, cioè un piano intero in una riga sola.
+ * It sits next to the decision because it travels on the same response, but on
+ * a different channel: the decision is in `answers`, the correction in
+ * `metadata`. In `answers` the tool row would reprint it in full in the summary
+ * of what you picked, which means a whole plan on a single line.
  *
  * @covers PERM-09
  */
@@ -27,7 +27,7 @@ describe('editedPlanFrom', () => {
   test('il piano corretto viaggia in metadata, non fra le risposte', () => {
     const response = approved({ [PLAN_EDIT_KEY]: '# Piano\n\n1. Primo passo corretto' });
     expect(editedPlanFrom(response)).toBe('# Piano\n\n1. Primo passo corretto');
-    // La decisione resta leggibile come sempre, e le risposte restano corte.
+    // The decision stays as readable as ever, and the answers stay short.
     expect(planDecisionFrom(response)).toBe(true);
     expect(Object.values(response.answers).join(' ')).toBe(PLAN_APPROVE_LABEL);
   });
@@ -38,7 +38,7 @@ describe('editedPlanFrom', () => {
   });
 
   test('una correzione vuota è nessuna correzione', () => {
-    // Mandare un piano che non dice niente sostituirebbe la proposta col vuoto.
+    // Sending a plan that says nothing would replace the proposal with emptiness.
     expect(editedPlanFrom(approved({ [PLAN_EDIT_KEY]: '   \n ' }))).toBeNull();
   });
 
