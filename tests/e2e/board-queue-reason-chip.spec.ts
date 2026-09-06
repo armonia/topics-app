@@ -23,7 +23,7 @@ import { projectRow } from "./helpers/project-row";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane, deleteTask } from "./helpers/api-fixtures";
 import { beat, didascalia } from "./helpers/evidence";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
@@ -31,7 +31,14 @@ import { projectIdForPath as boardIdForPath } from "../../shared/board";
 hermetic(test);
 
 const BASE = E2E_BASE;
-const PROJECT_PATH = `/tmp/e2e-coda-${Date.now()}`;
+/**
+ * THE REAL PATH, not `/tmp`: the server stores a topic's `projectPath` canonical
+ * (`canonicalProjectPath`, realpath) and the board id is a hash of that STRING.
+ * On macOS `/tmp` is a symlink to `/private/tmp`, so a spec hashing the
+ * symlinked name creates its tasks on one board and the client opens another:
+ * the card is never in the DOM. On Linux (CI) the two are the same string.
+ */
+const PROJECT_PATH = `${realpathSync("/tmp")}/e2e-coda-${Date.now()}`;
 
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 
@@ -263,10 +270,30 @@ test.describe("Il chip della coda porta la sua ragione", () => {
     const congelato = await createTask(request, { text: "Rifare l'export dei listini", status: "review" });
     await createTask(request, { text: "Passo uno: leggere il tracciato", status: "todo", parentTaskId: congelato.id });
 
-    // B) il percorso VERO della domanda di sistema: il figlio scende in backlog
-    // sotto un padre fermo, e `askParkedChildren` porta il padre in review coi
-    // due bottoni. Nessun verbo di test: sono due PATCH pubbliche.
+    // B) the REAL path of the system question: the child drops to backlog under
+    // a STOPPED parent, and `askParkedChildren` moves the parent to review with
+    // the two buttons. The move that raises the question stays a public PATCH.
+    //
+    // "Stopped" has a precise contract since 2026-09-04 (`askParkedChildren`):
+    // a todo parent that has NOT spent a turn yet is a promise of work, not a
+    // stall — the agent about to take it reads the open subtasks in its kickoff
+    // and works them. Three queued parents had landed in review with the
+    // question on top twelve seconds after their steps went back to todo. The
+    // question belongs to the parent that ALREADY had a turn and came back to
+    // todo without a chip: spent attempts are written only by a real agent that
+    // fails, so here the suite's setup verb writes them — the same one that
+    // builds "attempts exhausted" above.
+    //
+    // And the queue must NOT be scrolling: with the switch on, the tick marks
+    // every eligible todo card `queued` the moment it is born, and a queued
+    // parent is that same promise of work — the question is never asked, the
+    // chip says "slot · 3 ahead" (the three cards the first scene left in the
+    // queue). The first scene turns the switch ON and hands it back only in
+    // `afterAll`; this scene owns its precondition instead of inheriting the
+    // previous one's.
+    await setAutoDispatch(request, false);
     const chiede = await createTask(request, { text: "Ripulire i redirect vecchi", status: "todo" });
+    await dispatchGate(request, chiede.id, { attempts: 1 });
     const figlio = await createTask(request, { text: "Passo uno: censire i 301", status: "todo", parentTaskId: chiede.id });
     const giu = await request.patch(`${BASE}/api/boards/${PROJECT_ID}/tasks/${figlio.id}`, {
       data: { status: "backlog" },
