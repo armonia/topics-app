@@ -23,13 +23,23 @@
  * dei quali riarma il timer: il messaggio non partirebbe mai durante il build
  * e partirebbe a raffica subito dopo.
  */
-import { watch } from "fs";
+import { existsSync, watch } from "fs";
 import type { AppContext } from "./types";
 import { refreshGitStatus } from "./git-watcher";
 
 const DEBOUNCE_MS = 300;
-/** Tetto ai progetti osservati insieme: ogni watcher ricorsivo costa. */
-const MAX_WATCHERS = 24;
+/**
+ * Cap on the projects watched at once: every recursive watcher has a cost.
+ *
+ * It is a MEMORY cap, not a refusal: once it is reached a slot is freed (see
+ * `makeRoom`) instead of silently answering "not this project". Before, the
+ * twenty-fifth project got no `files:changed` and no git status push for the
+ * whole life of the server, without a log line — while the twenty-four slots
+ * could be held by folders already deleted. Measured in CI: an e2e shard opens
+ * some thirty temporary projects one after the other, and the spec "the first
+ * change brings the git section back" waited for a push that never left.
+ */
+export const MAX_WATCHERS = 24;
 
 /**
  * Segmenti di path che non meritano un evento. Sono le stesse cartelle che
@@ -52,13 +62,37 @@ function isNoisy(rel: string | null): boolean {
 }
 
 /**
+ * Frees a slot when the cap is full. Folders that no longer exist go first (a
+ * deleted temporary project keeps its watcher as if it were alive); if that is
+ * not enough, the project listed the longest ago — the Map is in order of last
+ * `/api/files`, see the "touch" in `watchProjectFiles`.
+ */
+function makeRoom(): void {
+  if (watchers.size < MAX_WATCHERS) return;
+  for (const path of [...watchers.keys()]) {
+    if (!existsSync(path)) unwatchProjectFiles(path);
+  }
+  if (watchers.size < MAX_WATCHERS) return;
+  const oldest = watchers.keys().next().value;
+  if (oldest !== undefined) unwatchProjectFiles(oldest);
+}
+
+/**
  * Comincia a osservare `projectPath`. Idempotente: chiamarla di nuovo per lo
  * stesso path non fa niente, così la si può chiamare a ogni `/api/files` —
  * esattamente come `watchGitDir` fa da `/api/git/status`.
  */
 export function watchProjectFiles(projectPath: string, ctx: AppContext): void {
-  if (watchers.has(projectPath)) return;
-  if (watchers.size >= MAX_WATCHERS) return;
+  const existing = watchers.get(projectPath);
+  if (existing) {
+    // Touch: a project listed again moves to the back of the queue, so when
+    // the cap is full the one evicted is the project nobody has looked at
+    // for the longest time.
+    watchers.delete(projectPath);
+    watchers.set(projectPath, existing);
+    return;
+  }
+  makeRoom();
 
   let timer: ReturnType<typeof setTimeout> | null = null;
   let closed = false;

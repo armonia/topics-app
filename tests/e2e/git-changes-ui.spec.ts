@@ -154,7 +154,11 @@ test.describe("pannello delle modifiche git", () => {
     // sparisce, nello stesso posto.
     await riga.hover();
     await expect(stage).toBeVisible();
-    await expect(riga.locator('button[title="Discard changes"]')).toBeVisible();
+    // The title follows the language (`git.discardFileTitle`, 4fa6f985d) and
+    // the suite runs in Italian, so the locator below carries the Italian
+    // title. The English literal was the defect, not the anchor. `Stage` above
+    // is still a bare literal in the component, hence its exact match.
+    await expect(riga.locator('button[title^="Scarta le modifiche"]')).toBeVisible();
 
     // Nessun salto: la cella e' una sola, i due contenuti sono impilati.
     const box = (await riga.boundingBox())!;

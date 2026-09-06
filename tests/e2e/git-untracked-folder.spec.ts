@@ -12,12 +12,14 @@ import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";
 import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
-import { initGitRepo } from "./helpers/file-project";
+import { canonicalTmpDir, initGitRepo } from "./helpers/file-project";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 
 hermetic(test);
 
-const REPO = `/tmp/e2e-host-repo-${Date.now()}`;
+// Canonical spelling (`/private/tmp` on macOS): it is the one the window
+// carries, see `canonicalTmpDir`.
+const REPO = canonicalTmpDir("e2e-host-repo");
 const INNER = `${REPO}/progetto-non-tracciato`;
 
 test.describe("git: cartella non tracciata dal repo che la contiene", () => {
