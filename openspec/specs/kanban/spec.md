@@ -1054,6 +1054,28 @@ sulla card SHALL dire il tempo di esecuzione e, a parte, quello di coda.
 - **GIVEN** lo stesso comando senza la riga di `slot.ts`
 - **THEN** SHALL essere ucciso al tetto, come prima
 
+Il tetto SHALL seguire anche un rallentamento che il comando DICHIARA prima di
+cominciare. Sotto carico il runner della suite unit dimezza gli shard (4 → 2)
+perché aggiungere processi a una macchina già piena li rallenta tutti: la stessa
+suite ci mette circa il doppio, e quel doppio è la decisione, non un guasto. Il
+comando SHALL poter scrivere su stderr una riga riconoscibile col fattore di
+rallentamento; il runner dei check SHALL moltiplicare il tetto per quel fattore,
+UNA volta, con un massimo dichiarato; il commento sulla card SHALL nominare il
+piano ridotto, così che un verde da mezz'ora non sembri un tetto mai applicato.
+Misurato sulla card `40dc7674` il 05/09/2026: verde in 7m59s a 4 shard, oltre i
+20 minuti del tetto fisso a 2 shard con la flotta attiva, e una consegna
+corretta rifiutata tre volte per una ragione che col suo codice non c'entrava.
+
+Il massimo SHALL restare: oltre quello il comando non è lento, è appeso.
+
+#### Scenario: il rallentamento dichiarato allunga il tetto
+- **GIVEN** un comando che dichiara la riga di rallentamento e poi lavora più del tetto base
+- **THEN** SHALL finire verde, e l'esito SHALL riportare il fattore dichiarato
+
+#### Scenario: nessuna dichiarazione, nessuno sconto
+- **GIVEN** lo stesso comando senza quella riga
+- **THEN** SHALL essere ucciso al tetto base
+
 Sulla card SHALL essere scritto lo stato, gli esiti parziali e il commit
 misurato. Il commento del VERDE SHALL essere una riga sola e di specie servizio:
 l'elenco completo su ogni consegna verde erano 92 copie identiche in sette

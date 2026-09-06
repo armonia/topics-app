@@ -1471,6 +1471,13 @@ export interface CheckRun {
    * code.
    */
   queuedMs?: number;
+  /**
+   * The slowdown the command DECLARED before starting (see
+   * shared/gate-slowdown.ts): fewer shards on a loaded machine, so the cap was
+   * multiplied by this much. Shown so a run that took 30 minutes says which
+   * plan it was given, instead of looking like a cap that was never enforced.
+   */
+  slowdown?: number;
   tail: string;
   /** Valorizzato solo se il comando non è nemmeno partito (binario assente, cwd sparita). */
   spawnError?: string;
