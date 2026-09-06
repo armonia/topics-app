@@ -116,7 +116,7 @@ fn refresh_auth_state(wait: std::time::Duration) {
         return;
     }
     let center = UNUserNotificationCenter::currentNotificationCenter();
-    let landed = std::sync::Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
+    let landed = new_signal();
     let signal = landed.clone();
     let settings_done = RcBlock::new(
         move |settings: std::ptr::NonNull<objc2_user_notifications::UNNotificationSettings>| {
@@ -154,18 +154,36 @@ fn refresh_auth_state(wait: std::time::Duration) {
                 status,
                 s.alertSetting()
             ));
-            let (lock, cv) = &*signal;
-            if let Ok(mut done) = lock.lock() {
-                *done = true;
-            }
-            cv.notify_all();
+            fire_signal(&signal);
         },
     );
     center.getNotificationSettingsWithCompletionHandler(&settings_done);
+    wait_for_signal(&landed, wait);
+}
+
+/// A completion block signals, the caller waits: `Condvar` with a ceiling.
+///
+/// `ZERO` returns at once (fire and forget). Past the ceiling nothing blocks:
+/// the block still runs later and updates the atomics for the next read.
+type Landed = std::sync::Arc<(std::sync::Mutex<bool>, std::sync::Condvar)>;
+
+fn new_signal() -> Landed {
+    std::sync::Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()))
+}
+
+fn fire_signal(signal: &Landed) {
+    let (lock, cv) = &**signal;
+    if let Ok(mut done) = lock.lock() {
+        *done = true;
+    }
+    cv.notify_all();
+}
+
+fn wait_for_signal(landed: &Landed, wait: std::time::Duration) {
     if wait.is_zero() {
         return;
     }
-    let (lock, cv) = &*landed;
+    let (lock, cv) = &**landed;
     let Ok(mut done) = lock.lock() else { return };
     while !*done {
         let Ok((guard, timeout)) = cv.wait_timeout(done, wait) else { return };
@@ -458,7 +476,37 @@ pub fn install(app: &tauri::AppHandle) {
     let center = UNUserNotificationCenter::currentNotificationCenter();
     center.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
     std::mem::forget(delegate);
-    let done = RcBlock::new(|granted: Bool, error: *mut NSError| {
+    request_authorization(std::time::Duration::ZERO);
+    // Spara e vai: qui il prompt può essere ancora aperto, non c'è niente
+    // da aspettare. La stessa lettura la rifà `status()` quando il pannello
+    // la chiede, ed è lì che conta che sia fresca.
+    refresh_auth_state(std::time::Duration::ZERO);
+    diag(&format!(
+        "helper fallback: {}",
+        helper_path().map(|p| p.display().to_string()).unwrap_or_else(|| "none".into())
+    ));
+}
+
+/// Ask macOS for banner authorization and wait up to `wait` for the answer.
+///
+/// Shared by `install()` (once at boot, `ZERO`: the prompt may stay open for
+/// as long as the person likes) and `request_permission()` (the Settings
+/// button, which needs the answer to redraw the panel).
+///
+/// The completion block records only `granted`. A `granted=false` is NOT
+/// written as denied, and it used to be: the outcome of ONE request is not the
+/// state of the system. On an unsigned build it is almost always
+/// `UNErrorDomain error 1`, the request itself failing, while
+/// `getNotificationSettings` still answers `NotDetermined`, never `Denied`.
+/// The only authoritative source is `refresh_auth_state`. Writing a denial
+/// here produced a made-up "denied" that no later read corrected, and the
+/// panel sent people to System Settings > Notifications, where Topics never
+/// appeared.
+fn request_authorization(wait: std::time::Duration) {
+    let center = UNUserNotificationCenter::currentNotificationCenter();
+    let landed = new_signal();
+    let signal = landed.clone();
+    let done = RcBlock::new(move |granted: Bool, error: *mut NSError| {
         let err = if error.is_null() {
             String::from("none")
         } else {
@@ -468,35 +516,89 @@ pub fn install(app: &tauri::AppHandle) {
             UN_AUTHORIZED.store(true, Ordering::Relaxed);
             AUTH_STATE.store(AUTH_GRANTED, Ordering::Relaxed);
         }
-        // Un `granted=false` NON diventa "negato", e prima invece lo
-        // diventava. L'esito di `requestAuthorization` è l'esito di UNA
-        // richiesta — qui è quasi sempre `UNErrorDomain error 1`, cioè la
-        // richiesta stessa non è andata a buon fine — non lo stato del
-        // sistema. La sola fonte autorevole è `getNotificationSettings`
-        // (`refresh_auth_state`), che su questa macchina risponde
-        // `NotDetermined`: mai `Denied`. Scriverlo qui produceva un
-        // "denied" inventato che nessuna lettura successiva correggeva più
-        // (`refresh_auth_state` non toccava `NotDetermined`), e il pannello
-        // finiva per consigliare Impostazioni di Sistema → Notifiche, dove
-        // Topics non è mai comparso.
         diag(&format!(
             "requestAuthorization → granted={} error={}",
             granted.as_bool(),
             err
         ));
+        fire_signal(&signal);
     });
     center.requestAuthorizationWithOptions_completionHandler(
         UNAuthorizationOptions::Alert,
         &done,
     );
-    // Spara e vai: qui il prompt può essere ancora aperto, non c'è niente
-    // da aspettare. La stessa lettura la rifà `status()` quando il pannello
-    // la chiede, ed è lì che conta che sia fresca.
-    refresh_auth_state(std::time::Duration::ZERO);
-    diag(&format!(
-        "helper fallback: {}",
-        helper_path().map(|p| p.display().to_string()).unwrap_or_else(|| "none".into())
-    ));
+    wait_for_signal(&landed, wait);
+}
+
+/// Ceiling on the wait for the person to answer the system prompt. Long enough
+/// to read and click it, short enough that a request that never answers does
+/// not pin the Settings button. Past it the panel shows the last known state
+/// and the completion block still lands for the next read.
+const REQUEST_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// The System Settings pane where a denied permission is switched back on.
+const NOTIFICATION_SETTINGS_URL: &str =
+    "x-apple.systempreferences:com.apple.Notifications-Settings.extension";
+
+/// The Settings button: act on the permission, return the fresh status so the
+/// panel redraws with the truth right after the person acts.
+///
+/// One branch per state, every branch logged, because the whole failure class
+/// of this chain is silent:
+/// - not bundled: nothing to ask, the UI already says the chain cannot work;
+/// - `granted`: nothing to do;
+/// - `denied`: macOS shows the prompt once per install, so the only place the
+///   permission can be switched back on is System Settings > Notifications.
+///   We open that pane and return the state unchanged; the next `status()`
+///   read picks up whatever the person did there;
+/// - `notDetermined` / `pending`: ask again. The boot request may have failed
+///   (unsigned build) or been dismissed; a second `requestAuthorization` is
+///   exactly what shows the prompt when it can be shown.
+///
+/// Waits on a pool thread, never the main one: see the `(async)` note on
+/// `notification_status` in lib.rs.
+pub fn request_permission() -> NotificationStatus {
+    if !is_bundled() {
+        diag("request_permission → skipped: not bundled");
+        return status();
+    }
+    let before = status();
+    match before.auth_state {
+        "granted" => {
+            diag("request_permission → no-op: already granted");
+            before
+        }
+        "denied" => {
+            diag("request_permission → denied by the system, opening System Settings > Notifications");
+            open_notification_settings();
+            before
+        }
+        other => {
+            diag(&format!("request_permission → state={other}, asking again"));
+            request_authorization(REQUEST_WAIT);
+            status()
+        }
+    }
+}
+
+/// Same launcher as `open_external` in lib.rs (`/usr/bin/open`, child handed
+/// to the reaper so it never stays `<defunct>`), minus that command's scheme
+/// allowlist: `x-apple.systempreferences:` is exactly what it rejects, and
+/// this URL is a constant, not webview input.
+fn open_notification_settings() {
+    let spawned = std::process::Command::new("/usr/bin/open")
+        .arg(NOTIFICATION_SETTINGS_URL)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    match spawned {
+        Ok(child) => {
+            super::child_reaper::reap(child);
+            diag("open System Settings → spawned");
+        }
+        Err(e) => diag(&format!("open System Settings → failed: {e}")),
+    }
 }
 
 /// Release builds have no logger installed (tauri_plugin_log is debug-only),

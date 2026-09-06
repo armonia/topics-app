@@ -4,6 +4,8 @@ import { ChevronDown, ChevronRight, FileCode, MessageSquarePlus, Trash2 } from '
 import type { DiffBundle, DiffFileStat } from '../../lib/board';
 import { parseDiffRows, isCommentable, anchorOf, noteKey, type DiffRow, type DiffNote } from './reviewNotes';
 import { buildFileRows, type DiffFileChunk } from './diffFileRows';
+import { ChangedFileEntry } from '../Git/ChangedFileList';
+import { rowFromDiffStat } from '../Git/changedFiles';
 import { shortcut } from '../../lib/shortcutLabel';
 
 /**
@@ -20,14 +22,6 @@ import { shortcut } from '../../lib/shortcutLabel';
 
 /** Per-file line budget when expanded — keeps a pathological file from flooding the DOM. */
 const MAX_LINES_PER_FILE = 600;
-
-const STATUS_META: Record<string, { label: string; cls: string }> = {
-  A: { label: 'nuovo', cls: 'bg-emerald-500/15 text-emerald-400' },
-  M: { label: 'mod', cls: 'bg-sky-500/15 text-sky-400' },
-  D: { label: 'del', cls: 'bg-red-500/15 text-red-400' },
-  R: { label: 'rinom', cls: 'bg-violet-500/15 text-violet-400' },
-  C: { label: 'copia', cls: 'bg-violet-500/15 text-violet-400' },
-};
 
 function rowClass(row: DiffRow): string {
   switch (row.kind) {
@@ -119,8 +113,15 @@ const FileDiff = memo(function FileDiff({ path, chunk, stat, partial, defaultOpe
   const rows = useMemo(() => (chunk ? parseDiffRows(chunk.body) : []), [chunk]);
   const shown = open ? (showAll ? rows : rows.slice(0, MAX_LINES_PER_FILE)) : [];
   const overflow = open && !showAll ? rows.length - shown.length : 0;
-  const st = stat ? STATUS_META[stat.status] : undefined;
-  const binary = stat && (stat.additions < 0 || stat.deletions < 0);
+  // The same row the chat strip, the card chip and the project panel draw:
+  // one letter, one palette, one place where the path is cut. A file that
+  // arrived only in the patch has no status to read, and `modified` is what a
+  // hunk without a name-status letter is.
+  const row = useMemo(
+    () => (stat ? rowFromDiffStat(stat) : { path, status: 'modified' as const }),
+    [stat, path],
+  );
+  const binary = !!row.binary;
   const notesByKey = useMemo(() => {
     const m = new Map<string, DiffNote[]>();
     for (const n of fileNotes) {
@@ -135,23 +136,19 @@ const FileDiff = memo(function FileDiff({ path, chunk, stat, partial, defaultOpe
     <div className="overflow-hidden rounded-md border border-app-border">
       <button
         onClick={() => setUserOpen(!open)}
-        className="flex w-full items-center gap-1.5 bg-elevated px-2 py-1 text-left hover:bg-app-hover"
+        title={row.origPath ? `${row.origPath} -> ${path}` : path}
+        className="flex w-full items-center gap-1.5 bg-elevated px-2 py-1 text-left text-[11px] hover:bg-app-hover"
       >
         {open ? <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" /> : <ChevronRight className="h-3 w-3 shrink-0 text-app-text-muted" />}
         <FileCode className="h-3 w-3 shrink-0 text-app-text-muted" />
-        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-app-text" title={path}>{path}</span>
-        {fileNotes.length > 0 && (
-          <span className="shrink-0 rounded bg-indigo-500/20 px-1 text-[9px] text-indigo-300" title={`${fileNotes.length} note in sospeso`}>
-            {fileNotes.length}
-          </span>
-        )}
-        {st && <span className={`shrink-0 rounded px-1 text-[9px] uppercase ${st.cls}`}>{st.label}</span>}
-        {stat && !binary && (
-          <span className="shrink-0 font-mono text-[10px] tabular-nums">
-            <span className="text-emerald-400">+{stat.additions}</span> <span className="text-red-400">-{stat.deletions}</span>
-          </span>
-        )}
-        {binary && <span className="shrink-0 text-[10px] text-app-text-muted">binario</span>}
+        <ChangedFileEntry
+          row={row}
+          trailing={fileNotes.length > 0 ? (
+            <span className="shrink-0 rounded bg-indigo-500/20 px-1 text-[9px] text-indigo-300" title={tr('diff.pendingNotes', { n: String(fileNotes.length) })}>
+              {fileNotes.length}
+            </span>
+          ) : undefined}
+        />
       </button>
       {open && (
         <div className="overflow-x-auto font-mono text-[11.5px] leading-[1.55]">

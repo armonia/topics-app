@@ -79,6 +79,25 @@ export function getProjectLabel(projectPath: string): string {
   return basename(projectPath) || projectPath;
 }
 
+/**
+ * The badge of a CHAT row. Same per-subject helper as the tab and the chrome
+ * total (`topicAttentionCount`), with one rule on top: an ARCHIVED topic carries
+ * 0, whatever its unread. The chrome total (`rollupGlobalAttention`) already
+ * skips archived topics because nothing can switch them off: no tab to open, no
+ * read to send. With "show archived" on, this row used to compute the raw count
+ * and show 7 while the dock showed 0, the exact drift the shared helpers exist
+ * to prevent. Visibility gates below read this value only for NON-archived
+ * chats, so zeroing it here hides nothing that was visible.
+ */
+function chatRowAttentionCount(
+  t: Topic,
+  unreadData: UnreadData,
+  claudeAttentionTopics: Set<string>,
+): number {
+  if (t.archived) return 0;
+  return topicAttentionCount(t.id, unreadData, claudeAttentionTopics);
+}
+
 function topicTimestamp(t: Topic): number {
   const ts = t.updatedAt || t.createdAt;
   return ts ? new Date(ts).getTime() : 0;
@@ -443,7 +462,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       const chatPaneId = `chat:${t.id}`;
       const hasInternalTab = internalPaneIds.has(chatPaneId) || internalPaneIds.has(t.id);
       const hasTopLevelTab = openPanelSet.has(t.id);
-      const notificationCount = topicAttentionCount(t.id, unreadData, claudeAttentionTopics);
+      const notificationCount = chatRowAttentionCount(t, unreadData, claudeAttentionTopics);
       // Sub-agents this chat spawned as an orchestrator (MCP spawn_agent) nest
       // under its row and keep it visible even with the tab closed, so a running
       // sub-agent is never orphaned from where it was launched.
@@ -585,7 +604,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
   for (const t of standaloneChats) {
     // Pinned escape: a pinned chat shows even archived (pre-feature close).
     if (t.archived && !showArchived && !pinnedIds.has(t.id)) continue;
-    const notificationCount = topicAttentionCount(t.id, unreadData, claudeAttentionTopics);
+    const notificationCount = chatRowAttentionCount(t, unreadData, claudeAttentionTopics);
     // Sub-agents this chat spawned as an orchestrator (MCP spawn_agent) — nested
     // under its row, and an escape that keeps the row visible with the tab closed.
     const chatSubAgents = buildChatSubAgentItems(t.sessionKey);
