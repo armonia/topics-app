@@ -35,6 +35,7 @@ import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
 import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
+import { canonicalTmpDir } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
@@ -44,7 +45,10 @@ hermetic(test);
 const BASE = E2E_BASE;
 const API = `${BASE}/api`;
 
-const REPO = `/tmp/topics-e2e-i18npanels-${Date.now()}`;
+// Canonical spelling (`/private/tmp` on macOS): the board id is hashed from the
+// resolved projectPath, so a literal `/tmp` wrote the card to a board the pane
+// never read — locally only, the Linux runner has a real `/tmp`.
+const REPO = canonicalTmpDir("topics-e2e-i18npanels");
 const PROJECT_ID = boardIdForPath(REPO);
 
 /** DUE file cambiati, non uno: è il ramo plurale — «2 file» in italiano resta

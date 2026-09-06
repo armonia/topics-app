@@ -27,6 +27,7 @@ import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
 import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
+import { canonicalTmpDir } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
@@ -38,7 +39,10 @@ const API = `${BASE}/api`;
 
 interface WorktreeRow { id: string; status: string; absPath: string; branchName: string }
 
-const REPO = `/tmp/topics-e2e-changespanel-${Date.now()}`;
+// Canonical spelling (`/private/tmp` on macOS): the board id is hashed from the
+// resolved projectPath, so a literal `/tmp` wrote the card to a board the pane
+// never read — locally only, the Linux runner has a real `/tmp`.
+const REPO = canonicalTmpDir("topics-e2e-changespanel");
 const PROJECT_ID = boardIdForPath(REPO);
 /** Il ramo dell'altra sessione: è da qui che il worktree della card nasce. */
 const ALTRA = "topics/altra-sessione";

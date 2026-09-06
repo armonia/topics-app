@@ -14,6 +14,7 @@ import { projectRow } from "./helpers/project-row";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane, deleteTask } from "./helpers/api-fixtures";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { canonicalTmpDir } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { interceptWebSocket } from "./helpers/ws-helpers";
@@ -22,7 +23,11 @@ import { projectIdForPath as boardIdForPath } from "../../shared/board";
 hermetic(test);
 
 const BASE = E2E_BASE;
-const PROJECT_PATH = `/tmp/e2e-board-feed-${Date.now()}`;
+// Canonical spelling (`/private/tmp` on macOS): the server resolves the
+// topic's projectPath and hashes the STRING into the board id, so a literal
+// `/tmp` addressed a board nobody's session was bound to — locally only, the
+// Linux runner has a real `/tmp`. See `canonicalTmpDir`.
+const PROJECT_PATH = canonicalTmpDir("e2e-board-feed");
 
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 
