@@ -11,11 +11,14 @@
  * a bare span and another a button. The slot is a fixed 16px box; vary it only
  * via an explicit `size` (the sidebar chat row wants a bigger hit target).
  *
+ * EVERY VARIANT IS READ-ONLY, and one of them used to be a button: the chat tab
+ * and the sidebar chat row swapped the ring for a stop square under the pointer,
+ * which made a status glyph the only place a running turn could be interrupted.
+ * Stopping is now a named command in the trailing rail, before close (see
+ * `lib/rowCommandOrder`). This file answers one question again: is it working.
+ *
  * Variants, matching the StreamingContext shape:
- *   - <TopicStreamingSpinner topicId onStop? />   — single topic; optional
- *     stop affordance (a chat tab/sidebar row passes onStop so the user can
- *     interrupt the LLM stream in place — on hover the wave swaps for a stop
- *     glyph).
+ *   - <TopicStreamingSpinner topicId />           — single topic.
  *   - <ProjectStreamingSpinner projectPath />     — aggregated; surfaces when
  *     ANY child of the project is producing output: a chat mid-stream
  *     (StreamingContext, works even before the window mounts) OR a non-chat
@@ -25,38 +28,44 @@
  *   - Terminal / Browser / Agent variants — read-only, same look.
  *
  * Used in: PaneTabBar (chat / project / terminal / browser / agents tabs) and
- * Sidebar/TopicTree (project, terminal, browser rows). Sidebar/TopicItem reads
- * the same useTopicLoading signal but renders its own larger stop-button hit
- * target for the chat row (still the OrbitLoader glyph). Don't roll your own off
- * a DIFFERENT signal or a different glyph — every surface must report from the
- * same loading facade and the same component so they can't drift.
+ * Sidebar/TopicTree + Sidebar/TopicItem (project, chat, terminal, browser rows),
+ * all in the same 16px slot at the END of the row's quiet trail. Don't roll your
+ * own off a DIFFERENT signal or a different glyph — every surface must report
+ * from the same loading facade and the same component so they can't drift.
  */
 
+import { LoaderCircle } from 'lucide-react';
 import { useTopicLoading, useTopicAwaitingInput, useProjectLoading, useProjectAwaitingInput, useTerminalLoading, useBrowserLoading } from '../../state/signals';
 import { useT } from '../../hooks/useT';
 import { useSharedNow } from '../../state/useSharedNow';
 import { deriveWorkLongevity, formatElapsedCompact } from '../../state/workLongevity';
 
 /**
- * THE ORBIT — a ring whose gradient sweep travels around it, forever.
+ * THE ORBIT — a faint full ring with lucide's `LoaderCircle` arc turning on top
+ * of it, forever.
  *
- * It replaces the three-column equaliser, which replaced a 2x3 matrix of little
- * squares. What was asked for, on this card, was "something more modern and
- * designed": the equaliser was a meter, and a meter says "measuring", while a
- * turn has nothing to measure. A ring that keeps turning says the one true
- * thing, "still going, no idea for how long".
+ * It replaces the hand-rolled conic sweep, which replaced a three-column
+ * equaliser, which replaced a 2x3 matrix of little squares. The sweep was a
+ * gradient painted into a masked disc: it dissolved at its tail, so at 12px the
+ * only thing left with a definite edge was the head, and the glyph read as a
+ * smudge that got brighter on one side. The card asked for a loader that is
+ * both nicer and MORE SUITABLE, and the suitable part is the one that decides
+ * it: a shape with two crisp round caps says "arc going round" at any size,
+ * on any background, at any theme.
+ *
+ * It is a lucide component and not an SVG of ours on purpose — every other
+ * glyph in this app comes from that set, and a bespoke one drifts in stroke
+ * weight and cap shape the moment the set updates.
  *
  * GEOMETRY — the glyph is 12x12 inside the 16px slot, so the margin is
  * (16 - 12) / 2 = 2 on both axes: whole pixels, which is the rule the tab
  * geometry test enforces (a glyph born on a quarter pixel rasterises blurred).
- * The stroke is 2px, cut out of a full disc by a donut mask rather than drawn
- * as a border: a border cannot carry a conic gradient, and an SVG circle with
- * a dash offset would animate a paint property instead of a transform.
+ * The TRACK is a real 2px ring cut out of a disc by a donut mask rather than a
+ * `border`, so it takes the same `currentColor 22%` wash as a disabled panel of
+ * the SplitMiniMap and cannot drift from it.
  *
- * TWO LAYERS, same family as before: the TRACK is always there and carries the
- * same wash as a disabled panel of the SplitMiniMap (`currentColor 22%`, which
- * inverts with the theme), and over it turns the SWEEP, the primary colour
- * fading from nothing to full. The silhouette never changes size, so the glyph
+ * TWO LAYERS, same family as before: the track is always there and never moves,
+ * and over it turns the arc. The silhouette never changes size, so the glyph
  * never "disappears" at any point of the cycle.
  *
  * Only `transform: rotate` animates: no reflow, no main-thread work. Timings and
@@ -67,82 +76,58 @@ const GLYPH = 12;
 /** Ring thickness, cut by the donut mask below. */
 const STROKE = 2;
 
-/** Keeps only the outer STROKE px of the disc: a ring, from a background that
- *  can be a conic gradient (a `border` cannot). */
+/** Keeps only the outer STROKE px of the disc: a ring, from a background a
+ *  `border` could not carry (a colour-mix wash that inverts with the theme). */
 const DONUT_MASK = `radial-gradient(closest-side, transparent calc(100% - ${STROKE}px), #000 calc(100% - ${STROKE}px))`;
-
-/** The living sweep: from transparent to full primary over most of the turn,
- *  with a brighter head, so the ring reads as a body of light travelling rather
- *  than as a rotating stick. */
-const SWEEP = [
-  'conic-gradient(from 0deg,',
-  'transparent 0deg,',
-  'color-mix(in srgb, var(--primary) 18%, transparent) 100deg,',
-  'color-mix(in srgb, var(--primary) 62%, transparent) 220deg,',
-  'var(--primary) 312deg,',
-  'color-mix(in srgb, var(--primary) 60%, #fff) 340deg,',
-  'transparent 352deg)',
-].join(' ');
 
 /** The track: the same water as a disabled panel of the SplitMiniMap, so the
  *  two glyphs of the family cannot drift apart. */
 const TRACK_WASH = 'color-mix(in srgb, currentColor 22%, transparent)';
 
-/** THE WAIT: same ring, but the sweep freezes into a fixed amber arc. A turn
- *  parked on a question is open and NOT grinding, and a travelling sweep would
- *  credit it with work it is not doing. The amber is the tint of the 'input'
- *  tier (TIER_INPUT_BG in selectionStyles): where the fill says "your move",
- *  the glyph says the same. Frozen is not off, so it breathes slowly
- *  (`animate-orbit-breath`). */
-const WAIT_ARC = [
-  'conic-gradient(from 200deg,',
-  'var(--color-amber-500, #f59e0b) 0deg,',
-  'color-mix(in srgb, var(--color-amber-500, #f59e0b) 45%, transparent) 108deg,',
-  'transparent 116deg)',
-].join(' ');
+/**
+ * Stroke width in lucide's 24-unit box. The default 2 lands at 1px once the
+ * icon is scaled to 12, which reads thinner than the 2px track under it: the
+ * arc has to be the loud layer, so it is scaled to match.
+ */
+const ARC_STROKE = (STROKE / GLYPH) * 24;
 
 export function OrbitLoader({ className = '', still = false }: { className?: string; still?: boolean }) {
-  const ring = {
-    position: 'absolute',
-    inset: 0,
-    borderRadius: '50%',
-    WebkitMaskImage: DONUT_MASK,
-    maskImage: DONUT_MASK,
-  } as const;
+  const box = { width: GLYPH, height: GLYPH } as const;
   return (
     <span
       className={`relative inline-block ${className}`}
-      style={{ width: GLYPH, height: GLYPH }}
+      style={box}
       aria-hidden="true"
     >
-      <span style={{ ...ring, background: TRACK_WASH }} />
       <span
-        className={still ? 'animate-orbit-breath' : 'animate-orbit-spin'}
-        style={{ ...ring, background: still ? WAIT_ARC : SWEEP }}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          borderRadius: '50%',
+          background: TRACK_WASH,
+          WebkitMaskImage: DONUT_MASK,
+          maskImage: DONUT_MASK,
+        }}
+      />
+      {/* THE WAIT: the same arc, frozen and amber. A turn parked on a question
+          is open and NOT grinding, and a turning arc would credit it with work
+          it is not doing. The amber is the tint of the 'input' tier
+          (TIER_INPUT_BG in selectionStyles): where the fill says "your move",
+          the glyph says the same. Frozen is not off, so it breathes slowly. */}
+      <LoaderCircle
+        size={GLYPH}
+        strokeWidth={ARC_STROKE}
+        className={`absolute inset-0 ${still ? 'animate-orbit-breath text-amber-500' : 'animate-orbit-spin text-[var(--primary)]'}`}
       />
     </span>
   );
 }
 
-/** Filled stop square shown on hover in place of the loader. */
-function StopGlyph({ size = 7, className = '' }: { size?: number; className?: string }) {
-  return (
-    <span
-      className={`bg-primary rounded-[1px] ${className}`}
-      style={{ width: size, height: size }}
-    />
-  );
-}
-
 interface LoaderSlotProps {
-  /** When provided, the slot becomes a stop button — hover swaps the ring for a
-   *  stop glyph and a click interrupts. Omit for read-only loaders. */
-  onStop?: () => void;
   title?: string;
   /** Wrapper classes (margins, alignment). */
   className?: string;
-  /** Box size in px (square). Default 16 (the tab-bar slot); the sidebar chat
-   *  row passes a larger value for a comfier hit target. */
+  /** Box size in px (square). Default 16, the shared slot on every surface. */
   size?: number;
   /** Il turno è aperto ma FERMO ad aspettare una risposta: glifo immobile
    *  ambra invece dell'onda, e il tooltip lo dice. */
@@ -154,56 +139,24 @@ interface LoaderSlotProps {
  * sits in an identically-sized, identically-centred box on every surface. This
  * is what keeps the parent (project) tab loader aligned with the children
  * (chat / terminal / …) tab loaders — they can no longer drift apart.
+ *
+ * IT IS A SIGN AND NOT A BUTTON, and it used to be both. On the surfaces where
+ * a turn can be interrupted the slot became a `<button>` whose ring swapped for
+ * a stop square under the pointer: the only way to stop was to hover a STATUS
+ * glyph and trust that something would appear. Stopping is now a named command
+ * in the trailing rail, next to close (see `rowCommandOrder`), which is where a
+ * command can carry a label, a tooltip and a keyboard focus. What is left here
+ * only ever answers "is it working".
  */
-function LoaderSlot({ onStop, title, className = '', size = 16, waiting = false }: LoaderSlotProps) {
-  const tip = title ?? (waiting ? 'Ferma: in attesa di una tua risposta' : onStop ? 'Stop' : 'In esecuzione');
-  const box = { width: size, height: size } as const;
-  const state = waiting ? 'waiting' : 'working';
-  if (onStop) {
-    return (
-      <button
-        onClick={(e) => { e.stopPropagation(); onStop(); }}
-        // `relative z-30` — IL PIANO CHE IL CONTRATTO DICHIARAVA E NESSUNO AVEVA
-        // SCRITTO. `PaneTabBar` lo mette per esteso sul binario dei comandi: «lo
-        // spinner resta FUORI (SOPRA): fermare un turno e chiudere la tab sono
-        // due azioni diverse nello stesso istante». "Sopra" è una quota, e qui
-        // non c'era: `.row-actions` è `position:absolute; right:8px; z-index:20`
-        // e questo bottone stava nel flusso senza z-index, quindi quando la coda
-        // dei segnali è vuota — cioè proprio MENTRE un turno streama — il
-        // cerchio di chiusura gli finiva sopra. Misurato da Playwright, che
-        // rifiuta il clic dicendo «<span class="row-actions …"> subtree
-        // intercepts pointer events»: passi il mouse sulla tab per fermare il
-        // turno e sotto il dito trovi «chiudi».
-        //
-        // Perché il PIANO e non la geometria. Riservare in flusso la larghezza
-        // del binario sposterebbe il layout a ogni inizio e fine turno, e questo
-        // repo ha già la regola opposta («mai layout su stato asincrono»); farlo
-        // sempre costerebbe ~28px di etichetta a ogni tab, che è il conto che il
-        // commento di PaneTabBar aveva già rifiutato. Alzare la quota non muove
-        // un pixel: cambia solo CHI vince i pixel contesi, e li vince l'azione
-        // che esiste solo per pochi secondi ed è quella che stai cercando.
-        //
-        // Solo il ramo con `onStop`. L'altro è un glifo di sola lettura, cioè
-        // uno dei «segnali che il comando può coprire»: quello resta sotto,
-        // com'è giusto.
-        className={`group/stop relative z-30 flex-shrink-0 inline-flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors cursor-pointer ${className}`}
-        style={box}
-        title={tip}
-        aria-label={tip}
-        data-loader-state={state}
-      >
-        <OrbitLoader className="group-hover/stop:hidden" still={waiting} />
-        <StopGlyph className="hidden group-hover/stop:block" />
-      </button>
-    );
-  }
+function LoaderSlot({ title, className = '', size = 16, waiting = false }: LoaderSlotProps) {
+  const tip = title ?? (waiting ? 'Ferma: in attesa di una tua risposta' : 'In esecuzione');
   return (
     <span
       className={`flex-shrink-0 inline-flex items-center justify-center ${className}`}
-      style={box}
+      style={{ width: size, height: size }}
       title={tip}
       aria-label={tip}
-      data-loader-state={state}
+      data-loader-state={waiting ? 'waiting' : 'working'}
     >
       <OrbitLoader still={waiting} />
     </span>
@@ -214,16 +167,9 @@ interface TopicSpinnerProps {
   topicId: string | undefined;
   /** Wrapper classes (margins, alignment). */
   className?: string;
-  /**
-   * When provided, the loader becomes a stop button — hover swaps it for a stop
-   * glyph. Used by the chat-tab and sidebar-chat-row surfaces where the user
-   * can interrupt the generation in place.
-   */
-  onStop?: () => void;
-  /** Tooltip override. Defaults to "Stop generating" or "Streaming". */
+  /** Tooltip override. Defaults to "Streaming". */
   title?: string;
-  /** Box size in px (default 16 — the tab slot). The sidebar chat row passes a
-   *  larger value for a comfier hit target while keeping the identical glyph. */
+  /** Box size in px (default 16, the shared slot). */
   size?: number;
   /**
    * `compact` (default) — the bare glyph, identical on every tab. `labeled` — the
@@ -257,7 +203,6 @@ interface TopicSpinnerProps {
 
 export function TopicStreamingSpinner({
   topicId,
-  onStop,
   title,
   className = '',
   size,
@@ -278,7 +223,6 @@ export function TopicStreamingSpinner({
     return (
       <LabeledLoader
         lastUpdate={lastActivity}
-        onStop={onStop}
         title={title}
         className={className}
         size={size}
@@ -287,8 +231,8 @@ export function TopicStreamingSpinner({
       />
     );
   }
-  const tip = title ?? (waiting ? 'Ferma: in attesa di una tua risposta' : onStop ? 'Stop generating' : 'Streaming');
-  return <LoaderSlot onStop={onStop} title={tip} className={className} size={size} waiting={waiting} />;
+  const tip = title ?? (waiting ? 'Ferma: in attesa di una tua risposta' : 'Streaming');
+  return <LoaderSlot title={tip} className={className} size={size} waiting={waiting} />;
 }
 
 /**
@@ -305,7 +249,6 @@ export function TopicStreamingSpinner({
  */
 function LabeledLoader({
   lastUpdate,
-  onStop,
   title,
   className = '',
   size,
@@ -313,7 +256,6 @@ function LabeledLoader({
   waiting = false,
 }: {
   lastUpdate: number | undefined;
-  onStop?: () => void;
   title?: string;
   className?: string;
   size?: number;
@@ -323,8 +265,11 @@ function LabeledLoader({
   const now = useSharedNow();
   const { showElapsed, isStale, elapsedMs } = deriveWorkLongevity(lastUpdate, now);
 
-  const baseTip = title ?? (onStop ? 'Stop generating' : 'In esecuzione');
-  const stopHint = onStop ? ' Passa il mouse per fermare, clicca per aprire.' : '';
+  const baseTip = title ?? 'In esecuzione';
+  // The stop is no longer up here: it lives in the row's trailing rail, where
+  // it has a written name. The tooltip says so, because whoever went looking
+  // for the stop went looking on this glyph.
+  const stopHint = ' Passa il mouse sulla riga per fermare, clicca per aprire.';
   // Quando SAPPIAMO che aspetta, lo diciamo: il testo "stale" è una congettura
   // ("potrebbe essere ferma"), e una congettura non deve coprire un fatto.
   const tip = waiting
@@ -340,7 +285,7 @@ function LabeledLoader({
   const showNumber = quiet ? isStale : showElapsed;
   // Under the threshold (or no trustworthy last-update): exactly the compact spinner.
   if (!showNumber) {
-    return <LoaderSlot onStop={onStop} title={tip} className={`${className} ${isStale ? 'opacity-70' : ''}`} size={size} waiting={waiting} />;
+    return <LoaderSlot title={tip} className={`${className} ${isStale ? 'opacity-70' : ''}`} size={size} waiting={waiting} />;
   }
   return (
     <span className={`inline-flex items-center gap-1 ${className}`}>
@@ -352,7 +297,7 @@ function LabeledLoader({
       >
         {formatElapsedCompact(elapsedMs)}
       </span>
-      <LoaderSlot onStop={onStop} title={tip} size={size} className={isStale ? 'opacity-70' : ''} waiting={waiting} />
+      <LoaderSlot title={tip} size={size} className={isStale ? 'opacity-70' : ''} waiting={waiting} />
     </span>
   );
 }

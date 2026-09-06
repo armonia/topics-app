@@ -1,7 +1,7 @@
 import { markDraftTouched } from '../../state/draftPane';
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ArrowUpRight, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud, RotateCw, LayoutGrid, Combine, Layers, Plus, Check, ChevronRight, Pin, PinOff, Clock, UserRound, Link2 } from 'lucide-react';
+import { X, ArrowUpRight, Square as SquareIcon, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud, RotateCw, LayoutGrid, Combine, Layers, Plus, Check, ChevronRight, Pin, PinOff, Clock, UserRound, Link2 } from 'lucide-react';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
@@ -12,7 +12,8 @@ import { isUtilityPanelId } from '../../state/pane/adapters/utilityPanelId';
 import { getProjectLabel } from '../../lib/buildSidebarItems';
 import { getBrowserPaneUrl, isRealUrl } from '../../state/pane/browserPaneUrl';
 import { useCopyTabLink } from '../../hooks/useCopyTabLink';
-import { signalsActions, useSignalsStore, projectAttentionTier, attentionFillFor, useSeenDwell } from '../../state/signals';
+import { signalsActions, useSignalsStore, projectAttentionTier, attentionFillFor, useSeenDwell, useTopicLoading } from '../../state/signals';
+import { rowCommandSequence } from '../../lib/rowCommandOrder';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { CodexIcon } from '../Shared/CodexIcon';
 import { getFileIconDef } from '../../lib/fileIcons';
@@ -1408,44 +1409,23 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 tab, andando in hover sulle icone invece inutili» (Attilio,
                 09/08). Adesso è l'ULTIMO elemento e sta fuori dal flusso: vedi
                 ROW_ACTIONS, in fondo alla tab. */}
-            {/* Loading spinner — one canonical widget per pane kind.
-                All three read from StreamingContext; rendering only when
-                the corresponding signal is on. Chat is interruptible
-                (onStop wired), project + terminal are read-only. */}
-            {pane.type === 'chat' && pane.topicId && (
-              <TopicStreamingSpinner
-                topicId={pane.topicId}
-                onStop={onStopStreaming ? () => onStopStreaming(pane.id) : undefined}
-              />
-            )}
-            {/* A PROJECT TAB IS A FOLDER, and its roll-up only shows while the
-                folder is SHUT. Selected, the project window is the one on
-                screen: its own tab bar is right there with a loader and a clock
-                on every child that is working, so the parent's aggregate
-                repeats them one bar above and you cannot tell which is which.
-                Not selected, the children are behind it and the aggregate is
-                the only thing that can speak for them. Same rule as the sidebar
-                project row, where "shut" is the collapsed accordion. */}
-            {pane.type === 'project' && pane.projectPath && !isSelected && (
-              <ProjectStreamingSpinner projectPath={pane.projectPath} />
-            )}
-            {pane.type === 'terminal' && (() => {
-              // Terminal panes are created at several sites that don't set
-              // terminalSessionId; derive it from the pane id (`terminal:<id>`)
-              // so the tab's own spinner isn't gated out. Mirrors the rollup
-              // in ProjectWindow + useProjectLayout's terminal sync.
-              const sid = pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id);
-              return sid ? <TerminalStreamingSpinner sessionId={sid} /> : null;
-            })()}
-            {pane.type === 'browser' && <BrowserStreamingSpinner paneId={pane.id} />}
-            {/* IL BINARIO QUIETO — i segnali che il comando può coprire. Lo
-                spinner resta FUORI (sopra): fermare un turno e chiudere la tab
-                sono due azioni diverse nello stesso istante.
+            {/* THE QUIET RAIL: the signals a command is allowed to cover, AND
+                NOW THE SPINNER TOO.
 
-                I `ml-0.5` scritti a mano su ognuno se ne vanno: erano 2px sopra
-                il `gap` del contenitore, cioè 8 effettivi fra due cue e 6 fra la
-                X e lo spinner — due passi nella stessa tab. Adesso l'aria la
-                mette il contenitore, una volta. */}
+                The spinner used to sit OUTSIDE it, above the rail, and the
+                reason written here held for as long as it was true: stopping a
+                turn and closing the tab are two different actions in the same
+                instant, and the only way to stop was to hover the spinner, so
+                the close command could not be allowed to cover it. Stopping is
+                a REAL command in the rail now, next to close (see
+                rowCommandSequence), so the spinner goes back to being what it
+                is, a signal, and it goes where signals go: last of the trail,
+                in the very slot the command takes over on hover.
+
+                The hand-written `ml-0.5` on each of them is gone: it was 2px on
+                top of the container's `gap`, i.e. 8 effective pixels between two
+                cues and 6 between the X and the spinner, two different steps in
+                one tab. The air is the container's job now, once. */}
             <div className={`${ROW_TRAIL} flex items-center ${ROW_GAP} flex-shrink-0`}>
             {/* Quanto lavoro c'è su questa board, per stato. Vale per le DUE
                 tab che aprono una kanban — quella generale (`board`) e quella
@@ -1513,6 +1493,21 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 <Cloud size={11} />
               </span>
             )}
+            <NotificationBadge
+              count={badgeCount}
+              variant={onFill ? 'onFill' : 'default'}
+              // Il numero di un PROGETTO è un aggregato: dice quanto, mai di chi.
+              // E i suoi figli possono benissimo non mostrare niente — quello
+              // selezionato non porta badge per contratto (TAB-BADGE-07), quello
+              // in un altro gruppo non è sott'occhio. Risultato osservato: la tab
+              // «Guido AI» con un 1 e nessuna tab dentro che lo rivendicasse. Il
+              // tooltip chiude il cerchio: il numero ha sempre un nome.
+              title={
+                pane.type === 'project' && pane.projectPath
+                  ? describeProjectBadge(pane.projectPath) || undefined
+                  : undefined
+              }
+            />
             {/* Pinned ("Fissato") cue — parity with the sidebar rows, which show
                 a Pin glyph on pinned chat/terminal/browser/project rows. Same
                 canonical pinKeyForPane the context menu uses, so every pinnable
@@ -1546,8 +1541,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             })()}
             {/* The PROJECT's time, under the same rule as its loader: only
                 while the folder is shut, because open it is the children that
-                say it. It is a time that RUNS (the loader's colour and motion),
-                never a receipt. */}
+                say it. It is a time that RUNS (the loader's motion, in the
+                normal text ink), never a receipt. */}
             {pane.type === 'project' && pane.projectPath && !isSelected && (
               <ProjectElapsed projectPath={pane.projectPath} onFill={onFill} />
             )}
@@ -1555,21 +1550,36 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 only (user preference), NOT on the top tab bar — see
                 Sidebar/TopicItem + SplitMiniMap (fed by SplitPositionContext).
                 The tab bar deliberately renders no split schematic. */}
-            <NotificationBadge
-              count={badgeCount}
-              variant={onFill ? 'onFill' : 'default'}
-              // Il numero di un PROGETTO è un aggregato: dice quanto, mai di chi.
-              // E i suoi figli possono benissimo non mostrare niente — quello
-              // selezionato non porta badge per contratto (TAB-BADGE-07), quello
-              // in un altro gruppo non è sott'occhio. Risultato osservato: la tab
-              // «Guido AI» con un 1 e nessuna tab dentro che lo rivendicasse. Il
-              // tooltip chiude il cerchio: il numero ha sempre un nome.
-              title={
-                pane.type === 'project' && pane.projectPath
-                  ? describeProjectBadge(pane.projectPath) || undefined
-                  : undefined
-              }
-            />
+            {/* THE WORKING SIGNAL, LAST OF THE TRAIL — one canonical widget
+                per pane kind, all reading from StreamingContext and rendering
+                only when their signal is on. None of them is a button any more:
+                interrupting lives in the rail, where a command belongs.
+                Last of the trail = the same x the close ring lands on, so the
+                glyph that says "working" and the command that acts on it occupy
+                one slot instead of two. */}
+            {pane.type === 'chat' && pane.topicId && (
+              <TopicStreamingSpinner topicId={pane.topicId} />
+            )}
+            {/* A PROJECT TAB IS A FOLDER, and its roll-up only shows while the
+                folder is SHUT. Selected, the project window is the one on
+                screen: its own tab bar is right there with a loader and a clock
+                on every child that is working, so the parent's aggregate
+                repeats them one bar above and you cannot tell which is which.
+                Not selected, the children are behind it and the aggregate is
+                the only thing that can speak for them. Same rule as the sidebar
+                project row, where "shut" is the collapsed accordion. */}
+            {pane.type === 'project' && pane.projectPath && !isSelected && (
+              <ProjectStreamingSpinner projectPath={pane.projectPath} />
+            )}
+            {pane.type === 'terminal' && (() => {
+              // Terminal panes are created at several sites that don't set
+              // terminalSessionId; derive it from the pane id (`terminal:<id>`)
+              // so the tab's own spinner isn't gated out. Mirrors the rollup
+              // in ProjectWindow + useProjectLayout's terminal sync.
+              const sid = pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id);
+              return sid ? <TerminalStreamingSpinner sessionId={sid} /> : null;
+            })()}
+            {pane.type === 'browser' && <BrowserStreamingSpinner paneId={pane.id} />}
             </div>
             {/* IL COMANDO, ULTIMO NEL DOM E FUORI DAL FLUSSO.
                 Anche una tab FISSATA si chiude. Il fissaggio non è un
@@ -1583,13 +1593,22 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 after"). A second `.row-actions` sibling would be a second
                 absolute box on the same anchor, i.e. two commands stacked on
                 top of each other, so the browser's three dots ride inside this
-                one. A pane that cannot be closed still gets its menu. */}
-            {(!nonClosablePaneIds?.has(pane.id) || pane.type === 'browser') && (
-              <PaneCloseButton
+                one. A pane that cannot be closed still gets its menu.
+
+                AND NOW IT CARRIES TWO: while a turn is working, the stop goes in
+                BEFORE the ring (rowCommandSequence). The rail was always meant
+                to hold more than one command ("more than one can live in it;
+                the one that closes is always LAST") and this is the first time
+                a chat uses that. A chat that cannot be closed still opens the
+                rail while it streams, because stopping it is possible. */}
+            {(!nonClosablePaneIds?.has(pane.id) || pane.type === 'browser' || (pane.type === 'chat' && !!onStopStreaming)) && (
+              <PaneTabCommands
                 paneId={pane.id}
                 label={label}
                 onClose={onClose}
                 closable={!nonClosablePaneIds?.has(pane.id)}
+                topicId={pane.type === 'chat' ? pane.topicId : undefined}
+                onStop={onStopStreaming ? () => onStopStreaming(pane.id) : undefined}
                 before={pane.type === 'browser' ? <BrowserTabMenuButton paneId={pane.id} /> : undefined}
               />
             )}
@@ -1913,6 +1932,24 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               </>
             );
           })()}
+          {/* STOP THE TURN, and the row exists for the FINGER: in the tab's
+              trailing rail the stop is revealed by the pointer, and under
+              `hover: none` a command revealed by hover is a command that does
+              not exist. It sits BEFORE the close rows, which is the rail's own
+              order (`rowCommandSequence`). Only on a chat that is actually
+              working: a row with nothing to stop is a row you read and
+              discard. */}
+          {onStopStreaming && (() => {
+            const ctxPane = panes.find(p => p.id === ctxMenu.paneId);
+            if (!ctxPane || ctxPane.type !== 'chat' || !ctxPane.topicId) return null;
+            const paneId = ctxMenu.paneId;
+            return (
+              <TabMenuStopItem
+                topicId={ctxPane.topicId}
+                onStop={() => { onStopStreaming(paneId); setCtxMenu(null); }}
+              />
+            );
+          })()}
           {/* Right-click "Close" is the explicit-confirmation path — bypass
               the PendingAction countdown that gates the default X button.
               Falls back to onClose for legacy callers that don't pass
@@ -2154,15 +2191,21 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
 }
 
 /**
- * Per-tab close button: empty on idle, the soft-close ring (X) revealed on
- * hover. The grey ⌘N keyboard-index badge that used to occupy this slot when
- * idle was removed — it read as a cryptic indicator on the first nine tabs and
- * earned its keep nowhere; the Cmd/Ctrl+1-9 shortcut still works (owned by
+ * THE TAB'S TRAILING RAIL: nothing on idle, and under the pointer the commands
+ * that act on this tab: the stop (only while its turn is running) and then the
+ * soft-close ring. The order is not written here: it comes from
+ * `rowCommandSequence`, which the sidebar row reads too, so the two surfaces
+ * cannot disagree about what "stop, then close" means.
+ *
+ * The grey ⌘N keyboard-index badge that used to occupy this slot when idle was
+ * removed — it read as a cryptic indicator on the first nine tabs and earned
+ * its keep nowhere; the Cmd/Ctrl+1-9 shortcut still works (owned by
  * useKeyboardShortcuts). Pulled out of the main render loop because it calls
- * `usePanePendingStatus` — hooks can't run inside `panes.map(...)`.
+ * hooks (`usePanePendingStatus`, `useTopicLoading`) — those can't run inside
+ * `panes.map(...)`.
  */
-function PaneCloseButton({
-  paneId, label, onClose, before, closable = true,
+function PaneTabCommands({
+  paneId, label, onClose, before, closable = true, topicId, onStop,
 }: {
   paneId: string;
   /**
@@ -2179,14 +2222,29 @@ function PaneCloseButton({
   /** Commands that ride in the same rail, BEFORE the close ring (the browser
    *  tab's three dots). See the ROW_ACTIONS contract. */
   before?: React.ReactNode;
-  /** false = the rail exists for `before` only; this pane does not close. */
+  /** false = the rail exists for `before` (and for the stop) only; this pane does
+   *  not close. */
   closable?: boolean;
+  /** The chat this tab shows, when it is a chat: the rail asks it whether a
+   *  turn is running before it offers to stop one. */
+  topicId?: string;
+  /** Interrupt the running turn. The SAME command the chat composer fires
+   *  (`useChat.stopSession`, routed through the layout's stopStreaming), never
+   *  a second path to stop a turn. */
+  onStop?: () => void;
 }) {
   // v3 sidebar↔topbar sync: usePanePendingStatus also picks up the
   // sidebar-side keys (`archive-topic:<id>` for chat panes,
   // `close-terminal:<id>` / `close-browser:<id>`) so the topbar tab shows
   // the same countdown regardless of which surface kicked it off.
   const pendingStatus = usePanePendingStatus(paneId);
+  // The same signal that draws the spinner at the end of the tab: the command
+  // and the glyph that justifies it cannot disagree, because they read one
+  // source.
+  const streaming = useTopicLoading(topicId);
+  const canStop = streaming && !!onStop;
+  const commands = rowCommandSequence(canStop, closable);
+  if (commands.length === 0 && !before) return null;
 
   // La regola che stava qui — «chiudere una tab non ha un altro percorso col
   // dito, quindi senza puntatore il cerchio si VEDE» — è ancora quella, ma non
@@ -2286,26 +2344,80 @@ function PaneCloseButton({
       // `w-auto` when the rail carries more than one command: ROW_ACTION_BOX
       // sizes ONE box, and a two-command rail clipped its first child to the
       // width of the second.
-      className={`${ROW_ACTIONS} ${before ? 'h-7 md:h-7 w-auto' : ROW_ACTION_BOX}`}
+      className={`${ROW_ACTIONS} ${before || commands.length > 1 ? 'h-7 md:h-7 w-auto' : ROW_ACTION_BOX}`}
       data-pending={pendingStatus ? 'true' : undefined}
     >
       {before}
-      {closable && <PendingActionRing
-        status={pendingStatus}
-        size={ROW_ACTION_GLYPH}
-        boxClassName={ROW_ACTION_BOX}
-        className="tap-expand-y"
-        testId="pane-tab-close"
-        onIdleClick={() => onClose(paneId)}
-        idleTitle="Chiudi tab"
-        // The NAME, not the id: see the `label` prop. The prefix below stays
-        // first because test locators hook onto it and because in a spoken
-        // announcement the action has to come before its subject.
-        idleAriaLabel={`Chiudi tab ${label}`}
-        pendingTitle="Annulla chiusura"
-        pendingAriaLabel="Annulla chiusura"
-      />}
+      {commands.map((command) => command === 'stop' ? (
+        <StopTurnButton key="stop" label={label} onStop={onStop!} />
+      ) : (
+        <PendingActionRing
+          key="close"
+          status={pendingStatus}
+          size={ROW_ACTION_GLYPH}
+          boxClassName={ROW_ACTION_BOX}
+          className="tap-expand-y"
+          testId="pane-tab-close"
+          onIdleClick={() => onClose(paneId)}
+          idleTitle="Chiudi tab"
+          // The NAME, not the id: see the `label` prop. The prefix below stays
+          // first because test locators hook onto it and because in a spoken
+          // announcement the action has to come before its subject.
+          idleAriaLabel={`Chiudi tab ${label}`}
+          pendingTitle="Annulla chiusura"
+          pendingAriaLabel="Annulla chiusura"
+        />
+      ))}
     </span>
+  );
+}
+
+/**
+ * The tab menu's stop-the-turn row. A component and not an inline branch
+ * because deciding whether to show it means asking `useTopicLoading`, and a
+ * hook cannot run inside the menu's render expression.
+ */
+function TabMenuStopItem({ topicId, onStop }: { topicId: string; onStop: () => void }) {
+  const tr = useT();
+  const streaming = useTopicLoading(topicId);
+  if (!streaming) return null;
+  return (
+    <button
+      onClick={onStop}
+      data-testid="tab-menu-stop"
+      className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
+    >
+      <SquareIcon size={14} />
+      <span className="flex-1 text-left">{tr('tab.menu.stopTurn')}</span>
+    </button>
+  );
+}
+
+/**
+ * STOP THE TURN — the rail's first command while a chat is streaming.
+ *
+ * A filled square and not lucide's `Square`: at ROW_ACTION_GLYPH a hollow
+ * outline reads as "another circle" next to the close ring, and the two would
+ * be told apart only by their corners. Filled, it is the universal stop, and it
+ * is the SAME glyph the loader used to swap to on hover — the affordance moved,
+ * the sign did not.
+ *
+ * Its accessible name is deliberately NOT the composer's "Stop generating":
+ * they fire the same command, but a spoken name has to say WHICH one you are
+ * on, and the e2e suite has a dozen locators pointing at the composer's.
+ */
+function StopTurnButton({ label, onStop }: { label: string; onStop: () => void }) {
+  const tr = useT();
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onStop(); }}
+      className={`${ROW_ACTION_BOX} tap-expand-y flex-shrink-0 inline-flex items-center justify-center rounded-full hover:bg-black/10 dark:hover:bg-white/10 transition-colors cursor-pointer`}
+      title={tr('tab.stopTurn')}
+      aria-label={tr('tab.stopTurnOn', { name: label })}
+      data-testid="pane-tab-stop"
+    >
+      <span className="bg-app-text rounded-[2px]" style={{ width: 8, height: 8 }} />
+    </button>
   );
 }
 
