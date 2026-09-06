@@ -94,6 +94,10 @@ export const PROJECT_WORDS = new Set([
   // (`navigator.clipboard`, `ClipboardEvent`), so renaming around it would make
   // the code read worse than the platform it calls.
   "clipboard",
+  // `taskpolicy` and `renice` are the NAMES OF BINARIES (`/usr/sbin/taskpolicy`,
+  // `/usr/bin/renice`): the constants holding their paths cannot be called
+  // anything else without lying about what they point at.
+  "taskpolicy", "renice",
   // `ddl` is what the SQL standard calls the half of itself that creates
   // tables, and it is how the test schemas of this repo are already named
   // (`TASKS_DDL`, `APP_SETTINGS_DDL`). Spelling it out in an identifier would

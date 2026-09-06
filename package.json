@@ -58,6 +58,7 @@
     "check:test-skips": "bun run scripts/check-test-skips.ts",
     "check:test-globals": "bun run scripts/check-test-globals.ts",
     "check:sleeps": "bun run scripts/check-e2e-sleeps.ts",
+    "check:tmp-canonical": "bun run scripts/check-tmp-canonical.ts",
     "check:e2e-no-verdict": "bun run scripts/check-e2e-no-verdict.ts",
     "check:e2e-touched": "bun run scripts/check-e2e-touched.ts",
     "check:bloat": "bun run scripts/check-bloat.ts",

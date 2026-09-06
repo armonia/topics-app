@@ -29,12 +29,13 @@ import { beat, didascalia } from "./helpers/evidence";
 import { clipDiConsegna } from "./helpers/clip";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
+import { canonicalTmpRoot } from "./helpers/file-project";
 
 hermetic(test);
 
 const BASE = E2E_BASE;
 const API = `${BASE}/api`;
-const REPO = `/tmp/e2e-nonconsegnata-${Date.now()}`;
+const REPO = `${canonicalTmpRoot()}/e2e-nonconsegnata-${Date.now()}`;
 
 const PROJECT_ID = boardIdForPath(REPO);
 

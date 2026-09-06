@@ -41,6 +41,7 @@ import { hermetic } from "./fixtures/hermetic";
 import { clipDiConsegna } from "./helpers/clip";
 import { beat, didascalia } from "./helpers/evidence";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
+import { canonicalTmpRoot } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -48,7 +49,7 @@ const BASE = E2E_BASE;
 const API = `${BASE}/api`;
 
 const STAMP = Date.now();
-const PROJECT_PATH = `/tmp/e2e-card-errore-${STAMP}`;
+const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-card-errore-${STAMP}`;
 
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 

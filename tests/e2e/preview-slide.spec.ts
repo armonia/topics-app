@@ -20,10 +20,11 @@ import { hermetic } from './fixtures/hermetic';
 import { projectIdForPath } from '../../shared/board';
 import { createTopic, deleteTopic } from './helpers/api-fixtures';
 import { mkdirSync, rmSync, writeFileSync } from 'fs';
+import { canonicalTmpRoot } from "./helpers/file-project";
 
 hermetic(test);
 
-const PROJECT_PATH = `/tmp/e2e-slide-${Date.now()}`;
+const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-slide-${Date.now()}`;
 const PROJECT_ID = projectIdForPath(PROJECT_PATH);
 /* LE IMMAGINI STANNO NELL'HOME DEL BANCO, non nel progetto e non nel mio.
  *

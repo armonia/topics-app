@@ -23,6 +23,7 @@ import { hermetic } from "./fixtures/hermetic";
 import { projectRow } from "./helpers/project-row";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
 import { SIDEBAR_LABEL_GUTTER_BARE_MAX, SIDEBAR_LABEL_GUTTER_MAX } from "../../client/src/lib/selectionStyles";
+import { canonicalTmpRoot } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -36,9 +37,9 @@ const PNG_1x1 = Buffer.from(
 
 /** Three projects WITH a favicon and names as long as the ones in the
  *  owner's screenshot ("topics-app", "armonia-crm", "edm-contratto"). */
-const WITH_ICON = ["topics-app", "armonia-crm", "edm-contratto"].map((n) => `/tmp/e2e-058-${n}-${STAMP}`);
+const WITH_ICON = ["topics-app", "armonia-crm", "edm-contratto"].map((n) => `${canonicalTmpRoot()}/e2e-058-${n}-${STAMP}`);
 /** One project WITHOUT a favicon: the "finance" row of the screenshot. */
-const NO_ICON = `/tmp/e2e-058-finance-${STAMP}`;
+const NO_ICON = `${canonicalTmpRoot()}/e2e-058-finance-${STAMP}`;
 const NO_ICON_BOARD = boardIdForPath(NO_ICON);
 
 const topics: string[] = [];

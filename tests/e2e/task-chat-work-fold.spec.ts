@@ -26,12 +26,13 @@ import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { beat, didascalia } from "./helpers/evidence";
 import { projectIdForPath } from "../../shared/board";
+import { canonicalTmpRoot } from "./helpers/file-project";
 
 hermetic(test);
 
 const SHOTS = "test-results/task-work-fold";
 const STAMP = Date.now();
-const PROJECT_PATH = `/tmp/e2e-workfold-${STAMP}`;
+const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-workfold-${STAMP}`;
 const PROJECT_ID = projectIdForPath(PROJECT_PATH);
 
 type Req = import("@playwright/test").APIRequestContext;

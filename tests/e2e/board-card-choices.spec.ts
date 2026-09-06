@@ -27,12 +27,13 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
+import { canonicalTmpRoot } from "./helpers/file-project";
 
 hermetic(test);
 
 const BASE = E2E_BASE;
 const API = `${BASE}/api`;
-const REPO = `/tmp/e2e-scelte-${Date.now()}`;
+const REPO = `${canonicalTmpRoot()}/e2e-scelte-${Date.now()}`;
 
 const PROJECT_ID = boardIdForPath(REPO);
 

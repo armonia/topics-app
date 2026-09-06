@@ -35,11 +35,12 @@ import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
+import { canonicalTmpRoot } from "./helpers/file-project";
 
 hermetic(test);
 
 const API = `${E2E_BASE}/api`;
-const PROJECT_PATH = `/tmp/e2e-flash-${Date.now()}`;
+const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-flash-${Date.now()}`;
 const VIDEO_DIR = "test-results/flash-evidence";
 const VIEWPORT = { width: 1600, height: 900 };
 

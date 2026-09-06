@@ -27,6 +27,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { E2E_BASE } from "./test-server";
 import { projectIdForPath as boardIdForPath } from "../../../shared/board";
+import { canonicalTmpRoot } from "./file-project";
 
 
 const AUDIT_JS = readFileSync(join(__dirname, "ui-audit.js"), "utf8");
@@ -35,7 +36,7 @@ export const STAMP = Date.now();
 /** A single root, SHORT project names: the chip shows the basename, and four
  *  `e2e-topbar-alpha-1765...` would not fit in any bar - they would measure the
  *  length of the test name, not the space in the row. */
-export const ROOT = `/tmp/e2e-topbar-${STAMP}`;
+export const ROOT = `${canonicalTmpRoot()}/e2e-topbar-${STAMP}`;
 export const PROJECTS = ["alfa", "beta", "gamma", "delta"] as const;
 export const dirOf = (name: string) => `${ROOT}/${name}`;
 

@@ -38,6 +38,7 @@ import { hermetic } from "./fixtures/hermetic";
 import { projectRow } from "./helpers/project-row";
 import { apiCreateTask, stubProbes } from "./helpers/board-topbar";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
+import { canonicalTmpRoot } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -49,7 +50,7 @@ const TOLERANCE = 1;
 
 const STAMP = Date.now();
 const SHOTS = join(process.cwd(), "test-results", "topbar-height");
-const ROOT = `/tmp/e2e-topbar-height-${STAMP}`;
+const ROOT = `${canonicalTmpRoot()}/e2e-topbar-height-${STAMP}`;
 const PROJECTS = ["uno", "due"] as const;
 const dirOf = (name: string) => `${ROOT}/${name}`;
 

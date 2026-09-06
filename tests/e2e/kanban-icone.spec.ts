@@ -42,10 +42,11 @@ import { hermetic } from './fixtures/hermetic';
 import { projectIdForPath } from '../../shared/board';
 import { mkdirSync, rmSync, writeFileSync } from 'fs';
 import { createTopic, deleteTopic } from './helpers/api-fixtures';
+import { canonicalTmpRoot } from "./helpers/file-project";
 
 hermetic(test);
 
-const PROJECT_PATH = `/tmp/e2e-icone-${Date.now()}`;
+const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-icone-${Date.now()}`;
 const PROJECT_ID = projectIdForPath(PROJECT_PATH);
 
 /** Linea totale ammessa per ogni pixel di lato. `hand` faceva 3,8. */

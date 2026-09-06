@@ -37,6 +37,7 @@ import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
+import { canonicalTmpRoot } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -45,7 +46,7 @@ const BASE = E2E_BASE;
 // stesso millisecondo e `Date.now()` da solo li farebbe atterrare sulla stessa
 // board — cioè sullo stesso archivio, che è proprio l'insieme che questa spec
 // conta.
-const PROJECT_PATH = `/tmp/e2e-archrestore-${process.pid}-${Date.now()}`;
+const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-archrestore-${process.pid}-${Date.now()}`;
 
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 
