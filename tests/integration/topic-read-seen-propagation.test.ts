@@ -74,7 +74,7 @@ type Unread = Record<string, { unreadCount?: number } | undefined>;
 
 beforeAll(async () => {
   server = await spawnRealServer(ROOT);
-}, 30_000);
+}, 90_000);
 
 afterAll(async () => {
   await server?.stop();
@@ -128,7 +128,7 @@ describe("POST /api/topics/:id/read propagates 'seen' to both counters and to ev
     } finally {
       ws.close();
     }
-  }, 30_000);
+  }, 90_000);
 
   test("a second read of an already-read topic is silent: no unread:updated, no notification:seen", async () => {
     const { ws, frames } = await openChatSocket();
@@ -154,5 +154,5 @@ describe("POST /api/topics/:id/read propagates 'seen' to both counters and to ev
     } finally {
       ws.close();
     }
-  }, 30_000);
+  }, 90_000);
 });

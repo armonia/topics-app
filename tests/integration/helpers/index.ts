@@ -233,7 +233,10 @@ export async function spawnRealServer(root: string): Promise<RealServer> {
   });
 
   const baseUrl = `http://127.0.0.1:${port}`;
-  for (let i = 0; i < 300; i++) {
+  // 60 s of readiness polling, not 15: under a loaded fleet (measured at load
+  // 25 on 12 cores) the child needs well past fifteen seconds to answer, and a
+  // ceiling that expires there reports the machine instead of the code.
+  for (let i = 0; i < 1200; i++) {
     if (child.exitCode !== null) break;
     try {
       const res = await fetch(`${baseUrl}/api/system/status`);
