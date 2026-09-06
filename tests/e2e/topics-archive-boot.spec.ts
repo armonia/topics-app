@@ -23,6 +23,7 @@ import { test, expect } from "./fixtures/topic-management.fixture";
 import { createTopic, archiveTopic, cleanupAll, fetchTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { openProfileMenu } from "./helpers/open-perf-panel";
 
 hermetic(test);
 
@@ -84,8 +85,11 @@ test.describe("Topics — the archive is off the boot path", () => {
       .toContain(topic.id);
     expect(await page.evaluate(() => window.localStorage.getItem("topics-cache") ?? "")).not.toContain(topic.id);
 
-    // «Mostra archiviati» (Topics ▾ menu; allow-italian: the UI label): the row is back.
-    await page.locator('button[title="Settings & Tools"]').click();
+    // «Mostra archiviati» (allow-italian: the UI label): the row is back. The
+    // toggle sits in the menu under the user card, the one door of the chrome
+    // since card 022db87b (on the phone, the title button): `openProfileMenu`
+    // picks the trigger for the screen.
+    await openProfileMenu(page);
     const archiveToggle = page.getByRole("button", { name: "Mostra archiviati" });
     await expect(archiveToggle).toBeVisible({ timeout: 3000 });
     await archiveToggle.click();
