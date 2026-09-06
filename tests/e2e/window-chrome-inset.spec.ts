@@ -52,7 +52,7 @@ const SHOT_NAME = "sidebar-header-traffic-lights-annotated.png";
 
 const SIDEBAR = '[aria-label="Topics sidebar"]';
 const BOX = '[data-testid="traffic-lights-box"]';
-const WORDMARK = '[data-testid="sidebar-topics-title"]';
+const TITLE_LABEL = '[data-testid="sidebar-topics-title"]';
 const BELL = '[data-testid="notification-history-button"]';
 const SEARCH = `${SIDEBAR} [aria-label="Search, open the command palette"]`;
 const ADD = `${SIDEBAR} [data-testid="pane-add-menu-trigger"]`;
@@ -94,8 +94,8 @@ async function sampleSlide(page: Page, trigger: () => Promise<void>, frames: num
       const w = window as unknown as { __slide?: Promise<Sample[]> };
       const leftmost = (): number => {
         let m = Number.POSITIVE_INFINITY;
-        for (const sel of [toggle, tab]) {
-          const el = document.querySelector(sel);
+        for (const selector of [toggle, tab]) {
+          const el = document.querySelector(selector);
           if (!el) continue;
           const r = el.getBoundingClientRect();
           if (r.width > 0) m = Math.min(m, r.left);
@@ -183,7 +183,7 @@ test.describe("The room for the native lights", () => {
     await loadMacChrome(page);
     const [box, word, bell, search, add] = await Promise.all([
       rectOf(page, BOX),
-      rectOf(page, WORDMARK),
+      rectOf(page, TITLE_LABEL),
       rectOf(page, BELL),
       rectOf(page, SEARCH),
       rectOf(page, ADD),
