@@ -26,7 +26,6 @@ import { useBrowserPaneChrome } from '../../state/browserPaneChrome';
 import { displayUrl, toNavigableUrl } from '../../lib/browserNavUrl';
 import { computeMenuPosition } from '../../lib/popoverPosition';
 import { POPOVER_SURFACE, POPOVER_MARGIN, Z_POPOVER } from '../../lib/popoverStyles';
-import { useDismissable } from '../../hooks/useDismissable';
 
 /** The panel is never narrower than the tab, and never wider than this: past
  *  480px an address stops being read and starts being scanned. */
@@ -61,12 +60,14 @@ export function BrowserTabAddress({ paneId, label }: { paneId: string; label: st
   const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
   const close = useCallback(() => setDraft(null), []);
-  // The shared dismissal contract (capture-phase outside pointer + Escape +
-  // focus restore) instead of a hand-rolled document listener: it is also what
-  // makes this panel obey the one-popover-at-a-time registry. Gated on `hasDom`
-  // because the unit runtime has no document (see `test/reactHarness`), and the
-  // hook returns before touching one when `open` is false.
-  useDismissable({ open: open && hasDom, onClose: close, refs: [panelRef] });
+  // NOT `useDismissable`. That contract EATS the click that follows an outside
+  // pointerdown ("closing is all that click does"), which is right for a menu
+  // and wrong here: a blank pane opens this panel by itself, so the very next
+  // click anywhere - the X of a tab, a toggle in the task drawer - closed the
+  // panel and did nothing else. Measured on CI (run 34050396220, 2026-09-06):
+  // the cross-device close and the workspace toggle both failed on a swallowed
+  // click. The input's own blur closes the panel and lets the click through;
+  // Escape is handled on the input below.
 
   // THE PANEL IS MEASURED, NOT GUESSED, and placed by the same function as the
   // tab context menu a few hundred lines away in `PaneTabBar`: it clamps to the

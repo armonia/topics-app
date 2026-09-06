@@ -52,7 +52,7 @@ import { SharedOrgBadge } from '../Shared/SharedOrgBadge';
 import { BrowserTabIcon, BrowserTabMenuButton, BrowserTabConsoleCue } from '../Browser/BrowserTabChrome';
 import { BrowserTabAddress } from './BrowserTabAddress';
 import { getBrowserPaneChrome } from '../../state/browserPaneChrome';
-import { browserTabLabel, browserTabSubtitle } from '../../lib/browserTabLabel';
+import { browserTabLabel, browserTabSubtitle, NEW_TAB_LABEL } from '../../lib/browserTabLabel';
 import { releaseNativeFocus } from '../../lib/shell/tauri';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { prefersReducedMotion } from '../../lib/reducedMotion';
@@ -597,15 +597,19 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     // The rule (and the why) lives in `lib/browserTabLabel`; here we only hand
     // it the pane's state.
     if (pane.type === 'browser') {
-      return browserTabLabel({
+      const raw = browserTabLabel({
         title: pane.title,
         titleSource: pane.titleSource,
         url: pane.url || getBrowserPaneUrl(pane.id),
       });
+      // The constant is English by construction (`lib/` has no translator); the
+      // tab is read in the app's language, next to a page that says the same
+      // words in it ("Nuova scheda").
+      return raw === NEW_TAB_LABEL ? tr('browser.newTab.title') : raw;
     }
     return (isUtilityPanelId(pane.id) ? config.label : pane.title)
       || (pane.type === 'chat' ? 'New Chat' : config.label);
-  }, []);
+  }, [tr]);
 
   const handleTabDragStart = useCallback((paneId: string) => (e: React.DragEvent) => {
     if (!onReorderPanes) return;
@@ -1089,7 +1093,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               titleSource: pane.titleSource,
               url: pane.url || getBrowserPaneUrl(pane.id),
             };
-            const name = browserTabLabel(input);
+            const raw = browserTabLabel(input);
+            const name = raw === NEW_TAB_LABEL ? tr('browser.newTab.title') : raw;
             const address = browserTabSubtitle(input);
             return address ? `${name}\n${address}` : name;
           })()

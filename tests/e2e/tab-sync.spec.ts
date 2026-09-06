@@ -179,7 +179,7 @@ test.describe("Tab Sync & Persistence", () => {
 
     // The browser tab should be present before we close it.
     const labelsBefore = await tabSyncPage.getTabLabels();
-    expect(labelsBefore.some((l) => /browser/i.test(l))).toBeTruthy();
+    expect(labelsBefore.some((l) => /browser|new tab|nuova scheda/i.test(l))).toBeTruthy();
 
     // Close the browser tab via its close button.
     const tabs = tabSyncPage.tabs;
@@ -187,7 +187,7 @@ test.describe("Tab Sync & Persistence", () => {
     let browserTab = tabs.first();
     for (let i = 0; i < count; i++) {
       const text = (await tabs.nth(i).textContent())?.trim() || "";
-      if (/browser/i.test(text)) {
+      if (/browser|new tab|nuova scheda/i.test(text)) {
         browserTab = tabs.nth(i);
         break;
       }
@@ -213,7 +213,7 @@ test.describe("Tab Sync & Persistence", () => {
     if (tabBarVisible) {
       const labelsAfter = await tabSyncPage.getTabLabels();
       // The closed browser tab must NOT be among the restored tabs.
-      expect(labelsAfter.some((l) => /browser/i.test(l))).toBeFalsy();
+      expect(labelsAfter.some((l) => /browser|new tab|nuova scheda/i.test(l))).toBeFalsy();
     }
   });
 
@@ -235,14 +235,14 @@ test.describe("Tab Sync & Persistence", () => {
 
     await openTopicByDoubleClick(page, /Web Search Test/);
     await tabSyncPage.openPaneByType("browser");
-    expect((await tabSyncPage.getTabLabels()).some((l) => /browser/i.test(l))).toBeTruthy();
+    expect((await tabSyncPage.getTabLabels()).some((l) => /browser|new tab|nuova scheda/i.test(l))).toBeTruthy();
 
     const tabs = tabSyncPage.tabs;
     const count = await tabs.count();
     let browserTab = tabs.first();
     for (let i = 0; i < count; i++) {
       const text = (await tabs.nth(i).textContent())?.trim() || "";
-      if (/browser/i.test(text)) { browserTab = tabs.nth(i); break; }
+      if (/browser|new tab|nuova scheda/i.test(text)) { browserTab = tabs.nth(i); break; }
     }
     await closeTabViaCommand(browserTab);
 
@@ -262,7 +262,7 @@ test.describe("Tab Sync & Persistence", () => {
       .catch(() => false);
     if (tabBarVisible) {
       const labelsAfter = await tabSyncPage.getTabLabels();
-      expect(labelsAfter.some((l) => /browser/i.test(l))).toBeFalsy();
+      expect(labelsAfter.some((l) => /browser|new tab|nuova scheda/i.test(l))).toBeFalsy();
     }
   });
 
