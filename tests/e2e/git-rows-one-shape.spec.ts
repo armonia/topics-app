@@ -16,7 +16,6 @@
  */
 import { expect, type Page } from '@playwright/test';
 import { test } from './fixtures/chat.fixture';
-import { goToApp } from './helpers';
 import { hermetic } from './fixtures/hermetic';
 import { createTopic, deleteTopic, resetPaneStore } from './helpers/api-fixtures';
 import { seedMessage } from './helpers/seed-messages';
@@ -90,6 +89,14 @@ test.beforeAll(async ({ request }) => {
     data: { branch: 'main', commit, filesChanged: 2, insertions: 2, deletions: 0 },
   });
   expect(delivered.ok(), `delivery not recorded: ${delivered.status()} ${await delivered.text()}`).toBe(true);
+
+  // BOTH ROUTES ANSWER BEFORE THE BROWSER IS ASKED TO DRAW THEM. Without this,
+  // an empty strip accuses the shared component when the fault is a repository
+  // the server never found.
+  const changes = await request.get(`${E2E_BASE}/api/topics/${topicId}/changes`);
+  const body = (await changes.json()) as { files: Array<{ path: string }>; git: unknown };
+  expect(body.files.map((f) => f.path).sort(), `the changes route sees: ${JSON.stringify(body)}`)
+    .toEqual([ADDED, MODIFIED]);
 });
 
 test.afterAll(async ({ request }) => {
@@ -114,13 +121,14 @@ test.describe('la stessa lista di file su due superfici', () => {
   test('la striscia della chat e il chip della card disegnano le stesse righe', async ({ page }) => {
     // ── SURFACE ONE: the strip above the composer.
     //
-    // The pane store is SEEDED with the topic and the app is reloaded: nothing
-    // is clicked in the sidebar, because a topic bound to a project is nested
-    // under that project and neither its `treeitem` nor its `pane-tab`
+    // Reached by PERMALINK, not from the sidebar: a topic bound to a project is
+    // nested under that project, so neither its `treeitem` nor its `pane-tab`
     // resolves at the top level (measured: two runs, 30s of waiting each).
     await resetPaneStore(page.request, [topicId]);
-    await goToApp(page);
-    await page.keyboard.press('Escape');
+    const opened = await page.goto(`/tab/chat/${topicId}`);
+    expect(opened?.status(), 'the permalink has to be addressable by the server').toBe(200);
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: 'visible', timeout: 20_000 });
+    await expect(page.getByTestId(`pane-tab-${topicId}`)).toBeVisible({ timeout: 20_000 });
 
     const chip = page.getByTestId('chat-changes-chip');
     await expect(chip).toBeVisible({ timeout: 20_000 });
