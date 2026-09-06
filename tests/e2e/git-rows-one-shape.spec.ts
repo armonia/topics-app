@@ -37,6 +37,8 @@ const STAMP = Date.now();
  * measure the symlink instead of the shared row.
  */
 const PROJECT_PATH = `${realpathSync('/tmp')}/e2e-git-rows-${STAMP}`;
+/** The folder's name is the project's name in the sidebar. */
+const PROJECT_NAME = `e2e-git-rows-${STAMP}`;
 const PROJECT_ID = projectIdForPath(PROJECT_PATH);
 /** The two files both surfaces have to agree on: one added, one modified. */
 const ADDED = 'src/added.ts';
@@ -131,20 +133,25 @@ test.describe('la stessa lista di file su due superfici', () => {
     // topic bound to a project is nested under it, so its pane lives in the
     // project's own store and neither its `treeitem` nor its `pane-tab`
     // resolves in the main window (measured: three runs waiting 30s each).
-    // The topic has to be IN the sidebar before it can be nested under the
-    // project: a topic created through the API is not there until the pane
-    // store names it.
+    // The topic has to be IN the sidebar before it can be found under the
+    // project: one created through the API is not there until the pane store
+    // names it.
     await resetPaneStore(page.request, [topicId]);
-    await openProjectWindow(page);
+    await openSidebar(page);
 
     // ── SURFACE ONE: the strip above the composer.
+    //
+    // The project's ACCORDION is opened by its chevron, not by its name: the
+    // name button focuses the project and swaps the left column for the
+    // project's own sidebar (files, git), where no topic is listed at all
+    // (measured: the column read "Topics" and nothing else).
+    await page.getByRole('button', { name: `Expand ${PROJECT_NAME}` }).first().click();
     const topicRow = page.getByRole('treeitem', { name: new RegExp(`git-rows-${STAMP}`) }).first();
-    // The sidebar's own text goes into the failure: "not visible" alone does
-    // not tell a topic that is missing from a topic that is nested in a
-    // collapsed project.
     const visible = await topicRow.waitFor({ state: 'visible', timeout: 20_000 }).then(() => true, () => false);
-    expect(visible, `the topic is not in the sidebar. It reads: ${await page.locator('[aria-label="Topics sidebar"]').first().innerText()}`).toBe(true);
+    expect(visible, `the topic is not under its project. The sidebar reads: ${await page.locator('[aria-label="Topics sidebar"]').first().innerText()}`).toBe(true);
+    // A chat of a project opens the project's window AND lands on it.
     await topicRow.click();
+    await expect(page.getByTestId('project-window')).toBeVisible({ timeout: 20_000 });
 
     const chip = page.getByTestId('chat-changes-chip');
     await expect(chip).toBeVisible({ timeout: 20_000 });
@@ -172,16 +179,13 @@ test.describe('la stessa lista di file su due superfici', () => {
   });
 });
 
-/** Open the project's own window, where both surfaces live. */
-async function openProjectWindow(page: Page): Promise<void> {
+/** The app, with the projects section of the sidebar open. */
+async function openSidebar(page: Page): Promise<void> {
   await page.goto('/');
   await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
   const section = page.getByRole('button', { name: /sezione Progetti/ });
   if ((await section.count()) > 0 && (await section.getAttribute('aria-expanded')) === 'false') await section.click();
-  const row = projectRow(page, /e2e-git-rows/);
-  await expect(row).toBeVisible({ timeout: 20_000 });
-  await row.click();
-  await expect(page.getByTestId('project-window')).toBeVisible({ timeout: 20_000 });
+  await expect(projectRow(page, new RegExp(PROJECT_NAME))).toBeVisible({ timeout: 20_000 });
 }
 
 /** Add the board pane to the open project window. */
