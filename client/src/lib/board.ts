@@ -18,6 +18,17 @@ export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, PARKED_STOPPED, PARK
 // gli occhi di una persona, e due copie inizierebbero a dire numeri diversi.
 export { GLOBAL_CAP_MIN, GLOBAL_CAP_MAX, GLOBAL_CAP_OFF, clampGlobalCap, effectiveDispatchCap } from '../../../shared/board';
 export type { GlobalDispatchCap } from '../../../shared/board';
+// The OTHER way to say "enough" (KANBAN-75): the brake that measures the machine
+// instead of counting agents. Mode, thresholds, the verdict and the three colour
+// bands come from the same shared file the dispatcher applies them from, so the
+// slider can never paint a band the gate does not use.
+export {
+  capMode, capThresholds, machinePressureVerdict,
+  loadThresholdBand, memThresholdBand, livePressureBand,
+  LOAD_RATIO_MIN, LOAD_RATIO_MAX, LOAD_RATIO_DEFAULT,
+  MEM_RATIO_MIN, MEM_RATIO_MAX, MEM_RATIO_DEFAULT,
+} from '../../../shared/board';
+export type { DispatchCapMode, ThresholdBand } from '../../../shared/board';
 // The comparison the SERVER matches a picked option with, and the one reserved
 // label the client has to recognise by name. The board de-duplicates an agent's
 // quick reply against the button beside it, and once the buttons became
@@ -38,7 +49,7 @@ export type { TaskLabel, TaskLabelRow } from '../../../shared/task-labels';
 import type { TaskLabel, TaskLabelRow } from '../../../shared/task-labels';
 import type {
   TaskStatus, TaskComment, CardComment, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef, LandingTicket, SubtaskWork,
-  QueueReason,
+  QueueReason, DispatchCapMode,
 } from '../../../shared/board';
 // Who spoke on a comment. The stored `author` is an identity, so the label a
 // person reads is derived from it, on the same rule the server uses. Keeping a
@@ -735,6 +746,16 @@ export interface UpdateTaskBody {
   planFirst?: boolean;
 }
 
+/** What a client may change about the machine-wide cap, in the client's own
+ *  words; `setGlobalCap` translates it to the wire names. */
+export interface GlobalCapPatch {
+  auto?: boolean;
+  max?: number;
+  mode?: DispatchCapMode;
+  maxLoadRatio?: number;
+  maxMemRatio?: number;
+}
+
 /** Machine-wide dispatch settings (server: reserved board_settings row '*'). */
 export interface GlobalSettings {
   /** Auto-dispatch master switch — a Todo task starts an agent on any board. */
@@ -743,6 +764,17 @@ export interface GlobalSettings {
   maxAgentsAuto: boolean;
   /** The fixed machine-wide cap used when `maxAgentsAuto` is off. */
   maxAgents: number;
+  /**
+   * Which question the brake asks (KANBAN-75): `count` (the cap above) or
+   * `resources` (the two thresholds below). All three are OPTIONAL on the wire:
+   * a server that predates them answers without, and the client reads that as
+   * `count` with the default thresholds instead of breaking.
+   */
+  maxAgentsMode?: DispatchCapMode;
+  /** Ceiling on `load1 / cores` in `resources` mode. */
+  maxLoadRatio?: number;
+  /** Ceiling on `used / total` memory in `resources` mode. */
+  maxMemRatio?: number;
   /**
    * THE TWO SPEND CAPS in USD cents, and they are born at ZERO: zero means
    * unlimited, i.e. no brake, which is the state of a fresh install. The client
@@ -1049,13 +1081,18 @@ export const boardApi = {
   /** GLOBAL settings: auto-dispatch switch + the ONE machine-wide cap (auto/number). */
   getGlobalSettings: () =>
     req<GlobalSettings>('/all-boards/settings'),
-  /** Update the machine-wide cap: `auto` toggle and/or a fixed `max` number. */
-  setGlobalCap: (patch: { auto?: boolean; max?: number }) =>
+  /** Update the machine-wide cap: `auto` toggle and/or a fixed `max` number,
+   *  plus the brake's mode and its two thresholds (KANBAN-75). Same row, same
+   *  PATCH: a mode written through another door would be a second writer. */
+  setGlobalCap: (patch: GlobalCapPatch) =>
     req<GlobalSettings>('/all-boards/settings', {
       method: 'PATCH',
       body: JSON.stringify({
         ...(patch.auto !== undefined ? { maxAgentsAuto: patch.auto } : {}),
         ...(patch.max !== undefined ? { maxAgents: patch.max } : {}),
+        ...(patch.mode !== undefined ? { maxAgentsMode: patch.mode } : {}),
+        ...(patch.maxLoadRatio !== undefined ? { maxLoadRatio: patch.maxLoadRatio } : {}),
+        ...(patch.maxMemRatio !== undefined ? { maxMemRatio: patch.maxMemRatio } : {}),
       }),
     }),
   /** Write the SPEND caps (a person, from the settings). Zero clears a cap: it

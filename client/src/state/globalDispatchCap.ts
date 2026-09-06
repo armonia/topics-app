@@ -26,8 +26,8 @@
  * girava una per ogni chip del carico montato.
  */
 import { useSyncExternalStore } from 'react';
-import { boardApi, clampGlobalCap, effectiveDispatchCap } from '../lib/board';
-import type { DispatchCapacity, GlobalDispatchCap } from '../lib/board';
+import { boardApi, capMode, capThresholds, clampGlobalCap, effectiveDispatchCap } from '../lib/board';
+import type { DispatchCapacity, DispatchCapMode, GlobalCapPatch, GlobalDispatchCap } from '../lib/board';
 import { subscribeFrames } from '../lib/wsFrameBus';
 
 export interface GlobalDispatchCapState {
@@ -89,11 +89,30 @@ export function getGlobalDispatchCapState(): GlobalDispatchCapState {
  * fatto da un'altra finestra. Accetta la forma del filo (`maxAgentsAuto` /
  * `maxAgents`), che è la stessa del PATCH e del broadcast.
  */
-export function adoptGlobalCap(next: { maxAgentsAuto?: boolean; maxAgents?: number }): void {
+export function adoptGlobalCap(next: {
+  maxAgentsAuto?: boolean; maxAgents?: number;
+  maxAgentsMode?: DispatchCapMode; maxLoadRatio?: number; maxMemRatio?: number;
+}): void {
   const auto = typeof next.maxAgentsAuto === 'boolean' ? next.maxAgentsAuto : state.cap?.auto ?? true;
   const max = typeof next.maxAgents === 'number' ? clampGlobalCap(next.maxAgents) : state.cap?.max ?? 3;
-  if (state.cap && state.cap.auto === auto && state.cap.max === max) return;
-  publish({ ...state, cap: { auto, max } });
+  // The mode and the two thresholds (KANBAN-75) are OPTIONAL on the wire: a
+  // server without them answers without, and this reads as "count, defaults".
+  // A frame that omits them keeps what was here, like `maxAgentsAuto` does.
+  const mode = capMode({ mode: next.maxAgentsMode ?? state.cap?.mode });
+  const { maxLoadRatio, maxMemRatio } = capThresholds({
+    maxLoadRatio: next.maxLoadRatio ?? state.cap?.maxLoadRatio,
+    maxMemRatio: next.maxMemRatio ?? state.cap?.maxMemRatio,
+  });
+  const cap: GlobalDispatchCap = { auto, max, mode, maxLoadRatio, maxMemRatio };
+  if (state.cap && sameCap(state.cap, cap)) return;
+  publish({ ...state, cap });
+}
+
+/** Field-by-field, so a broadcast that changes nothing does not re-render every
+ *  surface that mounts the control. */
+function sameCap(a: GlobalDispatchCap, b: GlobalDispatchCap): boolean {
+  return a.auto === b.auto && a.max === b.max && a.mode === b.mode
+    && a.maxLoadRatio === b.maxLoadRatio && a.maxMemRatio === b.maxMemRatio;
 }
 
 /**
@@ -181,16 +200,29 @@ export function currentCapLimit(s: GlobalDispatchCapState): number | null {
  * Se la chiamata fallisce si torna al valore di prima, non si resta su una
  * bugia locale.
  */
-export async function saveGlobalCap(patch: { auto?: boolean; max?: number }): Promise<void> {
+export async function saveGlobalCap(patch: GlobalCapPatch): Promise<void> {
   const before = state.cap;
   const next: GlobalDispatchCap = {
     auto: patch.auto ?? before?.auto ?? true,
     max: patch.max !== undefined ? clampGlobalCap(patch.max) : before?.max ?? 3,
+    // Clamped HERE too, with the same function the dispatcher reads them
+    // through: the slider must never show, even for one round trip, a value
+    // the gate would not apply.
+    mode: capMode({ mode: patch.mode ?? before?.mode }),
+    ...capThresholds({
+      maxLoadRatio: patch.maxLoadRatio ?? before?.maxLoadRatio,
+      maxMemRatio: patch.maxMemRatio ?? before?.maxMemRatio,
+    }),
   };
   publish({ ...state, cap: next, saving: true });
   try {
     const g = await boardApi.setGlobalCap(patch);
-    publish({ ...state, cap: { auto: g.maxAgentsAuto, max: clampGlobalCap(g.maxAgents) }, saving: false });
+    publish({ ...state, saving: false });
+    // The server's answer is authoritative, and it goes through the same door as
+    // the broadcast. A server that does not know the mode yet answers without
+    // it: `adoptGlobalCap` then keeps the optimistic value instead of silently
+    // snapping the selector back to "count" under the finger.
+    adoptGlobalCap(g);
   } catch {
     publish({ ...state, cap: before, saving: false });
   }
@@ -220,6 +252,7 @@ function start(): void {
     (frame) => {
       const f = frame as {
         type?: string; maxAgentsAuto?: boolean; maxAgents?: number;
+        maxAgentsMode?: DispatchCapMode; maxLoadRatio?: number; maxMemRatio?: number;
         agentCostCapCents?: number; agentCostCapCents24h?: number;
       } | null;
       if (!f || f.type !== 'board:global-cap') return;

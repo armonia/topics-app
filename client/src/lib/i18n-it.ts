@@ -1065,6 +1065,31 @@ const IT: Dict = {
   // Detto per esteso e non in una nota a piè di pagina: il numero qui sopra non
   // è «di questa board», è quello di tutta la macchina.
   'board.dispatch.oneMachine': 'Un tetto solo, per tutta la macchina: vale su ogni board.',
+  // The brake "by resources" (KANBAN-75): two thresholds on the whole machine
+  // instead of a count. The coloured band is a judgement on the chosen
+  // THRESHOLD, not on the machine: it can be wrong both ways, and the sentences
+  // say which in full.
+  'board.dispatch.brake': 'Come si decide il tetto',
+  'board.dispatch.brakeCount': 'Per numero',
+  'board.dispatch.brakeResources': 'Per risorse',
+  'board.dispatch.runningResources': '{running} al lavoro, freno sulle risorse della macchina',
+  'board.dispatch.resourcesHint': 'Un agent nuovo parte solo se carico e memoria di tutta la macchina stanno sotto le due soglie. Il numero fisso qui non si applica.',
+  'board.dispatch.loadThreshold': 'Soglia di carico (load per core)',
+  'board.dispatch.memThreshold': 'Soglia di memoria (usata su totale)',
+  'board.dispatch.band.green': 'Fascia consigliata: frena prima che chi lavora al computer se ne accorga.',
+  'board.dispatch.band.amberLow': 'Prudente: la coda avanza piano e aspetta spesso anche con la macchina tranquilla.',
+  'board.dispatch.band.amberHigh': 'Permissiva: il freno morde quando la macchina è già pesante.',
+  'board.dispatch.band.redLow': 'Troppo bassa: la coda non parte quasi mai, passa solo il primo agent.',
+  'board.dispatch.band.redHigh': 'Troppo alta: la macchina diventa inusabile prima che il freno intervenga.',
+  'board.dispatch.liveLoad': 'Adesso: load {load} su {cores} core, {ratio} per core',
+  'board.dispatch.liveMem': 'Adesso: {used} di {total} GB usati ({pct}%)',
+  'board.dispatch.liveMemUnknown': 'Adesso: memoria non misurata su questo sistema, non frena.',
+  'board.dispatch.liveLoading': 'Leggo la macchina…',
+  'board.dispatch.verdictGo': 'Adesso un agent nuovo partirebbe.',
+  'board.dispatch.verdictWait': 'Adesso un agent nuovo aspetterebbe: {axis} sopra la soglia.',
+  'board.dispatch.verdictFirst': 'Sopra soglia, ma senza agent al lavoro il primo parte comunque.',
+  'board.dispatch.axisLoad': 'carico',
+  'board.dispatch.axisMem': 'memoria',
   'board.filter.assignee': 'Assegnatario',
   'board.publish.confirmTitle': 'Pubblicare "{name}"?',
   'board.publish.confirmLabel': 'Push {n} commit',

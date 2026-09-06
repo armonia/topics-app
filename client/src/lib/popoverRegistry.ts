@@ -120,6 +120,35 @@ export function subSurfaceNodes(): Array<Node | null> {
   return nodes;
 }
 
+/**
+ * The nodes of the open popovers that are CHILDREN of `parent`: those whose
+ * trigger lives inside one of `parent`'s nodes.
+ *
+ * It is the other half of the containment rule written at the top of this
+ * file. The registry already knows that a child, on opening, does not evict its
+ * parent; but the parent ALSO closes on a `pointerdown` outside its own refs,
+ * and the child's panel is portalled to `<body>`, i.e. geometrically outside.
+ * Without this function, picking an option in the `Select` inside the board
+ * settings dropdown closed the dropdown, and with it the `Select` it hosted,
+ * before the `click` reached the option. The `Select` is `exclusive: true` on
+ * purpose (it must evict its siblings), so `subSurfaceNodes` cannot see it:
+ * the criterion here is not how it declared itself but WHERE its trigger is.
+ */
+export function descendantPopoverNodes(parent: PopoverEntry): Array<Node | null> {
+  const nodes: Array<Node | null> = [];
+  const hosts = parent.nodes();
+  for (const entry of open) {
+    // By IDENTITY, not by geometry: a popover whose refs include a container
+    // of its own trigger (`extraRefs`) would contain itself, and a popover
+    // that is its own child would never close on Escape again.
+    if (entry === parent) continue;
+    const trigger = entry.trigger();
+    if (!trigger) continue;
+    if (hosts.some((h) => !!h && h.contains(trigger))) nodes.push(...entry.nodes());
+  }
+  return nodes;
+}
+
 /** Quanti popover sono aperti adesso. Solo per test/diagnostica. */
 export function openPopoverCount(): number {
   return open.size;

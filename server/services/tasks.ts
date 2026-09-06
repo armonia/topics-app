@@ -57,8 +57,19 @@ import { EFFORT_TIERS } from "../../shared/effort";
 // dichiarazione, letta anche dal client e dalla derivazione alla consegna.
 import { CLOSER_LABELS, KIND_LABELS, deriveCloser, deriveKind, isCloserLabel, isKindLabel, isTaskLabel, normalizeLabels, type LabelSource, type TaskFile, type TaskLabel, type TaskLabelRow } from "../../shared/task-labels";
 import { findNeighbours, type Neighbour } from "../../shared/task-similarity";
-import type { TaskStatus, TaskComment, CardComment, BoardSettings, BoardSettingsPatch, BlockerRef, QueueReason, SubtaskWork, TaskWeight } from "../../shared/board";
+import type { TaskStatus, TaskComment, CardComment, BoardSettings, BoardSettingsPatch, BlockerRef, QueueReason, SubtaskWork, TaskWeight, GlobalDispatchCap, DispatchCapMode } from "../../shared/board";
+import { capThresholds } from "../../shared/board";
 import type { Task, CreateTaskInput, UpdateTaskPatch, ListTasksInput } from "./task-shapes";
+
+/** What `setGlobalCap` accepts: every field of the '*' row, each optional, so
+ *  a slider that moves one threshold does not have to re-send the other four. */
+export type GlobalCapPatch = {
+  auto?: boolean;
+  max?: number;
+  mode?: DispatchCapMode;
+  maxLoadRatio?: number;
+  maxMemRatio?: number;
+};
 import { markTargetSeenAndAnnounce } from "../notification-registry";
 
 export type Actor = "human" | "agent";
@@ -869,9 +880,10 @@ export interface TaskService {
    *  budget the dispatcher enforces across ALL boards. `auto` → size it from live
    *  machine capacity; otherwise use the fixed `max`. Auto is the default until a
    *  manual number is explicitly chosen, so the machine is protected out of the box. */
-  getGlobalCap(): { auto: boolean; max: number };
-  /** Update the GLOBAL cap (row '*': max_agents_auto / max_agents). */
-  setGlobalCap(patch: { auto?: boolean; max?: number }): { auto: boolean; max: number };
+  getGlobalCap(): GlobalDispatchCap;
+  /** Update the GLOBAL cap (row '*': max_agents_auto / max_agents, plus the
+   *  "by resources" mode and its two thresholds). */
+  setGlobalCap(patch: GlobalCapPatch): GlobalDispatchCap;
   /**
    * THE TWO SPEND CAPS, and they are born OFF: zero means unlimited, and zero is
    * what a fresh install carries. The lever exists; the behaviour does not until
@@ -5621,14 +5633,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return readGlobalDispatch();
     },
 
-    getGlobalCap(): { auto: boolean; max: number } {
+    getGlobalCap(): GlobalDispatchCap {
       // Una lettura sola per due chiamanti: il tick del dispatcher e la quota di
       // core dello spawn (`agent-job-quota.ts`) devono leggere lo STESSO tetto,
       // NULL compreso — vedi `readGlobalCap`.
       return readGlobalCap(db);
     },
 
-    setGlobalCap(patch: { auto?: boolean; max?: number }): { auto: boolean; max: number } {
+    setGlobalCap(patch: GlobalCapPatch): GlobalDispatchCap {
       db.prepare("INSERT OR IGNORE INTO board_settings (project_id, max_agents) VALUES (?, 3)").run(GLOBAL_SETTINGS_KEY);
       if (patch.auto !== undefined) {
         db.prepare("UPDATE board_settings SET max_agents_auto = ? WHERE project_id = ?").run(patch.auto ? 1 : 0, GLOBAL_SETTINGS_KEY);
@@ -5638,6 +5650,24 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // deve arrivare al DB com'è. Il clamp a 1 lo trasformava nel tetto più
         // stretto possibile, cioè nell'impostazione opposta a quella chiesta.
         db.prepare("UPDATE board_settings SET max_agents = ? WHERE project_id = ?").run(clampGlobalCap(patch.max), GLOBAL_SETTINGS_KEY);
+      }
+      if (patch.mode !== undefined) {
+        // Only the two spellings the type allows reach the column: anything else
+        // would be read back as `count` by `capMode` anyway, and a row that says
+        // one thing and means another is the kind of drift this repo has paid for.
+        db.prepare("UPDATE board_settings SET max_agents_mode = ? WHERE project_id = ?")
+          .run(patch.mode === "resources" ? "resources" : "count", GLOBAL_SETTINGS_KEY);
+      }
+      // The thresholds are clamped on the way IN, with the same reader the gate
+      // and the slider use, so the value on disk is the value that applies:
+      // a field that accepts 5 and enforces 3 lies to whoever filled it in.
+      if (patch.maxLoadRatio !== undefined) {
+        db.prepare("UPDATE board_settings SET max_load_ratio = ? WHERE project_id = ?")
+          .run(capThresholds({ maxLoadRatio: patch.maxLoadRatio }).maxLoadRatio, GLOBAL_SETTINGS_KEY);
+      }
+      if (patch.maxMemRatio !== undefined) {
+        db.prepare("UPDATE board_settings SET max_mem_ratio = ? WHERE project_id = ?")
+          .run(capThresholds({ maxMemRatio: patch.maxMemRatio }).maxMemRatio, GLOBAL_SETTINGS_KEY);
       }
       return this.getGlobalCap();
     },

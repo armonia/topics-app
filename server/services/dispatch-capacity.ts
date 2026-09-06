@@ -57,7 +57,7 @@ import { machineCores } from "../lib/machine-cores";
 
 // La forma sta in `shared/board.ts` (la legge la UI delle impostazioni board).
 export type { DispatchCapacity } from "../../shared/board";
-import type { DispatchCapacity } from "../../shared/board";
+import type { DispatchCapacity, GlobalDispatchCap, GlobalDispatchCapExtras } from "../../shared/board";
 import { clampGlobalCap } from "../../shared/board";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
@@ -75,17 +75,47 @@ const GLOBAL_SETTINGS_KEY = "*";
  * cui i default di questo repo sono già andati in deriva. `TaskService.getGlobalCap`
  * delega qui.
  */
-export function readGlobalCap(db: Database): { auto: boolean; max: number } {
-  const r = db
-    .prepare("SELECT max_agents, max_agents_auto FROM board_settings WHERE project_id = ?")
-    .get(GLOBAL_SETTINGS_KEY) as { max_agents?: number | null; max_agents_auto?: number | null } | undefined;
+export function readGlobalCap(db: Database): GlobalDispatchCap {
+  type Row = {
+    max_agents?: number | null;
+    max_agents_auto?: number | null;
+    max_agents_mode?: string | null;
+    max_load_ratio?: number | null;
+    max_mem_ratio?: number | null;
+  };
+  let r: Row | undefined;
+  try {
+    r = db
+      .prepare(
+        "SELECT max_agents, max_agents_auto, max_agents_mode, max_load_ratio, max_mem_ratio FROM board_settings WHERE project_id = ?",
+      )
+      .get(GLOBAL_SETTINGS_KEY) as Row | undefined;
+  } catch {
+    // The three "by resources" columns are absent (a db older than their
+    // migration, a minimal test harness): read the two the row has always had.
+    // Falling back instead of throwing, for the same reason `readSpendCaps`
+    // does: this runs inside the dispatcher tick, and a tick that dies over a
+    // setting nobody has turned on is a frozen queue with no message anywhere.
+    r = db
+      .prepare("SELECT max_agents, max_agents_auto FROM board_settings WHERE project_id = ?")
+      .get(GLOBAL_SETTINGS_KEY) as Row | undefined;
+  }
   // Auto è il default finché non si sceglie un numero a mano (NULL = mai
   // impostato → auto), così un'installazione nuova protegge la macchina da sé.
   const auto = r?.max_agents_auto == null ? true : !!r.max_agents_auto;
+  // The mode and the two thresholds travel only when the row SAYS them: this
+  // function returns the cap "as written", and the contract in
+  // `shared/board.ts` reads an absent field as "count, default threshold"
+  // (`capMode`, `capThresholds`). Filling the defaults here would be a second
+  // copy of them, and the value a caller uses must come from one reader.
+  const extras: GlobalDispatchCapExtras = {};
+  if (r?.max_agents_mode === "resources") extras.mode = "resources";
+  if (typeof r?.max_load_ratio === "number" && Number.isFinite(r.max_load_ratio)) extras.maxLoadRatio = r.max_load_ratio;
+  if (typeof r?.max_mem_ratio === "number" && Number.isFinite(r.max_mem_ratio)) extras.maxMemRatio = r.max_mem_ratio;
   // `clampGlobalCap`, non il clamp locale: quello stringeva a 1..20 e avrebbe
   // riletto lo zero di «nessun tetto» come 1, cioè come il tetto più stretto
   // possibile. Il sentinella deve sopravvivere al giro attraverso il DB.
-  return { auto, max: clampGlobalCap(Math.floor(r?.max_agents ?? 3)) };
+  return { auto, max: clampGlobalCap(Math.floor(r?.max_agents ?? 3)), ...extras };
 }
 
 /**
@@ -462,11 +492,16 @@ function loadAverageSlots(cores: number, load1: number): number {
  * @param probe la sonda della flotta. Iniettabile per i test, che devono poter
  *   fissare la misura: leggerla dalla macchina vera renderebbe l'asserzione
  *   dipendente da cosa sta girando mentre la suite passa.
+ * @param readAvailMemGB the memory probe (`availableMemGB`), injectable for the
+ *   same reason. It does not enter `recommended`: it travels so the "by
+ *   resources" mode and the settings panel read the machine's memory from the
+ *   same reading as its load, instead of each spawning their own `vm_stat`.
  */
 export function computeDispatchCapacity(
   running = 0,
   probe: () => { coreUnits: number; cores: number } | null = fleetLoadSync,
   agentsAreProcesses = true,
+  readAvailMemGB: () => number | null = availableMemGB,
 ): DispatchCapacity {
   const cores = machineCores();
   const totalMemGB = os.totalmem() / 1e9;
@@ -474,6 +509,9 @@ export function computeDispatchCapacity(
   // Una sonda che esplode vale «non lo so», mai «via libera» e mai un tick
   // caduto: si ripiega sul conto storico, come su un host senza sonda.
   const fleet = (() => { try { return probe(); } catch { return null; } })();
+  // Same rule for memory: a probe that throws reads as "not measured" (`null`),
+  // which the pressure verdict treats as "cannot block", never as zero.
+  const availMemGB = (() => { try { return readAvailMemGB(); } catch { return null; } })();
 
   // I/O-bound agents → ~cores/3 as the CPU budget (2–6 band).
   const byCores = clamp(Math.round(cores / 3), 2, 6);
@@ -503,6 +541,7 @@ export function computeDispatchCapacity(
     load1: Math.round(load1 * 100) / 100,
     oursCores: fleet ? Math.round(fleet.coreUnits * 10) / 10 : null,
     budgetCores: Math.round(cores * FLEET_CPU_SHARE * 10) / 10,
+    availableMemGB: availMemGB != null && Number.isFinite(availMemGB) ? Math.round(availMemGB * 10) / 10 : null,
     reason,
     running,
   };

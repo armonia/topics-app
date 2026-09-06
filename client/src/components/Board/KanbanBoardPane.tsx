@@ -697,6 +697,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     return () => cancelAnimationFrame(raf);
   }, [selectedId]);
   const [showSettings, setShowSettings] = useState(false);
+  /** The ⚙, which the settings dropdown anchors to (KANBAN-75). */
+  const settingsBtnRef = useRef<HTMLButtonElement>(null);
   // Per-board dispatch settings, owned HERE (not by the settings panel) so the
   // header can always answer "does moving a task to Todo start an agent?" —
   // the exact feedback that was missing when a task sat in Todo doing nothing.
@@ -1776,7 +1778,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
               gating this button on `hasProject` is what left the general board
               with the ▾ as its only way to see the limit. */}
           <button
+            ref={settingsBtnRef}
             onClick={() => setShowSettings((s) => !s)}
+            aria-expanded={showSettings}
+            aria-haspopup="menu"
             className={`rounded p-1 ${showSettings ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
             title={tr('board.toolbar.dispatchSettings')}
           ><Settings className="h-3.5 w-3.5" /></button>
@@ -1805,24 +1810,45 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
           <button onClick={() => setShowArchived(false)} className="ml-auto rounded px-2 py-0.5 text-amber-100 hover:bg-white/10">{tr('board.archive.hide')}</button>
         </div>
       )}
-      {showSettings && (hasProject ? (
-        <BoardSettingsPanel
-          projectId={projectId}
-          settings={settings}
-          dispatchOn={dispatchOn}
-          models={claudeModels}
-          onToggleDispatch={toggleDispatch}
-          onChanged={setSettings}
-          onClose={() => setShowSettings(false)}
-          onError={setError}
-        />
-      ) : (
-        <GlobalOnlySettingsPanel
-          dispatchOn={dispatchOn}
-          onToggleDispatch={toggleDispatch}
-          onClose={() => setShowSettings(false)}
-        />
-      ))}
+      {/* THE SETTINGS ARE A DROPDOWN, anchored to the ⚙ (KANBAN-75), not a band
+          under the bar. The band pushed every column down when it opened and
+          drew the very line under the toolbar that KANBAN-12 removed; as a
+          `Menu` it inherits what every other dropdown here has: flip/clamp to
+          the viewport, Escape, outside-press close, one popover at a time,
+          focus back on the ⚙, and the bottom sheet on the phone.
+          `unmanagedFocus`: the body is a form (sliders, number fields, a
+          textarea), so the arrow keys belong to the controls, not to a roving
+          menu cursor. Still ONE door: this is the only thing `showSettings`
+          opens, on every board, project or not. */}
+      <Menu
+        open={showSettings}
+        anchorRef={settingsBtnRef}
+        onClose={() => setShowSettings(false)}
+        align="right"
+        minWidth={340}
+        unmanagedFocus
+        ariaLabel={tr('board.settings.title')}
+        testId="board-settings-menu"
+      >
+        {hasProject ? (
+          <BoardSettingsPanel
+            projectId={projectId}
+            settings={settings}
+            dispatchOn={dispatchOn}
+            models={claudeModels}
+            onToggleDispatch={toggleDispatch}
+            onChanged={setSettings}
+            onClose={() => setShowSettings(false)}
+            onError={setError}
+          />
+        ) : (
+          <GlobalOnlySettingsPanel
+            dispatchOn={dispatchOn}
+            onToggleDispatch={toggleDispatch}
+            onClose={() => setShowSettings(false)}
+          />
+        )}
+      </Menu>
       {/* Board area + drawer share a flex row: an open (narrow) drawer SHRINKS
           the columns viewport instead of covering it, so every column stays
           reachable through the row's own horizontal scroll — nothing is ever
