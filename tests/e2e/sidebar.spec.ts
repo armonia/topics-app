@@ -13,6 +13,7 @@ import {
 } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
 import { PAGE_LAYER_SELECTOR, SIDEBAR_SELECTOR, luminance, surfaceBg } from "./helpers/surfaces";
+import { openProfileMenu } from "./helpers/open-perf-panel";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -269,9 +270,12 @@ test.describe("Sidebar — Unified Timeline", () => {
     });
 
     // The view-mode + archived toggles relocated from the old <SidebarControls>
-    // row into the "Topics ▾" header menu (App.tsx). Open it to reach them.
-    const topicsMenuBtn = page.locator('button[title="Settings & Tools"]');
-    await topicsMenuBtn.click();
+    // row into the "Topics ▾" header menu, and from there (card 022db87b,
+    // 06/09) under the USER CARD at the foot of the column: on the desktop
+    // the title is a plain word again, the card is the one door of the chrome
+    // and `openProfileMenu` knows which trigger belongs to which screen. The
+    // rows are the same component (`TopicsMenuItems`) on both.
+    await openProfileMenu(page);
 
     // Il modo per tipo non e' piu' nemmeno offerto.
     await expect(page.getByRole("button", { name: "Vista per tipo" })).toHaveCount(0);
@@ -336,10 +340,12 @@ test.describe("Sidebar — Unified Timeline", () => {
     // With showArchived=false, the item should be hidden
     await expect(archivedItem).toBeHidden({ timeout: 5000 });
 
-    // The archived toggle relocated into the "Topics ▾" header menu (App.tsx).
-    // It's a single row ("Mostra archiviati") that flips showArchived on each
-    // click; the menu stays open, so the same locator toggles both ways.
-    await page.locator('button[title="Settings & Tools"]').click();
+    // The archived toggle lives in the menu under the user card (the one door
+    // of the chrome since card 022db87b; `openProfileMenu` picks the trigger
+    // for the screen). It's a single row ("Mostra archiviati") that flips
+    // showArchived on each click; the menu stays open, so the same locator
+    // toggles both ways.
+    await openProfileMenu(page);
     const archiveToggle = page.getByRole("button", { name: "Mostra archiviati" });
     await expect(archiveToggle).toBeVisible({ timeout: 3000 });
 
@@ -367,8 +373,10 @@ test.describe("Sidebar — Unified Timeline", () => {
       page.getByRole("button", { name: /open the command palette/ })
     ).toBeVisible({ timeout: 5000 });
 
-    // View-mode + archive toggles live in the "Topics ▾" header menu.
-    await page.locator('button[title="Settings & Tools"]').click();
+    // View-mode + archive toggles live in the menu under the user card (the
+    // one door of the chrome since card 022db87b; on the phone the same rows
+    // hang off the title button, and `openProfileMenu` picks).
+    await openProfileMenu(page);
     await expect(
       page.getByRole("button", { name: "Mostra archiviati" })
     ).toBeVisible({ timeout: 3000 });

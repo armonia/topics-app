@@ -24,18 +24,38 @@ import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
-import { mkdirSync, rmSync } from "fs";
+import { initGitRepo } from "./helpers/file-project";
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
 hermetic(test);
 
-const PROJ = `/tmp/e2e-railgap-${Date.now()}`;
+// The REAL path, not `/tmp/...` written by hand: the app names a project by
+// the directory it resolves to (`canonicalProjectPath`, 2026-09-02), and on
+// macOS `/tmp` is a link to `/private/tmp`, so a pane seeded as `/tmp/x` is
+// drawn as `/private/tmp/x` and a locator on the literal finds nothing. On
+// Linux the two coincide, which is why the runner never saw it. Same form as
+// `sidebar-label-gutter.spec.ts` and `tab-focus-reload.spec.ts`.
+const PROJ = join(realpathSync(tmpdir()), `e2e-railgap-${Date.now()}`);
 
 /** Il passo della colonna (`COLUMN_GAP`). Sotto i comandi non deve restare più
  *  di questo: la riga chiude già con il suo `pb-[6px]`. */
 const COLUMN_GAP = 6;
 
 test.describe("la riga dei comandi del progetto e ciò che le sta sotto", () => {
-  test.beforeAll(() => { mkdirSync(PROJ, { recursive: true }); });
+  test.beforeAll(() => {
+    mkdirSync(PROJ, { recursive: true });
+    // A REAL REPOSITORY WITH AN UNCOMMITTED CHANGE. Since fb8d1f27e
+    // (PROJECT-12) the git command exists only when git has something to say:
+    // in an empty folder the card holds TWO commands, not three, and RAILGAP-1,
+    // which counts the three commands inside the card, fell on a folder that
+    // had never been a repository. What the spec measures is the complete card,
+    // so the state it prepares is the one in which the card is complete.
+    writeFileSync(`${PROJ}/README.md`, "uno\n");
+    initGitRepo(PROJ, "primo");
+    writeFileSync(`${PROJ}/README.md`, "uno\ndue\n");
+  });
   test.afterAll(() => { rmSync(PROJ, { recursive: true, force: true }); });
 
   test("RAILGAP-1: i comandi non si portano dietro nessuna riga", async ({ page, request }) => {
@@ -65,6 +85,15 @@ test.describe("la riga dei comandi del progetto e ciò che le sta sotto", () => 
 
     const card = win.locator('[data-testid="project-card-shell"]');
     await expect(card).toBeVisible({ timeout: 10000 });
+
+    // The third command is the git one, and it is LIVE (PROJECT-12): it mounts
+    // when the status of the repository seeded above arrives, not with the
+    // card. Wait for it, so the count below measures a card that is complete
+    // and not one still waiting for git.
+    await expect.poll(
+      () => card.locator('[data-testid="project-rail-button"]').count(),
+      { timeout: 15000, message: "il comando git non e' arrivato nella card: il repo seminato ha una modifica, il suo stato deve mostrarlo" },
+    ).toBeGreaterThanOrEqual(3);
 
     // And the three commands sit INSIDE that card, not beside it and not under it.
     const inside = await card.evaluate((el) => ({
