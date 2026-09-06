@@ -167,6 +167,7 @@ test.describe('la stessa lista di file su due superfici', () => {
     // The frame of each surface, side by side in the review: two lists that
     // LOOK the same is the claim, and only a picture carries it.
     await page.screenshot({ path: `${SHOTS}/chat-strip.png` });
+    await page.getByTestId('chat-changes-strip').screenshot({ path: `${SHOTS}/chat-rows.png` });
 
     // ── SURFACE TWO: the delivery chip of the card, same repository.
     await openProjectWindow(page);
@@ -180,6 +181,7 @@ test.describe('la stessa lista di file su due superfici', () => {
     await expect(cardList.getByTestId('changed-file-row')).toHaveCount(2, { timeout: 25_000 });
 
     await page.screenshot({ path: `${SHOTS}/card-chip.png` });
+    await cardList.screenshot({ path: `${SHOTS}/card-rows.png` });
 
     // THE POINT OF THE WHOLE SPEC: byte for byte the same rows, from two
     // surfaces that read git through two different routes.
